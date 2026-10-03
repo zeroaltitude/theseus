@@ -11,6 +11,11 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   and the cancel path).
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching).
+- **Labels** (M4 19a): `labels.rs`. Each node's label (integrity and readers) is set where the node is made
+  (`for_input`, `for_result`, `for_harness`, `for_agent`, `relayed`), and each compile's `Judge` admits a node only
+  when its readers cover the session's audience (from `outbox.target`; a guild channel's viewers are pushed by the
+  binding into `Places`, kept in META). A withheld node renders as a placeholder in its place; the manifest
+  records the audience, and a compile for another one recompiles (`audience`). Tests: `tests_labels.rs`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action), with the gate in `policy.rs`
   (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
   `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,
@@ -82,6 +87,10 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 - **Results tell the truth.** `toolrun::cap` cuts on line edges and says what it left out, with the tool's own way
   to get the rest (`Tool::rest`). A listing names its scope.
 - **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking.
+- **A request never carries what its audience may not read** (M4 19a). A node from 19a on is labeled in the frame
+  that writes it, never by exposure, and never relabeled; one from before has no label and is read only in its own
+  session. A withheld node keeps its place (a `tool_use` keeps its `tool_result`), and the judge is fixed for the
+  turn, as the spec is, so an audience never changes between a call and its result.
 - **Nothing retractable goes in the shared header** (Appendix F), so sessions on a profile share one cache entry.
 - **The config template is the contract.** Change a default there, not only in code. The loader rejects unknown
   keys, and `example_template_uncommented_still_parses` un-comments every line and parses it.

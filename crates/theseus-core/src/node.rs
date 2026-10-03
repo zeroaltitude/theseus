@@ -197,6 +197,12 @@ pub struct Node {
     pub author: Option<String>,
     pub created_at_ms: u64,
     pub body: Body,
+    /// Its label (M4 19a, `labels.rs`): its integrity and its readers, set by
+    /// whoever writes it and never rewritten. Absent on a node written before
+    /// 19a, which reads as its origin says and is disclosable only within its
+    /// own session (NODE schema 5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<theseus_protocol::Label>,
 }
 
 impl Node {
@@ -217,7 +223,14 @@ impl Node {
             author: None,
             created_at_ms: theseus_protocol::now_unix_ms(),
             body,
+            label: None,
         }
+    }
+
+    /// The node with its label, as its writer sets it (M4 19a).
+    pub fn labeled(mut self, label: theseus_protocol::Label) -> Self {
+        self.label = Some(label);
+        self
     }
 
     pub fn user(session_id: &str, turn_id: Option<&str>, author: &str, text: &str) -> Self {

@@ -111,6 +111,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
+            from_discord: false,
         })
         .await
         .unwrap()
@@ -2676,6 +2677,7 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
                 arrived: None,
                 config_wait_us: 0,
                 reply_to: None,
+                from_discord: false,
             })
             .await
             .expect_err("the turn faults");
@@ -2905,6 +2907,7 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
+            from_discord: false,
         })
         .await
         .expect_err("the second call fails");
@@ -3410,6 +3413,7 @@ async fn failing_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Error
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
+            from_discord: false,
         })
         .await
         .expect_err("the turn fails")
@@ -3716,6 +3720,7 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
+            from_discord: false,
         })
         .await
         .unwrap()
@@ -3823,7 +3828,7 @@ async fn a_task_caches_its_own_conversation_for_five_minutes() {
     let (spec, _) = r
         .core
         .runner
-        .request_spec(&target, SessionKind::Conversation);
+        .request_spec(&target, SessionKind::Conversation, None);
     assert_eq!(
         (spec.cache_ttl, spec.conversation_ttl),
         (
@@ -3831,7 +3836,7 @@ async fn a_task_caches_its_own_conversation_for_five_minutes() {
             crate::config::CacheTtl::OneHour
         )
     );
-    let (task, _) = r.core.runner.request_spec(&target, SessionKind::Task);
+    let (task, _) = r.core.runner.request_spec(&target, SessionKind::Task, None);
     assert_eq!(task.conversation_ttl, crate::config::CacheTtl::FiveMinutes);
     assert_eq!(task.cache_ttl, crate::config::CacheTtl::OneHour);
     let res = turn_on(&r.core, target, "for an hour").await;
@@ -3871,6 +3876,7 @@ async fn a_model_with_no_price_is_not_called() {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
+            from_discord: false,
         })
         .await
         .unwrap_err();
@@ -3925,7 +3931,7 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
     let mut path = String::new();
     let r = rig_with(vec![Scripted::text("Four. Theseus")], |cfg| {
         path = in_projects(cfg, "RULES.md");
-        cfg.context.files = vec![path.clone()];
+        cfg.context.files = vec![path.clone().into()];
     });
     assert_eq!(
         r.core.runner.context_files.reads(),
@@ -3961,6 +3967,8 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
         cut: false,
         missing: None,
         persona: None,
+        readers: None,
+        withheld: None,
     };
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
     assert_eq!(comps[0].manifest.context_files, vec![want.clone()]);
@@ -3990,7 +3998,7 @@ async fn an_edited_context_file_recompiles_once_and_an_unchanged_one_appends() {
         ],
         |cfg| {
             path = in_projects(cfg, "RULES.md");
-            cfg.context.files = vec![path.clone()];
+            cfg.context.files = vec![path.clone().into()];
         },
     );
     std::fs::write(&path, "End every answer with 'Theseus'.\n").unwrap();
@@ -4048,7 +4056,7 @@ async fn a_missing_context_file_warns_once_and_the_turn_runs() {
         vec![Scripted::text("fine"), Scripted::text("still fine")],
         |cfg| {
             path = in_projects(cfg, "GONE.md");
-            cfg.context.files = vec![path.clone()];
+            cfg.context.files = vec![path.clone().into()];
         },
     );
     let first = turn(&r.core, None, "one").await;
@@ -4094,7 +4102,7 @@ async fn a_context_file_over_the_cap_is_cut_and_marked_as_cut() {
     let mut path = String::new();
     let r = rig_with(vec![Scripted::text("ok")], |cfg| {
         path = in_projects(cfg, "BIG.md");
-        cfg.context.files = vec![path.clone()];
+        cfg.context.files = vec![path.clone().into()];
     });
     std::fs::write(&path, "y".repeat(MAX_BYTES + 1_000)).unwrap();
     let res = turn(&r.core, None, "hi").await;
@@ -4144,12 +4152,12 @@ async fn system_then_persona_files_compile_in_that_order_each_labeled_by_its_lev
     let r = rig_with(vec![Scripted::text("Hello. Ithaca")], |cfg| {
         sys = in_projects(cfg, "USER.md");
         own = in_projects(cfg, "PERSONA.md");
-        cfg.context.files = vec![sys.clone()];
+        cfg.context.files = vec![sys.clone().into()];
         cfg.context.default_persona = Some("theseus".into());
         cfg.personas.insert(
             "theseus".into(),
             crate::config::PersonaConfig {
-                files: vec![own.clone()],
+                files: vec![own.clone().into()],
             },
         );
     });
@@ -4215,7 +4223,7 @@ async fn a_persona_that_names_no_files_adds_nothing_to_the_system_block() {
     let mut sys = String::new();
     let r = rig_with(vec![Scripted::text("one"), Scripted::text("two")], |cfg| {
         sys = in_projects(cfg, "USER.md");
-        cfg.context.files = vec![sys.clone()];
+        cfg.context.files = vec![sys.clone().into()];
         cfg.context.default_persona = Some("quiet".into());
         cfg.personas
             .insert("quiet".into(), crate::config::PersonaConfig::default());
@@ -4262,7 +4270,7 @@ async fn an_edited_persona_file_recompiles_once_and_an_unchanged_one_appends() {
             cfg.personas.insert(
                 "theseus".into(),
                 crate::config::PersonaConfig {
-                    files: vec![own.clone()],
+                    files: vec![own.clone().into()],
                 },
             );
         },
@@ -4906,6 +4914,7 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
+            from_discord: false,
         };
         let core = core.clone();
         async move { core.runner.run(req).await }
@@ -6651,6 +6660,7 @@ mod parallel {
                 arrived: None,
                 config_wait_us: 0,
                 reply_to: None,
+                from_discord: false,
             })
             .await
     }
@@ -7863,6 +7873,7 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
+            from_discord: false,
         })
         .await;
     assert!(out.is_err());

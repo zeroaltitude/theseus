@@ -29,11 +29,11 @@ impl Core {
     pub fn context_status(&self) -> theseus_protocol::ContextStatus {
         let persona = self.cfg.persona();
         theseus_protocol::ContextStatus {
-            system_files: self.cfg.context.files.clone(),
+            system_files: paths(&self.cfg.context.files),
             persona: persona.map(str::to_string),
             persona_files: persona
                 .and_then(|p| self.cfg.personas.get(p))
-                .map(|p| p.files.clone())
+                .map(|p| paths(&p.files))
                 .unwrap_or_default(),
             personas: self.cfg.personas.keys().cloned().collect(),
         }
@@ -230,6 +230,12 @@ impl Core {
             thinking,
             detail,
             bytes,
+            label: n.label.clone(),
         }
     }
+}
+
+/// Context files' paths, as health names them.
+fn paths(files: &[crate::context_files::ContextEntry]) -> Vec<String> {
+    files.iter().map(|f| f.path().to_string()).collect()
 }

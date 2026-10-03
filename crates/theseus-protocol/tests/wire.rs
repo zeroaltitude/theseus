@@ -294,12 +294,18 @@ fn context_compiled() {
         });
         if recompile {
             summary["context_files"] = json!([
-                {"path": "/w/AGENTS.md", "digest": "a1b2c3d4e5f60718", "bytes": 2048},
+                {"path": "/w/AGENTS.md", "digest": "a1b2c3d4e5f60718", "bytes": 2048,
+                 "readers": "public"},
                 {"path": "/w/persona/clerk.md", "bytes": 65536, "cut": true, "persona": "clerk",
                  "digest": "0f1e2d3c4b5a6978"},
-                {"path": "/w/missing.md", "bytes": 0, "missing": "not found"}
+                {"path": "/w/missing.md", "bytes": 0, "missing": "not found"},
+                {"path": "/w/notes.md", "bytes": 0, "withheld": "owner-only"}
             ]);
             summary["persona"] = json!("clerk");
+            // M4 19a: the audience, and what it withheld.
+            summary["audience"] = json!({"kind": "place", "place": "discord:900000000000000001",
+                "name": "harbour", "viewers": 3, "digest": "5e8f0a1b2c3d4e6f"});
+            summary["withheld"] = json!(3);
         }
         summary["cache"] = json!({
             "breakpoints": if recompile { vec!["header", "conversation"] } else { vec![] },
@@ -789,17 +795,9 @@ fn typed_tool_proposed() {
     );
 }
 
-#[test]
-fn typed_model_thinking_and_context() {
-    typed(
-        "model_thinking",
-        Event::ModelThinking(ModelDelta {
-            turn_id: T.into(),
-            loop_index: 1,
-            text: "Look first.\n".into(),
-        }),
-    );
-    let summary = |recompile: bool| ContextCompiled {
+/// A `context.compiled` for a recompile, or an append (the shapes' sample).
+fn summary(recompile: bool) -> ContextCompiled {
+    ContextCompiled {
         session_id: S.into(),
         turn_id: T.into(),
         loop_index: 1,
@@ -829,6 +827,8 @@ fn typed_model_thinking_and_context() {
                     cut: false,
                     missing: None,
                     persona: None,
+                    readers: Some(Readers::Public),
+                    withheld: None,
                 },
                 ContextFileRef {
                     path: "/w/persona/clerk.md".into(),
@@ -837,6 +837,8 @@ fn typed_model_thinking_and_context() {
                     cut: true,
                     missing: None,
                     persona: Some("clerk".into()),
+                    readers: None,
+                    withheld: None,
                 },
                 ContextFileRef {
                     path: "/w/missing.md".into(),
@@ -845,6 +847,18 @@ fn typed_model_thinking_and_context() {
                     cut: false,
                     missing: Some("not found".into()),
                     persona: None,
+                    readers: None,
+                    withheld: None,
+                },
+                ContextFileRef {
+                    path: "/w/notes.md".into(),
+                    digest: None,
+                    bytes: 0,
+                    cut: false,
+                    missing: None,
+                    persona: None,
+                    readers: None,
+                    withheld: Some("owner-only".into()),
                 },
             ]
         } else {
@@ -860,7 +874,28 @@ fn typed_model_thinking_and_context() {
             ttl: "1h".into(),
             conversation_ttl: "5m".into(),
         },
-    };
+        // M4 19a: a guild channel of three, which withheld one file and two
+        // nodes; an append from a daemon before it has neither.
+        audience: recompile.then(|| Audience::Place {
+            place: "discord:900000000000000001".into(),
+            name: Some("harbour".into()),
+            viewers: Some(3),
+            digest: Some("5e8f0a1b2c3d4e6f".into()),
+        }),
+        withheld: if recompile { 3 } else { 0 },
+    }
+}
+
+#[test]
+fn typed_model_thinking_and_context() {
+    typed(
+        "model_thinking",
+        Event::ModelThinking(ModelDelta {
+            turn_id: T.into(),
+            loop_index: 1,
+            text: "Look first.\n".into(),
+        }),
+    );
     typed(
         "context_compiled_recompile",
         Event::ContextCompiled(summary(true)),

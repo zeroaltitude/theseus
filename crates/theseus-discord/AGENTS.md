@@ -11,6 +11,10 @@ theseusd.
 - `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out.
 - `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments),
   `src/viewers.rs` (who can view a channel), and `src/rpc_client.rs` (the in-process protocol connection).
+- **The audience** (M4 19a): one walk of a guild channel's viewers serves the approval check and the labels. The
+  binding tells the core (`Core::place_viewers`) every bound guild channel's viewers at connect, on a channel or role
+  change, and before a turn there when the last read is a minute old. Without the Server Members intent it says they
+  cannot be read, and the channel counts as public. It never asks for the intent on the gateway.
 
 ## Invariants
 

@@ -174,6 +174,7 @@ pub fn trigger_phrase(trigger: &str) -> String {
         "overflow" => "the context outgrew the model's window".into(),
         "manual_fresh" => "the operator asked for a fresh start".into(),
         "manual_transcript" => "the operator asked for a transcript recompile".into(),
+        "audience" => "the session's audience changed".into(),
         other => format!("of {other}"),
     };
     trigger

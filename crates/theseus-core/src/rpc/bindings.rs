@@ -57,6 +57,35 @@ impl Core {
         );
     }
 
+    /// The Discord binding read who can view a guild channel (M4 19a): the
+    /// audience of the session there. `viewers` is every member who can view
+    /// it, the bot aside, or None when they cannot be read (`why`), and then
+    /// the channel counts as public. Kept in META, and recorded, only when
+    /// it changed; the session's next turn recompiles for it (`audience`).
+    pub fn place_viewers(
+        &self,
+        channel: u64,
+        name: Option<String>,
+        viewers: Option<Vec<u64>>,
+        why: Option<&str>,
+    ) {
+        let place = format!("discord:{channel}");
+        let read = crate::labels::PlaceViewers {
+            name,
+            viewers: viewers.map(|v| v.into_iter().map(|u| format!("discord:{u}")).collect()),
+        };
+        match self.runner.places.set(&self.store, &place, read.clone()) {
+            Ok(false) => {}
+            Ok(true) => self.rec(None).record(&crate::fact::label::AudienceRead {
+                place: &place,
+                read: &read,
+                why,
+            }),
+            Err(e) => tracing::warn!(place, error = %format!("{e:#}"),
+                "a place's viewers could not be kept: its sessions keep the audience they had"),
+        }
+    }
+
     /// A ledger row written on behalf of a binding (`discord.*`), so its traffic
     /// sits in the same readable history as everything else.
     pub fn binding_ledger(&self, kind: LedgerKind, session_id: Option<&str>, data: Value) {

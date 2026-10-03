@@ -22,7 +22,58 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
+use serde::{Deserialize, Serialize};
+
 use crate::compiler::ContextFileRef;
+
+/// A context file as `[context] files` and `[personas.<name>] files` name it
+/// (M4 19a): its path, or a table with its path and its readers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ContextEntry {
+    Path(String),
+    Table(ContextFileEntry),
+}
+
+/// `{ path = "~/notes.md", readers = "public" }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextFileEntry {
+    pub path: String,
+    #[serde(default)]
+    pub readers: ContextReaders,
+}
+
+/// Who may read a context file: the owner (the default), or anyone.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextReaders {
+    #[default]
+    Owner,
+    Public,
+}
+
+impl ContextEntry {
+    pub fn path(&self) -> &str {
+        match self {
+            ContextEntry::Path(p) => p,
+            ContextEntry::Table(t) => &t.path,
+        }
+    }
+
+    pub fn readers(&self) -> ContextReaders {
+        match self {
+            ContextEntry::Path(_) => ContextReaders::Owner,
+            ContextEntry::Table(t) => t.readers,
+        }
+    }
+}
+
+impl From<String> for ContextEntry {
+    fn from(path: String) -> Self {
+        ContextEntry::Path(path)
+    }
+}
 
 /// The most of one file the system block carries.
 pub const MAX_BYTES: usize = 64 * 1024;
@@ -36,6 +87,9 @@ pub struct ContextPath {
     pub path: String,
     /// The persona whose file it is; None: the system level.
     pub persona: Option<String>,
+    /// Its entry says `readers = "public"` (M4 19a); otherwise the owner
+    /// alone may read it.
+    pub public: bool,
 }
 
 /// One file as the system block carries it.
@@ -127,6 +181,7 @@ impl ContextFiles {
             files.push(ContextFile {
                 file: ContextFileRef {
                     persona: p.persona.clone(),
+                    readers: p.public.then_some(theseus_protocol::Readers::Public),
                     ..held.file.clone()
                 },
                 section: format!("{}\n\n{}", header(&shown, p.persona.as_deref()), held.body),
@@ -165,6 +220,33 @@ impl ContextFiles {
             },
         );
         Ok(held)
+    }
+}
+
+/// Leave out each file whose readers do not cover the session's audience
+/// (M4 19a, §2.7): its section becomes its header and why, so the block still
+/// says the file is there, and the manifest records it as withheld. A file is
+/// the owner's unless its entry says `readers = "public"`.
+pub fn withhold(files: &mut [ContextFile], judge: &crate::labels::Judge) {
+    for f in files {
+        let readers = f
+            .file
+            .readers
+            .clone()
+            .unwrap_or(theseus_protocol::Readers::Owner);
+        if judge.covers(&readers) {
+            continue;
+        }
+        f.section = format!(
+            "{} — withheld: {}, and this session's audience is {}",
+            header(&f.file.path, f.file.persona.as_deref()),
+            readers.describe(),
+            judge.audience.describe()
+        );
+        f.file.withheld = Some(readers.describe());
+        f.file.digest = None;
+        f.file.bytes = 0;
+        f.file.cut = false;
     }
 }
 
@@ -217,6 +299,8 @@ fn section(shown: &str, mut buf: Vec<u8>) -> Held {
             cut,
             missing: None,
             persona: None,
+            readers: None,
+            withheld: None,
         },
         body,
     }
@@ -231,6 +315,8 @@ fn missing(shown: &str, error: &str) -> Held {
             cut: false,
             missing: Some(error.to_string()),
             persona: None,
+            readers: None,
+            withheld: None,
         },
         body: format!("[Missing: the file could not be read ({error}).]"),
     }
@@ -247,6 +333,7 @@ mod tests {
             .map(|p| ContextPath {
                 path: p.to_string_lossy().into_owned(),
                 persona: None,
+                public: false,
             })
             .collect()
     }
@@ -338,6 +425,7 @@ mod tests {
         let at = |p: &Path, persona: Option<&str>| ContextPath {
             path: p.to_string_lossy().into_owned(),
             persona: persona.map(str::to_string),
+            public: false,
         };
         let cf = ContextFiles::default();
         let (f, _) = cf.load(&[

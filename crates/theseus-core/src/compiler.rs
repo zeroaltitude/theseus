@@ -29,6 +29,7 @@ use serde_json::{json, Value};
 use crate::attach::Media;
 use crate::catalog::{Catalog, ThinkingMode, TokenRates};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
+use crate::labels::{Admitted, Judge, Verdict};
 use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_TOKENS};
 
@@ -70,6 +71,21 @@ pub struct Manifest {
     /// manifest from before 13c.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache: Option<CacheLayout>,
+    /// Who sees what the model says, as the compile evaluated it (M4 19a).
+    /// A compile for another audience recompiles (`audience`). Absent in a
+    /// manifest from before 19a (COMPILATION schema 4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<theseus_protocol::Audience>,
+    /// The meet of the readers of what the prefix admitted: what the model
+    /// may say to whom.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readers: Option<theseus_protocol::Readers>,
+    /// The session's latch, and the untrusted nodes the prefix admitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integrity: Option<theseus_protocol::InPlay>,
+    /// The prefix's nodes left out as placeholders, with why.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub withheld: Vec<theseus_protocol::Withheld>,
 }
 
 /// The cache breakpoints of a compilation's requests (theseus-ev1). The
@@ -233,6 +249,10 @@ pub struct CompileInput<'a> {
     /// The provider said this turn's last request passed the window
     /// (theseus-9p88): the compilation rings, whatever the estimate says.
     pub overflowed: Option<&'a Overflowed>,
+    /// Who may see what (M4 19a): each node is admitted only when its
+    /// readers cover the session's audience, and a withheld one renders as
+    /// a placeholder. None renders every node, as before labels.
+    pub judge: Option<&'a Judge>,
 }
 
 /// A request that passed the model's window, as the provider said it
@@ -465,6 +485,23 @@ pub struct Compiled {
     pub repairs: Vec<String>,
     /// Where the request's cache breakpoints went (theseus-ev1).
     pub cache: CacheLayout,
+    /// What the whole request admitted, its tail included (M4 19a): its
+    /// meet labels what the model writes next. None without a judge.
+    pub admitted: Option<Admitted>,
+    /// The nodes and context files the request carries as placeholders.
+    pub withheld: u64,
+}
+
+/// A rendered request, and what it admitted (M4 19a).
+pub struct Rendered {
+    pub request: ProviderRequest,
+    pub prefix_nodes: usize,
+    pub tail_nodes: usize,
+    pub repairs: Vec<String>,
+    /// What the prefix admitted (the manifest's), and the whole request;
+    /// None without a judge.
+    pub prefix: Option<Admitted>,
+    pub all: Option<Admitted>,
 }
 
 impl Compiled {
@@ -557,6 +594,26 @@ pub fn manifest_for(
         strip_thinking: strip,
         context_files: spec.context_files.clone(),
         cache: Some(cache_layout(spec, catalog)),
+        audience: None,
+        readers: None,
+        integrity: None,
+        withheld: Vec::new(),
+    }
+}
+
+/// Why the current compilation no longer fits the audience (M4 19a): it was
+/// made for another one, or, made before labels, it would now leave a node
+/// out. A compilation from before 19a keeps appending while nothing is
+/// withheld, so an old session compiles exactly as it did.
+fn audience_changed(m: &Manifest, judge: Option<&Judge>, nodes: &[(u64, Arc<Node>)]) -> bool {
+    let Some(j) = judge else {
+        return false;
+    };
+    match &m.audience {
+        Some(a) => *a != j.audience,
+        None => nodes
+            .iter()
+            .any(|(_, n)| renderable(n) && matches!(j.verdict(n), Verdict::Withhold(_))),
     }
 }
 
@@ -598,6 +655,12 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
             }
             if m.tools_digest != now_manifest.tools_digest {
                 t.push("tools_changed");
+            }
+            // Another audience admits other nodes, under the model's own
+            // thinking: a deterministic recompile (§4.4a), its thinking
+            // stripped as for any change beneath it.
+            if audience_changed(m, input.judge, input.nodes) {
+                t.push("audience");
             }
             if t.is_empty() {
                 None
@@ -670,11 +733,17 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         input.hidden,
         input.overflowed.and_then(|o| o.retrying.as_deref()),
     );
-    let (mut request, mut prefix_n, mut tail_n, mut repairs) =
-        render_request(spec, input.catalog, &compilation, input.nodes, media);
+    let mut rendered = render_request(
+        spec,
+        input.catalog,
+        &compilation,
+        input.nodes,
+        media,
+        input.judge,
+    );
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
-    let counted = counted_part(input.nodes, &compilation, &request);
-    let mut est = estimate(&request, rates, counted);
+    let counted = counted_part(input.nodes, &compilation, &rendered.request);
+    let mut est = estimate(&rendered.request, rates, counted);
 
     // 2. Overflow: drop leading turns (ring), cutting only before a user
     // message. It rings on the estimate's upper bound, so a request whose
@@ -701,17 +770,20 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
             for &cut in starts.iter().skip(1) {
                 let includes: Vec<String> = seq[cut..].iter().map(|n| n.id.clone()).collect();
                 let candidate = make("overflow".into(), "ring", true, includes);
-                let (r, p, t, rep) =
-                    render_request(spec, input.catalog, &candidate, input.nodes, media);
-                let e = estimate(&r, rates, None);
+                let r = render_request(
+                    spec,
+                    input.catalog,
+                    &candidate,
+                    input.nodes,
+                    media,
+                    input.judge,
+                );
+                let e = estimate(&r.request, rates, None);
                 let last = cut == *starts.last().unwrap();
                 let tokens = input.overflowed.map_or(e.tokens, |o| o.scale(e.tokens));
                 if tokens <= target || last {
                     compilation = candidate;
-                    request = r;
-                    prefix_n = p;
-                    tail_n = t;
-                    repairs = rep;
+                    rendered = r;
                     est = e;
                     new_compilation = true;
                     trigger = Some("overflow".into());
@@ -721,6 +793,29 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         }
     }
 
+    // A new compilation records what it was compiled for (M4 19a): the
+    // audience, and what its prefix admitted and left out.
+    if let (true, Some(j), Some(p)) = (new_compilation, input.judge, &rendered.prefix) {
+        let m = &mut compilation.manifest;
+        m.audience = Some(j.audience.clone());
+        m.readers = Some(p.readers.clone());
+        m.integrity = Some(p.in_play.clone());
+        m.withheld.clone_from(&p.withheld);
+    }
+    let files_withheld = spec
+        .context_files
+        .iter()
+        .filter(|f| f.withheld.is_some())
+        .count();
+    let withheld = rendered.all.as_ref().map_or(0, |a| a.withheld.len()) + files_withheld;
+    let Rendered {
+        request,
+        prefix_nodes,
+        tail_nodes,
+        repairs,
+        all,
+        ..
+    } = rendered;
     let messages = request.messages.len();
     let digest = request.digest();
     est.bytes = request.json_bytes();
@@ -729,14 +824,16 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
         compilation,
         new_compilation,
         trigger,
-        prefix_nodes: prefix_n,
-        tail_nodes: tail_n,
+        prefix_nodes,
+        tail_nodes,
         messages,
         est_tokens: est.tokens,
         estimate: est,
         digest,
         repairs,
         cache: cache_layout(spec, input.catalog),
+        admitted: all,
+        withheld: withheld as u64,
     }
 }
 
@@ -744,7 +841,7 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
 /// where image blocks get their bytes, the images the provider refused in
 /// the session, which render as their line (theseus-0s4), and the answer cut
 /// at the window that this request retries, which it leaves out
-/// (theseus-9p88).
+/// (theseus-9p88). `judge` decides which nodes go in whole (M4 19a).
 pub fn render_request(
     spec: &RequestSpec,
     catalog: &Catalog,
@@ -755,7 +852,8 @@ pub fn render_request(
         &[crate::session::NotShown],
         Option<&str>,
     ),
-) -> (ProviderRequest, usize, usize, Vec<String>) {
+    judge: Option<&Judge>,
+) -> Rendered {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
     let prefix: Vec<&Node> = nodes
         .iter()
@@ -775,14 +873,17 @@ pub fn render_request(
         blobs,
         hidden,
     };
-    let (messages, repairs, image_tokens) = render_messages(
+    let rendered = render_messages(
         &prefix,
         &tail,
         c.manifest.strip_thinking,
         &spec.provider,
         &media,
         retrying,
+        judge,
     );
+    let (messages, repairs, image_tokens) =
+        (rendered.messages, rendered.repairs, rendered.image_tokens);
 
     let mut betas = Vec::new();
     let mut extra = std::collections::BTreeMap::new();
@@ -842,7 +943,49 @@ pub fn render_request(
         extra,
         image_tokens,
     };
-    (req, prefix.len(), tail.len(), repairs)
+    Rendered {
+        request: req,
+        prefix_nodes: prefix.len(),
+        tail_nodes: tail.len(),
+        repairs,
+        prefix: rendered.prefix,
+        all: rendered.all,
+    }
+}
+
+/// What a withheld node renders as (M4 19a, §2.7): one line that says what
+/// was left out and why, in the node's place, so the request stays valid.
+fn placeholder(n: &Node, why: &str, judge: &Judge) -> String {
+    let audience = judge.audience.describe();
+    match &n.body {
+        Body::ToolResult { tool, .. } => {
+            format!("[withheld: {tool}'s result is labeled {why}, and this session's audience is {audience}]")
+        }
+        Body::AssistantMessage { .. } => {
+            format!("[withheld: an earlier answer labeled {why}, and this session's audience is {audience}]")
+        }
+        _ => format!(
+            "[withheld: a message labeled {why}, and this session's audience is {audience}]"
+        ),
+    }
+}
+
+/// A withheld answer keeps its calls, so their results keep their pairing,
+/// but not what they asked: its text becomes the placeholder, its thinking
+/// goes, and each call's input is empty.
+fn withheld_answer(blocks: &[Value], line: &str) -> Vec<Value> {
+    let mut out = vec![json!({"type": "text", "text": line})];
+    out.extend(
+        blocks
+            .iter()
+            .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+            .map(|b| {
+                let mut b = b.clone();
+                b["input"] = json!({});
+                b
+            }),
+    );
+    out
 }
 
 fn is_thinking(b: &Value) -> bool {
@@ -910,6 +1053,10 @@ fn late_result_text(r: &Node) -> String {
 /// left out, with its calls (theseus-9p88): the one `retrying` names, and
 /// any that a later answer of its turn followed. Also returns the repaired
 /// calls and the tokens the images are estimated at.
+///
+/// With a judge (M4 19a), each node is judged where it renders, a result
+/// beside its call: a withheld one renders as a placeholder in its place
+/// (`placeholder`), so every `tool_use` keeps its `tool_result`.
 pub fn render_messages(
     prefix: &[&Node],
     tail: &[&Node],
@@ -917,7 +1064,10 @@ pub fn render_messages(
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
-) -> (Vec<Value>, Vec<String>, u64) {
+    judge: Option<&Judge>,
+) -> Messages {
+    let mut judging = Judging::new(judge, prefix);
+    let mut judged = |n: &Node| judging.line(n);
     let mut image_tokens = 0u64;
     let mut results: HashMap<&str, &Node> = HashMap::new();
     for n in prefix.iter().chain(tail.iter()) {
@@ -933,15 +1083,6 @@ pub fn render_messages(
     let replaced = replaced_answers(prefix.iter().chain(tail.iter()).copied(), retrying);
     let mut out: Vec<(String, Vec<Value>)> = Vec::new();
     let mut repairs = Vec::new();
-    fn push(out: &mut Vec<(String, Vec<Value>)>, role: &str, blocks: Vec<Value>) {
-        if blocks.is_empty() {
-            return;
-        }
-        match out.last_mut() {
-            Some((r, b)) if r == role => b.extend(blocks),
-            _ => out.push((role.to_string(), blocks)),
-        }
-    }
     let items = prefix
         .iter()
         .map(|n| (*n, true))
@@ -949,19 +1090,13 @@ pub fn render_messages(
     for (n, in_prefix) in items {
         match &n.body {
             Body::UserMessage { text, attachments } => {
-                // Each attachment is its own block (an image, two), before
-                // the typed text (theseus-9g2). A message of attachments
-                // alone has no text block; one without attachments renders
-                // as it always did.
-                let mut blocks: Vec<Value> = attachments
-                    .iter()
-                    .flat_map(|a| {
-                        crate::attach::blocks(a, n.author.as_deref(), media, &mut image_tokens)
-                    })
-                    .collect();
-                if !text.is_empty() || attachments.is_empty() {
-                    blocks.push(json!({"type": "text", "text": text}));
-                }
+                // A message of attachments alone has no text block; one
+                // without attachments renders as it always did. A withheld
+                // one is its placeholder's line, its files with it.
+                let blocks = match judged(n) {
+                    Some(line) => vec![json!({"type": "text", "text": line})],
+                    None => user_blocks(n, text, attachments, media, &mut image_tokens),
+                };
                 push(&mut out, "user", blocks)
             }
             Body::AssistantMessage { .. } if replaced.contains(n.id.as_str()) => {}
@@ -971,7 +1106,9 @@ pub fn render_messages(
                 ..
             } => {
                 let strip = (in_prefix && strip_prefix_thinking) || wrote != provider;
-                let bl: Vec<Value> = if strip {
+                let bl: Vec<Value> = if let Some(line) = judged(n) {
+                    withheld_answer(blocks, &line)
+                } else if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
                 } else {
                     blocks.clone()
@@ -982,29 +1119,34 @@ pub fn render_messages(
                 let uses = tool_uses_in(&bl);
                 push(&mut out, "assistant", bl);
                 if !uses.is_empty() {
-                    let mut rb = Vec::new();
-                    for u in uses {
-                        match results.get(u.id.as_str()) {
-                            Some(r) => rb.push(tool_result_block(r, media, &mut image_tokens)),
-                            None => {
-                                repairs.push(u.id.clone());
-                                rb.push(json!({
+                    let rb: Vec<Value> = uses
+                        .iter()
+                        .map(|u| match results.get(u.id.as_str()) {
+                            Some(r) => match judged(r) {
+                                Some(line) => json!({
                                     "type": "tool_result",
                                     "tool_use_id": u.id,
-                                    "content": "No result was recorded for this call (the harness was interrupted before it ran).",
-                                    "is_error": true,
-                                }));
+                                    "content": line,
+                                }),
+                                None => tool_result_block(r, media, &mut image_tokens),
+                            },
+                            None => {
+                                repairs.push(u.id.clone());
+                                repaired(&u.id)
                             }
-                        }
-                    }
+                        })
+                        .collect();
                     push(&mut out, "user", rb);
                 }
             }
-            Body::ToolResult { late: true, .. } => push(
-                &mut out,
-                "user",
-                vec![json!({"type": "text", "text": late_result_text(n)})],
-            ),
+            Body::ToolResult { late: true, .. } => {
+                let line = judged(n).unwrap_or_else(|| late_result_text(n));
+                push(
+                    &mut out,
+                    "user",
+                    vec![json!({"type": "text", "text": line})],
+                )
+            }
             _ => {}
         }
     }
@@ -1012,7 +1154,103 @@ pub fn render_messages(
         .into_iter()
         .map(|(role, content)| json!({"role": role, "content": content}))
         .collect();
-    (msgs, repairs, image_tokens)
+    let (prefix, all) = judging.done();
+    Messages {
+        messages: msgs,
+        repairs,
+        image_tokens,
+        prefix,
+        all,
+    }
+}
+
+/// Add a message's blocks: consecutive same-role messages merge.
+fn push(out: &mut Vec<(String, Vec<Value>)>, role: &str, blocks: Vec<Value>) {
+    if blocks.is_empty() {
+        return;
+    }
+    match out.last_mut() {
+        Some((r, b)) if r == role => b.extend(blocks),
+        _ => out.push((role.to_string(), blocks)),
+    }
+}
+
+/// A request's verdicts as it renders (M4 19a): each node is judged where it
+/// renders, and counted for the prefix when it is the prefix's.
+struct Judging<'a> {
+    judge: Option<&'a Judge>,
+    prefix: HashSet<&'a str>,
+    seen: Option<(Admitted, Admitted)>,
+}
+
+impl<'a> Judging<'a> {
+    fn new(judge: Option<&'a Judge>, prefix: &[&'a Node]) -> Self {
+        Self {
+            judge,
+            prefix: prefix.iter().map(|n| n.id.as_str()).collect(),
+            seen: judge.map(|j| (Admitted::new(j.latched), Admitted::new(j.latched))),
+        }
+    }
+
+    /// The placeholder's line when `n` is withheld; its verdict counted
+    /// either way.
+    fn line(&mut self, n: &Node) -> Option<String> {
+        let (j, (p, all)) = (self.judge?, self.seen.as_mut()?);
+        let v = j.verdict(n);
+        if self.prefix.contains(n.id.as_str()) {
+            p.add(j, n, &v);
+        }
+        all.add(j, n, &v);
+        match v {
+            Verdict::Withhold(why) => Some(placeholder(n, &why, j)),
+            Verdict::Admit(_) => None,
+        }
+    }
+
+    /// What the prefix admitted, and the whole request.
+    fn done(self) -> (Option<Admitted>, Option<Admitted>) {
+        self.seen.map_or((None, None), |(p, a)| (Some(p), Some(a)))
+    }
+}
+
+/// The synthetic result of a call that has none recorded.
+fn repaired(id: &str) -> Value {
+    json!({
+        "type": "tool_result",
+        "tool_use_id": id,
+        "content": "No result was recorded for this call (the harness was interrupted before it ran).",
+        "is_error": true,
+    })
+}
+
+/// `render_messages`' output: the messages, the calls given a synthetic
+/// result, the tokens its images are estimated at, and what the prefix and
+/// the whole request admitted (with a judge).
+pub struct Messages {
+    pub messages: Vec<Value>,
+    pub repairs: Vec<String>,
+    pub image_tokens: u64,
+    pub prefix: Option<Admitted>,
+    pub all: Option<Admitted>,
+}
+
+/// An operator's message's blocks: each attachment its own (an image, two),
+/// then the typed text (theseus-9g2).
+fn user_blocks(
+    n: &Node,
+    text: &str,
+    attachments: &[crate::node::Attachment],
+    media: &Media,
+    image_tokens: &mut u64,
+) -> Vec<Value> {
+    let mut blocks: Vec<Value> = attachments
+        .iter()
+        .flat_map(|a| crate::attach::blocks(a, n.author.as_deref(), media, image_tokens))
+        .collect();
+    if !text.is_empty() || attachments.is_empty() {
+        blocks.push(json!({"type": "text", "text": text}));
+    }
+    blocks
 }
 
 /// The answers cut at the window that a later call replaced (theseus-9p88):
@@ -1158,6 +1396,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            judge: None,
         })
     }
 
@@ -1406,6 +1645,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            judge: None,
         });
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
@@ -1437,6 +1677,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            judge: None,
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");
@@ -1671,6 +1912,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            judge: None,
         });
         assert_eq!(c.request.system.len(), 2);
         assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
@@ -1727,6 +1969,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed,
+            judge: None,
         })
     }
 
@@ -1975,6 +2218,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            judge: None,
         })
     }
 

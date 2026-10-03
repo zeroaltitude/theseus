@@ -30,6 +30,7 @@ pub mod fact;
 pub mod github;
 pub mod graph;
 pub mod harness;
+pub mod labels;
 pub mod ledger;
 pub mod narrative;
 pub mod node;
@@ -82,6 +83,8 @@ mod tests_continuations;
 mod tests_external;
 #[cfg(test)]
 mod tests_failures;
+#[cfg(test)]
+mod tests_labels;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]

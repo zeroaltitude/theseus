@@ -53,6 +53,10 @@ pub struct Guild<'a> {
     pub roles: &'a [(Id<RoleMarker>, Permissions)],
 }
 
+/// Why a guild channel's audience cannot be read without the intent (M4
+/// 19a): it then counts as public, and owner-only material is withheld there.
+pub const NO_INTENT_AUDIENCE: &str = "the bot's Server Members intent is off";
+
 /// The members outside `trusted` who can view a channel of `kind` with
 /// these overwrites. The bot itself does not count; any other bot does, like
 /// anyone else.
@@ -64,6 +68,21 @@ pub fn outsiders<'m>(
     trusted: &[u64],
     bot: u64,
 ) -> Vec<&'m Member> {
+    can_view(guild, kind, overwrites, members, bot)
+        .into_iter()
+        .filter(|m| !trusted.contains(&m.id))
+        .collect()
+}
+
+/// Every member who can view a channel of `kind` with these overwrites, the
+/// bot aside (M4 19a): the audience of the session there.
+pub fn can_view<'m>(
+    guild: &Guild<'_>,
+    kind: ChannelType,
+    overwrites: &[PermissionOverwrite],
+    members: &'m [Member],
+    bot: u64,
+) -> Vec<&'m Member> {
     let everyone = guild
         .roles
         .iter()
@@ -71,7 +90,7 @@ pub fn outsiders<'m>(
         .map_or(Permissions::empty(), |(_, p)| *p);
     members
         .iter()
-        .filter(|m| m.id != bot && !trusted.contains(&m.id))
+        .filter(|m| m.id != bot)
         .filter(|m| {
             // Every role the member holds, so an overwrite for any of them
             // applies; one the guild's list lacks grants nothing guild-wide.

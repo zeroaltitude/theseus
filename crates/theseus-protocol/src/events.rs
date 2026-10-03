@@ -55,6 +55,16 @@ pub struct ContextFileRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub persona: Option<String>,
+    /// Who may read it, when the config says (`readers = "public"`); absent:
+    /// the owner alone (M4 19a).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub readers: Option<crate::Readers>,
+    /// The block carries its header alone, and why: its readers do not cover
+    /// the session's audience (M4 19a).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub withheld: Option<String>,
 }
 
 /// Where a request's cache breakpoints went, and their TTLs (theseus-ev1).
@@ -156,6 +166,15 @@ pub struct ContextCompiled {
     #[cfg_attr(test, ts(optional))]
     pub persona: Option<String>,
     pub cache: CacheSummary,
+    /// Who sees what the model says, as this compile evaluated it (M4 19a);
+    /// absent from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub audience: Option<crate::Audience>,
+    /// Nodes and context files the request carries as placeholders, since
+    /// their readers do not cover the audience (M4 19a).
+    #[serde(default, skip_serializing_if = "crate::is_zero")]
+    pub withheld: u64,
 }
 
 /// `tool.started`: a call runs. A job's says how, and what the broker gave

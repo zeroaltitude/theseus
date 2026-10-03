@@ -43,6 +43,11 @@ pub const LAB: u64 = 900_000_000_000_000_010;
 const SECRET: &str = "proof-secret-value-not-a-token";
 /// The word that makes the stand-in model ask for the write.
 const WRITE_WORD: &str = "PROOF-WRITE";
+/// The word that makes it ask for an `fs.read` of `notes.txt` in the
+/// projects directory (M4 19a's live check); its answer then begins with
+/// what the read gave it, so a withheld result shows in the reply.
+const READ_WORD: &str = "PROOF-READ";
+const READ_ID: &str = "toolu_proof_read";
 const READY_TEXT: &str = "ready";
 const DONE_TEXT: &str = "Done: the proof file is written.";
 const WRITTEN: &str = "written through the Discord stand-in";
@@ -108,10 +113,11 @@ fn step_line(s: &Step) -> String {
 }
 
 /// The stand-in for the Messages API: a request whose last message carries
-/// a tool's result ends the turn with `DONE_TEXT`; one whose prompt holds
-/// `WRITE_WORD` asks for an `fs.write` of `write` (its `path` and
-/// `content`); anything else is answered `READY_TEXT`. `theseus-sim discord
-/// model` serves it alone, for a live check.
+/// a tool's result ends the turn with `DONE_TEXT` (a read's with `Read:` and
+/// the start of what it got); one whose prompt holds `WRITE_WORD` asks for
+/// an `fs.write` of `write` (its `path` and `content`), and `READ_WORD` for
+/// an `fs.read` of `notes.txt`; anything else is answered `READY_TEXT`.
+/// `theseus-sim discord model` serves it alone, for a live check.
 pub struct Model {
     /// `127.0.0.1:<port>`; `[model] api_base` is its `http://` URL.
     pub addr: String,
@@ -172,12 +178,21 @@ fn answer_model(mut stream: TcpStream, write: &Value) -> Result<()> {
         .cloned()
         .unwrap_or_default();
     let blocks = last["content"].as_array().cloned().unwrap_or_default();
-    let events = if blocks.iter().any(|b| b["type"] == "tool_result") {
-        sse_text(model, DONE_TEXT)
-    } else if last.to_string().contains(WRITE_WORD) {
-        sse_write(model, write)
-    } else {
-        sse_text(model, READY_TEXT)
+    let result = blocks.iter().find(|b| b["type"] == "tool_result");
+    let events = match result {
+        Some(r) if r["tool_use_id"] == READ_ID => {
+            let got: String = r["content"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(160)
+                .collect();
+            sse_text(model, &format!("Read: {got}"))
+        }
+        Some(_) => sse_text(model, DONE_TEXT),
+        None if last.to_string().contains(WRITE_WORD) => sse_write(model, write),
+        None if last.to_string().contains(READ_WORD) => sse_read(model),
+        None => sse_text(model, READY_TEXT),
     };
     let mut out = String::from(
         "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n",
@@ -217,6 +232,15 @@ fn sse_write(model: &str, input: &Value) -> Vec<Value> {
         model,
         json!({"type": "tool_use", "id": "toolu_proof_write", "name": "fs_write", "input": {}}),
         json!({"type": "input_json_delta", "partial_json": input.to_string()}),
+        "tool_use",
+    )
+}
+
+fn sse_read(model: &str) -> Vec<Value> {
+    sse(
+        model,
+        json!({"type": "tool_use", "id": READ_ID, "name": "fs_read", "input": {}}),
+        json!({"type": "input_json_delta", "partial_json": json!({"path": "notes.txt"}).to_string()}),
         "tool_use",
     )
 }

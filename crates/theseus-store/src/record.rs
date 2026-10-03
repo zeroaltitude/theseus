@@ -70,7 +70,12 @@ pub mod kinds {
     /// `survivors`, M4 18a), read from 2 as none of them (theseus-core's
     /// `an_action_written_before_its_cancels_verdict_reads`). Outbox schema 2
     /// is the same change: a post is an action, read from 1 with no verdict
-    /// (the same test).
+    /// (the same test). Node schema 5 adds its label (M4 19a, theseus-7ve.3),
+    /// read from 4 as none (`a_node_written_before_its_label_reads`);
+    /// compilation schema 4 adds the manifest's audience, readers, integrity,
+    /// and withheld nodes, and a
+    /// context file's readers and withholding, read from 3 as none
+    /// (`a_compilation_written_before_its_audience_reads`).
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
         (SESSION, 6),
@@ -79,9 +84,9 @@ pub mod kinds {
         (EXECUTION, 2),
         (ACTION, 3),
         (COMPLETION, 2),
-        (NODE, 4),
+        (NODE, 5),
         (EDGE, 1),
-        (COMPILATION, 3),
+        (COMPILATION, 4),
         (OUTBOX, 2),
     ];
 

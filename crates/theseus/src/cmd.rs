@@ -962,6 +962,67 @@ pub async fn reach(
     })
 }
 
+/// `theseus labels [SESSION]` (M4 19a): the session's audience as its
+/// current compilation was made for it, what the model may say to whom, what
+/// its prefix withheld, and each node's label. Reads `session.history` and
+/// `compilation.list`.
+pub async fn labels(conn: &mut Conn, json: bool, session: Option<String>) -> Result<()> {
+    let session_id = resolve_session(conn, session).await?;
+    let history: SessionHistoryResult = serde_json::from_value(
+        conn.request(
+            method::SESSION_HISTORY,
+            SessionHistoryParams {
+                session_id: session_id.clone(),
+                n: None,
+            },
+        )
+        .await?,
+    )?;
+    let comps: theseus_protocol::CompilationListResult = serde_json::from_value(
+        conn.request(
+            method::COMPILATION_LIST,
+            theseus_protocol::CompilationListParams {
+                session_id: Some(session_id.clone()),
+                n: None,
+            },
+        )
+        .await?,
+    )?;
+    let current = comps.compilations.iter().find(|c| c.current);
+    if json {
+        let nodes: Vec<Value> = history
+            .nodes
+            .iter()
+            .map(|n| serde_json::json!({"node_id": n.node_id, "kind": n.kind, "label": n.label}))
+            .collect();
+        let m = current.map(|c| &c.manifest);
+        let field = |k: &str| m.and_then(|m| m.get(k)).cloned().unwrap_or(Value::Null);
+        println!(
+            "{}",
+            serde_json::json!({
+                "session_id": session_id,
+                "compilation_id": current.map(|c| &c.compilation_id),
+                "audience": field("audience"),
+                "readers": field("readers"),
+                "integrity": field("integrity"),
+                "withheld": field("withheld"),
+                "nodes": nodes,
+            })
+        );
+        return Ok(());
+    }
+    // A withheld node is what to look at.
+    let lines: Vec<render::Line> = render::labels_lines(&session_id, current, &history.nodes)
+        .into_iter()
+        .map(|t| match t.ends_with("· withheld") {
+            true => render::Line::new(render::Tag::Warn, t),
+            false => render::Line::new(render::Tag::Plain, t),
+        })
+        .collect();
+    print::lines(&mut io::stdout().lock(), &lines)?;
+    Ok(())
+}
+
 /// `theseus cancel ID`: a pending wake first (DD8), then a task. Each is
 /// named by the end of its id, and the daemon refuses a name that means
 /// both.

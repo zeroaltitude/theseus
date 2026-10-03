@@ -90,6 +90,9 @@ pub struct Config {
     /// in a config from before theseus-sgh): no rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval: Option<ApprovalConfig>,
+    /// `[labels]` (M4 19a): who the owner is, and which trees are public.
+    #[serde(default, skip_serializing_if = "crate::labels::LabelsConfig::is_empty")]
+    pub labels: crate::labels::LabelsConfig,
     /// The 1Password token file this daemon was pointed at (`--op-token-file`
     /// or `THESEUS_OP_TOKEN_FILE`): set at startup, never read from the TOML.
     /// The floor keeps it, whichever way it was named (theseus-8az).
@@ -972,7 +975,7 @@ impl ProfileConfig {
 pub struct ContextConfig {
     /// The system level: every session's files, before any persona's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<String>,
+    pub files: Vec<crate::context_files::ContextEntry>,
     /// The persona in play, a key of `[personas]`. Until Jev chooses one
     /// from its ontology of personas (theseus-8kk, theseus-0j2), this is the
     /// only choice. Absent: no persona, and the system level alone.
@@ -992,7 +995,7 @@ impl ContextConfig {
 #[serde(deny_unknown_fields)]
 pub struct PersonaConfig {
     #[serde(default)]
-    pub files: Vec<String>,
+    pub files: Vec<crate::context_files::ContextEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1335,11 +1338,13 @@ impl Config {
         for (key, list) in files {
             if let Some(f) = list
                 .iter()
+                .map(crate::context_files::ContextEntry::path)
                 .find(|f| !(f.starts_with('/') || f.starts_with("~/")))
             {
                 anyhow::bail!("{key} entry {f:?} must be an absolute path or start with ~/");
             }
         }
+        self.validate_labels()?;
         if let Some(name) = &self.context.default_persona {
             if !self.personas.contains_key(name) {
                 anyhow::bail!(
@@ -1617,16 +1622,18 @@ impl Config {
     pub fn context_paths(&self, persona: Option<&str>) -> Vec<crate::context_files::ContextPath> {
         use crate::context_files::ContextPath;
         let system = self.context.files.iter().map(|p| ContextPath {
-            path: p.clone(),
+            path: p.path().into(),
             persona: None,
+            public: p.readers() == crate::context_files::ContextReaders::Public,
         });
         let own = persona
             .and_then(|name| self.personas.get_key_value(name))
             .into_iter()
             .flat_map(|(name, p)| {
                 p.files.iter().map(|f| ContextPath {
-                    path: f.clone(),
+                    path: f.path().into(),
                     persona: Some(name.clone()),
+                    public: f.readers() == crate::context_files::ContextReaders::Public,
                 })
             });
         system.chain(own).collect()

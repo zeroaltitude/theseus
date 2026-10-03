@@ -13,6 +13,7 @@ mod events;
 mod gate;
 mod health;
 pub mod index;
+mod label;
 mod ledger;
 mod push;
 pub mod sandbox;
@@ -24,6 +25,7 @@ pub use events::*;
 pub use gate::*;
 pub use health::*;
 pub use index::TenderStatus;
+pub use label::*;
 pub use ledger::*;
 pub use push::*;
 
@@ -2044,6 +2046,11 @@ pub struct NodeInfo {
     pub detail: Value,
     #[serde(default)]
     pub bytes: u64,
+    /// Its label (M4 19a): its integrity and its readers. Absent on a node
+    /// written before 19a, which is disclosable only within its own session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub label: Option<Label>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

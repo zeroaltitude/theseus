@@ -393,3 +393,51 @@ async fn a_listed_channel_an_outsider_can_view_sends_its_card_to_the_dm() {
     })
     .await;
 }
+
+/// M4 19a: the binding tells the core who can view `#lab`. Open to the guild,
+/// cy, who is not the owner, can view it, so the owner's file that ana's
+/// turn reads goes into the next request as a placeholder, its call still
+/// paired; private to ana and ben, the owners, it goes in whole.
+#[tokio::test]
+async fn a_channel_a_stranger_can_view_gets_an_owner_only_read_as_a_placeholder() {
+    for open in [true, false] {
+        let r = Rig::start(
+            |dir| {
+                std::fs::create_dir_all(dir.join("work")).unwrap();
+                std::fs::write(
+                    dir.join("work").join("notes.txt"),
+                    "the vault code is 4417\n",
+                )
+                .unwrap();
+                vec![
+                    Scripted::tools(
+                        "Reading it.",
+                        &[("t1", "fs_read", serde_json::json!({"path": "notes.txt"}))],
+                    ),
+                    Scripted::text("Done."),
+                ]
+            },
+            open,
+        )
+        .await;
+        r.until("#lab's viewers", || !r.ledger("label.audience").is_empty())
+            .await;
+        let read = &r.ledger("label.audience")[0];
+        assert_eq!(read["viewers"], if open { 3 } else { 2 }, "{read}");
+        assert_eq!(read["name"], "lab");
+        r.say((ANA, "ana"), Some(LAB), "read notes.txt");
+        r.until("the reply in #lab", || {
+            r.posted(LAB).iter().any(|m| m.content.contains("Done."))
+        })
+        .await;
+        let compiled = r.ledger("context.compiled");
+        let last = compiled.last().unwrap();
+        assert_eq!(last["audience"]["viewers"], if open { 3 } else { 2 });
+        assert_eq!(
+            last["withheld"].as_u64().unwrap_or(0),
+            u64::from(open),
+            "{compiled:?}"
+        );
+        assert_eq!(r.ledger("label.withheld").len(), usize::from(open));
+    }
+}

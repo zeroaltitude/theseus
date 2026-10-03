@@ -18,6 +18,8 @@ Every client and the core read it, and the web apps' TypeScript is generated fro
   one line each. Writers take a variant, so a new kind is a new line here, and core's `tests_registry` fails a
   variant nothing writes. A row stores the kind's name, so old kinds (`LedgerKind::RENAMED`) and unknown ones still
   read; renaming a kind is a store version change (P5b).
+- `label.rs` (M4 19a): a node's `Label` (integrity, readers, and an untrusted node's source), a session's
+  `Audience`, and the manifest's `Withheld` and `InPlay`. The rules that combine them are the core's (`labels.rs`).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

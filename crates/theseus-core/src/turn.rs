@@ -113,6 +113,9 @@ pub struct TurnRunner {
     /// who sent it (theseus-hmwv): an input that arrived before it, and
     /// whose turn is admitted after it, is stopped as its turn starts.
     pub latest_stops: std::sync::Mutex<std::collections::HashMap<String, (Instant, String)>>,
+    /// Who can view each place, as the bindings last read it (M4 19a): a
+    /// guild channel's session's audience.
+    pub places: crate::labels::Places,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -234,6 +237,10 @@ pub struct TurnRequest {
     /// The surface's message it answers (a Discord message id), which the
     /// reply's post names (theseus-q4v).
     pub reply_to: Option<String>,
+    /// The input came through the Discord binding, as the connection's
+    /// surface says (never the author it gives): its node is its place's to
+    /// read, where the CLI's and the web UI's are the owner's (M4 19a).
+    pub from_discord: bool,
 }
 
 /// How long a turn may wait for admission before the client gets an error.
@@ -339,6 +346,8 @@ struct Asked {
     /// The session's target, when the turn runs elsewhere than its last
     /// turn did: the input's frame writes it.
     moved: Option<TargetRef>,
+    /// The input came through Discord (M4 19a): its node is its place's.
+    from_discord: bool,
 }
 
 /// What became of a loop's provider call.
@@ -690,9 +699,15 @@ impl TurnRunner {
         &self,
         target: &Target,
         kind: SessionKind,
+        judge: Option<&crate::labels::Judge>,
     ) -> (RequestSpec, Vec<Unreadable>) {
         let paths = self.cfg.context_paths(target.persona.as_deref());
-        let (files, unreadable) = self.context_files.load(&paths);
+        let (mut files, unreadable) = self.context_files.load(&paths);
+        // A file the session's audience may not read is its header and why
+        // (M4 19a): the spec, and so the audience, is fixed for the turn.
+        if let Some(j) = judge {
+            crate::context_files::withhold(&mut files, j);
+        }
         let (system_text, context_text) = self.system_blocks(target, &files);
         let spec = RequestSpec {
             profile: target.profile.clone(),
@@ -715,6 +730,20 @@ impl TurnRunner {
             },
         };
         (spec, unreadable)
+    }
+
+    /// A session's judge (M4 19a): its audience, from where it posts
+    /// (`place`, `outbox.target`), the owner, each place's viewers as the
+    /// binding last read them, and its latch, for the manifest.
+    pub fn judge(&self, session_id: &str, place: Option<&str>) -> crate::labels::Judge {
+        let latched = crate::external::held(&self.store, session_id).map_or(true, |h| h.is_some());
+        crate::labels::Judge::new(
+            place,
+            self.cfg.owners_for(place),
+            &self.places,
+            &self.store,
+            latched,
+        )
     }
 
     /// Make sure the session has a kernel execution (sessions written before
@@ -1323,6 +1352,7 @@ impl TurnRunner {
             recompile,
             attachments,
             reply_to,
+            from_discord,
             ..
         } = req;
         let provider = self
@@ -1370,6 +1400,7 @@ impl TurnRunner {
             posts: &frames.posts,
             target: Some(&target),
             task: task_of.as_ref(),
+            readers: None,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -1387,6 +1418,7 @@ impl TurnRunner {
             author,
             recompile,
             moved: moved.then_some(runs_on),
+            from_discord,
         };
         // Every exit from here closes the turn's books (R1): a failure the
         // turn reports (`fail`), and any other error, a fault, which `fault`
@@ -1421,8 +1453,12 @@ impl TurnRunner {
             author,
             recompile,
             moved,
+            from_discord,
         } = asked;
         let (sid, turn_id, target) = (t.tc.session_id, t.tc.turn_id, t.target);
+        // Where the session posts: its audience, and its words' readers (M4
+        // 19a).
+        let place = self.outbox.target(sid);
 
         // 1. What happened while no turn was running.
         let caught_up = self.catch_up(t, input.is_some()).await?;
@@ -1435,7 +1471,8 @@ impl TurnRunner {
                 self.store.blobs(),
             );
             let first_file = files.first().map(|a| a.name.clone());
-            let node = Node::user_with(sid, Some(turn_id), &author, text, files);
+            let node = Node::user_with(sid, Some(turn_id), &author, text, files)
+                .labeled(crate::labels::for_input(from_discord, place.as_deref()));
             if session.title.is_none() {
                 let title = title_from(text);
                 session.title = Some(match first_file {
@@ -1462,7 +1499,11 @@ impl TurnRunner {
         let mut run_model = Self::has_news(t, input.is_some() || caught_up > 0)?;
         // The spec is fixed for the turn: a context file edited during it
         // recompiles the next turn, never between a tool call and its result.
-        let (spec, unreadable) = self.request_spec(target, session.kind);
+        // Who sees what the model says (M4 19a), fixed for the turn as the
+        // spec is: an audience that changes mid-turn applies at the next
+        // turn's first loop, never between a call and its result.
+        let judge = self.judge(sid, place.as_deref());
+        let (spec, unreadable) = self.request_spec(target, session.kind, Some(&judge));
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
@@ -1515,7 +1556,7 @@ impl TurnRunner {
             let compiled = self.compile_step(
                 t,
                 session,
-                &spec,
+                (&spec, &judge),
                 force.take(),
                 strip.take(),
                 overflow.as_ref().map(|o| &o.hint),
@@ -1597,6 +1638,7 @@ impl TurnRunner {
             if let Some(by) = stopped_by(&t.tc)? {
                 let tc = TurnCtx {
                     loop_index: Some(i),
+                    readers: node.label.as_ref().map(|l| &l.readers),
                     ..t.tc
                 };
                 for u in &uses {
@@ -1710,6 +1752,8 @@ impl TurnRunner {
     /// first of them was set from if the session posts nowhere now.
     fn read_wakes(t: &mut Turn<'_>) -> Result<u32> {
         let tc = &t.tc;
+        // The harness's own line: what the session's audience may read.
+        let place = tc.outbox.target(tc.session_id);
         let mut nodes = Vec::new();
         let fired = tc.kernel.take_wakes(tc.guard, |due| {
             let mut records = Vec::new();
@@ -1720,7 +1764,8 @@ impl TurnRunner {
                     crate::node::Origin::Harness,
                     &format!("wake:{}", crate::task::short(&f.wake.id)),
                     &crate::wake::fired_text(f),
-                );
+                )
+                .labeled(crate::labels::for_harness(place.as_deref()));
                 records.push(n.record()?);
                 nodes.push(n);
             }
@@ -1777,6 +1822,17 @@ impl TurnRunner {
                         &format!("task:{}", r.short),
                         &r.node_text(),
                     );
+                    // The task's latch, and its answer's readers (M4 19a):
+                    // the owner's, for an answer from before labels.
+                    let latch = r.external.as_ref().map(|h| {
+                        let now = theseus_protocol::now_unix_ms();
+                        crate::external::taken(h, &r.task, crate::external::VIA_REPORT, &n.id, now)
+                    });
+                    let readers = r
+                        .readers
+                        .clone()
+                        .unwrap_or(theseus_protocol::Readers::Owner);
+                    let n = n.labeled(crate::labels::relayed(latch, readers));
                     records.push(n.record()?);
                     // The first transmission edge (12a, theseus-n4m): the
                     // relayed node copies the task's last message, so
@@ -1899,7 +1955,7 @@ impl TurnRunner {
         &self,
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
-        spec: &RequestSpec,
+        (spec, judge): (&RequestSpec, &crate::labels::Judge),
         force: Option<Recompile>,
         strip: Option<&'static str>,
         overflowed: Option<&Overflowed>,
@@ -1925,6 +1981,7 @@ impl TurnRunner {
             hidden: &session.not_shown,
             strip,
             overflowed,
+            judge: Some(judge),
         });
         if compiled.new_compilation {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
@@ -1961,6 +2018,10 @@ impl TurnRunner {
                 ttl: spec.cache_ttl.as_str().into(),
                 conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
             },
+            // Who sees what the model says, and what it was not shown
+            // (M4 19a).
+            audience: Some(judge.audience.clone()),
+            withheld: compiled.withheld,
         };
         // Its span and its row carry the notification's params.
         t.record(&fact::turn::ContextCompiled {
@@ -1970,6 +2031,13 @@ impl TurnRunner {
             c0,
             c1,
         });
+        if compiled.withheld > 0 {
+            t.record(&fact::turn::Withheld {
+                compiled: &compiled,
+                spec,
+                audience: &judge.audience,
+            });
+        }
         t.record(&fact::turn::LoopStarted {
             turn_id: t.tc.turn_id,
             index: i,
@@ -2332,7 +2400,15 @@ impl TurnRunner {
                 compilation_id: Some(compiled.compilation.id.clone()),
                 request_digest: Some(compiled.digest.clone()),
             },
-        );
+        )
+        // What the model says may be read by whoever may read all that its
+        // request carried (M4 19a): the meet of what the compile admitted.
+        .labeled(crate::labels::for_agent(
+            compiled
+                .admitted
+                .as_ref()
+                .map_or(theseus_protocol::Readers::Owner, |a| a.readers.clone()),
+        ));
         // The budget settles at the real cost, each token class at its own
         // price; a served model the catalog lacks is priced as the target.
         let cost = self
@@ -2680,6 +2756,7 @@ impl TurnRunner {
     ) -> Result<u32> {
         let tc = TurnCtx {
             loop_index: Some(i),
+            readers: node.label.as_ref().map(|l| &l.readers),
             ..t.tc
         };
         let stop = resp.stop_reason.as_deref();

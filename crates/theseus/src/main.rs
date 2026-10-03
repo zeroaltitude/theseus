@@ -122,6 +122,11 @@ enum Cmd {
         #[arg(long, value_name = "N")]
         generations: Option<u32>,
     },
+    /// Confidentiality labels (M4 19a): the session's audience, as its current compilation was
+    /// made for it (the owner; a DM's person; a guild channel's viewers, or public when they cannot
+    /// be read), what the model may say to whom, what its context withheld, and each node's label
+    /// (🔒 the owner's, 👥 a place's or people's, 🌐 anyone's). SESSION defaults to the most recent.
+    Labels { session: Option<String> },
     /// Follow a session live: streamed text, tool calls, confirmations, context decisions,
     /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent.
     Watch {
@@ -450,6 +455,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a).await,
         Cmd::History { session, n, full } => cmd::history(c, json, session, n, full).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
+        Cmd::Labels { session } => cmd::labels(c, json, session).await,
         Cmd::Watch { all: true, .. } => cmd::watch_all(c, json).await,
         Cmd::Watch {
             session,

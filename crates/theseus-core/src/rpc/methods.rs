@@ -669,6 +669,7 @@ impl Core {
                 arrived: Some(conn.arrived),
                 config_wait_us: conn.config_wait_us,
                 reply_to: p.reply_to,
+                from_discord: conn.surface == crate::approval::Surface::Discord,
             })
             .await;
         match result {

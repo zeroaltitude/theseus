@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ConfirmRequest, NodeInfo, ProviderErrorData, Span, Tightening, TightenResult, TurnResult, Usage } from './protocol'
+import type { Audience, ConfirmRequest, NodeInfo, ProviderErrorData, Span, Tightening, TightenResult, TurnResult, Usage } from './protocol'
 import TraceView from './TraceView'
 import { heldWhat } from './protocol'
 
@@ -168,6 +168,39 @@ function BudgetCard({ c, onConfirm }: { c: ConfirmRequest; onConfirm: Transcript
   )
 }
 
+/// A compile's audience in words (M4 19a), as `context.compiled` carries it.
+function audienceWords(a: Audience | undefined): string {
+  if (!a) return 'not said'
+  switch (a.kind) {
+    case 'owner': return 'the owner'
+    case 'people': return a.people.join(', ')
+    case 'place': {
+      const at = a.name ? `#${a.name}` : `channel ${a.place}`
+      return a.viewers != null ? `${at} (${a.viewers} people)` : `${at} (public: its viewers cannot be read)`
+    }
+  }
+}
+
+/// A node's label (M4 19a): 🔒 the owner's alone, 👥 a place's or people's, 🌐 anyone's;
+/// text from outside says where it came from. A node from before labels shows none.
+function LabelBadge({ n }: { n: NodeInfo }) {
+  const l = n.label
+  if (!l) return null
+  const r = l.readers
+  const [icon, cls, words] =
+    r === 'owner' ? ['🔒', 'muted', 'owner-only']
+      : r === 'public' ? ['🌐', '', 'public']
+        : 'place' in r ? ['👥', 'accent', `whoever can view channel ${r.place}`]
+          : ['👥', 'accent', r.people.join(', ')]
+  const untrusted = l.integrity === 'untrusted'
+  const from = l.source ? `, from ${l.source.tool} ${l.source.url}` : ''
+  return (
+    <span className={`pill ${untrusted ? 'warn' : cls}`} title={`readers: ${words}${untrusted ? ` · untrusted${from}` : ''}`}>
+      {icon}{untrusted ? ' untrusted' : ''}
+    </span>
+  )
+}
+
 // A call that never ran; rows from before theseus-8az say `denied`.
 const NOT_RUN = ['declined', 'denied']
 const STATUS_CLASS: Record<string, string> = { ok: 'ok', error: 'bad', declined: 'warn', denied: 'warn', background: 'accent', unknown: 'warn', cancelled: 'muted' }
@@ -187,6 +220,7 @@ function ResultLine({ r, open }: { r: NodeInfo; open: boolean }) {
           ? <span className="pill muted" title="a /stop ended this call">⏹️ stopped by {stoppedBy}</span>
           : <span className={`pill ${STATUS_CLASS[status] ?? ''}`}>{NOT_RUN.includes(status) ? 'not run' : status}</span>}
         {d.late === true && <span className="pill accent" title="arrived after the turn that asked for it">late</span>}
+        <LabelBadge n={r} />
         {exit != null && <span className={exit === 0 ? 'muted' : 'bad'}>exit {str(exit)}</span>}
         {d.duration_ms != null && <span className="muted">{fmt(Number(d.duration_ms))} ms</span>}
         <span className="muted">{bytes(r.bytes)}</span>
@@ -335,7 +369,7 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
   return (
     <section className="exchange">
       {user ? (
-        <div className="prompt" title={`${user.author ?? 'operator'} · ${new Date(user.at_unix_ms).toLocaleString()}`}><pre>{user.text}</pre></div>
+        <div className="prompt" title={`${user.author ?? 'operator'} · ${new Date(user.at_unix_ms).toLocaleString()}`}><LabelBadge n={user} /><pre>{user.text}</pre></div>
       ) : (
         <div className="turn-divider muted small">continuation{lateResults.length > 0 ? ` · ${lateResults.length} background result(s) arrived` : ' · resumed after a confirmation or a restart'}</div>
       )}
@@ -356,6 +390,7 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
           const d = (a.detail ?? {}) as { tool_calls?: { id: string; name: string; input: unknown }[] }
           return (
             <div key={a.node_id} className="loop">
+              <LabelBadge n={a} />
               {a.thinking && <details className="thinking"><summary className="muted small">thinking · {fmt(a.thinking.length)} chars</summary><pre>{a.thinking}</pre></details>}
               {a.text && <pre className="text">{a.text}</pre>}
               {(d.tool_calls ?? []).map((u) => {
@@ -405,6 +440,7 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
             {(live?.compiles ?? []).map((c, i) => (
               <span key={i} className={c.decision === 'recompile' ? 'accent' : 'muted'} title={`compilation ${str(c.compilation_id)}\nprefix ${str(c.prefix_nodes)} + tail ${str(c.tail_nodes)} nodes\ndigest ${str(c.digest)}`}>
                 context {str(c.decision)}{c.trigger ? ` (${str(c.trigger)})` : ''} · {str(c.messages)} msg · ~{fmt(Number(c.est_tokens ?? 0))} tok
+                {c.withheld != null && <span className="warn" title={`withheld for its audience: ${audienceWords(c.audience as Audience | undefined)}`}> · {str(c.withheld)} withheld</span>}
               </span>
             ))}
             {!t.id.startsWith('n:') && (

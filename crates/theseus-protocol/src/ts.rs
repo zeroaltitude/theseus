@@ -39,6 +39,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("events.rs"),
         include_str!("gate.rs"),
         include_str!("index.rs"),
+        include_str!("label.rs"),
         include_str!("push.rs"),
     ] {
         let lines: Vec<&str> = src.lines().collect();
@@ -104,7 +105,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         Notice, GateDecision, GateResult, GateRecord, Level, Attention, WaitingOn, PendingConfirm,
         ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, SessionListParams, PushStatus,
         WaitUntil, SessionWaitParams, SessionWaitResult, EventsLost, ToolClass, AwsPlan, AwsStatus,
-        AwsAccountStatus, TenderStatus,
+        AwsAccountStatus, TenderStatus, Integrity, Readers, Label, Audience, Withheld, InPlay,
         index::IndexQueryParams, index::IndexWeights, index::IndexFilters, index::IndexSourceRank,
         index::IndexHit, index::IndexTimings, index::IndexLag, index::IndexQueryResult,
         index::IndexStamp, index::IndexEmbedTask, index::IndexNeighboursParams,

@@ -36,13 +36,10 @@ use twilight_model::channel::message::component::{
     ActionRow, Button, ButtonStyle, Component, SelectMenu, SelectMenuOption, SelectMenuType,
 };
 use twilight_model::channel::message::{AllowedMentions, MessageFlags};
-use twilight_model::guild::Permissions;
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
-use twilight_model::id::marker::{
-    ApplicationMarker, ChannelMarker, GuildMarker, MessageMarker, RoleMarker,
-};
+use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, GuildMarker, MessageMarker};
 use twilight_model::id::Id;
 use twilight_util::builder::command::CommandBuilder;
 
@@ -52,6 +49,8 @@ use crate::files;
 use crate::render::{Asked, Renderer};
 use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
+
+mod audience;
 
 /// The connection label every Discord call carries; authors refine it per message.
 const CLIENT: &str = "discord";
@@ -280,6 +279,7 @@ async fn connect(
         files_http: files::client(),
         max_text: core.cfg.tools.max_read_bytes as u64,
         members_intent: OnceLock::new(),
+        audience_read: Mutex::default(),
         lanes: Mutex::new(HashMap::new()),
     });
     // The lanes first: what the outbox holds for these places needs only
@@ -364,8 +364,15 @@ async fn start_places(
     // the first answer; each card and each answer checks again.
     let checks = shared.clone();
     tokio::spawn(async move {
-        for c in checks.core.approval.discord_channels() {
-            checks.check_channel(c).await;
+        let listed = checks.core.approval.discord_channels();
+        for c in &listed {
+            checks.check_channel(*c).await;
+        }
+        // Each bound guild channel's viewers (M4 19a): a listed one's came
+        // with its check.
+        let bound = checks.routes.lock().unwrap().guild_channels.clone();
+        for c in bound.into_iter().filter(|c| !listed.contains(c)) {
+            checks.read_audience(c).await;
         }
     });
     Ok(())
@@ -442,6 +449,24 @@ async fn event_loop(
                     json!({"why": why}),
                 );
                 board.state("resuming", Some(why));
+            }
+            // Who can view a bound channel may have changed (M4 19a). Member
+            // events come only with the Server Members intent on the gateway,
+            // which the binding does not ask for; a turn there reads again
+            // when its last read is a minute old.
+            Event::ChannelUpdate(c) if shared.bound_channel(c.id.get()) => {
+                let s = shared.clone();
+                tokio::spawn(async move { s.read_audience(c.id.get()).await });
+            }
+            Event::RoleCreate(_)
+            | Event::RoleUpdate(_)
+            | Event::RoleDelete(_)
+            | Event::GuildUpdate(_)
+            | Event::MemberAdd(_)
+            | Event::MemberRemove(_)
+            | Event::MemberUpdate(_) => {
+                let s = shared.clone();
+                tokio::spawn(async move { s.read_audiences().await });
             }
             Event::MessageCreate(m) => shared.clone().on_message(&m.0),
             Event::InteractionCreate(i) => {
@@ -534,6 +559,8 @@ pub(crate) struct Shared {
     /// The portal has the Server Members intent on: a listed guild channel's
     /// viewers can be checked (theseus-sgh). Asked on first need.
     members_intent: OnceLock<bool>,
+    /// When each bound guild channel's viewers were last read (M4 19a).
+    audience_read: Mutex<HashMap<u64, std::time::Instant>>,
     /// Each place's lane, and the operator's, by target (theseus-q4v).
     lanes: Mutex<HashMap<String, mpsc::UnboundedSender<LaneMsg>>>,
 }
@@ -597,6 +624,11 @@ struct Routes {
     users: HashMap<u64, Vec<u64>>,
     /// channel ids where only an @mention or a reply to the bot starts a turn
     mention_only: std::collections::HashSet<u64>,
+    /// the guild channels the bindings file binds, whose viewers are their
+    /// sessions' audience (M4 19a)
+    guild_channels: Vec<u64>,
+    /// a bound guild channel's name, as the bindings file gives it
+    channel_names: HashMap<u64, String>,
     /// the bot's roles in the guild (an @Theseus can arrive as its managed role)
     bot_roles: Vec<u64>,
     /// turn id → session id (deltas name only the turn)
@@ -963,6 +995,13 @@ impl Shared {
                 r.users.insert(c.get(), users.clone());
                 if mention_only {
                     r.mention_only.insert(c.get());
+                }
+            }
+            if let (Some(c), "channel") = (channel, kind) {
+                r.guild_channels.push(c.get());
+                let name = label.trim_start_matches('#');
+                if name != c.get().to_string() {
+                    r.channel_names.insert(c.get(), name.to_string());
                 }
             }
             if kind == "dm" {
@@ -1478,12 +1517,24 @@ impl Shared {
     /// Without the Server Members intent it cannot be verified. True when it
     /// is trusted.
     pub(crate) async fn check_channel(&self, channel: u64) -> bool {
-        let (trusted, detail) = match viewers::unverifiable(self.members_intent().await) {
-            Some(v) => v,
-            None => match self.viewers(channel).await {
-                Ok(v) => v,
-                Err(e) => (false, format!("could not check who can view it: {e}")),
-            },
+        let intent = self.members_intent().await;
+        let view = match intent {
+            true => Some(self.view(channel).await),
+            false => None,
+        };
+        let (trusted, detail) = match (viewers::unverifiable(intent), &view) {
+            (Some(v), _) => v,
+            (None, Some(Ok(v))) => {
+                let trusted = self.core.approval.discord_users();
+                let outside: Vec<&viewers::Member> = v
+                    .viewers
+                    .iter()
+                    .filter(|m| !trusted.contains(&m.id))
+                    .collect();
+                viewers::verdict(&outside, v.checked)
+            }
+            (None, Some(Err(e))) => (false, format!("could not check who can view it: {e}")),
+            (None, None) => (false, viewers::NO_INTENT.to_string()),
         };
         self.core.approval_checked(
             channel,
@@ -1493,54 +1544,11 @@ impl Shared {
                 at_ms: theseus_protocol::now_unix_ms(),
             },
         );
-        trusted
-    }
-
-    /// Everyone outside `[approval].trusted_users` who can view a guild
-    /// channel: the guild's roles and owner, the channel's overwrites, and
-    /// every member, through twilight's permission calculation.
-    async fn viewers(&self, channel: u64) -> anyhow::Result<(bool, String)> {
-        let ch = self.http.channel(Id::new(channel)).await?.model().await?;
-        let guild_id = ch
-            .guild_id
-            .ok_or_else(|| anyhow::anyhow!("it is not a guild channel"))?;
-        let guild = self.http.guild(guild_id).await?.model().await?;
-        let roles: Vec<(Id<RoleMarker>, Permissions)> =
-            guild.roles.iter().map(|r| (r.id, r.permissions)).collect();
-        let mut members = Vec::new();
-        let mut after = None;
-        loop {
-            let mut req = self.http.guild_members(guild_id).limit(1000);
-            if let Some(a) = after {
-                req = req.after(a);
-            }
-            let page = req.await?.models().await?;
-            let full = page.len() == 1000;
-            after = page.last().map(|m| m.user.id);
-            members.extend(page.into_iter().map(|m| viewers::Member {
-                id: m.user.id.get(),
-                name: m.user.name,
-                roles: m.roles,
-            }));
-            if !full {
-                break;
-            }
+        // The same walk is the audience of a session there (M4 19a).
+        if self.bound_channel(channel) {
+            self.tell_audience(channel, view);
         }
-        let g = viewers::Guild {
-            id: guild_id,
-            owner: guild.owner_id,
-            roles: &roles,
-        };
-        let overwrites = ch.permission_overwrites.unwrap_or_default();
-        let outside = viewers::outsiders(
-            &g,
-            ch.kind,
-            &overwrites,
-            &members,
-            &self.core.approval.discord_users(),
-            self.bot_id(),
-        );
-        Ok(viewers::verdict(&outside, members.len()))
+        trusted
     }
 
     async fn respond(
@@ -2067,7 +2075,15 @@ impl Place {
             self.tx.clone(),
             self.session_id.clone(),
         );
+        let audience = match (self.kind, self.channel) {
+            ("channel", Some(c)) => Some((self.shared.clone(), c.get())),
+            _ => None,
+        };
         tokio::spawn(async move {
+            // Its compile is for whoever can view the channel now (M4 19a).
+            if let Some((shared, c)) = audience {
+                shared.read_audience_if_stale(c).await;
+            }
             let mut attachments = Vec::new();
             for p in pending {
                 attachments.extend(p.wait().await);
@@ -2373,6 +2389,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         files_http: files::client(),
         max_text: 0,
         members_intent: OnceLock::new(),
+        audience_read: Mutex::default(),
         lanes: Mutex::new(HashMap::new()),
     })
 }

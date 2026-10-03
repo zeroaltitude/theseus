@@ -113,6 +113,8 @@ ledger_kinds! {
     JobStoppedAtLaunch = "job.stopped_at_launch",
     JobStoppedBelowFloor = "job.stopped_below_floor",
     JobWrapperLost = "job.wrapper_lost",
+    LabelAudience = "label.audience",
+    LabelWithheld = "label.withheld",
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",
     PolicyTightened = "policy.tightened",

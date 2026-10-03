@@ -292,6 +292,16 @@ pub fn create(
                 &format!("session:{}", tc.session_id),
                 &text,
             );
+            // The parent's latch, and the meet of its context (M4 19a).
+            let latch = parent_hold.as_ref().map(|h| {
+                let now = theseus_protocol::now_unix_ms();
+                crate::external::taken(h, tc.session_id, crate::external::VIA_TASK, &brief.id, now)
+            });
+            let readers = tc
+                .readers
+                .cloned()
+                .unwrap_or(theseus_protocol::Readers::Owner);
+            let brief = brief.labeled(crate::labels::relayed(latch, readers));
             let mut records = match &parent_hold {
                 Some(h) => {
                     let taken = crate::external::taken(
@@ -441,6 +451,10 @@ pub struct Report {
     /// The task held external text when its report was read (theseus-9bp):
     /// the parent that reads the report holds it too.
     pub external: Option<theseus_protocol::ExternalText>,
+    /// Who may read its last message, by that message's label (M4 19a): the
+    /// meet of the task's context, which its report in the parent takes.
+    /// None for a message from before labels, or no message.
+    pub readers: Option<theseus_protocol::Readers>,
 }
 
 /// The line a turn that a report started shows above its reply (W1), as a
@@ -478,6 +492,7 @@ impl Report {
             elapsed_ms: e.updated_at_ms.saturating_sub(e.created_at_ms),
             target: None,
             external: None,
+            readers: None,
         }
     }
 
@@ -554,17 +569,23 @@ pub fn load_report(
         return Ok(None);
     }
     let rec: Option<SessionRecord> = store.get_session(&e.session_id)?;
-    let last = if e.state == ExecState::Complete {
+    let (last, readers) = if e.state == ExecState::Complete {
         let nodes = store.session_nodes(&e.session_id)?;
-        last_message(nodes.iter().map(|(_, n)| n))
+        let last = last_message(nodes.iter().map(|(_, n)| n));
+        let readers = last.as_ref().and_then(|(id, _)| {
+            let n = nodes.iter().find(|(_, n)| n.id == *id)?;
+            Some(n.1.label.as_ref()?.readers.clone())
+        });
+        (last, readers)
     } else {
-        None
+        (None, None)
     };
     let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
     let external = rec.as_ref().and_then(|r| r.external.clone());
     Ok(Some(Report {
         target,
         external,
+        readers,
         ..Report::new(&e, rec.and_then(|r| r.title), last)
     }))
 }
