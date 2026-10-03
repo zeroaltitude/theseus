@@ -743,9 +743,26 @@ fn digests(s: &str) -> String {
     out
 }
 
-/// `3 ms`, `2.3 s`, `4 min 12 s`: a sentence's durations are the clock's.
+/// `3 ms`, `2.3 s`, `4 min 12 s`: a sentence's durations are the clock's, and
+/// so are their units (a turn that takes a second under load says `s`, not
+/// `ms`), so each is `<n>`, unit and all (theseus-6a7o).
 fn durations(s: &str) -> String {
     let cs: Vec<char> = s.chars().collect();
+    // Where the number at `i` ends, and where its unit ends, if one follows.
+    let number = |i: usize| -> (usize, Option<usize>) {
+        let mut j = i;
+        while j < cs.len() && (cs[j].is_ascii_digit() || cs[j] == '.') {
+            j += 1;
+        }
+        let unit = [" ms", " s", " min"].into_iter().find_map(|u| {
+            let n = u.chars().count();
+            (cs.get(j..j + n)
+                .is_some_and(|w| w.iter().copied().eq(u.chars()))
+                && cs.get(j + n).is_none_or(|c| !c.is_alphanumeric()))
+            .then_some(j + n)
+        });
+        (j, unit)
+    };
     let mut out = String::with_capacity(s.len());
     let mut i = 0;
     while i < cs.len() {
@@ -756,23 +773,46 @@ fn durations(s: &str) -> String {
             i += 1;
             continue;
         }
-        let mut j = i;
-        while j < cs.len() && (cs[j].is_ascii_digit() || cs[j] == '.') {
-            j += 1;
+        match number(i) {
+            (_, Some(mut end)) => {
+                // `4 min 12 s` is one duration.
+                while cs.get(end) == Some(&' ') && cs.get(end + 1).is_some_and(char::is_ascii_digit)
+                {
+                    match number(end + 1) {
+                        (_, Some(next)) => end = next,
+                        (_, None) => break,
+                    }
+                }
+                out.push_str("<n>");
+                i = end;
+            }
+            (j, None) => {
+                out.extend(&cs[i..j]);
+                i = j;
+            }
         }
-        let unit = [" ms", " s", " min"].into_iter().find(|u| {
-            let n = u.chars().count();
-            cs.get(j..j + n)
-                .is_some_and(|w| w.iter().copied().eq(u.chars()))
-                && cs.get(j + n).is_none_or(|c| !c.is_alphanumeric())
-        });
-        match unit {
-            Some(_) => out.push_str("<n>"),
-            None => out.extend(&cs[i..j]),
-        }
-        i = j;
     }
     out
+}
+
+/// A duration's unit is the clock's too: `950 ms` and `1.2 s` read alike, and
+/// so do `59 s` and `1 min 2 s`, so a turn slowed past a second by the load
+/// moves no line (theseus-6a7o).
+#[test]
+fn a_durations_unit_is_masked_with_it() {
+    for (a, b) in [
+        (
+            "Turn ended after 1 loop in 950 ms.",
+            "Turn ended after 1 loop in 1.2 s.",
+        ),
+        (
+            "It waited 59 s (2 tries).",
+            "It waited 1 min 2 s (2 tries).",
+        ),
+    ] {
+        assert_eq!(durations(a), durations(b), "{a} / {b}");
+    }
+    assert_eq!(durations("in 950 ms, 12 rows"), "in <n>, 12 rows");
 }
 
 /// Every id's uuid tail (32 hex digits after `_`) becomes `#n`, numbered by
