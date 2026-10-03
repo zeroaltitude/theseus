@@ -35,7 +35,10 @@ export function Shell() {
   const nav = useNavigate()
   const [palette, setPalette] = useState(false)
   // The Ship is full-bleed: the river starts folded there (and open elsewhere), and the main area has no margin.
-  const onShip = !!useMatch('/ship')
+  // The index redirects to the Ship, so it counts as the Ship.
+  const shipRoute = useMatch('/ship')
+  const indexRoute = useMatch({ path: '/', end: true })
+  const onShip = !!shipRoute || !!indexRoute
   const [river, setRiver] = useState(!onShip)
   useEffect(() => {
     // Ctrl/Cmd+K opens the palette; "g" then a letter jumps to a view (g h, g b, g f, g a, g l, g e, g s), unless
@@ -114,7 +117,7 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
           to={to}
           end={'end' in rest}
           className={({ isActive }) => cn(
-            'group relative flex w-14 flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[9.5px] font-bold uppercase tracking-[0.08em] transition-colors',
+            'group relative flex w-[62px] flex-col items-center gap-0.5 rounded-lg py-2 font-display text-[8.5px] font-bold uppercase tracking-[0.03em] transition-colors',
             isActive ? 'text-live' : 'text-ink-faint hover:bg-gold/10 hover:text-ink',
           )}
         >
@@ -368,7 +371,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
         <Command.Group heading="Fly to a session" className={group}>
           {(data?.sessions ?? []).map((s) => (
             <Command.Item key={`f-${s.session_id}`} value={`fly ${s.title ?? ''} ${s.label ?? ''} ${s.session_id}`} onSelect={() => go(`/ship?fly=${s.session_id}`)} className={item}>
-              <Navigation size={14} className="text-gold" />
+              <Navigation size={14} className="shrink-0 text-gold" />
               <span className="truncate">{s.title || s.label || 'untitled'}</span>
               <span className="num ml-auto text-[11px] text-ink-faint">{s.kind === 'task' ? 'task · ' : ''}{short(s.session_id)}</span>
             </Command.Item>
@@ -380,7 +383,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
               const d = (n.detail ?? {}) as { tool?: string; plan?: { summary?: string } }
               return (
                 <Command.Item key={`c-${n.node_id}`} value={`fly call ${d.tool ?? ''} ${d.plan?.summary ?? ''} ${title(n.session_id)} ${n.node_id}`} onSelect={() => go(`/ship?fly=${n.node_id}`)} className={item}>
-                  <Crosshair size={14} className="text-live" />
+                  <Crosshair size={14} className="shrink-0 text-live" />
                   <span className="num shrink-0 text-tool">{d.tool ?? 'tool'}</span>
                   <span className="min-w-0 truncate text-ink-dim">{d.plan?.summary ?? ''}</span>
                   <span className="num ml-auto shrink-0 text-[11px] text-ink-faint">{title(n.session_id).slice(0, 24)} · {stamp(n.at_unix_ms)}</span>

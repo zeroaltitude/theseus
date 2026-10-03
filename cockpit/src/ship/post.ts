@@ -5,8 +5,10 @@
 // - The sea and its stars change only when the camera moves: they are drawn into their own target then, and copied
 //   under the scene on every other frame.
 // - Bloom: one bright pass that also shrinks to a quarter, a separable blur there, a second level at an eighth.
-// - The composite: the scene, the two blooms, a faint chromatic aberration, scanlines, the vignette, and a static
-//   grain, in one pass to the screen.
+// - The composite: the scene, the two blooms, a faint chromatic aberration (on the glow, where it shows), scanlines,
+//   the vignette, and a static grain, in one pass to the screen, three texture reads a pixel.
+// - Every target is 8-bit: a CPU rasteriser pays dearly for half floats (11.7 against 20.4 frames a second on the
+//   synthetic fleet), and the composite's grain dithers the glow's gradients.
 // - Calm mode skips all of it but the sea's copy.
 import * as THREE from 'three'
 
@@ -21,19 +23,19 @@ varying vec2 vUv;
 void main() { gl_FragColor = texture2D(tSrc, vUv); }
 `
 
-// Bright pass and quarter-size in one: four bilinear taps cover the 4x4 source texels under each output texel.
+// Bright pass and quarter-size in one: four bilinear taps cover the 4x4 source texels under each output texel. Each
+// tap is thresholded before they are averaged, so a light a few pixels wide keeps its brightness (averaged first,
+// it would be diluted below the threshold and never glow).
 const BRIGHT_FRAG = /* glsl */ `
 uniform sampler2D tSrc;
 uniform vec2 uTexel;
 uniform float uThreshold;
 varying vec2 vUv;
+vec3 bright(vec3 c) { return c * smoothstep(uThreshold, uThreshold + 0.3, max(c.r, max(c.g, c.b))); }
 void main() {
-  vec3 c = texture2D(tSrc, vUv + uTexel * vec2(-1.0, -1.0)).rgb + texture2D(tSrc, vUv + uTexel * vec2(1.0, -1.0)).rgb
-         + texture2D(tSrc, vUv + uTexel * vec2(-1.0, 1.0)).rgb + texture2D(tSrc, vUv + uTexel * vec2(1.0, 1.0)).rgb;
-  c *= 0.25;
-  float l = max(c.r, max(c.g, c.b));
-  float k = smoothstep(uThreshold, uThreshold + 0.35, l);
-  gl_FragColor = vec4(c * k, 1.0);
+  vec3 c = bright(texture2D(tSrc, vUv + uTexel * vec2(-1.0, -1.0)).rgb) + bright(texture2D(tSrc, vUv + uTexel * vec2(1.0, -1.0)).rgb)
+         + bright(texture2D(tSrc, vUv + uTexel * vec2(-1.0, 1.0)).rgb) + bright(texture2D(tSrc, vUv + uTexel * vec2(1.0, 1.0)).rgb);
+  gl_FragColor = vec4(c * 0.25, 1.0);
 }
 `
 
@@ -78,12 +80,13 @@ void main() {
   vec2 c = vUv - 0.5;
   float r2 = dot(c, c);
   // A faint chromatic aberration, growing toward the edges as through old glass.
-  vec2 off = c * uCA * (0.4 + r2 * 3.0);
-  vec3 col;
-  col.r = texture2D(tScene, vUv + off).r;
-  col.g = texture2D(tScene, vUv).g;
-  col.b = texture2D(tScene, vUv - off).b;
-  col += (texture2D(tBloomA, vUv).rgb * 1.0 + texture2D(tBloomB, vUv).rgb * 1.15) * uBloom;
+  vec2 off = c * uCA * (0.4 + r2 * 3.0) * 6.0;
+  vec3 col = texture2D(tScene, vUv).rgb;
+  vec3 ga = texture2D(tBloomA, vUv + off).rgb;
+  vec3 gb = texture2D(tBloomB, vUv - off).rgb;
+  // The glow's red leans outward and its blue inward: the aberration, where the eye looks for it.
+  vec3 glow = vec3(ga.r * 0.6 + gb.r * 0.75, (ga.g + gb.g) * 0.65, ga.b * 0.75 + gb.b * 0.6) * 1.55;
+  col += glow * uBloom;
   // Scanlines: every third device row, faint.
   float scan = 0.5 + 0.5 * cos(gl_FragCoord.y / uPixel * 2.0943951);
   col *= 1.0 - uScan * scan;
@@ -107,17 +110,17 @@ export class Post {
   private quad: THREE.Mesh
   private mats: Record<'copy' | 'bright' | 'blur' | 'down' | 'final', THREE.ShaderMaterial>
   private sea = target(1, 1, THREE.UnsignedByteType)
-  private scene = target(1, 1, THREE.HalfFloatType)
-  private a1 = target(1, 1, THREE.HalfFloatType)
-  private a2 = target(1, 1, THREE.HalfFloatType)
-  private b1 = target(1, 1, THREE.HalfFloatType)
-  private b2 = target(1, 1, THREE.HalfFloatType)
+  private scene = target(1, 1, THREE.UnsignedByteType)
+  private a1 = target(1, 1, THREE.UnsignedByteType)
+  private a2 = target(1, 1, THREE.UnsignedByteType)
+  private b1 = target(1, 1, THREE.UnsignedByteType)
+  private b2 = target(1, 1, THREE.UnsignedByteType)
   private w = 1
   private h = 1
   /** The sea is drawn again before the next frame (the camera moved, the size or the fleet's rose changed). */
   seaDirty = true
-  bloom = 1.6
-  threshold = 0.42
+  bloom = 2.4
+  threshold = 0.45
 
   constructor() {
     const g = new THREE.BufferGeometry()

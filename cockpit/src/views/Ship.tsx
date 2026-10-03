@@ -77,14 +77,27 @@ function ShipView({ data }: { data: ShipData }) {
 
   useEffect(() => { engine?.setCalm(calm) }, [engine, calm])
 
-  // The model into the engine and the labels; the first one fits the fleet.
+  // The model into the engine and the labels. The first one fits the fleet, or lands on the vessel (and the light)
+  // the address names (a deep link).
   useEffect(() => {
     if (!engine || !model) return
-    engine.setModel(model, { fit: !fitted.current })
+    const first = !fitted.current
+    const at = first && selId ? model.byId.get(selId) : undefined
+    engine.setModel(model, { fit: first && at === undefined })
+    if (at !== undefined) engine.flyToVessel(at, false)
     fitted.current = true
     labels.current?.setModel(model)
     if (window.__ship) { window.__ship.lights = model.lights.length; window.__ship.vessels = model.vessels.length }
-  }, [engine, model])
+  }, [engine, model]) // eslint-disable-line react-hooks/exhaustive-deps -- selId matters only for the first model
+  // A deep link to a light lands on it once the graph is read (the first model may not have the nodes yet).
+  const landed = useRef(false)
+  useEffect(() => {
+    if (landed.current || !engine || !model || data.progress < 1 || !hlId) return
+    const li = model.lightById.get(hlId)
+    if (li === undefined) return
+    landed.current = true
+    engine.flyToLight(li)
+  }, [engine, model, data.progress, hlId])
 
   useEffect(() => { engine?.setSelected(sel) }, [engine, sel, model])
   useEffect(() => {

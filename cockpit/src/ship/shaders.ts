@@ -43,9 +43,7 @@ uniform vec2 uTarget;
 uniform float uDist;
 uniform vec2 uCenter;
 uniform float uRose;
-uniform float uParts;
 varying vec3 vWorld;
-float part(float b) { return mod(floor(uParts / b + 0.001), 2.0); }
 ${HASH}
 // A line every unit of a continuous coordinate, anti-aliased by that coordinate's own derivative (never the derivative
 // of a fract(), which spikes where it wraps and draws false lines).
@@ -71,16 +69,16 @@ void main() {
   float minor = gridAt(p, s1, 0.5) * (1.0 - t);
   float major = gridAt(p, s1 * 4.0, 0.7);
   vec3 cyan = vec3(0.13, 0.83, 0.93);
-  col += cyan * (minor * 0.045 + major * 0.085) * near * part(1.0);
+  col += cyan * (minor * 0.045 + major * 0.085) * near;
   // The logo's waves: rows of long sine lines, faint teal (one sine per row, no seams).
   float ws = 30.0 * exp2(max(0.0, floor(lod)));
   float wy = (p.y + sin(p.x / ws * 4.2) * ws * 0.11) / ws;
   float wave = lineAt(wy, fwidth(wy), 0.6);
-  col += vec3(0.24, 0.49, 0.58) * wave * 0.16 * near * part(2.0);
+  col += vec3(0.24, 0.49, 0.58) * wave * 0.16 * near;
   // An engraved compass rose under the fleet: thirty-two rays and two rings, in old gold.
   vec2 q = p - uCenter;
   float r = length(q);
-  if (uRose > 0.0 && r < uRose * 1.08 && r > 1e-3 && part(4.0) > 0.5) {
+  if (uRose > 0.0 && r < uRose * 1.08 && r > 1e-3) {
     // The angle twice, with its seam on opposite sides: the derivative comes from whichever has no seam here.
     float a1 = atan(q.y, q.x) / 6.2831853;
     float a2 = atan(-q.y, -q.x) / 6.2831853;
@@ -102,7 +100,7 @@ void main() {
   float fwp = max(fwidth(p.x), fwidth(p.y));
   float cellPx = 9.0 / max(fwp, 1e-4);
   float h = hash12(cell);
-  if (h > 0.93 && cellPx > 8.0 && part(8.0) > 0.5) {
+  if (h > 0.93 && cellPx > 8.0) {
     vec2 c = (cell + 0.2 + 0.6 * vec2(hash12(cell + 7.1), hash12(cell + 3.3))) * 9.0;
     float sd = length(p - c);
     float rad = min(0.18 + fwp * 1.2, 1.6);
@@ -181,9 +179,9 @@ float halfWidth(float t) {
   return 1.0;
 }
 vec3 rigColor(float rig) {
-  if (rig > 2.5) return vec3(0.98, 0.44, 0.52) * 1.9;   // flare: rose
-  if (rig > 1.5) return vec3(0.98, 0.75, 0.14) * 1.25;  // lantern: amber
-  if (rig > 0.5) return vec3(0.13, 0.83, 0.93) * 1.45;  // under sail: neon cyan
+  if (rig > 2.5) return vec3(1.0, 0.45, 0.53);          // flare: rose
+  if (rig > 1.5) return vec3(1.0, 0.77, 0.15);          // lantern: amber
+  if (rig > 0.5) return vec3(0.14, 0.89, 1.0);          // under sail: neon cyan
   return vec3(0.69, 0.55, 0.34) * 0.62;                 // at anchor: brass, quiet
 }
 void main() {
@@ -204,7 +202,7 @@ void main() {
   // A new vessel (a session that opened while you watched) flares in.
   float age = uTime - vBorn;
   float born = vBorn > 0.0 ? exp(-max(age, 0.0) * 1.4) * (1.0 - uCalm * 0.6) : 0.0;
-  ec += vec3(0.9, 0.8, 0.5) * born * 2.0;
+  ec = mix(ec, vec3(1.0, 0.9, 0.6), clamp(born, 0.0, 1.0));
 
   // The deck's planks: five strakes, butts staggered like brickwork; the share of gold ones is the share of its
   // turns in the last hour, the new planks of the ship.
@@ -248,7 +246,7 @@ void main() {
     float link = abs(fract(linkP) - 0.5);
     float ringL = 1.0 - smoothstep(0.06, 0.16, abs(length(vec2(link * 1.6, (rail - vB * 0.09 - 0.12) / 0.12)) - 0.55));
     float chain = band2 * ringL * inside;
-    vec3 cc = mix(vec3(0.98, 0.75, 0.14), vec3(0.96, 0.45, 0.71), 0.45) * 1.8;
+    vec3 cc = mix(vec3(1.0, 0.77, 0.15), vec3(1.0, 0.47, 0.74), 0.45);
     col += cc * chain;
     alpha = max(alpha, chain);
   }
@@ -266,7 +264,7 @@ void main() {
     float ring = 1.0 - smoothstep(fe * 0.7, fe * 1.9, abs(e - 1.0));
     float ang = atan(vLocal.y / radii.y, vLocal.x / radii.x);
     float dash = step(0.38, fract(ang / 6.2831853 * 48.0));
-    col += vec3(0.13, 0.83, 0.93) * 1.2 * ring * dash;
+    col += vec3(0.14, 0.89, 1.0) * ring * dash;
     alpha = max(alpha, ring * dash * 0.9);
   }
   col *= 1.0 - dim * 0.7;
@@ -324,7 +322,7 @@ void main() {
   float th = lineAA(length(c) - 1.0, 1.6) + lineAA(c.y, 1.4) * step(abs(c.x), 0.55);
   vec3 ivory = vec3(0.94, 0.89, 0.78);
   vec3 cyan = vec3(0.13, 0.83, 0.93);
-  vec3 col = ivory * 0.13 * inSail + cyan * 1.25 * edge + ivory * 0.75 * (mast + yard);
+  vec3 col = ivory * 0.13 * inSail + cyan * edge + ivory * 0.75 * (mast + yard);
   col = mix(col, cyan * 0.9, clamp(th, 0.0, 1.0) * inSail);
   float alpha = max(inSail * 0.2, max(edge * 0.95, max(mast, yard) * 0.8));
   alpha = max(alpha, clamp(th, 0.0, 1.0) * inSail * 0.9);
@@ -385,7 +383,7 @@ void main() {
   float rc = r * k;
   float core = 1.0 - smoothstep(0.18, 0.42, rc);
   float halo = exp(-rc * rc * 5.0) * 0.7;
-  vec3 col = vColor * (core * 1.25 + halo);
+  vec3 col = vColor * min(1.0, core + halo);
   float alpha = core + halo * 0.8;
   // L1: a hexagonal shield, verdigris neon. A cancel verified collapses it.
   if (bit(vFlags, 1.0) > 0.5) {
@@ -393,15 +391,15 @@ void main() {
     float hd = hexDist(uv) - 0.78 * shrink;
     float ring = 1.0 - smoothstep(0.03, 0.09, abs(hd));
     float fill = (1.0 - smoothstep(0.0, 0.04, hd)) * 0.10;
-    vec3 sc = vec3(0.37, 0.92, 0.80) * 1.5;
+    vec3 sc = vec3(0.42, 1.0, 0.88);
     col += sc * (ring + fill) * shrink;
     alpha = max(alpha, (ring + fill) * shrink);
   }
   // External text: a warning ring in magenta.
   if (bit(vFlags, 2.0) > 0.5) {
     float ring = 1.0 - smoothstep(0.04, 0.11, abs(r - 0.66));
-    vec3 mc = vec3(0.96, 0.45, 0.71) * 2.0;
-    col += mc * ring + mc * 0.25 * exp(-r * r * 2.5);
+    vec3 mc = vec3(1.0, 0.47, 0.74);
+    col += mc * ring + mc * 0.3 * exp(-r * r * 2.5);
     alpha = max(alpha, ring);
   }
   // A job running now: a turning gear.
@@ -410,21 +408,21 @@ void main() {
     float teeth = step(0.5, fract(ang / 6.2831853 * 10.0));
     float rr = 0.80 + teeth * 0.1;
     float gear = 1.0 - smoothstep(0.03, 0.08, abs(r - rr + 0.05));
-    vec3 gc = vec3(0.84, 0.65, 0.28) * 1.8;
+    vec3 gc = vec3(1.0, 0.8, 0.36);
     col += gc * gear;
     alpha = max(alpha, gear);
   }
   // Highlighted (flown to, or the inspector's): a bright cross-hair ring.
   if (bit(vFlags, 16.0) > 0.5) {
     float ring = 1.0 - smoothstep(0.02, 0.06, abs(r - 0.92));
-    col += vec3(1.0, 0.95, 0.85) * 1.6 * ring;
+    col += vec3(1.0, 0.96, 0.88) * ring;
     alpha = max(alpha, ring);
   }
   // A fact arrived: a flare, then a ring that runs out and fades.
   if (vAge.x < 2.0) {
     float ring = 1.0 - smoothstep(0.0, 0.08, abs(r - mix(0.2, 0.98, clamp(vAge.x / 1.1, 0.0, 1.0))));
     float f = exp(-vAge.x * 2.0);
-    col += vec3(1.0, 0.92, 0.7) * (ring * f * 1.6 + core * f * 1.5);
+    col += vec3(1.0, 0.93, 0.74) * (ring * f + core * f);
     alpha = max(alpha, ring * f);
   }
   if (alpha < 0.01) discard;
@@ -480,11 +478,13 @@ void main() {
   float t = aParam.x;
   vec3 col = aColor;
   float a = 0.55;
+  float grow = 1.0;
   if (burst < 3.0) {
     // The report lands: a run of gold from the task back to its parent.
     t = 1.0 - fract(aParam.x + burst * 0.9 * (1.0 - uCalm));
-    col = vec3(0.89, 0.68, 0.31) * 2.2;
-    a = 0.95 * exp(-burst * 0.5);
+    col = vec3(1.0, 0.8, 0.38);
+    a = exp(-burst * 0.45);
+    grow = 2.4;
   } else if (aParam.y > 0.0) {
     t = fract(aParam.x + uTime * aParam.y * (1.0 - uCalm));
     a = 0.75;
@@ -493,7 +493,7 @@ void main() {
   vec3 p = u * u * p0 + 2.0 * u * t * p1 + t * t * p2;
   vec4 mv = viewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = clamp(aSize * uScale / -mv.z, 1.8 * uPixel, 9.0 * uPixel);
+  gl_PointSize = clamp(aSize * grow * uScale / -mv.z, 1.8 * uPixel * grow, 9.0 * uPixel * grow);
   vColor = col;
   vA = a * smoothstep(0.0, 0.08, t) * smoothstep(1.0, 0.92, t);
 }
@@ -567,19 +567,19 @@ void main() {
     if (b.y > 1.5 && b.y < 2.5) {
       // The lantern: it waits for the operator.
       l = vec3(-L * 0.5 - B * 0.35, B * 0.9 + 0.6, -B * 0.75);
-      vColor = vec3(0.98, 0.75, 0.14) * 2.4;
+      vColor = vec3(1.0, 0.77, 0.15);
       pulse = 0.78 + 0.22 * sin(uTime * 2.4) * (1.0 - uCalm);
       size = 1.6 + B * 0.45;
     } else if (b.y > 2.5) {
       // The flare: it failed.
       l = vec3(L * 0.1, B * 1.6 + 1.2, 0.0);
-      vColor = vec3(0.98, 0.32, 0.38) * 2.4;
+      vColor = vec3(1.0, 0.36, 0.42);
       size = 1.4 + B * 0.22;
     }
   } else if (aKind < 1.5) {
     if (c.y > 0.5) {
       l = aAt;
-      vColor = vec3(0.65, 0.55, 0.98) * 2.2;
+      vColor = vec3(0.68, 0.58, 1.0);
       pulse = 0.6 + 0.4 * sin(uTime * 7.0) * (1.0 - uCalm);
       size = 1.1;
     }
@@ -587,7 +587,7 @@ void main() {
     float age = c.x > 0.0 ? uTime - c.x : 1e6;
     if (age < 2.6) {
       l = vec3(L * 0.1, B * 1.0 + age * B * 1.6, 0.0);
-      vColor = vec3(1.0, 0.4, 0.4) * 2.6;
+      vColor = vec3(1.0, 0.42, 0.42);
       pulse = exp(-age * 1.2);
       size = 2.0 + age * 1.5;
     }
@@ -610,6 +610,6 @@ void main() {
   float halo = exp(-r * r * 4.0);
   float a = (core + halo * 0.6) * vA;
   if (a < 0.01) discard;
-  gl_FragColor = vec4(vColor * (core * 1.3 + halo * 0.7) * vA, a);
+  gl_FragColor = vec4(vColor * min(1.0, core + halo * 0.7) * vA, a);
 }
 `

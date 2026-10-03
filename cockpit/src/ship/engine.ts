@@ -33,12 +33,13 @@ const FOV = 36
 
 // Each kind's colour (HDR, so the neon blooms) and size, in world units.
 const LIGHT_LOOK: Record<string, { c: [number, number, number]; s: number }> = {
-  user: { c: [0.94 * 1.35, 0.89 * 1.35, 0.78 * 1.35], s: 0.62 },
-  model: { c: [0.655 * 1.55, 0.545 * 1.55, 0.98 * 1.55], s: 0.66 },
-  call: { c: [0.133 * 1.55, 0.827 * 1.55, 0.933 * 1.55], s: 0.46 },
-  ok: { c: [0.16 * 1.35, 0.86 * 1.35, 0.42 * 1.35], s: 0.5 },
-  failed: { c: [0.984 * 1.7, 0.443 * 1.7, 0.522 * 1.7], s: 0.54 },
-  external: { c: [0.957 * 1.8, 0.447 * 1.8, 0.714 * 1.8], s: 0.56 },
+  // In 0..1, so the 8-bit targets keep each hue; the bloom gives the glow.
+  user: { c: [0.94, 0.89, 0.78], s: 0.62 },
+  model: { c: [0.66, 0.55, 1.0], s: 0.66 },
+  call: { c: [0.14, 0.88, 1.0], s: 0.46 },
+  ok: { c: [0.18, 0.98, 0.48], s: 0.5 },
+  failed: { c: [1.0, 0.45, 0.53], s: 0.54 },
+  external: { c: [1.0, 0.47, 0.74], s: 0.56 },
 }
 
 function lightLook(l: Light) {
@@ -61,6 +62,7 @@ export class ShipEngine {
    *  `pinnedScale` fixes it (for measuring). */
   scale = 1
   pinnedScale: number | null = null
+  private devicePixels = 1
   private intervals: number[] = []
   private container: HTMLElement
   private ro: ResizeObserver
@@ -102,7 +104,7 @@ export class ShipEngine {
     uScale: { value: 500 },
     uPixel: { value: 1 },
   }
-  private seaU = { uTarget: { value: new THREE.Vector2() }, uDist: { value: 200 }, uCenter: { value: new THREE.Vector2() }, uRose: { value: 0 }, uParts: { value: 15 } }
+  private seaU = { uTarget: { value: new THREE.Vector2() }, uDist: { value: 200 }, uCenter: { value: new THREE.Vector2() }, uRose: { value: 0 } }
   private starU = { uTarget: this.seaU.uTarget, uScale: this.u.uScale }
 
   private sea: THREE.Mesh
@@ -129,7 +131,8 @@ export class ShipEngine {
     this.bench = !!opts.bench
     if (opts.scale) { this.pinnedScale = opts.scale; this.scale = opts.scale }
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance', stencil: false })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
+    this.devicePixels = Math.min(window.devicePixelRatio || 1, 1.5)
+    this.renderer.setPixelRatio(this.devicePixels)
     this.renderer.setClearColor(0x030912, 1)
     this.renderer.domElement.className = 'ship-canvas'
     container.appendChild(this.renderer.domElement)
@@ -175,6 +178,15 @@ export class ShipEngine {
       this.scene.add(o)
     }
     this.ensureCapacity(64)
+    // Compile every program now, while the first reads are in flight, so the first frame with the fleet doesn't wait
+    // on the driver (in parallel where the driver can).
+    if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
+      void this.renderer.compileAsync(this.scene, this.camera).catch(() => {})
+      void this.renderer.compileAsync(this.seaScene, this.camera).catch(() => {})
+    } else {
+      this.renderer.compile(this.scene, this.camera)
+      this.renderer.compile(this.seaScene, this.camera)
+    }
     this.setCalm(this.calm)
     this.ro = new ResizeObserver(() => this.resize())
     this.ro.observe(container)
@@ -192,7 +204,6 @@ export class ShipEngine {
   private resize() {
     const w = Math.max(1, this.container.clientWidth)
     const h = Math.max(1, this.container.clientHeight)
-    this.renderer.setSize(w, h, false)
     this.renderer.domElement.style.width = `${w}px`
     this.renderer.domElement.style.height = `${h}px`
     this.camera.aspect = w / h
@@ -202,13 +213,15 @@ export class ShipEngine {
     this.requestRender()
   }
 
-  /** The post's targets at the canvas's size times the resolution scale; the point sizes follow. */
+  /** The drawing buffer at the canvas's size times the device ratio and the resolution scale (the browser stretches
+   *  it to the canvas), so every pass shrinks with the scale; the post's targets and the point sizes follow. */
   private sizeTargets() {
     const w = Math.max(1, this.container.clientWidth)
     const h = Math.max(1, this.container.clientHeight)
-    const pr = this.renderer.getPixelRatio()
-    const ip = pr * this.scale
-    this.post.setSize(w * ip, h * ip, pr)
+    const ip = this.devicePixels * this.scale
+    this.renderer.setPixelRatio(ip)
+    this.renderer.setSize(w, h, false)
+    this.post.setSize(w * ip, h * ip, ip)
     this.u.uScale.value = (h * ip) / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)))
     this.u.uPixel.value = ip
   }
@@ -929,13 +942,6 @@ export class ShipEngine {
     if (this.stats.cpu.length > 240) this.stats.cpu.shift()
     this.hooks.onFrame?.(camMoved || vesselsMoved)
     if (camMoved || this.settling || this.tween || this.alive(t)) this.requestRender()
-  }
-
-  /** Dev and bench only: the sea's parts (1 grid, 2 waves, 4 rose, 8 sparkle). */
-  debugSea(mask: number) {
-    this.seaU.uParts.value = mask
-    this.post.seaDirty = true
-    this.requestRender()
   }
 
   /** Dev and bench only: hide layers by name, to see what draws what. */

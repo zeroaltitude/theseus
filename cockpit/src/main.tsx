@@ -12,7 +12,10 @@ import { Shell } from './components/Shell'
 import { Crash, NotFound } from './components/Crash'
 
 // Every view loads on first visit. The Ship (three.js) is the landing view; the others never pay for its bundle.
-const Ship = lazy(() => import('./views/Ship'))
+const loadShip = () => import('./views/Ship')
+const Ship = lazy(loadShip)
+// The landing view: its chunk starts loading at once, beside the app's own start, not after the router's redirect.
+if (/^\/cockpit\/?(ship\/?)?$/.test(window.location.pathname)) void loadShip()
 const Bridge = lazy(() => import('./views/Bridge').then((m) => ({ default: m.Bridge })))
 const Fleet = lazy(() => import('./views/Fleet'))
 const SessionDeck = lazy(() => import('./views/SessionDeck'))
