@@ -348,6 +348,97 @@ fn a_probe_script_in_l1_shows_the_contract_and_l0_the_contrast() {
     assert!(jobs[1].get("class").is_none(), "{jobs:?}");
 }
 
+/// A running L1 job's command is on `sandbox.usage` while it runs
+/// (theseus-kpz1), before its `tool.job_started` row, which rides its turn's
+/// next frame: here, the frame after the job ends. Once the turn ends, the
+/// row is written and says the same command, and the job is no longer listed.
+#[test]
+fn a_running_l1_jobs_command_is_read_before_its_row_and_matches_it() {
+    let r = Rig::start(|_| {});
+    // The job waits on a sleep the test ends, found by its marker in /proc:
+    // a file the test made would not do, since the job's overlay keeps its
+    // first look at a name that was not there.
+    // Its own marker, so a job another run left behind is never the one ended.
+    let marker = format!("600.{}", std::process::id());
+    let script = format!("sleep {marker}; echo went");
+    let argv = json!(["sh", "-c", script, "waiter"]);
+    let prompt = "wait in L1";
+    r.asks(
+        prompt,
+        vec![("proc_run", json!({"argv": argv, "sandbox": true}))],
+    );
+    let sid = r.call("session.open", json!({"label": prompt})).unwrap()["session_id"].clone();
+    let sock = r.path("projects/sock");
+    let submit = json!({"jsonrpc": "2.0", "id": 1, "method": "turn.submit",
+        "params": {"session_id": sid, "input": prompt, "author": "test", "attachments": []}});
+    let turn = std::thread::spawn(move || {
+        let s = UnixStream::connect(sock).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(90))).unwrap();
+        (&s).write_all(format!("{submit}\n").as_bytes()).unwrap();
+        BufReader::new(&s)
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(&l.unwrap()).unwrap())
+            .find(|v| v["id"] == 1)
+            .unwrap()
+    });
+    let t0 = Instant::now();
+    let running = loop {
+        let u = r.call("sandbox.usage", Value::Null).unwrap();
+        if let Some(j) = u["running"].as_array().and_then(|a| a.first()) {
+            break j.clone();
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(30),
+            "the job was never listed: {u}\n{}",
+            r.log()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(running["argv"], argv, "{running}");
+    assert_eq!(running["tool"], "proc.run");
+    assert_eq!(running["session_id"], sid);
+    let cid = running["correlation_id"].clone();
+    assert!(
+        r.ledger("tool.job_started").is_empty(),
+        "the row waits for the turn's next frame, so the read is all there is"
+    );
+    let t0 = Instant::now();
+    let sleeper = loop {
+        if let Some(pid) = with_marker(&marker).first() {
+            break *pid;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the job's sleep never ran"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    unsafe { libc::kill(sleeper as i32, libc::SIGTERM) };
+    let res = turn.join().unwrap();
+    assert_eq!(res["result"]["stop_reason"], "no_tool_calls", "{res}");
+    let h = r
+        .call("session.history", json!({"session_id": sid}))
+        .unwrap();
+    let text = h["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["kind"] == "tool_result")
+        .unwrap()["text"]
+        .to_string();
+    assert!(
+        text.contains("went"),
+        "the job ended while its turn waited: {text}"
+    );
+    let rows = r.ledger("tool.job_started");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["correlation_id"], cid);
+    assert_eq!(rows[0]["argv"], running["argv"], "the read matches the row");
+    assert_eq!(rows[0]["class"], "l1");
+    let after = r.call("sandbox.usage", Value::Null).unwrap();
+    assert!(after.get("running").is_none(), "{after}");
+}
+
 /// `[sandbox] l1_argv` routes a call to L1 that never asked (decision 2).
 #[test]
 fn l1_argv_routes_a_call_to_l1() {

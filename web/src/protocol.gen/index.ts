@@ -148,6 +148,7 @@ export type * from './Request';
 export type * from './Resource';
 export type * from './Response';
 export type * from './RpcError';
+export type * from './RunningJob';
 export type * from './SandboxHealth';
 export type * from './SandboxProbe';
 export type * from './SandboxUsage';

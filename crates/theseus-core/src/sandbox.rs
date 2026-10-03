@@ -30,7 +30,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use theseus_kernel::job::L1;
-use theseus_protocol::sandbox::{SandboxHealth, SandboxProbe};
+use theseus_protocol::sandbox::{RunningJob, SandboxHealth, SandboxProbe};
 use theseus_protocol::{Notice, Proposal};
 
 use crate::policy::{Decision, Posture};
@@ -293,30 +293,57 @@ pub(crate) async fn for_job(
 
 /// A job was launched: counted by class, and an L1 job's `sandbox.started`
 /// recorded (its limits, cgroup, and read-only paths).
-pub(crate) fn started(
-    rt: &ToolRuntime,
+/// A job was launched: counted by class, and an L1 job's start recorded.
+/// An L1 job is also listed as running, with its command, until the
+/// returned guard drops (theseus-kpz1): its call holds it until the call
+/// returns, by when the frame that carries its `tool.job_started` row is
+/// written.
+pub(crate) fn started<'a>(
+    rt: &'a ToolRuntime,
     tc: &crate::toolrun::TurnCtx<'_>,
     correlation_id: &str,
     tool: &str,
     spec: &theseus_tools::JobSpec,
     args: &theseus_kernel::job::WrapperArgs,
-) {
+) -> Option<Running<'a>> {
     let class = if args.sandbox.is_some() {
         Class::L1
     } else {
         Class::L0
     };
     rt.sandbox.count(class);
-    if let Some(view) = &args.sandbox {
-        tc.record(&crate::fact::sandbox::SandboxStarted {
-            correlation_id,
-            tool,
-            argv: &spec.argv,
-            cwd: &spec.cwd,
-            view,
-            sandbox: &rt.sandbox,
-            scrubber: &rt.scrubber,
-        });
+    let view = args.sandbox.as_ref()?;
+    tc.record(&crate::fact::sandbox::SandboxStarted {
+        correlation_id,
+        tool,
+        argv: &spec.argv,
+        cwd: &spec.cwd,
+        view,
+        sandbox: &rt.sandbox,
+        scrubber: &rt.scrubber,
+    });
+    Some(rt.sandbox.running(RunningJob {
+        correlation_id: correlation_id.into(),
+        session_id: tc.session_id.into(),
+        tool: tool.into(),
+        argv: spec.argv.clone(),
+        started_at_ms: theseus_protocol::now_unix_ms(),
+    }))
+}
+
+/// An L1 job listed as running (`Sandbox::running`), until this drops.
+pub(crate) struct Running<'a> {
+    sandbox: &'a Sandbox,
+    correlation_id: String,
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.sandbox
+            .running
+            .lock()
+            .unwrap()
+            .remove(&self.correlation_id);
     }
 }
 
@@ -488,6 +515,10 @@ pub struct Sandbox {
     /// refusals; and the latest refusal's words.
     egress: [AtomicU64; 4],
     refused_last: Mutex<Option<String>>,
+    /// The L1 jobs that run before their `tool.job_started` row is written,
+    /// by correlation id, for `sandbox.usage` (theseus-kpz1). In memory
+    /// only: the row is the record, and this covers the time before it.
+    running: Mutex<std::collections::BTreeMap<String, RunningJob>>,
 }
 
 impl Sandbox {
@@ -530,6 +561,20 @@ impl Sandbox {
             started: [AtomicU64::new(0), AtomicU64::new(0)],
             egress: Default::default(),
             refused_last: Mutex::default(),
+            running: Mutex::default(),
+        }
+    }
+
+    /// List `job` as running until the returned guard drops.
+    pub(crate) fn running(&self, job: RunningJob) -> Running<'_> {
+        let correlation_id = job.correlation_id.clone();
+        self.running
+            .lock()
+            .unwrap()
+            .insert(correlation_id.clone(), job);
+        Running {
+            sandbox: self,
+            correlation_id,
         }
     }
 
@@ -688,9 +733,13 @@ impl Sandbox {
     /// `sandbox.usage`: every job cgroup under the readied `jobs`, read now
     /// and changed in nothing. Before the first L1 job readies it, or where
     /// the cgroup is not delegated, there is none, and `why` says which.
+    ///
+    /// The L1 jobs whose rows are not written yet are listed with their
+    /// commands (`running`, theseus-kpz1), cgroup or none.
     pub fn usage(&self) -> theseus_protocol::sandbox::SandboxUsage {
         use theseus_protocol::sandbox::{JobUsage, SandboxUsage};
         let at_ms = theseus_protocol::now_unix_ms();
+        let running: Vec<RunningJob> = self.running.lock().unwrap().values().cloned().collect();
         let jobs = self.jobs.lock().unwrap().clone();
         let dir = match jobs {
             Some(Ok(dir)) => dir,
@@ -698,6 +747,7 @@ impl Sandbox {
                 return SandboxUsage {
                     why: Some(why),
                     at_ms,
+                    running,
                     ..Default::default()
                 }
             }
@@ -709,6 +759,7 @@ impl Sandbox {
                 return SandboxUsage {
                     why: Some(why),
                     at_ms,
+                    running,
                     ..Default::default()
                 };
             }
@@ -738,6 +789,7 @@ impl Sandbox {
             why: None,
             at_ms,
             jobs: out,
+            running,
         }
     }
 
