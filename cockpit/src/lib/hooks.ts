@@ -11,6 +11,17 @@ export function useTick(ms = 1000) {
   return now
 }
 
+/** `value`, once it has stopped changing for `ms`: a costly view (a laid-out graph) follows a scrub of the time
+ *  machine when the needle rests, not at every step. */
+export function useSettled<T>(value: T, ms = 180): T {
+  const [settled, setSettled] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms)
+    return () => clearTimeout(t)
+  }, [value, ms])
+  return settled
+}
+
 /** Samples a polled number every `every` ms and keeps the last `n` samples, for a tile's own sparkline. */
 export function useHistory(value: number | undefined, n = 40, every = 2000) {
   const [h, setH] = useState<number[]>([])

@@ -216,7 +216,7 @@ function River({ parts, title, measure, onPick }: { parts: Part[]; title: Map<st
       return kindOf.get(n)?.word ?? n
     }
     const depth = (n: string) => (n.startsWith('s:') ? 0 : n.startsWith('m:') ? 1 : n.startsWith('k:') ? 2 : 3)
-    const color = (n: string) => (n === 'sea' ? '#d6a548' : n.startsWith('k:') ? kindOf.get(n)!.c : n.startsWith('m:') ? '#7e6bb8' : '#8c7a55')
+    const color = (n: string) => (n === 'sea' ? '#d6a548' : n.startsWith('k:') ? kindOf.get(n)!.c : n.startsWith('m:') ? '#d9cba8' : '#c9a467')
     const valueOf = new Map<string, number>()
     for (const [k, x] of f.flows) { const [a, b] = k.split('\u0000'); valueOf.set(b, (valueOf.get(b) ?? 0) + x); if (depth(a) === 0) valueOf.set(a, (valueOf.get(a) ?? 0) + x) }
     return {
@@ -249,8 +249,8 @@ function River({ parts, title, measure, onPick }: { parts: Part[]; title: Map<st
         links: [...f.flows.entries()].map(([k, value]) => {
           const [source, target] = k.split('\u0000')
           const kind = kindOf.get(target) ?? kindOf.get(source)
-          // Into the kinds and out to the sea, each stream wears its kind; from a session to its model, brass turning violet.
-          return { source, target, value, lineStyle: { color: kind ? kind.c : 'gradient', opacity: kind ? 0.42 : 0.3, curveness: 0.5 } }
+          // Into the kinds and out to the sea, each stream wears its kind; from a session to its model, brass turning ivory.
+          return { source, target, value, lineStyle: { color: kind ? kind.c : 'gradient', opacity: kind ? 0.42 : 0.36, curveness: 0.5 } }
         }),
       }],
     }

@@ -8,7 +8,7 @@ import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { ArrowDownUp, Layers, Network, Plus, Search, Wrench } from 'lucide-react'
 import type { ExecutionInfo, SessionInfo } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
-import { useTick } from '@/lib/hooks'
+import { useSettled, useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { ago, cn, pct, short, stamp, tokens, usd } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
@@ -64,6 +64,8 @@ export default function Fleet() {
   // The time machine: the fleet as it stood at its moment, folded from the ledger. Deferred, so a scrub's needle
   // never waits on the table and the graph.
   const world = useDeferredValue(useWorld())
+  // The graph follows a scrub once the needle rests; the table follows every step.
+  const graphWorld = useSettled(world, 180)
   const now = world?.t ?? tick
   const sessions = world?.sessions ?? sl?.sessions ?? NO_SESSIONS
   const executions = world?.executions ?? el?.executions ?? NO_EXECUTIONS
@@ -165,7 +167,8 @@ export default function Fleet() {
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
         <RPanel defaultSize="38" minSize={320} className="min-h-0">
           <Panel title="Graph · tasks and reports" icon={<Network size={13} />} className="h-full" bodyClassName="min-h-0">
-            <FleetGraph sessions={sessions} executions={executions} onOpen={(sid) => nav(`/session/${sid}`)} />
+            <FleetGraph sessions={graphWorld?.sessions ?? sessions} executions={graphWorld?.executions ?? executions} onOpen={(sid) => nav(`/session/${sid}`)}
+              layout={graphWorld ? { sessions: sl?.sessions ?? NO_SESSIONS, executions: el?.executions ?? NO_EXECUTIONS } : undefined} />
           </Panel>
         </RPanel>
       </Group>
@@ -204,21 +207,27 @@ type Elk = InstanceType<typeof import('elkjs/lib/elk.bundled.js').default>
 let elkReady: Promise<Elk> | null = null
 const getElk = () => (elkReady ??= import('elkjs/lib/elk.bundled.js').then((m) => new m.default()))
 
-function FleetGraph({ sessions, executions, onOpen }: { sessions: SessionInfo[]; executions: ExecutionInfo[]; onOpen: (sid: string) => void }) {
+/** The graph of who started whom. `layout` (the time machine's present lists) lays it out once; the past then only
+ *  hides the nodes that did not exist yet, so a scrub never lays it out again and no node moves. */
+function FleetGraph({ sessions, executions, onOpen, layout }: {
+  sessions: SessionInfo[]; executions: ExecutionInfo[]; onOpen: (sid: string) => void
+  layout?: { sessions: SessionInfo[]; executions: ExecutionInfo[] }
+}) {
   const [laid, setLaid] = useState<{ nodes: Node<SessionNodeData>[]; edges: Edge[] }>({ nodes: [], edges: [] })
-  const shape = useMemo(() => sessions.map((s) => `${s.session_id}:${s.parent_session_id ?? ''}`).join('|') + executions.map((e) => e.reports_to ?? '').join('|'), [sessions, executions])
+  const lay = layout ?? { sessions, executions }
+  const shape = useMemo(() => lay.sessions.map((s) => `${s.session_id}:${s.parent_session_id ?? ''}`).join('|') + lay.executions.map((e) => e.reports_to ?? '').join('|'), [lay.sessions, lay.executions])
   const byExec = useMemo(() => new Map(executions.map((e) => [e.execution_id, e])), [executions])
-  const sessOfExec = useMemo(() => new Map(executions.map((e) => [e.execution_id, e.session_id])), [executions])
 
   useEffect(() => {
-    const ids = new Set(sessions.map((s) => s.session_id))
+    const ids = new Set(lay.sessions.map((s) => s.session_id))
+    const sessOfExec = new Map(lay.executions.map((e) => [e.execution_id, e.session_id]))
     const edges: Edge[] = []
-    for (const s of sessions) {
+    for (const s of lay.sessions) {
       if (s.parent_session_id && ids.has(s.parent_session_id)) {
-        edges.push({ id: `t-${s.session_id}`, source: s.parent_session_id, target: s.session_id, animated: s.execution_state === 'running', style: { stroke: toneHex.tool, strokeWidth: 1.5 } })
+        edges.push({ id: `t-${s.session_id}`, source: s.parent_session_id, target: s.session_id, style: { stroke: toneHex.tool, strokeWidth: 1.5 } })
       }
     }
-    for (const e of executions) {
+    for (const e of lay.executions) {
       const to = e.reports_to ? sessOfExec.get(e.reports_to) ?? e.reports_to : null
       if (to && ids.has(to) && to !== e.session_id && !edges.some((x) => x.source === to && x.target === e.session_id)) {
         edges.push({ id: `r-${e.execution_id}`, source: e.session_id, target: to, style: { stroke: toneHex.model, strokeDasharray: '4 3' } })
@@ -228,41 +237,43 @@ function FleetGraph({ sessions, executions, onOpen }: { sessions: SessionInfo[];
     getElk().then((elk) => elk.layout({
       id: 'root',
       layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'RIGHT', 'elk.spacing.nodeNode': '22', 'elk.layered.spacing.nodeNodeBetweenLayers': '60', 'elk.separateConnectedComponents': 'true', 'elk.spacing.componentComponent': '26' },
-      children: sessions.map((s) => ({ id: s.session_id, width: 214, height: 74 })),
+      children: lay.sessions.map((s) => ({ id: s.session_id, width: 214, height: 74 })),
       edges: edges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] })),
     }).then((g) => {
       if (cancelled) return
       const pos = new Map((g.children ?? []).map((c) => [c.id, { x: c.x ?? 0, y: c.y ?? 0 }]))
       setLaid({
-        nodes: sessions.map((s) => ({ id: s.session_id, type: 'session', position: pos.get(s.session_id) ?? { x: 0, y: 0 }, data: { s, e: s.execution_id ? byExec.get(s.execution_id) : undefined } })),
+        nodes: lay.sessions.map((s) => ({ id: s.session_id, type: 'session', position: pos.get(s.session_id) ?? { x: 0, y: 0 }, data: { s } })),
         edges,
       })
     })).catch(() => {})
     return () => { cancelled = true }
     // Lay out again only when the graph's shape changes; node data refreshes below.
-  }, [shape])
+  }, [shape]) // eslint-disable-line react-hooks/exhaustive-deps -- the shape key stands for the lists it reads
 
   // Fresh data on the laid-out nodes, every poll, without moving them. A node whose shown fields did not change keeps
   // its object, so a scrub of the time machine redraws only the nodes that changed.
   const [kept] = useState(() => new Map<string, { key: string; node: Node<SessionNodeData> }>())
-  const nodes = useMemo(() => {
-    const cur = new Map(sessions.map((s) => [s.session_id, s]))
-    return laid.nodes.map((n) => {
-      const s = cur.get(n.id) ?? n.data.s
-      const e = s.execution_id ? byExec.get(s.execution_id) : undefined
-      const key = [n.position.x, n.position.y, s.title, s.label, s.execution_state, s.attention?.label, s.turns, s.tool_calls, s.cost_usd, e?.budget.spent_usd, e?.budget.reserved_usd, e?.budget.limit_usd].join('|')
-      const had = kept.get(n.id)
-      if (had && had.key === key) return had.node
-      const node = { ...n, data: { s, e } }
-      kept.set(n.id, { key, node })
-      return node
-    })
-  }, [laid.nodes, sessions, byExec, kept])
+  const cur = useMemo(() => new Map(sessions.map((s) => [s.session_id, s])), [sessions])
+  const nodes = useMemo(() => laid.nodes.filter((n) => cur.has(n.id)).map((n) => {
+    const s = cur.get(n.id)!
+    const e = s.execution_id ? byExec.get(s.execution_id) : undefined
+    const key = [n.position.x, n.position.y, s.title, s.label, s.execution_state, s.attention?.label, s.turns, s.tool_calls, s.cost_usd, e?.budget.spent_usd, e?.budget.reserved_usd, e?.budget.limit_usd].join('|')
+    const had = kept.get(n.id)
+    if (had && had.key === key) return had.node
+    const node = { ...n, data: { s, e } }
+    kept.set(n.id, { key, node })
+    return node
+  }), [laid.nodes, cur, byExec, kept])
+  // A task's tether flows while the task runs; an edge to a node not yet there is not drawn.
+  const edges = useMemo(() => laid.edges
+    .filter((e) => cur.has(e.source) && cur.has(e.target))
+    .map((e) => (e.id.startsWith('t-') && cur.get(e.target)?.execution_state === 'running' ? { ...e, animated: true } : e)), [laid.edges, cur])
 
   if (!sessions.length) return <Empty>no sessions</Empty>
   return (
     <div className="relative h-full">
-      <ReactFlow nodes={nodes} edges={laid.edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.2} maxZoom={1.6}
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.2} maxZoom={1.6}
         proOptions={{ hideAttribution: true }} colorMode="dark" nodesDraggable onNodeClick={(_, n) => onOpen(n.id)}>
         <Background color="rgba(176,141,87,0.12)" gap={22} size={1} />
         <Controls showInteractive={false} className="!bg-hull !shadow-none [&>button]:!border-line [&>button]:!bg-hull [&>button]:!fill-ink-dim" />

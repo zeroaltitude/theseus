@@ -439,7 +439,7 @@ function Labels({ health, rows, log, title }: { health?: Health; rows: LedgerEnt
       {/* 19c: a reply whose place gained a viewer waits for the owner; graduation widens a node's readers. */}
       <div className="ship-engraved mt-1 text-[9.5px]">Held posts and graduations</div>
       <div className="num px-1 text-[11.5px] text-ink-dim">
-        {l.held ? <>{l.held.now} held for the owner now · {l.held.since_start} since the start</> : 'this daemon predates held posts (19c)'}
+        {l.held ? <>{l.held.now} held for the owner now · {l.held.since_start} since the start</> : 'no post held for the owner since the start'}
       </div>
       {log.slice(-5).reverse().map((r) => {
         const d = (r.data ?? {}) as D
