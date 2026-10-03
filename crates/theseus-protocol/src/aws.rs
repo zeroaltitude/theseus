@@ -67,6 +67,15 @@ pub struct AwsBootstrapStack {
     /// What an update changes: the template, a parameter, a tag.
     pub changes: Vec<String>,
     pub parameters: BTreeMap<String, String>,
+    /// What the apply sets on the stack besides a change set: `stack policy`,
+    /// `termination protection`. A create gets both; an existing stack, what
+    /// it lacks, as when a run stopped before setting them.
+    #[serde(default)]
+    pub sets: Vec<String>,
+    /// The stack policy the apply sets: its file's, naming only the resources
+    /// the stack makes under these parameters. The digest covers it.
+    #[serde(default)]
+    pub policy: String,
 }
 
 /// `aws.bootstrap`'s result: the plan, and whether it was applied.
@@ -80,7 +89,8 @@ pub struct AwsBootstrapResult {
     pub warnings: Vec<String>,
     /// The plan's digest, which `apply` names.
     pub digest: String,
-    /// Some stack is created or changed.
+    /// Some stack is created or changed, or gets a policy or termination
+    /// protection it lacks.
     pub changes: bool,
     pub applied: bool,
     /// What the operator does next.
