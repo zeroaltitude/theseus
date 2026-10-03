@@ -29,7 +29,6 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde::Serialize;
 use serde_json::{json, Value};
-use theseus_core::sandbox::PROBE_AFTER;
 use theseus_core::tender::START_AFTER;
 
 use crate::fake_model::{FakeModel, TOOL_MARK};
@@ -174,18 +173,15 @@ fn until_quiet(tail: &mut Tail) -> Result<Vec<Frame>> {
 /// the index tender starts [`START_AFTER`] after serving and records its
 /// start (`ledger:index.tender`) in a frame of its own, which a measured
 /// turn would otherwise count (theseus-u55z; the join gate's six-frame plain
-/// turn at 11:08 on 2026-10-02), and so does the L1 probe [`PROBE_AFTER`]
-/// after serving (`ledger:sandbox.probe`, M4 17b). A daemon whose tender is
-/// off writes no such row, so its wait ends at its deadline; either way the
-/// WAL is then quiet.
+/// turn at 11:08 on 2026-10-02). A daemon whose tender is off writes no such
+/// row, so its wait ends at its deadline; either way the WAL is then quiet.
+/// (The L1 probe's row, 3 s after serving, went with the probe:
+/// theseus-gyin.)
 fn after_serving(tail: &mut Tail) -> Result<()> {
     let t0 = Instant::now();
     // Each row the start's aftermath writes, and when it is due: the index
-    // tender's start, and the L1 probe's (M4 17b, `sandbox::PROBE_AFTER`).
-    let mut due = [
-        ("ledger:index.tender", START_AFTER, false),
-        ("ledger:sandbox.probe", PROBE_AFTER, false),
-    ];
+    // tender's start.
+    let mut due = [("ledger:index.tender", START_AFTER, false)];
     loop {
         for f in tail.read()? {
             for (row, _, seen) in &mut due {

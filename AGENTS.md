@@ -33,7 +33,7 @@ One line each; a crate's key modules and its readers are in its own `AGENTS.md`.
 - `theseus-core`: The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools.
 - `theseus-aws-catalog`, `theseus-aws`: Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1).
 - `theseus-discord`: The Discord binding, in-process; it acts through the protocol.
-- `theseus-sandbox`: L1: a job in its own namespaces, seccomp, and cgroup; the egress proxy (wired at 18c)
+- `theseus-sandbox`: L1: a job in its own namespaces under seccomp, with no cgroup of its own; the egress proxy (wired at 18c)
 - `theseusd`: The daemon: serving, `job-wrapper`, `job-sandbox`, `check`, `restore`, `install`, the web server.
 - `theseus`: The CLI, and its library `theseus_client` (client, render), which the terminal UI shares.
 - `theseus-tui`: The terminal UI: every session in a sidebar, what needs you answered inline, a session's history and input line. A protocol client.

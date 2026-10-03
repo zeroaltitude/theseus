@@ -136,15 +136,6 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Internal: the L1 probe (17b), spawned by the daemon after serving: one
-    /// `/bin/true` in L1 over the view on stdin, its answer on stdout.
-    #[command(hide = true)]
-    SandboxProbe,
-    /// Internal: a unit's stop hook (`ExecStopPost=`, which `install` writes):
-    /// turns off the limits the daemon's L1 jobs enabled in the unit's
-    /// cgroup, so the next start can join it while an old job still runs.
-    #[command(hide = true)]
-    CgroupRelease,
 }
 
 /// In the environment of a start that must read the vault before serving,
@@ -205,16 +196,6 @@ fn main() -> Result<()> {
         // (theseus-l0d).
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
         return theseus_kernel::job::run_wrapper_process(&wa);
-    }
-    if let Some(Cmd::SandboxProbe) = cli.cmd {
-        // No config, no runtime: one clone, from this process's one thread.
-        let mut view = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin(), &mut view)?;
-        let l1 = serde_json::from_str(&view).context("the probe's view")?;
-        return out(&format!("{}\n", theseus_kernel::job::probe(&l1)));
-    }
-    if let Some(Cmd::CgroupRelease) = cli.cmd {
-        return cgroup_release();
     }
     if let Some(Cmd::Install(args)) = &cli.cmd {
         // No config, no secrets, no runtime: never on the start path.
@@ -415,12 +396,12 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         op.clone(),
     ));
 
+    let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     if let Some(Cmd::Check) = cli.cmd {
-        check(&cli.config, &cfg, &secrets).await?;
+        check(&cli.config, &cfg, &secrets, &state_dir).await?;
         return Ok(Exit::Done);
     }
 
-    let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     private_dir(&state_dir)?;
     // A panic aborts the release build (`panic = "abort"`): its hook first
     // writes what panicked beside the store, which the next start reports
@@ -598,27 +579,6 @@ fn example_config(overlay: Option<&Path>, plain: bool) -> Result<()> {
     out(&format!(
         "# theseusd example-config, with the overlay {named} in place (--plain prints the template alone).\n{rendered}"
     ))
-}
-
-/// The unit's stop hook (`theseusd cgroup-release`, 17b's join): no config,
-/// no runtime. systemd runs it after every stop and crash, in the unit's
-/// `.control` cgroup; its line goes to the journal.
-fn cgroup_release() -> Result<()> {
-    use theseus_sandbox::cgroup;
-    let own = cgroup::own()?;
-    let Some(unit) = cgroup::stop_hook_unit(&own) else {
-        return out(&format!(
-            "cgroup-release: nothing to release from {} (a readied unit's stop hook alone)\n",
-            own.display()
-        ));
-    };
-    let off = cgroup::release(&unit).with_context(|| format!("releasing {}", unit.display()))?;
-    let what = if off.is_empty() {
-        "nothing was on".to_string()
-    } else {
-        off.join(", ")
-    };
-    out(&format!("cgroup-release: {}: {what}\n", unit.display()))
 }
 
 fn out(text: &str) -> Result<()> {
@@ -885,7 +845,10 @@ fn keep_copy(core: &Core, text: &str) {
 
 /// `theseusd check`: every secret resolves, or the check fails naming each
 /// one that did not and why. It waits for the first round, as serving does not.
-async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result<()> {
+/// Then L1's self-test, on demand (theseus-gyin): `/bin/true` in L1 over the
+/// view a job of a daemon on `state` gets, and its verdict. L1 is not
+/// required, so a failed self-test is said, and fails nothing.
+async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &Path) -> Result<()> {
     secrets.settle_all().await;
     let st = secrets.status();
     if !st.failed.is_empty() {
@@ -904,13 +867,18 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>) -> Result
     // (theseus-gh7): read from the config alone.
     let broker = theseus_core::broker::Broker::new(&cfg.broker, secrets.clone(), None);
     let kept = theseus_core::broker::harness_only(cfg, &broker);
+    let l1 = theseus_core::toolrun::sandbox_for(cfg, state)
+        .self_test()
+        .await;
     out(&format!(
-        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n{}\n",
+        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n{}\nL1: the \
+         self-test {}\n",
         st.ready.len(),
         st.settled_ms.unwrap_or(0),
         st.method.as_deref().unwrap_or("nothing to fetch"),
         st.ready.join(", "),
-        kept.line()
+        kept.line(),
+        theseus_protocol::sandbox::launch_words(&l1)
     ))
 }
 
@@ -972,14 +940,6 @@ async fn after_serving(
     // for nothing the config gate guards.
     if bindings.is_some() {
         tokio::spawn(core.index.clone().run());
-    }
-    // The L1 probe (M4 17b): `/bin/true` in the sandbox, once per image, so
-    // again after a restart in place, `PROBE_AFTER` the start. The socket
-    // daemon's alone, and only when there are tools to run jobs.
-    if bindings.is_some() && core.tools.enabled() {
-        tokio::spawn(theseus_core::sandbox::probe_after_serving(Arc::downgrade(
-            &core,
-        )));
     }
     if !core.config_gate.opened().await {
         return;

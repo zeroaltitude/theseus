@@ -1,7 +1,7 @@
 //! L1 for `proc.run` (M4 17b; design §2.2): `[sandbox]`, which class a job
-//! runs in, L1's posture, the view an L1 job gets, the probe after serving,
-//! and the delegated cgroup. The sandbox itself is `theseus_sandbox`, which
-//! the job wrapper runs (`theseus_kernel::job`'s L1 path).
+//! runs in, L1's posture, the view an L1 job gets, and what health says of
+//! it. The sandbox itself is `theseus_sandbox`, which the job wrapper runs
+//! (`theseus_kernel::job`'s L1 path).
 //!
 //! - **The class** is chosen at plan time, at most one way, toward L1:
 //!   `[sandbox] default`, then `l1_argv`, then the model's `sandbox: true`.
@@ -19,19 +19,21 @@
 //!   proposal names, never in one worked out again. So is an L1 job's egress
 //!   list (18c, `crate::egress`): `[sandbox] egress`, and the hosts its call
 //!   named, which make it wait when they go beyond that list.
-//! - **Nothing new before serving**: the probe runs after serving, and the
-//!   cgroup is found by it, or by the first L1 job, and readied at that job.
+//! - **Nothing at the start** (theseus-gyin): health reports the last real
+//!   L1 launch, from its job's completion, and `theseusd check` runs the
+//!   self-test on demand (`self_test`). An L1 job has no cgroup: its
+//!   processes are capped by `RLIMIT_NPROC`, so a daemon that runs as root,
+//!   whom Linux exempts from it, gets no L1 job at all (theseus-pv6i).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use theseus_kernel::job::L1;
-use theseus_protocol::sandbox::{RunningJob, SandboxHealth, SandboxProbe};
+use theseus_protocol::sandbox::{RunningJob, SandboxHealth, SandboxLaunch};
 use theseus_protocol::{Notice, Proposal};
 
 use crate::policy::{Decision, Posture};
@@ -60,7 +62,7 @@ impl Class {
 }
 
 /// `[sandbox]` (design §2.12; Eddie's decisions 2 and 3).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SandboxConfig {
     /// The class of every `proc.run`: `l0` built in, so an upgrade changes
@@ -76,9 +78,11 @@ pub struct SandboxConfig {
     /// that does not exist is skipped, and the result says so.
     #[serde(default)]
     pub ro_paths: Vec<String>,
-    /// An L1 job's memory, where the daemon's cgroup is delegated.
-    #[serde(default = "default_memory_mb")]
-    pub memory_mb: u64,
+    /// Retired (theseus-gyin): an L1 job's memory, from the delegated cgroup
+    /// L1 no longer has. Still loads, so an older config starts, with one
+    /// warning, and is never honored.
+    #[serde(default, skip_serializing)]
+    pub memory_mb: Option<toml::Value>,
     /// An L1 job's processes.
     #[serde(default = "default_pids")]
     pub pids: u64,
@@ -97,9 +101,6 @@ pub struct SandboxConfig {
     pub egress: Vec<String>,
 }
 
-fn default_memory_mb() -> u64 {
-    2048
-}
 fn default_pids() -> u64 {
     512
 }
@@ -116,7 +117,7 @@ impl Default for SandboxConfig {
             default: Class::L0,
             l1_argv: Vec::new(),
             ro_paths: Vec::new(),
-            memory_mb: default_memory_mb(),
+            memory_mb: None,
             pids: default_pids(),
             scratch_mb: default_scratch_mb(),
             output_mb: default_output_mb(),
@@ -128,7 +129,6 @@ impl Default for SandboxConfig {
 impl SandboxConfig {
     pub fn validate(&self) -> Result<()> {
         for (name, v, min) in [
-            ("memory_mb", self.memory_mb, 16),
             ("pids", self.pids, 1),
             ("scratch_mb", self.scratch_mb, 1),
             ("output_mb", self.output_mb, 1),
@@ -154,6 +154,16 @@ impl SandboxConfig {
             }
         }
         Ok(())
+    }
+
+    /// The warning for a retired key this section still sets, which
+    /// `Config::parse` gives once per load (theseus-gyin).
+    pub fn retired(&self) -> Option<String> {
+        self.memory_mb.is_some().then(|| {
+            "sandbox.memory_mb is retired and ignored (theseus-gyin): an L1 job has no cgroup, so \
+             no memory limit, as an L0 job has none; remove it"
+                .into()
+        })
     }
 }
 
@@ -263,8 +273,7 @@ pub(crate) fn record((_, d, bound): &(Plan, Decision, Bound)) -> theseus_protoco
 
 /// What a job is given at its spawn (`toolrun`'s `run_job`): what the broker
 /// grants its program, in both classes (theseus-w5op), the values in its
-/// environment; and in L1 its view and limits, the cgroup readied at the
-/// first L1 job.
+/// environment; and in L1 its view and limits.
 pub(crate) async fn for_job(
     rt: &ToolRuntime,
     bound: &Bound,
@@ -280,15 +289,14 @@ pub(crate) async fn for_job(
     if !bound.l1() {
         return (granted, None);
     }
-    let mut view = rt.sandbox.job_view().await;
+    let mut view = rt.sandbox.job_view();
     // The list its proposal binds, and no other (18c).
     view.egress.clone_from(&bound.egress);
     (granted, Some(view))
 }
 
 /// A job was launched: counted by class, and an L1 job's `sandbox.started`
-/// recorded (its limits, cgroup, and read-only paths).
-/// A job was launched: counted by class, and an L1 job's start recorded.
+/// recorded (its limits and read-only paths).
 /// An L1 job is also listed as running, with its command, until the
 /// returned guard drops (theseus-kpz1): its call holds it until the call
 /// returns, by when the frame that carries its `tool.job_started` row is
@@ -412,8 +420,8 @@ pub fn given(vars: &[&str]) -> String {
 
 /// An L1 job's lines at the head of its result (design §2.11): where it
 /// ran, what it was given at its launch (the wrapper's `granted`, names
-/// only), and what it wrote to scratch, the limits it met, or why it could
-/// not start. Empty for an L0 job.
+/// only), and what it wrote to scratch, the size limit it met, or why it
+/// could not start. Empty for an L0 job.
 pub fn result_lines(detail: &Value) -> String {
     let Some(sb) = detail.get("sandbox").filter(|s| s["class"] == "l1") else {
         return String::new();
@@ -440,16 +448,6 @@ pub fn result_lines(detail: &Value) -> String {
         )),
     }
     lines.extend(crate::egress::lines(detail));
-    if let Some(n) = sb["pids_refused"].as_u64() {
-        lines.push(format!(
-            "[L1: {n} of its forks were refused at its process limit]"
-        ));
-    }
-    if let Some(n) = sb["oom_kills"].as_u64() {
-        lines.push(format!(
-            "[L1: its memory limit killed {n} of its processes]"
-        ));
-    }
     if sb["output_capped"] == true {
         lines.push(
             "[L1: it wrote a file past its size limit ([sandbox] output_mb), and was stopped \
@@ -464,21 +462,38 @@ pub fn result_lines(detail: &Value) -> String {
             names.join(", ")
         ));
     }
-    if let Some(e) = sb["cgroup_error"].as_str() {
-        lines.push(format!("[L1: it had no cgroup, so no memory limit: {e}]"));
-    }
     lines.join("\n") + "\n"
 }
 
-/// Where an L1 job's memory and pids limits come from.
-#[derive(Debug, Clone, PartialEq)]
-enum Cgroup {
-    /// The daemon's own systemd service, with `Delegate=yes`: each job gets
-    /// `<dir>/jobs/<corr>`.
-    Delegated(PathBuf),
-    /// None, and why: the namespaces and seccomp still hold, and
-    /// `RLIMIT_NPROC` still caps a job's processes.
-    None(String),
+/// What an L1 job's completion `detail` says of its launch at `at_ms`, as
+/// health keeps the last one and `theseusd check` reports its self-test's
+/// (theseus-gyin): whether it started in L1, or why not; how long the start
+/// took; and what it found. None for an L0 job.
+pub fn launch_of(detail: &Value, at_ms: u64) -> Option<SandboxLaunch> {
+    let sb = detail.get("sandbox").filter(|s| s["class"] == "l1")?;
+    let why = sb.get("error").map(|e| {
+        format!(
+            "{}: {}",
+            e["stage"].as_str().unwrap_or("?"),
+            e["error"].as_str().unwrap_or("?")
+        )
+    });
+    Some(SandboxLaunch {
+        ok: why.is_none(),
+        at_ms,
+        why,
+        start_ms: sb["start_us"].as_u64().map(|us| us as f64 / 1000.0),
+        sys: sb["sys"].as_bool(),
+        lo: sb["lo"].as_bool(),
+        skipped: sb["skipped"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|s| s.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
 }
 
 /// Credential files an `ro_paths` entry could bind (`~/.cargo` holds
@@ -486,16 +501,18 @@ enum Cgroup {
 /// floor is, since an L1 job reads at notify what L0 would ask for.
 const CREDENTIALS: [&str; 2] = ["~/.cargo/credentials", "~/.cargo/credentials.toml"];
 
-/// L1's state in a daemon: its settings, the view a job gets, the probe's
-/// last answer, the cgroup, and the jobs by class.
+/// L1's state in a daemon: its settings, the view a job gets, the last L1
+/// launch heard of, why L1 refuses every job here (a root daemon), and the
+/// jobs by class.
 pub struct Sandbox {
     pub cfg: SandboxConfig,
     view: Mutex<L1>,
-    probe: Mutex<Option<SandboxProbe>>,
-    cgroup: tokio::sync::OnceCell<Cgroup>,
-    /// The delegated cgroup's `jobs`, readied at the first L1 job, or why
-    /// not.
-    jobs: Mutex<Option<Result<PathBuf, String>>>,
+    /// The newest L1 launch whose job's completion this daemon has read
+    /// (theseus-gyin), by its launch time.
+    last: Mutex<Option<SandboxLaunch>>,
+    /// `theseus_sandbox::refused_here`, asked once: L1 refuses every job of
+    /// a daemon that runs as root (theseus-pv6i).
+    refuses: Option<&'static str>,
     started: [AtomicU64; 2],
     /// Since the start (18c): connections out, bytes up and down, and
     /// refusals; and the latest refusal's words.
@@ -530,8 +547,6 @@ impl Sandbox {
                 .filter(|p| p.is_absolute())
                 .collect(),
             limits: theseus_sandbox_limits(cfg),
-            memory_mb: cfg.memory_mb,
-            cgroup: None,
             // Each job's own, from its proposal (`for_job`).
             egress: Vec::new(),
             egress_dns: crate::egress::test_dns(),
@@ -539,9 +554,8 @@ impl Sandbox {
         Self {
             cfg: cfg.clone(),
             view: Mutex::new(view),
-            probe: Mutex::default(),
-            cgroup: tokio::sync::OnceCell::new(),
-            jobs: Mutex::default(),
+            last: Mutex::default(),
+            refuses: theseus_sandbox::refused_here(),
             started: [AtomicU64::new(0), AtomicU64::new(0)],
             egress: Default::default(),
             refused_last: Mutex::default(),
@@ -622,87 +636,57 @@ impl Sandbox {
         self.started[class as usize].fetch_add(1, Ordering::Relaxed);
     }
 
-    /// The view and limits for an L1 job, with the job's cgroup's parent
-    /// when the daemon's is delegated: the first L1 job finds the cgroup if
-    /// the probe has not, and readies it (the daemon moves into its leaf).
-    pub async fn job_view(&self) -> L1 {
-        let cg = self.cgroup.get_or_init(find_cgroup).await;
-        let mut v = self.view.lock().unwrap().clone();
-        v.cgroup = self.jobs_dir(cg).ok();
-        v
+    /// The view and limits for an L1 job.
+    pub fn job_view(&self) -> L1 {
+        self.view.lock().unwrap().clone()
     }
 
-    /// What a job's limits are, in words: `memory 2048 MB, 512 processes`,
-    /// or why there is no memory limit.
+    /// What a job's limits are, in words: `512 processes, 1024 MB of
+    /// scratch`.
     pub fn limits_line(&self) -> String {
-        let memory = match self.jobs.lock().unwrap().as_ref() {
-            Some(Ok(_)) => format!("{} MB of memory, ", self.cfg.memory_mb),
-            Some(Err(why)) => format!("no memory limit, since {why}; "),
-            None => String::new(),
-        };
         format!(
-            "{memory}{} processes, {} MB of scratch",
+            "{} processes, {} MB of scratch",
             self.cfg.pids, self.cfg.scratch_mb
         )
     }
 
-    fn jobs_dir(&self, cg: &Cgroup) -> Result<PathBuf, String> {
-        let mut j = self.jobs.lock().unwrap();
-        if let Some(r) = &*j {
-            return r.clone();
+    /// An L1 job's completion, read (`launch_of`, launched at `at_ms`):
+    /// health's last launch when it is the newest heard of (theseus-gyin).
+    /// An L0 job's says nothing.
+    pub fn launched(&self, detail: &Value, at_ms: u64) {
+        let Some(l) = launch_of(detail, at_ms) else {
+            return;
+        };
+        let mut last = self.last.lock().unwrap();
+        if last.as_ref().is_none_or(|p| p.at_ms <= l.at_ms) {
+            *last = Some(l);
         }
-        let r = match cg {
-            Cgroup::Delegated(dir) => theseus_sandbox::cgroup::delegate(dir)
-                .map_err(|e| format!("readying {} for jobs: {e}", dir.display())),
-            Cgroup::None(why) => Err(why.clone()),
-        };
-        *j = Some(r.clone());
-        r
     }
 
-    /// The probe (design §2.2): `/bin/true` in L1, through this binary's
-    /// `sandbox-probe` role (`exe`), over the view a job gets. It also finds
-    /// the cgroup, off every job's path. Kept for health, and returned.
-    pub async fn probe(&self, exe: &Path) -> SandboxProbe {
-        let mut view = self.view.lock().unwrap().clone();
-        view.cgroup = None;
+    /// `theseusd check`'s self-test, on demand (theseus-gyin): `/bin/true`
+    /// in L1 over the view a job gets, started as a job starts, on a thread
+    /// that lives until it ends. A serving daemon never runs it.
+    pub async fn self_test(&self) -> SandboxLaunch {
+        let view = self.job_view();
         let at_ms = theseus_protocol::now_unix_ms();
-        let p = match run_probe(exe, &view).await {
-            Ok(v) => read_probe(&v, at_ms),
-            Err(why) => SandboxProbe {
-                ok: false,
-                at_ms,
-                why: Some(why),
-                ..Default::default()
-            },
-        };
-        let _ = self.cgroup.get_or_init(find_cgroup).await;
-        *self.probe.lock().unwrap() = Some(p.clone());
-        p
-    }
-
-    /// The cgroup, in words: `delegated: <dir>`, or `none: <why>`.
-    pub fn cgroup_line(&self) -> Option<String> {
-        let cg = self.cgroup.get()?;
-        Some(match (cg, self.jobs.lock().unwrap().as_ref()) {
-            (_, Some(Err(why))) | (Cgroup::None(why), _) => format!("none: {why}"),
-            (Cgroup::Delegated(dir), Some(Ok(_))) => format!("delegated: {}", dir.display()),
-            (Cgroup::Delegated(dir), None) => {
-                format!("delegated: {} (readied at the first L1 job)", dir.display())
-            }
-        })
+        let detail = tokio::task::spawn_blocking(move || theseus_kernel::job::self_test(&view))
+            .await
+            .unwrap_or_else(|e| {
+                serde_json::json!({"sandbox": {"class": "l1",
+                    "error": {"stage": "running the self-test", "error": e.to_string()}}})
+            });
+        launch_of(&detail, at_ms).unwrap_or_default()
     }
 
     pub fn health(&self) -> SandboxHealth {
         SandboxHealth {
             default: self.cfg.default.as_str().into(),
             l1_argv: self.cfg.l1_argv.iter().map(|a| a.join(" ")).collect(),
-            memory_mb: self.cfg.memory_mb,
             pids: self.cfg.pids,
             scratch_mb: self.cfg.scratch_mb,
             output_mb: self.cfg.output_mb,
-            probe: self.probe.lock().unwrap().clone(),
-            cgroup: self.cgroup_line(),
+            last_launch: self.last.lock().unwrap().clone(),
+            refuses: self.refuses.map(str::to_string),
             jobs_l0: self.started[0].load(Ordering::Relaxed),
             jobs_l1: self.started[1].load(Ordering::Relaxed),
             egress: crate::egress::health_list(&self.cfg.egress),
@@ -714,73 +698,13 @@ impl Sandbox {
         }
     }
 
-    /// `sandbox.usage`: every job cgroup under the readied `jobs`, read now
-    /// and changed in nothing. Before the first L1 job readies it, or where
-    /// the cgroup is not delegated, there is none, and `why` says which.
-    ///
-    /// The L1 jobs whose rows are not written yet are listed with their
-    /// commands (`running`, theseus-kpz1), cgroup or none.
+    /// `sandbox.usage`: the L1 jobs whose rows are not written yet, with
+    /// their commands (theseus-kpz1), read now.
     pub fn usage(&self) -> theseus_protocol::sandbox::SandboxUsage {
-        use theseus_protocol::sandbox::{JobUsage, SandboxUsage};
-        let at_ms = theseus_protocol::now_unix_ms();
-        let running: Vec<RunningJob> = self.running.lock().unwrap().values().cloned().collect();
-        let jobs = self.jobs.lock().unwrap().clone();
-        let dir = match jobs {
-            Some(Ok(dir)) => dir,
-            Some(Err(why)) => {
-                return SandboxUsage {
-                    why: Some(why),
-                    at_ms,
-                    running,
-                    ..Default::default()
-                }
-            }
-            None => {
-                let why = match self.cgroup.get() {
-                    Some(Cgroup::None(why)) => why.clone(),
-                    _ => "no L1 job has run yet: the first one readies the jobs' cgroup".into(),
-                };
-                return SandboxUsage {
-                    why: Some(why),
-                    at_ms,
-                    running,
-                    ..Default::default()
-                };
-            }
-        };
-        let mut out: Vec<JobUsage> = std::fs::read_dir(&dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-            .filter_map(|e| {
-                let u = theseus_sandbox::cgroup::usage(&e.path()).ok()?;
-                Some(JobUsage {
-                    correlation_id: e.file_name().to_string_lossy().into_owned(),
-                    memory_bytes: u.memory,
-                    memory_max: u.memory_max,
-                    memory_peak: u.memory_peak,
-                    pids: u.pids,
-                    pids_max: u.pids_max,
-                    pids_refused: u.pids_refused,
-                    populated: u.populated,
-                })
-            })
-            .collect();
-        out.sort_by(|a, b| a.correlation_id.cmp(&b.correlation_id));
-        SandboxUsage {
-            jobs_dir: Some(dir.display().to_string()),
-            why: None,
-            at_ms,
-            jobs: out,
-            running,
+        theseus_protocol::sandbox::SandboxUsage {
+            at_ms: theseus_protocol::now_unix_ms(),
+            running: self.running.lock().unwrap().values().cloned().collect(),
         }
-    }
-
-    /// Names a directory as the readied `jobs`, as the first L1 job would.
-    #[cfg(test)]
-    pub(crate) fn set_jobs_dir_for_tests(&self, dir: PathBuf) {
-        *self.jobs.lock().unwrap() = Some(Ok(dir));
     }
 }
 
@@ -793,7 +717,7 @@ pub(crate) fn the_templates_sandbox_section(s: &SandboxConfig) {
     assert_eq!(s.default, Class::L0);
     assert_eq!(s.l1_argv[0], ["npm", "install"]);
     assert_eq!(s.ro_paths, ["~/.cargo", "~/.rustup"]);
-    assert_eq!((s.memory_mb, s.pids), (2048, 512));
+    assert_eq!((s.memory_mb.as_ref(), s.pids), (None, 512));
     let egress = crate::egress::check(&s.egress).unwrap();
     for (host, port) in [
         ("index.crates.io", 443),
@@ -807,39 +731,6 @@ pub(crate) fn the_templates_sandbox_section(s: &SandboxConfig) {
     assert!(crate::Config::example().sandbox.egress.is_empty());
 }
 
-/// The probe waits this long after serving (design §2.10): its row lands
-/// outside the start's aftermath, and a second after the index tender's
-/// start (`tender::START_AFTER`), so the two never share a moment.
-pub const PROBE_AFTER: Duration = Duration::from_secs(3);
-
-/// The probe after serving (design §2.2), once per image, so a restart in
-/// place probes again: it waits [`PROBE_AFTER`], then runs this binary's
-/// `sandbox-probe` role and records `sandbox.probe`. It holds the core by
-/// `Weak` while it waits, so a stop never waits on it. A job never waits
-/// for it: one that finds L1 broken says why itself.
-pub async fn probe_after_serving(core: std::sync::Weak<crate::rpc::Core>) {
-    tokio::time::sleep(PROBE_AFTER).await;
-    let Some(c) = core.upgrade() else {
-        return;
-    };
-    let sandbox = c.tools.sandbox.clone();
-    drop(c);
-    let probe = sandbox.probe(Path::new("/proc/self/exe")).await;
-    let cgroup = sandbox.cgroup_line();
-    tracing::info!(ok = probe.ok, why = ?probe.why, start_ms = ?probe.start_ms, cgroup = ?cgroup, "sandbox probe");
-    let Some(c) = core.upgrade() else {
-        return;
-    };
-    // Its row is a frame of its own, written off the runtime's workers.
-    let _ = tokio::task::spawn_blocking(move || {
-        c.rec(None).record(&crate::fact::sandbox::SandboxProbed {
-            probe: &probe,
-            cgroup: cgroup.as_deref(),
-        });
-    })
-    .await;
-}
-
 /// `[sandbox]`'s limits as the sandbox takes them. `/tmp`, `/dev/shm`, and
 /// HOME are each capped as scratch is (17a's `tmp_mb`, no key of its own).
 fn theseus_sandbox_limits(cfg: &SandboxConfig) -> theseus_sandbox::Limits {
@@ -849,186 +740,6 @@ fn theseus_sandbox_limits(cfg: &SandboxConfig) -> theseus_sandbox::Limits {
         output_mb: cfg.output_mb,
         pids: cfg.pids,
     }
-}
-
-/// The probe's process: `<exe> sandbox-probe`, with the view on its stdin
-/// and nothing of the daemon's environment but HOME and PATH. Its one line.
-async fn run_probe(exe: &Path, view: &L1) -> Result<Value, String> {
-    use std::process::Stdio;
-    use theseus_kernel::children::{self, Kind};
-    use tokio::io::AsyncWriteExt;
-    let mut cmd = tokio::process::Command::new(exe);
-    cmd.arg(theseus_kernel::job::PROBE_MODE)
-        .env_clear()
-        .envs(
-            ["HOME", "PATH"]
-                .iter()
-                .filter_map(|k| std::env::var(k).ok().map(|v| (*k, v))),
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let mut child = children::spawn(Kind::Owned, || cmd.spawn(), tokio::process::Child::id)
-        .map_err(|e| format!("starting {}: {e}", exe.display()))?;
-    let input = serde_json::to_vec(view).map_err(|e| e.to_string())?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(&input)
-            .await
-            .map_err(|e| format!("handing the probe its view: {e}"))?;
-    }
-    let out = tokio::time::timeout(Duration::from_secs(20), child.wait_with_output())
-        .await
-        .map_err(|_| "the probe gave no answer in 20 s".to_string())?
-        .map_err(|e| format!("waiting for the probe: {e}"))?;
-    serde_json::from_slice(&out.stdout).map_err(|e| {
-        format!(
-            "the probe's answer is not JSON ({e}); it exited with {}",
-            out.status
-        )
-    })
-}
-
-/// The probe's line as health keeps it.
-fn read_probe(v: &Value, at_ms: u64) -> SandboxProbe {
-    let ok = v["ok"].as_bool().unwrap_or(false);
-    let why = (!ok).then(|| {
-        format!(
-            "{}: {}",
-            v["stage"].as_str().unwrap_or("?"),
-            v["error"].as_str().unwrap_or("?")
-        )
-    });
-    SandboxProbe {
-        ok,
-        at_ms,
-        why,
-        start_ms: v["start_us"].as_u64().map(|us| us as f64 / 1000.0),
-        sys: v["sys"].as_bool(),
-        lo: v["lo"].as_bool(),
-        skipped: v["skipped"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|s| s.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default(),
-    }
-}
-
-/// Whether the daemon's cgroup is its own and delegated (design §2.2,
-/// "Limits"): systemd's own answer for the unit whose cgroup it is in.
-/// Asked once, by the probe or the first L1 job, never on the start path.
-async fn find_cgroup() -> Cgroup {
-    let own = match theseus_sandbox::cgroup::own() {
-        Ok(p) => p,
-        Err(e) => return Cgroup::None(format!("no cgroup v2 here ({e})")),
-    };
-    // After its first L1 job the daemon lives in its own leaf, `daemon/`,
-    // and a restart in place keeps it there.
-    let dir = match (own.file_name(), own.parent()) {
-        (Some(n), Some(p)) if n == "daemon" && p.join("jobs").is_dir() => p.to_path_buf(),
-        _ => own,
-    };
-    let Some(unit) = dir.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
-        return Cgroup::None("the daemon's cgroup is the root".into());
-    };
-    if !unit.ends_with(".service") {
-        return Cgroup::None(format!(
-            "the daemon runs in {unit}, not in a service of its own (`theseusd install --user` \
-             makes one)"
-        ));
-    }
-    let user = dir.to_string_lossy().contains("/user@");
-    match systemctl_show(&unit, user).await {
-        Ok(out) => match judge(&unit, &out, std::process::id(), &dir) {
-            Ok(()) => Cgroup::Delegated(dir),
-            Err(why) => Cgroup::None(why),
-        },
-        Err(why) => Cgroup::None(format!("could not ask systemd about {unit}: {why}")),
-    }
-}
-
-/// `systemctl [--user] show <unit>`: `Delegate`, `MainPID`, `KillMode`, and
-/// `ExecStopPost`.
-async fn systemctl_show(unit: &str, user: bool) -> Result<String, String> {
-    use std::process::Stdio;
-    use theseus_kernel::children::{self, Kind};
-    let mut cmd = tokio::process::Command::new("systemctl");
-    if user {
-        cmd.arg("--user");
-    }
-    cmd.args([
-        "show",
-        unit,
-        "--property=Delegate",
-        "--property=MainPID",
-        "--property=KillMode",
-        "--property=ExecStopPost",
-    ])
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null())
-    .kill_on_drop(true);
-    let child = children::spawn(Kind::Owned, || cmd.spawn(), tokio::process::Child::id)
-        .map_err(|e| e.to_string())?;
-    let out = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
-        .await
-        .map_err(|_| "no answer in 5 s".to_string())?
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(format!("systemctl exited with {}", out.status));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-/// systemd's answer for `unit`, judged: delegated, its main process this
-/// daemon, a stop hook that releases the jobs' limits when the unit keeps
-/// its jobs across a stop, and its cgroup's files writable by it. Why not,
-/// otherwise.
-fn judge(unit: &str, show: &str, pid: u32, dir: &Path) -> Result<(), String> {
-    let prop = |k: &str| {
-        show.lines()
-            .find_map(|l| l.strip_prefix(k)?.strip_prefix('='))
-            .map(str::trim)
-    };
-    if prop("Delegate") != Some("yes") {
-        return Err(format!(
-            "{unit} is not delegated: its unit needs Delegate=yes, as `theseusd install` writes"
-        ));
-    }
-    // A unit that keeps its jobs across a stop starts the next daemon in a
-    // cgroup the readied one left with controllers on: the kernel refuses
-    // it while a job runs, unless the stop hook turned them off.
-    let keeps = matches!(prop("KillMode"), Some("process" | "none"));
-    let hook = show
-        .lines()
-        .any(|l| l.starts_with("ExecStopPost=") && l.contains("cgroup-release"));
-    if keeps && !hook {
-        return Err(format!(
-            "{unit} keeps its jobs across a stop, and has no `ExecStopPost=-theseusd \
-             cgroup-release`: with job limits on, a restart while a job ran could not start \
-             (rerun `theseusd install --user` to add it)"
-        ));
-    }
-    let main: Option<u32> = prop("MainPID").and_then(|p| p.parse().ok());
-    if main != Some(pid) {
-        return Err(format!(
-            "{unit}'s main process is {}, not this daemon ({pid})",
-            main.map_or("unknown".into(), |m| m.to_string())
-        ));
-    }
-    for f in ["cgroup.procs", "cgroup.subtree_control"] {
-        let p = dir.join(f);
-        let c =
-            std::ffi::CString::new(p.as_os_str().as_encoded_bytes()).map_err(|e| e.to_string())?;
-        if unsafe { libc::access(c.as_ptr(), libc::W_OK) } != 0 {
-            return Err(format!("{} is not writable by this daemon", p.display()));
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1094,38 +805,36 @@ mod tests {
         assert_eq!(class_in(&p), Class::L1);
     }
 
-    /// systemd's answer: only a delegated unit whose main process is this
-    /// daemon gives jobs a cgroup.
+    /// Health keeps the newest L1 launch heard of, from its job's
+    /// completion: how long it took, or why it failed (theseus-gyin). An L0
+    /// job's, and an older launch read later, change nothing.
     #[test]
-    fn a_cgroup_is_delegated_only_by_systemds_own_answer() {
-        let dir = tempfile::tempdir().unwrap();
-        for f in ["cgroup.procs", "cgroup.subtree_control"] {
-            std::fs::write(dir.path().join(f), "").unwrap();
-        }
-        let ok = judge("t.service", "Delegate=yes\nMainPID=42\n", 42, dir.path());
-        assert_eq!(ok, Ok(()));
-        let not = judge("t.service", "Delegate=no\nMainPID=42\n", 42, dir.path()).unwrap_err();
-        assert!(not.contains("not delegated"), "{not}");
-        let other = judge("t.service", "MainPID=7\nDelegate=yes\n", 42, dir.path()).unwrap_err();
-        assert!(other.contains("main process is 7"), "{other}");
-        let gone = judge(
-            "t.service",
-            "Delegate=yes\nMainPID=42\n",
-            42,
-            &dir.path().join("x"),
+    fn health_keeps_the_newest_l1_launch() {
+        let sb = Sandbox::new(&SandboxConfig::default(), &[], &[], &[]);
+        assert_eq!(sb.health().last_launch, None, "no L1 job yet");
+        sb.launched(&json!({"exit_code": 0}), 10);
+        assert_eq!(sb.health().last_launch, None, "an L0 job's");
+        let ran = json!({"sandbox": {"class": "l1", "start_us": 8100, "sys": true,
+            "lo": true, "skipped": ["/nope"]}});
+        sb.launched(&ran, 20);
+        let l = sb.health().last_launch.unwrap();
+        assert_eq!(
+            (l.ok, l.at_ms, l.start_ms, l.why, l.skipped),
+            (true, 20, Some(8.1), None, vec!["/nope".to_string()])
         );
-        assert!(gone.unwrap_err().contains("not writable"));
-        // A unit that keeps its jobs across a stop needs the stop hook, or a
-        // restart while a job runs fails (status=219/CGROUP).
-        let kept = "Delegate=yes\nMainPID=42\nKillMode=process\n";
-        let no_hook = judge("t.service", kept, 42, dir.path()).unwrap_err();
-        assert!(no_hook.contains("cgroup-release"), "{no_hook}");
-        let hooked = format!(
-            "{kept}ExecStopPost={{ path=/b/theseusd ; argv[]=/b/theseusd cgroup-release ; \
-             ignore_errors=yes ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; \
-             status=0/0 }}\n"
+        let failed = json!({"sandbox": {"class": "l1", "start_us": 300,
+            "error": {"stage": "checking the job's process limit", "error": "root"}}});
+        sb.launched(&failed, 15);
+        assert!(
+            sb.health().last_launch.unwrap().ok,
+            "an older launch read later"
         );
-        assert_eq!(judge("t.service", &hooked, 42, dir.path()), Ok(()));
+        sb.launched(&failed, 30);
+        let l = sb.health().last_launch.unwrap();
+        assert_eq!(
+            (l.ok, l.why.as_deref()),
+            (false, Some("checking the job's process limit: root"))
+        );
     }
 
     /// cargo's token never shows in a view, whatever `ro_paths` binds.
@@ -1173,5 +882,23 @@ mod tests {
         }
         .validate()
         .unwrap();
+    }
+
+    /// A config pasted from an older template still sets `[sandbox]
+    /// memory_mb`, which L1's cgroup took (theseus-gyin). It loads with one
+    /// warning, and `theseusd config` no longer shows it.
+    #[test]
+    fn the_retired_memory_key_loads_with_one_warning() {
+        let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                    [sandbox]\nmemory_mb = 2048\npids = 512\n";
+        let (cfg, warnings) = crate::Config::parse(text).unwrap();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with("sandbox.memory_mb is retired and ignored (theseus-gyin)"),
+            "{warnings:?}"
+        );
+        let shown = toml::to_string(&cfg.sandbox).unwrap();
+        assert!(!shown.contains("memory_mb"), "{shown}");
+        assert_eq!(cfg.sandbox.pids, 512);
     }
 }

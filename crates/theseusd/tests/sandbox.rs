@@ -1,8 +1,8 @@
 //! L1 for `proc.run` (M4 17b), with the real `theseusd`, its real job
 //! wrappers and L1 init, and a stand-in for the Messages API that asks for
 //! the calls. Every job here runs in a real L1 sandbox, unprivileged:
-//! - the probe after serving finds L1 working, and health and the ledger
-//!   say so;
+//! - health reports the last real L1 launch, and none before the first L1
+//!   job; `theseusd check` runs the self-test on demand (theseus-gyin);
 //! - a probe script with `sandbox: true` shows the contract (the operator's
 //!   uid, no capabilities, an empty HOME, no route out, gh not logged in,
 //!   the daemon's socket and store not there), and the same script at L0
@@ -14,10 +14,12 @@
 //!   at L0 (theseus-w5op): its result's head names it, the value it prints
 //!   is withheld, and no file under the state dir nor the log holds it;
 //! - egress (18c): a listed host is reached through the job's proxy, with
-//!   its bytes in the completion and the ledger, and its session then holds
-//!   outside text; an unlisted host, and names that resolve to loopback or
-//!   to the metadata service, are refused with their reasons, and a job
-//!   that reached nothing leaves its session clear.
+//!   its bytes in the completion and the ledger, and its session holds
+//!   nothing; a host its call named beyond the list, once approved, is
+//!   outside text, so its session holds it (theseus-gyin); an unlisted host,
+//!   and names that resolve to loopback or to the metadata service, are
+//!   refused with their reasons, and a job that reached nothing leaves its
+//!   session clear.
 //!
 //! The rig's state directory and socket are inside its workspace root, so
 //! the view hides them only because 17b hides them.
@@ -282,37 +284,94 @@ fn probe_call(r: &Rig, sandbox: bool, store: bool) -> (&'static str, Value) {
     ("proc_run", json!({"argv": argv, "sandbox": sandbox}))
 }
 
-/// The probe after serving runs `/bin/true` in L1 and finds it working;
-/// health's `sandbox` block and the ledger's `sandbox.probe` row say so, with
-/// the template's `ro_paths` this HOME lacks skipped (design §2.2, §2.10).
+/// Nothing probes L1 at the start (theseus-gyin): health has no launch to
+/// report until the first L1 job. Then it reports that job's: it worked, how
+/// long its start took, and the template's `ro_paths` this HOME lacks,
+/// skipped (design §2.2, §2.10).
 #[test]
-fn the_probe_after_serving_finds_l1_working() {
-    let mut r = Rig::start(|_| {});
-    let h = r.until("the L1 probe", |h| !h["sandbox"]["probe"].is_null());
-    let s = &h["sandbox"];
-    assert_eq!(s["probe"]["ok"], true, "{s}\n{}", r.log());
+fn health_reports_the_last_real_l1_launch() {
+    let r = Rig::start(|_| {});
+    let before = r.call("health", Value::Null).unwrap();
+    let s = &before["sandbox"];
     assert_eq!(s["default"], "l0");
-    assert!(s["probe"]["start_ms"].as_f64().unwrap() > 0.0, "{s}");
-    let skipped = s["probe"]["skipped"].to_string();
+    assert!(s["last_launch"].is_null(), "no L1 job yet: {s}");
+    r.turn(
+        "one L1 job",
+        vec![("proc_run", json!({"argv": ["true"], "sandbox": true}))],
+    );
+    let after = r.call("health", Value::Null).unwrap();
+    let s = &after["sandbox"];
+    let l = &s["last_launch"];
+    assert_eq!(l["ok"], true, "{s}\n{}", r.log());
+    assert!(l["start_ms"].as_f64().unwrap() > 0.0, "{s}");
+    let skipped = l["skipped"].to_string();
     assert!(
         skipped.contains(".cargo") && skipped.contains(".rustup"),
         "{s}"
     );
-    assert!(
-        s["cgroup"].is_string(),
-        "the probe found the cgroup's mode: {s}"
-    );
-    // Its row follows health's answer by a frame.
-    let t0 = Instant::now();
-    let rows = loop {
-        let rows = r.ledger("sandbox.probe");
-        if !rows.is_empty() || t0.elapsed() > Duration::from_secs(10) {
-            break rows;
-        }
-        std::thread::sleep(Duration::from_millis(20));
+    assert!(s.get("cgroup").is_none() && s.get("probe").is_none(), "{s}");
+}
+
+/// `theseusd check` runs L1's self-test on demand (theseus-gyin): `/bin/true`
+/// in L1 over the view a job gets, from the check's own process, with
+/// nothing serving. As root, L1 refuses it and says why (theseus-pv6i).
+#[test]
+fn check_runs_the_l1_self_test_on_demand() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |p: &str| dir.path().join(p);
+    for d in ["bin", "projects", "home"] {
+        std::fs::create_dir_all(path(d)).unwrap();
+    }
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(
+        path("bin/op"),
+        "#!/bin/sh\n\
+         case \"$1\" in\n\
+         \x20 inject) sed -e 's/{{ [^}]* }}/test-secret-value-0000/g' ;;\n\
+         \x20 read) printf '%s' test-secret-value-0000 ;;\n\
+         \x20 *) exit 1 ;;\n\
+         esac\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(path("bin/op"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
+    let note = common::safe_note(&theseusd, &path("projects"), 100.0);
+    std::fs::write(path("config.toml"), note).unwrap();
+    let out = Command::new(&theseusd)
+        .arg("--config")
+        .arg(path("config.toml"))
+        .arg("--state-dir")
+        .arg(path("projects/state"))
+        .arg("check")
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                path("bin").display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .env("HOME", path("home"))
+        .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
+        .env_remove("THESEUS_OP_TOKEN_FILE")
+        .env_remove("THESEUS_CONFIG")
+        .env_remove("THESEUS_STATE_DIR")
+        .env_remove("THESEUS_SOCKET")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{text}\n{err}");
+    let want = if unsafe { libc::geteuid() } == 0 {
+        "\nL1: the self-test failed: checking the job's process limit: the daemon runs as root"
+    } else {
+        "\nL1: the self-test worked (start "
     };
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0]["ok"], true);
+    assert!(text.contains(want), "{text}\n{err}");
+    assert!(
+        !path("projects/state").exists(),
+        "check wrote the state dir"
+    );
 }
 
 /// The contract, by a probe script in L1 (design §3, 17b's tests), and the
@@ -570,9 +629,9 @@ fn with_marker(marker: &str) -> Vec<u32> {
 
 /// M4 18a's L1 row (design §2.3): an L1 job whose command leaves a `setsid`
 /// sleeper behind runs on in the background; `execution.cancel` stops it
-/// through its init (this rig's cgroup is not delegated), and answers that its
-/// pid namespace is gone, with the count: the init and the two sleepers. The
-/// action, the ledger, health, and a `/proc` scan agree.
+/// through its init, and answers that its pid namespace is gone, with the
+/// count: the init and the two sleepers. The action, the ledger, health, and
+/// a `/proc` scan agree.
 #[test]
 fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
     let marker = "300.1806";
@@ -678,7 +737,6 @@ fn the_jobs_bench_l1_row() {
             sandbox: Some(L1 {
                 workspace: vec![ws.clone()],
                 limits: job::SandboxLimits::default(),
-                memory_mb: 2048,
                 ..Default::default()
             }),
         };
@@ -823,11 +881,11 @@ impl Rig {
 /// 18c's live path through a stand-in host (design §3, 18c's tests): a host
 /// on `[sandbox] egress` is reached through the job's own proxy; the tunnel's
 /// bytes are in the completion's `detail.egress`, a `sandbox.egress` row,
-/// and health; and the result is outside text, so its session holds it, the
-/// reason naming the egress, and the next call there that acts waits, an L1
-/// call with egress included.
+/// and health. The operator listed the host, so what the job brought back is
+/// not outside text (theseus-gyin, cut-list 4.1): its session holds nothing,
+/// and the next call there that acts, an L1 call with egress, runs at once.
 #[test]
-fn a_listed_host_is_reached_through_the_proxy_and_its_session_then_holds_outside_text() {
+fn a_listed_host_is_reached_through_the_proxy_and_its_session_holds_nothing() {
     let port = stand_in();
     let stand = format!("stand.test:{port}");
     let r = egress_rig(std::slice::from_ref(&stand));
@@ -868,12 +926,7 @@ fn a_listed_host_is_reached_through_the_proxy_and_its_session_then_holds_outside
     );
     let started = r.ledger("sandbox.started");
     assert_eq!(started[0]["egress"], json!([stand]));
-    let h = r.hold(&sid).expect("the session holds outside text");
-    assert_eq!(
-        (h["tool"].as_str(), h["via"].as_str()),
-        (Some("proc.run"), Some("egress"))
-    );
-    assert_eq!(h["url"].as_str(), Some(stand.as_str()));
+    assert!(r.hold(&sid).is_none(), "a listed host is not outside text");
     let health = r.call("health", Value::Null).unwrap();
     assert_eq!(health["sandbox"]["egress"], json!([stand]));
     assert_eq!(health["sandbox"]["egress_connections"], 1);
@@ -892,8 +945,84 @@ fn a_listed_host_is_reached_through_the_proxy_and_its_session_then_holds_outside
         result["detail"]["meta"]["detail"]["egress"]["hosts"][0]["connections"], 1,
         "{result}"
     );
-    // The next call there that acts waits, with the reason naming the egress.
+    // The next call there that acts runs, at L1's notify.
     r.asks("again", vec![connect_call(std::slice::from_ref(&stand))]);
+    let res = r
+        .call(
+            "turn.submit",
+            json!({"session_id": sid, "input": "again", "author": "test", "attachments": []}),
+        )
+        .unwrap();
+    assert_eq!(res["stop_reason"], "no_tool_calls", "{res}");
+    assert!(r.hold(&sid).is_none());
+}
+
+/// A host the call named beyond `[sandbox] egress` (18c): the call waits for
+/// the operator, and once approved its job reaches the host through its
+/// proxy. Only that approval let it reach the host, so what it brought back
+/// is outside text (theseus-gyin): its session holds it, the reason naming
+/// the egress, and the next call there that acts waits.
+#[test]
+fn a_host_beyond_the_list_once_approved_is_outside_text() {
+    let port = stand_in();
+    let stand = format!("stand.test:{port}");
+    let r = Rig::start(|_| {});
+    let mut argv = vec![
+        "bash".to_string(),
+        "-c".into(),
+        CONNECT.into(),
+        "client".into(),
+    ];
+    argv.push(stand.clone());
+    let named = (
+        "proc_run",
+        json!({"argv": argv, "sandbox": {"egress": [&stand]}}),
+    );
+    r.asks("beyond", vec![named]);
+    let s = r.call("session.open", json!({"label": "beyond"})).unwrap();
+    let sid = s["session_id"].as_str().unwrap().to_string();
+    let res = r
+        .call(
+            "turn.submit",
+            json!({"session_id": sid, "input": "beyond", "author": "test", "attachments": []}),
+        )
+        .unwrap();
+    assert_eq!(res["stop_reason"], "awaiting_confirm", "{res}");
+    let pending = r.call("confirm.list", json!({"session_id": sid})).unwrap();
+    let corr = pending["confirms"][0]["correlation_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // The operator's part needs a process outside every job (theseus-6qy).
+    if let Some(job) = common::job_above_this_test() {
+        eprintln!("skipped the operator's part: this test runs inside Theseus job {job}");
+        return;
+    }
+    r.call(
+        "action.confirm",
+        json!({"correlation_id": corr, "approve": true}),
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    let h = loop {
+        if let Some(h) = r.hold(&sid) {
+            break h;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(30),
+            "the session never held outside text:\n{}",
+            r.log()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(
+        (h["tool"].as_str(), h["via"].as_str(), h["url"].as_str()),
+        (Some("proc.run"), Some("egress"), Some(stand.as_str()))
+    );
+    let rows = r.ledger("sandbox.egress");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    // The next call there that acts waits, with the reason naming the egress.
+    r.asks("again", vec![connect_call(&[])]);
     let res = r
         .call(
             "turn.submit",

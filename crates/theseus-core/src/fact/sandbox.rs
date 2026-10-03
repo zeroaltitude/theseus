@@ -1,11 +1,11 @@
 //! L1's facts (M4 17b; design §2.11): a job that starts in the sandbox,
-//! and the probe after serving.
+//! and its egress. The probe after serving and its `sandbox.probe` rows are
+//! gone (theseus-gyin): a stored row still reads, as an unknown kind.
 
 use std::path::Path;
 
 use serde_json::{json, Value};
 use theseus_kernel::job::L1;
-use theseus_protocol::sandbox::SandboxProbe;
 use theseus_protocol::LedgerKind;
 use theseus_protocol::NarrativePart::Tool;
 use theseus_sandbox::egress::{Reached, Refused};
@@ -15,8 +15,8 @@ use crate::narrative;
 use crate::sandbox::Sandbox;
 use crate::scrub::Scrubber;
 
-/// A job started in L1 (`sandbox.started`): its limits, its cgroup, its
-/// read-only paths, and its egress list (18c; empty for no network). Its
+/// A job started in L1 (`sandbox.started`): its limits, its read-only
+/// paths, and its egress list (18c; empty for no network). Its
 /// `tool.started` carries `class: l1` and the list beside it, and each grant
 /// it was given has its own `secret.granted`.
 pub struct SandboxStarted<'a> {
@@ -38,9 +38,9 @@ impl Fact for SandboxStarted<'_> {
     fn row(&self) -> Value {
         let v = self.view;
         json!({"correlation_id": self.correlation_id, "tool": self.tool, "class": "l1",
-            "limits": {"memory_mb": v.cgroup.as_ref().map(|_| v.memory_mb), "pids": v.limits.pids,
-                "scratch_mb": v.limits.scratch_mb, "output_mb": v.limits.output_mb},
-            "cgroup": self.sandbox.cgroup_line(), "ro_paths": v.ro_paths, "egress": v.egress})
+            "limits": {"pids": v.limits.pids, "scratch_mb": v.limits.scratch_mb,
+                "output_mb": v.limits.output_mb},
+            "ro_paths": v.ro_paths, "egress": v.egress})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -117,23 +117,5 @@ impl Fact for SandboxEgressRefused<'_> {
                 self.refused.why
             ),
         );
-    }
-}
-
-/// The probe after serving, or after a restart in place (`sandbox.probe`):
-/// whether L1 runs here, and if not why; the start's time; what it found;
-/// and the cgroup. No sentence: no session hears it.
-pub struct SandboxProbed<'a> {
-    pub probe: &'a SandboxProbe,
-    pub cgroup: Option<&'a str>,
-}
-
-impl Fact for SandboxProbed<'_> {
-    const KIND: Option<LedgerKind> = Some(LedgerKind::SandboxProbe);
-
-    fn row(&self) -> Value {
-        let p = self.probe;
-        json!({"ok": p.ok, "why": p.why, "start_ms": p.start_ms, "sys": p.sys, "lo": p.lo,
-            "skipped": p.skipped, "cgroup": self.cgroup})
     }
 }

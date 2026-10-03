@@ -65,12 +65,33 @@ fn fail(stage: impl Into<String>, error: impl std::fmt::Display) -> SpawnError {
     }
 }
 
+/// Why L1 refuses every job of an operator who is root (theseus-pv6i).
+pub const ROOT_REFUSED: &str = "the daemon runs as root, and Linux exempts root from \
+     RLIMIT_NPROC, so an L1 job would have no process limit: run theseusd as an ordinary user";
+
+/// Why a job of operator `uid` may not start in L1, or None. User namespace
+/// 1 maps the job back to the operator (`write_maps`), and `copy_process`
+/// never applies `RLIMIT_NPROC`, the job's one process limit, to the initial
+/// namespace's root.
+pub fn refusal(uid: libc::uid_t) -> Option<&'static str> {
+    (uid == 0).then_some(ROOT_REFUSED)
+}
+
+/// `refusal` for this process, the operator of any job it starts.
+pub fn refused_here() -> Option<&'static str> {
+    refusal(unsafe { libc::geteuid() })
+}
+
 /// Starts `spec` in L1, with `init` as its pid 1. Returns once the command
 /// has been exec'd, or with the reason it could not be.
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn spawn(spec: &Spec, init: &Init, stdio: Stdio) -> Result<SandboxChild, SpawnError> {
     if let Some(why) = spec.invalid() {
         return Err(fail("checking the job", why));
+    }
+    // Before anything is made: every L1 start comes through here.
+    if let Some(why) = refused_here() {
+        return Err(fail("checking the job's process limit", why));
     }
     let wire = serde_json::to_vec(spec).map_err(|e| fail("encoding the job", e))?;
     // Everything the child reads is built now.
@@ -168,10 +189,6 @@ pub fn spawn(spec: &Spec, init: &Init, stdio: Stdio) -> Result<SandboxChild, Spa
     // The child's ends.
     drop((sync_r, err_w, high));
 
-    if let Some(cgroup) = &spec.cgroup {
-        std::fs::write(cgroup.join("cgroup.procs"), pid.to_string())
-            .map_err(|e| fail(format!("moving the init into {}", cgroup.display()), e))?;
-    }
     write_maps(pid).map_err(|e| fail("writing user namespace 1's maps", e))?;
     File::from(sync_w)
         .write_all(b"r")
@@ -480,5 +497,21 @@ impl Drop for SandboxChild {
             let _ = self.kill();
             let _ = self.wait();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Root's job would have no process limit, so L1 refuses it; every
+    /// other operator's runs under `RLIMIT_NPROC` (theseus-pv6i).
+    #[test]
+    fn root_is_refused_and_no_one_else_is() {
+        assert_eq!(refusal(0), Some(ROOT_REFUSED));
+        for uid in [1, 1000, 65534] {
+            assert_eq!(refusal(uid), None, "uid {uid}");
+        }
+        assert!(ROOT_REFUSED.contains("RLIMIT_NPROC"));
     }
 }

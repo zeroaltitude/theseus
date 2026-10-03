@@ -435,6 +435,8 @@ pub enum VerifiedBy {
     /// kernel kills every process of a namespace before its init's exit ends.
     Pidns,
     /// The job's cgroup: `cgroup.kill`, then `cgroup.events` at `populated 0`.
+    /// Read from old records alone: no stop has written it since L1 lost its
+    /// cgroup (theseus-gyin).
     Cgroup,
     /// An L0 job's process tree: its wrapper stopped every descendant and
     /// found none left (`scope: descendants`).

@@ -10,16 +10,18 @@ Key modules: `spawn.rs`, `init.rs`, `view.rs`. Read by: the kernel's `job_l1.rs`
 
 ## What's here
 
-- `spawn.rs`: the wrapper's side. `spawn(spec, init, stdio)` clones the init with a pidfd, writes user namespace
-  1's maps, moves it into the job's cgroup when there is one, releases it, hands it the spec over a pipe, and
-  returns once the command has exec'd, or with `SpawnError { stage, error }`. `SandboxChild` kills, waits, and
-  `reaped(status)` reads the init's report for a wrapper that reaps with `waitpid(-1)`.
+- `spawn.rs`: the wrapper's side. `spawn(spec, init, stdio)` refuses a root operator's job (`refusal`,
+  theseus-pv6i), clones the init with a pidfd, writes user namespace 1's maps, releases it, hands it the spec over
+  a pipe, and returns once the command has exec'd, or with `SpawnError { stage, error }`. `SandboxChild` kills,
+  waits, and `reaped(status)` reads the init's report for a wrapper that reaps with `waitpid(-1)`.
 - `init.rs`: `init_main`, the `job-sandbox` role (`theseusd job-sandbox`): pid 1 of the job.
 - `view.rs`: the view (system binds, `ro_paths`, overlays over the workspace, HOME, `/tmp`, `/dev`, `/proc`,
   `/sys`), and `Spec::hidden` (17b), the paths covered whatever binds them: Theseus's floor and socket, and the
   approve list's paths.
-- `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry), `cgroup.rs` (`own`,
-  `delegate`, `JobCgroup`: its limits, `kill`, `populated`, and `procs`, which an 18a stop counts), `report.rs` (`Started`, `Exit`, `Scratch::summary`), `spec.rs`.
+- `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry), `report.rs` (`Started`,
+  `Exit`, `Scratch::summary`), `spec.rs`. No cgroup of its own (theseus-gyin, 2026-10-03): a job's processes are
+  capped by `RLIMIT_NPROC` in its own user namespace, its files by `RLIMIT_FSIZE`, its scratch by the tmpfs caps, and
+  its memory not at all, as an L0 job's is not.
 - `egress.rs` (18b, wired at 18c): the job's `Proxy` on the listener the init hands over. `Proxy::decide` makes each
   `CONNECT`'s `Outcome` a value (tunnel, or refuse with a status and why) before the proxy acts. Nothing reads inside a
   tunnel: credentials as stand-ins, which would have ended TLS here, were dropped for v1 (theseus-gh7, Eddie
@@ -35,18 +37,18 @@ Key modules: `spawn.rs`, `init.rs`, `view.rs`. Read by: the kernel's `job_l1.rs`
   wrapper, its stderr the job's.
 - **Call `spawn` from the thread that lives as long as the job**: the init's `PR_SET_PDEATHSIG` fires when the
   spawning thread exits, not the process.
-- **`cgroup::delegate` only on a cgroup that is the daemon's own and delegated**: it moves every process in it.
-  The core asks systemd (`Delegate=yes`, and the unit's main process is the daemon) before it calls it, and, for a
-  unit that keeps its jobs across a stop (`KillMode=process`), that the unit's `ExecStopPost=` runs `theseusd
-  cgroup-release` (`cgroup::release`). systemd starts the next daemon in the unit's own cgroup, which the kernel
-  refuses while its children have controllers on and a job of the old daemon still runs.
+- **No L1 job as root.** Linux never applies `RLIMIT_NPROC` to the initial user namespace's root, and user
+  namespace 1 maps the job back to the operator, so a root operator's job would have no process limit: `spawn`
+  refuses it before it makes anything, with the stage "checking the job's process limit" (theseus-pv6i).
 - **The view shows nothing it was not given.** A path a `Spec` names must be absolute; a hidden path the view does
   not hold is skipped.
 
 ## Tests
 
 - `tests/contract.rs` (`harness = false`): one test per §7 clause in real L1 jobs, unprivileged; the binary
-  re-execs itself as the init and the probe. `tests/bench.rs`: 100 spawns, p50 and p95, against 25 ms.
+  re-execs itself as the init and the probe. `clause_09_root_is_refused` is the one case to run as root (`sudo
+  <binary> --exact clause_09_root_is_refused`); as root every other case fails, since every job is refused.
+  `tests/bench.rs`: 100 spawns, p50 and p95, against 25 ms.
 - 17b's daemon tests (`crates/theseusd/tests/sandbox.rs`) run real L1 jobs through the whole daemon, and 18c's
   run them through a real proxy to a stand-in host (`THESEUS_TEST_EGRESS_DNS`, which only a debug build reads).
 - `tests/bench.rs`'s `connect_first_byte_200` (18c): a `CONNECT`'s first byte through the proxy against a direct

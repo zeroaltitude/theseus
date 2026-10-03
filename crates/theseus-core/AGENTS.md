@@ -41,8 +41,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   serving (its calls fail closed until STS names the account), and `aws.call`, `aws.describe`, `aws.whoami`, and
   `aws.s3.list` (reads only until 14b; a write is invalid input).
 - **L1** (M4 17b): `sandbox.rs`: `[sandbox]`, a job's class (toward L1 alone: the default, `l1_argv`, the model's
-  `sandbox: true`), L1's posture (notify), the view an L1 job gets, the probe after serving (`PROBE_AFTER`), the
-  delegated cgroup (systemd's own answer), and health's block. Its facts are `fact/sandbox.rs`; its tests
+  `sandbox: true`), L1's posture (notify), the view an L1 job gets, and health's block: the last L1 launch, read from
+  its job's completion (`Sandbox::launched`), and why L1 refuses every job of a root daemon (theseus-pv6i).
+  `theseusd check` runs the self-test on demand (`Sandbox::self_test`, over `toolrun::sandbox_for`'s view); nothing
+  probes at the start, and an L1 job has no cgroup (theseus-gyin). Its facts are `fact/sandbox.rs`; its tests
   `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs. What a call's proposal binds about
   its job is `sandbox::Bound`: its class, and (18c) its egress list.
 - **Grants in L1** (theseus-w5op; decided by Eddie 2026-10-03, superseding theseus-7y9y): an L1 job takes its
@@ -57,8 +59,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   hosts beyond the list (the call waits, and its approval reaches those hosts alone, since the list is in its
   proposal); and what a completion's `detail.egress` makes of a result: its `sandbox.egress` and
   `sandbox.egress_refused` rows (in the frame that writes the result), its lines, and DD5's `external` marker
-  when the job connected out, so T1 holds the session (`via: egress`) and the node is untrusted, the owner's. Its
-  tests: `tests_egress.rs`, and the daemon's `tests/sandbox.rs` through a real proxy.
+  when the job reached a host beyond `[sandbox] egress`, so T1 holds the session (`via: egress`) and the node is
+  untrusted, the owner's. A job that reached only listed hosts holds nothing (theseus-gyin). Its tests:
+  `tests_egress.rs`, and the daemon's `tests/sandbox.rs` through a real proxy.
 - **Cancellation** (M4 18a): `cancel.rs`, the one stop every path that stops running calls goes through
   (`ToolRuntime::terminate_all`: a cancel, a task's cancel, `/stop`, the disk's floor, a stop at a job's launch).
   A job's wrapper is asked to stop its tree; an async tool's task is aborted (`Stops::track`) and verified once its
@@ -108,7 +111,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `crates/theseus-discord/src/courier.rs`.
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
   (`theseusd example-config` prints it, with an operator's private overlay in place: `config_overlay.rs`).
-- **L1**: `crates/theseus-core/src/sandbox.rs` (`[sandbox]`, the class, the probe), and the wrapper's L1 path in
+- **L1**: `crates/theseus-core/src/sandbox.rs` (`[sandbox]`, the class, the last launch), and the wrapper's L1 path in
   `crates/theseus-kernel/src/job_l1.rs`.
 - **The index tender**: the binary in `crates/theseus-index`, its supervisor in `crates/theseus-core/src/tender.rs`
   (started 2 s after serving, restarted with backoff, SIGTERM at a stop), and its child kind in

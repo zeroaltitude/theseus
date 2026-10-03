@@ -2,7 +2,7 @@
 //! `theseusd install --user`, in a scratch `HOME`, with `systemctl`, `loginctl`, `journalctl`, `theseus`, and
 //! `op` replaced by one stand-in script that logs each call and keeps its state in files. `grep`, `cat`, and
 //! `stat` are stand-ins that read the test's files where the script names the machine's (the kernel's
-//! release, `/etc/wsl.conf`, the cgroup), and are the real tools otherwise. Nothing here reaches the
+//! release, `/etc/wsl.conf`), and are the real tools otherwise. Nothing here reaches the
 //! machine's systemd, its journal, its accounts, or any daemon.
 //!
 //! The config tests swap `theseusd` for a stand-in whose plan names its config the way a build with a file
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 /// What every stand-in does. State lives in files under `$FAKE`: `system-running`, `active`, `enabled`,
-/// `linger`, `mainpid`, `daemon-up` (a daemon answers), `osrelease`, `wsl.conf`, `controllers`, `cgroupfs`.
+/// `linger`, `mainpid`, `daemon-up` (a daemon answers), `osrelease`, `wsl.conf`.
 const STANDIN: &str = r#"#!/bin/bash
 F=${FAKE:?}
 name=${0##*/}
@@ -29,7 +29,6 @@ remap() {
     case $a in
     /proc/sys/kernel/osrelease) printf '%s\0' "$F/osrelease" ;;
     /etc/wsl.conf) printf '%s\0' "$F/wsl.conf" ;;
-    /sys/fs/cgroup/*) printf '%s\0' "$F/controllers" ;;
     *) printf '%s\0' "$a" ;;
     esac
   done
@@ -40,11 +39,6 @@ grep | cat)
   real "${args[@]}"
   ;;
 stat)
-  if [ "$1" = -fc ]; then
-    state cgroupfs cgroup2fs
-    echo
-    exit 0
-  fi
   real "$@"
   ;;
 systemctl)
@@ -59,7 +53,6 @@ systemctl)
     ;;
   show)
     case "$*" in
-    *ControlGroup*) echo /user.slice/user-1000.slice/user@1000.service ;;
     *MainPID*) state mainpid 0; echo ;;
     *ExecStart*)
       line=$(/usr/bin/grep '^ExecStart=' "$HOME/.config/systemd/user/theseusd.service" 2>/dev/null | /usr/bin/head -n 1)
@@ -187,7 +180,6 @@ impl Rig {
             .unwrap();
         let rig = Self { dir };
         rig.set("osrelease", "6.1.0-generic\n");
-        rig.set("controllers", "cpu memory pids\n");
         rig.token(0o600);
         rig
     }
@@ -321,7 +313,6 @@ fn check_passes_on_a_machine_that_is_ready() {
     for want in [
         "ok    systemd: your user manager is running",
         "ok    linger: on for",
-        "ok    cgroups: v2, and your user manager delegates memory and pids",
         "ok    theseus: ",
         "ok    op: ",
         &format!(
@@ -631,22 +622,16 @@ fn install_stops_before_its_first_question_when_the_config_is_a_file_that_is_not
 }
 
 #[test]
-fn check_warns_without_failing_for_linger_off_and_cgroups_that_do_not_delegate() {
+fn check_warns_without_failing_for_linger_off() {
     let r = rig!();
     r.set("linger", "no\n");
-    r.set("controllers", "cpu memory\n");
     let (code, out) = r.run(&["check"]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("WARN  linger: off for"), "{out}");
     assert!(out.contains("turn it on: loginctl enable-linger"), "{out}");
-    assert!(out.contains("WARN  cgroups: your user manager does not delegate memory and pids (it has: cpu memory)"), "{out}");
-    assert!(out.contains("result: ready (2 warning(s))"), "{out}");
-    r.set("cgroupfs", "tmpfs\n");
-    let (_, out) = r.run(&["check"]);
-    assert!(
-        out.contains("WARN  cgroups: not the v2 hierarchy (tmpfs)"),
-        "{out}"
-    );
+    assert!(out.contains("result: ready (1 warning(s))"), "{out}");
+    // An L1 job needs no cgroup (theseus-gyin): nothing checks them.
+    assert!(!out.contains("cgroups"), "{out}");
 }
 
 #[test]
@@ -696,7 +681,6 @@ fn a_dry_run_prints_every_command_and_runs_none_of_them() {
                 "+ systemctl --user is-system-running",
                 "+ loginctl show-user ",
                 "+ grep -qi microsoft /proc/sys/kernel/osrelease",
-                "+ stat -fc %T /sys/fs/cgroup",
                 "+ command -v theseusd",
                 "+ theseusd --version",
                 "+ stat -c '%F|%u|%a|%s' -- ",
@@ -788,12 +772,14 @@ fn install_walks_the_steps_in_order_and_ends_with_the_cheat_sheet() {
         unit.contains(&format!(" --op-token-file {}\n", r.token_path().display())),
         "{unit}"
     );
+    // No delegation and no stop hook (theseus-gyin); a stop signals the daemon
+    // alone, so its jobs run on.
     assert!(
-        unit.contains("\nDelegate=yes\n") && unit.contains("\nKillSignal=SIGINT\n"),
+        unit.contains("\nKillSignal=SIGINT\n") && unit.contains("\nKillMode=process\n"),
         "{unit}"
     );
     assert!(
-        unit.contains("\nExecStopPost=-") && unit.contains(" cgroup-release\n"),
+        !unit.contains("Delegate=") && !unit.contains("ExecStopPost="),
         "{unit}"
     );
     for want in [

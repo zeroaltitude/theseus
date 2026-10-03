@@ -86,7 +86,6 @@ fn own_group(host: &dyn Host, user: &User) -> Result<String> {
 }
 
 /// `--user`: the operator's own daemon as a systemd user service.
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub(crate) fn user(env: &Env, g: &Globals, remove: bool, host: &dyn Host) -> Result<Layout> {
     let op = operator(env, host, None)?;
     let owner = Owner::new(&op.name, &own_group(host, &op)?);
@@ -178,9 +177,7 @@ pub(crate) fn user(env: &Env, g: &Globals, remove: bool, host: &dyn Host) -> Res
             mode: 0o644,
             body: Body::Text(user_unit(&exec, &vars)?),
         },
-        why: "the daemon as your systemd user service: Delegate=yes gives L1 jobs cgroup \
-              limits (M4 2.2)"
-            .into(),
+        why: "the daemon as your systemd user service".into(),
     });
     Ok(Layout {
         command: "theseusd install --user".into(),
@@ -490,7 +487,7 @@ pub(crate) fn separate(env: &Env, g: &Globals, a: &InstallArgs, host: &dyn Host)
                 mode: 0o644,
                 body: Body::Text(system_unit(&exec)?),
             },
-            "the daemon as theseus, with Delegate=yes",
+            "the daemon as theseus",
         ),
         entry(
             Item::File {

@@ -75,7 +75,6 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
                 workspace: vec![ws.clone()],
                 // `[sandbox]`'s defaults (design §2.12).
                 limits: job::SandboxLimits::default(),
-                memory_mb: 2048,
                 // 18c: a list, so the init opens the listener and the
                 // wrapper runs the proxy, which the job never uses.
                 egress: if class == "l1-egress" {

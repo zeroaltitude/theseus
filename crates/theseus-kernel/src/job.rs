@@ -77,12 +77,6 @@ pub struct L1 {
     /// spool, bindings, the 1Password token and credentials) and its socket.
     pub hidden: Vec<PathBuf>,
     pub limits: theseus_sandbox::Limits,
-    /// `[sandbox] memory_mb`: the job's cgroup's `memory.max`.
-    pub memory_mb: u64,
-    /// The delegated cgroup's `jobs` directory: the wrapper makes the job's
-    /// own cgroup there, with its limits, and removes it after. `None`: the
-    /// daemon's cgroup is not delegated, so no memory limit.
-    pub cgroup: Option<PathBuf>,
     /// The hosts the job's egress proxy lets it reach (M4 18c): `[sandbox]
     /// egress`, and the hosts its call named, as its proposal binds them.
     /// Empty: no listener and no proxy, so no network at all, at no cost.
@@ -195,11 +189,7 @@ pub fn spawn_detached(
 /// line is `<binary> job-wrapper --spool … --correlation-id <id> … -- <argv>`.
 pub const WRAPPER_MODE: &str = "job-wrapper";
 
-/// The role word of the L1 probe's process (17b): `theseusd sandbox-probe`
-/// reads an `L1` on stdin, and prints `probe`'s answer.
-pub const PROBE_MODE: &str = "sandbox-probe";
-
-pub use crate::job_l1::probe;
+pub use crate::job_l1::self_test;
 /// An L1 job's limits, as `L1` carries them.
 pub use theseus_sandbox::Limits as SandboxLimits;
 
@@ -910,7 +900,7 @@ const STOP_POLL_MAX: Duration = Duration::from_millis(50);
 ///
 /// **How a job is stopped (M4 18a).** A wrapper from 18a on catches SIGTERM
 /// (`catches_sigterm`): it gets SIGTERM alone, by `ask_to_stop`, stops its
-/// whole tree itself (`tree::stop`, or the L1 job's init or cgroup), writes
+/// whole tree itself (`tree::stop`, or the L1 job's init), writes
 /// its verdict to the spool, and exits. Its job is gone once it has, and its
 /// verdict says how that is known. One that has not answered within the
 /// grace and `ANSWER_WAIT`, or that exits with no verdict and no completion,

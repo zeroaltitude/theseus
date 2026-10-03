@@ -387,14 +387,13 @@ async fn an_approved_l1_call_runs_in_l1_and_never_as_l0() {
 /// that could not start says why and that it never ran at L0.
 #[test]
 fn an_l1_results_head_says_where_it_ran() {
-    let ran = json!({"sandbox": {"class": "l1", "pids_refused": 3},
+    let ran = json!({"sandbox": {"class": "l1"},
         "scratch": {"summary": "wrote 1 file, 1 KB, to scratch: out.txt; discarded"}});
     let lines = crate::sandbox::result_lines(&ran);
     assert!(
         lines.starts_with("[ran in L1, the sandbox: no network, no secret; wrote 1 file"),
         "{lines}"
     );
-    assert!(lines.contains("3 of its forks were refused"), "{lines}");
     let granted = json!({"sandbox": {"class": "l1", "granted": ["GH_TOKEN", "NPM_TOKEN"]}});
     let lines = crate::sandbox::result_lines(&granted);
     assert!(

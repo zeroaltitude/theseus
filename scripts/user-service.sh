@@ -265,33 +265,6 @@ check_wsl() {
   fi
 }
 
-# L1's memory and pids limits need cgroup v2, and a user manager that delegates both controllers.
-check_cgroups() {
-  local fs group controllers
-  fs=$(probe stat -fc %T /sys/fs/cgroup)
-  if [ $? = 99 ]; then
-    probe systemctl show "user@$MY_UID.service" --property=ControlGroup --value >/dev/null
-    probe cat "/sys/fs/cgroup/user.slice/user-$MY_UID.slice/user@$MY_UID.service/cgroup.controllers" >/dev/null
-    note "the path is the ControlGroup that systemctl names"
-    return
-  fi
-  if [ "$fs" != cgroup2fs ]; then
-    warn "cgroups: not the v2 hierarchy ($fs): Delegate=yes gives L1 jobs no limits"
-    return
-  fi
-  group=$(probe systemctl show "user@$MY_UID.service" --property=ControlGroup --value)
-  controllers=$(probe cat "/sys/fs/cgroup$group/cgroup.controllers") || {
-    info "cgroups: could not read the controllers of $group"
-    return
-  }
-  if [[ " $controllers " == *" memory "* && " $controllers " == *" pids "* ]]; then
-    ok "cgroups: v2, and your user manager delegates memory and pids (L1 limits work)"
-  else
-    warn "cgroups: your user manager does not delegate memory and pids (it has: ${controllers:-none})"
-    hint "L1 jobs would run without those limits; docs/user-service.md says how to delegate them"
-  fi
-}
-
 check_binaries() {
   local exe version
   exe=$(probe command -v theseusd)
@@ -474,7 +447,6 @@ check_all() {
   check_systemd
   check_linger
   check_wsl
-  check_cgroups
   say "the install"
   detect_unit
   resolve_from_unit

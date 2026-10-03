@@ -15,21 +15,20 @@ pub struct SandboxHealth {
     pub default: String,
     /// `[sandbox] l1_argv`: the programs that always run in L1.
     pub l1_argv: Vec<String>,
-    /// What an L1 job is given: `[sandbox]`'s limits, in MB and processes.
-    pub memory_mb: u64,
+    /// What an L1 job is given: `[sandbox]`'s limits, in processes and MB.
     pub pids: u64,
     pub scratch_mb: u64,
     pub output_mb: u64,
-    /// The probe after serving: absent until it has run.
+    /// The last real L1 launch since the daemon started (theseus-gyin):
+    /// absent until the first L1 job has reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
-    pub probe: Option<SandboxProbe>,
-    /// Where a job's memory and pids limits come from: `delegated` (the
-    /// daemon's own systemd unit, with `Delegate=yes`), or why there is no
-    /// cgroup for jobs. Absent until it has been asked.
+    pub last_launch: Option<SandboxLaunch>,
+    /// Why L1 refuses every job here, when it does (theseus-pv6i): the
+    /// daemon runs as root, whom Linux exempts from `RLIMIT_NPROC`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
-    pub cgroup: Option<String>,
+    pub refuses: Option<String>,
     /// Jobs started since the daemon started, by class.
     pub jobs_l0: u64,
     pub jobs_l1: u64,
@@ -65,6 +64,34 @@ pub fn reach(egress: &[String]) -> String {
     }
 }
 
+/// How an L1 launch went, as every surface says it (theseus-gyin): `worked
+/// (start 8.1 ms)`, with what its start found missing, or `failed: <why>
+/// (an L1 call fails, and never runs at L0)`.
+pub fn launch_words(l: &SandboxLaunch) -> String {
+    if !l.ok {
+        return format!(
+            "failed: {} (an L1 call fails, and never runs at L0)",
+            l.why.as_deref().unwrap_or("no reason given")
+        );
+    }
+    let mut found: Vec<String> = l
+        .start_ms
+        .map(|m| format!("start {m:.1} ms"))
+        .into_iter()
+        .collect();
+    if l.sys == Some(false) {
+        found.push("no sysfs: the kernel refused it".into());
+    }
+    if l.lo == Some(false) {
+        found.push("lo down".into());
+    }
+    if found.is_empty() {
+        "worked".into()
+    } else {
+        format!("worked ({})", found.join("; "))
+    }
+}
+
 /// The egress list a call's proposal binds (its policy context's `egress`,
 /// M4 18c): empty at L0, and for an L1 job with no network.
 pub fn egress_in(policy_context: &serde_json::Value) -> Vec<String> {
@@ -80,16 +107,16 @@ pub fn egress_in(policy_context: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The probe's answer: `/bin/true` in L1, started as a job starts, once
-/// after serving and again after a restart in place.
+/// An L1 launch, as a job's completion reports it (theseus-gyin): health's
+/// last one since the start, and `theseusd check`'s self-test.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SandboxProbe {
-    /// L1 runs here.
+pub struct SandboxLaunch {
+    /// The job started in L1.
     pub ok: bool,
-    /// When it ran (unix ms).
+    /// When it was launched (unix ms).
     pub at_ms: u64,
-    /// Why not, when it does not: the stage, and the error.
+    /// Why not, when it did not: the stage, and the error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub why: Option<String>,
@@ -111,28 +138,17 @@ pub struct SandboxProbe {
     pub skipped: Vec<String>,
 }
 
-/// `sandbox.usage`: each L1 job's cgroup (`<daemon's cgroup>/jobs/<corr>`) as
-/// it stands, read when asked. Without a delegated cgroup there is none to
-/// read: the namespaces and `RLIMIT_NPROC` still hold, and `why` says so.
+/// `sandbox.usage`: the L1 jobs running now, read when asked. An L1 job has
+/// no cgroup of its own to read (theseus-gyin).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SandboxUsage {
-    /// The jobs' cgroup directory, once the first L1 job readied it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub jobs_dir: Option<String>,
-    /// Why there is no directory to read, when there is none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub why: Option<String>,
     /// When it was read (unix ms).
     pub at_ms: u64,
-    /// The jobs whose cgroups are there now, by correlation id.
-    pub jobs: Vec<JobUsage>,
     /// The L1 jobs running now whose `tool.job_started` row is not written
     /// yet (theseus-kpz1): it rides the turn's next frame, after the job ends
     /// or its turn stops waiting for it, so until then their commands are
-    /// here, from the daemon's memory. Listed with or without a cgroup.
+    /// here, from the daemon's memory.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub running: Vec<RunningJob>,
 }
@@ -149,31 +165,4 @@ pub struct RunningJob {
     pub argv: Vec<String>,
     /// When its wrapper was launched (unix ms).
     pub started_at_ms: u64,
-}
-
-/// One L1 job's cgroup.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct JobUsage {
-    pub correlation_id: String,
-    /// `memory.current`, in bytes.
-    pub memory_bytes: u64,
-    /// `memory.max`, in bytes; absent for `max` (no limit).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub memory_max: Option<u64>,
-    /// `memory.peak`, where the kernel keeps one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub memory_peak: Option<u64>,
-    /// `pids.current`: its processes and threads now.
-    pub pids: u64,
-    /// `pids.max`; absent for `max`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub pids_max: Option<u64>,
-    /// Forks `pids.max` refused (`pids.events`).
-    pub pids_refused: u64,
-    /// A process is still in it (`cgroup.events`).
-    pub populated: bool,
 }

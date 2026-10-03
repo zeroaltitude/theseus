@@ -1604,6 +1604,49 @@ fn unanswered(nodes: &[(u64, Arc<Node>)]) -> Option<(&Node, Vec<ToolUse>)> {
     Some((&**last, pending))
 }
 
+/// The workspace's roots, the floor's paths, and the approve list's, from
+/// `cfg` with `state` the state dir in use: what the gate guards, and what
+/// no L1 view shows (M4 17b).
+fn guarded_paths(
+    cfg: &crate::Config,
+    state: &std::path::Path,
+) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+    let t = &cfg.tools;
+    let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
+    // The workspace is what the config names: projects_dir first, then any
+    // more roots. Nothing is assumed about where an operator keeps projects.
+    let roots: Vec<PathBuf> = t
+        .projects_dir
+        .iter()
+        .chain(t.roots.iter())
+        .map(|r| canon(r))
+        .collect();
+    // The floor: Theseus's own state (its store, spool, and bindings file, in
+    // the state dir actually in use) and the 1Password CLI's credentials.
+    let canon_path = |p: PathBuf| theseus_tools::paths::canonical_best_effort(&p);
+    let mut floor_paths = vec![
+        canon_path(state.join("store")),
+        canon_path(state.join("spool")),
+        canon_path(cfg.discord.bindings_path(state)),
+        canon("~/.config/op"),
+    ];
+    // The token file the daemon was given, by flag or by environment, and
+    // the config note's last-known-good copy (theseus-2fo).
+    for f in cfg.op_token_file.iter().chain(&cfg.config_copy) {
+        floor_paths.push(canon_path(f.clone()));
+    }
+    let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
+    (roots, floor_paths, approve)
+}
+
+/// L1's state for `cfg`, with `state` the state dir in use, as the runtime
+/// builds it: `theseusd check` runs the self-test over the view a job gets
+/// (theseus-gyin).
+pub fn sandbox_for(cfg: &crate::Config, state: &std::path::Path) -> Sandbox {
+    let (roots, floor, approve) = guarded_paths(cfg, state);
+    Sandbox::new(&cfg.sandbox, &roots, &floor, &approve)
+}
+
 /// The tool runtime from config: registry, canonical roots, policy, limits,
 /// the job environment resolved once from the daemon's own, and the secret
 /// broker over the daemon's board.
@@ -1617,14 +1660,11 @@ pub fn build_runtime(
 ) -> Result<ToolRuntime> {
     let t = &cfg.tools;
     let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
-    // The workspace is what the config names: projects_dir first, then any
-    // more roots. Nothing is assumed about where an operator keeps projects.
-    let roots: Vec<PathBuf> = t
-        .projects_dir
-        .iter()
-        .chain(t.roots.iter())
-        .map(|r| canon(r))
-        .collect();
+    let state = spool
+        .as_ref()
+        .and_then(|s| s.dir().parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| cfg.state_dir());
+    let (roots, floor_paths, approve) = guarded_paths(cfg, &state);
     if roots.is_empty() && t.enabled {
         tracing::warn!(
             "no [tools].projects_dir (or roots): every path a tool names is outside the workspace"
@@ -1636,25 +1676,6 @@ pub fn build_runtime(
         .map(canon)
         .or_else(|| roots.first().cloned())
         .unwrap_or_else(std::env::temp_dir);
-    // The floor: Theseus's own state (its store, spool, and bindings file, in
-    // the state dir actually in use) and the 1Password CLI's credentials.
-    let state = spool
-        .as_ref()
-        .and_then(|s| s.dir().parent().map(std::path::Path::to_path_buf))
-        .unwrap_or_else(|| cfg.state_dir());
-    let canon_path = |p: PathBuf| theseus_tools::paths::canonical_best_effort(&p);
-    let mut floor_paths = vec![
-        canon_path(state.join("store")),
-        canon_path(state.join("spool")),
-        canon_path(cfg.discord.bindings_path(&state)),
-        canon("~/.config/op"),
-    ];
-    // The token file the daemon was given, by flag or by environment, and
-    // the config note's last-known-good copy (theseus-2fo).
-    for f in cfg.op_token_file.iter().chain(&cfg.config_copy) {
-        floor_paths.push(canon_path(f.clone()));
-    }
-    let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
     // No L1 view shows the floor or the approve list's paths (M4 17b).
     let sandbox = Arc::new(Sandbox::new(&cfg.sandbox, &roots, &floor_paths, &approve));
     let cpu = crate::cpu::CpuPool::for_host();

@@ -11,13 +11,6 @@ Everything below is what that command does, why, and what to do afterwards.
 
 ## Why
 
-- **Limits, and cancels that are confirmed.** The unit carries `Delegate=yes`, so systemd gives the daemon a
-  cgroup subtree of its own. L1 (roadmap row 17b) puts each job in a cgroup inside it, with `memory.max` (2048 MB by
-  default) and `pids.max` (512), and a cancel is `cgroup.kill` that the daemon confirms by reading `cgroup.events`
-  (`verified_by: cgroup`, row 18a; see M4 §2.2 in [design/m4-boundaries.md](design/m4-boundaries.md)). A daemon
-  started from a shell sits in some other cgroup, which is not delegated, so it has neither. Those two rows are
-  still ahead on the spine: the delegation is ready for them now, and the daemon moves into its leaf only when
-  the first L1 job needs it.
 - **It comes back.** `Restart=on-failure` with `RestartSec=5`: a crash, a kill, or an out-of-memory stop starts the
   daemon again five seconds later, and the write-ahead log replays as it does after any crash. A clean stop is
   not restarted, so `theseus shutdown` and `systemctl --user stop` both end it until you start it again.
@@ -27,7 +20,9 @@ Everything below is what that command does, why, and what to do afterwards.
   stays up after your last session ends, and the daemon starts with it.
 
 Nothing else changes. It is the same binary, config reference, state directory (`~/.theseus` unless your shell says
-otherwise), socket, and web port, so every client works as before.
+otherwise), socket, and web port, so every client works as before. L1, the sandbox, works the same under the unit
+as from a shell: it needs no cgroup and no `Delegate=` (theseus-gyin). Run the daemon as yourself: L1 runs no job of a
+daemon that runs as root.
 
 ## Before the first run
 
@@ -95,7 +90,6 @@ What it does, in order:
    - systemd: your user manager answers (`systemctl --user is-system-running`);
    - linger: on for you (`loginctl show-user`);
    - on WSL, `/etc/wsl.conf` has `systemd=true`;
-   - cgroups: v2, and your user manager delegates `memory` and `pids`;
    - `theseusd`, `theseus`, and `op` are on `PATH`, and `theseusd` is not a build-tree binary;
    - the token file is right (`stat` only);
    - the config the unit would get, read from the plan's `config:` line (step 0), is a readable file or an
@@ -126,7 +120,6 @@ this machine
   ok    systemd: your user manager is running
   ok    linger: on for ada (the service keeps running when you log out)
   ok    WSL: /etc/wsl.conf has systemd=true
-  ok    cgroups: v2, and your user manager delegates memory and pids (L1 limits work)
 the install
   ok    theseusd: /home/ada/.local/bin/theseusd (theseusd 0.0.1)
   ok    theseus: /home/ada/.local/bin/theseus
@@ -183,13 +176,6 @@ you installed in the meantime. Only `restart` swaps the binary.
 **What a stop does to jobs.** `KillMode=process`: a stop signals the daemon alone, so jobs that are running finish,
 and the next daemon reads their results from the spool. A crash recovers the same way.
 
-**Why a restart never waits on a job.** The first L1 job gives jobs cgroups of their own, which switches the job
-limits on in the daemon's cgroup. While they are on, the kernel refuses to start the next daemon there if a job of
-the old one is still running. So the unit runs `theseusd cgroup-release` after every stop and crash
-(`ExecStopPost=`), which switches them off. A job that is still running keeps going without its limits, and the
-next daemon's first L1 job switches them on again. The daemon gives jobs cgroups only under a unit that has this
-line; without it, health's `sandbox:` line says why, and L1 jobs run without a memory limit.
-
 **Changing the unit.** Don't edit `theseusd.service`: a later `--apply` rewrites it. Put your own settings in a
 drop-in (`systemctl --user edit theseusd`), which is never touched. To change what the plan writes (the config
 reference, the state directory, the socket, the token file, or `PATH`), run `scripts/user-service.sh install`
@@ -222,8 +208,6 @@ runs systemd.
 
 - **systemd must be on.** `/etc/wsl.conf` needs a `[boot]` section with `systemd=true`. After you add it, run
   `wsl --shutdown` from Windows once; the setting takes effect when the distro next starts. `check` verifies it.
-- **Delegation.** This systemd's user manager delegates `memory` and `pids` and not `cpu`, so L1 will have memory and
-  process limits and no CPU limit (M4 decision 14). `check` shows what your user manager delegates.
 - **Linger matters more here.** It is what starts your user manager, and so the daemon, when the distro starts
   without a login, and what keeps them up after the last terminal closes.
 - **When WSL stops the distro** (`wsl --shutdown`, a Windows restart or update, or the VM running out of memory
@@ -254,8 +238,6 @@ Type=exec
 ExecStart=/home/ada/.local/bin/theseusd --config op://<vault>/<item>/notesPlain --op-token-file /home/ada/.config/theseus/op-token
 Environment="PATH=/home/ada/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="LANG=C.UTF-8"
-ExecStopPost=-/home/ada/.local/bin/theseusd cgroup-release
-Delegate=yes
 KillSignal=SIGINT
 KillMode=process
 Restart=on-failure
@@ -265,9 +247,10 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-`Delegate=yes` is the delegated cgroup; `ExecStopPost` switches the job limits off after a stop or a crash, so a
-restart never waits for a running job; `KillSignal=SIGINT` is the daemon's clean stop; `KillMode=process` leaves
-running jobs alone on a stop; `Restart=on-failure` brings it back after a crash. `ExecStart` is the binary you ran
+`KillSignal=SIGINT` is the daemon's clean stop; `KillMode=process` leaves running jobs alone on a stop;
+`Restart=on-failure` brings it back after a crash. A unit an older build wrote also has `Delegate=yes` and an
+`ExecStopPost=` that runs `theseusd cgroup-release`: run `scripts/user-service.sh install` again to write it without
+them (the subcommand is gone, and the `-` before it keeps its failure from failing the stop). `ExecStart` is the binary you ran
 the install with, so install a reviewed build into `~/.local/bin` and run the script from there, not a build in a
 `target/` directory (`check` warns about one). `--state-dir` and `--socket` appear there only when your shell had
 set them.

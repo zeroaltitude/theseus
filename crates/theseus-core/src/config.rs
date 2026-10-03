@@ -1227,6 +1227,7 @@ impl Config {
                 if units.len() == 1 { "it" } else { "them" },
             ));
         }
+        warnings.extend(cfg.sandbox.retired());
         if cfg.context.default_persona.is_none() && !cfg.personas.is_empty() {
             warnings.push(format!(
                 "[personas] defines {}, but context.default_persona names none of them, so no \

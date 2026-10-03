@@ -30,8 +30,8 @@ use layout::{Act, Body, Going, Item, Layout};
 const OVERVIEW: &str = "\
 theseusd install: run the daemon as a systemd service. Pick a mode:
 
-  --user       Your own daemon as a systemd user service, with Delegate=yes, so L1 jobs get
-               memory and pids limits. Needs nothing but you: run it as yourself, not root.
+  --user       Your own daemon as a systemd user service. Needs nothing but you: run it as
+               yourself, not root (L1 runs no job of a root daemon).
                Writes ~/.config/systemd/user/theseusd.service; the state dir stays where it is.
   --separate   The daemon as its own `theseus` user, so a job, run as you, cannot read or write
                the store, the config's copy, or the vault token. Needs root: run it with sudo.
@@ -50,7 +50,7 @@ unit: the plan says what to run.
 /// today, which `--user` keeps.
 #[derive(clap::Args, Debug, Default)]
 pub(crate) struct InstallArgs {
-    /// Your own daemon as a systemd user service (Delegate=yes). Needs nothing but you.
+    /// Your own daemon as a systemd user service. Needs nothing but you.
     #[arg(long, conflicts_with = "separate")]
     pub user: bool,
     /// The daemon as its own `theseus` user, the layout, and both units. Needs root (sudo).

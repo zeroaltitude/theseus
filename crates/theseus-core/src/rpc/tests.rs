@@ -641,50 +641,11 @@ async fn ledger_tail_after_walks_the_ledger_a_page_at_a_time() {
     );
 }
 
-/// `sandbox.usage` reads each job's cgroup under the readied `jobs`, changes
-/// nothing, and before the first L1 job says why there is nothing to read.
+/// `sandbox.usage` answers with no params: the L1 jobs running now, none
+/// here (`theseusd/tests/sandbox.rs` reads a running job's command).
 #[tokio::test]
-async fn sandbox_usage_reads_each_jobs_cgroup() {
+async fn sandbox_usage_lists_the_l1_jobs_running_now() {
     let core = test_core("ok");
-    let before = core.tools.sandbox.usage();
-    assert!(before.jobs.is_empty() && before.jobs_dir.is_none());
-    assert!(before.why.is_some(), "no jobs dir and no reason");
-    let d = tempfile::tempdir().unwrap();
-    let job = d.path().join("act_0123");
-    std::fs::create_dir(&job).unwrap();
-    for (f, v) in [
-        ("cgroup.events", "populated 1\nfrozen 0\n"),
-        ("memory.current", "1048576\n"),
-        ("memory.max", "2147483648\n"),
-        ("pids.current", "2\n"),
-        ("pids.max", "512\n"),
-        ("pids.events", "max 0\n"),
-    ] {
-        std::fs::write(job.join(f), v).unwrap();
-    }
-    // The jobs' own files are not a job.
-    std::fs::write(d.path().join("cgroup.procs"), "").unwrap();
-    core.tools
-        .sandbox
-        .set_jobs_dir_for_tests(d.path().to_path_buf());
-    let u = core.tools.sandbox.usage();
-    assert_eq!(u.jobs_dir, Some(d.path().display().to_string()));
-    assert_eq!(u.why, None);
-    assert_eq!(u.jobs.len(), 1);
-    let j = &u.jobs[0];
-    assert_eq!(j.correlation_id, "act_0123");
-    assert_eq!(
-        (j.memory_bytes, j.memory_max),
-        (1_048_576, Some(2_147_483_648))
-    );
-    assert_eq!((j.pids, j.pids_max, j.pids_refused), (2, Some(512), 0));
-    assert!(j.populated);
-    assert_eq!(
-        std::fs::read_to_string(job.join("memory.max")).unwrap(),
-        "2147483648\n",
-        "a read changes nothing"
-    );
-    // Through the protocol, with no params: the jobs, or (tools off) why not.
     let msgs = roundtrip(
         core,
         vec![Request::new(Id::Num(1), method::SANDBOX_USAGE, Value::Null)],
@@ -693,7 +654,7 @@ async fn sandbox_usage_reads_each_jobs_cgroup() {
     let rs = responses(&msgs);
     let r: theseus_protocol::sandbox::SandboxUsage =
         serde_json::from_value(rs[0].result.clone().unwrap()).unwrap();
-    assert!(r.jobs.len() == 1 || r.why.is_some(), "{r:?}");
+    assert!(r.running.is_empty() && r.at_ms > 0, "{r:?}");
 }
 
 #[tokio::test]

@@ -1,8 +1,10 @@
 //! Egress for L1 jobs through the whole core (M4 18c): the gate's step for
 //! hosts beyond `[sandbox] egress`, the list a confirm binds, and a result
-//! whose job connected out as outside text (T1's hold, its label, its rows),
-//! on every path a job's result takes: read while the turn waits, read late
-//! by the next turn, and swept after a cancel. A test launcher keeps each
+//! whose job reached a host beyond that list as outside text (T1's hold, its
+//! label, its rows; theseus-gyin), on every path a job's result takes: read
+//! while the turn waits, read late by the next turn, and swept after a
+//! cancel. A job that reached only listed hosts holds nothing. A test
+//! launcher keeps each
 //! job's `WrapperArgs` and settles the job itself, as an L1 job's wrapper
 //! does, with `detail.egress` as its proxy would record it: these tests are
 //! of the gate and of what the core makes of a completion, and the daemon's
@@ -85,6 +87,21 @@ fn connected() -> Value {
     json!({"allow": ["api.tides.test:443"],
         "hosts": [{"host": "api.tides.test", "port": 443, "connections": 2, "up": 517,
             "down": 4096, "ms": 41}]})
+}
+
+/// A job whose call named `pypi.test:443`, beyond the rig's list, approved,
+/// and whose proxy opened a tunnel to it.
+fn beyond() -> Value {
+    json!({"allow": ["api.tides.test:443", "*.crates.test:443", "pypi.test:443"],
+        "hosts": [{"host": "pypi.test", "port": 443, "connections": 1, "up": 90,
+            "down": 2048, "ms": 12}]})
+}
+
+/// The rig's list without `api.tides.test:443`: a job the launcher settles as
+/// having reached it reached a host beyond the list, as an approved call's
+/// job does.
+fn unlisted(cfg: &mut Config, _: &Path) {
+    cfg.sandbox.egress = vec!["*.crates.test:443".into()];
 }
 
 /// A job whose proxy refused its one `CONNECT`, and reached nothing.
@@ -244,7 +261,9 @@ fn now() -> Ran {
 /// it; one whose hosts the list covers runs at L1's notify. The job's whole
 /// list is in its proposal, so the digest a confirm binds covers it: the
 /// same call with another host is refused, and once approved the job gets
-/// the hosts its call named, and no other.
+/// the hosts its call named, and no other. What it brought back from the
+/// host beyond the list holds its session; a job that reached only listed
+/// hosts holds nothing (theseus-gyin).
 #[tokio::test]
 async fn a_call_naming_a_host_beyond_the_list_waits_and_its_approval_reaches_it_alone() {
     let r = Rig::new(
@@ -289,14 +308,31 @@ async fn a_call_naming_a_host_beyond_the_list_waits_and_its_approval_reaches_it_
         .unwrap_err()
         .to_string();
     assert!(refused.contains("digest"), "{refused}");
+    *r.kept.ran.lock().unwrap() = Some(Ran {
+        egress: beyond(),
+        after: Duration::ZERO,
+    });
     let exec = res.execution_id.clone().unwrap();
     let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
     assert_eq!(cont.output, "Ran.");
     assert_eq!(r.lists(), [list.to_vec()]);
-    // A host the list covers: no wait, and the list as the operator wrote it.
+    let h = r
+        .hold(&res.session_id)
+        .expect("the host beyond the list holds its session");
+    assert_eq!(
+        (h.url.as_str(), h.via.as_deref()),
+        ("pypi.test:443", Some("egress"))
+    );
+    // A host the list covers: no wait, the list as the operator wrote it,
+    // and what the job brought back from it holds nothing.
+    *r.kept.ran.lock().unwrap() = Some(now());
     let covered = r.turn(None, "covered").await;
     assert_eq!(covered.stop_reason, "no_tool_calls", "{covered:?}");
     assert_eq!(r.lists()[1], ["api.tides.test:443", "*.crates.test:443"]);
+    assert!(
+        r.hold(&covered.session_id).is_none(),
+        "a listed host is not outside text"
+    );
     let notified = r.rows("tool.notified");
     let rule = notified.last().unwrap()["rule"]
         .as_str()
@@ -308,12 +344,12 @@ async fn a_call_naming_a_host_beyond_the_list_waits_and_its_approval_reaches_it_
     );
 }
 
-/// A job that connected out returns outside text (T1): its session holds it,
-/// with the reason naming the egress, in the frame that writes the result;
-/// the result is untrusted, `via: egress`, and the owner's (note 3); and its
-/// `sandbox.egress` row rides in that frame too, so the turn writes no frame
-/// more than one whose job connected nowhere, which leaves its session
-/// clear and its result trusted.
+/// A job that reached a host beyond the list returns outside text (T1): its
+/// session holds it, with the reason naming the egress, in the frame that
+/// writes the result; the result is untrusted, `via: egress`, and the
+/// owner's (note 3); and its `sandbox.egress` row rides in that frame too,
+/// so the turn writes no frame more than one whose job connected nowhere,
+/// which leaves its session clear and its result trusted.
 #[tokio::test]
 async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_it_clear() {
     let r = Rig::new(
@@ -326,7 +362,7 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
             Scripted::text("Ran."),
         ],
         now(),
-        |_, _| {},
+        unlisted,
     );
     let (out, connected) = r.counted("fetch the tides").await;
     assert_eq!(out.stop_reason, "no_tool_calls", "{out:?}");
@@ -421,6 +457,33 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
     );
 }
 
+/// The operator chose `[sandbox] egress`'s hosts, so what a job brought back
+/// from them alone is not outside text (theseus-gyin, cut-list 4.1): its
+/// session holds nothing, its result is not marked, and its rows and
+/// health's counts are written as for any job that connected out.
+#[tokio::test]
+async fn a_job_that_reached_only_listed_hosts_leaves_its_session_clear() {
+    let r = Rig::new(
+        vec![
+            run(json!({"argv": ["true"], "sandbox": true})),
+            Scripted::text("Fetched."),
+        ],
+        now(),
+        |_, _| {},
+    );
+    let out = r.turn(None, "fetch the tides").await;
+    assert_eq!(out.stop_reason, "no_tool_calls", "{out:?}");
+    assert!(
+        r.hold(&out.session_id).is_none(),
+        "a listed host is not outside text"
+    );
+    let result = r.results(&out.session_id).remove(0);
+    assert!(!crate::external::is_outside(&result), "{result:?}");
+    assert!(r.rows("session.external_read").is_empty());
+    assert_eq!(r.rows("sandbox.egress").len(), 1);
+    assert_eq!(r.core.tools.sandbox.health().egress_connections, 2);
+}
+
 /// A session that already holds outside text holds an L1 call with egress
 /// too, whatever its list: 20a's exemption covers only jobs with no egress
 /// and no secret, and this keeps it honest.
@@ -467,7 +530,10 @@ async fn a_late_result_that_connected_out_holds_its_session_in_the_frame_that_ta
             egress: connected(),
             after: Duration::from_millis(300),
         },
-        |cfg, _| cfg.tools.proc_sync_secs = 0,
+        |cfg, root| {
+            cfg.tools.proc_sync_secs = 0;
+            unlisted(cfg, root);
+        },
     );
     let first = r.turn(None, "start it").await;
     assert_eq!(first.stop_reason, "no_tool_calls", "{first:?}");

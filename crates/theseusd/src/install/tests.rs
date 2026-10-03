@@ -935,14 +935,14 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
     );
     assert_eq!((r.owner(unit), r.mode(unit)), ("ada:ada".into(), 0o644));
     let text = std::fs::read_to_string(r.at(unit)).unwrap();
+    // A stop signals the daemon alone, so its jobs run on; no cgroup is
+    // delegated, and there is no stop hook (theseus-gyin).
     assert!(
-        text.contains("\nDelegate=yes\n") && text.contains("\nKillSignal=SIGINT\n"),
+        text.contains("\nKillSignal=SIGINT\n") && text.contains("\nKillMode=process\n"),
         "{text}"
     );
-    // The stop hook, without which a restart while a job runs fails once an
-    // L1 job has turned on the job limits (17b's join).
     assert!(
-        text.contains("\nExecStopPost=-/opt/theseus/bin/theseusd cgroup-release\n"),
+        !text.contains("Delegate=") && !text.contains("ExecStopPost="),
         "{text}"
     );
     assert_eq!(

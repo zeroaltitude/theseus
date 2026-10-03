@@ -6,7 +6,8 @@
 //! - **A job:** its wrapper is asked to stop its whole tree, or, for a
 //!   wrapper from before 18a, its process group is stopped as before
 //!   (`theseus_kernel::job::Stopping`). The verdict says how it is known: the
-//!   job's pid namespace or cgroup (L1), its process tree (L0), or its group.
+//!   job's pid namespace (L1; its cgroup in records from before
+//!   theseus-gyin), its process tree (L0), or its group.
 //! - **An async tool's task** (`http.fetch`, `web.search`): aborted, and
 //!   verified once its handle has finished (`task`).
 //! - **Anything else** runs in process to its end, within its deadline:
@@ -179,8 +180,8 @@ pub fn words(a: &Action) -> Option<String> {
     Some(wire(a, v).words())
 }
 
-/// The backend a job's verdict names: L1's namespace or cgroup, L0's tree or
-/// group, or a job whose verdict cannot tell.
+/// The backend a job's verdict names: L1's namespace (or, in an old record,
+/// its cgroup), L0's tree or group, or a job whose verdict cannot tell.
 fn job_backend(v: &Verdict) -> &'static str {
     match v.verified_by {
         VerifiedBy::Pidns | VerifiedBy::Cgroup => "l1",

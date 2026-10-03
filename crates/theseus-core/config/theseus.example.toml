@@ -531,13 +531,16 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # above, or a "should have asked"), and in a session that has read web text,
 # as any call that acts does. A program in L1 gets its broker grant at its
 # start, as at L0, and no other secret. When L1 cannot run here, the call
-# fails and says why: it never runs at L0 instead.
-# Health's sandbox line says what the probe after serving found.
+# fails and says why: it never runs at L0 instead. A daemon that runs as root
+# runs no L1 job: Linux exempts root from the process limit below.
+# Health's sandbox line says how the last L1 job's launch went, and
+# `theseusd check` runs L1's self-test. An L1 job's memory has no limit, as an
+# L0 job's has none (memory_mb is retired: a config that still sets it loads,
+# with a warning, and it is ignored).
 [sandbox]
 default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)
 # l1_argv = [["npm", "install"], ["cargo", "build"], ["cargo", "test"]]   # programs that always run in L1, matched as allow_argv matches (default none)
 ro_paths = ["~/.cargo", "~/.rustup"]    # more read-only paths, each at its own path: here Rust's toolchain and its offline registry (default none: the system's alone); one that does not exist is skipped
-memory_mb = 2048                        # an L1 job's memory, where the daemon's cgroup is delegated (a systemd user service: theseusd install --user)
 pids = 512                              # an L1 job's processes
 scratch_mb = 1024                       # what an L1 job may write to scratch, and to each of its /tmp and HOME
 output_mb = 64                          # the largest file an L1 job may write; what it prints is capped by [tools] job_output_max_bytes
@@ -550,9 +553,11 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # connections and refusals. A call may name more hosts (proc.run's sandbox:
 # { egress: [...] }): it then waits for your approval, which lets that job
 # reach those hosts and no other. Two things to know before you list any:
-#   - a job that connects out brings back outside text, so its session then
-#     holds it, as after a fetched page: each later call that acts waits for
-#     your approval until you trust the session again;
+#   - what a job brings back from a host listed here is not outside text: you
+#     chose the host, so its session does not hold it. A job that reached a
+#     host its call named beyond this list does: its session then holds it,
+#     as after a fetched page, and each later call that acts waits for your
+#     approval until you trust the session again;
 #   - every host listed is a way out for anything the job can read: the
 #     workspace, ro_paths, and what the call gives it.
 # Rust's registry and GitHub, for builds that fetch their dependencies:

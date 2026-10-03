@@ -32,16 +32,13 @@ pub struct Spec {
     pub hidden: Vec<PathBuf>,
     pub hostname: String,
     pub limits: Limits,
-    /// A cgroup directory made for this job, with its limits already
-    /// written; the init is moved into it before it is released. None when
-    /// the daemon's cgroup is not delegated.
-    pub cgroup: Option<PathBuf>,
     /// 18b: the port of the egress listener the init opens on 127.0.0.1
     /// inside the job's network namespace and hands to the wrapper.
     pub egress_port: Option<u16>,
 }
 
-/// What one job may use. Memory is the cgroup's alone (`Spec::cgroup`).
+/// What one job may use. Its memory has no limit of its own, as an L0
+/// job's has none (theseus-gyin).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Limits {
     /// Scratch: the overlays' writes, every workspace root together.
@@ -53,8 +50,8 @@ pub struct Limits {
     /// `SIGXFSZ`.
     pub output_mb: u64,
     /// The job's processes (`RLIMIT_NPROC`, which the kernel counts in the
-    /// job's own user namespace, so it is a per-job limit with or without a
-    /// cgroup).
+    /// job's own user namespace, so it is a per-job limit). Linux exempts
+    /// root from it, so `spawn` refuses a root operator's job (`refusal`).
     pub pids: u64,
 }
 
@@ -87,7 +84,6 @@ impl Spec {
             hidden: Vec::new(),
             hostname: HOSTNAME.into(),
             limits: Limits::default(),
-            cgroup: None,
             egress_port: None,
         }
     }

@@ -8,7 +8,7 @@ theseusd install --user: the plan. Nothing is changed: --apply performs it.
   ok      token  /home/ada/.config/theseus/op-token (yours alone: mode 0600 or stricter, not empty)
                  the 1Password token the daemon reads when it starts: its owner, mode, and size are checked, and it is never opened
   write   file   /home/ada/.config/systemd/user/theseusd.service ada:ada 0644
-                 the daemon as your systemd user service: Delegate=yes gives L1 jobs cgroup limits (M4 2.2)
+                 the daemon as your systemd user service
                  | # Written by `theseusd install --user`. A later --apply rewrites it:
                  | # put your own changes in a drop-in (`systemctl --user edit theseusd`).
                  | [Unit]
@@ -19,12 +19,6 @@ theseusd install --user: the plan. Nothing is changed: --apply performs it.
                  | ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain --op-token-file /home/ada/.config/theseus/op-token
                  | Environment="PATH=/home/ada/.local/bin:/usr/bin:/bin"
                  | Environment="LANG=C.UTF-8"
-                 | # After every stop and crash: turn off the L1 jobs' limits, so the next
-                 | # start can join this cgroup while a job of the old daemon still runs.
-                 | ExecStopPost=-/opt/theseus/bin/theseusd cgroup-release
-                 | # Delegated, so the daemon can give each L1 job a cgroup of its own, with
-                 | # memory and pids limits (M4 2.2).
-                 | Delegate=yes
                  | # SIGINT is the daemon's clean stop: it removes its socket and closes the
                  | # store. A stop signals the daemon alone, so running jobs finish, and the
                  | # next daemon reads their results from the spool, as a shell-started

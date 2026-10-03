@@ -1306,16 +1306,9 @@ impl Core {
         .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))
     }
 
-    /// `sandbox.usage`: every L1 job's cgroup as it stands. A daemon whose
-    /// tools are off runs no job, and says so.
+    /// `sandbox.usage`: the L1 jobs running now. A daemon whose tools are
+    /// off runs none.
     pub(super) fn sandbox_usage(&self) -> theseus_protocol::sandbox::SandboxUsage {
-        if !self.tools.enabled() {
-            return theseus_protocol::sandbox::SandboxUsage {
-                why: Some("tools are off in this daemon's config, so no job runs".into()),
-                at_ms: theseus_protocol::now_unix_ms(),
-                ..Default::default()
-            };
-        }
         self.tools.sandbox.usage()
     }
 

@@ -19,9 +19,9 @@
 //! overlays over the workspace whose writes are scratch; a fresh `/proc` and
 //! `/sys`, masked as Docker masks them, and four device nodes; and an init
 //! whose exit kills the whole tree. Nothing here needs privilege: every
-//! piece works for an unprivileged user on a kernel with user namespaces.
+//! piece works for an unprivileged user on a kernel with user namespaces,
+//! and an operator who is root gets no job at all (`refusal`).
 
-pub mod cgroup;
 pub mod egress;
 mod init;
 mod report;
@@ -33,6 +33,6 @@ mod view;
 
 pub use init::init_main;
 pub use report::{Exit, Scratch, Started};
-pub use spawn::{spawn, SandboxChild, SpawnError, Stdio};
+pub use spawn::{refusal, refused_here, spawn, SandboxChild, SpawnError, Stdio, ROOT_REFUSED};
 pub use spec::{Init, Limits, Spec, HOSTNAME, INIT_ROLE};
 pub use view::DEVICES;

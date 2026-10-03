@@ -12,11 +12,14 @@
 //!   path outside the roots does). Its approval reaches only the hosts it
 //!   named: the job's whole list is in its proposal, so the digest a confirm
 //!   binds covers it, and a confirmed call runs with that list and no other.
-//! - **Outside text.** A job that connected out returns what it brought back.
-//!   Its result is marked `external` (DD5's marker, its `url` the hosts it
-//!   reached), so T1 holds its session (`via: egress`), and its node is
-//!   untrusted, its readers still `Owner`. A job that connected nowhere keeps
-//!   19a's label and holds nothing (theseus-20f, closed for L1).
+//! - **Outside text.** A job that reached a host beyond `[sandbox] egress`,
+//!   one only its call's approved list let it reach, returns what it brought
+//!   back. Its result is marked `external` (DD5's marker, its `url` those
+//!   hosts), so T1 holds its session (`via: egress`), and its node is
+//!   untrusted, its readers still `Owner`. A job that reached only the hosts
+//!   the operator listed, or none, keeps 19a's label and holds nothing: the
+//!   operator chose those hosts, and a build that fetched its crates must not
+//!   stop to ask (theseus-gyin; theseus-20f, closed for L1).
 
 use serde_json::Value;
 use theseus_kernel::Action;
@@ -112,36 +115,46 @@ pub fn summary(detail: &Value) -> Option<Summary> {
     serde_json::from_value(detail.get(KEY)?.clone()).ok()
 }
 
-/// What a job's result is marked when its job connected out: DD5's
-/// `external`, naming the hosts it reached. None when it reached none.
-pub fn external(detail: &Value) -> Option<theseus_tools::External> {
-    summary(detail)
-        .filter(Summary::connected)
-        .map(|s| theseus_tools::External { url: s.reached() })
+/// What a job's result is marked when its job reached a host beyond
+/// `operator`, the `[sandbox] egress` list (theseus-gyin): DD5's
+/// `external`, naming those hosts. None when it reached only listed hosts,
+/// or none.
+pub fn external(detail: &Value, operator: &[String]) -> Option<theseus_tools::External> {
+    let ours = check(operator).unwrap_or_default();
+    let beyond: Vec<String> = summary(detail)?
+        .hosts
+        .iter()
+        .filter(|h| !ours.iter().any(|a| a.permits(&h.host, h.port)))
+        .map(theseus_sandbox::egress::Reached::name)
+        .collect();
+    (!beyond.is_empty()).then(|| theseus_tools::External {
+        url: beyond.join(", "),
+    })
 }
 
-/// What a job's result is marked: DD5's `external` when its job connected
-/// out of L1, naming the hosts it reached. A job that left no completion (a
-/// stop, a lost wrapper) and printed something is marked too when its
-/// proposal bound a list (`bound`, read only then): it may have connected
-/// out, and nothing recorded whether it did, so what it printed counts as
-/// outside text.
+/// What a job's result is marked: DD5's `external` when its job reached a
+/// host beyond `operator`'s list, naming those hosts. A job that left no
+/// completion (a stop, a lost wrapper) and printed something is marked too
+/// when its proposal bound hosts beyond that list (`bound`, read only then):
+/// it may have reached them, and nothing recorded whether it did, so what it
+/// printed counts as outside text.
 pub fn marker(
     detail: &Value,
     printed: bool,
+    operator: &[String],
     bound: impl FnOnce() -> Vec<String>,
 ) -> Option<theseus_tools::External> {
-    if let Some(e) = external(detail) {
+    if let Some(e) = external(detail, operator) {
         return Some(e);
     }
     if !detail.is_null() || !printed {
         return None;
     }
-    let list = bound();
-    (!list.is_empty()).then(|| theseus_tools::External {
+    let (_, beyond) = list(operator, &bound());
+    (!beyond.is_empty()).then(|| theseus_tools::External {
         url: format!(
             "{} (not recorded: the job ended without its report)",
-            list.join(", ")
+            beyond.join(", ")
         ),
     })
 }
@@ -396,17 +409,33 @@ mod tests {
         assert!(asked(&json!({"sandbox": true})).is_empty());
     }
 
-    /// A completion's egress, in the result's lines and its marker.
+    /// A completion's egress, in the result's lines and its marker: outside
+    /// text only from a host beyond the operator's list (theseus-gyin).
     #[test]
-    fn a_job_that_connected_out_is_outside_text_and_says_so() {
+    fn a_job_that_reached_a_host_beyond_the_list_is_outside_text_and_says_so() {
         let detail = json!({"egress": {"allow": ["api.github.com:443"],
             "hosts": [{"host": "api.github.com", "port": 443, "connections": 2, "up": 410,
                 "down": 12500, "ms": 80}],
             "refused": [{"host": "evil.test", "port": 443,
                 "why": "evil.test:443 is not on this job's egress list", "count": 1}]}});
         assert_eq!(
-            external(&detail).map(|e| e.url),
+            external(&detail, &[]).map(|e| e.url),
             Some("api.github.com:443".into())
+        );
+        let listed = s(&["*.github.com:443"]);
+        assert!(
+            external(&detail, &listed).is_none(),
+            "a host the operator listed is not outside text"
+        );
+        let both = json!({"egress": {"allow": ["*.github.com:443", "pypi.org:443"],
+            "hosts": [{"host": "api.github.com", "port": 443, "connections": 1, "up": 9,
+                "down": 9, "ms": 1},
+                {"host": "pypi.org", "port": 443, "connections": 1, "up": 9, "down": 9,
+                "ms": 1}]}});
+        assert_eq!(
+            external(&both, &listed).map(|e| e.url),
+            Some("pypi.org:443".into()),
+            "only the hosts beyond the list are named"
         );
         let l = lines(&detail);
         assert_eq!(
@@ -420,33 +449,50 @@ mod tests {
         );
         assert_eq!(reach_words(&detail), "egress: api.github.com:443");
         let none = json!({"egress": {"allow": ["api.github.com:443"]}});
-        assert!(external(&none).is_none());
+        assert!(external(&none, &[]).is_none());
         assert_eq!(lines(&none), ["[L1: it reached none of its egress hosts]"]);
-        assert!(external(&json!({"exit_code": 0})).is_none());
+        assert!(external(&json!({"exit_code": 0}), &[]).is_none());
         assert_eq!(reach_words(&json!({})), "no network");
     }
 
     /// A job that left no completion has no record of its connections: when
-    /// its proposal bound a list and it printed something, its output counts
-    /// as outside text; the list is read only then.
+    /// its proposal bound hosts beyond the operator's list and it printed
+    /// something, its output counts as outside text; the list is read only
+    /// then.
     #[test]
-    fn a_job_that_left_no_report_is_outside_text_when_it_may_have_connected() {
+    fn a_job_that_left_no_report_is_outside_text_when_it_may_have_gone_beyond_the_list() {
         let list = || s(&["api.github.com:443"]);
-        let marked = marker(&Value::Null, true, list).map(|e| e.url);
+        let marked = marker(&Value::Null, true, &[], list).map(|e| e.url);
         assert_eq!(
             marked.as_deref(),
             Some("api.github.com:443 (not recorded: the job ended without its report)")
         );
+        let ours = s(&["*.github.com:443"]);
         assert!(
-            marker(&Value::Null, false, list).is_none(),
+            marker(&Value::Null, true, &ours, list).is_none(),
+            "its list was the operator's alone"
+        );
+        let wider = || s(&["*.github.com:443", "pypi.org:443"]);
+        assert_eq!(
+            marker(&Value::Null, true, &ours, wider).map(|e| e.url),
+            Some("pypi.org:443 (not recorded: the job ended without its report)".into())
+        );
+        assert!(
+            marker(&Value::Null, false, &[], list).is_none(),
             "it printed nothing"
         );
         assert!(
-            marker(&Value::Null, true, Vec::new).is_none(),
+            marker(&Value::Null, true, &[], Vec::new).is_none(),
             "no list: no network"
         );
         let never = || -> Vec<String> { panic!("a completion's record is enough") };
-        assert!(marker(&json!({"egress": {"allow": ["a.test:443"]}}), true, never).is_none());
-        assert!(marker(&json!({"exit_code": 0}), true, never).is_none());
+        assert!(marker(
+            &json!({"egress": {"allow": ["a.test:443"]}}),
+            true,
+            &[],
+            never
+        )
+        .is_none());
+        assert!(marker(&json!({"exit_code": 0}), true, &[], never).is_none());
     }
 }

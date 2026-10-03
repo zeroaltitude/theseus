@@ -6,10 +6,9 @@
 //! probe inside the job (`probe <name> …`, the binary bound read-only into
 //! the view), so it brings its own harness (`harness = false`).
 //!
-//! With `THESEUS_SANDBOX_TEST_CGROUP=1`, in a cgroup delegated to it (run
-//! under `systemd-run --user --scope -p Delegate=yes`), the limits case puts
-//! the job in a cgroup of its own and proves `pids.max`; without it, the
-//! fork loop stops at `RLIMIT_NPROC`.
+//! Run as root, every case but `clause_09_root_is_refused` fails: L1 refuses
+//! a root operator's every job (theseus-pv6i). That case is the one to run
+//! as root (`sudo <binary> --exact clause_09_root_is_refused`).
 
 mod common;
 
@@ -20,7 +19,6 @@ use std::time::{Duration, Instant};
 
 use common::{check, job, run, Case, Output};
 use serde_json::{json, Value};
-use theseus_sandbox::cgroup::{self, JobCgroup};
 use theseus_sandbox::egress::{self, Allow, Connection, Proxy, Resolver};
 use theseus_sandbox::Spec;
 
@@ -75,6 +73,10 @@ const CASES: &[Case] = &[
     Case {
         name: "clause_09_limits",
         run: limits,
+    },
+    Case {
+        name: "clause_09_root_is_refused",
+        run: root_is_refused,
     },
     Case {
         name: "clause_10_tree_killed_on_cancel",
@@ -415,69 +417,19 @@ fn proc_and_sys_masked() -> Result<(), String> {
     }
 }
 
-/// A cgroup of the job's own, when this run's cgroup is delegated to it.
-fn test_cgroup(name: &str, pids: u64) -> Result<Option<JobCgroup>, String> {
-    if std::env::var_os("THESEUS_SANDBOX_TEST_CGROUP").is_none() {
-        return Ok(None);
-    }
-    let own = cgroup::own().map_err(|e| e.to_string())?;
-    let dir = if own.ends_with("daemon") {
-        own.parent().map(Path::to_path_buf).unwrap_or(own)
-    } else {
-        own
-    };
-    let jobs = cgroup::delegate(&dir).map_err(|e| format!("delegating {}: {e}", dir.display()))?;
-    let name = format!("{name}-{}", std::process::id());
-    JobCgroup::create(&jobs, &name, Some(256), Some(pids))
-        .map(Some)
-        .map_err(|e| format!("the job's cgroup: {e}"))
-}
-
-// Clause 9: limits on pids and disk, with output caps (memory and cpu are
-// the cgroup's, where it is delegated).
+// Clause 9: limits on pids and disk, with output caps. Memory has no limit
+// of its own, as at L0 (theseus-gyin).
 fn limits() -> Result<(), String> {
     let ws = tempfile::tempdir().map_err(|e| e.to_string())?;
-    // A fork loop stops: at pids.max in a cgroup of its own, else at the
-    // job's RLIMIT_NPROC, counted in its own user namespace.
-    let cg = test_cgroup("forkloop", 16)?;
-    let v = probe_in(ws.path(), "forkloop", &[], |s| match &cg {
-        Some(cg) => {
-            s.cgroup = Some(cg.path().to_path_buf());
-            s.limits.pids = 4096;
-        }
-        None => s.limits.pids = 16,
-    })?;
-    // Linux never applies RLIMIT_NPROC to a task whose real user is the
-    // initial user namespace's root (copy_process's INIT_USER check), and
-    // the job's is the operator's: without a cgroup, a root operator's job
-    // has no process limit. The clause does not hold, so this still fails
-    // (theseus-celu.2).
-    is(&v, "error", "EAGAIN").map_err(|e| {
-        if cg.is_none() && unsafe { libc::getuid() } == 0 {
-            format!(
-                "{e}\nthe operator is root (uid 0), whom Linux exempts from \
-                 RLIMIT_NPROC, and the job has no cgroup: it has no process \
-                 limit (theseus-celu.2)"
-            )
-        } else {
-            e
-        }
-    })?;
+    // A fork loop stops at the job's RLIMIT_NPROC, counted in its own user
+    // namespace.
+    let v = probe_in(ws.path(), "forkloop", &[], |s| s.limits.pids = 16)?;
+    is(&v, "error", "EAGAIN")?;
     let forked = v["forked"].as_u64().unwrap_or(0);
     check(
         (10..16).contains(&forked),
         format!("the loop forked {forked}"),
     )?;
-    if let Some(cg) = cg {
-        let refused = cg.pids_refused().map_err(|e| e.to_string())?;
-        check(refused > 0, "pids.events counts no refusal")?;
-        check(
-            !cg.populated().unwrap_or(true),
-            "the job's cgroup is still populated",
-        )?;
-        cg.remove()
-            .map_err(|e| format!("removing the job's cgroup: {e}"))?;
-    }
     // A scratch write past its cap: ENOSPC. And /tmp's.
     let v = probe_in(ws.path(), "fill", &["{ws}/big", "64"], |s| {
         s.limits.scratch_mb = 4
@@ -507,6 +459,28 @@ fn limits() -> Result<(), String> {
         size == 1 << 20,
         format!("the output file holds {size} bytes"),
     )
+}
+
+/// Clause 9's process limit is `RLIMIT_NPROC`, which Linux never applies to
+/// root: a root operator's job is refused before anything is made, and says
+/// why (theseus-pv6i). As anyone else, the same job runs.
+fn root_is_refused() -> Result<(), String> {
+    let ws = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let spec = probe_spec(ws.path(), "status", &[]);
+    let out = Output::new();
+    match (unsafe { libc::geteuid() }, common::spawn(&spec, &out)) {
+        (0, Err(e)) => check(
+            e.contains("checking the job's process limit: the daemon runs as root")
+                && e.contains("RLIMIT_NPROC"),
+            format!("refused, but not for root: {e}"),
+        ),
+        // Dropped here: killed and reaped.
+        (0, Ok(_)) => Err("a root operator's job started, with no process limit".into()),
+        (_, started) => {
+            let mut child = started?;
+            child.wait().map(|_| ()).map_err(|e| e.to_string())
+        }
+    }
 }
 
 /// The pids in the pid namespace `ns` ("pid:[…]"), from the host.

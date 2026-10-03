@@ -19,13 +19,13 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   socket answers, the socket daemon only, and the supervisor starts a tender 2 s later (one an exec kept is taken
   over at once); the reaper hands it each tender's exit; a stop sends the tender SIGTERM and never waits. It runs
   the `theseus-index` beside this binary, never one on PATH.
-- The L1 roles (M4 17b): `job-sandbox`, an L1 job's init, dispatched first in `main`, before the umask, clap, and
-  tracing; and the hidden `sandbox-probe`, which `theseus_core::sandbox::probe_after_serving` runs 3 s after
-  serving. `tests/sandbox.rs` runs real L1 jobs, its state dir and socket inside the workspace so the view's
-  hiding is what keeps them out. The hidden `cgroup-release` is every installed unit's `ExecStopPost=`: it turns
-  off the job limits in the unit's cgroup, or a restart while a job runs fails (`status=219/CGROUP`).
+- The L1 role (M4 17b): `job-sandbox`, an L1 job's init, dispatched first in `main`, before the umask, clap, and
+  tracing. Nothing probes L1 at the start: `check` runs its self-test on demand (`/bin/true` in L1 from the
+  check's own process, `Sandbox::self_test`), and health reports the last real L1 launch (theseus-gyin). An L1 job
+  has no cgroup, so the units ask for no `Delegate=` and have no stop hook. `tests/sandbox.rs` runs real L1 jobs,
+  its state dir and socket inside the workspace so the view's hiding is what keeps them out.
 - `job-wrapper` catches SIGTERM from its first moments (M4 18a): a cancel asks it alone, and it stops its job's
-  whole tree (`theseus_kernel::tree`), an L1 job through its init or its cgroup, then answers in the spool.
+  whole tree (`theseus_kernel::tree`), an L1 job through its init, then answers in the spool.
   `tests/job_wrapper.rs` stops real trees, a `setsid` sleeper included; `tests/sandbox.rs` an L1 job's.
 - `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
   refuses a wrong `Host` or `Origin` and any uid but the daemon's own.

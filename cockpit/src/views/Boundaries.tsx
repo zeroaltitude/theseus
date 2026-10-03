@@ -2,8 +2,8 @@
 //
 // - The latch (T1): sessions holding text from outside, what they read and when, and the trust that lets them go.
 // - The gate: approvals waiting, and the tightenings ("should have asked"), each with its undo.
-// - The sandbox (17b): each L1 job live, with gauges for memory and processes against its limits, read from its own
-//   cgroup (`sandbox.usage`); each finished one with what it left in scratch; each cancelled one with 18a's verdict.
+// - The sandbox (17b): each L1 job live, with its command and how long it has run (`sandbox.usage`; an L1 job has no
+//   cgroup to gauge, theseus-gyin); each finished one with what it left in scratch; each cancelled one with 18a's verdict.
 // - The broker: which program or tool is handed which secret, by name only; and what it withheld.
 // - Places (the place rule): each place and its class, a private channel's start-time read, and the public trees.
 // - Egress (18c, a seam): the hosts sandboxed jobs reach, and the refusals, once 18c records them.
@@ -11,7 +11,7 @@ import { useDeferredValue, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Anchor, CircleCheck, Eye, KeyRound, Link2, Lock, OctagonX, Radar, ShieldCheck, ShieldHalf, Siren, Undo2 } from 'lucide-react'
-import type { ActionInfo, ConfirmRequest, Health, JobUsage, LedgerEntry, NodeInfo, SandboxUsage, SessionInfo } from '@protocol'
+import type { ActionInfo, ConfirmRequest, Health, LedgerEntry, NodeInfo, SandboxUsage, SessionInfo } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useHistoryRows } from '@/lib/history'
@@ -38,15 +38,15 @@ export default function Boundaries() {
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const { rows } = useHistoryRows()
   // The time machine's moment (null while live): the holds, questions, tightenings, and verdicts are the fold's, and
-  // the log's rows stop at the moment. The cgroup gauges, the broker's grants, and the labels' and egress lists are
+  // the log's rows stop at the moment. The live L1 jobs, the broker's grants, and the labels' and egress lists are
   // read from the daemon as it is now, and say so.
   const world = useDeferredValue(useWorld())
   const asOf = world?.t ?? null
   const now = asOf ?? tick
   const mine = useMemo(() => rows.filter((r) => KINDS.has(r.kind) && (asOf === null || r.at_unix_ms <= asOf)), [rows, asOf])
-  // L1 jobs live: their cgroups, read each second while any is there, else every five.
+  // L1 jobs live, read each second while any runs, else every five.
   const { data: usage } = useRpc<SandboxUsage>('sandbox.usage', undefined, 5000, {
-    refetchInterval: (q) => (q.state.data?.jobs.some((j) => j.populated) || q.state.data?.running?.length ? 1000 : 5000),
+    refetchInterval: (q) => (q.state.data?.running?.length ? 1000 : 5000),
   })
   const { data: resultList } = useRpc<{ nodes: NodeInfo[] }>('node.list', { session_id: null, kind: 'tool_result', n: 2000 }, 10_000)
   const results = useMemo(() => (resultList?.nodes ?? []).filter((n) => asOf === null || n.at_unix_ms <= asOf), [resultList, asOf])
@@ -61,8 +61,8 @@ export default function Boundaries() {
   const holds = world ? world.holds : h?.external_text ?? []
   const confirms = world ? world.confirms : cl?.confirms ?? []
   const tight = world ? world.tightenings : h?.tightenings ?? []
-  // A cgroup can't be read back: in the past, the L1 jobs running then are counted from the fold, not gauged.
-  const live = useMemo(() => (world ? [] : liveJobs(usage)), [world, usage])
+  // The live list can't be read back: in the past, the L1 jobs running then are counted from the fold.
+  const live = useMemo(() => (world ? [] : usage?.running ?? []), [world, usage])
   const l1Then = useMemo(() => (world ? [...world.jobsRunning].filter((id) => world.l1.has(id)).length : 0), [world])
   const placeRows = mine.filter((r) => r.kind === 'place.viewed' || r.kind === 'place.published')
   const shared = (h?.places?.places ?? []).filter((p) => p.class === 'shared').length
@@ -76,13 +76,13 @@ export default function Boundaries() {
         <div className="mr-2">
           <h1 className="ship-title !text-[26px]">The boundaries</h1>
           <div className="text-[11.5px] text-ink-dim">
-            {world ? `as it stood at ${clock(world.t)} · the gauges, grants, and host lists are the daemon's now` : 'every line Theseus draws around its own work, as it stands'}
+            {world ? `as it stood at ${clock(world.t)} · the live jobs, grants, and host lists are the daemon's now` : 'every line Theseus draws around its own work, as it stands'}
           </div>
         </div>
         <Seal icon={<Link2 size={15} />} n={holds.length} word="chained" tone="#f472b6" hint="sessions holding outside text: their calls that act wait for you" />
         <Seal icon={<ShieldCheck size={15} />} n={confirms.length} word="asking" tone="#fbbf24" hint="approvals waiting for you" />
         <Seal icon={<Lock size={15} />} n={tight.length} word="tightened" tone="#fbbf24" hint="tools that ask first because someone pressed “should have asked”" />
-        <Seal icon={<ShieldHalf size={15} />} n={world ? l1Then : live.length} word={world ? 'in L1 then' : 'in L1 now'} tone="#5eead4" hint="sandboxed jobs running, each in its own cgroup" />
+        <Seal icon={<ShieldHalf size={15} />} n={world ? l1Then : live.length} word={world ? 'in L1 then' : 'in L1 now'} tone="#5eead4" hint="sandboxed jobs running" />
         <Seal icon={<KeyRound size={15} />} n={h?.broker.length ?? 0} word="grants" tone="#d6a548" hint="the broker's grants: who is handed which secret (names only)" />
         <Seal icon={<Eye size={15} />} n={shared} word="shared places" tone="#22d3ee" hint="guild places others read: the public tools alone, and only the context files marked public" />
         <Seal icon={<Radar size={15} />} n={reachedOut} word="reached out" tone="#5eead4" hint="sandboxed jobs that connected out through their egress list (18c)" />
@@ -98,8 +98,8 @@ export default function Boundaries() {
       </div>
 
       <Panel title={<>The sandbox · L1 jobs, live and finished</>} icon={<ShieldHalf size={13} />} bodyClassName="p-2.5"
-        actions={<span className="num text-[11px] text-ink-faint">{sandboxLine(h, usage)}</span>}>
-        <Sandbox usage={usage} health={h} rows={mine} results={results} actions={world ? world.actions : al?.actions ?? []} asOf={asOf} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
+        actions={<span className="num text-[11px] text-ink-faint">{sandboxLine(h)}</span>}>
+        <Sandbox usage={usage} rows={mine} results={results} actions={world ? world.actions : al?.actions ?? []} asOf={asOf} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
       </Panel>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
@@ -245,25 +245,21 @@ function Gate({ confirms, tight, rows, title, now }: { confirms: ConfirmRequest[
 
 // ---------------------------------------------------------------- the sandbox
 
-function sandboxLine(h?: Health, u?: SandboxUsage): string {
+function sandboxLine(h?: Health): string {
   const s = h?.sandbox
   if (!s) return 'no sandbox in this daemon (tools are off)'
-  const cg = u?.jobs_dir ? 'cgroup delegated' : s.cgroup?.startsWith('delegated') ? 'cgroup delegated' : 'no cgroup: namespaces and RLIMIT_NPROC only'
-  return `limits ${s.memory_mb} MB · ${s.pids} processes · ${s.scratch_mb} MB scratch · ${cg} · ${s.jobs_l1} L1 jobs since the start`
+  const l = s.last_launch
+  const launch = s.refuses ? `L1 unavailable: ${s.refuses}`
+    : !l ? 'no L1 job yet since start'
+    : l.ok ? `last launch ok${l.start_ms != null ? `, start ${l.start_ms.toFixed(1)} ms` : ''}`
+    : `last launch failed: ${l.why ?? 'no reason given'}`
+  return `limits ${s.pids} processes · ${s.scratch_mb} MB scratch · ${launch} · ${s.jobs_l1} L1 jobs since the start`
 }
 
 interface Finished { node: NodeInfo; cid: string; exit?: number; ms?: number; scratch?: string; failed: boolean }
 
-/** The L1 jobs running now: each populated cgroup, and each job `sandbox.usage` lists as running whose cgroup it did
- *  not read (none is delegated, or it is not there yet), with no gauges. */
-function liveJobs(u?: SandboxUsage): { correlation_id: string; cgroup?: JobUsage }[] {
-  const out: { correlation_id: string; cgroup?: JobUsage }[] = (u?.jobs ?? []).filter((j) => j.populated).map((j) => ({ correlation_id: j.correlation_id, cgroup: j }))
-  for (const r of u?.running ?? []) if (!out.some((j) => j.correlation_id === r.correlation_id)) out.push({ correlation_id: r.correlation_id })
-  return out
-}
-
-function Sandbox({ usage, health, rows, results, actions, asOf, title, now, onOpen }: {
-  usage?: SandboxUsage; health?: Health; rows: LedgerEntry[]; results: NodeInfo[]; actions: ActionInfo[]; asOf: number | null; title: (s?: string | null) => string; now: number
+function Sandbox({ usage, rows, results, actions, asOf, title, now, onOpen }: {
+  usage?: SandboxUsage; rows: LedgerEntry[]; results: NodeInfo[]; actions: ActionInfo[]; asOf: number | null; title: (s?: string | null) => string; now: number
   onOpen: (sid: string, cid?: string) => void
 }) {
   const action = useMemo(() => new Map(actions.map((a) => [a.correlation_id, a])), [actions])
@@ -291,39 +287,30 @@ function Sandbox({ usage, health, rows, results, actions, asOf, title, now, onOp
     }
     return out.sort((a, b) => b.node.at_unix_ms - a.node.at_unix_ms).slice(0, 10)
   }, [results])
-  const live = asOf === null ? liveJobs(usage) : []
-  const running = new Map((usage?.running ?? []).map((r) => [r.correlation_id, r]))
-  const memLimit = (j: { memory_max?: number }) => j.memory_max ?? (health?.sandbox ? health.sandbox.memory_mb * 1048576 : undefined)
+  const live = asOf === null ? usage?.running ?? [] : []
   return (
     <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.25fr_1fr_1fr]">
       <div>
-        <div className="ship-engraved mb-1.5 text-[9.5px]">Live · each job&rsquo;s own cgroup</div>
+        <div className="ship-engraved mb-1.5 text-[9.5px]">Live · the L1 jobs running now</div>
         {!live.length && (
           <div className="rounded-lg px-3 py-3 text-[12px] text-ink-faint ring-1 ring-line">
-            {asOf !== null ? 'a cgroup can’t be read back: the jobs then are counted in the seal above' : usage?.jobs_dir ? 'no sandboxed job runs now; each one’s memory and processes show here while it runs' : usage?.why ?? 'reading…'}
+            {asOf !== null ? 'the live list can’t be read back: the jobs then are counted in the seal above' : usage ? 'no sandboxed job runs now' : 'reading…'}
           </div>
         )}
         <div className="flex flex-col gap-2">
-          {live.map(({ correlation_id: cid, cgroup: j }) => {
+          {live.map((run) => {
+            const cid = run.correlation_id
             const s = started.get(cid)
             const a = action.get(cid)
-            const run = running.get(cid)
-            const argv = s?.argv ?? run?.argv
-            const since = s?.at ?? run?.started_at_ms ?? a?.dispatched_at_ms
-            const sid = s?.session ?? run?.session_id ?? a?.session_id
-            const lim = j ? memLimit(j) : undefined
+            const argv = s?.argv ?? run.argv
+            const since = s?.at ?? run.started_at_ms ?? a?.dispatched_at_ms
+            const sid = s?.session ?? run.session_id ?? a?.session_id
             return (
               <button type="button" key={cid} onClick={() => sid && onOpen(sid, cid)}
                 className="flex items-center gap-3 rounded-lg bg-[#5eead4]/[0.05] px-3 py-2 text-left ring-1 ring-[#5eead4]/30 hover:bg-[#5eead4]/[0.08]">
-                {j && <Gauge value={j.memory_bytes} max={lim} label="memory" text={`${bytes(j.memory_bytes)}${lim ? ` of ${bytes(lim)}` : ''}`} peak={j.memory_peak} />}
-                {j && <Gauge value={j.pids} max={j.pids_max ?? health?.sandbox?.pids} label="processes" text={`${j.pids}${j.pids_max ? ` of ${j.pids_max}` : ''}`} />}
                 <div className="min-w-0 flex-1">
-                  <div className="num truncate text-[12px] text-ink" title={argv?.join(' ')}>
-                    {argv ? argv.join(' ') : <>{a?.tool ?? 'a job'} <span className="text-ink-faint">· its command is not read yet</span></>}
-                  </div>
+                  <div className="num truncate text-[12px] text-ink" title={argv.join(' ')}>{argv.join(' ')}</div>
                   <div className="num text-[11px] text-ink-faint">{sid ? title(sid) : short(cid)}{since ? ` · running ${ms(now - since)}` : ''} · {short(cid)}</div>
-                  {!j && <div className="num text-[11px] text-ink-faint">no cgroup to read{usage?.why ? `: ${usage.why}` : ''}</div>}
-                  {j && j.pids_refused > 0 && <div className="num text-[11px] text-fault">{j.pids_refused} forks refused at the limit</div>}
                 </div>
               </button>
             )
@@ -358,30 +345,6 @@ function Sandbox({ usage, health, rows, results, actions, asOf, title, now, onOp
         })}
       </div>
     </div>
-  )
-}
-
-/** A small brass gauge: a value against its limit, the needle's arc lit as it fills. */
-function Gauge({ value, max, label, text, peak }: { value: number; max?: number; label: string; text: string; peak?: number }) {
-  const f = max ? Math.min(1, value / max) : 0
-  const pf = max && peak ? Math.min(1, peak / max) : undefined
-  const tone = f > 0.85 ? '#fb7185' : f > 0.6 ? '#fbbf24' : '#5eead4'
-  const a = (x: number) => Math.PI * (1 - x)
-  const pt = (x: number, r: number) => [32 + Math.cos(a(x)) * r, 32 - Math.sin(a(x)) * r] as const
-  const [nx, ny] = pt(f, 21)
-  const [ex, ey] = pt(Math.max(0.001, f), 25)
-  return (
-    <figure className="flex shrink-0 flex-col items-center" title={`${label}: ${text}${peak ? ` · peak ${bytes(peak)}` : ''}`}>
-      <svg width="64" height="40" viewBox="0 0 64 40" aria-label={`${label} ${text}`}>
-        <path d="M 4 32 A 28 28 0 0 1 60 32" fill="none" stroke="#8c6a3c" strokeWidth="3" />
-        <path d="M 7 32 A 25 25 0 0 1 57 32" fill="none" stroke="#13243a" strokeWidth="4" />
-        {f > 0 && <path d={`M 7 32 A 25 25 0 0 1 ${ex.toFixed(1)} ${ey.toFixed(1)}`} fill="none" stroke={tone} strokeWidth="4" style={{ filter: `drop-shadow(0 0 3px ${tone})` }} />}
-        {pf !== undefined && (() => { const [px, py] = pt(pf, 25); return <circle cx={px} cy={py} r="1.8" fill="#f3d9a4" /> })()}
-        <line x1="32" y1="32" x2={nx} y2={ny} stroke="#efe3c8" strokeWidth="1.6" strokeLinecap="round" />
-        <circle cx="32" cy="32" r="3" fill="#8c6a3c" /><circle cx="31.5" cy="31.5" r="1.6" fill="#f3d9a4" />
-      </svg>
-      <figcaption className="num -mt-0.5 text-center text-[10px] leading-tight text-ink-dim">{text}<br /><span className="ship-engraved text-[8.5px]">{label}</span></figcaption>
-    </figure>
   )
 }
 

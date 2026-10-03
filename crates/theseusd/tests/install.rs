@@ -133,8 +133,8 @@ fn user_writes_its_unit_under_the_scratch_home_checks_clean_and_removes_it() {
             theseusd().display(),
             home.path().join("op-token").display()
         ),
-        "Delegate=yes".into(),
         "KillSignal=SIGINT".into(),
+        "KillMode=process".into(),
         "Environment=\"PATH=/usr/bin:/bin\"".into(),
     ] {
         assert!(

@@ -145,9 +145,9 @@ pub mod method {
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.
         BENCH_HISTORY = "bench.history",
-        /// Each L1 job's cgroup as it stands (M4 17b), for the cockpit's
-        /// boundaries board: memory and processes against their limits
-        /// (`sandbox::SandboxUsage`). A read of the cgroup files.
+        /// The L1 jobs running now, with their commands (M4 17b,
+        /// theseus-kpz1), for the cockpit's boundaries board
+        /// (`sandbox::SandboxUsage`). A read of the daemon's memory.
         SANDBOX_USAGE = "sandbox.usage",
     }
 }
@@ -472,8 +472,8 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub crash: Option<CrashStatus>,
-    /// L1 (M4 17b): the class choice's settings, the limits, the probe after
-    /// serving, the cgroup, and the jobs by class. Absent without tools.
+    /// L1 (M4 17b): the class choice's settings, the limits, the last L1
+    /// launch since the start, and the jobs by class. Absent without tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub sandbox: Option<sandbox::SandboxHealth>,

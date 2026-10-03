@@ -441,6 +441,10 @@ impl ToolRuntime {
             .as_ref()
             .and_then(|c| c.detail.clone())
             .unwrap_or(Value::Null);
+        // An L1 job's launch, as health's last one (theseus-gyin).
+        if let Some(c) = &completion {
+            self.sandbox.launched(&detail, c.started_at_ms);
+        }
         let Tail {
             text: out,
             total,
@@ -567,12 +571,14 @@ impl ToolRuntime {
                 size(total - n)
             ),
         };
-        // A job that connected out of L1 brought back outside text (18c); so
-        // did a job of a program `[policy] external_programs` lists, unless
-        // its egress marked it already (theseus-b5cl).
-        let egress = crate::egress::marker(&detail, !out.is_empty(), || {
-            confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
-        });
+        // A job that reached a host beyond `[sandbox] egress` brought back
+        // outside text (18c; theseus-gyin); so did a job of a program
+        // `[policy] external_programs` lists, unless its egress marked it
+        // already (theseus-b5cl).
+        let egress =
+            crate::egress::marker(&detail, !out.is_empty(), &self.sandbox.cfg.egress, || {
+                confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
+            });
         let listed = match (&egress, input) {
             (None, Some(i)) => crate::external::Listed::of(i, &self.external_programs),
             _ => None,

@@ -165,8 +165,8 @@ store: StoreStatus,
  */
 crash?: CrashStatus, 
 /**
- * L1 (M4 17b): the class choice's settings, the limits, the probe after
- * serving, the cgroup, and the jobs by class. Absent without tools.
+ * L1 (M4 17b): the class choice's settings, the limits, the last L1
+ * launch since the start, and the jobs by class. Absent without tools.
  */
 sandbox?: SandboxHealth, 
 /**

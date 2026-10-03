@@ -1,55 +1,31 @@
 //! L1's lines (M4 17b): health's `sandbox:` line. Apart from `render.rs`,
 //! whose length the shape budget caps (`scripts/long-files.txt`).
 
-use theseus_protocol::sandbox::SandboxHealth;
+use theseus_protocol::sandbox::{launch_words, SandboxHealth};
 
-/// `sandbox: L1 works (start 3.1 ms; sysfs, lo up) · default l0 · jobs: 12
-/// at L0, 3 in L1 · an L1 job gets 512 processes, 1024 MB of scratch, files
-/// up to 64 MB · cgroup none: …`.
+/// `sandbox: the last L1 launch worked (start 3.1 ms) · default l0 · jobs:
+/// 12 at L0, 3 in L1 · an L1 job gets 512 processes, 1024 MB of scratch,
+/// files up to 64 MB · no egress listed`. Before the first L1 job, `no L1
+/// job yet since start`; for a root daemon, why L1 is unavailable
+/// (theseus-gyin, theseus-pv6i).
 pub fn sandbox_line(s: &SandboxHealth) -> String {
-    let probe = match &s.probe {
-        None => "not probed yet".to_string(),
-        Some(p) if p.ok => {
-            let mut found = Vec::new();
-            if p.sys == Some(false) {
-                found.push("no sysfs: the kernel refused it");
-            }
-            if p.lo == Some(false) {
-                found.push("lo down");
-            }
-            let start = p
-                .start_ms
-                .map_or_else(String::new, |m| format!("start {m:.1} ms"));
-            let all: Vec<String> = std::iter::once(start)
-                .filter(|s| !s.is_empty())
-                .chain(found.iter().map(|s| s.to_string()))
-                .collect();
-            format!("L1 works ({})", all.join("; "))
-        }
-        Some(p) => format!(
-            "L1 is NOT available here: {} (an L1 call fails, and never runs at L0)",
-            p.why.as_deref().unwrap_or("no reason given")
-        ),
+    let l1 = match (&s.refuses, &s.last_launch) {
+        (Some(why), _) => format!("L1 is unavailable: {why}"),
+        (None, None) => "no L1 job yet since start".to_string(),
+        (None, Some(l)) => format!("the last L1 launch {}", launch_words(l)),
     };
-    let mut parts = vec![probe, format!("default {}", s.default)];
+    let mut parts = vec![l1, format!("default {}", s.default)];
     if !s.l1_argv.is_empty() {
         parts.push(format!("always L1: {}", s.l1_argv.join("; ")));
     }
     parts.push(format!("jobs: {} at L0, {} in L1", s.jobs_l0, s.jobs_l1));
-    let memory = match s.cgroup.as_deref() {
-        Some(c) if c.starts_with("delegated") => format!("{} MB of memory, ", s.memory_mb),
-        _ => String::new(),
-    };
     parts.push(format!(
-        "an L1 job gets {memory}{} processes, {} MB of scratch, files up to {} MB",
+        "an L1 job gets {} processes, {} MB of scratch, files up to {} MB",
         s.pids, s.scratch_mb, s.output_mb
     ));
     parts.push(egress(s));
-    if let Some(c) = &s.cgroup {
-        parts.push(format!("cgroup {c}"));
-    }
-    if let Some(p) = s.probe.as_ref().filter(|p| !p.skipped.is_empty()) {
-        parts.push(format!("ro_paths missing: {}", p.skipped.join(", ")));
+    if let Some(l) = s.last_launch.as_ref().filter(|l| !l.skipped.is_empty()) {
+        parts.push(format!("ro_paths missing: {}", l.skipped.join(", ")));
     }
     format!("sandbox: {}", parts.join(" · "))
 }
@@ -97,13 +73,14 @@ fn bytes(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use theseus_protocol::sandbox::SandboxProbe;
+    use theseus_protocol::sandbox::SandboxLaunch;
 
+    /// The line's head is the last real L1 launch since the start, or that
+    /// there has been none, or why L1 is unavailable (theseus-gyin).
     #[test]
-    fn the_sandbox_line_says_whether_l1_works_and_what_a_job_gets() {
+    fn the_sandbox_line_says_how_the_last_l1_launch_went_and_what_a_job_gets() {
         let mut s = SandboxHealth {
             default: "l0".into(),
-            memory_mb: 2048,
             pids: 512,
             scratch_mb: 1024,
             output_mb: 64,
@@ -111,33 +88,48 @@ mod tests {
             jobs_l1: 3,
             ..Default::default()
         };
-        assert!(sandbox_line(&s).starts_with("sandbox: not probed yet · default l0"));
-        s.probe = Some(SandboxProbe {
+        assert!(
+            sandbox_line(&s).starts_with("sandbox: no L1 job yet since start · default l0"),
+            "{}",
+            sandbox_line(&s)
+        );
+        s.last_launch = Some(SandboxLaunch {
             ok: true,
             start_ms: Some(3.08),
             sys: Some(true),
-            lo: Some(true),
+            lo: Some(false),
+            skipped: vec!["/opt/gone".into()],
             ..Default::default()
         });
-        s.cgroup = Some("none: the daemon runs in x.scope".into());
         let line = sandbox_line(&s);
         assert!(
-            line.starts_with("sandbox: L1 works (start 3.1 ms) · "),
+            line.starts_with("sandbox: the last L1 launch worked (start 3.1 ms; lo down) · "),
             "{line}"
         );
         assert!(line.contains("jobs: 12 at L0, 3 in L1"), "{line}");
-        assert!(line.contains("an L1 job gets 512 processes"), "{line}");
-        s.cgroup = Some("delegated: /sys/fs/cgroup/u.service".into());
-        assert!(sandbox_line(&s).contains("gets 2048 MB of memory, 512 processes"));
-        s.probe = Some(SandboxProbe {
+        assert!(
+            line.contains("an L1 job gets 512 processes, 1024 MB of scratch"),
+            "{line}"
+        );
+        assert!(line.ends_with(" · ro_paths missing: /opt/gone"), "{line}");
+        s.last_launch = Some(SandboxLaunch {
             ok: false,
             why: Some("cloning the init into its namespaces: EPERM".into()),
             ..Default::default()
         });
         let line = sandbox_line(&s);
-        assert!(line.contains("L1 is NOT available here: cloning"), "{line}");
+        assert!(
+            line.contains("the last L1 launch failed: cloning the init"),
+            "{line}"
+        );
         assert!(line.contains("never runs at L0"), "{line}");
-        assert!(line.contains(" · no egress listed · "), "{line}");
+        assert!(line.contains(" · no egress listed"), "{line}");
+        s.refuses = Some("the daemon runs as root".into());
+        let line = sandbox_line(&s);
+        assert!(
+            line.starts_with("sandbox: L1 is unavailable: the daemon runs as root · "),
+            "{line}"
+        );
     }
 
     /// Health's egress (M4 18c): the list's size and hosts, and since the

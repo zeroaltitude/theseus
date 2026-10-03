@@ -14,7 +14,6 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use theseus_sandbox::cgroup::JobCgroup;
 use theseus_sandbox::{Exit, Init, SandboxChild, Spec, Stdio};
 
 use crate::job::{Reap, WrapperArgs, L1};
@@ -25,89 +24,53 @@ use crate::types::{Outcome, Verdict, VerifiedBy};
 /// The first words of a failed start's note.
 const NOT_STARTED: &str = "the job could not start in L1";
 
-/// The probe (17b; design §2.2, "Cost and the probe"): `/bin/true` in L1,
-/// over `l1`'s view, started as a job starts. Whether L1 runs here, and if
-/// not why (`stage`, `error`); the start's microseconds (`start_us`, the
-/// spawn's own, `setup_us`, the init's part); what the start found (`sys`,
-/// a fresh sysfs; `lo`); and the `ro_paths` skipped. Run by `theseusd
-/// sandbox-probe`, a process of its own, so the clone is never the daemon's.
-pub fn probe(l1: &L1) -> Value {
+/// The self-test that `theseusd check` runs on demand (theseus-gyin; design
+/// §2.2): `/bin/true` in L1 over `l1`'s view, started as a job starts, from
+/// the calling thread, which lives until it ends. The completion's `detail`
+/// a job would have: its `sandbox` says how the launch went, as a real
+/// job's does, and a `/bin/true` that did not succeed is an `error` there.
+pub fn self_test(l1: &L1) -> Value {
     let mut env = vec![("PATH".to_string(), "/usr/bin:/bin".to_string())];
     env.extend(std::env::var("HOME").ok().map(|h| ("HOME".to_string(), h)));
     let args = WrapperArgs {
         spool_dir: PathBuf::new(),
-        correlation_id: "probe".into(),
+        correlation_id: "self-test".into(),
         deadline_ms: 10_000,
         notify_socket: None,
         argv: vec!["/bin/true".into()],
         cwd: Some("/".into()),
-        env: env.clone(),
+        env,
         umask: None,
         redact: vec![],
         output_max_bytes: 0,
         sandbox: None,
     };
-    let (spec, skipped) = spec(&args, l1, env);
     let null = || -> std::io::Result<OwnedFd> {
         Ok(std::fs::OpenOptions::new()
             .write(true)
             .open("/dev/null")?
             .into())
     };
-    let mut out = json!({"skipped": skipped});
-    let (stdout, stderr) = match (null(), null()) {
-        (Ok(a), Ok(b)) => (a, b),
-        (Err(e), _) | (_, Err(e)) => {
-            out["ok"] = json!(false);
-            out["stage"] = json!("opening /dev/null");
-            out["error"] = json!(e.to_string());
-            return out;
-        }
-    };
-    let t0 = Instant::now();
-    let spawned = theseus_sandbox::spawn(
-        &spec,
-        &Init::default(),
-        Stdio {
-            stdin: None,
-            stdout,
-            stderr,
-        },
-    );
-    out["start_us"] = json!(t0.elapsed().as_micros() as u64);
-    match spawned {
-        Err(e) => {
-            out["ok"] = json!(false);
-            out["stage"] = json!(e.stage);
-            out["error"] = json!(e.error);
-        }
-        Ok(mut child) => {
-            let s = child.started().clone();
-            out["setup_us"] = json!(s.setup_us);
-            out["sys"] = json!(s.sys);
-            out["lo"] = json!(s.lo);
-            match child.wait() {
-                Ok(e) if e.success() => out["ok"] = json!(true),
-                Ok(e) => {
-                    out["ok"] = json!(false);
-                    out["stage"] = json!("running /bin/true");
-                    out["error"] = json!(format!("it ended with {:?}", e.code.or(e.signal)));
-                }
-                Err(e) => {
-                    out["ok"] = json!(false);
-                    out["stage"] = json!("waiting for the job");
-                    out["error"] = json!(e.to_string());
-                }
+    let mut detail = json!({});
+    match (null(), null()) {
+        (Ok(out), Ok(err)) => {
+            let (outcome, note) = run(&args, l1, Reap::Command, out, err, &mut detail);
+            if outcome != Outcome::Succeeded && detail.pointer("/sandbox/error").is_none() {
+                detail["sandbox"]["error"] = json!({"stage": "running /bin/true", "error": note});
             }
         }
+        (Err(e), _) | (_, Err(e)) => {
+            detail["sandbox"] = json!({"class": "l1",
+                "error": {"stage": "opening /dev/null", "error": e.to_string()}});
+        }
     }
-    out
+    detail
 }
 
 /// Runs `args`' command in L1, with its output on `stdout` and `stderr`,
 /// until it exits or its deadline kills the whole job. Its outcome and the
-/// completion's note; `detail` gets `sandbox` (how it started, its cgroup,
-/// its limits hit), and `scratch`, what it wrote there.
+/// completion's note; `detail` gets `sandbox` (how it started), and
+/// `scratch`, what it wrote there.
 pub(crate) fn run(
     args: &WrapperArgs,
     l1: &L1,
@@ -134,7 +97,6 @@ pub(crate) fn run(
     if !skipped.is_empty() {
         sandbox["skipped"] = json!(skipped);
     }
-    let cgroup = cgroup(args, l1, &mut spec, &mut sandbox);
     // The command is made with the operator's umask, as at L0: the init
     // takes the wrapper's, and the command the init's. Only a wrapper
     // process changes its own; a test's thread leaves its process's alone.
@@ -160,9 +122,6 @@ pub(crate) fn run(
         Err(e) => {
             sandbox["error"] = json!({"stage": e.stage, "error": e.error});
             detail["sandbox"] = sandbox;
-            if let Some(c) = cgroup {
-                let _ = c.remove();
-            }
             return (
                 Outcome::Failed,
                 format!("{NOT_STARTED}: {e}. It did not run, in L1 or at L0"),
@@ -176,18 +135,12 @@ pub(crate) fn run(
     let proxy = egress::start(&mut child, l1, &allow, detail);
     let (exit, end) = wait(
         &mut child,
-        cgroup.as_ref(),
         reap,
         Duration::from_millis(args.deadline_ms),
         t0,
     );
     // The job has ended, its whole tree with it (a stop included).
     egress::stop(proxy, &allow, detail);
-    if let Some(c) = cgroup {
-        limits_hit(&c, &mut sandbox);
-        // Empty once the init is reaped: its pid namespace went with it.
-        let _ = c.remove();
-    }
     // An init a stop could not reap (a process of its namespace in `D`):
     // its handle would wait for it, and the verdict would never be written.
     // It is reparented to the daemon, which reaps it once it ends.
@@ -215,26 +168,6 @@ pub(crate) fn run(
     };
     detail["sandbox"] = sandbox;
     ended
-}
-
-/// The job's own cgroup, with its limits, where the daemon's is delegated.
-/// One that cannot be made leaves the namespaces and seccomp in place, and
-/// RLIMIT_NPROC still caps its processes: the job runs, and says it had no
-/// cgroup.
-fn cgroup(args: &WrapperArgs, l1: &L1, spec: &mut Spec, sandbox: &mut Value) -> Option<JobCgroup> {
-    let jobs = l1.cgroup.as_deref()?;
-    let pids = Some(l1.limits.pids);
-    match JobCgroup::create(jobs, &args.correlation_id, Some(l1.memory_mb), pids) {
-        Ok(c) => {
-            spec.cgroup = Some(c.path().to_path_buf());
-            sandbox["cgroup"] = json!(c.path());
-            Some(c)
-        }
-        Err(e) => {
-            sandbox["cgroup_error"] = json!(e.to_string());
-            None
-        }
-    }
 }
 
 /// The spec for `args`' command, and the `ro_paths` skipped because they do
@@ -275,7 +208,6 @@ enum End {
 /// the whole job (`stop`).
 fn wait(
     child: &mut SandboxChild,
-    cgroup: Option<&JobCgroup>,
     reap: Reap,
     deadline: Duration,
     t0: Instant,
@@ -287,7 +219,7 @@ fn wait(
             Ok(None) => {}
         }
         if let (Reap::Descendants, Some(asked)) = (reap, crate::job::stop_asked()) {
-            let (exit, v) = stop(child, cgroup, reap, asked.grace());
+            let (exit, v) = stop(child, reap, asked.grace());
             return (exit, End::Stopped(v));
         }
         if t0.elapsed() >= deadline {
@@ -296,7 +228,7 @@ fn wait(
                 Reap::Descendants => crate::job::STOP_GRACE,
                 Reap::Command => Duration::ZERO,
             };
-            let (exit, v) = stop(child, cgroup, reap, grace);
+            let (exit, v) = stop(child, reap, grace);
             return (exit, End::TimedOut(v));
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -314,19 +246,13 @@ fn try_reap(child: &mut SandboxChild, reap: Reap) -> std::io::Result<Option<Exit
 
 /// Stop the whole job (M4 18a; design §2.3): SIGTERM to its init, which
 /// forwards it to the command, and up to `grace` for the job to end; then
-/// the kill. With the job's cgroup, `cgroup.kill`, verified by
-/// `cgroup.events` at `populated 0`; without, SIGKILL to the init, whose reap
-/// means the kernel has killed its pid namespace: a namespace's init does not
-/// finish exiting until every other process of it has. The verdict counts
-/// the job's processes, the init and each one below it, found before the
-/// stop and as it went, and checks each one gone. The init's end, unless it
-/// could not be reaped within the kill's wait.
-fn stop(
-    child: &mut SandboxChild,
-    cgroup: Option<&JobCgroup>,
-    reap: Reap,
-    grace: Duration,
-) -> (std::io::Result<Exit>, Verdict) {
+/// SIGKILL to the init, whose reap means the kernel has killed its pid
+/// namespace: a namespace's init does not finish exiting until every other
+/// process of it has. The verdict counts the job's processes, the init and
+/// each one below it, found before the stop and as it went, and checks each
+/// one gone. The init's end, unless it could not be reaped within the kill's
+/// wait.
+fn stop(child: &mut SandboxChild, reap: Reap, grace: Duration) -> (std::io::Result<Exit>, Verdict) {
     let t0 = Instant::now();
     let init = child.id();
     let mut met: BTreeSet<Proc> = BTreeSet::new();
@@ -338,15 +264,6 @@ fn stop(
             });
         }
         met.extend(tree::descendants(init));
-        // The cgroup's own list, the kernel's accounting of the same set.
-        for pid in cgroup.and_then(|c| c.procs().ok()).unwrap_or_default() {
-            if let Some(s) = tree::stat(pid) {
-                met.insert(Proc {
-                    pid,
-                    start: s.start,
-                });
-            }
-        }
     };
     look(&mut met);
     let _ = child.terminate();
@@ -364,39 +281,20 @@ fn stop(
         look(&mut met);
         std::thread::sleep(Duration::from_millis(10));
     }
-    // The kill: the cgroup's, or the init's.
-    let by = match cgroup {
-        Some(c) if exit.is_some() || c.kill().is_ok() => VerifiedBy::Cgroup,
-        _ => {
-            if exit.is_none() {
-                look(&mut met);
-                let _ = child.kill();
-            }
-            VerifiedBy::Pidns
-        }
-    };
-    let until = Instant::now() + tree::KILL_WAIT;
-    let gone = || match (by, cgroup) {
-        (VerifiedBy::Cgroup, Some(c)) => !c.populated().unwrap_or(true),
-        _ => true,
-    };
-    loop {
-        if exit.is_none() {
-            match try_reap(child, reap) {
-                Ok(Some(e)) => exit = Some(Ok(e)),
-                Err(e) => exit = Some(Err(e)),
-                Ok(None) => {}
-            }
-        }
-        if (exit.is_some() && gone()) || Instant::now() >= until {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
+    // The kill: the init's, and with it its pid namespace's.
+    if exit.is_none() {
+        look(&mut met);
+        let _ = child.kill();
     }
-    let survivors = match (by, cgroup) {
-        (VerifiedBy::Cgroup, Some(c)) if !gone() => c.procs().map_or(1, |p| p.len().max(1)),
-        _ => met.iter().filter(|p| tree::alive(**p)).count(),
-    } as u32;
+    let until = Instant::now() + tree::KILL_WAIT;
+    while exit.is_none() && Instant::now() < until {
+        match try_reap(child, reap) {
+            Ok(Some(e)) => exit = Some(Ok(e)),
+            Err(e) => exit = Some(Err(e)),
+            Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    let survivors = met.iter().filter(|p| tree::alive(**p)).count() as u32;
     let why = match (survivors, &exit) {
         (0, Some(Ok(_))) => None,
         (0, _) => Some("its init was not reaped".to_string()),
@@ -410,17 +308,10 @@ fn stop(
         )),
     };
     let v = Verdict {
-        verified_by: by,
+        verified_by: VerifiedBy::Pidns,
         killed: Some(met.len() as u32),
         survivors: Some(survivors),
-        scope: Some(
-            if by == VerifiedBy::Cgroup {
-                "cgroup"
-            } else {
-                "namespace"
-            }
-            .into(),
-        ),
+        scope: Some("namespace".into()),
         ms: t0.elapsed().as_millis() as u64,
         why,
     };
@@ -448,25 +339,6 @@ fn reap_init(child: &mut SandboxChild) -> std::io::Result<Option<Exit>> {
             pid if pid == init => found = Some(child.reaped(status)),
             _ => {}
         }
-    }
-}
-
-/// What the job's cgroup counted: forks `pids.max` refused, and kills by
-/// `memory.max`.
-fn limits_hit(c: &JobCgroup, sandbox: &mut Value) {
-    if let Ok(n @ 1..) = c.pids_refused() {
-        sandbox["pids_refused"] = json!(n);
-    }
-    let oom = std::fs::read_to_string(c.path().join("memory.events"))
-        .ok()
-        .and_then(|s| {
-            s.lines()
-                .find_map(|l| l.strip_prefix("oom_kill "))
-                .and_then(|n| n.trim().parse::<u64>().ok())
-        })
-        .unwrap_or(0);
-    if oom > 0 {
-        sandbox["oom_kills"] = json!(oom);
     }
 }
 

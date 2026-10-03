@@ -14,7 +14,8 @@ pub struct CancelVerdict {
     /// The cancel's last state: `termination_verified`, `outcome_uncertain`,
     /// or `unsupported`.
     pub state: String,
-    /// How it is known: `pidns` (an L1 job's pid namespace), `cgroup`, `tree`
+    /// How it is known: `pidns` (an L1 job's pid namespace), `cgroup` (an
+    /// L1 job's, in records from before theseus-gyin), `tree`
     /// (an L0 job's process tree, its wrapper's descendants), `group` (a
     /// wrapper from before 18a: its process group), `task` (an async tool's),
     /// or `none` (a call that cannot be stopped). For one not verified, what
@@ -28,8 +29,8 @@ pub struct CancelVerdict {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub survivors: Option<u32>,
-    /// What the stop could see: `descendants` at L0, `namespace`, `cgroup`,
-    /// `group`.
+    /// What the stop could see: `descendants` at L0, `namespace`, `cgroup`
+    /// (before theseus-gyin), `group`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub scope: Option<String>,

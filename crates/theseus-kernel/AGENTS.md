@@ -24,7 +24,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
 - `cancels.rs`: a cancel's steps on one action (`cancel_acknowledged`, then `cancel_verified`, `_unsupported`, or
   `_uncertain`), each settle with its `Verdict` (ACTION schema 3).
   `job_l1.rs` (M4 17b): the wrapper's L1 path, when `WrapperArgs.sandbox` is set: the command below
-  `theseus_sandbox`'s init, its cgroup, its scratch summary, and the probe's run (`job::probe`). It never falls back
+  `theseus_sandbox`'s init, its scratch summary, and its stop by the init's pid namespace; and `job::self_test`,
+  `/bin/true` started the same way, which `theseusd check` runs on demand (theseus-gyin). It never falls back
   to L0. `job_egress.rs` (18c): for a job whose `L1.egress` is not empty, the listener in its namespace, the proxy's
   variables, the proxy on the wrapper's threads, stopped once the job has ended (a stop and a deadline included), and
   its `Summary` in `detail.egress`. A job with no list gets none of it.
@@ -62,8 +63,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
   sweep as an orphan, and its `wait()` fails with `ECHILD`. Never call `waitpid(-1)`.
 - **A wrapper's pid can be reused**, so "alive" is `wrapper_alive(pid, job)`, whose command line names the job. A
   process in the middle of its exec has an empty command line: `holder` counts it as still starting (Item 35).
-- **A cancel's verdict says how it knows** (M4 18a): `termination_verified` only with a means (`pidns`, `cgroup`,
-  `tree`, `group`, `task`), and `verified_by: none` for a call nothing can stop. A cancelled job writes no
+- **A cancel's verdict says how it knows** (M4 18a): `termination_verified` only with a means (`pidns`, `tree`,
+  `group`, `task`; `cgroup` is read from old records alone), and `verified_by: none` for a call nothing can stop. A cancelled job writes no
   completion, so a cancel never races the drain into a `failed` settle; its verdict is `stops/<id>`. A deadline
   uses the cancel's stop, and its verdict rides in the completion's `detail.stop`. A SIGTERM that is not a cancel
   (no `SI_QUEUE`) still ends the wrapper by the signal once its tree is stopped (theseus-6uo).

@@ -20,7 +20,7 @@ theseusd install --separate: the plan. Nothing is changed: --apply performs it, 
   install file   /usr/local/lib/theseus/theseusd root:root 0755 (from $TMP/build/theseusd)
                  the binary is part of the floor: the operator cannot replace it
   write   file   /etc/systemd/system/theseusd.service root:root 0644
-                 the daemon as theseus, with Delegate=yes
+                 the daemon as theseus
                  | # Written by `theseusd install --separate`. A later --apply rewrites it:
                  | # put your own changes in a drop-in (`sudo systemctl edit theseusd`).
                  | [Unit]
@@ -36,12 +36,6 @@ theseusd install --separate: the plan. Nothing is changed: --apply performs it, 
                  | SupplementaryGroups=theseus-ops
                  | ExecStart=/usr/local/lib/theseus/theseusd --config op://Example/theseus-config/notesPlain --state-dir /var/lib/theseus --socket /run/theseus/theseus.sock --op-token-file /etc/theseus/op-token
                  | UMask=0077
-                 | # After every stop and crash: turn off the L1 jobs' limits, so the next
-                 | # start can join this cgroup while a job of the old daemon still runs.
-                 | ExecStopPost=-/usr/local/lib/theseus/theseusd cgroup-release
-                 | # Delegated, so the daemon can give each L1 job a cgroup of its own, with
-                 | # memory and pids limits (M4 2.2).
-                 | Delegate=yes
                  | # SIGINT is the daemon's clean stop: it removes its socket and closes the
                  | # store. A stop signals the daemon alone, so running jobs finish, and the
                  | # next daemon reads their results from the spool, as a shell-started
@@ -63,11 +57,6 @@ theseusd install --separate: the plan. Nothing is changed: --apply performs it, 
                  | [Service]
                  | Type=exec
                  | ExecStart=/usr/local/lib/theseus/theseusd job-host
-                 | # After every stop and crash: turn off the L1 jobs' limits, so the next
-                 | # start can join this cgroup while a job of the old daemon still runs.
-                 | ExecStopPost=-/usr/local/lib/theseus/theseusd cgroup-release
-                 | # Delegated, so the job host can give each L1 job a cgroup of its own.
-                 | Delegate=yes
                  | # A stop signals the host alone: its jobs finish, and their results
                  | # wait in the spool for the next host to relay.
                  | KillMode=process

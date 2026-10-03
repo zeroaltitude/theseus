@@ -10,7 +10,8 @@ export type CancelVerdict = { correlation_id: string, tool: string,
  */
 state: string, 
 /**
- * How it is known: `pidns` (an L1 job's pid namespace), `cgroup`, `tree`
+ * How it is known: `pidns` (an L1 job's pid namespace), `cgroup` (an
+ * L1 job's, in records from before theseus-gyin), `tree`
  * (an L0 job's process tree, its wrapper's descendants), `group` (a
  * wrapper from before 18a: its process group), `task` (an async tool's),
  * or `none` (a call that cannot be stopped). For one not verified, what
@@ -26,8 +27,8 @@ killed?: number,
  */
 survivors?: number, 
 /**
- * What the stop could see: `descendants` at L0, `namespace`, `cgroup`,
- * `group`.
+ * What the stop could see: `descendants` at L0, `namespace`, `cgroup`
+ * (before theseus-gyin), `group`.
  */
 scope?: string, 
 /**

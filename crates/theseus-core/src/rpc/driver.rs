@@ -239,12 +239,9 @@ impl Core {
     /// files first, so with no job running it costs one directory read, and
     /// the disk is looked at only while one is.
     ///
-    /// At L0 the writer cannot be told from the others: nothing meters a
-    /// job's own writes (WSL has no per-process io counters, and no quota or
-    /// cgroup holds a job), so all are stopped. M4's sandbox gives a job its
-    /// own cgroup and a quota on what it may write (row 17): it names the
-    /// writer and stops it alone, before the floor. Returns how many it
-    /// stopped.
+    /// The writer cannot be told from the others: nothing meters a job's own
+    /// writes (WSL has no per-process io counters, and no quota or cgroup
+    /// holds a job), so all are stopped. Returns how many it stopped.
     pub async fn stop_jobs_below_floor(&self) -> usize {
         let running = self.spool.running();
         if running.is_empty() {
