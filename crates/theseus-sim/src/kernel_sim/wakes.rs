@@ -16,6 +16,12 @@ impl World {
         let g = self.guards.get(exec_id).unwrap();
         let now = self.now();
         let fired = self.kernel.take_wakes(g, |_| Ok(vec![]))?;
+        // What the take left pending, read back from the store.
+        let pending = self
+            .kernel
+            .execution(exec_id)?
+            .map(|e| e.wakes)
+            .unwrap_or_default();
         let zone = &self.kernel.config().zone;
         for f in &fired {
             self.rep.wakes_fired += 1;
@@ -35,6 +41,12 @@ impl World {
                 );
             }
             match (&w.repeat, f.next_due_at_ms) {
+                (None, None) if pending.iter().any(|p| p.id == w.id) => {
+                    bail!(
+                        "{exec_id}: one-shot wake {} is still pending after it ran",
+                        w.id
+                    )
+                }
                 (None, None) => {}
                 (None, Some(n)) => bail!("{exec_id}: one-shot wake {} put back at {n}", w.id),
                 (Some(r), Some(n)) => {
@@ -43,6 +55,16 @@ impl World {
                         bail!(
                             "{exec_id}: series {} put back at {n}, not the first after {now}",
                             w.id
+                        );
+                    }
+                    let back = pending.iter().find(|p| p.id == w.id);
+                    if back.map(|p| (p.due_at_ms, p.occurrence))
+                        != Some((n, w.occurrence + 1 + f.missed as u32))
+                    {
+                        bail!(
+                            "{exec_id}: series {} #{} was taken, and its next is not pending at {n}: {back:?}",
+                            w.id,
+                            w.occurrence
                         );
                     }
                 }
