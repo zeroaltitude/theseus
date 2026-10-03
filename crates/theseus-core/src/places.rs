@@ -26,6 +26,8 @@ use serde::{Deserialize, Serialize};
 use theseus_protocol::{PlaceInfo, PlacesHealth, Plan};
 use theseus_tools::paths;
 
+use crate::policy::{Decision, Posture};
+
 pub use theseus_protocol::PlaceClass;
 
 /// `[places]` (`[labels]` before the place rule, still read): who the owner
@@ -328,6 +330,31 @@ pub fn refusal(class: PlaceClass, name: &str, plan: &Plan, public: &[PathBuf]) -
         outside.display(),
         shown(public)
     ))
+}
+
+/// The card of a fetch that waits on a private address, in a shared place
+/// (theseus-94a6). DD5 asks before `http.fetch` reaches a private address,
+/// and a shared place is offered the tool, so an approved fetch brings that
+/// page into a conversation others can read. The approver decides (Eddie,
+/// 2026-10-03: "Leave it to the approver"), and the reason tells them, in its
+/// parenthesis: "… — approve (127.0.0.1 is a loopback address, and a private
+/// address waits for approval; this is a shared place, so the page joins a
+/// conversation others can read)". Any other decision is returned as it is.
+pub fn private_fetch(class: PlaceClass, plan: &Plan, mut d: Decision) -> Decision {
+    let private = plan
+        .url
+        .as_deref()
+        .and_then(crate::web::net::private_url)
+        .is_some();
+    if class == PlaceClass::Private || d.posture != Posture::Approve || !private {
+        return d;
+    }
+    let note = "this is a shared place, so the page joins a conversation others can read";
+    d.reason = match d.reason.strip_suffix(')') {
+        Some(head) => format!("{head}; {note})"),
+        None => format!("{}; {note}", d.reason),
+    };
+    d
 }
 
 /// The public trees, for the model.

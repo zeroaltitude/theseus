@@ -961,6 +961,9 @@ impl ToolRuntime {
         let planned = planned.map(|plan| {
             let t = tightened.as_ref().map(crate::tighten::as_tightened);
             let (decision, job_class) = sandbox::decide(self, tool, &plan, &call.input, t);
+            // A private address's card in a shared place says where the page
+            // goes (theseus-94a6).
+            let decision = crate::places::private_fetch(tc.class, &plan, decision);
             // After the whole order (theseus-9bp): a call that acts in a
             // session that read external text waits. A read and `wake.at`
             // keep their postures (T1b), and cost no record read.

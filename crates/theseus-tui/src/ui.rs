@@ -207,7 +207,7 @@ fn detail(app: &App, area: Rect, buf: &mut Buffer) {
     );
     let mut height = area.height.saturating_sub(1) as usize;
     // The card: the session's first question, at the pane's foot, under a
-    // rule (design §2.9, "Answering").
+    // rule (design §2.9, "Answering"), each line wrapped at the pane's edge.
     let card: Vec<(Tag, String)> = app
         .card()
         .map(|(q, more)| {
@@ -218,7 +218,10 @@ fn detail(app: &App, area: Rect, buf: &mut Buffer) {
                 more,
             )
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .flat_map(|(tag, text)| card_rows(&text, width).into_iter().map(move |r| (tag, r)))
+        .collect();
     if !card.is_empty() {
         let card_h = (card.len() + 1).min(height);
         let top = area.y + area.height - card_h as u16;
@@ -280,6 +283,26 @@ fn detail_header(app: &App, sid: &str) -> String {
         parts.push(pill(&v.attention));
     }
     parts.join(" · ")
+}
+
+/// The most rows a card line takes.
+const CARD_ROWS: usize = 5;
+
+/// A card line wrapped at the pane's edge, its later rows as indented as the
+/// line: a long reason is read, where one row cut it (theseus-94a6: a shared
+/// place's clause ends a private fetch's reason). Past `CARD_ROWS` rows its
+/// middle goes: the first row, `…`, and the last rows, which say why.
+pub fn card_rows(text: &str, width: usize) -> Vec<String> {
+    let body = text.trim_start_matches(' ');
+    let lead = &text[..text.len() - body.len()];
+    let mut rows = wrap(body, width.saturating_sub(lead.len()));
+    if rows.len() > CARD_ROWS {
+        let last = rows.split_off(rows.len() - (CARD_ROWS - 2));
+        rows.truncate(1);
+        rows.push("…".into());
+        rows.extend(last);
+    }
+    rows.into_iter().map(|r| format!("{lead}{r}")).collect()
 }
 
 /// `text` cut into rows of at most `width` columns: after the last space
