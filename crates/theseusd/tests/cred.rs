@@ -106,34 +106,7 @@ impl Rig {
         tbl(tbl(&mut t, "broker"), "programs").insert("gh".into(), toml::Value::Table(gh));
         tweak(&mut t);
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
-        let log = std::fs::File::create(path("theseusd.log")).unwrap();
-        let daemon = Daemon::spawn(
-            Command::new(&theseusd)
-                .arg("--config")
-                .arg(path("config.toml"))
-                .arg("--state-dir")
-                .arg(path("projects/state"))
-                .arg("--socket")
-                .arg(path("projects/sock"))
-                .env(
-                    "PATH",
-                    format!(
-                        "{}:{}",
-                        path("bin").display(),
-                        std::env::var("PATH").unwrap_or_default()
-                    ),
-                )
-                .env("HOME", path("home"))
-                .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
-                .env_remove("THESEUS_OP_TOKEN_FILE")
-                .env_remove("THESEUS_CONFIG")
-                .env_remove("THESEUS_STATE_DIR")
-                .env_remove("THESEUS_SOCKET")
-                .env_remove("THESEUS_OPERATOR_UMASK")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(log),
-        );
+        let daemon = spawn(dir.path());
         let mut r = Self {
             dir,
             daemon,
@@ -269,6 +242,43 @@ fn holding(under: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     walk(under, &mut out);
     out
+}
+
+/// The rig's daemon, on its config, state dir, and socket, its log appended.
+fn spawn(dir: &Path) -> Daemon {
+    let path = |p: &str| dir.join(p);
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path("theseusd.log"))
+        .unwrap();
+    Daemon::spawn(
+        Command::new(env!("CARGO_BIN_EXE_theseusd"))
+            .arg("--config")
+            .arg(path("config.toml"))
+            .arg("--state-dir")
+            .arg(path("projects/state"))
+            .arg("--socket")
+            .arg(path("projects/sock"))
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    path("bin").display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("HOME", path("home"))
+            .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
+            .env_remove("THESEUS_OP_TOKEN_FILE")
+            .env_remove("THESEUS_CONFIG")
+            .env_remove("THESEUS_STATE_DIR")
+            .env_remove("THESEUS_SOCKET")
+            .env_remove("THESEUS_OPERATOR_UMASK")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(log),
+    )
 }
 
 fn call_at(sock: &Path, method: &str, params: Value) -> Result<Value, Value> {
@@ -463,5 +473,83 @@ fn a_cancelled_jobs_socket_goes() {
         json!({"execution_id": res["execution_id"]}),
     )
     .unwrap();
+    r.no_sockets();
+}
+
+/// A daemon that restarts while an L1 job runs serves the job's socket again
+/// (its view binds the socket's directory, so it sees the new socket), and
+/// the job, asking after the restart, gets its secret: the late result says
+/// so.
+#[test]
+fn a_job_that_runs_across_a_restart_asks_and_is_answered() {
+    let mut r = Rig::start(|t| {
+        t["tools"]
+            .as_table_mut()
+            .unwrap()
+            .insert("proc_sync_secs".into(), 1.into());
+    });
+    // It waits until the test says the new daemon serves it (a marker in
+    // its socket's directory, which its view shows live), then asks.
+    let script = format!(
+        "i=0; while [ ! -S /run/theseus/broker/again ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done\n{ASK}"
+    );
+    let call = (
+        "proc_run",
+        json!({"argv": ["sh", "-c", script, "ask", "github_token"], "sandbox": true}),
+    );
+    let sid = r.session("ask after a restart", vec![call]);
+    let res = submit(&r.path("projects/sock"), &sid, "ask after a restart");
+    assert_eq!(res["stop_reason"], "no_tool_calls", "{res}");
+    let job = r.sockets().pop().expect("the job's socket is served");
+    let dir = r.path("projects/state/spool/broker").join(&job);
+    let inode = |p: &Path| std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(p).unwrap());
+    let before = inode(&dir.join("sock"));
+    // A clean stop, and a new daemon on the same state dir.
+    r.call("shutdown", Value::Null).ok();
+    let t0 = Instant::now();
+    while r.daemon.try_wait().is_none() {
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "the daemon did not stop"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        r.sockets().contains(&job),
+        "the directory waits for the next daemon"
+    );
+    r.daemon = spawn(r.dir.path());
+    r.until("the secrets again", |h| h["secrets"]["state"] == "ready");
+    // Served again, by a new socket in the same directory: tell the job to
+    // ask now, through the directory it binds.
+    let t0 = Instant::now();
+    while !dir.join("sock").exists() || inode(&dir.join("sock")) == before {
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "not served again\n{}",
+            r.log()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::os::unix::net::UnixListener::bind(dir.join("again")).unwrap();
+    let t0 = Instant::now();
+    let text = loop {
+        let late: Vec<String> = r
+            .results(&sid)
+            .into_iter()
+            .filter(|t| t.contains("rc="))
+            .collect();
+        if let Some(t) = late.into_iter().last() {
+            break t;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(40),
+            "no late result\n{}",
+            r.log()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(said(&text, "rc"), "0", "{text}\n{}", r.log());
+    assert_eq!(said(&text, "got"), "yes", "{text}");
     r.no_sockets();
 }
