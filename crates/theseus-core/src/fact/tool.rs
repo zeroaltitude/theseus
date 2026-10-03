@@ -813,14 +813,19 @@ pub struct WakeSet<'a> {
     pub when: &'a str,
     pub note: &'a str,
     pub pending: usize,
+    /// A repeating wake's series, as people say it (`every 1d`; 37a).
+    pub series: Option<&'a str>,
 }
 
 impl Fact for WakeSet<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
+        let series = self
+            .series
+            .map_or(String::new(), |s| format!(", {s}, first"));
         say.line(
             theseus_protocol::NarrativePart::Session,
             format!(
-                "Wake {} set for {}: \"{}\"; {} of {} pending.",
+                "Wake {} set{series} for {}: \"{}\"; {} of {} pending.",
                 self.short,
                 self.when,
                 crate::session::title_from(self.note),

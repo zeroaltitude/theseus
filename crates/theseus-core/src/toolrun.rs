@@ -921,10 +921,11 @@ impl ToolRuntime {
             let t = tightened.as_ref().map(crate::tighten::as_tightened);
             let (decision, job_class) = sandbox::decide(self, tool, &plan, &call.input, t);
             // After the whole order (theseus-9bp): a call that acts in a
-            // session that read external text waits. A read and `wake.at`
-            // keep their postures (T1b), and cost no record read.
+            // session that read external text waits. A read and a one-shot
+            // `wake.at` keep their postures (T1b), and cost no record read;
+            // a repeating wake is persistence, and is held (37a).
             let class = plan.class.unwrap_or(tool.class());
-            let held = if crate::external::exempt(class, tool.name()) {
+            let held = if crate::external::exempt(class, tool.name(), &call.input) {
                 Ok(None)
             } else {
                 crate::external::held(tc.store, tc.session_id)
@@ -935,6 +936,7 @@ impl ToolRuntime {
                 &held,
                 self.external_text,
                 tool.name(),
+                &call.input,
                 &plan.summary,
             );
             (plan, decision, job_class)

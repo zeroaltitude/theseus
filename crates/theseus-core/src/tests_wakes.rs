@@ -98,8 +98,9 @@ fn answers_a_call(req: &ProviderRequest) -> bool {
         .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
 }
 
-/// `WAKE <after>: <note>` sets a wake; `SIX` asks for six at once; a wake's
-/// input is answered; anything else is echoed.
+/// `WAKE <after>: <note>` sets a wake; `REPEAT <every>: <note>` a repeating
+/// one (37a); `SIX` asks for six at once; a wake's input is answered;
+/// anything else is echoed.
 fn script(req: &ProviderRequest) -> Scripted {
     let last = last_user(req);
     if answers_a_call(req) {
@@ -113,6 +114,13 @@ fn script(req: &ProviderRequest) -> Scripted {
         return Scripted::tools(
             "Setting it.",
             &[("t_wake", "wake_at", json!({"after": after, "note": note}))],
+        );
+    }
+    if let Some(rest) = last.strip_prefix("REPEAT ") {
+        let (every, note) = rest.split_once(": ").unwrap();
+        return Scripted::tools(
+            "Setting it.",
+            &[("t_repeat", "wake_at", json!({"every": every, "note": note}))],
         );
     }
     if last.starts_with("SIX") {
@@ -566,5 +574,92 @@ async fn the_cap_is_enforced_with_a_readable_refusal() {
     assert!(refusal.contains(": note 1;"), "{refusal}");
     assert!(refusal.contains("theseus cancel"), "{refusal}");
     assert_eq!(exec_of(&l.core, &sid).wakes.len(), 5);
+    l.stop().await;
+}
+
+/// A repeating wake is persistence (37a): in a session holding external
+/// text it waits for the operator's approval, and is not set until then,
+/// where a one-shot wake keeps its posture and is set at once (T1b). In a
+/// session that read nothing, the series is set at once, one span from now,
+/// and its result says so.
+#[tokio::test]
+async fn a_repeating_wake_waits_in_a_session_holding_external_text_and_a_one_shot_does_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = life(dir.path(), false);
+    let sid = session(&l.core);
+    let mut rec: SessionRecord = l.core.store.get_session(&sid).unwrap().unwrap();
+    rec.external = Some(theseus_protocol::ExternalText {
+        since_ms: theseus_protocol::now_unix_ms(),
+        tool: "http.fetch".into(),
+        url: "https://example.invalid/tides".into(),
+        node_id: "trs_tides".into(),
+        from_session: None,
+        via: None,
+        query: None,
+    });
+    l.core.store.put_session(&sid, &rec).unwrap();
+
+    let once = turn(&l.core, &sid, "WAKE 1h: check the build").await;
+    assert!(once.awaiting_confirm.is_none(), "one-shot: {once:?}");
+    assert_eq!(exec_of(&l.core, &sid).wakes.len(), 1);
+
+    let series = turn(&l.core, &sid, "REPEAT 1d: write me a haiku").await;
+    assert!(series.awaiting_confirm.is_some(), "repeating: {series:?}");
+    let asked = l.core.confirm_list().unwrap();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0].tool, "wake.at");
+    assert!(
+        asked[0]
+            .reason
+            .contains("this session read external text (http.fetch"),
+        "{}",
+        asked[0].reason
+    );
+    let e = exec_of(&l.core, &sid);
+    assert_eq!(e.wakes.len(), 1, "not set while it waits");
+    assert!(e.wakes[0].repeat.is_none());
+
+    let clean = SessionRecord::new(SessionKind::Conversation, None);
+    l.core.store.put_session(&clean.session_id, &clean).unwrap();
+    let t0 = theseus_protocol::now_unix_ms();
+    let set = turn(&l.core, &clean.session_id, "REPEAT 1d: write me a haiku").await;
+    assert!(set.awaiting_confirm.is_none(), "{set:?}");
+    let e = exec_of(&l.core, &clean.session_id);
+    let w = &e.wakes[0];
+    let r = w.repeat.as_ref().unwrap();
+    assert_eq!((r.every.to_string(), w.occurrence), ("1d".to_string(), 1));
+    // One day from now, in the daemon's zone: 23 to 25 hours.
+    let ahead = w.due_at_ms - t0;
+    assert!(
+        (23 * 3_600_000..=25 * 3_600_000 + 60_000).contains(&ahead),
+        "{ahead}"
+    );
+    let result = l
+        .core
+        .store
+        .session_nodes(&clean.session_id)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult { content, tool, .. } if tool == "wake.at" => Some(content),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        result.starts_with(&format!(
+            "Set wake {}, every 1d, first at ",
+            crate::task::short(&w.id)
+        )),
+        "{result}"
+    );
+    assert!(
+        result.ends_with("⏰ wake (every 1d, #1): write me a haiku"),
+        "{result}"
+    );
+    let row = &rows(&l.core, "wake.set")
+        .into_iter()
+        .find(|r| r["wake_id"] == w.id.as_str())
+        .unwrap();
+    assert_eq!(row["every"], "1d");
     l.stop().await;
 }
