@@ -10,8 +10,9 @@
 //! - `[sandbox] l1_argv` routes a call to L1;
 //! - a job that cannot start in L1 fails with the reason, and never runs at
 //!   L0;
-//! - a program the broker grants a secret, asked to run in L1, gets none,
-//!   and its result and the ledger say so;
+//! - a program the broker grants a secret gets it in L1 at its launch, as
+//!   at L0 (theseus-w5op): its result's head names it, the value it prints
+//!   is withheld, and no file under the state dir nor the log holds it;
 //! - egress (18c): a listed host is reached through the job's proxy, with
 //!   its bytes in the completion and the ledger, and its session then holds
 //!   outside text; an unlisted host, and names that resolve to loopback or
@@ -56,6 +57,14 @@ if [ -S "$1" ]; then echo sock=yes; else echo sock=no; fi
 echo "store=$(ls -A "${2:-/nonexistent}" 2>/dev/null | wc -l)"
 "#;
 
+/// A stand-in `gh` that the broker grants GH_TOKEN: whether it got it, its
+/// length, and the value itself, which its output must withhold.
+const GH: &str = r#"#!/bin/sh
+if [ -n "$GH_TOKEN" ]; then echo token=yes; else echo token=no; fi
+echo "len=${#GH_TOKEN}"
+echo "printed=$GH_TOKEN"
+"#;
+
 impl Rig {
     fn start(tweak: impl FnOnce(&mut toml::Table)) -> Self {
         let script = Script::default();
@@ -89,12 +98,8 @@ impl Rig {
              \x20 *) exit 1 ;;\n\
              esac\n",
         );
-        // A stand-in `gh` that the broker grants GH_TOKEN, and that says
-        // whether it got it. In the workspace, so an L1 job sees it.
-        exe(
-            path("projects/bin/gh"),
-            "#!/bin/sh\nif [ -n \"$GH_TOKEN\" ]; then echo token=yes; else echo token=no; fi\n",
-        );
+        // The stand-in `gh`, in the workspace, so an L1 job sees it.
+        exe(path("projects/bin/gh"), GH);
         let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
         let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), 100.0)
             .parse()
@@ -319,8 +324,11 @@ fn a_probe_script_in_l1_shows_the_contract_and_l0_the_contrast() {
     let l1 = r.turn("in L1", vec![probe_call(&r, true, true)]);
     let l0 = r.turn("at L0", vec![probe_call(&r, false, false)]);
     let (l1, l0) = (&l1[0], &l0[0]);
+    // The script names gh, run by `sh`: the broker's note says gh got nothing,
+    // as it does at L0 (theseus-w5op), then where the job ran.
     assert!(
-        l1.starts_with("[ran in L1, the sandbox: no network, no secret at its start; "),
+        l1.starts_with("[gh got no GH_TOKEN: it is run by `sh`, not by its own argv")
+            && l1.contains("\n[ran in L1, the sandbox: no network, no secret; "),
         "{l1}"
     );
     let uid = unsafe { libc::getuid() }.to_string();
@@ -479,11 +487,42 @@ fn a_job_that_cannot_start_in_l1_fails_and_never_runs_at_l0() {
     assert!(!mark.exists(), "the job ran at L0");
 }
 
-/// Decision 4: a program the broker grants a secret, asked to run in L1,
-/// gets none (18d brings them); its result says so, and so does a
-/// `secret.withheld` row. At L0 the same program gets it.
+/// What the fake `op` resolves every secret to.
+const VALUE: &str = "test-secret-value-0000";
+
+/// B1's check: the files under `under` that hold the value's bytes.
+fn holding(under: &std::path::Path) -> Vec<PathBuf> {
+    fn walk(p: &std::path::Path, out: &mut Vec<PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(p) else { return };
+        for e in rd.flatten() {
+            let path = e.path();
+            match e.file_type() {
+                Ok(t) if t.is_dir() => walk(&path, out),
+                Ok(t) if t.is_file() => {
+                    let held = std::fs::read(&path)
+                        .is_ok_and(|b| b.windows(VALUE.len()).any(|w| w == VALUE.as_bytes()));
+                    if held {
+                        out.push(path);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(under, &mut out);
+    out
+}
+
+/// Grants at launch (theseus-w5op, superseding 17b's decision 4 and 18d's
+/// run-time socket): a program the broker grants a secret gets it in L1 at
+/// its launch, as at L0. A real L1 job's environment holds the value (its
+/// length is the fake `op`'s), its result's head names the grant, the value
+/// it prints is withheld (`[redacted:github_token]`), `secret.granted` says
+/// so with nothing withheld, and no file under the state dir nor the
+/// daemon's log holds the value. At L0 the same program gets it too.
 #[test]
-fn a_granted_program_asked_to_run_in_l1_gets_no_secret() {
+fn a_granted_program_in_l1_gets_its_grant_at_launch() {
     let r = Rig::start(|_| {});
     let gh = |sandbox| {
         (
@@ -492,16 +531,27 @@ fn a_granted_program_asked_to_run_in_l1_gets_no_secret() {
         )
     };
     let l1 = r.turn("gh in L1", vec![gh(true)]);
-    assert!(l1[0].contains("token=no"), "{}", l1[0]);
+    let text = &l1[0];
     assert!(
-        l1[0].contains("gh got no GH_TOKEN: no secret reaches a job in L1"),
-        "{}",
-        l1[0]
+        text.starts_with("[ran in L1, the sandbox: no network, given GH_TOKEN; "),
+        "{text}"
     );
-    let withheld = r.ledger("secret.withheld");
-    assert_eq!(withheld.len(), 1, "{withheld:?}");
+    assert_eq!(said(text, "token"), "yes", "{text}");
+    assert_eq!(said(text, "len"), VALUE.len().to_string(), "{text}");
+    assert_eq!(said(text, "printed"), "[redacted:github_token]", "{text}");
+    let granted = r.ledger("secret.granted");
+    assert_eq!(granted.len(), 1, "{granted:?}");
+    assert_eq!(
+        (&granted[0]["program"], &granted[0]["variable"]),
+        (&json!("gh"), &json!("GH_TOKEN"))
+    );
+    assert!(r.ledger("secret.withheld").is_empty());
     let l0 = r.turn("gh at L0", vec![gh(false)]);
-    assert!(l0[0].contains("token=yes"), "{}", l0[0]);
+    assert_eq!(said(&l0[0], "token"), "yes", "{}", l0[0]);
+    let state = holding(&r.path("projects/state"));
+    assert!(state.is_empty(), "the value is in {state:?}");
+    let log = std::fs::read_to_string(r.path("theseusd.log")).unwrap();
+    assert!(!log.contains(VALUE), "the value is in the daemon's log");
 }
 
 /// Every live process whose command line holds `marker` as an argument, from
@@ -785,7 +835,7 @@ fn a_listed_host_is_reached_through_the_proxy_and_its_session_then_holds_outside
     let text = &out[0];
     assert!(
         text.starts_with(&format!(
-            "[ran in L1, the sandbox: egress: {stand}, no secret at its start; "
+            "[ran in L1, the sandbox: egress: {stand}, no secret; "
         )),
         "{text}"
     );
@@ -920,7 +970,7 @@ fn a_job_with_no_list_has_no_proxy() {
         )],
     );
     assert!(
-        out[0].starts_with("[ran in L1, the sandbox: no network, no secret at its start; "),
+        out[0].starts_with("[ran in L1, the sandbox: no network, no secret; "),
         "{}",
         out[0]
     );

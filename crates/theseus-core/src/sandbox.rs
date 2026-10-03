@@ -9,10 +9,11 @@
 //! - **L1's posture is notify** (decision 1): an L1 job can reach nothing
 //!   (no capabilities, no network, scratch writes, and Theseus's floor and
 //!   the approve list's paths covered in its view), so neither the floor nor
-//!   the approve lists wait for it, and no secret is granted to it at its
-//!   spawn: it asks for one while it runs (`crate::cred`, 18d).
-//!   A session holding external text still holds it, as T1 holds any call
-//!   that acts (20a lifts that for L1).
+//!   the approve lists wait for it. A secret the broker grants its program
+//!   it takes at its launch, as at L0: the call runs at no looser a posture
+//!   than the secret's, so any approval comes before the launch (decision
+//!   15; theseus-w5op). A session holding external text still holds it, as
+//!   T1 holds any call that acts (20a lifts that for L1).
 //! - **The class is bound**: an L1 call's proposal names it, so the digest a
 //!   confirm binds covers it, and a confirmed call runs in the class its
 //!   proposal names, never in one worked out again. So is an L1 job's egress
@@ -210,14 +211,15 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
 
 /// The gate's decision for a call, before the external-text hold, and what
 /// its proposal binds (the gate in `toolrun`): its class, and an L1 job's
-/// egress list, whose hosts beyond `[sandbox] egress` make it wait (18c). L1 runs at notify: the floor and the
-/// approve lists guard what an L1 job cannot reach, and no secret is granted
-/// to one (18d's), so neither is asked. The operator's own word about the
+/// egress list, whose hosts beyond `[sandbox] egress` make it wait (18c). L1
+/// runs at notify: the floor and the approve lists guard what an L1 job
+/// cannot reach, so neither is asked. The operator's own word about the
 /// tool still is (Eddie, 2026-10-02, theseus-jfs6): a `[policy.tools]` line
 /// for it, or a tightening, that asks makes an L1 call wait too, so the model
 /// cannot step around it with `sandbox: true`. The inherited
-/// `[policy].enforcement` is not that word, and never makes L1 wait. Any
-/// other call takes L0's order: the policy, then the broker's grant.
+/// `[policy].enforcement` is not that word, and never makes L1 wait. Then
+/// the broker's grant, in both classes: a call given a secret runs at no
+/// looser a posture than the secret's (decision 15, theseus-w5op).
 pub(crate) fn decide(
     rt: &ToolRuntime,
     tool: &dyn Tool,
@@ -241,7 +243,7 @@ pub(crate) fn decide(
                 class: Class::L1,
                 egress,
             };
-            (d, bound)
+            (rt.brokered(tool.name(), plan, input, d), bound)
         }
         None => {
             let d = rt.policy.decide_with(tool, plan, tightened);
@@ -259,10 +261,9 @@ pub(crate) fn record((_, d, bound): &(Plan, Decision, Bound)) -> theseus_protoco
     }
 }
 
-/// What a job is given at its spawn (`toolrun`'s `run_job`): at L0, what
-/// the broker grants its program; in L1, no secret at its spawn (decision
-/// 4; it asks at run time, 18d), what L0 would grant named as withheld and
-/// nothing resolved, and its view and limits, the cgroup readied at the
+/// What a job is given at its spawn (`toolrun`'s `run_job`): what the broker
+/// grants its program, in both classes (theseus-w5op), the values in its
+/// environment; and in L1 its view and limits, the cgroup readied at the
 /// first L1 job.
 pub(crate) async fn for_job(
     rt: &ToolRuntime,
@@ -272,23 +273,17 @@ pub(crate) async fn for_job(
     path: Option<&str>,
     ran_at: Posture,
 ) -> (crate::broker::ForJob, Option<L1>) {
-    match bound.class {
-        Class::L0 => (
-            rt.broker
-                .for_job(&spec.argv, set, &spec.cwd, path, ran_at)
-                .await,
-            None,
-        ),
-        Class::L1 => {
-            let would = rt
-                .broker
-                .at_gate("proc.run", Some(&spec.argv), set, &spec.cwd, path);
-            let mut view = rt.sandbox.job_view().await;
-            // The list its proposal binds, and no other (18c).
-            view.egress.clone_from(&bound.egress);
-            (no_grant(would), Some(view))
-        }
+    let granted = rt
+        .broker
+        .for_job(&spec.argv, set, &spec.cwd, path, ran_at)
+        .await;
+    if !bound.l1() {
+        return (granted, None);
     }
+    let mut view = rt.sandbox.job_view().await;
+    // The list its proposal binds, and no other (18c).
+    view.egress.clone_from(&bound.egress);
+    (granted, Some(view))
 }
 
 /// A job was launched: counted by class, and an L1 job's `sandbox.started`
@@ -313,6 +308,7 @@ pub(crate) fn started<'a>(
     };
     rt.sandbox.count(class);
     let view = args.sandbox.as_ref()?;
+    let given: Vec<&str> = args.redact.iter().map(|(var, _)| var.as_str()).collect();
     tc.record(&crate::fact::sandbox::SandboxStarted {
         correlation_id,
         tool,
@@ -321,6 +317,7 @@ pub(crate) fn started<'a>(
         view,
         sandbox: &rt.sandbox,
         scrubber: &rt.scrubber,
+        given: &given,
     });
     Some(rt.sandbox.running(RunningJob {
         correlation_id: correlation_id.into(),
@@ -384,10 +381,11 @@ fn l1_decision(
 
 /// L1's posture (decision 1): notify, whatever the floor and the lists say,
 /// since an L1 job can reach none of what they guard. `why` is what chose
-/// L1; `egress` is the job's list, which the rule names (18c).
+/// L1; `egress` is the job's list, which the rule names (18c). A secret the
+/// broker grants it comes after (`decide`), as L0's does.
 pub fn decision(tool: &str, why: &str, egress: &[String]) -> Decision {
     let reach = theseus_protocol::sandbox::reach(egress);
-    let rule = format!("{tool} — notify (L1: {why}; {reach}, no secret, writes to scratch)");
+    let rule = format!("{tool} — notify (L1: {why}; {reach}, writes to scratch)");
     Decision {
         posture: Posture::Notify,
         reason: rule.clone(),
@@ -402,41 +400,28 @@ pub fn decision(tool: &str, why: &str, egress: &[String]) -> Decision {
     }
 }
 
-/// Why an L1 job got none of the secrets L0 would grant it (decision 4):
-/// it starts with none, and asks for one while it runs (18d).
-pub const NO_SECRET: &str = "no secret reaches a job in L1 at its start";
-
-/// What the broker gives an L1 job at its spawn: nothing. Each grant of a
-/// program that L0 would make is withheld, with why and how to ask for it at
-/// run time instead (`theseus-cred get`, 18d), so the result and the
-/// ledger's `secret.withheld` say so; no secret is resolved.
-pub fn no_grant(would: Vec<crate::broker::Grant>) -> crate::broker::ForJob {
-    crate::broker::ForJob {
-        withheld: would
-            .into_iter()
-            .filter_map(|g| {
-                let ask = format!(
-                    "{NO_SECRET}; the job asks for it while it runs: {}=\"$({} get {})\"",
-                    g.variable.as_deref()?,
-                    crate::cred::HELPER_NAME,
-                    g.secret
-                );
-                Some((g, ask))
-            })
-            .collect(),
-        ..Default::default()
+/// What an L1 job started with, as its result's head and its narrative say
+/// it: `no secret`, or `given GH_TOKEN`, the variables its program's grants
+/// gave it at its launch. Names only, never a value.
+pub fn given(vars: &[&str]) -> String {
+    match vars {
+        [] => "no secret".into(),
+        _ => format!("given {}", crate::broker::and(vars)),
     }
 }
 
 /// An L1 job's lines at the head of its result (design §2.11): where it
-/// ran and what it wrote to scratch, the limits it met, or why it could not
-/// start. Empty for an L0 job. "No secret at its start": a job may still
-/// have asked for one while it ran (18d), whose value its output then holds
-/// only as `[redacted:<secret>]` (theseus-3m11).
+/// ran, what it was given at its launch (the wrapper's `granted`, names
+/// only), and what it wrote to scratch, the limits it met, or why it could
+/// not start. Empty for an L0 job.
 pub fn result_lines(detail: &Value) -> String {
     let Some(sb) = detail.get("sandbox").filter(|s| s["class"] == "l1") else {
         return String::new();
     };
+    let granted: Vec<&str> = sb["granted"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
     let mut lines = Vec::new();
     match sb.get("error") {
         Some(e) => lines.push(format!(
@@ -445,8 +430,9 @@ pub fn result_lines(detail: &Value) -> String {
             e["error"].as_str().unwrap_or("?")
         )),
         None => lines.push(format!(
-            "[ran in L1, the sandbox: {}, no secret at its start; {}]",
+            "[ran in L1, the sandbox: {}, {}; {}]",
             crate::egress::reach_words(detail),
+            given(&granted),
             detail
                 .pointer("/scratch/summary")
                 .and_then(Value::as_str)
@@ -549,8 +535,6 @@ impl Sandbox {
             // Each job's own, from its proposal (`for_job`).
             egress: Vec::new(),
             egress_dns: crate::egress::test_dns(),
-            // Each job's own: its credential socket (`crate::cred`).
-            binds: Vec::new(),
         };
         Self {
             cfg: cfg.clone(),

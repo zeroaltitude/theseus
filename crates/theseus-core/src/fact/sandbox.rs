@@ -17,7 +17,8 @@ use crate::scrub::Scrubber;
 
 /// A job started in L1 (`sandbox.started`): its limits, its cgroup, its
 /// read-only paths, and its egress list (18c; empty for no network). Its
-/// `tool.started` carries `class: l1` and the list beside it.
+/// `tool.started` carries `class: l1` and the list beside it, and each grant
+/// it was given has its own `secret.granted`.
 pub struct SandboxStarted<'a> {
     pub correlation_id: &'a str,
     pub tool: &'a str,
@@ -27,6 +28,8 @@ pub struct SandboxStarted<'a> {
     pub sandbox: &'a Sandbox,
     /// For the narrative's subject, which may name a secret's value.
     pub scrubber: &'a Scrubber,
+    /// The variables its grants gave it at its launch, names only.
+    pub given: &'a [&'a str],
 }
 
 impl Fact for SandboxStarted<'_> {
@@ -46,9 +49,10 @@ impl Fact for SandboxStarted<'_> {
         say.line(
             Tool,
             format!(
-                "{} runs in L1, the sandbox: {reach}, no secret, {}; what it writes goes to \
-                 scratch, and is discarded.",
+                "{} runs in L1, the sandbox: {reach}, {}, {}; what it writes goes to scratch, \
+                 and is discarded.",
                 self.scrubber.scrub(&subject).0,
+                crate::sandbox::given(self.given),
                 self.sandbox.limits_line()
             ),
         );

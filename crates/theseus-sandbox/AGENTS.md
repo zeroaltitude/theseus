@@ -17,10 +17,7 @@ Key modules: `spawn.rs`, `init.rs`, `view.rs`. Read by: the kernel's `job_l1.rs`
 - `init.rs`: `init_main`, the `job-sandbox` role (`theseusd job-sandbox`): pid 1 of the job.
 - `view.rs`: the view (system binds, `ro_paths`, overlays over the workspace, HOME, `/tmp`, `/dev`, `/proc`,
   `/sys`), and `Spec::hidden` (17b), the paths covered whatever binds them: Theseus's floor and socket, and the
-  approve list's paths. `Spec::binds` (18d) are read-only binds at other paths, mounted before the hidden paths:
-  the job's credential socket's directory at `/run/theseus/broker` and the helper at
-  `/run/theseus/bin/theseus-cred`. A socket's connect needs no write on its mount. A bind's source is a real path:
-  a `/proc/<pid>/exe` link's target is in another mount namespace, and the kernel refuses it (`EINVAL`).
+  approve list's paths.
 - `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry), `cgroup.rs` (`own`,
   `delegate`, `JobCgroup`: its limits, `kill`, `populated`, and `procs`, which an 18a stop counts), `report.rs` (`Started`, `Exit`, `Scratch::summary`), `spec.rs`.
 - `egress.rs` (18b, wired at 18c): the job's `Proxy` on the listener the init hands over. `Proxy::decide` makes each

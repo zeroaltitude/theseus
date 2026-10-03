@@ -31,7 +31,6 @@ use theseus_core::store::Store;
 use theseus_core::{Config, Core};
 use tokio::net::UnixListener;
 
-mod cred_helper;
 mod install;
 mod web;
 
@@ -170,11 +169,6 @@ fn main() -> Result<()> {
         .is_some_and(|a| a == theseus_sandbox::INIT_ROLE)
     {
         theseus_sandbox::init_main();
-    }
-    // The credential helper inside an L1 job (M4 18d): this binary, bound as
-    // `theseus-cred`, its role picked by `argv[0]`, before anything else.
-    if cred_helper::is_helper() {
-        std::process::exit(cred_helper::main());
     }
     // The start of every startup phase's clock (theseus-qa0).
     let origin = Instant::now();
@@ -990,10 +984,6 @@ async fn after_serving(
     if !core.config_gate.opened().await {
         return;
     }
-    // L1 jobs that ran across a restart (M4 18d): their credential sockets
-    // are served again, and what their helpers waited for is closed.
-    let weak = Arc::downgrade(&core);
-    tokio::task::spawn_blocking(move || theseus_core::cred::after_serving(weak));
     // The harness loop (heartbeat reconciler, wrapper notify socket) and the
     // driver (continuation turns: job results, confirms, restarts). Both
     // write to the disk at once, and a write beside the socket's `bind` can

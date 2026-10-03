@@ -383,20 +383,27 @@ async fn an_approved_l1_call_runs_in_l1_and_never_as_l0() {
     assert_eq!(r.results(&res.session_id)[0].0, ResultStatus::Ok);
 }
 
-/// An L1 job's result says where it ran and what it wrote to scratch, and
-/// one that could not start says why and that it never ran at L0.
+/// An L1 job's result says where it ran, what its grants gave it at its
+/// launch (names only, theseus-w5op), and what it wrote to scratch, and one
+/// that could not start says why and that it never ran at L0.
 #[test]
 fn an_l1_results_head_says_where_it_ran() {
     let ran = json!({"sandbox": {"class": "l1", "pids_refused": 3},
         "scratch": {"summary": "wrote 1 file, 1 KB, to scratch: out.txt; discarded"}});
     let lines = crate::sandbox::result_lines(&ran);
     assert!(
-        lines.starts_with(
-            "[ran in L1, the sandbox: no network, no secret at its start; wrote 1 file"
-        ),
+        lines.starts_with("[ran in L1, the sandbox: no network, no secret; wrote 1 file"),
         "{lines}"
     );
     assert!(lines.contains("3 of its forks were refused"), "{lines}");
+    let granted = json!({"sandbox": {"class": "l1", "granted": ["GH_TOKEN", "NPM_TOKEN"]}});
+    let lines = crate::sandbox::result_lines(&granted);
+    assert!(
+        lines.starts_with(
+            "[ran in L1, the sandbox: no network, given GH_TOKEN and NPM_TOKEN; what it wrote"
+        ),
+        "{lines}"
+    );
     let failed = json!({"sandbox": {"class": "l1",
         "error": {"stage": "entering the cwd", "error": "No such file or directory"}}});
     let lines = crate::sandbox::result_lines(&failed);

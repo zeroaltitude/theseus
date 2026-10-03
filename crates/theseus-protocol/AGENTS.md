@@ -26,10 +26,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `HeldPosts` are here too.
 - `sandbox.rs`: health's `sandbox` block (17b, with 18c's egress counts), and `reach` and `egress_in`, the one
   wording of an L1 job's reach (`no network`, `egress: github.com:443`) and the list a proposal binds.
-- `cred.rs` (M4 18d): an L1 job's credential request: the socket's two lines (`CredAsk`, `CredAnswer`, whose
-  `Debug` hides the value, and which have no TypeScript), health's `CredRequests`, and `asked`, the one wording of
-  a request. `CRED_TOOL` (`cred.request`) is the request's action's tool, and `secret.requested` its notification
-  (`SecretRequested`).
+- `cred.rs` (theseus-gh7): `HarnessOnly`, health's and `theseusd check`'s line of the secrets a job may be handed
+  and the keys that stay the harness's own. 18d's credential requests, `secret.requested` among them, went in
+  theseus-w5op: a stored row of their kinds still reads, as an unknown kind.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

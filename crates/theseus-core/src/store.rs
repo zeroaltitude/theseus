@@ -1421,7 +1421,8 @@ pub(crate) mod tests {
     /// with no parent, and its bytes encode again unchanged; a request with
     /// its parent is written at schema 4 and reads back whole. A post is an
     /// action of its own kind, so OUTBOX moves with it, 2 to 3: a schema-2
-    /// post reads the same way.
+    /// post reads the same way. Nothing makes a request since theseus-w5op,
+    /// and one a store holds (`cred.request`) still reads whole.
     #[test]
     fn an_action_written_before_its_parent_reads() {
         use theseus_kernel::Action;
@@ -1458,7 +1459,7 @@ pub(crate) mod tests {
 
         let mut request: Action = serde_json::from_str(ACTION_SCHEMA_3).unwrap();
         request.correlation_id = "act_00000000000000000000000000000046".into();
-        request.tool = theseus_protocol::CRED_TOOL.into();
+        request.tool = "cred.request".into();
         request.parent = Some(job.into());
         let r = NewRecord::json(kinds::ACTION, Some(&request.correlation_id), &request)
             .unwrap()
@@ -1475,6 +1476,43 @@ pub(crate) mod tests {
             .decode()
             .unwrap();
         assert_eq!(back, request);
+    }
+
+    /// 18d's two ledger kinds as its build stored them (literal bytes): a
+    /// request granted at notify, and one declined.
+    const SECRET_REQUESTED_18D: &str = r#"{"at_unix_ms":1790000000047,"kind":"secret.requested","session_id":"ses_lighthouse","data":{"command":"sh","correlation_id":"act_00000000000000000000000000000047","job":"act_00000000000000000000000000000043","kind":"secret","outcome":"granted","posture":"notify","secret":"github_token","setting":"proc.run ran at notify","why":null}}"#;
+    const SECRET_DECLINED_18D: &str = r#"{"at_unix_ms":1790000000048,"kind":"secret.declined","session_id":"ses_lighthouse","data":{"by":"the CLI","correlation_id":"act_00000000000000000000000000000048","job":"act_00000000000000000000000000000043","secret":"github_token","why":"not today"}}"#;
+
+    /// A ledger row of a kind no build writes now still reads (theseus-w5op):
+    /// 18d's `secret.requested` and `secret.declined`, as stored. The row
+    /// keeps its kind's name and its data, byte for byte, and the registry
+    /// names neither kind (an unknown one parses to none).
+    #[test]
+    fn a_row_of_a_kind_no_longer_written_still_reads() {
+        use theseus_protocol::LedgerKind;
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        for bytes in [SECRET_REQUESTED_18D, SECRET_DECLINED_18D] {
+            let rec = NewRecord::bytes(kinds::LEDGER, None, bytes.as_bytes().to_vec());
+            store.append(&[rec.scoped("ses_lighthouse")]).unwrap();
+        }
+        let rows = store.ledger_tail::<LedgerRow>(10).unwrap();
+        let kinds_read: Vec<&str> = rows.iter().map(|(_, r)| r.kind.as_str()).collect();
+        assert_eq!(kinds_read, ["secret.requested", "secret.declined"]);
+        for ((_, row), bytes) in rows.iter().zip([SECRET_REQUESTED_18D, SECRET_DECLINED_18D]) {
+            assert_eq!(
+                LedgerKind::parse(&row.kind),
+                None,
+                "{} is written",
+                row.kind
+            );
+            assert_eq!(row.data["secret"], "github_token");
+            assert_eq!(
+                serde_json::to_string(row).unwrap(),
+                bytes,
+                "it keeps its bytes"
+            );
+        }
     }
 
     /// An L1 call's node as 17b's build wrote it (NODE schema 4): its gate

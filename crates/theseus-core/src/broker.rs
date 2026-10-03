@@ -78,7 +78,7 @@ impl Grant {
 }
 
 /// `a`, `a and b`, `a, b and c`.
-fn and(items: &[&str]) -> String {
+pub(crate) fn and(items: &[&str]) -> String {
     match items {
         [] => String::new(),
         [one] => one.to_string(),
@@ -287,12 +287,12 @@ impl Broker {
         }
     }
 
-    /// Whether an L1 job may ask for `secret` at run time (M4 18d): the
-    /// operator's `[broker]` names it, in a program's grant or in its own
-    /// `[broker.secrets.<name>]` entry. A toollet's grant is the wiring's,
-    /// not the operator's word, so it is not enough (web.search's key stays
-    /// the toollet's), and any other name is never handed out: the AWS keys
-    /// and the providers' keys stay behind the floor (decision 15).
+    /// Whether the operator's `[broker]` names `secret`, in a program's grant
+    /// or in its own `[broker.secrets.<name>]` entry: what `harness_only`
+    /// counts as a secret a job may be handed. A toollet's grant is the
+    /// wiring's, not the operator's word, so it is not enough (web.search's
+    /// key stays the toollet's), and any other name is never handed out: the
+    /// AWS keys and the providers' keys stay behind the floor (decision 15).
     pub fn may_hand_out(&self, secret: &str) -> bool {
         self.postures.contains_key(secret)
             || self
@@ -492,7 +492,6 @@ impl Broker {
         self.tools.read().unwrap().contains_key(tool)
     }
 
-    // M4 (decision 15): a run-time credential request lands here too, at the requesting tool's posture; 1Password itself always waits.
     /// A toollet's secret: its value, when the wiring granted `name` to `tool`,
     /// its posture is no stricter than `ran_at`, and it has resolved. Else
     /// why not, never a value.
@@ -571,7 +570,7 @@ impl Broker {
     }
 
     /// Every secret `[broker]` names: each one a job may be handed, by a
-    /// program's grant at its start or asked for while it runs in L1.
+    /// program's grant at its start, at L0 and in L1 alike.
     pub fn handed(&self) -> BTreeSet<String> {
         self.postures
             .keys()
@@ -589,8 +588,7 @@ impl Broker {
 /// for `theseusd check` and health. The AWS keys (each bound account's, and
 /// the template's two names when `[secrets]` keeps them) and the providers'
 /// keys are read only by Theseus's own tools (`aws`, the providers); a job is
-/// never handed one, by a grant or a request, unless `[broker]` names it,
-/// which `exposed` then says.
+/// never handed one unless `[broker]` names it, which `exposed` then says.
 pub fn harness_only(cfg: &crate::Config, broker: &Broker) -> theseus_protocol::cred::HarnessOnly {
     let template = crate::config::AwsCredentialNames::default();
     let aws: BTreeSet<String> = cfg
@@ -647,6 +645,24 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
          (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key, \
          zai_api_key)"
     );
+}
+
+/// The template's broker section, un-commented (design §4's item 8): a job
+/// may be handed `github_token` alone, gh's grant, at notify, and no
+/// provider's key, AWS key, bot token, or web.search's key, though the
+/// wiring grants that one to its toollet.
+#[cfg(test)]
+pub(crate) fn the_templates_broker_section(cfg: &crate::Config) {
+    let broker = Broker::new(&cfg.broker, SecretBoard::empty(), None);
+    broker.grant_tool("web.search", &cfg.tools.web.search_key_secret);
+    let handed: Vec<&str> = cfg
+        .secrets
+        .keys()
+        .map(String::as_str)
+        .filter(|n| broker.may_hand_out(n))
+        .collect();
+    assert_eq!(handed, ["github_token"]);
+    assert_eq!(broker.posture_of("github_token").0, Posture::Notify);
 }
 
 /// The broker bound to one call of one toollet: what `ToolCtx::secret` asks.

@@ -16,7 +16,7 @@ use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::{Action, LimitFollowed, BUDGET_TOOL};
-use theseus_protocol::{CRED_TOOL, HELD_POST_TOOL};
+use theseus_protocol::HELD_POST_TOOL;
 use theseus_store::Store as _;
 
 /// Who declines a question nobody answered in time (theseus-830), as its
@@ -53,9 +53,6 @@ impl Core {
         }
         if a.tool == HELD_POST_TOOL {
             return crate::held::held_confirm(a, session);
-        }
-        if a.tool == CRED_TOOL {
-            return crate::cred::confirm_of(a, session);
         }
         let (tool, input, gate) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
@@ -155,9 +152,6 @@ impl Core {
         if q.tool == HELD_POST_TOOL {
             return Ok(crate::held::held_confirm(q, &rec));
         }
-        if q.tool == CRED_TOOL {
-            return Ok(crate::cred::confirm_of(q, &rec));
-        }
         let Some(id) = node_id else {
             return Ok(None);
         };
@@ -208,7 +202,7 @@ impl Core {
         let mut read: BTreeMap<String, Vec<(u64, Node)>> = BTreeMap::new();
         let mut out: BTreeMap<String, Vec<PendingConfirm>> = BTreeMap::new();
         for a in pending {
-            let decision = match (a.tool == BUDGET_TOOL || a.tool == CRED_TOOL, known) {
+            let decision = match (a.tool == BUDGET_TOOL, known) {
                 (true, _) => None,
                 (false, Some((sid, nodes))) if sid == a.session_id => {
                     decision_of(nodes, &a.correlation_id)
@@ -248,17 +242,14 @@ impl Core {
                 .and_then(|id| self.kernel.execution(id).ok().flatten())
                 .is_some_and(|e| e.state == theseus_kernel::ExecState::Waiting);
             // A held post's question waits whether or not its session does
-            // (M4 19c): its turn has ended. So does an L1 job's credential
-            // request (M4 18d): no turn waits on it.
-            let held = asks
-                .iter()
-                .any(|a| a.tool == HELD_POST_TOOL || a.tool == CRED_TOOL);
+            // (M4 19c): its turn has ended.
+            let held = asks.iter().any(|a| a.tool == HELD_POST_TOOL);
             if asks.is_empty() || !(parked || held) {
                 continue;
             }
             let nodes = if asks
                 .iter()
-                .any(|a| a.tool != BUDGET_TOOL && a.tool != HELD_POST_TOOL && a.tool != CRED_TOOL)
+                .any(|a| a.tool != BUDGET_TOOL && a.tool != HELD_POST_TOOL)
             {
                 self.store.session_nodes(&rec.session_id)?
             } else {
@@ -311,12 +302,7 @@ impl Core {
             .kernel
             .action(correlation_id)?
             .ok_or_else(|| anyhow::anyhow!("no action {correlation_id}"))?;
-        if trust
-            && (!approve
-                || a.tool == BUDGET_TOOL
-                || a.tool == HELD_POST_TOOL
-                || a.tool == CRED_TOOL)
-        {
+        if trust && (!approve || a.tool == BUDGET_TOOL || a.tool == HELD_POST_TOOL) {
             anyhow::bail!(
                 "trust goes with an approval of a tool call: approve {correlation_id} to trust \
                  its session, or use `policy.trust`"
@@ -342,9 +328,6 @@ impl Core {
         }
         if a.tool == HELD_POST_TOOL {
             return self.answer_held_post(&a, approve, note, by, &via, &asker);
-        }
-        if a.tool == CRED_TOOL {
-            return self.answer_cred_request(&a, approve, note, by, &via, &asker);
         }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
         // bind or the decline, an approval's trust, the answer's row, and the
@@ -484,12 +467,10 @@ impl Core {
         };
         let mut next = u64::MAX;
         let mut expired = 0;
-        // A budget question and a held post's hold until they are answered;
-        // a credential request lapses at its job's deadline, where its own
-        // wait ends it (M4 18d).
+        // A budget question and a held post's hold until they are answered.
         for a in pending
             .iter()
-            .filter(|a| a.tool != BUDGET_TOOL && a.tool != HELD_POST_TOOL && a.tool != CRED_TOOL)
+            .filter(|a| a.tool != BUDGET_TOOL && a.tool != HELD_POST_TOOL)
         {
             let due = a.planned_at_ms + ttl;
             if due > now {

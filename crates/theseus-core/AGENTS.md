@@ -45,19 +45,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   delegated cgroup (systemd's own answer), and health's block. Its facts are `fact/sandbox.rs`; its tests
   `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs. What a call's proposal binds about
   its job is `sandbox::Bound`: its class, and (18c) its egress list.
-- **Credential requests** (M4 18d): `cred.rs`. An L1 job asks for a secret while it runs: the daemon serves a
-  socket for it in `<spool>/broker/<job>/` from before its launch until its call settles (a cancel and a stop
-  included), bound into its view at `/run/theseus/broker` with the helper (this binary as `theseus-cred`, on the
-  job's PATH), and served again after a restart (`after_serving`). Each connection is traced to the job's own
-  wrapper. `judge` is decision 15: a name the operator's `[broker]` names (a program's grant, or its own
-  `[broker.secrets.<name>]` entry; a toollet's wiring grant is not enough), at the stricter of the call's `ran_at`
-  and the secret's posture. Open and notify grant in one frame; approve plans the request (`cred.request`, ACTION
-  4, its `parent` the job's call) with its card and waits on the push's feed until an answer (`confirm_action` ->
-  `answer_cred_request`), a cancel, or the job's deadline. Its facts are `fact/cred.rs`; its tests
-  `tests_cred.rs`, and the daemon's `tests/cred.rs` with real L1 jobs and the real helper.
-  - **Spawn grants stay withheld in L1** (theseus-7y9y, decided 2026-10-03 under Eddie's default-trust principle):
-    this request is the one gated way a secret reaches a sandboxed job, and the withheld note tells the model how to
-    ask (`GH_TOKEN="$(theseus-cred get github_token)"`). No mechanism change is planned.
+- **Grants in L1** (theseus-w5op; decided by Eddie 2026-10-03, superseding theseus-7y9y): an L1 job takes its
+  program's broker grants at its launch, exactly as an L0 job does. `sandbox::decide` runs the L1 decision through
+  `ToolRuntime::brokered` (decision 15: the stricter of the call's posture and the secret's, so any approval comes
+  before the launch), and `sandbox::for_job` asks `Broker::for_job`. The value rides in the job's environment over
+  the spec's pipe, the wrapper withholds it from the job's output (`redact`), and the result's head names what the
+  job was given (`given GH_TOKEN`, names only, from the wrapper's `detail.sandbox.granted`). Tests:
+  `tests_grants.rs`, and the daemon's `tests/sandbox.rs` with a real L1 job. 18d's run-time socket
+  (`theseus-cred get`) is gone; a stored `cred.request` action and its ledger rows still read.
 - **Egress** (M4 18c): `egress.rs`. `[sandbox] egress` and a call's `sandbox: { egress }`; the gate's step for
   hosts beyond the list (the call waits, and its approval reaches those hosts alone, since the list is in its
   proposal); and what a completion's `detail.egress` makes of a result: its `sandbox.egress` and
@@ -144,9 +139,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   allow list, then the posture; a granted secret's posture and the external-text hold apply after it, and the
   stricter wins.
 - **An L1 call runs at notify** (Eddie's decision, 2026-10-02): none of the L0 order applies, since the view hides
-  the floor, the approve list's paths, and the socket, and no secret is granted to it; the external-text hold
-  still does, and so does the operator's own word about the tool: a `[policy.tools]` line or a tightening that
-  asks makes it wait (theseus-jfs6), and so do hosts its call names beyond `[sandbox] egress` (18c). The inherited
+  the floor, the approve list's paths, and the socket; the external-text hold still does, and so does the
+  operator's own word about the tool: a `[policy.tools]` line or a tightening that asks makes it wait
+  (theseus-jfs6), and so do hosts its call names beyond `[sandbox] egress` (18c), and a granted secret's posture,
+  as at L0 (theseus-w5op). The inherited
   `[policy].enforcement` never does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
   proposal names. Nothing falls back from L1 to L0.
 - **Results tell the truth.** `toolrun::cap` cuts on line edges and says what it left out, with the tool's own way
@@ -169,12 +165,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   value verbatim, in base64, and percent-encoded, and the shapes of secrets never resolved here (token prefixes,
   AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its
   own argv, and never to one the call could make it run (`broker::launches`: the call's own environment, gh's
-  aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name). A value an L1 job asks
-  for goes over its own socket to its helper alone (M4 18d): the request's records name the secret, never its
-  value.
+  aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name), in L1 as at L0.
 - **The AWS keys and the providers' keys are harness-only** (theseus-gh7): Theseus's own tools read them from the
-  board (`aws/`, the providers), and `Broker::may_hand_out` refuses them to every job, by a grant or a request, unless
-  `[broker]` names one. `broker::harness_only` is the line `theseusd check` and health print, naming them; the
+  board (`aws/`, the providers), and no job is handed one unless `[broker]` names it (`Broker::may_hand_out`). `broker::harness_only` is the line `theseusd check` and health print, naming them; the
   template test holds it (`the_templates_harness_only_keys`). Containment is that, the operator's `[broker]` grants,
   and the egress list: credentials as stand-ins (TLS interception at the proxy) were dropped for v1 (Eddie,
   2026-10-03). Do nothing heavier without his say.

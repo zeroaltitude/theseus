@@ -184,7 +184,7 @@ counts half. The blocks:
 | 17 | 17b: L1 for `proc.run`: the class choice, `[sandbox]`, the wrapper's L1 path, the probe after serving. **Joins 17a** | 7ve | 1 | the sandbox lane (17a) |
 | 18 | 18a: cancellation verified per backend (the tree stop, the pid namespace, the cgroup, `verified_by`) | hcc, 7ve | 1 | 17b; w98 (batch 1). Its L0 half can run earlier, as a filler |
 | 19 | 18c: egress wired in; a result that connected out is external. **Joins 18b** | 20f (its L1 half) | 1 | 17b; 18b |
-| 20 | 18d: credential brokering under L1: the per-job socket, `cred.request`, and a `kind: aws` seam with no AWS code in it | 7ve | 1 | 17b; 18c |
+| 20 | 18d: credential brokering under L1: the per-job socket, `cred.request`, and a `kind: aws` seam with no AWS code in it (removed by theseus-w5op, 2026-10-03: an L1 job takes its grants at launch) | 7ve | 1 | 17b; 18c |
 | 21 | 19a: labels on nodes, the audience, the compile filter with placeholders | 7ve | 1 | T1 and F4a (done) |
 | 22 | 19b's join: the disclosure simulator, and its short run in the gate | 7ve | 0.5 | the disclosure lane |
 | 23 | 19c: graduation, and `may_leave` in the outbox | 3vu | 1 | 19a |
@@ -203,7 +203,7 @@ counts half. The blocks:
 | 31 | C3 = 14c: the curated tools, the reaper in report mode, AWS text marked external (by label, once 20a is in) | mgw | 1 | C2 |
 | 32 | 15: the durability tender: WAL segments **and `blobs/`** to S3, index rows to DynamoDB, on the index lane's WAL follower | mgw | 1 | C2; the WAL follower (§6, conflict 3) |
 | 33 | 16: `theseus restore --from s3://…` | mgw | 1 | 15 |
-| 34 | 18e: the `aws` grant under L1: an L1 job's AWS session, through 18d's socket | mgw | 0.5 | 18d; C2 |
+| 34 | 18e: the `aws` grant under L1: an L1 job's AWS session, granted at its launch as any broker grant is (theseus-w5op; 18d's socket is gone) | mgw | 0.5 | w5op; C2 |
 | 35 | 40, part 1: the hand role and image, `aws.hands.run` on Lambda and Fargate, the SQS poller | mgw | 1 | C2; P4's hands stacks |
 | 36 | 40, part 2: cancellation per backend, the TTL reaper, budget reservations, the grid; the `kill -9` prove | mgw | 1 | 40, part 1 |
 
@@ -507,6 +507,8 @@ filed twice.
     (`kind: aws`).
     - *Resolution:* 18d builds the socket and a `kind: aws` seam with no AWS code, so M4 never waits on Eddie's
       AWS go. A half-slot step, 18e, puts the AWS job session behind it once both 18d and C2 are in.
+    - *Since theseus-w5op (Eddie, 2026-10-03):* 18d's socket is gone, and an L1 job takes its grants at launch,
+      as an L0 job does. 18e gives the AWS job session the same way, as the AWS design's program grant first said.
 11. **M5 waits for "Stage 3 done".** M5's 23a lists Stage 3 (the roadmap's order, decision 16). Stage 3 holds
     AWS, which waits on Eddie, so Stage 4 would idle behind his answer.
     - *Resolution:* M5's spine follows M4's, not AWS's. Decision 16 ("Jev late") still holds: Jev acts in the

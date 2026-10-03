@@ -429,7 +429,6 @@ impl Renderer {
                 });
                 ops
             }
-            Event::SecretRequested(r) => crate::render_cred::ops(r, self.notice_embeds),
             Event::PolicyNotified(_) if !self.notice_embeds => vec![],
             Event::PolicyNotified(n) => {
                 let use_id = n.tool_use_id.clone();

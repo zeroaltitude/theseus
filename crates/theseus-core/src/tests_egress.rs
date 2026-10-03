@@ -356,9 +356,7 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
         unreachable!()
     };
     assert!(
-        content.contains(
-            "[ran in L1, the sandbox: egress: api.tides.test:443, no secret at its start; "
-        ),
+        content.contains("[ran in L1, the sandbox: egress: api.tides.test:443, no secret; "),
         "{content}"
     );
     assert!(

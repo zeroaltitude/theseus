@@ -3,9 +3,8 @@
 /**
  * What a job may be handed, and what stays the harness's own (theseus-gh7):
  * the secrets the operator's `[broker]` names, which a job may get (a
- * program's grant at its start, or asked for while it runs in L1), and the
- * AWS keys and the providers' keys, which only Theseus's own tools read.
- * Names only, never a value.
+ * program's grant at its start), and the AWS keys and the providers' keys,
+ * which only Theseus's own tools read. Names only, never a value.
  */
 export type HarnessOnly = { 
 /**

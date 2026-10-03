@@ -7,8 +7,6 @@
 //! - the workspace roots are at their own paths, read-only under overlays
 //!   whose upper directories are one capped tmpfs: scratch;
 //! - HOME, `/tmp`, and `/dev/shm` are empty capped tmpfs mounts;
-//! - `Spec::binds` (18d) are read-only binds at other paths: the job's
-//!   credential socket's directory and the helper, under `/run/theseus`;
 //! - `/dev` holds `null`, `zero`, `random`, and `urandom`, the fd links, and
 //!   `shm`;
 //! - `/proc` is a new proc for the job's pid namespace, and `/sys` a fresh
@@ -125,16 +123,6 @@ pub(crate) fn build(spec: &Spec) -> Result<View, Failure> {
             Part::Workspace(i) => overlay(&host(&path), &path, i)
                 .stage(format!("mounting the workspace {}", path.display()))?,
         }
-    }
-    // Binds at other paths (18d): the job's credential socket's directory
-    // and the helper, read-only. A socket's connect needs no write on its
-    // mount, so the job still asks through it.
-    for (from, to) in &spec.binds {
-        bind_ro(&host(from), to).stage(format!(
-            "binding {} at {}",
-            from.display(),
-            to.display()
-        ))?;
     }
     // What the operator's part must never show, whatever binds it (17b).
     for p in &spec.hidden {

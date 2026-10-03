@@ -126,6 +126,11 @@ pub(crate) fn run(
     let (mut spec, skipped) = spec(args, l1, env);
     let allow = egress::prepare(&mut spec, l1);
     let mut sandbox = json!({"class": "l1"});
+    // The variables its grants gave it, names only, for its result's head.
+    if !args.redact.is_empty() {
+        let vars: Vec<&str> = args.redact.iter().map(|(var, _)| var.as_str()).collect();
+        sandbox["granted"] = json!(vars);
+    }
     if !skipped.is_empty() {
         sandbox["skipped"] = json!(skipped);
     }
@@ -253,7 +258,6 @@ fn spec(args: &WrapperArgs, l1: &L1, env: Vec<(String, String)>) -> (Spec, Vec<S
         .cloned()
         .collect();
     spec.hidden = l1.hidden.clone();
-    spec.binds = l1.binds.clone();
     spec.limits = l1.limits;
     let skipped = missing.iter().map(|p| p.display().to_string()).collect();
     (spec, skipped)

@@ -25,7 +25,6 @@ pub mod config_overlay;
 pub mod context_files;
 pub mod cpu;
 pub mod crash;
-pub mod cred;
 pub mod disk;
 pub mod egress;
 pub mod external;
@@ -106,8 +105,6 @@ mod tests_config;
 #[cfg(test)]
 mod tests_continuations;
 #[cfg(test)]
-mod tests_cred;
-#[cfg(test)]
 mod tests_egress;
 #[cfg(test)]
 mod tests_external;
@@ -115,6 +112,8 @@ mod tests_external;
 mod tests_failures;
 #[cfg(test)]
 mod tests_graduate;
+#[cfg(test)]
+mod tests_grants;
 #[cfg(test)]
 mod tests_labels;
 #[cfg(test)]

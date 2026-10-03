@@ -79,7 +79,9 @@ pub mod kinds {
     /// Action schema 4 adds an action's `parent` (M4 18d): a credential
     /// request's job, read from 3 as none (theseus-core's
     /// `an_action_written_before_its_parent_reads`). Outbox schema 3 is the
-    /// same change: a post is an action, read from 2 with no parent.
+    /// same change: a post is an action, read from 2 with no parent. Since
+    /// those requests went (theseus-w5op) nothing writes it; a stored
+    /// request still reads whole.
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
         (SESSION, 6),

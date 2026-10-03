@@ -24,7 +24,6 @@ pub mod bindings;
 mod courier;
 mod files;
 pub mod render;
-mod render_cred;
 mod rpc_client;
 mod runtime;
 #[cfg(test)]

@@ -11,12 +11,6 @@
 //!
 //! `--class l1-egress` (18c) gives the L1 job an egress list, so its start
 //! includes the listener's handoff and its end the proxy's stop.
-//!
-//! `--class l1-cred` (18d) gives the L1 job what a daemon gives it before
-//! its launch: a credential socket's directory, listening, bound at
-//! `/run/theseus/broker`, and the helper (the `theseusd` it runs) at
-//! `/run/theseus/bin/theseus-cred`. Its line adds the daemon's side: the
-//! directory and the listener, timed alone.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -37,8 +31,7 @@ pub struct JobsArgs {
     #[arg(long)]
     theseusd: Option<PathBuf>,
     /// `l0`, `l1`, `l1-egress` (an L1 job with an egress list, so with its
-    /// listener and proxy: 18c), `l1-cred` (an L1 job with its credential
-    /// socket and helper bound in: 18d), or several.
+    /// listener and proxy: 18c), or several.
     #[arg(long, value_delimiter = ',', default_value = "l0,l1")]
     class: Vec<String>,
     /// Measured jobs of each class, after two that are not.
@@ -72,7 +65,7 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
     for class in &a.class {
         let l1 = match class.as_str() {
             "l0" => None,
-            "l1" | "l1-egress" | "l1-cred" => Some(L1 {
+            "l1" | "l1-egress" => Some(L1 {
                 workspace: vec![ws.clone()],
                 // `[sandbox]`'s defaults (design §2.12).
                 limits: job::SandboxLimits::default(),
@@ -86,45 +79,22 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
                 },
                 ..Default::default()
             }),
-            other => bail!("--class {other}: l0, l1, l1-egress, or l1-cred"),
+            other => bail!("--class {other}: l0, l1, or l1-egress"),
         };
-        let (mut start, mut total, mut setup) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut start, mut total) = (Vec::new(), Vec::new());
         for i in 0..a.runs + 2 {
-            let mut l1 = l1.clone();
-            // 18d: the socket the daemon serves, and the helper, bound in.
-            let socket = match (class.as_str(), l1.as_mut()) {
-                ("l1-cred", Some(view)) => {
-                    let t0 = Instant::now();
-                    let dir = spool.dir().join("broker").join(format!("{class}-{i}"));
-                    std::fs::create_dir_all(&dir)?;
-                    let listener = std::os::unix::net::UnixListener::bind(dir.join("sock"))?;
-                    setup.push(t0.elapsed().as_secs_f64() * 1e6);
-                    view.binds.push((dir.clone(), "/run/theseus/broker".into()));
-                    view.binds
-                        .push((theseusd.clone(), "/run/theseus/bin/theseus-cred".into()));
-                    Some((dir, listener))
-                }
-                _ => None,
-            };
-            let (s, t) = one(&theseusd, &spool, &ws, &home, l1, &format!("{class}-{i}"))?;
-            if let Some((dir, listener)) = socket {
-                drop(listener);
-                std::fs::remove_dir_all(dir)?;
-            }
+            let (s, t) = one(
+                &theseusd,
+                &spool,
+                &ws,
+                &home,
+                l1.clone(),
+                &format!("{class}-{i}"),
+            )?;
             if i >= 2 {
                 start.extend(s);
                 total.push(t);
-            } else {
-                setup.clear();
             }
-        }
-        setup.sort_by(f64::total_cmp);
-        if !setup.is_empty() {
-            println!(
-                "  {class}: the daemon's side (its directory and listener): p50 {:.0} µs, p95 {:.0} µs",
-                percentile(&setup, 50.0),
-                percentile(&setup, 95.0)
-            );
         }
         start.sort_by(f64::total_cmp);
         total.sort_by(f64::total_cmp);

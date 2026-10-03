@@ -63,9 +63,8 @@ pub struct WrapperArgs {
 /// An L1 job's view and limits (M4 17b; design §2.2): what the wrapper
 /// hands `theseus_sandbox::spawn`. Paths and numbers only, so it rides on
 /// the wrapper's command line (`--sandbox <json>`): the job's environment is
-/// the wrapper's own, and a granted secret is never in it: an L1 job asks for
-/// one while it runs, through its credential socket (18d), whose directory and
-/// helper are `binds`.
+/// the wrapper's own, a granted secret's value in it as at L0 (theseus-w5op),
+/// which reaches the init over its spec's pipe, never a command line.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct L1 {
     /// The workspace roots: read-only, under overlays whose writes go to
@@ -94,12 +93,6 @@ pub struct L1 {
     /// it (`THESEUS_TEST_EGRESS_DNS`); None everywhere else.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub egress_dns: Option<theseus_sandbox::egress::Resolver>,
-    /// Read-only binds at other paths in the view (M4 18d), each `(host
-    /// path, view path)`: the job's credential socket's directory at
-    /// `/run/theseus/broker`, and the helper at `/run/theseus/bin/theseus-cred`.
-    /// Empty for a job with no socket.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub binds: Vec<(PathBuf, PathBuf)>,
 }
 
 /// A job's output file keeps this much unless the config says otherwise

@@ -141,13 +141,13 @@ discord_bot_token = "op://<your vault>/<Discord bot item>/notesPlain"
 brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # web.search's key
 
 # ---------------------------------------------------------------- broker
-# What a job can get, plainly: only a secret you name in this section (a
-# program's grant, or its own broker.secrets entry), nothing else. The AWS
-# keys and the providers' keys are never given to a job: only Theseus's own
-# tools and model calls read them, unless you name one here, which
-# `theseusd check` and health then say aloud (they name the harness-only
-# keys). A job in L1 sends what it holds only to the hosts in the sandbox
-# section's egress list.
+# What a job can get, plainly: only a secret a program's grant in this
+# section names, at its start, nothing else, at L0 and in L1, the sandbox,
+# alike. The AWS keys and the providers' keys are never given to a job: only
+# Theseus's own tools and model calls read them, unless you name one here,
+# which `theseusd check` and health then say aloud (they name the
+# harness-only keys). A job in L1 sends what it holds only to the hosts in
+# the sandbox section's egress list.
 # The secret broker (theseus-dcy): a program a job runs gets a [secrets] value
 # in an environment variable, from the values resolved at startup, so it needs
 # no `op` call and no approval for one. Empty until you add a grant, and a
@@ -180,15 +180,8 @@ brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # w
 # [broker.programs.gh]
 # env = { GH_TOKEN = "github_token" }   # variable = [secrets] name, never a value
 # A secret's posture, notify by default: a call given the secret runs at no
-# looser a posture, so "approve" makes each call that gets it wait for you.
-# A job in L1, the sandbox, gets no grant at its start. It asks for a secret
-# while it runs instead, and `theseus-cred get <name>` prints it, as in a
-# script's GH_TOKEN="$(theseus-cred get github_token)" gh api user. It may ask
-# only for a secret a grant above names, or one with its own entry here, and
-# the answer takes the stricter of this posture and the one the job's call ran
-# at (an L1 call runs at notify, or at approve once you approved it): open
-# gives it, notify gives it and tells you, and approve waits for your answer,
-# until the job's deadline. The value goes to the job alone, never written.
+# looser a posture, so "approve" makes each call that gets it wait for you
+# before its job starts, in L1 too (an L1 call otherwise runs at notify).
 # [broker.secrets.github_token]
 # posture = "notify"
 
@@ -530,10 +523,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # what the floor and the approve lists guard is not in its view. It still
 # waits where you said so about proc.run itself (its line under policy.tools
 # above, or a "should have asked"), and in a session that has read web text,
-# as any call that acts does. No secret reaches an L1 job at its start: it
-# asks while it runs for one the broker section names, and gets no other.
-# When L1 cannot run here, the call fails and says why: it never runs at L0
-# instead.
+# as any call that acts does. A program in L1 gets its broker grant at its
+# start, as at L0, and no other secret. When L1 cannot run here, the call
+# fails and says why: it never runs at L0 instead.
 # Health's sandbox line says what the probe after serving found.
 [sandbox]
 default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)

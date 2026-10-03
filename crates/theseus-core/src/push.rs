@@ -60,10 +60,8 @@ pub fn pending_of(
     confirm_ttl_ms: u64,
 ) -> PendingConfirm {
     let budget = a.tool == BUDGET_TOOL;
-    // A budget question and a held post's hold until answered (M4 19c); an
-    // L1 job's credential request, until its job's deadline (M4 18d).
+    // A budget question and a held post's hold until answered (M4 19c).
     let holds = budget || a.tool == theseus_protocol::HELD_POST_TOOL;
-    let cred = a.tool == theseus_protocol::CRED_TOOL;
     PendingConfirm {
         correlation_id: a.correlation_id.clone(),
         tool: a
@@ -71,16 +69,13 @@ pub fn pending_of(
             .as_ref()
             .map(|p| p.tool.clone())
             .unwrap_or_else(|| a.tool.clone()),
-        reason: match cred {
-            true => crate::cred::reason_of(a),
-            false => decision.map(|d| d.reason.clone()).unwrap_or_default(),
-        },
+        reason: decision.map(|d| d.reason.clone()).unwrap_or_default(),
         floor: decision.is_some_and(|d| d.floor),
         budget,
-        expires_at_ms: match (holds, cred) {
-            (true, _) => 0,
-            (_, true) => a.deadline_at_ms,
-            _ => a.planned_at_ms + confirm_ttl_ms,
+        expires_at_ms: if holds {
+            0
+        } else {
+            a.planned_at_ms + confirm_ttl_ms
         },
     }
 }

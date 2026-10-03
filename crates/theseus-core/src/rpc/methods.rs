@@ -67,7 +67,6 @@ impl Core {
             children: self.children_status(),
             broker: self.tools.broker.status(),
             harness_only: Some(crate::broker::harness_only(&self.cfg, &self.tools.broker)),
-            cred_requests: self.tools.creds.health(),
             cost_usd_total: totals.cost_usd,
             catalog_version: self.catalog.version.clone(),
             bindings: self

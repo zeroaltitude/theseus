@@ -188,17 +188,11 @@ impl ToolRuntime {
             wipe(&mut args);
             return self.not_started(tc, &a, call, tool.name());
         }
-        // An L1 job's credential socket (M4 18d), served from before its
-        // launch until its call settles; an L0 job gets none.
-        let socket = self.serve_creds(&spool, correlation_id, ran_at, &spec.argv, &mut args);
         let launched = self.launcher.launch(&spool, &args);
         wipe(&mut args);
         let pid = match launched {
             Ok(p) => p,
             Err(e) => {
-                if socket {
-                    self.creds.unserve(correlation_id);
-                }
                 return self.settle_job_failure(
                     tc,
                     correlation_id,
