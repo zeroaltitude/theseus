@@ -343,7 +343,11 @@ async fn a_start_from_the_copy_answers_reads_at_once_and_every_acting_method_wai
         .await
         .unwrap();
     let took = t0.elapsed();
-    assert!(took < Duration::from_millis(50), "health took {took:?}");
+    // Health does not wait for the vault: a health that did would wait out the bound. Half
+    // of it is the line, as for every read below, so a loaded machine's slow answer (240 ms
+    // at load 25) passes and a wait does not. The 50 ms budget is the lifecycle bench's, and
+    // it measures it on a quiet machine (theseus-lc4n).
+    assert!(took < wait / 2, "health took {took:?}");
     assert_eq!(h["config"]["state"], "confirming", "{}", h["config"]);
     assert_eq!(h["config"]["started_from"], "copy");
     assert_eq!(h["config"]["source"], "vault");
