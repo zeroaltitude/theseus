@@ -364,9 +364,12 @@ fn store_phase(rig: &Rig) -> Value {
 }
 
 /// A clean stop drops the store, so the index is closed and the next start
-/// repairs nothing: a static that owned the core once kept it open, and every
-/// start paid redb's repair, 4 syncs more than a clean open (theseus-8ni).
-/// After a SIGKILL the next start does repair it, which shows the signal.
+/// replays nothing and repairs nothing: a static that owned the core once
+/// kept it open, and every start paid redb's repair, 4 syncs more than a
+/// clean open (theseus-8ni). After a SIGKILL the next start replays what the
+/// killed run wrote, which shows the signal. (It repairs nothing either: the
+/// run made no durable commit, so redb finds its last close's file,
+/// theseus-ptx1.)
 #[test]
 fn a_clean_stop_closes_the_index_and_the_next_start_repairs_nothing() {
     let rig = Rig::new();
@@ -377,7 +380,8 @@ fn a_clean_stop_closes_the_index_and_the_next_start_repairs_nothing() {
     let mut d = rig.spawn();
     let s = store_phase(&rig);
     assert_eq!(
-        s["index_repaired"], false,
+        (&s["index_repaired"], &s["replayed_into_index"]),
+        (&json!(false), &json!(0)),
         "a clean stop left the index open: {s}"
     );
     let pid = d.id().to_string();
@@ -389,7 +393,10 @@ fn a_clean_stop_closes_the_index_and_the_next_start_repairs_nothing() {
     rig.wait("the kill", || d.try_wait());
     let _d = rig.spawn();
     let s = store_phase(&rig);
-    assert_eq!(s["index_repaired"], true, "a SIGKILL needs a repair: {s}");
+    assert!(
+        s["replayed_into_index"].as_u64().unwrap() > 0,
+        "a SIGKILL leaves its run's rows to replay: {s}"
+    );
 }
 
 /// SIGTERM, which is systemd's stop and `kill`'s default, takes the clean

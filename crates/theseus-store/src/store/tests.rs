@@ -816,6 +816,47 @@ fn a_format_2_store_is_marked_at_its_first_newer_record() {
     );
 }
 
+/// An open takes no checkpoint after a replay (theseus-ptx1): the WAL is
+/// durable, so the start pays no sync for it, and a stop before the next
+/// checkpoint only replays the tail again. The replayed tail counts toward
+/// the next periodic checkpoint, which the writer takes after serving.
+#[test]
+fn a_replay_takes_no_checkpoint_and_counts_toward_the_next() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = open(dir.path());
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &0).unwrap()])
+        .unwrap();
+    s.checkpoint().unwrap();
+    for i in 1..4 {
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &i).unwrap()])
+            .unwrap();
+    }
+    drop(s);
+    for _ in 0..2 {
+        let s = open(dir.path());
+        let st = s.stats().unwrap();
+        assert_eq!(
+            (st.replayed_into_index, st.checkpoint),
+            (3, Some(1)),
+            "the open replays the tail, and moves no checkpoint"
+        );
+    }
+    let s = WalStore::open(dir.path(), WalConfig::default())
+        .unwrap()
+        .with_checkpoint_every(4);
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &4).unwrap()])
+        .unwrap();
+    // The writer checkpoints after answering the batch that crossed the
+    // mark, and before it takes the next.
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &5).unwrap()])
+        .unwrap();
+    assert_eq!(
+        s.stats().unwrap().checkpoint,
+        Some(5),
+        "3 replayed and 1 written"
+    );
+}
+
 /// theseus-8ni: open checks only the WAL after the checkpoint. Corrupt
 /// an old segment's body and make another unreadable: the store still
 /// opens, finds the next position, and cuts a torn tail. Then the
@@ -1303,6 +1344,9 @@ fn an_index_that_is_not_a_database_is_moved_aside_and_rebuilt_from_the_wal() {
             39,
             "{shape}"
         );
+        // A stop's checkpoint keeps the rebuild: the open takes none
+        // (theseus-ptx1).
+        s.checkpoint_for_close().unwrap();
         drop(s);
 
         let s = open(dir.path());

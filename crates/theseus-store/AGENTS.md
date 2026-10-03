@@ -42,6 +42,10 @@ Key modules: `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs`. R
   newer theseusd"). There is no rolling back: keep the newer binary, or restore a copy taken before the upgrade.
 - **The open reads only the WAL's tail**, from the frame after the index's checkpoint. The rest is checked after
   serving by core's `store-verify` thread, and a corrupt frame there is refused and loud.
+- **The open makes nothing durable** (theseus-ptx1): the tables' creation is a non-durable commit, and a replay
+  takes no checkpoint. The WAL is the truth, so a crash before the next checkpoint only replays the tail again; the
+  replayed tail counts toward the next periodic checkpoint, which the writer takes after serving. A start then pays
+  only redb's own sync at its open, and a start after a crash no repair when the run made no durable commit.
 - **A list read skips a refused record** (R4, theseus-15g): `read_many` and `scan` leave out a record whose read is
   refused (a corrupt frame), log it once, and count it in `StoreStats::refused_records`, which health shows. A read
   of that record alone (`get`, `latest_by_key`) is still refused. `repair.rs` takes a frame that does not check
@@ -84,8 +88,9 @@ Key modules: `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs`. R
 
 ## Traps
 
-- **`index_repaired: true` after a clean stop is a bug**: something outlived the runtime while holding the store,
-  and every start then pays redb's repair. Keep statics and detached threads on a `Weak`.
+- **`index_repaired: true`, or a replay, after a clean stop is a bug**: something outlived the runtime while
+  holding the store. Since the open makes nothing durable, a run with no durable commit leaves no repair behind,
+  so the replay is the surer sign. Keep statics and detached threads on a `Weak`.
 - After `theseus shutdown` the daemon holds the store for 10 to 17 ms more (redb's close). Wait for the process to
   exit before you read the store's files.
 - A kill keeps the page cache, so a crash test can't show a missing sync. Test the syncs themselves, as `restore`'s

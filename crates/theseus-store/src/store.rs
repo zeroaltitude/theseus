@@ -858,7 +858,9 @@ impl Inner {
             dir: dir.to_path_buf(),
             replayed: AtomicU64::new(replayed),
             checkpoint_every: AtomicU64::new(1000),
-            since_checkpoint: AtomicU64::new(0),
+            // A replayed tail counts toward the next periodic checkpoint,
+            // which makes it durable, after serving (theseus-ptx1).
+            since_checkpoint: AtomicU64::new(replayed),
             checkpointed: AtomicU64::new(cp),
             durable_to: AtomicU64::new(cp),
             marks: RwLock::new(marks),
@@ -900,6 +902,9 @@ impl Inner {
         let tail: Vec<(RecordKind, u16)> =
             missing.iter().map(|(r, _)| (r.kind, r.schema)).collect();
         store.mark(&tail)?;
+        // No checkpoint here (theseus-ptx1): the replay is the WAL's, which
+        // is durable, and a crash before the next checkpoint only replays it
+        // again.
         if replayed > 0 {
             tracing::info!(
                 replayed,
@@ -907,7 +912,6 @@ impl Inner {
                 last,
                 "store: index rebuilt from WAL"
             );
-            store.checkpoint_as(true)?;
         }
         Ok(store)
     }
