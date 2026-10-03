@@ -38,11 +38,16 @@ export interface ShipData {
   error?: string
   /** The time machine's moment, when the Ship shows the past: the gauges read the fold, not health. */
   past?: World
+  /** The selected vessel's currents come from its newest `read` nodes of `total`, when it has more than that. */
+  reachCap?: { read: number; total: number }
 }
 
 const NONE = new Map<string, number>()
 
 const GLOBAL_N = 2000
+
+/** The nodes of the selected vessel whose reach is read (`node.reach` is one call a node): the newest. */
+export const REACH_N = 160
 
 interface Live {
   nodes: Map<string, NodeInfo>
@@ -58,6 +63,8 @@ interface Live {
   bornSessions: Map<string, number>
   arrivals: number[]
   reach: ReachLink[]
+  /** How many of the selected vessel's nodes the reach read covers, of how many it has. */
+  reachOf: { read: number; total: number } | null
   progress: number
   error?: string
   /** A slow clock (the gold planks of the last hour, a stream gone quiet). */
@@ -66,7 +73,7 @@ interface Live {
 
 const fresh = (): Live => ({
   nodes: new Map(), known: null, born: new Map(), l1: new Set(), running: new Set(), streaming: new Map(), failedAt: new Map(),
-  reports: new Map(), knownSessions: null, bornSessions: new Map(), arrivals: [], reach: [], progress: 0, now: Date.now(),
+  reports: new Map(), knownSessions: null, bornSessions: new Map(), arrivals: [], reach: [], reachOf: null, progress: 0, now: Date.now(),
 })
 
 /** Merge nodes into the store; ids the first read did not have arrived live (their flare). */
@@ -269,10 +276,12 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   // Reach: where the selected vessel's nodes went (node.reach), read while it is selected.
   const loaded = st.known !== null
   useEffect(() => {
-    store.setState({ reach: [] })
+    store.setState({ reach: [], reachOf: null })
     if (!selected || !open || !loaded) return
     let gone = false
-    const mine = [...store.getState().nodes.values()].filter((n) => n.session_id === selected).slice(-160)
+    const all = [...store.getState().nodes.values()].filter((n) => n.session_id === selected)
+    const mine = all.slice(-REACH_N)
+    store.setState({ reachOf: { read: mine.length, total: all.length } })
     ;(async () => {
       const out: ReachLink[] = []
       const queue = [...mine]
@@ -397,7 +406,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   }, [calls, st.now])
 
   return {
-    model, progress: st.progress, health, profiles, tpm: world ? world.gauges.tpm : tpm, arrivals: world ? 0 : st.arrivals.length,
+    model, progress: st.progress, reachCap: !world && st.reachOf && st.reachOf.total > st.reachOf.read ? st.reachOf : undefined, health, profiles, tpm: world ? world.gauges.tpm : tpm, arrivals: world ? 0 : st.arrivals.length,
     synthetic: false, error: st.error, ...(world ? { past: world } : {}),
   }
 }

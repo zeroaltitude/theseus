@@ -211,7 +211,7 @@ function ShipView({ data }: { data: ShipData }) {
         </BrassButton>
       </div>
 
-      {vessel && model && <VesselCard v={vessel} model={model} now={data.past?.t} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); return p }, { replace: true })} />}
+      {vessel && model && <VesselCard v={vessel} model={model} now={data.past?.t} reachCap={data.reachCap} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); return p }, { replace: true })} />}
       {hover && model && <HoverCard hover={hover} model={model} />}
       <Legend />
 
@@ -271,7 +271,7 @@ function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel |
   )
 }
 
-function VesselCard({ v, model, onClose, now }: { v: Vessel; model: ShipModel; onClose: () => void; now?: number }) {
+function VesselCard({ v, model, onClose, now, reachCap }: { v: Vessel; model: ShipModel; onClose: () => void; now?: number; reachCap?: ShipData['reachCap'] }) {
   const lights = useMemo(() => model.lights.filter((l) => l.sessionId === v.id), [model, v.id])
   const kinds = { user: 0, model: 0, call: 0, result: 0 } as Record<Light['kind'], number>
   for (const l of lights) kinds[l.kind]++
@@ -300,6 +300,7 @@ function VesselCard({ v, model, onClose, now }: { v: Vessel; model: ShipModel; o
         {!!v.pendingConfirms && <><dt className="text-ink-faint">waiting</dt><dd className="text-wait">{v.pendingConfirms} approval{v.pendingConfirms === 1 ? '' : 's'} for you</dd></>}
         {parent && <><dt className="text-ink-faint">in tow of</dt><dd className="truncate text-ink">{parent.title}</dd></>}
         {!!tasks.length && <><dt className="text-ink-faint">towing</dt><dd className="text-ink">{tasks.length} task{tasks.length === 1 ? '' : 's'}</dd></>}
+        {reachCap && <><dt className="text-ink-faint">currents</dt><dd className="text-wait" title="node.reach is one call a node, so the currents between vessels are read for this vessel's newest nodes only">for the newest {reachCap.read} of {reachCap.total} nodes</dd></>}
         <dt className="text-ink-faint">id</dt><dd className="text-ink-dim">{short(v.id)}</dd>
       </dl>
       <div className="mt-2.5 flex flex-wrap gap-1.5">
