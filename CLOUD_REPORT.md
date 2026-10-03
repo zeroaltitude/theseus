@@ -83,7 +83,7 @@ are the least certain ones I wrote. The state sizes are 93 to 380 tokens by esti
 
 ## How I proved it
 
-- `cargo test -p theseus-judge --features probe`: 90 tests pass (79 before this change, plus the new ones).
+- `cargo test -p theseus-judge --features probe`: 90 tests pass (the crate had no count recorded before; I did not run the old suite).
   5 runs under nextest: 90/90 each time.
 - Wire against the fake: `eval::tests::the_set_runs_over_the_wire_and_the_checks_read_the_answers` sends all 17
   cases through `JevJudge` and the fake twice, scripted to agree (every expectation met) and to disagree (every
