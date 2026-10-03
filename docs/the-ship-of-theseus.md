@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.76
+# The Ship of Theseus — v0.77
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -20,7 +20,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 
 | Topic | Decision |
 |---|---|
-| Language, artifact | Rust. One statically linked binary per target. No dynamic linking, no sidecars; helper processes are the same binary launched with a role flag. _As built (2026-10-02; §3.18): CI builds static musl binaries, and the install builds for the host's glibc, so the installed binaries are dynamically linked. Lane bench2's reproducible builds (theseus-goa8) may settle which the install uses._ |
+| Language, artifact | Rust. One statically linked binary per target. No dynamic linking, no sidecars; helper processes are the same binary launched with a role flag. _As built (2026-10-02; §3.18): CI builds static musl binaries, and the install builds for the host's glibc, so the installed binaries are dynamically linked. ~~Lane bench2's reproducible builds (theseus-goa8) may settle which the install uses.~~ Settled by measuring both (theseus-goa8, Part III Item 48): musl uses 16 to 25 % less memory and stops and starts 20 to 40 % quicker, but its allocator costs allocation-heavy work 36 % more user CPU, so the install stays glibc, built as `release-thin` by `scripts/build.sh`. Two builds of one commit are byte-identical._ |
 | Licence | Open source, **dual-licensed MIT OR Apache-2.0** in the Rust convention (decided 2026-09-25): Apache's patent grant and contribution clause for those who want them, MIT's brevity for those who do not. Permissive-only dependencies enforced by `cargo deny` from the first commit. No AGPL (rules out linking Vestige). _As built (Review 2's consideration 5, 2026-10-01; Part III Item 44): MPL-2.0 is off `deny.toml`'s general list, and `shellexpand`, which brought it in through `option-ext`, is replaced by a few lines that expand `~` and `$NAME`. The seven MPL-2.0 crates that the voice engine's songbird brings (symphonia's four, hpke-rs's three) are allowed by name, pending Eddie's decision (theseus-yl5w)._ |
 | Comms | Discord only, text and voice. One Discord application invited to many guilds. |
 | Model path | Direct Anthropic Messages API. Bedrock is a possible later provider, not the default. |
@@ -44,7 +44,7 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | Recompilation | A session's compiled context is **appended to by default** and **recompiled only on need**. Deterministic triggers (audience, policy, schema, window) force it; otherwise Jev judges whether a real-world change warrants it. Long single threads therefore evolve exactly like a plain transcript, and cache their prefix. (Eddie, 2026-09-25.) |
 | Repository | `~/projects/theseus`, `github.com/zeroaltitude/theseus`. Its root `AGENTS.md`, which `CLAUDE.md` imports, is the guide for any agent that programs it, with a guide in each directory that has rules of its own (theseus-7gkd; Part III Item 40). |
 | Turn lock | Per execution, exactly one turn advances at a time (the "GIL"). The lock is held only during local work and released at every offload boundary; the freed time is spent on durability, indexing, and maintenance. |
-| Shell default | L0 **and** L1 both ship in the first useful agent. L0 is the early operator default, explicitly subject to change once L1 has real mileage. |
+| Shell default | L0 **and** L1 both ship in the first useful agent. L0 is the early operator default, explicitly subject to change once L1 has real mileage. _As built (2026-10-02, step 17b; Part III Item 58): `proc.run` runs in L1 when the model asks (`sandbox: true`), or when `[sandbox] l1_argv` or `default = "l1"` says so, and the default stays `l0`. An L1 job runs at `notify` unless the operator's own `[policy.tools]` line for `proc.run`, or a "should have asked", asks for approval (Eddie, 2026-10-02 at 09:39 and 16:03; Item 59)._ |
 | Control-plane separation | Running the runtime and its storage under a separate OS identity from L0 jobs is an option, **strongly recommended** in the documentation and the installer, not a default. |
 | Agents | One agent, many roles. No multi-agent, no inter-agent conversations. |
 | Conversations | A conversation is the subset of the node graph that happened on a particular channel, in temporal order. Nothing more: it is a derived view, not a stored object, and it never ends because a channel never stops accumulating nodes. Many participants. Each **execution** (§3.15) acts in exactly one channel at a time; many executions run concurrently across channels. |
@@ -150,7 +150,7 @@ Consequences:
 
 The runtime object behind a channel is a `tokio` actor with a mailbox and a few kilobytes of hot state. Parked, it costs no CPU and no thread. Turns are serialized per channel; messages arriving mid-turn are coalesced into the next context build **with each message's author preserved**, so authority never blurs across a coalesced batch. Under LOOP FOREVER, an inbound message during autonomous work is a nudge, not an interrupt, unless it is a deterministic control (`/stop`, `/cancel`, revocation) or Jev judges it a new ask.
 
-**Delivery** (theseus-q4v; built 2026-09-30). What must reach a channel is written when it becomes true, whether or not anything can deliver it: a turn's reply, a confirm card and how its question closed, a notice the operator must see, and a task's report. Each is an outbox post (§3.16), addressed to the channel its session reports into. The binding only delivers: it sends a channel's posts in order and once, and records the message ids in each post's completion. Live progress is not a post. Typing, and the edits of a reply while its turn runs, are the binding's alone: best-effort, never replayed, and only a message's latest state is ever sent. Nothing waits for a binding to start. A binding that was away sends what waited when it is back, before anything live. A card keeps its turn's order (theseus-50p; Part III Item 35). A call that asks has its card written at once, while its tool line is live progress, so a card written while the binding runs waits, at most 5 s, until its place has shown the call. A channel reads the turn's text, then the call, then its card.
+**Delivery** (theseus-q4v; built 2026-09-30). What must reach a channel is written when it becomes true, whether or not anything can deliver it: a turn's reply, a confirm card and how its question closed, a notice the operator must see, and a task's report. Each is an outbox post (§3.16), addressed to the channel its session reports into. The binding only delivers: it sends a channel's posts in order and once, and records the message ids in each post's completion. Live progress is not a post. Typing, and the edits of a reply while its turn runs, are the binding's alone: best-effort, never replayed, and only a message's latest state is ever sent. Nothing waits for a binding to start. A binding that was away sends what waited when it is back, before anything live. A card keeps its turn's order (theseus-50p; Part III Item 35). A call that asks has its card written at once, while its tool line is live progress, so a card written while the binding runs waits, at most 5 s, until its place has shown the call. A channel reads the turn's text, then the call, then its card. An operator's notice goes to the DM approvals go to, else to the place of the session it concerns, but only to a place this daemon's bindings file names; otherwise it is refused with the reason, and nothing is posted or opened elsewhere (theseus-c3e; built 2026-10-02, Part III Item 55).
 
 Humans are `Person` nodes keyed by Discord user id with their own memory namespace that follows them across every guild and channel.
 
@@ -217,6 +217,7 @@ JUDGE_CONTINUE: HEALTHY   → CALL_MODEL
 - **Execution outcomes** are distinct and deterministic where they can be: `complete` (accepted objective satisfied: Jev `complete` ≥ τ and the execution's task scope has no open accepted tasks), `waiting` (no runnable work now; a wake condition exists, e.g. a due time, an external job id, a task blocked on another execution), `blocked` (progress needs a human), `cancelled` (authority or intent withdrawn via a deterministic control path, never via Jev), `failed` (recovery exhausted), `budget_exhausted` (reservation consumed; correct operation). LOOP FOREVER means: continue while authorized, runnable work exists within reserved resources.
 - **Jev unavailable or malformed:** the loop treats the judgment as `abstain`; the execution finishes its current tool call, then parks as `waiting` on Jev recovery with a bounded retry, and tells the channel. It never continues autonomously without a judge and never invents an answer.
 - **Wake** covers scheduled and self-scheduled continuation: the agent may ask to be woken ("check the build in twenty minutes"), which is a `Task` with a due time in the harness loop's wake queue, not a separate cron system. _(Built 2026-09-30, theseus-cff (DD8): the self-scheduled wake is `wake.at { at | after, note }`, one-shot, into the current session. It is not a `Task`: a pending wake is a field of the session's execution, and at its time the session gets a continuation turn whose input is the note (§3.15).)_ Running work is also a wake source: every shell job and external operation registers a completion event, so "the build finished" reaches the model loop as a turn, not as something a human has to notice and relay.
+- **A turn has one exit** (Review 2's R1, theseus-xonq; built 2026-10-02, Part III Item 53). Every way a turn ends after it begins closes its books: the session's turns, usage, cost, and tool calls, and one accounting row (`turn.ended`, or `turn.failed`). A failure the turn reports and a fault it doesn't (a frame the store wouldn't write, a read that failed) end the same way: a fault is class `internal`, logged, and its error carries what the turn's loops spent. A provider call that answered, whose answer's frame then failed, still settles its spend at its price, so the budget holds nothing for a call that has ended.
 
 ### 3.3a Loop, turn, and the Advancer
 
@@ -338,7 +339,7 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
 **The operator's lists** are stated will, not inference.
 - `allow_argv` names commands that `proc.run` runs without asking, when every path argument is inside the workspace roots.
 - `approve_argv` names commands, and `[tools].approve_paths` names paths, that wait for approval.
-- A path outside the workspace roots waits for approval too. The workspace itself is configuration (`[tools].projects_dir`, plus any more `roots`); nothing assumes where an operator keeps projects.
+- ~~A path outside the workspace roots waits for approval too.~~ A read outside the workspace roots, or a program run in a directory outside them, waits for approval too. A write outside them takes its tool's posture, whichever tool makes it (Eddie, 2026-09-30; theseus-ewi, built 2026-10-02, Part III Item 55): a `proc.run` script writes anywhere at its posture, and the gate never guesses what a command does, so the roots don't guard writes; the approve list, the floor, and the posture do. The workspace itself is configuration (`[tools].projects_dir`, plus any more `roots`); nothing assumes where an operator keeps projects.
 - A tool that reads more than the path it names reads only under the root that holds that path (theseus-bsc). `git.diff` and `git.log` find their repository from the path, and it may be larger than the root: a root inside a monorepo, or a stray repository (a `~/.git`) above a root that has none. Then both are limited to the root's part, as a pathspec, and the result's first line says `limited to <root>, inside the repository at <working tree>`. A repository whose working tree is set elsewhere (`core.worktree`) is refused. Every path the diff reads is checked first, in the working tree and in history: it must be under the root and not on the floor, or it is skipped unread and counted (`2 paths outside the roots not shown`). A path outside every root runs only once approved, and is then its own root: what was approved is what is read.
 
 **Private addresses** (theseus-yd6; built 2026-09-30).
@@ -356,9 +357,11 @@ The built-in default is `open`, and the template sets `notify`. The gate has no 
 
 **Order.** The first match wins:
 1. the floor;
-2. the approve lists, a path outside the roots, and a URL whose host is a private address;
+2. the approve lists, a path outside the roots (since theseus-ewi, a read or a working directory there; a write takes the tool's posture), and a URL whose host is a private address;
 3. the allow list;
-4. the tool's posture.
+4. the tool's posture: `[policy.tools]`, then for an MCP tool `[policy.mcp]` `"server/tool"` and `"server"`, for an AWS call `[policy.aws]` `"service:Operation"`, `"service"`, and its class (§3.25; Part III Item 49), then `[policy].enforcement`.
+
+_An L1 call skips the order: the floor and the approve lists guard what its view hides, and it runs at `notify` (§7; step 17b, Part III Item 58). Only the tool's own `[policy.tools]` line and a tightening still reach it, the stricter winning, so an explicit `approve` or a "should have asked" makes it wait, still in L1. A looser line never makes it quieter than `notify`, and the inherited `enforcement` never makes it wait (Eddie, 2026-10-02 at 16:03; theseus-jfs6, Item 59)._
 
 **A granted secret's posture** (theseus-dcy; built 2026-09-30). Each secret the broker hands out (§3.19) carries a posture: `[broker.secrets.<name>] posture`, `notify` by default. A call that the broker gives a secret runs at no looser a posture than that secret's. After the order above, the stricter wins, as a tightening does:
 - an `allow_argv` call that gets a `notify` secret is notified;
@@ -435,6 +438,7 @@ The call's tool line and its notice say what it was given ("gh got GH_TOKEN"). A
   - With no trusted DM, the place gets only the note, which says where to answer.
   - A card names only the trusted local surfaces as other places to answer.
 - **A card names who can answer it** (theseus-9j9; built 2026-10-01, Part III A4 Item 15). A card is the one message that waits on a human, so in a guild channel it starts by mentioning the users who can answer it there: the place's `users`, and under `[approval]`, only the trusted ones among them. Its `allowed_mentions.users` is exactly them, so Discord notifies them and nobody else. A card in a DM, or routed to one, names no one. Every other message (a reply, a tool line, a notice, a narration) is sent with empty `allowed_mentions`, so its text can say `<@id>` and still notify nobody.
+- **A question expires** (theseus-830; built 2026-10-02, Part III Item 55). A call's question that nobody answers expires at the time its card gives (`[kernel] confirm_ttl_secs` after it was asked, 15 minutes by default), within a driver tick: it is declined by `expiry` in one frame with its `action.expired` row and its execution's wake, its clients hear `confirm.resolved` with `expired`, its card settles "⌛ Expired", and the model reads "Not run: nobody answered within 15 minutes, so the request expired." A budget question holds until it is answered.
 - **Without an `[approval]` section there is no rule**: the CLI, the local web UI, and a place's listed Discord users answer, as before. Once the section exists, `channels` defaults to the CLI and the web UI, and `trusted_users` to nobody.
 - Health, `theseus health`, and the Observatory list the trusted users and each listed channel's state (trusted, or not trusted and why).
 - The approver must also hold the capability (confirmation is not authorization, below). _Not built: until roles and delegation land (M4), every execution's principal is the operator, and a trusted user answers with the operator's authority._
@@ -522,8 +526,9 @@ Budgets are a first-class notion: a `Budget` is a named ceiling with a unit (mon
   - A decline keeps the session waiting, and new input asks again. The operator can also cancel the session or start a new one.
   - A reset is the only way spend goes down, and an execution has one open question at a time.
   - *A call bigger than the whole limit* (theseus-kks, built by Theseus itself, Part III A4 Item 14). No reset can make it fit, so its question says so: "…which alone reserves $1.29: more than its whole $1 limit, so resetting its spend to $0 cannot make it fit". It names both remedies: raise `spend_limit_usd`, or lower the profile's `max_output_tokens` (with its value). An approval resets the spend and tries the call once more. If it still does not fit, the turn fails with the class `over_limit` (not transient), a `budget.over_limit` row, and a notice that names the remedies. It does not ask again. The question's proposal keeps the call's profile, model, and cap as `args.call`, and `budget.asked` says `exceeds_limit`.
+  - *A reset leaves held what it can't free* (theseus-6g6; built 2026-10-02, Part III Item 54): money reserved for calls in flight, and money held for calls whose cost is unknown. A call that needs more than the limit less both can't be answered by a question: the question says so, with the held amount and the remedies (raise the limit, lower the cap); an approval tries the call once more; when it still doesn't fit, the turn fails (`over_limit`) and doesn't ask again. `budget.asked` gains `fits_after_reset`, `reserved_usd`, and `held_unknown_usd`, and `budget.over_limit` gains `held_usd`.
 - **No control reserve.** Nothing at the limit ends work or refuses a cancel, so nothing needs holding back for cleanup.
-- **Unit budgets are retired.** `[kernel] default_budget` and `control_reserve` still load, are ignored, and warn. A versioned reader serves executions stored with unit budgets: each gets the configured limit, its spend comes from its session's recorded `cost_usd`, and the unit figures are kept as `units_before`. Startup rewrites each one once, with a `budget.migrated` row. An execution that already ended `budget_exhausted` stays ended.
+- **Unit budgets are retired.** `[kernel] default_budget` and `control_reserve` still load, are ignored, and warn. A versioned reader serves executions stored with unit budgets: each gets the configured limit, its spend comes from its session's recorded `cost_usd`, and the unit figures are kept as `units_before`. Startup rewrites each one once, with a `budget.migrated` row. ~~An execution that already ended `budget_exhausted` stays ended.~~ An execution the unit budget ended (`budget_exhausted`) whose dollar spend is under its limit reopens at the next start, waiting on input, as if the operator had reset it (Eddie, 2026-10-01 at 19:54, option (a); theseus-3ebd, Part III Item 53). Dollars end nothing, so only such an execution can be `budget_exhausted`; one at or over its dollar limit stays ended. Step 2 reads them by their state term, and the reopen is ledgered as `budget.reopened`, with the spend, the limit, and the old reason, in step 2's one migration frame, once.
 - **An open session follows the config's limit** (Eddie, 2026-09-29, 09:21; theseus-3pj, 430d291). A session's limit is what `[kernel] spend_limit_usd` says now, not what it said when the session opened. Since a changed config note restarts the daemon onto it (§3.19), "I changed the limit and restarted" means what it says, for the long-lived Discord place too.
   - *When.* Once, at the moment the config becomes the vault's word. For a config that may act at once (a file, or a vault read before serving), that is in startup. For a start served from the copy, it is on the vault's confirmation, before anything may act. So nothing acts on an old limit once the vault has confirmed a new one, and startup under a copy writes no limit the copy decided.
   - *What.* Each open execution whose limit is the config's takes the new limit, all in one frame, with a `budget.limit_changed` row (from, to, the spend, and what is left). Spend, reservations, held amounts, and resets are untouched. So spend still goes down only through an approved reset, and the lifetime cost never goes down.
@@ -537,9 +542,9 @@ Budgets are a first-class notion: a `Budget` is a named ceiling with a unit (mon
 ### 3.14 Web UI
 
 Embedded in the binary, served on the node, authenticated by Discord OAuth against the operator role table. **First form (M0.5):** a Vite + React app embedded in `theseusd` and served on `127.0.0.1:7433`, loopback only, and answering only its own page and address: every route refuses a request whose `Host` does not name the UI, and `/ws` refuses a foreign or missing `Origin`, the defense against DNS rebinding and other pages in the browser (theseus-70f). It serves only its own user (theseus-3qf).
-- A connection whose client socket another uid owns (its row in `/proc/net/tcp` or `tcp6`, IPv4-mapped forms included) is refused with a 403 as it is accepted, before any request is read. So is one whose owner can't be read.
+- A connection whose client socket another uid owns (its row in `/proc/net/tcp` or `tcp6`, IPv4-mapped forms included) is refused with a 403 as it is accepted, before any request is read. So is one whose owner can't be read. _(Since theseus-u6xg, Part III Item 46: the owner is read with one `sock_diag` request, about 12 µs, where reading the table took about 2 ms; the tables stay as the fallback.)_
 - A client that closed first is dropped uncounted. A platform with no such table (not Linux) is served unchecked, and health says so.
-- The three kinds of refusal are counted in health's `web` section and ledgered as `web.refused` (`host`, `origin`, and `peer` with the client's uid), at most once a minute per kind.
+- The three kinds of refusal are counted in health's `web` section and ledgered as `web.refused` (`host`, `origin`, and `peer` with the client's uid), at most once a minute per kind. A clean stop writes what a kind's minute still holds, in one frame, before its last checkpoint (theseus-sqpx; Part III Item 55).
 - For UI development, `[web] dev_origin` (off by default) names the dev page (theseus-zab). While it's set, `/ws` serves that one origin too, counted and ledgered (`web.dev_origin`), and every other route still answers only the UI's own address. The dev page connects straight to the daemon's `/ws`, with no proxy. A proxy, whether or not it rewrites `Origin`, would relay other pages and other users' processes from the operator's own socket (theseus-88im). Set it only while developing.
 
 Still no auth. The browser is a protocol client over a WebSocket where each text frame is one JSON-RPC line, so it has no privileged path into the kernel. It shows the prompt, the streamed reply, tokens in and out per exchange and per session, totals, timing, the classified error when a turn fails, and the notification stream behind each turn, where thinking and tool calls will render later. Purpose: immediate and local observability. Conversation snooping (live view of any conversation's transcript, assembled context manifest, and loop state), the ledger stream with RL feedback controls, category and role management with scoring nudges, binding and policy editing with audit trail, tender health, arena occupancy, and budget burn. Historical search is CloudWatch: the ledger, bus events, and structured logs ship there through the durability tender when AWS is configured.
@@ -612,12 +617,12 @@ Rules: one execution per session, one turn at a time per execution; an execution
 
 **Pending wakes** (theseus-cff; built 2026-09-30). A conversation asks for a turn at a time with `wake.at { at | after, note }`. The wake goes on a list on the execution (`wakes`), beside its one `wake`, which keeps saying what the last turn parked on. One field cannot say both: a conversation waits on its next input and on its due times at once, and one that waits on its own job must still be woken ("check the build in ten minutes" while the build runs).
 - **Firing.** A wake fires once it is due and its execution is free: waiting on input, a due time, a job, or another execution, where new input would start a turn too. It never fires over an approval or a budget question, since only the operator answers those. The due scan runs on the driver's half-second tick, and in the heartbeat's reconciler as a backstop, and queues the execution for the driver (`resume_pending`). A busy execution keeps its wakes, and the frame that ends its turn queues it again.
-- **Once.** The next turn takes every due wake in one frame, which removes them and writes each as a user-role node from the harness (`⏰ wake (set 13:05): <note>`), before any new input. A crash before that frame leaves them pending, and a crash after it leaves them taken. A wake's id comes from the call that set it, so a call run again after a restart finds its wake.
+- **Once.** The next turn takes every due wake in one frame, which removes them and writes each as a user-role node from the harness (`⏰ wake (set 13:05): <note>`), before any new input. A crash before that frame leaves them pending, and a crash after it leaves them taken. A wake's id comes from the call that set it, so a call run again after a restart finds its wake. A wake's or a report's reply is framed from the nodes the session hasn't answered, and goes where the take kept the target (a META record written in the taking frame), so the retry of a turn that failed before its reply answers as the first would have (theseus-4lx; Part III Item 54).
 - **Late.** Startup writes nothing for a due wake: the driver's first tick queues it, after serving and after the vault confirms the config. A wake that runs more than 5 s late says when it was due and how late, and, when it fell due before this process started, that the daemon was not running. The ledger's `wake.fired` row always carries `late_ms` and `while_down`.
 - **Bounds.** At most 5 per session, 1 s to 30 days ahead, and notes up to 2,000 characters. A task cannot set one. A cancel of the execution, or its end, drops its wakes; a stop keeps them (W1). A wake's turn is an ordinary turn, with the session's authority, budget, and model. Its reply goes where the session posts, or, if the place has moved on to a new session, to where the wake was set.
 
 **Stopping** (theseus-lji; built 2026-09-30). `/stop` halts a conversation's work and keeps the conversation (`execution.stop`, `Kernel::stop_execution`). It is not a cancel, which is terminal.
-- **What stops.** Running jobs and tool calls are told to stop, and their backends terminated, as for a cancel. Planned calls, approvals, and the budget question are declined, so nothing the work asked for runs later. A turn running then gets a stop mark: its next step is refused, it runs none of its answer's calls, and it posts no reply and no failure notice. Its model call, if one is in flight, runs to its end, and its cost is booked.
+- **What stops.** Running jobs and tool calls are told to stop, and their backends terminated, as for a cancel. Planned calls, approvals, and the budget question are declined, so nothing the work asked for runs later. A turn running then gets a stop mark: its next step is refused, it runs none of its answer's calls, and it posts no reply and no failure notice. ~~Its model call, if one is in flight, runs to its end, and its cost is booked.~~ Its model call, if one is in flight, is cut: the turn writes no answer and plans no call, and the call settles as failed at an estimate of what it used (the input its reservation assumed, and three characters of streamed text to an output token, thinking included), never held unknown, with a `provider.cut` row (theseus-yey; built 2026-10-02, Part III Item 54). A stop that lands after the stream ended keeps the answer and runs none of its calls. The turn of an input sent before the stop and not yet admitted (it waited for its secrets, or for admission) is stopped too, as it starts, and plans nothing (theseus-hmwv; Part III Item 55).
 - **What stays.** The execution waits on its next input, and the next message continues the same session and execution. Its history, budget and spend, pending wakes, and tasks are kept, and `/cancel <id>` stops a task or cancels a wake. A stopped job's result reaches the next turn as a late result, `[cancelled: stopped by <who>]`.
 - **How it reads.** A call the stop ended, running or waiting, reads as a stop on every surface:
   - `⏹️ <call> · stopped by <who>` on its Discord tool line and notice card;
@@ -642,6 +647,8 @@ terminated, as for a stop. Everything it planned and never sent ends in the canc
 So nothing of a cancelled execution counts as waiting: not in the session list, the history, or `confirm.list`. A
 turn that ends its execution (complete, failed) ends what it left unsent in the same way. A turn that planned a call
 the cancel ended hears the cancel at its next step, as before.
+
+**A cancel answers every call it ends** (theseus-0o8, theseus-ni5; built 2026-10-02, Part III Item 54). A cancelled execution takes no more turns, so the core writes what its calls left unanswered: a call never sent reads as not run; a stopped job keeps its output so far; a call that can't be stopped, or whose end wasn't verified, is unknown, never "not run"; a background job's placeholder gets its end as a late result. It runs once no turn holds the execution: in the cancel's handler, and at the end of the turn that held it. A call that finishes after the cancel settled it keeps its real result in the transcript, and the action keeps the late completion. A call planned before a restart and never asked is declined, and answered "not run", in the continuation.
 
 **What needs the operator** (theseus-in3; built 2026-10-01, Part III Item 33). Every surface shows an execution the same way: one pure function in `theseus-protocol`, `attention()`, maps its view to a level and a label, and the server puts the result on the wire, on `execution.changed`, on `executions.watch`'s snapshot, and on `session.list`, `execution.list`, and `task.list`.
 - **The view** (`ExecutionView`): its state; what it waits on (the kernel's wake, typed, with a fallback for a wake a client does not know); its questions in brief (the tool, the gate's reason, the floor, and whether it is a budget question); its turns and its dispatched calls; its spend and limit; why it ended, or why its frame queued it; its soonest pending wake; its parent session; and the WAL position of the frame it comes from.
@@ -724,6 +731,7 @@ Native in-process calls of one response that only read run concurrently (§4.6).
 - An exec restart keeps the pid and every child. The new image sets the subreaper flag again and learns its
   children: a live child whose command line is a wrapper's is that job's wrapper, and any other is an
   orphan.
+- **A wrapper's output stays while the wrapper lives** (theseus-5wgd; Part III Item 54). A wrapper is alive while its pid file, or, once its command has exited and a process it started holds the output open, its lingering marker, names a live wrapper; the spool never removes a job's output under it.
 - Health's `children` counts the wrappers running and lingering, the orphans adopted, and the zombies, which
   are 0 in steady state.
 - **A job's output is copied, and capped** (theseus-102; both ends since theseus-gsn9, Part III Item 34). The
@@ -831,6 +839,7 @@ _(Amended 2026-10-01, theseus-in3, Part III Item 33: the push.)_
   row. `execution.changed` needs no row of its own, since each comes from a frame that carries its rows.
 - The CLI has `theseus watch --all`, `theseus wait` (exit 4 when it times out), and `theseus executions
   explain`.
+- `session.watch` seeds the push as `executions.watch` does, lazily, after serving (theseus-tq04; built 2026-10-02, Part III Item 54), so a watcher on a daemon nothing else watches gets `execution.changed`.
 
 _(Amended 2026-10-01, theseus-n4m, Part III Item 38: reach.)_
 - `node.reach { node_id, max_generations? }` (3 generations by default, at most 16) says where a node went:
@@ -852,7 +861,9 @@ registry, `theseus_protocol::LedgerKind`. A row carries its kind's name on the w
 the store, so a client reads old and unknown kinds by name, and `ledger.tail`'s `kind` filter takes either name
 of a renamed kind.
 
-**Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect, 4 a wait that timed out). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. ~~Both are static musl binaries.~~ _(Corrected 2026-10-02, Part III Item 36: that held only for CI's artifacts. CI builds `theseusd`, `theseus`, and `theseus-tui` as static musl binaries. The install recipe builds them from `target/release` for the host's glibc, so the installed binaries are dynamically linked. Lane bench2's reproducible builds (theseus-goa8) may settle which build the install uses.)_
+_(Amended 2026-10-02, theseus-u55z, Part III Item 50: the index and the children.)_ Health's `children` lists the long-lived children the daemon supervises (`tenders`): each one's state (`pending`, `running`, `backoff`, `absent`, `stopped`), pid, restarts, last exit, and next wait. Health's `index` is the tender's own `index.status` (its state `starting`, `backfilling`, `ready`, or `stalled`; `hybrid` or `bm25_only`; nodes and chunks; the cursor's lag behind the WAL in bytes and ms; the vectors; its memory; the last error), or `off`, or `starting` (the 2 s after serving, before a tender runs), or `down` and why. Health asks only a tender its supervisor runs, so no start's first answer waits on its socket, and asks it under 100 ms; past that, it shows the tender's last answer and its age. Two protocol methods, both reads: `index.status` (asked under 2 s) and `index.query` (forwarded as it came, under 10 s and its own `wait_ms`). The CLI has `theseus index status` and `theseus index search`, and `theseus health` prints an `index:` line.
+
+**Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect, 4 a wait that timed out). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. ~~Both are static musl binaries.~~ _(Corrected 2026-10-02, Part III Item 36: that held only for CI's artifacts. CI builds `theseusd`, `theseus`, and `theseus-tui` as static musl binaries. The install recipe builds them from `target/release` for the host's glibc, so the installed binaries are dynamically linked. ~~Lane bench2's reproducible builds (theseus-goa8) may settle which build the install uses.~~ Settled by measuring both (theseus-goa8, Part III Item 48): CI builds the static musl binaries on every push, as the portable artifact, and an install is the host's glibc build of the same commit, `scripts/build.sh --profile release-thin`. musl's resident memory is 16 to 25 % lower, and its stops, restarts, and swaps are 20 to 40 % quicker, but its allocator costs allocation-heavy work 36 % more user CPU and 3 to 5 times the system time. So the install keeps glibc, which the gate and the live checks run, until a musl build with a better allocator closes the gap (theseus-w6hg) and a musl run is part of the tests (theseus-3yu1). Both reproduce byte for byte from a commit.)_
 
 _(Amended 2026-10-01, theseus-7yx, Part III Item 36: the client library.)_ The CLI's package also builds a library, `theseus_client`, which the CLI and the terminal UI share. `client` is the connection: a socket, or a spawned `theseusd --stdio`, with its requests, answers, and the notifications between them. It prints nothing and knows no command line, and a `next` dropped mid-line loses nothing, so a client's `select!` may race it. `render` is what a terminal shows of the daemon's answers and events, as lines, each a text with a style tag: the CLI prints the text, and the TUI styles it by its tag. The library links only `theseus-protocol`, so the TUI can't cheat either.
 
@@ -864,7 +875,8 @@ _(Amended 2026-10-01, theseus-l1l, Part III Item 42: herdr.)_ herdr, a terminal 
   shows `done` until it is seen). It reports only a change, with a `seq` from the clock, and releases the pane
   on every way out.
 - `theseus watch --interactive` asks each question waiting, `approve? [y/N/t/note]`, and sends any other line
-  to the session as a message. Its answers come from the `cli` channel.
+  to the session as a message, on the profile the session's last turn ran on (theseus-nu3z; Part III Item 54).
+  Its answers come from the `cli` channel.
 - `theseus herdr sync` gives each session that needs you or is working, and each one pinned, a pane in herdr's
   `theseus` workspace running that watch. theseusd holds the truth, so a sync with nothing missing only reads.
   It types only at a shell's prompt, sweeps a dead watch's state, and closes a finished session's pane only
@@ -877,7 +889,7 @@ _(Amended 2026-10-01, theseus-l1l, Part III Item 42: herdr.)_ herdr, a terminal 
 
 Opinionated, and simple. **Every secret lives in 1Password**, in the deployment's vault, and Theseus reads it at startup through a **service account**. The only secret the process may receive by any other path is the service-account token itself, from the environment or from a mode-0600 file whose path is configured.
 
-- **Config** is a TOML document stored as a 1Password item (`theseus/config`) so the whole deployment is reconstructible from the vault. It may also be a local file for development; the schema is identical. Secret-valued fields are `op://vault/item/field` references, never values.
+- **Config** is a TOML document stored as a 1Password item (`theseus/config`) so the whole deployment is reconstructible from the vault. It may also be a local file for development; the schema is identical. Secret-valued fields are `op://vault/item/field` references, never values. _(Since theseus-8d1b, built 2026-10-02, Part III Item 55: `--config` or `THESEUS_CONFIG` names the config, a file or an `op://` reference, and with neither it is the local file `~/.theseus/theseus.toml`. Until then the built-in default named the operator's own note.)_
   - **The last-known-good copy** (theseus-2fo).
     - After every read of the vault's note that loads, the daemon keeps the note's exact text as
       `<state dir>/config.last-good.toml`: mode 0600, under a first line naming the reference it came from.
@@ -948,8 +960,21 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
       an alias, `-c`, `--exec-path`, an option that names a program (`--upload-pack`, `--receive-pack`,
       `--exec`, `--template`, `clone -c`), or a URL that git hands to a helper program.
     - The call still runs, without the variable, and its result says why.
-    - The repository's hooks and the programs its config names still get the variable. At L0 a job that can
-      write them can also read the process's environment, and L1 (M4) is the boundary (theseus-ur1t).
+    - ~~The repository's hooks and the programs its config names still get the variable. At L0 a job that can
+      write them can also read the process's environment, and L1 (M4) is the boundary (theseus-ur1t).~~
+      **A granted git runs no hooks** (theseus-ur1t; built 2026-10-02, Part III Item 55). A job given a secret
+      by a grant to git or gh runs git with `core.hooksPath` and `core.fsmonitor` pinned off, so neither a
+      cloned project's hooks nor its fsmonitor program sees the variable; the operator's own hooks don't run
+      for it either. A credential helper or `core.sshCommand` its config names, ssh's own config, gh's
+      config, and `/proc/<pid>/environ` still reach it at L0, and L1 is the boundary (theseus-ngz5).
+  - **No grant to a launcher** (theseus-txvt; built 2026-10-02, Part III Item 55). A grant to a shell, an
+    interpreter, a program that runs the command it is given, or a runner of a project's scripts fails to
+    load, naming the rule, and a granted name that resolves to one gets nothing. The list can't be finished,
+    so the template says to grant only to a program whose commands run nothing the operator didn't choose.
+  - **cargo's and npm's own rules** (theseus-txvt). cargo gets its grant only for `login`, `logout`,
+    `owner`, `search`, `yank`, and `publish --no-verify`, never with `+<toolchain>`, `--config`, or `-Z`; npm
+    only for its registry commands that run no package's scripts, `publish` only with `--ignore-scripts` and
+    a local package, never with an option that names a program or a config file.
   - **At spawn**, the job's environment is `[tools].proc_env`, then the call's own `env`, then the grant.
     The values come from the board. A secret that has not settled is waited for, bounded as a turn waits.
     One that still has not, or that failed, is withheld, never replaced by a placeholder, and the result
@@ -987,7 +1012,7 @@ Opinionated, and simple. **Every secret lives in 1Password**, in the deployment'
   key ids and the secret keys and session tokens beside or after them, private-key blocks (a public key is
   kept), and JWTs become `[redacted:<shape>]`.
 - **Mechanism.** The first version shells out to the `op` CLI (`op read op://…`) under the service-account token, because 1Password publishes no first-party Rust SDK; the community FFI wrappers around its C core exist and are the candidate for removing the `op` dependency later, once they are shown to build statically. The config note is read with one `op read`, beside the secrets' one `op inject`. The service account is read-only, so the config item is created by a human once; Theseus never writes to the vault.
-- **Configuration is documented by its template, and the template is tested.** `theseusd example-config` prints a hand-written annotated TOML in which every parameter the code reads appears exactly once, set to its default or commented out with its default shown, with a line saying what it does. Three tests keep it honest: it parses and validates; a copy with every comment un-commented also parses under `deny_unknown_fields`, so no stale or not-yet-honored key can survive in it; and every key the loader can read appears in it, so no field can be added without documenting it. The consequence is a rule: config keys are not defined before code honors them; work not yet built is recorded in Part III, never as inert config. `theseusd config` prints the config actually loaded and its source, references only.
+- **Configuration is documented by its template, and the template is tested.** `theseusd example-config` prints a hand-written annotated TOML in which every parameter the code reads appears exactly once, set to its default or commented out with its default shown, with a line saying what it does. Three tests keep it honest: it parses and validates; a copy with every comment un-commented also parses under `deny_unknown_fields`, so no stale or not-yet-honored key can survive in it; and every key the loader can read appears in it, so no field can be added without documenting it. The consequence is a rule: config keys are not defined before code honors them; work not yet built is recorded in Part III, never as inert config. `theseusd config` prints the config actually loaded and its source, references only. _(Amended 2026-10-02, theseus-dxgb, Part III Item 57: the template is public, so since theseus-8d1b it carries placeholders where a deployment's own values go, its vault's references and its people's ids. An operator keeps those in a private overlay, `~/.config/theseus/template-overlay.toml`, and `theseusd example-config` prints the template with the overlay's values in place, every comment kept and the result validated, ready to paste whole into the vault's note. `--overlay FILE` names another overlay, and `--plain` prints the template alone, which is what every test reads.)_
 - **Token hygiene.** At startup Theseus checks the GitHub token against the API, logs its login, expiry, and days remaining, and warns when fewer than a configurable number of days remain (default 30). Never fatal.
 - **Starting set**, each an item in the operator's vault, named as `op://<vault>/<item>/<field>`: an Anthropic key; a Jev key; a GitHub token (a fine-grained token with push on the owner's repositories, expiring 2027-02-18; chosen over the all-scopes classic token until Theseus is on rails); a Z.ai key, one line of a note; and an AWS key pair, a `label: value` note whose `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines are referenced separately (verified 2026-09-25 against STS: an IAM user, in account `<account id>`). Discord and any others are added as their milestones arrive. The same posture applies to them all: GitHub and AWS credentials are read from 1Password too, never from `~/.aws` or `~/.config/gh`, and a secret that cannot be resolved never lets its consumer run without it, and the daemon says which one failed and why; the process itself serves meanwhile. _(Fail closed per consumer since theseus-qa0, 2026-09-29; until then the process refused to start.)_
 
@@ -1064,8 +1089,25 @@ supervisors' signal (until then a SIGTERM killed the daemon outright). The stop 
 signal when one asked, and checkpoints the index; from then on no outbox post is dispatched. The socket goes. The
 posts already sent get until `[server] stop_grace_ms` after the stop began to settle. The index is checkpointed after
 them, which costs nothing when nothing was written since, so the next start replays nothing and repairs nothing.
-Telemetry's last batch goes, bounded at 1 s. A `--stdio` daemon has no signal arm; its client ends it by closing
-stdin (theseus-p7q).
+Telemetry's last batch goes, bounded at 1 s. ~~A `--stdio` daemon has no signal arm; its client ends it by closing
+stdin (theseus-p7q).~~ A `--stdio` daemon stops on SIGINT and SIGTERM as the socket daemon does (theseus-p7q;
+built 2026-10-02, Part III Item 54). Since theseus-02k (Part III Item 46), redb's close makes the stop's
+checkpoints durable, so a stop pays one commit's syncs, and each of its phases is logged at debug.
+
+**A panic aborts, and says why** (Review 2's consideration 1; Eddie, 2026-10-01 at 19:54; built 2026-10-02,
+Part III Item 53). The release build keeps `panic = "abort"`: nothing half done outlives a panic, and a restart
+takes 20 ms. Before the abort, a panic hook writes the thread, the location, and the message to
+`crash-<mode>.json` beside the store (0600). The next start moves it into `crashes/`, says so in the log and a
+`server.crashed` row, and health and the Observatory show the newest crash. The message stays in the file and
+the log, never in the row or health.
+
+**Under systemd** (theseus-w1nf; built 2026-10-02, Part III Item 56). The operator's daemon runs as a systemd
+user service: `scripts/user-service.sh install` checks the machine, writes the unit `theseusd install --user`
+plans (`Delegate=yes`, `KillSignal=SIGINT`, `KillMode=process`, `Restart=on-failure`), enables it with linger,
+and shows health. systemd restarts a crash, and a clean `theseus shutdown` stays stopped. The unit's
+`ExecStopPost=-theseusd cgroup-release` turns L1's job limits off at a stop, so the next daemon can start while
+an old job runs (§7; Part III Item 58). An upgrade is a build, a copy-then-rename, and `scripts/user-service.sh
+restart`.
 
 This is a deliberate contrast with the gateway Theseus replaces, where in-flight tool calls, subagent handles, and session state live in process memory and a restart loses them. The M0 binary is not yet restart-safe in this sense; M1 Keel and M2 Kernel are where the construction happens, and the simulator is what proves it.
 
@@ -1157,6 +1199,12 @@ The distinguishing claim is not fewer tools. It is that each tool is the whole o
 A narrow result must never read as the whole world. This rule generalizes §3.5's task-view elision counts to the whole tool surface. Every listing tool lands with a test of its elision line.
 
 _(As built 2026-10-01, theseus-8ye: see Part III Item 21. No model-facing task or session listing exists yet. The operator's `theseus tasks` and `theseus sessions` list everything, and Discord's `/tasks` already said "and N older; `theseus tasks` lists them all".)_
+
+### 3.25 AWS: the account Theseus owns
+
+_(Added 2026-10-02 with row 29, AWS's C1 = 14a; Part III Item 49. The design is `docs/design/aws-toolset.md`.)_ Theseus owns its home account (§1, "Home AWS account"). The config binds it as `[aws.accounts.<id>]`: its key, the root of trust, as two `[secrets]` entries (`credentials`; `aws_access_key_id` and `aws_secret_access_key` by default), its region, and the regions a call may name. The key resolves on the secrets board after serving like every secret, and the account is checked once, after serving: `sts:GetCallerIdentity` must name this account. Until that passes, no call of the account signs; a call waits for the check at most 30 s, then fails closed, and health says why (`aws:` per account, and the `aws.check` startup phase). Until the foundation stack exists (14b), the key signs the account's reads directly.
+
+The tools are one generic caller and three curated ones: `aws.call` (any operation of any service, from a catalog compiled from the AWS CLI's models, signed with AWS's `aws-sigv4`), `aws.describe` (the catalog, local), `aws.whoami`, and `aws.s3.list`. Each checks its whole call before the gate, with no network, so a bad call is invalid input and nothing is sent. Until 14b brings the guards, so is a call that writes, runs code, or returns a secret; the error names the step that brings it. An AWS call's posture is `[policy.tools]`'s line for its tool, then `[policy.aws]`'s for its operation (`"s3:ListBuckets"`), its service (`"s3"`), and its class (`read`), then `enforcement` (§3.9). Every request is attributed (the user agent's `exec/<execution>` and `call/<correlation id>`, which CloudTrail keeps), and recorded: an `aws.called` ledger row with AWS's request id, never a credential or a result, and a span under its call's in the turn's trace, in OpenTelemetry's AWS names. A tool call's gate record holds its class and its AWS call (`plan.class`, `plan.aws`).
 
 ## 4. The context graph
 
@@ -1469,7 +1517,7 @@ The clipping is silent. When the parameters become configurable, the loader says
 
 ### 5.3 Recall
 
-`BUILD_CONTEXT` gathers candidates from the exact indexes and the hybrid similarity index, adds `activate()` neighbours of the seeds, dedups by id, fans out one Jev relevance Noul per candidate in a single request, then lets the budgeter allocate by node kind under the role's weights. Every recall records what was shown so outcome labels can flow back to both Jev tuning and `schedule()`.
+`BUILD_CONTEXT` gathers candidates from the exact indexes and the hybrid similarity index, adds `activate()` neighbours of the seeds, dedups by id, fans out one Jev relevance Noul per candidate in a single request, then lets the budgeter allocate by node kind under the role's weights. Every recall records what was shown so outcome labels can flow back to both Jev tuning and `schedule()`. _(Amended 2026-10-02, theseus-u55z, Part III Item 50: the exact and the hybrid indexes are the index tender's (§6). `index.query { text, k, as_of, … }` ranks by BM25, exact entities, and vectors, and fuses them by weighted reciprocal rank (vectors 6, the others 1; theseus-jz8), as of a WAL position, so a replay never sees its future. `theseus index search` asks it by hand; recall on the turn (30a) will ask it under its deadline.)_
 
 ### 5.4 Consolidation (what remains of dreaming)
 
@@ -1504,7 +1552,7 @@ theseus (core)                          theseus --tender <role>  (children of th
 
 - **The logical graph is permanent; the resident graph is a bounded cache over durable history.** Nothing about append-only requires anything to stay in RAM. Resident memory scales with the active working set, not lifetime traffic.
 - **Arena.** Nodes by monotonic id; edge storage as immutable sorted segments per edge type with an in-memory delta, compacted in the background (compressed-sparse-row columns are a benchmark candidate for cold segments, not a commitment); per-channel logs as segments in a shared append file with an allocation index. Cold nodes leave RAM entirely, metadata and adjacency included, represented only by their id in a compact presence filter, and rehydrate from the SSD index on demand. Memory targets (§9) cover the whole process tree including tenders and loaded embedding weights.
-- **Storage kernel (built in M1; Part III A1).** Two layers, one contract. The **WAL** is the truth: segment files of checksummed frames, one frame per append, one `fdatasync` per frame; a frame holding several records is atomic, which is how `settle(completion, continuation)` commits both or neither. Recovery checks the WAL from the frame after the index's checkpoint to its end, where the next position and any torn frame are, and truncates a torn tail in the last segment. When the log there is not what the index says, it checks every segment, as it always did, and refuses to guess at corruption anywhere else. The history before the checkpoint is checked after serving, by a thread using about 5 % of a core. A corrupt frame there is an error in the log, a `store.corrupt` ledger row, and a refusal of that frame's reads, since record reads check no checksum of their own. A checkpoint is taken with no append between its WAL write and its index write, so the position it claims is synced and indexed. Every record carries its kind and its kind's schema number. `MANIFEST.json` (format 3) names the newest schema written for each kind, and a build that finds one newer than it reads, or a kind it does not know, refuses to open the store and says to install the newer build. The manifest is marked, durably and before the record, the first time a build appends a record newer than it says, so a start never writes it. _(Since F4a, theseus-qa0 and theseus-8ni; Part III A3c.)_ The **index** is a rebuildable projection of the WAL in a pure-Rust embedded store, `redb` (the M1 benchmark's pick; `fjall`, the other candidate, was removed in batch C, theseus-0g4): position → location, (kind, key) → latest position, (kind, position) for per-kind scans, and a checkpoint position. Index writes are non-durable; a checkpoint makes them durable; open replays the WAL past the checkpoint, so deleting the index entirely loses nothing. The arena remains the cache over this, never a second source of truth. Pure Rust keeps the static musl build honest.
+- **Storage kernel (built in M1; Part III A1).** Two layers, one contract. The **WAL** is the truth: segment files of checksummed frames, one frame per append, one `fdatasync` per frame; a frame holding several records is atomic, which is how `settle(completion, continuation)` commits both or neither. Recovery checks the WAL from the frame after the index's checkpoint to its end, where the next position and any torn frame are, and truncates a torn tail in the last segment. When the log there is not what the index says, it checks every segment, as it always did, and refuses to guess at corruption anywhere else. The history before the checkpoint is checked after serving, by a thread using about 5 % of a core. A corrupt frame there is an error in the log, a `store.corrupt` ledger row, and a refusal of that frame's reads, since record reads check no checksum of their own. A checkpoint is taken with no append between its WAL write and its index write, so the position it claims is synced and indexed. Every record carries its kind and its kind's schema number. `MANIFEST.json` (format 3) names the newest schema written for each kind, and a build that finds one newer than it reads, or a kind it does not know, refuses to open the store and says to install the newer build. The manifest is marked, durably and before the record, the first time a build appends a record newer than it says, so a start never writes it. _(Since F4a, theseus-qa0 and theseus-8ni; Part III A3c.)_ The **index** is a rebuildable projection of the WAL in a pure-Rust embedded store, `redb` (the M1 benchmark's pick; `fjall`, the other candidate, was removed in batch C, theseus-0g4): position → location, (kind, key) → latest position, (kind, position) for per-kind scans, and a checkpoint position. Index writes are non-durable; a checkpoint makes them durable; open replays the WAL past the checkpoint, so deleting the index entirely loses nothing. The arena remains the cache over this, never a second source of truth. Pure Rust keeps the static musl build honest. _(Since S2, theseus-vni9 and theseus-xprd, Part III Item 52: one writer thread, `store-writer`, owns every append. It writes every frame queued back to back, syncs once for the batch, indexes the batch in one redb transaction, and then answers each caller, who waits without holding a runtime worker (`theseus_store::blocking`). A frame is still atomic, and one sync covers a batch. A write cut short is cut back off, and a new segment's name, and a new log's directory, are synced before any frame in the segment is reported durable, so a segment is as durable as its frames.)_
   - **An index that is not a database** is moved aside, never deleted, to `index.redb.bad-<unix ms>`, and the
     open builds a new index from the whole WAL, as `restore` does (theseus-0b8; built 2026-10-01, Part III A4
     Item 17). A kill inside the store's very first open, while redb writes the file's header, leaves such a
@@ -1514,16 +1562,42 @@ theseus (core)                          theseus --tender <role>  (children of th
     - a file another process holds is that process's: the open waits for it, then refuses, as it always did;
     - a redb database that fails some other way (a newer format, a bad commit slot, a file cut short) is
       refused and left where it is.
+  - **A corrupt record degrades what reads it, and nothing else** (Review 2's R4, theseus-15g; built
+    2026-10-02, Part III Item 53). A read of a record in a frame the history check found corrupt is refused.
+    A list read (the driver's runnable executions, startup's reads by state, the session list, a transcript,
+    the ledger's tail) skips it instead of failing whole, logs it once, and counts it, and health shows the
+    count with its repair. No check loosens: a session's hold and an execution's budget are read by key,
+    which is still refused. **The repair** is `theseusd restore --repair --from <a copy>`: each frame of the
+    WAL that doesn't check is taken whole from the same offset of a copy of the store, which must hold it
+    whole (any backup taken after the frame was written does, since the WAL only grows), and every other byte
+    is the store's own, so nothing written after the backup is lost. The store it repaired is kept aside.
 - **The turn lock and eventual durability.** "Speed first" is preserved by *where* the time goes, not by skipping durability. Within a channel exactly one turn advances at a time; that lock is held only while the core is doing local work. A turn is mostly waiting: a Messages API call is seconds, a shell job is seconds to hours, a judge call is hundreds of milliseconds, a human is minutes. At every such offload boundary the turn releases the lock and the core spends the surrendered time on **asynchronous durability work**: sealing the current WAL segment and handing it to the durability tender, taking checkpoints, flushing index updates, compacting edge segments, running the memory pass, uploading. The floor remains unchanged (intent is fsynced locally before dispatch); what changes is the off-node recovery point, which becomes **eventual: 5–60 s** rather than 1–2 minutes, achieved for free from time the loop was not using anyway. The tender scheduler prioritizes by staleness: the oldest unshipped committed record bounds the current recovery-point exposure, and that number is exported as a metric and alarmed on.
-- **WAL.** Every record appends to the local SSD and is fsynced on a short group-commit interval before the turn proceeds. Records carry a length prefix and checksum; a torn tail is truncated on recovery. Periodic **checkpoints** snapshot the arena so recovery is checkpoint plus tail, not full-history replay. Schema versions are stamped on every record, by kind. Old layouts are read in place, through serde's defaults or a reader such as `Execution::from_stored`. A layout that needs rewriting will get a forward-only transform run by a tender; none has needed one yet. Disk-full is handled by refusing new turns with a clear message while tenders continue to drain (designed; what is built is the job floor under "Free space" below). The SSD is a persistent volume that survives instance death and is encrypted at rest by the platform (EBS encryption, LUKS on a desktop), not by Theseus.
+- **WAL.** Every record appends to the local SSD and is fsynced on a short group-commit interval before the turn proceeds. _(As built, S2, Part III Item 52: every frame goes to the store's one writer thread, which writes every frame queued, fsyncs once for all of them, indexes them, and answers each, so the turn proceeds once its frame is durable and indexed. The periodic checkpoint runs on the writer after its answers, so no append pays it; theseus-avvb.)_ Records carry a length prefix and checksum; a torn tail is truncated on recovery. Periodic **checkpoints** snapshot the arena so recovery is checkpoint plus tail, not full-history replay. Schema versions are stamped on every record, by kind. Old layouts are read in place, through serde's defaults or a reader such as `Execution::from_stored`. A layout that needs rewriting will get a forward-only transform run by a tender; none has needed one yet. A stored float reads back as the value it was written from (serde_json's `float_roundtrip`; theseus-k52m, Part III Item 54), so a record decodes and encodes again byte for byte. Disk-full is handled by refusing new turns with a clear message while tenders continue to drain (designed; what is built is the job floor under "Free space" below). The SSD is a persistent volume that survives instance death and is encrypted at rest by the platform (EBS encryption, LUKS on a desktop), not by Theseus.
 - **Tenders** consume the WAL and answer rehydration over a local socket; they never touch the arena directly. Durability ships to S3 and DynamoDB when configured, with a 5–60 s target measured as "age of the oldest unshipped committed record." Tiering demotes payloads by heat and retention (stub stays in the arena, payload on SSD and S3; nothing is removed from the graph), with a Jev backup opinion for lower heat bands; rehydration misses are logged. Index owns embeddings: 768-d stored, 256-d indexed, 768-d rerank; usearch memory-mapped from SSD; tantivy BM25; reciprocal-rank fusion then Jev relevance; asynchronous after commit; long nodes chunked with `part_of`. Memory runs consolidation and decay sweeps.
+  - **The index tender** (theseus-u55z; built 2026-10-02, Part III Item 50) is the first tender that runs. It
+    is `theseus-index`, a binary of its own installed beside `theseusd`, not a role of the daemon's as the
+    diagram above has it, so the daemon links neither tantivy nor candle. The socket daemon starts it 2 s
+    after its socket answers, never on the start path nor beside the start's aftermath, as `theseus-index
+    serve --store <state>/store --index <state>/index --parent <its pid>`, at nice 10 and the idle I/O class,
+    with an environment that holds no secret. It follows the WAL read-only into BM25, exact entities, and,
+    with the Nomic weights in `[index] weights_dir`, vectors, and answers on `<state>/index/sock` (0600), the
+    core its only client. One tender per index directory: it takes `<state>/index/LOCK`, and a second exits
+    3. It exits when its daemon does (a pidfd), so none outlives a crash holding the lock, and a restart in
+    place takes the running tender over. The core restarts it whenever it exits: after 1 s, the wait doubling
+    to 60 s while it keeps failing, and 1 s again after a minute's run; a kept one whose `[index]` settings
+    changed is restarted. A stop sends it SIGTERM and never waits. Each start, take-over, and exit is an
+    `index.tender` row. `[index]`: `enabled` (true), `weights_dir`, `threads` (1), `idle_unload_mins` (10).
 - **Completion spool.** A directory on the same SSD as the WAL where job wrappers write results before attempting delivery. Startup drains it before accepting events; the heartbeat reconciler reads it every minute. It is the reason a harness restart never loses a finished job.
 - **Free space, and the spool's sweep** (theseus-102, theseus-2ij; built 2026-10-01, Part III A4 Item 25). On a
   full disk every WAL append fails, including the rows that would say so. Health reports the free space of the
   filesystem that holds the state dir (`statvfs`), and calls it low under `[server] disk_warn_mb` (5 GB). Under
   `[server] disk_floor_mb` (1 GB) a job is refused, with its reason as the call's result and a `job.refused` row.
-  The floor leaves room for what already runs to finish: eight turns' jobs at their 64 MiB output cap, a WAL
-  segment, and the index's checkpoint. Health sees only the filesystem Linux reports. Under WSL that filesystem is
+  ~~The floor leaves room for what already runs to finish: eight turns' jobs at their 64 MiB output cap, a WAL
+  segment, and the index's checkpoint.~~ Below the floor every running job is stopped too, with its reason
+  ("stopped by the disk floor (812 MB free, below the floor of 1,024 MB)") and a `job.stopped_below_floor` row,
+  and its conversation wakes to read it (theseus-ht82; built 2026-10-02, Part III Item 54). A job's captured
+  output is capped, but the files it writes itself are not, so headroom alone doesn't keep a runaway job from
+  filling the disk, and at L0 nothing names the writer. M4's per-job quota will (theseus-dszu). Health sees only the filesystem Linux reports. Under WSL that filesystem is
   a file on the Windows drive, which can fill first. A tender after serving, at start and then hourly, sweeps the
   raw job output no result will absorb, by the store's state, and keeps what a turn may still read. Each file's
   fate:
@@ -1621,6 +1695,8 @@ workspace.{create, attach_repo, snapshot, list}
 
 **L1 contract** (what "sandbox" means here, so it is not called strong by assertion): user, pid, mount, uts, ipc, and **net** namespaces; no network by default, with an explicit per-job egress allowlist and **no access to the instance metadata service or to localhost services**, including Theseus's own MCP server and web UI; capabilities dropped to none; a default seccomp profile; no device nodes beyond null/zero/random; masked `/proc` and `/sys`; cgroup limits on CPU, memory, pids, and disk with output size caps; the whole process tree killed on timeout or cancel. Anything the contract does not grant is denied. L0 grants everything the operator's user can do, and the spec says so plainly.
 
+_(As built 2026-10-02, step 17b, theseus-7ve.1; Part III Item 58.)_ A `proc.run` runs in L1 when the model asks (`sandbox: true`), when `[sandbox] l1_argv` names its program, or when `[sandbox] default = "l1"`; nothing turns L1 back to L0. An L1 job runs at `notify` (Eddie, 2026-10-02 at 09:39): its view hides Theseus's floor, the approve list's paths, the daemon's socket, and cargo's credentials files, and no secret reaches it until 18d, so the floor and the approve lists have nothing to guard; a session holding external text still holds it (until 20a). The operator's own word about `proc.run` still reaches an L1 call: its `[policy.tools]` line saying `approve`, or a "should have asked" tightening, makes the call wait, still in L1. A looser line never makes it quieter than `notify`, and the inherited `enforcement` never makes it wait (Eddie, 2026-10-02 at 16:03; theseus-jfs6, Part III Item 59). The class is in the gate record and in the proposal a confirm binds, so an approved L1 call runs in L1. A job that can't start in L1 fails with the reason and never runs at L0. Its limits: `pids` (`RLIMIT_NPROC`, and `pids.max` with a delegated cgroup), `memory_mb` (only with a delegated cgroup: the daemon's own systemd service with `Delegate=yes`, judged by systemd's own answer), `scratch_mb` for scratch, `/tmp`, and HOME, and `output_mb` for any one file. What it writes to the workspace goes to scratch and is discarded; its result lists it. The first L1 job turns job limits on in the unit's cgroup, so a unit that keeps its jobs across a stop (`KillMode=process`) needs `ExecStopPost=-theseusd cgroup-release`, which turns them off again, or its next daemon can't start while an old job runs; the installer writes the hook, and the daemon delegates only under a unit that has it. Egress (18c), credentials (18d), and cancellation per backend (18a) come next.
+
 **The consequence boundary** (M4; §3.9 Consequences). _Superseded in part, 2026-09-28: the consequence kinds are gone (§3.9; Part III A3b), so the boundary has no consequence to name. What stands is the default-safe environment: an L1 job starts with no ambient credentials and reaches the network only through its allowlist. Whether a credential request or a recognized request shape should notify or wait is held for Eddie, with M4._ The design as it stood, where L1 is where consequences stop depending on spelling:
 - **Credential brokering.** A job starts with no ambient credentials. To push, publish, or post it must ask Theseus for a scoped credential, and that request is the consequence, judged by the gate.
 - **Egress recognition.** Allowlisted egress passes a local proxy that recognizes request shapes: a git receive-pack, a PR merge, a registry publish. So `./deploy.sh` is caught when it pushes, however the command was written.
@@ -1655,6 +1731,15 @@ What it buys: invariants as property tests (a destructive tool never runs withou
   (theseus-w98).
 - **The kernel simulator races transactions** (theseus-0owd, theseus-jj9f; Part III Item 41): a second thread
   racing a turn runs kernel transactions against it, and the operator's answers are one frame each.
+- **Discord without a person** (theseus-9kjv; Part III Item 47). `theseus-sim` stands in for all of Discord the
+  binding talks to: its REST API and its gateway, with a guild whose members and overwrites answer the viewer
+  check. A check types a message as a user and presses a card's button as one, each sent as Discord sends it,
+  and reads back every message the binding posted, each version of it, and every answer it gave an
+  interaction. `theseus-sim discord proof --theseusd <bin>` runs theseus-kl8m's twelve steps against a real
+  daemon in about three seconds, and the gate runs it. A step that touches the binding runs it against its
+  release build as its live check, and drives anything new with `theseus-sim fake-discord --gateway` and
+  `theseus-sim discord say|press|read`. Real Discord is still checked by hand: the bot's permissions and
+  intents, and twilight against Discord itself.
 
 ## 9. Efficiency targets (to measure, not assert)
 
@@ -1670,6 +1755,20 @@ P5b):
 Each phase runs N times, with p50 and p95, per phase, per start-path phase, and per kernel step. It runs
 on an empty store, on the owner's store, or on a synthetic store of parked sessions.
 
+Beside the lifecycle, three more benches measure what runs (theseus-goa8, Review 2's S4; Part III Item 48):
+- `theseus-sim bench turn`: a plain turn and a tool-call turn on the stand-in model, each run N times on one
+  warm session: wall time by the bench's clock and the daemon's, and frames per turn, counted from the WAL by a
+  read-only tail. The plain turn's frames are a gated budget (below). Beside them: this disk's `fdatasync`,
+  and the daemon's resident memory after the start and after a burst of turns.
+- `theseus-sim bench idle`: a daemon with nothing to do over a window (30 s): its CPU time, its wakeups, the
+  frames it writes (none), and its memory, on an empty store or a synthetic one of parked sessions. Measured,
+  with no budget yet.
+- `theseus-sim bench size`: the shipped binaries' sizes, against the binary-size row below.
+
+The gate runs `bench turn --check` on every commit, a lane's gate too: a count of frames needs no quiet
+machine. Its timings and the memory are recorded in the bench history only where the lifecycle bench is (the
+join's gate), and `scripts/repro.sh --bench` records an optimized build's size, turn, and idle rows.
+
 `scripts/gate.sh` runs it on every commit: ten runs of each phase on an empty store, with debug binaries,
 which are never faster than release.
 - **Dependencies at opt-level 2.** Since theseus-1hk, the debug profile builds dependencies at opt-level 2.
@@ -1677,7 +1776,10 @@ which are never faster than release.
   path's own work and its fsyncs, rather than unoptimized serde, sha2, and redb.
 - **Budgets and margins.** Each p95 is checked against its budget plus that phase's noise margin. The margin
   is the spread of p95 over repeated runs on the build machine (in 2026-09: 7 ms cold, 4 ms shutdown, 25 ms
-  kill, 2 ms swap; restore has no budget yet).
+  kill, 2 ms swap; restore has no budget yet). Two more were proposed by lane perf1 for Eddie's call, and are measured and printed, not gated, until he
+  answers (theseus-fsug): restore's, on its p50 (below), and 150 ms for a clean stop with a post in flight,
+  the 100 ms of a stop plus the 50 ms grace it may wait out (the bench's `inflight` phase, theseus-ndw; on the
+  gate's empty store, debug, p50 67.7 ms and p95 74.0 ms; Part III Item 46).
 - **A miss.** With ten runs, nearest rank makes the p95 the slowest run, so one stalled fsync can decide it.
   A miss runs the bench once more, and only a second miss fails the gate.
 - **A quiet machine.** Before each run, the gate flushes dirty pages, then waits until the kernel's IO and CPU
@@ -1694,11 +1796,16 @@ which are never faster than release.
   minutes while every other agent's gate queued. The gate that joins a lane to `main` runs the bench, so every
   change is still benched on `main` before it lands. A lane whose work touches the start path runs
   `theseus-sim bench lifecycle --runs 10 --check` alone, at normal priority, once before its join.
+  Since theseus-rx91 (Part III Item 51), a lane's gate takes the shared gate lock itself, only around its
+  tests and benches (`THESEUS_GATE_LOCK=inner`), so its compiles never hold another gate up.
 - **The push's seed** (theseus-in3). The first `executions.watch` or `session.wait` after a start reads every
   execution and action into the board, off the start path. It is measured, with no budget yet: on the gate's
   empty store about 0.5 ms; on the 10,000-session synthetic store, release, p50 37.1 ms and p95 41.5 ms
   (2026-10-01); on Eddie's store 285 µs. Past 250 ms, the design puts an index of open actions first, which
-  would also speed `session.list` and `confirm.list`.
+  would also speed `session.list` and `confirm.list`. _(2026-10-02, lane perf1, Part III Item 46: on that store, release, p50 45.5 ms and p95
+  49.2 ms, about 5 ms more, since the start no longer reads every execution first; the seed's own work is
+  unchanged. Past 250 ms, the board's actions can be read by the store's terms, which hold every action's
+  state (theseus-lv2); `confirm.list` already reads its planned actions so.)_
 - **The history.** Every run, a miss and its rerun both, is appended to a history outside the tree
   (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`, shared by every worktree). Each
   row holds:
@@ -1716,19 +1823,20 @@ Measured values are in Part III (A3, lifecycle timings, the M3.5 entry, and Item
 
 | Metric | Target |
 |---|---|
-| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ _(Since theseus-8ni, F4a: the store's open checks the WAL only from the frame after the index's checkpoint to its end. The history is checked after serving, at about 5 % of a core, and a corrupt frame there is refused and loud. On 10,000 parked sessions the store phase went from 63.2 to 10.1 ms p50, and a cold start from 164.1 to 121.7 ms.)_ |
-| Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for, except the outbox's posts already sent, for at most `[server] stop_grace_ms` (50 ms by default) from the stop's start (theseus-pfv; a post still unanswered then stays dispatched, and the next start sends it again under the same nonce; a longer grace is the operator's choice, outside this budget) |
+| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ _(Since theseus-8ni, F4a: the store's open checks the WAL only from the frame after the index's checkpoint to its end. The history is checked after serving, at about 5 % of a core, and a corrupt frame there is refused and loud. On 10,000 parked sessions the store phase went from 63.2 to 10.1 ms p50, and a cold start from 164.1 to 121.7 ms.)_ _(Since theseus-lv2 and theseus-0dq, lane perf1, Part III Item 46: of the executions, the start reads only those a crash interrupted, those with a unit budget, and those whose limit follows a changed config, by a projection by state in the store's index. Health counts by that projection, and the driver's tick reads only the queued executions and those a due time may wake. The history check after serving starts at the last check's mark, and reads the whole history once a day. A store an older build wrote last has its projection built after serving, and is read as before until then. On 10,000 parked sessions, release, a cold start went from 119.1 to 21.5 ms p50, the kernel's part of it from 35.8 to 7.6 ms.)_ _(Nothing else joined the start path on 2026-10-02. The index tender starts 2 s after serving (row 51, Part III Item 50), so neither a start nor its aftermath shares the disk with the tender's start, and health asks no tender before one runs; the L1 probe follows at 3 s (Item 58). AWS adds `[aws]`'s parsing and the tools' fixed definitions, in microseconds: no secret read, no catalog decoded, no client built, and no request before the socket answers, since the account's check runs after serving (Item 49). The lifecycle bench binds an account whose endpoint nothing listens on, so every budget holds with AWS out of reach.)_ |
+| Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for, except the outbox's posts already sent, for at most `[server] stop_grace_ms` (50 ms by default) from the stop's start (theseus-pfv; a post still unanswered then stays dispatched, and the next start sends it again under the same nonce; a longer grace is the operator's choice, outside this budget) _(Since theseus-02k, lane perf1, Part III Item 46: redb's close makes the stop's checkpoints durable, so a stop pays one commit's syncs instead of two: 5 syncs, where it paid 6 or 7. Each phase of a stop is logged at debug. A rare slow stop is one of its two waits on the disk, stalled by the machine's writeback (theseus-26r). The index tender gets SIGTERM and is never waited for (row 51; a test stops a daemon whose tender is SIGSTOPped).)_ |
 | Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms _(The bench's budget: the cold-start budget plus 100 ms.)_ |
 | Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer _(Since F4b, theseus-qa0: the bench's swap phase holds this in the gate, from the stop's request to the other build's first answer, with a job's wrapper running through every swap and ended at last by a daemon that never started it. `theseus shutdown` answers before the daemon has closed its store, so a start that follows at once waits for the store's lock, at most 3 s, instead of failing. Numbers in Part III A3c, F4b.)_ |
 | Store or schema migration | adds nothing before serving: old formats are read in place, and a tender rewrites them in the background using at most 5 % of one core _(Since F4a, theseus-qa0: every record carries its kind's schema, and the manifest names the newest schema written for each kind. A start writes neither: a store an older binary wrote is marked only when this build first appends a newer record. A build older than the store refuses to open it, before anything is written. No layout has needed a rewrite yet; the first that does lands with its tender.)_ |
-| Restore from a local WAL | at the disk's sequential read speed; to measure _(Measured in F4b; see Part III A3c. A restore copies the WAL, then opens the copy with no index, which checks every frame and indexes every record, so it runs 39 to 64 times slower than a cold sequential read of the same bytes. The budget waits on how the index is rebuilt: in bulk, or after serving (theseus-byu).)_ |
-| Binary size, static | under 60 MB with Wasmtime, AWS SDK, voice, search, and web UI; embedding weights are a separate artifact |
-| RSS at 10,000 parked channels, 50 active executions | under 1 GB including arena metadata for the active set |
+| Restore from a local WAL | at the disk's sequential read speed; to measure _(Measured in F4b; see Part III A3c. A restore copies the WAL, then opens the copy with no index, which checks every frame and indexes every record, so it runs 39 to 64 times slower than a cold sequential read of the same bytes. ~~The budget waits on how the index is rebuilt: in bulk, or after serving (theseus-byu).~~)_ _(Since theseus-byu, lane perf1, Part III Item 46: the restore prints its phases (copy, open, counts, record, swap), and its open builds the index in bulk from a replay of 4,096 records or more. At 10,000 sessions the copy takes about 50 ms and the open 314 ms. Proposed for Eddie's call (theseus-fsug): a p50 under 250 ms on an empty store and under 750 ms with 10,000 parked sessions, a line between them as for the cold start, with the p95 and a cold read of the same bytes printed beside it. Not the disk's read speed: a restore writes a synced copy and then checks and indexes every frame, and the cold read itself varied twofold between sessions. On the p50, since a restore stalls on the disk now and then, on both builds: 3 of the 160 restores measured took more than twice their run's p50.)_ |
+| Binary size, static | under 60 MB with Wasmtime, AWS SDK, voice, search, and web UI; embedding weights are a separate artifact _(Checked by `bench size` on an optimized build, 2026-10-02: `theseusd` 28.9 MB as `release-thin` and 23.4 MB as `release`, the others under 5 MB; Part III Item 48. The AWS layer adds about 3.1 MB, 2.27 MB of it the embedded catalog, within its design's 5 MB; Item 49.)_ |
+| RSS at 10,000 parked channels, 50 active executions | under 1 GB including arena metadata for the active set _(Measured, lane perf1, 2026-10-02, Part III Item 46: a release daemon on 10,000 parked sessions idles at 16 MB. With 50 turns in flight at once, on a stand-in model, it peaks at 104 MB. Most of that is a listing of every session the harness asked for, of which glibc keeps 64 MB; the turns add about 23 MB. 9ac009d idled at 62 MB and peaked at 231 MB, most of it held by glibc's per-thread arenas. The index tender is its own process: about 24 MB on BM25, about 536 MiB with the model loaded, which unloads after `idle_unload_mins`; Item 50.)_ |
 | Memory a job's output costs the daemon | at most 4 MiB, whatever the job prints (read by seek); its file at most `[tools] job_output_max_bytes` _(Since fb2c, theseus-102: a 200 MB job raised the daemon's VmHWM by 9 MB, against 211 MB before; Part III A4 Item 25)_ |
-| Per-turn harness overhead (context compile + gate + WAL commit, warm arena; excludes model, Jev, tokenization, rehydration) | under 5 ms |
+| Per-turn harness overhead (context compile + gate + WAL commit, warm arena; excludes model, Jev, tokenization, rehydration) | ~~under 5 ms~~ at most **5 WAL frames** for a plain one-loop turn, with a floor of 2; each frame is one `fdatasync`, so the count doesn't depend on the disk _(Restated in theseus-goa8, Review 2's consideration 8, Part III Item 48: no budget in milliseconds holds on a disk where one `fdatasync` is 7 ms. `theseus-sim bench turn --check` holds it at the daemon, in every gate, as `tests_m3::a_plain_turn_stays_within_its_frame_budget` holds it in the core; a step that writes fewer lowers the number in the same commit. Measured 2026-10-02, `release-thin`, a busy machine: 5 frames, 42 to 60 ms a turn, of which the 5 `fdatasync`s were 33 to 47 ms and the harness's own share at most 9 to 16 ms; a tool-call turn writes 11 to 12 frames.)_ |
+| An idle daemon | no frames written; CPU and wakeups to be budgeted once measured over a week of runs _(`bench idle`, theseus-goa8, `release-thin`, 2026-10-02: on an empty store 8 ms of CPU in 30 s, 0.03 % of a core, and 4.5 wakeups a second over 18 threads, 14 MB resident. At 10,000 parked sessions it never went quiet, 4 to 7 % of a core with no frames written (Review 2's S1), until perf1's reads by state took it to 0.10 %; Part III Items 46 and 48.)_ |
 | Jev per turn | to be measured: calls, questions, input tokens, p50/p95/p99, per representative turn class; the ~350 ms / sub-cent figure is one call, and a turn makes several |
 | Process start to accepting Discord events (checkpoint loaded, WAL tail replayed; excludes model/index warm-up, which proceeds in tenders) | under 2 s |
-| WAL commit latency | under 5 ms at group-commit interval |
+| WAL commit latency | ~~under 5 ms at group-commit interval~~ at most two group-commit batches: the one in flight, then its own. One batch alone is one fdatasync (about 7 ms on the build machine's disk) _(Restated in S2, theseus-vni9, Part III Item 52: "under 5 ms" was below this disk's one fdatasync (Review 2's consideration 8), so no design met it. Measured at 32 concurrent turns: p50 27 ms, p99 59 ms, a batch about 14.5 ms, 16 to 17 frames a sync.)_ |
 
 ## 10. Open questions
 
@@ -2005,7 +2113,7 @@ Not in the original plan. This is Eddie's principle (§2 FAST), adopted after an
   - A failure is loud (health, the ledger, the Observatory) but never delays the socket.
 - **Startup phases in the Observatory,** from the kernel's existing step timings plus the new background phases, so a slow start names its cause the first time it happens (EXQUISITE VISIBILITY).
 - **Versioned readers for WAL record layouts and manifest formats.** The next format change migrates in a tender, and the M2 practice of moving an old-format store aside (A2) is retired. _(Built 2026-09-30, F4a: per-kind schemas and a format-3 manifest. The move-aside had already gone in ea06ff8, batch C. Part III A3c.)_
-- **A standing rule for every later milestone:** new startup work lands with its bench row. A new on-disk layout lands on the same commit as the reader for the layout it replaces. It bumps its record kind's schema number (`kinds::SCHEMAS`) and adds a test that reads the old layout; a new record kind is added to the table. A build never writes over a store newer than itself: it refuses to open it and says to install the newer build. _(Adopted in F4a, theseus-qa0. Six kinds went to schema 2 for the fields they had gained since M2, among them the session's hold on external text, and an execution's wakes, report wakes, and stop, all of which an older binary would have dropped.)_
+- **A standing rule for every later milestone:** new startup work lands with its bench row. A new on-disk layout lands on the same commit as the reader for the layout it replaces. It bumps its record kind's schema number (`kinds::SCHEMAS`) and adds a test that reads the old layout; a new record kind is added to the table. A build never writes over a store newer than itself: it refuses to open it and says to install the newer build. _(Adopted in F4a, theseus-qa0. Six kinds went to schema 2 for the fields they had gained since M2, among them the session's hold on external text, and an execution's wakes, report wakes, and stop, all of which an older binary would have dropped.)_ _(Since S2, Review 2's R8, Part III Item 52: theseus-core's `tests_schemas` holds the rule. Each kind's shape is recorded under its schema number, and a changed shape fails until the number moves. It caught 17b's change to a tool-call node at the join, which became NODE schema 4; Item 58.)_
 - _Added 2026-09-29._ **Parallel tool calls** (theseus-a60). Eddie, 2026-09-28, 23:57: "we're writing all our core tools in Rust right? I mean I know that sometimes using shells and other expected binaries like git is good practice, but I do want as many things native and performant as possible. Also, I imagine that you often can run things in parallel. My thought is that the most performant way to run trivially parallelizable tasks is to avoid os threads and use truly async code." Today a response's calls run one after another, and in-process toollets run on tokio's blocking pool, whose default ceiling is 512 threads.
   - Gate every call in the response first. A call under `approve` parks, as today.
   - Run the `open` and `notify` calls of one response concurrently, as async tasks, and answer them in the model's order.
@@ -2097,7 +2205,7 @@ Make the durability and safety claims true, and measure them.
 **Build.**
 - The durability tender: WAL segments to S3, index rows to DynamoDB, scheduled in released turn-lock time by staleness; the "oldest unshipped committed record" metric and alarm.
 - `theseus restore --from s3://…` with reconciliation near the gap and redaction tombstones applied before restored content becomes visible. Redaction with receipts (`erased_local`, `pending_backup`, `external_copies`).
-- L1 native sandbox with the §7 contract, and **contract tests** that prove each denial: no route to the metadata service, no route to localhost services including Theseus's own UI, capabilities empty, seccomp active, process tree killed on cancel.
+- L1 native sandbox with the §7 contract, and **contract tests** that prove each denial: no route to the metadata service, no route to localhost services including Theseus's own UI, capabilities empty, seccomp active, process tree killed on cancel. _(Begun 2026-10-02: `proc.run` runs in L1 since step 17b, Part III Item 58, whose daemon test shows the contract in a real L1 job against L0's contrast. Egress is 18c's, credentials 18d's, and cancellation per backend 18a's.)_
 - Confidentiality labels on nodes with inheritance through generated nodes; audience-safe compilation; disclosure tests in the simulator (private material never reaches a public audience's context).
 - Control-plane separation as an installer option: dedicated `theseus` user owning store, WAL, spool, and policy; L0 jobs as the operator.
 - Cancellation verification per backend (systemd scope, L1 process tree), and `cancel_unsupported` reporting.
@@ -2138,7 +2246,7 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 
 **Build.**
 - The context graph beyond transcript: typed edges, roots, compaction roots (append-only, with `derived_from`), rotating ring, assembled continuation. `CONTINUE` goes live for recompile-strategy choice if M5 said it could.
-- The index tender: Nomic v1.5 embeddings (768 stored, 256 indexed), usearch, tantivy, reciprocal-rank fusion. Baseline retrieval: transcript tail + task graph + summaries + BM25/embedding + freshness and provenance rules.
+- The index tender: Nomic v1.5 embeddings (768 stored, 256 indexed), usearch, tantivy, reciprocal-rank fusion. Baseline retrieval: transcript tail + task graph + summaries + BM25/embedding + freshness and provenance rules. _(The index tender runs since row 51, 2026-10-02: Part III Item 50. Recall's wire-in is 30a.)_
 - `MemoryScience` trait with a **baseline** implementation (no retention model, no activation) and a native FSRS-6 + prediction-error + spreading-activation implementation behind it.
 - The memory pass and recall as specified, consolidation as a tender job producing shadow syntheses with citation checks.
 - Tiering tender: demote by heat, rehydrate on reference; arena as a bounded cache with the presence filter.
@@ -3961,15 +4069,15 @@ a second time to replay its tail (theseus-8ni).
 | — | Every start repaired redb's index since B1 (the static `CORE`); fixed | A clean close is what the start budget assumes | Keep |
 
 **Known gaps.**
-- theseus-lv2 (P2): startup, health, the reconcile, and the driver's tick read every execution, action,
+- ~~theseus-lv2 (P2): startup, health, the reconcile, and the driver's tick read every execution, action,
   and session. A projection by state in the index would make them O(open). At 10,000 sessions this is
-  most of what is left of a cold start.
-- theseus-0dq (P3): the history check re-reads the whole WAL at every start. It could keep a
-  verified-to mark, with a slower full re-check for bit rot.
-- theseus-15g (P3): a corrupt frame's refused reads fail whole list reads, such as a `ledger.tail` that
-  reaches them.
+  most of what is left of a cold start.~~ Built in Item 46.
+- ~~theseus-0dq (P3): the history check re-reads the whole WAL at every start. It could keep a
+  verified-to mark, with a slower full re-check for bit rot.~~ Built in Item 46.
+- ~~theseus-15g (P3): a corrupt frame's refused reads fail whole list reads, such as a `ledger.tail` that
+  reaches them.~~ Built in Item 53.
 - theseus-q49 (P3): records carry two schema numbers, the header's per kind and some payloads' own.
-- theseus-02k (P3): a clean stop pays redb's close after its own durable checkpoint.
+- ~~theseus-02k (P3): a clean stop pays redb's close after its own durable checkpoint.~~ Built in Item 46.
 - A restore by a build older than the WAL it restores cannot be stopped by this one. Restore with the
   newer build.
 
@@ -4073,9 +4181,9 @@ one, and a store in the previous format serves at once (F4a). Restore is measure
 **Known gaps.**
 - A stop's answer can be lost, so `theseus shutdown` fails though the daemon stopped (theseus-ur0).
 - A restore does not sync its copies (theseus-ez3).
-- Restore's budget (theseus-byu).
+- Restore's budget (theseus-byu). _(Item 46 built the index in bulk and proposed a budget, which waits on Eddie's call: theseus-fsug.)_
 - `confirm.list`'s read, and a confirm continuation's two frames (theseus-ef0).
-- O(open) reads (theseus-lv2, F4a's), which are most of the 10,000-session swap's 139 ms.
+- ~~O(open) reads (theseus-lv2, F4a's), which are most of the 10,000-session swap's 139 ms.~~ Built in Item 46.
 
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
@@ -4849,7 +4957,7 @@ effect.
 
 **Known gaps.**
 - Discord's `/stop` was not run live, since the gateway is not faked.
-- A stopped turn's in-flight model call runs to its end, and its cost is paid (theseus-yey).
+- ~~A stopped turn's in-flight model call runs to its end, and its cost is paid (theseus-yey).~~ Built in Item 54: a stop cuts the stream.
 - An older binary would drop `stopped`, `report_wakes`, and `wake_parent` on a rewrite. F4a closes this.
 - The kernel-sim's random operations include neither stops nor report wakes yet.
 
@@ -5023,8 +5131,8 @@ unbound guild channel acted on his DM, and an unbound daemon answered every inte
 | "A scratch daemon over a copy of Eddie's store" for the live check | Part 2 (real Discord) on a fresh state dir | The operator lane can fall back to a copied session's place, his DM (theseus-c3e) | Keep; theseus-c3e |
 
 **Known gaps.**
-- The operator lane falls back to a session's place even where the daemon binds nothing, so a
-  Discord-enabled daemon must not run on a copy of another's store (theseus-c3e).
+- ~~The operator lane falls back to a session's place even where the daemon binds nothing, so a
+  Discord-enabled daemon must not run on a copy of another's store (theseus-c3e).~~ Built in Item 55.
 - `/trust` and the routing were not pressed live, since a bot cannot press; the binding's tests drive
   them through `place_for_tests` and `on_interaction`.
 - A card already waiting when `/trust` clears the hold keeps waiting; its Approve runs it.
@@ -5108,8 +5216,8 @@ first step after T1b.
 **Known gaps.**
 - A failure that recurs is retried without end, with a notice each time (theseus-ljr). It was already true
   for input turns, and a continuation with unread results now retries too.
-- A failed wake's or report's turn: the retry answers its node, but posts without the `⏰ wake` line and to
-  the session's current place (theseus-4lx).
+- ~~A failed wake's or report's turn: the retry answers its node, but posts without the `⏰ wake` line and to
+  the session's current place (theseus-4lx).~~ Built in Item 54.
 - The fallback for a vanished profile takes the live profile's `max_output_tokens`, which could exceed the
   session model's ceiling. Left as is, since it needs both.
 
@@ -5308,17 +5416,18 @@ same approvals and notifications as a normal agent. So the pilot has no second u
 | kks's behaviour after an approval: the brief left it to the builder | One retry, then `over_limit` | It keeps the kernel's invariant that reservations fit the limit, and an approval after a config change is useful | Keep |
 
 **Known gaps.**
-- **A reset leaves amounts held unknown in place** (theseus-6g6, found by the builder). A call with
-  `needed ≤ limit` but `needed > limit − held_unknown` comes back after each approval too.
+- ~~**A reset leaves amounts held unknown in place** (theseus-6g6, found by the builder). A call with
+  `needed ≤ limit` but `needed > limit − held_unknown` comes back after each approval too.~~ Built in Item 54: the question says so, and an approval
+  tries the call once.
 - **The pilot's friction, each filed:**
   - theseus-9j9 (P1): a card pings nobody;
   - theseus-2tw: a builder has no scratch root;
   - theseus-6i0: a batch's approvals come one at a time;
-  - theseus-830: a card says it expires, but a request never does;
+  - ~~theseus-830: a card says it expires, but a request never does;~~ built in Item 55;
   - theseus-lqk: `max_loops` (40) parks a builder's step;
   - theseus-8wm: notices flood the channel;
-  - theseus-ewi: `proc.run` may write outside the roots under `notify` while `fs.write` asks (a decision for
-    Eddie);
+  - ~~theseus-ewi: `proc.run` may write outside the roots under `notify` while `fs.write` asks (a decision for
+    Eddie);~~ decided and built in Item 55;
   - theseus-inw: `fs.patch` rejects a hunk whose header counts are off.
 - **The persona's nextest wording** ("`-j 4`") led to one failed command. The next pilot's persona says
   `--build-jobs 4 --test-threads 4`.
@@ -5591,13 +5700,13 @@ cancel that cancels everything (theseus-0b8, theseus-4x6, theseus-w98; 2026-10-0
   produce it any more.
 
 **Known gaps.**
-- theseus-0o8: a cancelled execution's dispatched calls, and a running turn's planned ones, get no
-  result in the transcript.
-- theseus-ni5: the never-asked planned call (the kernel API only).
+- ~~theseus-0o8: a cancelled execution's dispatched calls, and a running turn's planned ones, get no
+  result in the transcript.~~ Built in Item 54.
+- ~~theseus-ni5: the never-asked planned call (the kernel API only).~~ Built in Item 54.
 - theseus-2fs: the sandbox lane's flaky `clause_10` test.
-- theseus-2qt: a cancel, and a turn that ends its execution, scan every action in the store
+- ~~theseus-2qt: a cancel, and a turn that ends its execution, scan every action in the store
   (`open_actions`), as a stop already did. That costs little on Eddie's store (62 actions), and grows
-  with the store.
+  with the store.~~ Built in Item 46.
 - An execution an older build cancelled may still hold a planned call that counts as waiting. Eddie's
   store holds none.
 
@@ -5750,10 +5859,10 @@ on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:
 **Known gaps.**
 - ~~theseus-4xa (P2): the default 50 ms grace settles only a write near its end; real Discord takes 250 to
   400 ms; Eddie's call.~~ Eddie kept 50 ms (2026-10-01 14:38).
-- theseus-ndw: the lifecycle bench never has a post in flight, so the gate does not hold the grace.
-- theseus-p7q: `--stdio` has no signal arm.
+- ~~theseus-ndw: the lifecycle bench never has a post in flight, so the gate does not hold the grace.~~ Built in Item 46: the bench's `inflight` phase measures it, and its budget waits on Eddie (theseus-fsug).
+- ~~theseus-p7q: `--stdio` has no signal arm.~~ Built in Item 54.
 - theseus-rnx: the PTY path, when built, must withhold granted values the same way.
-- theseus-26r: rare 300 to 900 ms clean stops in debug, unquiet, not seen in the quiet release A/B.
+- ~~theseus-26r: rare 300 to 900 ms clean stops in debug, unquiet, not seen in the quiet release A/B.~~ Found in Item 46: the machine's writeback, in one of the stop's two waits on the disk.
 - The installer's units keep `KillSignal=SIGINT`: no longer needed, harmless, right for an older binary.
 - `theseusd restore` still needs 1Password access to start, though it reads no secret.
 
@@ -5910,8 +6019,9 @@ model, in health, on a Discord line, and in a listing) wherever it said somethin
 **Known gaps.**
 - The bindings file is read only at the binding's start, so a place removed live stays bound until the next start
   (theseus-ocwt).
-- A live check can't read back a posted Discord message: `discord.message.out` keeps its length, and edits write
-  no row (theseus-qifw).
+- ~~A live check can't read back a posted Discord message: `discord.message.out` keeps its length, and edits write
+  no row (theseus-qifw).~~ Built in Item 47, on the stand-in, which keeps every version of every message; on
+  real Discord, theseus-w04x.
 - No model-facing task or session listing exists yet. When one lands, it follows §3.24's rule, with its test.
 - Build-chain tooling, not Theseus. Both were fixed the same day in `tools/theseus-quiet.sh` and the lane recipe:
   - the gate's helper paused a lane's `cargo` while it held cargo's package-cache lock (theseus-xfr1);
@@ -5996,9 +6106,9 @@ model, in health, on a Discord line, and in a listing) wherever it said somethin
   has one now: both connect straight (Item 23, and the Observatory's at the docs commit; theseus-88im, closed).
   A squatter on the dev port still serves a page with the dev origin. Hence: off by default, ledgered, and "unset
   it when you are done".
-- The owner lookup reads the whole table (about 2 ms), and the accept loop waits on each one in turn
-  (theseus-u6xg).
-- Refusals held within the ledger's one-minute span are lost at shutdown (theseus-sqpx; H1's).
+- ~~The owner lookup reads the whole table (about 2 ms), and the accept loop waits on each one in turn
+  (theseus-u6xg).~~ Built in Item 46: one `sock_diag` request, 11.6 µs.
+- ~~Refusals held within the ledger's one-minute span are lost at shutdown (theseus-sqpx; H1's).~~ Built in Item 55.
 - Health's `web` section isn't in the CLI's text summary or the Observatory (theseus-jxau; the cockpit shows it).
 
 ### Item 23. The new experience: the cockpit at `/cockpit/` (theseus-45n5; 2026-10-01 from 09:52, Tabitha in the foreground while the chain ran; d561792 to 8bea68c)
@@ -6152,7 +6262,7 @@ Each was gated again on `main` after its rebase (`~/reports/theseus-merge/<lane>
 **Known gaps.**
 - The bench's margins (theseus-zay1, above).
 - The recall wire-in (row 51) moves the protocol's new shapes into `theseus-protocol`, and puts the weights, the
-  dead records, and the compactions in health (`recall.md`, "What 30a and row 51 inherit").
+  dead records, and the compactions in health (`recall.md`, "What 30a and row 51 inherit"). _(Row 51 moved the tender's wire shapes into `theseus-protocol`: Item 50.)_
 - An incident in passing: the recall lane's tender inherited the gate lock from 11:01 to 11:13 (theseus-e6xj,
   fixed in Item 21's tooling note).
 
@@ -6249,13 +6359,13 @@ Each was gated again on `main` after its rebase (`~/reports/theseus-merge/<lane>
 | 2ij (the issue's alternative): "terminal and older than a stated age" | age only for files no action owns (24 h) | a known job's result held behind a budget question for days must not be lost | Keep |
 
 **Known gaps.**
-- theseus-vni9 (P2): S2 (2), a single store-writer thread. The cancel's own kernel transitions still fsync on a
-  worker.
-- theseus-avvb (P2): S2 (3), the periodic index checkpoint in a tender.
+- ~~theseus-vni9 (P2): S2 (2), a single store-writer thread. The cancel's own kernel transitions still fsync on a
+  worker.~~ Built in Item 52.
+- ~~theseus-avvb (P2): S2 (3), the periodic index checkpoint in a tender.~~ Built in Item 52, on the store's writer.
 - theseus-f337 (P3): the disk's `low` and `below_floor` reach no one unless they read health, and nothing wakes a
   refused job when space returns.
-- theseus-ht82 (P3): a running job can still fill the disk through files it writes itself. The floor only refuses
-  the next job.
+- ~~theseus-ht82 (P3): a running job can still fill the disk through files it writes itself. The floor only refuses
+  the next job.~~ Built in Item 54: below the floor every running job stops.
 - theseus-51v8 (P3): the Observatory and the cockpit don't show `disk` or `spool.last_sweep` yet.
 - theseus-gsn9 (P3, the review): the cap keeps the head, so a job that overruns it loses its end, where builds and
   tests print their verdict.
@@ -6462,9 +6572,9 @@ should be in `docs/` as markdown.
 - The merge gate on `main`: green at 4961916 (13:38:13, 1,196 tests).
 
 **Known gaps.**
-- theseus-8d1b (P2): `theseusd example-config`'s template and `--config`'s default still name the operator's own
+- ~~theseus-8d1b (P2): `theseusd example-config`'s template and `--config`'s default still name the operator's own
   vault and items. A newcomer following the quick start sees them. The fix is placeholders that read as
-  instructions, and a generic default.
+  instructions, and a generic default.~~ Built in Item 55.
 - ~~The README names what is next on the roadmap. Each spec version that lands a step should check that paragraph,
   as it checks `docs/the-ship-of-theseus.md`.~~ Since 2026-10-01 (Eddie), the README stays stable and links to
   `docs/status.md`, which each spec version that lands a step updates (theseus-5d96).
@@ -6638,13 +6748,14 @@ Eddie approved generating the web types with ts-rs (12:17, again 12:59). Behavio
 **Known gaps.**
 - `NodeInfo.detail` is still a JSON map per node kind; its TypeScript is `Record<string, unknown> | null`
   (theseus-a6be).
-- `theseus-sim fake-discord` has no gateway and no interaction callback; C3's stand-in lives in the report
-  (theseus-6g62).
+- ~~`theseus-sim fake-discord` has no gateway and no interaction callback; C3's stand-in lives in the report
+  (theseus-6g62).~~ Built in Item 47.
 - Two tests race under load: the sweep test checks a spawned wrapper before it exec'd (theseus-uev6), and
   `tests_outbox::a_card_in_a_channel_mentions_its_answerers…` (already theseus-50p).
-- Stored floats re-parse one ULP off without `float_roundtrip`, so 5 of Eddie's 105 nodes re-encode differently
-  (theseus-k52m; nothing re-encodes a node today).
-- The message and the press on real Discord wait for Eddie (theseus-kl8m).
+- ~~Stored floats re-parse one ULP off without `float_roundtrip`, so 5 of Eddie's 105 nodes re-encode differently
+  (theseus-k52m; nothing re-encodes a node today).~~ Built in Item 54.
+- ~~The message and the press on real Discord wait for Eddie (theseus-kl8m).~~ Item 47 proves both through the
+  stand-in, in the gate; real Discord's own half stays with Eddie.
 
 ### Item 31. An honest token estimate, and a timing test that holds under load (theseus-f5hf, theseus-ksfu; the `tokens` lane; 2026-10-01 13:55 to 14:55, reviewed 15:04, joined after Item 30; f9509f3, 7bbd21c, ce19342, rebased as 7335e15, 4aa13db, 042ff07)
 
@@ -6743,6 +6854,8 @@ Nothing checked it, and 13 of `main`'s 21 crates sat unread.
 | crate `theseus-mcp` | row 66 (36b) | M7 | McpBoard and [mcp.servers], MCP tools in turns; the server side at row 72 (41b) |
 | crate `theseus-voice` | row 77 (44b) | M7 | /join, and utterances into turns; speech as spend at row 78 (45b) |
 
+_Read since (v0.77): `theseus-aws-catalog` and `theseus-aws` at C1 (Item 49), `theseus-follow` and `theseus-index` at row 51 (Item 50), and `theseus-sandbox` at 17b (Item 58)._
+
 Tools, readers of their own: `theseus-sim` (the gate's lifecycle bench, the crash test, kernel-sim, and the fake
 Discord). No method, notification, edge kind, or label is reserved: every one has its reader.
 
@@ -6839,11 +6952,11 @@ queue drains, so a client always hears what it lost; the Observatory's tables ke
 - ~~theseus-jj9f (P2): an answer takes two kernel frames, so between them the session reads `● waiting on you`, and a
   `session.wait --until settled` parked before an answer wakes at the answer. Merging the frames is the kernel
   transaction Review 2 proposed (C6).~~ Built in Item 41.
-- theseus-7ovb (what still polls), theseus-hanu (the board falls seconds behind a burst of 5,000 requests; nothing
-  lost), theseus-2xep (a job's result queues its execution with no `execution.queued` row), ~~theseus-j7xi (the
+- theseus-7ovb (what still polls), ~~theseus-hanu (the board falls seconds behind a burst of 5,000 requests; nothing
+  lost)~~ (built in Item 46), theseus-2xep (a job's result queues its execution with no `execution.queued` row), ~~theseus-j7xi (the
   Discord binding's test)~~ (built in Item 37), all P3.
 - The cockpit reads its four lists whole again on any change, at most every 250 ms. That's fine today, and it goes
-  with stage C's paged lists (theseus-lv2).
+  with stage C's paged lists (theseus-lv2). _(lv2's reads by state were built in Item 46; the lists' own reads are theseus-96w2.)_
 
 ### Item 34. A session past its window, and a job's output at its edges (theseus-9p88, theseus-gsn9, theseus-ewev; the `overflow` lane; 2026-10-01 15:50 to 16:51, and a finish run for its report 17:13 to 17:32; reviewed 17:35 to 17:45; joined at 714bfc9 and 9558ba8; installed 19:06 at 1970bc6)
 
@@ -6944,7 +7057,7 @@ Eddie's store:
 - all six cockpit views clean, and the Observatory.
 
 It surfaced one thing: Eddie's Discord DM session from 2026-09-29 still reads `● budget exhausted`, from the old
-units limit, with $99.58 of its $100 left (theseus-3ebd, P3).
+units limit, with $99.58 of its $100 left (theseus-3ebd, P3). _(Item 53 reopens such an execution at the next start.)_
 
 ### Item 36. The CLI's client library: the connection and the renderers move out of the binary (theseus-7yx, step 10a; row 11 of the re-cut; 2026-10-01 19:11 to 19:56, reviewed 19:59 to 20:01; 7e0325f, 458e5aa, a0f594f; installed 20:08 at 9637142)
 
@@ -7038,9 +7151,9 @@ v0.76 corrects §3.18's wording.
 never reaches that wait; the live check raced the launch's own window instead. `stop_launched` repeats about 15
 lines of `terminate_all`'s job stop; folding them is optional.
 
-**Known gaps.** A job that reported with its output still open has its raw output deleted under its lingering
-wrapper (theseus-5wgd). A `/stop` handled before the turn of an input sent just before it is admitted doesn't stop
-that turn (theseus-hmwv; seen live). Both P3, for lane robust2.
+**Known gaps.** ~~A job that reported with its output still open has its raw output deleted under its lingering
+wrapper (theseus-5wgd).~~ (Built in Item 54.) ~~A `/stop` handled before the turn of an input sent just before it
+is admitted doesn't stop that turn (theseus-hmwv; seen live). Both P3, for lane robust2.~~ (Built in Item 55.)
 
 **The install** (20:08:11 at 9637142, Items 36 and 37). Store backup first, then a release live check: health,
 the pills through `theseus_client`, a GLM turn and a wait, six cockpit views, and no errors.
@@ -7302,11 +7415,11 @@ source carries the state and the metadata. A hangup releases the pane too. Sync 
 new shell's startup files may ask for a passphrase first), and runs this binary by its whole path, on this
 daemon's socket. A split takes the largest pane.
 
-**Known gaps.** theseus-tq04 (P2): `session.watch` alone doesn't seed the daemon's push, so a watcher on a daemon
+**Known gaps.** ~~theseus-tq04 (P2): `session.watch` alone doesn't seed the daemon's push, so a watcher on a daemon
 that nothing else watches gets no `execution.changed`. The CLI works around it, and the TUI and herdr both rely on
-the push. Then theseus-d5oc (a pin isn't remembered), theseus-pkaq (no herdr plugin: nothing runs sync after herdr
-restarts, and no key answers the focused pane's question), and theseus-nu3z (a message typed in a pane takes the
-daemon's live profile, not the session's; it goes with the persona work, theseus-9xli), all P3.
+the push.~~ (Built in Item 54.) Then theseus-d5oc (a pin isn't remembered), theseus-pkaq (no herdr plugin: nothing runs sync after herdr
+restarts, and no key answers the focused pane's question), and ~~theseus-nu3z (a message typed in a pane takes the
+daemon's live profile, not the session's; it goes with the persona work, theseus-9xli)~~ (built in Item 54), all P3.
 
 **The install** (23:26:54 at 9ac009d, Items 38, 39, 41, and 42): the CLI (`tui`, `reach`, and `herdr`),
 `theseusd` (C6 and jj9f), `theseus-sim`, and `theseus-tui`. The live check: a GLM turn, a wait, and `theseus tui`
@@ -7371,6 +7484,8 @@ log.
 
 ### Item 44. The `hardening2` lane: Review 2's security items (theseus-8dg0; R9, H9, H7, and considerations 2, 3, and 5; 2026-10-01 21:37 to 23:55, two runs (the first ended at the 22:05 usage limit); reviewed 2026-10-02 07:38 to 08:25; rebased onto 4eb6db2 as 8637134 to a704a77, with two join fixes, a26d04c and 59a72b8; joined 08:25 at 59a72b8; not yet installed)
 
+_Correction (v0.77): installed with 9f4035b on 2026-10-02 at 14:23, the install that also made Eddie's daemon a systemd user service (Item 56)._
+
 **Why.** Six of the Review 2 items Eddie accepted on 2026-10-01 at 19:54:
 - R9: an `fs.read` of a FIFO waited forever for a writer, holding a pool core and a thread for the daemon's life;
 - H9: the scrubber caught exact values and seven token prefixes, but not a value encoded, an AWS key, a private-key
@@ -7425,10 +7540,12 @@ also made a section with no `channels` key mean the CLI and a trusted user's DM,
 Consideration 5 keeps the gate's path check to `~` alone, and couldn't make §1's licence rule hold: the voice
 engine, merged after the review, brings MPL-2.0 crates of its own.
 
-**Known gaps.** theseus-yl5w (P2: the licence, Eddie's decision). theseus-ur1t: a granted git's hooks and the
+**Known gaps.** theseus-yl5w (P2: the licence, Eddie's decision). ~~theseus-ur1t: a granted git's hooks and the
 programs its config names, and the git that gh runs, still get the variable; at L0 a job that can write those can
-also read the process's environment, and L1 is the boundary. theseus-txvt (grants to other launchers), theseus-ck0k
-(no end-to-end test of a card that stays in a trusted guild channel), theseus-5b9m (R9 ends a FIFO-based harness
+also read the process's environment, and L1 is the boundary.~~ (Built in Item 55: a granted git runs no hooks; what
+its config names still reaches the variable at L0, theseus-ngz5.) ~~theseus-txvt (grants to other launchers)~~
+(built in Item 55), ~~theseus-ck0k (no end-to-end test of a card that stays in a trusted guild channel)~~ (built
+in Item 47), theseus-5b9m (R9 ends a FIFO-based harness
 for cancel races), and theseus-od13 (the web apps don't show the two new health lines), all P3.
 
 **The join** (2026-10-02 08:25, at 59a72b8). The rebase onto C2 met two conflicts, both in the core's `AGENTS.md`,
@@ -7437,7 +7554,7 @@ first form, 346f2a3, which was made again as a26d04c. The second failed on C2's 
 recorded a test's bare answerer as `"via":"unnamed"`. Consideration 2 makes that label answer as the CLI, so three
 `action.confirm_answered` rows (the approval, the decline with a note, and the budget reset) now say `"via":"cli"`
 (59a72b8). The third passed at 08:24:54: 1,428 of 1,428 tests, and the lifecycle bench in 6.8 s. The wait for the
-shared gate lock cost about 25 minutes across the three (theseus-rx91).
+shared gate lock cost about 25 minutes across the three (theseus-rx91; Item 51).
 
 **Before the install.** Without an `[approval]` section, Eddie's web UI's answers would be refused, though his
 cards would still reach his DM. So three lines go into his config first (sent to him at 07:49), and the install waits for them. Then
@@ -7471,3 +7588,813 @@ herdr plugin, the test voice channel, and a Discord `/queue`.
 **Found on the way.** Part III gaps that later work closed but never struck: Batch C part 1's two `otel` gaps (moot
 since Step O1), the narrative's unbounded queues (bounded since Item 33), and A0's dollars, hooks, and GLM. v0.76
 strikes them, with pointers.
+
+### Item 46. The `perf1` lane: reads by state, the start's and the stop's disk work, and the memory target (theseus-cvd0: theseus-lv2, 2qt, 0dq, 02k, 26r, hanu, byu, u6xg, and ndw; 2026-10-01 23:34 to 2026-10-02 01:31, and a second run, 07:35 to 08:15, after the usage limit; reviewed 08:25 to 08:34; rebased onto d7358f3 as a24c1d8, c21f531, and 4ea47e1; joined 08:34 at 4ea47e1; installed 14:23 with 9f4035b)
+
+**Why.** Eddie, 2026-10-01 at 23:11: the critical work now, end to end, with the memory target as a proof point. At
+10,000 parked sessions, every start read every execution, and every health answer decoded every execution, action,
+and session. The driver's 500 ms tick read every open execution, and a parked conversation is an execution waiting
+on input, so that was all of them. The history check after serving re-read the whole WAL at every start, a stop paid
+two durable commits, and a burst of writes stalled the push's board for as long as it lasted. §9 promised 10,000
+parked and 50 active sessions in under 1 GB, and nothing had measured it.
+
+**What landed** (§9).
+- **Reads by state** (lv2, 2qt). The store's index keeps a projection of each key's latest record: an execution's
+  terms (its state; `due`, when a due time or a task's report may wake it; `w`, when it holds wakes; its limit, when
+  that follows the config's; its parent), an action's state, and each session's numbers (turns, five token counts,
+  and cost). The start reads the executions a crash interrupted, the driver's tick the queued and the due ones, the
+  reconcile the sent actions, and a stop, a cancel, or a task's end its own execution's unsettled actions. Health
+  counts from the projection and reads no record. The terms are built after serving: a store an older build wrote
+  last is read as before until its projection is whole.
+- **The history check from its mark** (0dq): the last check's last frame is checked again, then only what follows.
+  The whole history is checked once a day, and a mark that doesn't check is not believed.
+- **A stop's one commit** (02k): the stop's checkpoints sync nothing of their own, and redb's close makes them
+  durable: 5 syncs a stop, where it paid 6 or 7. Each phase of a stop is logged at debug (26r). The rare slow stop,
+  caught at 402.7 ms, was the machine's writeback in one of the stop's two waits on the disk (138 ms in the row's
+  fdatasync, 258 ms in redb's close), and neither wait can go.
+- **The board on a thread of its own** (hanu): the push applies frames on the blocking pool, so it keeps up while
+  every runtime worker waits on the disk.
+- **Restore** (byu) prints its phases (copy, open, counts, record, swap) and builds the index in bulk from a replay
+  of 4,096 records or more. **The web UI's owner lookup** (u6xg) is one `sock_diag` request, 11.6 µs, where reading
+  `/proc/net/tcp` took 2,050 µs. **The bench's `inflight` phase** (ndw) times a clean stop with a reply's post held
+  in flight.
+
+**How it is proven.**
+- **A counting store**: 42 executions (40 parked, one queued, one mid-turn with a job), then a crash. The start reads
+  1 execution and 1 action, the driver's tick 2, health none, and a stop 1. **kernel-sim**: at every step, through
+  its crashes, reopens, and races, every read by state equals a full read. Revert proofs for lv2, 0dq, hanu, and the
+  bulk build; strace counted the stop's syncs; a burst of 5,000 `session.open` left the board current, where
+  9ac009d's held 400 views beside 4,975 sessions.
+- **The 10,000-session A/B**, release, alone under the gate lock, 9ac009d against the lane: a cold start's p50 119.1
+  to 21.5 ms; a kill's restart 149.9 to 48.0 ms; a swap 149.2 to 45.6 ms; health 63.6 to 1.67 ms; an idle daemon
+  5.05 % of a core to 0.10 %.
+- **The memory target passes, about tenfold.** A release daemon on 10,000 parked sessions idles at 16 MB (9ac009d:
+  62 MB). With 50 turns in flight at once on a stand-in model, it peaks at 104 MB (9ac009d: 231 MB, most of it held
+  in glibc's per-thread arenas). Most of the lane's peak is the harness's own `session.list` of every session.
+- **Gates**: gate 7 on the rebase onto C2, 1,425 of 1,425, and the bench alone after it, every budget met. **The
+  join's gate** at 08:34:26: 1,443 of 1,443, the bench in 10.6 s.
+
+**Divergences.** The issue said "O(open)"; the projection is by state, since a parked session is open. The terms
+were built at open in the first commit, which put about 100 ms on an upgraded store's first start, so they moved
+after serving. 26r was not in the stop's code: it is the disk. The push's seed is about 5 ms slower at 10,000
+sessions, since the start no longer reads every execution before it. Restore's index is built inside the restore,
+since the restored store's first start must find it whole, and a draft that hard-linked the sealed segments was
+withdrawn (theseus-j1ly).
+
+**Known gaps.** The list methods still read every record: at 10,000 sessions a `session.list` takes 149 ms and
+answers 5.4 MB, the one memory peak left (theseus-96w2, P2). The bench's own Discord binding never binds, so
+`driver_before_token` checks nothing (theseus-l21m, P2). Restore's budget and one for a stop with a post in flight
+were proposed for Eddie's call, and are measured, not gated, until he answers (theseus-fsug; §9). glibc's arenas
+(theseus-4qou), restore's segment links (theseus-j1ly), and a web test's wall clock under load (theseus-ioq7), all P3.
+The request handlers' waits on the disk were S2's (Item 52).
+
+### Item 47. The `proofs1` lane: Discord proven end to end without a person (theseus-9kjv, with theseus-6g62, theseus-ck0k, theseus-qifw, and theseus-kl8m's steps; 2026-10-01 23:34 to 2026-10-02 08:00, with the usage limit's pause from 01:37 to 07:35; reviewed from 08:26; 88099bb, a25adb0, and d98ed87, merged as d051779, 2d68c88, and 699927d; joined 08:38 at 699927d; installed 14:23 with 9f4035b)
+
+**Why.** theseus-kl8m asked Eddie to prove the Discord binding by hand in the test channel: type a message, press a
+card's buttons, and read what came back. A bot can neither type nor press, and the binding's logic needs no person.
+
+**What landed** (§3.1).
+- **A stand-in for all of Discord the binding talks to**, in `theseus-sim`: the gateway (`fake_gateway.rs`: HELLO,
+  READY, RESUMED, heartbeat ACKs, dispatches, and nothing kept of an IDENTIFY), and the REST fake grown to answer
+  interaction callbacks, original-response edits, and follow-ups, to keep every version of every message and every
+  answer to an interaction, and to hold a guild that answers the viewer check (the members intent, the channel's
+  overwrites, the guild's owner, roles, and members).
+- **A user's part, sent as Discord sends it**: `say` types a message as a user, and `press` presses a button the
+  binding posted (ck0k's viewer check answered, qifw's posts read back).
+- **The proof**, `theseus-sim discord proof --theseusd <bin>`: kl8m's steps against a real `theseusd` on a scratch
+  state dir, its binding on the stand-ins, a scripted model, and a fake `op` that answers every secret with an
+  invented value. Twelve steps: the daemon serves; the gateway identifies; a channel and a DM bind; the viewer check
+  trusts the channel; a typed message gets its reply; an unlisted user is ignored; a write outside the roots waits
+  with its card naming the listed user; the unlisted user's Approve is refused and the call keeps waiting; the
+  listed user's press runs it; the card settles (approved, buttons gone); the resumed turn's reply posts; and the
+  daemon stops cleanly, with no token in anything the stand-in kept. theseusd's `tests/discord_proof.rs` runs it in
+  the gate. For a live check across processes: `fake-discord --gateway --guild`, and `discord rig|model|say|press|read`.
+
+**How it is proven.**
+- The fake's payloads decode as twilight-model's own types, which caught READY's user without `mfa_enabled` and a
+  follow-up's zero channel id before any binding test ran.
+- Three binding tests through the gateway, and four planted reverts in the binding (a press, and a message, from
+  someone the place doesn't list; the viewer check without overwrites; a settle that keeps its buttons), each caught
+  by those tests and by the gate's proof. A fifth, in the fake, is caught by the fake's own test.
+- **Timings**: debug, 12 of 12 in 2.9 s; the lane's release build, 12 of 12 in 2.3 s, and 2.6 s at the last commit;
+  across processes, driven only through the CLI, 10 of 10, twice.
+- The lane's gate 5: 1,418 of 1,418. Merged into C2, and into the chain's `main` with hardening2, it built and passed
+  its 105 tests on each. **The join's gate** at 08:37:32 passed.
+
+**Divergences.** The stand-in, not Eddie, types and presses, in the gate. It is written in Rust on tungstenite
+rather than taken from C3's Node prototype: one binary, no Node in a check. The REST fake's `answer` was split
+(`read_request`, `bot_route`, `interaction_route`) to fit bench2's 100-line budget (Item 48).
+
+**Known gaps.** The stand-in drives no slash command, select menu, attachment, `GUILD_CREATE`, or dropped gateway
+yet (theseus-ymi3); read-back on real Discord (theseus-w04x); three hand-written Messages-API stand-ins to unify
+(theseus-luxx), all P3. Four gate tests that flake beside nice-0 neighbours (theseus-zfaq, 1m3s, 535n, 1n5f), and an
+internal ENOENT naming no path from two tests (theseus-46ya, P2). Real Discord's half of kl8m, the bot's permissions
+and intents, stays with Eddie: kl8m is closed as superseded, and he keeps the option of one human run at v1's call.
+
+### Item 48. The `bench2` lane: what runs, measured; the toolchain pinned; builds that repeat; an offline deny; a shape budget (theseus-goa8; Review 2's S4, S7, SC1 to SC3, C1, C7, and consideration 8; 2026-10-01 23:19 to 2026-10-02 09:25, two runs (the first ended at the usage limit at about 01:30); reviewed from 09:32; rebased onto c72baf8 as 9a0e602, 02dbee7, 0cd880c, 0a6805f, 94c753b, 18cca8d, 9e675c0, ede2add, 821e054, and 34be7e2; joined 09:42 at 34be7e2, a fast-forward; installed 14:23 with 9f4035b)
+
+**Why.** Review 2, accepted on 2026-10-01 at 19:54, found that the benches measured the start and the stop and nothing
+between them (S4, consideration 8); that every install paid for a fat-LTO build (S7); that the toolchain floated on
+`stable` (SC1), the gate's `cargo deny` needed the network (SC2), and two builds of one commit differed (SC3); that
+nothing held the code's shape (C1); and that the gate's own cost and its flaky tests went unrecorded (C7).
+
+**What landed** (§1, §3.18, §9).
+- **Measuring what runs** (9a0e602, 18cca8d): `theseus-sim bench turn` (a plain turn and a tool-call turn on the
+  stand-in model, with the disk's `fdatasync` and the daemon's memory beside them), `bench idle` (a daemon with
+  nothing to do, over 30 s: its CPU, wakeups, frames, and memory), and `bench size`. Frames per turn are counted from
+  the WAL by a read-only tail, since the daemon reports none, and the plain turn's 5 are a gated budget in every
+  gate, a lane's too: a count needs no quiet machine.
+- **The install profile** (0cd880c, ede2add): `[profile.release-thin]` (thin LTO, 16 codegen units; cargo reserves
+  the name `install`). The chain installs it, and a tagged release keeps `release`.
+- **One exact toolchain** (0cd880c): `rust-toolchain.toml` pins 1.98.1, and CI installs from the file.
+- **Builds that repeat** (0cd880c, ede2add): `scripts/build.sh` is the one release build. It builds the whole
+  workspace (`--shipped` builds the four binaries, for looking), `--locked`, with embedded paths rewritten, the
+  commit's time as `SOURCE_DATE_EPOCH`, and rust-embed's `deterministic-timestamps`. `scripts/repro.sh [--bench]`
+  builds a commit twice and compares the binaries.
+- **An offline deny** (0a6805f): the gate runs `cargo deny --offline`, and says when the advisory database is over 7
+  days old. `scripts/deny-daily.sh` fetches and files an issue on a finding; its timer is not installed.
+- **The shape budget** (94c753b, 821e054): clippy's `too_many_lines` and `cognitive_complexity` across the workspace,
+  134 existing offenders marked `#[expect]`, `scripts/shape.sh`'s ceiling on a file's length, and
+  `scripts/shape-expect.py`, which marks new offenders and removes the marks a change made unfulfilled.
+- **Phase timings and the flaky list** (02dbee7, 9e675c0): the gate times each phase and prints the table, a failed
+  run's too. nextest retries three named tests (theseus-i1i4, a2ec, 3dsz), and the gate prints and logs each that
+  passed only on a retry. A new flake fails the gate until it is filed and listed.
+
+**How it is proven.**
+- **The frames budget**: one more frame planted in `Core::run` made `bench turn --check` read 6 against 5, name the
+  extra `[meta]` frame, and exit 1. The plain turn's five frames match
+  `tests_m3::a_plain_turn_stays_within_its_frame_budget` row for row.
+- **The gate's changes, by planting**: an unformatted file stopped it in `fmt` with the table; a test that fails its
+  first try passed as `1420 passed (1 flaky)`, printed and logged; with no network at all, the old `cargo deny`
+  failed and the new step passed in 2 s, and an advisory not ignored still failed; a 114-line function failed
+  clippy, an unfulfilled `expect` failed it, and `shape.sh` failed on four plants.
+- **Reproducible builds**: two uncached builds of one commit, in two directories, gave identical binaries under
+  `release`, `release-thin`, and the whole-workspace `release-thin`. rust-embed's timestamp was the cause (21 bytes
+  differed in a one-file crate without the feature, none with it).
+- **The install profile**: a cold build costs the same (10 m 47 s thin against 10 m 44 s fat), a rebuild after a
+  change to the core is 2 to 6 times faster, `theseusd` is 23 % bigger (28.8 MB against 23.4 MB), and CPU-bound
+  `kernel-sim` work is about 10 % slower. The daemon's own benches can't tell the two apart.
+- **glibc or static musl**, measured on one commit: musl uses 16 to 25 % less resident memory and stops, restarts,
+  and swaps 20 to 40 % quicker, but its allocator costs allocation-heavy work 36 % more user CPU and 3 to 5 times
+  the system time. So the install stays glibc, which the gate and the live checks run (§3.18).
+- **Gates**: nine green before the rebase, one per commit, and gate 12 on the rebased tip, 1,471 tests. **The join's
+  gate** at 09:42:12: 1,471 of 1,471.
+
+**Divergences.** The profile is `release-thin`, not `install`. The review counted 36 shape offenders; there are 134,
+since the tree grew and `--all-targets` reads the tests. `quinn` is only in `Cargo.lock`; what compiles twice is
+songbird's `hls_m3u8` branch. `build.sh` builds the whole workspace, not the four binaries: cargo gives 29 of their
+334 shared crates more features in a whole-workspace build, one of them a TLS root set (theseus-dn7p), so a
+four-binary build is not the build that was tested. The profile's 10 % is more than "a few percent", and was adopted
+anyway: the chain rebuilds after every reviewed step.
+
+**Found on the way.** An idle daemon at 10,000 parked sessions never went quiet (about 5 % of a core with no frames
+written): Review 2's S1, which perf1's reads by state fixed (Item 46). The nightly prune deleted run 1's scratch build
+directory, which wasn't a worktree's, so scratch builds now stay inside a lane's own target.
+
+**Known gaps.** Two flaky tests on the list (theseus-a2ec and 3dsz, P2). P3, post-v1: the rest of S4 (theseus-qlbq),
+an installed binary checked against its commit (theseus-w441), the cockpit's uncommitted build (theseus-63gf),
+duplicate versions in `deny.toml` (theseus-tcdl), a nightly reproducibility job (theseus-at7b), the TLS roots
+(theseus-dn7p), a better allocator for musl (theseus-w6hg), and a musl build that something runs (theseus-3yu1). The
+daily deny timer waits on Eddie's decision; until then the deny script is run by hand at each install.
+
+### Item 49. AWS's C1 = 14a: the bound account and its read tools (theseus-ppsd; row 29, stage D's first row; built in the `aws-c1` worktree beside C2, 2026-10-02 00:10 to 01:35, rebased onto C2 from 07:35, and onto 699927d with NODE schema 3 from 08:41; reviewed from 08:40; rebased at the join onto 34be7e2 as 79e1b49, with 32fd483 for the shape budget; joined 09:57 at 32fd483; installed 14:23 with 9f4035b)
+
+**Why.** The AWS design's first slice on the spine (its §5, "C1 = step 14a. The bound account, and reads: the
+tracer bullet"), on the client and the catalog the aws-client lane merged ahead of their reader (Item 18). Their
+`reserved_for` markers are gone: they are read now.
+
+**What landed** (§3.9; AWS).
+- **The account**: `[aws.accounts.<id>]` names the key's two `[secrets]` entries (`credentials`; by default
+  `aws_access_key_id` and `aws_secret_access_key`), a region, and the regions a call may name. The key resolves on
+  the secrets board after serving, like every secret. The account is checked once, after serving, as the
+  background startup phase `aws.check`: `sts:GetCallerIdentity` must name the table's account. Until it does, no
+  call signs: a call waits for the check at most 30 s, then fails closed, saying why. A check that failed for a
+  reason that may pass runs again at a call 30 s later; a key of another account, or one AWS refused, does not.
+  Health has an `aws:` line per account.
+- **Four tools**: `aws.call` (any read of any service, from the catalog compiled from the AWS CLI's models),
+  `aws.describe` (the catalog, local, with no network), `aws.whoami` (STS, now), and `aws.s3.list` (the buckets
+  with their regions, or the folders and objects under a prefix, capped, with a summary; a bucket in another
+  allowed region is found and listed there).
+- **Reads only, enforced before anything is sent**: `Client::check` runs in the plan, before the gate, with no
+  network. A write, a run, a secret-bearing read (`GetSecretValue`, `GetParameter` with decryption), a region the
+  account doesn't allow, and a bad input are invalid input, each naming the step that brings it, and nothing is
+  sent.
+- **The posture** (§3.9's step 4): `[policy.tools]`'s line for the tool, then `[policy.aws]`'s for the operation
+  (`"s3:ListBuckets"`), the service (`"s3"`), and the class (`read`), then `enforcement`.
+- **Visibility**: every request is attributed in its user agent (`exec/<execution>` and `call/<correlation id>`,
+  which CloudTrail keeps). Each is an `aws.called` row with AWS's request id, never a credential or a result (a C2
+  fact since run 2, `LedgerKind::AwsCalled`), and a span under its call's, in OpenTelemetry's AWS names. The CLI's
+  `☁` line, the Discord tool line, and the Observatory's account line show it.
+- **The store**: a tool call's gate record may hold `plan.class` and `plan.aws`, both optional, so NODE goes from
+  schema 2 to 3, with a test that reads a schema-2 node. The first node a later build writes marks the store, and no
+  earlier build opens it again: a rollback is a restore of a copy taken before the upgrade.
+
+**How it is proven.**
+- **Tests**: the template's account and `[policy.aws]` lines; the account table's ten ways to fail to load; nothing
+  reaching AWS until a call; fifteen plans that must fail (writes, runs, secrets, regions, inputs), with nothing
+  sent; a key of another account failing closed, and a call waiting 30 s for a key on tokio's paused clock, then
+  failing closed; a whole core's AWS call as a row, a span, and a result; and a real daemon whose check begins only
+  after the socket answers, with one request.
+- **Three planted reverts**, each caught: fail closed off, reads only off, and the check moved before serving.
+- **Live and read-only on the Home account**, in runs 1 and 2: a GLM turn made `aws.whoami`, `cloudformation
+  DescribeStacks`, and `aws.s3.list`, and a bucket in another region was found through S3's redirect and listed
+  there. CloudTrail's event history showed every call within four minutes, each with its row's request id and its
+  execution and correlation ids. Nothing wrote to an AWS account, and no key was printed.
+- **Gates**: 1,423 tests (run 1), 1,427 on C2 (run 2), 1,474 on 699927d (run 3). Run 2's gate found a race in the
+  daemon's AWS start test (its poll could land between the account's binding and its phase's end): reproduced 8 in
+  80 under load, fixed in the test, then 80 of 80.
+- **The lifecycle bench**, alone: run 1's pair passed both builds at load 8 to 10. Run 3's missed p95s on a busy
+  machine (IO pressure 8 to 19 %) with every p50 within its budget, and C1 adds only `[aws]`'s parsing to the start
+  path. The review accepted it on the recipe's rule, and the join's gate benched it again.
+
+**Divergences.** `credentials` names two `[secrets]` entries, as every other secret consumer does, not an `op://`
+reference. The account's check is a startup phase and health, not a ledger row, like the GitHub token's.
+`aws.describe` takes its posture from `[policy.tools]`, since it makes no AWS request. No metrics by service and
+operation (the spans carry the facts), no idempotency key until there are writes, and no operating manual until 14b.
+One fix outside the step: `[policy.tools]` lines for `task.create` and `wake.at` now load.
+
+**At the join.** The rebase onto bench2's 34be7e2 met the shape budget: C1 took `config.rs` past 2,500 lines and the
+CLI's `render.rs` past its ceiling. 32fd483 lists `config.rs` at 2,900, raises `render.rs`'s ceiling to 3,100 with
+the splits filed (theseus-sk47, theseus-wdcw), and adds two `#[expect]` marks.
+
+**Known gaps.** A `[policy.aws]` key that names no service or operation loads and governs nothing, so a typo loosens
+a posture: harmless with reads only, a security problem with 14b's writes (theseus-snhr, P2, in 14b's brief). P3,
+post-v1: metrics (theseus-ku5f), the manual (theseus-0e53), a gate check of the AWS layer's size (theseus-jsl5), the
+key's age (theseus-nte0), and request spans for a call that runs after an approval (theseus-0zm4).
+
+### Item 50. Row 51, 29b's wire-in: the index tender comes alive (theseus-u55z; stage F's first row, M6; built in the `m6-29b` worktree beside C2, 2026-10-02 from 00:10, rebased onto C2 from 07:35 (run 2), and onto 32fd483 from 09:58 (run 3); reviewed from 08:58; 3fe0d13, 6a21931, and 371725d; joined 10:40 at 371725d, with the turn bench's fix 3a4beff after it; installed 14:23 with 9f4035b)
+
+**Why.** `theseus-index` (BM25, exact entities, and vectors over the WAL) and `theseus-follow` were on `main`, merged
+ahead of their reader (Items 16, 20, and 24), and nothing in the daemon, the core, or the CLI ran them. Row 51 makes
+the index tender the first tender that runs, so recall (30a) has something to ask.
+
+**What landed** (§5.3, §6, §3.18).
+- **The tender**: the socket daemon runs the `theseus-index` installed beside its own binary, and only that one, as
+  `theseus-index serve --store <state>/store --index <state>/index --parent <its pid>`, at nice 10 and the idle I/O
+  class, with an environment that holds no secret. A fresh tender starts 2 s after the socket answers; a tender a
+  restart in place kept is taken over at once, so there is never a second. It exits with its daemon (`--parent`, a
+  pidfd), so no crash leaves one holding the index's lock.
+- **The supervisor** (`crates/theseus-core/src/tender.rs`): it restarts the tender at each exit, after 1 s, doubling
+  to 60 s while it keeps failing, and 1 s again after a minute's run. It restarts a kept tender whose `[index]`
+  settings changed, and sends it SIGTERM at a stop without waiting. A `Tender` child kind in the kernel's registry
+  reaps it and reports its exits, and `relearn` knows it by its command line after an exec.
+- **The record**: each start, take-over, settings change, start failure, and exit is a C2 fact (`fact/index.rs`,
+  five facts under `LedgerKind::IndexTender`), written off the runtime's workers.
+- **Health and the protocol**: health gains `index` (the tender's own status: its state, BM25-only or hybrid, nodes
+  and chunks, its lag behind the WAL, the vectors, its memory; or `off`, `starting`, or `down` and why) and
+  `children.tenders`. Health asks only a tender its supervisor runs, under 100 ms, else shows the last answer and
+  its age. The protocol gains `index.status` and `index.query`, both reads, forwarded and bounded, and the CLI
+  `theseus index status` and `theseus index search` (`--sources`), with goldens. The tender's wire shapes moved into
+  `theseus-protocol`.
+- **`[index]`**: `enabled`, `weights_dir`, `threads`, and `idle_unload_mins`, uncommented in the template. The install
+  copies `theseus-index` beside `theseusd`, and `theseus-index` is a tool now, under the reader rule.
+
+**How it is proven.**
+- **With the real binaries**: health says `starting` after serving, and the tender's `started` row comes 2 s after
+  `server.serving`; a SIGKILL brings the next 1 s later; a restart in place onto a changed note keeps the same
+  tender, `adopted`; a daemon whose tender is SIGSTOPped still stops in well under a second. On tokio's paused clock:
+  the start's wait, a take-over, a stop during the wait, the backoff's sequence and reset, and a failed start. Every
+  behaviour has a planted revert that fails its test.
+- **The lifecycle bench found a real cost.** Run 1 started the tender at serving, so every short-lived bench daemon's
+  stop, kill, and swap met a tender just starting: the clean stop was about 40 ms slower at the median, and two p95
+  budgets were missed in one round. Run 2's 2 s wait, and health asking only a tender that runs, took it off: the
+  bench then saw one tender start against 51 daemon starts. At the join's prep, the bench alone matched `main`'s
+  medians within 2.1 ms in every phase.
+- **Live, twice, on a copy of Eddie's store** with the real Nomic weights: it backfilled 94 nodes (145 chunks in
+  164 ms in run 1), lag 0 B; `theseus index search` found a phrase from one of his sessions, first by BM25; a
+  `kill -9` restarted the tender 1.002 and 1.003 s after the exit, from its cursor; and a stop ended both in about
+  90 ms.
+- **Gates**: 1,430 and 1,432 tests (runs 1 and 2), and gate 11 at the join's prep, 1,511 of 1,511.
+
+**Divergences.** The tender is a binary of its own, not a role of the daemon's, so the daemon links neither tantivy
+nor candle (about 4.4 MiB). The registry knows it by its command line after an exec, with no socket round trip. Its
+exit 3 (the index held by another) is an exit like any other, on the same backoff. One connection per call, under a
+deadline: recall brings the persistent one. `index.rebuild` through the core waits (theseus-y6za). The idle I/O class
+is a no-op here: WSL2's disks use the `none` scheduler.
+
+**At the join.** Run 3 met bench2's shape budget by splits alone, with no marks: the CLI's index lines moved to
+`render/index.rs`, `TenderStatus` moved into the protocol's `index` module, five functions were split, and the
+protocol's `lib.rs` is listed at 2,600 lines (its split, theseus-pf8a). `gate.sh`'s pre-bench build gained `-p
+theseus-index`, so the bench runs the tender of the commit judged. After the join, gatelock's first join gate found
+the tender's `started` row landing inside a measured plain turn (6 frames): the turn bench now waits for that row
+before it times a turn (3a4beff).
+
+**At the install** (14:23). Eddie's daemon backfilled his store into `~/.theseus/index`, and health said the index
+tender ran in the unit's cgroup, ready, 94 nodes, 0 B behind.
+
+**Known gaps** (all P3, post-v1). `index rebuild` through the core (theseus-y6za); the tender as telemetry metrics
+(theseus-gfi4); the default fusion burying exact matches while the vectors are still being made, for 30a
+(theseus-pv7m); the Observatory showing the tender (theseus-43g1); whether the tender's commits slow a turn's syncs,
+still to measure (theseus-dpqq); and the protocol's `lib.rs` split (theseus-pf8a).
+
+### Item 51. The `gatelock` lane: the gate takes the shared lock only around its tests and benches (theseus-rx91; 2026-10-02 09:42 to 10:56; reviewed from 11:06; 78255f9 and 51a456f, on 371725d; joined 11:16 at 3a4beff, with the turn bench's fix)
+
+**Why.** On the morning of 2026-10-02, six lanes' gates and the chain's join gates queued up to 25 minutes behind
+one another: every gate held the shared gate lock (`~/.cache/theseus-gate.lock`) through its `fmt`, clippy, and
+builds, a cold target's included, though only the tests and the benches need a quiet machine. hardening2's join
+alone lost about 25 minutes to the queue (Item 44).
+
+**What landed** (§9; `scripts/AGENTS.md`).
+- **Two modes**, `THESEUS_GATE_LOCK=outer|inner`. Outer is the default and unchanged: the old phases in the old order,
+  under a lock the caller holds. The chain's join gate stays outer, under theseus-quiet.sh.
+- **Inner**: `fmt`, the shape check, clippy, the bench build, and the test build run without the lock. The gate then
+  runs itself under `flock -o` for the reader rule, the suite, the protocol types, and the benches, and lets go for
+  `deny` and the web builds. One table covers both halves, with a `lock wait` row, and the history records it.
+- **The log** names the lock's holder and the gates queued ahead, in order, from `/proc/locks`, since a process
+  waiting in `flock` has the file open too. It says when the lock was taken and when released, and after how long.
+- **A deadlock guard**: an inner gate under a lock its caller already holds (an outer `flock`, or theseus-quiet.sh's
+  fd 9) exits 2 at once, so wrapping it can't make it wait for itself. A NOTE when the locked part compiled
+  anything, and a signal fix: a gate ended by a signal now prints its table (bash's EXIT trap had read `$?` as 0).
+- At the rebase onto 371725d, the bench's build moved into one function both modes call, so the next binary the
+  benches start is a one-line change.
+
+**How it is proven.**
+- **Inner mode with the lock held elsewhere**: the compiles finished 19 s in, and the gate waited only for the
+  locked part. After the rebase, 192 s of compile and lint ran unlocked, and the lock was held for 130 s; the old
+  gate would have held it for all of them.
+- **Outer mode** kept the history's phase order. Planted clippy and test failures exited non-zero with the table, and
+  the lock was free after each.
+- **Thirteen harness cases** on a fake cargo, in seconds: a free lock, a held one, a queue, a holder on fd 9, outer
+  mode, failures inside and outside the lock, the deadlock guard (exit 2 in under a second), a daemon that outlives
+  the suite and holds no lock, an unwritable lock, a bad mode, a compile under the lock, and a TERM while waiting.
+- **No function of the gate holds the lock's fd**, measured: while the locked part ran, only its own `flock` had the
+  file open, and after the gate, nothing. A negative control, a lock taken the forbidden way, showed the scan would
+  see a leak.
+- Whole gates in inner mode on the real lock, before and after the rebase, both green.
+
+**Divergences.** None from the plan's shape. In inner mode the benches run the test build's binaries, since cargo
+relinks on every call, so the `-p` bench build is redundant there (theseus-7ykr). That build is the one the suite
+tested, with an install's features.
+
+**The join** (11:16). The first join gate failed in the turn bench: the index tender's `started` row (Item 50) landed
+inside a measured plain turn, which then counted 6 frames. The turn bench now waits for that row after serving
+(3a4beff), and the next gate passed. Lanes switched to inner mode only after rebasing onto this `main`: a worktree
+with an older `gate.sh` ignores the variable and, without its `flock`, would run with no lock at all, so the lane
+rules check for it first.
+
+**Known gaps** (all P3, post-v1). theseus-quiet.sh pauses only compilers, while a lane's `fmt`, `deny`, and web
+builds now run beside the chain's bench (theseus-fsvv); the redundant bench build (theseus-7ykr); and no priority
+for the chain's gate in the lock's queue (theseus-rwhf).
+
+### Item 52. S2: one writer thread owns the WAL, and the commit path's discipline (theseus-vni9, theseus-avvb, theseus-xprd; Review 2's S2, R7, and R8; spine; 2026-10-02 08:35 to 10:26, and the join's run 2 from 10:41, cut by the usage limit at 11:32; reviewed from 10:29; rebased onto 3a4beff as b9ce20a, 0c57746, 4d07398, 87ea9c7, and 85e5294; joined 11:49 at 85e5294; installed 14:23 with 9f4035b)
+
+**Why.** Review 2's S2, the last of its spine items: every request handler waited on the disk on a runtime worker,
+so a burst of writes starved every other task (a health request waited 17 s in perf1's burst, Item 46). Each appender
+ran its own fdatasync, or joined a condvar's group sync, from its own thread. R7: nothing stopped a lock guard from
+being held across an `.await`. R8: `mark()` didn't take the append lock, and P5b's version rule was held only by
+review.
+
+**What landed** (§6, §9, P5b).
+- **One writer** (Part 1, b9ce20a): the store owns a thread, `store-writer`. An append hands it the frame and waits;
+  the writer writes every frame queued back to back, runs one fdatasync for the batch, indexes the batch in one redb
+  transaction, and then answers each caller. So K1's lock still spans a transition's read to its frame indexed, held
+  and released on one thread, and the kernel's transitions stay synchronous.
+- **The wait holds no worker**: it is a declared blocking section in the store's append, `theseus_store::blocking`
+  (`block_in_place`, which hands the worker's run queue to another thread first), and so are the waits for K1's and
+  the session's locks. The WAL's append is now a write and a sync, and a write cut short is cut back off.
+- **The checkpoint** (Part 2, 0c57746): the periodic checkpoint runs on the writer, after it has answered the batch
+  that crossed 1,000 records, so no append's own call pays it.
+- **R7**: `ExecLock`, `SessionLock`, and `SessionHold` are `!Send`, each with a compile-time assertion beside it and
+  a `compile_fail` doctest. **R8**: `mark()` takes the append lock, and theseus-core's `tests_schemas` records each
+  record kind's shape under its schema number, so a changed shape fails until its number moves.
+- **A segment is as durable as its frames** (theseus-xprd, 87ea9c7): a new segment's name, and a new log's
+  directory, are synced before any frame in it is reported durable. Before, a power loss right after a roll could
+  lose the new segment and every acknowledged frame in it. That cost a directory sync, 6.6 ms p50, once every
+  64 MiB of WAL; a start of an existing store pays nothing.
+
+**How it is proven.**
+- **Revert proofs** for all six fixes: group commit (13 syncs for 12 frames), the worker-free wait, `mark()`'s lock,
+  the checkpoint on the append (1.5 s for the 1,000th append), each guard made `Send`, and the directory sync. The
+  checkpoint's test holds the checkpoint on a latch, so no timing decides it (85e5294).
+- **The crash test** with torn tails, C6's 40 × 3 and a four-writer variant: zero committed records lost, on both
+  parts. **kernel-sim**, 400 seeds at `--p-race 0.5` on each part: every invariant held.
+- **At 32 concurrent turns** (the rig): wall time 30 s became 4.5 s; frames per fdatasync 2 became 16 to 17; a
+  probe's worst wait for a worker 1.9 s became 3.5 ms; commit latency p50 27 ms and p99 59 ms. §9's commit row is a
+  number now.
+- **The index tender's follower** reads the page cache and never sees a sync: a new test runs it beside the batching
+  writer, with rolls inside its batches, and it reads every record once, in order.
+- **Live**, on a copy of Eddie's store: `kill -9` during four GLM turns. Every frame acknowledged before the kill
+  was there after it, byte for byte, and all four executions were requeued and continued, their cut-off calls
+  settled unknown at their deadline.
+- **The lifecycle bench**: run 2 benched both builds in one hold of the lock, in palindrome order, four rounds:
+  medians level in every phase (cold start p50 23.6 ms before, 24.4 after), and the start's one frame, now through
+  the writer, costs about 0.2 ms. A slow mode S2's cold starts showed only in the hold's second and third places;
+  Tabitha's reverse-order run (11:42 to 11:44) swapped the places, and it followed the place, not the build.
+- **Gates**: 1,448 and 1,449 tests (run 1), 1,518 and 1,519 (run 2). **The join's gate**, 11:44:47 to 11:48:19:
+  1,519 of 1,519, lifecycle OK in 10.3 s (cold p50 23.5 ms), a plain turn's frames 5 of 5.
+
+**Divergences.** The await sits in the store's append, not at the call sites: an `async` transition would hold K1's
+thread-keyed lock across an await, which R7 now forbids, and an `.await` at every call site was a hundred edits in
+files three lanes were editing. The checkpoint's tender is the writer itself: wherever it runs it holds the append
+lock and redb's one write transaction, so queued appends wait either way, and on the writer it needs no thread of its
+own and covers every store, the sim's included. Under a burst each blocked append holds a thread, so the blocking
+pool can grow toward tokio's 512, bounded in practice by admission (8 turns by default): a measurement for v1.1.
+
+**The join.** Run 2 (from 10:41) rebased onto 371725d: `tests_schemas` refused the tree until it recorded `node @ 3`
+(C1's two fields, Item 49), the store's `store.rs` moved its tests to `store/tests.rs` for the shape budget, and
+xprd was fixed. The usage limit cut it at 11:32, after its third gate and second bench. Tabitha ran the
+reverse-order bench, rebased it onto 3a4beff (clean), and joined it.
+
+**Known gaps.** P3, post-v1: a failed fdatasync's frames come back at the next open (fsyncgate; theseus-ljgm); an open
+that replayed ends with a checkpoint on the start path, about 14 ms (theseus-4ra3); META has no recorded shape
+(theseus-ybnx); the periodic checkpoint still stalls the appends queued behind it (theseus-zsu9); a killed process's
+in-flight provider calls wait out their 600 s deadline (theseus-m9iy); and a brand-new store's own directory name is
+never synced (theseus-gf00).
+
+### Item 53. The `robust2` lane: one exit for a turn, a corrupt record that degrades only what reads it, and a crash file (theseus-xonq: Review 2's R1, R4, R5, and consideration 1; theseus-15g; theseus-3ebd; 2026-10-02 07:42 to 10:49; reviewed from 11:02; rebased onto S2 by Tabitha, with the repair flag's join patch and a shape fix; 364e8d9, 17e206b, 006a956, 0283a02, ad3590a, and 520b1bc; joined 11:53 at 520b1bc; installed 14:23 with 9f4035b)
+
+**Why.** Review 2 found that a turn faulting after a paid loop skipped its books (R1); that one corrupt record failed
+every list read, so the driver silently ran no continuation and no wake for any session, on every tick (R4, with
+theseus-15g's repair path); and that Discord's splitter needed a progress guarantee (R5). Eddie, 2026-10-01 at 19:54:
+keep `panic = "abort"` with a crash file (consideration 1), and option (a) for an execution the old unit budget ended
+(theseus-3ebd).
+
+**What landed** (§3.3, §3.13, §3.22, §6).
+- **A turn has one exit** (R1, 364e8d9): after a turn begins, every way it ends closes its books, a fault as a
+  failure does (the session's numbers, `turn.failed`, the error, telemetry; class `internal`). A charged call whose
+  answer's frame fails settles alone, so the budget holds nothing for a call that has ended.
+- **Reopened under dollars** (3ebd, 17e206b): startup's step 2 reopens an execution the unit budget ended that is
+  under its dollar limit, whether this start or an earlier build migrated it, as `budget.reopened`. It reads them by
+  their state term (perf1's projection, Item 46).
+- **R5** (006a956) was already fixed by theseus-s68 (Item 13); the lane adds the brief's adversarial cases as a
+  property test, proven against both reverts.
+- **A corrupt record degrades what reads it** (R4 and 15g, 0283a02): a list read (`read_many`, `scan`, and what
+  calls them) skips a record whose read is refused, logs it once, and counts it; a read of that record alone is
+  still refused. The driver logs a tick that can't list its executions, once per failure. Health, `theseus health`,
+  and the Observatory show the count with its repair. **The repair** (ad3590a), `theseusd restore --repair --from
+  <copy>`, takes each frame that doesn't check whole from the same offset of a copy, keeps every other byte, opens
+  the result to check it, and keeps the repaired store aside: nothing written after the backup is lost.
+- **A crash file** (consideration 1, 0283a02): a panic hook writes `crash-<mode>.json` beside the store (0600: the
+  thread, the location, the message), then the abort follows. The next start moves it into `crashes/`, logs it, and
+  writes a `server.crashed` fact without the message; health and the Observatory show the newest crash.
+
+**How it is proven.**
+- **Twelve planted reverts**, each failing its test: among them R1's three, list reads that fail whole again, a
+  driver that never logs, a repair that doesn't copy the frame, a hook that writes nothing, a start that doesn't
+  take the file, and R5's two. R4's were proven again after the rebase.
+- **A skipped record never loosens a check** (the review): the outside-text hold and an execution's budget are read
+  by key, which is still refused, and the kernel's counts come from the index's terms. Each list a skip feeds
+  degrades to less shown or done, never to more allowed.
+- **Live**: a scratch daemon on a copy of Eddie's store reopened his DM session's execution (`budget_exhausted` to
+  `waiting`, $0.42 of $100), again on the rebased build. A debug build with a planted panic aborted with a 0600
+  crash file, and the next start reported it in health and one row.
+- **Gates**: the last on the rebased branch at 10:43, 1,504 tests; the lifecycle bench alone at 10:48: LIFECYCLE OK
+  (cold start p95 24.9 ms of 50, a clean stop 33.3 of 100, a kill and restart 39.7 of 150, a swap 53.7 of 200).
+  **The join's gate** at 11:53:03: 1,534 of 1,534, lifecycle OK in 9.8 s, frames 5.
+
+**Divergences.** 3ebd reopens at every start, not only at the migration, since Eddie's store was migrated by an
+earlier build. R4's skip covers `scan` too. 15g's repair is frame by frame from a copy, which loses nothing written
+after the copy; `restore --from` already replaced the whole store. R7 and R8 moved to S2 (Item 52). The planted panic
+marks the process non-dumpable, so its test leaves no core on C:.
+
+**The join.** The run ended at 10:59 on the gateway's 8 MB output limit, after its report; nothing was lost. Tabitha
+rebased it onto S2 at the join (keep-both hunks in the store's `store.rs`, its read path into S2's `Inner`, its test
+into `store/tests.rs`, the TypeScript regenerated), applied the repair flag's patch, a dispatch match kept out of the
+branch (ad3590a), and moved the CLI's store lines into `render/store.rs` for the shape budget (520b1bc).
+
+**Known gaps.** `Wal::open` cuts a bad frame in the last segment as a torn tail, with every good frame after it, and
+reports it only as `truncated_bytes`; the repair refuses rather than cut (theseus-gt12, P2). The output golden's mask
+keeps a duration's unit, so it fails under load (theseus-6a7o, P2; on the flaky list since Item 55). P3, post-v1:
+the splitter's property tests abandon a looping thread at their timeout (theseus-dsmp); an execution at or over its
+dollar limit has no way to reopen (theseus-x3m9); a crash loop under the user unit restarts every 5 s forever
+(theseus-0v8s); and an execution record that doesn't decode still fails every list of executions (theseus-q6nt).
+
+### Item 54. The `robust3` lane: eleven correctness gaps on v1's path (theseus-7f7k: theseus-tq04, 0o8, ni5, 6g6, 4lx, 5wgd, ht82, p7q, k52m, nu3z, and yey; 2026-10-02 08:35 to 10:25; reviewed from 11:07; rebased onto robust2 by Tabitha (99d7d97), with a shape fix after the first join gate; e85efb0, 99d7d97, and 22b0877; joined 12:03 at 22b0877; installed 14:23 with 9f4035b)
+
+**Why.** Eleven gaps filed against the core by earlier steps and reviews, each on v1's path: a call a cancel left
+without a result, a reset that seemed to free money it couldn't, a running job that could fill the disk, a float that
+didn't read back as written, and the rest below.
+
+**What landed** (§3.13, §3.15, §3.16, §6, DD8).
+- **tq04**: `session.watch` seeds the push itself, as `executions.watch` does, lazily, after serving.
+- **0o8**: a cancel answers every call it ends, once: one sweep under the execution's lock, run when no turn holds
+  it. A call never sent reads as not run, a stopped job keeps its output so far, a call that may have run is
+  `unknown` (Item 18's rule), and a call that finishes after the sweep keeps its real result in the transcript.
+- **ni5**: a call planned before a restart and never asked is declined and answered "not run" in the continuation,
+  not parked on a question no card was posted for.
+- **6g6**: a reset leaves held what it can't free, money reserved for calls in flight and money held unknown. A
+  question says when a reset can't make the call fit, with the held amount and the remedies; an approved reset
+  tries the call once, then fails (`over_limit`) instead of asking again.
+- **4lx**: a wake's or report's retry keeps its line and posts where the take kept the target, a META record
+  (`wake.target.<session>`) written in the taking frame; no record layout changes.
+- **5wgd**: a lingering wrapper's output is never removed under it (`Spool::wrapper_lives`).
+- **ht82**: below `[server] disk_floor_mb` no job starts, and every running job is stopped, with the numbers in its
+  reason and a `job.stopped_below_floor` row, and its conversation woken to read it.
+- **p7q**: `theseusd --stdio` stops cleanly on SIGINT and SIGTERM, as the socket daemon does.
+- **k52m**: serde_json's `float_roundtrip`, one line in the workspace's `Cargo.toml`, so a stored cost reads back as
+  the value it was written from, about 2.3 ns more a float.
+- **nu3z**: `theseus watch --interactive` continues a session on its last turn's profile.
+- **yey** (99d7d97): `/stop` drops the model's stream. The turn writes no answer and plans no call, and the cut call
+  settles as failed at an estimate, never above its reservation and never held unknown (the input reserved, plus
+  three characters of streamed text to an output token, thinking included), with a `provider.cut` row.
+
+**How it is proven.**
+- **Thirteen planted reverts** in five batches, each failing its item's test (the lane's `proofs.md`).
+- **Live**, on a scratch daemon over a copy of Eddie's store, with Discord and the web UI off and GLM turns only: a
+  watch seeded the push and received `execution.changed`; a line typed in `watch --interactive` ran on the session's
+  `glm-5.3-flash`, not the daemon's live Sonnet profile; a cancelled execution with every call answered; a stdio
+  daemon's clean stop on each signal and its clean reopen; a cut stream booked. $0.0026 in all.
+- **Gates**: 1,459 and 1,461 tests at the lane's two commits. **The join's gate** at 12:03:17: 1,552 of 1,552,
+  lifecycle OK in 10.2 s, frames 5.
+
+**Divergences.** ht82 changes §6: the floor used to leave room for what already runs to finish, which held only for
+captured output, not for files a job writes itself, and at L0 nothing names the writer. The review called it blunt
+but the lesser harm (a full disk paused the whole machine on 2026-10-01), told Eddie at 10:42, and asked whether he'd
+rather it only refused new jobs; until he says otherwise it stays, and M4's per-job quota makes it precise
+(theseus-dszu). yey books an estimate now, where the brief left booking to a follow-up: no cost under-books, and
+holding unknown would pile up a reservation per stop that a reset can't free. nu3z took neither of the issue's two
+options: the watch follows the session's last profile, and the daemon's default for `ask -s` is Eddie's call. ni5
+decides in the continuation, not in a startup pass. 4lx keeps the target in META, not in the node. k52m turned the
+feature on rather than changing a node's layout.
+
+**The join.** Tabitha rebased it onto robust2 (Item 53), keeping both sides in `toolrun.rs` (main's AWS rows, then
+0o8's accepted completion) and in the stdio block, and regenerated the output golden, keeping only the intended
+lines. The first join gate failed the shape budget at 11:53:30: `tests_m3.rs` reached 8,266 lines against 8,000, and
+the kernel's `kernel.rs` 3,052 against 3,010. 22b0877 moved the answer tests into `tests_m3/every_call_answered.rs`
+and `stop_call` into `stops.rs`, raised `kernel.rs`'s ceiling to 3,030 with its reason, and split yey's test for
+clippy's 100 lines. k52m's feature rebuilds every crate that uses serde_json, once per target.
+
+**Known gaps** (all P3, post-v1). A daemon that dies between a cancel and its sweep leaves the calls unanswered
+(theseus-fvxh); a cut stream's exact usage, from the provider's own events (theseus-k48c); a per-job disk quota, so the
+floor stops only the writer (theseus-dszu); and no operator verb settles or forgives a call held unknown, a decision
+for Eddie (theseus-cv3v).
+
+### Item 55. The `security3` lane: the security gaps left on v1's path (theseus-fa4m: theseus-txvt, ur1t, ewi, 830, 8d1b, hmwv, c3e, and sqpx; 2026-10-02 08:25 to 10:46; reviewed from 11:10; rebased onto robust3 at the join; 3c040d1, 35bd10d, 52607c2, 7d4cd98, 711744a, a8df541, 2b08632, edecc20, c10b92d, 1c0ddd4, e93287e, and the join's 5892683; joined 12:14 at 5892683; installed 14:23 with 9f4035b)
+
+**Why.** Eight gaps on v1's path that hardening2 (Item 44) and other steps left open: grants that still reached
+launchers and a granted git's hooks, writes outside the roots that `proc.run` made at its posture while `fs.write`
+asked, a card that said it expired while its request never did, a public template and default that named the
+operator's own vault, and three smaller holes around a stop and the operator's notices.
+
+**What landed** (§3.1, §3.9, §3.14, §3.15, §3.19).
+- **No grant to a launcher** (txvt, 7d4cd98): a grant to a shell, an interpreter, a wrapper that runs the command it
+  is given, or a runner of a project's scripts fails to load, naming the rule, and a granted name that resolves to one
+  gets nothing at the call. cargo and npm get their own rules: a grant only for registry commands that build and run
+  nothing else (cargo's `login`, `logout`, `owner`, `search`, `yank`, and `publish --no-verify`; npm's commands that
+  run no package's scripts).
+- **A granted git runs no hooks** (ur1t, 7d4cd98): a git or gh given a secret runs with `core.hooksPath=/dev/null` and
+  an empty `core.fsmonitor` pinned at the command-line scope, so neither a cloned project's hooks nor its fsmonitor
+  sees the variable. What still reaches it at L0 is listed for M4 (theseus-ngz5).
+- **A write outside the roots takes its tool's posture** (ewi, 52607c2), whichever tool makes it: Eddie's rule of
+  2026-09-30 at 23:45, not the brief's suggestion. A read or a working directory outside the roots, the approve list,
+  and the floor still ask. The Discord proof's write now waits on the approve list, so it keeps its twelve steps
+  (1c0ddd4).
+- **A question expires** (830, a8df541 and edecc20) at the time its card gives, within a driver tick: declined by
+  `expiry` in one frame with an `action.expired` row, the card settles "Expired", and the model reads that nobody
+  answered. A budget question waits until it is answered.
+- **No one's vault in the public text** (8d1b, 2b08632 and e93287e): the default config is the local file
+  `~/.theseus/theseus.toml`, the template's references are placeholders, and the operator's Discord, guild, and bot ids
+  in tests are invented ones.
+- **hmwv** (711744a): a `/stop` also stops an input sent before it whose turn wasn't yet admitted. **c3e** (35bd10d):
+  the operator's notices fall back only to a place this daemon's bindings name, and are otherwise refused with the
+  reason. **sqpx** (3c040d1): a clean stop writes the web refusals still held in their minute.
+
+**How it is proven.**
+- **Planted reverts**: with each fix off, all 14 of the lane's new tests failed as their bugs did, on the first tree
+  and again on the rebased one, and passed with the fixes back.
+- **Live**, on a scratch daemon over a copy of Eddie's store, with Discord off, a fake `op`, a fake Messages API, and a
+  stand-in `cargo` that says only whether the variable reached it: a grant to bash refused at load; `cargo build`
+  without the variable and `cargo publish` with it; a granted git's fetch with a planted hook that never ran;
+  `fs.write` outside the roots at `notify`; a question on a 3-second TTL expired and its call didn't run; held web
+  refusals written at the stop; the repository's example config checked, all eight references placeholders. Again on
+  the final rebased build: every step the same.
+- **The lifecycle bench**, an A/B against its base under the lock: every phase passes for both, with equal p50s.
+- **Gates**: 1,443, then 1,487 tests on the rebase onto 34be7e2. **The join's gate**, rerun 12:11:00 to 12:13:30:
+  1,568 of 1,568, lifecycle OK in 9.8 s, frames 5.
+
+**Divergences.** ewi went Eddie's way, not the brief's (which suggested classing such a `proc.run` as `fs.write`). 830
+made the card true rather than changing it. ur1t pins hooks off for every brokered git, the operator's own hooks
+included, which hardening2 had declined; it pins an empty `core.fsmonitor`, not `false`, since before git 2.36 the
+value is a program's path. 8d1b left the exam's item name, whose rename would move the exam's pinned BM25
+reproduction (theseus-e663). Two semantic conflicts with `main` were found and fixed in the lane: perf1's
+runnable-only read (Item 46) would have silenced 830's expiry, and the Discord proof (Item 47) waited on a write that
+ewi makes run.
+
+**The join.** Rebased onto robust3: both lanes added a `TurnRunner::stops` of different types, so security3's became
+`latest_stops`, keeping both behaviours, and `toolrun.rs` kept C1's `aws` beside `question_due`. The first join gate
+(12:06 to 12:08) failed only the output golden: the parent's report turn compiles 17,220 bytes in a full suite and
+17,219 alone, and the rewrite had run alone (theseus-6a7o). The golden keeps the full suite's numbers, and its test
+went on the flaky list under 6a7o (5892683).
+
+**Before Eddie's daemon ran it.** A bare `theseusd` no longer defaults to his vault note, so his daemon needed
+`THESEUS_CONFIG` or a unit naming `--config` (Item 56 gave it the unit); his cards now expire after
+`confirm_ttl_secs`, 900 s in his note. Both were told him at 10:48.
+
+**Known gaps** (all P3, post-v1). What a granted program runs on its own account still gets the variable at L0: a
+credential helper, `core.sshCommand`, ssh's and gh's config, cargo's credential provider, and `/proc/<pid>/environ`;
+L1 closes them (theseus-ngz5). `fs.read` outside the roots asks while `proc.run cat` of the same path doesn't, a
+decision for Eddie (theseus-2tgm). The exam's item name and guard, and the index's prefixes as config (theseus-e663).
+The history's private names are theseus-s2o7's.
+
+### Item 56. The `userunit` lane: the daemon as a systemd user service (theseus-w1nf; 2026-10-02 10:02 to 11:11, and its follow-up, run 2, 11:15 to 11:30, whose announcement the 11:31 usage limit cut; reviewed from 11:14, and run 2 at 11:47; 827fd3f, cbe8093, 3ba8f3b, and 517c900; joined 12:16 at 517c900; installed 14:23 with 9f4035b, when the operator's daemon became the unit)
+
+**Why.** Eddie, 2026-10-02 at 09:39, answering M4's open questions: his daemon as a systemd user service, with a
+script and a how-to. M4's job limits and confirmed cancels need a delegated cgroup (`Delegate=yes`), a crash should
+be restarted (Item 53's crash file), and the journal should hold the log, with no terminal kept open. The installer's
+`--user` unit (Item 18) existed, with two wrinkles: `--op-token-file` worked only before `install`, and the plan
+didn't check the token file at all.
+
+**What landed** (§3.22; `docs/user-service.md`).
+- **The two fixes** (827fd3f): `--op-token-file` is a global flag, so it works in either order; a guard test holds
+  that a job command's own `--op-token-file` stays its argument. The `--user` plan checks the token file by `stat`
+  alone (a regular file, the operator's, mode 0600 or stricter, not empty), never opens it, and `--apply` refuses
+  until it is right. Its hint is the exact command to rerun, the operator's own flags quoted.
+- **`scripts/user-service.sh`** (cbe8093): `check` (read-only: the platform, the user manager, linger, WSL's
+  `systemd=true`, cgroup v2 with `memory` and `pids` delegated, the binaries, the token file, the config the unit
+  would get, the unit, and who answers on the socket); `install` (check, plan, y/N, apply, `daemon-reload`, linger, a
+  clean stop of a hand-started daemon, `enable --now`, wait, health, and a cheat sheet); `status` (it says when the
+  binary was replaced under the running daemon), `logs`, `restart`, `stop`, `start`, `uninstall`, `--dry-run`, and
+  `--yes`. No terminal and no `--yes` means every answer is no. It never opens the token file, finds the daemon by its
+  socket, never by a process pattern, and bounds every wait.
+- **`docs/user-service.md`**, linked from `docs/README.md`: why, step 0 (name your config), the token file without the
+  token on a command line, the one command and its steps, daily use, the unit line by line, undoing it, and the WSL
+  notes.
+- **The follow-up** (run 2, 3ba8f3b and 517c900): after security3's default became a local file (Item 55), an
+  install from a shell without `THESEUS_CONFIG` would have written a unit naming a file that isn't there, after
+  stopping the hand-started daemon. `check` now reads the plan's own `config:` line, fails on a file that isn't
+  readable with both fixes, and `install` stops before its first question after such a failure.
+
+**How it is proven.**
+- **Planted reverts**: 13 of the Rust changes, 19 of the script, and 11 of the follow-up, each caught. 20 stand-in tests
+  run the real script and the real `theseusd install --user` in a scratch `HOME` against stand-in `systemctl`,
+  `loginctl`, `journalctl`, `theseus`, and `op`, in the gate; a sentinel in the token file shows no output carries it.
+- **A transient unit**, `theseus-userunit-test`, with the installer's settings: the cgroup delegated (`memory pids`); a
+  SIGKILL restarted by systemd; a copy-then-rename leaving the running image `(deleted)` until a restart; a second
+  daemon on one store refused; and `theseus shutdown`, a clean exit, staying stopped.
+- **Found by running it**: the first real `check` misread the user manager's controllers (a glob that couldn't match
+  two names sharing one space). Fixed, and a test fails if it comes back.
+- Six gates, the last 149 s. **The join's gate** at 12:16:01: 1,598 of 1,598, lifecycle OK in 9.5 s, frames 5. Eddie's
+  daemon and unit were never touched by the lane.
+
+**Divergences.** `uninstall` stops the service before it removes the unit, and touches only a unit `theseusd` wrote.
+`--yes` is the lane's own. `check` doesn't run `theseusd check`, which reads the vault: the vault's wiring shows at the
+end of `install`, in health. The script puts the token flag before the subcommand, so it worked with the installed
+build of the morning, which predates the fix.
+
+**The install** (2026-10-02 at 14:23, with 9f4035b; Eddie, 13:03 to 13:29: "go to build", and "I'd like you to be in
+charge of managing our runtime"). His daemon had been down since 2026-09-29 at 18:50, the store's last write. Before
+the first start, his store, a copy of his config, and his bindings were backed up. `scripts/user-service.sh install
+--yes` wrote `theseusd.service` (`Delegate=yes`, `KillSignal=SIGINT`, `KillMode=process`, `Restart=on-failure` after
+5 s), enabled, with linger on. Health at 14:22: serving at 22.6 ms, secrets ready, Discord ready, approval open to
+his trusted user, the index tender running in the unit's cgroup and ready. An upgrade is now a build, a
+copy-then-rename, and `scripts/user-service.sh restart`.
+
+**Known gaps** (all P3, post-v1). `install --user --apply` with no token file named still writes a unit that can't
+start (theseus-4xyj); the service's start with the distro after a WSL restart is untried (theseus-gfj5); `check` in a
+shell without `THESEUS_CONFIG` judges what an install from that shell would write, not what the installed unit names
+(theseus-a7gx); a crash loop restarts every 5 s forever (theseus-0v8s, Item 53). The unit's `KillMode=process` met
+L1's job limits at 17b's join (Item 58).
+
+### Item 57. `theseusd example-config` with an operator's private overlay (theseus-dxgb; built on `main` by Tabitha, with no lane, 2026-10-02 12:34 to 13:04; 93fbb6d and 9f4035b; installed 14:23 at 9f4035b)
+
+**Why.** Eddie, 2026-10-02 at 12:34: "Please reset the config from example so i can once again wholesale from
+template." His config note was the 07:47 build's template, word for word. Since security3's 8d1b (Item 55) the public
+template carries placeholders where a deployment's own values go (its vault's references, its people's ids), so a
+wholesale copy of the next build's template would have broken his daemon. Reverting 8d1b would put his values back in
+a public repository, so the template stayed generic, and the overlay was built instead. Then, at 12:36: "I'm just
+asking for example-config command to output the fixed up config for 1password."
+
+**What landed** (§3.19).
+- **The overlay** (93fbb6d): `theseusd example-config --overlay FILE` prints the template with a private overlay's
+  values in place. The overlay is a TOML document of only what the public template can't carry. Every line of the
+  template is kept but those the overlay sets: a live line for a key gets the overlay's value, its trailing comment
+  kept at its column; else the first commented line for the key is switched on, with its table's header when that is
+  commented too; else the key goes after its table's last key, and a table the template lacks goes at the end. The
+  result is parsed, checked to hold every overlay value where it was set, and validated as a config before it is
+  printed, so a misspelt key fails with its name and prints nothing. The render is `theseus_core::config_overlay`.
+- **With no flag** (9f4035b): when `~/.config/theseus/template-overlay.toml` exists, plain `theseusd example-config`
+  prints the template with it in place, the deployment whole and ready for the vault's note, and its first line names
+  the overlay. `--overlay FILE` names another, and `--plain` prints the template alone, byte for byte. Without the
+  file it prints the template alone, as on any other machine.
+- **Nothing that builds on the template reads an operator's overlay**: theseusd's test helper `safe_note`, the
+  closed-pipe test, theseus-exam's daemon reads, and the Discord proof all ask for `--plain`, and theseusd's
+  `AGENTS.md` says so for what comes next.
+
+**How it is proven.** Eight tests of the render: an empty overlay changes nothing; an operator's overlay on the real
+template changes exactly its 11 lines and loads; comments keep their column; a missing key or table lands where it
+belongs; a live line wins over a commented one; prose that looks like a header or a key is left alone; a misspelt key,
+an array of tables, and bad TOML each fail by name. Through the binary: `~` in the path, nothing printed on a failure,
+the default path, `--plain`, the two flags' conflict, and the first line. Each commit's gate on `main` (12:56:45 and
+13:03:55): 1,607 of 1,607, lifecycle OK, frames 5. **Against his note**: Eddie's overlay holds his eight `[secrets]`
+references and his `[approval]` section; its render's references equal his note's, and against his note only
+`[approval]`, `[index]`, and `[policy.aws]` are new, with no value changed. It was checked again with the debug build
+under his home directory. He pasted the render into his note himself at 13:02, ahead of the install.
+
+**Divergences.** The first form needed `--overlay`; Eddie asked for the plain command, so the second commit made the
+overlay's default path the default.
+
+**At the install** (14:23). `theseusd check` on his note resolved all 8 secrets, and the unit started on it (Item 56).
+The workflow from here: change the overlay, run `theseusd example-config`, and paste its output into the note.
+
+### Item 58. L1 for `proc.run` (theseus-7ve.1; M4 row 17, step 17b, stage C's first row; spine; 2026-10-02 11:42 to 12:59, run 2 (run 1, 11:25 to 11:31, read and warmed the target, then met the usage limit); reviewed 15:30 to 15:34, with a second read 15:50 to 16:00; rebased onto 9f4035b as c1ac351 and d052ebd, with two join commits, b503b2c and 4fc7ddc; joined 16:34 at 4fc7ddc; installed 16:38 at 4fc7ddc)
+
+**Why.** M4's first spine step. The sandbox crate (17a, merged ahead of its reader in Item 16) ran nothing yet, and
+`proc.run` ran every job at L0, as the operator. Eddie answered M4's open questions on 2026-10-02 at 09:39: "notify
+only is the global default here" for an L1 job; only the jobs the model asks for go to L1, with no `l1_argv` list by
+default; `[sandbox]` gets templated defaults; and an L1 job with no egress and no secret will be exempt from the
+outside-text hold (at 20a).
+
+**What landed** (§7, as amended; §3.9).
+- **The class goes toward L1 alone** (`Sandbox::l1_for`, at plan time): `[sandbox] default = "l1"`, then
+  `l1_argv`, then the model's `sandbox: true`. `sandbox: false` undoes neither, so a call can talk its way into L1,
+  never out of it. `l1_argv` is empty and `default` is `l0` unless the operator says otherwise.
+- **L1 at notify**: an L1 call's decision is built whole, `notify`, in place of the L0 order (the floor, the approve
+  lists, the allow list, the tool's posture and its tightening, the broker's grant), and the outside-text gate still
+  runs after it. The premise that L1 can reach nothing is made true by construction: the job's view hides the floor,
+  the approve list's paths, and the daemon's socket, whatever binds them (`Spec::hidden`). No secret reaches an L1 job
+  until 18d; what L0 would grant is named as withheld.
+- **The class is bound** in the gate record and in the proposal a confirm binds, so an approved L1 call runs in L1,
+  and an L0 call's digest is unchanged. **No fallback**: a job that can't start in L1 fails with its stage and
+  error, and never runs at L0.
+- **The limits and the cgroup** (§7): `pids` 512, `memory_mb` 2048 with a delegated cgroup, `scratch_mb` 1024, and
+  `output_mb` 64; writes go to scratch and are discarded. The cgroup is judged by systemd's own answer, never a config
+  key, and each L1 job gets its own. A probe 3 s after serving records `sandbox.probe`, and health's `sandbox` line
+  says whether L1 works. Every surface marks an L1 call `🛡️ L1`, and its result's head says where it ran.
+
+**How it is proven.**
+- **13 new tests and the template test's new asserts**, each against a planted revert, in three batches: among them L1
+  at notify where L0 waits, routes into L1 that `sandbox: false` can't undo, an approved L1 call that runs in L1 and
+  never as L0, the contract in a real L1 job, no secret, and no fallback (batch C alone shows the no-fallback test is
+  the one that catches it).
+- **Live**, on a scratch daemon over a copy of Eddie's store with his note, GLM's probe script in L1 against L0: in L1,
+  hostname `theseus-l1`, no routes, a HOME of 3 entries, `gh` not logged in, and the socket and the store absent though
+  both sat inside the workspace root; at L0, 13 routes, 153 entries, everything present. A real offline `cargo build`
+  ran in L1 in 1.03 s (0.82 s at L0), and the host's `target/` stayed absent. Under a transient user service with
+  `Delegate=yes`, each L1 job got its own cgroup with 2 GiB and 512 pids.
+- **Benches, alone**: lifecycle OK (cold start p95 28.1 ms of 50; the probe comes after serving); a plain turn still 5
+  frames; an L1 start's p95 22.4 ms against a 25 ms target, with a debug `theseusd` as the init.
+- **Gates**: gate 7, 1,526 of 1,526. Gates 1 to 6 each failed for a stated reason and were fixed: the `sandbox`
+  input's description grew every request (shortened to +105 tokens); theseus-6a7o's byte; the capped files (the L1
+  logic moved into `sandbox.rs`; `toolrun.rs`'s ceiling is 3,330); and a new load flake (theseus-56r7).
+
+**The join** (16:04 to 16:34). A scheduled review run rebased the lane onto 9f4035b (15:31 to 15:34), then hung on a
+`pgrep -f` that matched its own command line and was killed at 15:40; Tabitha took the join over at 16:04.
+- **The stop hook** (b503b2c). The second read found a restart hazard, proven on throwaway user units at 16:03 to
+  16:05. The first L1 job turns job limits on in the unit's own cgroup, and a unit that keeps its jobs across a stop
+  (`KillMode=process`, as Eddie's does, Item 56) then can't start its next daemon while an old job runs: systemd 249
+  starts the main process in the unit's own cgroup, which the kernel refuses with controllers on ("Device or resource
+  busy", `status=219/CGROUP`). 17b's own check couldn't see it, since its transient unit had the default
+  `KillMode=control-group`. The fix: `cgroup::release` turns the controllers off, `jobs/` first; a hidden `theseusd
+  cgroup-release` role runs it, only from a readied service's `.control`; the installer writes `ExecStopPost=-theseusd
+  cgroup-release` into the user, system, and job-host units; and the daemon delegates only under a unit that has the
+  hook. With the hook, the same unit restarted cleanly with a job still running, and by itself after a `kill -9`.
+  Five new tests failed against five planted faults.
+- **cargo's credentials files** are hidden in every view: the template binds `~/.cargo` whole, and a token left by
+  `cargo login` would otherwise be readable at notify.
+- **NODE schema 3 to 4** (4fc7ddc): the gate record's `decision.class` changed a tool-call node's shape, and main's
+  store-version rule (R8's `tests_schemas`, Item 52) caught it at the join. The bump came with a schema-3 read test;
+  the goldens were rewritten in a full suite, numbers only, and the web dist rebuilt.
+- **The join's gate**, 16:28:55 to 16:33:48: 1,626 of 1,626, lifecycle OK in 10.6 s, frames 5.
+
+**The install** (16:38). First, the hook live on the release build: a scratch daemon over a copy of Eddie's store,
+under a transient unit shaped like his, ran an L1 `sleep 40`, then `systemctl --user restart` with the job running:
+exit 0, the hook released memory and pids, the job ran on, and the new daemon answered. Its journal showed an `op`
+helper left in the cgroup too, so without the hook even a restart with no job running would have failed once an L1
+job had run. Then the backup, the copy-then-rename, and `scripts/user-service.sh install --yes`, which rewrote his unit
+with the hook. Health 30 s after the restart: serving at 21.4 ms, secrets 8 of 8, Discord and the index ready, and
+`sandbox: L1 works (start 5.2 ms)`, the cgroup delegated, 2048 MB a job. NODE is 4 from this build on, so a rollback
+is a restore of the backup.
+
+**Divergences.** The approve list's paths and the socket are hidden as well as the floor, which the design named. An
+explicit tightening (`[policy.tools] "proc.run" = "approve"`, or "should have asked") didn't reach an L1 call, by
+Eddie's answer read literally, so the model could step around it with `sandbox: true`. Asked at 16:01, Eddie chose at
+16:03 that it should, and it does since Item 59 (theseus-jfs6). A job tries L1 itself
+after a failed probe, rather than failing at once. `output_mb` caps a file, not what a job prints, which `[tools]
+job_output_max_bytes` caps as at L0.
+
+**Known gaps.** A load flake in the web UI's dev-origin test (theseus-56r7, P2, on the flaky list). P3, post-v1: a
+hand-built seccomp filter (theseus-75z9); `sandbox.limit_hit` rows, the start metric, and the Observatory's Sandbox
+section (theseus-zupk); no generated config with `default = "l1"` (theseus-2ujy); the root `AGENTS.md` over its
+20 KB rule (theseus-9y38). The `sandbox` input said an L1 job never waits for approval, which wasn't true in a
+session holding outside text; Item 59 dropped the phrase. The rest of L1 is 18a (cancellation per backend), 18c
+(egress), 18d (credentials), and 20a.
+
+### Item 59. The operator's own word about `proc.run` reaches L1 (theseus-jfs6; built on `main` by Tabitha, with no lane, 2026-10-02 16:03 to 16:50; 04a9fb3; installed 16:57 at 04a9fb3)
+
+**Why.** Found at 17b's second read (Item 58): an L1 call ran at notify in place of the whole L0 order, so neither an
+explicit `[policy.tools] "proc.run" = "approve"` nor a "should have asked" tightening reached it, and the model could
+step around either with `sandbox: true`. Asked at 16:01, with three options: keep it; let an explicit per-tool
+approve or a tightening reach L1 calls; or the design's own key, `"proc.run@l1"`. Eddie, at 16:03: "Let's start with
+yes", the second.
+
+**What landed** (§3.9, §7).
+- An L1 call's decision takes the tool's own `[policy.tools]` line and its tightening, the stricter winning, as at
+  L0. One that asks makes the L1 call wait, and its reason names both what chose L1 and what asked. The call still
+  names L1, so it runs there once approved.
+- The inherited `[policy].enforcement` is not that word, and never makes L1 wait: L1 still earns its notify over
+  it. A looser line never makes L1 quieter than notify. The floor and the approve lists still don't apply to L1,
+  whose view hides what they guard.
+- `proc.run`'s `sandbox` description drops "It never waits for approval", which wasn't true here, nor in a session
+  holding outside text before 20a. The template's `[sandbox]` comment and the core's `AGENTS.md` say so.
+
+**How it is proven.** A new test, `the_operators_own_word_about_proc_run_reaches_l1` (an explicit approve line, and a
+tightening, each make an L1 call wait and name L1), fails against a planted revert; the existing L1 tests keep the
+inherited approve and an explicit open at notify. The core output golden moved by the description's tokens,
+rewritten inside a full suite (377 lines, numbers only). The gate on `main`, 16:51:12 to 16:53:50: 1,627 of 1,627,
+lifecycle OK in 11.1 s, frames 5.
+
+**The install** (16:57:29). A release-thin build in 3 m 14 s, the store backed up, `theseusd check` 8 of 8 secrets,
+the unit unchanged, and its stop hook ran with nothing to release. Health 9 s after the restart: the config confirmed,
+Discord and the index ready, L1 working (start 5.7 ms), the cgroup delegated. theseus-jfs6 is closed.
+
+**Divergences.** None: the option Eddie chose, as asked.
