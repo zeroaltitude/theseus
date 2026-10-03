@@ -5,7 +5,10 @@
 //! a restart; a task that a holding session starts holds it, a report from a
 //! holding task gives it to its parent, and a wake's turn keeps it, while
 //! setting the wake keeps its posture (T1b); and a session that read nothing
-//! is unchanged.
+//! is unchanged. Since theseus-b5cl: a run of a program `[policy]
+//! external_programs` lists, or of a shell that names one, holds its session;
+//! every job carries its session in `THESEUS_SESSION`; and a session that a
+//! holding session's job opens, or sends a turn to, holds it too.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -916,6 +919,275 @@ async fn a_wakes_turn_follows_the_rule() {
     let asked: Vec<Value> = ledgered(core, "tool.confirm_requested");
     assert_eq!(asked.len(), 1, "only the wake's run waited: {asked:?}");
     assert_eq!(asked[0]["tool"], "proc.run");
+}
+
+/// A stand-in `gh` in the rig's work tree: `echo` by another name, so these
+/// tests need no GitHub CLI. Its name is what `[policy] external_programs`
+/// lists (the template's `["gh"]`).
+fn stand_in_gh(r: &Rig) -> String {
+    let gh = r.dir.path().join("work").join("gh");
+    std::os::unix::fs::symlink("/bin/echo", &gh).unwrap();
+    gh.to_string_lossy().into_owned()
+}
+
+/// The session's one `proc.run` result node.
+fn run_result(core: &Core, sid: &str) -> crate::node::Node {
+    core.store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| n)
+        .find(|n| matches!(&n.body, Body::ToolResult { tool, .. } if tool == "proc.run"))
+        .expect("a proc.run result")
+}
+
+/// `[policy] external_programs` (theseus-b5cl): a `proc.run` of a listed
+/// program runs at its own posture, and its result holds its session, by
+/// program: the result says why, its label's source and the hold name the
+/// command, and health lists the session. The session's next run waits,
+/// naming the command.
+#[tokio::test]
+async fn a_listed_programs_run_holds_its_session_by_program() {
+    let gh = Arc::new(std::sync::OnceLock::<String>::new());
+    let path = gh.clone();
+    let r = rig(
+        move |req| match asked(req) {
+            (s, 0) if s.starts_with("look") => {
+                let argv = json!([path.get().unwrap(), "issue", "view", "12"]);
+                Scripted::tools("", &[("g1", "proc_run", json!({ "argv": argv }))])
+            }
+            (s, 0) if s.starts_with("then") => run("r1", "after"),
+            _ => Scripted::text("Done."),
+        },
+        false,
+    )
+    .await;
+    gh.set(stand_in_gh(&r)).unwrap();
+    let core = &r.core;
+    let sid = session(core);
+    let res = turn(core, &sid, "look at the issue").await;
+    assert!(res.awaiting_confirm.is_none(), "gh runs at its posture");
+    let h = hold(core, &sid).expect("a listed program's run holds its session");
+    assert_eq!(
+        (h.tool.as_str(), h.url.as_str(), h.via.as_deref()),
+        ("proc.run", "gh issue", Some("program"))
+    );
+    let node = run_result(core, &sid);
+    assert_eq!(h.node_id, node.id);
+    let Body::ToolResult { content, meta, .. } = &node.body else {
+        unreachable!()
+    };
+    assert!(
+        content.contains(
+            "[it runs gh, which [policy] external_programs lists: what it printed may hold \
+             outside text]\n"
+        ),
+        "{content}"
+    );
+    assert_eq!(meta["external_program"], "gh");
+    let source = node.label.as_ref().and_then(|l| l.source.as_ref());
+    assert_eq!(
+        source.map(|s| (s.url.as_str(), s.via.as_deref())),
+        Some(("gh issue", Some("program"))),
+        "untrusted, by program, not egress"
+    );
+    let read = ledgered(core, "session.external_read");
+    assert_eq!(read.len(), 1);
+    assert_eq!(
+        (read[0]["via"].as_str(), read[0]["url"].as_str()),
+        (Some("program"), Some("gh issue"))
+    );
+    let listed = core.health().external_text;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].session_id, sid);
+
+    let res = turn(core, &sid, "then run echo").await;
+    assert!(res.awaiting_confirm.is_some(), "the next run waits");
+    let p = core.pending_confirms(&sid).unwrap();
+    assert!(
+        p[0].reason
+            .contains("this session read external text (proc.run gh issue, at "),
+        "{}",
+        p[0].reason
+    );
+}
+
+/// A shell whose command names a listed program holds its session too, and
+/// the hold names the shell (theseus-b5cl); a run of an unlisted program
+/// holds nothing.
+#[tokio::test]
+async fn a_shell_naming_a_listed_program_holds_its_session_and_an_unlisted_run_does_not() {
+    let gh = Arc::new(std::sync::OnceLock::<String>::new());
+    let path = gh.clone();
+    let r = rig(
+        move |req| match asked(req) {
+            (s, 0) if s.starts_with("shell") => {
+                let script = format!("{} pr list | head -3", path.get().unwrap());
+                let argv = json!(["sh", "-c", script]);
+                Scripted::tools("", &[("s1", "proc_run", json!({ "argv": argv }))])
+            }
+            (s, 0) if s.starts_with("plain") => run("p1", "plain"),
+            _ => Scripted::text("Done."),
+        },
+        false,
+    )
+    .await;
+    gh.set(stand_in_gh(&r)).unwrap();
+    let core = &r.core;
+    let shell = session(core);
+    turn(core, &shell, "shell it").await;
+    let h = hold(core, &shell).expect("the shell's command names gh");
+    assert_eq!(
+        (h.url.as_str(), h.via.as_deref()),
+        ("sh, whose command names gh", Some("program"))
+    );
+    let plain = session(core);
+    let res = turn(core, &plain, "plain run").await;
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    assert!(hold(core, &plain).is_none(), "echo is not listed");
+    let Body::ToolResult { content, .. } = &run_result(core, &plain).body else {
+        unreachable!()
+    };
+    assert!(!content.contains("external_programs"), "{content}");
+    assert_eq!(ledgered(core, "session.external_read").len(), 1);
+}
+
+/// Every job carries its session (theseus-b5cl): `THESEUS_SESSION` in its
+/// environment names the session whose call started it.
+#[tokio::test]
+async fn a_job_carries_its_session_in_its_environment() {
+    let r = rig(
+        |req| match asked(req) {
+            (_, 0) => Scripted::tools(
+                "",
+                &[(
+                    "e1",
+                    "proc_run",
+                    json!({"argv": ["printenv", theseus_protocol::JOB_SESSION_ENV]}),
+                )],
+            ),
+            _ => Scripted::text("Printed."),
+        },
+        false,
+    )
+    .await;
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "print it").await;
+    let Body::ToolResult { content, .. } = &run_result(&r.core, &sid).body else {
+        unreachable!()
+    };
+    assert!(content.lines().any(|l| l == sid), "{content}");
+}
+
+/// A session that a holding session's job opens holds it too (theseus-b5cl):
+/// `session.open` with `opened_from` names the holder, its row and its info
+/// say so, and its `proc.run` waits, saying where the text came from. One
+/// opened from a clean session, or from an unknown id, is clean. Trusting the
+/// child clears the child alone. A turn a holding session's job sends holds
+/// its session: a clean one it names, and a fresh one it opens.
+#[tokio::test]
+async fn a_session_opened_from_a_holding_sessions_job_holds_it_too() {
+    use crate::approval::Surface::Cli;
+    use theseus_protocol::method::{SESSION_OPEN, TURN_SUBMIT};
+    let r = rig(
+        |req| match asked(req) {
+            (said, 0) if said.starts_with("read") => {
+                fetch("f1", said.split_whitespace().last().unwrap())
+            }
+            (said, 0) if said.starts_with("run") => run("c1", "child"),
+            _ => Scripted::text("Done."),
+        },
+        false,
+    )
+    .await;
+    let (core, url) = (&r.core, page(r.port));
+    let cli = || crate::approval::Client::new("sock#3", Cli);
+    let held = session(core);
+    turn(core, &held, &format!("read {url}")).await;
+    assert!(hold(core, &held).is_some());
+
+    let info = rpc_as(core, cli(), SESSION_OPEN, json!({"opened_from": held}))
+        .await
+        .unwrap();
+    let child = info["session_id"].as_str().unwrap().to_string();
+    let h = hold(core, &child).expect("opened from a holding session's job");
+    assert_eq!(
+        (
+            h.via.as_deref(),
+            h.from_session.as_deref(),
+            h.url.as_str(),
+            h.node_id.as_str()
+        ),
+        (Some("job"), Some(held.as_str()), url.as_str(), "")
+    );
+    assert_eq!(info["external_text"]["via"], "job", "its info says so");
+    let reads = ledgered(core, "session.external_read");
+    assert_eq!(reads.len(), 2, "{reads:?}");
+    assert_eq!(
+        (reads[1]["via"].as_str(), reads[1]["from_session"].as_str()),
+        (Some("job"), Some(held.as_str()))
+    );
+    let opened = ledgered(core, "session.opened");
+    assert_eq!(opened.last().unwrap()["opened_from"], held.as_str());
+    let res = turn(core, &child, "run it").await;
+    assert!(res.awaiting_confirm.is_some(), "the child's run waits");
+    let p = core.pending_confirms(&child).unwrap();
+    assert!(
+        p[0].reason.contains(&format!(
+            "(http.fetch {url}, which session {} had read before its job reached this one, at ",
+            crate::task::short(&held)
+        )),
+        "{}",
+        p[0].reason
+    );
+
+    // From a clean session, or an unknown one: clean.
+    let clean = session(core);
+    for from in [clean.as_str(), "ses_invented"] {
+        let info = rpc_as(core, cli(), SESSION_OPEN, json!({"opened_from": from}))
+            .await
+            .unwrap();
+        let s = info["session_id"].as_str().unwrap();
+        assert!(hold(core, s).is_none(), "opened from {from}");
+        assert!(info.get("external_text").is_none());
+    }
+
+    // Trusting the child clears the child alone.
+    core.trust_session(&child, "test").unwrap();
+    assert!(hold(core, &child).is_none());
+    assert!(hold(core, &held).is_some(), "the holder still holds it");
+
+    // A turn from the holder's job: the clean session it names holds it,
+    // before the turn's run, which waits.
+    let named = rpc_as(
+        core,
+        cli(),
+        TURN_SUBMIT,
+        json!({"session_id": clean, "input": "run it", "opened_from": held}),
+    )
+    .await
+    .unwrap();
+    assert!(named["awaiting_confirm"].is_string(), "{named}");
+    let h = hold(core, &clean).expect("the named session holds it");
+    assert_eq!(
+        (h.via.as_deref(), h.from_session.as_deref()),
+        (Some("job"), Some(held.as_str()))
+    );
+    // And a fresh session the turn opens.
+    let fresh = rpc_as(
+        core,
+        cli(),
+        TURN_SUBMIT,
+        json!({"input": "run it", "opened_from": held}),
+    )
+    .await
+    .unwrap();
+    let s = fresh["session_id"].as_str().unwrap();
+    assert_eq!(
+        hold(core, s).and_then(|h| h.from_session),
+        Some(held.clone())
+    );
+    assert!(fresh["awaiting_confirm"].is_string(), "{fresh}");
 }
 
 /// A request over a real protocol connection accepted as `client`.

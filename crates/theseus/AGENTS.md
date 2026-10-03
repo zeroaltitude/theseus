@@ -23,6 +23,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   server or provider error, 2 usage, 3 cannot connect; `theseus wait` exits 4 when it times out.
 - **The protocol is the only way in.** The CLI computes nothing the daemon owns: what needs you comes from
   `attention()`, and a wait is the daemon's `session.wait`, never a poll.
+- **Inside a job, it names the job's session.** `ask`, `sessions open`, and `watch --interactive`'s messages send
+  the `THESEUS_SESSION` every job carries as `opened_from` (`client::job_session`), so a session that a holding
+  session's job reaches holds its external text too (theseus-b5cl). A light guard: a job can strip the variable.
 - **A move keeps the bytes.** A refactor here starts with goldens of today's output, and ends with every golden and
   every `--help` page byte-identical (Item 30; theseus-7yx's goldens before the library's move).
 

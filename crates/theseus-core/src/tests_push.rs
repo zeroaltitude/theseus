@@ -529,6 +529,7 @@ async fn session_wait_returns_on_blocked_settled_and_terminal() {
         .open_session(SessionOpenParams {
             kind: Some(SessionKind::Task),
             label: None,
+            opened_from: None,
         })
         .unwrap();
     c.send(

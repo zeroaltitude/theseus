@@ -355,7 +355,11 @@ impl ToolRuntime {
             _ => None,
         };
         if let Some(done) = settled {
-            self.answer_job(tc, self.job_result(tc.store, &done, &u.id, &name), &done)?;
+            self.answer_job(
+                tc,
+                self.job_result(tc.store, &done, &u.id, &name, Some(&u.input)),
+                &done,
+            )?;
             return Ok(None);
         }
         let alive = is_job
@@ -388,7 +392,11 @@ impl ToolRuntime {
             return Ok(());
         }
         if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
-            self.answer_job(tc, self.job_result(tc.store, a, &u.id, &name), a)?;
+            self.answer_job(
+                tc,
+                self.job_result(tc.store, a, &u.id, &name, Some(&u.input)),
+                a,
+            )?;
             return Ok(());
         }
         let status = if a.state == ActionState::Succeeded {

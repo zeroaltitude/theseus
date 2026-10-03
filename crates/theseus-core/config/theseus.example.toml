@@ -291,6 +291,13 @@ approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"]
 # and so does wake.at: the reminder's turn runs in the same session, so what it
 # does still waits.
 external_text = "ask"                   # ask | notify: notify runs those calls with a notice instead
+# A program whose output is a stranger's text holds its session the same way:
+# `gh issue view` prints an issue's body, which anyone could have written. A
+# proc.run counts when its program is listed, or when it runs a shell or a
+# launcher (sh -c, env, xargs, ...) whose command names a listed program. It
+# is a cheap guard, not a boundary: a job can still bring outside text in by
+# other ways.
+external_programs = ["gh"]              # program names, matched by file name (built-in default: ["gh"])
 
 # Per-tool postures, one line for every tool (keep it that way as tools are
 # added). A set line overrides enforcement; a commented one inherits it.

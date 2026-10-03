@@ -2000,6 +2000,7 @@ async fn submit(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::Respo
         author: None,
         attachments: vec![],
         reply_to: None,
+        opened_from: None,
     };
     let mut line =
         serde_json::to_string(&Request::new(Id::Num(1), method::TURN_SUBMIT, params)).unwrap();

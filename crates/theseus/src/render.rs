@@ -1522,6 +1522,7 @@ pub fn external_line(held: &[theseus_protocol::ExternalTextInfo]) -> Option<Stri
                 match i.held.via.as_deref() {
                     Some("task.create") => ", from the session that started it",
                     Some("task.report") => ", from a task's report",
+                    Some("job") => ", from the session whose job reached it",
                     _ => "",
                 }
             )

@@ -442,6 +442,11 @@ pub struct PolicyConfig {
     /// notice at least. Either holds until the operator trusts the session.
     #[serde(default)]
     pub external_text: crate::external::Mode,
+    /// Programs whose output is outside text (theseus-b5cl): a `proc.run` of
+    /// one holds its session as a fetch does (`external::Listed`). `["gh"]`
+    /// by default: `gh issue view` prints a stranger's text.
+    #[serde(default = "default_external_programs")]
+    pub external_programs: Vec<String>,
     /// `[policy.aws]` (AWS design §3.9): an AWS call's posture when its tool
     /// has no `[policy.tools]` line: `"service:Operation"`, then `"service"`,
     /// then its class's (`read`), then `enforcement`.
@@ -473,6 +478,9 @@ fn default_approve_argv() -> Vec<Vec<String>> {
         &["reboot"],
     ])
 }
+fn default_external_programs() -> Vec<String> {
+    vec!["gh".into()]
+}
 
 impl Default for PolicyConfig {
     fn default() -> Self {
@@ -483,6 +491,7 @@ impl Default for PolicyConfig {
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
             external_text: Default::default(),
+            external_programs: default_external_programs(),
             aws: BTreeMap::new(),
         }
     }

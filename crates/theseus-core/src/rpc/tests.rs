@@ -145,6 +145,7 @@ fn submit(id: u64, input: &str) -> Request {
             author: None,
             attachments: vec![],
             reply_to: None,
+            opened_from: None,
         },
     )
 }
@@ -369,6 +370,7 @@ async fn one_turn_is_one_loop_with_streamed_deltas() {
                 author: None,
                 attachments: vec![],
                 reply_to: None,
+                opened_from: None,
             },
         )],
     )
@@ -457,6 +459,7 @@ async fn rejects_empty_input_and_unknown_session() {
                     author: None,
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             ),
             Request::new(
@@ -471,6 +474,7 @@ async fn rejects_empty_input_and_unknown_session() {
                     author: None,
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             ),
         ],
@@ -722,6 +726,7 @@ async fn same_session_serializes_turns() {
                     author: None,
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             )
         })
@@ -769,6 +774,7 @@ async fn provider_failure_is_classified_and_ledgered() {
                 author: None,
                 attachments: vec![],
                 reply_to: None,
+                opened_from: None,
             },
         )],
     )
@@ -865,6 +871,7 @@ async fn usage_accumulates_per_session_and_globally() {
                     author: None,
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             )
         })
@@ -966,6 +973,7 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
                     author: None,
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             )],
         )
@@ -1282,6 +1290,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
                 author: None,
                 attachments: vec![],
                 reply_to: None,
+                opened_from: None,
             },
         )
     };
@@ -1457,6 +1466,7 @@ async fn per_turn_provider_and_model_selection() {
                     author: None,
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             ),
             Request::new(
@@ -1471,6 +1481,7 @@ async fn per_turn_provider_and_model_selection() {
                     author: None,
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             ),
             Request::new(
@@ -1485,6 +1496,7 @@ async fn per_turn_provider_and_model_selection() {
                     author: None,
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             ),
         ],
@@ -1571,6 +1583,7 @@ async fn live_profile_switch_persists_and_routes() {
                 author: None,
                 attachments: vec![],
                 reply_to: None,
+                opened_from: None,
             },
         )
     };
@@ -1722,6 +1735,7 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
                 author: Some("discord:eddie".into()),
                 attachments: vec![],
                 reply_to: None,
+                opened_from: None,
             },
         )
     };

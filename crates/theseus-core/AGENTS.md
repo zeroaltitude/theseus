@@ -160,7 +160,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   says `approval: open`. A test's bare label answers as the CLI (`From<&str> for Answerer` is test-only).
 - **A result that is outside text writes its session's hold in its own frame** (theseus-9bp): `external::with_hold`
   for a result written alone, and `external::under_hold` for a frame that may carry one (a late result, the cancel's
-  sweep), which is built first without the session's lock and again under it only when it does.
+  sweep), which is built first without the session's lock and again under it only when it does. A job of a program
+  `[policy] external_programs` lists is outside text too (`external::Listed`, read from the call's input by every
+  `job_result`), and a session opened, or sent a turn, with `opened_from` a holding session takes its hold in the
+  frame that writes it (`external::from_job`; every job's `THESEUS_SESSION`). Both are light guards under default
+  trust, not boundaries: a job can strip its own environment (theseus-b5cl).
 - **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output: each board
   value verbatim, in base64, and percent-encoded, and the shapes of secrets never resolved here (token prefixes,
   AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its

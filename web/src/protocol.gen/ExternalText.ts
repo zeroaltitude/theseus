@@ -23,7 +23,8 @@ tool: string,
 url: string, 
 /**
  * The node that brought it into this session: the result, a task's
- * brief, or a task's report.
+ * brief, or a task's report. Empty when a job brought it (`via: job`):
+ * the session held it before any node of the job's came.
  */
 node_id: string, 
 /**
@@ -32,9 +33,12 @@ node_id: string,
 from_session?: string, 
 /**
  * How it came from there: `task.create` (a task that a session holding
- * it started) or `task.report` (a report from a task that held it); or
- * how it came at all: `egress` (M4 18c), a job in L1 that connected out,
- * whose `url` names the hosts it reached.
+ * it started), `task.report` (a report from a task that held it), or
+ * `job` (a session that a holding session's job opened or sent a turn
+ * to, theseus-b5cl); or how it came at all: `egress` (M4 18c), a job in
+ * L1 that connected out, whose `url` names the hosts it reached, or
+ * `program`, a job whose program `[policy] external_programs` lists,
+ * whose `url` is its command (theseus-b5cl).
  */
 via?: string, 
 /**

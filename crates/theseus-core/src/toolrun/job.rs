@@ -133,6 +133,12 @@ impl ToolRuntime {
             env.retain(|(ek, _)| ek != k);
             env.push((k.clone(), v.clone()));
         }
+        // Its session (theseus-b5cl), L0 and L1: a `theseus` it runs sends it
+        // as `opened_from`, so a session it opens or writes to takes this
+        // one's hold. No call sets a THESEUS variable (`forbidden_env`).
+        let session = theseus_protocol::JOB_SESSION_ENV;
+        env.retain(|(k, _)| k != session);
+        env.push((session.into(), tc.session_id.into()));
         // The broker's variables, from the board (theseus-dcy): a program run
         // by its own argv, by a call that sets no variable of its own (review
         // 2's H7), gets its grant, and nothing stands in for a secret it does
@@ -262,7 +268,7 @@ impl ToolRuntime {
             if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
                 let mut r = ResultNode {
                     duration_ms: Some(t0.elapsed().as_millis() as u64),
-                    ..self.job_result(tc.store, &done, &call.id, tool.name())
+                    ..self.job_result(tc.store, &done, &call.id, tool.name(), Some(&call.input))
                 };
                 if let Some(n) = &note {
                     r.text = format!("{n}\n{}", r.text);
@@ -413,6 +419,8 @@ impl ToolRuntime {
     /// A settled job's result: how it ended (its exit code, a timeout, or an
     /// unknown outcome), then its output, the tail of it when it is long.
     /// Answer it with `answer_job`, which then deletes the raw output.
+    /// `input` is the call's, by which a job of a listed program is marked
+    /// (theseus-b5cl).
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) fn job_result<'a>(
         &self,
@@ -420,6 +428,7 @@ impl ToolRuntime {
         a: &'a Action,
         tool_use_id: &'a str,
         tool: &'a str,
+        input: Option<&Value>,
     ) -> ResultNode<'a> {
         let completion: Option<Completion> = store
             .inner()
@@ -558,22 +567,39 @@ impl ToolRuntime {
                 size(total - n)
             ),
         };
-        let header = format!("{}{header}", sandbox::result_lines(&detail));
+        // A job that connected out of L1 brought back outside text (18c); so
+        // did a job of a program `[policy] external_programs` lists, unless
+        // its egress marked it already (theseus-b5cl).
+        let egress = crate::egress::marker(&detail, !out.is_empty(), || {
+            confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
+        });
+        let listed = match (&egress, input) {
+            (None, Some(i)) => crate::external::Listed::of(i, &self.external_programs),
+            _ => None,
+        };
+        let header = format!(
+            "{}{}{header}",
+            sandbox::result_lines(&detail),
+            listed
+                .as_ref()
+                .map_or_else(String::new, crate::external::Listed::line)
+        );
         let raw = if out.is_empty() {
             format!("{header}(no output)")
         } else {
             format!("{header}{out}")
         };
+        let duration_ms = detail.get("duration_ms").and_then(Value::as_u64);
         let mut meta = json!({"exit_code": exit, "detail": detail});
+        if let Some(l) = &listed {
+            meta[crate::external::PROGRAM_KEY] = json!(l.program);
+        }
         crate::cancel::stopped_meta(&mut meta, status, a);
         ResultNode {
             correlation_id: Some(&a.correlation_id),
-            duration_ms: detail.get("duration_ms").and_then(Value::as_u64),
+            duration_ms,
             bytes_total: Some(total),
-            // A job that connected out of L1 brought back outside text (18c).
-            external: crate::egress::marker(&detail, !out.is_empty(), || {
-                confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
-            }),
+            external: egress.or_else(|| listed.as_ref().map(crate::external::Listed::marker)),
             meta,
             ..ResultNode::new(tool_use_id, tool, status, raw)
         }

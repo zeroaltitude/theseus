@@ -235,6 +235,11 @@ impl Core {
     }
 
     pub(crate) fn open_session(&self, p: SessionOpenParams) -> Result<SessionRecord> {
+        // A session that a holding session's job opens holds what that one
+        // holds, from the frame that writes it (theseus-b5cl). Read before
+        // anything is opened, so a record that cannot be read leaves nothing.
+        let now = theseus_protocol::now_unix_ms();
+        let inherited = crate::external::from_job(&self.store, p.opened_from.as_deref(), now)?;
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
         let exec = self.kernel.open_execution(
             &rec.session_id,
@@ -261,14 +266,62 @@ impl Core {
             );
         }
         rec.execution_id = Some(exec.id);
-        self.store.put_session(&rec.session_id, &rec)?;
-        self.store.append_ledger(&LedgerRow::new(
-            LedgerKind::SessionOpened,
-            Some(&rec.session_id),
+        let mut data = json!({"execution_id": rec.execution_id});
+        if let Some(from) = &p.opened_from {
+            data["opened_from"] = json!(from);
+        }
+        let opened = LedgerRow::new(LedgerKind::SessionOpened, Some(&rec.session_id), None, data);
+        let Some(h) = inherited else {
+            self.store.put_session(&rec.session_id, &rec)?;
+            self.store.append_ledger(&opened)?;
+            return Ok(rec);
+        };
+        // The row that opens it, then the hold's row and the record, in one
+        // frame.
+        let mut frame = vec![theseus_store::NewRecord::json(
+            theseus_store::kinds::LEDGER,
             None,
-            json!({"execution_id": rec.execution_id}),
-        ))?;
+            &opened,
+        )?];
+        frame.extend(crate::external::hold(rec.clone(), h.clone(), None)?.unwrap_or_default());
+        self.store.append(&frame)?;
+        rec.external = Some(h.clone());
+        self.session_rec(&rec.session_id)
+            .record(&crate::fact::tool::HoldTaken {
+                hold: &h,
+                mode: self.tools.external_text,
+            });
         Ok(rec)
+    }
+
+    /// A turn that a holding session's job sends to another session
+    /// (`opened_from`, theseus-b5cl): that session takes the sender's hold,
+    /// in a frame of its own before the turn writes the input, so no crash
+    /// leaves the input without it. Nothing when it holds one already, or the
+    /// sender holds none.
+    fn take_from_job(&self, session_id: &str, from: Option<&str>) -> Result<()> {
+        if from == Some(session_id) {
+            return Ok(());
+        }
+        let now = theseus_protocol::now_unix_ms();
+        let Some(h) = crate::external::from_job(&self.store, from, now)? else {
+            return Ok(());
+        };
+        let newly = self.store.with_session(session_id, |rec| {
+            let Some(frame) = crate::external::hold(rec, h.clone(), None)? else {
+                return Ok(false);
+            };
+            self.store.append(&frame)?;
+            Ok(true)
+        })?;
+        if newly == Some(true) {
+            self.session_rec(session_id)
+                .record(&crate::fact::tool::HoldTaken {
+                    hold: &h,
+                    mode: self.tools.external_text,
+                });
+        }
+        Ok(())
     }
 
     /// Every session record, the most recently active first.
@@ -638,9 +691,17 @@ impl Core {
                 "input is empty",
             ));
         }
+        // A turn from a holding session's job holds what that one holds, in
+        // the session it opens or the one it names (theseus-b5cl).
         let session = match &p.session_id {
-            Some(id) => self.session(id)?,
-            None => self.open_session(SessionOpenParams::default())?,
+            Some(id) => {
+                self.take_from_job(id, p.opened_from.as_deref())?;
+                self.session(id)?
+            }
+            None => self.open_session(SessionOpenParams {
+                opened_from: p.opened_from.clone(),
+                ..SessionOpenParams::default()
+            })?,
         };
         let (live, _) = self.live_profile();
         let target = self

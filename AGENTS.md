@@ -118,7 +118,9 @@ Each is a requirement, with its spec section.
     `approve`), and the floor always asks.
   - Approvals come from the operator; a job's own process cannot answer one.
   - External text holds a session: after a session reads web text, a call that acts waits until the operator trusts
-    it again.
+    it again. So does a `proc.run` of a program `[policy] external_programs` lists (`gh`), and a session that a
+    holding session's job opens or sends a turn to (its `THESEUS_SESSION`, sent as `opened_from`). Under default
+    trust these two are light guards, not boundaries: a job can strip its own environment (theseus-b5cl).
   - Money is a gate: every call reserves its worst case before it runs.
 
 ## The principles discovered while building it

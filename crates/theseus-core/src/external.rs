@@ -10,10 +10,18 @@
 //!   (`SessionRecord.external`), written with a `session.external_read` row
 //!   in the very frame that writes the node, so no crash leaves the text in
 //!   the context without the hold. A later read writes nothing more.
+//! - **By program** (theseus-b5cl). A `proc.run` of a program `[policy]
+//!   external_programs` lists (`gh` by default: `gh issue view` prints a
+//!   stranger's text), or of a shell or a launcher whose command names one,
+//!   is marked `external` too (`Listed`), at L0 and in L1.
 //! - **From another session.** A task that a session holding external text
 //!   starts holds it from its first node, its brief, which may carry that
 //!   text. A session that reads a report from a task that holds it holds it
-//!   too, from the frame that writes the report.
+//!   too, from the frame that writes the report. A session that a holding
+//!   session's job opens, or sends a turn to, holds it too (theseus-b5cl):
+//!   every job carries its session in `THESEUS_SESSION`, which the CLI sends
+//!   as `opened_from` (`from_job`). A job can strip its environment, so this
+//!   is a light guard under default trust, not a boundary.
 //! - **What waits.** Every call whose class is not `Read` (writes, edits,
 //!   patches, `proc.run`, `task.create`), after the whole order of §3.9, the
 //!   allow list included: the stricter posture wins, as a granted secret's
@@ -74,11 +82,22 @@ impl Mode {
 pub const VIA_TASK: &str = "task.create";
 /// `task.report`: a report from a task that held external text.
 pub const VIA_REPORT: &str = "task.report";
+/// `job`: a session that a holding session's job opened, or sent a turn to
+/// (theseus-b5cl), by the `opened_from` the CLI sends.
+pub const VIA_JOB: &str = "job";
+/// `program`: a job whose program `[policy] external_programs` lists
+/// (theseus-b5cl). The hold's `url` is the job's command (`Listed`).
+pub const VIA_PROGRAM: &str = "program";
+
+/// The key of a job result's `meta` that names the listed program its job
+/// ran (theseus-b5cl), so its hold and its label say `via: program`.
+pub const PROGRAM_KEY: &str = "external_program";
 
 /// The hold a result marked external gives its session: a search keeps its
 /// query, which the hold names (theseus-qiy). A `proc.run` result is marked
-/// only when its job connected out of L1 (18c), so its hold says it came
-/// `via: egress`, and its `url` names the hosts the job reached.
+/// when its job connected out of L1 (18c), so its hold says it came `via:
+/// egress`, and its `url` names the hosts the job reached; or when its job
+/// ran a listed program (theseus-b5cl), which `by_program` then says.
 pub fn read(
     node_id: &str,
     tool: &str,
@@ -103,6 +122,114 @@ pub fn search_query<'a>(tool: &str, meta: &'a serde_json::Value) -> Option<&'a s
     (tool == "web.search")
         .then(|| meta.get("query").and_then(serde_json::Value::as_str))
         .flatten()
+}
+
+/// A hold, or an untrusted label's source, from a result whose `meta` names
+/// the listed program its job ran (`PROGRAM_KEY`): it came `via: program`,
+/// where `read` alone would take a `proc.run`'s mark for 18c's egress.
+pub fn by_program(h: &mut ExternalText, meta: &serde_json::Value) {
+    if meta
+        .get(PROGRAM_KEY)
+        .is_some_and(serde_json::Value::is_string)
+    {
+        h.via = Some(VIA_PROGRAM.into());
+    }
+}
+
+/// A job that runs a program `[policy] external_programs` lists
+/// (theseus-b5cl): what its result is marked with and says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    /// The listed program, as the list names it.
+    pub program: String,
+    /// The job's command as its hold names it: the program and its
+    /// subcommand (`gh issue`), never the rest of its argv; or a launcher
+    /// and what it names (`sh, whose command names gh`).
+    pub command: String,
+}
+
+impl Listed {
+    /// The listed program a `proc.run` of `input` runs: its `argv[0]`, by
+    /// file name; or, when that is a shell or a launcher (`sh -c`, `env`,
+    /// `xargs`, an interpreter, a runner: `broker::launcher`), any word of
+    /// its command that names one. It reads words, not what runs (`sh -c
+    /// 'echo gh'` counts), which is the cheap side to err on. None when it
+    /// names none, or `input` has no argv.
+    pub fn of(input: &serde_json::Value, programs: &[String]) -> Option<Listed> {
+        let argv: Vec<String> = input
+            .get("argv")?
+            .as_array()?
+            .iter()
+            .filter_map(|a| a.as_str().map(str::to_string))
+            .collect();
+        let named = |word: &str| {
+            programs
+                .iter()
+                .find(|p| !p.is_empty() && file_name(p) == file_name(word))
+        };
+        let first = argv.first()?;
+        if let Some(p) = named(first) {
+            let shown = crate::narrative::subject("", Some(&argv), None, std::path::Path::new("/"));
+            return Some(Listed {
+                program: p.clone(),
+                command: shown.trim_start().to_string(),
+            });
+        }
+        crate::broker::launcher(file_name(first))?;
+        let p = argv[1..].iter().flat_map(|a| words(a)).find_map(named)?;
+        Some(Listed {
+            program: p.clone(),
+            command: format!("{}, whose command names {p}", file_name(first)),
+        })
+    }
+
+    /// DD5's marker on its result: its `url` the command.
+    pub fn marker(&self) -> theseus_tools::External {
+        theseus_tools::External {
+            url: self.command.clone(),
+        }
+    }
+
+    /// The result's line that says why its text counts as outside text.
+    pub fn line(&self) -> String {
+        format!(
+            "[it runs {}, which [policy] external_programs lists: what it printed may hold \
+             outside text]\n",
+            self.program
+        )
+    }
+}
+
+/// A path's file name: `gh` of `/usr/bin/gh`.
+fn file_name(p: &str) -> &str {
+    p.rsplit('/').next().unwrap_or(p)
+}
+
+/// The words of a launcher's argument, split at spaces and the shell's
+/// punctuation: `cd x && gh issue view 1 | head` has `gh` among them.
+fn words(arg: &str) -> impl Iterator<Item = &str> {
+    arg.split(|c: char| c.is_whitespace() || "|&;()<>`'\"$={}[],!*?\\".contains(c))
+        .filter(|w| !w.is_empty())
+}
+
+/// The hold a session takes from `from`, the session whose job opened it or
+/// sent it a turn (`opened_from`, theseus-b5cl), as a task takes its
+/// parent's: `from`'s own, with `from` named and no node yet. None when
+/// `from` holds none, or names no session: a job could as well strip its
+/// environment, so an unknown id is no reason to refuse. A record that
+/// cannot be read is an error, and the open or the turn fails.
+pub fn from_job(
+    store: &crate::store::Store,
+    from: Option<&str>,
+    now_ms: u64,
+) -> Result<Option<ExternalText>> {
+    let Some(from) = from.filter(|f| !f.is_empty()) else {
+        return Ok(None);
+    };
+    let held = store
+        .get_session::<SessionRecord>(from)?
+        .and_then(|r| r.external);
+    Ok(held.map(|h| taken(&h, from, VIA_JOB, "", now_ms)))
 }
 
 /// The hold a session takes from another, `from_session`, which holds
@@ -145,6 +272,9 @@ pub fn source(h: &ExternalText) -> String {
             format!("{what}, which session {s} had read before it started this task, at {at}")
         }
         (Some(VIA_REPORT), Some(s)) => format!("{what}, in task {s}'s report, at {at}"),
+        (Some(VIA_JOB), Some(s)) => {
+            format!("{what}, which session {s} had read before its job reached this one, at {at}")
+        }
         _ => format!("{what}, at {at}"),
     }
 }
@@ -241,10 +371,10 @@ pub fn hold(
 }
 
 /// The hold a result node brings a session that holds none yet: a result
-/// marked `external` (DD5's fetch and search, 18c's job that connected out)
-/// read as the session's first outside text since it was last trusted. None
-/// for any other node, or a session that holds one already. Its records
-/// ride in the frame that writes the node.
+/// marked `external` (DD5's fetch and search, 18c's job that connected out,
+/// a job of a listed program) read as the session's first outside text since
+/// it was last trusted. None for any other node, or a session that holds one
+/// already. Its records ride in the frame that writes the node.
 pub fn brought(
     rec: SessionRecord,
     node: &crate::node::Node,
@@ -260,7 +390,8 @@ pub fn brought(
         return Ok(None);
     };
     let now = theseus_protocol::now_unix_ms();
-    let h = read(&node.id, tool, &e.url, search_query(tool, meta), now);
+    let mut h = read(&node.id, tool, &e.url, search_query(tool, meta), now);
+    by_program(&mut h, meta);
     Ok(hold(rec, h.clone(), turn_id)?.map(|more| (h, more)))
 }
 
@@ -660,6 +791,135 @@ mod tests {
                 .ends_with(&format!(" {} {}", l.day, l.hms())),
             "{}",
             later[0].since_local
+        );
+    }
+
+    fn run_of(argv: &[&str]) -> serde_json::Value {
+        json!({ "argv": argv })
+    }
+
+    /// `[policy] external_programs` (theseus-b5cl): a listed program is
+    /// named by its `argv[0]`'s file name; a shell or a launcher by any word
+    /// of its command; an unlisted program, or one that only mentions a
+    /// listed one in its arguments, is not.
+    #[test]
+    fn a_listed_program_is_named_by_its_file_name_or_by_a_launchers_words() {
+        let gh = ["gh".to_string()];
+        let of = |argv: &[&str]| Listed::of(&run_of(argv), &gh);
+        let direct = of(&["gh", "issue", "view", "12"]).expect("gh is listed");
+        assert_eq!(
+            (direct.program.as_str(), direct.command.as_str()),
+            ("gh", "gh issue")
+        );
+        assert_eq!(
+            of(&["/usr/local/bin/gh", "pr", "list"]).map(|l| l.command),
+            Some("gh pr".into())
+        );
+        for launched in [
+            &["sh", "-c", "cd work && gh issue view 1 | head -5"][..],
+            &["env", "GH_REPO=invented/x", "gh", "api", "user"],
+            &["xargs", "-I{}", "gh", "issue", "view", "{}"],
+            &["bash", "-c", "$(command -v gh) version"],
+            &["python3", "-c", "import os; os.system('gh issue view 1')"],
+            &["timeout", "30", "/usr/bin/gh", "api", "user"],
+        ] {
+            let l = of(launched).unwrap_or_else(|| panic!("{launched:?} names gh"));
+            assert_eq!(l.program, "gh");
+            let shell = launched[0].rsplit('/').next().unwrap();
+            assert_eq!(l.command, format!("{shell}, whose command names gh"));
+        }
+        for unlisted in [
+            &["git", "log"][..],
+            &["grep", "gh", "notes.txt"],
+            &["sh", "-c", "echo hi"],
+            &["sh", "-c", "ghost --version"],
+        ] {
+            assert_eq!(of(unlisted), None, "{unlisted:?}");
+        }
+        assert_eq!(Listed::of(&json!({"cmd": "gh"}), &gh), None, "no argv");
+        assert_eq!(Listed::of(&run_of(&["gh"]), &[]), None, "an empty list");
+        let path = ["/opt/bin/glab".to_string()];
+        assert_eq!(
+            Listed::of(&run_of(&["glab", "mr", "view"]), &path).map(|l| l.program),
+            Some("/opt/bin/glab".into())
+        );
+    }
+
+    /// A listed program's result is marked with its command, its line says
+    /// why, and its hold and label say `via: program`, where a `proc.run`'s
+    /// mark alone is 18c's egress.
+    #[test]
+    fn a_listed_programs_hold_says_it_came_by_program() {
+        let l = Listed::of(&run_of(&["gh", "issue", "view", "12"]), &["gh".into()]).unwrap();
+        assert_eq!(l.marker().url, "gh issue");
+        assert_eq!(
+            l.line(),
+            "[it runs gh, which [policy] external_programs lists: what it printed may hold \
+             outside text]\n"
+        );
+        let at = 1_759_266_720_000;
+        let mut h = read("nod_r", crate::sandbox::PROC_RUN, &l.marker().url, None, at);
+        assert_eq!(h.via.as_deref(), Some(theseus_protocol::VIA_EGRESS));
+        by_program(&mut h, &json!({ PROGRAM_KEY: "gh", "exit_code": 0 }));
+        assert_eq!(h.via.as_deref(), Some(VIA_PROGRAM));
+        let hm = crate::wake::local(at).hm();
+        assert_eq!(source(&h), format!("proc.run gh issue, at {hm}"));
+        let mut egress = read(
+            "nod_e",
+            crate::sandbox::PROC_RUN,
+            "api.github.com:443",
+            None,
+            at,
+        );
+        by_program(&mut egress, &json!({"exit_code": 0}));
+        assert_eq!(egress.via.as_deref(), Some(theseus_protocol::VIA_EGRESS));
+    }
+
+    /// `[policy] external_programs` is `["gh"]` by default, so a note from
+    /// before it lists gh; the template says the same; a note may list
+    /// others, or none (theseus-b5cl).
+    #[test]
+    fn external_programs_is_gh_by_default_and_in_the_template() {
+        let policy = |p: &str| {
+            let note = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[policy]\n{p}\n");
+            crate::Config::parse(&note)
+                .unwrap()
+                .0
+                .policy
+                .external_programs
+        };
+        assert_eq!(policy(""), ["gh"]);
+        let (t, _) = crate::Config::parse(crate::Config::EXAMPLE_TOML).unwrap();
+        assert_eq!(t.policy.external_programs, ["gh"], "the template says gh");
+        assert_eq!(
+            policy("external_programs = [\"gh\", \"glab\"]"),
+            ["gh", "glab"]
+        );
+        assert!(policy("external_programs = []").is_empty());
+    }
+
+    /// A hold taken through a job (theseus-b5cl) names the session whose job
+    /// it was, and no node: the session held it before any node came.
+    #[test]
+    fn a_hold_taken_through_a_job_names_its_session() {
+        let h = taken(
+            &hold_of("http.fetch"),
+            "ses_0000aa1b2c3",
+            VIA_JOB,
+            "",
+            1_759_266_780_000,
+        );
+        assert_eq!(
+            (h.from_session.as_deref(), h.node_id.as_str()),
+            (Some("ses_0000aa1b2c3"), "")
+        );
+        assert!(
+            source(&h).starts_with(
+                "http.fetch https://example.test/page, which session a1b2c3 had read before its \
+                 job reached this one, at "
+            ),
+            "{}",
+            source(&h)
         );
     }
 }

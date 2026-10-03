@@ -190,10 +190,35 @@ pub fn tilde(path: &str, home: Option<String>) -> String {
     }
 }
 
+/// The session whose job this client runs in (theseus-b5cl): the
+/// `THESEUS_SESSION` every job's environment carries. A session this client
+/// opens, or a turn it sends, names it as `opened_from`, so it takes that
+/// session's hold of external text. None outside a job.
+pub fn job_session() -> Option<String> {
+    job_session_in(std::env::var(theseus_protocol::JOB_SESSION_ENV).ok())
+}
+
+/// `job_session` of the variable's value: an empty one names none.
+fn job_session_in(value: Option<String>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn a_jobs_session_is_its_variable_and_an_empty_one_is_none() {
+        assert_eq!(
+            job_session_in(Some("ses_0000aa1b2c3".into())).as_deref(),
+            Some("ses_0000aa1b2c3")
+        );
+        assert_eq!(job_session_in(Some(" ".into())), None);
+        assert_eq!(job_session_in(None), None);
+    }
 
     #[test]
     fn a_leading_tilde_is_the_home_directory() {

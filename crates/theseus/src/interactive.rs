@@ -413,6 +413,10 @@ impl Watch {
         if let Some(profile) = &self.profile {
             params["profile"] = json!(profile);
         }
+        // Inside a job, its session (theseus-b5cl).
+        if let Some(from) = theseus_client::client::job_session() {
+            params["opened_from"] = json!(from);
+        }
         let id = conn.send(method::TURN_SUBMIT, params).await?;
         self.pending.insert(id, Purpose::Turn);
         if let Some(rep) = &mut self.reporter {

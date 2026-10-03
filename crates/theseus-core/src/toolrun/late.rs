@@ -96,11 +96,12 @@ impl ToolRuntime {
             if already {
                 continue;
             }
+            let input = call_input(&nodes, &a.correlation_id);
             let node = self.result_node(
                 tc,
                 ResultNode {
                     late: true,
-                    ..self.job_result(tc.store, a, &tool_use_id, &tool)
+                    ..self.job_result(tc.store, a, &tool_use_id, &tool, input)
                 },
             );
             records.push(node.record()?);
@@ -201,7 +202,7 @@ impl ToolRuntime {
                 let action = corr.map(|c| kernel.action(c)).transpose()?.flatten();
                 let (_, tool) = self.tool_of(&u);
                 let answer = match &action {
-                    Some(a) => self.cancelled_call(store, e, a, &u.id, &tool),
+                    Some(a) => self.cancelled_call(store, e, a, &u.id, &tool, Some(&u.input)),
                     None => Some((
                         ResultNode::new(
                             &u.id,
@@ -253,7 +254,8 @@ impl ToolRuntime {
             let Some(a) = kernel.action(c)? else {
                 continue;
             };
-            if let Some((r, job)) = self.cancelled_call(store, e, &a, tool_use_id, tool) {
+            let input = call_input(&nodes, c);
+            if let Some((r, job)) = self.cancelled_call(store, e, &a, tool_use_id, tool, input) {
                 write(n, ResultNode { late: true, ..r }, job.then_some(&a));
             }
         }
@@ -263,7 +265,8 @@ impl ToolRuntime {
     /// How one call of a cancelled execution ended, as its result: the
     /// result, and whether it is a job's, whose raw output goes once its node
     /// is written. None while the cancel is still stopping it: the sweep
-    /// after the call settles answers it.
+    /// after the call settles answers it. `input` is the call's, for a job's
+    /// result (`job_result`).
     fn cancelled_call<'a>(
         &self,
         store: &Store,
@@ -271,6 +274,7 @@ impl ToolRuntime {
         a: &'a Action,
         tool_use_id: &'a str,
         tool: &'a str,
+        input: Option<&Value>,
     ) -> Option<(ResultNode<'a>, bool)> {
         let job = self
             .registry
@@ -338,7 +342,7 @@ impl ToolRuntime {
                 };
                 let line = format!("{} while this call was running; {how}.", sentence(&why));
                 if job {
-                    let mut r = self.job_result(store, a, tool_use_id, tool);
+                    let mut r = self.job_result(store, a, tool_use_id, tool, input);
                     r.status = status;
                     r.text = format!("[{line}]\n{}", r.text);
                     r.meta["cancel"] = json!(tag);
@@ -352,7 +356,7 @@ impl ToolRuntime {
             // settle, so only a lost one reaches here.
             (ActionState::Succeeded | ActionState::Failed | ActionState::OutcomeUnknown, _) => {
                 if job {
-                    (self.job_result(store, a, tool_use_id, tool), true)
+                    (self.job_result(store, a, tool_use_id, tool, input), true)
                 } else {
                     let line = format!(
                         "{}. This call settled as {} and its result was never recorded: check \
@@ -365,6 +369,20 @@ impl ToolRuntime {
             }
         })
     }
+}
+
+/// The input of the call `correlation_id` names, from its tool-call node in
+/// `nodes`: what a job's result reads to mark a listed program's
+/// (theseus-b5cl).
+fn call_input<'n>(nodes: &'n crate::store::Transcript, correlation_id: &str) -> Option<&'n Value> {
+    nodes.iter().find_map(|(_, n)| match &n.body {
+        Body::ToolCall {
+            correlation_id: Some(c),
+            input,
+            ..
+        } if c == correlation_id => Some(input),
+        _ => None,
+    })
 }
 
 /// Tell a session's clients about the results `ToolRuntime::answer_after_cancel`

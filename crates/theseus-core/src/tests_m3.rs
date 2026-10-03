@@ -4372,6 +4372,7 @@ fn submit_params(
         author: Some("discord:eddie".into()),
         attachments,
         reply_to: None,
+        opened_from: None,
     }
 }
 

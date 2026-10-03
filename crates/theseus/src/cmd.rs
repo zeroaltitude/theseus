@@ -66,6 +66,8 @@ pub async fn ask(conn: &mut Conn, json: bool, no_stream: bool, a: AskArgs) -> Re
                 author: None,
                 attachments,
                 reply_to: None,
+                // Inside a job, its session (theseus-b5cl).
+                opened_from: theseus_client::client::job_session(),
             })?,
             |m, p| printer.on(m, p),
         )
@@ -638,7 +640,11 @@ pub async fn sessions(conn: &mut Conn, json: bool, cmd: SessionsCmd) -> Result<(
             let v = conn
                 .request(
                     method::SESSION_OPEN,
-                    SessionOpenParams { kind: None, label },
+                    SessionOpenParams {
+                        kind: None,
+                        label,
+                        opened_from: theseus_client::client::job_session(),
+                    },
                 )
                 .await?;
             output(json, v, |v: Value| {

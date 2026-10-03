@@ -1065,6 +1065,7 @@ impl Shared {
                 SessionOpenParams {
                     kind: Some(SessionKind::Conversation),
                     label: Some(format!("discord {label}")),
+                    opened_from: None,
                 },
             )
             .await?;
@@ -2102,6 +2103,7 @@ impl Place {
                         author: Some(author),
                         attachments,
                         reply_to: anchor.map(|a| a.to_string()),
+                        opened_from: None,
                     },
                 )
                 .await
@@ -2957,6 +2959,7 @@ mod tests {
                     author: Some("test".into()),
                     attachments: vec![],
                     reply_to: None,
+                    opened_from: None,
                 },
             )
             .await

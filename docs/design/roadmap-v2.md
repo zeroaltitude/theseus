@@ -160,7 +160,8 @@ counts half. The blocks:
 | 6 | The reader rule: nothing declared without its reader | wjy (bdn stays deferred) | 1 | batch C |
 | 7 | Review 2's accepted proposals. A placeholder, sized when the review lands | 9co | 2 (a guess) | review 2's report |
 
-- theseus-d64 moves out of batch 2 into 20a, where M4 builds it on labels (§6, conflict 9).
+- theseus-d64 moves out of batch 2 into 20a, where M4 builds it on labels (§6, conflict 9). Since theseus-b5cl
+  (2026-10-03), 20a is dropped, and the integrity lane builds d64 by a job's `THESEUS_SESSION` instead.
 - Candidates for batch 2, not counted: theseus-ur0 and theseus-ez3, P2 bugs from F4b's review.
 
 **B. Stage 2: the operator's surfaces** ([stage2 design](stage2-operator-surfaces.md); theseus-in3, 7yx, l1l, n4m, yf1, ev1)
@@ -188,8 +189,8 @@ counts half. The blocks:
 | 21 | 19a: labels on nodes, the audience, the compile filter with placeholders | 7ve | 1 | T1 and F4a (done) |
 | 22 | 19b's join: the disclosure simulator, and its short run in the gate | 7ve | 0.5 | the disclosure lane |
 | 23 | 19c: graduation, and `may_leave` in the outbox | 3vu | 1 | 19a |
-| 24 | 20a: integrity by labels (T1's hold becomes the latch), origin `external`, `external_programs`; d64 built here | 3vu, d64 | 1 | 19a; T1b |
-| 25 | 20b: file hashes and fomites (`via: file`) | 3vu | 1 | 20a |
+| 24 | ~~20a: integrity by labels (T1's hold becomes the latch), origin `external`, `external_programs`; d64 built here~~ **Replaced by the integrity lane** (theseus-b5cl; Eddie, 2026-10-03, the cut-list's Tier 1.1): T1's latch stays as it is, per session, fed by DD5's own `external` marker. The lane adds its two cheap pieces: `[policy] external_programs` (`["gh"]` by default), whose `proc.run` output is outside text, and a job's session, `THESEUS_SESSION`, which the CLI sends as `opened_from`, so a session that a holding session's job opens or sends a turn to holds it too (d64, built here). No labels feed the latch, and there is no `external` origin | b5cl, d64 | 0 (a lane) | — |
+| 25 | ~~20b: file hashes and fomites (`via: file`)~~ **Dropped** (theseus-b5cl; Eddie, 2026-10-03), with the Advisory (theseus-3vu's quarantine levels). Laundering through files is Jev's: `security.v1` (row 39) | — | 0 | — |
 | 26 | 21b: the ontology wired in: records, the snapshot, the compile walk, the CLI, the Observatory. **Joins 21a** | 8kk | 1 | the ontology lane; 19a |
 | 27 | 21c's join: the web UI's Ontology view | 8kk | 0.5 | 21c (lane) |
 | 28 | 22b: the job host, `RemoteLauncher`, `[control_plane]`. **Joins 22a** | 7ve | 1 | the installer lane; 18a |
@@ -200,7 +201,7 @@ counts half. The blocks:
 |---|---|---|---|---|
 | 29 | C1 = 14a: the bound account; `aws.call` for reads, `aws.describe`, `aws.whoami`, `aws.s3.list`. **Joins P1 and P2** | mgw | 1 | P1, P2; the SCP conversation (renewed 16:18; its default holds until he answers) |
 | 30 | C2 = 14b: stacks, `theseus aws bootstrap`, the owner role, writes, the budget. **Joins P3 and P4** | mgw | 1 | C1; P3, P4; **Eddie's go-ahead for the first writes to his account** |
-| 31 | C3 = 14c: the curated tools, the reaper in report mode, AWS text marked external (by label, once 20a is in) | mgw | 1 | C2 |
+| 31 | C3 = 14c: the curated tools, the reaper in report mode, AWS text marked external (by DD5's own `external` marker, as a fetch is: 20a was dropped, theseus-b5cl) | mgw | 1 | C2 |
 | 32 | 15: the durability tender: WAL segments **and `blobs/`** to S3, index rows to DynamoDB, on the index lane's WAL follower | mgw | 1 | C2; the WAL follower (§6, conflict 3) |
 | 33 | 16: `theseus restore --from s3://…` | mgw | 1 | 15 |
 | 34 | 18e: the `aws` grant under L1: an L1 job's AWS session, granted at its launch as any broker grant is (theseus-w5op; 18d's socket is gone) | mgw | 0.5 | w5op; C2 |
@@ -215,7 +216,7 @@ counts half. The blocks:
 |---|---|---|---|---|
 | 37 | 23a: the wire-in: `[judge]`, `JudgeService`, the sink, the shadow budget, `loop.v1` in shadow. **Joins L1 and L2** | 0j2 | 1 | the judge lane; block C (decision 16: Jev after M4), not D (§6, conflict 11) |
 | 38 | 23b: the surfaces: trace marks, `judge` spans, `judge.list` and `get`, the Observatory's Judgment section | 0j2 | 1 | 23a |
-| 39 | 24: `security.v1` in shadow at the gate; T1's floor tests unchanged | 0j2 | 1 | 23a |
+| 39 | 24: `security.v1` in shadow at the gate; T1's floor tests unchanged. It is the integrity path for text laundered through files, since 20b was dropped (theseus-b5cl): "If it's failing, we boost its context for good classification" (Eddie, 2026-10-03) | 0j2 | 1 | 23a |
 | 40 | 25a: `classify.v1` and `role.v1` at inbound | 0j2 | 1 | 23a |
 | 41 | 25b: CONTINUE's candidate signals, `continue.v1` in shadow | 0j2 | 1 | 23a |
 | 42 | 25c: the learning ledger, the nightly report tender, holdouts | 0j2 | 1 | 24, 25a, 25b |
@@ -260,7 +261,7 @@ counts half. The blocks:
 | 69 | 38b: gliding: `channel.post` and `channel.read`, under 19a's audience rule | ext | 1 | 38a; 19a |
 | 70 | 39a: the `TASK` record kind, three layers, CAS, the tools; 27's arrangement kept | ext | 1 | 37b; 27 |
 | 71 | 39b: claim leases, the board, `/tasks`, the web task graph | ext | 1 | 39a |
-| 72 | 41b: the MCP server's wire-in: `[mcp_server]`, `Surface::Mcp`. **Joins 41a** | ext | 1 | 41a (lane); 9c; d64 (in 20a) |
+| 72 | 41b: the MCP server's wire-in: `[mcp_server]`, `Surface::Mcp`. **Joins 41a** | ext | 1 | 41a (lane); 9c; d64 (a job's session and `opened_from`, in the integrity lane, theseus-b5cl) |
 | 73 | 42a: `budget.list`, `policy.explain`, `theseus budgets` | ext | 1 | 36b; 38a |
 | 74 | 42b's join: the Budgets, Ledger, and Policy tabs | ext | 0.5 | 42b (lane) |
 | 75 | 43a: `extend.propose`: freeze, start in L1, test, the ack card | ext | 1 | 36b; 17b |
@@ -500,10 +501,15 @@ filed twice.
    36b marks MCP results external. M4's 20a moves T1's hold onto integrity labels, with an `external` origin.
    - *Resolution:* after 20a, a source sets the `external` origin label rather than calling T1's hold directly,
      and C3's and 36b's briefs say so. If Eddie's go brings C3 in before 20a, 20a's brief carries AWS reads over.
+   - *Since theseus-b5cl (Eddie, 2026-10-03):* 20a is dropped. A source marks its results with DD5's `external`,
+     as `http.fetch` does, and T1's hold follows. C3's and 36b's briefs say so.
 9. **theseus-d64, planned twice.** The roadmap puts it in fix batch 2. M4 builds it in 20a, on labels (a
    session opened from a job's process takes the job session's hold, through J1's trace). M7's 41b needs it.
    - *Resolution:* build it once, in 20a, and drop it from batch 2. The gap is P3, and stays open about a day
      longer.
+   - *Since theseus-b5cl (Eddie, 2026-10-03):* built in the integrity lane instead. Every job carries its session
+     in `THESEUS_SESSION`, and the CLI sends it as `opened_from`. A job can strip its environment, so this is a
+     light guard under default trust, not a boundary.
 10. **AWS credentials inside L1, designed twice.** The AWS design gives an L1 job an AWS session through the
     `aws` program grant, in steps 17 and 18. M4 routes AWS credentials through 18d's per-job socket
     (`kind: aws`).

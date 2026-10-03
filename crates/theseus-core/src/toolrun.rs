@@ -242,6 +242,9 @@ pub struct ToolRuntime {
     /// What a call that acts gets once its session has read external text
     /// (theseus-9bp, `[policy] external_text`).
     pub external_text: crate::external::Mode,
+    /// Programs whose output is outside text (theseus-b5cl, `[policy]
+    /// external_programs`): a job that runs one marks its result external.
+    pub external_programs: Vec<String>,
     /// The most a job's raw output file keeps (theseus-102, `[tools]
     /// job_output_max_bytes`).
     pub output_max_bytes: u64,
@@ -364,6 +367,7 @@ impl ToolRuntime {
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
             external_text: Default::default(),
+            external_programs: Vec::new(),
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp, 0, 0)),
             aws: None,
@@ -515,7 +519,12 @@ impl ToolRuntime {
         let query = crate::external::search_query(r.tool, &meta).map(str::to_string);
         let at = |n: &Node| {
             let (ext, public) = (r.external.as_ref(), &self.public_paths);
-            labels::for_result(r.tool, &n.id, ext, query.as_deref(), &r.paths, public)
+            let mut l = labels::for_result(r.tool, &n.id, ext, query.as_deref(), &r.paths, public);
+            // A listed program's job (theseus-b5cl) says so, not egress.
+            if let (Some(s), Body::ToolResult { meta, .. }) = (l.source.as_mut(), &n.body) {
+                crate::external::by_program(s, meta);
+            }
+            l
         };
         let node = Node::tool_result(
             session_id,
@@ -1689,6 +1698,7 @@ pub fn build_runtime(
         cpu,
         broker: Arc::new(broker),
         external_text: cfg.policy.external_text,
+        external_programs: cfg.policy.external_programs.clone(),
         output_max_bytes: t.job_output_max_bytes,
         disk: Arc::new(crate::disk::Disk::new(
             state,

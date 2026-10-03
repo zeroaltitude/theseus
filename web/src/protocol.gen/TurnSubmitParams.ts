@@ -33,4 +33,11 @@ attachments?: Array<Attachment>,
  * The surface's message this turn answers (a Discord message id): the
  * reply's first message is posted as a reply to it (theseus-q4v).
  */
-reply_to?: string, };
+reply_to?: string, 
+/**
+ * The session whose job sent this turn (theseus-b5cl), as
+ * `SessionOpenParams::opened_from` says: the turn's session, the one it
+ * opens or the one it names, takes that session's hold of external
+ * text.
+ */
+opened_from?: string, };
