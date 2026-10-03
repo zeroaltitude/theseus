@@ -45,7 +45,7 @@ export const FOLDS = ['/ship', '/fleet', '/actions', '/money'] as const
 /** The world at the time machine's moment, or null while it is live. */
 export function useWorld(): World | null {
   const t = useAsOf((s) => s.t)
-  const h = useHistoryRows()
+  const h = useHistoryRows(t === null)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 3000)
   const { data: tl } = useRpc<{ tasks: TaskInfo[] }>('task.list', {}, 3000)
   const calls = useMemo(() => h.rows.filter((r) => r.kind === 'provider.call'), [h.rows])

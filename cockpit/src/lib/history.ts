@@ -76,29 +76,42 @@ async function readOn(): Promise<void> {
   }
 }
 
+/** One follower for the page: a read in flight schedules the next itself, so two views mounting at once never start
+ *  two loops. */
 function follow() {
-  if (timer) clearTimeout(timer)
-  timer = null
-  if (users <= 0) return
+  if (timer) { clearTimeout(timer); timer = null }
+  if (users <= 0 || busy) return
   void readOn().finally(() => {
-    if (users > 0) timer = setTimeout(follow, FOLLOW_MS)
+    if (users > 0 && !timer) timer = setTimeout(() => { timer = null; follow() }, FOLLOW_MS)
   })
 }
 
-// A reconnect may follow a restart, whose rows came while the link was down: read on from the last position.
-client.onOpen(() => { if (users > 0) follow() })
+// A reconnect may follow a restart, whose rows came while the link was down: read on from the last position. The
+// first connection is not one: the views' own first reads come first, and `useHistoryRows` starts the walk.
+client.onOpen(() => { if (users > 0 && useLedgerHistory.getState().rows.length) follow() })
 
-/** The whole ledger, kept fresh while mounted. Every caller shares one copy and one follower. */
-export function useHistoryRows(): LedgerHistory {
+/** How long the ship's log lets a page land before its first walk: the landing view's own reads and first frame (the
+ *  Ship's) come first. */
+const UNHURRIED_MS = 1500
+
+/** The whole ledger, kept fresh while mounted. Every caller shares one copy and one follower. A view that shows it at
+ *  once reads it at once; `unhurried` (the ship's log, on every page) starts the first walk only after the page has
+ *  landed, unless a view needs it sooner. */
+export function useHistoryRows(unhurried = false): LedgerHistory {
   const open = useConn((s) => s.status === 'open')
   useEffect(() => {
     users++
-    if (open) follow()
+    let later: ReturnType<typeof setTimeout> | undefined
+    if (open) {
+      if (unhurried && !useLedgerHistory.getState().rows.length) later = setTimeout(follow, UNHURRIED_MS)
+      else follow()
+    }
     return () => {
       users--
+      if (later) clearTimeout(later)
       if (users <= 0 && timer) { clearTimeout(timer); timer = null }
     }
-  }, [open])
+  }, [open, unhurried])
   return useLedgerHistory()
 }
 

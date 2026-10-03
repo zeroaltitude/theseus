@@ -6,15 +6,20 @@ committed: the gate builds it, and the install builds it before the release buil
 
 ## What's here
 
-- `src/views/`: the eight views. The Ship (`Ship.tsx`, the landing view at `/cockpit/ship`), then `Bridge`, `Fleet`,
-  `SessionDeck`, `Actions`, `Ledger`, `Economics`, `Systems`.
+- `src/views/`: the eleven views. The Ship (`Ship.tsx`, the landing view at `/cockpit/ship`), then `Bridge`, `Fleet`,
+  `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
+  `Speed` (the speed wall), `Systems`.
+- The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
+  (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
+  checkpoints, the marks, and the log's axis), and `src/lib/world.ts` (`useWorld()`: the lists as of the moment).
 - `src/ship/`: the Ship's parts. `model.ts` (the graph as a fleet, and its layout: pure, no three.js), `engine.ts`
   (three.js, drawn directly), `shaders.ts`, `post.ts` (the glow), `labels.ts` (nameplates and tags, HTML over the
   canvas), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and pushes it composes),
   and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - `src/components/`: the call and model-call inspectors, the transcript, the flame chart, the shell, and `brass.tsx`
   (the plank strip and the coin).
-- `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`, and
+- `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,
+  `money.ts` (the catalog's rates and a call's split by token kind), `verdict.ts` (18a's verdicts in words), and
   `calm.ts` (calm mode).
 - It imports the protocol client from `web/src/protocol.ts` through the `@protocol` alias, so the two apps never
   drift apart.
@@ -29,7 +34,17 @@ committed: the gate builds it, and the install builds it before the release buil
 - **Every view keeps its state in the address**, so any view deep-links.
 - **The Ship shows only the daemon's data, and moves only when something happens.** Its loop renders while
   something moves (the camera, a flare, a sail, a lantern, a gear, a stream, a running task's current) and stops when
-  the daemon is idle. Calm mode (`?calm=1`, the toggle, or `prefers-reduced-motion`) drops the motion and the glow.
+  the daemon is idle. Calm mode (`?calm=1`, the toggle, or `prefers-reduced-motion`) drops the motion and the glow,
+  and every chart's transitions.
+- **The past is folded, never invented.** A view that shows the time machine's moment reads `useWorld()` (null while
+  live), and its acts are off while it does. A new kind of row that changes what a view shows needs its step in
+  `timemachine.ts`; `window.__timeMachine.checkNow()` (dev and bench builds) folds to the present and lists every
+  difference from the daemon's own lists.
+- **One copy of the ledger.** Read it through `useHistoryRows()`, never a second `ledger.tail` loop: a view that
+  shows it at once reads it urgently; the ship's log reads it unhurried, so a page's own first reads come first.
+- **A scrub redraws in under 100 ms.** The fold keeps an unchanged entry the same object, so rows memoized on it do
+  not draw again; a heavy view takes `useDeferredValue(useWorld())`, and a laid-out graph follows the needle only
+  once it rests (`useSettled`).
 
 ## Building and checking
 

@@ -31,7 +31,8 @@ export function TimeMachine() {
   const t = useAsOf((s) => s.t)
   const setT = useAsOf((s) => s.set)
   const calm = useCalm((s) => s.calm)
-  const h = useHistoryRows()
+  // The log's own walk waits for the page to land, unless the moment is already set (a link with ?t=).
+  const h = useHistoryRows(t === null)
   const now = useTick(5000)
   const loc = useLocation()
   const [params, setParams] = useSearchParams()
