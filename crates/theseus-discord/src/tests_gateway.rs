@@ -218,6 +218,7 @@ fn core_at(dir: &Path, fake: &FakeDiscord, model: Arc<dyn Provider>) -> Arc<Core
         launcher: Arc::new(theseus_core::toolrun::InlineLauncher),
         config_gate: theseus_core::config_gate::ConfigGate::file("test"),
         toollets: vec![],
+        cpu_cores: None,
     })
     .unwrap()
 }

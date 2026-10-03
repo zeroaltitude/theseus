@@ -2731,6 +2731,7 @@ mod tests {
             launcher: Arc::new(theseus_core::toolrun::InlineLauncher),
             config_gate: theseus_core::config_gate::ConfigGate::file("test"),
             toollets: vec![],
+            cpu_cores: None,
         })
         .unwrap()
     }
@@ -2765,6 +2766,7 @@ mod tests {
             launcher: Arc::new(theseus_core::toolrun::InlineLauncher),
             config_gate: theseus_core::config_gate::ConfigGate::file("test"),
             toollets: vec![],
+            cpu_cores: None,
         })
         .unwrap()
     }
