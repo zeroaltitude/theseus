@@ -1,13 +1,14 @@
-//! Records: the unit the kernel appends. Kind and schema version travel with
-//! every record so forward-only migrations can read old rows (§6).
+//! Records: the unit the kernel appends. Each carries its kind, so old rows
+//! are read forward, in place (§6).
 //!
-//! **The standing rule** (P5b, theseus-qa0 F4a): a change to what a kind's
-//! records hold bumps that kind's number in [`kinds::SCHEMAS`], on the same
-//! commit as the reader for the layout it replaces (serde defaults, or a
-//! reader such as `Execution::from_stored`), and a test that reads the old
-//! layout. The store records the newest schema written for each kind, and a
-//! build that finds one newer than it knows refuses to open the store, so an
-//! older binary never writes over a newer store.
+//! **The version rule** (P5b, theseus-qa0 F4a; one number since
+//! theseus-ptx1): the store has one format number, `MANIFEST_FORMAT` in
+//! `store.rs`. A step that adds a field to a stored record, or changes how
+//! one encodes, bumps it, on the same commit as the reader for the layout it
+//! replaces (serde defaults, or a reader such as `Execution::from_stored`)
+//! and a sample of the old layout in theseus-core's `tests_layouts`. A build
+//! refuses a store whose format is newer than its own, so an older binary
+//! never reads or writes over a newer store.
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -47,76 +48,18 @@ pub mod kinds {
             _ => "unknown",
         }
     }
-
-    /// The schema this build writes for each kind, which is also the newest
-    /// it reads. Schema 1 is every record written before F4a (theseus-qa0),
-    /// read with serde's defaults. Schema 2 marks the kinds whose records
-    /// gained fields since the store's format 2 (M2), fields an older binary
-    /// would drop when it rewrote the record: the session's hold on external
-    /// text (T1), an execution's wakes, report wakes, and stop (DD8, W1).
-    /// Session schema 3 adds its run of failures (theseus-ljr), 4 the images
-    /// its provider refused (theseus-0s4), 5 a search's query in its hold on
-    /// external text (theseus-qiy), and 6 the 1-hour cache writes in its
-    /// usage (theseus-ev1); serde's defaults read 2 to 5. Compilation schema
-    /// 3 adds the manifest's cache layout (theseus-ev1), read from 2 as none.
-    /// Node schema 3 adds a tool call's own class and its AWS call to its
-    /// gate record's plan (`plan.class`, `plan.aws`, theseus-ppsd), read from
-    /// 2 as neither (theseus-core's
-    /// `a_tool_call_node_written_before_its_class_and_aws_reads`). Node
-    /// schema 4 adds an L1 call's class to its gate record's decision
-    /// (`decision.class`, theseus-7ve.1), read from 3 as none (theseus-core's
-    /// `a_tool_call_node_written_before_its_l1_class_reads`). Action schema
-    /// 3 adds how a cancel was verified (`verified_by`, `killed`,
-    /// `survivors`, M4 18a), read from 2 as none of them (theseus-core's
-    /// `an_action_written_before_its_cancels_verdict_reads`). Outbox schema 2
-    /// is the same change: a post is an action, read from 1 with no verdict
-    /// (the same test). Node schema 5 adds its label (M4 19a, theseus-7ve.3),
-    /// read from 4 as none (`a_node_written_before_its_label_reads`);
-    /// compilation schema 4 adds the manifest's audience, readers, integrity,
-    /// and withheld nodes, and a
-    /// context file's readers and withholding, read from 3 as none
-    /// (`a_compilation_written_before_its_audience_reads`).
-    /// Action schema 4 adds an action's `parent` (M4 18d): a credential
-    /// request's job, read from 3 as none (theseus-core's
-    /// `an_action_written_before_its_parent_reads`). Outbox schema 3 is the
-    /// same change: a post is an action, read from 2 with no parent. Since
-    /// those requests went (theseus-w5op) nothing writes it; a stored
-    /// request still reads whole. Node schema 7 drops the label (the place
-    /// rule, theseus-nbsh): a node of 5 or 6 reads with its label left
-    /// unread (`a_node_written_with_a_label_reads`). Compilation schema 5
-    /// drops the manifest's audience, readers, integrity, and withheld nodes,
-    /// and a context file's readers, and adds the class its compile was for:
-    /// one of 4 reads with the old fields left unread and no class
-    /// (`a_compilation_written_with_an_audience_reads`).
-    /// Bump a kind here with the reader for the layout it replaces.
-    pub const SCHEMAS: [(RecordKind, u16); 10] = [
-        (SESSION, 6),
-        (LEDGER, 1),
-        (META, 1),
-        (EXECUTION, 2),
-        (ACTION, 4),
-        (COMPLETION, 2),
-        (NODE, 7),
-        (EDGE, 1),
-        (COMPILATION, 5),
-        (OUTBOX, 3),
-    ];
-
-    /// The schema this build writes for `k`, and the newest it reads; 0 for
-    /// a kind it does not know, whose records it can read at no schema.
-    pub fn schema(k: RecordKind) -> u16 {
-        SCHEMAS
-            .iter()
-            .find(|(kind, _)| *kind == k)
-            .map_or(0, |(_, s)| *s)
-    }
 }
+
+/// The record header's schema field, frozen (theseus-ptx1). Builds before
+/// one store format wrote each kind's own schema number there; this one
+/// writes 0, and nothing reads it: the store's format and a record's own
+/// bytes say what it holds.
+pub const FROZEN_SCHEMA: u16 = 0;
 
 /// A record as it will be appended. The store assigns position and time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewRecord {
     pub kind: RecordKind,
-    pub schema: u16,
     /// Entity key for "latest state" lookups (a session id, a meta name).
     /// `None` for pure log rows (ledger).
     pub key: Option<String>,
@@ -134,7 +77,7 @@ impl NewRecord {
         self
     }
 
-    /// A record of `kind` at the schema this build writes for it.
+    /// A record of `kind`, its value as JSON.
     pub fn json<T: Serialize>(
         kind: RecordKind,
         key: Option<&str>,
@@ -145,7 +88,6 @@ impl NewRecord {
     pub fn bytes(kind: RecordKind, key: Option<&str>, payload: Vec<u8>) -> Self {
         Self {
             kind,
-            schema: kinds::schema(kind).max(1),
             key: key.map(str::to_string),
             scope: None,
             payload,
@@ -158,6 +100,8 @@ impl NewRecord {
 pub struct Record {
     pub position: u64,
     pub kind: RecordKind,
+    /// The header's schema field: an old record's kind's number when it was
+    /// written, `FROZEN_SCHEMA` since. Nothing reads it.
     pub schema: u16,
     pub key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

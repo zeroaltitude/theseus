@@ -199,14 +199,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   books, R1), `tests_refused.rs` (a corrupt record skipped, counted, and the driver still continuing, R4), and
   `rpc/tests.rs`.
 - `tests_registry.rs` is the reader rule's test. The gate runs it alone, before the suite.
-- `tests_schemas.rs` holds the store's version rule (P5b; Review 2's R8): each record kind's type, filled through
-  its own `Deserialize` (every field, every variant), has its shape recorded under its schema number in
-  `tests/golden/record_schemas.txt`. A changed shape fails until the kind's number moves. A new record type, or an
-  internally tagged enum in one, gets its sample there.
+- `tests_layouts.rs` holds the store's version rule (P5b; theseus-ptx1): one table of every old record layout on
+  disk somewhere, each a literal its build wrote (the 460a35b fixture's records, and each layout since). Each must
+  decode, keep every field but the ones it names, and survive a round trip. A step that adds a field to a stored
+  record bumps the store's format and adds the layout it replaces there.
 - `tests_output.rs` is the output golden (theseus-j6qn): scripted scenarios through whole cores, and every frame,
-  notification, and narrative line they produce, against `tests/golden/core_output.txt`. A refactor of a channel
-  leaves it byte-identical; `THESEUS_GOLDEN=write` rewrites it, for a change you mean, and the diff is the review.
-  A narrative line that the machine's load decides is left out there (`by_the_load`); a new one joins it.
+  notification, and narrative line they produce, against `tests/golden/core_output.txt`. It pins shapes, not
+  numbers (theseus-ptx1): every number and digit run is `#` (an id's alias keeps its own), so a prompt, a token
+  count, or a cost moves none of it; the money, telemetry, and frame-budget tests hold the numbers.
+  `THESEUS_GOLDEN=write` rewrites it, for a change you mean, and the diff is the review. A narrative line whose
+  presence the machine's load decides is left out there (`by_the_load`); a new one joins it.
 - `tests_outside_text.rs`: property tests over every reader of outside text (the HTML reader, the wake's time
   parsers, the provider's SSE lines, and the scrubber, which also never lets a planted value through), with a fresh
   seed each run, so the gate keeps looking (Item 13). The release

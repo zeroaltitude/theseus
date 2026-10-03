@@ -112,6 +112,8 @@ mod tests_failures;
 #[cfg(test)]
 mod tests_grants;
 #[cfg(test)]
+mod tests_layouts;
+#[cfg(test)]
 mod tests_m3;
 #[cfg(test)]
 mod tests_output;
@@ -131,8 +133,6 @@ mod tests_refused;
 mod tests_registry;
 #[cfg(test)]
 mod tests_sandbox;
-#[cfg(test)]
-mod tests_schemas;
 #[cfg(test)]
 mod tests_tasks;
 #[cfg(test)]

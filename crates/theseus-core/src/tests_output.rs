@@ -4,24 +4,27 @@
 //! a background job and its late result, a confirm approved and one
 //! declined, a stop, a failed turn and its retry, a task and its report, a
 //! wake, and a budget question. After each step the transcript takes, in
-//! order, every frame the store committed (each record's kind, schema, and
-//! key, and each ledger row and outbox post whole), every notification
-//! published (its method and params), and every narrative line. A turn's
-//! span tree is drawn under the `turn.trace` row that carries it. The
-//! channels are each in their own order; how a step's notifications and
-//! narrative lines interleave is no contract, so it is not recorded.
+//! order, every frame the store committed (each record's kind and key, and
+//! each ledger row and outbox post whole), every notification published (its
+//! method and params), and every narrative line. A turn's span tree is drawn
+//! under the `turn.trace` row that carries it. The channels are each in their
+//! own order; how a step's notifications and narrative lines interleave is no
+//! contract, so it is not recorded.
 //!
-//! It is checked against `tests/golden/core_output.txt`, and it was written
-//! before one typed fact replaced the hand-written channels (C2), which must
-//! leave it byte-identical. `THESEUS_GOLDEN=write` rewrites it, for a change
-//! you mean.
+//! It is checked against `tests/golden/core_output.txt`. `THESEUS_GOLDEN=write`
+//! rewrites it, for a change you mean.
 //!
-//! Ids are aliased as C6's kernel golden aliases them (`_#n`, by first
-//! appearance), and a short id (`…a1b2c3`) as the whole id it ends. What a
-//! clock or the machine decides is masked: a number under a key that names
-//! a time or a pid, a duration or a time of day in a sentence, and the
-//! scenario's temporary directory. The driver's own loop is concurrent, so
-//! `drive` stands in for one pass of it, in execution order.
+//! It pins shapes, not numbers (theseus-ptx1): every number in JSON is `#`,
+//! and so is every other run of digits, once ids are aliased. So it holds
+//! the kinds, keys, strings, and order, and which records each frame holds,
+//! and a token estimate, a byte count, a cost, or a time moves none of it;
+//! the money and telemetry tests, and the frame budget's, hold the numbers
+//! that matter. Ids are aliased as C6's kernel golden aliases them (`_#n`, by
+//! first appearance), and a short id (`…a1b2c3`) as the whole id it ends. A
+//! duration in a sentence is `<n>` whole, since the machine's load picks its
+//! unit, a sha256 is `<sha256>`, and the scenario's temporary directory is
+//! `<dir>`. The driver's own loop is concurrent, so `drive` stands in for one
+//! pass of it, in execution order.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -461,7 +464,7 @@ async fn the_cores_output_matches_its_golden() {
     let mut out = String::new();
     conversation(&mut out).await;
     budget(&mut out).await;
-    let got = alias(&out);
+    let got = shapes(&alias(&out));
     if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
         let to = std::env::var("THESEUS_GOLDEN_TO").unwrap_or_else(|_| GOLDEN.to_string());
         std::fs::create_dir_all(Path::new(&to).parent().unwrap()).unwrap();
@@ -522,10 +525,10 @@ fn frame(out: &mut String, recs: &[Record], m: &Mask, trees: &mut Vec<String>) {
     let head: Vec<String> = recs
         .iter()
         .map(|r| {
-            let k = format!("{}/{}", kinds::name(r.kind), r.schema);
+            let k = kinds::name(r.kind);
             match &r.key {
                 Some(key) => format!("{k} {key}"),
-                None => k,
+                None => k.to_string(),
             }
         })
         .collect();
@@ -608,7 +611,8 @@ fn notification(out: &mut String, msg: &Message, m: &Mask, trees: &[String]) {
 }
 
 /// The one line the machine's load decides: a turn says how long it waited
-/// for admission only when that took 50 ms or more.
+/// for admission only when that took 50 ms or more. Its presence is the
+/// load's, which no mask of numbers takes out.
 fn by_the_load(text: &str) -> bool {
     text.starts_with("It waited ") && text.ends_with(" for admission and the turn lock.")
 }
@@ -638,112 +642,77 @@ struct Mask {
     dirs: Vec<String>,
 }
 
-/// A key whose number is the clock's or the machine's.
-fn clocked(key: &str) -> bool {
-    key.ends_with("_ms") || key.ends_with("_us") || key == "pid" || key.ends_with("_pid")
-}
-
 impl Mask {
-    /// JSON text, as written: each string masked as text, and a number
-    /// under a clocked key as `"<t>"`.
+    /// JSON text, as written: each string masked as text, and each number as
+    /// `#`.
     fn json(&self, raw: &str) -> String {
         let b = raw.as_bytes();
         let mut out = String::with_capacity(raw.len());
-        let mut last: Option<String> = None;
-        let mut key: Option<String> = None;
         let mut i = 0;
         while i < b.len() {
-            let c = b[i];
-            if c == b'"' {
-                let start = i;
-                i += 1;
-                while i < b.len() && b[i] != b'"' {
-                    if b[i] == b'\\' {
+            match b[i] {
+                b'"' => {
+                    let start = i;
+                    i += 1;
+                    while i < b.len() && b[i] != b'"' {
+                        if b[i] == b'\\' {
+                            i += 1;
+                        }
                         i += 1;
                     }
-                    i += 1;
+                    i = (i + 1).min(b.len());
+                    out.push_str(&self.text(&raw[start..i]));
                 }
-                i = (i + 1).min(b.len());
-                let s = &raw[start..i];
-                last = Some(s.trim_matches('"').to_string());
-                out.push_str(&self.text(s));
-                continue;
-            }
-            match c {
-                b':' => key = last.take(),
-                b',' | b'{' | b'}' | b'[' | b']' => {
-                    key = None;
-                    last = None;
-                }
-                b'-' | b'0'..=b'9' if key.as_deref().is_some_and(clocked) => {
+                b'-' | b'0'..=b'9' => {
                     while i < b.len()
                         && matches!(b[i], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
                     {
                         i += 1;
                     }
-                    out.push_str("\"<t>\"");
-                    key = None;
-                    continue;
+                    out.push('#');
                 }
-                _ => {}
+                c => {
+                    out.push(c as char);
+                    i += 1;
+                }
             }
-            out.push(c as char);
-            i += 1;
         }
         out
     }
 
-    /// Text: the directories, the job's pid, the digests, the durations, the
-    /// dates, and the times of day.
+    /// Text: the directories, the digests, and the durations. Its other
+    /// digits are `shapes`'.
     fn text(&self, s: &str) -> String {
         let mut s = s.to_string();
         for d in &self.dirs {
             s = s.replace(d.as_str(), "<dir>");
         }
-        durations(&times_of_day(&dates(&digests(&pids(&s)))))
+        durations(&digests(&s))
     }
 }
 
-/// The test's own pid, which is a job's wrapper's under `InlineLauncher`.
-fn pids(s: &str) -> String {
-    let pid = std::process::id().to_string();
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(at) = rest.find(&pid) {
-        let (before, after) = (&rest[..at], &rest[at + pid.len()..]);
-        let alone = !before.ends_with(|c: char| c.is_ascii_digit())
-            && !after.starts_with(|c: char| c.is_ascii_digit());
-        out.push_str(before);
-        out.push_str(if alone { "<pid>" } else { &pid });
-        rest = after;
-    }
-    out.push_str(rest);
-    out
-}
-
-/// `2026-10-01`: a date.
-fn dates(s: &str) -> String {
-    let cs: Vec<char> = s.chars().collect();
-    let d = |k: usize| cs.get(k).is_some_and(|c| c.is_ascii_digit());
-    let mut out = String::with_capacity(s.len());
+/// Every run of digits left, as `#`, once ids are aliased: a number in a
+/// sentence, a key, a date, a time of day, a pid. An alias's own number
+/// (`_#3`, `#3`, `…#3`) names the id, and stays.
+fn shapes(text: &str) -> String {
+    let cs: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < cs.len() {
-        let date = (i == 0 || !cs[i - 1].is_ascii_digit())
-            && (0..4).all(|k| d(i + k))
-            && cs.get(i + 4) == Some(&'-')
-            && d(i + 5)
-            && d(i + 6)
-            && cs.get(i + 7) == Some(&'-')
-            && d(i + 8)
-            && d(i + 9)
-            && !d(i + 10);
-        if date {
-            out.push_str("<date>");
-            i += 10;
+        if !cs[i].is_ascii_digit() {
+            out.push(cs[i]);
+            i += 1;
             continue;
         }
-        out.push(cs[i]);
-        i += 1;
+        let start = i;
+        while i < cs.len() && cs[i].is_ascii_digit() {
+            i += 1;
+        }
+        if start > 0 && cs[start - 1] == '#' {
+            out.extend(&cs[start..i]);
+        } else {
+            out.push('#');
+        }
     }
     out
 }
@@ -774,9 +743,26 @@ fn digests(s: &str) -> String {
     out
 }
 
-/// `3 ms`, `2.3 s`, `4 min 12 s`: a sentence's durations are the clock's.
+/// `3 ms`, `2.3 s`, `4 min 12 s`: a sentence's durations are the clock's, and
+/// so are their units (a turn that takes a second under load says `s`, not
+/// `ms`), so each is `<n>`, unit and all (theseus-6a7o).
 fn durations(s: &str) -> String {
     let cs: Vec<char> = s.chars().collect();
+    // Where the number at `i` ends, and where its unit ends, if one follows.
+    let number = |i: usize| -> (usize, Option<usize>) {
+        let mut j = i;
+        while j < cs.len() && (cs[j].is_ascii_digit() || cs[j] == '.') {
+            j += 1;
+        }
+        let unit = [" ms", " s", " min"].into_iter().find_map(|u| {
+            let n = u.chars().count();
+            (cs.get(j..j + n)
+                .is_some_and(|w| w.iter().copied().eq(u.chars()))
+                && cs.get(j + n).is_none_or(|c| !c.is_alphanumeric()))
+            .then_some(j + n)
+        });
+        (j, unit)
+    };
     let mut out = String::with_capacity(s.len());
     let mut i = 0;
     while i < cs.len() {
@@ -787,49 +773,46 @@ fn durations(s: &str) -> String {
             i += 1;
             continue;
         }
-        let mut j = i;
-        while j < cs.len() && (cs[j].is_ascii_digit() || cs[j] == '.') {
-            j += 1;
+        match number(i) {
+            (_, Some(mut end)) => {
+                // `4 min 12 s` is one duration.
+                while cs.get(end) == Some(&' ') && cs.get(end + 1).is_some_and(char::is_ascii_digit)
+                {
+                    match number(end + 1) {
+                        (_, Some(next)) => end = next,
+                        (_, None) => break,
+                    }
+                }
+                out.push_str("<n>");
+                i = end;
+            }
+            (j, None) => {
+                out.extend(&cs[i..j]);
+                i = j;
+            }
         }
-        let unit = [" ms", " s", " min"].into_iter().find(|u| {
-            let n = u.chars().count();
-            cs.get(j..j + n)
-                .is_some_and(|w| w.iter().copied().eq(u.chars()))
-                && cs.get(j + n).is_none_or(|c| !c.is_alphanumeric())
-        });
-        match unit {
-            Some(_) => out.push_str("<n>"),
-            None => out.extend(&cs[i..j]),
-        }
-        i = j;
     }
     out
 }
 
-/// `23:41` and `23:41:07`, standing alone: a time of day.
-fn times_of_day(s: &str) -> String {
-    let cs: Vec<char> = s.chars().collect();
-    let mut out = String::with_capacity(s.len());
-    let mut i = 0;
-    let digit = |k: usize| cs.get(k).is_some_and(|c| c.is_ascii_digit());
-    while i < cs.len() {
-        let at = |k: usize| digit(i + k);
-        let alone_before = i == 0 || !cs[i - 1].is_ascii_digit();
-        if alone_before && at(0) && at(1) && cs.get(i + 2) == Some(&':') && at(3) && at(4) {
-            let mut j = i + 5;
-            if cs.get(j) == Some(&':') && digit(j + 1) && digit(j + 2) {
-                j += 3;
-            }
-            if !digit(j) {
-                out.push_str("<hh:mm>");
-                i = j;
-                continue;
-            }
-        }
-        out.push(cs[i]);
-        i += 1;
+/// A duration's unit is the clock's too: `950 ms` and `1.2 s` read alike, and
+/// so do `59 s` and `1 min 2 s`, so a turn slowed past a second by the load
+/// moves no line (theseus-6a7o).
+#[test]
+fn a_durations_unit_is_masked_with_it() {
+    for (a, b) in [
+        (
+            "Turn ended after 1 loop in 950 ms.",
+            "Turn ended after 1 loop in 1.2 s.",
+        ),
+        (
+            "It waited 59 s (2 tries).",
+            "It waited 1 min 2 s (2 tries).",
+        ),
+    ] {
+        assert_eq!(durations(a), durations(b), "{a} / {b}");
     }
-    out
+    assert_eq!(durations("in 950 ms, 12 rows"), "in <n>, 12 rows");
 }
 
 /// Every id's uuid tail (32 hex digits after `_`) becomes `#n`, numbered by

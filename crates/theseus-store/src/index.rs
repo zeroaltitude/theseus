@@ -223,7 +223,11 @@ impl RedbIndex {
             .create(path)
             .with_context(|| format!("opening {}", path.display()))?;
         let repaired = repair.load(std::sync::atomic::Ordering::Relaxed);
-        let txn = db.begin_write()?;
+        // The tables' creation syncs nothing (theseus-ptx1): every start
+        // makes it, a crash's loss of it is made again at the next open, and
+        // the next durable commit (a checkpoint, or redb's close) keeps it.
+        let mut txn = db.begin_write()?;
+        txn.set_durability(Durability::None)?;
         {
             txn.open_table(LOC)?;
             txn.open_table(BYKEY)?;
