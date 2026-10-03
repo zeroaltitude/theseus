@@ -248,8 +248,9 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
     install is rebuilt after every reviewed step: so the chain installs `release-thin`, and a tagged release keeps
     `release`. If a bench ever blames the profile, tell by interleaving the two builds' `kernel-sim` runs and comparing
     the least user time.
-- **glibc or static musl.** An install is the host's glibc build. Static musl is the portable build, which CI builds on every
-  push and `build.sh --target x86_64-unknown-linux-musl` builds anywhere (§3.18 says "static musl"; the recipe had always built
+- **glibc or static musl.** An install is the host's glibc build. Static musl is the portable build, which
+  `build.sh --target x86_64-unknown-linux-musl` builds anywhere (CI built it on every push until theseus-o8nk, and nothing
+  used its artifact; §3.18 says "static musl"; the recipe had always built
   glibc, and nothing had measured the difference). Measured on 2026-10-02: one commit, `release-thin`, the whole workspace, one
   driver for both daemons, interleaved on a busy machine.
   - musl is **lighter and quicker to start and stop**: 14.4 against 17.2 MB resident after the start and 17.5 against 23.3 MB

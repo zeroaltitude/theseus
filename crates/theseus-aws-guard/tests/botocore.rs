@@ -7,7 +7,7 @@
 //!   is printed for the record.
 //!
 //! The catalog is embedded, compiled from the AWS CLI's botocore models (its snapshot names the CLI), so
-//! these run wherever the tests do, CI included. A new catalog is checked by the same tests.
+//! these run wherever the tests do, with no network. A new catalog is checked by the same tests.
 
 use std::collections::HashSet;
 use std::sync::Arc;
