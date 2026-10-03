@@ -17,9 +17,17 @@
 //! returns, and a new log's first sync also syncs the directory holding it.
 //!
 //! On recovery, the first frame that fails (short, bad magic, bad crc) ends
-//! the log, and if it is in the last segment it is truncated as a torn
-//! write. A bad frame followed by good bytes in an earlier segment is
-//! corruption, not a torn tail, and recovery refuses to guess.
+//! the log. A bad frame followed by good bytes in an earlier segment is
+//! corruption, not a torn tail, and recovery refuses to guess. In the last
+//! segment it is cut, with all after it, as a torn write, unless it is known
+//! to have been synced (theseus-gt12): a frame at or before a position known
+//! synced (`WalConfig::synced_to`; a store's open passes its index's
+//! checkpoint) went bad after it was written, and cutting it would lose
+//! acknowledged frames, so the open refuses it. The bytes alone cannot tell
+//! rot from a torn batch: the writer writes a batch's frames back to back and
+//! syncs once, and a power loss before that sync can leave a later frame of
+//! the batch whole and an earlier one torn. `Recovery::cut` says what was
+//! cut, and whether a whole frame followed it.
 //!
 //! **What open checks** (theseus-8ni). Given where a known-good record lies
 //! (the index's checkpoint), `open_from` checks only the frames after it:
@@ -74,6 +82,13 @@ pub struct WalConfig {
     pub max_total_bytes: Option<u64>,
     /// fdatasync every frame. Off only for benchmarks that measure the cost.
     pub fsync: bool,
+    /// A position known synced, from outside the log's bytes: the checkpoint
+    /// of an index of this log (a store's open passes its own; a repair the
+    /// checkpoint of the store it repairs). A frame of the last segment that
+    /// does not check at or before it was synced and then went bad, so the
+    /// open refuses it rather than cut it as a torn tail (theseus-gt12).
+    /// 0: nothing is known, and such a frame is cut.
+    pub synced_to: u64,
 }
 
 impl Default for WalConfig {
@@ -82,6 +97,7 @@ impl Default for WalConfig {
             segment_bytes: 64 * 1024 * 1024,
             max_total_bytes: None,
             fsync: true,
+            synced_to: 0,
         }
     }
 }
@@ -109,6 +125,24 @@ pub struct Recovery {
     pub checked_from: Option<(u32, u64)>,
     /// The bytes before `checked_from`, left to `verify_history`.
     pub history_bytes: u64,
+    /// The torn tail open cut, when it cut one (theseus-gt12).
+    pub cut: Option<Cut>,
+}
+
+/// A torn tail an open cut from the last segment (theseus-gt12): the frame
+/// that did not check, and all after it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cut {
+    pub segment: u32,
+    pub offset: u64,
+    pub bytes: u64,
+    /// The position the frame that did not check would have begun with.
+    pub position: u64,
+    /// The first whole frame found after it, which continues the positions
+    /// past it: (its offset, its first position). Whole frames after a bad
+    /// one are a torn batch's when no sync covered the bad one, as nothing
+    /// known synced did here; they are cut with it, and the open says so.
+    pub whole_after: Option<(u64, u64)>,
 }
 
 /// What `verify_history` checked.
@@ -381,7 +415,7 @@ impl Wal {
         let last_seg = segments.last().copied();
         let tail = match at {
             Some(loc) if after > 0 => {
-                let t = tail_after(dir, &segments, after, loc)?;
+                let t = tail_after(dir, &segments, (after, loc), cfg.synced_to)?;
                 if t.is_none() {
                     tracing::warn!(
                         checkpoint = after,
@@ -406,12 +440,19 @@ impl Wal {
                     let (good_len, bad) = walk.segment(&bytes, seg, 0);
                     match bad {
                         None => {}
-                        Some(Bad::Torn { .. }) if Some(seg) == last_seg => {
-                            // Torn tail in the last segment: cut it.
-                            let f = OpenOptions::new().write(true).open(&path)?;
-                            f.set_len(good_len)?;
-                            f.sync_all()?;
-                            recovery.truncated_bytes += bytes.len() as u64 - good_len;
+                        Some(Bad::Torn { reason, .. }) if Some(seg) == last_seg => {
+                            // A torn tail in the last segment, unless it
+                            // was synced: cut it, or refuse.
+                            let cut = torn_or_rot(
+                                &bytes,
+                                (good_len, reason),
+                                (seg, 0),
+                                walk.expected,
+                                cfg.synced_to,
+                            )?;
+                            cut_tail(&path, good_len, cut)?;
+                            recovery.truncated_bytes += cut.bytes;
+                            recovery.cut = Some(cut);
                         }
                         Some(Bad::Torn { offset, reason }) => {
                             return Err(WalError::Corrupt {
@@ -1138,6 +1179,116 @@ fn read_range(path: &Path, from: u64, to: u64) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
+/// A frame of the last segment that does not check, at `good` of `bytes`
+/// (which begin at offset `base` of segment `seg`), where position
+/// `expected` was due: a torn tail to cut, or a synced frame gone bad, which
+/// is refused (theseus-gt12).
+///
+/// A frame at or before `synced` was synced: every position up to it was,
+/// since a sync covers every frame written before it, and frames are written
+/// in position order. Cutting it would lose it and every acknowledged frame
+/// after it. Anything past `synced` is a torn write the bytes alone cannot
+/// tell from rot, even with a whole frame after it (a torn batch, whose
+/// pages reached the disk out of order), so it is cut, and the cut says
+/// whether a whole frame followed.
+fn torn_or_rot(
+    bytes: &[u8],
+    (good, reason): (u64, &'static str),
+    (seg, base): (u32, u64),
+    expected: u64,
+    synced: u64,
+) -> Result<Cut, WalError> {
+    let off = good as usize;
+    let whole_after = whole_frame_after(bytes, off, seg, base, expected);
+    if expected <= synced {
+        let follows = whole_after.map_or_else(String::new, |(at, first)| {
+            format!(", and a whole frame follows it at offset {at} (position {first})")
+        });
+        return Err(WalError::Corrupt {
+            segment: seg,
+            offset: base + good,
+            reason: format!(
+                "{reason} in the last segment, at position {expected}, which position {synced} \
+                 of the index's checkpoint says was synced: the frame went bad after it was \
+                 written, so it is no torn tail{follows}. Cutting it would lose acknowledged \
+                 records; nothing was cut. Stop the daemon and repair it from a copy that holds \
+                 the frame whole: `theseusd restore --repair --from <a copy of the store>`"
+            ),
+        });
+    }
+    let cut = Cut {
+        segment: seg,
+        offset: base + good,
+        bytes: (bytes.len() - off) as u64,
+        position: expected,
+        whole_after,
+    };
+    if let Some((at, first)) = whole_after {
+        tracing::warn!(
+            segment = seg,
+            offset = cut.offset,
+            bytes = cut.bytes,
+            position = expected,
+            whole_at = at,
+            whole_first = first,
+            "wal: cut a torn tail with a whole frame after it: a batch torn before its sync, \
+             or, if this frame was synced, rot, and the frames after it are lost (nothing known \
+             synced reaches it)"
+        );
+    }
+    Ok(cut)
+}
+
+/// The first whole frame after the one at `off` in `bytes` that does not
+/// check: found by its magic, from `off + 1`, checked as a frame, with
+/// positions past `expected`, which the bad frame would have begun with.
+/// Its offset in the segment and its first position. Read only after a bad
+/// frame, so a healthy open never pays for it.
+fn whole_frame_after(
+    bytes: &[u8],
+    off: usize,
+    seg: u32,
+    base: u64,
+    expected: u64,
+) -> Option<(u64, u64)> {
+    let magic = MAGIC.to_le_bytes();
+    let mut i = off + 1;
+    while i + FRAME_HEADER <= bytes.len() {
+        let at = i + bytes[i..].windows(4).position(|w| w == magic)?;
+        let first = first_position(bytes, at).filter(|&p| p > expected);
+        if let Some(first) = first {
+            if check_frame(bytes, at, seg, base, &mut Walk::new(first, u64::MAX)).is_ok() {
+                return Some((base + at as u64, first));
+            }
+        }
+        i = at + 1;
+    }
+    None
+}
+
+/// The position of the first record of the frame whose header is at `at`,
+/// when its body fits in `bytes`.
+fn first_position(bytes: &[u8], at: usize) -> Option<u64> {
+    let body = at.checked_add(FRAME_HEADER)?;
+    let end = body.checked_add(u32_at(bytes.get(at..body)?, 4) as usize)?;
+    decode_record(bytes.get(body..end)?, 4).map(|(r, _)| r.position)
+}
+
+/// Cut the last segment at `at`: what `cut` says goes.
+fn cut_tail(path: &Path, at: u64, cut: Cut) -> io::Result<()> {
+    let f = OpenOptions::new().write(true).open(path)?;
+    f.set_len(at)?;
+    f.sync_all()?;
+    tracing::info!(
+        segment = cut.segment,
+        offset = cut.offset,
+        bytes = cut.bytes,
+        whole_after = cut.whole_after.is_some(),
+        "wal: cut a torn tail"
+    );
+    Ok(())
+}
+
 /// What a tail-only open found: the walk, the log's length, the recovery,
 /// and where the unchecked history ends.
 type Tail = (Walk, u64, Recovery, Option<(u64, u32, u64)>);
@@ -1156,8 +1307,8 @@ type Tail = (Walk, u64, Recovery, Option<(u64, u32, u64)>);
 fn tail_after(
     dir: &Path,
     segments: &[u32],
-    after: u64,
-    loc: RecordLocation,
+    (after, loc): (u64, RecordLocation),
+    synced: u64,
 ) -> Result<Option<Tail>, WalError> {
     if !segments.contains(&loc.segment) {
         return Ok(None);
@@ -1190,15 +1341,17 @@ fn tail_after(
         } else {
             fs::metadata(&path)?.len()
         };
-        let (good, bad) = walk.segment(&read_range(&path, from, to)?, seg, from);
+        let bytes = read_range(&path, from, to)?;
+        let (good, bad) = walk.segment(&bytes, seg, from);
         match bad {
             None => {}
-            Some(Bad::Torn { .. }) if Some(seg) == last_seg => {
-                // Torn tail in the last segment: cut it.
-                let f = OpenOptions::new().write(true).open(&path)?;
-                f.set_len(from + good)?;
-                f.sync_all()?;
-                recovery.truncated_bytes += to - (from + good);
+            // A torn tail in the last segment, unless it was synced: cut
+            // it, or refuse, as the walk of every segment would.
+            Some(Bad::Torn { reason, .. }) if Some(seg) == last_seg => {
+                let cut = torn_or_rot(&bytes, (good, reason), (seg, from), walk.expected, synced)?;
+                cut_tail(&path, from + good, cut)?;
+                recovery.truncated_bytes += cut.bytes;
+                recovery.cut = Some(cut);
             }
             Some(_) => return Ok(None),
         }
@@ -1271,11 +1424,158 @@ mod tests {
             half.extend_from_slice(&[7u8; 40]);
             f.write_all(&half).unwrap();
         }
-        let wal = Wal::open(dir.path(), WalConfig::default()).unwrap();
+        // Every whole frame known synced: the torn one is past them all.
+        let wal = Wal::open(
+            dir.path(),
+            WalConfig {
+                synced_to: 10,
+                ..WalConfig::default()
+            },
+        )
+        .unwrap();
         assert_eq!(wal.recovery().records, 10);
         assert_eq!(wal.recovery().truncated_bytes, 52);
+        let cut = wal.recovery().cut.expect("the cut is reported");
+        assert_eq!((cut.offset, cut.bytes, cut.position), (good_len, 52, 11));
+        assert_eq!(cut.whole_after, None, "nothing whole follows a torn tail");
         assert_eq!(fs::metadata(&path).unwrap().len(), good_len);
         assert_eq!(wal.last_position(), 10);
+    }
+
+    /// The offset of each frame in a segment's bytes.
+    fn frame_offsets(bytes: &[u8]) -> Vec<usize> {
+        let mut offs = Vec::new();
+        let mut off = 0usize;
+        while off + FRAME_HEADER <= bytes.len() {
+            offs.push(off);
+            off += FRAME_HEADER + u32_at(bytes, off + 4) as usize;
+        }
+        offs
+    }
+
+    /// A log of five frames, one record each, each appended and synced.
+    fn five_frames(dir: &Path) -> (PathBuf, Vec<u8>) {
+        let wal = Wal::open(dir, WalConfig::default()).unwrap();
+        for i in 1..=5u8 {
+            wal.append(&[rec(kinds::LEDGER, None, &[i; 40])]).unwrap();
+        }
+        drop(wal);
+        let path = segment_path(dir, 1);
+        let bytes = fs::read(&path).unwrap();
+        assert_eq!(frame_offsets(&bytes).len(), 5);
+        (path, bytes)
+    }
+
+    /// theseus-gt12, rot: frame 3 of the last segment goes bad after the
+    /// whole log was synced (position 5 known synced, as a store's open
+    /// knows its checkpoint). Cutting it as a torn tail would lose frames 3
+    /// to 5, all acknowledged; the open refuses, names the position and the
+    /// repair, and cuts nothing.
+    #[test]
+    fn a_synced_frame_gone_bad_in_the_last_segment_is_refused_not_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, mut bytes) = five_frames(dir.path());
+        let third = frame_offsets(&bytes)[2];
+        bytes[third + FRAME_HEADER + 30] ^= 0x10;
+        fs::write(&path, &bytes).unwrap();
+        for synced_to in [3, 5] {
+            let err = Wal::open(
+                dir.path(),
+                WalConfig {
+                    synced_to,
+                    ..WalConfig::default()
+                },
+            )
+            .err()
+            .expect("a synced frame gone bad is refused, not cut");
+            let msg = err.to_string();
+            assert!(
+                matches!(err, WalError::Corrupt { segment: 1, offset, .. } if offset == third as u64),
+                "{msg}"
+            );
+            assert!(msg.contains("position 3"), "{msg}");
+            assert!(msg.contains("a whole frame follows it"), "{msg}");
+            assert!(msg.contains("theseusd restore --repair"), "{msg}");
+            assert_eq!(fs::read(&path).unwrap(), bytes, "nothing was cut");
+        }
+    }
+
+    /// theseus-gt12, a torn batch: frames 3 to 5 were one batch, written back
+    /// to back, and the power went before its sync; frame 3's last page never
+    /// reached the disk, and frames 4 and 5 did. Nothing past position 2 was
+    /// acknowledged, so the batch is cut as a torn tail, and the cut says a
+    /// whole frame followed it.
+    #[test]
+    fn a_batch_torn_before_its_sync_is_cut_though_a_whole_frame_follows() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, mut bytes) = five_frames(dir.path());
+        let offs = frame_offsets(&bytes);
+        let (third, fourth) = (offs[2], offs[3]);
+        bytes[fourth - 16..fourth].fill(0);
+        fs::write(&path, &bytes).unwrap();
+        let wal = Wal::open(
+            dir.path(),
+            WalConfig {
+                synced_to: 2,
+                ..WalConfig::default()
+            },
+        )
+        .unwrap();
+        let r = wal.recovery();
+        assert_eq!(wal.last_position(), 2);
+        assert_eq!(r.truncated_bytes, (bytes.len() - third) as u64);
+        assert_eq!(
+            r.cut,
+            Some(Cut {
+                segment: 1,
+                offset: third as u64,
+                bytes: (bytes.len() - third) as u64,
+                position: 3,
+                whole_after: Some((fourth as u64, 4)),
+            })
+        );
+        assert_eq!(fs::metadata(&path).unwrap().len(), third as u64);
+    }
+
+    /// theseus-gt12: the tail-only open (after the index's checkpoint, here
+    /// position 2) decides as the walk of every segment does: frame 3 gone
+    /// bad with position 5 known synced is refused, and torn with only
+    /// position 2 known synced is cut, with the whole frame after it said.
+    #[test]
+    fn the_tail_only_open_refuses_rot_and_cuts_a_torn_batch_alike() {
+        let dir = tempfile::tempdir().unwrap();
+        let wal = Wal::open(dir.path(), WalConfig::default()).unwrap();
+        let mut at = None;
+        for i in 1..=5u8 {
+            let placed = wal.append(&[rec(kinds::LEDGER, None, &[i; 40])]).unwrap();
+            if i == 2 {
+                at = Some(placed[0].1);
+            }
+        }
+        drop(wal);
+        let path = segment_path(dir.path(), 1);
+        let mut bytes = fs::read(&path).unwrap();
+        let offs = frame_offsets(&bytes);
+        bytes[offs[3] - 16..offs[3]].fill(0);
+        fs::write(&path, &bytes).unwrap();
+        let cfg = |synced_to| WalConfig {
+            synced_to,
+            ..WalConfig::default()
+        };
+        let err = Wal::open_from(dir.path(), cfg(5), 2, at)
+            .err()
+            .expect("refused");
+        assert!(err.to_string().contains("position 3"), "{err}");
+        assert_eq!(fs::read(&path).unwrap(), bytes, "nothing was cut");
+        let (wal, tail) = Wal::open_from(dir.path(), cfg(2), 2, at).unwrap();
+        assert!(tail.is_empty());
+        let r = wal.recovery();
+        assert!(r.checked_from.is_some(), "the tail-only open");
+        assert_eq!(
+            r.cut.map(|c| c.whole_after),
+            Some(Some((offs[3] as u64, 4)))
+        );
+        assert_eq!(wal.last_position(), 2);
     }
 
     #[test]

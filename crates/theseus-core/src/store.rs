@@ -437,6 +437,20 @@ impl Store {
         )
     }
 
+    /// The store at `dir`, whose WAL holds every position to `synced_to`
+    /// synced (theseus-gt12): a repair's staged WAL, whose store's index
+    /// says so. A frame of its last segment that does not check at or
+    /// before it is refused, not cut as a torn tail.
+    pub fn open_synced_to(dir: &Path, synced_to: u64) -> Result<Self> {
+        Self::open_with(
+            dir,
+            WalConfig {
+                synced_to,
+                ..WalConfig::default()
+            },
+        )
+    }
+
     fn open_with(dir: &Path, cfg: WalConfig) -> Result<Self> {
         // The index keeps the kernel's terms, so the kernel's readers ask by
         // state, and each session's numbers, so health adds up none

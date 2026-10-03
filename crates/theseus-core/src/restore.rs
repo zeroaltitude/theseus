@@ -312,13 +312,17 @@ fn repair_with(from: &Path, state_dir: &Path, sync: &mut dyn Durable) -> Result<
         sync.dir(&staging.join("blobs"))
             .context("syncing the repaired store's blobs")?;
     }
+    // The store's index says how far its WAL was synced: a frame there that
+    // still does not check is refused at the staged open, not cut as a torn
+    // tail (theseus-gt12). Read without writing to the store.
+    let synced_to = theseus_store::index::checkpoint_of(&target.join("index.redb")).unwrap_or(0);
     let (last_position, sessions) = {
-        let store = Store::open(&staging)
+        let store = Store::open_synced_to(&staging, synced_to)
             .with_context(|| format!("opening the repaired WAL in {}", staging.display()))?;
-        // An open cuts a frame of the last segment that does not check, with
-        // all after it, as a torn tail (theseus-gt12). Every repaired frame
-        // checks, so nothing may be cut; were anything cut, the repair would
-        // lose it, and the store stays as it was.
+        // An open cuts a frame of the last segment past every position known
+        // synced that does not check, with all after it, as a torn tail.
+        // Every repaired frame checks, so nothing may be cut; were anything
+        // cut, the repair would lose it, and the store stays as it was.
         let cut = store.inner().recovery().truncated_bytes;
         if cut > 0 {
             bail!(

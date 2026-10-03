@@ -4,14 +4,17 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Bot, Brain, ChevronRight, CircleCheck, OctagonX, ScanSearch, ShieldCheck, User, Wrench } from 'lucide-react'
-import type { Health, NodeInfo, PublishResult } from '@protocol'
+import { Bot, Brain, ChevronRight, CircleCheck, KeyRound, OctagonX, ScanSearch, Shield, ShieldCheck, User, Wrench } from 'lucide-react'
+import type { Health, NodeInfo, PublishResult, Tightening } from '@protocol'
+import { useTick } from '@/lib/hooks'
 import { call, useRpc } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
+import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords } from '@/lib/toolwords'
 import { JsonView } from './JsonView'
 import { Pill } from './ui'
+import { ShouldHaveAsked } from './ShouldHaveAsked'
 
 type D = Record<string, any>
 
@@ -31,7 +34,14 @@ function items(nodes: NodeInfo[]): Item[] {
   return out
 }
 
-export function Transcript({ nodes, turns, live }: { nodes: NodeInfo[]; turns: Map<string, TurnRow>; live?: { turn_id: string; text: string } | null }) {
+/** What a session's current turn is doing that no node holds yet: the streamed text and thinking, and the tools running. */
+export interface LiveTurn { turn_id: string; text: string; thinking?: string; running?: { id: string; tool: string; startedAt: number }[] }
+
+export function Transcript({ nodes, turns, live, asking, tightened }: {
+  nodes: NodeInfo[]; turns: Map<string, TurnRow>; live?: LiveTurn | null
+  /** The correlation ids of the calls waiting for the operator, and the tools "should have asked" tightened. */
+  asking?: Set<string>; tightened?: Map<string, Tightening>
+}) {
   const groups = useMemo(() => {
     const g: { turn_id: string | null; items: Item[] }[] = []
     for (const it of items(nodes)) {
@@ -56,19 +66,23 @@ export function Transcript({ nodes, turns, live }: { nodes: NodeInfo[]; turns: M
                 <span className="num text-[11px] text-model">{t.loops ?? '?'} loops</span>
                 <span className="num text-[11px] text-tool">{t.tool_calls ?? 0} tools</span>
                 <span className="num text-[11px] text-money">{usd(t.cost)}</span>
+                {t.first_token_ms != null && <span className="num text-[11px] text-ink-faint" title="time to the first token">first token {ms(t.first_token_ms)}</span>}
+                {t.model && <span className="num text-[11px] text-ink-faint">{t.model}</span>}
+                {t.stop && <span className="num text-[11px] text-ink-faint">{t.stop}</span>}
                 {t.failed && <Pill tone="fault">failed</Pill>}
               </>}
             </div>
             <div className="flex flex-col gap-2">
               {g.items.map((it) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} />
                 : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} />
-                : <ToolItem key={it.node.node_id} call={it.node} result={it.result} />)}
-              {live && live.turn_id === g.turn_id && live.text && <LiveItem text={live.text} />}
+                : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} />)}
+              {live && live.turn_id === g.turn_id && <LiveItem live={live} />}
+              {t?.failed && <TurnFailed t={t} />}
             </div>
           </section>
         )
       })}
-      {live && !groups.some((g) => g.turn_id === live.turn_id) && live.text && <LiveItem text={live.text} />}
+      {live && !groups.some((g) => g.turn_id === live.turn_id) && <LiveItem live={live} />}
     </div>
   )
 }
@@ -156,7 +170,32 @@ function AssistantItem({ n }: { n: NodeInfo }) {
   )
 }
 
-function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
+/** A failed turn, as the Observatory said it: its class, and the error (the daemon's words, not ours). */
+function TurnFailed({ t }: { t: TurnRow }) {
+  if (!t.error && !t.errorClass) return null
+  return (
+    <div className="ml-[76px] rounded-lg bg-fault/[0.06] px-3 py-2 text-[12px] ring-1 ring-fault/30">
+      <span className="font-semibold text-fault">turn failed</span>
+      {t.errorClass && <span className="text-ink-dim"> · class <span className="num">{t.errorClass}</span></span>}
+      {t.error && <div className="mt-0.5 whitespace-pre-wrap text-ink-dim">{t.error}</div>}
+    </div>
+  )
+}
+
+/** A result's text: a diff draws with its additions and deletions marked, anything else as it is. */
+function ResultText({ text }: { text: string }) {
+  const box = 'max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2.5 font-mono text-[11.5px] text-ink-dim ring-1 ring-line'
+  if (!looksLikeDiff(text)) return <pre className={box}>{text}</pre>
+  return (
+    <pre className={box}>
+      {diffLines(text).map((l, i) => (
+        <span key={i} className={cn(l.kind === 'add' && 'text-ok', l.kind === 'del' && 'text-fault', l.kind === 'hunk' && 'text-live', l.kind === 'meta' && 'text-ink-faint')}>{l.line}{'\n'}</span>
+      ))}
+    </pre>
+  )
+}
+
+function ToolItem({ call, result, asking, tightened }: { call: NodeInfo; result?: NodeInfo; asking?: Set<string>; tightened?: Map<string, Tightening> }) {
   const d = (call.detail ?? {}) as D
   const r = (result?.detail ?? (call.kind === 'tool_result' ? call.detail : null) ?? {}) as D
   const [open, setOpen] = useState(false)
@@ -169,6 +208,10 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
   // it as decision.mode. The posture (open, notify, confirm) is what the policy said about the tool.
   const gate: string | undefined = (d.result as D | undefined)?.gate ?? decision?.mode
   const posture: string | undefined = decision?.posture
+  const words = resultWords(result?.detail ?? (call.kind === 'tool_result' ? call.detail : null))
+  const corr: string | undefined = d.correlation_id ?? r.correlation_id
+  const waiting = !result && !!corr && !!asking?.has(corr)
+  const notice = decision?.notify as { setting?: string; rule?: string } | undefined
   const denied = gate === 'deny' || r.status === 'declined'
   const failed = r.is_error && !denied
   const tone = denied ? 'fault' : failed ? 'fault' : result ? 'ok' : 'wait'
@@ -186,12 +229,20 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
         <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left">
           <ChevronRight size={13} className={cn('text-ink-faint transition-transform', open && 'rotate-90')} />
           <span className="num text-[12.5px] font-medium text-tool">{tool}</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-ink-dim">{d.plan?.summary ?? summarizeInput(d.input)}</span>
-          {gate && gate !== 'allow' && <Pill tone={gate === 'deny' ? 'fault' : 'wait'}><ShieldCheck size={11} />{gate}</Pill>}
-          {posture && gate === 'allow' && <span className="num text-[10.5px] text-ink-faint">{posture}</span>}
+          <span className="min-w-0 flex-1 truncate text-[12px] text-ink-dim">{d.plan?.summary ?? ((call.kind === 'tool_call' && callSummary(tool, d.input)) || summarizeInput(d.input))}</span>
+          {gate && gate !== 'allow' && <Pill tone={gate === 'deny' ? 'fault' : 'wait'} title={decision?.reason}><ShieldCheck size={11} />{gate}</Pill>}
+          {posture && gate === 'allow' && <span className="num text-[10.5px] text-ink-faint" title={decision?.reason}>{posture}</span>}
+          {notice && gate !== 'notify' && <Pill tone="wait" title={`${notice.setting ?? ''}\n${notice.rule ?? ''}`}>notified</Pill>}
+          {decision?.granted && <Pill tone="idle" title="the secret broker (names only)"><KeyRound size={10} />{String(decision.granted)}</Pill>}
+          {decision?.class === 'l1' && <Pill tone="ok" title={l1Words(d.egress)}><Shield size={10} /> L1{Array.isArray(d.egress) && d.egress.length > 0 ? ' · egress' : ''}</Pill>}
+          {words.exit != null && <span className={cn('num text-[11px]', words.exit === 0 ? 'text-ink-faint' : 'text-fault')}>exit {words.exit}</span>}
+          {result && typeof (result as D).bytes === 'number' && <span className="num text-[11px] text-ink-faint">{byteWords((result as D).bytes)}</span>}
           {r.duration_ms !== undefined && r.duration_ms !== null && <span className="num text-[11px] text-ink-faint">{ms(r.duration_ms)}</span>}
-          <Pill tone={tone}>{denied ? <OctagonX size={11} /> : failed ? <OctagonX size={11} /> : result ? <CircleCheck size={11} /> : null}{denied ? 'denied' : failed ? 'error' : result ? (r.status ?? 'ok') : 'pending'}</Pill>
+          {words.stoppedBy != null
+            ? <Pill tone="idle" title="a /stop ended this call">stopped by {words.stoppedBy}</Pill>
+            : <Pill tone={waiting ? 'wait' : tone}>{denied ? <OctagonX size={11} /> : failed ? <OctagonX size={11} /> : result ? <CircleCheck size={11} /> : null}{waiting ? 'waits for you' : denied ? 'not run' : failed ? 'error' : result ? (r.status ?? 'ok') : 'pending'}</Pill>}
         </button>
+        {notice && <div className="flex items-center gap-2 px-3 pb-1 pl-9"><ShouldHaveAsked tool={tool} corr={corr} tightened={tightened?.get(tool)} /></div>}
         {!open && result?.text && <div className="truncate border-t border-tool/10 px-3 py-1 font-mono text-[11.5px] text-ink-faint">{result.text.split('\n')[0]}</div>}
         {open && (
           <div className="flex flex-col gap-2 border-t border-tool/10 p-3">
@@ -203,10 +254,10 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
             {result && (
               <div>
                 <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-                  result {r.truncated && <Pill tone="wait">truncated</Pill>} {r.late && <Pill tone="wait">late</Pill>} {r.external && <Pill tone="wait">external text</Pill>}
+                  result {r.truncated && <Pill tone="wait" title={r.full_ref ? `full output: ${r.full_ref}` : undefined}>truncated</Pill>} {r.late && <Pill tone="wait">late</Pill>} {r.external && <Pill tone="wait">external text</Pill>}
                   <span className="ml-auto normal-case tracking-normal"><PublishControl nodeId={result.node_id} /></span>
                 </div>
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2.5 font-mono text-[11.5px] text-ink-dim ring-1 ring-line">{result.text}</pre>
+                <ResultText text={result.text} />
                 {r.meta && Object.keys(r.meta).length > 0 && <div className="mt-1"><JsonView value={r.meta} maxHeight="160px" /></div>}
               </div>
             )}
@@ -217,13 +268,24 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
   )
 }
 
-function LiveItem({ text }: { text: string }) {
+function LiveItem({ live }: { live: LiveTurn }) {
+  const now = useTick(1000)
+  const running = live.running ?? []
+  if (!live.text && !live.thinking && !running.length) return null
   return (
     <div className="flex gap-3">
       <Gutter icon={<Bot size={13} />} tone="bg-live/10 text-live ring-live/40" />
       <div className="live-sweep min-w-0 flex-1 rounded-lg bg-live/[0.05] px-3 py-2 ring-1 ring-live/30">
         <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-live">streaming</div>
-        <div className="md text-[13px] text-ink"><Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown><span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-live align-middle" /></div>
+        {live.thinking && (
+          <div className="mb-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-think/5 px-2.5 py-1.5 text-[12px] italic text-ink-dim ring-1 ring-think/15">
+            <span className="mr-1 inline-flex items-center gap-1 not-italic text-think"><Brain size={12} /> thinking…</span>{live.thinking}
+          </div>
+        )}
+        {live.text && <div className="md text-[13px] text-ink"><Markdown remarkPlugins={[remarkGfm]}>{live.text}</Markdown><span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-live align-middle" /></div>}
+        {running.map((t) => (
+          <div key={t.id} className="num mt-1 flex items-center gap-2 text-[11.5px] text-tool"><Wrench size={11} /> {t.tool} <span className="text-live">running {Math.max(0, Math.round((now - t.startedAt) / 1000))} s…</span></div>
+        ))}
       </div>
     </div>
   )

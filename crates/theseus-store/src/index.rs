@@ -198,6 +198,20 @@ impl Drop for RedbIndex {
     }
 }
 
+/// The checkpoint of the index at `path`, read without writing a byte to
+/// it (theseus-gt12): the position its store last claimed synced. `None`
+/// when there is no index there, when it cannot be read without a repair
+/// (its last process did not close it), or when it holds no checkpoint.
+pub fn checkpoint_of(path: &Path) -> Option<u64> {
+    if !path.is_file() {
+        return None;
+    }
+    let db = redb::ReadOnlyDatabase::open(path).ok()?;
+    let txn = db.begin_read().ok()?;
+    let t = txn.open_table(META).ok()?;
+    t.get("checkpoint").ok()?.map(|v| v.value())
+}
+
 impl RedbIndex {
     pub fn open(path: &Path) -> Result<Self> {
         // redb repairs a file its last process did not close, which costs

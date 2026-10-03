@@ -33,3 +33,36 @@ export function split(c: ProviderCall, p?: Price): Split {
     saved: (u.cache_read_input_tokens * (p.input - p.cacheRead)) / 1e6,
   }
 }
+
+/** What caching saved a call, net: its reads at the cache-read price instead of the input price, less the premium its writes
+ *  paid over the input price (the 1-hour writes at their own price). The Observatory's 'saved' (theseus-ev1); it can be
+ *  negative while a cache is being built and not yet read. `split().saved` is the gross figure of reads alone. */
+export function netSaved(c: ProviderCall, p?: Price): number {
+  if (!p) return 0
+  const u = c.usage
+  const w1h = Math.min(u.cache_creation_1h_input_tokens ?? 0, u.cache_creation_input_tokens)
+  const premium = (u.cache_creation_input_tokens - w1h) * (p.cacheWrite - p.input) + w1h * (p.cacheWrite1h - p.input)
+  return (u.cache_read_input_tokens * (p.input - p.cacheRead) - premium) / 1e6
+}
+
+export interface CacheRow { key: string; sessions: number; input: number; read: number; written: number; saved: number }
+
+/** The calls grouped by a key (a session's profile), each group's input tokens, the share read from cache, the tokens
+ *  written to it, and the net dollars saved. Groups with no input are left out; the most input first. */
+export function cacheBy(calls: ProviderCall[], keyOf: (c: ProviderCall) => string, prices: Map<string, Price>): CacheRow[] {
+  const m = new Map<string, CacheRow & { ids: Set<string> }>()
+  for (const c of calls) {
+    const u = c.usage
+    const input = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+    if (input === 0) continue
+    const key = keyOf(c)
+    const r = m.get(key) ?? { key, sessions: 0, input: 0, read: 0, written: 0, saved: 0, ids: new Set<string>() }
+    r.input += input
+    r.read += u.cache_read_input_tokens
+    r.written += u.cache_creation_input_tokens
+    r.saved += netSaved(c, prices.get(c.model))
+    if (c.session_id) r.ids.add(c.session_id)
+    m.set(key, r)
+  }
+  return [...m.values()].map(({ ids, ...r }) => ({ ...r, sessions: ids.size })).sort((a, b) => b.input - a.input)
+}

@@ -1,5 +1,6 @@
 // The fleet: every session and execution, sortable and filterable, beside a live graph of who started whom
-// (tasks) and who reports to whom. Rows and nodes open the session deck.
+// (tasks) and who reports to whom. Rows and nodes open the session deck. The same panel lists the executions (`?view=executions`),
+// each with its queue, its budget, and its cancel, as the Observatory's Executions table did.
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeProps } from '@xyflow/react'
@@ -12,7 +13,8 @@ import { useSettled, useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { ago, cn, pct, short, stamp, tokens, usd } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
-import { AttentionPill, Empty, LiveDot, Meter, Panel, Pill } from '@/components/ui'
+import { AttentionPill, Empty, LiveDot, Meter, Panel, Pill, Segmented } from '@/components/ui'
+import { ExecutionTable } from '@/components/ExecutionTable'
 
 type Key = 'state' | 'title' | 'turns' | 'tools' | 'tokens' | 'cache' | 'cost' | 'active'
 type Sort = { k: Key; desc: boolean }
@@ -78,6 +80,9 @@ export default function Fleet() {
   const setQ = (v: string) => setParams((p) => { if (v) p.set('q', v); else p.delete('q'); return p }, { replace: true })
   const setState = (v: string | null) => setParams((p) => { if (v) p.set('state', v); else p.delete('state'); return p }, { replace: true })
   const [sort, setSort] = useState<Sort>({ k: 'active', desc: true })
+  const view = params.get('view') === 'executions' ? 'executions' : 'sessions'
+  const setView = (v: 'sessions' | 'executions') => setParams((p) => { if (v === 'executions') p.set('view', v); else p.delete('view'); return p }, { replace: true })
+  const titleOf = useMemo(() => { const m = new Map(sessions.map((s) => [s.session_id, s.title || s.label || short(s.session_id)])); return (sid: string) => m.get(sid) ?? short(sid) }, [sessions])
 
   const states = useMemo(() => {
     const m = new Map<string, number>()
@@ -128,8 +133,12 @@ export default function Fleet() {
 
       <Group orientation="horizontal" className="min-h-0 flex-1">
         <RPanel defaultSize="62" minSize={480} className="min-h-0">
-          <Panel title="Sessions" icon={<Layers size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
-            actions={world ? <span className="text-[11px] text-ink-faint">return to LIVE to open a session</span> : <NewSession onOpened={(id) => nav(`/session/${id}`)} />}>
+          <Panel title={view === 'executions' ? <>Executions · {executions.length}</> : 'Sessions'} icon={<Layers size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
+            actions={<>
+              <Segmented value={view} options={['sessions', 'executions'] as const} onChange={setView} />
+              {world ? <span className="text-[11px] text-ink-faint">return to LIVE to open a session</span> : <NewSession onOpened={(id) => nav(`/session/${id}`)} />}
+            </>}>
+            {view === 'executions' ? <ExecutionTable executions={executions} title={titleOf} now={now} past={!!world} /> : <>
             <table className="w-full whitespace-nowrap text-[12px]">
               <thead className="sticky top-0 z-10 bg-hull/95 text-[10px] uppercase tracking-wider text-ink-faint backdrop-blur">
                 <tr>
@@ -162,6 +171,7 @@ export default function Fleet() {
               </tbody>
             </table>
             {!rows.length && <Empty>no sessions match</Empty>}
+            </>}
           </Panel>
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
