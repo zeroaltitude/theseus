@@ -31,6 +31,10 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
     an empty store is quiet (5 ms of CPU in 30 s, 4.5 wakeups a second), and at 10,000 parked sessions a release build is
     still at 5.8 % of a core 300 s after its first answer, writing no frames (review 2's S1).
   - `bench size`: the shipped binaries' sizes against §9's 60 MB. Meaningful on a release or install build.
+  - `bench jobs` (`src/jobs.rs`, M4 17b): a job's start through the real wrapper, by class: `l0`, `l1`, `l1-egress`
+    (18c: its listener and proxy), and `l1-cred` (18d: its credential socket's directory and the helper bound in, with
+    the daemon's side, the directory and its listener, timed too). An L1 start's p95 against §2.2's 25 ms (`--check`).
+    Give it the classes in palindrome order (`l1,l1-cred,l1-cred,l1`) to see the machine's drift.
   - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends. The
     other benches' columns (`history::OTHER`) are in the same file, each with its unit.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
