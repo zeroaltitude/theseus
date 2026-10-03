@@ -330,10 +330,7 @@ fn no_network() -> Result<(), String> {
         "tcp:8.8.8.8:53",
         "tcp:[2606:4700::1111]:443",
     ] {
-        check(
-            v["connect"][t] == "ENETUNREACH",
-            format!("{t}: {}", v["connect"][t]),
-        )?;
+        unreachable(&v, t)?;
     }
     check(
         v["interfaces"] == json!(["lo"]),
@@ -346,11 +343,42 @@ fn no_metadata_service() -> Result<(), String> {
     let targets = ["tcp:169.254.169.254:80", "tcp:[fd00:ec2::254]:80"];
     let v = probe("connect", &targets)?;
     for t in targets {
-        check(
-            v["connect"][t] == "ENETUNREACH",
-            format!("{t}: {}", v["connect"][t]),
-        )?;
+        unreachable(&v, t)?;
     }
+    Ok(())
+}
+
+/// A connect to `target` from inside the job found no route: ENETUNREACH.
+/// An IPv6 target on a host whose kernel has no IPv6 (`ipv6.disable=1`)
+/// ends sooner, at the socket, with EAFNOSUPPORT: the job then has no route
+/// because the host has none either (theseus-celu.2). Only the host's own
+/// answer widens it: anything else from the job still fails.
+fn unreachable(v: &Value, target: &str) -> Result<(), String> {
+    let got = &v["connect"][target];
+    let (want, why) = if target.starts_with("tcp:[") {
+        match host_ipv6_socket() {
+            Err(e) if e.raw_os_error() == Some(libc::EAFNOSUPPORT) => (
+                "EAFNOSUPPORT",
+                "the host's own IPv6 socket fails with EAFNOSUPPORT: its kernel has no IPv6",
+            ),
+            _ => ("ENETUNREACH", "the host makes IPv6 sockets"),
+        }
+    } else {
+        ("ENETUNREACH", "IPv4")
+    };
+    check(
+        *got == want,
+        format!("{target}: {got} (wanted {want}: {why})"),
+    )
+}
+
+/// An IPv6 socket made on the host, outside L1.
+fn host_ipv6_socket() -> std::io::Result<()> {
+    let fd = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
+    if fd == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    unsafe { libc::close(fd) };
     Ok(())
 }
 
@@ -459,9 +487,18 @@ fn proc_and_sys_masked() -> Result<(), String> {
     check(exit.success(), format!("{exit:?}\n{text}"))?;
     let v: Value =
         serde_json::from_str(text.lines().last().unwrap_or("")).map_err(|e| e.to_string())?;
+    // A kernel built without /proc/kcore (no CONFIG_PROC_KCORE) has none to
+    // mask, inside or out: the job finds none only when the host has none
+    // (theseus-celu.2).
+    let (kcore, why) = match fs::symlink_metadata("/proc/kcore") {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            (json!("ENOENT"), "the host has no /proc/kcore")
+        }
+        _ => (json!(0), "masked: the host has one"),
+    };
     check(
-        v["kcore_bytes"] == 0,
-        format!("/proc/kcore: {}", v["kcore_bytes"]),
+        v["kcore_bytes"] == kcore,
+        format!("/proc/kcore: {} (wanted {kcore}: {why})", v["kcore_bytes"]),
     )?;
     check(
         v["keys_bytes"] == 0,
@@ -543,7 +580,22 @@ fn limits() -> Result<(), String> {
         }
         None => s.limits.pids = 16,
     })?;
-    is(&v, "error", "EAGAIN")?;
+    // Linux never applies RLIMIT_NPROC to a task whose real user is the
+    // initial user namespace's root (copy_process's INIT_USER check), and
+    // the job's is the operator's: without a cgroup, a root operator's job
+    // has no process limit. The clause does not hold, so this still fails
+    // (theseus-celu.2).
+    is(&v, "error", "EAGAIN").map_err(|e| {
+        if cg.is_none() && unsafe { libc::getuid() } == 0 {
+            format!(
+                "{e}\nthe operator is root (uid 0), whom Linux exempts from \
+                 RLIMIT_NPROC, and the job has no cgroup: it has no process \
+                 limit (theseus-celu.2)"
+            )
+        } else {
+            e
+        }
+    })?;
     let forked = v["forked"].as_u64().unwrap_or(0);
     check(
         (10..16).contains(&forked),
@@ -1091,6 +1143,7 @@ mod probe {
             libc::EFBIG => "EFBIG",
             libc::ETIMEDOUT => "ETIMEDOUT",
             libc::EEXIST => "EEXIST",
+            libc::EAFNOSUPPORT => "EAFNOSUPPORT",
             _ => return format!("errno {e}"),
         };
         n.into()
