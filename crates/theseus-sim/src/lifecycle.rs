@@ -209,6 +209,11 @@ pub struct Start {
     /// comes before the bot token resolves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver_ms: Option<f64>,
+    /// When the Discord binding's token resolved, in ms after the process
+    /// began, by the daemon's clock (the end of its `discord.token` phase),
+    /// once the binding bound its place at the fake Discord (theseus-l21m).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_ms: Option<f64>,
     /// How long the store's open waited for the last process to release it
     /// (the store phase's `lock_wait_ms`, F4b); builds before F4b say
     /// nothing.
@@ -255,6 +260,7 @@ impl Start {
             config: h["config"]["state"].as_str().unwrap_or("").to_string(),
             confirmed_ms: None,
             driver_ms: driver_ms(h),
+            token_ms: None,
             lock_wait_ms,
         }
     }
@@ -269,6 +275,36 @@ fn driver_ms(h: &Value) -> Option<f64> {
         .find(|p| p["name"] == "driver")?["end_us"]
         .as_u64()
         .map(|us| us as f64 / 1000.0)
+}
+
+/// When the Discord binding's token resolved, in ms after the process began:
+/// the end of its `discord.token` phase, when it ended with the token.
+fn token_ms(h: &Value) -> Option<f64> {
+    let p = h["startup"]
+        .as_array()?
+        .iter()
+        .find(|p| p["name"] == "discord.token" && p["detail"]["outcome"] == "ready")?;
+    p["end_us"].as_u64().map(|us| us as f64 / 1000.0)
+}
+
+/// The bench's config with its Discord REST and gateway on `fake`, the
+/// in-process stand-in, instead of a port nothing listens on (theseus-l21m).
+pub fn on_fake_discord(
+    config: &str,
+    fake: &theseus_sim::fake_discord::FakeDiscord,
+) -> Result<String> {
+    let mut t: toml::Table = config.parse()?;
+    let d = t
+        .get_mut("discord")
+        .and_then(toml::Value::as_table_mut)
+        .context("the bench config has a [discord] table")?;
+    d.insert("rest_proxy".into(), fake.addr.clone().into());
+    let gateway = fake
+        .gateway()
+        .context("the fake Discord serves a gateway")?
+        .url();
+    d.insert("gateway_proxy".into(), gateway.into());
+    Ok(toml::to_string(&t)?)
 }
 
 // ------------------------------------------------------------------ the rig
@@ -524,6 +560,34 @@ impl Rig {
         Ok(None)
     }
 
+    /// Until the Discord binding has bound its DM at the fake Discord, at
+    /// most `resolver_ms` and 30 s: when its token resolved, in ms after the
+    /// process began, by the daemon's clock (theseus-l21m). A binding that
+    /// never binds fails the bench: the driver check would mean nothing.
+    fn binding_bound(&self, resolver_ms: u64) -> Result<f64> {
+        let deadline = Instant::now() + Duration::from_millis(resolver_ms + 30_000);
+        loop {
+            let h = self.call("health", Value::Null)?;
+            let b = &h["bindings"][0];
+            let bound = b["places"][0]["session_id"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty());
+            if let (true, Some(ms)) = (bound, token_ms(&h)) {
+                return Ok(ms);
+            }
+            if Instant::now() > deadline {
+                bail!(
+                    "the Discord binding did not bind at the fake Discord within {} s: {}; the \
+                     daemon's log ends:\n{}",
+                    (resolver_ms + 30_000) / 1000,
+                    b,
+                    tail(&self.log)
+                );
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// The `shutdown` request to process exit, in ms.
     pub(crate) fn stop(&self, daemon: &mut Daemon) -> Result<f64> {
         let s = UnixStream::connect(&self.sock).context("connecting to stop theseusd")?;
@@ -708,7 +772,12 @@ pub(crate) fn fake_op(ms: u64, note: &Path) -> String {
 
 /// The bench's bindings file: one DM, so the Discord binding starts and
 /// waits for its token, which the fake op gives only after `resolver_ms`.
-pub const BENCH_BINDINGS: &str = "guild_id = \"1\"\n[[dm]]\nuser = \"2\"\nname = \"bench\"\n";
+/// Its ids are invented ones of Discord's length (15 to 21 digits), which the
+/// binding takes, and its guild is the fake Discord's (theseus-l21m): with
+/// `"1"` and `"2"` the binding failed at load, waited for no token, and the
+/// driver check passed whatever the driver did.
+pub const BENCH_BINDINGS: &str =
+    "guild_id = \"900000000000000001\"\n[[dm]]\nuser = \"100000000000000002\"\nname = \"bench\"\n";
 
 /// A port nothing listens on: the bench's Discord REST and gateway.
 const NOWHERE: &str = "127.0.0.1:9";
@@ -932,6 +1001,13 @@ pub fn run(o: &Opts) -> Result<Report> {
         }
     };
     let sock = work.join("sock");
+    // The binding's Discord, REST and gateway, in this process (theseus-l21m):
+    // the binding binds its DM there once its token resolves, and nothing
+    // leaves the machine. Only the bench's own config uses it.
+    let discord = o
+        .config
+        .is_none()
+        .then(theseus_sim::fake_discord::FakeDiscord::start_with_gateway);
     // With the operator's own `op://` note, only the vault phase runs.
     let real_note = o
         .config
@@ -956,7 +1032,10 @@ pub fn run(o: &Opts) -> Result<Report> {
         None => {
             let model = FakeModel::start(JOB.iter().map(|s| s.to_string()).collect())?;
             let config = work.join("config.toml");
-            let text = bench_config(&model.base(), &state, &sock, &projects)?;
+            let text = on_fake_discord(
+                &bench_config(&model.base(), &state, &sock, &projects)?,
+                discord.as_ref().expect("started with the fake model"),
+            )?;
             std::fs::write(&config, &text)?;
             std::fs::write(state.join("bindings.toml"), BENCH_BINDINGS)?;
             // The vault phase starts from the note's copy, as a daemon that
@@ -1011,6 +1090,9 @@ pub fn run(o: &Opts) -> Result<Report> {
             s.after = "cold".into();
             if s.driver_ms.is_none() {
                 s.driver_ms = rig.driver_started()?;
+            }
+            if discord.is_some() {
+                s.token_ms = Some(rig.binding_bound(resolver_ms)?);
             }
             // The push's seed (theseus-in3): the first `executions.watch`
             // reads every execution and action into the board, after serving.
@@ -1086,6 +1168,9 @@ pub fn run(o: &Opts) -> Result<Report> {
         s.after = "cold".into();
         if s.driver_ms.is_none() {
             s.driver_ms = rig.driver_started()?;
+        }
+        if discord.is_some() {
+            s.token_ms = Some(rig.binding_bound(resolver_ms)?);
         }
         starts.push(s);
         let mut job: Option<String> = None;
@@ -1223,14 +1308,24 @@ pub fn run(o: &Opts) -> Result<Report> {
         .collect();
     // No driver wait at startup (theseus-q4v): the bench's Discord binding
     // gets its token from the fake op only after `resolver_ms`, so a driver
-    // that waited for the binding could not start before then.
+    // that waited for the binding could not start before then. Each measured
+    // cold start's binding bound at the fake Discord, its token resolved no
+    // sooner than `resolver_ms` (it waited for it), and the driver started
+    // before the token did (theseus-l21m): a binding that failed at load
+    // waited for nothing, and the check meant nothing.
     let cold: Vec<&Start> = starts.iter().filter(|s| s.after == "cold").collect();
     let driver: Vec<f64> = cold.iter().filter_map(|s| s.driver_ms).collect();
     let driver_before_token = resolver_ms == 0
         || !want("cold")
-        || cold
-            .iter()
-            .all(|s| s.driver_ms.is_some_and(|ms| ms < resolver_ms as f64));
+        || cold.iter().all(|s| {
+            let driver = s.driver_ms.is_some_and(|ms| ms < resolver_ms as f64);
+            let token = match (discord.is_some(), s.token_ms) {
+                (false, _) => true,
+                (true, Some(t)) => t >= resolver_ms as f64 && s.driver_ms.is_some_and(|d| d < t),
+                (true, None) => false,
+            };
+            driver && token
+        });
     let verdicts = verdicts(&phases, sessions, o.margin_ms);
     let lock_waits: Vec<f64> = starts
         .iter()
@@ -1814,6 +1909,52 @@ mod tests {
         // The index tender runs, and finds no model's files.
         assert!(cfg.index.enabled);
         assert!(!theseus_core::config::expand(&cfg.index.weights_dir).exists());
+    }
+
+    /// The bench's binding is one the binding takes, and its Discord is the
+    /// in-process fake, REST and gateway (theseus-l21m): with ids it refused,
+    /// it failed at load and the driver check checked nothing.
+    #[test]
+    fn the_bench_binding_has_discords_ids_and_the_fake_discord() {
+        let ids: toml::Table = BENCH_BINDINGS.parse().unwrap();
+        let dm = &ids["dm"].as_array().unwrap()[0];
+        for id in [&ids["guild_id"], &dm["user"]] {
+            let id = id.as_str().unwrap();
+            assert!(
+                (15..=21).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit()),
+                "{id:?} is not a Discord id"
+            );
+        }
+        assert_eq!(
+            ids["guild_id"].as_str(),
+            Some(
+                theseus_sim::fake_discord::DEFAULT_GUILD
+                    .to_string()
+                    .as_str()
+            ),
+            "the fake gateway's READY names this guild"
+        );
+        let fake = theseus_sim::fake_discord::FakeDiscord::start_with_gateway();
+        let d = tempfile::tempdir().unwrap();
+        let text = bench_config(
+            "http://127.0.0.1:9",
+            &d.path().join("state"),
+            &d.path().join("sock"),
+            d.path(),
+        )
+        .and_then(|t| on_fake_discord(&t, &fake))
+        .unwrap();
+        let (cfg, _warnings) = theseus_core::Config::parse(&text).unwrap();
+        assert!(cfg.discord.enabled);
+        assert_eq!(cfg.discord.rest_proxy.as_deref(), Some(fake.addr.as_str()));
+        assert_eq!(
+            cfg.discord.gateway_proxy,
+            Some(fake.gateway().unwrap().url())
+        );
+        assert!(
+            fake.addr.starts_with("127.0.0.1:"),
+            "nothing leaves the machine"
+        );
     }
 
     #[test]
