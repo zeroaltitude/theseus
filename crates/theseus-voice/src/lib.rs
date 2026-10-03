@@ -8,13 +8,17 @@
 //!   coalesced into the next; replies spoken a sentence at a time, with
 //!   barge-in; the acknowledgment for a slow turn; reports at the pause.
 //! - **The [`Speech`] contract**, transcribe and synthesize with their usage,
-//!   and its stand-ins ([`StandInSpeech`]). The real providers are 45a.
+//!   and its stand-ins ([`StandInSpeech`]).
+//! - **Deepgram** (45a), the real [`Speech`] ([`DeepgramSpeech`]): speech to
+//!   text per utterance, and synthesis per sentence, over its REST API.
 //!
-//! The binding's wire-in (gateway intents, `[[voice]]` places, `/join`) is
-//! 44b. Nothing here runs before a join: the engine and songbird's manager
-//! spawn nothing when they're built (FAST).
+//! The binding's wire-in (gateway intents, voice places, `/join`) is 44b.
+//! Nothing here runs before a join: the engine, songbird's manager, and
+//! Deepgram's client spawn nothing and send nothing when they're built
+//! (FAST).
 
 pub mod audio;
+pub mod deepgram;
 mod engine;
 mod io;
 mod sentences;
@@ -24,6 +28,7 @@ mod speech;
 mod vad;
 
 pub use audio::{read_wav, write_wav, Audio, WavError, FRAME, FRAME_SAMPLES, SAMPLE_RATE};
+pub use deepgram::{DeepgramSettings, DeepgramSpeech};
 pub use engine::{
     Command, Config, Engine, EngineHandle, Event, Failure, Spoken, TurnId, Utterance,
 };

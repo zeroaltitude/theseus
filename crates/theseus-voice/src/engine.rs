@@ -53,6 +53,9 @@ pub struct Config {
     pub min_speech: Duration,
     /// An utterance this long closes, even mid-speech: 30 s.
     pub max_utterance: Duration,
+    /// What was received under the threshold just before an utterance opens
+    /// begins it, a word's soft start: 200 ms.
+    pub pre_roll: Duration,
 }
 
 impl Config {
@@ -66,6 +69,7 @@ impl Config {
             speech_rms: 500.0,
             min_speech: Duration::from_millis(100),
             max_utterance: Duration::from_secs(30),
+            pre_roll: Duration::from_millis(200),
         }
     }
 
@@ -75,6 +79,7 @@ impl Config {
             quiet_frames: frames(self.end_of_utterance),
             min_speech_frames: frames(self.min_speech),
             max_frames: frames(self.max_utterance),
+            pre_roll_frames: frames(self.pre_roll),
         }
     }
 }
@@ -117,9 +122,10 @@ pub enum Command {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Utterance {
     pub speaker: Speaker,
-    /// When its first speech frame began, from the call's start.
+    /// When its audio began, from the call's start: its first speech frame,
+    /// or the soft start received just before it (`Config::pre_roll`).
     pub started: Duration,
-    /// From its first speech frame to the end of its last.
+    /// From there to the end of its last speech frame.
     pub length: Duration,
     /// When it closed: after the silence that ended it.
     pub closed: Duration,

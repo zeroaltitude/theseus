@@ -59,6 +59,7 @@ pub mod tighten;
 pub mod toolrun;
 pub mod trace;
 pub mod turn;
+pub mod voice;
 pub mod wake;
 pub mod web;
 pub mod webui;
