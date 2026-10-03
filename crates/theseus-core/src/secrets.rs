@@ -290,7 +290,14 @@ impl OpReader {
             Self::start(&mut cmd).map_err(|e| InjectFailed::Error(format!("spawning op: {e}")))?;
         let run = async {
             if let Some(mut stdin) = child.stdin.take() {
-                stdin.write_all(template.as_bytes()).await?;
+                // An `op` that exits before it reads the template (one that
+                // refuses at once) closes the pipe first: its status and its
+                // stderr say why, so the broken pipe is not the error
+                // (theseus-f6f5).
+                match stdin.write_all(template.as_bytes()).await {
+                    Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+                    r => r?,
+                }
             }
             child.wait_with_output().await
         };
@@ -828,6 +835,36 @@ mod tests {
         let e = op_error(b"[ERROR] 2026/09/29 08:58:19 could not find item x\n");
         assert_eq!(e, "could not find item x");
         assert_eq!(op_error(b"plain"), "plain");
+    }
+
+    /// An `op` that refuses at once, before it reads the template, is
+    /// named by its own words, not by the pipe it closed (theseus-f6f5). The
+    /// template here is past a pipe's 64 KiB, so its write always meets the
+    /// closed pipe, however the two processes are scheduled.
+    #[tokio::test]
+    async fn an_op_that_refuses_before_reading_its_template_is_named_by_its_stderr() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let op_bin = dir.path().join("op");
+        std::fs::write(
+            &op_bin,
+            "#!/bin/sh\necho '[ERROR] 2026/10/03 12:00:00 the vault is sealed' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let reader = OpReader {
+            token: Secret::new("test-not-a-token".into()),
+            op_bin,
+            token_file: None,
+        };
+        let refs: Vec<String> = (0..2000)
+            .map(|i| format!("op://Harbor/item-{i:04}/notesPlain"))
+            .collect();
+        match reader.inject(&refs).await {
+            Err(InjectFailed::Error(why)) => assert_eq!(why, "the vault is sealed"),
+            Err(InjectFailed::TimedOut) => panic!("timed out"),
+            Ok(_) => panic!("op refused, yet values came back"),
+        }
     }
 
     fn refs(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
