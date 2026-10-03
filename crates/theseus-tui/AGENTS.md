@@ -6,6 +6,8 @@ focus, with its history and its input line. A client like the CLI, over the same
 and the CLI's library (`theseus_client`), never the core. An installed binary of its own (`tool` in its manifest),
 which `theseus tui` execs.
 
+Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`. Read by: `theseus tui`, which execs it.
+
 ## What's here
 
 - `src/main.rs`: the arguments (`--socket`, `--notify`), the terminal's modes, and the loop's start.

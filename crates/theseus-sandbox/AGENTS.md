@@ -6,6 +6,8 @@ capabilities, under `no_new_privs` and a seccomp deny list, below an init whose 
 lane 17a; read by the job wrapper's L1 path (`theseus-kernel`'s `job_l1.rs`, step 17b). Its egress proxy
 (`egress.rs`, 18b) is wired in by 18c: the wrapper runs it for a job whose list is not empty (`job_egress.rs`).
 
+Key modules: `spawn.rs`, `init.rs`, `view.rs`. Read by: the kernel's `job_l1.rs`.
+
 ## What's here
 
 - `spawn.rs`: the wrapper's side. `spawn(spec, init, stdio)` clones the init with a pidfd, writes user namespace

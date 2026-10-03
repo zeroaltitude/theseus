@@ -7,6 +7,8 @@ subcommands: `job-wrapper`, `check`, `config`, `example-config`, `example-bindin
 theseus-dxgb). **A test or tool that builds on the template runs `example-config --plain`**, or it reads the
 operator's overlay on his machine.
 
+Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
+
 ## What's here
 
 - `src/main.rs`: the start, in the order serve-first requires: the token, the config, secrets resolving in the

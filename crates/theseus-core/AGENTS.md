@@ -3,6 +3,8 @@
 The agent itself: config and secrets, sessions, the turn, the context compiler, tool calls and the gate, the protocol
 server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, and theseus-sim.
 
+Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash.rs`, `aws/`. Read by: theseusd, discord, sim.
+
 ## What's here
 
 - **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
@@ -90,6 +92,32 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   never past 100 ms). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
   clock with a stand-in `Os`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
+
+## Where the big things live
+
+- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`, and `tx.rs`. Every mutating method writes
+  one frame.
+- **The store's WAL and index**: `crates/theseus-store/src/wal.rs`, `index.rs`, and `store.rs`.
+- **The turn loop**: `crates/theseus-core/src/turn.rs`, with `advancer.rs`; the harness loop in `harness.rs`, and
+  what it drives (continuations, the heartbeat) in `rpc/driver.rs`.
+- **The compiler**: `crates/theseus-core/src/compiler.rs` and `context_files.rs`.
+- **Tool calls**: `crates/theseus-core/src/toolrun.rs`; the gate's postures in `policy.rs`, `external.rs`, and
+  `broker.rs`.
+- **The RPC layer**: `crates/theseus-core/src/rpc/` (`server.rs`, `methods.rs`, `driver.rs`, `confirms.rs`).
+- **Facts**: `crates/theseus-core/src/fact/`: every ledger row, notification, narrative line, and span of the turn,
+  its tool calls, answers, and the driver, one type each, recorded once (theseus-j6qn). The ledger's kinds:
+  `crates/theseus-protocol/src/ledger.rs`.
+- **The push's board**: `crates/theseus-core/src/push.rs`, fed by `Kernel::observe`; `attention()` is in
+  `crates/theseus-protocol/src/push.rs`.
+- **The outbox**: `crates/theseus-kernel/src/outbox.rs`, `crates/theseus-core/src/outbox.rs`, and
+  `crates/theseus-discord/src/courier.rs`.
+- **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
+  (`theseusd example-config` prints it, with an operator's private overlay in place: `config_overlay.rs`).
+- **L1**: `crates/theseus-core/src/sandbox.rs` (`[sandbox]`, the class, the probe), and the wrapper's L1 path in
+  `crates/theseus-kernel/src/job_l1.rs`.
+- **The index tender**: the binary in `crates/theseus-index`, its supervisor in `crates/theseus-core/src/tender.rs`
+  (started 2 s after serving, restarted with backoff, SIGTERM at a stop), and its child kind in
+  `crates/theseus-kernel/src/children.rs`.
 
 ## Invariants
 

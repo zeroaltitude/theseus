@@ -4,6 +4,8 @@
 `theseusd --stdio`. It links theseus-protocol and nothing else of Theseus. Its library, `theseus_client`, is shared
 with the terminal UI.
 
+Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
+
 ## What's here
 
 - `src/lib.rs`: the library, `theseus_client`: `client` (a connection; it prints nothing and knows no command line)

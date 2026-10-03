@@ -3,6 +3,8 @@
 Toollets (spec §3.23, §3.24): small, typed, in-process tools behind one contract (`Tool`, in `src/lib.rs`). Read by
 theseus-core, whose `toolrun.rs` runs every call as a kernel action, and by theseus-sandbox.
 
+Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
+
 ## What's here
 
 - `src/lib.rs`: the contract. A toollet parses and checks its input (`plan`), names the paths or argv it will touch

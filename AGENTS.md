@@ -24,35 +24,27 @@ serves. AI agents build it in small, reviewed steps.
 
 ### Crates
 
-| Crate | What it is | Key modules | Read by |
-|---|---|---|---|
-| `theseus-protocol` | The wire types (JSON-RPC 2.0 over NDJSON). Types only: no runtime, no clock. | `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`, `push.rs`, `gate.rs`, `ts.rs` | every crate on the wire, and the web apps (generated) |
-| `theseus-store` | The keel: a WAL of checksummed atomic frames (the truth), and a redb index rebuilt from it. | `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs` | kernel, core, theseusd, sim |
-| `theseus-kernel` | The durable kernel: executions, actions, completions, the spool, budgets, locks, tasks, wakes, stops, the outbox's actions, the job wrapper. | `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.rs` | core, discord, theseusd, sim |
-| `theseus-tools` | Toollets: `fs.*`, `git.diff`, `git.log`, `text.diff`, and `proc.run`'s spec. | `fs.rs`, `git.rs`, `proc.rs`, `paths.rs` | core |
-| `theseus-core` | The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools. | `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash.rs`, `aws/` | theseusd, discord, sim |
-| `theseus-aws-catalog`, `theseus-aws` | Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1). | `classify.rs`, `describe.rs`; `client.rs`, `error.rs` | core (`aws/`) |
-| `theseus-discord` | The Discord binding, in-process; it acts through the protocol. | `runtime.rs`, `courier.rs`, `render.rs` | theseusd |
-| `theseus-sandbox` | L1: a job in its own namespaces, seccomp, and cgroup; the egress proxy (wired at 18c) | `spawn.rs`, `init.rs`, `view.rs` | the kernel's `job_l1.rs` |
-| `theseusd` | The daemon: serving, `job-wrapper`, `job-sandbox`, `check`, `restore`, `install`, the web server. | `main.rs`, `web.rs`, `install/` | (a binary) |
-| `theseus` | The CLI, and its library `theseus_client` (client, render), which the terminal UI shares. | `main.rs`, `cmd.rs`, `render.rs`, `client.rs` | (a binary) |
-| `theseus-tui` | The terminal UI: every session in a sidebar, what needs you answered inline, a session's history and input line. A protocol client. | `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs` | `theseus tui`, which execs it |
-| `theseus-index` | The index tender (M6): a child of the daemon that follows the WAL read-only into BM25, exact entities, and vectors, and answers on `<state>/index/sock`. An installed binary of its own, beside `theseusd`. | `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs` | `theseusd`, which runs it after serving (row 51; the core's `tender.rs`) |
-| `theseus-follow` | The WAL follower: a store's log read from outside the process that writes it, from a cursor, woken by inotify. | `lib.rs`, `wake.rs` | `theseus-index` (and step 15's durability tender) |
-| `theseus-sim` | A tool beside the binaries: the crash test, `kernel-sim`, the lifecycle bench and its history, fake Discord and model servers, and the Discord proof. | `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.rs` | the gate, and tests |
+One line each; a crate's key modules and its readers are in its own `AGENTS.md`.
+
+- `theseus-protocol`: The wire types (JSON-RPC 2.0 over NDJSON). Types only: no runtime, no clock.
+- `theseus-store`: The keel: a WAL of checksummed atomic frames (the truth), and a redb index rebuilt from it.
+- `theseus-kernel`: The durable kernel: executions, actions, completions, the spool, budgets, locks, tasks, wakes, stops, the outbox's actions, the job wrapper.
+- `theseus-tools`: Toollets: `fs.*`, `git.diff`, `git.log`, `text.diff`, and `proc.run`'s spec.
+- `theseus-core`: The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools.
+- `theseus-aws-catalog`, `theseus-aws`: Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1).
+- `theseus-discord`: The Discord binding, in-process; it acts through the protocol.
+- `theseus-sandbox`: L1: a job in its own namespaces, seccomp, and cgroup; the egress proxy (wired at 18c)
+- `theseusd`: The daemon: serving, `job-wrapper`, `job-sandbox`, `check`, `restore`, `install`, the web server.
+- `theseus`: The CLI, and its library `theseus_client` (client, render), which the terminal UI shares.
+- `theseus-tui`: The terminal UI: every session in a sidebar, what needs you answered inline, a session's history and input line. A protocol client.
+- `theseus-index`: The index tender (M6): a child of the daemon that follows the WAL read-only into BM25, exact entities, and vectors, and answers on `<state>/index/sock`. An installed binary of its own, beside `theseusd`.
+- `theseus-follow`: The WAL follower: a store's log read from outside the process that writes it, from a cursor, woken by inotify.
+- `theseus-sim`: A tool beside the binaries: the crash test, `kernel-sim`, the lifecycle bench and its history, fake Discord and model servers, and the Discord proof.
 
 The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each says so in its own manifest:
 `reserved_for` under `[package.metadata.theseus]` names the roadmap row that wires it in (Item 32):
 
-| Crate | What it is | Wired in at |
-|---|---|---|
-| `theseus-ontology` | The fungible ontology's first slice (§4.1a) | row 26 (21b) |
-| `theseus-aws-guard` | The AWS guardrails: the gate's check, and the generated guards and SCPs | row 30 (C2, 14b) |
-| `theseus-judge` | Jev: the typed client, bands, batching, the breaker, the question packs | row 37 (23a) |
-| `theseus-memory` | FSRS-6 and spreading activation, pure | row 52 (30a) |
-| `theseus-exam` | The memory exam | row 55 |
-| `theseus-mcp` | MCP, client and server, written by hand | row 66 (36b) |
-| `theseus-voice` | The voice engine for Discord | row 77 (44b) |
+The reserved ones, with the row that wires each in, are listed in `docs/design/README.md`.
 
 ### Directories
 
@@ -66,7 +58,7 @@ The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each
   `rust-toolchain.toml` (one exact release), `clippy.toml` (shape), `.cargo/config.toml` (the musl target),
   `.config/nextest.toml` (a hung test dies at two minutes; named flaky tests retry), and `.github/workflows/ci.yml`.
 
-Directory guides: each crate in the first table, `web`, `cockpit`, and `scripts` has an `AGENTS.md`.
+Directory guides: each crate, `web`, `cockpit`, and `scripts` has an `AGENTS.md`.
 
 ### Generated files: never edit them by hand
 
@@ -80,29 +72,8 @@ Directory guides: each crate in the first table, `web`, `cockpit`, and `scripts`
 
 ### Where the big things live
 
-- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`, and `tx.rs`. Every mutating method writes
-  one frame.
-- **The store's WAL and index**: `crates/theseus-store/src/wal.rs`, `index.rs`, and `store.rs`.
-- **The turn loop**: `crates/theseus-core/src/turn.rs`, with `advancer.rs`; the harness loop in `harness.rs`, and
-  what it drives (continuations, the heartbeat) in `rpc/driver.rs`.
-- **The compiler**: `crates/theseus-core/src/compiler.rs` and `context_files.rs`.
-- **Tool calls**: `crates/theseus-core/src/toolrun.rs`; the gate's postures in `policy.rs`, `external.rs`, and
-  `broker.rs`.
-- **The RPC layer**: `crates/theseus-core/src/rpc/` (`server.rs`, `methods.rs`, `driver.rs`, `confirms.rs`).
-- **Facts**: `crates/theseus-core/src/fact/`: every ledger row, notification, narrative line, and span of the turn,
-  its tool calls, answers, and the driver, one type each, recorded once (theseus-j6qn). The ledger's kinds:
-  `crates/theseus-protocol/src/ledger.rs`.
-- **The push's board**: `crates/theseus-core/src/push.rs`, fed by `Kernel::observe`; `attention()` is in
-  `crates/theseus-protocol/src/push.rs`.
-- **The outbox**: `crates/theseus-kernel/src/outbox.rs`, `crates/theseus-core/src/outbox.rs`, and
-  `crates/theseus-discord/src/courier.rs`.
-- **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
-  (`theseusd example-config` prints it, with an operator's private overlay in place: `config_overlay.rs`).
-- **L1**: `crates/theseus-core/src/sandbox.rs` (`[sandbox]`, the class, the probe), and the wrapper's L1 path in
-  `crates/theseus-kernel/src/job_l1.rs`.
-- **The index tender**: the binary in `crates/theseus-index`, its supervisor in `crates/theseus-core/src/tender.rs`
-  (started 2 s after serving, restarted with backoff, SIGTERM at a stop), and its child kind in
-  `crates/theseus-kernel/src/children.rs`.
+The kernel, the store, the turn, the compiler, tool calls, the RPC layer, facts, the push, the outbox, the config, L1,
+and the index tender: see "Where the big things live" in `crates/theseus-core/AGENTS.md`.
 
 ## The principles that bind code
 
@@ -222,36 +193,14 @@ Each traces to the Part III item that taught it.
 
 ## This machine
 
-Theseus is built on one WSL2 machine, beside the operator's own running daemon and other agents' work.
+Theseus is built on one WSL2 machine, beside the operator's own running daemon and other agents' work. The rest of this
+section, the scratch daemon's rules and ports, the disk, sccache, and shell traps, is in "This machine" in `scripts/AGENTS.md`.
 
 - **The operator's daemon** runs as a bare `theseusd` on `~/.theseus`, its default socket, and web port 7433. Never
   touch it: no signal, no connection to its socket or port, and never a copy of its bindings file (two daemons would
   answer on Discord). Kill only the pids you started, never by name with `pkill` or `killall`.
-- **Your own scratch daemon** has its own `--config`, `--socket`, and `--state-dir`: a fresh state dir, or a copy of
-  the operator's store alone. Turn `[discord]` and `[web]` off in its config unless the check needs them. A
-  Discord-enabled scratch daemon runs only on a fresh state dir (theseus-c3e). Stop it with
-  `theseus --socket <its socket> shutdown`, and wait for its pid to exit.
-
-  | Port | Whose |
-  |---|---|
-  | 7433 | the operator's daemon (web UI and cockpit) |
-  | 7434 to 7439 | scratch daemons' web UIs, one each (7434 is the cockpit's dev default) |
-  | 5173, 5174 | the Observatory's and the cockpit's dev servers |
-- **The disk.** WSL's disk is a file on the Windows drive (C:), and it only grows. When C: fills, the whole VM
-  pauses, while Linux's `df` still shows hundreds of GB free. Check C: with the operator's disk guard before a heavy
-  build, and don't build under 30 GB. Keep one target dir per worktree. Delete build caches outright, never to the
-  Trash, which keeps every byte on C:.
-- **sccache.** No server survives a restart, and by default it exits after 10 idle minutes. Its client then hangs.
-  If `pgrep -x sccache` finds none, run `SCCACHE_IDLE_TIMEOUT=0 sccache --start-server`, or unset `RUSTC_WRAPPER`.
-- **A connect to a loopback port with no listener hangs**: the packet is dropped, not refused. Bound every connect,
-  and test a service that is down with a fake, never with a closed port.
-- **`pgrep -f`, `pkill -f`, and `ps | grep` match your own shell**, whose command line holds the pattern. Find a
-  process by pid (`$!`, `pgrep -P`) or by `/proc/<pid>/comm`.
-- **`git stash` is shared by every worktree.** Set work aside as a patch file instead.
-- **The gate lock.** An inner-mode gate takes it itself; any other holder uses `flock -o`. A gate at 0% CPU is waiting
-  on a lock (cargo's package cache, or this one): find the holder before waiting longer.
-- **`/tmp` is wiped by a WSL restart.** Keep harnesses, logs, and reports where they survive, and commit and push at
-  every green point: a restart, or an account's usage limit, can end a run at any moment.
+- **Your own scratch daemon** has its own `--config`, `--socket`, and `--state-dir`, on a fresh state dir or a copy of
+  the operator's store alone; stop it with `theseus --socket <its socket> shutdown`.
 
 ## Keeping these files current
 

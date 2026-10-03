@@ -4,6 +4,8 @@ The durable kernel (spec §3.2a, §3.15, §3.16; Part II M2): every state transi
 as WAL frames through the `Store` contract. Synchronous and deterministic. Read by theseus-core, theseus-discord,
 theseusd, and theseus-sim.
 
+Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.rs`. Read by: core, discord, theseusd, sim.
+
 ## What's here
 
 - `kernel.rs`: the transitions. `Kernel::view` and `turn_of` give a turn its view; `observe` takes the push's one

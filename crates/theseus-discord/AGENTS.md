@@ -3,6 +3,8 @@
 The Discord binding (spec P5, M3): one guild's text channels and direct messages, in the daemon's process. Read by
 theseusd.
 
+Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
+
 ## What's here
 
 - `src/runtime.rs`: the gateway loop and the places (a text channel or a DM, each backed by one session), with the

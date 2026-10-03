@@ -22,3 +22,17 @@ And one review:
   lanes. The spec's Part III records each one's fix. Checked in on 2026-10-01.
 
 _Index written by Tabitha/Claude, 2026-09-30; Review 2 added 2026-10-01, and the v1.1 roadmap 2026-10-02._
+
+## Crates merged ahead of their reader
+
+Each says so in its manifest (`reserved_for` under `[package.metadata.theseus]`, Item 32). Part III Items 16, 18, and 20 record them.
+
+| Crate | What it is | Wired in at |
+|---|---|---|
+| `theseus-ontology` | The fungible ontology's first slice (§4.1a) | row 26 (21b) |
+| `theseus-aws-guard` | The AWS guardrails: the gate's check, and the generated guards and SCPs | row 30 (C2, 14b) |
+| `theseus-judge` | Jev: the typed client, bands, batching, the breaker, the question packs | row 37 (23a) |
+| `theseus-memory` | FSRS-6 and spreading activation, pure | row 52 (30a) |
+| `theseus-exam` | The memory exam | row 55 |
+| `theseus-mcp` | MCP, client and server, written by hand | row 66 (36b) |
+| `theseus-voice` | The voice engine for Discord | row 77 (44b) |

@@ -3,6 +3,8 @@
 The proving tools, installed beside `theseusd` and `theseus` (a tool, so a reader of its own: Part III Item 32).
 The gate runs its lifecycle bench, and its crash test and kernel simulator on small fixed seeds (`tests/sim.rs`).
 
+Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.rs`. Read by: the gate, and tests.
+
 ## What's here
 
 - `src/main.rs`: the subcommands.

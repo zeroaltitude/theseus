@@ -3,6 +3,8 @@
 The wire types (spec §3.18): JSON-RPC 2.0 over newline-delimited JSON. Types only: no runtime, no I/O, no clock.
 Every client and the core read it, and the web apps' TypeScript is generated from it.
 
+Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`, `push.rs`, `gate.rs`, `ts.rs`. Read by: every crate on the wire, and the web apps (generated).
+
 ## What's here
 
 - `lib.rs`: the methods' params and results, `VERSION`, and three tables: `method` and `notify`, each one list

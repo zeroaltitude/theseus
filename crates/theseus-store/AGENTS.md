@@ -4,6 +4,8 @@ The keel (spec §6, Part II M1): an append-only WAL of checksummed, length-prefi
 truth, and a redb index rebuilt from it. Read by theseus-kernel, theseus-core, theseusd, and theseus-sim, and by
 the reserved theseus-follow, theseus-index, and theseus-exam.
 
+Key modules: `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs`. Read by: kernel, core, theseusd, sim.
+
 ## What's here
 
 - `wal.rs`: segment files of atomic frames, with torn-tail truncation.

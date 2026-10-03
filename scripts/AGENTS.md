@@ -312,3 +312,36 @@ state dir, and kills it at the end.
 
 - **Its web check probes `WEB_PORT`, by default 7433: the operator's daemon.** Run it only with a scratch config
   whose `[web]` is off or on a port of its own, and `WEB_PORT` set to match.
+
+## This machine
+
+Theseus is built on one WSL2 machine, beside the operator's own running daemon and other agents' work.
+
+- **The operator's daemon** runs as a bare `theseusd` on `~/.theseus`, its default socket, and web port 7433. Never
+  touch it: no signal, no connection to its socket or port, and never a copy of its bindings file (two daemons would
+  answer on Discord). Kill only the pids you started, never by name with `pkill` or `killall`.
+- **Your own scratch daemon** has its own `--config`, `--socket`, and `--state-dir`: a fresh state dir, or a copy of
+  the operator's store alone. Turn `[discord]` and `[web]` off in its config unless the check needs them. A
+  Discord-enabled scratch daemon runs only on a fresh state dir (theseus-c3e). Stop it with
+  `theseus --socket <its socket> shutdown`, and wait for its pid to exit.
+
+  | Port | Whose |
+  |---|---|
+  | 7433 | the operator's daemon (web UI and cockpit) |
+  | 7434 to 7439 | scratch daemons' web UIs, one each (7434 is the cockpit's dev default) |
+  | 5173, 5174 | the Observatory's and the cockpit's dev servers |
+- **The disk.** WSL's disk is a file on the Windows drive (C:), and it only grows. When C: fills, the whole VM
+  pauses, while Linux's `df` still shows hundreds of GB free. Check C: with the operator's disk guard before a heavy
+  build, and don't build under 30 GB. Keep one target dir per worktree. Delete build caches outright, never to the
+  Trash, which keeps every byte on C:.
+- **sccache.** No server survives a restart, and by default it exits after 10 idle minutes. Its client then hangs.
+  If `pgrep -x sccache` finds none, run `SCCACHE_IDLE_TIMEOUT=0 sccache --start-server`, or unset `RUSTC_WRAPPER`.
+- **A connect to a loopback port with no listener hangs**: the packet is dropped, not refused. Bound every connect,
+  and test a service that is down with a fake, never with a closed port.
+- **`pgrep -f`, `pkill -f`, and `ps | grep` match your own shell**, whose command line holds the pattern. Find a
+  process by pid (`$!`, `pgrep -P`) or by `/proc/<pid>/comm`.
+- **`git stash` is shared by every worktree.** Set work aside as a patch file instead.
+- **The gate lock.** An inner-mode gate takes it itself; any other holder uses `flock -o`. A gate at 0% CPU is waiting
+  on a lock (cargo's package cache, or this one): find the holder before waiting longer.
+- **`/tmp` is wiped by a WSL restart.** Keep harnesses, logs, and reports where they survive, and commit and push at
+  every green point: a restart, or an account's usage limit, can end a run at any moment.
