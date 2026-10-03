@@ -6,6 +6,11 @@
 //! - **Arms.** `none` sends the task alone: today's compiler, which sees only
 //!   the session's own transcript. `oracle` sends the item's gold, rendered as
 //!   the recall note, before the task (§3.1's 34a row, until 30b exists).
+//!   Arms of the real memory pipeline (row 55) are not a per-turn choice: they
+//!   are the scratch daemon's `[memory] arm` config key, which this driver's
+//!   caller will set when it starts the daemon for each arm. The key does not
+//!   exist yet (row 55 adds it); `turn.submit` carries no arm field, and none
+//!   is planned.
 //! - **A cell** is one item under one arm, once: a fresh session, one turn on
 //!   the given profile. A call that waits for approval is declined, as an
 //!   operator who wants a text answer would; the continuation runs, and the
@@ -311,6 +316,8 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
         sid = Some(s.clone());
         let deadline = t0 + plan.timeout;
         let left = || deadline.saturating_duration_since(Instant::now());
+        // The submit names no memory arm: the daemon's `[memory] arm` (row 55)
+        // sets it for every turn it runs.
         let r: TurnSubmitResult = serde_json::from_value(c.call(
             "turn.submit",
             json!({"session_id": s, "input": input, "profile": plan.profile}),

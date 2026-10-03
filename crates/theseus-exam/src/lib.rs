@@ -23,6 +23,13 @@
 //! The crate is a lane (34a): it changes nothing in the core. At the join
 //! (34b) its driver becomes `theseus-sim exam`, and its scoring moves to
 //! `theseus-memory` beside the arms.
+//!
+//! **Memory arms (row 55).** An arm of the real memory pipeline is chosen by
+//! the scratch daemon's config key `[memory] arm`, never by a field of
+//! `turn.submit`: the exam's scratch daemon sets it, one daemon per arm, and
+//! every client's submit stays as it is. Row 55 adds the key to the daemon;
+//! until then the driver has the arms `none` and `oracle` only, and sets
+//! nothing.
 
 pub mod check;
 pub mod client;
