@@ -14,8 +14,8 @@
 
 use serde_json::Value;
 use theseus_protocol::{
-    method, ApprovalRefused, Attention, ConfirmRequest, Event, Level, NodeInfo, SessionInfo,
-    ToolEnded, ToolListResult, TurnSubmitResult,
+    Attention, ConfirmRequest, Event, Level, NodeInfo, SessionInfo, ToolEnded, ToolListResult,
+    TurnSubmitResult,
 };
 
 mod aws;
@@ -210,9 +210,6 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                 Tag::Warn,
                 &format!("  🔒 {}", tightened_line(r, tightened)),
             );
-        }
-        Event::ApprovalRefused(r) => {
-            push(&mut out, Tag::Bad, &format!("  🚨 {}", job_refusal_line(r)));
         }
         Event::ConfirmResolved(r) => {
             let by = r.by.as_deref().unwrap_or("");
@@ -809,17 +806,6 @@ pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> St
         line.push_str(&format!("\n  fetched again in {:.0} s", ms as f64 / 1000.0));
     }
     line
-}
-
-/// A Theseus job's process tried to answer an approval and was refused
-/// (theseus-6qy), as `theseus watch` says it.
-pub fn job_refusal_line(r: &ApprovalRefused) -> String {
-    let tool = r.tool.as_deref().unwrap_or("?");
-    let what = match r.act.as_str() {
-        method::POLICY_UNTIGHTEN => format!("the undo of {tool}'s tightening"),
-        _ => format!("an answer to {tool}"),
-    };
-    format!("refused {what} {} through {}", r.why, r.via)
 }
 
 /// The kernel line's note of job wrappers that linger for descendants their
@@ -2155,26 +2141,6 @@ mod tests {
         }
     }
 
-    /// `theseus watch` says what a job's process tried, and why it was
-    /// refused (theseus-6qy).
-    #[test]
-    fn a_jobs_refused_answer_is_one_line() {
-        let why = "from a Theseus job's process (job act_j, pid 42, theseus)";
-        let refused = |v: Value| serde_json::from_value::<ApprovalRefused>(v).unwrap();
-        assert_eq!(
-            job_refusal_line(&refused(
-                serde_json::json!({"act": "action.confirm", "tool": "fs.write", "via": "cli", "why": why})
-            )),
-            format!("refused an answer to fs.write {why} through cli")
-        );
-        assert_eq!(
-            job_refusal_line(&refused(
-                serde_json::json!({"act": "policy.untighten", "tool": "fs.edit", "via": "web", "why": why})
-            )),
-            format!("refused the undo of fs.edit's tightening {why} through web")
-        );
-    }
-
     /// The kernel line counts the job wrappers that linger, and says nothing
     /// when none does (theseus-6qy).
     #[test]
@@ -2876,10 +2842,6 @@ mod tests {
                 "  ✗ turn failed (auth): the key was refused".to_string()
             )]
         );
-        let refused = serde_json::json!({"act": "action.confirm", "tool": "proc.run",
-            "who": "sock#9", "via": "cli", "why": "from a Theseus job's process",
-            "by": "the CLI", "from_job": true});
-        assert_eq!(shown(notify::APPROVAL_REFUSED, refused, ALL)[0].0, Tag::Bad);
         let answered = |approved: bool, superseded: bool| {
             let v = serde_json::json!({"session_id": "ses_a", "correlation_id": "act_q",
                 "approved": approved, "superseded": superseded, "by": "the CLI"});

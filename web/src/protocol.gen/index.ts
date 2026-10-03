@@ -7,8 +7,6 @@ export type * from './ActionConfirmResult';
 export type * from './ActionInfo';
 export type * from './ActionListParams';
 export type * from './ActionListResult';
-export type * from './ApprovalRefused';
-export type * from './Asker';
 export type * from './Attachment';
 export type * from './Attention';
 export type * from './AwsAccountStatus';

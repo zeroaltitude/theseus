@@ -1,8 +1,7 @@
 //! Trusting a session again (theseus-9bp, spec §3.9): the operator clears a
 //! session's hold on external text, so its calls that act go back to their
-//! postures. It loosens, so it is judged as an answer is (`judge_act`): never
-//! from a Theseus job's process (theseus-6qy), and only from the owner, from
-//! a private place (theseus-zmgb). Ledgered as
+//! postures. It loosens, so it is judged as an answer is (`judge_act`): only
+//! from the owner, from a private place (theseus-zmgb). Ledgered as
 //! `session.trusted`, with who, how, and the hold it cleared.
 
 use anyhow::{anyhow, bail, Result};
@@ -16,7 +15,6 @@ use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::ledger::LedgerRow;
 use crate::narrative::narrate;
-use crate::peer::Traced;
 use crate::session::SessionRecord;
 use theseus_protocol::error_code;
 use theseus_store::{kinds, NewRecord};
@@ -35,7 +33,7 @@ impl Core {
                 "session {session_id} holds no external text, so there is nothing to trust again"
             );
         }
-        let asker = self.judge_act(
+        self.judge_act(
             &who,
             Act::Trust {
                 session: session_id,
@@ -46,7 +44,6 @@ impl Core {
             &who,
             theseus_protocol::method::POLICY_TRUST,
             None,
-            &asker,
         )?
         .ok_or_else(|| {
             anyhow!("session {session_id} holds no external text now: it was trusted a moment ago")
@@ -63,13 +60,11 @@ impl Core {
         who: &Answerer,
         how: &str,
         correlation_id: Option<&str>,
-        asker: &Traced,
     ) -> Result<Option<TrustResult>> {
         let out = self
             .store
             .with_session(session_id, |rec| {
-                let Some((r, frame)) = trusted(rec, session_id, who, how, correlation_id, asker)?
-                else {
+                let Some((r, frame)) = trusted(rec, session_id, who, how, correlation_id)? else {
                     return Ok(None);
                 };
                 self.store.append(&frame)?;
@@ -111,7 +106,6 @@ pub(super) fn trusted(
     who: &Answerer,
     how: &str,
     correlation_id: Option<&str>,
-    asker: &Traced,
 ) -> Result<Option<(TrustResult, Vec<NewRecord>)>> {
     let Some(held) = rec.external.take() else {
         return Ok(None);
@@ -128,10 +122,7 @@ pub(super) fn trusted(
         since_local: crate::external::since_local(&held, at_ms),
         held,
     };
-    let mut data = serde_json::to_value(&r)?;
-    if *asker != Traced::NoProcess {
-        data["asker"] = asker.json();
-    }
+    let data = serde_json::to_value(&r)?;
     let row = LedgerRow::new(LedgerKind::SessionTrusted, Some(session_id), None, data);
     let frame = vec![
         NewRecord::json(kinds::LEDGER, None, &row)?,

@@ -521,7 +521,6 @@ fn from_discord(user: u64, channel: Option<u64>) -> crate::approval::Answerer {
             channel_id: channel.unwrap_or(user + 1).to_string(),
             guild_id: channel.map(|_| "712398310421561444".to_string()),
         }),
-        peer: crate::peer::Peer::None,
     }
 }
 

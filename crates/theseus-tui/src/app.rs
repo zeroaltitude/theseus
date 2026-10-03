@@ -392,16 +392,6 @@ impl App {
                 self.refused.remove(&r.correlation_id);
                 self.board.confirm_resolved(&r);
             }
-            // J1 (theseus-6qy): an answer from a Theseus job's process does
-            // not count. Its card says so, and the question stays.
-            Event::ApprovalRefused(r) => {
-                if let Some(id) = r.correlation_id.clone() {
-                    let line = render::job_refusal_line(&r);
-                    let why = line.strip_prefix("refused ").unwrap_or(&line).to_string();
-                    self.refused.insert(id, why);
-                    self.flash = Some((Tag::Bad, line));
-                }
-            }
             Event::EventsLost(lost) => out.extend(self.lost(&lost)),
             _ => {}
         }

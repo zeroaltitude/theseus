@@ -31,12 +31,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     can read, or a message) into a bound place's session as the owner's message, with a `derived_from` edge for a
     node (`publish`), its `place.published` row, and a notice post in the place, in one frame under the place's
     execution lock, never while a turn holds it. Only the owner, from a private place: `judge_act(Act::Publish)`
-    (a job's process never may), which asks `places::owner_in_private`. `theseus publish`, Discord's `/publish`.
+    which asks `places::owner_in_private`. `theseus publish`, Discord's `/publish`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs`, the continuation in `toolrun/resume.rs`, and the results no call's own run
   writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are `policy.rs`
   (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
-  `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,
+  `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept). Plus the
+  harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
   serving (its calls fail closed until STS names the account), who signs (`session.rs`: the key until the config
   names `owner_role`, then work, job, floor, and tender sessions, and the key signs only STS), `aws.call` (reads,
@@ -226,8 +227,6 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the daemon's reaper can take its exit status (`ECHILD`).
 - A static or a detached thread holds the core or the store by `Weak`. One that held an `Arc<Core>` kept the store
   open past a clean stop, and every start then paid redb's repair.
-- A test that needs a process outside every job skips that part when the test runs inside a job, and says so: an
-  approval from inside a job is refused, correctly.
 - A recompile inside a tool loop strips thinking between a call and its result, so context files change on the
   next turn's first loop, never mid-turn.
 - **Every `tool_use` gets a result, whoever ends its execution.** A cancelled execution takes no more turns, so

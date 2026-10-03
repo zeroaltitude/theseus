@@ -1351,7 +1351,7 @@ async fn n_declines_with_a_note_and_t_trusts_external_text() {
 }
 
 /// An answer that does not count (-32005) shows its reason on the card, and
-/// the question stays; so does a job's refusal (`approval.refused`).
+/// the question stays.
 #[tokio::test]
 async fn a_refusal_shows_its_reason_on_the_card() {
     let world = harbour_world();
@@ -1366,25 +1366,6 @@ async fn a_refusal_shows_its_reason_on_the_card() {
     rig.shows("ready  DM +1").await;
     rig.press(&[KeyCode::Tab, KeyCode::Char('y')]).await;
     rig.shows("refused: it came from a shared place").await;
-    assert!(
-        rig.screen()
-            .iter()
-            .any(|l| l.contains("⏸ confirm proc.run")),
-        "the question stays"
-    );
-    rig.daemon().notify(
-        "approval.refused",
-        json!({"act": "action.confirm", "session_id": "ses_spec01", "correlation_id": "cor_spec01",
-               "tool": "proc.run", "approve": true, "who": "sock#3", "via": "cli",
-               "why": "from a Theseus job's process", "by": "the TUI", "from_job": true}),
-    );
-    rig.shows("refused: an answer to proc.run from a Theseus job's process through cli")
-        .await;
-    assert!(
-        !rig.screen().iter().any(|l| l.contains("is not trusted")),
-        "the job's refusal replaces the reason: {:?}",
-        rig.screen()
-    );
     assert!(
         rig.screen()
             .iter()

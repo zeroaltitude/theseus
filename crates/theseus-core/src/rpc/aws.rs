@@ -1,6 +1,7 @@
 //! `aws.bootstrap` (AWS design §5, C2 = 14b): the operator's plan of an
 //! account's first stacks, and its apply on their yes. The CLI's alone:
-//! refused from a job's process, from Discord, and from the web UI.
+//! refused from Discord and from the web UI. The CLI refuses it inside a
+//! Theseus job (theseus-zmgb), a speed bump; L1 is the boundary.
 
 use theseus_protocol::{error_code, AwsBootstrapParams, AwsBootstrapResult};
 
@@ -19,12 +20,6 @@ impl crate::Core {
                 error_code::REFUSED,
                 "aws.bootstrap is the operator's, from the CLI on this machine: \
                  theseus aws bootstrap",
-            ));
-        }
-        if let Some(why) = conn.peer.trace().refusal() {
-            return Err(RpcFailure::new(
-                error_code::REFUSED,
-                format!("aws.bootstrap is the operator's, and this asked {why}"),
             ));
         }
         let aws = self.tools.aws.clone().ok_or_else(|| {

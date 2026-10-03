@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::json;
-use theseus_core::approval::{Client, Peer, Surface};
+use theseus_core::approval::{Client, Surface};
 use theseus_core::config::{DEFAULT_CONFIG, NO_CONFIG};
 use theseus_core::config_copy::{self, Compared};
 use theseus_core::config_gate::{self, ConfigGate};
@@ -483,13 +483,10 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
         // The one client is whoever holds the pipes: the parent that spawned
-        // this daemon (theseus-6qy).
-        let parent = Peer::process(std::os::unix::process::parent_id());
-        let conn = core.clone().serve_connection(
-            stdin,
-            stdout,
-            Client::new("stdio", Surface::Cli).with_peer(parent),
-        );
+        // this daemon.
+        let conn = core
+            .clone()
+            .serve_connection(stdin, stdout, Client::new("stdio", Surface::Cli));
         let served = tokio::select! {
             r = conn => r,
             _ = core.restart_asked() => Ok(()),
@@ -662,10 +659,8 @@ fn exec_self(var: &str, value: &str) -> Result<()> {
 
 /// A serving daemon adopts a job's orphans (theseus-z4b): as a child
 /// subreaper, it is where a job's descendant goes when the job kills its own
-/// wrapper, instead of init, and no descendant of it may answer an approval.
-/// The socket daemon and `--stdio` alike (theseus-6uo): a `--stdio` daemon's
-/// orphan that went to init could answer another daemon. Set before any
-/// thread starts. After an exec restart, which keeps the pid
+/// wrapper, instead of init, and it reaps them. The socket daemon and
+/// `--stdio` alike (theseus-6uo). Set before any thread starts. After an exec restart, which keeps the pid
 /// and so every child, the flag is set again and the children are learned
 /// again: a live child whose command line is a wrapper's is that job's
 /// wrapper, and any other is an orphan.
@@ -1037,16 +1032,16 @@ async fn serve_socket(
             accepted = listener.accept() => {
                 let (stream, _) = accepted?;
                 conn_id += 1;
-                // Who connected, read now, while it is surely there: an
-                // approval from a Theseus job's process is refused (theseus-6qy).
-                let peer = Peer::of_unix(&stream);
+                // Who connected, for the log: the peer's pid, as the socket
+                // says it (`SO_PEERCRED`).
+                let pid = stream.peer_cred().ok().and_then(|c| c.pid());
                 let (r, w) = stream.into_split();
                 let core = core.clone();
                 let client = format!("sock#{conn_id}");
-                tracing::info!(client = %client, peer = ?peer, "client connected");
+                tracing::info!(client = %client, pid = ?pid, "client connected");
                 tokio::spawn(async move {
                     // The socket is mode 0600: whoever connects is the CLI.
-                    let cli = Client::new(client.clone(), Surface::Cli).with_peer(peer);
+                    let cli = Client::new(client.clone(), Surface::Cli);
                     if let Err(e) = core.serve_connection(r, w, cli).await {
                         tracing::warn!(client = %client, error = %e, "connection ended with error");
                     } else {

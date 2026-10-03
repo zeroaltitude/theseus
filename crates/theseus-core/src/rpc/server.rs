@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::Core;
-use crate::approval::{Answerer, Client, Peer, Surface};
+use crate::approval::{Answerer, Client, Surface};
 use crate::outbound::{Drain, Outbound};
 
 /// The connection a request came in on: who it is, the surface its listener
@@ -20,8 +20,6 @@ use crate::outbound::{Drain, Outbound};
 pub(super) struct Conn<'a> {
     pub client: &'a str,
     pub surface: Surface,
-    /// The process on the other end, as the listener read it (theseus-6qy).
-    pub peer: &'a Peer,
     /// The connection's one queue, with the backlog cap (theseus-in3).
     pub tx: &'a Outbound,
     /// Closed when the connection's reader ends: a parked `session.wait`
@@ -47,8 +45,8 @@ impl Conn<'_> {
     /// Who makes an approval-like act on this connection (an answer, a
     /// "should have asked" press, an undo, a trust), as the connection knows
     /// it: the label names, as a cancel's actor does (`the CLI`, never
-    /// `sock#32`; theseus-qiy), and the surface, the binding's Discord ids,
-    /// and the process on the other end decide (theseus-sgh, theseus-6qy).
+    /// `sock#32`; theseus-qiy), and the surface and the binding's Discord ids
+    /// decide (the place rule, theseus-zmgb).
     /// Every such method builds it here, so whatever judges an answer judges
     /// the others the same way, and an approval's trust and `policy.trust`
     /// name the same one.
@@ -61,7 +59,6 @@ impl Conn<'_> {
             label: self.actor(author.as_deref()),
             surface: self.surface,
             discord,
-            peer: self.peer.clone(),
         }
     }
 }
@@ -83,7 +80,6 @@ impl Core {
         let Client {
             label: client,
             surface,
-            peer,
         } = client;
         // One ordered outbound queue: notifications and responses share it, so a
         // turn's events always precede its response on the wire. Past the
@@ -154,13 +150,12 @@ impl Core {
                     let resp_tx = resp_tx.clone();
                     let flush_tx = flush_tx.clone();
                     let client = client.clone();
-                    let peer = peer.clone();
                     let closed = closed_rx.clone();
                     let shutdown = req.method == method::SHUTDOWN;
                     tokio::spawn(async move {
                         let resp = core
                             .clone()
-                            .handle(req, tx, &client, surface, &peer, &closed)
+                            .handle(req, tx, &client, surface, &closed)
                             .await;
                         let stopping = shutdown && resp.error.is_none();
                         resp_tx.respond(Message::Response(resp));
@@ -203,11 +198,10 @@ impl Core {
         tx: Outbound,
         client: &str,
         surface: Surface,
-        peer: &Peer,
         closed: &watch::Receiver<()>,
     ) -> Response {
         let id = req.id.clone();
-        match self.dispatch(req, tx, client, surface, peer, closed).await {
+        match self.dispatch(req, tx, client, surface, closed).await {
             Ok(v) => Response::ok(id, v),
             Err(f) => Response::err_with(id, f.code, f.message, f.data),
         }
@@ -221,14 +215,12 @@ impl Core {
         tx: Outbound,
         client: &str,
         surface: Surface,
-        peer: &Peer,
         closed: &watch::Receiver<()>,
     ) -> Result<Value, RpcFailure> {
         let arrived = std::time::Instant::now();
         let conn = Conn {
             client,
             surface,
-            peer,
             tx: &tx,
             closed,
             arrived,

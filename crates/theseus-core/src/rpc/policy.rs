@@ -133,7 +133,7 @@ impl Core {
         let Some(t) = self.tools.tightened.get(tool) else {
             bail!("{tool} is not tightened, so there is nothing to undo");
         };
-        let asker = self.judge_act(&who, Act::Untighten { tool })?;
+        self.judge_act(&who, Act::Untighten { tool })?;
         let before = self.tools.posture_now(tool);
         let after = self.tools.policy.posture_now(tool, None);
         let changed = after.posture != before.posture;
@@ -145,7 +145,7 @@ impl Core {
                    "tightened_by": t.by, "tightened_at_ms": t.at_ms,
                    "correlation_id": t.correlation_id, "digest": t.digest,
                    "posture": after.posture.as_str(), "setting": after.setting,
-                   "changed": changed, "asker": asker.json()}),
+                   "changed": changed}),
         );
         if !self.tools.tightened.remove(&self.store, tool, &row)? {
             bail!("{tool} is not tightened, so there is nothing to undo");

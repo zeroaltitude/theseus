@@ -1781,9 +1781,6 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
         let Ok(Some(e)) = CoreEvent::from_notification(&n.method, &n.params) else {
             continue;
         };
-        if matches!(e, CoreEvent::ApprovalRefused(_)) {
-            continue;
-        }
         if everywhere(&e) {
             let places: Vec<mpsc::UnboundedSender<PlaceMsg>> = shared
                 .routes

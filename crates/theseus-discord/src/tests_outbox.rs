@@ -408,7 +408,6 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
         label: "cli#1".into(),
         surface: Surface::Cli,
         discord: None,
-        peer: theseus_core::approval::Peer::None,
     };
     core.confirm_action(&q, false, Some("not now"), cli)
         .unwrap();

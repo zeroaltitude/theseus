@@ -1,23 +1,25 @@
-//! A Theseus job cannot answer approvals (theseus-6qy), with the real
-//! `theseusd`, its real job wrappers, and the real `theseus` CLI. A stand-in
-//! for the Messages API asks for the tool calls. Every job here runs under
-//! `notify`, as Eddie's posture has it, so nothing but the answer itself is
-//! in the way:
-//! - a job answering its own session's waiting call is refused, and so is
-//!   its double-forked grandchild, before and after the job's main process
-//!   has exited; the wrapper lingers for the grandchild; the operator's own
+//! A Theseus job cannot answer for the operator from its own shell
+//! (theseus-zmgb), with the real `theseusd`, its real job wrappers, and the
+//! real `theseus` CLI. A stand-in for the Messages API asks for the tool
+//! calls. Every job here runs under `notify`, as Eddie's posture has it, so
+//! nothing but the answer itself is in the way:
+//! - a job's `theseus confirm`, and its double-forked grandchild's, before and
+//!   after the job's main process has exited, are refused by the CLI, since
+//!   each carries the job's `THESEUS_SESSION`, and nothing reaches the
+//!   daemon; the wrapper lingers for the grandchild; the operator's own
 //!   answer counts, and the call runs;
 //! - a job that kills its own wrapper leaves its grandchild to the daemon,
-//!   which adopts it, and that orphan's answer is refused (theseus-z4b);
-//! - a job may tighten a tool, and may not undo a tightening;
-//! - through the web UI, a job's WebSocket answer is refused, and the
-//!   operator's counts;
+//!   which adopts and reaps it (theseus-z4b), and that orphan's answer is
+//!   refused the same way;
+//! - a job may tighten a tool, and the CLI refuses its undo of a tightening;
 //! - a cancel still kills what it killed before.
 //!
-//! The CLI is the `theseus` binary beside `theseusd`, which `cargo nextest run
-//! --workspace` builds for the CLI's own tests. A test process that itself
-//! runs inside a Theseus job has no process outside every job: those tests
-//! say so and stop before the operator's part.
+//! The marker is a speed bump, not a boundary: a job can strip its
+//! environment, and L1, whose view has no route to the daemon, is the
+//! boundary. The CLI is the `theseus` binary beside `theseusd`, which `cargo
+//! nextest run --workspace` builds for the CLI's own tests. The operator's
+//! commands run with the marker removed, so a test run inside a Theseus job
+//! still has an operator.
 
 mod common;
 
@@ -40,7 +42,6 @@ struct Rig {
     dir: tempfile::TempDir,
     daemon: Daemon,
     script: Script,
-    web_port: Option<u16>,
     /// Processes a test started outside the daemon's reach: killed, with
     /// their process groups, when the rig goes, so a test that fails leaves
     /// nothing running.
@@ -66,8 +67,7 @@ impl Drop for Rig {
 const OUT: &str = "projects/out";
 
 impl Rig {
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-    fn start(web: bool) -> Self {
+    fn start() -> Self {
         let script = Script::default();
         let asks = script.clone();
         let model = FakeModel::start(move |prompt| {
@@ -122,18 +122,6 @@ impl Rig {
         table(&mut t, "policy").insert("enforcement".into(), "notify".into());
         table(table(&mut t, "policy"), "tools").insert("fs.write".into(), "approve".into());
         table(&mut t, "tools").insert("proc_sync_secs".into(), 1.into());
-        let web_port = web.then(|| {
-            let port = std::net::TcpListener::bind("127.0.0.1:0")
-                .unwrap()
-                .local_addr()
-                .unwrap()
-                .port();
-            let w = table(&mut t, "web");
-            w.insert("enabled".into(), true.into());
-            w.insert("bind".into(), "127.0.0.1".into());
-            w.insert("port".into(), i64::from(port).into());
-            port
-        });
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         let log = std::fs::File::create(path("theseusd.log")).unwrap();
         let daemon = Daemon::spawn(
@@ -165,16 +153,10 @@ impl Rig {
             dir,
             daemon,
             script,
-            web_port,
             leftovers: Mutex::default(),
             _model: model,
         };
         r.until("the secrets", |h| h["secrets"]["state"] == "ready");
-        if let Some(port) = r.web_port {
-            r.wait("the web UI", || {
-                std::net::TcpStream::connect(("127.0.0.1", port)).ok()
-            });
-        }
         r
     }
 
@@ -267,11 +249,13 @@ impl Rig {
     }
 
     /// The CLI, run by the test: the operator's own process.
+    /// The operator's own `theseus`, from outside every job: no marker.
     fn cli(&self, args: &[&str]) -> std::process::Output {
         Command::new(self.path("projects/bin/theseus"))
             .arg("--socket")
             .arg(self.path("projects/sock"))
             .args(args)
+            .env_remove("THESEUS_SESSION")
             .stdin(Stdio::null())
             .output()
             .unwrap()
@@ -347,30 +331,6 @@ fn approve_into(name: &str) -> String {
     )
 }
 
-/// The Theseus job a process runs under, walking its parents.
-fn job_above(pid: u32) -> Option<String> {
-    let mut p = pid;
-    while p > 1 {
-        if let Some(job) = theseus_kernel::job::wrapper_job(p) {
-            return Some(job);
-        }
-        let (_, ppid) = state(p)?;
-        p = ppid;
-    }
-    None
-}
-
-/// The operator's part of a test needs a process outside every job.
-fn test_is_inside_a_job() -> bool {
-    match job_above(std::process::id()) {
-        Some(job) => {
-            eprintln!("skipped the operator's part: this test runs inside Theseus job {job}");
-            true
-        }
-        None => false,
-    }
-}
-
 /// `/proc/<pid>/stat`: the state letter and the parent's pid.
 fn state(pid: u32) -> Option<(char, u32)> {
     let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -382,30 +342,45 @@ fn alive(pid: u32) -> bool {
     state(pid).is_some_and(|(s, _)| s != 'Z' && s != 'X')
 }
 
-/// The refusal a job's process gets: `theseus confirm` prints it and exits 1.
+/// The refusal a job's process gets from the CLI (theseus-zmgb): `theseus
+/// confirm` prints it, sends nothing, and exits 1.
 fn assert_refused(out: &str, what: &str) {
     assert!(
-        out.contains("does not count: from a Theseus job's process (job act_"),
+        out.contains(
+            "theseus confirm refused: it is the operator's to run, and this shell is a Theseus \
+             job's (THESEUS_SESSION=ses_"
+        ) && out.contains("Run it from your own shell."),
         "{what}: {out}"
-    );
-    assert!(
-        out.contains(", theseus)"),
-        "{what} names the program: {out}"
     );
     assert!(out.trim_end().ends_with("exit=1"), "{what}: {out}");
 }
 
+/// The job's own action: its correlation id, the name its spooled output
+/// and its wrapper's arguments carry.
+fn job_of(r: &Rig, res: &Value) -> Value {
+    let exec = res["execution_id"].as_str().unwrap();
+    let actions = r
+        .call("action.list", json!({"execution_id": exec}))
+        .unwrap();
+    actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["tool"] == "proc.run")
+        .unwrap()
+        .clone()
+}
+
 /// A job runs `theseus confirm --approve <id>` for the call its own session
-/// waits on: refused, with the reason, and the CLI exits 1. So is its
-/// double-forked grandchild (`setsid sh -c '… theseus confirm …' &`), once
-/// while the job's main process lives, and again after it has exited, when
-/// the grandchild has been reparented to the lingering wrapper. Health counts
-/// the wrapper that lingers. The operator's own answer counts, and the call
-/// runs. When the grandchild ends, the wrapper exits.
+/// waits on: the CLI refuses it, with the reason, sends nothing, and exits 1.
+/// So does its double-forked grandchild's (`setsid sh -c '… theseus confirm
+/// …' &`), once while the job's main process lives, and again after it has
+/// exited, when the grandchild has been reparented to the lingering wrapper.
+/// Health counts the wrapper that lingers. The operator's own answer counts,
+/// and the call runs. When the grandchild ends, the wrapper exits.
 #[test]
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
-    let mut r = Rig::start(false);
+    let mut r = Rig::start();
     let script = format!(
         "{FIND_WAITING}echo \"$PPID\" > \"$O/wrapper.pid\"\n{}cat \"$O/job.out\"\n\
          setsid sh -c '\n\
@@ -452,30 +427,21 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
         wrapper,
         "the orphaned grandchild was reparented to the wrapper, not to init"
     );
-    let refused = r.ledger("approval.refused");
-    assert_eq!(refused.len(), 3, "{refused:?}");
-    let job = refused[0]["asker"]["job"].as_str().unwrap().to_string();
-    for row in &refused {
-        assert_eq!(
-            (row["correlation_id"].as_str(), row["from_job"].as_bool()),
-            (Some(corr.as_str()), Some(true))
-        );
-        assert_eq!(
-            (row["asker"]["job"].as_str(), row["asker"]["argv0"].as_str()),
-            (Some(job.as_str()), Some("theseus"))
-        );
-        assert_eq!(row["asker"]["wrapper_pid"], wrapper);
-    }
+    assert!(
+        r.ledger("approval.refused").is_empty(),
+        "nothing reached the daemon"
+    );
+    let job = job_of(&r, &res)["correlation_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let confirms = r.call("confirm.list", Value::Null).unwrap();
     assert_eq!(confirms["confirms"][0]["correlation_id"], corr.as_str());
     assert!(!r.path("projects/written.txt").exists());
     // The job's own output, which its model reads, says why.
     let result = std::fs::read_to_string(r.path(&format!("state/spool/results/{job}.out")))
         .unwrap_or_default();
-    assert!(
-        result.contains("does not count: from a Theseus job's process"),
-        "{result}"
-    );
+    assert!(result.contains("theseus confirm refused"), "{result}");
     // The wrapper lingers for the grandchild, and health says so.
     let h = r.until("the lingering wrapper", |h| {
         h["kernel"]["lingering_wrappers"] == 1
@@ -494,24 +460,19 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
         h["children"]
     );
 
-    if !test_is_inside_a_job() {
-        // The operator's own answer counts, recorded with its process.
-        let ok = r.cli(&["confirm", "--approve", &corr, "--no-wait"]);
-        let said = String::from_utf8_lossy(&ok.stdout);
-        assert!(
-            ok.status.success(),
-            "{said}{}",
-            String::from_utf8_lossy(&ok.stderr)
-        );
-        assert!(said.contains(&format!("approved {corr}")), "{said}");
-        let answered = r.ledger("action.confirm_answered");
-        assert_eq!(answered[0]["asker"]["argv0"], "theseus");
-        assert!(answered[0]["asker"]["job"].is_null());
-        let written = r.wait("the approved write", || {
-            std::fs::read_to_string(r.path("projects/written.txt")).ok()
-        });
-        assert_eq!(written, "approved\n");
-    }
+    // The operator's own answer counts.
+    let ok = r.cli(&["confirm", "--approve", &corr, "--no-wait"]);
+    let said = String::from_utf8_lossy(&ok.stdout);
+    assert!(
+        ok.status.success(),
+        "{said}{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+    assert!(said.contains(&format!("approved {corr}")), "{said}");
+    let written = r.wait("the approved write", || {
+        std::fs::read_to_string(r.path("projects/written.txt")).ok()
+    });
+    assert_eq!(written, "approved\n");
 
     // The grandchild ends; the wrapper exits, and the daemon reaps it.
     std::fs::write(r.out("release"), "").unwrap();
@@ -527,14 +488,14 @@ fn a_job_cannot_answer_its_own_sessions_approval_nor_can_its_grandchild() {
 /// A job that kills its own wrapper (`kill -9 $PPID`) leaves what it started
 /// to the daemon, which is a child subreaper (theseus-z4b). Its double-forked
 /// grandchild is reparented to `theseusd`, not to init, and its `theseus
-/// confirm --approve` for the call its session waits on is refused as a job's
-/// orphan's. Nothing moves, and the operator's own answer still counts. The
+/// confirm --approve` for the call its session waits on is refused by the
+/// CLI, as the job's was: it still carries the job's marker. Nothing moves,
+/// and the operator's own answer still counts. The
 /// daemon reaps the wrapper the job killed, the job's main process when it
 /// exits, and the grandchild when it ends.
 #[test]
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
-    let mut r = Rig::start(false);
+    let mut r = Rig::start();
     let daemon = r.daemon.id();
     // The grandchild waits until its parent, the job's main process, has
     // exited, and it has been reparented past the wrapper the job killed.
@@ -572,14 +533,8 @@ fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
         .unwrap_or_else(|| panic!("the write waits: {res}\n{}", r.log()))
         .to_string();
 
-    // The orphan's answer is refused, with its own reason.
-    let said = r.read_done("orphan");
-    assert!(
-        said.contains("does not count: from a process under theseusd itself (pid ")
-            && said.contains(", theseus), which is a job's orphan"),
-        "the orphan's answer: {said}"
-    );
-    assert!(said.trim_end().ends_with("exit=1"), "{said}");
+    // The orphan's answer is refused by the CLI.
+    assert_refused(&r.read_done("orphan"), "the orphan");
     let wrapper = r.pid("wrapper.pid");
     let orphan = r.pid("orphan.pid");
     r.owns(orphan);
@@ -595,17 +550,7 @@ fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
     let lost = r.wait("the lost wrapper's row", || {
         Some(r.ledger("job.wrapper_lost")).filter(|l| !l.is_empty())
     });
-    let exec = res["execution_id"].as_str().unwrap();
-    let actions = r
-        .call("action.list", json!({"execution_id": exec}))
-        .unwrap();
-    let job = actions["actions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|a| a["tool"] == "proc.run")
-        .unwrap()
-        .clone();
+    let job = job_of(&r, &res);
     assert_eq!(lost.len(), 1, "{lost:?}");
     assert_eq!(
         (
@@ -617,18 +562,7 @@ fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
         "{lost:?}"
     );
     assert_eq!(job["state"], "outcome_unknown", "{job}");
-    let refused = r.ledger("approval.refused");
-    assert_eq!(refused.len(), 1, "{refused:?}");
-    let row = &refused[0];
-    assert_eq!(
-        (row["correlation_id"].as_str(), row["from_job"].as_bool()),
-        (Some(corr.as_str()), Some(true))
-    );
-    assert_eq!(
-        (&row["asker"]["under_daemon"], &row["asker"]["argv0"]),
-        (&json!(daemon), &json!("theseus"))
-    );
-    assert!(row["asker"]["job"].is_null(), "{row}");
+    assert!(r.ledger("approval.refused").is_empty());
     let confirms = r.call("confirm.list", Value::Null).unwrap();
     assert_eq!(confirms["confirms"][0]["correlation_id"], corr.as_str());
     assert!(!r.path("projects/written.txt").exists());
@@ -643,20 +577,18 @@ fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
         (&json!(true), &json!(0))
     );
 
-    if !test_is_inside_a_job() {
-        let ok = r.cli(&["confirm", "--approve", &corr, "--no-wait"]);
-        let out = String::from_utf8_lossy(&ok.stdout);
-        assert!(
-            ok.status.success(),
-            "{out}{}",
-            String::from_utf8_lossy(&ok.stderr)
-        );
-        assert!(out.contains(&format!("approved {corr}")), "{out}");
-        let written = r.wait("the approved write", || {
-            std::fs::read_to_string(r.path("projects/written.txt")).ok()
-        });
-        assert_eq!(written, "approved\n");
-    }
+    let ok = r.cli(&["confirm", "--approve", &corr, "--no-wait"]);
+    let out = String::from_utf8_lossy(&ok.stdout);
+    assert!(
+        ok.status.success(),
+        "{out}{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+    assert!(out.contains(&format!("approved {corr}")), "{out}");
+    let written = r.wait("the approved write", || {
+        std::fs::read_to_string(r.path("projects/written.txt")).ok()
+    });
+    assert_eq!(written, "approved\n");
 
     // The orphan ends, and the daemon reaps it.
     std::fs::write(r.out("release"), "").unwrap();
@@ -668,11 +600,11 @@ fn a_job_that_kills_its_wrapper_leaves_an_orphan_that_cannot_answer() {
 }
 
 /// A job may make a tool ask first ("should have asked"), which only makes
-/// things stricter, but may not undo a tightening, which loosens. The
-/// operator's undo counts.
+/// things stricter, but the CLI refuses its undo of a tightening, which
+/// loosens. The operator's undo counts.
 #[test]
 fn a_job_can_tighten_a_tool_but_not_undo_a_tightening() {
-    let r = Rig::start(false);
+    let r = Rig::start();
     let pressed = r.cli(&["policy", "tighten", "fs.edit"]);
     assert!(pressed.status.success(), "{pressed:?}");
     let script = r#"T="$1"; S="$2"; O="$3"
@@ -686,12 +618,7 @@ cat "$O/tighten" "$O/untighten"
     assert!(tighten.trim_end().ends_with("exit=0"), "{tighten}");
     let untighten = r.read_done("untighten");
     assert!(
-        untighten.contains("the undo from the CLI")
-            && untighten.contains("from a Theseus job's process"),
-        "{untighten}"
-    );
-    assert!(
-        untighten.contains("fs.edit keeps asking first"),
+        untighten.contains("theseus policy untighten refused: it is the operator's to run"),
         "{untighten}"
     );
     assert!(untighten.trim_end().ends_with("exit=1"), "{untighten}");
@@ -703,120 +630,9 @@ cat "$O/tighten" "$O/untighten"
         .filter_map(|t| t["tool"].as_str())
         .collect();
     assert_eq!(tightened, ["fs.edit", "fs.patch"]);
-    let refused = r.ledger("approval.refused");
-    assert_eq!(
-        (refused[0]["act"].as_str(), refused[0]["tool"].as_str()),
-        (Some("policy.untighten"), Some("fs.edit"))
-    );
-    if test_is_inside_a_job() {
-        return;
-    }
+    assert!(r.ledger("approval.refused").is_empty());
     let undone = r.cli(&["policy", "untighten", "fs.edit"]);
     assert!(undone.status.success(), "{undone:?}");
-}
-
-/// A WebSocket client of the web UI, as a browser is one: it upgrades from
-/// the UI's own page (its `Origin`, theseus-70f), sends `action.confirm` for
-/// `$2` in one masked text frame, and writes the server's frames to `$3`
-/// until the answer. Plain bash, with /dev/tcp.
-const WS_CONFIRM: &str = r#"export LC_ALL=C
-port=$1; id=$2; out=$3
-exec 3<>"/dev/tcp/127.0.0.1/$port" || exit 2
-printf 'GET /ws HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nOrigin: http://127.0.0.1:%s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n' "$port" "$port" >&3
-while IFS= read -r line <&3; do line=${line%$'\r'}; [ -z "$line" ] && break; done
-msg='{"jsonrpc":"2.0","id":7,"method":"action.confirm","params":{"correlation_id":"'"$id"'","approve":true}}'
-n=${#msg}
-if [ "$n" -lt 126 ]; then
-  printf "\\x81\\x$(printf %02x $((n | 128)))\\x00\\x00\\x00\\x00" >&3
-else
-  printf "\\x81\\xfe\\x$(printf %02x $((n >> 8)))\\x$(printf %02x $((n & 255)))\\x00\\x00\\x00\\x00" >&3
-fi
-printf '%s' "$msg" >&3
-: > "$out"
-for _ in $(seq 1 50); do
-  set -- $(dd bs=1 count=2 <&3 2>/dev/null | od -An -tu1)
-  [ $# -eq 2 ] || break
-  len=$(( $2 & 127 ))
-  if [ "$len" -eq 126 ]; then
-    set -- $(dd bs=1 count=2 <&3 2>/dev/null | od -An -tu1)
-    len=$(( ($1 << 8) | $2 ))
-  fi
-  [ "$len" -eq 127 ] && break
-  dd bs=1 count="$len" <&3 2>/dev/null >> "$out"
-  echo >> "$out"
-  grep -q '"id":7' "$out" && break
-done
-"#;
-
-/// Through the web UI: a job's WebSocket answer to its own session's waiting
-/// call is refused, found by the process that holds the client's end of the
-/// loopback connection. The same client, run by the operator, is accepted,
-/// and the call runs.
-#[test]
-fn a_job_cannot_answer_through_the_web_ui_and_the_operator_can() {
-    let r = Rig::start(true);
-    let port = r.web_port.unwrap().to_string();
-    std::fs::write(r.path("projects/ws-confirm.sh"), WS_CONFIRM).unwrap();
-    let script = format!(
-        "{FIND_WAITING}echo \"$id\" > \"$O/id\"\n\
-         timeout 20 bash \"$O/../ws-confirm.sh\" \"$4\" \"$id\" \"$O/ws-job\"; touch \"$O/ws-job.done\"\n\
-         cat \"$O/ws-job\"\n"
-    );
-    r.asks(
-        "answer through the web",
-        vec![
-            r.job(&script, &[&port]),
-            (
-                "fs_write",
-                json!({"path": "written.txt", "content": "approved\n"}),
-            ),
-        ],
-    );
-    let res = r.turn("answer through the web");
-    let corr = res["awaiting_confirm"].as_str().unwrap().to_string();
-    let frames = r.read_done("ws-job");
-    assert!(frames.contains("\"id\":7"), "{frames}");
-    assert!(
-        frames.contains("the answer from the web UI")
-            && frames.contains("from a Theseus job's process"),
-        "{frames}"
-    );
-    assert!(frames.contains("-32005"), "{frames}");
-    let refused = r.ledger("approval.refused");
-    assert_eq!(
-        (
-            refused[0]["via"].as_str(),
-            refused[0]["asker"]["argv0"].as_str()
-        ),
-        (Some("web"), Some("bash"))
-    );
-    assert!(!r.path("projects/written.txt").exists());
-    if test_is_inside_a_job() {
-        return;
-    }
-    let out = r.out("ws-operator");
-    let ran = Command::new("timeout")
-        .args(["20", "bash"])
-        .arg(r.path("projects/ws-confirm.sh"))
-        .args([&port, &corr])
-        .arg(&out)
-        .status()
-        .unwrap();
-    assert!(ran.success());
-    let frames = std::fs::read_to_string(&out).unwrap();
-    assert!(frames.contains("\"result\""), "{frames}");
-    let answered = r.ledger("action.confirm_answered");
-    assert_eq!(
-        (
-            answered[0]["via"].as_str(),
-            answered[0]["asker"]["argv0"].as_str()
-        ),
-        (Some("web"), Some("bash"))
-    );
-    let written = r.wait("the approved write", || {
-        std::fs::read_to_string(r.path("projects/written.txt")).ok()
-    });
-    assert_eq!(written, "approved\n");
 }
 
 /// A cancel ends the job's whole tree (M4 18a; theseus-hcc): the command,
@@ -825,7 +641,7 @@ fn a_job_cannot_answer_through_the_web_ui_and_the_operator_can() {
 /// the cancel's answer and the action carry its verdict, verified at once.
 #[test]
 fn a_cancel_kills_the_jobs_whole_tree_a_setsid_descendant_too() {
-    let r = Rig::start(false);
+    let r = Rig::start();
     let script = r#"O="$3"
 echo "$PPID" > "$O/wrapper.pid"; echo "$$" > "$O/main.pid"
 sleep 60 & echo "$!" > "$O/in-group.pid"
@@ -903,74 +719,4 @@ wait
         h["children"]["reaped_wrappers"].as_u64() >= Some(1)
     });
     assert!(r.ledger("job.wrapper_lost").is_empty());
-}
-
-/// Another daemon's orphan cannot answer this one (theseus-6uo). A job of
-/// daemon A kills its own wrapper, and its double-forked grandchild, adopted
-/// by A, runs `theseus confirm --approve` for the call that daemon B waits
-/// on. B refuses it: the process is under another serving theseusd. Before,
-/// only B's own descendants were refused, and this answer counted.
-#[test]
-fn an_orphan_of_another_daemon_cannot_answer_this_one() {
-    let b = Rig::start(false);
-    b.asks(
-        "write a file",
-        vec![(
-            "fs_write",
-            json!({"path": "written.txt", "content": "approved\n"}),
-        )],
-    );
-    let res = b.turn("write a file");
-    let corr = res["awaiting_confirm"]
-        .as_str()
-        .unwrap_or_else(|| panic!("the write waits: {res}\n{}", b.log()))
-        .to_string();
-    let a = Rig::start(false);
-    let daemon_a = a.daemon.id();
-    let script = format!(
-        "T=\"$1\"; O=\"$3\"; BS=\"$4\"; id=\"$5\"\n\
-         setsid sh -c '\n\
-         T=\"$1\"; S=\"$2\"; O=\"$3\"; id=\"$4\"; main=\"$5\"; w=\"$6\"\n\
-         echo $$ > \"$O/orphan.pid\"\n\
-         while [ -d \"$O\" ]; do\n\
-         \x20 p=$(cut -d\" \" -f4 /proc/$$/stat)\n\
-         \x20 [ \"$p\" != \"$main\" ] && [ \"$p\" != \"$w\" ] && break\n\
-         \x20 sleep 0.02\n\
-         done\n\
-         echo \"$p\" > \"$O/orphan.ppid\"\n\
-         {}\
-         ' orphan \"$T\" \"$BS\" \"$O\" \"$id\" \"$$\" \"$PPID\" > /dev/null 2>&1 < /dev/null &\n\
-         kill -9 \"$PPID\"\n",
-        approve_into("orphan"),
-    );
-    let b_sock = b.path("projects/sock").display().to_string();
-    a.asks(
-        "answer the other daemon",
-        vec![a.job(&script, &[&b_sock, &corr])],
-    );
-    a.turn("answer the other daemon");
-    let said = a.read_done("orphan");
-    let orphan = a.pid("orphan.pid");
-    a.owns(orphan);
-    assert_eq!(a.pid("orphan.ppid"), daemon_a, "A adopted the orphan");
-    assert!(
-        said.contains("does not count: from a process under another serving theseusd (pid ")
-            && said.contains(&format!(
-                "; the daemon is pid {daemon_a}), which counts as that daemon's job"
-            )),
-        "the orphan's answer: {said}"
-    );
-    assert!(said.trim_end().ends_with("exit=1"), "{said}");
-    let refused = b.ledger("approval.refused");
-    assert_eq!(refused.len(), 1, "{refused:?}");
-    assert_eq!(
-        (
-            &refused[0]["correlation_id"],
-            &refused[0]["asker"]["under_other_daemon"]
-        ),
-        (&json!(corr), &json!(daemon_a))
-    );
-    let confirms = b.call("confirm.list", Value::Null).unwrap();
-    assert_eq!(confirms["confirms"][0]["correlation_id"], corr.as_str());
-    assert!(!b.path("projects/written.txt").exists());
 }

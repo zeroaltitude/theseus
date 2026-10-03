@@ -196,12 +196,6 @@ pub mod notify {
         /// The operator trusted a session again (theseus-9bp), to the session's
         /// watchers. The params are a `TrustResult`.
         SESSION_TRUSTED = "session.trusted",
-        /// A Theseus job's process tried to answer an approval, reset the spend,
-        /// or undo a tightening, and was refused (theseus-6qy): a security event,
-        /// to every connection. The params are the `approval.refused` ledger
-        /// row's, with `act` and `session_id`; `asker` names the process and its
-        /// job.
-        APPROVAL_REFUSED = "approval.refused",
         /// One line of the narrative, to every `narrative.watch` subscriber.
         /// Unlike the others it is not a ledger row: the narrative is never stored.
         NARRATIVE_LINE = "narrative.line",

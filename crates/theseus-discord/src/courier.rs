@@ -645,18 +645,17 @@ impl Lane {
                     extra: json!({"task": body["task"]}),
                 })
             }
-            "refusal" | "restarted" => {
-                let t = if kind_of(a) == "refusal" {
-                    render::job_refusal(&body["params"])
-                } else {
-                    let tables: Vec<String> = body["tables"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|t| t.as_str().map(str::to_string))
-                        .collect();
-                    render::restarted(body["at_unix_ms"].as_u64().unwrap_or(0), &tables)
-                };
+            // A job's refusal notice, from a build before the trace was
+            // retired (theseus-zmgb): nothing to post.
+            "refusal" => Ok(Plan::nothing("a job's refusal notice, retired")),
+            "restarted" => {
+                let tables: Vec<String> = body["tables"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|t| t.as_str().map(str::to_string))
+                    .collect();
+                let t = render::restarted(body["at_unix_ms"].as_u64().unwrap_or(0), &tables);
                 let (channel, place) = self.operator_channel(&body).await?;
                 Ok(Plan {
                     writes: vec![text(t, format!("note:{corr}"), channel, None)],

@@ -19,8 +19,6 @@
 
 use theseus_protocol::DiscordOrigin;
 
-pub use crate::peer::Peer;
-
 /// Where a protocol connection comes from, as the listener that accepted it
 /// knows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,13 +55,11 @@ impl Surface {
 }
 
 /// A protocol connection: the label that names it in logs and the ledger
-/// (`sock#3`, `web#1`, `discord`), its surface, and the process on the other
-/// end when the listener knows one (theseus-6qy).
+/// (`sock#3`, `web#1`, `discord`), and its surface.
 #[derive(Debug, Clone)]
 pub struct Client {
     pub label: String,
     pub surface: Surface,
-    pub peer: Peer,
 }
 
 impl Client {
@@ -71,14 +67,7 @@ impl Client {
         Self {
             label: label.into(),
             surface,
-            peer: Peer::None,
         }
-    }
-
-    /// With the process on the other end, as the listener read it.
-    pub fn with_peer(mut self, peer: Peer) -> Self {
-        self.peer = peer;
-        self
     }
 }
 
@@ -104,8 +93,6 @@ pub struct Answerer {
     pub surface: Surface,
     /// What the Discord binding read off the button press.
     pub discord: Option<DiscordOrigin>,
-    /// The process that asked, as the connection knows it (theseus-6qy).
-    pub peer: Peer,
 }
 
 /// A bare label, a test's, answers as the CLI on this machine does. Tests
@@ -118,7 +105,6 @@ impl From<&str> for Answerer {
             label: label.to_string(),
             surface: Surface::Cli,
             discord: None,
-            peer: Peer::None,
         }
     }
 }
@@ -225,7 +211,6 @@ mod tests {
             label: "x".into(),
             surface,
             discord,
-            peer: Peer::None,
         }
     }
 

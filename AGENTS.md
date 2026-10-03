@@ -117,7 +117,10 @@ Each is a requirement, with its spec section.
   - Secrets live in 1Password and are named only by `op://` reference. Never print, log, or store a value.
   - The gate never refuses, and never guesses what a command does: each tool has a posture (`open`, `notify`, or
     `approve`), and the floor always asks.
-  - Approvals come from the operator; a job's own process cannot answer one.
+  - Approvals come from the operator, in a private place (the place rule, theseus-zmgb). The CLI refuses an answer,
+    an undo of a tightening, a trust, a publish, and the AWS bootstrap inside a job (its `THESEUS_SESSION`), saying
+    why and that the operator runs it from their own shell. That is a speed bump, said honestly: an L0 job can strip
+    its environment, or talk to the socket itself. L1, whose view hides the socket, is the boundary.
   - The config copy acts (§3.19, amended by theseus-zmgb). A start serves from its copy of the vault's note and acts
     on it at once when the copy is the one the daemon wrote: as the daemon writes it, it records its sha256 in the
     store. A copy edited since is not used, and that start reads the vault first. After serving, the vault is read
