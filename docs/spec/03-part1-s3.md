@@ -1,0 +1,441 @@
+# The Ship of Theseus, chapter 3: Part I, §3 to §3.9, the architecture from bindings to policy, authority, and safety ([index](README.md))
+## 3. Architecture
+
+```
+  Discord application (gateway ws + voice UDP), invited to N guilds          Operator browser
+                          │                                                        │
+              ┌───────────▼────────────┐                                ┌──────────▼──────────┐
+              │ discord plugin          │  events, slash cmds,           │ web UI (embedded)    │
+              │ (twilight + songbird)   │  components, threads, voice    │ snoop · RL feedback  │
+              └───────────┬────────────┘                                │ categories · nudges  │
+                          │ Event                                       └──────────┬──────────┘
+┌─────────────────────────▼──────────────────────────────────────────────────────▼───────────┐
+│ THESEUS CORE (one process)                                                                  │
+│  Bindings ─► Channels (actors) ─► Executions ─► Turn loop (state machine) ─► Provider       │
+│  Context graph (in-memory arena, WAL)   Roles   Tasks   MemoryScience   Indexer   Budgeter  │
+│  Judge (Jev, recording)   Policy (IAM-shaped)   MCP client + server   Event bus   Ledger    │
+└───────┬──────────────────────┬──────────────────────────┬────────────────────────┬──────────┘
+        │ typed tool calls     │ MCP stdio / streamable http│ WAL on local SSD       │ AWS SDK
+┌───────▼──────────┐  ┌────────▼─────────┐     ┌───────────▼───────────┐  ┌────────▼─────────┐
+│ shells            │  │ MCP servers       │     │ tenders (same binary) │  │ CloudWatch, S3,  │
+│ L0 host · L1 ns   │  │ external, gated   │     │ durability · tiering  │  │ DynamoDB, ECS,   │
+│ A1–A4 AWS         │  └──────────────────┘     │ index · memory        │  │ Lambda, SSM …    │
+└───────────────────┘                           └───────────────────────┘  └──────────────────┘
+```
+
+### 3.1 Bindings (channel configuration)
+
+Configuration is a list of bindings, resolved most-specific-first (thread over channel over guild). Each selects a Discord scope and attaches behaviour:
+
+```
+binding:
+  scope:    { guild, channel | thread | dm | voice_channel, optional user/role filter }
+  persona:  system prompt, name, default voice
+  roles:    allowed role set and default weights (see §3.4)
+  policy:   tool tags allowed, confirm thresholds, spend ceilings, shell classes allowed, privileged (L0) yes/no
+  model:    provider/model, thinking effort, optional Jev cheap-first cascade
+  memory:   namespaces read and written
+  loop:     judge pack versions, ceilings
+  mcp:      attached servers, which may sample, which may elicit
+  listen_only: bool   # ingest to memory, never reply
+```
+
+Bindings live in a versioned config in the store, editable by slash command and by the web UI with an audit trail. The Discord-role-to-policy mapping is a top-level table the operator administers through the same two surfaces.
+
+### 3.2 Channels and conversations
+
+**Channel** is a Discord place under a binding: a thread, channel, DM, or voice channel. Channels are cheap, unbounded, and carry presence, permissions, and Discord message ids. Channel is also a classification dimension: where something is happening, and where past things happened.
+
+**Conversation** has a deliberately tight definition: **the subset of the node graph that happened on a particular channel, in temporal order.** It is a view derived from the graph, not a stored entity with its own lifecycle. Its identity *is* the channel. It never ends because a channel never stops accumulating nodes; it can only be continued, re-rooted by compaction, or left dormant. The `next` chain is therefore per channel, and `in_conversation` is not a separate edge type; `in_channel` plus temporal order defines it.
+
+Consequences:
+- Many participants, each a `Person` node with `by` edges; no per-human forks.
+- A voice channel and its paired text channel under one binding are two channels and therefore two conversations that share participants, tasks, and memory scope; the agent borrows across them freely (below), which is what makes them feel like one.
+- Each execution (§3.15) reports into exactly one channel at a time; many executions run concurrently. A channel orders what is *delivered* to it, never what is *computed* for it (§3.2a). "Gliding" is an execution moving between channels, and pulling other channels' history into the current one.
+- A reference to another channel's history ("what we did in the deploy thread") makes the agent pick it up: **borrow** by default (that channel's summary or relevant nodes enter the current context via `mentions_conversation`), **switch** on explicit ask (subsequent turns are posted and appended in that channel instead).
+
+The runtime object behind a channel is a `tokio` actor with a mailbox and a few kilobytes of hot state. Parked, it costs no CPU and no thread. Turns are serialized per channel; messages arriving mid-turn are coalesced into the next context build **with each message's author preserved**, so authority never blurs across a coalesced batch. Under LOOP FOREVER, an inbound message during autonomous work is a nudge, not an interrupt, unless it is a deterministic control (`/stop`, `/cancel`, revocation) or Jev judges it a new ask.
+
+**Delivery** (theseus-q4v; built 2026-09-30). What must reach a channel is written when it becomes true, whether or not anything can deliver it: a turn's reply, a confirm card and how its question closed, a notice the operator must see, and a task's report. Each is an outbox post (§3.16), addressed to the channel its session reports into. The binding only delivers: it sends a channel's posts in order and once, and records the message ids in each post's completion. Live progress is not a post. Typing, and the edits of a reply while its turn runs, are the binding's alone: best-effort, never replayed, and only a message's latest state is ever sent. Nothing waits for a binding to start. A binding that was away sends what waited when it is back, before anything live. A card keeps its turn's order (theseus-50p; Part III Item 35). A call that asks has its card written at once, while its tool line is live progress, so a card written while the binding runs waits, at most 5 s, until its place has shown the call. A channel reads the turn's text, then the call, then its card. An operator's notice goes to the DM approvals go to, else to the place of the session it concerns, but only to a place this daemon's bindings file names; otherwise it is refused with the reason, and nothing is posted or opened elsewhere (theseus-c3e; built 2026-10-02, Part III Item 55).
+
+Humans are `Person` nodes keyed by Discord user id with their own memory namespace that follows them across every guild and channel.
+
+### 3.2a Sessions: what runs "simultaneously"
+
+The word *session* is used deliberately and narrowly. A **session is a compiler scope**: the thing that decides which roots the context compiler starts from, which audience it compiles for, which budget it spends, and which continuation strategy it uses. It is not a store and not a transcript. There are exactly two kinds:
+
+- A **conversation session**, one per channel: root is the channel's temporal view; audience is the channel's participants; cadence is human (a reply is expected soon).
+- A **task session**, one per task that has been *promoted* to autonomous work: root is the `Task` node, with its evidence, its subtasks, and the conversation that created it as secondary roots; audience is whoever it reports to; cadence is autonomous (no one is waiting on the next token).
+
+**One turn per session.** Every session has exactly one execution (§3.15) and that execution has one turn lock. "Hundreds or thousands of sessions running simultaneously" therefore means: thousands of task and conversation sessions exist as durable nodes; at any instant those with runnable model work hold a turn, the rest are `waiting` and cost nothing. An **admission scheduler** bounds how many hold a turn at once by budget, provider rate limits, and a configured concurrency ceiling; it is a queue, not a policy, and it never reorders deterministic control paths (`/stop`, `/cancel`, revocation).
+
+**Promotion.** A conversation accumulates intent; at some point it becomes a structured, trackable, goal-oriented piece of work. That moment is `task.create` with `autonomous: true` (proposed by the model, judged by Jev under `CLASSIFY`, or asked for by a human). Promotion **forks an execution**: the new task execution inherits the requesting principal's authority and delegation limits (never broader, §3.9), receives its own budget allotment carved from the requester's, records `origin_channel`, and gets a `reports_to` edge to that channel. The conversation session returns to its human cadence immediately; it is not blocked by the task and never was the task.
+
+**Promotion requires an arrangement** (Eddie, 2026-09-27; openrig's mission install, Appendix F). The requesting conversation's agent holds the discussion, so it writes an `Arrangement` node. The node names the pieces the task needs (objective, acceptance criteria, design nodes, all by id), what to trust, and what supersedes what. The task's first compilation admits the pieces by reference, never paraphrased, so a later correction still reaches them. The arrangement comes right after the objective, rendered as testimony with its origin and as-of. Promotion is refused without an arrangement, and the refusal gives the reason. No arrangement is ever generated at install time, because a generated summary is a second source that drifts. If a one-line objective is drawn from a long discussion, promotion flags it and asks for the design to be attached.
+
+_(As built 2026-09-30, theseus-qn2 (DD7), a first form of promotion. `task.create { brief, budget_usd? }` opens a task session whose first node is the brief, and returns at once. The child inherits the parent's authority, persona, context files, postures, and model, and, when the parent has read external text, its hold (§3.9, theseus-9bp). Its approvals go where the parent's go, and its notices name it. Its budget is carved from the parent's: `budget_usd`, or a quarter of what the parent has left, capped at all of it, as a reservation in the parent, with the child's spend counted in the parent's. Depth is one: a task cannot start tasks. A task is done when its turn would wait on input, and its last message is its report. The report goes once to the place through the outbox (§3.16), and once into the parent's session as a node at the parent's next turn. By default nothing starts a parent turn. A task opened with `wake_parent: true` starts that turn when it finishes or fails (theseus-lji, W1): the frame that ends it queues the parent, as a due wake does (§3.15), and the turn runs in the parent's session, under its authority and budget, with the report as its input and `📋 task a1b2c3 reported` above its reply. A busy parent runs it when it is free, reports that land together start one turn, and a cancelled task wakes nothing, since whoever cancelled it is there. The option is for a chain, where the parent reviews each result and starts the next. `task.list` and `task.cancel`, `theseus tasks` and `theseus cancel`, and Discord's `/tasks` and `/cancel <id>` see and stop tasks, and `/stop` does not stop them, and the web UI shows each session's tasks as a tree. The arrangement, `autonomous: true`, sub-tasks, and §3.5's task graph are not built: the requesting model writes the brief. Part III A4, item 7.)_
+
+**How they stay connected.** Only through the graph, never through shared in-memory state:
+
+- The task execution writes `Progress`, `Question`, and `Result` nodes with `reports_to` edges. Delivery to the channel is an *action* (§3.16), ordered by the channel like any other post. The channel never waits for the task to compute; it only orders what the task says.
+- The conversation session's compiler admits a bounded summary of the channel's live task executions (state, last progress, open questions) every turn, so the agent talking to humans always knows what its background hands are doing.
+- A human message in the channel is classified: a nudge or new ask for the conversation; a **control** (`/stop`, `/cancel <task>`); or **addressed to a task**, in which case it is written as a `Message` node with an `addressed_to` edge and *wakes* the task execution, whose next turn coalesces it with the author preserved. Ambiguity resolves toward the conversation, which can always hand it on.
+- A task that needs a human (a confirm, a question, a blocked gate) enters `waiting` with a `Question` node delivered to its channel and its requester; the answer wakes it. This and terminal states (`complete`, `failed`, `budget_exhausted`) are the only points at which a task is synchronous with anyone.
+- A task session may **glide** like a conversation (report into a different channel; borrow another channel's history), under the intersected-ceiling rule.
+
+**Sub-tasks.** By default a task's subtasks run inside its one execution, sequentially, under its one turn lock; the task is the unit of autonomy, not the subtask. A subtask is promoted to its own session only by an explicit `task.create {autonomous: true}` from inside the task, bounded by the parent's remaining budget and a per-task fan-out cap; the child's `reports_to` is the parent task, and its terminal state is a `Completion` for the parent. Fan-out is therefore a tree of sessions with budgets that sum, never a swarm.
+
+**Resources.** Sessions do not serialize resources. Two task sessions can touch the same checkout or the same task node; §3.5's CAS versions, claim leases, and workspace locks are what arbitrate, and a lost lease is a `blocked` state with a reason, never a silent retry.
+
+What this buys: the conversation stays responsive while work runs; a task survives its conversation going quiet for a week; a crash loses no task because the execution is durable and its session is recomputed from the graph on the next turn; and "what is running right now" is a query over executions, answerable in the web UI and to the model.
+
+### 3.3 The harness loop and the model loop
+
+There are two loops, and keeping them distinct is what makes LOOP FOREVER cheap and safe. v0.8 sharpens the first one into an **event-driven execution model** (review: `notes/event-design-review.md`): the harness holds no in-flight state that a restart would lose, and it is quiescent between events by construction.
+
+**The harness loop** is deterministic, never calls a model, and has no busy loop. It is parked on `select()` over its event sources: Discord, the completion sources (§3.16), the wake queue, tender health, budget thresholds, and a one-minute heartbeat timer. It has two very common states, and they differ only in how many open records the heartbeat has to reconcile:
+
+1. **Quiescent.** No open executions, no in-flight work, no scheduled wakes. Zero cost between heartbeats.
+2. **Tending.** No agent output to send and no human input to add, but work is in flight: a build in a shell, an ECS task, a wake due later, a confirmation outstanding. "Tending" is not a running loop; it is **the set of open completion records** in the WAL. The harness is just as parked as when quiescent. It stays fully responsive to humans, and **no model is called** until an event makes a model turn necessary: a completion arrives, a human speaks, a wake fires, a confirmation lands, a budget nears its ceiling, or the heartbeat reconciler finds something.
+
+The point of tending is that ongoing work is exactly when responses must not be dropped. A task marked `running` is not a reason to rest; it is a reason for its completion to have a durable home that does not depend on anything in memory. The harness decides *when a model turn is warranted*; the model decides *what to do* in that turn.
+
+**The heartbeat is the level-triggered reconciler.** Events are the fast path and can be lost (a receiver restart between dispatch and completion, a wrapper whose delivery failed and exited, a callback during a network flap, a cron that fired while the node was down). Every minute, without a model call, the heartbeat walks the open records: is there a spooled result, a queued message, a finished job scope, or an external status that says a record completed without us hearing? Is any record past its deadline? Is any wake due? Is any tender unhealthy, any budget window rolling, the Discord gateway alive? Findings become ordinary events; a completion the reconciler cannot establish becomes `outcome_unknown` and is surfaced to the principal. If nothing is found, it appends one `Heartbeat` record and returns to `select()`. This is the Step Functions task-token model and the Kubernetes resync lesson applied together: edge for latency, level for correctness.
+
+**Startup** is reconciliation first, in this order: (1) restore the last checkpoint and replay the WAL tail, so every action record exists; (2) **stage** the completion inbox and spool without consuming anything; (3) for each staged completion with a matching record, commit settlement **and** the execution's continuation state in one WAL transaction; (4) only then acknowledge or remove the completion entries; (5) reconcile remaining open records. Nothing in flight at crash time is lost or silently forgotten; it is either completed from durable evidence or reported as unknown.
+
+**The model loop** is one execution taking one or more turns against the stateless Messages API. It runs only when the harness loop has an event for it. Its state machine:
+
+```
+IDLE ─(inbound | wake)─► CLASSIFY ─► BUILD_CONTEXT ─► CALL_MODEL ─┬─ end_turn ─► JUDGE_STOP
+                                                                   └─ tool_use ─► GATE ─► EXECUTE ─► JUDGE_CONTINUE ─► CALL_MODEL
+JUDGE_STOP:     TERMINAL  → reply, IDLE (human regains control)
+                NOT_DONE  → NUDGE (specific user-role message) → CALL_MODEL
+JUDGE_CONTINUE: HEALTHY   → CALL_MODEL
+                THRASHING → INTERVENE (course-correction) → CALL_MODEL
+                ESCALATE  → ask in Discord, park until answered
+```
+
+- **CLASSIFY** is one Jev fan-out over the inbound turn: role called for, topics and people mentioned, security risk, whether it references another conversation, whether it is a follow-up fragment, continuation strategy hint.
+- **BUILD_CONTEXT** assembles the prompt from the context graph (§4) under the budgeter, in cache-stable order (§4.4).
+- **GATE** is the policy gate (§3.9) on each tool call.
+- Each **JUDGE** is one Jev request over bounded state: the original ask, task-graph delta, last N tool calls and results truncated, turn count, spend, wall clock. Pack `loop.v1`: `work_state` (Choice: complete · progressing · blocked_needs_human · thrashing · off_task · other), `stopping_point_defined`, `same_action_repeating`, `cost_out_of_proportion`, `wants_human_input` (Nouls).
+- **Execution outcomes** are distinct and deterministic where they can be: `complete` (accepted objective satisfied: Jev `complete` ≥ τ and the execution's task scope has no open accepted tasks), `waiting` (no runnable work now; a wake condition exists, e.g. a due time, an external job id, a task blocked on another execution), `blocked` (progress needs a human), `cancelled` (authority or intent withdrawn via a deterministic control path, never via Jev), `failed` (recovery exhausted), `budget_exhausted` (reservation consumed; correct operation). LOOP FOREVER means: continue while authorized, runnable work exists within reserved resources.
+- **Jev unavailable or malformed:** the loop treats the judgment as `abstain`; the execution finishes its current tool call, then parks as `waiting` on Jev recovery with a bounded retry, and tells the channel. It never continues autonomously without a judge and never invents an answer.
+- **Wake** covers scheduled and self-scheduled continuation: the agent may ask to be woken ("check the build in twenty minutes"), which is a `Task` with a due time in the harness loop's wake queue, not a separate cron system. _(Built 2026-09-30, theseus-cff (DD8): the self-scheduled wake is `wake.at { at | after, note }`, one-shot, into the current session. It is not a `Task`: a pending wake is a field of the session's execution, and at its time the session gets a continuation turn whose input is the note (§3.15).)_ Running work is also a wake source: every shell job and external operation registers a completion event, so "the build finished" reaches the model loop as a turn, not as something a human has to notice and relay.
+- **A turn has one exit** (Review 2's R1, theseus-xonq; built 2026-10-02, Part III Item 53). Every way a turn ends after it begins closes its books: the session's turns, usage, cost, and tool calls, and one accounting row (`turn.ended`, or `turn.failed`). A failure the turn reports and a fault it doesn't (a frame the store wouldn't write, a read that failed) end the same way: a fault is class `internal`, logged, and its error carries what the turn's loops spent. A provider call that answered, whose answer's frame then failed, still settles its spend at its price, so the budget holds nothing for a call that has ended.
+
+### 3.3a Loop, turn, and the Advancer
+
+Three words the rest of the document leans on, fixed here.
+
+**Loop.** One pass of the lifecycle: an input goes through the **toolchain manager** (which compiles or appends the context, §4.4a, and decides which tools are offered), a request is sent to the provider, and the model's response comes back, with text, tool calls, or both. A loop is the unit the ledger prices and the unit Jev sees. In a normal working turn there are many loops as the harness and the model chatter back and forth, executing tools and feeding results.
+
+**Turn.** The sequence of loops run under **one acquisition of a session's turn lock** (§3.2a), from the stimulus that woke the execution to the moment the execution releases the lock. A turn ends when, and only when, the Advancer says so. This definition is chosen over "stimulus to reply to a human" because it lines up with everything else the harness already counts: the lock hold, the WAL transaction boundary (§4.6), the budget reservation, the "one turn per session" concurrency unit, and the append-or-recompile decision (one per turn). Under the event-driven model a long shell job splits what a human would call one exchange into two turns, one that dispatches and releases, and one that wakes on the completion; that is a feature, because each is a durable, resumable, separately priced record. When the human-perceived unit is needed (for the UI, or for the learning label "did this exchange succeed"), it is called an **exchange**: the run of turns in one session from a human stimulus to the next delivery addressed to a human. Anthropic's own "user turn / assistant turn" are called **provider messages** here, never turns, to keep the collision out of the code.
+
+**Advancer.** The modular component that, after every loop, decides `continue` (execute the proposed tool calls, feed results into the next loop) or `end_turn(reason)`. It is a trait with pluggable policies:
+
+- `stop_after_one_loop`: the first version's policy, and the permanent baseline. One loop, then the turn ends and the model's response is the turn's output.
+- `until_no_tool_calls(max_loops)`: the conventional agent loop with a hard cap.
+- `judged`: the spec's `JUDGE_STOP` (§3.5, §3.7), Jev deciding progress, stall, or done, with the deterministic controls (`/stop`, `/cancel`, budget, mechanical acceptance checks) always outranking it.
+
+The Advancer never widens authority and never bypasses the gate: it decides whether to loop again, not what a loop may do. Its decision and reason are ledgered per loop, which is what makes the stopping policy learnable.
+
+**Turn trace.** Every turn records a nested tree of timed spans as it runs: `turn > loop[n] > { compile, provider.call > { first_byte, first_token }, advancer } > … > session.write`, with the wait for the session's turn lock as the first child. Each span has a start and end in microseconds from the turn's start, a kind (turn, loop, provider, mark, advancer, compile, store, lock), and attributes (request id and usage and stop reason for a provider call, decision for the advancer). _(The hook spans and the `hook` kind went with the hook system on 2026-09-28, in 11d2f43. Old traces keep them, and they still render.)_ The finished tree rides on the turn result, is written as a `turn.trace` ledger row, and on failure rides in the error payload up to the point of failure. This is the structure that tools, thinking, judgments, and completions will fill in as they arrive: a loop with three tool calls is three more spans under it, not a new mechanism. Rendering: a waterfall with a per-kind time summary in the web UI behind the timing link, and an indented tree with bars from `theseus ask --trace`. It is not sampling and it is not optional: the cost is a few microseconds per span, and the payoff is that every slow or strange turn can be read after the fact in exquisite detail.
+
+### 3.4 Roles
+
+One agent, many roles. The role table is a **living, versioned table** seeded before the ontology is fully known; rows are added as Jev or an operator discovers a new role, and the table's schema is `{id, stance, weights by node kind, hints, tools and shell classes favoured, verbosity, stop strictness, announce, added_by, added_at, version}`. The seed rows, drawn from six months of OpenClaw operation:
+
+| Role | Stance | Weights and hints |
+|---|---|---|
+| planner | goal-directed | tasks and decisions up; long horizon; asks clarifying questions before acting |
+| coder | goal-directed | code, tool results, repo resources up; L0/L1 shells; terse; tests as evidence |
+| reviewer | critical | diffs, prior decisions, conventions up; never edits; produces findings with evidence |
+| operator (infra) | cautious | resources, events, runbooks up; destructive-tag awareness; prefers read tools first |
+| researcher | exploratory | external resources, topics, citations up; longer outputs; flags uncertainty |
+| thought partner | exploratory | people, preferences, prior conversations up; asks back; no tools by default |
+| expresser | creative | persona and voice up; prose quality; minimal tools |
+| triager | fast, decisive | events, tasks, people up; short outputs; routes rather than solves |
+| secretary | goal-directed | calendar, people, events up; scheduling, briefings, follow-ups |
+| security analyst | sceptical | provenance, trust labels, policy up; treats content as evidence not instruction |
+| teacher | patient | deep knowledge and resources up; explains structure; checks understanding |
+| archivist | curatorial | memory nodes, contradictions, supersessions up; proposes merges and forgets |
+| _(new)_ | _(proposed by Jev or operator)_ | _rows appended here; every addition carries `added_by` and a ledger reference to the classification cluster or human request that motivated it_ |
+
+Operators may define roles by hand in the web UI **and** Jev proposes new ones through the learning channel; both land in the same versioned role table. Role changes are **announced by default**: a short, in-channel note ("switching to reviewer") that is also a `Judgment`-linked event in the graph, so humans see the shift and can react to it, and the ledger can learn from those reactions. A binding may set `announce: false` to make role changes silent.
+
+Beyond this set the table grows: Jev classifies the role each turn and scores the candidates. A role is a bundle of **values**, never filters: per-node-kind budget weights, personality guidance, stance (goal-directed, exploratory, learning), preferred tools and shell classes, verbosity, stop-criteria strictness. The role ontology is Jev-owned and grows through the learning loop: poorly covered classification clusters propose new roles; scored classifications flow to the operator on the learning channel (§3.10) and the web UI.
+
+Jev's ontology, minimum: roles, people, topics, events, resources, memories, capabilities, deep knowledge. Expanding and honing it is a permanent activity. Since v0.37 the ontology is one mechanism (§4.1a), and roles are one kind in its table, beside channel, guild, person, topic, culture, and expertise.
+
+### 3.5 Tasks (fluid)
+
+The task graph is a core persisted structure whose interface is conversational. The agent sees the task graph **for its execution's scope** every turn (ids, titles, states, dependencies, owners, one-line acceptance), bounded by the budgeter: beyond the budget, the view collapses to open tasks plus one-line summaries of closed subtrees, with a count of what was elided and edits it through a reserved action namespace the harness executes, in the same tool-call grammar as everything else:
+
+```
+task.create {title, parent?, deps?, acceptance?, owner?, due?}
+task.update {id, patch}      task.move  {id, new_parent}     task.split {id, into[]}
+task.merge  {ids, into}      task.close {id, done|abandoned, evidence}
+task.claim  {id}             task.handoff {id, to: human|conversation}
+```
+
+Authoritative task state machine (the only one in this document): `proposed → accepted → in_progress → {blocked, waiting_human, suspended} → in_progress → done | failed | abandoned`. `suspended` is an execution-level pause (cancelled or budget-exhausted execution) that leaves the task recoverable. Human edits in conversation become the same actions. Discord shows the graph as a living pinned message per thread with components for common moves; slash commands cover work outside a conversation. Every mutation is a bus event and a ledger row. Three layers of the task graph have different mutability so the agent cannot redefine success:
+- **Accepted objective and acceptance criteria**: authority-controlled. Changing them, or abandoning an accepted requirement, is a ledgered action that requires the requesting principal (or owner) to accept; the agent may propose it, never apply it alone. Abandoning is not completing.
+- **Working plan and decomposition**: freely editable by the agent within the objective (create, split, merge, move, claim).
+- **Evidence and outcomes**: append-only, tied to specific artifacts, test runs, or external states with their identity (commit, snapshot id, job id).
+
+Where an acceptance criterion is mechanical (tests must pass, an artifact must exist, a check must be green), the deterministic check is a **necessary condition**: a failing check vetoes `done` while the requirement stands, regardless of what Jev says. Jev assesses the remaining semantic adequacy. This is not a second verification tier; it is the deterministic control path applied to acceptance.
+
+`JUDGE_STOP` reads the graph: done is no open accepted tasks, every mechanical criterion satisfied, **and** Jev agreeing. Terminal and stalled states are first-tier Jev calls like every other loop state, escalated to a human only when the call is in question.
+
+**Concurrency.** Channel serialization is not resource serialization; two executions in different channels can touch the same task or checkout. Task mutations are **versioned with compare-and-swap** (a stale version is rejected and the execution re-reads). Tasks have a **claim lease** with expiry; workspaces have an advisory lock per execution with a documented conflict behaviour; test evidence records the exact snapshot identity it ran against.
+
+### 3.6 Providers
+
+**Profiles.** A profile names a provider, a model, an output limit, and a system prompt. Exactly one profile is **live**; it is chosen in config at startup and can be switched over the protocol at runtime, and the switch persists in the store so a restart keeps it. A turn may name a profile explicitly without changing the live one. Sessions and tasks will carry their own profile override in a later milestone; the resolution order is fixed now: raw overrides, then the turn's named profile, then the session or task override (future), then the live profile.
+
+**Providers are a table, not code** (M0.5): every endpoint that speaks the Anthropic Messages API is a named `[providers.<name>]` entry with its base URL, key reference, and optional timeouts. The first-party API is the implicit `anthropic` entry; Z.ai's GLM series is `zai` at `https://api.z.ai/api/anthropic`. A turn selects provider and model explicitly or takes the configured default; both are ledgered on every call. A second wire protocol (OpenAI-compatible, Bedrock) would be a new `Provider` implementation behind the same trait and a new `kind` value.
+
+`Provider` trait: `complete(request) -> Stream<Event>` with text, thinking, tool-use blocks, and usage. First and default implementation: Anthropic Messages API with streaming, adaptive thinking and `effort`, prompt caching (§4.4), and the Opus 5.5 / Fable 5.1 contract (thinking always on, no forced tool use, thinking blocks tied to model). Model per binding, with an optional Jev-driven cheap-first cascade (the OpenClaw jev-router design carried over). On provider outage Theseus fails closed: the conversation is told plainly that the model is unavailable, in-flight work is parked with its state intact, and nothing falls back to another provider.
+
+**When the provider does not answer** (built in M0.5, 2026-09-25). Every call is bounded by four timeouts: connect, first byte (request sent to response headers), stream idle (longest silence between events), and total. Each failure is classified before anyone reasons about it: `timeout` (with its phase), `network`, `rate_limited` (with the provider's retry-after and rate-limit headers), `overloaded`, `server`, `auth`, `invalid_request`, `stream` (an error event mid-stream), `truncated` (the stream ended without `message_stop`). The class carries two facts the harness needs: whether a later identical call could plausibly succeed (`transient`), and whether the provider may have billed tokens we never saw (`usage_unknown`: true for idle and total timeouts, stream errors, and truncation; false for connect and first-byte timeouts, where nothing was generated). The turn fails, `provider.error` and `turn.failed` rows are ledgered, the error reaches the client with the class in `error.data`, and **nothing retries on its own**: a held reservation and a human or a later policy decide. The provider's request id, rate-limit headers, and timing (first byte, first token, total) are ledgered on every successful call as `provider.call`.
+
+### 3.7 Judgments (Jev) as a core service
+
+`Judge` trait, one implementation (TypeSafe Jev), always wrapped in a `Recording` decorator that writes every call to the ledger: pack id and version, state hash and size, answers with probabilities and confidence, latency, the action taken, and a slot for the later outcome label. Rules baked into the trait: atomic questions, mandatory no-match option, three-band confidence gate (act, confirm, escalate), state built by a `StateBuilder` that truncates to the model's limit by construction. Jev is never the sole gate for anything security-relevant.
+
+Jev is a substantial dependency with correlated-error and latency exposure: the ~350 ms figure is one call, and a turn may make several, some serially dependent. The critical path is measured per workload class (simple reply, coding tool iteration, long-job completion, cross-channel recall, voice turn, large candidate set) and the budgeter batches fan-outs so serial depth, not call count, bounds latency. Judge probabilities are treated as **uncalibrated until the ledger shows otherwise**; thresholds start conservative and are tuned only on labelled outcomes.
+
+Question packs in the design so far: `classify.v1`, `loop.v1`, `continuation.v1`, `shell.v1`, `memory.v1` (kind, durability, about, trust), `security.v1`, `sampling.v1`, `role.v1`. All versioned, all tuned by §3.10.
+
+### 3.8 MCP, both roles
+
+**As client.** Transports: stdio for servers Theseus launches (in an L1 sandbox or an AWS class) and streamable HTTP for remote servers; no legacy SSE. Primitives: `tools`, `resources`, `prompts`, `elicitation`, `sampling`.
+- Tools join the typed tool surface tagged `mcp:<server>` and pass the policy gate. Resources are readable via `resource.read` and pinnable into a binding's context.
+- **Prompts** surface as slash commands scoped to the bindings the server is attached to; returned messages enter the turn as user-role content with a provenance label; templates are cached and diffed, and a change triggers an operator notice before reuse.
+- **Elicitation** renders as Discord components (modal, select, buttons) to the human who owns the conversation; schema-validated answers only, a timeout that fails the call cleanly, only from servers the binding marks `interactive`, always recorded. Elicitation never substitutes for the policy gate.
+- **Sampling** becomes a Theseus provider call under the conversation's model, spend ceiling, and ledger, judged by `sampling.v1` for proportionality and steering and passed through the three-band gate. Only servers the binding marks `samples` may sample.
+- Credentials from Secrets Manager or SSM; OAuth for remote servers completes in Discord via a link component.
+
+**As server.** Streamable HTTP bound to localhost only; Theseus never accepts inbound connections directly. Exposure, when wanted, is an external proxy's job. Auth is a single static API key for now; per-client scoped tokens are deferred. Exposed tools: `task.*`, `memory.search`, `memory.get`, `memory.propose` (goes through Jev ingest, never raw write), `conversation.open/send/status`, and any downstream tool the token's policy allows, re-exported through the gate. Exposed resources: task graphs, policy-gated transcripts, read-only memory namespaces. Exposed prompts: persona-authored templates. Theseus-initiated sampling and elicitation toward its clients are supported for the case where the client is a human's front end. Every inbound call is a conversation event and a ledger row; rate and spend limits per token.
+
+**Excluded:** `roots` from external servers (Theseus decides filesystem views), and any capability that lets a server modify bindings, policy, or credentials.
+
+### 3.9 Policy, authority, and safety
+
+**Authority context.** Every execution carries an explicit authority context, fixed at creation and re-validated at each tool call: the **principal** (the requesting human, the owner for scheduled or proactive work, or an MCP client identity for inbound MCP calls), any **delegation** (a human may delegate a bounded capability set for a bounded time), the **binding ceiling**, and the **resource ceilings** of the channel and guild. Effective permission is the intersection: no broader than what the principal holds, capped by the binding and resource ceilings, with explicit deny taking precedence over any allow. Authority is never derived from whoever happens to be present in a channel; an administrator and an ordinary user sharing a channel do not pool their powers.
+
+**The gate: notify over block** (Eddie, 2026-09-28; rebuilt in theseus-8az, Part III A3b). Theseus tells the operator what it does, and it waits only where the operator or the floor says to wait. In Eddie's words, "Theseus should notify over block -- the operator should /know/ when something bad is going to happen", and the operator should be "asked, sure, but a hard no, almost never." What the operator controls is the finite list of tools and, when MCP lands, of MCP servers. The gate decides per tool, from the tool's name and what its plan names: the resources, the argv, and the path arguments. It does not try to infer what a command's contents will do, since "it's literally hopeless to try to figure out all the different ways to hide a command." Safety rests on running Theseus in a default-safe environment (below) and on the operator knowing what ran.
+
+**Postures.** One setting, `[policy].enforcement`, is the posture every tool and every MCP inherits:
+
+| posture | the call |
+|---|---|
+| `open` | runs |
+| `notify` | runs, and a notice is posted |
+| `approve` | waits for the operator's approval |
+
+The built-in default is `open`, and the template sets `notify`. The gate has no deny anywhere: no posture, list, or reason refuses a call. The strongest answer the gate gives is to wait, and the operator approves or declines. A `deny` in the config fails to load, and the error names the three postures.
+
+_(One exception since 2026-10-03: a shared place's call to a tool it is not offered, or to a file outside the public trees, is not run. The place rule decides it (below). The model is never offered such a tool, so the gate's refusal is a backstop; Part III Item 76.)_
+
+**Overrides.**
+- `[policy.tools]` sets one tool's posture. The template lists every tool, one line each: the read-only tools are `open`, and the writers and `proc.run` are commented, so they inherit. `proc.run`, the universal shell, is the one worth pinning stricter. A test keeps the list in step with the tool registry, and an unknown tool name fails to load.
+- `[policy.mcp]` does the same for MCP servers: `"server"` covers every tool from a server, and `"server/tool"` covers one tool. An MCP tool takes its `[policy.tools]` line first, then `"server/tool"`, then `"server"`, then `enforcement`.
+
+**The operator's lists** are stated will, not inference.
+- `allow_argv` names commands that `proc.run` runs without asking, when every path argument is inside the workspace roots.
+- `approve_argv` names commands, and `[tools].approve_paths` names paths, that wait for approval.
+- ~~A path outside the workspace roots waits for approval too.~~ A read outside the workspace roots, or a program run in a directory outside them, waits for approval too. A write outside them takes its tool's posture, whichever tool makes it (Eddie, 2026-09-30; theseus-ewi, built 2026-10-02, Part III Item 55): a `proc.run` script writes anywhere at its posture, and the gate never guesses what a command does, so the roots don't guard writes; the approve list, the floor, and the posture do. The workspace itself is configuration (`[tools].projects_dir`, plus any more `roots`); nothing assumes where an operator keeps projects.
+- A tool that reads more than the path it names reads only under the root that holds that path (theseus-bsc). `git.diff` and `git.log` find their repository from the path, and it may be larger than the root: a root inside a monorepo, or a stray repository (a `~/.git`) above a root that has none. Then both are limited to the root's part, as a pathspec, and the result's first line says `limited to <root>, inside the repository at <working tree>`. A repository whose working tree is set elsewhere (`core.worktree`) is refused. Every path the diff reads is checked first, in the working tree and in history: it must be under the root and not on the floor, or it is skipped unread and counted (`2 paths outside the roots not shown`). A path outside every root runs only once approved, and is then its own root: what was approved is what is read.
+
+**Private addresses** (theseus-yd6; built 2026-09-30).
+- A network call's URL is judged at step 2 of the order below, as a path outside the roots is. It waits for approval when its host is one of these, and the confirm names which:
+  - a loopback, private, link-local (the cloud metadata service's 169.254.169.254 included), unique-local, shared (100.64/10), unspecified, multicast, or reserved address;
+  - `localhost`.
+
+  An IPv4 address inside IPv6 is judged as itself.
+- A public name that resolves to such an address is refused at connect. The client's resolver checks the very answer the connection uses, so a rebinding name has no second answer to give. The result says so, and names the address to ask with. This refusal is the tool's, not the gate's: the gate never saw the address, so it could not ask.
+- Each redirect hop is judged the same way before it is followed.
+- An approval reaches only the private origin its URL named.
+- A proxy is never used, since it would resolve names past the check.
+
+**The floor** is Theseus's own state (store, spool, bindings file) and binary, and the 1Password CLI and its credentials, including the token file the daemon was given. The kernel is off limits to the agent (§3.21), and the vault holds every secret. A call that touches the floor waits for approval at every posture, `open` included, and its confirm says it is the floor. It is never refused and never silent. The floor is deterministic: no model judgment or Jev pack decides it. _(Until 2026-09-28 this also said that no hook decides it, and that the floor judges what a transform hook made of a proposal. The hook system is gone, §3.17.)_
+
+**Order.** The first match wins:
+1. the floor;
+2. the approve lists, a path outside the roots (since theseus-ewi, a read or a working directory there; a write takes the tool's posture), and a URL whose host is a private address;
+3. the allow list;
+4. the tool's posture: `[policy.tools]`, then for an MCP tool `[policy.mcp]` `"server/tool"` and `"server"`, for an AWS call `[policy.aws]` `"service:Operation"`, `"service"`, and its class (§3.25; Part III Item 49), then `[policy].enforcement`.
+
+_An L1 call skips the order: the floor and the approve lists guard what its view hides, and it runs at `notify` (§7; step 17b, Part III Item 58). Only the tool's own `[policy.tools]` line and a tightening still reach it, the stricter winning, so an explicit `approve` or a "should have asked" makes it wait, still in L1. A looser line never makes it quieter than `notify`, and the inherited `enforcement` never makes it wait (Eddie, 2026-10-02 at 16:03; theseus-jfs6, Item 59)._
+
+**A granted secret's posture** (theseus-dcy; built 2026-09-30). Each secret the broker hands out (§3.19) carries a posture: `[broker.secrets.<name>] posture`, `notify` by default. A call that the broker gives a secret runs at no looser a posture than that secret's. After the order above, the stricter wins, as a tightening does:
+- an `allow_argv` call that gets a `notify` secret is notified;
+- a secret whose posture is `approve` makes every call that gets it wait, and the confirm names the secret's setting.
+
+The call's tool line and its notice say what it was given ("gh got GH_TOKEN"). A spawn gives no secret whose posture is stricter than the one the call ran at.
+
+**External text** (theseus-9bp; built 2026-09-30; amended the same day, T1b, theseus-q4t). This is the interim, deterministic floor for web text, until provenance labels ("Exposure", below) and Jev (M5) arrive, and it stays the floor after them. _(Provenance labels were dropped on 2026-10-03, with the cut-list's Tier 1.1: this hold, per session, is the floor, and Jev's `security.v1` (row 39) judges what it can't see; Part III Item 74.)_
+- **When a session holds it.** A session reads external text when a result node marked `external` enters its context: `http.fetch` and `web.search`; a `proc.run` of a program `[policy] external_programs` lists, `gh` by default, or of a shell or launcher whose command names one (since 2026-10-03, Part III Item 74); an L1 job that reached a host beyond `[sandbox] egress` (§7; Items 62 and 77); and MCP results and untrusted attachments when they come. The first such read since the operator last trusted the session is its **hold**, kept on the session's record, with a `session.external_read` row (the node, the tool, the URL, and a search's query). Both are written in the frame that writes the node, so no crash leaves the text in the context without the hold. A later read writes nothing.
+- **From another session.** A task that a holding session starts holds the text from its brief, which that session's model wrote. A session that reads a report from a holding task holds it too, from the frame that writes the report. A session that a holding session's job opens, or sends a turn to, holds it too (Item 74): every job carries its session as `THESEUS_SESSION`, the CLI sends it as `opened_from`, and the new or named session takes the hold (`via: job`) before the turn writes anything. A job can strip the variable, so this is a light guard, not a boundary.
+- **What waits.** After the order above and a granted secret's posture, every call whose class is not `read` waits for approval: writes, edits, patches, `proc.run`, and `task.create`, including the allow list's calls. The stricter posture wins, as a tightening's does. A call in the same response as the fetch keeps its posture too, since the model wrote it before it saw the page.
+- **What keeps its posture** (Eddie, 2026-09-30):
+  - a `read` call, fetches and searches included. This is decided: research keeps flowing, and each fetch's notice shows its URL;
+  - `wake.at`. Setting a reminder is safe, because the wake's turn runs in the same session, so any acting call it makes still waits. `task.create` still waits: a task spends its own budget and runs turns of its own.
+- A wake's turn, and a turn that a task's report started, are the session's own turns, so the hold covers them.
+- **The confirm says why**: "this session read external text (http.fetch <url>, at 13:05), and a call that acts waits for approval after that (§3.9)". Discord, the web UI, and the CLI show it. A search names its query, not its request: `web.search "tokio JoinSet documentation", at 13:05`. The request's URL stays on the result node and in the hold, for the record (theseus-qiy).
+- **Trusting it again.** Only the operator clears a hold, with the trusted answer an approval takes ("Approval", below), so a Theseus job's process is refused. There are two ways:
+  - `policy.trust`: `theseus policy trust <session>`, the Observatory's "trust again", or Discord's `/trust`. `/trust` trusts the session of the place it is typed in, as the Discord user who typed it, so `[approval]` judges it as it judges a card's press. A place whose session holds nothing says so, and nothing is written;
+  - an approval that trusts the session as well: the card's **Approve + trust session** button on Discord and in the web UI, or `theseus confirm --trust`. The button appears only when the hold is why the call waits.
+
+  A trust is ledgered as `session.trusted` (who, how, and the hold it cleared). Who is the person or the surface (`discord:eddie`, `the CLI`), never a connection's label. The same holds for a trust, an answer, a press, an undo, and a cancel (theseus-qiy). A trust accepts the text already in the context; a later read holds the session again.
+- Health, `theseus health`, and the Observatory list the sessions that hold external text, since when (in the daemon's local time, as the confirm says it), and from what. The hold is on the session's own record, so it survives a restart.
+- `[policy] external_text = "ask" | "notify"`, `ask` by default. `notify` runs a call that acts with at least a notice.
+- The rule judges what the session has read, not what the text says. It does not stop a page from sending data out through a fetch's URL, since a read keeps its posture (decided, above); each fetch's notice names its URL. ~~It also does not follow a job's own process: a job the operator approves can open a clean session through the socket (theseus-d64).~~ Since Item 74 it follows a job that opens or names a session through the CLI (above); a job that strips its environment, or reaches the daemon by another tool, is not followed.
+
+**Notices and records.** Every call, under any posture, is recorded on its tool-call node with the gate's decision, the posture, and the reason. A call that runs under `notify` is also ledgered (`tool.notified`) and shown on every surface as a notice: what ran, the setting that made it a notice, and the outcome. In the web UI and the CLI it is its own line. On Discord it is the call's line in its loop's tool message, `🔔 notified (<setting>)` and then its outcome, and a loop that overflows one message counts the notices on the line that folds its oldest calls. _(Amended 2026-09-29, theseus-w4f: a separate Discord embed per call is `[discord] notice_embeds`, off by default, because the DM's roughly 160 shell calls a day would each post one; Part III A4, item 3.)_ A call that waits is a confirm on every surface. A declined call is recorded as declined and never runs. Only a toollet's own input validation, and the place rule in a shared place, stop a call at the gate. Each is recorded as an input the gate refused, with its reason (`validation: …` or `place: …`), and the model reads `Not run: …` (the place rule since 2026-10-03, Part III Item 76).
+
+**What the gate is not.** It judges what a call names, not what a program does once it runs, so it is not a sandbox. For arbitrary commands, the operator's control is `proc.run`'s posture, and the boundary is the environment (§7; L1 in M4).
+
+**Jev** (M5; not built). Eddie's direction is one classifier (`security.v1`) that says "this is risky: 0-100%" and, based on the posture, lets the operator know. As everywhere, Jev may make a call's treatment stricter, never looser, and it is never the sole gate (§3.7), because adversarial content can move its score.
+
+**Approval** (Eddie, 2026-09-27; built 2026-09-29, theseus-sgh). An approval is a dialogue in a **trusted channel**: a surface listed in `[approval].channels` whose members are all **trusted users** (`[approval].trusted_users`). Both lists live in the vault-held config, which agents cannot write. The rule covers every answer: a tool call that waits (posture `approve`, the approve lists, a path outside the roots, the floor, a session's hold on external text), the budget question, and the trust of a session that read external text.
+- **Where it is judged.** In one place, where an answer becomes a decision (`Core::confirm_action`), which every surface reaches through `action.confirm`. An answer counts only from a trusted user through a trusted channel. One that does not is refused with the reason, ledgered as `approval.refused` (who, through what, and why), and narrated; the call keeps waiting, and nothing is lost.
+- **Without `[approval]`, the owner's rule** (Review 2's consideration 2; built 2026-10-01, Part III Item 44). The CLI answers, and so does a Discord DM: the binding lets only the user its bindings file names reach one. The web UI, a guild channel, and a connection no listener named don't, and each refusal says how to add a surface. A guild channel's card goes to the owner's DM, with the note in the channel. A section with no `channels` key means the CLI and a trusted user's DM, so the web UI is added by name either way. Health's `approval` lists what is `open`: the channels beyond the CLI and the owner's DM that may answer now (the web UI while it is on, a guild channel its check trusts).
+- **Who answered is known from the connection, never from what a client says.** The listener that accepts a connection names its surface: the Unix socket and `--stdio` are `cli`, the loopback bridge is `web`, and the in-process Discord binding is `discord`. Only the binding may name a Discord channel and user. An answer's `author` is a label; it names and proves nothing.
+- **Not a job's process** (theseus-6qy; accepted by Eddie on 2026-09-29, and built the same day).
+  - At L0 a job runs as the operator's own user, so it can reach the CLI socket and the loopback web UI just
+    as the operator does.
+  - So an answer (an approval, a decline, or the spend reset), the undo of a tightening, and the trust of a
+    session that read external text are refused when the process that asks, or any ancestor of it up to
+    pid 1, is a live Theseus job wrapper. This holds with
+    or without an `[approval]` section, and is checked before its rules.
+  - *Who asks.* The socket reads its peer's pid (`SO_PEERCRED`) and start time when it accepts, and
+    `--stdio` names its parent. The web UI finds the process that holds the client's end of its loopback
+    connection, and only when a judged act arrives. A process that cannot be traced counts as a job's: one
+    that has exited, a pid reused since, or another account's.
+  - *A double fork stays under its job.* The job wrapper is a child subreaper. After its command exits, it
+    lingers until the last descendant has, and health counts the wrappers that linger.
+  - *A job that kills its own wrapper* (theseus-z4b). Its processes then go to the daemon, which is a child
+    subreaper. Nothing that answers an approval descends from the daemon: the operator's CLI, the browser,
+    and Discord never do. So an answer from a process under `theseusd` itself, with no live wrapper
+    between, is refused too. The reason is `from a process under theseusd itself (pid <n>, <argv0>), which
+    is a job's orphan`, and the `asker` names the daemon (`under_daemon`).
+  - *Any serving daemon's descendants* (theseus-6uo; built 2026-09-30). An asker under any other serving
+    `theseusd` is refused too: a scratch daemon's orphan, or a `--stdio` daemon's, which is a child
+    subreaper as well. A serving daemon is recognized by its command line: `theseusd` with no subcommand
+    after its options. The reason is `from a process under another serving theseusd (pid <n>, <argv0>; the
+    daemon is pid <d>), which counts as that daemon's job`, and the `asker` names it (`under_other_daemon`).
+  - *A refusal is loud.* It is ledgered as `approval.refused`, with the reason `from a Theseus job's process
+    (job <id>, pid <n>, <argv0>)`. It is narrated, and sent to the operator where approvals go. The CLI prints
+    the reason and exits 1.
+  - A "should have asked" press is not checked, since it only makes things stricter. Discord has no process
+    to check: an answer there is a trusted user's press.
+  - This is a speed bump before L1, not a boundary (M4). A job can still drive a process that is not its
+    descendant: a user systemd unit, a tmux server already running, cron, or anything else the operator runs
+    that takes commands. _Since theseus-z4b, killing its own wrapper no longer takes a job's processes out of reach._
+- **The channels.**
+  - `cli` and `web` are the operator's own machine: the socket is mode 0600, and the web UI is loopback-only, so anyone with an account on the machine can reach it. Their only member is this machine's operator, so listing one is the whole rule for it, with no trusted-user entry. _Since theseus-6qy, an answer through either counts only from a process of this account that is not a Theseus job's. Another account's connection to the web UI cannot be traced, so it is refused._
+  - `discord:dm` is a DM between the bot and a trusted user.
+  - `discord:<channel id>` is a guild channel. It is trusted only while nobody outside the trusted users can view it; another bot counts like anyone else, and Theseus itself does not.
+- **Who can view a guild channel** is worked out with Discord's permission rules (roles, the channel's overwrites, the owner). It is checked when the binding starts, when a card is about to post, and again when an answer arrives. The check needs the member list, which Discord gives only when the bot's Server Members intent is on in the developer portal. The binding reads that setting from the application's flags and leaves the gateway intents as they are. Without it, a listed guild channel cannot be verified, so it is not trusted, and health says why. DMs, the web UI, and the CLI need no check.
+- **Where the dialogue is posted.** On Discord a card goes only to a trusted channel.
+  - If the session's place is not a trusted channel, the card goes to a trusted user's DM (the requester's, when theirs is bound), and the place gets a one-line note that approval was asked there.
+  - With no trusted DM, the place gets only the note, which says where to answer.
+  - A card names only the trusted local surfaces as other places to answer.
+- **A card names who can answer it** (theseus-9j9; built 2026-10-01, Part III A4 Item 15). A card is the one message that waits on a human, so in a guild channel it starts by mentioning the users who can answer it there: the place's `users`, and under `[approval]`, only the trusted ones among them. Its `allowed_mentions.users` is exactly them, so Discord notifies them and nobody else. A card in a DM, or routed to one, names no one. Every other message (a reply, a tool line, a notice, a narration) is sent with empty `allowed_mentions`, so its text can say `<@id>` and still notify nobody.
+- **A question expires** (theseus-830; built 2026-10-02, Part III Item 55). A call's question that nobody answers expires at the time its card gives (`[kernel] confirm_ttl_secs` after it was asked, 15 minutes by default), within a driver tick: it is declined by `expiry` in one frame with its `action.expired` row and its execution's wake, its clients hear `confirm.resolved` with `expired`, its card settles "⌛ Expired", and the model reads "Not run: nobody answered within 15 minutes, so the request expired." A budget question holds until it is answered.
+- ~~Without an `[approval]` section there is no rule: the CLI, the local web UI, and a place's listed Discord users answer, as before. Once the section exists, `channels` defaults to the CLI and the web UI, and `trusted_users` to nobody.~~ False since Part III Item 44 (struck in v0.78, theseus-1nyg): without the section the owner's rule above applies, and a section with no `channels` key means the CLI and a trusted user's DM. `trusted_users` still defaults to nobody.
+- Health, `theseus health`, and the Observatory list the trusted users and each listed channel's state (trusted, or not trusted and why).
+- The approver must also hold the capability (confirmation is not authorization, below). _Not built: until roles and delegation land (M4), every execution's principal is the operator, and a trusted user answers with the operator's authority._
+
+**Should have asked** (theseus-sgh, 2026-09-29). A notice can be answered with one press: "should
+have asked". That tool then asks first, on every surface, until the press is undone.
+- **Where it lives.** A tightening lives in the store (a `meta` record written in the same frame as
+  its `policy.tightened` row), never in the vault config, and survives a restart.
+- **Stricter wins.** The gate applies the config's posture, then the tightening, and the stricter
+  of the two wins. A press can therefore never loosen anything, and one on a tool the config
+  already asks for changes nothing.
+- **Undo.** Undo returns the tool to the config's posture. It loosens, so it needs the same trusted
+  answer as an approval (§3.9 "Approval"; `approval.refused` with `act: policy.untighten`). A press
+  only adds asking, so it is accepted from any surface that can answer an approval.
+- **Surfaces.** On Discord, one select menu on the loop's tool message lists its distinct notified
+  tools; with `notice_embeds`, each card has a button instead. The web UI has a button by each notice
+  and an Undo in the Tools view. The CLI has `theseus policy tighten|untighten|list`.
+- **Records.** The `policy.tightened` row keeps the call's correlation id and proposal digest, a
+  labeled example for later judgment work (M5).
+- **The allow list** still runs its entries outright, as it does under a config `approve`.
+
+**Owner override** (Eddie, 2026-09-27; §1 "Owner's property"). _Moot in the gate since 2026-09-28: the gate refuses nothing, so there is no refusal for an override to lift, and the owner can approve anything that waits. Held for Eddie: close theseus-qc4, or keep these rules for a later layer that refuses (Part III A3b)._ The rules as decided:
+- An override is possible only when every target the call touches is the owner's declared property. That property is `[owner]` in static config: repository patterns, hosts, cloud accounts. A call that touches anyone else's property keeps its refusal.
+- The override is its own dialogue, in a trusted channel, and only the owner can give it. It names the rule being overridden and why that rule refused, is bound to the exact action's digest, and is ledgered as `policy.overridden`.
+- The floor can be overridden too, at every enforcement level, but only with a **stronger ceremony**: the owner alone, the exact command shown, and a typed confirmation instead of a button. _(Moot since 2026-09-28: the floor asks instead of refusing.)_
+- An override approves what the model proposed. Theseus never turns a model's refusal into an action, and no override reaches property that is not the owner's.
+
+**Consequences** (Eddie, 2026-09-27; Appendix F). _Superseded 2026-09-28 (theseus-8az)._ The consequence kinds under one `irreversible` property, the rule table over argv with its shell parser, `opaque` for what the rules could not read, and replay (`theseus policy replay`) were built in steps 2a through 2a.3 (theseus-770 and three rounds of hardening), then removed, along with the "should have asked" flow planned for 2b. Hand-written detection of hidden commands can never be complete, and it had become the two largest files and the densest branching in the tree. Part III A3b records what was built and why it went.
+
+**Exposure** (M4; Appendix F). _Dropped 2026-10-03 with integrity by labels, the fomites and the Advisory (the cut-list's Tier 1.1; Part III Item 74): T1's hold stays the floor, and Jev's `security.v1` (row 39) judges text shaped like instructions. The rules as decided:_
+- Integrity labels (`untrusted`, `quarantined`) inherit only along transmission edges, as an `effective_trust` projection, so they do not saturate.
+- A tool call proposed from a context that holds a quarantined node, or untrusted text shaped like instructions, is judged one posture stricter: `open` behaves as `notify`, and `notify` as `approve`. This holds only while that node is in the compiled context. (Decided on the old four-level ladder; restated on the three postures, 2026-09-28.)
+
+Beads: theseus-3vu.
+
+**Revocation.** If a principal loses a Discord role mid-execution, the execution is re-validated on its next tool call and, if it no longer holds the needed permission, transitions to `blocked` with a clear message.
+
+**Derived work keeps its authority.** A due-time wake, a task handoff, an execution restart, or a scheduled continuation **retains the initiating authority context and its delegation limits**. It never broadens. A user who cannot perform a privileged action now cannot obtain it by asking Theseus to do it tomorrow; the scheduled execution runs as that user and is `blocked` at the gate exactly as the live one would be. Owner-originated proactive work (binding-configured automations, heartbeat findings, consolidation) runs under a **separately declared owner grant** recorded on the binding, and an authorized person may explicitly **adopt** or reauthorize derived work to change its authority, which is itself a ledgered action.
+
+**Coalescing does not merge authority.** When messages from several people are coalesced into one context build, authorship is preserved and, additionally, a message from a principal other than the execution's own is treated as a **new ask**: it either spawns its own execution under that principal's authority or, if it amends the current execution's accepted objective, requires an authorized scope amendment. A lower-privilege participant cannot steer an administrator's execution by typing into the same channel.
+
+**Channel switching intersects ceilings.** An execution that moves to another channel keeps its original grant **and** must satisfy the destination binding's policy, disclosure rules, and resource ceilings; the effective permission is the intersection of both. It never carries a privileged origin binding into a less privileged destination.
+
+**Confirmation is not authorization.** A confirm click proves intent for one exact action; it grants no capability the confirmer does not already hold. Confirmations are bound to the exact tool, arguments, target resource, policy context, and an expiry; a changed argument invalidates the confirm.
+
+**Gate.** Every tool call passes the gate in one order: the toollet's plan (which validates the input), the policy's decision, a confirm bound to the proposal's digest, the kernel's revalidation of that confirm, then dispatch. _(Amended 2026-09-28. This said "the kernel's gate in the §3.17 order", starting with a transform. The transform went with the hooks (11d2f43), and bb3ce56 replaced the kernel's `Policy` trait with plan, then decide; Part III A3b.)_ The policy gives one of two bands: run, or wait for a confirm. A tool's class (read, write, run) describes the tool; its posture comes from its name, not its class. Confirm goes to the requesting principal as a component on the message that would perform the action; for owner-authority executions it goes to the owner. On timeout nothing happens and there is no other fallback.
+
+**Information flow.** Cross-channel and cross-namespace recall is two decisions, not one: a **read** decision (may this execution's principal see nodes from that namespace or channel?) and a **disclosure** decision (may the result be shown in this channel to these participants?). Identity continuity for a `Person` namespace is not permission to disclose that person's data in a different guild or to other people. Both decisions are policy, evaluated deterministically, with Jev able to tighten but not loosen. _(Since 2026-10-03 the disclosure decision is the place rule's: a shared place reads only its own conversation, and recall there will draw on its own sessions alone; Part III Item 76.)_
+
+**Enforcement is before generation, per place** (amended 2026-10-03, theseus-nbsh). Once private material is in the model's context there is no reliable deterministic test of whether generated prose reveals it. So Theseus keeps it out of the context of every place it may not reach. Since 2026-10-03 that is decided per place, not per node: a shared place's request carries its own conversation, the public tools' results, the public trees and the public context files, and nothing else. Publishing into a shared place is the owner's explicit, ledgered act. _(From 19a to 19d a confidentiality label on every node, inherited by what was generated from it, decided each compile: Part III Items 61, 63, 66 and 68. Removed in Item 76.)_
+
+**As built: the place rule** (theseus-nbsh; built 2026-10-03, Part III Item 76). This is the simplification review's Tier 2. Eddie approved it at 10:58 ("a better start than owner labels"), and kept a light way to graduate. Every place a session speaks in has a class:
+- **Private:** the CLI and the web UI, a DM with an owner, and a guild channel the bindings file binds with `private = true` (the operator's word, trusted). It gets everything.
+- **Shared:** every other guild place, and a DM with someone who is not an owner. It gets:
+  - its own conversation;
+  - the tools whose results are public by nature: `web.search`, `http.fetch`, `wake.*` and `task.*`;
+  - `fs.*`, `git.*` and `text.*` only under `[places] public_paths`, taken canonically, so a link out of a public tree is outside it. There are none by default, and then no file tools;
+  - no `proc.run`, no `aws.*`, and nothing else;
+  - only the context files marked `readers = "public"`.
+
+  Its model is offered only those tools, and its system block says why. Any other call is not run: the gate records it as an input it refused (`place: …`).
+- **The owner** is `[places] owner` (a `[labels]` section still reads). Without it, the owner is `[approval] trusted_users`; without either, a bound DM's person, as approval takes the owner.
+- **A turn's class** depends on where its words go: the session's place; for a task, its parent's; for a session no place runs any more, the place its wakes and reports answer in. If that cannot be read, the turn is a shared place's. The class is fixed for the turn.
+- **The binding** tells the core its places when it starts, and nothing is stored. A guild place it has not named (Discord off, or not started yet) is shared. After serving, the binding reads once who can view each channel bound private, and health warns when anyone besides the owner can: `places: private: CLI, web, #ops (⚠ bound private, but 1 person besides the owner can view it: cy), DM @eddie · shared: #openclaw (public tools only)`. Nothing reads viewers before a turn or a post, so a member added mid-run is seen at the next start.
+- **Publish** is the one way the owner's material reaches a shared place. It goes through `place.publish`: `theseus publish NODE|FILE --to PLACE [--note …]` or `--text …`, Discord's `/publish`, or the cockpit's publish control on an answer or a result.
+  - **Who:** only the owner, from a private place. It is judged as an approval is (a Theseus job's process never may), then by the place rule. Both checks come before anything it names is read.
+  - **What it writes:** one frame, never while a turn holds the place's session. The item goes into the place's conversation as the owner's message, under a header that says what it is, with his note. A `derived_from` edge is added when it copies a node (`publish`, so `node.reach` follows it). A `place.published` row records who, through what, the source, a digest, the bytes and the place. A notice is posted in the place.
+  - **A refusal** is an `approval.refused` row, and nothing else is written.
+- **M6's recall and the books**, when built, draw in a shared place only on that place's own sessions.
+
+Removed with labels:
+- `Node.label` (NODE 7) and the manifest's audience, readers, integrity and withheld (COMPILATION 5). Both readers ignore the old fields;
+- the compile filter and its placeholders;
+- held posts and quiet loops;
+- the post-time viewer read;
+- graduation (`theseus graduate`);
+- the disclosure simulator;
+- `theseus labels`;
+- the metric `theseus.compile.withheld`.
+
+The five `label.*` ledger kinds read as unknown kinds, byte for byte. The T1 hold on external text is untouched.
+
+**What it costs, said plainly:**
+- One owner item can no longer be visible to named people across places. Publish replaces that as an explicit act.
+- A private channel that gains a member is noticed at the next start, not at once.
+
+**Provenance vs trust.** `origin` on a node (operator, agent, tool, external, MCP server) is immutable provenance. `trust` is an inferred, mutable projection Jev may adjust. Jev never relabels origin.
+
+**Secrets.** From AWS Secrets Manager or SSM Parameter Store when AWS is configured; from a local encrypted credential file with a passphrase or OS keyring in desktop mode. Never in argv; injected as environment at spawn; stdout scrubbed for secret shapes before it reaches the model or Discord. All actions land on the bus and in the ledger.
+
+**Default-safe is the operator's job**, and the spec is honest about where the boundary really is: once an execution holds L0 with the operator's SSH agent and instance role, the effective security boundary is everything reachable with those credentials, not the harness's per-action tags. L0 is therefore `privileged`, opt-in per binding, and its use is loudly visible in the web UI.
+

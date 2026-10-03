@@ -7,6 +7,8 @@ the repo was changed. Beads: theseus-7ve (the M4 epic), theseus-3vu (Appendix F'
 theseus-8kk (the ontology). [Spec](../the-ship-of-theseus.md) read at v0.61 (§1, §2, §3.9, §3.16, §3.19, §4.1 to §4.4a, §5.5, §5.6, §7,
 Appendix B, Appendix F, P6, Part III B1, J1, Z1, and A4 item 10). Code read at `de880fc`._
 
+> **Read with the decisions of 2026-10-03.** The simplification review cut or replaced parts of this design, and each such section below opens with a banner. Labels, held posts, quiet loops, graduation, and the disclosure simulator (19a to 19d) gave way to the place rule (the cut-list's Tier 2; the spec's Part III, Item 76). Integrity by labels (20a), the fomites (20b), and the Advisory were dropped for integrity's light pieces (Tier 1.1; Item 74). The delegated cgroup and the start-time probe were removed (Tier 4; Item 77), and run-time credential requests (18d) gave way to grants at launch (Tier 3; Item 71). Don't build from a bannered section.
+
 ## Outline
 
 0. The short version
@@ -124,6 +126,8 @@ The spec's P6: "Make the durability and safety claims true, and measure them." [
 
 ### What v1 needs from this phase (the happy path), and what waits
 
+> **Superseded in part (2026-10-03).** The credentials row is grants at launch (Tier 3; the spec's Part III, Item 71), the integrity row is the latch with integrity's light pieces (Tier 1.1; Item 74), and the confidentiality row is the place rule (Tier 2; Item 76).
+
 | Capability | v1's happy path (built) | Waits (filed, not built) |
 |---|---|---|
 | L1 sandbox | GLM runs `proc.run { sandbox: true }` of a script: no network, no credentials, zero capabilities, and the tree killed on exit. The contract tests prove each denial | Promoting overlay writes back to the tree; Landlock as a second layer; PTYs in L1; CPU and io limits where they are not delegated |
@@ -176,6 +180,8 @@ The spec's P6: "Make the durability and safety claims true, and measure them." [
 | Dependencies | `libc` in the kernel crate. The local registry has `nix` and `rustix`, and no seccomp or Landlock crate | One new crate, `seccompiler` (Apache-2.0 OR BSD-3-Clause; `deny.toml` allows both), or a hand-built BPF filter (§5, question 7) |
 
 ### 2.2 L1, the native sandbox
+
+> **Superseded in part (2026-10-03, the sandbox trims: the cut-list's Tier 4; the spec's Part III, Item 77).** No delegated cgroup: no `memory.max`, `pids.max` or `cpu.max`, no `daemon/` leaf, and no `memory_mb`; a job's limits are `RLIMIT_NPROC`, `RLIMIT_FSIZE`, and the scratch caps. No probe after serving: health reports the last real launch, and `theseusd check` runs the self-test on demand. A root daemon's L1 job is refused. The `/run/theseus/` helper and broker socket (18d) went with grants at launch (Tier 3; Item 71).
 
 **Which class a job runs in.** A `proc.run` call's class is decided at plan time, deterministically, and it is
 decided at most one way: toward L1.
@@ -302,6 +308,8 @@ the tree is filed, and needs a gated, labeled write (§2.6).
 
 ### 2.3 Cancellation verified per backend
 
+> **Superseded in part (2026-10-03, the sandbox trims: Tier 4; the spec's Part III, Item 77).** The cgroup rows are moot: L1 uses no cgroup, so an L1 stop is verified by its pid namespace, and `verified_by: cgroup` stays only so old records read.
+
 The lifecycle already exists (§3.16; `CancelState`). What changes is what **verified** means: every process of
 the job is gone, and the record says how it knows.
 
@@ -340,6 +348,8 @@ the job is gone, and the record says how it knows.
   that leaves a planned call planned, is in fix batch 1, before this step.
 
 ### 2.4 Egress, and credential brokering under L1
+
+> **Superseded in part (2026-10-03).** A result is external only when its job reached a host beyond `[sandbox] egress` (the sandbox trims' 4.1: Tier 4; the spec's Part III, Item 77). Run-time credential requests over a per-job socket (18d) were built and removed: an L1 job takes its program's grant at launch, as at L0 (Tier 3; Item 71).
 
 **Egress: an allowlist through the wrapper's proxy.**
 - **The list.** `[sandbox] egress = ["github.com:443", "*.crates.io:443"]` is the operator's stated will, as
@@ -414,10 +424,7 @@ the job is gone, and the record says how it knows.
 
 ### 2.5 Labels: one model for integrity and confidentiality
 
-> **Superseded in part (2026-10-03, theseus-nbsh).** §2.5's confidentiality half and §2.7 (labels on nodes, the
-> audience-safe compile, held posts, quiet loops, graduation, and the disclosure tests) were replaced by the place
-> rule: every place is private or shared, a shared place gets the public tools alone, and the owner publishes into
-> one explicitly. Read the core's `places.rs` and its AGENTS.md, not these sections, before building on them.
+> **Superseded (2026-10-03).** Its confidentiality half and §2.7 (labels on nodes, the audience-safe compile, held posts, quiet loops, graduation, and the disclosure tests) were replaced by the place rule (theseus-nbsh; the cut-list's Tier 2; the spec's Part III, Item 76): every place is private or shared, a shared place gets the public tools alone, and the owner publishes into one explicitly. Its integrity half, labels fed into T1's hold (20a), was dropped for integrity's light pieces (theseus-b5cl; Tier 1.1; Item 74). Read the core's `places.rs` and `external.rs` and its AGENTS.md, not these sections, before building on them.
 
 
 Each node written from M4 on carries one small label, set in the frame that writes the node and never
@@ -484,6 +491,8 @@ pub struct Label {
   (§2.12). DD5's `ToolResult.external` stays readable, and new writes put the URL in the label's `source`.
 
 ### 2.6 Integrity: how the labels take in T1's hold (the key question)
+
+> **Superseded (2026-10-03, theseus-b5cl; the cut-list's Tier 1.1; the spec's Part III, Item 74).** Integrity by labels (20a), file hashes and fomites (20b), and the Advisory are dropped. T1's hold stays the latch, per session, fed by DD5's own `external` marker; `[policy] external_programs` and a job's session (`opened_from`) feed it, and text laundered through files is Jev's `security.v1` (row 39).
 
 **The problem.** T1's hold is session-level and sticky: "a result marked external entered the context". Appendix
 F's integrity labels are node-level, inherited by transmission, with an exposure rule scoped to the compiled
@@ -564,10 +573,7 @@ session.
 
 ### 2.7 Confidentiality: audience-safe compilation, disclosure, and graduation
 
-> **Superseded in part (2026-10-03, theseus-nbsh).** §2.5's confidentiality half and §2.7 (labels on nodes, the
-> audience-safe compile, held posts, quiet loops, graduation, and the disclosure tests) were replaced by the place
-> rule: every place is private or shared, a shared place gets the public tools alone, and the owner publishes into
-> one explicitly. Read the core's `places.rs` and its AGENTS.md, not these sections, before building on them.
+> **Superseded (2026-10-03, theseus-nbsh; the cut-list's Tier 2; the spec's Part III, Item 76).** The audience-safe compile, the disclosure tests, the held post, and graduation were replaced by the place rule: every place is private or shared, a shared place gets the public tools alone, and the owner publishes into one explicitly (`place.publish`). Read the core's `places.rs` and its AGENTS.md, not this section, before building on it.
 
 
 **Enforced at compile time** (§3.9: "Once private material is in the model's context there is no reliable
@@ -713,6 +719,8 @@ be an injection path. Ontology writes therefore go through `judge_act(Act::Ontol
 
 ### 2.9 Control-plane separation (an installer option)
 
+> **Superseded in part (2026-10-03, the sandbox trims: Tier 4; the spec's Part III, Item 77).** No unit sets `Delegate=yes` any more, the separate-user one included. The rest stands: isolation is kept, by Eddie's choice.
+
 **The option** (§1): the runtime and its storage run under their own OS identity, `theseus`, and L0 jobs run as
 the operator. It is strongly recommended, and never the default.
 
@@ -777,6 +785,8 @@ idempotent, and logs every action. `--check` compares the machine with the layou
 
 ### 2.10 FAST: nothing new before serving, and every per-job cost benched
 
+> **Superseded in part (2026-10-03).** The rows for the L1 host probe and the cgroup leaf went with the sandbox trims (the spec's Part III, Item 77), those for labels at write and the compile filter with the place rule (Item 76), and the file hashes and fomite index were never built (Item 74).
+
 | New work | When it runs | On the start path? | Bench row, and its target |
 |---|---|---|---|
 | The L1 host probe | After serving, in the background, once per image | No | `sandbox.probe`'s milliseconds, in health |
@@ -798,6 +808,8 @@ idempotent, and logs every action. `--check` compares the machine with the layou
 
 ### 2.11 EXQUISITE VISIBILITY: where each piece shows
 
+> **Superseded in part (2026-10-03).** In the L1 row the probe and the cgroup mode are gone (the spec's Part III, Item 77); the credential requests' row went with grants at launch (Item 71); the integrity row's `via: file` was never built, and its `via` values are `egress`, `program`, and `job` (Item 74); and the confidentiality row is the place rule's (Item 76).
+
 | Piece | Discord | Web UI and Observatory | CLI | Ledger | Narrative | Telemetry and health |
 |---|---|---|---|---|---|---|
 | L1 | The tool line gets `🛡️ L1`, then "no network", or "egress: github.com", and what it wrote to scratch | An L1 pill on the call. A Sandbox section: the probe, the jobs by class, the cgroup mode, egress and refusals, and limit hits | `theseus health`'s `sandbox:` line; the notice line names the class | `sandbox.started` (class, limits, egress list), `sandbox.limit_hit` (pids, memory, fsize, from `pids.events` and `memory.events`), `sandbox.probe` | "proc.run `cargo test` ran in L1: no network, 2 GiB, 512 pids; 3 files to scratch, discarded" | `theseus.job.start_ms{class}`, `theseus.sandbox.limit_hits{limit}` |
@@ -810,6 +822,8 @@ idempotent, and logs every action. `--check` compares the machine with the layou
 | Control plane | — | Health's `control_plane` card | `theseus health`: `control plane: separated (daemon uid theseus; job host uid 1000, connected)` | `jobhost.connected`, `jobhost.lost` | "The job host connected" | `theseus.jobhost.connected` (a gauge) |
 
 ### 2.12 Catalog: config, protocol, store, and ledger
+
+> **Superseded in part (2026-10-03).** Gone or never built: `[sandbox] memory_mb` (the spec's Part III, Item 77); `[labels]`, which loads as `[places]` with the same two keys (Item 76); `[policy] external_programs`, built as `["gh"]` by default (Item 74); `Node.label`, the manifest's `audience`, `readers`, `integrity`, and `withheld`, `label.graduate`, and the `Graduate` act (NODE 7 and COMPILATION 5, Item 76); `ExternalText.via`'s `file` (Item 74); the `cred.request` action (Item 71); and the ledger rows of the probe, credential requests, fomites, and labels.
 
 **Config.** Each key lands with the code that honors it, and goes into the tested template.
 
@@ -869,6 +883,8 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
 
 ### The order at a glance
 
+> **Superseded in part (2026-10-03).** 18d was built and removed (grants at launch: Tier 3; the spec's Part III, Item 71). 19a, 19b, and 19c, with 19d's fixes, were built and then replaced by the place rule (Tier 2; Item 76). 20a and 20b are dropped for integrity's light pieces (Tier 1.1; Item 74). 17b's probe and cgroup limits, and 18a's cgroup, went with the sandbox trims (Tier 4; Item 77).
+
 | Step | Roadmap | Kind | Builds | Depends on |
 |---|---|---|---|---|
 | 17a | 17 | LANE | `theseus-sandbox`: the namespaces, the view, seccomp, capabilities, the init; §7's contract tests | — |
@@ -910,7 +926,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   result, and the spawn timing.
 - *Depends on:* nothing.
 
-**17b, L1 for `proc.run` (SPINE).**
+**17b, L1 for `proc.run` (SPINE).** _Trimmed 2026-10-03 (the sandbox trims: Tier 4; the spec's Part III, Item 77): no probe after serving and no cgroup limits; `theseusd check` runs the self-test._
 - *Builds:*
   - the `[sandbox]` config (`default`, `l1_argv`, `ro_paths`, and the limits) in the tested template;
   - `proc.run`'s `sandbox` input;
@@ -986,7 +1002,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   - An unlisted host is refused, with its reason in the result.
 - *Depends on:* 17b, 18b.
 
-**18d, credential brokering under L1 (SPINE).**
+**18d, credential brokering under L1 (SPINE).** _Removed 2026-10-03 (Tier 3; the spec's Part III, Item 71): built, then replaced by grants at launch._
 - *Builds:*
   - the per-job socket, served by the daemon and bind-mounted into the job;
   - the `theseus-cred get` helper;
@@ -1005,7 +1021,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   store and the log, as in B1's review.
 - *Depends on:* 17b, 18c.
 
-**19a, confidentiality labels (SPINE).**
+**19a, confidentiality labels (SPINE).** _Replaced 2026-10-03 by the place rule (Tier 2; the spec's Part III, Item 76): don't build from this step._
 - *Builds:*
   - `Label` on nodes (NODE 3), and the origin rules of §2.5's table;
   - the audience, and the binding's push of a channel's viewer set;
@@ -1027,7 +1043,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   owner-only `fs.read`. The step adds the members endpoint to the fake if it lacks one.
 - *Depends on:* T1 (built), F4a's rules.
 
-**19b, the disclosure simulator (LANE).**
+**19b, the disclosure simulator (LANE).** _Removed 2026-10-03 with the labels (Tier 2; the spec's Part III, Item 76)._
 - *Builds:* `theseus-sim disclosure --seed --steps` (§2.7), over the core as a library, with a short run in
   `scripts/gate.sh`.
 - *Tests:* the simulator itself. It also plants a bug on purpose: a test build whose filter skips attachments
@@ -1036,7 +1052,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   graduated.
 - *Depends on:* 19a.
 
-**19c, graduation and the held post (SPINE).**
+**19c, graduation and the held post (SPINE).** _Replaced 2026-10-03 (Tier 2; the spec's Part III, Item 76): graduation is the owner's publish, and there is no held post._
 - *Builds:*
   - `label.graduate`, with `judge_act(Graduate)`, the graduated node, and its warrant;
   - `theseus graduate`, and the web UI's button;
@@ -1049,7 +1065,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   mid-turn, and the reply is held, then approved.
 - *Depends on:* 19a.
 
-**20a, integrity by labels (SPINE).**
+**20a, integrity by labels (SPINE).** _Dropped 2026-10-03 (Tier 1.1; the spec's Part III, Item 74): the integrity lane built `external_programs` and a job's session instead._
 - *Builds:*
   - origin `external { source }`;
   - `external::gate` becomes `integrity::gate`, and the latch's three sites read `label.integrity`;
@@ -1065,7 +1081,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   same reason, and trust clears it. Then a job's `theseus ask` opens a session that holds the latch.
 - *Depends on:* 19a, and T1b (so the unified step keeps `wake.at`'s exemption).
 
-**20b, file hashes and fomites (SPINE).**
+**20b, file hashes and fomites (SPINE).** _Dropped 2026-10-03 (Tier 1.1; the spec's Part III, Item 74): laundering through files is Jev's `security.v1` (row 39)._
 - *Builds:*
   - SHA-256 on `fs.read`, `fs.write`, `fs.edit`, and `fs.patch` (the result's `meta`);
   - `fomite:*` records written by a latched session's writes;
@@ -1182,6 +1198,8 @@ None of these blocks the chain. Each says when it matters, and the default the c
 
 ## 5. Open questions, with defaults
 
+> **Superseded in part (2026-10-03).** The questions on labels and graduation, integrity by labels and fomites, and the delegated cgroup are moot since the place rule (the spec's Part III, Item 76), integrity's light pieces (Item 74), and the sandbox trims (Item 77).
+
 The build never waits on these: each step takes the default, and Eddie can overturn it later.
 
 1. **Should L1 earn a looser posture?** For example, `proc.run` at `open` in L1 while L0 stays at `notify`.
@@ -1233,6 +1251,8 @@ The build never waits on these: each step takes the default, and Eddie can overt
 
 ## 6. Risks, and what would change the plan
 
+> **Superseded in part (2026-10-03).** The risks of integrity by labels (20a), the fomites, graduation, and disclosure by labels went with those designs (the spec's Part III, Items 74 and 76).
+
 **Risks.**
 - **WSL kernel drift.** WSL updated itself this morning (06:03), and a new kernel could disable a feature L1
   uses.
@@ -1280,6 +1300,8 @@ The build never waits on these: each step takes the default, and Eddie can overt
   seam changes.
 
 ## 7. Appendix: probes of this machine (2026-09-30, about 15:20 MST)
+
+> **Superseded in part (2026-10-03, the sandbox trims: Tier 4; the spec's Part III, Item 77).** The cgroup and delegation findings below record what this machine allowed; L1 no longer uses a cgroup.
 
 These were read-only, and left nothing behind.
 - **The kernel:** `6.18.40.1-microsoft-standard-WSL2`. **systemd 249** is pid 1.

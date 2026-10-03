@@ -8,15 +8,18 @@
 3. **[Technical overview](technical-overview.md)**: the core in depth. It covers the protocol, the store (a
    write-ahead log with a rebuildable index), the kernel (executions, actions, budgets, cancellation), and the tool
    loop, with the commands to see each one work.
-4. **[The Ship of Theseus](the-ship-of-theseus.md)**: the design document, and the source of truth. It is both
-   the specification and the record:
+4. **[The Ship of Theseus](spec/README.md)**: the design document, and the source of truth. Since v0.80 it is in
+   chapters under [spec/](spec/), each under about 150 KB, and its [index](spec/README.md) says what each holds
+   ([the-ship-of-theseus.md](the-ship-of-theseus.md), the one file until v0.79, points there). It is both the
+   specification and the record:
    - Part I, the specification: what Theseus is meant to be, and why;
    - Part II, the build plan: the order of the steps, and the test that gates each one;
    - Part III, as built: what each step actually built, how it was proven, where it diverged from the plan, and
      what it left open.
 
    When the code and Part I disagree, Part III says so, and one of them gets fixed. The PDF is a rendering of the
-   same file, sent to the operator with each version and not committed.
+   whole document, the chapters concatenated in the index's order, sent to the operator with each version and not
+   committed.
 
 ## The rest
 
@@ -35,5 +38,6 @@
 - **[notes/](notes/)**: research and design notes the spec drew on: the hooks investigation and comparison, the
   hooks design, the event-driven execution review, and the tool surface review.
 
-The markdown is the source of truth. After editing the spec, regenerate its PDF (marked, then headless Chrome) and
-send it. Git ignores it (`docs/*.pdf`), so a new version no longer adds megabytes to every clone.
+The markdown is the source of truth. After editing the spec, regenerate its PDF from the chapters' concatenation
+(marked, then headless Chrome; the index gives the one-line concatenation) and send it. Git ignores it
+(`docs/*.pdf`), so a new version no longer adds megabytes to every clone.
