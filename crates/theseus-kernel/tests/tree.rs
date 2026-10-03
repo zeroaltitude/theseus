@@ -436,8 +436,11 @@ fn plain_sigterm() -> Result<(), String> {
         job::catches_sigterm(wrapper).then_some(())
     })?;
     unsafe { libc::kill(wrapper as i32, libc::SIGTERM) };
-    let status = reaped(wrapper)?;
+    // A sleeper the stop missed would hold the wrapper in its linger: the
+    // scan runs either way, and kills what it finds.
+    let status = reaped(wrapper);
     none_left(marker)?;
+    let status = status?;
     check(status.signal() == Some(libc::SIGTERM), || {
         format!("it ended by SIGTERM: {status}")
     })?;
