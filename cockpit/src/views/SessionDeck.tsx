@@ -1,6 +1,6 @@
 // The session deck: one session, down to its spans. The transcript streams live; the inspector shows each turn's
 // flame chart, the context lineage, the spend, and the session's own ledger rows.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
@@ -14,6 +14,7 @@ import { ago, cn, ms, short, stamp, tokens, usd, clock } from '@/lib/format'
 import { ledgerKind, toneHex } from '@/lib/taxonomy'
 import { axisStyle, type EChartsOption } from '@/lib/chart'
 import { useTick } from '@/lib/hooks'
+import { useAsOf } from '@/lib/timemachine'
 import { Echart } from '@/components/Echart'
 import { Flame, flatten } from '@/components/Flame'
 import { JsonView } from '@/components/JsonView'
@@ -36,7 +37,11 @@ export default function SessionDeck() {
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
   const { data: comps } = useRpc<{ compilations: CompilationInfo[] }>('compilation.list', { session_id: id, n: 50 }, 10_000)
   const { data: ledger } = useLedger(3000, 4000, undefined, id)
-  const rows = ledger?.rows
+  // The time machine's moment (null while live): the transcript is the nodes written by then, and the spans, calls, and
+  // ledger rows beside it stop there too. Each is filtered once per moment, so a scrub redraws only what changed.
+  const asOf = useDeferredValue(useAsOf((x) => x.t))
+  const rows = useMemo(() => (asOf === null ? ledger?.rows : ledger?.rows.filter((r) => r.at_unix_ms <= asOf)), [ledger, asOf])
+  const nodes = useMemo(() => (asOf === null ? hist?.nodes : hist?.nodes.filter((n) => n.at_unix_ms <= asOf)), [hist, asOf])
 
   const turns = useMemo(() => turnRows(rows), [rows])
   const turnMap = useMemo(() => new Map(turns.map((t) => [t.turn_id, t])), [turns])
@@ -46,7 +51,8 @@ export default function SessionDeck() {
     return m
   }, [rows])
   const calls = useMemo(() => providerCalls(rows), [rows])
-  const live = useLive(id)
+  const liveNow = useLive(id)
+  const live = asOf === null ? liveNow : null
 
   // A written node or an ended turn means the transcript changed: read it again now, not at the next poll.
   const events = usePush((s) => s.events)
@@ -61,29 +67,30 @@ export default function SessionDeck() {
   const s = hist?.session
   const exec = el?.executions.find((e) => e.execution_id === s?.execution_id) ?? el?.executions.find((e) => e.session_id === id)
 
-  if (!s || !hist) return <Panel title="session" bodyClassName="h-64"><Empty>{isLoading ? 'reading the session…' : `no session ${short(id)}`}</Empty></Panel>
+  if (!s || !hist || !nodes) return <Panel title="session" bodyClassName="h-64"><Empty>{isLoading ? 'reading the session…' : `no session ${short(id)}`}</Empty></Panel>
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <Header s={s} exec={exec} onBack={() => nav('/fleet')} />
+      {asOf !== null && <div className="num px-1 text-[11.5px] text-wait">as of {clock(asOf)}: the transcript and the rows beside it stop here; the header and the composer are the session now</div>}
       <Group orientation="horizontal" className="min-h-0 flex-1">
         <RPanel defaultSize="58" minSize={420} className="min-h-0">
-          <Panel title={<>transcript · {hist.nodes.length} nodes</>} icon={<ScrollText size={13} />} className="h-full"
+          <Panel title={<>transcript · {nodes.length}{asOf !== null && nodes.length !== hist.nodes.length ? ` of ${hist.nodes.length}` : ''} nodes</>} icon={<ScrollText size={13} />} className="h-full"
             bodyClassName="min-h-0"
             actions={live ? <span className="flex items-center gap-1.5 text-[11px] text-live"><LiveDot size={5} /> {live.text ? 'streaming' : 'turn running'}</span> : null}>
             <div className="flex h-full min-h-0 flex-col">
               <div className="relative min-h-0 flex-1">
-                <Follow deps={[hist.nodes.length, live?.text]}>
-                  <Transcript nodes={hist.nodes} turns={turnMap} live={live} />
+                <Follow deps={[nodes.length, live?.text]}>
+                  <Transcript nodes={nodes} turns={turnMap} live={live} />
                 </Follow>
               </div>
-              <Composer sessionId={id} busy={!!live || exec?.state === 'running' || exec?.state === 'queued'} />
+              {asOf === null && <Composer sessionId={id} busy={!!live || exec?.state === 'running' || exec?.state === 'queued'} />}
             </div>
           </Panel>
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
         <RPanel defaultSize="42" minSize={360} className="min-h-0">
-          <Inspector turns={turns} traces={traces} comps={comps?.compilations ?? []} rows={rows} calls={calls} session={s} nodes={hist.nodes} />
+          <Inspector turns={turns} traces={traces} comps={comps?.compilations ?? []} rows={rows} calls={calls} session={s} nodes={nodes} />
         </RPanel>
       </Group>
       <CallInspector sessionId={id} />

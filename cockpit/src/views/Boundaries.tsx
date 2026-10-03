@@ -7,7 +7,7 @@
 // - The broker: which program or tool is handed which secret, by name only; and what it withheld.
 // - Labels (19a): who may see what, by place, and what a compile left out for its audience.
 // - Egress (18c, a seam): the hosts sandboxed jobs reach, and the refusals, once 18c records them.
-import { useMemo, type ReactNode } from 'react'
+import { useDeferredValue, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Anchor, CircleCheck, Eye, KeyRound, Link2, Lock, OctagonX, Radar, ShieldCheck, ShieldHalf, Siren, Undo2 } from 'lucide-react'
@@ -15,6 +15,7 @@ import type { ActionInfo, ConfirmRequest, Health, LedgerEntry, NodeInfo, Sandbox
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useHistoryRows } from '@/lib/history'
+import { useWorld } from '@/lib/world'
 import { verdictWords } from '@/lib/verdict'
 import { ago, bytes, clock, cn, ms, short, stamp } from '@/lib/format'
 import { Btn, Empty, Panel, Pill } from '@/components/ui'
@@ -31,17 +32,24 @@ const KINDS = new Set([
 
 export default function Boundaries() {
   const nav = useNavigate()
-  const now = useTick(1000)
+  const tick = useTick(1000)
   const { data: h } = useRpc<Health>('health', undefined, 2000)
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 2000)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const { rows } = useHistoryRows()
-  const mine = useMemo(() => rows.filter((r) => KINDS.has(r.kind)), [rows])
+  // The time machine's moment (null while live): the holds, questions, tightenings, and verdicts are the fold's, and
+  // the log's rows stop at the moment. The cgroup gauges, the broker's grants, and the labels' and egress lists are
+  // read from the daemon as it is now, and say so.
+  const world = useDeferredValue(useWorld())
+  const asOf = world?.t ?? null
+  const now = asOf ?? tick
+  const mine = useMemo(() => rows.filter((r) => KINDS.has(r.kind) && (asOf === null || r.at_unix_ms <= asOf)), [rows, asOf])
   // L1 jobs live: their cgroups, read each second while any is there, else every five.
   const { data: usage } = useRpc<SandboxUsage>('sandbox.usage', undefined, 5000, {
     refetchInterval: (q) => (q.state.data?.jobs.some((j) => j.populated) ? 1000 : 5000),
   })
-  const { data: results } = useRpc<{ nodes: NodeInfo[] }>('node.list', { session_id: null, kind: 'tool_result', n: 2000 }, 10_000)
+  const { data: resultList } = useRpc<{ nodes: NodeInfo[] }>('node.list', { session_id: null, kind: 'tool_result', n: 2000 }, 10_000)
+  const results = useMemo(() => (resultList?.nodes ?? []).filter((n) => asOf === null || n.at_unix_ms <= asOf), [resultList, asOf])
   // A job's command rides its turn's next frame (`tool.job_started`), so while it runs, its action names it.
   const { data: al } = useRpc<{ actions: ActionInfo[] }>('action.list', { n: 200 }, 3000)
   const title = useMemo(() => {
@@ -49,10 +57,12 @@ export default function Boundaries() {
     return (sid: string | null | undefined) => (sid ? m.get(sid) ?? short(sid) : '—')
   }, [sl])
 
-  const holds = h?.external_text ?? []
-  const confirms = cl?.confirms ?? []
-  const tight = h?.tightenings ?? []
-  const live = usage?.jobs.filter((j) => j.populated) ?? []
+  const holds = world ? world.holds : h?.external_text ?? []
+  const confirms = world ? world.confirms : cl?.confirms ?? []
+  const tight = world ? world.tightenings : h?.tightenings ?? []
+  // A cgroup can't be read back: in the past, the L1 jobs running then are counted from the fold, not gauged.
+  const live = useMemo(() => (world ? [] : usage?.jobs.filter((j) => j.populated) ?? []), [world, usage])
+  const l1Then = useMemo(() => (world ? [...world.jobsRunning].filter((id) => world.l1.has(id)).length : 0), [world])
   const withheldRows = mine.filter((r) => r.kind === 'label.withheld')
   const labelRows = mine.filter((r) => r.kind === 'label.graduated' || r.kind === 'label.held_post' || r.kind === 'label.held_post_answered')
   const secretsWithheld = mine.filter((r) => r.kind === 'secret.withheld').length
@@ -64,12 +74,14 @@ export default function Boundaries() {
       <div className="panel flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
         <div className="mr-2">
           <h1 className="ship-title !text-[26px]">The boundaries</h1>
-          <div className="text-[11.5px] text-ink-dim">every line Theseus draws around its own work, as it stands</div>
+          <div className="text-[11.5px] text-ink-dim">
+            {world ? `as it stood at ${clock(world.t)} · the gauges, grants, and host lists are the daemon's now` : 'every line Theseus draws around its own work, as it stands'}
+          </div>
         </div>
         <Seal icon={<Link2 size={15} />} n={holds.length} word="chained" tone="#f472b6" hint="sessions holding outside text: their calls that act wait for you" />
         <Seal icon={<ShieldCheck size={15} />} n={confirms.length} word="asking" tone="#fbbf24" hint="approvals waiting for you" />
         <Seal icon={<Lock size={15} />} n={tight.length} word="tightened" tone="#fbbf24" hint="tools that ask first because someone pressed “should have asked”" />
-        <Seal icon={<ShieldHalf size={15} />} n={live.length} word="in L1 now" tone="#5eead4" hint="sandboxed jobs running, each in its own cgroup" />
+        <Seal icon={<ShieldHalf size={15} />} n={world ? l1Then : live.length} word={world ? 'in L1 then' : 'in L1 now'} tone="#5eead4" hint="sandboxed jobs running, each in its own cgroup" />
         <Seal icon={<KeyRound size={15} />} n={h?.broker.length ?? 0} word="grants" tone="#d6a548" hint="the broker's grants: who is handed which secret (names only)" />
         <Seal icon={<Eye size={15} />} n={withheldRows.length} word="compiles withheld" tone="#22d3ee" hint="compiles that left nodes out for their audience (19a's labels)" />
         <Seal icon={<Radar size={15} />} n={reachedOut} word="reached out" tone="#5eead4" hint="sandboxed jobs that connected out through their egress list (18c)" />
@@ -86,7 +98,7 @@ export default function Boundaries() {
 
       <Panel title={<>The sandbox · L1 jobs, live and finished</>} icon={<ShieldHalf size={13} />} bodyClassName="p-2.5"
         actions={<span className="num text-[11px] text-ink-faint">{sandboxLine(h, usage)}</span>}>
-        <Sandbox usage={usage} health={h} rows={mine} results={results?.nodes ?? []} actions={al?.actions ?? []} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
+        <Sandbox usage={usage} health={h} rows={mine} results={results} actions={world ? world.actions : al?.actions ?? []} asOf={asOf} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
       </Panel>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
@@ -241,8 +253,8 @@ function sandboxLine(h?: Health, u?: SandboxUsage): string {
 
 interface Finished { node: NodeInfo; cid: string; exit?: number; ms?: number; scratch?: string; failed: boolean }
 
-function Sandbox({ usage, health, rows, results, actions, title, now, onOpen }: {
-  usage?: SandboxUsage; health?: Health; rows: LedgerEntry[]; results: NodeInfo[]; actions: ActionInfo[]; title: (s?: string | null) => string; now: number
+function Sandbox({ usage, health, rows, results, actions, asOf, title, now, onOpen }: {
+  usage?: SandboxUsage; health?: Health; rows: LedgerEntry[]; results: NodeInfo[]; actions: ActionInfo[]; asOf: number | null; title: (s?: string | null) => string; now: number
   onOpen: (sid: string, cid?: string) => void
 }) {
   const action = useMemo(() => new Map(actions.map((a) => [a.correlation_id, a])), [actions])
@@ -270,7 +282,7 @@ function Sandbox({ usage, health, rows, results, actions, title, now, onOpen }: 
     }
     return out.sort((a, b) => b.node.at_unix_ms - a.node.at_unix_ms).slice(0, 10)
   }, [results])
-  const live = usage?.jobs.filter((j) => j.populated) ?? []
+  const live = asOf === null ? usage?.jobs.filter((j) => j.populated) ?? [] : []
   const memLimit = (j: { memory_max?: number }) => j.memory_max ?? (health?.sandbox ? health.sandbox.memory_mb * 1048576 : undefined)
   return (
     <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.25fr_1fr_1fr]">
@@ -278,7 +290,7 @@ function Sandbox({ usage, health, rows, results, actions, title, now, onOpen }: 
         <div className="ship-engraved mb-1.5 text-[9.5px]">Live · each job&rsquo;s own cgroup</div>
         {!live.length && (
           <div className="rounded-lg px-3 py-3 text-[12px] text-ink-faint ring-1 ring-line">
-            {usage?.jobs_dir ? 'no sandboxed job runs now; each one’s memory and processes show here while it runs' : usage?.why ?? 'reading…'}
+            {asOf !== null ? 'a cgroup can’t be read back: the jobs then are counted in the seal above' : usage?.jobs_dir ? 'no sandboxed job runs now; each one’s memory and processes show here while it runs' : usage?.why ?? 'reading…'}
           </div>
         )}
         <div className="flex flex-col gap-2">

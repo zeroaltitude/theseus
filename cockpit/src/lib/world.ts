@@ -40,7 +40,7 @@ class Worlds {
 const worlds = new Worlds()
 
 /** The views that show the past when the time machine is set; the others show the present and say so. */
-export const FOLDS = ['/ship', '/fleet', '/actions', '/money'] as const
+export const FOLDS = ['/ship', '/fleet', '/actions', '/money', '/boundaries', '/session'] as const
 
 /** The world at the time machine's moment, or null while it is live. */
 export function useWorld(): World | null {

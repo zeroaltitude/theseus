@@ -261,7 +261,7 @@ export function TimeMachine() {
         </div>
       ) : (
         <button type="button" onClick={() => commit(null)} className="asof-badge flex shrink-0 items-center gap-2 px-2.5 py-1"
-          title={folds ? 'The cockpit shows this moment, folded from the ledger. Click to return to the present.' : 'This view shows the present; the Ship, Fleet, Actions, and the money river show this moment.'}>
+          title={folds ? 'The cockpit shows this moment, folded from the ledger. Click to return to the present.' : 'This view shows the present; the Ship, Fleet, Actions, the money river, the boundaries board, and the session deck transcript show this moment.'}>
           <span className="font-display text-[11px] font-bold tracking-[0.14em] text-wait">AS OF</span>
           <span className="num text-[13px] font-semibold text-ivory">{clock(t)}</span>
           <span className="text-[10.5px] text-ink-faint">{new Date(t).toDateString() === new Date(now).toDateString() ? '' : new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
