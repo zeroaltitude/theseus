@@ -34,11 +34,12 @@ It runs, in order:
    - The whole suite, `cargo nextest run --workspace` (about 1,300 tests).
    - The generated TypeScript: it fails when `web/src/protocol.gen/` differs from the commit.
    - The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
-     first flushes dirty pages and waits, up to 5 minutes, until IO and CPU pressure are low and the load is under the
-     core count; when the 5 minutes pass with the machine still busy, the timing budgets get the busy allowance (see
-     "The busy allowance"). A miss reruns once, and only a second miss fails. Every run goes to the bench history
-     (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With `THESEUS_GATE_NO_BENCH=1` (a
-     lane's gate, which the lane recipe sets), this step is skipped: the gate that joins the lane to `main` runs it.
+     first flushes dirty pages and waits, up to 2 minutes, until IO and CPU pressure are low and the load is under
+     three quarters of the cores; when the 2 minutes pass with the machine still busy, the timing budgets get the busy
+     allowance (see "The busy allowance"). A miss reruns once, and only a second miss fails. Every run goes to the
+     bench history (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With
+     `THESEUS_GATE_NO_BENCH=1` (a lane's gate, which the lane recipe sets), this step is skipped: the gate that joins
+     the lane to `main` runs it.
    - Then, skipped with it, the jobs bench's L1 row (`theseus-sim bench jobs --class l1 --runs 20 --check`): an L1
      start's p95 under §2.2's 25 ms, on the machine the lifecycle bench settled, with the allowance when that settle
      found no quiet window; a miss reruns once. The suite's `the_jobs_bench_l1_row` measures the row and bounds
@@ -114,10 +115,15 @@ on to the end under the lock, and a signal to its `flock` alone frees the lock u
 so its benches can measure a busy machine, and a busy machine slows the daemon's starts and stops. There, and only
 there, the timing budgets get an overage allowance.
 
-- **When.** Only when the settle step before the bench waited its whole 5 minutes without a quiet window (IO pressure
-  under 10 %, CPU pressure under 20 %, and the load under the core count, all at once). A quiet window, a machine
-  without PSI, or `THESEUS_GATE_BENCH_ALLOWANCE=0` keeps every budget strict, as before. Each settle decides for the
-  run after it, so a rerun after a miss decides again.
+- **When.** Only when the settle step before the bench waited its whole 2 minutes without a quiet window (IO pressure
+  under 10 %, CPU pressure under 20 %, and the load under three quarters of the cores, 12 of 16, all at once). A quiet
+  window, a machine without PSI, or `THESEUS_GATE_BENCH_ALLOWANCE=0` keeps every budget strict, as before. Each settle
+  decides for the run after it, so a rerun after a miss decides again.
+- **The bar and the wait** (Eddie, 2026-10-03 14:20; theseus-lf1n). Until then the load bar was the core count and the
+  wait 5 minutes. With the lanes no longer paused, the strict misses cluster at loads of 12 to 16 (at normal priority,
+  a phase missed in 41 % of the runs at 12 or more, 10 % from 8 to 12, 6 % under 8), a band the old bar called quiet,
+  so a second miss there failed a join. Now a gate there waits, then benches with the allowance, which was calibrated
+  on that band; and the shorter wait keeps a busy machine from holding the shared lock for 5 minutes.
 - **What.** The timing budgets only: the lifecycle bench's phases, and the jobs bench's L1 start. A phase over its
   limit by no more than the allowance, a percentage of the limit, passes. A count never gets one: the turn bench's 5
   frames are held exactly. The run's other checks (the socket served before the secrets, the swap's job adopted, and
@@ -129,7 +135,7 @@ there, the timing budgets get an overage allowance.
   one-sample stalls over twice a limit (one fsync waiting on a neighbour), which no allowance should cover: the rerun
   does. Strictly, 9 of those 22 runs missed a phase, against 4 of the 68 runs on a quiet machine (a load under 8),
   which the rerun covers, as before.
-- **Seen.** The settle line says the allowance is in force (`lifecycle: still busy after 5 minutes (…); measuring
+- **Seen.** The settle line says the allowance is in force (`lifecycle: still busy after 2 minutes (…); measuring
   anyway, with the busy allowance: +65% over a timing budget's limit`). A phase it carries prints the bench's own
   `MISSED`, the strict verdict, and then `lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms,
   limit 104 ms)`. Its history row keeps `passed` as the strict verdict (`false`), and the allowance in its last column,
