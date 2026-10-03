@@ -453,7 +453,8 @@ impl Judge {
 /// of what the model writes next.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Admitted {
-    /// The meet of the admitted nodes' readers; `Public` when none.
+    /// The meet of the admitted nodes' readers, and of the context files the
+    /// request carries whole (theseus-42ub); `Public` when none.
     pub readers: Readers,
     pub in_play: InPlay,
     /// Each node left out, in order, with why.
@@ -476,11 +477,7 @@ impl Admitted {
     pub fn add(&mut self, judge: &Judge, n: &Node, v: &Verdict) {
         match v {
             Verdict::Admit(r) => {
-                // The meet of equal readers is themselves: most of a
-                // session's nodes share them, so nothing is built for those.
-                if self.readers != **r {
-                    self.readers = judge.meet(&self.readers, r);
-                }
+                self.meet(judge, r);
                 if untrusted(n) {
                     self.in_play.untrusted += 1;
                 }
@@ -491,6 +488,28 @@ impl Admitted {
             }),
         }
     }
+
+    /// Take in the readers of something admitted beside the nodes: a context
+    /// file the system block carries whole (theseus-42ub).
+    pub fn meet(&mut self, judge: &Judge, r: &Readers) {
+        // The meet of equal readers is themselves: most of a session's nodes
+        // share them, so nothing is built for those.
+        if self.readers != *r {
+            self.readers = judge.meet(&self.readers, r);
+        }
+    }
+}
+
+/// The readers of each context file a request's system block carries whole
+/// (M4 19a, theseus-42ub): the owner's unless its entry says it is public. A
+/// file withheld from the audience, or missing, carries none of its text.
+pub fn carried_files(
+    files: &[theseus_protocol::ContextFileRef],
+) -> impl Iterator<Item = Readers> + '_ {
+    files
+        .iter()
+        .filter(|f| f.withheld.is_none() && f.missing.is_none())
+        .map(|f| f.readers.clone().unwrap_or(Readers::Owner))
 }
 
 /// A node is untrusted by its label, or, written before labels, by DD5's

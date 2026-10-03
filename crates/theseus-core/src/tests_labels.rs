@@ -381,6 +381,82 @@ async fn a_context_file_the_audience_may_not_read_is_withheld_with_its_reason() 
     assert_eq!(ledgered(&r.core, "context.compiled")[0]["withheld"], 1);
 }
 
+/// theseus-42ub: the context files a request carries are part of what its
+/// compile admitted. In a channel the owner alone can view, an owner-only
+/// context file goes in whole, and the answer that drew on it is the owner's,
+/// not the channel's: its loop is quiet (19c), its post takes a read at post
+/// time, and once a second person can view the channel, the answer is
+/// withheld with the file.
+#[tokio::test]
+async fn an_owner_only_context_file_makes_its_answer_the_owners_in_an_owner_only_channel() {
+    let mut own = String::new();
+    let r = rig(
+        vec![Scripted::text("Hi."), Scripted::text("Again.")],
+        |cfg, root| {
+            own = root.join("NOTES.md").to_string_lossy().into_owned();
+            cfg.context.files = vec![own.clone().into()];
+        },
+    );
+    std::fs::write(&own, "the vault code is 4417\n").unwrap();
+    let sid = session(&r.core, Some(&format!("channel:{LAB}")));
+    r.core
+        .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER]), None);
+    turn(&r.core, &sid, "hi", true).await;
+    let context = r.fake.requests()[0].system[1]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(context.contains("4417"), "the owner's alone: {context}");
+    let place = Readers::Place(format!("discord:{LAB}"));
+    assert_eq!(
+        labels(&r.core, &sid),
+        [
+            ("user_message".to_string(), Some(place.clone())),
+            ("assistant_message".to_string(), Some(Readers::Owner)),
+        ],
+        "the answer drew on the owner's file"
+    );
+    let m = &r.core.store.session_compilations(&sid).unwrap()[0].manifest;
+    assert_eq!(
+        m.readers,
+        Some(Readers::Owner),
+        "the prefix carries the file"
+    );
+    // The loop is quiet: its readers fit no audience the channel can have.
+    let compiled = &ledgered(&r.core, "context.compiled")[0];
+    assert_eq!(compiled["readers"], "owner", "{compiled}");
+    let at = format!("discord:{LAB}");
+    assert!(!crate::labels::fits_any_audience(
+        &Readers::Owner,
+        Some(&at)
+    ));
+    // Its post takes a read of who views the channel when it leaves.
+    let reply = r
+        .core
+        .kernel
+        .outbox_actions()
+        .unwrap()
+        .into_iter()
+        .find(|a| crate::outbox::kind_of(a) == "reply")
+        .unwrap();
+    assert_eq!(r.core.post_readers(&reply), Some(Readers::Owner));
+
+    // Alice can view it now: the file and the answer are both withheld.
+    r.core
+        .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER, ALICE]), None);
+    turn(&r.core, &sid, "again", true).await;
+    let req = &r.fake.requests()[1];
+    assert!(
+        !serde_json::to_string(&req.system).unwrap().contains("4417"),
+        "the file is withheld"
+    );
+    let said = serde_json::to_string(&req.messages).unwrap();
+    assert!(
+        said.contains("[withheld: an earlier answer labeled owner-only"),
+        "{said}"
+    );
+}
+
 /// A guild channel whose viewers cannot be read counts as public: its own
 /// words go in, the owner's do not, and the manifest says why.
 #[tokio::test]

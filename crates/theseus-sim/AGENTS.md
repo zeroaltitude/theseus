@@ -72,9 +72,12 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
   streams into a guild channel unless each atom in it fits any audience the channel can have; every `tool_use` is
   paired; and a session holds external text exactly when T1's sites say (I1). A new way content reaches a model or
   a place (a tool, a post kind, M6's recall) joins its world, with its atoms.
-- **A gap the simulator finds is filed, then listed in `atoms::KNOWN_GAPS`** with its issue, so the gate's run
-  counts it instead of failing; the step that fixes it deletes the entry. Never widen the oracle to make a seed
-  pass: find whether the core or the oracle is wrong, and say which.
+- **A gap the simulator finds is filed, then listed in `atoms::KNOWN_GAPS`** with its issue, and a rule in
+  `Atoms::gap_for` that names its atoms, so the gate's run counts it instead of failing; the step that fixes it
+  deletes both. None is open: 19d fixed the first two (theseus-42ub, an answer's readers leaving out its
+  request's context files; theseus-jpff, a report's title without its brief's readers), so a run fails as
+  `--strict` does. Never widen the oracle to make a seed pass: find whether the core or the oracle is wrong,
+  and say which.
 - The fake Discord never records a header, so no token reaches its log; its gateway never keeps what an IDENTIFY
   or a RESUME carries, and an interaction's token is cut out of a recorded path.
 - Its payloads are checked against twilight-model's own types (a dev-dependency): a shape the binding's model
@@ -83,10 +86,12 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
 ## Tests and use
 
 - `tests/sim.rs`: the crash test, the kernel simulation, and the disclosure simulator on fixed seeds, in the gate.
-  The disclosure seeds (3 to 6, 30 steps, about 2 s of CPU) are chosen so each planted bug fails in them (19b's: the
-  compile filter rendering a withheld message's files; `held_state` reading a waiting question as released; a
-  loop's `context.compiled` readers taken from the manifest's prefix). A change to the world or the model moves
-  what every seed does, so after one, plant those three again and choose the seeds again if they slip.
+  The disclosure seeds (7 and 10 at 40 steps, 34 at 3; about 1.3 s) are chosen so each planted bug fails in them
+  (19b's: the compile filter rendering a withheld message's files; `held_state` reading a waiting question as
+  released; a loop's `context.compiled` readers taken from the manifest's prefix. 19d's: a request's context files
+  left out of the meet; a report node labeled by its task's answer alone). A change to the world, the model, or
+  the core's labels moves what every seed does (19d's fixes moved 3 to 6 off the quiet-loop plant), so after one,
+  plant them again and choose the seeds again if they slip.
 - `src/disclosure/tests.rs`: the world generator, the oracle's `covers`, the pairing check, and that a seed
   reproduces its run exactly (its decisions' trace, and every count).
 - The Discord proof is in the gate through theseusd's `tests/discord_proof.rs` (it needs the daemon's binary).

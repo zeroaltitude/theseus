@@ -104,18 +104,6 @@ pub fn covers(r: &R, aud: &Aud, owner: u64, views: &Views) -> bool {
     members.iter().all(|m| *m == owner || readers.contains(m))
 }
 
-/// Whether a node labeled `label` reaches someone that content read by `atom`
-/// may not: a label wider than what it carries. Where that depends on who
-/// views a place (people against a place's), it counts as wider.
-pub fn wider(label: &R, atom: &R) -> bool {
-    match (label, atom) {
-        (_, R::Public) | (R::Owner, _) => false,
-        (R::Place(c), R::Place(d)) => c != d,
-        (R::People(s), R::People(t)) => !s.is_subset(t),
-        _ => true,
-    }
-}
-
 /// Readers that may leave for any audience a place can have: the public, and
 /// what was said in the place itself (19c's quiet loops and the post's fast
 /// path).
@@ -159,26 +147,14 @@ pub struct Atom {
     pub origin: Origin,
 }
 
-/// Gaps the simulator found in the core, each filed. A run counts each case
-/// instead of failing on it, until the step that fixes the gap deletes its
-/// entry; `--strict` fails on them too.
-pub const KNOWN_GAPS: &[(&str, &str)] = &[
-    (
-        "theseus-42ub",
-        "the meet that labels an answer leaves out the context files its request carried, so an \
-         owner-only context file reaches the model's words labeled for the channel",
-    ),
-    (
-        "theseus-jpff",
-        "a task's report carries its title, cut from its brief, with only the task's answer's \
-         readers, in the parent's report node and in the place's report post",
-    ),
-];
-
-/// The context-files gap (theseus-42ub).
-const CONTEXT_MEET: &str = KNOWN_GAPS[0].0;
-/// The report-title gap (theseus-jpff).
-pub const REPORT_TITLE: &str = KNOWN_GAPS[1].0;
+/// Gaps the simulator found in the core, each filed: its issue, and what it
+/// lets out in words. A run counts each case instead of failing on it, until
+/// the step that fixes the gap deletes its entry, and its rule in `gap_for`;
+/// `--strict` fails on them too. None is open: 19d fixed the first two, an
+/// answer's readers leaving out its request's context files (theseus-42ub)
+/// and a report's title travelling without its brief's readers
+/// (theseus-jpff).
+pub const KNOWN_GAPS: &[(&str, &str)] = &[];
 
 /// Every atom of a run, the operator's graduations, and who has been shown
 /// each: an atom in a node the operator graduated may be read by the
@@ -266,18 +242,11 @@ impl Atoms {
     }
 
     /// The known gap that explains `id` reaching an audience it may not, if
-    /// one does: an atom a gap let out already; an owner-only context file's
-    /// atom in the model's words (the system block's own copy is the context
-    /// filter's, and never excused); an atom in a task's report title.
-    pub fn gap_for(&self, id: u32, in_title: bool) -> Option<&'static str> {
-        if let Some(gap) = self.let_out.get(&id) {
-            return Some(gap);
-        }
-        let a = self.get(id)?;
-        if matches!(a.origin, Origin::Context(_)) && a.readers != R::Public {
-            return Some(CONTEXT_MEET);
-        }
-        in_title.then_some(REPORT_TITLE)
+    /// one does: an atom a gap let out already, or one a gap's own rule
+    /// names (each `KNOWN_GAPS` entry adds its rule here, from the atom's
+    /// origin and readers, and its fix deletes it; none is open).
+    pub fn gap_for(&self, id: u32) -> Option<&'static str> {
+        self.let_out.get(&id).copied()
     }
 
     /// A known gap let `id` out.

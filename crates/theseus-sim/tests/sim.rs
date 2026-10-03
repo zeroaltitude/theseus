@@ -2,7 +2,7 @@
 //! simulation, and the M4 disclosure simulator (19b), each on small fixed
 //! seeds so the three take seconds. Long runs stay manual: `theseus-sim
 //! crash-test --iterations 20`, `theseus-sim kernel-sim --seeds 40`,
-//! `theseus-sim disclosure --seeds 40 --steps 2000`.
+//! `theseus-sim disclosure --seeds 40 --steps 2000 --strict`.
 
 use std::process::Command;
 
@@ -137,37 +137,45 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
 /// The disclosure simulator (M4 19b) on fixed seeds: a synthetic world of
 /// people, channels whose viewers change, sessions, tasks, graduations, and
 /// held posts, driven through the core, with every disclosure invariant
-/// checked at every compile, streamed edit, and post. These four seeds of 30
-/// steps take about 2 s of CPU, and each of the lane's planted bugs fails in
-/// them, by step 25 (a filter that skips attachments, a held post released
-/// before the owner answers, a loop's readers taken from the prefix alone).
-/// The live check's 40 seeds of 2,000 steps stay manual.
+/// checked at every compile, streamed edit, and post. Seeds 7 and 10 at 40
+/// steps and seed 34 at 3 take about 1.3 s, and each planted bug fails in
+/// them, by step 34: 19b's (a filter that skips attachments, a held post
+/// released before the owner answers, a loop's readers taken from the prefix
+/// alone) and 19d's (an answer's readers leaving out its context files, a
+/// report node's its brief's). No gap is known, so the run fails as
+/// `--strict` does. The live check's 40 seeds of 2,000 steps stay manual.
 #[test]
 fn the_disclosure_invariants_hold_on_fixed_seeds() {
-    let out = sim(&["disclosure", "--seed", "3", "--seeds", "4", "--steps", "30"]);
-    assert!(out.contains("DISCLOSURE OK"), "{out}");
-    // The seeds reach what the invariants are about, and what the planted
-    // bugs need: something withheld, a withheld message's files, a post held,
-    // a node graduated, a loop kept quiet.
-    let total = out
-        .lines()
-        .find(|l| l.starts_with("DISCLOSURE OK"))
-        .unwrap_or("");
-    for what in [
-        " withheld nodes",
-        " withheld files",
-        " held posts",
-        " graduated",
-        " quiet loops",
-    ] {
-        let n: u64 = total
-            .split(what)
-            .next()
-            .and_then(|s| s.rsplit(['(', ' ']).next())
-            .and_then(|n| n.parse().ok())
-            .unwrap_or(0);
-        assert!(n > 0, "no{what} in the gate's seeds: {total}");
+    let mut reached = [0u64; 5];
+    for (seed, steps) in [("7", "40"), ("10", "40"), ("34", "3")] {
+        let out = sim(&["disclosure", "--seed", seed, "--steps", steps]);
+        assert!(out.contains("DISCLOSURE OK"), "{out}");
+        // The seeds reach what the invariants are about, and what the
+        // planted bugs need: something withheld, a withheld message's files,
+        // a post held, a node graduated, a loop kept quiet.
+        let total = out
+            .lines()
+            .find(|l| l.starts_with("DISCLOSURE OK"))
+            .unwrap_or("");
+        for (n, what) in reached.iter_mut().zip([
+            " withheld nodes",
+            " withheld files",
+            " held posts",
+            " graduated",
+            " quiet loops",
+        ]) {
+            *n += total
+                .split(what)
+                .next()
+                .and_then(|s| s.rsplit(['(', ' ']).next())
+                .and_then(|n| n.parse::<u64>().ok())
+                .unwrap_or(0);
+        }
     }
+    assert!(
+        reached.iter().all(|n| *n > 0),
+        "the gate's seeds reach too little (withheld nodes, withheld files, held posts, graduated, quiet loops): {reached:?}"
+    );
 }
 
 /// `bench history` reads the file `$THESEUS_BENCH_HISTORY` names: none yet is

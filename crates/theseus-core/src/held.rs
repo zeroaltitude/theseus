@@ -86,9 +86,11 @@ pub fn held_reason(readers: &Readers, audience: &Audience) -> String {
 
 impl Core {
     /// The readers of what a post carries of the model's words: a reply's
-    /// loops' answers, met, and a task's report's node. A node from before
-    /// labels is read as its place's own words. None for every other post:
-    /// the harness's own words, which its place may always read.
+    /// loops' answers, met, and a task's report's node, with its brief, whose
+    /// first line is the title the report carries (theseus-jpff). A node from
+    /// before labels is read as its place's own words, and a brief that
+    /// cannot be read as the owner's. None for every other post: the
+    /// harness's own words, which its place may always read.
     pub fn post_readers(&self, post: &Action) -> Option<Readers> {
         let body = body_of(post);
         let ids: Vec<&str> = match kind_of(post) {
@@ -104,13 +106,22 @@ impl Core {
         let target = target_of(post);
         let own = labels::readers_of(Some(target));
         let judge = self.runner.judge(&post.session_id, Some(target));
-        let mut readers = Readers::Public;
-        for id in ids {
+        let mut said: Vec<Readers> = ids
+            .into_iter()
             // A node that is gone posts nothing.
-            let Ok(Some((_, n))) = self.store.get_node(id) else {
-                continue;
-            };
-            let r = n.label.map_or_else(|| own.clone(), |l| l.readers);
+            .filter_map(|id| self.store.get_node(id).ok().flatten())
+            .map(|(_, n)| n.label.map_or_else(|| own.clone(), |l| l.readers))
+            .collect();
+        if kind_of(post) == "report" {
+            let brief = body["task"]
+                .as_str()
+                .and_then(|t| crate::task::brief(&self.store, t).ok().flatten());
+            said.push(brief.map_or(Readers::Owner, |n| {
+                n.label.map_or_else(|| own.clone(), |l| l.readers)
+            }));
+        }
+        let mut readers = Readers::Public;
+        for r in said {
             if r != readers {
                 readers = judge.meet(&readers, &r);
             }

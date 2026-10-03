@@ -11,8 +11,6 @@
 //! unless it was held and the owner released it. A held post's card goes
 //! where approvals go, never to its place.
 
-use std::collections::BTreeSet;
-
 use anyhow::Result;
 use serde_json::json;
 use theseus_core::held::{Held, PostCheck};
@@ -151,7 +149,6 @@ impl Sim {
         // What the binding renders: a reply's loops; a report's title and its
         // task's last message (theseus-discord's `render::report`); any other
         // post, everything it carries.
-        let mut titled = BTreeSet::new();
         let text = match kind_of(a) {
             "reply" => self
                 .core
@@ -163,7 +160,6 @@ impl Sim {
                 .join("\n"),
             "report" => {
                 let title = body["title"].as_str().unwrap_or("");
-                titled.extend(scan(title));
                 let said = body["node"]
                     .as_str()
                     .and_then(|n| self.core.outbox.said(n))
@@ -192,7 +188,7 @@ impl Sim {
             }
             return Ok(());
         }
-        self.judge_post(a, &text, &aud, (&views, &titled))
+        self.judge_post(a, &text, &aud, &views)
     }
 
     fn judge_post(
@@ -200,7 +196,7 @@ impl Sim {
         a: &Action,
         text: &str,
         aud: &Aud,
-        (views, titled): (&super::atoms::Views, &BTreeSet<u32>),
+        views: &super::atoms::Views,
     ) -> Result<()> {
         let bad: Vec<u32> = {
             let s = self.lock();
@@ -209,7 +205,7 @@ impl Sim {
                 .filter(|id| !s.atoms.allowed(*id, aud, OWNER, views))
                 .collect()
         };
-        let bad = self.excuse(bad, titled);
+        let bad = self.excuse(bad);
         self.rep.invariant_checks += 1;
         if bad.is_empty() {
             // Who views the place was shown what the post carried.

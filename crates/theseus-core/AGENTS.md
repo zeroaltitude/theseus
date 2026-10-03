@@ -15,7 +15,11 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   (`for_input`, `for_result`, `for_harness`, `for_agent`, `relayed`), and each compile's `Judge` admits a node only
   when its readers cover the session's audience (from `outbox.target`; a guild channel's viewers are pushed by the
   binding into `Places`, kept in META). A withheld node renders as a placeholder in its place; the manifest
-  records the audience, and a compile for another one recompiles (`audience`). Tests: `tests_labels.rs`.
+  records the audience, and a compile for another one recompiles (`audience`). What the model writes is read
+  by the meet of all its request carried: the nodes admitted, and the context files the system block carries
+  whole (`labels::carried_files`, theseus-42ub). A task's report, in its parent and in its post, meets its
+  brief's readers in too, since it carries the title, the brief's first line (`Report::readers_in_parent`,
+  `post_readers`; theseus-jpff). Tests: `tests_labels.rs`, and `tests_tasks.rs` for the report.
   - **Graduation** (M4 19c, `rpc/graduate.rs`): the only way an audience widens. `label.graduate` writes a new node
     (origin `operator`) with the source's content, wider readers, the source's integrity, and a `Warrant`, with a
     `derived_from` edge (`graduate`) and its `label.graduated` row, in one frame under the execution's lock, never

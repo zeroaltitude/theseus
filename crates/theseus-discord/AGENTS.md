@@ -19,7 +19,8 @@ theseusd.
   cannot be read, and the channel counts as public. It never asks for the intent on the gateway.
 - **The check at post time** (M4 19c): a lane posts a reply or a task's report in a guild channel only after a
   fresh read of who can view it (`read_audience_now`) and the core's `check_post`, unless its readers fit any
-  audience the channel can have. A held post waits, and the posts after it wait; its card goes to the approvals DM
+  audience the channel can have. A report's readers (`post_readers`) are its last message's met with its
+  brief's, since `render::report` shows the task's title, the brief's first line (theseus-jpff). A held post waits, and the posts after it wait; its card goes to the approvals DM
   from the operator's lane (`owner_card`); approved, it posts; declined, its place gets `courier::HELD_BACK`. A read
   Discord refuses counts as public. In a guild channel a loop whose request drew on restricted material is quiet
   (`context.compiled`'s `readers`): its text does not stream, and its tool line shows 🔒 for its input, so nothing

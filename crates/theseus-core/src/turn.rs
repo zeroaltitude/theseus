@@ -1811,6 +1811,9 @@ impl TurnRunner {
             tc.kernel.take_reports(tc.guard, |ids| {
                 let mut records = Vec::new();
                 let mut rec = rec;
+                // The reports' readers are met by this session's judge (the
+                // places' viewers), built only when there are reports.
+                let judge = self.judge(tc.session_id, self.outbox.target(tc.session_id).as_deref());
                 for id in ids {
                     let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)? else {
                         continue;
@@ -1822,17 +1825,14 @@ impl TurnRunner {
                         &format!("task:{}", r.short),
                         &r.node_text(),
                     );
-                    // The task's latch, and its answer's readers (M4 19a):
-                    // the owner's, for an answer from before labels.
+                    // The task's latch, and its answer's readers met with its
+                    // brief's, whose first line is the report's title (M4 19a,
+                    // theseus-jpff): the owner's, for either from before labels.
                     let latch = r.external.as_ref().map(|h| {
                         let now = theseus_protocol::now_unix_ms();
                         crate::external::taken(h, &r.task, crate::external::VIA_REPORT, &n.id, now)
                     });
-                    let readers = r
-                        .readers
-                        .clone()
-                        .unwrap_or(theseus_protocol::Readers::Owner);
-                    let n = n.labeled(crate::labels::relayed(latch, readers));
+                    let n = n.labeled(crate::labels::relayed(latch, r.readers_in_parent(&judge)));
                     records.push(n.record()?);
                     // The first transmission edge (12a, theseus-n4m): the
                     // relayed node copies the task's last message, so

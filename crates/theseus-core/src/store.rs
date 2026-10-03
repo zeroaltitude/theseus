@@ -786,6 +786,23 @@ impl Store {
         Ok(out)
     }
 
+    /// A session's first node, with its WAL position: a task's brief
+    /// (theseus-jpff). Its records are read from the start a few at a time,
+    /// so a long session is not read whole.
+    pub fn first_node(&self, session_id: &str) -> Result<Option<(u64, crate::node::Node)>> {
+        let mut after = 0;
+        loop {
+            let records = self.inner.scan_scope(session_id, after, 8)?;
+            let Some(last) = records.last() else {
+                return Ok(None);
+            };
+            after = last.position;
+            if let Some(r) = records.iter().find(|r| r.kind == kinds::NODE) {
+                return Ok(Some((r.position, r.decode()?)));
+            }
+        }
+    }
+
     /// Newest `n` nodes across every session, oldest first.
     pub fn recent_nodes(&self, n: usize) -> Result<Vec<(u64, crate::node::Node)>> {
         self.inner

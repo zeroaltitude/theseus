@@ -841,7 +841,9 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
 /// where image blocks get their bytes, the images the provider refused in
 /// the session, which render as their line (theseus-0s4), and the answer cut
 /// at the window that this request retries, which it leaves out
-/// (theseus-9p88). `judge` decides which nodes go in whole (M4 19a).
+/// (theseus-9p88). `judge` decides which nodes go in whole (M4 19a), and
+/// what the request admitted takes in the spec's context files too
+/// (theseus-42ub).
 pub fn render_request(
     spec: &RequestSpec,
     catalog: &Catalog,
@@ -930,6 +932,8 @@ pub fn render_request(
         })
         .collect();
     let conversation_ttl = spec.conversation_ttl.min(spec.cache_ttl);
+    let (admitted_prefix, admitted_all) =
+        with_context_files(spec, judge, (rendered.prefix, rendered.all));
     let req = ProviderRequest {
         model: spec.model.clone(),
         max_tokens: spec.max_tokens,
@@ -948,9 +952,27 @@ pub fn render_request(
         prefix_nodes: prefix.len(),
         tail_nodes: tail.len(),
         repairs,
-        prefix: rendered.prefix,
-        all: rendered.all,
+        prefix: admitted_prefix,
+        all: admitted_all,
     }
+}
+
+/// What the prefix and the whole request admitted, with the context files
+/// the system block carries whole (§2.5; theseus-42ub): their readers join
+/// both meets, since every request of the compilation carries them.
+fn with_context_files(
+    spec: &RequestSpec,
+    judge: Option<&Judge>,
+    mut admitted: (Option<Admitted>, Option<Admitted>),
+) -> (Option<Admitted>, Option<Admitted>) {
+    if let Some(j) = judge {
+        for r in crate::labels::carried_files(&spec.context_files) {
+            for a in [&mut admitted.0, &mut admitted.1].into_iter().flatten() {
+                a.meet(j, &r);
+            }
+        }
+    }
+    admitted
 }
 
 /// What a withheld node renders as (M4 19a, §2.7): one line that says what

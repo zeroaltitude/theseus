@@ -98,17 +98,6 @@ pub(crate) fn paired(messages: &[Value]) -> Result<(), String> {
     Ok(())
 }
 
-/// The atoms inside the headers of task reports a request carries (`[Report
-/// from task <short> ("<title>"): …]`): a task's title, cut from its brief.
-pub(crate) fn in_report_titles(text: &str) -> BTreeSet<u32> {
-    text.match_indices("[Report from task ")
-        .flat_map(|(at, _)| {
-            let rest = &text[at..];
-            scan(&rest[..rest.find(']').unwrap_or(rest.len())])
-        })
-        .collect()
-}
-
 /// The nodes a request's placeholders name (19c: `… theseus graduate <id> --to
 /// place]`).
 pub(crate) fn placeholders(text: &str) -> BTreeSet<String> {
@@ -195,7 +184,6 @@ impl Sim {
             .filter_map(|m| notification(m, theseus_protocol::notify::CONTEXT_COMPILED))
             .collect();
         let nodes = self.core.store.session_nodes(&self.sessions[sess].id)?;
-        self.titles_let_out(&nodes);
         for call in &calls {
             let Some(e) = compiled.iter().find(|c| c.digest == call.digest) else {
                 let name = &self.sessions[sess].name;
@@ -309,7 +297,7 @@ impl Sim {
             .filter(|id| !in_system.contains(id))
             .collect();
         let mut bad = in_system;
-        bad.extend(self.excuse(words, &in_report_titles(&call.text)));
+        bad.extend(self.excuse(words));
         if !bad.is_empty() {
             let what = self.describe_atoms(sess, &bad);
             return Err(self.violation(
@@ -384,7 +372,7 @@ impl Sim {
                     .collect()
             };
             excused.extend(fresh.iter().copied());
-            let bad = self.excuse(fresh, &BTreeSet::new());
+            let bad = self.excuse(fresh);
             if !bad.is_empty() {
                 let what = self.describe_atoms(sess, &bad);
                 let name = &self.sessions[sess].name;
@@ -402,35 +390,10 @@ impl Sim {
         Ok(())
     }
 
-    /// theseus-jpff: a task's report in this session whose label is wider
-    /// than an atom in its title (cut from the brief) lets that atom out,
-    /// whether or not its first audience could read it: the answers that
-    /// repeat it take the report's label, and stream and post with it.
-    fn titles_let_out(&mut self, nodes: &[(u64, Node)]) {
-        let mut s = self.lock();
-        for (_, n) in nodes {
-            let (Some(l), Body::UserMessage { text, .. }) = (&n.label, &n.body) else {
-                continue;
-            };
-            if !n.author.as_deref().is_some_and(|a| a.starts_with("task:")) {
-                continue;
-            }
-            let label = readers_of(&l.readers);
-            for id in in_report_titles(text) {
-                if s.atoms
-                    .get(id)
-                    .is_some_and(|a| super::atoms::wider(&label, &a.readers))
-                {
-                    s.atoms.let_out(id, super::atoms::REPORT_TITLE);
-                }
-            }
-        }
-    }
-
-    /// Leave out the atoms a known gap explains (`titled`: those inside a
-    /// task's report title), counted by gap, unless the run is strict. Each
-    /// is let out for good: what the model repeats of it later is the gap's.
-    pub(crate) fn excuse(&mut self, bad: Vec<u32>, titled: &BTreeSet<u32>) -> Vec<u32> {
+    /// Leave out the atoms a known gap explains, counted by gap, unless the
+    /// run is strict. Each is let out for good: what the model repeats of it
+    /// later is the gap's.
+    pub(crate) fn excuse(&mut self, bad: Vec<u32>) -> Vec<u32> {
         if self.p.strict || bad.is_empty() {
             return bad;
         }
@@ -438,7 +401,7 @@ impl Sim {
         let mut s = self.lock();
         let mut counted: Vec<&'static str> = Vec::new();
         for id in bad {
-            match s.atoms.gap_for(id, titled.contains(&id)) {
+            match s.atoms.gap_for(id) {
                 Some(gap) => {
                     s.atoms.let_out(id, gap);
                     counted.push(gap);

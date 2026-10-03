@@ -455,6 +455,11 @@ pub struct Report {
     /// meet of the task's context, which its report in the parent takes.
     /// None for a message from before labels, or no message.
     pub readers: Option<theseus_protocol::Readers>,
+    /// Who may read its brief, by the brief's label: the report carries its
+    /// title, the brief's first line (theseus-jpff). None for a brief from
+    /// before labels, or a task that did not finish (its report is the
+    /// owner's either way).
+    pub brief: Option<theseus_protocol::Readers>,
 }
 
 /// The line a turn that a report started shows above its reply (W1), as a
@@ -493,7 +498,21 @@ impl Report {
             target: None,
             external: None,
             readers: None,
+            brief: None,
         }
+    }
+
+    /// Who may read the report's node in the parent (§2.5: the meet of the
+    /// task's context): its last message's readers met with its brief's,
+    /// since the node carries its title, the brief's first line, even when
+    /// the task's own request withheld the brief (theseus-jpff). Either from
+    /// before labels, or missing, is the owner's.
+    pub fn readers_in_parent(&self, judge: &crate::labels::Judge) -> theseus_protocol::Readers {
+        let owner = theseus_protocol::Readers::Owner;
+        judge.meet(
+            self.readers.as_ref().unwrap_or(&owner),
+            self.brief.as_ref().unwrap_or(&owner),
+        )
     }
 
     /// The outbox post: the text by its node, as a reply names its loops'
@@ -569,16 +588,20 @@ pub fn load_report(
         return Ok(None);
     }
     let rec: Option<SessionRecord> = store.get_session(&e.session_id)?;
-    let (last, readers) = if e.state == ExecState::Complete {
+    let (last, readers, brief) = if e.state == ExecState::Complete {
         let nodes = store.session_nodes(&e.session_id)?;
         let last = last_message(nodes.iter().map(|(_, n)| n));
         let readers = last.as_ref().and_then(|(id, _)| {
             let n = nodes.iter().find(|(_, n)| n.id == *id)?;
             Some(n.1.label.as_ref()?.readers.clone())
         });
-        (last, readers)
+        let brief = nodes
+            .first()
+            .filter(|(_, n)| is_brief(n))
+            .and_then(|(_, n)| Some(n.label.as_ref()?.readers.clone()));
+        (last, readers, brief)
     } else {
-        (None, None)
+        (None, None, None)
     };
     let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
     let external = rec.as_ref().and_then(|r| r.external.clone());
@@ -586,8 +609,27 @@ pub fn load_report(
         target,
         external,
         readers,
+        brief,
         ..Report::new(&e, rec.and_then(|r| r.title), last)
     }))
+}
+
+/// Whether `n` is a task's brief: the message its parent's session relayed
+/// into it, which opens the task's session (`create`).
+pub fn is_brief(n: &Node) -> bool {
+    matches!(n.body, Body::UserMessage { .. })
+        && n.author
+            .as_deref()
+            .is_some_and(|a| a.starts_with("session:"))
+}
+
+/// A task's brief, read from the store: its session's first node, when that
+/// is the brief.
+pub fn brief(store: &crate::store::Store, task_session: &str) -> anyhow::Result<Option<Node>> {
+    Ok(store
+        .first_node(task_session)?
+        .map(|(_, n)| n)
+        .filter(is_brief))
 }
 
 /// A session's task, for the questions it asks: a card names it (DD7).

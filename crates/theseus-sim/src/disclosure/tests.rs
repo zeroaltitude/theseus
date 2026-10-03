@@ -3,8 +3,8 @@
 
 use std::collections::BTreeSet;
 
-use super::atoms::{covers, fits_any, scan, wider, Atoms, Aud, Origin, Views, R};
-use super::check::{in_report_titles, paired};
+use super::atoms::{covers, fits_any, scan, Atoms, Aud, Origin, Views, R};
+use super::check::paired;
 use super::world::{Shared, OWNER};
 use super::{run, Params};
 
@@ -189,46 +189,22 @@ fn a_seed_reproduces_its_run_exactly() {
     assert!(a.compiled > 0 && a.turns > 0, "{a:?}");
 }
 
-/// A label is wider than an atom when it reaches someone the atom's own
-/// readers do not: the owner's never is, public always is (but over public
-/// text), a channel's is over anything but its own words and public text.
+/// A known gap excuses only the atoms it let out, each named first by its
+/// gap's rule; none is open since 19d. So an owner-only context file's atom
+/// (what theseus-42ub let out), like any other, is excused by none, and a
+/// run fails on it as a strict run does.
 #[test]
-fn a_label_is_wider_than_what_it_carries_only_when_it_reaches_more() {
-    let p = |ids: &[u64]| R::People(set(ids));
-    assert!(!wider(&R::Owner, &R::Owner) && !wider(&R::Owner, &R::Place(21)));
-    assert!(!wider(&R::Public, &R::Public) && wider(&R::Public, &R::Owner));
-    assert!(!wider(&R::Place(21), &R::Place(21)) && wider(&R::Place(21), &R::Place(22)));
-    assert!(wider(&R::Place(21), &R::Owner) && !wider(&R::Place(21), &R::Public));
-    assert!(!wider(&p(&[11]), &p(&[11, 12])) && wider(&p(&[11, 12]), &p(&[11])));
-    assert!(wider(&p(&[11]), &R::Owner) && wider(&p(&[11]), &R::Place(21)));
-}
-
-/// The known gaps explain only what they name: an owner-only context file's
-/// atom (theseus-42ub), an atom in a report's title (theseus-jpff), and what
-/// either let out before; never an owner's file or a public context file.
-#[test]
-fn a_known_gap_excuses_only_what_it_names() {
+fn a_known_gap_excuses_only_what_it_let_out() {
     let mut atoms = Atoms::default();
     let (ctx, _) = atoms.mint(R::Owner, Origin::Context("private/context.md".into()));
-    let (open, _) = atoms.mint(R::Public, Origin::Context("open/context.md".into()));
     let (file, _) = atoms.mint(R::Owner, Origin::File("private/notes-0.txt".into()));
-    assert_eq!(atoms.gap_for(ctx, false), Some("theseus-42ub"));
-    assert_eq!(atoms.gap_for(open, false), None);
-    assert_eq!(atoms.gap_for(file, false), None);
-    assert_eq!(atoms.gap_for(file, true), Some("theseus-jpff"));
-    atoms.let_out(file, "theseus-jpff");
+    assert_eq!(atoms.gap_for(ctx), None);
+    assert_eq!(atoms.gap_for(file), None);
+    atoms.let_out(file, "theseus-0000");
     assert_eq!(
-        atoms.gap_for(file, false),
-        Some("theseus-jpff"),
+        atoms.gap_for(file),
+        Some("theseus-0000"),
         "let out for good"
     );
-}
-
-/// A report's header (`[Report from task <short> ("<title>"): …]`) names the
-/// atoms of its title, and not those of the message after it.
-#[test]
-fn a_reports_title_atoms_are_found_in_its_header_alone() {
-    let text = "x [Report from task a1b2c3 (\"Look further. I read zq3qz zq7qz\"): finished after \
-                1 turn]\n\nI read zq9qz. [Report from task d4e5f6 (\"zq11qz\"): failed]";
-    assert_eq!(in_report_titles(text), [3, 7, 11].into());
+    assert_eq!(atoms.gap_for(ctx), None);
 }
