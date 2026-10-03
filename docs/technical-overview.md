@@ -203,7 +203,7 @@ cargo build                                           # dev
 scripts/gate.sh                                       # the whole gate: fmt, clippy, nextest, the lifecycle bench, cargo deny, both web apps
 (cd web && npm ci && npm run build)                   # web UI → crates/theseusd/web/dist (committed)
 (cd cockpit && npm ci && npm run build)               # the cockpit → crates/theseusd/cockpit/dist (not committed; build it before a release)
-scripts/build.sh --profile release-thin               # an install: the whole workspace, locked, reproducible (scripts/AGENTS.md)
+scripts/build.sh --profile release-thin               # an install: the five shipped binaries, locked, reproducible (scripts/AGENTS.md)
 scripts/build.sh --target x86_64-unknown-linux-musl   # the portable build: static binaries
 scripts/smoke.sh                                      # end to end against the real API
 ```

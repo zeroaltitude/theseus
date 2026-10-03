@@ -4,24 +4,27 @@
 # commit and the pinned toolchain (rust-toolchain.toml), and not of the directory
 # it was built in or the minute it was built.
 #
-#   scripts/build.sh [--profile release|release-thin] [--shipped] [cargo build arguments…]
+#   scripts/build.sh [--profile release|release-thin] [cargo build arguments…]
 #
 #   release       fat LTO and one codegen unit: a tagged release (the default).
 #   release-thin  thin LTO and 16 codegen units: the install profile, for a chain's
 #                 install, built far faster (Cargo.toml says why it is not `install`,
 #                 and scripts/AGENTS.md has the measurements).
 #
-# What it builds: the whole workspace, as the gate and the tests do, so that what is shipped
-# is what was tested. Cargo unifies a dependency's features across the packages it builds,
-# and the whole workspace gives 29 of the shipped binaries' 334 shared crates more features
-# than the four binaries alone do (serde_json's `alloc` and `time`'s `serde-well-known`, for
-# two): a build of just the shipped binaries is a different build from the tested one.
+# What it builds: the five binaries an install ships, theseusd, theseus, theseus-tui,
+# theseus-sim, and theseus-index, and what they link (theseus-o8nk). The crates still
+# waiting for their roadmap rows (judge, exam, mcp, ontology, memory, aws-guard) are
+# not compiled. scripts/gate.sh's bench build uses the same five.
 #
-# `--shipped` builds only the four binaries an install ships (theseusd, theseus, theseus-tui,
-# theseus-sim): 335 of the workspace's 607 crates, since the rest (theseus-index's candle and
-# tantivy, the AWS clients) are linked into no shipped binary yet. A cold
-# build is shorter, and the binaries have the narrower features above: use it to look, not
-# to install. Any `-p`, `--package`, or `--workspace` of your own is passed through.
+# Cargo unifies a dependency's features over the packages it builds, so building some
+# packages can give a shared crate fewer features than the whole workspace, which the
+# gate tests, gives it. For these five it gives none fewer: no waiting crate adds a
+# feature to anything they link (checked 2026-10-03 with cargo's unit graph; the
+# one-line recheck is in scripts/AGENTS.md). A crate that does is caught by that
+# recheck, and the feature is named in the shipped crate that links it, as
+# theseus-discord names twilight-gateway's TLS roots.
+#
+# A `-p`, `--package`, `--workspace`, or `--all` of your own replaces the five.
 #
 # What it fixes, beyond the profile:
 #   - `--locked`: Cargo.lock is the dependency set, and a build never changes it.
@@ -39,11 +42,9 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 
 profile=release
-shipped=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) profile="${2:?--profile needs release or release-thin}"; shift 2 ;;
-    --shipped) shipped=1; shift ;;
     *) break ;;
   esac
 done
@@ -66,6 +67,8 @@ export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$flags"
 : "${SOURCE_DATE_EPOCH:=$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
 export SOURCE_DATE_EPOCH
 
-pkgs=()
-[ -z "$shipped" ] || pkgs=(-p theseusd -p theseus -p theseus-tui -p theseus-sim)
+pkgs=(-p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index)
+for arg in "$@"; do
+  case "$arg" in -p | -p?* | --package | --package=* | --workspace | --all) pkgs=() ;; esac
+done
 exec cargo build --locked --profile "$profile" "${pkgs[@]}" "$@"

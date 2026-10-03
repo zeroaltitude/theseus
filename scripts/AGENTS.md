@@ -62,15 +62,15 @@ queued behind each other's compiles, and three join gates lost about 25 minutes.
   way: it wants the whole machine, and runs rarely. Its phases are the list above, unchanged.
 - **inner** (`THESEUS_GATE_LOCK=inner`): the gate takes the lock itself, only around the phases that need the machine.
   A lane's gate runs this way. The order is:
-  1. *Without the lock*, every compile: `fmt`, `shape`, `clippy`, then `bench build` (`cargo build -p theseusd -p
-     theseus-sim -p theseus-index`, the binaries the benches run: the gate's `bench_build` function lists them) and
-     `test build` (`cargo nextest run --workspace --no-run`, which builds what the suite runs).
+  1. *Without the lock*, every compile: `fmt`, `shape`, `clippy`, then `bench build` (`cargo build` of the five binaries
+     an install ships, `scripts/build.sh`'s list, among them those the benches run: the gate's `bench_build` function
+     lists them) and `test build` (`cargo nextest run --workspace --no-run`, which builds what the suite runs).
   2. *With the lock*, the locked part: the reader rule, the suite, the protocol-types check, the lifecycle bench (skipped
      under `THESEUS_GATE_NO_BENCH`), and the turn bench. Nothing compiles here: step 1 built everything it runs (a
      `gate: NOTE` says so when something does, which means the tree changed after step 1). Cargo links the binaries of
      the build it ran last, and the suite's cargo links the test build's `theseusd` and `theseus-sim`, so in inner
      mode the benches run those (the workspace's features, which an install has too); outer mode's run the `-p`
-     build's.
+     build's, with exactly an install's features (theseus-o8nk).
   3. *Without it again*: `deny`, `web`, `cockpit`, and the `web dist` check.
 
   **Never wrap an inner-mode gate in `flock`, or in `theseus-quiet.sh`.** The wrapper would hold the lock that the gate
@@ -216,16 +216,33 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   change `channel`, run the gate, fix what the new clippy finds in the same commit, run `repro.sh`, and commit it alone as
   `toolchain: bump to <version>`. A machine without the pinned release downloads it on its first `cargo` call (rustup's
   auto-install): run `rustup toolchain install` in the tree once, before the gate. CI does.
-- **`build.sh [--profile release|release-thin] [--shipped] [cargo args]`** is the one way to build for an install or a
+- **`build.sh [--profile release|release-thin] [cargo args]`** is the one way to build for an install or a
   release. It builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the
-  target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the whole workspace**,
-  as the gate and the tests do, because cargo unifies a dependency's features over the packages it builds: the four
-  binaries built alone get fewer features on 29 of their 334 shared crates, so a binary built from its own packages is
-  not the one that was tested. `--shipped` builds only `theseusd`, `theseus`, `theseus-tui`, and `theseus-sim` (335 of the
-  workspace's 607 crates; the rest, candle, tantivy, and the AWS clients, link into no shipped binary
-  yet): a cold build about 40 % shorter, for looking, not installing. rust-embed's `deterministic-timestamps` (theseusd's
-  manifest) gives the embedded web files no modification time. A plain `cargo build --release` still works, and embeds
-  the directory it was built in.
+  target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the five binaries an
+  install ships**, `theseusd`, `theseus`, `theseus-tui`, `theseus-sim`, and `theseus-index`, and what they link, and not
+  the crates still waiting for their rows (theseus-o8nk; the gate's bench build uses the same five). A `-p`, `--package`,
+  `--workspace`, or `--all` of your own replaces the five. Measured on 2026-10-03 (cold, no compile cache, `-j 4`,
+  `release-thin`): 1,139 CPU-seconds, about 4 min 50 s, against 1,395 and 5 min 55 s for the whole workspace with the
+  voice crate, the install's build until then (18 % less; the voice crate's exit alone was 10 %). Built alone or with the
+  whole workspace, from one tree, the five binaries are the same bytes.
+  - **Features.** Cargo unifies a dependency's features over the packages it builds, so building some of the workspace
+    can give a crate they share fewer features than the whole workspace, which the gate tests, gives it. For the five it
+    gives none fewer: on 2026-10-03 cargo's unit graph (`RUSTC_BOOTSTRAP=1 cargo build --unit-graph -Z unstable-options`,
+    which prints and builds nothing) held the same units, features included, for everything the five link, whether the
+    five were built alone or the workspace whole. Recheck it after a change that gives a crate outside the five a new
+    dependency or feature: this prints each package the five link whose features the whole workspace widens, and
+    nothing when there is none.
+
+    ```bash
+    t() { cargo tree -e normal,build --prefix none -f '{p} {f}' "$@" | sed 's/ (\*)$//' | sort -u; }
+    five="-p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index"
+    comm -13 <(t $five) <(t --workspace) | awk '{print $1, $2}' | grep -Fx -f <(t $five | awk '{print $1, $2}')
+    ```
+
+    Name a feature it finds in the shipped crate that links the dependency, as theseus-discord's manifest names
+    twilight-gateway's `rustls-native-roots`, which only the voice crate had turned on until it left the workspace.
+  - rust-embed's `deterministic-timestamps` (theseusd's manifest) gives the embedded web files no modification time. A
+    plain `cargo build --release` still works, and embeds the directory it was built in.
 - **The profiles.** `release` is fat LTO with one codegen unit: a tagged release. `release-thin` (cargo reserves the name
   `install`) is thin LTO with 16 codegen units: the install profile, for the chain's installs and for anyone building for
   themselves. Its output is `target/release-thin/`. Measured on 2026-10-02 (commit 364b82e, the four binaries, uncached,
@@ -269,10 +286,10 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
     `kernel-sim` user and system time), and a musl run in the gate or a nightly job, so that what ships is tested.
 - **`repro.sh [--rev REV] [--profile P] [--keep] [--bench]`** extracts the commit twice with `git archive`, into two
   directories whose names differ in length, builds each with `build.sh` into a fresh target and with no compile cache (a
-  cached object would copy, and prove nothing), and `cmp`s `theseusd`, `theseus`, `theseus-tui`, and `theseus-sim`. Two
-  full builds of the workspace from scratch: 23 minutes for `release-thin` beside other work (9 min 53 s and 13 min 11 s, 1,850
-  CPU-seconds a build), a little more for `release` (`THESEUS_REPRO_BUILD_ARGS=--shipped` is about 40 % shorter), so run it
-  niced and detached. It exits 1 when a binary differs, and keeps the trees. With `--bench`, a reproducible
+  cached object would copy, and prove nothing), and `cmp`s the five shipped binaries. Two full builds of the five from
+  scratch: about 1,140 CPU-seconds a build for `release-thin` (2026-10-03; about 5 minutes each at `-j 4`), a little more
+  for `release` (`THESEUS_REPRO_BUILD_ARGS=--workspace` builds the whole workspace instead), so run it niced and
+  detached. It exits 1 when a binary differs, and keeps the trees. With `--bench`, a reproducible
   result is followed by `bench size`, `turn`, and `idle` on the first build's binaries, recorded in the bench history
   under the profile and the commit: the numbers that mean something only on an optimized build, which the gate never
   makes. Run it after a toolchain bump, a dependency change that adds a build script, and before a release; a nightly

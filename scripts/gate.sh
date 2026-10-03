@@ -384,9 +384,11 @@ web_dist() {
 }
 
 # The binaries the benches run, one list for both modes: built after the suite in outer mode (`build`),
-# and before the lock in inner mode (`bench build`). A new tool the benches start is added here.
+# and before the lock in inner mode (`bench build`). It is the five an install ships, scripts/build.sh's
+# list (theseus-o8nk), so the benches run binaries with an install's features; a tool the benches start
+# that an install does not ship is added here too.
 bench_build() {
-  cargo build -q -p theseusd -p theseus-sim -p theseus-index
+  cargo build -q -p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index
 }
 
 # Nothing compiles under the lock: the compile phases built what the locked part runs. When

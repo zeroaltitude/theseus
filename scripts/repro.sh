@@ -10,11 +10,11 @@
 # directory of its own (their names differ in length, so that a build that embeds
 # its own path shows), then builds it with scripts/build.sh into a fresh target
 # directory, with no compile cache: a cached object would make two builds the same
-# by copying, and prove nothing. So this is two full builds of the whole workspace,
-# from scratch: 23 minutes for release-thin beside other work, a little more for release, and
-# `THESEUS_REPRO_BUILD_ARGS=--shipped` builds only the four shipped binaries, in about 40 %
-# less (they are the same binaries but for a few dependency features: scripts/build.sh
-# says which). Run it niced, and detached. It prints each binary's sha256, then
+# by copying, and prove nothing. So this is two full builds, from scratch, of what
+# scripts/build.sh builds, the five shipped binaries: about 1,140 CPU-seconds each for
+# release-thin (2026-10-03), a little more for release
+# (`THESEUS_REPRO_BUILD_ARGS=--workspace` builds the whole workspace instead). Run it
+# niced, and detached. It prints each binary's sha256, then
 # `cmp`s the two, and exits 1 when any differs, with how many bytes. With `--bench`, a
 # reproducible result is followed by `theseus-sim bench size`, `turn`, and `idle` on the
 # first build's binaries, recorded in the bench history (`$THESEUS_BENCH_HISTORY`, labelled
@@ -23,9 +23,9 @@
 #
 #   THESEUS_REPRO_DIR   where the two trees and targets go (default: a temporary
 #                       directory, removed at the end unless --keep). Needs 10 GB.
-#   THESEUS_REPRO_BINS  the binaries to compare (default: theseusd theseus
-#                       theseus-tui theseus-sim)
-#   THESEUS_REPRO_BUILD_ARGS  more arguments for scripts/build.sh (such as --shipped)
+#   THESEUS_REPRO_BINS  the binaries to compare (default: the five shipped, theseusd
+#                       theseus theseus-tui theseus-sim theseus-index)
+#   THESEUS_REPRO_BUILD_ARGS  more arguments for scripts/build.sh (such as --workspace)
 #
 # A nightly job is not installed: scripts/AGENTS.md, "Reproducible builds", says
 # how to schedule one.
@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 commit="$(git rev-parse --verify "$rev^{commit}")"
-bins="${THESEUS_REPRO_BINS:-theseusd theseus theseus-tui theseus-sim}"
+bins="${THESEUS_REPRO_BINS:-theseusd theseus theseus-tui theseus-sim theseus-index}"
 
 if [ -n "${RUSTC_WRAPPER:-}" ] || [ -n "${CARGO_BUILD_RUSTC_WRAPPER:-}" ]; then
   echo "repro: a compile cache is set (RUSTC_WRAPPER): unset for these builds, which must not copy objects"
