@@ -519,7 +519,10 @@ impl Core {
     pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<Traced> {
         let traced = match act {
             Act::Tighten { .. } => Traced::NoProcess,
-            Act::Answer { .. } | Act::Untighten { .. } | Act::Trust { .. } => who.peer.trace(),
+            Act::Answer { .. }
+            | Act::Untighten { .. }
+            | Act::Trust { .. }
+            | Act::Publish { .. } => who.peer.trace(),
         };
         let verdict = match (act, traced.refusal()) {
             (_, Some(why)) => Err(Refusal {
@@ -543,7 +546,13 @@ impl Core {
     /// from a Theseus job's process (theseus-6qy) is narrated as the security
     /// event it is, and announced as `approval.refused` to every connection,
     /// so the Discord binding tells the operator where approvals go.
-    fn refused(&self, act: Act<'_>, who: &Answerer, r: &Refusal, traced: &Traced) -> Result<()> {
+    pub(super) fn refused(
+        &self,
+        act: Act<'_>,
+        who: &Answerer,
+        r: &Refusal,
+        traced: &Traced,
+    ) -> Result<()> {
         let fact = fact::answer::ActRefused {
             act,
             refusal: r,
@@ -587,7 +596,7 @@ impl Core {
                 Some(approve),
             ),
             Act::Tighten { tool } | Act::Untighten { tool } => (None, Some(tool.into()), None),
-            Act::Trust { .. } => (None, None, None),
+            Act::Trust { .. } | Act::Publish { .. } => (None, None, None),
         };
         let refusal = ApprovalRefused {
             act: act.method().into(),
@@ -761,6 +770,9 @@ pub(crate) enum Act<'a> {
     /// Trusting a session again (theseus-9bp): it no longer holds external
     /// text, so its calls that act return to their postures.
     Trust { session: &'a str },
+    /// The owner's publish into a place (the place rule): it puts the owner's
+    /// material where others read it.
+    Publish { place: &'a str },
 }
 
 impl Act<'_> {
@@ -771,6 +783,7 @@ impl Act<'_> {
             Act::Tighten { .. } => theseus_protocol::method::POLICY_TIGHTEN,
             Act::Untighten { .. } => theseus_protocol::method::POLICY_UNTIGHTEN,
             Act::Trust { .. } => theseus_protocol::method::POLICY_TRUST,
+            Act::Publish { .. } => theseus_protocol::method::PLACE_PUBLISH,
         }
     }
 }

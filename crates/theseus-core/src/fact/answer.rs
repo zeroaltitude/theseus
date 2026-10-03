@@ -178,6 +178,7 @@ impl ActRefused<'_> {
             Act::Answer { action: a, .. } => Some(a.session_id.as_str()),
             Act::Tighten { .. } | Act::Untighten { .. } => None,
             Act::Trust { session } => Some(session),
+            Act::Publish { .. } => None,
         }
     }
 
@@ -202,6 +203,10 @@ impl Fact for ActRefused<'_> {
             }
             Act::Trust { session } => {
                 json!({"act": act.method(), "session_id": session, "who": r.who, "via": r.via,
+                       "why": r.why, "by": self.by})
+            }
+            Act::Publish { place } => {
+                json!({"act": act.method(), "place": place, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
         };
@@ -241,6 +246,11 @@ impl Fact for ActRefused<'_> {
                      calls that act keep waiting.",
                     r.who, r.via, r.why
                 ),
+                Act::Publish { place } => format!(
+                    "Publishing into {place}, from {} through {}, did not count: {}. Nothing \
+                     was published.",
+                    r.who, r.via, r.why
+                ),
             },
         );
     }
@@ -270,12 +280,14 @@ impl Fact for JobActRefused<'_> {
             Act::Trust { session } => {
                 format!("trusting session {} again", narrative::short(session))
             }
+            Act::Publish { place } => format!("publishing into {place}"),
         };
         let then = match self.act {
             Act::Answer { .. } => "It keeps waiting for the operator's answer.",
             Act::Untighten { .. } => "It keeps asking first.",
             Act::Tighten { .. } => "Nothing changed.",
             Act::Trust { .. } => "It still holds external text, and its calls that act wait.",
+            Act::Publish { .. } => "Nothing was published.",
         };
         say.line(
             Approval,

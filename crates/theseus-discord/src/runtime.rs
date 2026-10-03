@@ -51,6 +51,8 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod audience;
+mod publish;
+use publish::PublishAsk;
 
 /// The connection label every Discord call carries; authors refine it per message.
 const CLIENT: &str = "discord";
@@ -541,6 +543,27 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
         )
         .build(),
     );
+    // `/publish` (the place rule): only the owner, from a private place; the
+    // core judges it. The channel first, as Discord wants required options.
+    let text = |name: &str, what: &str| {
+        twilight_util::builder::command::StringBuilder::new(name, what).required(false)
+    };
+    cmds.push(
+        CommandBuilder::new(
+            "publish",
+            "Publish a node, a file, or a message into a place (only you, from a private place)",
+            CommandType::ChatInput,
+        )
+        .option(
+            twilight_util::builder::command::ChannelBuilder::new("to", "The place to publish into")
+                .required(true),
+        )
+        .option(text("node", "A node's id, as the web UI shows it"))
+        .option(text("file", "A file's path, absolute or ~/"))
+        .option(text("text", "A message"))
+        .option(text("note", "Your words above it"))
+        .build(),
+    );
     cmds
 }
 
@@ -692,6 +715,8 @@ enum Control {
     /// the presser, whose ids the handler fills in: None names no one, and
     /// counts only without an `[approval]` section.
     Trust(Option<DiscordOrigin>),
+    /// Publish into a place (the place rule), as the presser.
+    Publish(Box<PublishAsk>),
 }
 
 /// What a place says when it is bound to a fresh session: how to talk, and
@@ -1359,6 +1384,7 @@ impl Shared {
                     "wakes" => Control::Wakes,
                     // As the presser (T1b), as a card's press is.
                     "trust" => Control::Trust(discord),
+                    "publish" => Control::Publish(Box::new(PublishAsk::of(&c.options, discord))),
                     _ => Control::Status,
                 };
                 self.respond(
@@ -2220,6 +2246,7 @@ impl Place {
                 self.cancel_task(name, by, &no_wake).await
             }
             Control::Trust(origin) => self.trust(origin, by).await,
+            Control::Publish(ask) => self.publish(*ask, by).await,
         }
     }
 
@@ -2383,7 +2410,7 @@ mod tests {
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             names,
-            ["stop", "new", "status", "tasks", "wakes", "trust", "cancel"]
+            ["stop", "new", "status", "tasks", "wakes", "trust", "cancel", "publish"]
         );
         // One required option names a task or a wake (DD8; DD7 called it `task`).
         let cancel = cmds.iter().find(|c| c.name == "cancel").unwrap();
@@ -2681,7 +2708,7 @@ mod tests {
     }
 
     /// `core_with_secrets`, with `tweak` applied to the config first.
-    fn core_with(
+    pub(super) fn core_with(
         dir: &std::path::Path,
         secrets: Arc<theseus_core::secrets::SecretBoard>,
         tweak: impl FnOnce(&mut theseus_core::Config),
@@ -2750,7 +2777,10 @@ mod tests {
 
     /// A DM place on `core`'s session `sid`, driven directly: the gateway is
     /// not faked, so a test calls its handlers. Its mailbox comes back with it.
-    fn place_for_tests(core: &Arc<Core>, sid: &str) -> (Place, mpsc::UnboundedReceiver<PlaceMsg>) {
+    pub(super) fn place_for_tests(
+        core: &Arc<Core>,
+        sid: &str,
+    ) -> (Place, mpsc::UnboundedReceiver<PlaceMsg>) {
         let shared = shared_for_tests(core);
         let (tx, rx) = mpsc::unbounded_channel();
         let (lane, _) = mpsc::unbounded_channel();
@@ -3084,7 +3114,7 @@ mod tests {
     }
 
     /// Eddie's user id, and a user of a place whom `[approval]` does not list.
-    const EDDIE: u64 = 271_828_182_845_904_523;
+    pub(super) const EDDIE: u64 = 271_828_182_845_904_523;
     const MALLORY: u64 = 222_222_222_222_222_222;
 
     /// Give `sid` a hold on web text, as a fetch leaves one (theseus-9bp);

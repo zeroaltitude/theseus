@@ -111,6 +111,9 @@ pub mod method {
         /// text, so its calls that act go back to their postures. It loosens, so
         /// it takes the same trusted answer as an approval.
         POLICY_TRUST = "policy.trust",
+        /// Publish an item into a place's conversation (the place rule,
+        /// theseus-nbsh): the owner's act, from a private place.
+        PLACE_PUBLISH = "place.publish",
         /// Tasks (DD7): the child sessions conversations started, with state and
         /// spend.
         TASK_LIST = "task.list",

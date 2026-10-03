@@ -230,6 +230,7 @@ facts![
     turn::LoopOpened,
     turn::ContextCompiled<'static>,
     place::PlaceViewed<'static>,
+    place::Published<'static>,
     turn::LoopStarted<'static>,
     turn::LoopCut<'static>,
     turn::LoopEnded<'static>,

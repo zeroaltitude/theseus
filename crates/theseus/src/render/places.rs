@@ -89,7 +89,8 @@ pub fn places_lines(h: &PlacesHealth) -> Vec<String> {
     lines.push("private: everything, as the CLI has it.".into());
     lines.push(format!(
         "shared: its own conversation, {}; no proc.run and no AWS; only the context files marked \
-         readers = \"public\".",
+         readers = \"public\". Publish something there yourself: `theseus publish NODE|FILE \
+         --to PLACE`.",
         shared_gets(h)
     ));
     lines

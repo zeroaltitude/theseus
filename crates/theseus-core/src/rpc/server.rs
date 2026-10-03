@@ -281,6 +281,7 @@ impl Core {
             method::POLICY_TIGHTEN => route(params, |p| self.policy_tighten(p, conn)),
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
             method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
+            method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
             method::CONFIRM_LIST => reply(theseus_protocol::ConfirmListResult {
                 confirms: self.confirm_list()?,
             }),
@@ -389,7 +390,7 @@ async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool 
 /// vault confirms the config a start served from, each waits at the gate,
 /// bounded like the secrets, then fails with `config_unconfirmed`. Every
 /// other method only reads, and answers at once; `shutdown` works too.
-pub const ACTS: [&str; 12] = [
+pub const ACTS: [&str; 13] = [
     method::TURN_SUBMIT,
     method::SESSION_OPEN,
     method::PROFILE_USE,
@@ -398,6 +399,7 @@ pub const ACTS: [&str; 12] = [
     method::POLICY_TIGHTEN,
     method::POLICY_UNTIGHTEN,
     method::POLICY_TRUST,
+    method::PLACE_PUBLISH,
     method::EXECUTION_CANCEL,
     method::EXECUTION_STOP,
     method::TASK_CANCEL,

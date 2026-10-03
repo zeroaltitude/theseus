@@ -587,8 +587,9 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # with private = true. It gets everything. Shared: every other guild channel. It gets its own
 # conversation, the tools whose results are public by nature (web_search, http_fetch,
 # wake_at, task_create), the file tools only under public_paths, no proc_run and no AWS, and
-# only the context files marked readers = "public". A task takes its parent's class.
-# The section's name before the place rule, labels, still reads.
+# only the context files marked readers = "public". A task takes its parent's class. To put
+# something of yours in a shared place, publish it there yourself: `theseus publish`, or
+# /publish in a private place. The section's name before the place rule, labels, still reads.
 # [places]
 # owner = ["discord:271828182845904523"]   # who you are on Discord, beside the CLI and the web UI (default: [approval] trusted_users)
 # public_paths = ["~/projects/some-public-repo"]   # trees a shared place's file tools reach (default none: no file tools there)

@@ -51,7 +51,7 @@ const READ_ID: &str = "toolu_proof_read";
 /// M4 19c's live check: `PROOF-GROW` reads `notes.txt` as `PROOF-READ` does,
 /// and while it answers, opens every channel of the rig's `guild.json` to the
 /// whole guild, so the channel gains a viewer mid-turn; `PROOF-SAY` answers
-/// with the start of a graduated node its request carries.
+/// with the start of a published item its request carries (the place rule).
 const GROW_WORD: &str = "PROOF-GROW";
 const SAY_WORD: &str = "PROOF-SAY";
 const READY_TEXT: &str = "ready";
@@ -242,19 +242,19 @@ fn open_the_guild(write: &Value) {
     let _ = std::fs::write(&path, g.to_string());
 }
 
-/// What `PROOF-SAY` answers: the start of the graduated node its request
-/// carries, or that it carries none (M4 19c).
+/// What `PROOF-SAY` answers: the start of the published item its request
+/// carries, or that it carries none (the place rule's publish).
 fn said(req: &Value) -> String {
-    let graduated = req["messages"]
+    let published = req["messages"]
         .as_array()
         .into_iter()
         .flatten()
         .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
         .filter_map(|b| b["text"].as_str().map(str::to_string))
-        .find(|t| t.starts_with("[Graduated by the operator"));
-    match graduated {
+        .find(|t| t.starts_with("[Published here by the owner"));
+    match published {
         Some(t) => format!("Said: {}", t.chars().take(220).collect::<String>()),
-        None => "Said: no graduated node is in my context".into(),
+        None => "Said: nothing published is in my context".into(),
     }
 }
 

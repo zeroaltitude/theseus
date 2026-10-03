@@ -27,6 +27,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   memory: an unnamed guild place is shared), and reads each private channel's viewers once (`private_place_viewed`,
   `place.viewed`), for health's `places:` line. M6's recall and the books, when built, draw in a shared place only on
   that place's own sessions. Tests: `tests_places.rs`, `places::tests`.
+  - **Publish** (`rpc/publish.rs`; graduation's light form): `place.publish` puts one item (a node, a file the owner
+    can read, or a message) into a bound place's session as the owner's message, with a `derived_from` edge for a
+    node (`publish`), its `place.published` row, and a notice post in the place, in one frame under the place's
+    execution lock, never while a turn holds it. Only the owner, from a private place: `judge_act(Act::Publish)`
+    (a job's process never may), then `places::may_publish`. `theseus publish`, Discord's `/publish`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs`, the continuation in `toolrun/resume.rs`, and the results no call's own run
   writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are `policy.rs`
@@ -145,8 +150,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking.
 - **A shared place never receives the owner's material** (the place rule). Its model is offered only the public
   tools, the gate refuses anything else, and its system block carries only public context files. A task takes its
-  parent's class. Nothing flows from a private place to a shared one but what a person says there. A class is fixed
-  for the turn, as the spec is, so a change applies at the next turn's first loop.
+  parent's class. Nothing flows from a private place to a shared one but what a person says there, and the owner's
+  publish. A class is fixed for the turn, as the spec is, so a change applies at the next turn's first loop.
 - **Nothing retractable goes in the shared header** (Appendix F), so sessions on a profile share one cache entry.
 - **The config template is the contract.** Change a default there, not only in code. The loader rejects unknown
   keys, and `example_template_uncommented_still_parses` un-comments every line and parses it.

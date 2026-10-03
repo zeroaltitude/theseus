@@ -47,3 +47,40 @@ impl Fact for PlaceViewed<'_> {
         say.line(Session, line);
     }
 }
+
+/// The owner published an item into a place (`place.published`): who, what
+/// (its source, its digest, its size), and where, in the frame that writes it.
+pub struct Published<'a> {
+    pub who: &'a str,
+    pub via: &'a str,
+    /// `{"node_id": …}`, `{"path": …}`, or `{"text": true}`.
+    pub source: &'a Value,
+    pub what: &'a str,
+    pub digest: &'a str,
+    pub bytes: u64,
+    /// `discord:channel:<id>`, and its name.
+    pub place: &'a str,
+    pub name: &'a str,
+    /// The node written in the place's session.
+    pub node_id: &'a str,
+}
+
+impl Fact for Published<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::PlacePublished);
+
+    fn row(&self) -> Value {
+        json!({"who": self.who, "via": self.via, "source": self.source, "what": self.what,
+               "digest": self.digest, "bytes": self.bytes, "place": self.place, "name": self.name,
+               "node_id": self.node_id})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Places: {} published {} into {} ({} bytes, {}).",
+                self.who, self.what, self.name, self.bytes, self.digest
+            ),
+        );
+    }
+}

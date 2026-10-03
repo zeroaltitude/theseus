@@ -18,7 +18,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   as it starts (`Core::bind_places`), before it reads a message, and reads each private channel's viewers once, after
   the gateway connects (`check_private`), so health warns when anyone besides the owner can view it. It reads no
   viewers before a turn or a post, and loops stream everywhere. One walk of a channel's viewers (`runtime/audience.rs`,
-  `view`) serves that read and the approval check (theseus-sgh).
+  `view`) serves that read and the approval check (theseus-sgh). `/publish` (`runtime/publish.rs`) goes to the core's
+  `place.publish` as the presser, which the core judges: only the owner, from a private place.
 
 ## Invariants
 

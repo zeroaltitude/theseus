@@ -24,7 +24,7 @@ type D = Record<string, any>
 
 const KINDS = new Set([
   'session.external_read', 'session.trusted', 'policy.tightened', 'policy.untightened', 'secret.granted', 'secret.withheld',
-  'place.viewed', 'action.cancel_verified', 'action.cancel_uncertain', 'action.cancel_unsupported',
+  'place.viewed', 'place.published', 'action.cancel_verified', 'action.cancel_uncertain', 'action.cancel_unsupported',
   'tool.job_started', 'sandbox.started', 'action.succeeded', 'action.failed', 'action.cancelled',
   // 18c's egress.
   'sandbox.egress', 'sandbox.egress_refused',
@@ -64,7 +64,7 @@ export default function Boundaries() {
   // A cgroup can't be read back: in the past, the L1 jobs running then are counted from the fold, not gauged.
   const live = useMemo(() => (world ? [] : liveJobs(usage)), [world, usage])
   const l1Then = useMemo(() => (world ? [...world.jobsRunning].filter((id) => world.l1.has(id)).length : 0), [world])
-  const placeRows = mine.filter((r) => r.kind === 'place.viewed')
+  const placeRows = mine.filter((r) => r.kind === 'place.viewed' || r.kind === 'place.published')
   const shared = (h?.places?.places ?? []).filter((p) => p.class === 'shared').length
   const secretsWithheld = mine.filter((r) => r.kind === 'secret.withheld').length
   const egress = mine.filter((r) => r.kind === 'sandbox.egress' || r.kind === 'sandbox.egress_refused')
@@ -441,7 +441,9 @@ function Places({ health, log }: { health?: Health; log: LedgerEntry[] }) {
       </div>
       {log.slice(-5).reverse().map((r) => {
         const d = (r.data ?? {}) as D
-        const what = Array.isArray(d.others)
+        const what = r.kind === 'place.published'
+          ? `${d.who ?? 'the owner'} published ${d.what ?? 'something'} into ${d.name ?? d.place} (${d.bytes ?? '?'} bytes)`
+          : Array.isArray(d.others)
           ? (d.others.length ? `${d.name} is bound private, but ${d.others.join(', ')} can view it` : `only the owner can view ${d.name}`)
           : `who can view ${d.name} is unchecked: ${d.unread ?? ''}`
         return (

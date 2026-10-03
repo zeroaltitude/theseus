@@ -126,6 +126,23 @@ enum Cmd {
     /// UI, a DM with you, a guild channel bound `private = true`) gets everything; shared (any
     /// other guild channel) gets its own conversation and the public tools alone.
     Places,
+    /// Publish into a place (the place rule): one item into a place's conversation, as your
+    /// message there, and said in the place: a node by id, a file you can read, or a message
+    /// (`--text`). Only you, from a private place (the CLI is one), may. PLACE is as
+    /// `theseus places` names it (`#openclaw`).
+    Publish {
+        /// A node's id, or a file's path (it starts with `/`, `~`, or `.`, or names a file).
+        #[arg(value_name = "NODE|FILE", required_unless_present = "text")]
+        what: Option<String>,
+        #[arg(long, value_name = "PLACE")]
+        to: String,
+        /// Publish this message instead.
+        #[arg(long, value_name = "TEXT", conflicts_with = "what")]
+        text: Option<String>,
+        /// Your words above it.
+        #[arg(long, value_name = "NOTE")]
+        note: Option<String>,
+    },
     /// Follow a session live: streamed text, tool calls, confirmations, context decisions,
     /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent.
     Watch {
@@ -455,6 +472,12 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::History { session, n, full } => cmd::history(c, json, session, n, full).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Places => cmd::places(c, json).await,
+        Cmd::Publish {
+            what,
+            to,
+            text,
+            note,
+        } => cmd::publish(c, json, what, to, text, note).await,
         Cmd::Watch { all: true, .. } => cmd::watch_all(c, json).await,
         Cmd::Watch {
             session,

@@ -17,6 +17,7 @@ mod driver;
 mod info;
 mod methods;
 mod policy;
+mod publish;
 mod server;
 #[cfg(test)]
 mod tests;

@@ -5,7 +5,9 @@ import { useSearchParams } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Bot, Brain, ChevronRight, CircleCheck, OctagonX, ScanSearch, ShieldCheck, User, Wrench } from 'lucide-react'
-import type { NodeInfo } from '@protocol'
+import type { Health, NodeInfo, PublishResult } from '@protocol'
+import { call, useRpc } from '@/lib/rpc'
+import { useWorld } from '@/lib/world'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
 import { JsonView } from './JsonView'
@@ -92,6 +94,32 @@ function UserItem({ n }: { n: NodeInfo }) {
   )
 }
 
+/** Publish (the place rule): put this item into a place's conversation, as your message there, where everyone who
+ *  can read the place will. Confirmed first; the core judges it (only the owner, from a private place). Off while the
+ *  time machine shows the past. */
+function PublishControl({ nodeId }: { nodeId: string }) {
+  const world = useWorld()
+  const { data: h } = useRpc<Health>('health', undefined, 10000)
+  const [said, setSaid] = useState<string | null>(null)
+  const places = (h?.places?.places ?? []).filter((p) => p.place.startsWith('discord:'))
+  if (world || !places.length) return null
+  if (said) return <span className="text-[11px] text-ink-faint">{said}</span>
+  return (
+    <select value="" title="publish this into a place: it becomes your message there"
+      className="rounded bg-deck px-1 text-[11px] text-ink-faint ring-1 ring-line"
+      onChange={async (e) => {
+        const to = e.target.value
+        const name = places.find((p) => p.place === to)?.name ?? to
+        if (!to || !window.confirm(`Publish this into ${name}? Everyone who can read ${name} will.`)) return
+        try { setSaid(`📎 published into ${(await call<PublishResult>('place.publish', { node_id: nodeId, to })).name}`) }
+        catch (err: any) { setSaid(err?.message ?? String(err)) }
+      }}>
+      <option value="">📎 publish…</option>
+      {places.map((p) => <option key={p.place} value={p.place}>{p.name} ({p.class})</option>)}
+    </select>
+  )
+}
+
 function AssistantItem({ n }: { n: NodeInfo }) {
   const d = (n.detail ?? {}) as D
   const [think, setThink] = useState(false)
@@ -121,6 +149,7 @@ function AssistantItem({ n }: { n: NodeInfo }) {
           {u && <span className="num">{tokens((u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0))} in · {tokens(u.output_tokens)} out · {tokens(u.cache_read_input_tokens)} cached</span>}
           {d.stop_reason && <span className="num">{d.stop_reason}</span>}
           {Array.isArray(d.tool_calls) && d.tool_calls.length > 0 && <span className="num text-tool">→ {d.tool_calls.map((t: D) => t.name).join(', ')}</span>}
+          {n.text && <PublishControl nodeId={n.node_id} />}
         </div>
       </div>
     </div>
@@ -175,6 +204,7 @@ function ToolItem({ call, result }: { call: NodeInfo; result?: NodeInfo }) {
               <div>
                 <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
                   result {r.truncated && <Pill tone="wait">truncated</Pill>} {r.late && <Pill tone="wait">late</Pill>} {r.external && <Pill tone="wait">external text</Pill>}
+                  <span className="ml-auto normal-case tracking-normal"><PublishControl nodeId={result.node_id} /></span>
                 </div>
                 <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2.5 font-mono text-[11.5px] text-ink-dim ring-1 ring-line">{result.text}</pre>
                 {r.meta && Object.keys(r.meta).length > 0 && <div className="mt-1"><JsonView value={r.meta} maxHeight="160px" /></div>}

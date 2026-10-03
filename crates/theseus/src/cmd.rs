@@ -976,6 +976,55 @@ pub async fn reach(
     })
 }
 
+/// `theseus publish NODE|FILE --to PLACE` (the place rule): `place.publish`.
+/// A FILE is an argument that starts with `/`, `~`, or `.`, or names a file
+/// here; anything else is a node's id. `--text` publishes a message.
+pub async fn publish(
+    conn: &mut Conn,
+    json: bool,
+    what: Option<String>,
+    to: String,
+    text: Option<String>,
+    note: Option<String>,
+) -> Result<()> {
+    let (node_id, path) = match what {
+        None => (None, None),
+        Some(w) if w.starts_with('/') || w.starts_with('~') => (None, Some(w)),
+        Some(w) if w.starts_with('.') || std::path::Path::new(&w).is_file() => {
+            let abs = std::env::current_dir()?.join(&w);
+            (None, Some(abs.display().to_string()))
+        }
+        Some(w) => (Some(w), None),
+    };
+    let v = conn
+        .request(
+            method::PLACE_PUBLISH,
+            theseus_protocol::PlacePublishParams {
+                node_id,
+                path,
+                text,
+                to,
+                note,
+                author: None,
+                discord: None,
+            },
+        )
+        .await?;
+    output(json, v, |r: theseus_protocol::PublishResult| {
+        println!(
+            "Published {} into {} ({}): node {} in session {}, {} bytes, digest {}.",
+            r.what,
+            r.name,
+            r.class.as_str(),
+            r.node_id,
+            r.session_id,
+            r.bytes,
+            r.digest
+        );
+        Ok(())
+    })
+}
+
 /// `theseus places` (the place rule, theseus-nbsh): health's places, a
 /// line each.
 pub async fn places(conn: &mut Conn, json: bool) -> Result<()> {

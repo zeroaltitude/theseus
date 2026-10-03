@@ -184,6 +184,7 @@ fn script(req: &ProviderRequest) -> Scripted {
 struct Rig {
     core: Arc<Core>,
     model: Arc<Model>,
+    root: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -191,13 +192,19 @@ struct Rig {
 /// as context files (the README marked public); the driver runs, as the
 /// daemon's does, so tasks and wakes take their turns.
 fn rig() -> Rig {
+    rig_with(|_| {})
+}
+
+/// `rig`, its config changed by `tweak` first.
+fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("open")).unwrap();
     let root = root.canonicalize().unwrap();
     std::fs::write(root.join("notes.md"), format!("{SECRET}\n")).unwrap();
     std::fs::write(root.join("open/README.md"), format!("{OPEN}\n")).unwrap();
-    let cfg = config(&root, dir.path());
+    let mut cfg = config(&root, dir.path());
+    tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model {
         script: Box::new(script),
@@ -208,6 +215,7 @@ fn rig() -> Rig {
     Rig {
         core,
         model,
+        root,
         _dir: dir,
     }
 }
@@ -502,4 +510,167 @@ fn rows(core: &Core, kind: &str) -> Vec<Value> {
         .filter(|r| r.kind == kind)
         .map(|r| r.data)
         .collect()
+}
+
+/// Who publishes from Discord: `user`, in `channel` (a guild's) or their DM.
+fn from_discord(user: u64, channel: Option<u64>) -> crate::approval::Answerer {
+    crate::approval::Answerer {
+        label: format!("discord:{user}"),
+        surface: crate::approval::Surface::Discord,
+        discord: Some(theseus_protocol::DiscordOrigin {
+            user_id: user.to_string(),
+            channel_id: channel.unwrap_or(user + 1).to_string(),
+            guild_id: channel.map(|_| "712398310421561444".to_string()),
+        }),
+        peer: crate::peer::Peer::None,
+    }
+}
+
+/// The owner publishes into a shared channel from the CLI: a file, a node,
+/// and a message each land in the channel's session as the owner's message,
+/// with one `place.published` row each (who, what, its digest, where) and a
+/// notice in the place, and the channel's next turn reads them. A node's copy
+/// has its `derived_from` edge.
+#[tokio::test]
+async fn the_owner_publishes_into_a_shared_place() {
+    let r = rig();
+    r.core.bind_places(vec![BoundPlace {
+        target: format!("discord:channel:{LAB}"),
+        name: "#lab".into(),
+        private: false,
+    }]);
+    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
+    turn(&r.core, &shared, "hello").await;
+    let file = r.root.join("notes.md").to_string_lossy().into_owned();
+    let p = theseus_protocol::PlacePublishParams {
+        path: Some(file.clone()),
+        to: "#lab".into(),
+        note: Some("for the whole lab".into()),
+        ..Default::default()
+    };
+    let res = r.core.publish(&p, "cli").unwrap();
+    assert_eq!(
+        (res.name.as_str(), res.class, res.session_id.as_str()),
+        ("#lab", PlaceClass::Shared, shared.as_str())
+    );
+    let row = &rows(&r.core, "place.published")[0];
+    assert_eq!(row["source"]["path"], file.as_str(), "{row}");
+    assert_eq!(row["digest"], res.digest.as_str());
+    assert_eq!(row["place"], format!("discord:channel:{LAB}"));
+    let written: Vec<crate::node::Node> = r
+        .core
+        .store
+        .session_nodes(&shared)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| n)
+        .filter(|n| n.id == res.node_id)
+        .collect();
+    let crate::node::Body::UserMessage { text, .. } = &written[0].body else {
+        panic!("{written:?}")
+    };
+    assert!(
+        text.contains(SECRET) && text.contains("for the whole lab"),
+        "{text}"
+    );
+    let notices: Vec<Value> = r
+        .core
+        .outbox
+        .open_for(&format!("discord:channel:{LAB}"))
+        .iter()
+        .map(|a| crate::outbox::body_of(a).clone())
+        .filter(|b| b["kind"] == "notice")
+        .collect();
+    assert!(
+        notices[0]["text"].as_str().unwrap().contains(SECRET),
+        "{notices:?}"
+    );
+    // The channel's next turn reads it: the owner put it there.
+    let before = r.requests().len();
+    turn(&r.core, &shared, "what did the owner publish?").await;
+    let seen = serde_json::to_string(&r.requests()[before].messages).unwrap();
+    assert!(seen.contains(SECRET), "{seen}");
+    // A node, and a message.
+    let node = r.core.publish(
+        &theseus_protocol::PlacePublishParams {
+            node_id: Some(res.node_id.clone()),
+            to: format!("discord:channel:{LAB}"),
+            ..Default::default()
+        },
+        "cli",
+    );
+    assert!(node.is_ok(), "{node:?}");
+    let text = r.core.publish(
+        &theseus_protocol::PlacePublishParams {
+            text: Some("the tide turns at six".into()),
+            to: LAB.to_string(),
+            ..Default::default()
+        },
+        "cli",
+    );
+    assert_eq!(text.unwrap().what, "a message");
+    assert_eq!(rows(&r.core, "place.published").len(), 3);
+    // The node's copy is where it went, by `node.reach`.
+    let reach = crate::reach::reach(&r.core.store, &res.node_id, None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(reach.descendants.len(), 1, "{reach:?}");
+}
+
+/// Only the owner, from a private place, publishes: through Discord, from a
+/// channel that is shared (though `[approval]` trusts it), or by someone
+/// approvals trust who is not the owner, it is refused and nothing is
+/// written; from the owner's DM it goes.
+#[tokio::test]
+async fn only_the_owner_from_a_private_place_publishes() {
+    let r = rig_with(|cfg| {
+        cfg.approval = Some(crate::config::ApprovalConfig {
+            trusted_users: vec![format!("discord:{OWNER}"), format!("discord:{ALICE}")],
+            channels: vec!["cli".into(), "discord:dm".into(), format!("discord:{LAB}")],
+        })
+    });
+    r.core.bind_places(vec![BoundPlace {
+        target: format!("discord:channel:{LAB}"),
+        name: "#lab".into(),
+        private: false,
+    }]);
+    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
+    turn(&r.core, &shared, "hello").await;
+    r.core.approval_checked(
+        LAB,
+        crate::approval::Checked {
+            trusted: true,
+            detail: "only the owner can view it".into(),
+            at_ms: theseus_protocol::now_unix_ms(),
+        },
+    );
+    let p = theseus_protocol::PlacePublishParams {
+        text: Some(SECRET.into()),
+        to: "#lab".into(),
+        ..Default::default()
+    };
+    let e = r
+        .core
+        .publish(&p, from_discord(OWNER, Some(LAB)))
+        .unwrap_err();
+    assert!(format!("{e:#}").contains("shared place"), "{e:#}");
+    assert!(
+        rows(&r.core, "place.published").is_empty(),
+        "nothing written"
+    );
+    let refused = rows(&r.core, "approval.refused");
+    assert_eq!(
+        refused.last().unwrap()["act"],
+        "place.publish",
+        "{refused:?}"
+    );
+    // Alice may answer approvals, but she is not the owner (`[places] owner`).
+    let e = r.core.publish(&p, from_discord(ALICE, None)).unwrap_err();
+    assert!(format!("{e:#}").contains("is not an owner"), "{e:#}");
+    assert!(
+        rows(&r.core, "place.published").is_empty(),
+        "nothing written"
+    );
+    let ok = r.core.publish(&p, from_discord(OWNER, None));
+    assert!(ok.is_ok(), "the owner's DM is private: {ok:?}");
 }

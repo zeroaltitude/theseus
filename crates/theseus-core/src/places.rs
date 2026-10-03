@@ -152,6 +152,25 @@ impl PlaceRule {
             .collect();
     }
 
+    /// The bound place `to` names: its name (`#openclaw`, `openclaw`, `DM
+    /// @eddie`), its target (`discord:channel:<id>`), its key
+    /// (`channel:<id>`), or its id.
+    pub fn find(&self, to: &str) -> Option<BoundPlace> {
+        let to = to.trim();
+        self.bound
+            .read()
+            .unwrap()
+            .iter()
+            .map(|b| &b.place)
+            .find(|p| {
+                p.target == to
+                    || p.target.strip_prefix("discord:") == Some(to)
+                    || p.name.trim_start_matches('#') == to.trim_start_matches('#')
+                    || p.target.rsplit(':').next() == Some(to)
+            })
+            .cloned()
+    }
+
     /// Who can view a guild channel bound `private = true`, as the binding
     /// read it at its start, for health.
     pub fn viewed(&self, target: &str, viewed: Viewed) {
@@ -222,6 +241,42 @@ impl PlaceRule {
             places,
             public_paths: cfg.places.public_paths.clone(),
         }
+    }
+}
+
+/// Whether `who` may publish into a place (the place rule's publish): the
+/// owner, from a private place. The CLI and the web UI are the owner's own
+/// surfaces; through Discord, an owner, in a DM or a channel bound private.
+/// A job's process never may: `judge_act` traces it first.
+pub fn may_publish(
+    who: &crate::approval::Answerer,
+    rule: &PlaceRule,
+    cfg: &crate::Config,
+) -> Result<(), String> {
+    use crate::approval::Surface;
+    match (who.surface, &who.discord) {
+        (Surface::Cli | Surface::Web, None) => Ok(()),
+        (Surface::Discord, Some(d)) => {
+            let user = format!("discord:{}", d.user_id);
+            let from = match &d.guild_id {
+                None => format!("discord:dm:{}", d.user_id),
+                Some(_) => format!("discord:channel:{}", d.channel_id),
+            };
+            if !cfg.owners_for(Some(&from)).contains(&user) {
+                return Err(format!("{user} is not an owner"));
+            }
+            match rule.class(cfg, Some(&from)) {
+                PlaceClass::Private => Ok(()),
+                PlaceClass::Shared => Err("it came from a shared place: publish from a private \
+                                           one (the CLI, the web UI, a DM with you, or a channel \
+                                           bound private)"
+                    .into()),
+            }
+        }
+        _ => Err(format!(
+            "it came through {}, which is not a private place",
+            who.via()
+        )),
     }
 }
 

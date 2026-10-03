@@ -115,6 +115,7 @@ ledger_kinds! {
     JobWrapperLost = "job.wrapper_lost",
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",
+    PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",
