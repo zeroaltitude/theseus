@@ -790,6 +790,14 @@ impl Inner {
         // knows where that record lies.
         let cp = index.checkpoint()?.unwrap_or(0);
         let at = if cp > 0 { index.location(cp)? } else { None };
+        // The checkpoint claims only synced positions (it takes `appending`
+        // alone, and the writer indexes a batch only after its sync), so a
+        // frame at or before it that does not check went bad after it was
+        // written: the open refuses it, not cuts it (theseus-gt12).
+        let wal_cfg = WalConfig {
+            synced_to: wal_cfg.synced_to.max(cp),
+            ..wal_cfg
+        };
         let (wal, missing) =
             Wal::open_from(&dir.join("wal"), wal_cfg, cp, at).context("opening WAL")?;
         wal.sync_with_first_frame(name_dirs);

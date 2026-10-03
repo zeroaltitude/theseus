@@ -1430,3 +1430,44 @@ fn a_new_stores_own_name_is_synced_with_its_first_frame() {
     s.append(&frame()).unwrap();
     assert_eq!(dir_syncs(&s), 0);
 }
+
+/// theseus-gt12: the frame that holds the index's checkpoint goes bad on
+/// disk. The tail-only open cannot find that record, so the open checks
+/// every segment and meets the bad frame at the last segment's end. The
+/// checkpoint says it was synced, so it is no torn tail: the open refuses
+/// before it cuts anything. It used to cut the frame as a torn tail, and
+/// only then refuse, as the checkpoint was past the log's end.
+#[test]
+fn a_checkpointed_frame_gone_bad_is_refused_before_anything_is_cut() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = open(dir.path());
+    for i in 0..5u32 {
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &[i; 20]).unwrap()])
+            .unwrap();
+    }
+    assert_eq!(s.checkpoint().unwrap(), 5);
+    drop(s);
+    let seg = dir.path().join("wal").join(format!("{:09}.seg", 1));
+    let mut b = std::fs::read(&seg).unwrap();
+    // The last frame's record: its position's low byte (frame header 12,
+    // count 4).
+    let mut last = 0usize;
+    while let Some(next) = b
+        .get(last + 4..last + 8)
+        .map(|n| last + 12 + u32::from_le_bytes(n.try_into().unwrap()) as usize)
+        .filter(|&n| n < b.len())
+    {
+        last = next;
+    }
+    assert_eq!(b[last..last + 4], crate::wal::MAGIC.to_le_bytes());
+    b[last + 12 + 4] ^= 0x40;
+    std::fs::write(&seg, &b).unwrap();
+
+    let e = WalStore::open(dir.path(), WalConfig::default())
+        .err()
+        .expect("a checkpointed frame gone bad is refused");
+    let msg = format!("{e:#}");
+    assert!(msg.contains("position 5"), "{msg}");
+    assert!(msg.contains("theseusd restore --repair"), "{msg}");
+    assert_eq!(std::fs::read(&seg).unwrap(), b, "nothing was cut");
+}
