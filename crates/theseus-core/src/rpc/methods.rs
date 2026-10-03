@@ -1191,14 +1191,63 @@ impl Core {
     /// The newest `n` rows, or with `after` the first `n` after it (theseus-xo0m).
     /// A filter scans up to 50 rows for each one asked: the newest that many,
     /// or the next that many after `after`, whose last position is `next`.
+    /// `ledger.tail`: one page through the store's index (theseus-vm3n.5):
+    /// a kind or session filter reads its tag's postings, a window its time
+    /// index, and a cursor its bound, so the read costs about its answer,
+    /// never the history before it. The page and `total` are one snapshot
+    /// (theseus-tphr).
     pub(super) fn ledger_tail(&self, p: LedgerTailParams) -> Result<LedgerTailResult, RpcFailure> {
         let n = p.n.unwrap_or(20).min(1000);
-        let scan = if p.kind.is_some() || p.session_id.is_some() {
-            n * 50
-        } else {
-            n
+        let page = theseus_store::Page {
+            kind: theseus_store::kinds::LEDGER,
+            tags: ledger_tags(p.kind.as_deref(), p.session_id.as_deref()),
+            after: p.after,
+            before: p.before,
+            since_ms: p.since_ms,
+            until_ms: p.until_ms,
+            limit: n,
         };
-        let read: Vec<(u64, LedgerRow)> = match p.after {
+        let Some(out) = self.store.ledger_page(&page)? else {
+            return self.ledger_tail_scanned(&p, n);
+        };
+        let rows = out
+            .records
+            .iter()
+            .map(|r| {
+                let row: crate::ledger::LedgerRow = r.decode()?;
+                Ok(LedgerEntry {
+                    position: r.position,
+                    at_unix_ms: row.at_unix_ms,
+                    kind: row.kind,
+                    session_id: row.session_id,
+                    turn_id: row.turn_id,
+                    data: row.data,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(LedgerTailResult {
+            rows,
+            total: out.count,
+            next: p.after.and(out.more.then_some(out.last).flatten()),
+            older: p.before.and(out.more.then_some(out.first).flatten()),
+        })
+    }
+
+    /// `ledger.tail` while the index's shape is built after serving (an
+    /// older build wrote the index last, theseus-vm3n.5): today's read, a
+    /// window of `n × 50` rows filtered here, with `before` and the times
+    /// applied to it too. Its `total` is a second read.
+    fn ledger_tail_scanned(
+        &self,
+        p: &LedgerTailParams,
+        n: usize,
+    ) -> Result<LedgerTailResult, RpcFailure> {
+        let filtered = p.kind.is_some()
+            || p.session_id.is_some()
+            || p.since_ms.is_some()
+            || p.until_ms.is_some();
+        let scan = if filtered { n * 50 } else { n };
+        let read: Vec<(u64, crate::ledger::LedgerRow)> = match p.after {
             Some(after) => self.store.ledger_after(after, scan)?,
             None => self.store.ledger_tail(scan)?,
         };
@@ -1212,6 +1261,11 @@ impl Core {
                     .as_deref()
                     .is_none_or(|s| r.session_id.as_deref() == Some(s))
             })
+            .filter(|(position, r)| {
+                p.before.is_none_or(|b| *position < b)
+                    && p.since_ms.is_none_or(|t| r.at_unix_ms >= t)
+                    && p.until_ms.is_none_or(|t| r.at_unix_ms <= t)
+            })
             .map(|(position, r)| LedgerEntry {
                 position,
                 at_unix_ms: r.at_unix_ms,
@@ -1222,14 +1276,8 @@ impl Core {
             })
             .collect();
         let (rows, next) = match p.after {
-            // The first `n` kept: more may follow the last of them, or, short
-            // of `n`, the window's last row when the window was full.
-            Some(_) if rows.len() > n => {
+            Some(_) if rows.len() >= n && n > 0 => {
                 let rows = rows[..n].to_vec();
-                let next = rows.last().map(|r| r.position);
-                (rows, next)
-            }
-            Some(_) if rows.len() == n && n > 0 => {
                 let next = rows.last().map(|r| r.position);
                 (rows, next)
             }
@@ -1240,6 +1288,7 @@ impl Core {
             rows,
             total: self.store.ledger_len()?,
             next,
+            older: None,
         })
     }
 
@@ -1335,4 +1384,30 @@ impl Core {
         let _ = self.store.inner().checkpoint_for_close();
         crate::startup::stop_phase("row and checkpoint");
     }
+}
+
+/// The ledger's tags a `ledger.tail` filter reads (`theseus_store::pages`):
+/// its kind under each of its names (a renamed kind reads the rows stored
+/// under its old one too), in its session when it names one; the session's
+/// alone without a kind; none without either.
+fn ledger_tags(kind: Option<&str>, session: Option<&str>) -> Vec<String> {
+    use theseus_store::pages::{ledger_kind, ledger_kind_session, ledger_session};
+    let Some(kind) = kind else {
+        return session.map(ledger_session).into_iter().collect();
+    };
+    let mut names = vec![kind.to_string()];
+    for &(now, before) in theseus_protocol::LedgerKind::RENAMED {
+        if kind == now.as_str() {
+            names.push(before.to_string());
+        } else if kind == before {
+            names.push(now.as_str().to_string());
+        }
+    }
+    names
+        .iter()
+        .map(|k| match session {
+            Some(s) => ledger_kind_session(k, s),
+            None => ledger_kind(k),
+        })
+        .collect()
 }

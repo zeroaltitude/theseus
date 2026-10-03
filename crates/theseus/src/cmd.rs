@@ -739,6 +739,7 @@ async fn explain(conn: &mut Conn, json: bool, id: &str) -> Result<()> {
                 kind: None,
                 session_id: Some(e.session_id.clone()),
                 after: None,
+                ..Default::default()
             },
         )
         .await?,
@@ -1181,6 +1182,7 @@ pub async fn ledger(
                 kind,
                 session_id: session,
                 after: None,
+                ..Default::default()
             },
         )
         .await?;

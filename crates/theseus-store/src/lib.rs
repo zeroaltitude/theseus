@@ -27,12 +27,14 @@
 //! the reader for the layout it replaces, and bumps its kind's schema.
 
 pub mod index;
+pub mod pages;
 pub mod record;
 pub mod repair;
 pub mod store;
 pub mod wal;
 
 pub use index::{Engine, Location, MovedAside, Sums};
+pub use pages::{Page, PageOut};
 pub use record::{kinds, NewRecord, Record, RecordKind};
-pub use store::{blocking, Projection, Store, StoreStats, VerifiedSlot, WalStore};
+pub use store::{blocking, Projection, ShapeCursor, Store, StoreStats, VerifiedSlot, WalStore};
 pub use wal::{History, HistoryCheck, Verified, Wal, WalConfig, WalError};
