@@ -9046,7 +9046,8 @@ cores (the CPU pool sizes to the host, and the test's seven calls need seven per
 output golden's one-digit duration (theseus-6a7o).
 
 **Still out.** core-flakes (theseus-celu.1), with fixes for seven timing tests, ran its load passes for hours and
-pushed its branch at 04:03 on October 3, as this was written; it is not yet reviewed or joined.
+pushed its branch at 04:03 on October 3. It was reviewed and joined at 9a8f537 at 04:26, after this Item was
+written; the next docs pass records it.
 `TurnSubmitResult.first_token_ms` is still on the wire, and telemetry no longer reads it.
 
 ### Item 68. The disclosure simulator's two findings, closed (theseus-7ve.8, with theseus-42ub and theseus-jpff; M4 step 19d; spine, in a worktree; 2026-10-02 23:16 to 2026-10-03 00:03; reviewed by 00:24; rebased onto 54e4083 as 81f3dee; joined 00:28 at 81f3dee; installed 01:19 at c641ae4)
@@ -9235,8 +9236,8 @@ post time and quiet loops' tool lines, theseus-zupl and theseus-033g; Tier 2). N
 **Divergences.** None in what joined. The grants and tier0 lanes had branched from a7c15cf, the join head that
 carried wz4y, and were re-pointed to d337276 before their first commits.
 
-**Known gaps.** The flaky tests left by cockpit3 (theseus-f6f5, -so1a, -mll1) wait for the first batch's
-core-flakes session to join, and a stop test of the index tender seen flaking under load joins them
+**Known gaps.** The flaky tests left by cockpit3 (theseus-f6f5, -so1a, -mll1) waited for the first batch's
+core-flakes session, joined at 9a8f537 after this was written, and a stop test of the index tender seen flaking under load joins them
 (theseus-ux8g).
 
 ### Item 71. L1 credentials granted at launch, and 18d's run-time socket deleted (theseus-w5op; the simplification cut-list's Tier 3, C1; spine; 2026-10-03 01:47 to 02:39; one commit on d337276, 8067161; reviewed 02:49 to 02:55; joined 02:57 at 8067161; installed 03:02 at 8067161)

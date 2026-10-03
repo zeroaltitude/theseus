@@ -108,7 +108,7 @@ These are built and tested in their own crates, and each is wired into the core 
   with him: labels (Tier 2 and 1.1), the sandbox's trims (Tier 4), the gate's mode (5.3), the periphery and UI
   (Tier 6), and the engine (Tier 7).
 - **Cloud sessions.** Small, separable work runs in Claude cloud sessions beside the spine and joins after a review
-  here. The first batch's last session, fixes for seven timing tests, has finished and waits for its review.
+  here. The first batch's last session, fixes for seven timing tests, joined at 9a8f537 on October 3 at 04:26.
   Three branches of the second batch, and one change, are parked until the review's open tiers are decided.
 - **AWS writes** (stage D's C2): no longer waiting on the credentials work, and waiting on the operator's go-ahead
   for the first writes to his account.
