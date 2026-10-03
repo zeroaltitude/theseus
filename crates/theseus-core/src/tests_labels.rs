@@ -218,6 +218,19 @@ async fn a_two_viewer_channel_withholds_an_owner_only_result_and_keeps_its_call_
     let row = &ledgered(&r.core, "label.withheld")[0];
     assert_eq!(row["reasons"]["owner-only"]["nodes"], 1, "{row}");
     assert_eq!(ledgered(&r.core, "label.audience")[0]["viewers"], 2);
+    // Telemetry's `theseus.compile.withheld` reads the same counts from the
+    // turn's trace: one event, on the loop that withheld (theseus-63xf).
+    fn events<'a>(span: &'a theseus_protocol::Span, out: &mut Vec<&'a theseus_protocol::Span>) {
+        if span.name == "label.withheld" {
+            out.push(span);
+        }
+        span.children.iter().for_each(|c| events(c, out));
+    }
+    let mut found = Vec::new();
+    events(res.trace.as_ref().expect("a turn's trace"), &mut found);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].kind, "compile");
+    assert_eq!(found[0].attrs["reasons"]["owner-only"]["nodes"], 1);
 }
 
 /// A DM with the owner, and the CLI, admit everything: the owner is their

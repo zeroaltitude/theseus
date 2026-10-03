@@ -721,6 +721,13 @@ impl Fact for Withheld<'_> {
         })
     }
 
+    /// An event on the loop, with the row's data: the counts by readers,
+    /// which telemetry's `theseus.compile.withheld` reads (theseus-63xf).
+    fn span(&self, trace: &mut Trace) {
+        let at = trace.now_us();
+        trace.record("label.withheld", "compile", at, at, self.row());
+    }
+
     fn narrate(&self, say: &mut Say<'_>) {
         let parts: Vec<String> = self
             .by_reason()

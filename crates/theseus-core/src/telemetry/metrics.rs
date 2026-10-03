@@ -83,6 +83,12 @@ const TOOL_DURATION: Instrument = Instrument {
     unit: "ms",
     kind: Kind::Histogram,
 };
+const WITHHELD: Instrument = Instrument {
+    name: "theseus.compile.withheld",
+    description: "Nodes and context files a compile left out of a request because its audience may not read them, by readers; one that stays out is counted at each compile",
+    unit: "",
+    kind: Kind::IntSum,
+};
 
 const PUSH_EVENTS: Instrument = Instrument {
     name: "theseus.push.events",
@@ -104,7 +110,7 @@ const PUSH_DELAY: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 12] = [
+const INSTRUMENTS: [&Instrument; 13] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -114,6 +120,7 @@ const INSTRUMENTS: [&Instrument; 12] = [
     &COST,
     &TOOL_CALLS,
     &TOOL_DURATION,
+    &WITHHELD,
     &PUSH_EVENTS,
     &PUSH_LOST,
     &PUSH_DELAY,
@@ -256,6 +263,7 @@ impl Metrics {
         if let Some(t) = &r.trace {
             self.tool_calls(t, &attrs);
             self.provider_calls(t);
+            self.withheld(t);
         }
     }
 
@@ -289,6 +297,7 @@ impl Metrics {
         );
         if let Some(t) = f.trace {
             self.provider_calls(t);
+            self.withheld(t);
         }
     }
 
@@ -337,6 +346,16 @@ impl Metrics {
             let attrs = sorted(attrs);
             self.add(&TOOL_CALLS, attrs.clone(), 1);
             self.record(&TOOL_DURATION, attrs, c.ms);
+        }
+    }
+
+    /// What each compile of the turn left out, by readers (theseus-63xf).
+    fn withheld(&mut self, trace: &Span) {
+        let mut out = Vec::new();
+        spans::withheld(trace, &mut out);
+        for (reason, n) in out {
+            let attrs = vec![("theseus.withheld.reason", Attr::S(reason))];
+            self.add(&WITHHELD, attrs, n);
         }
     }
 

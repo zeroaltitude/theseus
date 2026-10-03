@@ -2355,3 +2355,85 @@ async fn every_provider_calls_first_token_is_recorded() {
         "the call with no first token has none"
     );
 }
+
+/// What each compile left out for its audience is counted by readers, in a
+/// finished turn and a failed one: one count of nodes and context files at
+/// each compile that left them out (theseus-63xf).
+#[tokio::test]
+async fn what_a_compile_withheld_is_counted_by_readers() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let withheld = |at: u64, reasons: Value| {
+        s(
+            "label.withheld",
+            "compile",
+            at,
+            at,
+            json!({"withheld": 0, "reasons": reasons}),
+            vec![],
+        )
+    };
+    let loop_with = |name: &str, start: u64, kids: Vec<Span>| {
+        s(name, "loop", start, start + 1_000, Value::Null, kids)
+    };
+    let trace = s(
+        "turn",
+        "turn",
+        0,
+        9_000,
+        json!({"origin_unix_ms": 1_790_000_000_000u64}),
+        vec![
+            loop_with(
+                "loop 0",
+                0,
+                vec![withheld(
+                    10,
+                    json!({"owner-only": {"nodes": 2, "context_files": 1}}),
+                )],
+            ),
+            loop_with(
+                "loop 1",
+                2_000,
+                vec![withheld(
+                    2_010,
+                    json!({"owner-only": {"nodes": 3, "context_files": 1},
+                           "a place of two": {"nodes": 1, "context_files": 0}}),
+                )],
+            ),
+            loop_with("loop 2", 4_000, vec![]),
+        ],
+    );
+    tel.record_turn(&result_with(trace));
+    let failed = s(
+        "turn",
+        "turn",
+        0,
+        9_000,
+        json!({"origin_unix_ms": 1_790_000_000_001u64, "outcome": "failed"}),
+        vec![loop_with(
+            "loop 0",
+            0,
+            vec![withheld(
+                10,
+                json!({"owner-only": {"nodes": 1, "context_files": 0}}),
+            )],
+        )],
+    );
+    tel.record_failure(&failed_turn(&failed));
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let name = "theseus.compile.withheld";
+    assert_eq!(points_of(&metrics, name).len(), 2, "one series a reason");
+    let owner = point_with(&metrics, name, &[("theseus.withheld.reason", "owner-only")]);
+    assert_eq!(owner["asInt"], "8", "(2 + 1) + (3 + 1) + 1");
+    assert_eq!(attrs_of(owner).len(), 1, "the reason alone");
+    let two = point_with(
+        &metrics,
+        name,
+        &[("theseus.withheld.reason", "a place of two")],
+    );
+    assert_eq!(two["asInt"], "1");
+    let m = metrics.iter().find(|m| m["name"] == name).unwrap();
+    assert_eq!(m["sum"]["isMonotonic"], true);
+    assert_eq!(m["sum"]["aggregationTemporality"], CUMULATIVE);
+}
