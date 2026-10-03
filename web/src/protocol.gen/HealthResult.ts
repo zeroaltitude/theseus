@@ -13,6 +13,7 @@ import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
 import type { IndexHealth } from "./IndexHealth";
 import type { KernelStatus } from "./KernelStatus";
+import type { LabelsHealth } from "./LabelsHealth";
 import type { PushStatus } from "./PushStatus";
 import type { SandboxHealth } from "./SandboxHealth";
 import type { SecretsStatus } from "./SecretsStatus";
@@ -161,4 +162,8 @@ sandbox?: SandboxHealth,
  * Each backend's cancels since the daemon started, by how they ended
  * (M4 18a). Empty until the first.
  */
-cancels?: Array<CancelCount>, };
+cancels?: Array<CancelCount>, 
+/**
+ * Labels (M4 19a): the owner, and each guild channel's audience.
+ */
+labels?: LabelsHealth, };

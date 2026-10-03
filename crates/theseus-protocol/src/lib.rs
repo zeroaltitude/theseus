@@ -460,6 +460,10 @@ pub struct HealthResult {
     /// (M4 18a). Empty until the first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cancels: Vec<CancelCount>,
+    /// Labels (M4 19a): the owner, and each guild channel's audience.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub labels: Option<LabelsHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

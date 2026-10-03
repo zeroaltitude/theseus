@@ -29,6 +29,40 @@ pub fn label_words(l: Option<&Label>) -> String {
     words
 }
 
+/// Health's `labels:` line (M4 19a): the owner, and each guild channel's
+/// audience, with whether owner-only material is withheld there. `intent`
+/// is the binding's Server Members intent, when it has said.
+pub fn labels_health_line(h: &theseus_protocol::LabelsHealth, intent: Option<bool>) -> String {
+    let mut parts = vec![format!(
+        "owner: the CLI, the web UI, and {} on Discord",
+        match h.owners {
+            1 => "1 person".to_string(),
+            n => format!("{n} people"),
+        }
+    )];
+    for p in &h.places {
+        let at = p
+            .name
+            .as_deref()
+            .map_or_else(|| p.place.clone(), |n| format!("#{n}"));
+        parts.push(match (p.viewers, p.others) {
+            (Some(n), Some(0)) => format!("{at}: {n} can view it, all the owner: nothing withheld"),
+            (Some(n), Some(o)) => format!(
+                "{at}: {n} can view it, {o} not the owner: owner-only material is withheld there"
+            ),
+            _ => format!(
+                "{at}: public, since who can view it cannot be read ({}): owner-only material is \
+                 withheld there",
+                match intent {
+                    Some(false) => "the bot's Server Members intent is off",
+                    _ => "not read yet",
+                }
+            ),
+        });
+    }
+    format!("labels: {}", parts.join(" · "))
+}
+
 /// The manifest's labels part, read from a compilation as stored.
 struct Manifest {
     audience: Option<Audience>,
@@ -169,6 +203,33 @@ mod tests {
         assert_eq!(
             labels_lines("ses_z", None, &[])[0],
             "session ses_z · not compiled yet: its first turn decides its audience"
+        );
+    }
+
+    #[test]
+    fn health_says_each_channels_audience_and_whether_it_withholds() {
+        let place = |name: &str, viewers: Option<u32>, others: Option<u32>| {
+            theseus_protocol::PlaceAudience {
+                place: format!("discord:{name}"),
+                name: Some(name.into()),
+                viewers,
+                others,
+            }
+        };
+        let h = theseus_protocol::LabelsHealth {
+            owners: 1,
+            places: vec![
+                place("lab", Some(3), Some(1)),
+                place("quiet", Some(1), Some(0)),
+                place("openclaw", None, None),
+            ],
+        };
+        assert_eq!(
+            labels_health_line(&h, Some(false)),
+            "labels: owner: the CLI, the web UI, and 1 person on Discord · #lab: 3 can view it, 1 \
+             not the owner: owner-only material is withheld there · #quiet: 1 can view it, all the \
+             owner: nothing withheld · #openclaw: public, since who can view it cannot be read \
+             (the bot's Server Members intent is off): owner-only material is withheld there"
         );
     }
 }

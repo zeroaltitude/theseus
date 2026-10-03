@@ -1380,12 +1380,20 @@ pub(crate) mod tests {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
         assert_eq!(kinds::schema(kinds::NODE), 5);
-        let mut old: Node = serde_json::from_str(NODE_SCHEMA_2).unwrap();
-        old.id = "tcl_00000000000000000000000000000041".into();
-        let schema_4 = serde_json::to_string(&old).unwrap();
+        // The old layout as bytes, never through this build's serializer: a
+        // schema-2 tool-call node is a schema-4 one that sets none of 3's or
+        // 4's fields.
+        let schema_4 = NODE_SCHEMA_2.replace(
+            "tcl_00000000000000000000000000000021",
+            "tcl_00000000000000000000000000000041",
+        );
         let rec = NewRecord {
             schema: 4,
-            ..NewRecord::bytes(kinds::NODE, Some(&old.id), schema_4.as_bytes().to_vec())
+            ..NewRecord::bytes(
+                kinds::NODE,
+                Some("tcl_00000000000000000000000000000041"),
+                schema_4.as_bytes().to_vec(),
+            )
         }
         .scoped("ses_lighthouse");
         store.append(&[rec]).unwrap();

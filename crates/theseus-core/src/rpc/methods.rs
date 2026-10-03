@@ -98,6 +98,7 @@ impl Core {
             crash: self.crash_status(),
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
             cancels: self.tools.stops.counts(),
+            labels: Some(self.runner.places.health(&self.cfg.owners())),
         }
     }
 

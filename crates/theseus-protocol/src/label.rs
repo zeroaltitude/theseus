@@ -168,3 +168,35 @@ pub struct InPlay {
     pub latched: bool,
     pub untrusted: u32,
 }
+
+/// Health's `labels` block (M4 19a): who the owner is on Discord, and each
+/// guild channel's audience as the binding last read it.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabelsHealth {
+    /// The owner's Discord ids (`[labels] owner`, else `[approval]
+    /// trusted_users`), counted; the CLI and the web UI are the owner's too.
+    pub owners: u32,
+    /// Each guild channel whose viewers the binding has read.
+    pub places: Vec<PlaceAudience>,
+}
+
+/// A guild channel's audience, for health.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaceAudience {
+    /// `discord:<channel id>`.
+    pub place: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub name: Option<String>,
+    /// How many can view it; absent when that cannot be read (public).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub viewers: Option<u32>,
+    /// How many of them are not the owner: owner-only material is withheld
+    /// from its session while any is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub others: Option<u32>,
+}

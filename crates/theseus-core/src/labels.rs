@@ -172,6 +172,34 @@ impl Places {
         Ok(true)
     }
 
+    /// Health's block: the owner, counted, and each place read so far, with
+    /// how many of its viewers are not the owner. Reads nothing from the
+    /// store: a place no compile or binding has read yet is not listed.
+    pub fn health(&self, owners: &BTreeSet<String>) -> theseus_protocol::LabelsHealth {
+        let mut places: Vec<theseus_protocol::PlaceAudience> = self
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(place, read)| {
+                let read = read.as_ref()?;
+                let viewers = read.viewers.as_ref();
+                Some(theseus_protocol::PlaceAudience {
+                    place: place.clone(),
+                    name: read.name.clone(),
+                    viewers: viewers.map(|v| v.len() as u32),
+                    others: viewers
+                        .map(|v| v.iter().filter(|u| !owners.contains(*u)).count() as u32),
+                })
+            })
+            .collect();
+        places.sort_by(|a, b| a.place.cmp(&b.place));
+        theseus_protocol::LabelsHealth {
+            owners: owners.len() as u32,
+            places,
+        }
+    }
+
     /// Every place read so far whose viewers are known, for nodes labeled
     /// for another place than the session's.
     fn known(&self) -> HashMap<String, BTreeSet<String>> {
@@ -228,9 +256,9 @@ enum Members {
 
 /// Whether a compile admits a node.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Verdict {
+pub enum Verdict<'a> {
     /// Admitted, with the readers it adds to the meet.
-    Admit(Readers),
+    Admit(&'a Readers),
     /// Left out, with its readers in words (`owner-only`).
     Withhold(String),
 }
@@ -248,6 +276,9 @@ pub struct Judge {
     places: HashMap<String, BTreeSet<String>>,
     /// The session holds external text (T1's latch).
     pub latched: bool,
+    /// The audience as readers (`own_readers`), kept: a node from before
+    /// labels adds it to the meet, a thousand times in a long session.
+    own: Readers,
 }
 
 impl Judge {
@@ -305,14 +336,17 @@ impl Judge {
                 ),
             },
         };
-        Self {
+        let mut j = Self {
             audience,
             members,
             owner,
             place,
             places: places.known(),
             latched,
-        }
+            own: Readers::Owner,
+        };
+        j.own = j.own_readers();
+        j
     }
 
     /// A judge for the owner alone, whom everything covers (tests, and a
@@ -325,6 +359,7 @@ impl Judge {
             place: None,
             places: HashMap::new(),
             latched: false,
+            own: Readers::Owner,
         }
     }
 
@@ -363,10 +398,10 @@ impl Judge {
     /// Whether a node of this session's goes into its request. A node with
     /// no label is from before 19a, and is read only in its own session,
     /// where it was said to this audience.
-    pub fn verdict(&self, n: &Node) -> Verdict {
+    pub fn verdict<'a>(&'a self, n: &'a Node) -> Verdict<'a> {
         match &n.label {
-            None => Verdict::Admit(self.own_readers()),
-            Some(l) if self.covers(&l.readers) => Verdict::Admit(l.readers.clone()),
+            None => Verdict::Admit(&self.own),
+            Some(l) if self.covers(&l.readers) => Verdict::Admit(&l.readers),
             Some(l) => Verdict::Withhold(l.readers.describe()),
         }
     }
@@ -426,7 +461,11 @@ impl Admitted {
     pub fn add(&mut self, judge: &Judge, n: &Node, v: &Verdict) {
         match v {
             Verdict::Admit(r) => {
-                self.readers = judge.meet(&self.readers, r);
+                // The meet of equal readers is themselves: most of a
+                // session's nodes share them, so nothing is built for those.
+                if self.readers != **r {
+                    self.readers = judge.meet(&self.readers, r);
+                }
                 if untrusted(n) {
                     self.in_play.untrusted += 1;
                 }
@@ -645,6 +684,7 @@ mod tests {
             place: place.map(str::to_string),
             places: HashMap::from([("discord:9".to_string(), set(&["discord:1", "discord:2"]))]),
             latched: false,
+            own: Readers::Owner,
         }
     }
 

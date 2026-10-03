@@ -1066,18 +1066,23 @@ pub fn render_messages(
     retrying: Option<&str>,
     judge: Option<&Judge>,
 ) -> Messages {
-    let mut judging = Judging::new(judge, prefix);
-    let mut judged = |n: &Node| judging.line(n);
+    let mut judging = Judging::new(judge);
+    let mut judged = |n: &Node, in_prefix: bool| judging.line(n, in_prefix);
     let mut image_tokens = 0u64;
-    let mut results: HashMap<&str, &Node> = HashMap::new();
-    for n in prefix.iter().chain(tail.iter()) {
+    // Each call's result, and whether it is the prefix's.
+    let mut results: HashMap<&str, (&Node, bool)> = HashMap::new();
+    let all = prefix
+        .iter()
+        .map(|n| (n, true))
+        .chain(tail.iter().map(|n| (n, false)));
+    for (n, in_prefix) in all {
         if let Body::ToolResult {
             tool_use_id,
             late: false,
             ..
         } = &n.body
         {
-            results.insert(tool_use_id.as_str(), n);
+            results.insert(tool_use_id.as_str(), (n, in_prefix));
         }
     }
     let replaced = replaced_answers(prefix.iter().chain(tail.iter()).copied(), retrying);
@@ -1093,7 +1098,7 @@ pub fn render_messages(
                 // A message of attachments alone has no text block; one
                 // without attachments renders as it always did. A withheld
                 // one is its placeholder's line, its files with it.
-                let blocks = match judged(n) {
+                let blocks = match judged(n, in_prefix) {
                     Some(line) => vec![json!({"type": "text", "text": line})],
                     None => user_blocks(n, text, attachments, media, &mut image_tokens),
                 };
@@ -1106,7 +1111,7 @@ pub fn render_messages(
                 ..
             } => {
                 let strip = (in_prefix && strip_prefix_thinking) || wrote != provider;
-                let bl: Vec<Value> = if let Some(line) = judged(n) {
+                let bl: Vec<Value> = if let Some(line) = judged(n, in_prefix) {
                     withheld_answer(blocks, &line)
                 } else if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
@@ -1122,7 +1127,7 @@ pub fn render_messages(
                     let rb: Vec<Value> = uses
                         .iter()
                         .map(|u| match results.get(u.id.as_str()) {
-                            Some(r) => match judged(r) {
+                            Some((r, r_prefix)) => match judged(r, *r_prefix) {
                                 Some(line) => json!({
                                     "type": "tool_result",
                                     "tool_use_id": u.id,
@@ -1140,7 +1145,7 @@ pub fn render_messages(
                 }
             }
             Body::ToolResult { late: true, .. } => {
-                let line = judged(n).unwrap_or_else(|| late_result_text(n));
+                let line = judged(n, in_prefix).unwrap_or_else(|| late_result_text(n));
                 push(
                     &mut out,
                     "user",
@@ -1179,25 +1184,23 @@ fn push(out: &mut Vec<(String, Vec<Value>)>, role: &str, blocks: Vec<Value>) {
 /// renders, and counted for the prefix when it is the prefix's.
 struct Judging<'a> {
     judge: Option<&'a Judge>,
-    prefix: HashSet<&'a str>,
     seen: Option<(Admitted, Admitted)>,
 }
 
 impl<'a> Judging<'a> {
-    fn new(judge: Option<&'a Judge>, prefix: &[&'a Node]) -> Self {
+    fn new(judge: Option<&'a Judge>) -> Self {
         Self {
             judge,
-            prefix: prefix.iter().map(|n| n.id.as_str()).collect(),
             seen: judge.map(|j| (Admitted::new(j.latched), Admitted::new(j.latched))),
         }
     }
 
     /// The placeholder's line when `n` is withheld; its verdict counted
-    /// either way.
-    fn line(&mut self, n: &Node) -> Option<String> {
+    /// either way, for the prefix too when `n` is the prefix's.
+    fn line(&mut self, n: &Node, in_prefix: bool) -> Option<String> {
         let (j, (p, all)) = (self.judge?, self.seen.as_mut()?);
         let v = j.verdict(n);
-        if self.prefix.contains(n.id.as_str()) {
+        if in_prefix {
             p.add(j, n, &v);
         }
         all.add(j, n, &v);

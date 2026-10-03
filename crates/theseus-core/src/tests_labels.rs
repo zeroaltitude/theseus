@@ -547,7 +547,7 @@ fn a_node_from_before_labels_is_read_only_in_its_own_session() {
     let n = Node::user("ses_a", None, "cli", "hello");
     assert_eq!(
         public.verdict(&n),
-        Verdict::Admit(Readers::Place("discord:314159265358979323".into()))
+        Verdict::Admit(&Readers::Place("discord:314159265358979323".into()))
     );
     let owners = n.labeled(crate::labels::for_input(false, None));
     assert_eq!(owners.label.as_ref().unwrap().integrity, Integrity::Trusted);
@@ -557,4 +557,136 @@ fn a_node_from_before_labels_is_read_only_in_its_own_session() {
     );
     let run = crate::labels::for_result("proc.run", "trs_1", None, None, &[], &[]);
     assert_eq!(run.readers, Readers::Owner);
+}
+
+/// The compile filter's cost (design §2.10: a compile of 1,000 nodes, under
+/// 50 µs added). A 1,000-node session (250 exchanges: a channel's message,
+/// an answer calling `fs.read`, its owner-only result, an answer), compiled
+/// with no judge (before labels), for the owner (nothing withheld), and for
+/// a channel two people view (the 250 results withheld): the median of 101
+/// compiles each, in this build's profile. Run it alone:
+/// `cargo nextest run --workspace --run-ignored only -E 'test(bench_the_compile_filter)' --no-capture`.
+#[test]
+#[ignore = "a bench: run it alone"]
+fn bench_the_compile_filter() {
+    use crate::labels::{PlaceViewers, Places};
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open(d.path()).unwrap();
+    let place = "discord:channel:314159265358979323";
+    let nodes = big_session(place);
+    let places = Places::default();
+    places
+        .set(
+            &store,
+            "discord:314159265358979323",
+            PlaceViewers {
+                name: Some("lab".into()),
+                viewers: Some(people(&[OWNER, ALICE])),
+            },
+        )
+        .unwrap();
+    let owner = Judge::owner_only();
+    let two = Judge::new(Some(place), people(&[OWNER]), &places, &store, false);
+    let sp = spec();
+    let catalog = crate::catalog::Catalog::builtin();
+    let run = |judge: Option<&Judge>| {
+        let t = std::time::Instant::now();
+        let c = compile(CompileInput {
+            session_id: "s",
+            current: None,
+            nodes: &nodes,
+            last_position: nodes.len() as u64,
+            spec: &sp,
+            catalog: &catalog,
+            force: None,
+            window_override: Some(10_000_000),
+            blobs: None,
+            hidden: &[],
+            strip: None,
+            overflowed: None,
+            judge,
+        });
+        (t.elapsed().as_micros() as u64, c.withheld)
+    };
+    let median = |judge: Option<&Judge>| {
+        let mut times: Vec<u64> = (0..101).map(|_| run(judge).0).collect();
+        times.sort_unstable();
+        times[50]
+    };
+    let (none, by_owner, by_two) = (median(None), median(Some(&owner)), median(Some(&two)));
+    assert_eq!(run(Some(&two)).1, 250, "the 250 results withheld");
+    println!(
+        "compile filter, {} nodes: no judge {none} µs; the owner {by_owner} µs ({:+} µs); a channel of two \
+         {by_two} µs ({:+} µs, 250 withheld)",
+        nodes.len(),
+        by_owner as i64 - none as i64,
+        by_two as i64 - none as i64
+    );
+}
+
+/// 250 exchanges in a guild channel, 1,000 nodes: a message, an answer that
+/// calls `fs.read`, its owner-only result, and an answer.
+fn big_session(place: &str) -> Vec<(u64, Arc<Node>)> {
+    use crate::labels::{for_agent, for_input, for_result};
+    let channel = Readers::Place("discord:314159265358979323".into());
+    let mut nodes: Vec<(u64, Arc<Node>)> = Vec::new();
+    for i in 0..250u64 {
+        let id = format!("t{i}");
+        let user = Node::user("s", None, "discord", &format!("read file {i}"))
+            .labeled(for_input(true, Some(place)));
+        let mut call = Node::assistant(
+            "s",
+            "t",
+            0,
+            Body::AssistantMessage {
+                blocks: vec![
+                    json!({"type": "text", "text": "Reading it."}),
+                    json!({"type": "tool_use", "id": id, "name": "fs_read", "input": {"path": format!("f{i}.txt")}}),
+                ],
+                model: "claude-sonnet-5-5".into(),
+                provider: "anthropic".into(),
+                stop_reason: Some("tool_use".into()),
+                usage: Default::default(),
+                cost_usd: None,
+                catalog_version: None,
+                request_id: None,
+                correlation_id: None,
+                compilation_id: None,
+                request_digest: None,
+            },
+        );
+        call.label = Some(for_agent(channel.clone()));
+        let mut answer = call.clone();
+        answer.id = format!("msg_answer_{i}");
+        if let Body::AssistantMessage { blocks, .. } = &mut answer.body {
+            *blocks = vec![json!({"type": "text", "text": format!("File {i} says hello.")})];
+        }
+        let result = Node::tool_result(
+            "s",
+            None,
+            None,
+            Body::ToolResult {
+                tool_use_id: id,
+                tool: "fs.read".into(),
+                status: crate::node::ResultStatus::Ok,
+                is_error: false,
+                content: format!("     1\thello from file {i}\n"),
+                correlation_id: None,
+                bytes_total: 24,
+                truncated: false,
+                full_ref: None,
+                duration_ms: Some(1),
+                late: false,
+                meta: json!({}),
+                image: None,
+                external: None,
+            },
+        )
+        .labeled(for_result("fs.read", "trs", None, None, &[], &[]));
+        for n in [user, call, result, answer] {
+            let at = nodes.len() as u64 + 1;
+            nodes.push((at, Arc::new(n)));
+        }
+    }
+    nodes
 }
