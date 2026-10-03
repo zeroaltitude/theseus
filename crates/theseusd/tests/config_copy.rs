@@ -308,9 +308,13 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
 
     // The note changes: the daemon serves from the old copy, finds the
     // change, and restarts itself onto the vault's version, in place.
+    // The first answer comes while the vault is held, so before it could
+    // say the note changed, whatever the load (theseus-a2ec).
     let changed = test_note(&r, 42.5);
     std::fs::write(r.path("note.toml"), &changed).unwrap();
+    std::fs::write(r.path("hold"), "").unwrap();
     let (mut daemon, h, _) = r.start();
+    std::fs::remove_file(r.path("hold")).unwrap();
     assert_eq!(h["config"]["state"], "confirming");
     let pid = daemon.id();
     let h = r.until(&mut daemon, "the restart confirmed", |h| {
