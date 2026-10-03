@@ -2437,3 +2437,63 @@ async fn what_a_compile_withheld_is_counted_by_readers() {
     assert_eq!(m["sum"]["isMonotonic"], true);
     assert_eq!(m["sum"]["aggregationTemporality"], CUMULATIVE);
 }
+
+/// Each wake a turn took is counted by whether it repeats, and its lateness
+/// is a histogram by the same (37a): `theseus.wakes.fired{repeat}` and
+/// `theseus.wakes.late_ms`, from the `wake.fired` points on the trace.
+#[tokio::test]
+async fn the_wakes_a_turn_took_are_counted_by_repeat_with_their_lateness() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let fired = |at: u64, repeat: bool, late_ms: u64| {
+        s(
+            "wake.fired",
+            "wake",
+            at,
+            at,
+            json!({"wake_id": "wak_x", "repeat": repeat, "late_ms": late_ms}),
+            vec![],
+        )
+    };
+    let trace = s(
+        "turn",
+        "turn",
+        0,
+        9_000,
+        json!({"origin_unix_ms": 1_790_000_000_000u64}),
+        vec![
+            s(
+                "continuation",
+                "tool",
+                0,
+                100,
+                Value::Null,
+                vec![
+                    fired(10, true, 120),
+                    fired(11, true, 61_000),
+                    fired(12, false, 40),
+                ],
+            ),
+            s("loop 0", "loop", 200, 1_000, Value::Null, vec![]),
+        ],
+    );
+    tel.record_turn(&result_with(trace));
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let name = "theseus.wakes.fired";
+    assert_eq!(points_of(&metrics, name).len(), 2, "one series a kind");
+    let repeating = point_with(&metrics, name, &[("theseus.wake.repeat", "true")]);
+    assert_eq!(repeating["asInt"], "2");
+    assert_eq!(attrs_of(repeating).len(), 1, "repeat alone");
+    let once = point_with(&metrics, name, &[("theseus.wake.repeat", "false")]);
+    assert_eq!(once["asInt"], "1");
+    let late = point_with(
+        &metrics,
+        "theseus.wakes.late_ms",
+        &[("theseus.wake.repeat", "true")],
+    );
+    assert_eq!(
+        (&late["count"], &late["min"], &late["max"], &late["sum"]),
+        (&json!("2"), &json!(120.0), &json!(61000.0), &json!(61120.0))
+    );
+}

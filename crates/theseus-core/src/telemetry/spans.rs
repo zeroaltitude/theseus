@@ -328,6 +328,27 @@ pub(super) fn tool_calls(node: &Span, out: &mut Vec<ToolCall>) {
     }
 }
 
+/// Each wake a turn took (`wake.fired`'s point on its trace, 37a): whether
+/// it repeats, and how late it was taken, in ms.
+pub(super) fn wakes(node: &Span, out: &mut Vec<(bool, f64)>) {
+    if node.kind == "wake" && node.name == "wake.fired" {
+        let repeat = node
+            .attrs
+            .get("repeat")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let late = node
+            .attrs
+            .get("late_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        out.push((repeat, late as f64));
+    }
+    for c in &node.children {
+        wakes(c, out);
+    }
+}
+
 /// What each compile left out of a request, by readers (`label.withheld`'s
 /// event on a loop, theseus-63xf): one entry per reason per compile, with
 /// the nodes and the context files it took, from the row's `reasons`.

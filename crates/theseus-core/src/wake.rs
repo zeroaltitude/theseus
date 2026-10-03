@@ -427,6 +427,12 @@ pub fn series_of(r: &Repeat) -> String {
     out
 }
 
+/// A time as a series' next is said: `21:00 Thu`.
+pub fn next_of(ms: u64) -> String {
+    let l = local(ms);
+    format!("{} {}", l.hm(), l.weekday())
+}
+
 /// A repeating wake's line: `⏰ wake (every 1d, #4): <note>`, with what
 /// `extra` adds after the number.
 fn line(w: &PendingWake, extra: Option<String>, note: &str) -> String {
@@ -525,6 +531,9 @@ pub fn info(e: &Execution, w: &PendingWake, title: Option<String>) -> theseus_pr
         set_at_ms: w.set_at_ms,
         target: w.target.clone(),
         state: e.state.as_str().into(),
+        every: w.repeat.as_ref().map(|r| r.every.to_string()),
+        occurrence: w.repeat.as_ref().map(|_| w.occurrence),
+        next: w.repeat.as_ref().map(|_| next_of(w.due_at_ms)),
     }
 }
 
@@ -730,6 +739,13 @@ impl Local {
     /// `13:05`.
     pub fn hm(&self) -> String {
         format!("{:02}:{:02}", self.hour, self.minute)
+    }
+    /// `Thu`.
+    pub fn weekday(&self) -> &'static str {
+        // 1970-01-01 was a Thursday.
+        const DAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+        let d = days_from_civil(i64::from(self.year), self.month, self.day);
+        DAYS[d.rem_euclid(7) as usize]
     }
     /// `13:05:07`.
     pub fn hms(&self) -> String {

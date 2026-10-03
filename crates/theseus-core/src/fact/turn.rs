@@ -447,8 +447,47 @@ pub struct WakeCameDue<'a> {
 }
 
 impl Fact for WakeCameDue<'_> {
+    /// Its point for the metrics (`theseus.wakes.fired`, `theseus.wakes.
+    /// late_ms`; 37a), on the turn's trace.
+    fn span(&self, trace: &mut Trace) {
+        let f = self.fired;
+        let at = trace.now_us();
+        let mut attrs =
+            json!({"wake_id": f.wake.id, "repeat": f.wake.repeat.is_some(), "late_ms": f.late_ms});
+        if f.wake.repeat.is_some() {
+            attrs["occurrence"] = json!(f.wake.occurrence);
+            attrs["missed"] = json!(f.missed);
+        }
+        trace.record("wake.fired", "wake", at, at, attrs);
+    }
+
     fn narrate(&self, say: &mut Say<'_>) {
         let f = self.fired;
+        if f.wake.repeat.is_some() {
+            // "Wake a1b2c3 fired (#4, 2 missed while down); next 21:00 Thu:
+            // \"…\" is this turn's input."
+            let mut how = vec![format!("#{}", f.wake.occurrence)];
+            if f.missed > 0 {
+                let down = if f.while_down { " while down" } else { "" };
+                how.push(format!("{} missed{down}", f.missed));
+            } else if f.late_ms > crate::wake::LATE_AFTER_MS {
+                how.push(format!("{} late", crate::wake::span(f.late_ms)));
+            }
+            let next = match f.next_due_at_ms {
+                Some(n) => format!("next {}", crate::wake::next_of(n)),
+                None => "the series ended (until)".into(),
+            };
+            say.line(
+                Session,
+                format!(
+                    "Wake {} fired ({}); {next}: \"{}\" is this turn's input.",
+                    crate::task::short(&f.wake.id),
+                    how.join(", "),
+                    crate::session::title_from(&f.wake.note)
+                ),
+            );
+            return;
+        }
         say.line(
             Session,
             format!(
