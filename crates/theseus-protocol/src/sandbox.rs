@@ -129,6 +129,26 @@ pub struct SandboxUsage {
     pub at_ms: u64,
     /// The jobs whose cgroups are there now, by correlation id.
     pub jobs: Vec<JobUsage>,
+    /// The L1 jobs running now whose `tool.job_started` row is not written
+    /// yet (theseus-kpz1): it rides the turn's next frame, after the job ends
+    /// or its turn stops waiting for it, so until then their commands are
+    /// here, from the daemon's memory. Listed with or without a cgroup.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub running: Vec<RunningJob>,
+}
+
+/// An L1 job that runs, before its `tool.job_started` row is written: what
+/// that row will say it ran (theseus-kpz1).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RunningJob {
+    pub correlation_id: String,
+    pub session_id: String,
+    pub tool: String,
+    /// Its command, as its row's `argv` will have it.
+    pub argv: Vec<String>,
+    /// When its wrapper was launched (unix ms).
+    pub started_at_ms: u64,
 }
 
 /// One L1 job's cgroup.

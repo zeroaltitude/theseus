@@ -217,7 +217,9 @@ impl ToolRuntime {
         let note = brokered.note();
         let t0 = Instant::now();
         let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
-        sandbox::started(self, tc, correlation_id, tool.name(), &spec, &args);
+        // An L1 job's command, for `sandbox.usage` until its row is written
+        // (theseus-kpz1): listed until this call returns.
+        let _running = sandbox::started(self, tc, correlation_id, tool.name(), &spec, &args);
         tc.record(&fact::tool::JobStarted {
             session_id: tc.session_id,
             turn_id: tc.turn_id,

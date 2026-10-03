@@ -11,7 +11,7 @@ import { useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Anchor, CircleCheck, Eye, KeyRound, Link2, Lock, OctagonX, Radar, ShieldCheck, ShieldHalf, Siren, Undo2 } from 'lucide-react'
-import type { ActionInfo, ConfirmRequest, Health, LedgerEntry, NodeInfo, SandboxUsage, SessionInfo } from '@protocol'
+import type { ActionInfo, ConfirmRequest, Health, JobUsage, LedgerEntry, NodeInfo, SandboxUsage, SessionInfo } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useHistoryRows } from '@/lib/history'
@@ -39,10 +39,11 @@ export default function Boundaries() {
   const mine = useMemo(() => rows.filter((r) => KINDS.has(r.kind)), [rows])
   // L1 jobs live: their cgroups, read each second while any is there, else every five.
   const { data: usage } = useRpc<SandboxUsage>('sandbox.usage', undefined, 5000, {
-    refetchInterval: (q) => (q.state.data?.jobs.some((j) => j.populated) ? 1000 : 5000),
+    refetchInterval: (q) => (q.state.data?.jobs.some((j) => j.populated) || q.state.data?.running?.length ? 1000 : 5000),
   })
   const { data: results } = useRpc<{ nodes: NodeInfo[] }>('node.list', { session_id: null, kind: 'tool_result', n: 2000 }, 10_000)
-  // A job's command rides its turn's next frame (`tool.job_started`), so while it runs, its action names it.
+  // A job's command rides its turn's next frame (`tool.job_started`): while it runs, `sandbox.usage`'s `running` names
+  // it (theseus-kpz1), and its action its tool and when it was dispatched.
   const { data: al } = useRpc<{ actions: ActionInfo[] }>('action.list', { n: 200 }, 3000)
   const title = useMemo(() => {
     const m = new Map((sl?.sessions ?? []).map((s) => [s.session_id, s.title || s.label || short(s.session_id)]))
@@ -52,7 +53,7 @@ export default function Boundaries() {
   const holds = h?.external_text ?? []
   const confirms = cl?.confirms ?? []
   const tight = h?.tightenings ?? []
-  const live = usage?.jobs.filter((j) => j.populated) ?? []
+  const live = liveJobs(usage)
   const withheldRows = mine.filter((r) => r.kind === 'label.withheld')
   const labelRows = mine.filter((r) => r.kind === 'label.graduated' || r.kind === 'label.held_post' || r.kind === 'label.held_post_answered')
   const secretsWithheld = mine.filter((r) => r.kind === 'secret.withheld').length
@@ -241,6 +242,14 @@ function sandboxLine(h?: Health, u?: SandboxUsage): string {
 
 interface Finished { node: NodeInfo; cid: string; exit?: number; ms?: number; scratch?: string; failed: boolean }
 
+/** The L1 jobs running now: each populated cgroup, and each job `sandbox.usage` lists as running whose cgroup it did
+ *  not read (none is delegated, or it is not there yet), with no gauges. */
+function liveJobs(u?: SandboxUsage): { correlation_id: string; cgroup?: JobUsage }[] {
+  const out: { correlation_id: string; cgroup?: JobUsage }[] = (u?.jobs ?? []).filter((j) => j.populated).map((j) => ({ correlation_id: j.correlation_id, cgroup: j }))
+  for (const r of u?.running ?? []) if (!out.some((j) => j.correlation_id === r.correlation_id)) out.push({ correlation_id: r.correlation_id })
+  return out
+}
+
 function Sandbox({ usage, health, rows, results, actions, title, now, onOpen }: {
   usage?: SandboxUsage; health?: Health; rows: LedgerEntry[]; results: NodeInfo[]; actions: ActionInfo[]; title: (s?: string | null) => string; now: number
   onOpen: (sid: string, cid?: string) => void
@@ -270,7 +279,8 @@ function Sandbox({ usage, health, rows, results, actions, title, now, onOpen }: 
     }
     return out.sort((a, b) => b.node.at_unix_ms - a.node.at_unix_ms).slice(0, 10)
   }, [results])
-  const live = usage?.jobs.filter((j) => j.populated) ?? []
+  const live = liveJobs(usage)
+  const running = new Map((usage?.running ?? []).map((r) => [r.correlation_id, r]))
   const memLimit = (j: { memory_max?: number }) => j.memory_max ?? (health?.sandbox ? health.sandbox.memory_mb * 1048576 : undefined)
   return (
     <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.25fr_1fr_1fr]">
@@ -282,23 +292,26 @@ function Sandbox({ usage, health, rows, results, actions, title, now, onOpen }: 
           </div>
         )}
         <div className="flex flex-col gap-2">
-          {live.map((j) => {
-            const s = started.get(j.correlation_id)
-            const a = action.get(j.correlation_id)
-            const since = s?.at ?? a?.dispatched_at_ms
-            const sid = s?.session ?? a?.session_id
-            const lim = memLimit(j)
+          {live.map(({ correlation_id: cid, cgroup: j }) => {
+            const s = started.get(cid)
+            const a = action.get(cid)
+            const run = running.get(cid)
+            const argv = s?.argv ?? run?.argv
+            const since = s?.at ?? run?.started_at_ms ?? a?.dispatched_at_ms
+            const sid = s?.session ?? run?.session_id ?? a?.session_id
+            const lim = j ? memLimit(j) : undefined
             return (
-              <button type="button" key={j.correlation_id} onClick={() => sid && onOpen(sid, j.correlation_id)}
+              <button type="button" key={cid} onClick={() => sid && onOpen(sid, cid)}
                 className="flex items-center gap-3 rounded-lg bg-[#5eead4]/[0.05] px-3 py-2 text-left ring-1 ring-[#5eead4]/30 hover:bg-[#5eead4]/[0.08]">
-                <Gauge value={j.memory_bytes} max={lim} label="memory" text={`${bytes(j.memory_bytes)}${lim ? ` of ${bytes(lim)}` : ''}`} peak={j.memory_peak} />
-                <Gauge value={j.pids} max={j.pids_max ?? health?.sandbox?.pids} label="processes" text={`${j.pids}${j.pids_max ? ` of ${j.pids_max}` : ''}`} />
+                {j && <Gauge value={j.memory_bytes} max={lim} label="memory" text={`${bytes(j.memory_bytes)}${lim ? ` of ${bytes(lim)}` : ''}`} peak={j.memory_peak} />}
+                {j && <Gauge value={j.pids} max={j.pids_max ?? health?.sandbox?.pids} label="processes" text={`${j.pids}${j.pids_max ? ` of ${j.pids_max}` : ''}`} />}
                 <div className="min-w-0 flex-1">
-                  <div className="num truncate text-[12px] text-ink" title={s?.argv.join(' ')}>
-                    {s ? s.argv.join(' ') : <>{a?.tool ?? 'a job'} <span className="text-ink-faint">· its command arrives with its turn&rsquo;s next frame</span></>}
+                  <div className="num truncate text-[12px] text-ink" title={argv?.join(' ')}>
+                    {argv ? argv.join(' ') : <>{a?.tool ?? 'a job'} <span className="text-ink-faint">· its command is not read yet</span></>}
                   </div>
-                  <div className="num text-[11px] text-ink-faint">{sid ? title(sid) : short(j.correlation_id)}{since ? ` · running ${ms(now - since)}` : ''} · {short(j.correlation_id)}</div>
-                  {j.pids_refused > 0 && <div className="num text-[11px] text-fault">{j.pids_refused} forks refused at the limit</div>}
+                  <div className="num text-[11px] text-ink-faint">{sid ? title(sid) : short(cid)}{since ? ` · running ${ms(now - since)}` : ''} · {short(cid)}</div>
+                  {!j && <div className="num text-[11px] text-ink-faint">no cgroup to read{usage?.why ? `: ${usage.why}` : ''}</div>}
+                  {j && j.pids_refused > 0 && <div className="num text-[11px] text-fault">{j.pids_refused} forks refused at the limit</div>}
                 </div>
               </button>
             )
