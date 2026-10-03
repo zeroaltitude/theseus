@@ -175,8 +175,9 @@ fn last_kernel_position(core: &Core) -> u64 {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_snapshot_and_the_events_agree_under_the_position_rule() {
     let r = rig();
+    let mut first = String::new();
     for _ in 0..4 {
-        turn(&r.core, None).await;
+        first = turn(&r.core, None).await;
     }
     assert!(
         !r.core.kernel.observed(),
@@ -197,17 +198,21 @@ async fn the_snapshot_and_the_events_agree_under_the_position_rule() {
         t.await.unwrap();
     }
     assert!(r.core.kernel.observed());
+    // The observer hands each frame on as its commit returns, on the
+    // committing thread, so the board applies frames in the order their
+    // commits returned, not by position: under load a frame of one turn,
+    // at a lower position, can follow another turn's frame at the highest
+    // (theseus-amr2), and a board at the highest position has not yet
+    // applied it. One more turn, after every turn above has returned, on a
+    // session that has one, commits last: once the board has applied its
+    // last frame, which is the highest, it has applied every frame before.
+    turn(&r.core, Some(&first)).await;
     let last = last_kernel_position(&r.core);
-    for _ in 0..500 {
-        if r.core.push.status(0).position >= last {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert!(
-        r.core.push.status(0).position >= last,
-        "the board caught up"
-    );
+    let mut feed = r.core.push.feed();
+    tokio::time::timeout(Duration::from_secs(5), feed.wait_for(|p| *p >= last))
+        .await
+        .expect("the board caught up within 5 s")
+        .expect("the board's feed is open");
     // The board's own views, as a fresh client would get them.
     let (_, board, total) = r.core.push.snapshot(usize::MAX);
     assert_eq!(total as usize, board.len());
