@@ -28,11 +28,12 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroU64;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use theseus_core::voice::VoiceConfig;
+use theseus_core::voice::{SpeechCall, SpeechKind, VoiceConfig};
+use theseus_core::Core;
 use theseus_protocol::voice::VoiceStatus;
 use theseus_protocol::Event as CoreEvent;
 use theseus_protocol::{DiscordOrigin, LedgerKind, PlaceClass, TurnSubmitParams, TurnSubmitResult};
@@ -40,7 +41,8 @@ use theseus_voice::songbird::shards::TwilightMap;
 use theseus_voice::songbird::Songbird;
 use theseus_voice::{
     Command, Config as EngineConfig, DeepgramSettings, DeepgramSpeech, Engine, Event, Failure,
-    SongbirdIo, Speaker, SpeechError, Spoken, TurnId, Utterance,
+    SongbirdIo, Speaker, Speech, SpeechError, SpeechFuture, Spoken, Synthesis, Transcript, TurnId,
+    Utterance,
 };
 use tokio::sync::mpsc;
 use twilight_gateway::{Event as Gateway, Intents, Shard};
@@ -167,17 +169,6 @@ impl Voice {
             true => Intents::GUILD_VOICE_STATES,
             false => Intents::empty(),
         }
-    }
-
-    /// songbird's manager over the shard, with decoding on (the voice crate's
-    /// `manager()`): built with the shard, it spawns nothing.
-    pub(crate) fn attach(&self, shard: &Shard, me: Id<twilight_model::id::marker::UserMarker>) {
-        if !self.cfg.enabled {
-            return;
-        }
-        let senders = HashMap::from([(shard.id().number(), shard.sender())]);
-        let songbird = theseus_voice::manager(Arc::new(TwilightMap::new(senders)), me);
-        let _ = self.songbird.set(Arc::new(songbird));
     }
 
     /// A gateway event: a voice state keeps who is where, and songbird sees
@@ -438,8 +429,13 @@ impl Place {
                 }
             }
         }
+        let metered = Metered {
+            inner: speech,
+            core: Arc::downgrade(&shared.core),
+            key: place.key.clone(),
+        };
         let config = EngineConfig::new(place.users.iter().map(|&u| Speaker(u)));
-        let (engine, handle) = Engine::new(config, Box::new(io), Arc::new(speech));
+        let (engine, handle) = Engine::new(config, Box::new(io), Arc::new(metered));
         let serial = voice
             .calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -652,11 +648,21 @@ fn update(shared: &Shared, f: impl FnOnce(&mut VoiceStatus)) {
     shared.board.update(|b| b.voice = Some(status));
 }
 
-/// Health shows voice from the binding's start, when it is on.
-pub(super) fn show(shared: &Shared) {
-    if shared.voice.cfg.enabled {
-        update(shared, |_| {});
+/// With the gateway's shard, when voice is on: songbird's manager over it,
+/// decoding (the voice crate's `manager()`), which spawns nothing; and
+/// health's voice block, ready.
+pub(super) fn attach(
+    shared: &Shared,
+    shard: &Shard,
+    me: Id<twilight_model::id::marker::UserMarker>,
+) {
+    if !shared.voice.cfg.enabled {
+        return;
     }
+    let senders = HashMap::from([(shard.id().number(), shard.sender())]);
+    let songbird = theseus_voice::manager(Arc::new(TwilightMap::new(senders)), me);
+    let _ = shared.voice.songbird.set(Arc::new(songbird));
+    update(shared, |_| {});
 }
 
 /// A call ended: the board, its row, and, unless it was a `/leave`, a notice.
@@ -701,14 +707,41 @@ async fn pump(
                     }));
                 }
             }
-            Event::Utterance(u) => update(&shared, |s| {
-                s.utterances += 1;
-                s.heard_ms += u.length.as_millis() as u64;
-            }),
-            Event::Synthesized { usage, .. } => update(&shared, |s| {
-                s.sentences += 1;
-                s.spoken_chars += usage.chars as u64;
-            }),
+            Event::Utterance(u) => {
+                update(&shared, |s| {
+                    s.utterances += 1;
+                    s.heard_ms += u.length.as_millis() as u64;
+                });
+                let detail = json!({"speaker": u.speaker.0.to_string(),
+                    "empty": u.text.trim().is_empty()});
+                book(
+                    &shared,
+                    &place,
+                    SpeechKind::Transcribed,
+                    u.usage,
+                    u.latency,
+                    detail,
+                );
+            }
+            Event::Synthesized {
+                what,
+                usage,
+                latency,
+            } => {
+                update(&shared, |s| {
+                    s.sentences += 1;
+                    s.spoken_chars += usage.chars as u64;
+                });
+                let detail = json!({"what": spoken(what)});
+                book(
+                    &shared,
+                    &place,
+                    SpeechKind::Synthesized,
+                    usage,
+                    latency,
+                    detail,
+                );
+            }
             Event::BargeIn {
                 speaker,
                 what,
@@ -815,6 +848,107 @@ fn failed(shared: &Shared, serial: u64, place: &VoicePlace, what: &Failure, erro
             }
             shared.wake_lanes();
         }
+    }
+}
+
+/// Book a speech call to the voice place's session (45b), off the runtime's
+/// workers: a booking is a frame, so an fsync.
+fn book(
+    shared: &Arc<Shared>,
+    place: &VoicePlace,
+    kind: SpeechKind,
+    usage: theseus_voice::Usage,
+    latency: Duration,
+    detail: serde_json::Value,
+) {
+    let Some(sid) = session(shared, place) else {
+        return;
+    };
+    let shared = Arc::clone(shared);
+    tokio::task::spawn_blocking(move || {
+        let call = SpeechCall {
+            kind,
+            provider: &usage.provider,
+            model: &usage.model,
+            audio: usage.audio,
+            chars: usage.chars,
+            latency,
+            detail,
+        };
+        match shared.core.book_speech(&sid, &call) {
+            Ok(b) => {
+                if let Some(cost) = b.cost {
+                    update(&shared, |s| s.spend_micros += cost);
+                }
+            }
+            Err(e) => shared
+                .board
+                .error("book speech", Some(&sid), format!("{e:#}")),
+        }
+    });
+}
+
+/// Deepgram behind the session's spend limit (45b): a call whose estimate
+/// does not fit what the session may still spend is not made.
+struct Metered {
+    inner: DeepgramSpeech,
+    core: Weak<Core>,
+    /// The voice place's key: its session is read at each call.
+    key: String,
+}
+
+impl Metered {
+    fn fits(
+        &self,
+        kind: SpeechKind,
+        model: &str,
+        audio: Duration,
+        chars: usize,
+    ) -> Result<(), SpeechError> {
+        let Some(core) = self.core.upgrade() else {
+            return Err(SpeechError("the daemon is stopping".into()));
+        };
+        let call = SpeechCall {
+            kind,
+            provider: theseus_voice::deepgram::PROVIDER,
+            model,
+            audio,
+            chars,
+            latency: Duration::ZERO,
+            detail: serde_json::Value::Null,
+        };
+        let (Some(estimate), Ok(Some(sid))) = (call.cost(), core.outbox.place_session(&self.key))
+        else {
+            return Ok(());
+        };
+        core.speech_fits(&sid, estimate).map_err(SpeechError)
+    }
+}
+
+impl Speech for Metered {
+    fn transcribe<'a>(
+        &'a self,
+        speaker: Speaker,
+        audio: &'a theseus_voice::Audio,
+    ) -> SpeechFuture<'a, Transcript> {
+        Box::pin(async move {
+            let model = &self.inner.settings().stt_model;
+            self.fits(SpeechKind::Transcribed, model, audio.duration(), 0)?;
+            self.inner.transcribe(speaker, audio).await
+        })
+    }
+
+    fn synthesize<'a>(&'a self, text: &'a str) -> SpeechFuture<'a, Synthesis> {
+        Box::pin(async move {
+            let model = &self.inner.settings().tts_voice;
+            self.fits(
+                SpeechKind::Synthesized,
+                model,
+                Duration::ZERO,
+                text.chars().count(),
+            )?;
+            self.inner.synthesize(text).await
+        })
     }
 }
 
@@ -1153,11 +1287,144 @@ mod tests {
         );
     }
 
+    /// A core whose sessions may spend `limit_usd`, and a voice place on a
+    /// session opened there, bound to the lounge.
+    async fn spending(dir: &std::path::Path, limit_usd: f64) -> (Arc<Core>, Place, String) {
+        let core = core_with(dir, SecretBoard::empty(), |c| {
+            c.voice.enabled = true;
+            c.kernel.spend_limit_usd = limit_usd;
+        });
+        let (p, _rx) = place(&core, "ses_unused");
+        let info: theseus_protocol::SessionInfo = p
+            .shared
+            .rpc
+            .call(theseus_protocol::method::SESSION_OPEN, json!({}))
+            .await
+            .unwrap();
+        let sid = info.session_id;
+        core.outbox
+            .bind_place(&format!("channel:{LOUNGE}"), &sid)
+            .unwrap();
+        let (mut p, _rx) = place(&core, &sid);
+        p.key = format!("channel:{LOUNGE}");
+        (core, p, sid)
+    }
+
+    /// Speech is spend (45b): the engine's transcriptions and syntheses
+    /// become `speech.transcribed` and `speech.synthesized` rows, each with
+    /// its cost booked to the voice place's session, and health's voice
+    /// block counts the spend.
+    #[tokio::test]
+    async fn each_speech_call_is_a_row_with_its_cost_on_the_places_session() {
+        let d = tempfile::tempdir().unwrap();
+        let (core, p, sid) = spending(d.path(), 100.0).await;
+        let lounge = VoicePlace {
+            key: p.key.clone(),
+            label: "#lounge".into(),
+            users: vec![EDDIE],
+        };
+        let (tx, events) = mpsc::unbounded_channel();
+        let said = Usage {
+            provider: "deepgram".into(),
+            model: "aura-2-andromeda-en".into(),
+            audio: Duration::from_millis(2_160),
+            chars: 44,
+        };
+        // 3 s heard: 215 µ$; 44 characters said: 1,320 µ$.
+        let mut utterance = heard("What changed today?");
+        utterance.usage.audio = Duration::from_secs(3);
+        tx.send(Event::Utterance(utterance)).unwrap();
+        tx.send(Event::Synthesized {
+            what: Spoken::Reply(TurnId(0)),
+            usage: said,
+            latency: Duration::from_millis(1_034),
+        })
+        .unwrap();
+        drop(tx);
+        pump(Arc::clone(&p.shared), 1, lounge, events).await;
+        // The bookings run off the runtime's workers: wait for both rows.
+        let rows = |kind: &str| {
+            let tail: Vec<(u64, theseus_core::ledger::LedgerRow)> =
+                core.store.ledger_tail(200).unwrap();
+            tail.into_iter()
+                .filter(|(_, r)| r.kind == kind && r.session_id.as_deref() == Some(sid.as_str()))
+                .map(|(_, r)| r.data)
+                .collect::<Vec<_>>()
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while rows("speech.synthesized").is_empty() || rows("speech.transcribed").is_empty() {
+            assert!(std::time::Instant::now() < deadline, "the bookings came");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let t = &rows("speech.transcribed")[0];
+        assert_eq!(
+            (t["model"].as_str(), t["cost_usd"].as_f64()),
+            (Some("nova-3"), Some(0.000215))
+        );
+        assert_eq!(t["speaker"], EDDIE.to_string());
+        let s = &rows("speech.synthesized")[0];
+        assert_eq!(s["cost_usd"].as_f64(), Some(0.00132));
+        assert_eq!(
+            (s["chars"].as_u64(), s["what"].as_str()),
+            (Some(44), Some("reply 0"))
+        );
+        let rec: theseus_core::session::SessionRecord =
+            core.store.get_session(&sid).unwrap().unwrap();
+        let e = core
+            .kernel
+            .execution(rec.execution_id.as_deref().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(e.budget.spent_micros, 1_535);
+        let status = p.shared.voice.status();
+        assert_eq!(
+            (status.utterances, status.sentences, status.spend_micros),
+            (1, 1, 1_535)
+        );
+    }
+
+    /// A speech call that would pass the session's limit is not made: the
+    /// engine gets a `SpeechError` that says how to go on, and Deepgram is
+    /// never asked (its address here is a closed port, bounded).
+    #[tokio::test]
+    async fn a_call_past_the_sessions_limit_is_not_made() {
+        let d = tempfile::tempdir().unwrap();
+        let (core, p, _sid) = spending(d.path(), 0.0).await;
+        let settings = DeepgramSettings {
+            api_base: "http://127.0.0.1:9".into(),
+            connect_timeout: Duration::from_millis(500),
+            timeout: Duration::from_secs(1),
+            ..DeepgramSettings::default()
+        };
+        let metered = Metered {
+            inner: DeepgramSpeech::new("tv-deepgram-7f3a9c", settings).unwrap(),
+            core: Arc::downgrade(&core),
+            key: p.key.clone(),
+        };
+        let t0 = std::time::Instant::now();
+        let e = metered
+            .synthesize("The deploy finished.")
+            .await
+            .unwrap_err();
+        assert!(e.0.contains("at its spend limit"), "{e}");
+        let audio = theseus_voice::Audio::silence(Duration::from_secs(2));
+        let e = metered
+            .transcribe(Speaker(EDDIE), &audio)
+            .await
+            .unwrap_err();
+        assert!(e.0.contains("reset its spend to go on"), "{e}");
+        assert!(t0.elapsed() < Duration::from_millis(400), "never sent");
+    }
+
     #[test]
     fn join_names_a_voice_channel_and_leave_nothing() {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["join", "leave"]);
+        // The binding registers them after its own eight.
+        let all = super::super::commands();
+        let last: Vec<&str> = all[8..].iter().map(|c| c.name.as_str()).collect();
+        assert_eq!((all.len(), last), (10, vec!["join", "leave"]));
         let join = &cmds[0];
         assert_eq!(join.options.len(), 1);
         assert_eq!(join.options[0].name, "channel");

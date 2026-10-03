@@ -20,6 +20,7 @@ mod locks;
 pub mod outbox;
 pub mod redact;
 mod reopen;
+pub mod spend;
 pub mod spool;
 pub mod stops;
 pub mod tasks;

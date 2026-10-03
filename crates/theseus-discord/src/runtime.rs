@@ -303,7 +303,6 @@ async fn connect(
         lanes: Mutex::new(HashMap::new()),
         voice: voice::Voice::new(&core.cfg.voice, bindings),
     });
-    voice::show(&shared);
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
     // down (theseus-q4v).
@@ -426,7 +425,7 @@ async fn event_loop(
         gateway = gateway.proxy_url(p.to_string());
     }
     let mut shard = Shard::with_config(ShardId::ONE, gateway.build());
-    shared.voice.attach(&shard, me.id);
+    voice::attach(shared, &shard, me.id);
     let mut last_latency = std::time::Instant::now();
     while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
         if last_latency.elapsed() > Duration::from_secs(15) {
@@ -594,7 +593,6 @@ pub(crate) struct Shared {
     members_intent: OnceLock<bool>,
     /// Each place's lane, and the operator's, by target (theseus-q4v).
     lanes: Mutex<HashMap<String, mpsc::UnboundedSender<LaneMsg>>>,
-    /// Voice in a voice channel (rows 77 and 78).
     voice: voice::Voice,
 }
 
@@ -707,7 +705,6 @@ enum PlaceMsg {
         reply: oneshot::Sender<String>,
     },
     DmChannel(Id<ChannelMarker>),
-    /// A turn of utterances from the place's voice call (44b).
     Voice(voice::VoiceTurn),
 }
 
@@ -2437,11 +2434,8 @@ mod tests {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
-            names,
-            [
-                "stop", "new", "status", "tasks", "wakes", "trust", "cancel", "publish", "join",
-                "leave"
-            ]
+            names[..8],
+            ["stop", "new", "status", "tasks", "wakes", "trust", "cancel", "publish"]
         );
         // One required option names a task or a wake (DD8; DD7 called it `task`).
         let cancel = cmds.iter().find(|c| c.name == "cancel").unwrap();

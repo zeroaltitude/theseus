@@ -141,6 +141,8 @@ ledger_kinds! {
     SessionExternalRead = "session.external_read",
     SessionOpened = "session.opened",
     SessionTrusted = "session.trusted",
+    SpeechSynthesized = "speech.synthesized",
+    SpeechTranscribed = "speech.transcribed",
     SpoolSwept = "spool.swept",
     StartupStep = "startup.step",
     StoreCorrupt = "store.corrupt",
