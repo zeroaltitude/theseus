@@ -47,3 +47,10 @@ retries = 2
 [[profile.default.overrides]]
 filter = 'package(theseus-core) & test(=webui::tests::the_dev_origins_uses_are_counted_and_ledgered_at_most_once_a_span)'
 retries = 2
+#
+# theseus-56r7 too: the refusals' burst test has the same 300 ms span of the wall clock; under
+# load its later burst landed in the earlier span and wrote 4 rows, not 5 (18a's join gate,
+# 2026-10-02 18:29).
+[[profile.default.overrides]]
+filter = 'package(theseus-core) & test(=webui::tests::a_burst_of_refusals_is_counted_and_ledgered_at_most_once_a_span)'
+retries = 2
