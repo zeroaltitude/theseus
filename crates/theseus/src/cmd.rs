@@ -1002,6 +1002,21 @@ pub async fn graduate(
     })
 }
 
+/// `theseus places` (the place rule, theseus-nbsh): health's places, a
+/// line each.
+pub async fn places(conn: &mut Conn, json: bool) -> Result<()> {
+    let h: HealthResult = serde_json::from_value(conn.request(method::HEALTH, Value::Null).await?)?;
+    let places = h.places.unwrap_or_default();
+    if json {
+        println!("{}", serde_json::to_string(&places)?);
+        return Ok(());
+    }
+    for line in render::places_lines(&places) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
 /// `theseus labels [SESSION]` (M4 19a): the session's audience as its
 /// current compilation was made for it, what the model may say to whom, what
 /// its prefix withheld, and each node's label. Reads `session.history` and

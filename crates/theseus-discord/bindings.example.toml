@@ -15,6 +15,9 @@ id = "000000000000000000"          # a text channel in that guild
 name = "theseus"                   # a label for health, the web UI, and the session
 users = ["000000000000000000"]     # who may drive turns and press Approve here
 mention_only = true                # answer only when @mentioned or replied to; false for a channel of its own
+private = false                    # true: only you can view it, so it gets everything, as your DM does.
+                                   # false (shared): its own conversation, the public tools, files only
+                                   # under [labels] public_paths, no proc_run or AWS
 
 [[dm]]
 user = "000000000000000000"        # who may talk to Theseus in direct messages

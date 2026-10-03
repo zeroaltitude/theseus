@@ -57,6 +57,49 @@ impl Core {
         );
     }
 
+    /// The Discord binding's places, from its bindings file (the place rule,
+    /// theseus-nbsh): each one's class follows from them. Told as the binding
+    /// starts, before it reads a message from any of them; until then a guild
+    /// place is shared.
+    pub fn bind_places(&self, places: Vec<crate::places::BoundPlace>) {
+        self.runner.place_rule.bind(places);
+    }
+
+    /// Who can view a guild channel bound `private = true`, as the binding
+    /// read it at its start (the place rule's one check): everyone who can,
+    /// the bot aside, by id and name, or why that cannot be read. Health
+    /// warns while anyone besides the owner can; recorded once a start.
+    pub fn private_place_viewed(
+        &self,
+        channel: u64,
+        name: &str,
+        viewers: std::result::Result<Vec<(u64, String)>, String>,
+    ) {
+        let owners = self.cfg.owners();
+        let viewed = match viewers {
+            Ok(v) => crate::places::Viewed::Others(
+                v.into_iter()
+                    .filter(|(id, _)| !owners.contains(&format!("discord:{id}")))
+                    .map(|(_, name)| name)
+                    .collect(),
+            ),
+            Err(why) => crate::places::Viewed::Unread(why),
+        };
+        let place = format!("discord:channel:{channel}");
+        if let crate::places::Viewed::Others(o) = &viewed {
+            if !o.is_empty() {
+                tracing::warn!(place, others = ?o,
+                    "a channel bound private can be viewed by people besides the owner");
+            }
+        }
+        self.rec(None).record(&crate::fact::place::PlaceViewed {
+            place: &place,
+            name,
+            viewed: &viewed,
+        });
+        self.runner.place_rule.viewed(&place, viewed);
+    }
+
     /// The Discord binding read who can view a guild channel (M4 19a): the
     /// audience of the session there. `viewers` is every member who can view
     /// it, the bot aside, or None when they cannot be read (`why`), and then

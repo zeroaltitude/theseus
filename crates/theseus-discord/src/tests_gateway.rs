@@ -29,7 +29,7 @@ const ANA_DM: u64 = ANA + 1;
 fn bindings() -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
-         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\n\
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n\
          [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
     )
 }
@@ -630,4 +630,32 @@ async fn an_unreadable_audience_at_post_time_counts_as_public() {
     let held = &r.ledger("label.held_post")[0];
     assert!(held["audience"].get("viewers").is_none(), "public: {held}");
     assert!(!said_in(&r, LAB, "4417"));
+}
+
+/// The place rule's one check (theseus-nbsh): `#lab` is bound private, so
+/// the binding reads who can view it once, as it starts. When cy, who is not
+/// an owner, can view it, health names cy; when only ana and ben (the
+/// owners) can, nobody.
+#[tokio::test]
+async fn a_channel_bound_private_is_read_at_the_start_and_an_outsider_named() {
+    for (open, others) in [(true, vec!["cy".to_string()]), (false, vec![])] {
+        let r = Rig::start(|_| vec![], open).await;
+        let lab = format!("discord:channel:{LAB}");
+        let viewed = || {
+            r.core
+                .health()
+                .places
+                .and_then(|h| h.places.into_iter().find(|p| p.place == lab))
+                .and_then(|p| p.others)
+        };
+        r.until("#lab's viewers read", || viewed().is_some()).await;
+        assert_eq!(viewed().unwrap(), others, "open: {open}");
+        let class = r.core.health().places.unwrap().places;
+        assert!(
+            class
+                .iter()
+                .any(|p| p.place == lab && p.class == theseus_core::places::PlaceClass::Private),
+            "{class:?}"
+        );
+    }
 }

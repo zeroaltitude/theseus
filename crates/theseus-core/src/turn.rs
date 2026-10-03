@@ -116,6 +116,9 @@ pub struct TurnRunner {
     /// Who can view each place, as the bindings last read it (M4 19a): a
     /// guild channel's session's audience.
     pub places: crate::labels::Places,
+    /// Each place's class (the place rule, theseus-nbsh): the places the
+    /// binding binds, as it told the core at its start.
+    pub place_rule: crate::places::PlaceRule,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -676,9 +679,14 @@ impl TurnRunner {
     /// without files. Deterministic for a config and the files' contents; a
     /// change is a `system_changed` recompile. Nothing retractable belongs in
     /// the header (Appendix F, theseus-3nk): it is every session's prefix.
-    pub fn system_blocks(&self, target: &Target, files: &[ContextFile]) -> (String, String) {
+    pub fn system_blocks(
+        &self,
+        target: &Target,
+        files: &[ContextFile],
+        class: crate::places::PlaceClass,
+    ) -> (String, String) {
         let mut parts = vec![PERSONA.to_string()];
-        let note = self.tools.system_note();
+        let note = self.tools.system_note_for(class);
         if !note.is_empty() {
             parts.push(note);
         }
@@ -700,15 +708,21 @@ impl TurnRunner {
         target: &Target,
         kind: SessionKind,
         judge: Option<&crate::labels::Judge>,
+        class: crate::places::PlaceClass,
     ) -> (RequestSpec, Vec<Unreadable>) {
         let paths = self.cfg.context_paths(target.persona.as_deref());
         let (mut files, unreadable) = self.context_files.load(&paths);
+        // A shared place carries only the files marked public (the place
+        // rule): the rest are their headers and why.
+        if class == crate::places::PlaceClass::Shared {
+            crate::context_files::withhold_shared(&mut files);
+        }
         // A file the session's audience may not read is its header and why
         // (M4 19a): the spec, and so the audience, is fixed for the turn.
         if let Some(j) = judge {
             crate::context_files::withhold(&mut files, j);
         }
-        let (system_text, context_text) = self.system_blocks(target, &files);
+        let (system_text, context_text) = self.system_blocks(target, &files, class);
         let spec = RequestSpec {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
@@ -718,7 +732,7 @@ impl TurnRunner {
             context_text,
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
-            tools: self.tools.definitions(),
+            tools: self.tools.definitions_for(class),
             effort: target.effort,
             thinking_display: target.thinking_display,
             refusal_fallbacks: target.refusal_fallbacks,
@@ -730,6 +744,27 @@ impl TurnRunner {
             },
         };
         (spec, unreadable)
+    }
+
+    /// The class of the place a session's turn speaks in (the place rule,
+    /// theseus-nbsh): where its words go. That is the session's place (a
+    /// task's is its parent's, `outbox.target`), or, for a session no place
+    /// runs on any more (`/new`), the place its wakes and reports answer in
+    /// (theseus-4lx), the latest its takes kept. With neither, the CLI's or
+    /// the web UI's: private. Shared when where it goes cannot be read.
+    pub fn class_of(&self, session_id: &str) -> crate::places::PlaceClass {
+        let place = self.outbox.try_target(session_id).and_then(|t| match t {
+            Some(t) => Ok(Some(t)),
+            None => self.outbox.try_wake_target(session_id),
+        });
+        match place {
+            Ok(p) => self.place_rule.class(&self.cfg, p.as_deref()),
+            Err(e) => {
+                tracing::warn!(session_id, error = %format!("{e:#}"),
+                    "where a session speaks cannot be read: its turn is a shared place's");
+                crate::places::PlaceClass::Shared
+            }
+        }
     }
 
     /// A session's judge (M4 19a): its audience, from where it posts
@@ -1401,6 +1436,8 @@ impl TurnRunner {
             target: Some(&target),
             task: task_of.as_ref(),
             readers: None,
+            // Taken again once the turn has read its wakes and reports.
+            class: self.class_of(&sid),
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -1462,6 +1499,9 @@ impl TurnRunner {
 
         // 1. What happened while no turn was running.
         let caught_up = self.catch_up(t, input.is_some()).await?;
+        // Where the turn's words go, now that it has taken its wakes and
+        // reports: their place, when the session's own has moved on.
+        t.tc.class = self.class_of(sid);
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(text) = &input {
@@ -1503,7 +1543,7 @@ impl TurnRunner {
         // spec is: an audience that changes mid-turn applies at the next
         // turn's first loop, never between a call and its result.
         let judge = self.judge(sid, place.as_deref());
-        let (spec, unreadable) = self.request_spec(target, session.kind, Some(&judge));
+        let (spec, unreadable) = self.request_spec(target, session.kind, Some(&judge), t.tc.class);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");

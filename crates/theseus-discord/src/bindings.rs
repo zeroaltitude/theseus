@@ -35,6 +35,13 @@ pub struct ChannelBinding {
     /// should not get a turn per message.
     #[serde(default = "yes")]
     pub mention_only: bool,
+    /// The operator's word that only the owner can view it (the place rule,
+    /// theseus-nbsh): its session gets everything, as a DM with the owner
+    /// does. Off by default: a guild channel is a shared place, with the
+    /// public tools alone. Read once at the binding's start, and health warns
+    /// when anyone besides the owner can view it.
+    #[serde(default)]
+    pub private: bool,
 }
 
 fn yes() -> bool {
@@ -112,6 +119,10 @@ mod tests {
         assert_eq!(b.dm.len(), 1);
         assert_eq!(b.channel[0].label(), "#theseus");
         assert!(b.channel[0].mention_only, "mention_only defaults on");
+        assert!(
+            !b.channel[0].private,
+            "a channel is shared unless bound private"
+        );
         assert_eq!(b.dm[0].label(), "DM @eddie");
         assert_eq!(b.revision.len(), 12);
     }

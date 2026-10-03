@@ -463,7 +463,7 @@ async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_bot
         })
     });
     let bindings = format!(
-        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"general\"\nusers = [\"{USER}\"]\nmention_only = false\n",
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"general\"\nusers = [\"{USER}\"]\nmention_only = false\nprivate = true\n",
         dm_only()
     );
     let rpc = bind(&core, d.path(), &bindings).await;
@@ -618,7 +618,7 @@ async fn without_approval_a_channels_card_goes_to_the_dm_and_nothing_mentions_an
     )];
     let core = core_at(d.path(), &fake, script, |_| {});
     let bindings = format!(
-        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"lighthouse\"\nusers = [\"{USER}\", \"{OTHER}\"]\nmention_only = false\n",
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"lighthouse\"\nusers = [\"{USER}\", \"{OTHER}\"]\nmention_only = false\nprivate = true\n",
         dm_only()
     );
     let rpc = bind(&core, d.path(), &bindings).await;

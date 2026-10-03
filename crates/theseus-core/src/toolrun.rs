@@ -107,6 +107,10 @@ pub struct TurnCtx<'a> {
     /// the meet of what its compile admitted, which labels its call nodes
     /// and a task's brief. None outside a loop.
     pub readers: Option<&'a theseus_protocol::Readers>,
+    /// The class of the place the turn's words go to (the place rule,
+    /// theseus-nbsh), fixed once it has taken its wakes and reports: a
+    /// shared place's calls are only the public tools (`places::refusal`).
+    pub class: crate::places::PlaceClass,
 }
 
 impl TurnCtx<'_> {
@@ -264,6 +268,9 @@ pub struct ToolRuntime {
     pub stops: crate::cancel::Stops,
     /// `[labels] public_paths`, expanded (M4 19a): files anyone may read.
     pub public_paths: Vec<PathBuf>,
+    /// The same trees, canonical: all a shared place's file tools reach
+    /// (the place rule, theseus-nbsh).
+    pub public_roots: Vec<PathBuf>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -375,6 +382,7 @@ impl ToolRuntime {
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_paths: Vec::new(),
+            public_roots: Vec::new(),
         }
     }
 
@@ -440,19 +448,29 @@ impl ToolRuntime {
         self.registry.definitions(true)
     }
 
+    /// The tools a place of `class` is offered (the place rule): a shared
+    /// place's model never sees one it may not use.
+    pub fn definitions_for(&self, class: crate::places::PlaceClass) -> Vec<Value> {
+        self.registry.definitions_of(true, |name| {
+            crate::places::offered(class, name, &self.public_roots)
+        })
+    }
+
     /// The paragraph of the system prompt that describes the tools and their
-    /// limits. Deterministic for a given config, so it never churns the cache.
+    /// limits, for a private place. Deterministic for a given config, so it
+    /// never churns the cache.
     pub fn system_note(&self) -> String {
+        self.system_note_for(crate::places::PlaceClass::Private)
+    }
+
+    /// The tools paragraph for a place of `class`: a shared place's names only
+    /// the tools it is offered, and says what it may reach, and why (the place
+    /// rule). One per class, so it never churns the cache.
+    pub fn system_note_for(&self, class: crate::places::PlaceClass) -> String {
         if !self.enabled() {
             return String::new();
         }
-        let roots: Vec<String> = self
-            .ctx
-            .roots
-            .iter()
-            .map(|r| r.display().to_string())
-            .collect();
-        let allowed: Vec<String> = self.policy.allow_argv.iter().map(|a| a.join(" ")).collect();
+        let offered = |n: &str| crate::places::offered(class, n, &self.public_roots);
         // Each tool's posture, grouped in ladder order: "open: fs.glob, …; notify: …".
         let postures: Vec<String> = crate::policy::Posture::ALL
             .iter()
@@ -461,11 +479,34 @@ impl ToolRuntime {
                     .registry
                     .all()
                     .map(|t| t.name())
-                    .filter(|n| self.policy.posture(n).0 == *p)
+                    .filter(|n| offered(n) && self.policy.posture(n).0 == *p)
                     .collect();
                 (!names.is_empty()).then(|| format!("{}: {}", p.as_str(), names.join(", ")))
             })
             .collect();
+        if class == crate::places::PlaceClass::Shared {
+            let files = match self.public_roots.is_empty() {
+                true => "no files".to_string(),
+                false => format!(
+                    "files only under {} (give their absolute paths)",
+                    crate::places::shown(&self.public_roots)
+                ),
+            };
+            return format!(
+                "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
+                 - This place is shared: people besides the operator read it. So you are offered only the public tools here, and {files}: nothing of the operator's own (their other files, programs, AWS) reaches this place.\n\
+                 - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.\n\
+                 - A declined call is final for that request: tell the operator and do not route around it.",
+                postures.join("; "),
+            );
+        }
+        let roots: Vec<String> = self
+            .ctx
+            .roots
+            .iter()
+            .map(|r| r.display().to_string())
+            .collect();
+        let allowed: Vec<String> = self.policy.allow_argv.iter().map(|a| a.join(" ")).collect();
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
              - Workspace roots: {}. Reading or running a program outside them, or touching a path on the operator's approve list, waits for the operator's approval; a write outside them takes its tool's posture, as inside.\n\
@@ -926,7 +967,17 @@ impl ToolRuntime {
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
         let mut proposal = self.proposal_for(tool, &call.input);
         let tightened = self.tightened.get(tool.name());
-        let planned = tool.plan(&call.input, &self.ctx).map(|plan| {
+        let planned = tool.plan(&call.input, &self.ctx);
+        // A shared place's call reaches only what the place may (the place
+        // rule): the catalog offers nothing else, and this refuses it, in case.
+        let refused = planned.as_ref().ok().and_then(|plan| {
+            crate::places::refusal(tc.class, tool.name(), plan, &self.public_roots)
+        });
+        let planned = match &refused {
+            Some(why) => Err(why.clone()),
+            None => planned,
+        };
+        let planned = planned.map(|plan| {
             let t = tightened.as_ref().map(crate::tighten::as_tightened);
             let (decision, job_class) = sandbox::decide(self, tool, &plan, &call.input, t);
             // After the whole order (theseus-9bp): a call that acts in a
@@ -951,7 +1002,10 @@ impl ToolRuntime {
         let result = match &planned {
             Err(e) => GateResult {
                 gate: "deny".into(),
-                reason: Some(format!("validation: {e}")),
+                reason: Some(match refused {
+                    Some(_) => format!("{PLACE_REFUSAL}: {e}"),
+                    None => format!("validation: {e}"),
+                }),
                 by: None,
             },
             Ok((_, d, _)) if d.posture == Posture::Approve => GateResult {
@@ -993,6 +1047,7 @@ impl ToolRuntime {
             Err(error) => Err(Invalid {
                 record: Box::new(record),
                 error,
+                refused: refused.is_some(),
             }),
         }
     }
@@ -1006,18 +1061,22 @@ impl ToolRuntime {
         tool: &str,
         bad: Invalid,
     ) -> Result<CallOutcome> {
-        let reason = format!("validation: {}", bad.error);
+        let (reason, text) = match bad.refused {
+            true => (
+                format!("{PLACE_REFUSAL}: {}", bad.error),
+                format!("Not run: {}", bad.error),
+            ),
+            false => (
+                format!("validation: {}", bad.error),
+                format!("Invalid input: {}", bad.error),
+            ),
+        };
         let call_node = Self::tool_call_node(tc, assistant_node, call, tool, None, *bad.record);
         let node = self.result_node(
             tc,
             ResultNode {
                 meta: json!({"reason": reason}),
-                ..ResultNode::new(
-                    &call.id,
-                    tool,
-                    ResultStatus::Error,
-                    format!("Invalid input: {}", bad.error),
-                )
+                ..ResultNode::new(&call.id, tool, ResultStatus::Error, text)
             },
         );
         tc.store.append(&[call_node.record()?, node.record()?])?;
@@ -1535,11 +1594,17 @@ pub(crate) struct Gated {
     pub(crate) class: sandbox::Bound,
 }
 
-/// A call whose input the toollet refused; its gate record is still stored.
+/// A call whose input the toollet refused, or that its place may not make
+/// (`refused`, the place rule); its gate record is still stored.
 struct Invalid {
     record: Box<GateRecord>,
     error: String,
+    refused: bool,
 }
+
+/// The gate record's reason, and the result's word, for a call its place
+/// may not make (the place rule, theseus-nbsh).
+pub const PLACE_REFUSAL: &str = "place";
 
 /// The last assistant message, and its `tool_use`s with no result yet.
 fn unanswered(nodes: &[(u64, Arc<Node>)]) -> Option<(&Node, Vec<ToolUse>)> {
@@ -1715,6 +1780,7 @@ pub fn build_runtime(
             .iter()
             .map(|p| crate::config::expand(p))
             .collect(),
+        public_roots: crate::places::public_roots(cfg),
     })
 }
 

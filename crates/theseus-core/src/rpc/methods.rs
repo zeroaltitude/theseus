@@ -104,6 +104,7 @@ impl Core {
                 held: self.held_health(),
                 ..self.runner.places.health(&self.cfg.owners())
             }),
+            places: Some(self.runner.place_rule.health(&self.cfg)),
         }
     }
 

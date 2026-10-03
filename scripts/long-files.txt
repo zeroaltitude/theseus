@@ -9,7 +9,7 @@ crates/theseus-discord/src/runtime.rs 3500 the Discord binding's runtime in one 
 crates/theseus-core/src/turn.rs 3500 the turn loop; C2 and C6 reshape it
 crates/theseus-core/src/config.rs 2910 the config's types and checks; past 2,500 at AWS C1's join (its [aws] tables), split it: theseus-sk47; raised from 2900 at the integrity lane for [policy] external_programs (theseus-b5cl; its matching and its test are in external.rs)
 crates/theseus-kernel/src/kernel.rs 3030 every kernel transition; C6 reshapes it; raised from 3000 at robust2 for 3ebd's reopen in startup (its logic is reopen.rs), and from 3010 at robust3 for holds_turn (0o8) and the budget question's reset fields (6g6) (its stop_call is in stops.rs)
-crates/theseus/src/render.rs 3100 the CLI's renderer (review 2, C3 types it); raised from 2900 at AWS C1's join, split it: theseus-wdcw
+crates/theseus/src/render.rs 3102 the CLI's renderer (review 2, C3 types it); raised from 2900 at AWS C1's join, and from 3100 at the place rule's first commit for health's places line beside the labels' line, which its next commit removes; split it: theseus-wdcw
 crates/theseus-discord/src/render.rs 2930 the Discord renderer (review 2, C3 types it); raised from 2800 at 18a for the stopped line's verified note and its test (the note is theseus_protocol::cancel::note), and from 2810 at 19c for a guild channel's quiet loops and their test (the rule is theseus_core::labels::fits_any_audience)
 crates/theseus-index/src/vectors.rs 2650 the vector lane's engine, merged ahead of its reader
 crates/theseus-protocol/src/lib.rs 2600 every wire type the modules do not hold; past 2,500 at row 51's join (health's index block, the children's tenders), split it: theseus-pf8a

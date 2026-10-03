@@ -425,18 +425,23 @@ impl Outbox {
     /// Where a session's posts go, if anywhere: its place's, or, for a task,
     /// where it reports (DD7).
     pub fn target(&self, session_id: &str) -> Option<String> {
-        match self.with(|ix| {
-            ix.targets
-                .get(session_id)
-                .or_else(|| ix.tasks.get(session_id))
-                .cloned()
-        }) {
+        match self.try_target(session_id) {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "outbox unreadable: a post has nowhere to go");
                 None
             }
         }
+    }
+
+    /// `target`, with the error when the outbox cannot be read.
+    pub fn try_target(&self, session_id: &str) -> Result<Option<String>> {
+        self.with(|ix| {
+            ix.targets
+                .get(session_id)
+                .or_else(|| ix.tasks.get(session_id))
+                .cloned()
+        })
     }
 
     /// The session a place runs on (`dm:<user>`, `channel:<id>`), from its
@@ -482,10 +487,13 @@ impl Outbox {
 
     /// What `wake_target_record` last wrote for `session_id`.
     pub fn wake_target(&self, session_id: &str) -> Option<String> {
+        self.try_wake_target(session_id).ok().flatten()
+    }
+
+    /// `wake_target`, with the error when the store cannot be read.
+    pub fn try_wake_target(&self, session_id: &str) -> Result<Option<String>> {
         self.store
             .get_meta::<String>(&format!("{WAKE_TARGET_PREFIX}{session_id}"))
-            .ok()
-            .flatten()
     }
 
     /// A task's record is written: its posts go to `target` from now on.

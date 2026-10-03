@@ -159,8 +159,9 @@ impl Fact for InvalidJson<'_> {
     }
 }
 
-/// The toollet refused a call's input, so it does not run
-/// (`tool.invalid_input`, with the reason and the input).
+/// The toollet refused a call's input, or its place may not make it (the
+/// place rule: a reason `place: …`), so it does not run (`tool.invalid_input`,
+/// with the reason and the input).
 pub struct InvalidInput<'a> {
     pub tool: &'a str,
     pub call: &'a ToolUse,
@@ -175,10 +176,12 @@ impl Fact for InvalidInput<'_> {
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
-        say.line(
-            Tool,
-            format!("{}: the input is invalid, so it does not run.", self.tool),
-        );
+        let place = format!("{}: ", crate::toolrun::PLACE_REFUSAL);
+        let why = match self.reason.starts_with(&place) {
+            true => "this place is shared, and the call reaches past what a shared place may",
+            false => "the input is invalid",
+        };
+        say.line(Tool, format!("{}: {why}, so it does not run.", self.tool));
     }
 }
 

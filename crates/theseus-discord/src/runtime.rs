@@ -162,12 +162,30 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
         s.guild_id = Some(bindings.guild_id.clone());
         s.revision = Some(bindings.revision.clone());
     });
+    // Each place's class follows from the file (the place rule): told now,
+    // before any message from them is read.
+    core.bind_places(bound_places(&bindings));
     let Some(token) = bot_token(&core, &cfg.token_secret, &board).await else {
         return;
     };
     if let Err(e) = serve(core, cfg, token, bindings, board.clone()).await {
         board.state("failed", Some(format!("{e:#}")));
     }
+}
+
+/// The places the file binds, as the place rule takes them.
+fn bound_places(b: &Bindings) -> Vec<theseus_core::places::BoundPlace> {
+    let channels = b.channel.iter().map(|c| theseus_core::places::BoundPlace {
+        target: format!("discord:channel:{}", c.id),
+        name: c.label(),
+        private: c.private,
+    });
+    let dms = b.dm.iter().map(|d| theseus_core::places::BoundPlace {
+        target: format!("discord:dm:{}", d.user),
+        name: d.label(),
+        private: false,
+    });
+    channels.chain(dms).collect()
 }
 
 /// The bot token, once the vault gives it. Fail closed: the binding never
@@ -363,7 +381,18 @@ async fn start_places(
     // Who can view each guild channel `[approval]` lists, for health and for
     // the first answer; each card and each answer checks again.
     let checks = shared.clone();
+    let private: Vec<(u64, String)> = bindings
+        .channel
+        .iter()
+        .filter(|c| c.private)
+        .filter_map(|c| Some((c.id.parse().ok()?, c.label())))
+        .collect();
     tokio::spawn(async move {
+        // Each channel bound `private = true`, read once (the place rule):
+        // health warns when anyone besides the owner can view it.
+        for (c, name) in &private {
+            checks.check_private(*c, name).await;
+        }
         let listed = checks.core.approval.discord_channels();
         for c in &listed {
             checks.check_channel(*c).await;

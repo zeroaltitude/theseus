@@ -3825,10 +3825,12 @@ async fn a_task_caches_its_own_conversation_for_five_minutes() {
     // As a profile with `cache_ttl = "1h"` resolves (config's tests parse one).
     target.cache_ttl = crate::config::CacheTtl::OneHour;
     let hour = json!({"type": "ephemeral", "ttl": "1h"});
-    let (spec, _) = r
-        .core
-        .runner
-        .request_spec(&target, SessionKind::Conversation, None);
+    let (spec, _) = r.core.runner.request_spec(
+        &target,
+        SessionKind::Conversation,
+        None,
+        crate::places::PlaceClass::Private,
+    );
     assert_eq!(
         (spec.cache_ttl, spec.conversation_ttl),
         (
@@ -3836,7 +3838,12 @@ async fn a_task_caches_its_own_conversation_for_five_minutes() {
             crate::config::CacheTtl::OneHour
         )
     );
-    let (task, _) = r.core.runner.request_spec(&target, SessionKind::Task, None);
+    let (task, _) = r.core.runner.request_spec(
+        &target,
+        SessionKind::Task,
+        None,
+        crate::places::PlaceClass::Private,
+    );
     assert_eq!(task.conversation_ttl, crate::config::CacheTtl::FiveMinutes);
     assert_eq!(task.cache_ttl, crate::config::CacheTtl::OneHour);
     let res = turn_on(&r.core, target, "for an hour").await;
@@ -7773,6 +7780,12 @@ async fn a_card_is_written_with_its_question_and_settled_by_its_answer() {
         &[("t1", "fs_write", json!({"path": "a.txt", "content": "x"}))],
     )]);
     let sid = bound(&r.core, "channel:7");
+    // A write runs only where the place is private (the place rule).
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:channel:7".into(),
+        name: "#7".into(),
+        private: true,
+    }]);
     let res = turn(&r.core, Some(&sid), "write a").await;
     let q = res.awaiting_confirm.expect("the write waits");
     let p = posts(&r.core, "discord:channel:7");

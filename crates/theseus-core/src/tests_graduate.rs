@@ -58,6 +58,12 @@ fn lab_session(core: &Core) -> String {
     core.outbox
         .bind_place(&format!("channel:{LAB}"), &r.session_id)
         .unwrap();
+    // Bound private (the place rule), so its labels alone judge it.
+    core.bind_places(vec![crate::places::BoundPlace {
+        target: format!("discord:channel:{LAB}"),
+        name: "#lab".into(),
+        private: true,
+    }]);
     core.place_viewers(LAB, Some("lab".into()), Some(vec![OWNER, ALICE]), None);
     r.session_id
 }

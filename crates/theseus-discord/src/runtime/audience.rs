@@ -95,6 +95,21 @@ impl Shared {
         }
     }
 
+    /// Who can view a channel bound `private = true`, read once at the
+    /// binding's start (the place rule, theseus-nbsh), for health. Never
+    /// before a turn: the operator's word is trusted, and this checks it.
+    pub(crate) async fn check_private(&self, channel: u64, name: &str) {
+        let viewers = match self.members_intent().await {
+            false => Err(viewers::NO_INTENT_AUDIENCE.to_string()),
+            true => self
+                .view(channel)
+                .await
+                .map(|v| v.viewers.into_iter().map(|m| (m.id, m.name)).collect())
+                .map_err(|e| format!("{e:#}")),
+        };
+        self.core.private_place_viewed(channel, name, viewers);
+    }
+
     /// Every bound guild channel's audience, read again: a role or a channel
     /// changed (M4 19a).
     pub(crate) async fn read_audiences(&self) {

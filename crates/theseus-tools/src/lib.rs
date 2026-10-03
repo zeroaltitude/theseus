@@ -365,9 +365,15 @@ impl Registry {
     /// tool list sits at the front of the cached prefix). `eager` sets
     /// `eager_input_streaming` so large inputs stream as they are generated.
     pub fn definitions(&self, eager: bool) -> Vec<Value> {
+        self.definitions_of(eager, |_| true)
+    }
+
+    /// `definitions` of the tools whose names `keep` takes.
+    pub fn definitions_of(&self, eager: bool, keep: impl Fn(&str) -> bool) -> Vec<Value> {
         let mut v: Vec<(String, Value)> = self
             .tools
             .values()
+            .filter(|t| keep(t.name()))
             .map(|t| {
                 let mut d = json!({
                     "name": wire_name(t.name()),

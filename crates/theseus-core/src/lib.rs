@@ -40,6 +40,7 @@ pub mod node;
 pub mod outbound;
 pub mod outbox;
 pub mod peer;
+pub mod places;
 pub mod policy;
 pub mod provider;
 pub mod push;
@@ -124,6 +125,8 @@ mod tests_output;
 mod tests_outside_text;
 #[cfg(test)]
 mod tests_overflow;
+#[cfg(test)]
+mod tests_places;
 #[cfg(test)]
 mod tests_push;
 #[cfg(test)]

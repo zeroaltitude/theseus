@@ -16,6 +16,7 @@ import type { HarnessOnly } from "./HarnessOnly";
 import type { IndexHealth } from "./IndexHealth";
 import type { KernelStatus } from "./KernelStatus";
 import type { LabelsHealth } from "./LabelsHealth";
+import type { PlacesHealth } from "./PlacesHealth";
 import type { PushStatus } from "./PushStatus";
 import type { SandboxHealth } from "./SandboxHealth";
 import type { SecretsStatus } from "./SecretsStatus";
@@ -177,4 +178,8 @@ cancels?: Array<CancelCount>,
 /**
  * Labels (M4 19a): the owner, and each guild channel's audience.
  */
-labels?: LabelsHealth, };
+labels?: LabelsHealth, 
+/**
+ * The place rule (theseus-nbsh): each place and its class.
+ */
+places?: PlacesHealth, };

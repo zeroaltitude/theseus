@@ -120,6 +120,7 @@ ledger_kinds! {
     LabelWithheld = "label.withheld",
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",
+    PlaceViewed = "place.viewed",
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",
     ProfileChanged = "profile.changed",

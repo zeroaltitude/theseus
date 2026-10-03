@@ -445,7 +445,7 @@ fn config(theseusd: &Path, ends: &Ends<'_>, projects: &Path) -> Result<String> {
 pub fn bindings() -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
-         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\n\
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n\
          [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
     )
 }

@@ -17,6 +17,7 @@ mod health;
 pub mod index;
 mod label;
 mod ledger;
+mod places;
 mod push;
 pub mod sandbox;
 #[cfg(test)]
@@ -29,6 +30,7 @@ pub use health::*;
 pub use index::TenderStatus;
 pub use label::*;
 pub use ledger::*;
+pub use places::*;
 pub use push::*;
 
 use serde::{Deserialize, Serialize};
@@ -492,6 +494,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub labels: Option<LabelsHealth>,
+    /// The place rule (theseus-nbsh): each place and its class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub places: Option<PlacesHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

@@ -45,6 +45,7 @@ pub mod cancel;
 pub mod driver;
 pub mod index;
 pub mod label;
+pub mod place;
 pub mod sandbox;
 pub mod start;
 pub mod tool;
@@ -234,6 +235,7 @@ facts![
     label::Graduated<'static>,
     label::PostHeld<'static>,
     label::HeldPostAnswered<'static>,
+    place::PlaceViewed<'static>,
     turn::LoopStarted<'static>,
     turn::LoopCut<'static>,
     turn::LoopEnded<'static>,

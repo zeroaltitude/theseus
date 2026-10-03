@@ -293,6 +293,12 @@ async fn an_audience_change_recompiles_and_withholds_what_the_prefix_held() {
     let r = rig(script, |_, _| {});
     std::fs::write(r.root.join("hello.txt"), "the vault code is 4417\n").unwrap();
     let sid = session(&r.core, Some(&format!("channel:{LAB}")));
+    // Bound private (the place rule), so its labels alone judge it.
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: format!("discord:channel:{LAB}"),
+        name: "#lab".into(),
+        private: true,
+    }]);
     r.core
         .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER]), None);
     turn(&r.core, &sid, "read hello.txt", true).await;
@@ -377,17 +383,21 @@ async fn a_context_file_the_audience_may_not_read_is_withheld_with_its_reason() 
         .as_str()
         .unwrap()
         .to_string();
+    // The place rule withholds it first: the channel is not bound private.
     assert!(
         context.starts_with(&format!(
-            "# Context file (system): {own} — withheld: owner-only, and this session's audience \
-             is #lab (2 people)"
+            "# Context file (system): {own} — withheld: this place is shared, and the file is \
+             not marked readers = \"public\""
         )),
         "{context}"
     );
     assert!(!context.contains("4417"));
     assert!(context.contains("a public readme"));
     let m = &r.core.store.session_compilations(&sid).unwrap()[0].manifest;
-    assert_eq!(m.context_files[0].withheld.as_deref(), Some("owner-only"));
+    assert_eq!(
+        m.context_files[0].withheld.as_deref(),
+        Some(crate::context_files::SHARED_PLACE)
+    );
     assert_eq!(m.context_files[0].digest, None);
     assert_eq!(m.context_files[1].withheld, None);
     assert_eq!(m.context_files[1].readers, Some(Readers::Public));
@@ -412,6 +422,12 @@ async fn an_owner_only_context_file_makes_its_answer_the_owners_in_an_owner_only
     );
     std::fs::write(&own, "the vault code is 4417\n").unwrap();
     let sid = session(&r.core, Some(&format!("channel:{LAB}")));
+    // The place rule lets the owner's file in only where it is bound private.
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: format!("discord:channel:{LAB}"),
+        name: "#lab".into(),
+        private: true,
+    }]);
     r.core
         .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER]), None);
     turn(&r.core, &sid, "hi", true).await;

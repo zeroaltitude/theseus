@@ -229,6 +229,9 @@ impl ContextFiles {
 /// the owner's unless its entry says `readers = "public"`.
 pub fn withhold(files: &mut [ContextFile], judge: &crate::labels::Judge) {
     for f in files {
+        if f.file.withheld.is_some() {
+            continue;
+        }
         let readers = f
             .file
             .readers
@@ -249,6 +252,31 @@ pub fn withhold(files: &mut [ContextFile], judge: &crate::labels::Judge) {
         f.file.cut = false;
     }
 }
+
+/// Leave out each file a shared place may not carry (the place rule,
+/// theseus-nbsh): every file whose entry does not say `readers = "public"`.
+/// Its section becomes its header and why, and the manifest records it as
+/// withheld.
+pub fn withhold_shared(files: &mut [ContextFile]) {
+    for f in files {
+        let public = f.file.readers == Some(theseus_protocol::Readers::Public);
+        if public || f.file.withheld.is_some() {
+            continue;
+        }
+        f.section = format!(
+            "{} — withheld: this place is shared, and the file is not marked readers = \"public\"",
+            header(&f.file.path, f.file.persona.as_deref()),
+        );
+        f.file.withheld = Some(SHARED_PLACE.into());
+        f.file.digest = None;
+        f.file.bytes = 0;
+        f.file.cut = false;
+    }
+}
+
+/// Why a shared place's request left a context file out (the manifest's
+/// `withheld`).
+pub const SHARED_PLACE: &str = "not public, in a shared place";
 
 fn reason(e: &std::io::Error) -> String {
     match e.kind() {

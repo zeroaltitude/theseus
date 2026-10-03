@@ -578,6 +578,7 @@ impl Core {
             // Each place's viewers, read from META at a channel session's
             // first compile, never on the start path (FAST).
             places: Default::default(),
+            place_rule: Default::default(),
         };
         let telemetry_cell = std::sync::OnceLock::new();
         if let Some(t) = telemetry {
