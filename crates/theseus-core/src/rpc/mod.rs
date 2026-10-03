@@ -164,6 +164,10 @@ pub struct Parts {
     /// Toollets registered after the config's, so one may stand in for a
     /// built-in (tests: one that takes a known time). The daemon adds none.
     pub toollets: Vec<Arc<dyn theseus_tools::Tool>>,
+    /// The CPU pool's permits for the in-process toollets (tests: more than the
+    /// host's cores, so a test of seven calls at once holds on a four-core host).
+    /// The daemon sets none: a permit per core.
+    pub cpu_cores: Option<usize>,
 }
 
 const META_LIVE_PROFILE: &str = "live_profile";
@@ -235,6 +239,7 @@ impl Core {
             launcher,
             config_gate,
             toollets: vec![],
+            cpu_cores: None,
         })
     }
 
@@ -444,6 +449,7 @@ impl Core {
             launcher,
             config_gate,
             toollets,
+            cpu_cores,
         } = parts;
         let k0 = std::time::Instant::now();
         let cfg = Arc::new(cfg);
@@ -529,6 +535,9 @@ impl Core {
         )?;
         for t in toollets {
             tools.registry.register(t);
+        }
+        if let Some(n) = cpu_cores {
+            tools.cpu = crate::cpu::CpuPool::new(n);
         }
         let tools = Arc::new(tools);
         // "Should have asked" presses are the store's, not the config's.
@@ -981,6 +990,7 @@ impl Parts {
             launcher: Arc::new(crate::toolrun::InlineLauncher),
             config_gate: ConfigGate::file("test"),
             toollets: vec![],
+            cpu_cores: None,
         }
     }
 }

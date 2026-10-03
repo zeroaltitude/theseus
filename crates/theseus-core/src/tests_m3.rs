@@ -6047,9 +6047,36 @@ mod parallel {
     struct Timing {
         delay_ms: Mutex<HashMap<String, u64>>,
         runs: Mutex<Vec<(String, Instant, Instant)>>,
+        /// A rendezvous (theseus-i1i4): after `rendezvous(n)`, a run waits, once it has
+        /// started, until `n` runs have started in all, so none of those ends before
+        /// the `n` have begun. A dispatch that serializes the calls never gets there,
+        /// and the wait gives up after `RENDEZVOUS_WAIT`.
+        target: Mutex<usize>,
+        arrivals: Mutex<usize>,
+        arrived: std::sync::Condvar,
     }
 
+    /// How long a run waits for the rest of its batch before it goes on alone.
+    const RENDEZVOUS_WAIT: Duration = Duration::from_secs(4);
+
     impl Timing {
+        /// The next `n` runs to start wait for each other. Zero turns it off.
+        fn rendezvous(&self, n: usize) {
+            let at = *self.arrivals.lock().unwrap();
+            *self.target.lock().unwrap() = at + n;
+        }
+
+        fn arrive(&self) {
+            let target = *self.target.lock().unwrap();
+            let mut at = self.arrivals.lock().unwrap();
+            *at += 1;
+            self.arrived.notify_all();
+            let _ = self
+                .arrived
+                .wait_timeout_while(at, RENDEZVOUS_WAIT, |a| *a < target)
+                .unwrap();
+        }
+
         fn set(&self, delays: &[(&str, u64)]) {
             let mut d = self.delay_ms.lock().unwrap();
             for (k, ms) in delays {
@@ -6107,6 +6134,7 @@ mod parallel {
             let key = format!("{}:{on}", self.name);
             let ms = self.timing.delay_ms.lock().unwrap().get(&key).copied();
             let t0 = Instant::now();
+            self.timing.arrive();
             std::thread::sleep(Duration::from_millis(ms.unwrap_or(0)));
             let out = self.inner.run(input, ctx);
             self.timing
@@ -6197,7 +6225,7 @@ mod parallel {
             .collect();
         v.push(("t6".into(), "fs_grep", json!({"pattern": "alpha"})));
         v.push(("t7".into(), "fs_grep", json!({"pattern": "beta"})));
-        let r = rig_full(
+        let r = rig_parts(
             vec![
                 calls(&v),
                 Scripted::text("Read and searched."),
@@ -6205,20 +6233,25 @@ mod parallel {
                 Scripted::text("Read and searched."),
             ],
             |_| {},
-            vec![
-                slowed(
-                    "fs.read",
-                    ToolClass::Read,
-                    Arc::new(theseus_tools::fs::Read),
-                    &timing,
-                ),
-                slowed(
-                    "fs.grep",
-                    ToolClass::Read,
-                    Arc::new(theseus_tools::fs::Grep),
-                    &timing,
-                ),
-            ],
+            |p| {
+                // Seven calls at once need seven cores, whatever the host has: with fewer,
+                // the pool queues the rest and the order they finish in is its.
+                p.cpu_cores = Some(7);
+                p.toollets = vec![
+                    slowed(
+                        "fs.read",
+                        ToolClass::Read,
+                        Arc::new(theseus_tools::fs::Read),
+                        &timing,
+                    ),
+                    slowed(
+                        "fs.grep",
+                        ToolClass::Read,
+                        Arc::new(theseus_tools::fs::Grep),
+                        &timing,
+                    ),
+                ]
+            },
         );
         for i in 1..=5 {
             let text = format!("file {i}: alpha\nbeta {i}\n");
@@ -6240,32 +6273,41 @@ mod parallel {
             timing.set(&pairs);
         };
         set(&delays);
+        // No call may end before all seven have started: that is the overlap, made a fact
+        // of the test and not a race with the scheduler. A serial dispatch never
+        // gets the seven there, and its calls give up the wait and do not overlap.
+        let together = 7;
+        timing.rendezvous(together);
         let ask = "read r1.txt to r5.txt, and grep alpha and beta";
         let res = turn(&r.core, None, ask).await;
         assert_eq!((res.loops, res.tool_calls), (2, 7), "{res:?}");
 
-        // Every call started before any finished.
+        // The calls overlapped: at some instant, `together` of them were in flight.
         let runs: Vec<(Instant, Instant)> = keys.iter().map(|k| timing.of(k)).collect();
-        let last_start = runs.iter().map(|(a, _)| *a).max().unwrap();
-        let first_end = runs.iter().map(|(_, b)| *b).min().unwrap();
-        assert!(last_start < first_end, "the calls did not overlap");
-        // About the slowest call (900 ms), not the sum (3,500 ms).
+        let in_flight = |at: Instant| runs.iter().filter(|(a, b)| *a <= at && at < *b).count();
+        let most = runs.iter().map(|(a, _)| in_flight(*a)).max().unwrap();
+        assert!(most >= together, "{most} calls overlapped, not {together}");
+        // The slowest call (900 ms) is the floor. The ceiling is the sum of the delays
+        // (3,500 ms), which a serial run reaches, plus the rendezvous it gave up.
         let trace = res.trace.as_ref().unwrap();
         let tools = span(trace, 0, "tools");
         assert_eq!((tools.kind.as_str(), tools.children.len()), ("tools", 7));
         let took_ms = tools.duration_us() / 1000;
         assert!(
-            (900..1750).contains(&took_ms),
+            (900..3500).contains(&took_ms),
             "the calls took {took_ms} ms"
         );
-        let latest = tools.children.iter().map(|s| s.start_us).max().unwrap();
-        let earliest = tools
+        let spans_at = |at: u64| {
+            let live = |s: &&Span| s.start_us <= at && s.end_us.is_some_and(|e| at < e);
+            tools.children.iter().filter(live).count()
+        };
+        let most = tools
             .children
             .iter()
-            .filter_map(|s| s.end_us)
-            .min()
+            .map(|s| spans_at(s.start_us))
+            .max()
             .unwrap();
-        assert!(latest < earliest, "the spans overlap");
+        assert!(most >= together, "{most} spans overlap, not {together}");
 
         // Written as they finished: the fastest before the slowest...
         let sid = &res.session_id;
@@ -6278,6 +6320,7 @@ mod parallel {
 
         // The same calls finishing in call order: the same request, byte for byte.
         set(&[100, 150, 200, 250, 300, 350, 400]);
+        timing.rendezvous(together);
         let again = turn(&r.core, None, ask).await;
         assert_eq!(again.tool_calls, 7);
         let reqs = r.fake.requests();
