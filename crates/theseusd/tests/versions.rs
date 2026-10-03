@@ -645,3 +645,54 @@ fn the_history_check_after_serving_finds_a_corrupt_frame_and_says_so() {
         h["store"]
     );
 }
+
+/// Every start names the binary's build (theseus-9o5n): its version and the
+/// commit it was built from, constants of the binary. Health names the same
+/// one, and a restart of the same binary names it again, unchanged, so a
+/// reader of the ledger tells an install (a new build) from a restart. The
+/// fixture's own start, by an older binary, names none.
+#[test]
+fn each_start_names_its_build_and_a_restart_of_the_same_binary_names_the_same_one() {
+    let rig = Rig::new();
+    let started = |rig: &Rig, n: usize| -> Vec<Value> {
+        rig.wait(&format!("{n} server.started rows"), || {
+            let rows = rig.call("ledger.tail", json!({"n": 2000})).ok()?;
+            let builds: Vec<Value> = rows["rows"]
+                .as_array()?
+                .iter()
+                .filter(|r| r["kind"] == "server.started")
+                .map(|r| r["data"]["build"].clone())
+                .collect();
+            (builds.len() >= n && builds.last().is_some_and(|b| !b.is_null())).then_some(builds)
+        })
+    };
+    let mut d = rig.spawn();
+    let first = started(&rig, 1);
+    let n = first.len();
+    assert!(
+        first[..n - 1].iter().all(Value::is_null),
+        "the fixture's older binary named no build: {first:?}"
+    );
+    let build = first[n - 1].clone();
+    let commit = env!("THESEUS_COMMIT");
+    let mut want = json!({"version": env!("CARGO_PKG_VERSION")});
+    if !commit.is_empty() {
+        assert_eq!(commit.len(), 40, "a full commit: {commit}");
+        want["commit"] = json!(commit);
+    }
+    assert_eq!(build, want);
+    let h = rig.call("health", Value::Null).unwrap();
+    assert_eq!(h["build"], build, "health names the start's build");
+    let pid = d.id().to_string();
+    let sent = std::process::Command::new("kill")
+        .args(["-TERM", &pid])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+    let status = rig.wait("the stop", || d.try_wait());
+    assert!(status.success(), "{status}");
+    d = rig.spawn();
+    let second = started(&rig, n + 1);
+    assert_eq!(second[n], build, "the same binary, the same build");
+    drop(d);
+}

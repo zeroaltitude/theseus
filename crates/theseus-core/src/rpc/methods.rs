@@ -47,6 +47,7 @@ impl Core {
             name: crate::NAME.into(),
             version: crate::VERSION.into(),
             protocol: theseus_protocol::VERSION.into(),
+            build: crate::build(),
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: totals.sessions,
             turns: totals.turns,

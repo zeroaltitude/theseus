@@ -637,8 +637,9 @@ impl Core {
         Ok(core)
     }
 
-    /// Once the socket answers: the kernel's startup report
-    /// (`server.started`) and the start path's phases (`server.serving`),
+    /// Once the socket answers: the kernel's startup report and the binary's
+    /// build (`server.started`, theseus-9o5n) and the start path's phases
+    /// (`server.serving`),
     /// in one frame, off the start path (theseus-qa0). When the store's open
     /// found an index that was not a database, moved it aside, and built it
     /// again from the WAL, `store.index_replaced` says so in the same frame
@@ -655,7 +656,7 @@ impl Core {
                 LedgerKind::ServerStarted,
                 None,
                 None,
-                json!({"startup": self.startup_report}),
+                json!({"startup": self.startup_report, "build": crate::build()}),
             ),
             LedgerRow::new(
                 LedgerKind::ServerServing,

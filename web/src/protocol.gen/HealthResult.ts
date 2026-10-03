@@ -3,6 +3,7 @@ import type { ApprovalStatus } from "./ApprovalStatus";
 import type { AwsStatus } from "./AwsStatus";
 import type { BinaryStatus } from "./BinaryStatus";
 import type { BindingStatus } from "./BindingStatus";
+import type { Build } from "./Build";
 import type { CancelCount } from "./CancelCount";
 import type { ChildrenStatus } from "./ChildrenStatus";
 import type { ConfigStatus } from "./ConfigStatus";
@@ -27,7 +28,11 @@ import type { Usage } from "./Usage";
 import type { WakeInfo } from "./WakeInfo";
 import type { WebStatus } from "./WebStatus";
 
-export type HealthResult = { name: string, version: string, protocol: string, uptime_secs: number, sessions: number, turns: number, model: string, 
+export type HealthResult = { name: string, version: string, protocol: string, 
+/**
+ * The binary's version and commit, as `server.started` names them (theseus-9o5n).
+ */
+build: Build, uptime_secs: number, sessions: number, turns: number, model: string, 
 /**
  * The live profile name.
  */

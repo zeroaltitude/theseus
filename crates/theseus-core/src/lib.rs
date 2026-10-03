@@ -71,6 +71,28 @@ pub use rpc::Core;
 pub const NAME: &str = "theseus";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The commit the running binary was built from (theseus-9o5n): a constant
+/// of the binary that serves, which names it once, before its core is built
+/// (theseusd's build script takes it at compile time). The core is a library
+/// of that binary, so the binary says it; a core in a test has none.
+static COMMIT: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// Name the binary's commit, once: a later call changes nothing. An empty
+/// commit (a build outside a git checkout) is none.
+pub fn set_commit(commit: &'static str) {
+    if !commit.is_empty() {
+        let _ = COMMIT.set(commit);
+    }
+}
+
+/// This binary's build, as health and `server.started` name it.
+pub fn build() -> theseus_protocol::Build {
+    theseus_protocol::Build {
+        version: VERSION.into(),
+        commit: COMMIT.get().map(|c| (*c).to_string()),
+    }
+}
+
 pub fn new_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::now_v7().simple())
 }

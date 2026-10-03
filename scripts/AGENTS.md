@@ -41,7 +41,7 @@ In outer mode it runs, in order:
 6. `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database as
    its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was yanked
    between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh` refreshes it.
-7. The web apps' lint and build, each when its `node_modules` exists, and then a check that the Observatory's
+7. The web apps' lint and build (and the cockpit's `npm test`), each when its `node_modules` exists, and then a check that the Observatory's
    committed build is current.
 
 It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it

@@ -1,5 +1,6 @@
 //! Health's sections for the store's refused reads (R4, theseus-15g) and the
-//! last crash (Review 2's consideration 1); `HealthResult` is in lib.rs.
+//! last crash (Review 2's consideration 1), and the binary's build
+//! (theseus-9o5n); `HealthResult` is in lib.rs.
 
 use serde::{Deserialize, Serialize};
 
@@ -42,4 +43,20 @@ pub struct CrashStatus {
     pub file: String,
     /// This start found it: the run before this one ended in it.
     pub this_start: bool,
+}
+
+/// A binary's build (theseus-9o5n): constants taken when it was compiled,
+/// never computed at a start. Health and each `server.started` row name it,
+/// so a start whose build differs from the one before it was an install,
+/// not a restart of the same binary.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Build {
+    /// The workspace's version (`CARGO_PKG_VERSION`).
+    pub version: String,
+    /// The git commit it was built from, in full; absent from a build made
+    /// outside a git checkout without `THESEUS_COMMIT` set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub commit: Option<String>,
 }
