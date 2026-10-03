@@ -7,7 +7,6 @@
 crates/theseus-core/src/tests_m3.rs 8000 the turn's tests, which every step adds to; split by subject (review 2, C7: deferred)
 crates/theseus-discord/src/runtime.rs 3500 the Discord binding's runtime in one file
 crates/theseus-core/src/turn.rs 3500 the turn loop; C2 and C6 reshape it
-crates/theseus-core/src/toolrun.rs 3370 tool calls and the gate's postures; raised from 3300 at 17b, whose job class runs through the gate and the dispatch (its logic is sandbox.rs), and from 3330 at 19a, whose labels are set where each result and call node is made (their rules are labels.rs), and from 3350 at 19a's join, where 18a's stops (its cancel's tracking of async tasks) met 19a's labels; the split is theseus-5gw9
 crates/theseus-core/src/config.rs 2900 the config's types and checks; past 2,500 at AWS C1's join (its [aws] tables), split it: theseus-sk47
 crates/theseus-kernel/src/kernel.rs 3030 every kernel transition; C6 reshapes it; raised from 3000 at robust2 for 3ebd's reopen in startup (its logic is reopen.rs), and from 3010 at robust3 for holds_turn (0o8) and the budget question's reset fields (6g6) (its stop_call is in stops.rs)
 crates/theseus/src/render.rs 3100 the CLI's renderer (review 2, C3 types it); raised from 2900 at AWS C1's join, split it: theseus-wdcw

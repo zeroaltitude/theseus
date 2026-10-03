@@ -26,7 +26,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
     (`HELD_POST_TOOL`, a planned action with no turn and no expiry), its card where approvals go (never the place),
     and `label.held_post`, in one frame; `confirm_action` answers it (`answer_held_post`). Readers that fit any
     audience the place can have (`fits_any_audience`) need no read. Tests: the binding's `tests_gateway.rs`.
-- **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action), with the gate in `policy.rs`
+- **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
+  a job's call in `toolrun/job.rs`, the continuation in `toolrun/resume.rs`, and the results no call's own run
+  writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are `policy.rs`
   (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
   `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
