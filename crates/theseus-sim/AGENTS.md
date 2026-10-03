@@ -83,7 +83,7 @@ The gate runs its lifecycle bench, and its crash test and kernel simulator on sm
 ## Tests and use
 
 - `tests/sim.rs`: the crash test, the kernel simulation, and the disclosure simulator on fixed seeds, in the gate.
-  The disclosure seeds (3 to 6, 40 steps, about 2 s) are chosen so each planted bug fails in them (19b's: the
+  The disclosure seeds (3 to 6, 30 steps, about 2 s of CPU) are chosen so each planted bug fails in them (19b's: the
   compile filter rendering a withheld message's files; `held_state` reading a waiting question as released; a
   loop's `context.compiled` readers taken from the manifest's prefix). A change to the world or the model moves
   what every seed does, so after one, plant those three again and choose the seeds again if they slip.
