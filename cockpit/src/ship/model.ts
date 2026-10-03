@@ -145,7 +145,8 @@ export interface ShipInput {
   tasks: TaskInfo[]
   nodes: NodeInfo[]
   confirms: ConfirmRequest[]
-  /** Correlation ids of jobs that ran under L1 (`tool.job_started` rows and `tool.started` with `class: "l1"`). */
+  /** Correlation ids of jobs that ran under L1 (`tool.job_started` rows and `tool.started` with `class: "l1"`): the
+   *  fallback for a call node with no class in its gate decision. */
   l1: Set<string>
   /** Correlation ids of jobs running now. */
   jobsRunning: Set<string>
@@ -346,7 +347,9 @@ export function buildModel(input: ShipInput): ShipModel {
       const d = (n.detail ?? {}) as D
       const cid = str(d.correlation_id)
       const use = str(d.tool_use_id)
-      const l1 = !!cid && input.l1.has(cid)
+      // A call's node records its class in the gate's decision (NODE schema 4); the job rows and pushes are the fallback
+      // for a node from before, so a call older than the newest 2,000 job rows keeps its shield.
+      const l1 = (kind === 'call' && str((d.decision as D | undefined)?.class) === 'l1') || (!!cid && input.l1.has(cid))
       let lx = station.get(n.node_id) ?? 0
       let lz = 0
       let ox: number | undefined

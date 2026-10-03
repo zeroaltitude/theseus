@@ -5,7 +5,8 @@
 //   (executions.watch, bound in rpc.ts).
 // - The lights: node.list, all sessions at once (the newest 2,000); past that, each session by itself. A session
 //   that works is watched (session.watch) while it works, and each node.written reads its nodes again.
-// - L1 and jobs: tool.job_started rows (`class: "l1"`), tool.started and tool.ended, and the actions in flight.
+// - L1 and jobs: a call node's gate decision (`class: "l1"`); for a node from before, tool.job_started rows and
+//   tool.started pushes; and tool.ended and the actions in flight.
 // - Reach: node.reach for the selected vessel's nodes, read only while it is selected.
 //
 // What the pushes say lives in a small store per mounted Ship, replaced (never mutated) on each change, so a render
