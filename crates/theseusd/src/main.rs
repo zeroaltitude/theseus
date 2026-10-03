@@ -178,6 +178,9 @@ fn main() -> Result<()> {
     }
     // The start of every startup phase's clock (theseus-qa0).
     let origin = Instant::now();
+    // The commit this binary was built from, a constant (theseus-9o5n):
+    // health and `server.started` name it.
+    theseus_core::set_commit(env!("THESEUS_COMMIT"));
     // Before anything is created (theseus-wz2): the store, the spool and raw
     // job output, the config copy, and the socket are the operator's alone.
     // The operator's own umask is kept for a job's command and a tool's new

@@ -367,6 +367,9 @@ pub struct HealthResult {
     pub name: String,
     pub version: String,
     pub protocol: String,
+    /// The binary's version and commit, as `server.started` names them (theseus-9o5n).
+    #[serde(default)]
+    pub build: Build,
     pub uptime_secs: u64,
     pub sessions: u64,
     pub turns: u64,

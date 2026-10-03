@@ -274,6 +274,34 @@ async fn a_failed_secret_is_named_and_its_turn_refused_with_a_class() {
     panic!("no secrets.failed row");
 }
 
+/// `server.started` and health name the binary's build (theseus-9o5n): the
+/// version, and the commit the binary named before its core was built. A
+/// second start of the same binary names the same build; a later name is
+/// ignored, since a binary has one commit.
+#[tokio::test]
+async fn server_started_and_health_name_the_build() {
+    let commit = "0123456789abcdef0123456789abcdef01234567";
+    crate::set_commit(commit);
+    crate::set_commit("fedcba9876543210fedcba9876543210fedcba98");
+    let want = theseus_protocol::Build {
+        version: crate::VERSION.into(),
+        commit: Some(commit.into()),
+    };
+    let core = test_core("x");
+    core.announce_serving(1_000);
+    core.announce_serving(1_000);
+    let builds: Vec<theseus_protocol::Build> = core
+        .store
+        .ledger_tail::<LedgerRow>(50)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.kind == "server.started")
+        .map(|(_, r)| serde_json::from_value(r.data["build"].clone()).unwrap())
+        .collect();
+    assert_eq!(builds, [want.clone(), want.clone()]);
+    assert_eq!(core.health().build, want);
+}
+
 /// theseus-sqpx: web refusals held in their minute are written by the clean
 /// stop's end (`finish_stop`), while the store is open, in one row with
 /// their count. Before, the span's timer was a task the runtime's end

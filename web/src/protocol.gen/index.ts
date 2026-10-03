@@ -25,6 +25,7 @@ export type * from './BinaryStatus';
 export type * from './BindingStatus';
 export type * from './BudgetAsk';
 export type * from './BudgetInfo';
+export type * from './Build';
 export type * from './CacheSummary';
 export type * from './CancelCount';
 export type * from './CancelVerdict';

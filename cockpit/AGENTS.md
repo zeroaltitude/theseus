@@ -11,7 +11,8 @@ committed: the gate builds it, and the install builds it before the release buil
   `Speed` (the speed wall), `Systems`.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
-  checkpoints, the marks, and the log's axis), and `src/lib/world.ts` (`useWorld()`: the lists as of the moment).
+  checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before
+  it is an install), and `src/lib/world.ts` (`useWorld()`: the lists as of the moment).
 - `src/ship/`: the Ship's parts. `model.ts` (the graph as a fleet, and its layout: pure, no three.js), `engine.ts`
   (three.js, drawn directly), `shaders.ts`, `post.ts` (the glow), `labels.ts` (nameplates and tags, HTML over the
   canvas), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and pushes it composes),
@@ -48,8 +49,11 @@ committed: the gate builds it, and the install builds it before the release buil
 
 ## Building and checking
 
-- `npm ci`, then `npm run lint` (oxlint) and `npm run build` (`tsc -b && vite build`). The gate runs both when
-  `cockpit/node_modules` exists.
+- `npm ci`, then `npm run lint` (oxlint), `npm test`, and `npm run build` (`tsc -b && vite build`). The gate runs all
+  three when `cockpit/node_modules` exists.
+- `npm test` is node's own runner over `test/*.test.ts`, with node stripping the types: no dependency. A module it
+  tests is pure, imports nothing but the protocol's types (`import type`, which node erases), and names its own
+  imports with their `.ts`; `src/lib/marks.ts` (the ship's log's marks) is the first.
 - A release built without the cockpit's build serves a page at `/cockpit/` that says how to build it.
 - After a change, load every view from a scratch daemon of the build and check that each loads clean, with no
   console or page errors.

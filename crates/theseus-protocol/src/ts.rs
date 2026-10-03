@@ -78,7 +78,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
     }
     let cfg = Config::new().with_large_int("number").with_out_dir(&dir);
     export! { &cfg;
-        Id, Request, Notification, RpcError, Response, Message, HealthResult, SpoolStatus,
+        Id, Request, Notification, RpcError, Response, Message, HealthResult, Build, SpoolStatus,
         SpoolSweep, DiskStatus, BinaryStatus, StoreStatus, CrashStatus, WebStatus, SecretsStatus,
         ContextStatus, ConfigStatus,
         ConfigRestart, SecretFailed, StartupPhase, Tightening, PolicyTightenParams,

@@ -6,7 +6,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router'
 import { ChevronLeft, ChevronRight, History, Radio } from 'lucide-react'
 import { useHistoryRows } from '@/lib/history'
-import { axisOf, marksOf, useAsOf, type Mark, type MarkKind } from '@/lib/timemachine'
+import { axisOf, useAsOf } from '@/lib/timemachine'
+import { marksOf, type Mark, type MarkKind } from '@/lib/marks'
 import { FOLDS } from '@/lib/world'
 import { useTick } from '@/lib/hooks'
 import { useCalm } from '@/lib/calm'
@@ -23,6 +24,7 @@ const MARK: Record<MarkKind, { c: string; h: number; w: number; word: string }> 
   answer: { c: '#34d399', h: 0.6, w: 1.5, word: 'answered' },
   cancel: { c: '#f472b6', h: 0.9, w: 2, word: 'cancels' },
   start: { c: '#d6a548', h: 1, w: 1.5, word: 'starts' },
+  install: { c: '#5eead4', h: 1, w: 2, word: 'installs (a new build)' },
   crash: { c: '#fb7185', h: 1, w: 2, word: 'starts after a crash' },
   stop: { c: '#9c907a', h: 1, w: 1, word: 'stops' },
 }
