@@ -1221,29 +1221,31 @@ pub(crate) mod tests {
         assert_eq!(nodes, vec![read, aws]);
     }
 
+    /// A tool call as theseus-ppsd's build wrote it (NODE schema 3): its plan
+    /// names its class, and its decision has none. Literal bytes, never
+    /// re-serialized, so a change to how a node encodes fails the test below
+    /// (theseus-djfj).
+    const NODE_SCHEMA_3: &str = r#"{"id":"tcl_00000000000000000000000000000031","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t2","loop_index":0,"origin":"harness","author":null,"created_at_ms":1790000000021,"body":{"kind":"tool_call","tool_use_id":"tu_21","tool":"proc.run","wire_name":"fs_read","input":{"path":"/w/log/tides.md"},"assistant_node":"asm_00000000000000000000000000000021","correlation_id":"act_t21","gate":{"decision":{"posture":"open","reason":"fs.read — open (policy.tools)"},"plan":{"class":"run","resources":[{"access":"read","path":"/w/log/tides.md"}],"summary":"read /w/log/tides.md"},"proposal":{"args":{"path":"/w/log/tides.md"},"policy_context":{"cwd":"/w","roots":["/w"]},"resource":"/w/log/tides.md","tool":"fs.read"},"result":{"gate":"allow"},"validated":true}}}"#;
+
     /// NODE schema 4 (theseus-7ve.1): an L1 call's gate decision names its
     /// class. A schema-3 node (a proc.run call whose plan names its class, as
-    /// theseus-ppsd writes it) reads with no class in its decision, and its
-    /// bytes encode again unchanged; an L1 call's node is written at schema 4
-    /// and reads back whole.
+    /// theseus-ppsd writes it), taken as its literal bytes, reads with no class
+    /// in its decision, and its bytes encode again unchanged; an L1 call's node
+    /// is written at schema 4 and reads back whole.
     #[test]
     fn a_tool_call_node_written_before_its_l1_class_reads() {
         use crate::node::Body;
-        use theseus_protocol::ToolClass;
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
         assert!(kinds::schema(kinds::NODE) >= 4);
-        let mut run: Node = serde_json::from_str(NODE_SCHEMA_2).unwrap();
-        run.id = "tcl_00000000000000000000000000000031".into();
-        let Body::ToolCall { tool, gate, .. } = &mut run.body else {
-            unreachable!()
-        };
-        *tool = "proc.run".into();
-        gate.as_mut().unwrap().plan.as_mut().unwrap().class = Some(ToolClass::Run);
-        let schema_3 = serde_json::to_string(&run).unwrap();
+        let schema_3 = NODE_SCHEMA_3;
         let old = NewRecord {
             schema: 3,
-            ..NewRecord::bytes(kinds::NODE, Some(&run.id), schema_3.as_bytes().to_vec())
+            ..NewRecord::bytes(
+                kinds::NODE,
+                Some("tcl_00000000000000000000000000000031"),
+                schema_3.as_bytes().to_vec(),
+            )
         }
         .scoped("ses_lighthouse");
         store.append(&[old]).unwrap();
