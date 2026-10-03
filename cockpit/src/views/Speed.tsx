@@ -116,12 +116,15 @@ export default function Speed() {
     const g = lastWith(c.bench!)
     const ph = g ? phaseOf(g, c.bench!) : undefined
     if (c.key === 'frames') {
-      // This daemon's plain turns (one loop, no tool call), each counting its own frames, beside the gate's bench.
-      const live = turns.filter((t) => t.loops === 1 && t.stop === 'no_tool_calls' && t.frames !== undefined).slice(-50).map((t) => t.frames!)
+      // This daemon's plain turns (one loop, no tool call), each counting its own frames, beside the gate's bench. A
+      // session's first turn is left out, as the bench leaves out its warm-ups: it also writes what opens the session.
+      const seen = new Set<string | null>()
+      const warm = turns.filter((t) => { const first = !seen.has(t.session); seen.add(t.session); return !first })
+      const live = warm.filter((t) => t.loops === 1 && t.stop === 'no_tool_calls' && t.frames !== undefined).slice(-50).map((t) => t.frames!)
       if (live.length) {
         return {
           value: p(live, 0.95), gate: ph?.p95, limit: ph?.limit,
-          source: `this daemon’s last ${live.length} plain turns, each counting its own frames (p95)${g ? `; the pointer is the gate’s bench, ${g.label} (p95)` : ''}`,
+          source: `this daemon’s last ${live.length} plain turns, each counting its own frames (p95; a session’s first turn left out)${g ? `; the pointer is the gate’s bench, ${g.label} (p95)` : ''}`,
           note: `live p95 ${p(live, 0.95)} of ${live.length} turns${ph ? ` · gate p95 ${ph.p95}` : ' · no bench history'}`,
           spark: live,
         }
