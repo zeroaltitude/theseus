@@ -70,8 +70,9 @@ These are built and tested in their own crates, and each is wired into the core 
 - **Jev in the loop:** the client and its question packs (M5, in shadow first).
 - **Memory and recall:** vector search, weighted fusion, forgetting, and the memory math. The memory exam
   measures each part before it goes live (M6). The index tender runs; recall in turns is next.
-- **Sandboxes:** L1 runs commands, and a cancel of one is verified; the egress proxy, which keeps credentials out
-  of the sandbox, is being wired in now (M4).
+- **Sandboxes:** L1 runs commands, and a cancel of one is verified. The egress proxy, which lets a sandboxed
+  command reach only the hosts it is allowed, is being wired in now. After it come credentials requested at run
+  time, and then credentials as stand-ins, which keep a secret's value out of the sandbox altogether (M4).
 - **AWS hands:** the guardrails and the account's templates. The account comes under Theseus's ownership with
   spending tripwires: $50 a month, $5 a day, and $1 an hour. Its reads are in; its writes, with the guards, are
   next.
