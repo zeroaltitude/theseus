@@ -34,15 +34,39 @@ pub struct Generated {
 /// Write `sessions` parked sessions into the store at `dir`, then
 /// checkpoint, so the store opens with no tail to replay.
 pub fn generate(dir: &Path, sessions: u64) -> Result<Generated> {
+    generate_with(dir, sessions, 0)
+}
+
+/// `generate`, then `rows` more ledger rows across the sessions, as their
+/// turns write them, with a settled action for every tenth: a store with a
+/// long history behind its parked sessions, for the reads that clients poll
+/// (theseus-vm3n.5).
+pub fn generate_with(dir: &Path, sessions: u64, rows: u64) -> Result<Generated> {
     let t0 = Instant::now();
     let store = Store::open(dir)?;
     let (mut records, mut frames) = (0u64, 0u64);
+    let mut sids = Vec::new();
     let mut i = 0u64;
     while i < sessions {
         let n = PER_FRAME.min(sessions - i);
         let mut frame = Vec::with_capacity((n * 7) as usize);
         for k in i..i + n {
-            frame.extend(parked_session(k)?);
+            let (sid, recs) = parked_session(k)?;
+            sids.push(sid);
+            frame.extend(recs);
+        }
+        records += frame.len() as u64;
+        store.append(&frame)?;
+        frames += 1;
+        i += n;
+    }
+    let mut i = 0u64;
+    while i < rows {
+        let n = ROWS_PER_FRAME.min(rows - i);
+        let mut frame = Vec::with_capacity(n as usize + n as usize / 10);
+        for k in i..i + n {
+            let sid = sids.get((k % sessions.max(1)) as usize).map(String::as_str);
+            frame.extend(history_row(k, sid)?);
         }
         records += frame.len() as u64;
         store.append(&frame)?;
@@ -60,8 +84,50 @@ pub fn generate(dir: &Path, sessions: u64) -> Result<Generated> {
     })
 }
 
+/// Ledger rows a frame of `generate_with`'s history holds.
+const ROWS_PER_FRAME: u64 = 2_000;
+
+/// The kinds a turn's history writes most, in turn.
+const HISTORY_KINDS: [LedgerKind; 6] = [
+    LedgerKind::LoopStarted,
+    LedgerKind::ProviderCall,
+    LedgerKind::ActionPlanned,
+    LedgerKind::ToolJobStarted,
+    LedgerKind::ActionSucceeded,
+    LedgerKind::LoopEnded,
+];
+
+/// One row of a session's history, and for every tenth a settled action.
+fn history_row(k: u64, sid: Option<&str>) -> Result<Vec<NewRecord>> {
+    let kind = HISTORY_KINDS[(k % HISTORY_KINDS.len() as u64) as usize];
+    let row = LedgerRow::new(
+        kind,
+        sid,
+        None,
+        json!({"i": k, "ms": 41, "tool": "proc.run"}),
+    );
+    let mut r = NewRecord::json(kinds::LEDGER, None, &row)?;
+    if let Some(s) = sid {
+        r = r.scoped(s);
+    }
+    let mut out = vec![r];
+    if k.is_multiple_of(10) {
+        let now = theseus_protocol::now_unix_ms();
+        let id = format!("cor_hist_{k:08}");
+        let a = json!({
+            "correlation_id": id, "schema": 4, "execution_id": format!("exe_hist_{}", k % 997),
+            "session_id": sid.unwrap_or("ses_none"), "tool": "proc.run", "args_digest": "",
+            "retry_class": {"class": "non_repeatable"}, "state": "succeeded",
+            "deadline_at_ms": now, "planned_at_ms": now, "settled_at_ms": now,
+            "completions_seen": 1,
+        });
+        out.push(NewRecord::json(kinds::ACTION, Some(&id), &a)?);
+    }
+    Ok(out)
+}
+
 /// One session after one turn, as the product writes it.
-fn parked_session(k: u64) -> Result<Vec<NewRecord>> {
+fn parked_session(k: u64) -> Result<(String, Vec<NewRecord>)> {
     let mut rec = SessionRecord::new(SessionKind::Conversation, Some(format!("bench {k}")));
     let sid = rec.session_id.clone();
     let now = theseus_protocol::now_unix_ms();
@@ -135,27 +201,30 @@ fn parked_session(k: u64) -> Result<Vec<NewRecord>> {
         )
         .map(|r| r.scoped(&sid))
     };
-    Ok(vec![
-        NewRecord::json(kinds::EXECUTION, Some(&exec.id), &exec)?.scoped(&sid),
-        ledger(
-            LedgerKind::ExecutionOpened,
-            None,
-            json!({"execution_id": exec.id, "kind": "conversation", "limit_usd": 100.0}),
-        )?,
-        NewRecord::json(kinds::SESSION, Some(&sid), &rec)?,
-        ledger(
-            LedgerKind::SessionOpened,
-            None,
-            json!({"execution_id": exec.id}),
-        )?,
-        user.record()?,
-        answer.record()?,
-        ledger(
-            LedgerKind::TurnEnded,
-            Some(&turn_id),
-            json!({"execution_id": exec.id, "outcome": "waiting", "loops": 1, "cost_usd": 0.0054}),
-        )?,
-    ])
+    Ok((
+        sid.clone(),
+        vec![
+            NewRecord::json(kinds::EXECUTION, Some(&exec.id), &exec)?.scoped(&sid),
+            ledger(
+                LedgerKind::ExecutionOpened,
+                None,
+                json!({"execution_id": exec.id, "kind": "conversation", "limit_usd": 100.0}),
+            )?,
+            NewRecord::json(kinds::SESSION, Some(&sid), &rec)?,
+            ledger(
+                LedgerKind::SessionOpened,
+                None,
+                json!({"execution_id": exec.id}),
+            )?,
+            user.record()?,
+            answer.record()?,
+            ledger(
+                LedgerKind::TurnEnded,
+                Some(&turn_id),
+                json!({"execution_id": exec.id, "outcome": "waiting", "loops": 1, "cost_usd": 0.0054}),
+            )?,
+        ],
+    ))
 }
 
 #[cfg(test)]

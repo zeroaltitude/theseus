@@ -177,6 +177,10 @@ enum Cmd {
         dir: PathBuf,
         #[arg(long, default_value_t = 10_000)]
         sessions: u64,
+        /// This many more ledger rows across the sessions, their history
+        /// (with a settled action for every tenth).
+        #[arg(long, default_value_t = 0)]
+        ledger_rows: u64,
     },
     /// A stand-in for Discord's REST API (theseus-q4v), for a scratch
     /// daemon's `[discord] rest_proxy`: it keeps messages, honors nonces, and
@@ -337,8 +341,12 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Discord { cmd } => discord_cli::run(cmd),
-        Cmd::SynthStore { dir, sessions } => {
-            let g = synth::generate(&dir, sessions)?;
+        Cmd::SynthStore {
+            dir,
+            sessions,
+            ledger_rows,
+        } => {
+            let g = synth::generate_with(&dir, sessions, ledger_rows)?;
             println!(
                 "synthetic store at {}: {} sessions, {} records in {} frames, {:.1} MB of WAL, in {:.0} ms",
                 dir.display(),
