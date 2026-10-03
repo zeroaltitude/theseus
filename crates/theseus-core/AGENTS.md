@@ -16,6 +16,16 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   when its readers cover the session's audience (from `outbox.target`; a guild channel's viewers are pushed by the
   binding into `Places`, kept in META). A withheld node renders as a placeholder in its place; the manifest
   records the audience, and a compile for another one recompiles (`audience`). Tests: `tests_labels.rs`.
+  - **Graduation** (M4 19c, `rpc/graduate.rs`): the only way an audience widens. `label.graduate` writes a new node
+    (origin `operator`) with the source's content, wider readers, the source's integrity, and a `Warrant`, with a
+    `derived_from` edge (`graduate`) and its `label.graduated` row, in one frame under the execution's lock, never
+    while a turn holds the session; the next compile appends it. Judged as an approval (`Act::Graduate`). A
+    placeholder names the command. Tests: `tests_graduate.rs`.
+  - **The held post** (M4 19c, `held.rs`): before a reply or a report leaves for a guild channel, the binding reads
+    who can view it then, and `labels::may_leave` decides. A post that may not is held: a question
+    (`HELD_POST_TOOL`, a planned action with no turn and no expiry), its card where approvals go (never the place),
+    and `label.held_post`, in one frame; `confirm_action` answers it (`answer_held_post`). Readers that fit any
+    audience the place can have (`fits_any_audience`) need no read. Tests: the binding's `tests_gateway.rs`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action), with the gate in `policy.rs`
   (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
   `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,

@@ -125,6 +125,17 @@ fn labels(core: &Core, sid: &str) -> Vec<(String, Option<Readers>)> {
         .collect()
 }
 
+/// The id of the session's tool result (M4 19c: its placeholder names it).
+fn result_id(core: &Core, sid: &str) -> String {
+    core.store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .find(|(_, n)| matches!(n.body, Body::ToolResult { .. }))
+        .map(|(_, n)| n.id)
+        .unwrap()
+}
+
 /// The `tool_result` block that answers `id`, in a request's messages.
 fn result_block(messages: &[Value], id: &str) -> Value {
     messages
@@ -174,8 +185,11 @@ async fn a_two_viewer_channel_withholds_an_owner_only_result_and_keeps_its_call_
     let text = block["content"].as_str().unwrap();
     assert_eq!(
         text,
-        "[withheld: fs.read's result is labeled owner-only, and this session's audience is \
-         #lab (2 people)]"
+        format!(
+            "[withheld: fs.read's result is labeled owner-only, and this session's audience is \
+             #lab (2 people). The operator can graduate it: theseus graduate {} --to place]",
+            result_id(&r.core, &sid)
+        )
     );
     assert!(!serde_json::to_string(second).unwrap().contains("4417"));
     assert!(serde_json::to_string(&reqs[0].messages)
@@ -385,8 +399,12 @@ async fn a_channel_whose_viewers_cannot_be_read_counts_as_public() {
     let block = result_block(&reqs[1].messages, "t1");
     assert_eq!(
         block["content"],
-        "[withheld: fs.read's result is labeled owner-only, and this session's audience is \
-         #lab (public: its viewers cannot be read)]"
+        format!(
+            "[withheld: fs.read's result is labeled owner-only, and this session's audience is \
+             #lab (public: its viewers cannot be read). The operator can graduate it: theseus \
+             graduate {} --to place]",
+            result_id(&r.core, &sid)
+        )
     );
     assert!(serde_json::to_string(&reqs[0].messages)
         .unwrap()

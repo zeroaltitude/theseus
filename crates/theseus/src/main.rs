@@ -127,6 +127,20 @@ enum Cmd {
     /// be read), what the model may say to whom, what its context withheld, and each node's label
     /// (🔒 the owner's, 👥 a place's or people's, 🌐 anyone's). SESSION defaults to the most recent.
     Labels { session: Option<String> },
+    /// Graduate a node (M4 19c): a new node with its content and wider readers, written with
+    /// your warrant, which its session's next compile admits. The node keeps its own label, and
+    /// its placeholder stays where it was. TO is `public`, `place` (whoever can view the
+    /// session's place), or `people:<id>[,<id>...]`. It widens an audience, so it counts only
+    /// from where an approval would.
+    Graduate {
+        #[arg(value_name = "NODE")]
+        node: String,
+        #[arg(long, value_name = "TO")]
+        to: String,
+        /// Why, in your words: the warrant's reason.
+        #[arg(long, value_name = "WARRANT")]
+        why: String,
+    },
     /// Follow a session live: streamed text, tool calls, confirmations, context decisions,
     /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent.
     Watch {
@@ -456,6 +470,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::History { session, n, full } => cmd::history(c, json, session, n, full).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Labels { session } => cmd::labels(c, json, session).await,
+        Cmd::Graduate { node, to, why } => cmd::graduate(c, json, node, to, why).await,
         Cmd::Watch { all: true, .. } => cmd::watch_all(c, json).await,
         Cmd::Watch {
             session,

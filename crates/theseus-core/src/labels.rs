@@ -197,6 +197,7 @@ impl Places {
         theseus_protocol::LabelsHealth {
             owners: owners.len() as u32,
             places,
+            held: None,
         }
     }
 
@@ -361,6 +362,20 @@ impl Judge {
             latched: false,
             own: Readers::Owner,
         }
+    }
+
+    /// The same judge, with its place's audience counted as public: who views
+    /// it could not be read just now (M4 19c; §5, question 6).
+    pub fn counted_public(mut self) -> Self {
+        if let Audience::Place {
+            viewers, digest, ..
+        } = &mut self.audience
+        {
+            *viewers = None;
+            *digest = None;
+            self.members = Members::Anyone;
+        }
+        self
     }
 
     /// The audience as readers: what the harness says in the session, and
@@ -584,6 +599,84 @@ pub fn for_agent(readers: Readers) -> Label {
     Label::trusted(readers)
 }
 
+/// `label.graduate`'s `to`, parsed (M4 19c): `public`, `place` (whoever can
+/// view the session's place: a guild channel's viewers, or a DM's person), or
+/// `people:<id>[,<id>…]`, each id `discord:<user id>` or the bare number.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraduateTo {
+    Public,
+    Place,
+    People(BTreeSet<String>),
+}
+
+pub fn parse_graduate_to(to: &str) -> anyhow::Result<GraduateTo> {
+    match to.trim() {
+        "public" => Ok(GraduateTo::Public),
+        "place" => Ok(GraduateTo::Place),
+        t => {
+            let Some(ids) = t.strip_prefix("people:") else {
+                anyhow::bail!("`--to {t}` is none of public, place, or people:<ids>");
+            };
+            let mut people = BTreeSet::new();
+            for id in ids.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                let n = id.strip_prefix("discord:").unwrap_or(id);
+                if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+                    anyhow::bail!(
+                        "`{id}` is not a Discord user id: write discord:<user id>, or the number"
+                    );
+                }
+                people.insert(format!("discord:{n}"));
+            }
+            if people.is_empty() {
+                anyhow::bail!("`people:` names nobody: write people:<id>[,<id>…]");
+            }
+            Ok(GraduateTo::People(people))
+        }
+    }
+}
+
+/// The label of a node graduated from `source` (M4 19c, §2.5's table): the
+/// source's integrity, never touched, the wider readers, and the warrant.
+/// `held` is the source's external text when it has no label of its own but
+/// is untrusted by DD5's marker.
+pub fn graduated(
+    source: Option<&Label>,
+    held: Option<theseus_protocol::ExternalText>,
+    readers: Readers,
+    warrant: theseus_protocol::Warrant,
+) -> Label {
+    let mut l = match (source, held) {
+        (Some(s), _) => Label {
+            readers,
+            warrant: None,
+            ..s.clone()
+        },
+        (None, Some(h)) => Label::untrusted(h, readers),
+        (None, None) => Label::trusted(readers),
+    };
+    l.warrant = Some(warrant);
+    l
+}
+
+/// Whether what `readers` may read may leave for `now`'s audience, as it is
+/// when it leaves (M4 19c, §2.7; decision 14: what may not waits for the
+/// owner, and is never refused). The outbox asks it before a post; MCP
+/// responses and posts to another place will ask it the same way.
+pub fn may_leave(readers: &Readers, now: &Judge) -> bool {
+    now.covers(readers)
+}
+
+/// Readers that may leave for any audience their place can have: the public,
+/// and what was said in the place itself. A post with these needs no read of
+/// who views its place.
+pub fn fits_any_audience(readers: &Readers, place: Option<&str>) -> bool {
+    match readers {
+        Readers::Public => true,
+        Readers::Place(p) => place.is_some_and(|own| own == p),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -726,6 +819,36 @@ mod tests {
         assert!(!anyone.covers(&Readers::Place("discord:8".into())));
         assert!(!anyone.covers(&Readers::People(set(&["discord:1"]))));
         assert!(anyone.covers(&Readers::Public));
+    }
+
+    /// The bench of 19c's `may_leave`: a channel of 1,000 viewers, all of
+    /// them owners (the worst case: every viewer is looked up), by the
+    /// readers a post can have. Run with `--run-ignored only --no-capture`.
+    #[test]
+    #[ignore = "a bench: run it by name"]
+    fn bench_may_leave() {
+        let viewers: BTreeSet<String> = (0..1000).map(|i| format!("discord:{i}")).collect();
+        let mut j = judge(Members::These(viewers.clone()), Some("discord:9"));
+        j.owner = viewers;
+        for (what, r) in [
+            ("owner-only", Readers::Owner),
+            (
+                "for 2 people",
+                Readers::People(set(&["discord:1", "discord:2"])),
+            ),
+            ("the channel's own", Readers::Place("discord:9".into())),
+            ("public", Readers::Public),
+        ] {
+            let n = 20_000u32;
+            let t0 = std::time::Instant::now();
+            let fits = (0..n)
+                .filter(|_| may_leave(std::hint::black_box(&r), &j))
+                .count();
+            eprintln!(
+                "may_leave({what}) over 1,000 viewers: {:.2} µs a call ({fits} of {n} fit)",
+                t0.elapsed().as_secs_f64() * 1e6 / f64::from(n)
+            );
+        }
     }
 
     #[test]

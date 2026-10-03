@@ -60,6 +60,8 @@ pub fn pending_of(
     confirm_ttl_ms: u64,
 ) -> PendingConfirm {
     let budget = a.tool == BUDGET_TOOL;
+    // A budget question and a held post's hold until answered (M4 19c).
+    let holds = budget || a.tool == theseus_protocol::HELD_POST_TOOL;
     PendingConfirm {
         correlation_id: a.correlation_id.clone(),
         tool: a
@@ -70,7 +72,7 @@ pub fn pending_of(
         reason: decision.map(|d| d.reason.clone()).unwrap_or_default(),
         floor: decision.is_some_and(|d| d.floor),
         budget,
-        expires_at_ms: if budget {
+        expires_at_ms: if holds {
             0
         } else {
             a.planned_at_ms + confirm_ttl_ms

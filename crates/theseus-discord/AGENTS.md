@@ -15,6 +15,13 @@ theseusd.
   binding tells the core (`Core::place_viewers`) every bound guild channel's viewers at connect, on a channel or role
   change, and before a turn there when the last read is a minute old. Without the Server Members intent it says they
   cannot be read, and the channel counts as public. It never asks for the intent on the gateway.
+- **The check at post time** (M4 19c): a lane posts a reply or a task's report in a guild channel only after a
+  fresh read of who can view it (`read_audience_now`) and the core's `check_post`, unless its readers fit any
+  audience the channel can have. A held post waits, and the posts after it wait; its card goes to the approvals DM
+  from the operator's lane (`owner_card`); approved, it posts; declined, its place gets `courier::HELD_BACK`. A read
+  Discord refuses counts as public. In a guild channel a loop whose request drew on restricted material is quiet
+  (`context.compiled`'s `readers`): its text does not stream, and its tool line shows 🔒 for its input, so nothing
+  of it reaches the channel before the check.
 
 ## Invariants
 

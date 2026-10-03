@@ -57,6 +57,44 @@ impl Shared {
         }
     }
 
+    /// Who can view a guild channel now, for a post that leaves for it (M4
+    /// 19c): the held post's check reads it fresh, never the copy its turn
+    /// compiled for, and tells the core what it found, so a viewer who joined
+    /// since is counted. True when it was read; false when it cannot be (no
+    /// Server Members intent, or Discord refused the read): the channel then
+    /// counts as public. An error when Discord is away: the post waits, as
+    /// it would for its own send.
+    pub(crate) async fn read_audience_now(
+        &self,
+        channel: u64,
+    ) -> Result<bool, crate::courier::SendErr> {
+        self.audience_read
+            .lock()
+            .unwrap()
+            .insert(channel, std::time::Instant::now());
+        if !self.members_intent().await {
+            self.tell_audience(channel, None);
+            return Ok(false);
+        }
+        match self.view(channel).await {
+            Ok(v) => {
+                self.tell_audience(channel, Some(Ok(v)));
+                Ok(true)
+            }
+            Err(e) => {
+                let away = e
+                    .downcast_ref::<twilight_http::Error>()
+                    .map(crate::courier::SendErr::of)
+                    .filter(|s| s.away);
+                if let Some(s) = away {
+                    return Err(s);
+                }
+                self.tell_audience(channel, Some(Err(e)));
+                Ok(false)
+            }
+        }
+    }
+
     /// Every bound guild channel's audience, read again: a role or a channel
     /// changed (M4 19a).
     pub(crate) async fn read_audiences(&self) {

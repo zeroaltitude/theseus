@@ -204,6 +204,91 @@ impl Kernel {
     }
 }
 
+impl Kernel {
+    /// A held post's question (M4 19c): a post's place gained a viewer who
+    /// may not read what the post draws on, so the outbox holds it, and this
+    /// asks the owner whether to post it. A planned action of the post's
+    /// execution that waits for the operator's answer (`awaits_confirm`), as
+    /// a budget question does, but with no turn held, no reservation, and no
+    /// deadline: it holds until it is answered. Answered through the confirm
+    /// path: `release_held` on an approval, `decline_action` otherwise.
+    /// Staged, with its `action.planned` row, for the caller's frame.
+    pub fn held_post_stage(
+        &self,
+        session_id: &str,
+        execution_id: &str,
+        target: &str,
+        args: Value,
+    ) -> Result<(Action, Vec<NewRecord>)> {
+        let now = self.now_ms();
+        let proposal = Proposal {
+            tool: theseus_protocol::HELD_POST_TOOL.into(),
+            args,
+            resource: Some(target.into()),
+            policy_context: json!({}),
+        };
+        let q = Action {
+            correlation_id: new_id("act"),
+            schema: SCHEMA,
+            execution_id: execution_id.into(),
+            session_id: session_id.into(),
+            tool: theseus_protocol::HELD_POST_TOOL.into(),
+            args_digest: digest_proposal(&proposal),
+            proposal: Some(proposal),
+            resource: Some(target.into()),
+            retry_class: RetryClass::NonRepeatable,
+            state: ActionState::Planned,
+            deadline_at_ms: 0,
+            planned_at_ms: now,
+            authorized_at_ms: None,
+            dispatched_at_ms: None,
+            settled_at_ms: None,
+            external_op_id: None,
+            result_ref: None,
+            confirm: None,
+            cancel: None,
+            verdict: None,
+            reservation_id: None,
+            reserved_micros: 0,
+            resolution: None,
+            completions_seen: 0,
+            detail: None,
+        };
+        let row = self.ledger(
+            LedgerKind::ActionPlanned,
+            Some(session_id),
+            json!({"execution_id": q.execution_id, "correlation_id": q.correlation_id,
+                   "tool": q.tool, "args_digest": q.args_digest, "retry_class": q.retry_class,
+                   "outbox": target}),
+        )?;
+        Ok((q.clone(), vec![crate::kernel::action_record(&q)?, row]))
+    }
+
+    /// A held post's question approved (M4 19c): it settles succeeded,
+    /// approved by `by`, and the outbox posts what it held.
+    pub fn release_held(&self, correlation_id: &str, by: &str) -> Result<Action> {
+        let (_w, mut q) = self.locked_known_action(correlation_id)?;
+        if q.tool != theseus_protocol::HELD_POST_TOOL || q.state != ActionState::Planned {
+            return Err(KernelError::ActionState {
+                correlation_id: q.correlation_id.clone(),
+                state: q.state.as_str(),
+                expected: "a held post's question, planned",
+            }
+            .into());
+        }
+        q.state = ActionState::Succeeded;
+        q.settled_at_ms = Some(self.now_ms());
+        q.resolution = Some(format!("approved by {by}"));
+        let row = self.ledger(
+            LedgerKind::ActionSucceeded,
+            Some(&q.session_id),
+            json!({"correlation_id": q.correlation_id, "tool": q.tool, "by": by}),
+        )?;
+        self.commit(&[crate::kernel::action_record(&q)?, row])?;
+        Ok(q)
+    }
+}
+
 /// The lock a post's transitions take: its own, never an execution's.
 fn lock_key(correlation_id: &str) -> String {
     format!("outbox:{correlation_id}")

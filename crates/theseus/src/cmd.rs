@@ -969,6 +969,32 @@ pub async fn reach(
     })
 }
 
+/// `theseus graduate NODE --to TO --why WARRANT` (M4 19c): `label.graduate`.
+pub async fn graduate(
+    conn: &mut Conn,
+    json: bool,
+    node_id: String,
+    to: String,
+    why: String,
+) -> Result<()> {
+    let v = conn
+        .request(
+            method::LABEL_GRADUATE,
+            theseus_protocol::LabelGraduateParams {
+                node_id,
+                to,
+                why,
+                author: None,
+                discord: None,
+            },
+        )
+        .await?;
+    output(json, v, |r| {
+        println!("{}", render::graduated_line(&r));
+        Ok(())
+    })
+}
+
 /// `theseus labels [SESSION]` (M4 19a): the session's audience as its
 /// current compilation was made for it, what the model may say to whom, what
 /// its prefix withheld, and each node's label. Reads `session.history` and

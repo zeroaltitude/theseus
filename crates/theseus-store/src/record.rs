@@ -84,7 +84,7 @@ pub mod kinds {
         (EXECUTION, 2),
         (ACTION, 3),
         (COMPLETION, 2),
-        (NODE, 5),
+        (NODE, 6),
         (EDGE, 1),
         (COMPILATION, 4),
         (OUTBOX, 2),

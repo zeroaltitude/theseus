@@ -306,6 +306,8 @@ fn context_compiled() {
             summary["audience"] = json!({"kind": "place", "place": "discord:900000000000000001",
                 "name": "harbour", "viewers": 3, "digest": "5e8f0a1b2c3d4e6f"});
             summary["withheld"] = json!(3);
+            // M4 19c: who may read what the model writes from it.
+            summary["readers"] = json!({"place": "discord:900000000000000001"});
         }
         summary["cache"] = json!({
             "breakpoints": if recompile { vec!["header", "conversation"] } else { vec![] },
@@ -883,6 +885,8 @@ fn summary(recompile: bool) -> ContextCompiled {
             digest: Some("5e8f0a1b2c3d4e6f".into()),
         }),
         withheld: if recompile { 3 } else { 0 },
+        // M4 19c: what the model writes from it is the channel's.
+        readers: recompile.then(|| Readers::Place("discord:900000000000000001".into())),
     }
 }
 

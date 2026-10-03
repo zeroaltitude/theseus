@@ -1372,14 +1372,14 @@ pub(crate) mod tests {
     /// NODE schema 5 (M4 19a, theseus-7ve.3): a node carries its label. A
     /// schema-4 node (an L1 call's, as 17b writes it) reads with no label,
     /// and its bytes encode again unchanged; a labeled node, a fetched
-    /// page's result with its source, is written at schema 5 and reads back
-    /// whole.
+    /// page's result with its source, is written at this build's schema (6
+    /// since 19c) and reads back whole.
     #[test]
     fn a_node_written_before_its_label_reads() {
         use theseus_protocol::{ExternalText, Label, Readers};
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
-        assert_eq!(kinds::schema(kinds::NODE), 5);
+        assert_eq!(kinds::schema(kinds::NODE), 6);
         // The old layout as bytes, never through this build's serializer: a
         // schema-2 tool-call node is a schema-4 one that sets none of 3's or
         // 4's fields.
@@ -1418,7 +1418,7 @@ pub(crate) mod tests {
         };
         let page = page.labeled(Label::untrusted(source, Readers::Public));
         let r = page.record().unwrap();
-        assert_eq!(r.schema, 5);
+        assert_eq!(r.schema, 6);
         let text = String::from_utf8_lossy(&r.payload).into_owned();
         assert!(
             text.contains(r#""label":{"integrity":"untrusted","source":{"#)
@@ -1433,6 +1433,71 @@ pub(crate) mod tests {
             .map(|(_, n)| n)
             .collect();
         assert_eq!(nodes, vec![read, page]);
+    }
+
+    /// A labeled node as 19a's build wrote it (NODE schema 5): an owner-only
+    /// file's result, with no warrant.
+    const NODE_SCHEMA_5: &str = r#"{"id":"trs_00000000000000000000000000000051","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t5","loop_index":0,"origin":"tool","author":null,"created_at_ms":1790000000051,"body":{"kind":"tool_result","tool_use_id":"tu_51","tool":"fs.read","status":"ok","is_error":false,"content":"the vault code is 4417","correlation_id":"act_t51","bytes_total":22,"truncated":false,"full_ref":null,"duration_ms":3,"late":false,"meta":{}},"label":{"integrity":"trusted","readers":"owner"}}"#;
+
+    /// NODE schema 6 (M4 19c, theseus-7ve.5): a graduated node's label
+    /// carries the operator's warrant. A schema-5 node, taken as its literal
+    /// bytes, reads with no warrant and encodes again unchanged; a graduated
+    /// one is written at schema 6 and reads back whole.
+    #[test]
+    fn a_node_written_before_graduation_reads() {
+        use theseus_protocol::{Readers, Warrant};
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        assert_eq!(kinds::schema(kinds::NODE), 6);
+        let rec = NewRecord {
+            schema: 5,
+            ..NewRecord::bytes(
+                kinds::NODE,
+                Some("trs_00000000000000000000000000000051"),
+                NODE_SCHEMA_5.as_bytes().to_vec(),
+            )
+        }
+        .scoped("ses_lighthouse");
+        store.append(&[rec]).unwrap();
+        let read = store.session_nodes("ses_lighthouse").unwrap()[0].1.clone();
+        let label = read.label.clone().expect("19a's label");
+        assert_eq!((label.readers, label.warrant), (Readers::Owner, None));
+        assert_eq!(
+            serde_json::to_string(&read).unwrap(),
+            NODE_SCHEMA_5,
+            "a node with no warrant keeps its bytes"
+        );
+
+        let warrant = Warrant {
+            graduated_from: read.id.clone(),
+            who: "cli".into(),
+            how: "cli".into(),
+            why: "the code is for the whole lab".into(),
+            at_ms: 1_790_000_000_052,
+        };
+        let copy = Node::user("ses_lighthouse", None, "cli", "the vault code is 4417").labeled(
+            crate::labels::graduated(
+                read.label.as_ref(),
+                None,
+                Readers::Place("discord:7".into()),
+                warrant,
+            ),
+        );
+        let r = copy.record().unwrap();
+        assert_eq!(r.schema, 6);
+        let text = String::from_utf8_lossy(&r.payload).into_owned();
+        assert!(
+            text.contains(r#""warrant":{"graduated_from":"trs_00000000000000000000000000000051","#),
+            "{text}"
+        );
+        store.append(&[r]).unwrap();
+        let nodes: Vec<Node> = store
+            .session_nodes("ses_lighthouse")
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect();
+        assert_eq!(nodes, vec![read, copy]);
     }
 
     /// A compilation as cache2's build wrote it (COMPILATION schema 3): its

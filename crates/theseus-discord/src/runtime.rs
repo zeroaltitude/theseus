@@ -1014,6 +1014,7 @@ impl Shared {
         if let (Some(c), "dm") = (channel, kind) {
             let _ = lane.send(LaneMsg::Channel(c.get()));
         }
+        let renderer = self.renderer(&target);
         let place = Place {
             shared: self.clone(),
             key,
@@ -1024,7 +1025,7 @@ impl Shared {
             users,
             mention_only,
             session_id,
-            renderer: self.renderer(),
+            renderer,
             lane,
             inflight: false,
             queued: Vec::new(),
@@ -1449,9 +1450,10 @@ impl Shared {
         }
     }
 
-    /// A place's renderer: the `[discord]` notice setting.
-    fn renderer(&self) -> Renderer {
-        Renderer::new(self.notice_embeds)
+    /// A place's renderer: the `[discord]` notice setting, and a guild
+    /// channel's place, whose restricted loops are quiet (M4 19c).
+    fn renderer(&self, target: &str) -> Renderer {
+        Renderer::new(self.notice_embeds).in_place(theseus_core::labels::place_of(target))
     }
 
     /// Who may drive the bound channel `channel` (its `[[channel]] users`):
@@ -2329,7 +2331,7 @@ impl Place {
             )
             .await;
         self.session_id = sid;
-        self.renderer = self.shared.renderer();
+        self.renderer = self.shared.renderer(&self.target);
         self.report();
         Ok(())
     }
@@ -2780,7 +2782,7 @@ mod tests {
             .by_session
             .insert(sid.to_string(), tx.clone());
         let place = Place {
-            renderer: shared.renderer(),
+            renderer: shared.renderer("discord:dm:42"),
             shared,
             key: "dm:42".into(),
             target: "discord:dm:42".into(),

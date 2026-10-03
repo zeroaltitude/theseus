@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { ProtocolClient } from './protocol'
 import type {
-  ConfirmRequest, ExecutionView, ExecutionsWatchResult, Health, NodeInfo, ProfileList, ProviderErrorData, RpcError, SessionHistory,
+  ConfirmRequest, ExecutionView, ExecutionsWatchResult, GraduateResult, Health, NodeInfo, ProfileList, ProviderErrorData, RpcError, SessionHistory,
   SessionInfo, Span, Status, TightenResult, TurnResult, Usage,
 } from './protocol'
 import Transcript from './Transcript'
@@ -289,6 +289,13 @@ export default function App() {
   }, [client, refreshHealth])
   const tightened = useMemo(() => Object.fromEntries((health?.tightenings ?? []).map((t) => [t.tool, t])), [health])
 
+  // Graduate (M4 19c): a new node with wider readers and the operator's reason.
+  const onGraduate = useCallback(async (nodeId: string, to: string, why: string) => {
+    const r = await client.call<GraduateResult>('label.graduate', { node_id: nodeId, to, why })
+    scheduleHistory(); setTick((t) => t + 1)
+    return r
+  }, [client, scheduleHistory])
+
   const loadTrace = useCallback(async (turnId: string) => {
     const sid = currentRef.current
     if (!sid) return
@@ -397,7 +404,7 @@ export default function App() {
           )}
           <Transcript nodes={nodes} pending={pending} live={liveHere} results={results} errors={errors} traces={traces}
             onConfirm={onConfirm} onLoadTrace={(id) => void loadTrace(id)} now={now}
-            tightened={tightened} onTighten={onTighten} />
+            tightened={tightened} onTighten={onTighten} onGraduate={onGraduate} />
           {draft && (
             <section className="exchange">
               <div className="prompt"><pre>{draft.text}</pre></div>

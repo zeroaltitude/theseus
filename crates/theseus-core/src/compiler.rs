@@ -954,20 +954,20 @@ pub fn render_request(
 }
 
 /// What a withheld node renders as (M4 19a, §2.7): one line that says what
-/// was left out and why, in the node's place, so the request stays valid.
+/// was left out and why, in the node's place, so the request stays valid, and
+/// how the operator can widen it (M4 19c's graduation).
 fn placeholder(n: &Node, why: &str, judge: &Judge) -> String {
     let audience = judge.audience.describe();
-    match &n.body {
-        Body::ToolResult { tool, .. } => {
-            format!("[withheld: {tool}'s result is labeled {why}, and this session's audience is {audience}]")
-        }
-        Body::AssistantMessage { .. } => {
-            format!("[withheld: an earlier answer labeled {why}, and this session's audience is {audience}]")
-        }
-        _ => format!(
-            "[withheld: a message labeled {why}, and this session's audience is {audience}]"
-        ),
-    }
+    let what = match &n.body {
+        Body::ToolResult { tool, .. } => format!("{tool}'s result is labeled {why}"),
+        Body::AssistantMessage { .. } => format!("an earlier answer labeled {why}"),
+        _ => format!("a message labeled {why}"),
+    };
+    format!(
+        "[withheld: {what}, and this session's audience is {audience}. The operator can \
+         graduate it: theseus graduate {} --to place]",
+        n.id
+    )
 }
 
 /// A withheld answer keeps its calls, so their results keep their pairing,

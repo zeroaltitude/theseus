@@ -98,7 +98,10 @@ impl Core {
             crash: self.crash_status(),
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
             cancels: self.tools.stops.counts(),
-            labels: Some(self.runner.places.health(&self.cfg.owners())),
+            labels: Some(theseus_protocol::LabelsHealth {
+                held: self.held_health(),
+                ..self.runner.places.health(&self.cfg.owners())
+            }),
         }
     }
 
@@ -818,11 +821,21 @@ impl Core {
             .cloned()
             .collect();
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, &nodes)));
+        // What its audience now withholds (M4 19c), for the Graduate button.
+        let judge = self
+            .runner
+            .judge(&p.session_id, self.outbox.target(&p.session_id).as_deref());
         Ok(theseus_protocol::SessionHistoryResult {
             session: self.session_info(&rec, &asks),
             nodes: nodes[skip..]
                 .iter()
-                .map(|(pos, n)| Self::node_info(*pos, n))
+                .map(|(pos, n)| theseus_protocol::NodeInfo {
+                    withheld: match judge.verdict(n) {
+                        crate::labels::Verdict::Withhold(why) => Some(why),
+                        crate::labels::Verdict::Admit(_) => None,
+                    },
+                    ..Self::node_info(*pos, n)
+                })
                 .collect(),
             pending_confirms: self.confirms_of(&pending, &rec, &nodes),
         })

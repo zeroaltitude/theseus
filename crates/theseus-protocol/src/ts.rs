@@ -106,6 +106,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, SessionListParams, PushStatus,
         WaitUntil, SessionWaitParams, SessionWaitResult, EventsLost, ToolClass, AwsPlan, AwsStatus,
         AwsAccountStatus, TenderStatus, Integrity, Readers, Label, Audience, Withheld, InPlay, LabelsHealth, PlaceAudience,
+        Warrant, LabelGraduateParams, GraduateResult, HeldPosts,
         index::IndexQueryParams, index::IndexWeights, index::IndexFilters, index::IndexSourceRank,
         index::IndexHit, index::IndexTimings, index::IndexLag, index::IndexQueryResult,
         index::IndexStamp, index::IndexEmbedTask, index::IndexNeighboursParams,

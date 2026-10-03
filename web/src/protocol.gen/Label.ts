@@ -2,6 +2,7 @@
 import type { ExternalText } from "./ExternalText";
 import type { Integrity } from "./Integrity";
 import type { Readers } from "./Readers";
+import type { Warrant } from "./Warrant";
 
 /**
  * A node's label (§2.5).
@@ -11,4 +12,9 @@ export type Label = { integrity: Integrity,
  * Why it is untrusted: where its text came from, in T1's shape (the
  * tool, the URL, the node). Absent on a trusted node.
  */
-source?: ExternalText, readers: Readers, };
+source?: ExternalText, readers: Readers, 
+/**
+ * Why its readers are wider than its source's (M4 19c): the operator
+ * graduated it. Absent on every node that was not graduated.
+ */
+warrant?: Warrant, };

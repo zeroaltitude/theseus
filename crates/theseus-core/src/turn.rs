@@ -2022,6 +2022,8 @@ impl TurnRunner {
             // (M4 19a).
             audience: Some(judge.audience.clone()),
             withheld: compiled.withheld,
+            // Who may read what the model writes from it (M4 19c).
+            readers: compiled.admitted.as_ref().map(|a| a.readers.clone()),
         };
         // Its span and its row carry the notification's params.
         t.record(&fact::turn::ContextCompiled {

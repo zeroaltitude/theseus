@@ -378,6 +378,9 @@ struct State {
     replies: Vec<Reply>,
     /// Each interaction `press` sent, by id, and its channel.
     pressed: BTreeMap<String, u64>,
+    /// The guild's member list answers 403 (M4 19c): who can view a channel
+    /// cannot be read.
+    refuse_members: bool,
 }
 
 pub struct FakeDiscord {
@@ -436,6 +439,12 @@ impl FakeDiscord {
     /// Discord keeps a nonce for a few minutes; the fake, forever unless told.
     pub fn set_nonce_window_ms(&self, ms: u64) {
         self.state.lock().unwrap().nonce_window_ms = Some(ms);
+    }
+
+    /// Refuse the guild's member list, as Discord does a bot without access
+    /// (M4 19c): who can view a channel then cannot be read.
+    pub fn refuse_members(&self, refuse: bool) {
+        self.state.lock().unwrap().refuse_members = refuse;
     }
 
     /// Answer every request this much later.
@@ -1026,6 +1035,11 @@ impl FakeDiscord {
         };
         match rest {
             [] => reply(stream, 200, &guild_json(&g)),
+            ["members"] if self.state.lock().unwrap().refuse_members => reply(
+                stream,
+                403,
+                &json!({"message": "Missing Access", "code": 50001}),
+            ),
             ["members"] => {
                 let after: u64 = query(full, "after")
                     .and_then(|v| v.parse().ok())

@@ -16,6 +16,7 @@ use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::{Action, LimitFollowed, BUDGET_TOOL};
+use theseus_protocol::HELD_POST_TOOL;
 use theseus_store::Store as _;
 
 /// Who declines a question nobody answered in time (theseus-830), as its
@@ -49,6 +50,9 @@ impl Core {
     ) -> Option<ConfirmRequest> {
         if a.tool == BUDGET_TOOL {
             return self.budget_confirm(a, session);
+        }
+        if a.tool == HELD_POST_TOOL {
+            return crate::held::held_confirm(a, session);
         }
         let (tool, input, gate) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
@@ -145,6 +149,9 @@ impl Core {
         if q.tool == BUDGET_TOOL {
             return Ok(self.budget_confirm(q, &rec));
         }
+        if q.tool == HELD_POST_TOOL {
+            return Ok(crate::held::held_confirm(q, &rec));
+        }
         let Some(id) = node_id else {
             return Ok(None);
         };
@@ -234,10 +241,16 @@ impl Core {
                 .as_deref()
                 .and_then(|id| self.kernel.execution(id).ok().flatten())
                 .is_some_and(|e| e.state == theseus_kernel::ExecState::Waiting);
-            if asks.is_empty() || !parked {
+            // A held post's question waits whether or not its session does
+            // (M4 19c): its turn has ended.
+            let held = asks.iter().any(|a| a.tool == HELD_POST_TOOL);
+            if asks.is_empty() || !(parked || held) {
                 continue;
             }
-            let nodes = if asks.iter().any(|a| a.tool != BUDGET_TOOL) {
+            let nodes = if asks
+                .iter()
+                .any(|a| a.tool != BUDGET_TOOL && a.tool != HELD_POST_TOOL)
+            {
                 self.store.session_nodes(&rec.session_id)?
             } else {
                 vec![]
@@ -289,7 +302,7 @@ impl Core {
             .kernel
             .action(correlation_id)?
             .ok_or_else(|| anyhow::anyhow!("no action {correlation_id}"))?;
-        if trust && (!approve || a.tool == BUDGET_TOOL) {
+        if trust && (!approve || a.tool == BUDGET_TOOL || a.tool == HELD_POST_TOOL) {
             anyhow::bail!(
                 "trust goes with an approval of a tool call: approve {correlation_id} to trust \
                  its session, or use `policy.trust`"
@@ -312,6 +325,9 @@ impl Core {
         let via = who.via();
         if a.tool == BUDGET_TOOL {
             return self.answer_budget(&a, approve, note, by, &via, &asker);
+        }
+        if a.tool == HELD_POST_TOOL {
+            return self.answer_held_post(&a, approve, note, by, &via, &asker);
         }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
         // bind or the decline, an approval's trust, the answer's row, and the
@@ -451,7 +467,11 @@ impl Core {
         };
         let mut next = u64::MAX;
         let mut expired = 0;
-        for a in pending.iter().filter(|a| a.tool != BUDGET_TOOL) {
+        // A budget question and a held post's hold until they are answered.
+        for a in pending
+            .iter()
+            .filter(|a| a.tool != BUDGET_TOOL && a.tool != HELD_POST_TOOL)
+        {
             let due = a.planned_at_ms + ttl;
             if due > now {
                 next = next.min(due);
@@ -518,7 +538,10 @@ impl Core {
     pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<Traced> {
         let traced = match act {
             Act::Tighten { .. } => Traced::NoProcess,
-            Act::Answer { .. } | Act::Untighten { .. } | Act::Trust { .. } => who.peer.trace(),
+            Act::Answer { .. }
+            | Act::Untighten { .. }
+            | Act::Trust { .. }
+            | Act::Graduate { .. } => who.peer.trace(),
         };
         let verdict = match (act, traced.refusal()) {
             (_, Some(why)) => Err(Refusal {
@@ -586,7 +609,7 @@ impl Core {
                 Some(approve),
             ),
             Act::Tighten { tool } | Act::Untighten { tool } => (None, Some(tool.into()), None),
-            Act::Trust { .. } => (None, None, None),
+            Act::Trust { .. } | Act::Graduate { .. } => (None, None, None),
         };
         let refusal = ApprovalRefused {
             act: act.method().into(),
@@ -760,6 +783,9 @@ pub(crate) enum Act<'a> {
     /// Trusting a session again (theseus-9bp): it no longer holds external
     /// text, so its calls that act return to their postures.
     Trust { session: &'a str },
+    /// Graduating a node (M4 19c): a new node with wider readers, which
+    /// widens who the session's model may draw on for its audience.
+    Graduate { node: &'a str, session: &'a str },
 }
 
 impl Act<'_> {
@@ -770,6 +796,7 @@ impl Act<'_> {
             Act::Tighten { .. } => theseus_protocol::method::POLICY_TIGHTEN,
             Act::Untighten { .. } => theseus_protocol::method::POLICY_UNTIGHTEN,
             Act::Trust { .. } => theseus_protocol::method::POLICY_TRUST,
+            Act::Graduate { .. } => theseus_protocol::method::LABEL_GRADUATE,
         }
     }
 }

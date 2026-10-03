@@ -177,7 +177,7 @@ impl ActRefused<'_> {
         match self.act {
             Act::Answer { action: a, .. } => Some(a.session_id.as_str()),
             Act::Tighten { .. } | Act::Untighten { .. } => None,
-            Act::Trust { session } => Some(session),
+            Act::Trust { session } | Act::Graduate { session, .. } => Some(session),
         }
     }
 
@@ -203,6 +203,10 @@ impl Fact for ActRefused<'_> {
             Act::Trust { session } => {
                 json!({"act": act.method(), "session_id": session, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
+            }
+            Act::Graduate { node, session } => {
+                json!({"act": act.method(), "node_id": node, "session_id": session, "who": r.who,
+                       "via": r.via, "why": r.why, "by": self.by})
             }
         };
         if *self.traced != Traced::NoProcess {
@@ -241,6 +245,11 @@ impl Fact for ActRefused<'_> {
                      calls that act keep waiting.",
                     r.who, r.via, r.why
                 ),
+                Act::Graduate { node, .. } => format!(
+                    "Graduating {node}, from {} through {}, did not count: {}. Who may read it \
+                     is unchanged.",
+                    r.who, r.via, r.why
+                ),
             },
         );
     }
@@ -270,12 +279,14 @@ impl Fact for JobActRefused<'_> {
             Act::Trust { session } => {
                 format!("trusting session {} again", narrative::short(session))
             }
+            Act::Graduate { node, .. } => format!("graduating {node}"),
         };
         let then = match self.act {
             Act::Answer { .. } => "It keeps waiting for the operator's answer.",
             Act::Untighten { .. } => "It keeps asking first.",
             Act::Tighten { .. } => "Nothing changed.",
             Act::Trust { .. } => "It still holds external text, and its calls that act wait.",
+            Act::Graduate { .. } => "Who may read it is unchanged.",
         };
         say.line(
             Approval,

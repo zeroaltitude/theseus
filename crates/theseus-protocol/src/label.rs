@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ExternalText;
+use crate::{DiscordOrigin, ExternalText};
 
 /// Whether a node's text came from outside Theseus. `untrusted` wins when
 /// two meet. `Quarantined` comes with the Advisory (the reader rule).
@@ -69,6 +69,11 @@ pub struct Label {
     #[cfg_attr(test, ts(optional))]
     pub source: Option<ExternalText>,
     pub readers: Readers,
+    /// Why its readers are wider than its source's (M4 19c): the operator
+    /// graduated it. Absent on every node that was not graduated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub warrant: Option<Warrant>,
 }
 
 impl Label {
@@ -77,6 +82,7 @@ impl Label {
             integrity: Integrity::Trusted,
             source: None,
             readers,
+            warrant: None,
         }
     }
 
@@ -85,8 +91,26 @@ impl Label {
             integrity: Integrity::Untrusted,
             source: Some(source),
             readers,
+            warrant: None,
         }
     }
+}
+
+/// The operator's warrant for a graduated node (M4 19c, §2.7): graduation is
+/// the only way an audience widens, and it is a new node, never a relabel.
+/// The node keeps its source's integrity; only its readers are wider.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Warrant {
+    /// The node it was graduated from, which keeps its own label.
+    pub graduated_from: String,
+    /// Who graduated it: a label, or a Discord user by id.
+    pub who: String,
+    /// The surface it came through: `cli`, `web`, `discord:dm`.
+    pub how: String,
+    /// Why, in the operator's words.
+    pub why: String,
+    pub at_ms: u64,
 }
 
 /// A session's audience, as a compile evaluated it: who sees what its model
@@ -179,6 +203,22 @@ pub struct LabelsHealth {
     pub owners: u32,
     /// Each guild channel whose viewers the binding has read.
     pub places: Vec<PlaceAudience>,
+    /// Replies the outbox held for the owner (M4 19c), when any was held
+    /// since the daemon started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub held: Option<HeldPosts>,
+}
+
+/// Health's count of held posts (M4 19c).
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeldPosts {
+    /// Held now: waiting for the owner's answer, or answered and not yet
+    /// delivered.
+    pub now: u32,
+    /// Held since the daemon started.
+    pub since_start: u32,
 }
 
 /// A guild channel's audience, for health.
@@ -199,4 +239,41 @@ pub struct PlaceAudience {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub others: Option<u32>,
+}
+
+/// `label.graduate` (M4 19c): widen who may read a node, by a new node that
+/// carries its content with the operator's warrant. The node keeps its own
+/// label, and its placeholder stays where it was.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LabelGraduateParams {
+    pub node_id: String,
+    /// `public`, `place` (whoever can view the session's place), or
+    /// `people:<id>[,<id>…]`.
+    pub to: String,
+    /// Why, in the operator's words: the warrant's reason.
+    pub why: String,
+    /// Who graduated it, as a label. Default: the connection. It names and
+    /// proves nothing; the connection's surface decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// What a graduation wrote: `label.graduate`'s result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct GraduateResult {
+    /// The graduated node, new in the session's tail.
+    pub node_id: String,
+    pub session_id: String,
+    pub readers: Readers,
+    pub warrant: Warrant,
+    /// The session's audience now, and whether the new readers cover it: when
+    /// they do, its next compile admits the node.
+    pub audience: Audience,
+    pub covers: bool,
 }

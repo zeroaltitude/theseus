@@ -158,6 +158,8 @@ struct Index {
     cards: HashMap<String, Card>,
     /// Every question that has a card post, settled or not.
     carded: std::collections::HashSet<String>,
+    /// Held post → its question (M4 19c), until the post settles.
+    held: HashMap<String, String>,
     /// By binding (`discord`): delivered, refused for good, the last error.
     counts: BTreeMap<String, Counts>,
 }
@@ -201,6 +203,8 @@ pub struct Outbox {
     changed: tokio::sync::watch::Sender<u64>,
     /// The posts in flight, and whether the daemon is stopping (theseus-pfv).
     flight: Arc<tokio::sync::watch::Sender<Flight>>,
+    /// Posts held for the owner since this process started (M4 19c).
+    held_count: std::sync::atomic::AtomicU32,
 }
 
 /// The posts this process has sent and not yet settled, and when its stop
@@ -240,6 +244,7 @@ impl Outbox {
             index: Mutex::new(None),
             changed: tokio::sync::watch::Sender::new(0),
             flight: Arc::new(tokio::sync::watch::Sender::new(Flight::default())),
+            held_count: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
@@ -349,6 +354,11 @@ impl Outbox {
             let body = body_of(a);
             match kind_of(a) {
                 "card" => {
+                    if let (Some(q), Some(post)) =
+                        (body["question"].as_str(), body["held"].as_str())
+                    {
+                        ix.held.insert(post.to_string(), q.to_string());
+                    }
                     if let Some(q) = body["question"].as_str() {
                         ix.carded.insert(q.to_string());
                         ix.cards.insert(
@@ -373,6 +383,9 @@ impl Outbox {
         for q in settled_cards {
             ix.cards.remove(&q);
         }
+        // A held post that settled is held no more.
+        let open = &ix.open;
+        ix.held.retain(|post, _| open.contains_key(post));
         for r in self.store.inner().latest_of_kind(kinds::META)? {
             let key = r.key.as_deref().unwrap_or("");
             if let Some(task) = key.strip_prefix(TASK_META_PREFIX) {
@@ -725,6 +738,7 @@ impl Outbox {
         })?;
         let a = match s {
             Settled::Now(a) => {
+                self.with(|ix| ix.held.remove(&a.correlation_id))?;
                 let error = (a.state == ActionState::Failed).then(|| {
                     a.detail
                         .as_ref()
@@ -749,7 +763,10 @@ impl Outbox {
                 a
             }
             Settled::Already(a) => {
-                self.with(|ix| ix.open.remove(&a.correlation_id))?;
+                self.with(|ix| {
+                    ix.open.remove(&a.correlation_id);
+                    ix.held.remove(&a.correlation_id);
+                })?;
                 a
             }
         };
@@ -786,6 +803,37 @@ impl Outbox {
             }
         })
         .unwrap_or_default()
+    }
+
+    /// A post is held for the owner (M4 19c): its question waits, and the
+    /// post with it. Counted for health.
+    pub fn held(&self, post: &str, question: &str) {
+        let r = self.with(|ix| ix.held.insert(post.to_string(), question.to_string()));
+        if let Err(e) = r {
+            tracing::warn!(error = %format!("{e:#}"), "outbox index unreadable; the held post is in the store");
+        }
+        self.held_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The question a held post waits on (M4 19c); None when it is not held.
+    pub fn held_question(&self, post: &str) -> Option<String> {
+        self.with(|ix| ix.held.get(post).cloned()).ok().flatten()
+    }
+
+    /// Posts held now, until each settles; 0 until the index is read.
+    pub fn held_now(&self) -> u32 {
+        self.peek(|ix| ix.held.len() as u32).unwrap_or(0)
+    }
+
+    /// Posts held since this process started.
+    pub fn held_since_start(&self) -> u32 {
+        self.held_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Wake whoever delivers: an answer changed what may go (M4 19c).
+    pub fn wake(&self) {
+        self.bump();
     }
 
     /// Whether a question's card is an outbox post: a press on it is settled

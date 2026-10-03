@@ -3,6 +3,7 @@ import type { Audience } from "./Audience";
 import type { CacheSummary } from "./CacheSummary";
 import type { ContextFileRef } from "./ContextFileRef";
 import type { EstimateSummary } from "./EstimateSummary";
+import type { Readers } from "./Readers";
 
 /**
  * `context.compiled`: the context a loop's request was compiled from
@@ -49,4 +50,12 @@ audience?: Audience,
  * Nodes and context files the request carries as placeholders, since
  * their readers do not cover the audience (M4 19a).
  */
-withheld?: number, };
+withheld?: number, 
+/**
+ * Who may read what the model writes from this request (M4 19c): the
+ * meet of what it admitted, which labels its answer. In a guild channel
+ * the binding streams that answer only when whoever views the channel
+ * may read it, whoever that is; otherwise its text waits for the reply's
+ * post, which is checked against who can view the channel then.
+ */
+readers?: Readers, };

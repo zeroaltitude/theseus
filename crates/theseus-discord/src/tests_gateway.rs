@@ -66,10 +66,23 @@ impl Rig {
     /// A core whose binding talks only to the stand-in, bound to `#lab` and
     /// ana's DM, its gateway connected. `script` gets the rig's directory.
     async fn start(script: impl FnOnce(&Path) -> Vec<Scripted>, open_lab: bool) -> Self {
+        Self::start_with(
+            |dir, _| Arc::new(FakeProvider::scripted(script(dir))),
+            open_lab,
+        )
+        .await
+    }
+
+    /// A rig whose model is `model`, given the stand-in, so an answer can
+    /// change the guild while its turn runs (M4 19c).
+    async fn start_with(
+        model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
+        open_lab: bool,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let fake = FakeDiscord::start_with_gateway();
         fake.set_guild(guild(open_lab));
-        let core = core_at(dir.path(), &fake, script(dir.path()));
+        let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()));
         let path = dir.path().join("bindings.toml");
         std::fs::write(&path, bindings()).unwrap();
         // The continuation driver, as the daemon starts it: an answered
@@ -170,7 +183,7 @@ fn outside(dir: &Path) -> PathBuf {
 }
 
 /// A core over `dir` whose binding talks to `fake` and never to Discord.
-fn core_at(dir: &Path, fake: &FakeDiscord, script: Vec<Scripted>) -> Arc<Core> {
+fn core_at(dir: &Path, fake: &FakeDiscord, model: Arc<dyn Provider>) -> Arc<Core> {
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
     let work = dir.join("work");
@@ -193,7 +206,6 @@ fn core_at(dir: &Path, fake: &FakeDiscord, script: Vec<Scripted>) -> Arc<Core> {
         "test",
     );
     let store = theseus_core::store::Store::open(&dir.join("store")).unwrap();
-    let model: Arc<dyn Provider> = Arc::new(FakeProvider::scripted(script));
     let providers = [(cfg.model.provider.clone(), model)].into_iter().collect();
     Core::build(theseus_core::rpc::Parts {
         cfg,
@@ -440,4 +452,181 @@ async fn a_channel_a_stranger_can_view_gets_an_owner_only_read_as_a_placeholder(
         );
         assert_eq!(r.ledger("label.withheld").len(), usize::from(open));
     }
+}
+
+/// A stand-in model that answers each request from the request (M4 19c).
+struct Model(Box<dyn Fn(&theseus_core::provider::ProviderRequest) -> Scripted + Send + Sync>);
+
+impl Provider for Model {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a theseus_core::provider::ProviderRequest,
+        on_delta: theseus_core::provider::DeltaSink<'a>,
+    ) -> theseus_core::provider::ProviderFuture<'a> {
+        Box::pin(async move {
+            let answer = (self.0)(req);
+            FakeProvider::scripted(vec![answer])
+                .stream_message(req, on_delta)
+                .await
+        })
+    }
+}
+
+/// A turn that reads the owner's file, and, `grow`n, gives cy `#lab` while it
+/// runs: the second request (the file's result in it) opens the channel to
+/// the whole guild before the model answers.
+fn read_and_grow(dir: &Path, fake: Arc<FakeDiscord>, grow: bool) -> Arc<dyn Provider> {
+    std::fs::create_dir_all(dir.join("work")).unwrap();
+    std::fs::write(
+        dir.join("work").join("notes.txt"),
+        "the vault code is 4417\n",
+    )
+    .unwrap();
+    Arc::new(Model(Box::new(move |req| {
+        let read = serde_json::to_string(&req.messages)
+            .unwrap()
+            .contains("tool_result");
+        if !read {
+            return Scripted::tools(
+                "Reading it.",
+                &[("t1", "fs_read", serde_json::json!({"path": "notes.txt"}))],
+            );
+        }
+        if grow {
+            fake.set_guild(guild(true));
+        }
+        Scripted::text("Read: the vault code is 4417")
+    })))
+}
+
+/// Every version of every message in `channel` that says `what`.
+fn said_in(r: &Rig, channel: u64, what: &str) -> bool {
+    r.fake
+        .messages(channel)
+        .iter()
+        .any(|m| m.content.contains(what) || m.versions.iter().any(|v| v.contains(what)))
+}
+
+/// M4 19c, the held post: `#lab` is private to ana and ben, the owners, so
+/// ana's turn reads the owner's file whole. While it runs, cy is given the
+/// channel. The reply, which draws on the file, is held: nothing of it reaches
+/// `#lab` (its loop streams no text), its card goes to ana's DM, and the
+/// question waits in `theseus confirm`. Approving it posts it in `#lab`;
+/// declining it leaves the note there instead.
+#[tokio::test]
+async fn a_post_whose_place_gained_a_viewer_is_held_and_its_answer_decides() {
+    for approve in [true, false] {
+        let r = Rig::start_with(|dir, fake| read_and_grow(dir, fake, true), false).await;
+        r.until("#lab's viewers", || !r.ledger("label.audience").is_empty())
+            .await;
+        r.say((ANA, "ana"), Some(LAB), "read notes.txt");
+        r.until("the hold", || !r.ledger("label.held_post").is_empty())
+            .await;
+        let held = &r.ledger("label.held_post")[0];
+        assert_eq!(held["readers"], "owner", "{held}");
+        assert_eq!(held["audience"]["viewers"], 3, "cy counted at the post");
+        r.until("the held post's card in ana's DM", || {
+            said_in(&r, ANA_DM, "A reply is held")
+        })
+        .await;
+        assert!(!said_in(&r, LAB, "4417"), "nothing of the reply in #lab");
+        assert_eq!(r.waiting(), 1, "it waits in `theseus confirm`");
+        let health = r.core.held_health().expect("held");
+        assert_eq!((health.now, health.since_start), (1, 1));
+        let card = r
+            .posted(ANA_DM)
+            .into_iter()
+            .find(|m| m.versions[0].contains("A reply is held"))
+            .unwrap();
+        assert!(card.versions[0].contains("draws on material labeled owner-only"));
+        r.press(
+            &card.id,
+            if approve { "Approve" } else { "Decline" },
+            (ANA, "ana"),
+        );
+        if approve {
+            r.until("the reply in #lab", || said_in(&r, LAB, "4417"))
+                .await;
+        } else {
+            r.until("the note in #lab", || {
+                said_in(&r, LAB, crate::courier::HELD_BACK)
+            })
+            .await;
+            assert!(!said_in(&r, LAB, "4417"));
+        }
+        let answered = r.ledger("label.held_post_answered");
+        assert_eq!(answered[0]["approved"], approve, "{answered:?}");
+        r.until("the card settled", || {
+            r.posted(ANA_DM).iter().any(|m| {
+                m.content
+                    .contains(if approve { "Approved" } else { "Declined" })
+                    && m.content.contains("held reply")
+            })
+        })
+        .await;
+        r.until("held no more", || {
+            r.core.held_health().is_some_and(|h| h.now == 0)
+        })
+        .await;
+    }
+}
+
+/// M4 19c: a post whose audience still fits goes out with no new frame: the
+/// check at post time reads who can view `#lab`, finds the owners alone, and
+/// writes nothing; a reply that drew on the channel alone needs no read.
+#[tokio::test]
+async fn a_post_whose_audience_still_fits_goes_out_with_no_new_frame() {
+    let r = Rig::start_with(|dir, fake| read_and_grow(dir, fake, false), false).await;
+    r.until("#lab's viewers", || !r.ledger("label.audience").is_empty())
+        .await;
+    r.say((ANA, "ana"), Some(LAB), "read notes.txt");
+    r.until("the reply in #lab", || said_in(&r, LAB, "4417"))
+        .await;
+    assert!(r.ledger("label.held_post").is_empty());
+    assert_eq!(
+        r.ledger("label.audience").len(),
+        1,
+        "no new read was written"
+    );
+    assert!(r.core.held_health().is_none());
+}
+
+/// M4 19c, Q6's rule at post time: when who can view `#lab` cannot be read
+/// as the reply goes out (the guild's member list is refused), the channel
+/// counts as public, and the reply that drew on the owner's file is held.
+#[tokio::test]
+async fn an_unreadable_audience_at_post_time_counts_as_public() {
+    let r = Rig::start_with(
+        |dir, fake| {
+            // The file to read; the model below is this one's, but for the
+            // refusal it makes while the turn runs.
+            read_and_grow(dir, fake.clone(), false);
+            Arc::new(Model(Box::new(move |req| {
+                let read = serde_json::to_string(&req.messages)
+                    .unwrap()
+                    .contains("tool_result");
+                if !read {
+                    return Scripted::tools(
+                        "Reading it.",
+                        &[("t1", "fs_read", serde_json::json!({"path": "notes.txt"}))],
+                    );
+                }
+                fake.refuse_members(true);
+                Scripted::text("Read: the vault code is 4417")
+            })))
+        },
+        false,
+    )
+    .await;
+    r.until("#lab's viewers", || !r.ledger("label.audience").is_empty())
+        .await;
+    r.say((ANA, "ana"), Some(LAB), "read notes.txt");
+    r.until("the hold", || !r.ledger("label.held_post").is_empty())
+        .await;
+    let held = &r.ledger("label.held_post")[0];
+    assert!(held["audience"].get("viewers").is_none(), "public: {held}");
+    assert!(!said_in(&r, LAB, "4417"));
 }

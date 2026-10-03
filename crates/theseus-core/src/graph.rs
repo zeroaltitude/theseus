@@ -54,9 +54,10 @@ vocabulary! {
     /// What an EDGE record says of its two nodes (`kinds::EDGE`): see
     /// [`Edge`].
     pub enum EdgeKind {
-        /// `from` copies `to` into another session (row 12, 12a): a task's
-        /// report, relayed into its parent from the task's last message, and
-        /// a task's brief, from the parent's reply that started it.
+        /// `from` copies `to` (row 12, 12a): a task's report, relayed into
+        /// its parent from the task's last message, and a task's brief, from
+        /// the parent's reply that started it, each into another session;
+        /// and a graduated node, in its source's own session (M4 19c).
         DerivedFrom = "derived_from",
     }
 }
@@ -80,16 +81,17 @@ pub struct Edge {
     pub kind: String,
     pub from: String,
     pub to: String,
-    /// The route that wrote it: `report` or `brief`.
+    /// The route that wrote it: `report`, `brief`, or `graduate`.
     #[serde(default)]
     pub via: String,
     pub at_ms: u64,
 }
 
-/// The routes that write `derived_from` (12a): a task's report, and its
-/// brief.
+/// The routes that write `derived_from` (12a): a task's report, its brief,
+/// and a graduation (M4 19c).
 pub const VIA_REPORT: &str = "report";
 pub const VIA_BRIEF: &str = "brief";
+pub const VIA_GRADUATE: &str = "graduate";
 
 impl Edge {
     pub fn new(kind: EdgeKind, from: &str, to: &str, via: &str) -> Self {

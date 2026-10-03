@@ -26,4 +26,9 @@ detail: Record<string, unknown> | null, bytes: number,
  * Its label (M4 19a): its integrity and its readers. Absent on a node
  * written before 19a, which is disclosable only within its own session.
  */
-label?: Label, };
+label?: Label, 
+/**
+ * Its readers in words when its session's audience now withholds it
+ * (M4 19c): what `label.graduate` could widen. Set by `session.history`.
+ */
+withheld?: string, };

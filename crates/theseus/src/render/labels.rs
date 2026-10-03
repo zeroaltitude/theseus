@@ -26,7 +26,32 @@ pub fn label_words(l: Option<&Label>) -> String {
             .map_or_else(String::new, |s| format!(": {}", s.what()));
         words.push_str(&format!(", untrusted{from}"));
     }
+    if let Some(w) = &l.warrant {
+        words.push_str(&format!(
+            ", 🎓 graduated from {} by {}: {}",
+            w.graduated_from, w.who, w.why
+        ));
+    }
     words
+}
+
+/// `theseus graduate`'s answer (M4 19c): the new node, who may read it now,
+/// and whether the session's next compile admits it.
+pub fn graduated_line(r: &theseus_protocol::GraduateResult) -> String {
+    let then = if r.covers {
+        "its next compile admits it".to_string()
+    } else {
+        format!(
+            "it does not cover the session's audience ({}), so it stays withheld there",
+            r.audience.describe()
+        )
+    };
+    format!(
+        "graduated {} as {}, readable {}: {then}",
+        r.warrant.graduated_from,
+        r.node_id,
+        r.readers.describe()
+    )
 }
 
 /// Health's `labels:` line (M4 19a): the owner, and each guild channel's
@@ -59,6 +84,18 @@ pub fn labels_health_line(h: &theseus_protocol::LabelsHealth, intent: Option<boo
                 }
             ),
         });
+    }
+    // Replies the outbox held for the owner (M4 19c): their places gained a
+    // viewer since they were written.
+    if let Some(held) = &h.held {
+        parts.push(format!(
+            "held for the owner: {} now, {} since the start",
+            match held.now {
+                1 => "1 reply".to_string(),
+                n => format!("{n} replies"),
+            },
+            held.since_start
+        ));
     }
     format!("labels: {}", parts.join(" · "))
 }
@@ -223,6 +260,7 @@ mod tests {
                 place("quiet", Some(1), Some(0)),
                 place("openclaw", None, None),
             ],
+            held: None,
         };
         assert_eq!(
             labels_health_line(&h, Some(false)),
@@ -230,6 +268,20 @@ mod tests {
              not the owner: owner-only material is withheld there · #quiet: 1 can view it, all the \
              owner: nothing withheld · #openclaw: public, since who can view it cannot be read \
              (the bot's Server Members intent is off): owner-only material is withheld there"
+        );
+        // M4 19c: replies held for the owner, now and since the start.
+        let h = theseus_protocol::LabelsHealth {
+            owners: 1,
+            places: vec![],
+            held: Some(theseus_protocol::HeldPosts {
+                now: 1,
+                since_start: 2,
+            }),
+        };
+        assert_eq!(
+            labels_health_line(&h, None),
+            "labels: owner: the CLI, the web UI, and 1 person on Discord · held for the owner: 1 \
+             reply now, 2 since the start"
         );
     }
 }

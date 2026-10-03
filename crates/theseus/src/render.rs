@@ -25,7 +25,7 @@ mod sandbox;
 mod store;
 pub use cancel::{cancels_line, verdict_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
-pub use labels::{label_words, labels_health_line, labels_lines};
+pub use labels::{graduated_line, label_words, labels_health_line, labels_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
 

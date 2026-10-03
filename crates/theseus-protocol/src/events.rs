@@ -175,6 +175,14 @@ pub struct ContextCompiled {
     /// their readers do not cover the audience (M4 19a).
     #[serde(default, skip_serializing_if = "crate::is_zero")]
     pub withheld: u64,
+    /// Who may read what the model writes from this request (M4 19c): the
+    /// meet of what it admitted, which labels its answer. In a guild channel
+    /// the binding streams that answer only when whoever views the channel
+    /// may read it, whoever that is; otherwise its text waits for the reply's
+    /// post, which is checked against who can view the channel then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub readers: Option<crate::Readers>,
 }
 
 /// `tool.started`: a call runs. A job's says how, and what the broker gave
