@@ -314,7 +314,7 @@ pub fn render(records: &[Record], exam: &Exam, source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item::EXAM_V1;
+    use crate::item::EXAM_V2;
 
     fn rec(item: &str, arm: &str, run: u32, pass: Option<bool>) -> Record {
         Record {
@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn rescoring_applies_the_given_checks_to_stored_replies() {
-        let exam = Exam::parse(EXAM_V1).unwrap();
+        let exam = Exam::parse(EXAM_V2).unwrap();
         let mut rs = vec![Record {
             reply: "It listens on 7433.".into(),
             ..rec("fact-1", "oracle", 1, Some(false))
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn the_report_names_the_headroom_and_each_family() {
-        let exam = Exam::parse(EXAM_V1).unwrap();
+        let exam = Exam::parse(EXAM_V2).unwrap();
         let mut rs = Vec::new();
         for (i, item) in exam.file.items.iter().enumerate() {
             for run in 1..=3 {
@@ -372,17 +372,15 @@ mod tests {
             }
         }
         let md = render(&rs, &exam, "x.jsonl");
-        // By hand: 10 of 40 items pass under none (every fourth), every item
-        // under oracle. The sd of ten ones and thirty zeros is
-        // √(0.25 × 0.75 × 40/39) = 0.43853, the se 0.069338, and t(39) is
-        // 2.0227, so the half-width is 14.0 points: none 25% [11, 39], and
-        // the headroom +75 [+61, +89], 30 gained, 10 tied.
-        assert!(md.contains("| **all** | 40 | 25% [11, 39] | 100% [100, 100] | +75 [+61, +89] | 30/0/10 | <0.001 |"), "{md}");
-        for f in Family::V1 {
-            assert!(md.contains(&format!("| {} | 4 |", f.as_str())), "{f:?}");
-        }
-        for f in Family::HARD {
-            assert!(!md.contains(&format!("| {} |", f.as_str())), "{f:?}");
+        // By hand: 18 of 72 items pass under none (every fourth), every item
+        // under oracle. The sd of eighteen ones and fifty-four zeros is
+        // √(0.25 × 0.75 × 72/71) = 0.43606, the se 0.051392, and t(71) is
+        // 1.9939, so the half-width is 10.2 points: none 25% [15, 35], and
+        // the headroom +75 [+65, +85], 54 gained, 18 tied.
+        assert!(md.contains("| **all** | 72 | 25% [15, 35] | 100% [100, 100] | +75 [+65, +85] | 54/0/18 | <0.001 |"), "{md}");
+        for f in Family::ALL {
+            let n = if f.is_hard() { 8 } else { 4 };
+            assert!(md.contains(&format!("| {} | {n} |", f.as_str())), "{f:?}");
         }
         assert!(
             md.contains("| fact-1 | fact | tuning | 3/3 | 3/3 | +0 |"),

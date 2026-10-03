@@ -6,6 +6,11 @@
 //! - **Arms.** `none` sends the task alone: today's compiler, which sees only
 //!   the session's own transcript. `oracle` sends the item's gold, rendered as
 //!   the recall note, before the task (§3.1's 34a row, until 30b exists).
+//!   Arms of the real memory pipeline (row 55) are not a per-turn choice: they
+//!   are the scratch daemon's `[memory] arm` config key, which this driver's
+//!   caller will set when it starts the daemon for each arm. The key does not
+//!   exist yet (row 55 adds it); `turn.submit` carries no arm field, and none
+//!   is planned.
 //! - **A cell** is one item under one arm, once: a fresh session, one turn on
 //!   the given profile. A call that waits for approval is declined, as an
 //!   operator who wants a text answer would; the continuation runs, and the
@@ -311,6 +316,8 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
         sid = Some(s.clone());
         let deadline = t0 + plan.timeout;
         let left = || deadline.saturating_duration_since(Instant::now());
+        // The submit names no memory arm: the daemon's `[memory] arm` (row 55)
+        // sets it for every turn it runs.
         let r: TurnSubmitResult = serde_json::from_value(c.call(
             "turn.submit",
             json!({"session_id": s, "input": input, "profile": plan.profile}),
@@ -569,14 +576,15 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item::EXAM_V1;
+    use crate::item::EXAM_V2;
 
     #[test]
     fn the_order_pairs_each_items_arms_and_is_reproducible() {
-        let exam = Exam::parse(EXAM_V1).unwrap();
+        let exam = Exam::parse(EXAM_V2).unwrap();
         let items: Vec<&Item> = exam.file.items.iter().collect();
+        let cells = items.len() * 2 * 3;
         let a = order(&items, &[Arm::None, Arm::Oracle], 3, 7);
-        assert_eq!(a.len(), 240);
+        assert_eq!(a.len(), cells);
         assert_eq!(
             a,
             order(&items, &[Arm::None, Arm::Oracle], 3, 7),
@@ -597,11 +605,15 @@ mod tests {
         }
         // Every cell once; runs in order.
         let set: BTreeSet<_> = a.iter().cloned().collect();
-        assert_eq!(set.len(), 240);
+        assert_eq!(set.len(), cells);
         assert!(a.windows(2).all(|w| w[0].0 <= w[1].0));
         // Both arms lead about half the time (a fair coin per item).
         let oracle_first = a.chunks(2).filter(|p| p[0].2 == Arm::Oracle).count();
-        assert!((40..=80).contains(&oracle_first), "{oracle_first} of 120");
+        let pairs = cells / 2;
+        assert!(
+            (pairs / 3..=pairs * 2 / 3).contains(&oracle_first),
+            "{oracle_first} of {pairs}"
+        );
     }
 
     #[test]
