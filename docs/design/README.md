@@ -34,4 +34,3 @@ Each says so in its manifest (`reserved_for` under `[package.metadata.theseus]`,
 | `theseus-memory` | FSRS-6 and spreading activation, pure | row 52 (30a) |
 | `theseus-exam` | The memory exam | row 55 |
 | `theseus-mcp` | MCP, client and server, written by hand | row 66 (36b) |
-| `theseus-voice` | The voice engine for Discord, back in the workspace for its row (theseus-drrs) | row 77 (44b) |

@@ -18,6 +18,9 @@ mention_only = true                # answer only when @mentioned or replied to; 
 private = false                    # true: only you can view it, so it gets everything, as your DM does.
                                    # false (shared): its own conversation, the public tools, files only
                                    # under [places] public_paths, no proc_run or AWS
+voice = false                      # true for a voice channel: /join from a private place brings Theseus
+                                   # into it ([voice] in the config); only its users are heard, and its
+                                   # text chat is this place's text
 
 [[dm]]
 user = "000000000000000000"        # who may talk to Theseus in direct messages

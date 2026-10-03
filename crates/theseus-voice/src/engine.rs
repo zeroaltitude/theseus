@@ -135,13 +135,16 @@ pub struct Utterance {
     pub latency: Duration,
 }
 
-/// A call to the speech provider that failed.
+/// What failed: a call to the speech provider, or the call itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Failure {
     /// An utterance's transcription: the utterance is dropped.
     Transcribe(Speaker),
     /// A sentence's synthesis: the sentence is skipped.
     Synthesize(Spoken),
+    /// The voice connection dropped (44b): the run ends, and the error says
+    /// why, as the seam gave it (`VoiceIo::gone`).
+    Connection,
 }
 
 /// What the engine tells the session, the ledger, and the observatory.
@@ -370,7 +373,18 @@ impl Engine {
                 Step::Done(done) => self.done(done),
                 Step::Command(Some(Command::Reply { turn, text })) => self.reply(turn, &text, now),
                 Step::Command(Some(Command::Report { text })) => self.reports.push_back(text),
-                Step::Command(None | Some(Command::Leave)) | Step::Heard(None) => break,
+                Step::Command(None | Some(Command::Leave)) => break,
+                Step::Heard(None) => {
+                    // A dropped connection says so; a call that just ended
+                    // (a test's WAV running out) does not.
+                    if let Some(why) = self.io.gone() {
+                        self.emit(Event::Failed {
+                            what: Failure::Connection,
+                            error: SpeechError(why),
+                        });
+                    }
+                    break;
+                }
                 Step::Heard(Some(Heard::Tick(frames))) => self.tick(&frames),
                 Step::Heard(Some(Heard::Ended(id))) => self.ended(id),
                 Step::AckDue => {

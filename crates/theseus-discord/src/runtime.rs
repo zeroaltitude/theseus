@@ -52,6 +52,7 @@ use crate::viewers;
 
 mod audience;
 mod publish;
+mod voice;
 use publish::PublishAsk;
 
 /// The connection label every Discord call carries; authors refine it per message.
@@ -300,7 +301,9 @@ async fn connect(
         max_text: core.cfg.tools.max_read_bytes as u64,
         members_intent: OnceLock::new(),
         lanes: Mutex::new(HashMap::new()),
+        voice: voice::Voice::new(&core.cfg.voice, bindings),
     });
+    voice::show(&shared);
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
     // down (theseus-q4v).
@@ -415,13 +418,15 @@ async fn event_loop(
     let intents = Intents::GUILDS
         | Intents::GUILD_MESSAGES
         | Intents::DIRECT_MESSAGES
-        | Intents::MESSAGE_CONTENT;
+        | Intents::MESSAGE_CONTENT
+        | shared.voice.intents();
     let mut gateway = twilight_gateway::ConfigBuilder::new(token, intents);
     if let Some(p) = cfg.gateway_proxy.as_deref().filter(|p| !p.is_empty()) {
         // A local stand-in for Discord's gateway (tests and scratch daemons).
         gateway = gateway.proxy_url(p.to_string());
     }
     let mut shard = Shard::with_config(ShardId::ONE, gateway.build());
+    shared.voice.attach(&shard, me.id);
     let mut last_latency = std::time::Instant::now();
     while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
         if last_latency.elapsed() > Duration::from_secs(15) {
@@ -436,6 +441,7 @@ async fn event_loop(
                 continue;
             }
         };
+        shared.voice.gateway(&event);
         match event {
             Event::Ready(r) => {
                 board.update(|s| {
@@ -564,6 +570,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
         .option(text("note", "Your words above it"))
         .build(),
     );
+    cmds.extend(voice::commands());
     cmds
 }
 
@@ -587,6 +594,8 @@ pub(crate) struct Shared {
     members_intent: OnceLock<bool>,
     /// Each place's lane, and the operator's, by target (theseus-q4v).
     lanes: Mutex<HashMap<String, mpsc::UnboundedSender<LaneMsg>>>,
+    /// Voice in a voice channel (rows 77 and 78).
+    voice: voice::Voice,
 }
 
 /// One message for a turn: who wrote it, what it says, its files (still
@@ -698,6 +707,8 @@ enum PlaceMsg {
         reply: oneshot::Sender<String>,
     },
     DmChannel(Id<ChannelMarker>),
+    /// A turn of utterances from the place's voice call (44b).
+    Voice(voice::VoiceTurn),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -717,6 +728,9 @@ enum Control {
     Trust(Option<DiscordOrigin>),
     /// Publish into a place (the place rule), as the presser.
     Publish(Box<PublishAsk>),
+    /// Join a voice channel (44b): the one named, as the presser.
+    Join(Option<u64>, Option<DiscordOrigin>),
+    Leave,
 }
 
 /// What a place says when it is bound to a fresh session: how to talk, and
@@ -1385,6 +1399,8 @@ impl Shared {
                     // As the presser (T1b), as a card's press is.
                     "trust" => Control::Trust(discord),
                     "publish" => Control::Publish(Box::new(PublishAsk::of(&c.options, discord))),
+                    "join" => Control::Join(voice::join_option(&c.options), discord),
+                    "leave" => Control::Leave,
                     _ => Control::Status,
                 };
                 self.respond(
@@ -1968,6 +1984,7 @@ impl Place {
                 // The turn a `/stop` stopped (W1) streams no more here, and
                 // what it proposes will not run; its tool messages still
                 // take their last state, and its end clears it.
+                self.voice_heard(&e);
                 let turn = e.turn_id();
                 if turn.is_some() && turn == self.stopped_turn.as_deref() {
                     match e {
@@ -2030,8 +2047,10 @@ impl Place {
                 if !batch.is_empty() {
                     self.submit(batch);
                 }
+                self.voice_next();
                 self.report();
             }
+            PlaceMsg::Voice(t) => self.voice_turn(t),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
                 let _ = reply.send(text);
@@ -2247,6 +2266,8 @@ impl Place {
             }
             Control::Trust(origin) => self.trust(origin, by).await,
             Control::Publish(ask) => self.publish(*ask, by).await,
+            Control::Join(named, origin) => self.join(named, origin, by).await,
+            Control::Leave => self.leave(by).await,
         }
     }
 
@@ -2397,6 +2418,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         max_text: 0,
         members_intent: OnceLock::new(),
         lanes: Mutex::new(HashMap::new()),
+        voice: voice::Voice::none(),
     })
 }
 
@@ -2410,7 +2432,10 @@ mod tests {
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             names,
-            ["stop", "new", "status", "tasks", "wakes", "trust", "cancel", "publish"]
+            [
+                "stop", "new", "status", "tasks", "wakes", "trust", "cancel", "publish", "join",
+                "leave"
+            ]
         );
         // One required option names a task or a wake (DD8; DD7 called it `task`).
         let cancel = cmds.iter().find(|c| c.name == "cancel").unwrap();
@@ -2742,7 +2767,7 @@ mod tests {
 
     /// A core whose model answers from `script`, whose tools ask first, and
     /// whose Discord REST points at a port nothing listens on.
-    fn core_scripted(
+    pub(super) fn core_scripted(
         dir: &std::path::Path,
         script: Vec<theseus_core::provider::Scripted>,
     ) -> Arc<Core> {

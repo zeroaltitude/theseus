@@ -190,6 +190,7 @@ export type * from './TurnStarted';
 export type * from './TurnSubmitParams';
 export type * from './TurnSubmitResult';
 export type * from './Usage';
+export type * from './VoiceStatus';
 export type * from './WaitUntil';
 export type * from './WaitingOn';
 export type * from './WakeCancelParams';

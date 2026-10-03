@@ -22,6 +22,7 @@ mod push;
 pub mod sandbox;
 #[cfg(test)]
 mod ts;
+pub mod voice;
 
 pub use aws::*;
 pub use cancel::{CancelCount, CancelVerdict};
@@ -1157,6 +1158,10 @@ pub struct BindingStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub outbox: Option<OutboxStatus>,
+    /// Its voice (rows 77 and 78), when `[voice]` is on: in `voice.rs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub voice: Option<voice::VoiceStatus>,
 }
 
 /// A binding's outbox (theseus-q4v): what waits to reach its channels.
