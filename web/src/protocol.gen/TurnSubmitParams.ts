@@ -35,9 +35,7 @@ attachments?: Array<Attachment>,
  */
 reply_to?: string, 
 /**
- * The session whose job sent this turn (theseus-b5cl), as
- * `SessionOpenParams::opened_from` says: the turn's session, the one it
- * opens or the one it names, takes that session's hold of external
- * text.
+ * The session whose job sent this turn (theseus-b5cl): the session the
+ * turn opens or names takes its hold of external text.
  */
 opened_from?: string, };

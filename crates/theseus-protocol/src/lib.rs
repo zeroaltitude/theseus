@@ -924,20 +924,17 @@ pub struct ExternalText {
     /// request.
     pub url: String,
     /// The node that brought it into this session: the result, a task's
-    /// brief, or a task's report. Empty when a job brought it (`via: job`):
-    /// the session held it before any node of the job's came.
+    /// brief, or a task's report; empty when a job brought it (`via: job`).
     pub node_id: String,
     /// The session it came from, when this one took it from another.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub from_session: Option<String>,
     /// How it came from there: `task.create` (a task that a session holding
-    /// it started), `task.report` (a report from a task that held it), or
-    /// `job` (a session that a holding session's job opened or sent a turn
-    /// to, theseus-b5cl); or how it came at all: `egress` (M4 18c), a job in
-    /// L1 that connected out, whose `url` names the hosts it reached, or
-    /// `program`, a job whose program `[policy] external_programs` lists,
-    /// whose `url` is its command (theseus-b5cl).
+    /// it started), `task.report` (a report from a task that held it), or `job`
+    /// (a holding session's job opened it or sent it a turn); or how it came at
+    /// all: `egress` (M4 18c), an L1 job that connected out, its `url` the hosts
+    /// it reached, or `program` (theseus-b5cl), a listed program's job.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub via: Option<String>,
@@ -1759,19 +1756,16 @@ pub struct SessionOpenParams {
     pub kind: Option<SessionKind>,
     #[serde(default)]
     pub label: Option<String>,
-    /// The session whose job opened this one (theseus-b5cl): the CLI sends
-    /// the `THESEUS_SESSION` its job's environment carries (`JOB_SESSION_ENV`).
-    /// A session opened from one that holds external text holds it too.
+    /// The session whose job opened this one (`JOB_SESSION_ENV`, theseus-b5cl):
+    /// one opened from a session that holds external text holds it too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub opened_from: Option<String>,
 }
 
-/// The variable in every job's environment, L0 and L1, that names the
-/// session whose call started the job (theseus-b5cl). The `theseus` CLI
-/// sends it as `opened_from`, so a session the job opens, or a turn it
-/// sends, takes that session's hold of external text. A job can strip it:
-/// a light guard under default trust, not a boundary.
+/// Every job's variable, L0 and L1, naming its session (theseus-b5cl): the
+/// CLI sends it as `opened_from`. A job can strip it, so it is a light guard
+/// under default trust, not a boundary.
 pub const JOB_SESSION_ENV: &str = "THESEUS_SESSION";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1871,10 +1865,8 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub reply_to: Option<String>,
-    /// The session whose job sent this turn (theseus-b5cl), as
-    /// `SessionOpenParams::opened_from` says: the turn's session, the one it
-    /// opens or the one it names, takes that session's hold of external
-    /// text.
+    /// The session whose job sent this turn (theseus-b5cl): the session the
+    /// turn opens or names takes its hold of external text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub opened_from: Option<String>,

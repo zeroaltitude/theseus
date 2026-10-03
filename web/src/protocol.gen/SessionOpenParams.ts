@@ -3,8 +3,7 @@ import type { SessionKind } from "./SessionKind";
 
 export type SessionOpenParams = { kind: SessionKind | null, label: string | null, 
 /**
- * The session whose job opened this one (theseus-b5cl): the CLI sends
- * the `THESEUS_SESSION` its job's environment carries (`JOB_SESSION_ENV`).
- * A session opened from one that holds external text holds it too.
+ * The session whose job opened this one (`JOB_SESSION_ENV`, theseus-b5cl):
+ * one opened from a session that holds external text holds it too.
  */
 opened_from?: string, };
