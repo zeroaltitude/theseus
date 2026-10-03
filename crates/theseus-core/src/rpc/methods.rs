@@ -735,6 +735,8 @@ impl Core {
                 transient: te.transient,
                 elapsed_ms: te.elapsed_ms,
                 trace: te.trace.as_ref(),
+                usage: &te.usage,
+                cost_usd: te.cost_usd,
             });
     }
 

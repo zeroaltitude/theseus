@@ -262,12 +262,18 @@ impl Metrics {
         }
     }
 
-    /// A failed turn: its outcome and time, the failure by class, and the
-    /// tool calls and provider calls its trace holds.
+    /// A failed turn: its outcome and time, the failure by class, what its
+    /// finished loops spent, and the tool calls and provider calls its trace
+    /// holds.
     pub(super) fn failure(&mut self, f: &FailedTurn<'_>) {
         let attrs = turn_attrs(f.profile, f.provider, f.model, "failed");
         self.add(&TURNS, attrs.clone(), 1);
         self.record(&TURN_DURATION, attrs.clone(), f.elapsed_ms as f64);
+        // What its finished loops spent before it failed.
+        self.tokens(f.usage, &attrs);
+        if let Some(c) = f.cost_usd.filter(|c| *c > 0.0) {
+            self.add_f64(&COST, attrs.clone(), c);
+        }
         if let Some(t) = f.trace {
             self.tool_calls(t, &attrs);
         }

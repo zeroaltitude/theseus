@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use theseus_protocol::{Span, TelemetryStatus, TurnSubmitResult};
+use theseus_protocol::{Span, TelemetryStatus, TurnSubmitResult, Usage};
 
 use crate::secrets::Secret;
 
@@ -88,6 +88,9 @@ pub struct FailedTurn<'a> {
     pub transient: bool,
     pub elapsed_ms: u64,
     pub trace: Option<&'a Span>,
+    /// What the turn's finished loops spent before it failed.
+    pub usage: &'a Usage,
+    pub cost_usd: Option<f64>,
 }
 
 /// The telemetry pipeline. Cheap to hold; off unless an endpoint is set.

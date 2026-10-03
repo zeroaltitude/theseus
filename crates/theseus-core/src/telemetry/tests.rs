@@ -384,6 +384,14 @@ fn failed_trace() -> Span {
     )
 }
 
+const NO_USAGE: Usage = Usage {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_creation_1h_input_tokens: 0,
+};
+
 fn failed_turn(trace: &Span) -> FailedTurn<'_> {
     FailedTurn {
         profile: "glm",
@@ -393,6 +401,8 @@ fn failed_turn(trace: &Span) -> FailedTurn<'_> {
         transient: true,
         elapsed_ms: 800,
         trace: Some(trace),
+        usage: &NO_USAGE,
+        cost_usd: None,
     }
 }
 
@@ -613,6 +623,8 @@ async fn failure_sets_error_status_and_counts() {
         transient: true,
         elapsed_ms: 500,
         trace: Some(&root),
+        usage: &NO_USAGE,
+        cost_usd: None,
     });
     flushed(&tel).await;
     let got = rx.got();
@@ -2151,4 +2163,43 @@ async fn a_failed_continuation_is_counted_as_a_failed_turn_is() {
         "1"
     );
     assert_eq!(rx.at("/v1/traces").len(), 3, "each turn's trace");
+}
+
+/// What a failed turn's finished loops spent is in `theseus.tokens` and
+/// `theseus.cost.usd`, under outcome `failed` (theseus-b85w).
+#[tokio::test]
+async fn a_failed_turns_tokens_and_dollars_are_counted() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let trace = failed_trace();
+    let usage = Usage {
+        input_tokens: 1_200,
+        output_tokens: 340,
+        cache_read_input_tokens: 5_000,
+        ..Usage::default()
+    };
+    tel.record_failure(&FailedTurn {
+        usage: &usage,
+        cost_usd: Some(0.0425),
+        ..failed_turn(&trace)
+    });
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let failed = ("theseus.outcome", "failed");
+    for (dir, n) in [("input", "1200"), ("output", "340"), ("cache_read", "5000")] {
+        let p = point_with(
+            &metrics,
+            "theseus.tokens",
+            &[failed, ("theseus.token.direction", dir)],
+        );
+        assert_eq!(p["asInt"], n, "{dir}");
+    }
+    assert_eq!(
+        points_of(&metrics, "theseus.tokens").len(),
+        3,
+        "no cache_write"
+    );
+    let cost = point_with(&metrics, "theseus.cost.usd", &[failed]);
+    assert_eq!(cost["asDouble"], json!(0.0425));
+    assert_eq!(attrs_of(cost)["gen_ai.request.model"], "glm-5.1");
 }
