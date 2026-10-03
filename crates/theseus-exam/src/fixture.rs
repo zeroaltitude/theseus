@@ -462,28 +462,15 @@ pub fn write(exam: &Exam, dir: &Path) -> Result<Manifest> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item::{BACKGROUND, EXAM_V1, EXAM_V2};
+    use crate::item::{BACKGROUND, EXAM_V2};
     use theseus_core::rpc::Core;
 
     /// The store reads back, through the product's own readers, exactly as
     /// the manifest says it was written: every session with its place, turns,
     /// and title; every keyed node at its position, with its time, author,
-    /// and text; and the fetched text marked, and held by its session.
-    #[test]
-    fn the_written_store_reads_back_as_the_manifest_says() {
-        let exam = Exam::parse(EXAM_V1).unwrap();
-        let with_past = exam
-            .file
-            .items
-            .iter()
-            .filter(|i| !i.sessions.is_empty())
-            .count();
-        assert_eq!(with_past, 36);
-        reads_back(&exam);
-    }
-
-    /// exam-v2's store, the same way: its generated sessions, months apart,
-    /// and its background, which no item owns.
+    /// and text; and the fetched text marked, and held by its session. Here
+    /// the exam's generated sessions, months apart, and its background, which
+    /// no item owns.
     #[test]
     fn the_v2_store_reads_back_as_the_manifest_says() {
         let exam = Exam::parse(EXAM_V2).unwrap();
@@ -560,7 +547,7 @@ mod tests {
     /// loop, and the agent's next message is the next loop.
     #[test]
     fn a_tool_node_is_one_loop_of_three_nodes() {
-        let exam = Exam::parse(EXAM_V1).unwrap();
+        let exam = Exam::parse(EXAM_V2).unwrap();
         let d = tempfile::tempdir().unwrap();
         let m = write(&exam, d.path()).unwrap();
         let store = Store::open(d.path()).unwrap();
