@@ -1155,7 +1155,11 @@ pub(crate) mod tests {
     }
 
     /// A tool-call node as a build before theseus-ppsd wrote it (NODE schema
-    /// 2): its gate record's plan has no class and no AWS call.
+    /// 2): its gate record's plan has no class and no AWS call. Literal bytes,
+    /// never re-serialized (theseus-djfj). Its source: the build that wrote
+    /// schema 2 is before this repository's first commit (e85efb0), so the
+    /// literal is the layout by hand; e85efb0's own build, which adds only
+    /// fields that serialize when set, writes it back byte for byte.
     const NODE_SCHEMA_2: &str = r#"{"id":"tcl_00000000000000000000000000000021","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t2","loop_index":0,"origin":"harness","author":null,"created_at_ms":1790000000021,"body":{"kind":"tool_call","tool_use_id":"tu_21","tool":"fs.read","wire_name":"fs_read","input":{"path":"/w/log/tides.md"},"assistant_node":"asm_00000000000000000000000000000021","correlation_id":"act_t21","gate":{"decision":{"posture":"open","reason":"fs.read — open (policy.tools)"},"plan":{"resources":[{"access":"read","path":"/w/log/tides.md"}],"summary":"read /w/log/tides.md"},"proposal":{"args":{"path":"/w/log/tides.md"},"policy_context":{"cwd":"/w","roots":["/w"]},"resource":"/w/log/tides.md","tool":"fs.read"},"result":{"gate":"allow"},"validated":true}}}"#;
 
     /// NODE schema 3 (theseus-ppsd): this build reads a schema-2 tool-call
@@ -1235,7 +1239,8 @@ pub(crate) mod tests {
     /// A tool call as theseus-ppsd's build wrote it (NODE schema 3): its plan
     /// names its class, and its decision has none. Literal bytes, never
     /// re-serialized, so a change to how a node encodes fails the test below
-    /// (theseus-djfj).
+    /// (theseus-djfj). Its source: the build before 4fc7ddc (b503b2c) reads it
+    /// and writes it back byte for byte.
     const NODE_SCHEMA_3: &str = r#"{"id":"tcl_00000000000000000000000000000031","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t2","loop_index":0,"origin":"harness","author":null,"created_at_ms":1790000000021,"body":{"kind":"tool_call","tool_use_id":"tu_21","tool":"proc.run","wire_name":"fs_read","input":{"path":"/w/log/tides.md"},"assistant_node":"asm_00000000000000000000000000000021","correlation_id":"act_t21","gate":{"decision":{"posture":"open","reason":"fs.read — open (policy.tools)"},"plan":{"class":"run","resources":[{"access":"read","path":"/w/log/tides.md"}],"summary":"read /w/log/tides.md"},"proposal":{"args":{"path":"/w/log/tides.md"},"policy_context":{"cwd":"/w","roots":["/w"]},"resource":"/w/log/tides.md","tool":"fs.read"},"result":{"gate":"allow"},"validated":true}}}"#;
 
     /// NODE schema 4 (theseus-7ve.1): an L1 call's gate decision names its
@@ -1295,10 +1300,13 @@ pub(crate) mod tests {
     }
 
     /// An action as schema 2 wrote it: a job a cancel verified gone, before
-    /// 18a's verdict.
+    /// 18a's verdict. Literal bytes (theseus-djfj). Its source: the build
+    /// before b77ffe9 (08b595d) reads it and writes it back byte for byte.
     const ACTION_SCHEMA_2: &str = r#"{"correlation_id":"act_00000000000000000000000000000041","schema":2,"execution_id":"exe_lighthouse","session_id":"ses_lighthouse","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","retry_class":{"class":"non_repeatable"},"state":"cancelled","deadline_at_ms":1790000060041,"planned_at_ms":1790000000041,"authorized_at_ms":1790000000041,"dispatched_at_ms":1790000000041,"settled_at_ms":1790000001041,"cancel":"termination_verified","reserved_micros":0,"completions_seen":0}"#;
 
-    /// A post as outbox schema 1 wrote it: a notice its channel took.
+    /// A post as outbox schema 1 wrote it: a notice its channel took. Literal
+    /// bytes (theseus-djfj). Its source: the build before b77ffe9 (08b595d)
+    /// reads it and writes it back byte for byte.
     const OUTBOX_SCHEMA_1: &str = r#"{"correlation_id":"out_00000000000000000000000000000044","schema":2,"execution_id":"","session_id":"ses_lighthouse","tool":"outbox","args_digest":"9f2c7a1e4b8d3f6a0c5e9b2d7f1a4c8e3b6d9f0a2c5e8b1d4f7a0c3e6b9d2f5a","proposal":{"tool":"outbox","args":{"kind":"notice","text":"the harbour opens at six"},"resource":"discord:dm:42","policy_context":null},"resource":"discord:dm:42","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"succeeded","deadline_at_ms":0,"planned_at_ms":1790000000044,"authorized_at_ms":1790000000044,"dispatched_at_ms":1790000000045,"settled_at_ms":1790000000144,"reserved_micros":0,"completions_seen":1,"detail":{"messages":["m_44"]}}"#;
 
     /// ACTION schema 3 (M4 18a): a cancel's verdict on the action. A
@@ -1452,6 +1460,12 @@ pub(crate) mod tests {
         assert_eq!(back, request);
     }
 
+    /// An L1 call's node as 17b's build wrote it (NODE schema 4): its gate
+    /// decision names its class, and it carries no label. Literal bytes, never
+    /// re-serialized (theseus-djfj). Its source: the build before 42a27af
+    /// (1d33622) reads it and writes it back byte for byte.
+    const NODE_SCHEMA_4: &str = r#"{"id":"tcl_00000000000000000000000000000041","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t2","loop_index":0,"origin":"harness","author":null,"created_at_ms":1790000000021,"body":{"kind":"tool_call","tool_use_id":"tu_21","tool":"proc.run","wire_name":"fs_read","input":{"path":"/w/log/tides.md"},"assistant_node":"asm_00000000000000000000000000000021","correlation_id":"act_t21","gate":{"decision":{"class":"l1","posture":"open","reason":"fs.read — open (policy.tools)"},"plan":{"class":"run","resources":[{"access":"read","path":"/w/log/tides.md"}],"summary":"read /w/log/tides.md"},"proposal":{"args":{"path":"/w/log/tides.md"},"policy_context":{"cwd":"/w","roots":["/w"]},"resource":"/w/log/tides.md","tool":"fs.read"},"result":{"gate":"allow"},"validated":true}}}"#;
+
     /// NODE schema 5 (M4 19a, theseus-7ve.3): a node carries its label. A
     /// schema-4 node (an L1 call's, as 17b writes it) reads with no label,
     /// and its bytes encode again unchanged; a labeled node, a fetched
@@ -1463,19 +1477,12 @@ pub(crate) mod tests {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
         assert_eq!(kinds::schema(kinds::NODE), 6);
-        // The old layout as bytes, never through this build's serializer: a
-        // schema-2 tool-call node is a schema-4 one that sets none of 3's or
-        // 4's fields.
-        let schema_4 = NODE_SCHEMA_2.replace(
-            "tcl_00000000000000000000000000000021",
-            "tcl_00000000000000000000000000000041",
-        );
         let rec = NewRecord {
             schema: 4,
             ..NewRecord::bytes(
                 kinds::NODE,
                 Some("tcl_00000000000000000000000000000041"),
-                schema_4.as_bytes().to_vec(),
+                NODE_SCHEMA_4.as_bytes().to_vec(),
             )
         }
         .scoped("ses_lighthouse");
@@ -1484,7 +1491,7 @@ pub(crate) mod tests {
         assert_eq!(read.label, None);
         assert_eq!(
             serde_json::to_string(&read).unwrap(),
-            schema_4,
+            NODE_SCHEMA_4,
             "a node with no label keeps its bytes"
         );
 
@@ -1519,7 +1526,9 @@ pub(crate) mod tests {
     }
 
     /// A labeled node as 19a's build wrote it (NODE schema 5): an owner-only
-    /// file's result, with no warrant.
+    /// file's result, with no warrant. Literal bytes (theseus-djfj). Its
+    /// source: the build before 751780d (79f2d1d)
+    /// reads it and writes it back byte for byte.
     const NODE_SCHEMA_5: &str = r#"{"id":"trs_00000000000000000000000000000051","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t5","loop_index":0,"origin":"tool","author":null,"created_at_ms":1790000000051,"body":{"kind":"tool_result","tool_use_id":"tu_51","tool":"fs.read","status":"ok","is_error":false,"content":"the vault code is 4417","correlation_id":"act_t51","bytes_total":22,"truncated":false,"full_ref":null,"duration_ms":3,"late":false,"meta":{}},"label":{"integrity":"trusted","readers":"owner"}}"#;
 
     /// NODE schema 6 (M4 19c, theseus-7ve.5): a graduated node's label
@@ -1585,6 +1594,8 @@ pub(crate) mod tests {
 
     /// A compilation as cache2's build wrote it (COMPILATION schema 3): its
     /// manifest has its cache layout and a context file, and no audience.
+    /// Literal bytes (theseus-djfj). Its source: the build before 42a27af
+    /// (1d33622) reads it and writes it back byte for byte.
     const COMPILATION_SCHEMA_3: &str = r#"{"id":"cmp_00000000000000000000000000000051","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000051,"trigger":"new_session","strategy":"transcript","as_of":17,"includes":["msg_00000000000000000000000000000051"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"context_files":[{"path":"/w/NOTES.md","digest":"a1b2c3d4e5f60718","bytes":12}],"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true}]}}}"#;
 
     /// COMPILATION schema 4 (M4 19a, theseus-7ve.3): the manifest records

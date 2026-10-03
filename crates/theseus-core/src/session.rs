@@ -305,6 +305,10 @@ mod tests {
     /// A session record as a build before theseus-ljr wrote it (schema 2:
     /// T1's hold, kol's target), which this build must read with no run of
     /// failures, and write back without one.
+    /// Literal bytes (theseus-djfj). Its source: the schema was written before
+    /// this repository's first commit (e85efb0), so the literal is the layout
+    /// by hand, and the test holds this build to it: the record reads, and
+    /// writes back with the field its schema added absent.
     const SCHEMA_2: &str = r#"{"session_id":"ses_old2","kind":"conversation","label":"lighthouse log","created_at_unix_ms":1790000000000,"turns":3,"last_turn_id":"turn_c3","usage":{"input_tokens":1200,"output_tokens":900,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_old2","compilation_id":"cmp_old2","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000300000,"cost_usd":0.0114,"tool_calls":2,"title":"lighthouse log","external":{"since_ms":1790000200000,"tool":"http.fetch","url":"example.invalid/tides","node_id":"trs_old2"}}"#;
 
     #[test]
@@ -319,6 +323,11 @@ mod tests {
         assert_eq!(
             again,
             serde_json::from_str::<serde_json::Value>(SCHEMA_2).unwrap(),
+            "a record with no run of failures keeps its fields"
+        );
+        assert_eq!(
+            serde_json::to_string(&r).unwrap(),
+            SCHEMA_2,
             "a record with no run of failures keeps its bytes"
         );
     }
@@ -326,6 +335,10 @@ mod tests {
     /// A session record as ljr's build wrote it (schema 3: a run of failures,
     /// parked), which this build reads with no image marked not shown, and
     /// writes back as it was.
+    /// Literal bytes (theseus-djfj). Its source: the schema was written before
+    /// this repository's first commit (e85efb0), so the literal is the layout
+    /// by hand, and the test holds this build to it: the record reads, and
+    /// writes back with the field its schema added absent.
     const SCHEMA_3: &str = r#"{"session_id":"ses_old3","kind":"conversation","label":null,"created_at_unix_ms":1790000000000,"turns":2,"last_turn_id":"turn_d4","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_old3","last_target":{"profile":"lighthouse","provider":"anthropic","model":"claude-lighthouse-9"},"last_active_ms":1790000300000,"cost_usd":0.0,"tool_calls":0,"failing":{"turns":2,"lasting":2,"class":"invalid_request","noticed":true,"parked":true,"since_ms":1790000290000}}"#;
 
     #[test]
@@ -339,6 +352,7 @@ mod tests {
             again,
             serde_json::from_str::<serde_json::Value>(SCHEMA_3).unwrap()
         );
+        assert_eq!(serde_json::to_string(&r).unwrap(), SCHEMA_3);
         // A turn's copy adds its marks; it never takes one away.
         let mut stored = r.clone();
         stored.not_shown.push(NotShown {
@@ -361,6 +375,10 @@ mod tests {
     /// shown, and a search's hold that names only the request), which this
     /// build reads with no query, names by the request, and writes back as
     /// it was (theseus-qiy's schema 5 keeps a search's query).
+    /// Literal bytes (theseus-djfj). Its source: the schema was written before
+    /// this repository's first commit (e85efb0), so the literal is the layout
+    /// by hand, and the test holds this build to it: the record reads, and
+    /// writes back with the field its schema added absent.
     const SCHEMA_4: &str = r#"{"session_id":"ses_old4","kind":"conversation","label":"tide watch","created_at_unix_ms":1790000000000,"turns":1,"last_turn_id":"turn_e5","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"last_active_ms":1790000300000,"cost_usd":0.0,"tool_calls":1,"external":{"since_ms":1790000200000,"tool":"web.search","url":"search.example.invalid/res?q=tide+tables","node_id":"trs_old4"},"not_shown":[{"digest":"c3","why":"Could not process image","at_ms":1790000250000}]}"#;
 
     #[test]
@@ -379,6 +397,7 @@ mod tests {
             again,
             serde_json::from_str::<serde_json::Value>(SCHEMA_4).unwrap()
         );
+        assert_eq!(serde_json::to_string(&r).unwrap(), SCHEMA_4);
     }
 
     /// The rule's answers, failure by failure: (class, transient, settled)
