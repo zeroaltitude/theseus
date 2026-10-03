@@ -1,6 +1,7 @@
-//! theseus-sim: the store's crash-and-recover harness and the kernel simulator.
-//! Both run in the gate on small fixed seeds (`tests/sim.rs`); long runs stay
-//! here, e.g. `theseus-sim kernel-sim --seeds 40`.
+//! theseus-sim: the store's crash-and-recover harness, the kernel simulator,
+//! and the disclosure simulator. Each runs in the gate on small fixed seeds
+//! (`tests/sim.rs`); long runs stay here, e.g. `theseus-sim kernel-sim --seeds
+//! 40`.
 //!
 //! `worker`      appends random records forever, printing `C <pos> <crc> <kind>`
 //!               to stdout only after the append returned (durable). Killed by
@@ -12,6 +13,11 @@
 //!               seeded fault injection (crash between any two frames, crash
 //!               inside startup steps, lost/duplicate/late completions,
 //!               dropped notifies, cancels), invariants checked every step.
+//! `disclosure`  the M4 disclosure simulator (19b): a seeded world of people,
+//!               channels whose viewers change, sessions, tasks, graduations,
+//!               and held posts, driven through a core in process; what may be
+//!               read by whom is checked at every compile, streamed edit, and
+//!               post (`disclosure/mod.rs`).
 //! `bench lifecycle`  the §9 lifecycle budgets on a real `theseusd` (M3.5,
 //!               theseus-qa0): cold start, clean shutdown with a job running,
 //!               SIGKILL and restart, each p50/p95; `--check` fails a miss.
@@ -35,6 +41,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
 
+mod disclosure;
 mod discord_cli;
 mod fake_model;
 mod history;
@@ -130,6 +137,31 @@ enum Cmd {
         /// fdatasync every frame (slow; durability is the store crash-test's job).
         #[arg(long)]
         fsync: bool,
+        #[arg(long)]
+        verbose: bool,
+    },
+    /// The disclosure simulator (M4 19b): a synthetic world driven through
+    /// the core, every disclosure invariant checked at every compile, streamed
+    /// edit, and post. Reproducible from --seed.
+    Disclosure {
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Run this many seeds starting at --seed.
+        #[arg(long, default_value_t = 1)]
+        seeds: u32,
+        #[arg(long, default_value_t = 500)]
+        steps: u32,
+        /// The share of the model's calls that change a channel's viewers
+        /// first, as a member joining mid-turn would.
+        #[arg(long, default_value_t = 0.15)]
+        p_mid_turn: f64,
+        /// Fail on the gaps the simulator found and counts until they are
+        /// fixed (each filed; see `atoms::KNOWN_GAPS`).
+        #[arg(long)]
+        strict: bool,
+        /// Each seed's counts as JSON.
+        #[arg(long)]
+        json: bool,
         #[arg(long)]
         verbose: bool,
     },
@@ -435,6 +467,25 @@ fn main() -> Result<()> {
             worker_bin,
             writers,
         } => crash_test(iterations, seed, restarts, tear, worker_bin, writers),
+        Cmd::Disclosure {
+            seed,
+            seeds,
+            steps,
+            p_mid_turn,
+            strict,
+            json,
+            verbose,
+        } => disclosure::cli(
+            &disclosure::Params {
+                seed,
+                steps,
+                p_mid_turn,
+                strict,
+                verbose,
+            },
+            seeds,
+            json,
+        ),
         Cmd::KernelSim {
             seed,
             seeds,

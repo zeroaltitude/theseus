@@ -425,8 +425,9 @@ impl Store {
     }
 
     /// The store at `dir` with no fsync per frame: for a test that writes
-    /// thousands of frames and times nothing (theseus-in3's lag prove).
-    #[cfg(test)]
+    /// thousands of frames and times nothing (theseus-in3's lag prove), and
+    /// for the disclosure simulator's core (`theseus-sim disclosure`, 19b),
+    /// whose store is a temp dir thrown away when the run ends.
     pub fn open_unsynced(dir: &Path) -> Result<Self> {
         Self::open_with(
             dir,

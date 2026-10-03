@@ -1,7 +1,8 @@
-//! The simulator in the gate (theseus-hco): the M1 crash test and the M2
-//! kernel simulation, each on small fixed seeds so the pair takes seconds.
-//! Long runs stay manual: `theseus-sim crash-test --iterations 20`,
-//! `theseus-sim kernel-sim --seeds 40`.
+//! The simulator in the gate (theseus-hco): the M1 crash test, the M2 kernel
+//! simulation, and the M4 disclosure simulator (19b), each on small fixed
+//! seeds so the three take seconds. Long runs stay manual: `theseus-sim
+//! crash-test --iterations 20`, `theseus-sim kernel-sim --seeds 40`,
+//! `theseus-sim disclosure --seeds 40 --steps 2000`.
 
 use std::process::Command;
 
@@ -131,6 +132,42 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         count(" of them transactions") > 0,
         "no racing thread ran a transaction: {total}"
     );
+}
+
+/// The disclosure simulator (M4 19b) on fixed seeds: a synthetic world of
+/// people, channels whose viewers change, sessions, tasks, graduations, and
+/// held posts, driven through the core, with every disclosure invariant
+/// checked at every compile, streamed edit, and post. These four seeds of 40
+/// steps take about 2 s, and each of the lane's planted bugs fails in them (a
+/// filter that skips attachments, a held post released before the owner
+/// answers, a loop's readers taken from the prefix alone). The live check's 40
+/// seeds of 2,000 steps stay manual.
+#[test]
+fn the_disclosure_invariants_hold_on_fixed_seeds() {
+    let out = sim(&["disclosure", "--seed", "3", "--seeds", "4", "--steps", "40"]);
+    assert!(out.contains("DISCLOSURE OK"), "{out}");
+    // The seeds reach what the invariants are about, and what the planted
+    // bugs need: something withheld, a withheld message's files, a post held,
+    // a node graduated, a loop kept quiet.
+    let total = out
+        .lines()
+        .find(|l| l.starts_with("DISCLOSURE OK"))
+        .unwrap_or("");
+    for what in [
+        " withheld nodes",
+        " withheld files",
+        " held posts",
+        " graduated",
+        " quiet loops",
+    ] {
+        let n: u64 = total
+            .split(what)
+            .next()
+            .and_then(|s| s.rsplit(['(', ' ']).next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        assert!(n > 0, "no{what} in the gate's seeds: {total}");
+    }
 }
 
 /// `bench history` reads the file `$THESEUS_BENCH_HISTORY` names: none yet is

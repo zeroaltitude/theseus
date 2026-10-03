@@ -6633,6 +6633,8 @@ dependencies = [
  "theseus-kernel",
  "theseus-protocol",
  "theseus-store",
+ "theseus-tools",
+ "tokio",
  "toml",
  "tungstenite 0.29.0",
  "twilight-model",

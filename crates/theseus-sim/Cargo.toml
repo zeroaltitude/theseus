@@ -20,6 +20,9 @@ theseus-store.workspace = true
 theseus-kernel.workspace = true
 theseus-core.workspace = true
 theseus-protocol.workspace = true
+# The disclosure simulator's stand-in tools, and the runtime it drives the core on.
+theseus-tools.workspace = true
+tokio.workspace = true
 toml.workspace = true
 anyhow.workspace = true
 clap.workspace = true
