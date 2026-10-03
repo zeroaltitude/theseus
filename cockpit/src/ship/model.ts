@@ -35,6 +35,9 @@ export interface Light {
   l1?: boolean
   /** A job that runs now: a turning gear. */
   running?: boolean
+  /** A sandboxed job a cancel or a stop verified gone (18a): its shield collapses. The time the job settled; the
+   *  engine animates a collapse that comes while the page is open and draws an older one collapsed. */
+  collapsedAt?: number
   model?: string
   cost?: number
   author?: string
@@ -158,6 +161,8 @@ export interface ShipInput {
   bornSessions: Map<string, number>
   /** Reserved money of each execution's actions in flight. */
   reserved: Map<string, number>
+  /** Correlation ids of jobs a cancel verified gone (18a's verdicts) → the time each settled. */
+  cancelled?: Map<string, number>
   reach: ReachLink[]
   now: number
   /** The time machine's seam: show only what existed at this instant (unix ms). Undefined is live. */
@@ -376,6 +381,7 @@ export function buildModel(input: ShipInput): ShipModel {
         external,
         l1,
         running: !!cid && input.jobsRunning.has(cid),
+        ...(l1 && cid && input.cancelled?.has(cid) ? { collapsedAt: input.cancelled.get(cid) } : {}),
         model: str(d.model),
         cost: typeof d.cost_usd === 'number' ? d.cost_usd : undefined,
         author: n.author,

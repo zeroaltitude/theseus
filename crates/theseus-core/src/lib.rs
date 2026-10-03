@@ -10,6 +10,7 @@ pub mod advancer;
 pub mod approval;
 pub mod attach;
 pub mod aws;
+pub mod bench;
 pub mod binary;
 pub mod blobs;
 pub mod broker;

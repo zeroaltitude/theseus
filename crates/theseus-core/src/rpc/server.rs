@@ -325,6 +325,8 @@ impl Core {
             // The index tender (roadmap row 51), asked on its socket, bounded.
             method::INDEX_STATUS => reply(self.index.health(crate::tender::STATUS_DEADLINE).await),
             method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
+            method::BENCH_HISTORY => reply(self.bench_history(params).await?),
+            method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             // The loops wake once the answer is written (`serve_connection`).
             method::SHUTDOWN => reply(self.stopping()),
             other => Err(RpcFailure::new(

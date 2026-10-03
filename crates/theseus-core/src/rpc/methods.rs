@@ -1184,6 +1184,9 @@ impl Core {
         }
     }
 
+    /// The newest `n` rows, or with `after` the first `n` after it (theseus-xo0m).
+    /// A filter scans up to 50 rows for each one asked: the newest that many,
+    /// or the next that many after `after`, whose last position is `next`.
     pub(super) fn ledger_tail(&self, p: LedgerTailParams) -> Result<LedgerTailResult, RpcFailure> {
         let n = p.n.unwrap_or(20).min(1000);
         let scan = if p.kind.is_some() || p.session_id.is_some() {
@@ -1191,8 +1194,13 @@ impl Core {
         } else {
             n
         };
-        let rows: Vec<(u64, LedgerRow)> = self.store.ledger_tail(scan)?;
-        let rows: Vec<LedgerEntry> = rows
+        let read: Vec<(u64, LedgerRow)> = match p.after {
+            Some(after) => self.store.ledger_after(after, scan)?,
+            None => self.store.ledger_tail(scan)?,
+        };
+        let last_read = read.last().map(|(position, _)| *position);
+        let window_full = read.len() == scan;
+        let rows: Vec<LedgerEntry> = read
             .into_iter()
             .filter(|(_, r)| p.kind.as_deref().is_none_or(|k| r.is_kind(k)))
             .filter(|(_, r)| {
@@ -1209,11 +1217,55 @@ impl Core {
                 data: r.data,
             })
             .collect();
-        let rows = rows[rows.len().saturating_sub(n)..].to_vec();
+        let (rows, next) = match p.after {
+            // The first `n` kept: more may follow the last of them, or, short
+            // of `n`, the window's last row when the window was full.
+            Some(_) if rows.len() > n => {
+                let rows = rows[..n].to_vec();
+                let next = rows.last().map(|r| r.position);
+                (rows, next)
+            }
+            Some(_) if rows.len() == n && n > 0 => {
+                let next = rows.last().map(|r| r.position);
+                (rows, next)
+            }
+            Some(_) => (rows, if window_full { last_read } else { None }),
+            None => (rows[rows.len().saturating_sub(n)..].to_vec(), None),
+        };
         Ok(LedgerTailResult {
             rows,
             total: self.store.ledger_len()?,
+            next,
         })
+    }
+
+    /// `bench.history`: the gates' bench CSV, read off the serving workers.
+    /// Its param is optional: no params reads the newest 500 runs.
+    pub(super) async fn bench_history(
+        &self,
+        params: Value,
+    ) -> Result<theseus_protocol::bench::BenchHistoryResult, RpcFailure> {
+        let params = if params.is_null() { json!({}) } else { params };
+        let p: theseus_protocol::bench::BenchHistoryParams = serde_json::from_value(params)
+            .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e.to_string()))?;
+        tokio::task::spawn_blocking(move || {
+            crate::bench::read(crate::bench::path().as_deref(), p.last)
+        })
+        .await
+        .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))
+    }
+
+    /// `sandbox.usage`: every L1 job's cgroup as it stands. A daemon whose
+    /// tools are off runs no job, and says so.
+    pub(super) fn sandbox_usage(&self) -> theseus_protocol::sandbox::SandboxUsage {
+        if !self.tools.enabled() {
+            return theseus_protocol::sandbox::SandboxUsage {
+                why: Some("tools are off in this daemon's config, so no job runs".into()),
+                at_ms: theseus_protocol::now_unix_ms(),
+                ..Default::default()
+            };
+        }
+        self.tools.sandbox.usage()
     }
 
     pub(super) fn narrative_watch(&self, conn: Conn<'_>) -> theseus_protocol::NarrativeWatchResult {

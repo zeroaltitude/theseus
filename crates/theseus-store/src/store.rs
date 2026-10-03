@@ -94,6 +94,18 @@ pub trait Store: Send + Sync {
     fn latest_of_kind(&self, kind: RecordKind) -> Result<Vec<Record>>;
     /// Newest `n` records of a kind, oldest first.
     fn tail_of_kind(&self, kind: RecordKind, n: usize) -> Result<Vec<Record>>;
+    /// Records of a kind with position > `after`, oldest first, at most
+    /// `limit`: one page of a walk over a kind from a position (the ledger's
+    /// pages, theseus-xo0m). This default reads the whole kind; the WAL store
+    /// reads its index's range.
+    fn of_kind_after(&self, kind: RecordKind, after: u64, limit: usize) -> Result<Vec<Record>> {
+        Ok(self
+            .tail_of_kind(kind, usize::MAX)?
+            .into_iter()
+            .filter(|r| r.position > after)
+            .take(limit)
+            .collect())
+    }
     fn count_of_kind(&self, kind: RecordKind) -> Result<u64>;
     /// Records in a scope (a session) with position > `after`, oldest first,
     /// at most `limit`: the per-session tail walk (§4.4b).
@@ -1220,6 +1232,14 @@ impl Store for WalStore {
     fn tail_of_kind(&self, kind: RecordKind, n: usize) -> Result<Vec<Record>> {
         let mut positions = self.inner.index.positions_of_kind_rev(kind, n)?;
         positions.reverse();
+        self.inner.read_many(&positions)
+    }
+
+    fn of_kind_after(&self, kind: RecordKind, after: u64, limit: usize) -> Result<Vec<Record>> {
+        let positions = self
+            .inner
+            .index
+            .positions_of_kind_after(kind, after, limit)?;
         self.inner.read_many(&positions)
     }
 

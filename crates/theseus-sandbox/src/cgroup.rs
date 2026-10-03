@@ -169,9 +169,97 @@ impl JobCgroup {
     }
 }
 
+/// A job's cgroup as it stands: what `usage` reads.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Usage {
+    /// `memory.current`, in bytes.
+    pub memory: u64,
+    /// `memory.max`: `None` for `max`.
+    pub memory_max: Option<u64>,
+    /// `memory.peak`, where the kernel keeps one (6.8 and later).
+    pub memory_peak: Option<u64>,
+    /// `pids.current`.
+    pub pids: u64,
+    /// `pids.max`: `None` for `max`.
+    pub pids_max: Option<u64>,
+    /// Forks `pids.max` refused (`pids.events`).
+    pub pids_refused: u64,
+    /// A process is still in it (`cgroup.events`).
+    pub populated: bool,
+}
+
+/// Reads a job's cgroup `dir` without changing it: each file read once, and
+/// one a kernel lacks read as nothing (no `memory.peak` before 6.8, no
+/// `memory.*` where the controller is off).
+pub fn usage(dir: &Path) -> io::Result<Usage> {
+    let read = |f: &str| fs::read_to_string(dir.join(f)).ok();
+    // A limit of `max` is no limit, so it reads as `None`.
+    let num = |f: &str| read(f).and_then(|s| s.trim().parse::<u64>().ok());
+    let events = read("cgroup.events").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} is not a cgroup", dir.display()),
+        )
+    })?;
+    Ok(Usage {
+        memory: num("memory.current").unwrap_or(0),
+        memory_max: num("memory.max"),
+        memory_peak: num("memory.peak"),
+        pids: num("pids.current").unwrap_or(0),
+        pids_max: num("pids.max"),
+        pids_refused: read("pids.events")
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("max "))
+                    .and_then(|n| n.trim().parse().ok())
+            })
+            .unwrap_or(0),
+        populated: events.lines().any(|l| l == "populated 1"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A job's cgroup reads as its files say: `max` is no limit, a missing
+    /// `memory.peak` is none, and a directory with no `cgroup.events` is no
+    /// cgroup at all.
+    #[test]
+    fn usage_reads_a_jobs_cgroup_as_its_files_say() {
+        let d = tempfile::tempdir().unwrap();
+        let job = d.path().join("act_1");
+        fs::create_dir(&job).unwrap();
+        for (f, v) in [
+            ("cgroup.events", "populated 1\nfrozen 0\n"),
+            ("memory.current", "52428800\n"),
+            ("memory.max", "2147483648\n"),
+            ("pids.current", "3\n"),
+            ("pids.max", "max\n"),
+            ("pids.events", "max 2\n"),
+        ] {
+            fs::write(job.join(f), v).unwrap();
+        }
+        let u = usage(&job).unwrap();
+        assert_eq!(
+            u,
+            Usage {
+                memory: 52_428_800,
+                memory_max: Some(2_147_483_648),
+                memory_peak: None,
+                pids: 3,
+                pids_max: None,
+                pids_refused: 2,
+                populated: true,
+            }
+        );
+        fs::write(job.join("memory.peak"), "60000000\n").unwrap();
+        fs::write(job.join("cgroup.events"), "populated 0\n").unwrap();
+        let u = usage(&job).unwrap();
+        assert_eq!(u.memory_peak, Some(60_000_000));
+        assert!(!u.populated);
+        assert!(usage(d.path()).is_err(), "no cgroup.events: not a cgroup");
+    }
 
     /// The stop hook acts only from a readied service's `.control`.
     #[test]

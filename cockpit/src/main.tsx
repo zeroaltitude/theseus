@@ -23,6 +23,10 @@ const Actions = lazy(() => import('./views/Actions'))
 const Ledger = lazy(() => import('./views/Ledger'))
 const Economics = lazy(() => import('./views/Economics'))
 const Systems = lazy(() => import('./views/Systems'))
+// Round two: the money river, the boundaries board, and the speed wall, each in its own chunk.
+const Money = lazy(() => import('./views/Money'))
+const Boundaries = lazy(() => import('./views/Boundaries'))
+const Speed = lazy(() => import('./views/Speed'))
 
 const queries = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, placeholderData: (prev: unknown) => prev } },
@@ -51,6 +55,9 @@ const router = createBrowserRouter(
             { path: 'ledger', element: wrap(<Ledger />) },
             { path: 'economics', element: wrap(<Economics />) },
             { path: 'systems', element: wrap(<Systems />) },
+            { path: 'money', element: wrap(<Money />) },
+            { path: 'boundaries', element: wrap(<Boundaries />) },
+            { path: 'speed', element: wrap(<Speed />) },
             { path: '*', element: <NotFound /> },
           ],
         },

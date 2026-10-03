@@ -1,6 +1,6 @@
 // The fleet: every session and execution, sortable and filterable, beside a live graph of who started whom
 // (tasks) and who reports to whom. Rows and nodes open the session deck.
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -9,7 +9,8 @@ import { ArrowDownUp, Layers, Network, Plus, Search, Wrench } from 'lucide-react
 import type { ExecutionInfo, SessionInfo } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
-import { ago, cn, pct, short, tokens, usd } from '@/lib/format'
+import { useWorld } from '@/lib/world'
+import { ago, cn, pct, short, stamp, tokens, usd } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { AttentionPill, Empty, LiveDot, Meter, Panel, Pill } from '@/components/ui'
 
@@ -57,11 +58,15 @@ function NewSession({ onOpened }: { onOpened: (sessionId: string) => void }) {
 
 export default function Fleet() {
   const nav = useNavigate()
-  const now = useTick(5000)
+  const tick = useTick(5000)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 2000)
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 2000)
-  const sessions = sl?.sessions ?? NO_SESSIONS
-  const executions = el?.executions ?? NO_EXECUTIONS
+  // The time machine: the fleet as it stood at its moment, folded from the ledger. Deferred, so a scrub's needle
+  // never waits on the table and the graph.
+  const world = useDeferredValue(useWorld())
+  const now = world?.t ?? tick
+  const sessions = world?.sessions ?? sl?.sessions ?? NO_SESSIONS
+  const executions = world?.executions ?? el?.executions ?? NO_EXECUTIONS
   const execOf = useMemo(() => new Map(executions.map((e) => [e.execution_id, e])), [executions])
 
   // The search and the state filter live in the address (?q=…&state=…).
@@ -115,13 +120,14 @@ export default function Fleet() {
             <Pill tone={stateTone(s)}>{s} <span className="num font-semibold">{n}</span></Pill>
           </button>
         ))}
+        {world && <Pill tone="wait">as of {stamp(world.t)} · folded from the ledger</Pill>}
         <span className="num ml-auto text-[11px] text-ink-faint">{executions.length} executions · {usd(sessions.reduce((a, s) => a + (s.cost_usd ?? 0), 0))} across the fleet</span>
       </div>
 
       <Group orientation="horizontal" className="min-h-0 flex-1">
         <RPanel defaultSize="62" minSize={480} className="min-h-0">
           <Panel title="Sessions" icon={<Layers size={13} />} className="h-full" bodyClassName="min-h-0 overflow-auto"
-            actions={<NewSession onOpened={(id) => nav(`/session/${id}`)} />}>
+            actions={world ? <span className="text-[11px] text-ink-faint">return to LIVE to open a session</span> : <NewSession onOpened={(id) => nav(`/session/${id}`)} />}>
             <table className="w-full whitespace-nowrap text-[12px]">
               <thead className="sticky top-0 z-10 bg-hull/95 text-[10px] uppercase tracking-wider text-ink-faint backdrop-blur">
                 <tr>
@@ -236,14 +242,22 @@ function FleetGraph({ sessions, executions, onOpen }: { sessions: SessionInfo[];
     // Lay out again only when the graph's shape changes; node data refreshes below.
   }, [shape])
 
-  // Fresh data on the laid-out nodes, every poll, without moving them.
+  // Fresh data on the laid-out nodes, every poll, without moving them. A node whose shown fields did not change keeps
+  // its object, so a scrub of the time machine redraws only the nodes that changed.
+  const [kept] = useState(() => new Map<string, { key: string; node: Node<SessionNodeData> }>())
   const nodes = useMemo(() => {
     const cur = new Map(sessions.map((s) => [s.session_id, s]))
     return laid.nodes.map((n) => {
       const s = cur.get(n.id) ?? n.data.s
-      return { ...n, data: { s, e: s.execution_id ? byExec.get(s.execution_id) : undefined } }
+      const e = s.execution_id ? byExec.get(s.execution_id) : undefined
+      const key = [n.position.x, n.position.y, s.title, s.label, s.execution_state, s.attention?.label, s.turns, s.tool_calls, s.cost_usd, e?.budget.spent_usd, e?.budget.reserved_usd, e?.budget.limit_usd].join('|')
+      const had = kept.get(n.id)
+      if (had && had.key === key) return had.node
+      const node = { ...n, data: { s, e } }
+      kept.set(n.id, { key, node })
+      return node
     })
-  }, [laid.nodes, sessions, byExec])
+  }, [laid.nodes, sessions, byExec, kept])
 
   if (!sessions.length) return <Empty>no sessions</Empty>
   return (

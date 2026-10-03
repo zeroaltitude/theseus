@@ -1,11 +1,11 @@
 // The cockpit's frame: the nav rail, the heartbeat bar across the top, the view, and the activity river below.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, Outlet, useMatch, useNavigate } from 'react-router'
+import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import {
-  Activity, ArrowUpRight, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Layers, Navigation, OctagonX, Pause, Radio,
-  Sailboat, ScrollText, ShieldCheck,
+  Activity, ArrowUpRight, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
+  Sailboat, ScrollText, ShieldCheck, ShieldHalf, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, SessionInfo } from '@protocol'
 import { call, useConn, useRpc, usePush } from '@/lib/rpc'
@@ -18,18 +18,26 @@ import { DiskAttention } from './DiskSpool'
 import { Coin, PlankStrip } from './brass'
 import { diskSummary, diskTone } from '@/lib/disk'
 import { useHistory, useTick } from '@/lib/hooks'
+import { useAsOf } from '@/lib/timemachine'
+import { FOLDS } from '@/lib/world'
+import { TimeMachine } from './TimeMachine'
 
 const NAV = [
   { to: '/ship', label: 'Ship', icon: Sailboat },
   { to: '/bridge', label: 'Bridge', icon: Gauge },
   { to: '/fleet', label: 'Fleet', icon: Layers },
   { to: '/actions', label: 'Actions', icon: ShieldCheck },
+  { to: '/boundaries', label: 'Bounds', icon: ShieldHalf },
   { to: '/ledger', label: 'Ledger', icon: ScrollText },
+  { to: '/money', label: 'Money', icon: Landmark },
   { to: '/economics', label: 'Economics', icon: Coins },
+  { to: '/speed', label: 'Speed', icon: Zap },
   { to: '/systems', label: 'Systems', icon: Cpu },
 ] as const
 
-const GO: Record<string, string> = { h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', l: '/ledger', e: '/economics', s: '/systems' }
+const GO: Record<string, string> = {
+  h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', l: '/ledger', m: '/money', e: '/economics', w: '/speed', s: '/systems',
+}
 
 export function Shell() {
   const nav = useNavigate()
@@ -39,10 +47,15 @@ export function Shell() {
   const shipRoute = useMatch('/ship')
   const indexRoute = useMatch({ path: '/', end: true })
   const onShip = !!shipRoute || !!indexRoute
-  const [river, setRiver] = useState(!onShip)
+  // On a short screen the river starts folded too: the views and the ship's log need the height.
+  const [river, setRiver] = useState(!onShip && window.innerHeight >= 900)
+  // A view showing the time machine's moment wears an amber frame. Only whether it is set: a scrub moves the moment
+  // every frame, and the frame around the views must not draw again for each.
+  const past = useAsOf((s) => s.t !== null)
+  const loc = useLocation()
+  const pastView = past && (onShip || FOLDS.some((p) => loc.pathname.startsWith(p)))
   useEffect(() => {
-    // Ctrl/Cmd+K opens the palette; "g" then a letter jumps to a view (g h, g b, g f, g a, g l, g e, g s), unless
-    // you are typing in a field.
+    // Ctrl/Cmd+K opens the palette; "g" then a letter jumps to a view (`GO`), unless you are typing in a field.
     let g = 0
     const k = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((v) => !v); return }
@@ -62,10 +75,11 @@ export function Shell() {
       <NavRail onPalette={() => setPalette(true)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <HeartbeatBar />
-        <main className={onShip ? 'relative min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-auto px-4 pb-4 pt-3'}>
+        <main className={cn(onShip ? 'relative min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-auto px-4 pb-4 pt-3', pastView && 'asof-frame')}>
           <Outlet />
         </main>
         <ActivityRiver open={river} onToggle={() => setRiver((v) => !v)} />
+        <TimeMachine />
       </div>
       <Palette open={palette} onOpenChange={setPalette} />
     </div>
@@ -409,7 +423,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       </Command.List>
       <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11px] text-ink-faint">
         <span><span className="kbd">↑↓</span> move</span><span><span className="kbd">↵</span> open</span><span><span className="kbd">esc</span> close</span>
-        <span className="ml-auto"><span className="kbd">g</span> then <span className="kbd">h</span> <span className="kbd">b</span> <span className="kbd">f</span> <span className="kbd">a</span> <span className="kbd">l</span> <span className="kbd">e</span> <span className="kbd">s</span> jumps to a view</span>
+        <span className="ml-auto"><span className="kbd">g</span> then {Object.keys(GO).map((k) => <span key={k} className="kbd mr-0.5">{k}</span>)} jumps to a view</span>
       </div>
     </Command.Dialog>
   )

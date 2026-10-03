@@ -333,6 +333,8 @@ async fn a_start_from_the_copy_answers_reads_at_once_and_every_acting_method_wai
             "session.wait",
             "index.status",
             "index.query",
+            "bench.history",
+            "sandbox.usage",
         ]
     );
 

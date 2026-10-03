@@ -23,6 +23,8 @@ function tagText(l: Light): string | null {
   if (l.kind === 'model') return (l.model ?? 'model').replace(/^claude-/, '')
   if (l.kind === 'user') return l.author ? l.author.replace(/^[a-z]+:/, '@') : 'operator'
   if (l.external) return 'external text'
+  // A sandboxed job a cancel verified gone (18a): stopped, not failed.
+  if (l.collapsedAt !== undefined) return 'stopped · verified'
   if (l.failed) return 'failed'
   return null
 }

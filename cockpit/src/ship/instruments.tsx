@@ -10,7 +10,7 @@ const AMBER = '#fbbf24'
 const ROSE = '#fb7185'
 
 /** A round brass instrument: bezel, rivets, a night-glass face, engraved ticks, and the glass's glare. */
-function Dial({ children, title, label, sub, glow }: { children: (ids: { face: string }) => ReactNode; title: string; label: string; sub?: ReactNode; glow?: string }) {
+export function Dial({ children, title, label, sub, glow }: { children: (ids: { face: string }) => ReactNode; title: string; label: string; sub?: ReactNode; glow?: string }) {
   const id = useId().replace(/:/g, '')
   const brass = `b${id}`
   const face = `f${id}`
@@ -68,13 +68,13 @@ function Dial({ children, title, label, sub, glow }: { children: (ids: { face: s
   )
 }
 
-const polar = (deg: number, r: number) => {
+export const polar = (deg: number, r: number) => {
   const a = ((deg - 90) * Math.PI) / 180
   return [60 + Math.cos(a) * r, 60 + Math.sin(a) * r] as const
 }
 
 /** Ticks along an arc from `a0` to `a1` degrees (0 is up, clockwise). */
-function Ticks({ a0, a1, n, major = 1, r = 46, color = GOLD }: { a0: number; a1: number; n: number; major?: number; r?: number; color?: string }) {
+export function Ticks({ a0, a1, n, major = 1, r = 46, color = GOLD }: { a0: number; a1: number; n: number; major?: number; r?: number; color?: string }) {
   return (
     <g stroke={color} strokeLinecap="round">
       {Array.from({ length: n + 1 }, (_, i) => {
@@ -88,7 +88,7 @@ function Ticks({ a0, a1, n, major = 1, r = 46, color = GOLD }: { a0: number; a1:
   )
 }
 
-function Needle({ deg, color = IVORY, len = 40, shadow }: { deg: number; color?: string; len?: number; shadow?: number }) {
+export function Needle({ deg, color = IVORY, len = 40, shadow }: { deg: number; color?: string; len?: number; shadow?: number }) {
   return (
     <g>
       {shadow !== undefined && (
@@ -106,7 +106,7 @@ function Needle({ deg, color = IVORY, len = 40, shadow }: { deg: number; color?:
   )
 }
 
-function Engraved({ x, y, children, size = 6.4, color = GOLD, anchor = 'middle', weight = 600 }: { x: number; y: number; children: ReactNode; size?: number; color?: string; anchor?: 'middle' | 'start' | 'end'; weight?: number }) {
+export function Engraved({ x, y, children, size = 6.4, color = GOLD, anchor = 'middle', weight = 600 }: { x: number; y: number; children: ReactNode; size?: number; color?: string; anchor?: 'middle' | 'start' | 'end'; weight?: number }) {
   return (
     <text x={x} y={y} textAnchor={anchor} fontSize={size} fill={color} fontFamily="'Cinzel Variable', serif" fontWeight={weight} letterSpacing="0.6">
       {children}
@@ -249,14 +249,15 @@ export function EngineTelegraph({ accepting, running, ceiling, held }: { accepti
 
 const ROMAN = ['XII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI']
 
-export function ShipsClock({ uptime, version }: { uptime?: number; version?: string }) {
+export function ShipsClock({ uptime, version, down }: { uptime?: number; version?: string; down?: boolean }) {
   const s = uptime ?? 0
   const days = Math.floor(s / 86400)
   const h = (s / 3600) % 12
   const m = (s / 60) % 60
   const words = uptime === undefined ? '—' : days ? `${days}d ${Math.floor((s % 86400) / 3600)}h` : s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 60)}m ${Math.floor(s % 60)}s`
   return (
-    <Dial title={`The daemon's uptime: ${words}${version ? `, version ${version}` : ''}. The hands keep the time it has been up.`} label="Chronometer" sub={`up ${words}`}>
+    <Dial title={down ? 'The daemon was down at this moment: its last start had a stop after it.' : `The daemon's uptime: ${words}${version ? `, version ${version}` : ''}. The hands keep the time it has been up.`}
+      label="Chronometer" sub={down ? 'down then' : `up ${words}`} glow={down ? ROSE : undefined}>
       {() => (
         <g>
           <Ticks a0={0} a1={360} n={60} major={5} r={47} />
@@ -304,7 +305,7 @@ export function Nixie({ value, digits = 6, label, title, className }: { value: n
 
 // ---------------------------------------------------------------- geometry
 
-function arc(a0: number, a1: number, r: number): string {
+export function arc(a0: number, a1: number, r: number): string {
   const [x0, y0] = polar(a0, r)
   const [x1, y1] = polar(a1, r)
   return `M ${x0} ${y0} A ${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`

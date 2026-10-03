@@ -8,6 +8,7 @@
 //! Requests change state and get exactly one response. Notifications report
 //! state and are also ledger rows on the server side.
 
+pub mod bench;
 pub mod cancel;
 mod events;
 mod gate;
@@ -146,6 +147,14 @@ pub mod method {
         /// A search of the index, forwarded to the tender as it came
         /// (`index::IndexQueryParams`): fused hits as of a position. A read.
         INDEX_QUERY = "index.query",
+        /// The gates' bench history on this machine (theseus-1hk), for the
+        /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
+        /// (`bench::BenchHistoryResult`). A read of the gate's CSV.
+        BENCH_HISTORY = "bench.history",
+        /// Each L1 job's cgroup as it stands (M4 17b), for the cockpit's
+        /// boundaries board: memory and processes against their limits
+        /// (`sandbox::SandboxUsage`). A read of the cgroup files.
+        SANDBOX_USAGE = "sandbox.usage",
     }
 }
 
@@ -1991,38 +2000,6 @@ pub struct TurnSubmitResult {
     /// The turn ran without new input (a continuation: late results, a confirm answer, a restart).
     #[serde(default)]
     pub continuation: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct LedgerTailParams {
-    #[serde(default)]
-    pub n: Option<usize>,
-    /// Only rows of this kind (e.g. "turn.ended", "provider.error"). A renamed
-    /// kind also reads the rows stored under its old name.
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub session_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct LedgerEntry {
-    pub position: u64,
-    pub at_unix_ms: u64,
-    pub kind: String,
-    pub session_id: Option<String>,
-    pub turn_id: Option<String>,
-    #[cfg_attr(test, ts(type = "unknown"))]
-    pub data: Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct LedgerTailResult {
-    pub rows: Vec<LedgerEntry>,
-    pub total: u64,
 }
 
 // ---------------------------------------------------------------- M3: content

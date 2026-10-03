@@ -187,6 +187,54 @@ impl serde::Serialize for LedgerKind {
     }
 }
 
+// ---------------------------------------------------------------- reading the ledger
+
+/// `ledger.tail`'s params: the newest `n` rows, or the first `n` after a position.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LedgerTailParams {
+    #[serde(default)]
+    pub n: Option<usize>,
+    /// Only rows of this kind (e.g. "turn.ended", "provider.error"). A renamed
+    /// kind also reads the rows stored under its old name.
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// Only rows after this WAL position, and the first `n` of them, where
+    /// without it the read is the newest `n` (theseus-xo0m). A walk over the
+    /// whole ledger passes 0, then each answer's `next`; a poll passes the
+    /// last position it has. A read, as the rest of `ledger.tail` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub after: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LedgerEntry {
+    pub position: u64,
+    pub at_unix_ms: u64,
+    pub kind: String,
+    pub session_id: Option<String>,
+    pub turn_id: Option<String>,
+    #[cfg_attr(test, ts(type = "unknown"))]
+    pub data: serde_json::Value,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LedgerTailResult {
+    pub rows: Vec<LedgerEntry>,
+    pub total: u64,
+    /// With `after`: the `after` for the next page while more rows may
+    /// follow (the last row read, whether or not a filter kept it); absent
+    /// at the ledger's end, and without `after`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub next: Option<u64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

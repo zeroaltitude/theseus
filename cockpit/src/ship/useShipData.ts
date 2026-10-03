@@ -18,6 +18,7 @@ import type {
   SessionInfo, TaskInfo,
 } from '@protocol'
 import { call, client, useConn, useRpc } from '@/lib/rpc'
+import type { World } from '@/lib/timemachine'
 import { buildModel, type ReachLink, type ShipModel } from './model'
 
 type D = Record<string, unknown>
@@ -34,7 +35,11 @@ export interface ShipData {
   arrivals: number
   synthetic: boolean
   error?: string
+  /** The time machine's moment, when the Ship shows the past: the gauges read the fold, not health. */
+  past?: World
 }
+
+const NONE = new Map<string, number>()
 
 const GLOBAL_N = 2000
 
@@ -96,8 +101,9 @@ const withMap = <K, V>(m: Map<K, V>, k: K, v: V | undefined): Map<K, V> => {
   return n
 }
 
-/** The live fleet, from the daemon. `asOf` is the time machine's seam (unused until that round). */
-export function useShipLive(selected: string | undefined, asOf?: number): ShipData {
+/** The live fleet, from the daemon; or, with the time machine's `world`, the fleet as it was at its moment: the
+ *  sessions, executions, questions, jobs, and shields folded from the ledger, and the lights up to that moment. */
+export function useShipLive(selected: string | undefined, world: World | null): ShipData {
   const queries = useQueryClient()
   const open = useConn((s) => s.status === 'open')
   const [store] = useState(() => createStore<Live>(fresh))
@@ -309,7 +315,39 @@ export function useShipLive(selected: string | undefined, asOf?: number): ShipDa
     return () => clearInterval(t)
   }, [streamingNow, store])
 
+  // Jobs a cancel verified gone (18a's verdicts on the actions): collapsed shields, at the time the job settled. The
+  // engine animates a collapse that settles while the page is open, and draws an older one collapsed.
+  const cancelled = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const a of al?.actions ?? []) {
+      if (a.verdict?.state === 'termination_verified') m.set(a.correlation_id, a.settled_at_ms ?? 0)
+    }
+    return m
+  }, [al])
+
   const model = useMemo(() => {
+    if (world) {
+      // The past: nothing flares or streams; the fold says what ran, waited, and was shielded then.
+      return buildModel({
+        sessions: world.sessions,
+        executions: world.executions,
+        tasks: world.tasks,
+        nodes: [...st.nodes.values()],
+        confirms: world.confirms,
+        l1: world.l1,
+        jobsRunning: world.jobsRunning,
+        streaming: NONE,
+        failedAt: NONE,
+        reports: NONE,
+        born: NONE,
+        bornSessions: NONE,
+        reserved: world.reserved,
+        cancelled: new Map(world.actions.filter((a) => a.verdict?.state === 'termination_verified').map((a) => [a.correlation_id, a.settled_at_ms ?? 0])),
+        reach: st.reach,
+        now: world.t,
+        asOf: world.t,
+      })
+    }
     if (!sl || !el) return null
     const l1 = new Set(st.l1)
     for (const r of jobs?.rows ?? []) {
@@ -338,11 +376,11 @@ export function useShipLive(selected: string | undefined, asOf?: number): ShipDa
       born: st.born,
       bornSessions: st.bornSessions,
       reserved,
+      cancelled,
       reach: st.reach,
       now: st.now,
-      asOf,
     })
-  }, [sl, el, tl, cl, jobs, al, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.now, asOf])
+  }, [world, sl, el, tl, cl, jobs, al, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.now])
 
   const tpm = useMemo(() => {
     if (!calls) return null
@@ -357,7 +395,10 @@ export function useShipLive(selected: string | undefined, asOf?: number): ShipDa
     return sum
   }, [calls, st.now])
 
-  return { model, progress: st.progress, health, profiles, tpm, arrivals: st.arrivals.length, synthetic: false, error: st.error }
+  return {
+    model, progress: st.progress, health, profiles, tpm: world ? world.gauges.tpm : tpm, arrivals: world ? 0 : st.arrivals.length,
+    synthetic: false, error: st.error, ...(world ? { past: world } : {}),
+  }
 }
 
 /** The dev-only synthetic fleet (10,000 nodes in 200 sessions), for measuring. Never in a production build. */

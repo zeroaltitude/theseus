@@ -323,7 +323,11 @@
 .ship-instrument figcaption { white-space: nowrap; }
 /* The console's dials: their size follows the screen, so the bridge fits a laptop as well as a wall. */
 .ship-console { --dial: 112px; }
-.ship-dial { width: var(--dial); height: var(--dial); }
+.ship-dial { width: var(--dial, 132px); height: var(--dial, 132px); }
+/* The speed wall's dials: one size for every contract, larger on a wide screen. */
+.speed-wall { --dial: 150px; }
+@media (max-width: 1680px) { .speed-wall { --dial: 128px; } }
+@media (max-width: 1440px) { .speed-wall { --dial: 112px; } }
 @media (max-width: 1680px) { .ship-console { --dial: 98px; } }
 @media (max-width: 1440px) { .ship-console { --dial: 86px; } .ship-console .nixie-tube { width: 19px; height: 37px; } .ship-console .nixie-digit, .ship-console .nixie-ghost { font-size: 26px; } }
 
@@ -362,6 +366,44 @@
 .nixie-ghost { font-weight: 200; color: rgb(255 150 70 / 0.08); }
 .nixie-digit { position: relative; font-weight: 300; color: #ffdcae; text-shadow: 0 0 3px #ff9d42, 0 0 9px #ff7f22, 0 0 20px rgb(255 110 20 / 0.7); }
 .nixie-off .nixie-digit { color: rgb(255 170 90 / 0.16); text-shadow: none; }
+
+/* The ship's log (the time machine): a brass strip at the cockpit's foot, a sunken track, and a brass needle lit cyan. */
+.log-bar {
+  background: linear-gradient(180deg, #0b192a, #050d18);
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, #5b4325, #e3c27f 30%, #8c6a3c 60%, #f3d9a4 80%, #5b4325) 1;
+  box-shadow: inset 0 1px 0 rgb(243 217 164 / 0.08);
+}
+.log-well {
+  border-radius: 6px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 59px, rgb(176 141 87 / 0.08) 59px 60px),
+    linear-gradient(180deg, #02070e, #071321);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.85), inset 0 0 0 1px rgb(176 141 87 / 0.28), 0 1px 0 rgb(243 217 164 / 0.07);
+}
+.log-needle { border-left: 2px solid #f3d9a4; box-shadow: 0 0 8px rgb(34 211 238 / 0.8), 0 0 2px rgb(34 211 238 / 0.9); transform: translateX(-1px); }
+.log-needle-head {
+  position: absolute; top: -3px; left: -6px; width: 10px; height: 7px;
+  background: linear-gradient(180deg, #f3d9a4, #b08d57); clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.log-needle-live { border-left-color: #22d3ee; }
+.log-needle.log-calm { box-shadow: none; }
+.asof-badge {
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgb(40 28 6 / 0.9), rgb(18 12 3 / 0.9)) padding-box, linear-gradient(140deg, #fbbf24, #8c6a3c 40%, #e3c27f 75%, #5b4325) border-box;
+  border: 1px solid transparent;
+  box-shadow: 0 0 14px rgb(251 191 36 / 0.28);
+}
+.asof-badge:hover { box-shadow: 0 0 0 1px rgb(34 211 238 / 0.6), 0 0 16px rgb(34 211 238 / 0.35); }
+.asof-live { border-radius: 7px; box-shadow: inset 0 0 0 1px rgb(34 211 238 / 0.35), 0 0 12px rgb(34 211 238 / 0.18); }
+/* A view showing the past wears a thin amber frame, so the moment is never mistaken for now. */
+.asof-frame { box-shadow: inset 0 0 0 1px rgb(251 191 36 / 0.45), inset 0 0 28px rgb(251 191 36 / 0.06); }
+
+/* An egress refusal of the last minute flashes on the boundaries board. */
+@keyframes egress-flash { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: 0.15; } }
+.egress-refused { animation: egress-flash 0.9s ease-in-out infinite; }
+html.calm .egress-refused { animation: none; }
+@media (prefers-reduced-motion: reduce) { .egress-refused { animation: none; } }
 
 /* Calm: no decorative motion anywhere (the operator's choice, or the system's reduced motion). */
 html.calm .live-sweep, html.calm .animate-ping, html.calm .animate-pulse-soft, html.calm .plank-new { animation: none !important; }

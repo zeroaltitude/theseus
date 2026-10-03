@@ -696,6 +696,16 @@ impl Store {
             .collect()
     }
 
+    /// The first `n` ledger rows after position `after`, oldest first, as
+    /// (position, row): one page of a walk from the start (theseus-xo0m).
+    pub fn ledger_after<T: DeserializeOwned>(&self, after: u64, n: usize) -> Result<Vec<(u64, T)>> {
+        self.inner
+            .of_kind_after(kinds::LEDGER, after, n)?
+            .iter()
+            .map(|r| Ok((r.position, r.decode()?)))
+            .collect()
+    }
+
     /// The WAL's last position: everything the kernel has ever written.
     pub fn last_position(&self) -> u64 {
         self.inner.last_position()

@@ -669,6 +669,68 @@ impl Sandbox {
             egress_last_refused: self.refused_last.lock().unwrap().clone(),
         }
     }
+
+    /// `sandbox.usage`: every job cgroup under the readied `jobs`, read now
+    /// and changed in nothing. Before the first L1 job readies it, or where
+    /// the cgroup is not delegated, there is none, and `why` says which.
+    pub fn usage(&self) -> theseus_protocol::sandbox::SandboxUsage {
+        use theseus_protocol::sandbox::{JobUsage, SandboxUsage};
+        let at_ms = theseus_protocol::now_unix_ms();
+        let jobs = self.jobs.lock().unwrap().clone();
+        let dir = match jobs {
+            Some(Ok(dir)) => dir,
+            Some(Err(why)) => {
+                return SandboxUsage {
+                    why: Some(why),
+                    at_ms,
+                    ..Default::default()
+                }
+            }
+            None => {
+                let why = match self.cgroup.get() {
+                    Some(Cgroup::None(why)) => why.clone(),
+                    _ => "no L1 job has run yet: the first one readies the jobs' cgroup".into(),
+                };
+                return SandboxUsage {
+                    why: Some(why),
+                    at_ms,
+                    ..Default::default()
+                };
+            }
+        };
+        let mut out: Vec<JobUsage> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .filter_map(|e| {
+                let u = theseus_sandbox::cgroup::usage(&e.path()).ok()?;
+                Some(JobUsage {
+                    correlation_id: e.file_name().to_string_lossy().into_owned(),
+                    memory_bytes: u.memory,
+                    memory_max: u.memory_max,
+                    memory_peak: u.memory_peak,
+                    pids: u.pids,
+                    pids_max: u.pids_max,
+                    pids_refused: u.pids_refused,
+                    populated: u.populated,
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| a.correlation_id.cmp(&b.correlation_id));
+        SandboxUsage {
+            jobs_dir: Some(dir.display().to_string()),
+            why: None,
+            at_ms,
+            jobs: out,
+        }
+    }
+
+    /// Names a directory as the readied `jobs`, as the first L1 job would.
+    #[cfg(test)]
+    pub(crate) fn set_jobs_dir_for_tests(&self, dir: PathBuf) {
+        *self.jobs.lock().unwrap() = Some(Ok(dir));
+    }
 }
 
 /// The template's `[sandbox]`, un-commented (`config.rs`'s

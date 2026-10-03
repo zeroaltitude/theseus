@@ -28,7 +28,7 @@ export function ms(n: number | null | undefined): string {
   const s = n / 1000
   if (s < 60) return `${s.toFixed(s < 10 ? 2 : 1)} s`
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ${Math.round(s % 60)}s`
+  if (m < 60) return `${m}m ${Math.floor(s % 60)}s`
   const h = Math.floor(m / 60)
   return `${h}h ${m % 60}m`
 }

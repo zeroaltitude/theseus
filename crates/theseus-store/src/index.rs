@@ -601,6 +601,28 @@ impl RedbIndex {
         Ok(out)
     }
 
+    /// Positions of a kind with position > `after`, oldest first, at most
+    /// `limit`: one page of a walk over a kind (theseus-xo0m).
+    pub fn positions_of_kind_after(
+        &self,
+        kind: RecordKind,
+        after: u64,
+        limit: usize,
+    ) -> Result<Vec<u64>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(BYKIND)?;
+        let lo = bykind(kind, after.saturating_add(1));
+        let hi = bykind(kind, u64::MAX);
+        let mut out = Vec::new();
+        for row in t.range(lo.as_slice()..=hi.as_slice())?.take(limit) {
+            let (k, _) = row?;
+            if let Some(p) = u64_from(&k.value()[2..]) {
+                out.push(p);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn count_of_kind(&self, kind: RecordKind) -> Result<u64> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKIND)?;

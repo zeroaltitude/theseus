@@ -15,7 +15,8 @@ import { ModelInspector } from '@/components/ModelInspector'
 import { PlankStrip } from '@/components/brass'
 import { useCalm } from '@/lib/calm'
 import { useConn } from '@/lib/rpc'
-import { ago, clock, cn, short } from '@/lib/format'
+import { useWorld } from '@/lib/world'
+import { ago, clock, cn, short, stamp } from '@/lib/format'
 
 // The synthetic fleet is for measuring, in dev and bench builds only (never in a production build).
 const SYNTH = (import.meta.env.DEV || import.meta.env.MODE === 'bench') && new URLSearchParams(window.location.search).has('synthetic')
@@ -26,7 +27,8 @@ export default function ShipRoute() {
 
 function ShipLive() {
   const [params] = useSearchParams()
-  return <ShipView data={useShipLive(params.get('s') ?? undefined)} />
+  const world = useWorld()
+  return <ShipView data={useShipLive(params.get('s') ?? undefined, world)} />
 }
 
 function ShipSynthetic() {
@@ -187,6 +189,8 @@ function ShipView({ data }: { data: ShipData }) {
   const h = data.health
   const approvals = model?.vessels.reduce((a, v) => a + v.pendingConfirms, 0) ?? 0
   const status = useConn((s) => s.status)
+  // The time machine: the gauges read the fold at its moment, not today's health.
+  const g = data.past?.gauges
 
   return (
     <div className="ship-root relative h-full w-full overflow-hidden" data-calm={calm ? '1' : ''}>
@@ -194,7 +198,7 @@ function ShipView({ data }: { data: ShipData }) {
       <div ref={labelsRoot} className="ship-labels pointer-events-none absolute inset-0 overflow-hidden" />
       {data.progress < 1 && <div className="pointer-events-none absolute inset-x-0 top-0" title="Reading the graph"><PlankStrip progress={data.progress} height={6} /></div>}
 
-      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} />
+      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t} />
 
       <div data-ship-ui className="absolute right-3 top-4 flex items-center gap-1.5">
         <BrassButton title="Fly to a session or a call (Ctrl+K)" onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}>
@@ -207,17 +211,23 @@ function ShipView({ data }: { data: ShipData }) {
         </BrassButton>
       </div>
 
-      {vessel && model && <VesselCard v={vessel} model={model} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); return p }, { replace: true })} />}
+      {vessel && model && <VesselCard v={vessel} model={model} now={data.past?.t} onClose={() => setParams((p) => { p.delete('s'); p.delete('n'); return p }, { replace: true })} />}
       {hover && model && <HoverCard hover={hover} model={model} />}
       <Legend />
 
       <div data-ship-ui className="ship-console pointer-events-auto absolute bottom-3 left-1/2 flex -translate-x-1/2 items-end gap-2.5 px-4 pb-2 pt-2.5">
-        <Compass live={data.profiles?.live ?? h?.profile} profiles={data.profiles?.profiles.map((p) => p.name) ?? []} model={h?.model} />
-        <PressureGauge approvals={approvals} holds={h?.external_text?.length ?? model?.stats.held ?? 0} held={h?.kernel.turns_held ?? 0} />
+        {g ? (
+          <Compass live={g.profile ?? data.profiles?.live} profiles={data.profiles?.profiles.map((p) => p.name) ?? []}
+            model={data.profiles?.profiles.find((p) => p.name === g.profile)?.model} />
+        ) : (
+          <Compass live={data.profiles?.live ?? h?.profile} profiles={data.profiles?.profiles.map((p) => p.name) ?? []} model={h?.model} />
+        )}
+        <PressureGauge approvals={approvals} holds={g ? data.past!.holds.length : h?.external_text?.length ?? model?.stats.held ?? 0} held={g ? 0 : h?.kernel.turns_held ?? 0} />
         <FuelGauge spent={focus?.spent ?? focus?.cost ?? 0} reserved={focus?.reserved ?? 0} limit={focus?.limit ?? h?.kernel.spend_limit_usd}
-          of={focus ? focus.title.slice(0, 22) : '—'} total={h?.cost_usd_total ?? 0} />
-        <EngineTelegraph accepting={h?.kernel.accepting} running={h?.kernel.executions_by_state.running ?? model?.stats.running ?? 0} ceiling={h?.kernel.admission_ceiling ?? 8} held={h?.kernel.turns_held ?? 0} />
-        <ShipsClock uptime={h?.uptime_secs} version={h?.version} />
+          of={focus ? focus.title.slice(0, 22) : '—'} total={g ? g.costTotal : h?.cost_usd_total ?? 0} />
+        <EngineTelegraph accepting={g ? g.accepting : h?.kernel.accepting} running={g ? g.running : h?.kernel.executions_by_state.running ?? model?.stats.running ?? 0}
+          ceiling={h?.kernel.admission_ceiling ?? 8} held={g ? 0 : h?.kernel.turns_held ?? 0} />
+        <ShipsClock uptime={g ? g.uptimeSecs ?? undefined : h?.uptime_secs} version={h?.version} down={!!g && g.uptimeSecs === null} />
         <Nixie value={data.tpm} label="Tokens / min" title="Tokens a minute: input, cache, and output of every model call in the last sixty seconds (provider.call rows)." />
       </div>
 
@@ -237,13 +247,14 @@ function BrassButton({ children, onClick, title, on }: { children: React.ReactNo
   )
 }
 
-function Cartouche({ model, synthetic, live, error }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string }) {
+function Cartouche({ model, synthetic, live, error, asOf }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number }) {
   const s = model?.stats
   return (
     <div data-ship-ui className="ship-cartouche pointer-events-none absolute left-4 top-4">
       <div className="flex items-baseline gap-3">
         <h1 className="ship-title">The Ship</h1>
         {synthetic && <span className="ship-synthetic">synthetic fleet · dev only</span>}
+        {asOf !== undefined && <span className="ship-engraved text-[11px] !text-wait">as of {stamp(asOf)}</span>}
       </div>
       <div className="num mt-0.5 flex flex-wrap gap-x-3 text-[11.5px] text-ink-dim">
         <span><b className="text-ink">{s?.sessions ?? '…'}</b> vessels</span>
@@ -260,7 +271,7 @@ function Cartouche({ model, synthetic, live, error }: { model: ShipModel | null;
   )
 }
 
-function VesselCard({ v, model, onClose }: { v: Vessel; model: ShipModel; onClose: () => void }) {
+function VesselCard({ v, model, onClose, now }: { v: Vessel; model: ShipModel; onClose: () => void; now?: number }) {
   const lights = useMemo(() => model.lights.filter((l) => l.sessionId === v.id), [model, v.id])
   const kinds = { user: 0, model: 0, call: 0, result: 0 } as Record<Light['kind'], number>
   for (const l of lights) kinds[l.kind]++
@@ -280,12 +291,12 @@ function VesselCard({ v, model, onClose }: { v: Vessel; model: ShipModel; onClos
       </header>
       <dl className="num mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
         <dt className="text-ink-faint">lights</dt><dd className="text-ink">{v.nodes} · {kinds.user} msg · {kinds.model} model · {kinds.call} calls</dd>
-        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{v.turns} · last {ago(v.lastActive)}</dd>
+        <dt className="text-ink-faint">turns</dt><dd className="text-ink">{v.turns} · last {ago(v.lastActive, now)}</dd>
         <dt className="text-ink-faint">money</dt><dd className="text-ink">{usdShort(v.cost)}{v.limit ? ` of ${usdShort(v.limit)}` : ''}{v.reserved ? ` · ${usdShort(v.reserved)} reserved` : ''}</dd>
         {(v.profile || v.model) && <><dt className="text-ink-faint">profile</dt><dd className="truncate text-ink">{v.profile ?? '—'} · {v.model ?? '—'}</dd></>}
         {!!l1 && <><dt className="text-ink-faint">sandbox</dt><dd className="text-[#5eead4]">{l1} lights shielded (L1)</dd></>}
         {!!ext && <><dt className="text-ink-faint">external</dt><dd className="text-think">{ext} {ext === 1 ? 'result' : 'results'} from the web</dd></>}
-        {v.hold && <><dt className="text-ink-faint">chained</dt><dd className="text-wait" title={v.hold.url}>read {v.hold.tool} {v.hold.query ? `"${v.hold.query}"` : v.hold.url} · {ago(v.hold.since_ms)}</dd></>}
+        {v.hold && <><dt className="text-ink-faint">chained</dt><dd className="text-wait" title={v.hold.url}>read {v.hold.tool} {v.hold.query ? `"${v.hold.query}"` : v.hold.url} · {ago(v.hold.since_ms, now)}</dd></>}
         {!!v.pendingConfirms && <><dt className="text-ink-faint">waiting</dt><dd className="text-wait">{v.pendingConfirms} approval{v.pendingConfirms === 1 ? '' : 's'} for you</dd></>}
         {parent && <><dt className="text-ink-faint">in tow of</dt><dd className="truncate text-ink">{parent.title}</dd></>}
         {!!tasks.length && <><dt className="text-ink-faint">towing</dt><dd className="text-ink">{tasks.length} task{tasks.length === 1 ? '' : 's'}</dd></>}
@@ -315,7 +326,8 @@ function HoverCard({ hover, model }: { hover: { hit: Hit; x: number; y: number }
   }
   const l = model.lights[hover.hit.light]
   const v = model.vessels[l.vessel]
-  const head = l.kind === 'call' ? `${l.tool ?? 'tool'}` : l.kind === 'result' ? `${l.tool ?? 'tool'} → ${l.failed ? 'failed' : 'ok'}` : l.kind === 'model' ? (l.model ?? 'model') : (l.author ?? 'the operator')
+  const outcome = l.collapsedAt !== undefined ? 'stopped, verified' : l.failed ? 'failed' : 'ok'
+  const head = l.kind === 'call' ? `${l.tool ?? 'tool'}` : l.kind === 'result' ? `${l.tool ?? 'tool'} → ${outcome}` : l.kind === 'model' ? (l.model ?? 'model') : (l.author ?? 'the operator')
   return (
     <div className="brass-tip pointer-events-none absolute max-w-[400px]" style={style}>
       <div className="flex items-baseline gap-2">
@@ -326,6 +338,7 @@ function HoverCard({ hover, model }: { hover: { hit: Hit; x: number; y: number }
       {l.preview && <div className="mt-0.5 line-clamp-3 text-[11.5px] leading-snug text-ink-dim">{l.preview}</div>}
       <div className="num mt-1 flex flex-wrap gap-1.5 text-[10.5px]">
         {l.l1 && <span className="text-[#5eead4]">⬡ sandboxed (L1)</span>}
+        {l.collapsedAt !== undefined && <span className="text-fault">⬡ stopped: the cancel verified it gone</span>}
         {l.external && <span className="text-think">◎ external text</span>}
         {l.running && <span className="text-money">⚙ running</span>}
         {l.cost !== undefined && <span className="text-money">{usdShort(l.cost)}</span>}

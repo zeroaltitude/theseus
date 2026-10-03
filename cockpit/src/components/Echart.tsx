@@ -11,6 +11,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { base, type EChartsOption } from '@/lib/chart'
+import { useCalm } from '@/lib/calm'
 
 echarts.use([
   BarChart, CustomChart, GaugeChart, HeatmapChart, LineChart, PieChart, SankeyChart, ScatterChart,
@@ -54,9 +55,11 @@ export function Echart({ option, className, style, onClick, onDataZoom }: Props)
     }
   }, [])
 
+  // Calm (the operator's or the system's reduced motion): every chart draws at once, with no transition.
+  const calm = useCalm((s) => s.calm)
   useEffect(() => {
-    chart.current?.setOption({ ...base, ...option } as EChartsOption, { notMerge: false, lazyUpdate: true })
-  }, [option])
+    chart.current?.setOption({ ...base, ...option, ...(calm ? { animation: false } : {}) } as EChartsOption, { notMerge: false, lazyUpdate: true })
+  }, [option, calm])
 
   return <div ref={el} className={className} style={{ width: '100%', height: '100%', ...style }} />
 }

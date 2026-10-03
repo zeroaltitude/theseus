@@ -370,7 +370,8 @@ void main() {
   vFade *= mix(0.22, 1.0, smoothstep(40.0 * uPixel, 180.0 * uPixel, hullPx));
   vColor = aColor * (1.0 - dim * 0.75);
   vFlags = aFlags;
-  vAge = vec2(age, aTimes.y > 0.0 ? uTime - aTimes.y : -1.0);
+  // y: a verified cancel's time (the shield collapses over it); below zero, collapsed before the page loaded.
+  vAge = vec2(age, aTimes.y > 0.0 ? uTime - aTimes.y : aTimes.y < 0.0 ? 1e6 : -1.0);
   vRing = ringed;
 }
 `
@@ -403,6 +404,13 @@ void main() {
     vec3 sc = vec3(0.42, 1.0, 0.88);
     col += sc * (ring + fill) * shrink;
     alpha = max(alpha, (ring + fill) * shrink);
+    // What a collapse leaves: a small rose hex, so a stopped job still reads as one.
+    if (vAge.y >= 0.0) {
+      float gone = 1.0 - shrink;
+      float ember = 1.0 - smoothstep(0.02, 0.06, abs(hexDist(uv) - 0.36));
+      col += vec3(1.0, 0.45, 0.52) * ember * gone * 0.85;
+      alpha = max(alpha, ember * gone * 0.85);
+    }
   }
   // External text: a warning ring in magenta.
   if (bit(vFlags, 2.0) > 0.5) {

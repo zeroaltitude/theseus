@@ -110,3 +110,50 @@ pub struct SandboxProbe {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skipped: Vec<String>,
 }
+
+/// `sandbox.usage`: each L1 job's cgroup (`<daemon's cgroup>/jobs/<corr>`) as
+/// it stands, read when asked. Without a delegated cgroup there is none to
+/// read: the namespaces and `RLIMIT_NPROC` still hold, and `why` says so.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SandboxUsage {
+    /// The jobs' cgroup directory, once the first L1 job readied it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub jobs_dir: Option<String>,
+    /// Why there is no directory to read, when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    /// When it was read (unix ms).
+    pub at_ms: u64,
+    /// The jobs whose cgroups are there now, by correlation id.
+    pub jobs: Vec<JobUsage>,
+}
+
+/// One L1 job's cgroup.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JobUsage {
+    pub correlation_id: String,
+    /// `memory.current`, in bytes.
+    pub memory_bytes: u64,
+    /// `memory.max`, in bytes; absent for `max` (no limit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub memory_max: Option<u64>,
+    /// `memory.peak`, where the kernel keeps one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub memory_peak: Option<u64>,
+    /// `pids.current`: its processes and threads now.
+    pub pids: u64,
+    /// `pids.max`; absent for `max`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub pids_max: Option<u64>,
+    /// Forks `pids.max` refused (`pids.events`).
+    pub pids_refused: u64,
+    /// A process is still in it (`cgroup.events`).
+    pub populated: bool,
+}

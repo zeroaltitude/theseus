@@ -606,6 +606,12 @@ export class ShipEngine {
       const born = this.secs(l.born)
       times[i * 2] = born
       if (born) until = Math.max(until, born + 2.2)
+      // A verified cancel collapses the shield: as it is seen, or (-1) already collapsed when the page loaded.
+      if (l.collapsedAt !== undefined) {
+        const gone = l.collapsedAt ? this.secs(l.collapsedAt) : 0
+        times[i * 2 + 1] = gone || -1
+        if (gone) until = Math.max(until, gone + 1.4)
+      }
     })
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3))

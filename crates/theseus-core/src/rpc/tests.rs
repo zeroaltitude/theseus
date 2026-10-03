@@ -493,6 +493,7 @@ async fn rows_from_the_hook_system_still_read() {
                 n: Some(10),
                 kind: kind.map(str::to_string),
                 session_id: None,
+                after: None,
             },
         )
     };
@@ -534,6 +535,133 @@ async fn rows_from_the_hook_system_still_read() {
         gone.error.as_ref().unwrap().code,
         error_code::METHOD_NOT_FOUND
     );
+}
+
+/// `after` walks the ledger from a position, oldest first, a page at a time
+/// (theseus-xo0m): every row once, in order, with `next` gone at the end. A
+/// filtered page scans 50 rows for each one asked, and its `next` passes the
+/// rows the filter dropped, so a sparse kind's walk never stalls.
+#[tokio::test]
+async fn ledger_tail_after_walks_the_ledger_a_page_at_a_time() {
+    let core = test_core("ok");
+    for i in 0..25u64 {
+        let kind = if i % 5 == 0 {
+            "turn.started"
+        } else {
+            "loop.started"
+        };
+        let row = json!({"at_unix_ms": 1_759_100_000_000u64 + i, "kind": kind, "session_id": "ses_walk", "data": {"i": i}});
+        core.store.append_ledger(&row).unwrap();
+    }
+    let page = |after: u64, n: usize, kind: Option<&str>| {
+        core.ledger_tail(LedgerTailParams {
+            n: Some(n),
+            kind: kind.map(str::to_string),
+            session_id: None,
+            after: Some(after),
+        })
+        .unwrap()
+    };
+    let everything = core
+        .ledger_tail(LedgerTailParams {
+            n: Some(1000),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(everything.next, None, "a tail read has no cursor");
+    // The whole ledger in pages of 7: each row once, in order.
+    let (mut walked, mut after, mut pages) = (Vec::new(), 0u64, 0);
+    loop {
+        let r = page(after, 7, None);
+        pages += 1;
+        assert!(r.rows.len() <= 7);
+        walked.extend(r.rows.iter().map(|x| x.position));
+        match r.next {
+            Some(n) => after = n,
+            None => break,
+        }
+        assert!(pages < 100, "the walk never ended");
+    }
+    let all: Vec<u64> = everything.rows.iter().map(|x| x.position).collect();
+    assert_eq!(walked, all);
+    assert_eq!(everything.total as usize, all.len());
+    // A poll from the last position has nothing new.
+    let last = *all.last().unwrap();
+    let r = page(last, 7, None);
+    assert!(r.rows.is_empty() && r.next.is_none());
+    // A filtered walk: five turn.started rows among the 25, two a page.
+    let (mut seen, mut after) = (Vec::new(), 0u64);
+    for _ in 0..20 {
+        let r = page(after, 2, Some("turn.started"));
+        seen.extend(r.rows.iter().map(|x| x.data["i"].as_u64().unwrap()));
+        match r.next {
+            Some(n) => after = n,
+            None => break,
+        }
+    }
+    assert_eq!(seen, vec![0, 5, 10, 15, 20]);
+    // A window with no match still moves on: one asked scans 50 rows.
+    let r = page(0, 1, Some("no.such_kind"));
+    assert!(r.rows.is_empty());
+    assert_eq!(
+        r.next, None,
+        "fewer than 50 rows in all: the window held the whole ledger"
+    );
+}
+
+/// `sandbox.usage` reads each job's cgroup under the readied `jobs`, changes
+/// nothing, and before the first L1 job says why there is nothing to read.
+#[tokio::test]
+async fn sandbox_usage_reads_each_jobs_cgroup() {
+    let core = test_core("ok");
+    let before = core.tools.sandbox.usage();
+    assert!(before.jobs.is_empty() && before.jobs_dir.is_none());
+    assert!(before.why.is_some(), "no jobs dir and no reason");
+    let d = tempfile::tempdir().unwrap();
+    let job = d.path().join("act_0123");
+    std::fs::create_dir(&job).unwrap();
+    for (f, v) in [
+        ("cgroup.events", "populated 1\nfrozen 0\n"),
+        ("memory.current", "1048576\n"),
+        ("memory.max", "2147483648\n"),
+        ("pids.current", "2\n"),
+        ("pids.max", "512\n"),
+        ("pids.events", "max 0\n"),
+    ] {
+        std::fs::write(job.join(f), v).unwrap();
+    }
+    // The jobs' own files are not a job.
+    std::fs::write(d.path().join("cgroup.procs"), "").unwrap();
+    core.tools
+        .sandbox
+        .set_jobs_dir_for_tests(d.path().to_path_buf());
+    let u = core.tools.sandbox.usage();
+    assert_eq!(u.jobs_dir, Some(d.path().display().to_string()));
+    assert_eq!(u.why, None);
+    assert_eq!(u.jobs.len(), 1);
+    let j = &u.jobs[0];
+    assert_eq!(j.correlation_id, "act_0123");
+    assert_eq!(
+        (j.memory_bytes, j.memory_max),
+        (1_048_576, Some(2_147_483_648))
+    );
+    assert_eq!((j.pids, j.pids_max, j.pids_refused), (2, Some(512), 0));
+    assert!(j.populated);
+    assert_eq!(
+        std::fs::read_to_string(job.join("memory.max")).unwrap(),
+        "2147483648\n",
+        "a read changes nothing"
+    );
+    // Through the protocol, with no params: the jobs, or (tools off) why not.
+    let msgs = roundtrip(
+        core,
+        vec![Request::new(Id::Num(1), method::SANDBOX_USAGE, Value::Null)],
+    )
+    .await;
+    let rs = responses(&msgs);
+    let r: theseus_protocol::sandbox::SandboxUsage =
+        serde_json::from_value(rs[0].result.clone().unwrap()).unwrap();
+    assert!(r.jobs.len() == 1 || r.why.is_some(), "{r:?}");
 }
 
 #[tokio::test]
@@ -744,6 +872,7 @@ async fn usage_accumulates_per_session_and_globally() {
                 n: Some(5),
                 kind: Some("provider.call".into()),
                 session_id: None,
+                after: None,
             },
         )],
     )
@@ -1222,6 +1351,7 @@ async fn rows_stored_with_the_old_denied_names_still_decode() {
                 n: Some(10),
                 kind: Some(kind.into()),
                 session_id: None,
+                after: None,
             },
         )
     };
