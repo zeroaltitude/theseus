@@ -13,8 +13,8 @@
 //! The daemon is the `theseusd` beside this test's binary (a workspace test
 //! run builds it), or `THESEUS_EXAM_THESEUSD`.
 //!
-//! Both exams: exam-v1's 48 sessions, and exam-v2's hundreds, generated from
-//! templates and spread over months, with a background no item owns.
+//! The exam's hundreds of sessions are generated from templates and spread
+//! over months, with a background no item owns.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -153,15 +153,9 @@ fn stored_fields(s: &Value) -> Value {
     })
 }
 
+/// The exam's store: hundreds of sessions, months apart, and the background.
 #[test]
-fn the_fixture_store_reads_identically_in_an_unmodified_daemon() {
-    let exam = Exam::parse(theseus_exam::item::EXAM_V1).unwrap();
-    assert_eq!(reads_identically(&exam), 48);
-}
-
-/// exam-v2's store: hundreds of sessions, months apart, and the background.
-#[test]
-fn the_v2_store_reads_identically_in_an_unmodified_daemon() {
+fn the_store_reads_identically_in_an_unmodified_daemon() {
     let exam = Exam::parse(theseus_exam::item::EXAM_V2).unwrap();
     let sessions = reads_identically(&exam);
     assert!(sessions >= 500, "{sessions} sessions");

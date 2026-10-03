@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 # The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
 [package.metadata.theseus]
-reserved_for = "row 55 (34b's wire-in), M6: the exam's harness over the real pipeline, through turn.submit's memory_arm"
+reserved_for = "row 55 (34b's wire-in), M6: the exam's harness over the real pipeline, through the scratch daemon's `[memory] arm` config key"
 
 [[bin]]
 name = "theseus-exam"

@@ -22,6 +22,7 @@ use crate::client::{
     Called, ChoiceOption, ClientConfig, JevClient, KeySource, Question, Request, StaticKey,
     Urgency, Usage,
 };
+use crate::eval;
 use crate::fake::{FakeJev, Scripted};
 use crate::judge::{Ask, DecisionPoint, JevJudge, Judge, Judgment, Mode, Outcome};
 use crate::pack::{by_name, Pack, Point};
@@ -57,6 +58,15 @@ struct Args {
     /// Run against an in-process fake Jev, with no key and no spend.
     #[arg(long)]
     fake: bool,
+    /// Run a pack's planted-injection eval set (`security.v2`): one call per
+    /// case, each expectation printed as met or missed, then a tally. With
+    /// `--fake` the fake is scripted to agree with every case (a dry run of
+    /// the plumbing, not of Jev). `--only` runs the named cases.
+    #[arg(long, value_name = "PACK")]
+    eval: Option<String>,
+    /// With `--eval`: run only these cases (comma-separated names).
+    #[arg(long, value_delimiter = ',', requires = "eval")]
+    only: Vec<String>,
     /// Print every embedded pack's questions as Markdown, for review, and
     /// make no call.
     #[arg(long)]
@@ -121,37 +131,51 @@ impl Tally {
     }
 }
 
+/// The fake for `--fake`: the test pack's three questions scripted.
+fn scripted_fake() -> Result<FakeJev> {
+    let fake = FakeJev::start()?;
+    fake.script(
+        "cause",
+        Scripted::Choice {
+            option: "dependency_change".into(),
+            confidence: 0.93,
+        },
+    );
+    fake.script(
+        "severity",
+        Scripted::Score {
+            level: 2,
+            confidence: 0.81,
+        },
+    );
+    fake.script("needs_human", Scripted::Noul(0.89));
+    Ok(fake)
+}
+
 async fn run(args: Args) -> Result<()> {
     if args.questions {
         print!("{}", questions_markdown()?);
         return Ok(());
     }
     let mut config = ClientConfig::default();
+    let mut fake_for_eval: Option<FakeJev> = None;
     let key: Arc<dyn KeySource> = if args.fake {
         // The fake's thread answers until the process ends.
-        let fake = FakeJev::start()?;
-        fake.script(
-            "cause",
-            Scripted::Choice {
-                option: "dependency_change".into(),
-                confidence: 0.93,
-            },
-        );
-        fake.script(
-            "severity",
-            Scripted::Score {
-                level: 2,
-                confidence: 0.81,
-            },
-        );
-        fake.script("needs_human", Scripted::Noul(0.89));
+        let fake = scripted_fake()?;
         config.api_base = fake.base();
+        fake_for_eval = Some(fake);
         Arc::new(StaticKey::new("fake-key-for-the-dry-run".into()))
     } else {
         Arc::new(key_from_env()?)
     };
     let client = JevClient::new(config, key)?;
     let mut tally = Tally::default();
+    if let Some(name) = &args.eval {
+        let fake = fake_for_eval.take();
+        let r = run_eval(name, &args.only, client, fake.as_ref(), &mut tally).await;
+        tally.print();
+        return r;
+    }
     if args.discover {
         let req = discovery_request();
         let called = client.call(&req, Urgency::Shadow).await;
@@ -216,6 +240,89 @@ async fn run(args: Args) -> Result<()> {
         bail!("nothing to do: pass --discover, --l1, or --pack with --input");
     }
     tally.print();
+    Ok(())
+}
+
+/// The eval set of `name`, one call per case.
+async fn run_eval(
+    name: &str,
+    only: &[String],
+    client: JevClient,
+    fake: Option<&FakeJev>,
+    tally: &mut Tally,
+) -> Result<()> {
+    let pack = eval::pack_of(name)?;
+    let mut cases = eval::set(name)?;
+    if !only.is_empty() {
+        for o in only {
+            if !cases.iter().any(|c| &c.name == o) {
+                bail!("no case {o} in the {name} set");
+            }
+        }
+        cases.retain(|c| only.contains(&c.name));
+    }
+    let judge = JevJudge::new(client, price::builtin(), BreakerConfig::default());
+    let (mut met, mut missed, mut unanswered) = (0usize, 0usize, 0usize);
+    for case in &cases {
+        println!(
+            "==== case {} [{:?}]\n{}",
+            case.name, case.category, case.why
+        );
+        if let Some(f) = fake {
+            for (q, want) in &case.expect {
+                let answer = match want.as_str() {
+                    "high" => Scripted::Noul(0.93),
+                    "low" => Scripted::Noul(0.05),
+                    option => Scripted::Choice {
+                        option: option.into(),
+                        confidence: 0.9,
+                    },
+                };
+                f.script(&format!("{name}/{q}"), answer);
+            }
+        }
+        let input = Input::Security2(case.input.clone());
+        let prepared = prepare(&pack, &input, &NoScrub)?;
+        let ask = Ask::new(
+            pack.clone(),
+            &prepared,
+            Mode::Shadow,
+            json!({"eval": case.name}),
+        );
+        let judgments = judge
+            .judge(DecisionPoint {
+                asks: vec![ask.clone()],
+                urgency: Urgency::Shadow,
+            })
+            .await;
+        let j = &judgments[0];
+        report_judgment(&ask, j);
+        tally.add(j.timing.http_ms, j.usage);
+        if j.outcome != Outcome::Answered {
+            unanswered += 1;
+            println!("EVAL {}: not answered", case.name);
+            continue;
+        }
+        for c in eval::check(case, &pack, &j.answers) {
+            if c.met {
+                met += 1;
+            } else {
+                missed += 1;
+            }
+            println!(
+                "EVAL {} {}: wanted {}, got {} ... {}",
+                case.name,
+                c.question,
+                c.wanted,
+                c.got,
+                if c.met { "met" } else { "MISSED" }
+            );
+        }
+    }
+    println!(
+        "== eval {name}: {} case(s); {met} expectation(s) met, {missed} missed, {unanswered} case(s) unanswered",
+        cases.len()
+    );
     Ok(())
 }
 
