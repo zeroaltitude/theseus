@@ -290,8 +290,12 @@ impl Core {
         p: theseus_protocol::SessionListParams,
     ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
         let Some(ids) = p.ids else {
+            if let Some(n) = p.n {
+                return self.session_page(n.min(1000), p.before);
+            }
             return Ok(theseus_protocol::SessionListResult {
                 sessions: self.session_list()?,
+                older: None,
             });
         };
         let mut recs = Vec::new();
@@ -314,6 +318,45 @@ impl Core {
                 .iter()
                 .map(|r| self.session_info(r, &pending))
                 .collect(),
+            older: None,
+        })
+    }
+
+    /// `session.list { n, before }` (theseus-96w2): the newest `n` sessions
+    /// by when each was opened, through the index's births, each with its
+    /// execution and questions as `session.list` gives them. While the
+    /// index's shape is built after serving, every session is read, the
+    /// newest `n` by when each was opened kept, and no cursor is given.
+    fn session_page(
+        &self,
+        n: usize,
+        before: Option<u64>,
+    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
+        let (recs, older) = match self.sessions_paged(n, before)? {
+            Some(page) => page,
+            None => {
+                let mut all: Vec<SessionRecord> = self.store.list_sessions()?;
+                all.sort_by_key(|r| std::cmp::Reverse(r.created_at_unix_ms));
+                all.truncate(n);
+                (all, None)
+            }
+        };
+        let ids: Vec<&str> = recs.iter().map(|r| r.session_id.as_str()).collect();
+        let pending = self.pending_by_execution(
+            &self
+                .kernel
+                .pending_confirms()?
+                .into_iter()
+                .filter(|a| ids.contains(&a.session_id.as_str()))
+                .collect::<Vec<_>>(),
+            None,
+        );
+        Ok(theseus_protocol::SessionListResult {
+            sessions: recs
+                .iter()
+                .map(|r| self.session_info(r, &pending))
+                .collect(),
+            older,
         })
     }
 
@@ -816,14 +859,31 @@ impl Core {
         p: theseus_protocol::SessionHistoryParams,
     ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
         let rec = self.session(&p.session_id)?;
-        let nodes = self.store.session_nodes(&p.session_id)?;
-        let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
         let pending = self.kernel.pending_confirms()?;
         let mine: Vec<theseus_kernel::Action> = pending
             .iter()
             .filter(|a| a.session_id == p.session_id)
             .cloned()
             .collect();
+        // The newest `n` alone, through the session's tag (theseus-96w2),
+        // unless a question waits in it: its card reads the gate's record
+        // on its call's node, wherever that is, so the whole session is
+        // read, as it always was.
+        let newest = match p.n {
+            Some(n) if mine.is_empty() => {
+                self.nodes_paged(None, Some(&p.session_id), n)?
+                    .map(|mut v| {
+                        v.reverse();
+                        v
+                    })
+            }
+            _ => None,
+        };
+        let nodes = match newest {
+            Some(v) => v,
+            None => self.store.session_nodes(&p.session_id)?,
+        };
+        let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, &nodes)));
         // What its audience now withholds (M4 19c), for the Graduate button.
         let judge = self
@@ -974,20 +1034,36 @@ impl Core {
         p: theseus_protocol::NodeListParams,
     ) -> Result<theseus_protocol::NodeListResult, RpcFailure> {
         let n = p.n.unwrap_or(100).min(2000);
-        let mut nodes = match &p.session_id {
-            Some(sid) => self.store.session_nodes(sid)?,
-            None => self
-                .store
-                .recent_nodes(if p.kind.is_some() { n * 10 } else { n })?,
+        // A kind or a session reads its tag's newest `n` (theseus-96w2);
+        // while the index's shape is built, as before: the session's every
+        // node, or ten times `n` of every session's, filtered here.
+        let filtered = p.kind.is_some() || p.session_id.is_some();
+        let paged = if filtered {
+            self.nodes_paged(p.kind.as_deref(), p.session_id.as_deref(), n)?
+        } else {
+            None
         };
-        if let Some(k) = &p.kind {
-            nodes.retain(|(_, node)| node.kind_str() == k);
-        }
-        let skip = nodes.len().saturating_sub(n);
+        let nodes: Vec<(u64, crate::node::Node)> = match paged {
+            Some(newest_first) => newest_first,
+            None => {
+                let mut nodes = match &p.session_id {
+                    Some(sid) => self.store.session_nodes(sid)?,
+                    None => self
+                        .store
+                        .recent_nodes(if p.kind.is_some() { n * 10 } else { n })?,
+                };
+                if let Some(k) = &p.kind {
+                    nodes.retain(|(_, node)| node.kind_str() == k);
+                }
+                let skip = nodes.len().saturating_sub(n);
+                nodes.drain(..skip);
+                nodes.reverse();
+                nodes
+            }
+        };
         Ok(theseus_protocol::NodeListResult {
-            nodes: nodes[skip..]
+            nodes: nodes
                 .iter()
-                .rev()
                 .map(|(pos, node)| Self::node_info(*pos, node))
                 .collect(),
             total: self.store.node_count()?,
@@ -1114,13 +1190,22 @@ impl Core {
         p: theseus_protocol::ActionListParams,
     ) -> Result<theseus_protocol::ActionListResult, RpcFailure> {
         let n = p.n.unwrap_or(200).min(2000);
-        let mut actions = self.kernel.actions()?;
-        let total = actions.len() as u64;
-        if let Some(x) = &p.execution_id {
-            actions.retain(|a| &a.execution_id == x);
-        }
-        actions.sort_by_key(|a| std::cmp::Reverse(a.planned_at_ms));
-        actions.truncate(n);
+        // The newest `n` through the index's births, or an execution's
+        // through its tag (theseus-96w2); while the index's shape is built,
+        // every action, as before.
+        let (actions, total) = match self.actions_paged(p.execution_id.as_deref(), n)? {
+            Some(page) => page,
+            None => {
+                let mut actions = self.kernel.actions()?;
+                let total = actions.len() as u64;
+                if let Some(x) = &p.execution_id {
+                    actions.retain(|a| &a.execution_id == x);
+                }
+                actions.sort_by_key(|a| std::cmp::Reverse(a.planned_at_ms));
+                actions.truncate(n);
+                (actions, total)
+            }
+        };
         use theseus_store::Store as _;
         let info = |a: &theseus_kernel::Action| theseus_protocol::ActionInfo {
             // A job's egress, from its completion (18c).

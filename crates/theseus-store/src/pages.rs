@@ -5,7 +5,10 @@
 //!   with its position, in the transaction that indexes it. A ledger row's
 //!   are its kind (`k:`), its session (`s:`), and the two together (`ks:`),
 //!   so a read of one kind, one session, or one kind in one session reads
-//!   that tag's postings alone.
+//!   that tag's postings alone; a node's are the same, by its body's kind;
+//!   an action's is its execution (`x:`), on every record of it.
+//! - **Births.** Each key's first position (`born`, `bybirth`), so the
+//!   newest keys of a kind (sessions, actions) are a range read.
 //! - **Time.** Each kind has a clock: the newest frame time its records have
 //!   had. A frame whose time stepped back (a host's clock set back) takes the
 //!   clock's time instead, so the clock only grows with position, and a
@@ -77,8 +80,15 @@ pub fn ledger_kind_session(kind: &str, session: &str) -> String {
     format!("ks:{kind}\u{1}{session}")
 }
 
-/// A record's tags. Only ledger rows have any: their `kind`, their
-/// `session_id`, and the two together. A tag never holds 0x00 (the index
+/// An action's tag under its execution.
+pub fn action_execution(execution: &str) -> String {
+    format!("x:{execution}")
+}
+
+/// A record's tags. A ledger row's: its `kind`, its `session_id`, and the
+/// two together; a node's the same, from its body's `kind` and its
+/// `session_id` (the ledger's helpers name both); an action's, its
+/// `execution_id`. Other kinds have none. A tag never holds 0x00 (the index
 /// ends a tag with one), so a name that does is not tagged.
 pub fn tags_of(kind: RecordKind, payload: &[u8]) -> Vec<String> {
     #[derive(Deserialize)]
@@ -87,17 +97,42 @@ pub fn tags_of(kind: RecordKind, payload: &[u8]) -> Vec<String> {
         #[serde(default)]
         session_id: Option<String>,
     }
-    if kind != kinds::LEDGER {
-        return Vec::new();
+    #[derive(Deserialize)]
+    struct Body {
+        kind: String,
     }
-    let Ok(row) = serde_json::from_slice::<Row>(payload) else {
-        return Vec::new();
+    #[derive(Deserialize)]
+    struct Node {
+        session_id: String,
+        body: Body,
+    }
+    #[derive(Deserialize)]
+    struct Action {
+        execution_id: String,
+    }
+    let by_kind = |k: &str, session: Option<&str>| {
+        let mut tags = vec![ledger_kind(k)];
+        if let Some(s) = session {
+            tags.push(ledger_session(s));
+            tags.push(ledger_kind_session(k, s));
+        }
+        tags
     };
-    let mut tags = vec![ledger_kind(&row.kind)];
-    if let Some(s) = &row.session_id {
-        tags.push(ledger_session(s));
-        tags.push(ledger_kind_session(&row.kind, s));
-    }
+    let mut tags = match kind {
+        kinds::LEDGER => match serde_json::from_slice::<Row>(payload) {
+            Ok(row) => by_kind(&row.kind, row.session_id.as_deref()),
+            Err(_) => Vec::new(),
+        },
+        kinds::NODE => match serde_json::from_slice::<Node>(payload) {
+            Ok(n) => by_kind(&n.body.kind, Some(&n.session_id)),
+            Err(_) => Vec::new(),
+        },
+        kinds::ACTION => match serde_json::from_slice::<Action>(payload) {
+            Ok(a) => vec![action_execution(&a.execution_id)],
+            Err(_) => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
     tags.retain(|t| !t.contains('\0'));
     tags
 }
@@ -118,5 +153,12 @@ mod tests {
         assert_eq!(tags_of(kinds::LEDGER, row), vec!["k:server.started"]);
         assert!(tags_of(kinds::LEDGER, b"not json").is_empty());
         assert!(tags_of(kinds::SESSION, row).is_empty());
+        let node = br#"{"id":"n1","session_id":"ses_b","body":{"kind":"tool_call","name":"x"}}"#;
+        assert_eq!(
+            tags_of(kinds::NODE, node),
+            vec!["k:tool_call", "s:ses_b", "ks:tool_call\u{1}ses_b"]
+        );
+        let action = br#"{"correlation_id":"c1","execution_id":"exe_a","state":"planned"}"#;
+        assert_eq!(tags_of(kinds::ACTION, action), vec!["x:exe_a"]);
     }
 }

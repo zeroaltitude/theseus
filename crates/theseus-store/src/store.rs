@@ -161,6 +161,19 @@ pub trait Store: Send + Sync {
     fn totals(&self, _kind: RecordKind) -> Result<Option<Sums>> {
         Ok(None)
     }
+    /// The newest `limit` keys of `kind` by birth (the position of each
+    /// key's first record), born before `before` when given, newest first:
+    /// each key's birth and latest record; and whether older keys remain
+    /// (theseus-vm3n.5). `None` when the store keeps no births whole, and
+    /// the caller reads every record of the kind instead.
+    fn newest_keys(
+        &self,
+        _kind: RecordKind,
+        _before: Option<u64>,
+        _limit: usize,
+    ) -> Result<Option<Newest>> {
+        Ok(None)
+    }
     /// One page of a kind's records through the index's tags, time, and
     /// cursors (`pages.rs`, theseus-vm3n.5), with the kind's count from the
     /// same snapshot; `None` when the store keeps no such index, and the
@@ -280,6 +293,10 @@ pub struct ShapeCursor {
     upto: u64,
     clocks: BTreeMap<RecordKind, u64>,
 }
+
+/// The newest keys of a kind by birth (`Store::newest_keys`): each one's
+/// birth and latest record, newest first, and whether older ones remain.
+pub type Newest = (Vec<(u64, Record)>, bool);
 
 /// A frame as the log placed it: each record's position and location, and
 /// the frame's time.
@@ -754,17 +771,13 @@ impl WalStore {
             s.index.recount(&c.clocks)?;
             return Ok(None);
         };
-        let built: Vec<(u64, RecordKind, u64, Vec<String>)> = locs
+        let built: Vec<crate::index::Built> = locs
             .iter()
             .filter_map(|(p, loc)| {
                 let r = s.wal.read_at(*loc).ok()?;
                 let r = checked(*p, r).ok()?;
-                Some((
-                    r.position,
-                    r.kind,
-                    r.at_unix_ms,
-                    tags_of(r.kind, &r.payload),
-                ))
+                let tags = tags_of(r.kind, &r.payload);
+                Some((r.position, r.kind, r.at_unix_ms, tags, r.key))
             })
             .collect();
         s.index.put_built(&built, &mut c.clocks)?;
@@ -1522,6 +1535,29 @@ impl Store for WalStore {
 
     fn page(&self, q: &Page) -> Result<Option<PageOut>> {
         self.inner.page(q)
+    }
+
+    fn newest_keys(
+        &self,
+        kind: RecordKind,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<Option<Newest>> {
+        let s = &self.inner;
+        if !s.index.shaped() {
+            return Ok(None);
+        }
+        let (keys, more) = s.index.keys_by_birth(kind, before, limit)?;
+        let positions: Vec<u64> = keys.iter().map(|(_, _, p)| *p).collect();
+        let born: std::collections::HashMap<u64, u64> =
+            keys.iter().map(|(b, _, p)| (*p, *b)).collect();
+        let mut out: Vec<(u64, Record)> = s
+            .read_many(&positions)?
+            .into_iter()
+            .filter_map(|r| Some((*born.get(&r.position)?, r)))
+            .collect();
+        out.sort_by_key(|(b, _)| std::cmp::Reverse(*b));
+        Ok(Some((out, more)))
     }
 }
 

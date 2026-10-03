@@ -68,6 +68,33 @@ fn counts_agree(s: &WalStore, scopes: &[&str]) {
     }
 }
 
+/// Each key's birth (`born`, `bybirth`) equals its first position in a walk
+/// of every record, and the newest keys by birth come newest first.
+fn births_agree(s: &WalStore, kind: RecordKind) {
+    let mut first: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for r in s.scan(1, None, usize::MAX).unwrap() {
+        if r.kind == kind {
+            first.entry(r.key.clone().unwrap()).or_insert(r.position);
+        }
+    }
+    let mut want: Vec<(u64, String)> = first.into_iter().map(|(k, p)| (p, k)).collect();
+    want.sort_unstable_by(|a, b| b.cmp(a));
+    let (got, more) = s.inner.index.keys_by_birth(kind, None, usize::MAX).unwrap();
+    let got: Vec<(u64, String)> = got.into_iter().map(|(b, k, _)| (b, k)).collect();
+    assert_eq!(got, want, "births of kind {kind}");
+    assert!(!more);
+    if want.len() > 3 {
+        let (page, more) = s
+            .inner
+            .index
+            .keys_by_birth(kind, Some(want[1].0), 2)
+            .unwrap();
+        let page: Vec<u64> = page.iter().map(|(b, ..)| *b).collect();
+        assert_eq!(page, vec![want[2].0, want[3].0]);
+        assert_eq!(more, want.len() > 4);
+    }
+}
+
 /// The counts (theseus-vm3n.5) are kept with every append, in batches that
 /// mix kinds, keys, and scopes, and equal a walk's after every batch, after
 /// a reopen that replays the tail, and after an index rebuilt whole.
@@ -104,6 +131,8 @@ fn each_count_is_kept_with_every_append_and_equals_a_walk() {
         }
     }
     counts_agree(&s, &scopes);
+    births_agree(&s, kinds::SESSION);
+    births_agree(&s, kinds::NODE);
     let ledger = s.count_of_kind(kinds::LEDGER).unwrap();
     assert!(ledger > 50, "{ledger}");
     drop(s);
@@ -117,6 +146,7 @@ fn each_count_is_kept_with_every_append_and_equals_a_walk() {
     std::fs::remove_file(dir.path().join("index.redb")).unwrap();
     let s = open(dir.path());
     counts_agree(&s, &scopes);
+    births_agree(&s, kinds::SESSION);
     assert_eq!(s.count_of_kind(kinds::LEDGER).unwrap(), ledger);
 }
 
@@ -485,6 +515,7 @@ fn an_index_of_another_shape_is_built_after_serving_and_then_answers_whole() {
     }
     assert!(s.shaped() && !s.stats().unwrap().shape_pending);
     counts_agree(&s, &["ses_a", "ses_b"]);
+    births_agree(&s, kinds::SESSION);
     let want: Vec<u64> = walked(&s)
         .into_iter()
         .filter(|(_, k, ..)| k == "turn.ended")

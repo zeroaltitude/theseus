@@ -18,6 +18,8 @@
 //!   many keys; `scopecounts`: scope bytes → how many records (theseus-vm3n.5:
 //!   a count reads one row, not a range that grows with history)
 //! - `termcounts`: kind u16 ‖ term → how many keys have it, kept with `terms`
+//! - `born`:   kind u16 ‖ key → the key's first position; `bybirth`: kind u16 ‖
+//!   that position → the key: the newest keys of a kind, by birth
 //! - `clock`:  kind u16 → the kind's clock: the newest frame time its records
 //!   have had, so it never steps back (see `pages.rs`)
 //! - `bytime`: kind u16 ‖ minute u64 → the first position of the kind whose
@@ -189,6 +191,8 @@ const CLOCK: TableDefinition<u16, u64> = TableDefinition::new("clock");
 const BYTIME: TableDefinition<&[u8], u64> = TableDefinition::new("bytime");
 pub(crate) const TAGGED: TableDefinition<&[u8], ()> = TableDefinition::new("tagged");
 const TERMCOUNTS: TableDefinition<&[u8], u64> = TableDefinition::new("termcounts");
+const BORN: TableDefinition<&[u8], u64> = TableDefinition::new("born");
+const BYBIRTH: TableDefinition<&[u8], &[u8]> = TableDefinition::new("bybirth");
 
 /// The index's shape (theseus-vm3n.5): `meta` keeps under this name the
 /// checkpoint at which the counts, the clock, `bytime`, and `tagged` were
@@ -197,7 +201,7 @@ const TERMCOUNTS: TableDefinition<&[u8], u64> = TableDefinition::new("termcounts
 /// but at the checkpoint empties the index, and the store's open then
 /// rebuilds it from the WAL, as for an index with no checkpoint (a restore).
 /// A change to what those tables hold renames it.
-pub const SHAPE: &str = "index.shape.2";
+pub const SHAPE: &str = "index.shape.3";
 
 /// A minute, in ms: `bytime`'s grain.
 pub const MINUTE_MS: u64 = 60_000;
@@ -280,6 +284,8 @@ impl RedbIndex {
             txn.open_table(BYTIME)?;
             txn.open_table(TAGGED)?;
             txn.open_table(TERMCOUNTS)?;
+            txn.open_table(BORN)?;
+            txn.open_table(BYBIRTH)?;
         }
         txn.commit()?;
         if !shaped {
@@ -355,16 +361,14 @@ impl RedbIndex {
             let mut byk = txn.open_table(BYKEY)?;
             let mut bkd = txn.open_table(BYKIND)?;
             let mut bsc = txn.open_table(BYSCOPE)?;
-            let mut new_keys = BTreeMap::new();
+            let mut births = Vec::new();
             let mut fresh = Vec::with_capacity(entries.len());
             for e in entries {
                 loc.insert(e.position, loc_bytes(e.loc).as_slice())?;
                 if let Some(k) = &e.key {
-                    if byk
-                        .insert(bykey(e.kind, k).as_slice(), e.position)?
-                        .is_none()
-                    {
-                        *new_keys.entry(e.kind).or_default() += 1;
+                    let kb = bykey(e.kind, k);
+                    if byk.insert(kb.as_slice(), e.position)?.is_none() {
+                        births.push((e.kind, e.position, kb));
                     }
                 }
                 fresh.push(
@@ -375,7 +379,7 @@ impl RedbIndex {
                     bsc.insert(byscope(sc, e.position).as_slice(), ())?;
                 }
             }
-            put_shaped(&txn, entries, &fresh, &new_keys, false)?;
+            put_shaped(&txn, entries, &fresh, &births, false)?;
             if entries.iter().any(|e| e.key.is_some() && e.terms.is_some()) {
                 let mut terms = txn.open_table(TERMS)?;
                 let mut termsof = txn.open_table(TERMSOF)?;
@@ -439,9 +443,10 @@ impl RedbIndex {
                 fresh[*i] = bkd.insert(k.as_slice(), ())?.is_none();
             }
             // Each key's latest position: its last entry's.
-            let mut keys: Vec<(Vec<u8>, u64)> = entries
+            // (key, latest position, first position).
+            let mut keys: Vec<(Vec<u8>, u64, u64)> = entries
                 .iter()
-                .filter_map(|e| Some((bykey(e.kind, e.key.as_deref()?), e.position)))
+                .filter_map(|e| Some((bykey(e.kind, e.key.as_deref()?), e.position, e.position)))
                 .collect();
             keys.sort_unstable();
             keys.dedup_by(|later, earlier| {
@@ -453,14 +458,13 @@ impl RedbIndex {
                 }
             });
             let mut byk = txn.open_table(BYKEY)?;
-            let mut new_keys = BTreeMap::new();
-            for (k, p) in &keys {
-                if byk.insert(k.as_slice(), *p)?.is_none() {
-                    let kind = RecordKind::from_be_bytes([k[0], k[1]]);
-                    *new_keys.entry(kind).or_default() += 1;
+            let mut births = Vec::new();
+            for (k, p, first) in keys {
+                if byk.insert(k.as_slice(), p)?.is_none() {
+                    births.push((RecordKind::from_be_bytes([k[0], k[1]]), first, k));
                 }
             }
-            put_shaped(&txn, entries, &fresh, &new_keys, true)?;
+            put_shaped(&txn, entries, &fresh, &births, true)?;
             let mut scopes: Vec<Vec<u8>> = entries
                 .iter()
                 .filter_map(|e| Some(byscope(e.scope.as_deref()?, e.position)))
@@ -889,12 +893,12 @@ impl RedbIndex {
     }
 
     /// One stretch of a build after serving (theseus-vm3n.5): each record's
-    /// tags, and its kind's clock into `bytime`, from `clocks`, the build's
+    /// tags, its key's birth where it has none yet, and its kind's clock into `bytime`, from `clocks`, the build's
     /// own clock per kind, which it carries on. In one non-durable
     /// transaction; what an append put meanwhile stays (`put_minute`).
     pub fn put_built(
         &self,
-        records: &[(u64, RecordKind, u64, Vec<String>)],
+        records: &[Built],
         clocks: &mut BTreeMap<RecordKind, u64>,
     ) -> Result<()> {
         let mut txn = self.db.begin_write()?;
@@ -902,7 +906,12 @@ impl RedbIndex {
         {
             let mut bt = txn.open_table(BYTIME)?;
             let mut tg = txn.open_table(TAGGED)?;
-            for (position, kind, at, tags) in records {
+            let mut born = txn.open_table(BORN)?;
+            let mut bybirth = txn.open_table(BYBIRTH)?;
+            for (position, kind, at, tags, key) in records {
+                if let Some(k) = key {
+                    put_born(&mut born, &mut bybirth, *position, &bykey(*kind, k))?;
+                }
                 let was = clocks.get(kind).copied();
                 let at = was.map_or(*at, |c| c.max(*at));
                 if was.is_none_or(|c| at / MINUTE_MS > c / MINUTE_MS) {
@@ -983,6 +992,38 @@ impl RedbIndex {
         self.shaped
             .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
+    }
+
+    /// The newest `limit` keys of `kind` by birth, born before `before`
+    /// when given: (birth, key, latest position), newest first, and whether
+    /// older ones remain. One read transaction (theseus-vm3n.5).
+    pub fn keys_by_birth(
+        &self,
+        kind: RecordKind,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<Births> {
+        let txn = self.db.begin_read()?;
+        let bb = txn.open_table(BYBIRTH)?;
+        let byk = txn.open_table(BYKEY)?;
+        let (lo, hi) = (bykind(kind, 0), bykind(kind, before.unwrap_or(u64::MAX)));
+        let mut out = Vec::new();
+        let mut more = false;
+        for row in bb.range(lo.as_slice()..hi.as_slice())?.rev() {
+            if out.len() == limit {
+                more = true;
+                break;
+            }
+            let (k, v) = row?;
+            let key = String::from_utf8_lossy(v.value()).into_owned();
+            let Some(born) = u64_from(&k.value()[2..]) else {
+                continue;
+            };
+            if let Some(latest) = byk.get(bykey(kind, &key).as_slice())? {
+                out.push((born, key, latest.value()));
+            }
+        }
+        Ok((out, more))
     }
 
     /// The first `bytime` entry of `kind` at `minute` or after: (its minute,
@@ -1071,6 +1112,14 @@ impl RedbIndex {
     }
 }
 
+/// The newest keys by birth: each one's (birth, key, latest position),
+/// newest first, and whether older ones remain.
+pub type Births = (Vec<(u64, String, u64)>, bool);
+
+/// A record as a build of the shape reads it: position, kind, frame time,
+/// tags, key.
+pub type Built = (u64, RecordKind, u64, Vec<String>, Option<String>);
+
 /// Whether the index's shape (`SHAPE`) is whole at its checkpoint, making it
 /// so where that is free (theseus-vm3n.5). An index with no checkpoint is
 /// emptied, all but `meta`'s history-check marks: the store's open replays
@@ -1103,6 +1152,8 @@ fn shape_or_empty(txn: &redb::WriteTransaction) -> Result<bool> {
     txn.delete_table(BYTIME)?;
     txn.delete_table(TAGGED)?;
     txn.delete_table(TERMCOUNTS)?;
+    txn.delete_table(BORN)?;
+    txn.delete_table(BYBIRTH)?;
     if cp.is_some() {
         return Ok(false);
     }
@@ -1119,6 +1170,24 @@ fn shape_or_empty(txn: &redb::WriteTransaction) -> Result<bool> {
         meta.remove(k.as_str())?;
     }
     Ok(true)
+}
+
+/// Mark the key `kb` (its `bykey` bytes) born at `first`, unless it is
+/// already: a build after serving meets each key it walks at its first
+/// position, after appends born the new ones (theseus-vm3n.5).
+fn put_born(
+    born: &mut redb::Table<&'static [u8], u64>,
+    bybirth: &mut redb::Table<&'static [u8], &'static [u8]>,
+    first: u64,
+    kb: &[u8],
+) -> Result<()> {
+    if born.get(kb)?.is_some() {
+        return Ok(());
+    }
+    born.insert(kb, first)?;
+    let kind = RecordKind::from_be_bytes([kb[0], kb[1]]);
+    bybirth.insert(bykind(kind, first).as_slice(), &kb[2..])?;
+    Ok(())
 }
 
 /// Point `bytime`'s (kind, minute) at `position` unless it already points
@@ -1143,7 +1212,8 @@ fn put_minute(
 /// Only the entries `fresh` marks count: those `bykind` did not hold yet. An
 /// open replays the WAL past the checkpoint, and an index closed cleanly
 /// already holds some of it, so a replayed record must not count twice.
-/// `new_keys` counts the keys each kind gained. A kind's clock is the newest
+/// `births` are the keys new to `bykey`, each with its first position and
+/// its `bykey` bytes: they are counted, and born (`born`, `bybirth`). A kind's clock is the newest
 /// frame time its records have had: a frame whose time stepped back takes
 /// the clock's, so the clock, and `bytime` with it, only grows with
 /// position. `sort_tags` puts the postings in key order first, for a replay.
@@ -1151,10 +1221,10 @@ fn put_shaped(
     txn: &redb::WriteTransaction,
     entries: &[IndexEntry],
     fresh: &[bool],
-    new_keys: &BTreeMap<RecordKind, u64>,
+    births: &[(RecordKind, u64, Vec<u8>)],
     sort_tags: bool,
 ) -> Result<()> {
-    if !fresh.contains(&true) && new_keys.is_empty() {
+    if !fresh.contains(&true) && births.is_empty() {
         return Ok(());
     }
     let mut counts: BTreeMap<RecordKind, u64> = BTreeMap::new();
@@ -1200,7 +1270,16 @@ fn put_shaped(
         ct.insert(*kind, was + n)?;
     }
     let mut kc = txn.open_table(KEYCOUNTS)?;
-    for (kind, n) in new_keys {
+    let mut new_keys: BTreeMap<RecordKind, u64> = BTreeMap::new();
+    {
+        let mut born = txn.open_table(BORN)?;
+        let mut bybirth = txn.open_table(BYBIRTH)?;
+        for (kind, first, kb) in births {
+            *new_keys.entry(*kind).or_default() += 1;
+            put_born(&mut born, &mut bybirth, *first, kb)?;
+        }
+    }
+    for (kind, n) in &new_keys {
         let was = kc.get(*kind)?.map_or(0, |v| v.value());
         kc.insert(*kind, was + n)?;
     }

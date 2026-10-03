@@ -4,4 +4,15 @@
  * `session.list`: every session, or only these (theseus-in3): a client that
  * meets a new session in `execution.changed` asks for its title.
  */
-export type SessionListParams = { ids?: Array<string>, };
+export type SessionListParams = { ids?: Array<string>, 
+/**
+ * The newest `n` sessions by when each was opened, newest first, in
+ * place of every session (theseus-96w2): a page read through the
+ * store's index, which costs the page, not every session.
+ */
+n?: number, 
+/**
+ * With `n`: only sessions opened before this cursor, an answer's
+ * `older`, to page back.
+ */
+before?: number, };

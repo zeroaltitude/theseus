@@ -17,12 +17,15 @@ mod driver;
 mod graduate;
 mod info;
 mod methods;
+mod pages;
 mod policy;
 mod server;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_ledger;
+#[cfg(test)]
+mod tests_lists;
 mod trust;
 
 pub use bindings::BindingBoard;
