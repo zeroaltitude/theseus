@@ -1311,8 +1311,9 @@ pub(crate) mod tests {
         use theseus_kernel::{Action, Verdict, VerifiedBy};
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
-        assert_eq!(kinds::schema(kinds::ACTION), 3);
-        assert_eq!(kinds::schema(kinds::OUTBOX), 2);
+        // 3 and 2 since 18a; 4 and 3 since 18d (the test below).
+        assert!(kinds::schema(kinds::ACTION) >= 3);
+        assert!(kinds::schema(kinds::OUTBOX) >= 2);
         let post_id = "out_00000000000000000000000000000044";
         let post = NewRecord {
             schema: 1,
@@ -1367,7 +1368,7 @@ pub(crate) mod tests {
         let r = NewRecord::json(kinds::ACTION, Some(&judged.correlation_id), &judged)
             .unwrap()
             .scoped("ses_lighthouse");
-        assert_eq!(r.schema, 3);
+        assert_eq!(r.schema, kinds::schema(kinds::ACTION));
         let text = String::from_utf8_lossy(&r.payload).into_owned();
         assert!(text.contains(r#""verified_by":"pidns""#), "{text}");
         store.append(&[r]).unwrap();
@@ -1379,6 +1380,75 @@ pub(crate) mod tests {
             .decode()
             .unwrap();
         assert_eq!(back, judged);
+    }
+
+    /// An action as schema 3 wrote it (M4 18a): a job a cancel's tree walk
+    /// verified gone, its verdict on it, and no parent. Literal bytes, never
+    /// re-serialized (theseus-djfj): the kernel frames golden's at 18a.
+    const ACTION_SCHEMA_3: &str = r#"{"correlation_id":"act_00000000000000000000000000000043","schema":2,"execution_id":"exe_lighthouse","session_id":"ses_lighthouse","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","retry_class":{"class":"non_repeatable"},"state":"cancelled","deadline_at_ms":1790000060043,"planned_at_ms":1790000000043,"authorized_at_ms":1790000000043,"dispatched_at_ms":1790000000043,"settled_at_ms":1790000001043,"cancel":"termination_verified","verdict":{"verified_by":"tree","killed":2,"survivors":0,"ms":0},"reserved_micros":0,"resolution":"stopped by the operator","completions_seen":0}"#;
+
+    /// A post as outbox schema 2 wrote it: a card its channel took.
+    const OUTBOX_SCHEMA_2: &str = r#"{"correlation_id":"out_00000000000000000000000000000045","schema":2,"execution_id":"exe_lighthouse","session_id":"ses_lighthouse","tool":"outbox","args_digest":"4b1e9c7a2d5f8b0e3a6c9d2f5b8e1a4c7d0f3b6e9a2c5d8f1b4e7a0c3d6f9b2e","proposal":{"tool":"outbox","args":{"kind":"card","node":"tcl_00000000000000000000000000000045","question":"act_00000000000000000000000000000045"},"resource":"discord:dm:42","policy_context":null},"resource":"discord:dm:42","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"succeeded","deadline_at_ms":0,"planned_at_ms":1790000000045,"authorized_at_ms":1790000000045,"dispatched_at_ms":1790000000046,"settled_at_ms":1790000000146,"reserved_micros":0,"completions_seen":1,"detail":{"messages":["m_45"]}}"#;
+
+    /// ACTION schema 4 (M4 18d): an action names its parent, a credential
+    /// request its job. A schema-3 action, taken as its literal bytes, reads
+    /// with no parent, and its bytes encode again unchanged; a request with
+    /// its parent is written at schema 4 and reads back whole. A post is an
+    /// action of its own kind, so OUTBOX moves with it, 2 to 3: a schema-2
+    /// post reads the same way.
+    #[test]
+    fn an_action_written_before_its_parent_reads() {
+        use theseus_kernel::Action;
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        assert_eq!(kinds::schema(kinds::ACTION), 4);
+        assert_eq!(kinds::schema(kinds::OUTBOX), 3);
+        let job = "act_00000000000000000000000000000043";
+        for (kind, id, schema, bytes) in [
+            (kinds::ACTION, job, 3, ACTION_SCHEMA_3),
+            (
+                kinds::OUTBOX,
+                "out_00000000000000000000000000000045",
+                2,
+                OUTBOX_SCHEMA_2,
+            ),
+        ] {
+            let old = NewRecord {
+                schema,
+                ..NewRecord::bytes(kind, Some(id), bytes.as_bytes().to_vec())
+            }
+            .scoped("ses_lighthouse");
+            store.append(&[old]).unwrap();
+            let rec = store.inner.latest_by_key(kind, id).unwrap().unwrap();
+            assert_eq!(rec.schema, schema, "it keeps the schema it was written at");
+            let read: Action = rec.decode().unwrap();
+            assert_eq!(read.parent, None);
+            assert_eq!(
+                serde_json::to_string(&read).unwrap(),
+                bytes,
+                "an action with no parent keeps its bytes"
+            );
+        }
+
+        let mut request: Action = serde_json::from_str(ACTION_SCHEMA_3).unwrap();
+        request.correlation_id = "act_00000000000000000000000000000046".into();
+        request.tool = theseus_protocol::CRED_TOOL.into();
+        request.parent = Some(job.into());
+        let r = NewRecord::json(kinds::ACTION, Some(&request.correlation_id), &request)
+            .unwrap()
+            .scoped("ses_lighthouse");
+        assert_eq!(r.schema, 4);
+        let text = String::from_utf8_lossy(&r.payload).into_owned();
+        assert!(text.contains(&format!(r#""parent":"{job}""#)), "{text}");
+        store.append(&[r]).unwrap();
+        let back: Action = store
+            .inner
+            .latest_by_key(kinds::ACTION, &request.correlation_id)
+            .unwrap()
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(back, request);
     }
 
     /// NODE schema 5 (M4 19a, theseus-7ve.3): a node carries its label. A

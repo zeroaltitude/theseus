@@ -511,7 +511,9 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                   <span key={`${g.to}/${g.variable ?? g.secret}`}>{i > 0 && <span className="muted"> · </span>}
                     <b>{g.to}</b> <span className="muted">gets</span> <b>{g.variable ?? g.secret}</b>
                     <span className="muted"> ({g.secret}, {g.posture}), used {fmt(g.uses)}×</span></span>))}
-              <span className="muted"> (names only: a value never leaves the daemon but as the grant's variable)</span></div>
+              <span className="muted"> (names only: a value never leaves the daemon but as the grant's variable, or over an L1 job's own socket)</span>
+              {health!.cred_requests && (<span className="muted"> · L1 requests since the start: {fmt(health!.cred_requests.since_start)}
+                {' '}({fmt(health!.cred_requests.granted)} granted, {fmt(health!.cred_requests.declined)} declined), {fmt(health!.cred_requests.waiting)} waiting</span>)}</div>
             <div><span className="muted">ledger rows</span> <b>{fmt(health!.ledger_rows)}</b> <span className="muted">· uptime</span> <b>{fmt(health!.uptime_secs)}</b><span className="muted"> s</span></div>
             {health!.push && (
               <div><span className="muted">push</span>{' '}
@@ -1109,7 +1111,10 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'context.recompiled': return `${s('trigger')} · ${s('strategy')} · ${s('includes')} node(s)${g('strip_thinking') ? ' · thinking stripped' : ''}`
     case r.kind === 'tool.denied': return `${s('tool')} · ${s('reason')}`
     case r.kind === 'tool.notified': return `notified · ${s('tool')} · ${s('summary')} · ${s('setting')}${g('granted') ? ` · 🔑 ${s('granted')}` : ''}`
+    case r.kind === 'secret.granted' && g('via') === 'request': return `job ${s('job')} asked for ${s('secret')}: ${s('by')} · ${s('correlation_id')}`
     case r.kind === 'secret.granted': return `${g('program') ? `${s('program')} got ${s('variable')}` : `${s('tool')} got`} (${s('secret')}) · ${s('correlation_id')}`
+    case r.kind === 'secret.requested': return `🔑 job ${s('job')} (${s('command')}, L1) asked for ${s('secret')}: ${s('outcome')}${g('posture') ? ` at ${s('posture')}` : ''}${g('why') ? ` (${s('why')})` : g('setting') ? ` (${s('setting')})` : ''}`
+    case r.kind === 'secret.declined': return `job ${s('job')}'s request for ${s('secret')} declined by ${s('by')}: ${s('why')}`
     case r.kind === 'secret.withheld': return `${s('program')} got no ${s('variable')} (${s('secret')}): ${s('why')}`
     case r.kind === 'job.wrapper_lost': return `${s('tool')} · job ${s('correlation_id')} lost its wrapper (pid ${s('pid')}, signal ${s('signal')}) before it reported · outcome unknown`
     case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`

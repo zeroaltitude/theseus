@@ -12,5 +12,6 @@
 
 pub mod client;
 pub mod render;
+mod render_cred;
 
 pub use client::{CallError, Conn};

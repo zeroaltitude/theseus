@@ -8,6 +8,7 @@ import type { ChildrenStatus } from "./ChildrenStatus";
 import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
 import type { CrashStatus } from "./CrashStatus";
+import type { CredRequests } from "./CredRequests";
 import type { DiskStatus } from "./DiskStatus";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
@@ -72,6 +73,11 @@ children: ChildrenStatus,
  * only, never a value.
  */
 broker: Array<GrantStatus>, 
+/**
+ * L1 jobs' credential requests since the daemon started (M4 18d): asked,
+ * granted, declined, and waiting now; absent before the first.
+ */
+cred_requests?: CredRequests, 
 /**
  * Dollars across every session, from the model catalog.
  */

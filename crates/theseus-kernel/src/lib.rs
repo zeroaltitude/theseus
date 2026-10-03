@@ -11,6 +11,7 @@
 mod cancels;
 pub mod children;
 pub mod clock;
+mod cred;
 pub mod gate;
 pub mod job;
 mod job_egress;

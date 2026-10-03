@@ -22,6 +22,11 @@ operator's overlay on his machine.
   serving. `tests/sandbox.rs` runs real L1 jobs, its state dir and socket inside the workspace so the view's
   hiding is what keeps them out. The hidden `cgroup-release` is every installed unit's `ExecStopPost=`: it turns
   off the job limits in the unit's cgroup, or a restart while a job runs fails (`status=219/CGROUP`).
+- The credential helper (M4 18d): `src/cred_helper.rs`. Bound into an L1 job's view as
+  `/run/theseus/bin/theseus-cred`, this binary takes the helper's role when `argv[0]`'s file name is
+  `theseus-cred`, checked in `main` right after the init's role: `theseus-cred get <secret>` asks the job's socket
+  and prints the value, or why not (exit 1). `after_serving` serves the sockets of L1 jobs that ran across a
+  restart again, on the blocking pool, once the config may act. `tests/cred.rs` runs real L1 jobs that ask.
 - `job-wrapper` catches SIGTERM from its first moments (M4 18a): a cancel asks it alone, and it stops its job's
   whole tree (`theseus_kernel::tree`), an L1 job through its init or its cgroup, then answers in the spool.
   `tests/job_wrapper.rs` stops real trees, a `setsid` sleeper included; `tests/sandbox.rs` an L1 job's.

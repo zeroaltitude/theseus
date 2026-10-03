@@ -76,18 +76,22 @@ pub mod kinds {
     /// and withheld nodes, and a
     /// context file's readers and withholding, read from 3 as none
     /// (`a_compilation_written_before_its_audience_reads`).
+    /// Action schema 4 adds an action's `parent` (M4 18d): a credential
+    /// request's job, read from 3 as none (theseus-core's
+    /// `an_action_written_before_its_parent_reads`). Outbox schema 3 is the
+    /// same change: a post is an action, read from 2 with no parent.
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
         (SESSION, 6),
         (LEDGER, 1),
         (META, 1),
         (EXECUTION, 2),
-        (ACTION, 3),
+        (ACTION, 4),
         (COMPLETION, 2),
         (NODE, 6),
         (EDGE, 1),
         (COMPILATION, 4),
-        (OUTBOX, 2),
+        (OUTBOX, 3),
     ];
 
     /// The schema this build writes for `k`, and the newest it reads; 0 for

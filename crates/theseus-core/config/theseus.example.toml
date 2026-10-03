@@ -174,6 +174,14 @@ brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # w
 # env = { GH_TOKEN = "github_token" }   # variable = [secrets] name, never a value
 # A secret's posture, notify by default: a call given the secret runs at no
 # looser a posture, so "approve" makes each call that gets it wait for you.
+# A job in L1, the sandbox, gets no grant at its start. It asks for a secret
+# while it runs instead, and `theseus-cred get <name>` prints it, as in a
+# script's GH_TOKEN="$(theseus-cred get github_token)" gh api user. It may ask
+# only for a secret a grant above names, or one with its own entry here, and
+# the answer takes the stricter of this posture and the one the job's call ran
+# at (an L1 call runs at notify, or at approve once you approved it): open
+# gives it, notify gives it and tells you, and approve waits for your answer,
+# until the job's deadline. The value goes to the job alone, never written.
 # [broker.secrets.github_token]
 # posture = "notify"
 

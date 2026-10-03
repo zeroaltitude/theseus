@@ -39,6 +39,16 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   delegated cgroup (systemd's own answer), and health's block. Its facts are `fact/sandbox.rs`; its tests
   `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs. What a call's proposal binds about
   its job is `sandbox::Bound`: its class, and (18c) its egress list.
+- **Credential requests** (M4 18d): `cred.rs`. An L1 job asks for a secret while it runs: the daemon serves a
+  socket for it in `<spool>/broker/<job>/` from before its launch until its call settles (a cancel and a stop
+  included), bound into its view at `/run/theseus/broker` with the helper (this binary as `theseus-cred`, on the
+  job's PATH), and served again after a restart (`after_serving`). Each connection is traced to the job's own
+  wrapper. `judge` is decision 15: a name the operator's `[broker]` names (a program's grant, or its own
+  `[broker.secrets.<name>]` entry; a toollet's wiring grant is not enough), at the stricter of the call's `ran_at`
+  and the secret's posture. Open and notify grant in one frame; approve plans the request (`cred.request`, ACTION
+  4, its `parent` the job's call) with its card and waits on the push's feed until an answer (`confirm_action` ->
+  `answer_cred_request`), a cancel, or the job's deadline. Its facts are `fact/cred.rs`; its tests
+  `tests_cred.rs`, and the daemon's `tests/cred.rs` with real L1 jobs and the real helper.
 - **Egress** (M4 18c): `egress.rs`. `[sandbox] egress` and a call's `sandbox: { egress }`; the gate's step for
   hosts beyond the list (the call waits, and its approval reaches those hosts alone, since the list is in its
   proposal); and what a completion's `detail.egress` makes of a result: its `sandbox.egress` and
@@ -124,7 +134,9 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   value verbatim, in base64, and percent-encoded, and the shapes of secrets never resolved here (token prefixes,
   AWS keys, private-key blocks, JWTs). The broker hands a value only to the program it is granted to, run by its
   own argv, and never to one the call could make it run (`broker::launches`: the call's own environment, gh's
-  aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name).
+  aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name). A value an L1 job asks
+  for goes over its own socket to its helper alone (M4 18d): the request's records name the secret, never its
+  value.
 - **One fact, recorded once.** A new ledger row, notification, or narrative sentence is a fact's projection in
   `fact/`, not a hand-written channel at its site. Recording writes no frame: its row rides in the turn's next frame
   (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest

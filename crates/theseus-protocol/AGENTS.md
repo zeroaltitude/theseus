@@ -24,6 +24,10 @@ Every client and the core read it, and the web apps' TypeScript is generated fro
   `HeldPosts` are here too.
 - `sandbox.rs`: health's `sandbox` block (17b, with 18c's egress counts), and `reach` and `egress_in`, the one
   wording of an L1 job's reach (`no network`, `egress: github.com:443`) and the list a proposal binds.
+- `cred.rs` (M4 18d): an L1 job's credential request: the socket's two lines (`CredAsk`, `CredAnswer`, whose
+  `Debug` hides the value, and which have no TypeScript), health's `CredRequests`, and `asked`, the one wording of
+  a request. `CRED_TOOL` (`cred.request`) is the request's action's tool, and `secret.requested` its notification
+  (`SecretRequested`).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

@@ -65,6 +65,7 @@ impl Core {
             kernel: self.kernel_status(),
             children: self.children_status(),
             broker: self.tools.broker.status(),
+            cred_requests: self.tools.creds.health(),
             cost_usd_total: totals.cost_usd,
             catalog_version: self.catalog.version.clone(),
             bindings: self

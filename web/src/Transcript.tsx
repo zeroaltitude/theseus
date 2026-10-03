@@ -41,6 +41,8 @@ export interface TranscriptProps {
 
 /// The question of a reply the outbox held (M4 19c): theseus-protocol's `HELD_POST_TOOL`.
 const HELD_POST_TOOL = 'label.release'
+/// An L1 job's credential request that waits (M4 18d): theseus-protocol's `CRED_TOOL`.
+const CRED_TOOL = 'cred.request'
 
 const fmt = (n: number) => n.toLocaleString()
 const money = (n: number | null | undefined) => n == null ? null : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`
@@ -269,6 +271,30 @@ function HeldPostCard({ c, onConfirm }: { c: ConfirmRequest; onConfirm: Transcri
   )
 }
 
+/// An L1 job's request for a secret, waiting on the operator (M4 18d): who asks for which,
+/// and the setting that made it wait. Names only: the value goes to the job, never here.
+function CredCard({ c, onConfirm }: { c: ConfirmRequest; onConfirm: TranscriptProps['onConfirm'] }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const i = (c.input ?? {}) as Record<string, unknown>
+  const answer = async (approve: boolean) => {
+    setBusy(true); setErr(null)
+    try { await onConfirm(c.correlation_id, approve, '') } catch (e) { setErr((e as { message?: string }).message ?? String(e)); setBusy(false) }
+  }
+  return (
+    <div className="confirm">
+      <div className="confirm-head"><b>🔑 Secret</b> job {str(i.short)} asks for <code>{str(i.secret)}</code></div>
+      <div>{c.reason}</div>
+      <div className="confirm-actions">
+        <button type="button" className="approve" disabled={busy} onClick={() => void answer(true)}>Give it</button>
+        <button type="button" className="decline" disabled={busy} onClick={() => void answer(false)}>Decline</button>
+      </div>
+      <div className="muted small">{busy ? 'answered…' : `the job waits until its deadline · ${c.correlation_id}`}</div>
+      {err && <div className="warn small">{err}</div>}
+    </div>
+  )
+}
+
 // A call that never ran; rows from before theseus-8az say `denied`.
 const NOT_RUN = ['declined', 'denied']
 const STATUS_CLASS: Record<string, string> = { ok: 'ok', error: 'bad', declined: 'warn', denied: 'warn', background: 'accent', unknown: 'warn', cancelled: 'muted' }
@@ -400,6 +426,7 @@ export default function Transcript(p: TranscriptProps) {
   const liveIds = Object.keys(p.live).filter((id) => !turns.some((t) => t.id === id))
   const budgetAsks = p.pending.filter((c) => c.budget)
   const heldPosts = p.pending.filter((c) => c.tool === HELD_POST_TOOL)
+  const credAsks = p.pending.filter((c) => c.tool === CRED_TOOL)
 
   return (
     <>
@@ -407,6 +434,7 @@ export default function Transcript(p: TranscriptProps) {
       {liveIds.map((id) => <TurnView key={id} t={{ id, nodes: [] }} p={p} resultsByUse={resultsByUse} callsByUse={callsByUse} confirmByCorr={confirmByCorr} />)}
       {budgetAsks.map((c) => <BudgetCard key={c.correlation_id} c={c} onConfirm={p.onConfirm} />)}
       {heldPosts.map((c) => <HeldPostCard key={c.correlation_id} c={c} onConfirm={p.onConfirm} />)}
+      {credAsks.map((c) => <CredCard key={c.correlation_id} c={c} onConfirm={p.onConfirm} />)}
     </>
   )
 }

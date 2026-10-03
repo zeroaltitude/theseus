@@ -30,6 +30,12 @@ theseusd, and theseus-sim.
   tenders (the index tender, row 51) are reaped by their pids, a tender's exit reported to its supervisor; an
   `op` is left to tokio; anything else is an orphan.
 - `outbox.rs`: posts that must reach a channel, as actions of their own record kind, `OUTBOX`.
+- `cred.rs` (M4 18d): an L1 job's credential request, a `cred.request` action of the job's execution whose
+  `parent` is the job's call (ACTION schema 4). Like a held post's question it runs outside every turn: never
+  dispatched, so never outstanding, and it queues no result and wakes nothing. Granted at once it is planned and
+  settled in one frame; at approve it waits (`awaits_confirm`) until `grant_cred` or `decline_action`.
+  `waiting_cred_requests` reads a job's open ones by its execution's term. The wrapper's L1 path passes `L1.binds`
+  (the job's socket directory and the helper) to the sandbox's spec.
 - `spool.rs` (completions on disk), `redact.rs` (granted secrets withheld from a job's output), `stops.rs` (the
   soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `gate.rs` (a confirmation's proposal and its
   digest), `clock.rs`, and `umask.rs`.

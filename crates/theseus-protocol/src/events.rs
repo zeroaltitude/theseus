@@ -363,6 +363,40 @@ pub struct PolicyNotified {
     pub task: Option<String>,
 }
 
+/// `secret.requested`: an L1 job asked for a secret through its socket
+/// (M4 18d), and what decision 15 made of it then: granted (open, notify),
+/// waiting on its card (approve), or declined (a name the broker may not
+/// hand out). A waiting one's answer is `confirm.resolved`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct SecretRequested {
+    pub session_id: String,
+    /// The request's own action; empty for one declined at once.
+    pub correlation_id: String,
+    /// The job that asked: its call's correlation id, and its short form.
+    pub job: String,
+    pub short: String,
+    /// The job's command, as its notice names it (`cargo publish`).
+    pub command: String,
+    /// `secret` (`aws` later).
+    pub kind: String,
+    pub secret: String,
+    /// The posture it was judged at: the stricter of the one the job's call
+    /// ran at and the secret's own (decision 15). Empty when it was declined
+    /// before any.
+    pub posture: String,
+    /// What chose the posture, in words: "proc.run ran at notify", or the
+    /// secret's `[broker.secrets.<name>]` line.
+    pub setting: String,
+    /// `granted`, `waiting`, or `declined`.
+    pub outcome: String,
+    /// Why it was declined.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+}
+
 /// The process behind an answer, as the process tree says (theseus-6qy).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -507,6 +541,7 @@ events! {
     PolicyUntightened(TightenResult) = notify::POLICY_UNTIGHTENED,
     SessionTrusted(TrustResult) = notify::SESSION_TRUSTED,
     ApprovalRefused(ApprovalRefused) = notify::APPROVAL_REFUSED,
+    SecretRequested(SecretRequested) = notify::SECRET_REQUESTED,
     NarrativeLine(NarrativeLine) = notify::NARRATIVE_LINE,
     /// An execution's view, after a frame changed it (theseus-in3).
     ExecutionChanged(ExecutionView) = notify::EXECUTION_CHANGED,
@@ -531,6 +566,7 @@ impl Event {
             Event::PolicyNotified(e) => Some(&e.session_id),
             Event::SessionTrusted(e) => Some(&e.session_id),
             Event::ApprovalRefused(e) => e.session_id.as_deref(),
+            Event::SecretRequested(e) => Some(&e.session_id),
             Event::NarrativeLine(e) => e.session_id.as_deref(),
             Event::ExecutionChanged(e) => Some(&e.session_id),
             Event::LoopStarted(_)
@@ -567,6 +603,7 @@ impl Event {
             | Event::PolicyUntightened(_)
             | Event::SessionTrusted(_)
             | Event::ApprovalRefused(_)
+            | Event::SecretRequested(_)
             | Event::ExecutionChanged(_)
             | Event::EventsLost(_) => None,
         }

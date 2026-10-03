@@ -79,6 +79,49 @@ enum CancelState: requested|acknowledged|termination_verified|unsupported|outcom
 enum RetryClass: safe_to_repeat|non_repeatable|idempotent_with_key
 enum VerifiedBy: pidns|cgroup|tree|group|task|none
 
+== action @ 4
+.args_digest: string
+.authorized_at_ms: int
+.cancel: string
+.completions_seen: int
+.confirm.bound_digest: string
+.confirm.by: string
+.confirm.confirm_id: string
+.confirm.expires_at_ms: int
+.correlation_id: string
+.deadline_at_ms: int
+.detail: any
+.dispatched_at_ms: int
+.execution_id: string
+.external_op_id: string
+.parent: string
+.planned_at_ms: int
+.proposal.args: any
+.proposal.policy_context: any
+.proposal.resource: string
+.proposal.tool: string
+.reservation_id: string
+.reserved_micros: int
+.resolution: string
+.resource: string
+.result_ref: string
+.retry_class{class=idempotent_with_key}.key: string
+.schema: int
+.session_id: string
+.settled_at_ms: int
+.state: string
+.tool: string
+.verdict.killed: int
+.verdict.ms: int
+.verdict.scope: string
+.verdict.survivors: int
+.verdict.verified_by: string
+.verdict.why: string
+enum ActionState: planned|authorized|dispatched|succeeded|failed|outcome_unknown|cancelled
+enum CancelState: requested|acknowledged|termination_verified|unsupported|outcome_uncertain
+enum RetryClass: safe_to_repeat|non_repeatable|idempotent_with_key
+enum VerifiedBy: pidns|cgroup|tree|group|task|none
+
 == compilation @ 3
 .as_of: int
 .created_at_ms: int
@@ -804,6 +847,49 @@ enum RetryClass: safe_to_repeat|non_repeatable|idempotent_with_key
 .dispatched_at_ms: int
 .execution_id: string
 .external_op_id: string
+.planned_at_ms: int
+.proposal.args: any
+.proposal.policy_context: any
+.proposal.resource: string
+.proposal.tool: string
+.reservation_id: string
+.reserved_micros: int
+.resolution: string
+.resource: string
+.result_ref: string
+.retry_class{class=idempotent_with_key}.key: string
+.schema: int
+.session_id: string
+.settled_at_ms: int
+.state: string
+.tool: string
+.verdict.killed: int
+.verdict.ms: int
+.verdict.scope: string
+.verdict.survivors: int
+.verdict.verified_by: string
+.verdict.why: string
+enum ActionState: planned|authorized|dispatched|succeeded|failed|outcome_unknown|cancelled
+enum CancelState: requested|acknowledged|termination_verified|unsupported|outcome_uncertain
+enum RetryClass: safe_to_repeat|non_repeatable|idempotent_with_key
+enum VerifiedBy: pidns|cgroup|tree|group|task|none
+
+== outbox @ 3
+.args_digest: string
+.authorized_at_ms: int
+.cancel: string
+.completions_seen: int
+.confirm.bound_digest: string
+.confirm.by: string
+.confirm.confirm_id: string
+.confirm.expires_at_ms: int
+.correlation_id: string
+.deadline_at_ms: int
+.detail: any
+.dispatched_at_ms: int
+.execution_id: string
+.external_op_id: string
+.parent: string
 .planned_at_ms: int
 .proposal.args: any
 .proposal.policy_context: any

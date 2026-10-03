@@ -8,6 +8,8 @@ theseusd.
 - `src/runtime.rs`: the gateway loop and the places (a text channel or a DM, each backed by one session), with the
   slash commands and the confirm buttons. `Routes::resolve` finds a message's or an interaction's place.
 - `src/courier.rs`: durable delivery, the binding's side: one lane per place, and one for the operator's notices.
+- `src/render_cred.rs` (M4 18d): an L1 job's credential request granted at notify posts its 🔑 notice in the job's
+  place; one that waits is a card, which the outbox posts.
 - `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out.
 - `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments),
   `src/viewers.rs` (who can view a channel), and `src/rpc_client.rs` (the in-process protocol connection).

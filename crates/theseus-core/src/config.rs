@@ -1866,6 +1866,7 @@ mod tests {
         assert_eq!(cfg.broker.programs["gh"].env["GH_TOKEN"], "github_token");
         assert_eq!(cfg.broker.secrets["github_token"].posture, Posture::Notify);
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
+        crate::cred::the_templates_broker_section(&cfg);
     }
 
     /// theseus-8d1b: the template and the default config name no one's

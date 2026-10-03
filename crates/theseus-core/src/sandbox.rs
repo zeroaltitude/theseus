@@ -9,7 +9,8 @@
 //! - **L1's posture is notify** (decision 1): an L1 job can reach nothing
 //!   (no capabilities, no network, scratch writes, and Theseus's floor and
 //!   the approve list's paths covered in its view), so neither the floor nor
-//!   the approve lists wait for it, and no secret is granted to it (18d's).
+//!   the approve lists wait for it, and no secret is granted to it at its
+//!   spawn: it asks for one while it runs (`crate::cred`, 18d).
 //!   A session holding external text still holds it, as T1 holds any call
 //!   that acts (20a lifts that for L1).
 //! - **The class is bound**: an L1 call's proposal names it, so the digest a
@@ -259,9 +260,10 @@ pub(crate) fn record((_, d, bound): &(Plan, Decision, Bound)) -> theseus_protoco
 }
 
 /// What a job is given at its spawn (`toolrun`'s `run_job`): at L0, what
-/// the broker grants its program; in L1, no secret (decision 4; 18d brings
-/// them), what L0 would grant named as withheld and nothing resolved, and
-/// its view and limits, the cgroup readied at the first L1 job.
+/// the broker grants its program; in L1, no secret at its spawn (decision
+/// 4; it asks at run time, 18d), what L0 would grant named as withheld and
+/// nothing resolved, and its view and limits, the cgroup readied at the
+/// first L1 job.
 pub(crate) async fn for_job(
     rt: &ToolRuntime,
     bound: &Bound,
@@ -373,18 +375,27 @@ pub fn decision(tool: &str, why: &str, egress: &[String]) -> Decision {
     }
 }
 
-/// Why an L1 job got none of the secrets L0 would grant it (decision 4).
-pub const NO_SECRET: &str = "no secret reaches a job in L1, the sandbox (step 18d brings them)";
+/// Why an L1 job got none of the secrets L0 would grant it (decision 4):
+/// it starts with none, and asks for one while it runs (18d).
+pub const NO_SECRET: &str = "no secret reaches a job in L1 at its start";
 
-/// What the broker gives an L1 job: nothing. Each grant of a program that
-/// L0 would make is withheld, with why, so the result and the ledger's
-/// `secret.withheld` say so; no secret is resolved.
+/// What the broker gives an L1 job at its spawn: nothing. Each grant of a
+/// program that L0 would make is withheld, with why and how to ask for it at
+/// run time instead (`theseus-cred get`, 18d), so the result and the
+/// ledger's `secret.withheld` say so; no secret is resolved.
 pub fn no_grant(would: Vec<crate::broker::Grant>) -> crate::broker::ForJob {
     crate::broker::ForJob {
         withheld: would
             .into_iter()
-            .filter(|g| g.variable.is_some())
-            .map(|g| (g, NO_SECRET.to_string()))
+            .filter_map(|g| {
+                let ask = format!(
+                    "{NO_SECRET}; the job asks for it while it runs: {}=\"$({} get {})\"",
+                    g.variable.as_deref()?,
+                    crate::cred::HELPER_NAME,
+                    g.secret
+                );
+                Some((g, ask))
+            })
             .collect(),
         ..Default::default()
     }
@@ -505,6 +516,8 @@ impl Sandbox {
             // Each job's own, from its proposal (`for_job`).
             egress: Vec::new(),
             egress_dns: crate::egress::test_dns(),
+            // Each job's own: its credential socket (`crate::cred`).
+            binds: Vec::new(),
         };
         Self {
             cfg: cfg.clone(),

@@ -287,6 +287,20 @@ impl Broker {
         }
     }
 
+    /// Whether an L1 job may ask for `secret` at run time (M4 18d): the
+    /// operator's `[broker]` names it, in a program's grant or in its own
+    /// `[broker.secrets.<name>]` entry. A toollet's grant is the wiring's,
+    /// not the operator's word, so it is not enough (web.search's key stays
+    /// the toollet's), and any other name is never handed out: the AWS keys
+    /// and the providers' keys stay behind the floor (decision 15).
+    pub fn may_hand_out(&self, secret: &str) -> bool {
+        self.postures.contains_key(secret)
+            || self
+                .programs
+                .values()
+                .any(|vars| vars.iter().any(|(_, s)| s == secret))
+    }
+
     /// The strictest posture of `grants`, and its setting: the posture a call
     /// given them runs at, at least.
     pub fn need(&self, grants: &[Grant]) -> Option<(Posture, String)> {

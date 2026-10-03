@@ -51,6 +51,12 @@ pub(crate) use late::{announce_cancelled, not_run_results};
 /// substitute one that runs the command on a thread and spools the result.
 pub trait JobLauncher: Send + Sync {
     fn launch(&self, spool: &Spool, args: &WrapperArgs) -> Result<u32>;
+
+    /// The binary its jobs run under, which an L1 job's view binds as the
+    /// credential helper (M4 18d); None runs a job with no helper.
+    fn exe(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 pub struct WrapperLauncher {
@@ -65,6 +71,19 @@ impl JobLauncher for WrapperLauncher {
             spool,
             args,
         )
+    }
+
+    /// The binary's file, read through `/proc/self/exe`: a job's init cannot
+    /// bind that link, whose target is in the daemon's mount namespace. After
+    /// an in-place upgrade it names a deleted file, and the newer binary at
+    /// its path serves: the helper's role and its socket's lines are the same.
+    fn exe(&self) -> Option<PathBuf> {
+        let p = std::fs::read_link(&self.self_exe).unwrap_or_else(|_| self.self_exe.clone());
+        let p = match p.to_string_lossy().strip_suffix(" (deleted)") {
+            Some(live) => PathBuf::from(live),
+            None => p.clone(),
+        };
+        p.exists().then_some(p)
     }
 }
 
@@ -261,6 +280,8 @@ pub struct ToolRuntime {
     pub stops: crate::cancel::Stops,
     /// `[labels] public_paths`, expanded (M4 19a): files anyone may read.
     pub public_paths: Vec<PathBuf>,
+    /// L1 jobs' credential sockets, and health's counts (M4 18d).
+    pub creds: crate::cred::Creds,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -371,6 +392,7 @@ impl ToolRuntime {
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_paths: Vec::new(),
+            creds: Default::default(),
         }
     }
 
@@ -1705,6 +1727,7 @@ pub fn build_runtime(
             .iter()
             .map(|p| crate::config::expand(p))
             .collect(),
+        creds: Default::default(),
     })
 }
 

@@ -209,6 +209,7 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                 &format!("  🔒 {}", tightened_line(r, tightened)),
             );
         }
+        Event::SecretRequested(r) => push(&mut out, Tag::Warn, &crate::render_cred::line(r)),
         Event::ApprovalRefused(r) => {
             push(&mut out, Tag::Bad, &format!("  🚨 {}", job_refusal_line(r)));
         }

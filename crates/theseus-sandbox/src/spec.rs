@@ -39,6 +39,12 @@ pub struct Spec {
     /// 18b: the port of the egress listener the init opens on 127.0.0.1
     /// inside the job's network namespace and hands to the wrapper.
     pub egress_port: Option<u16>,
+    /// Read-only binds of host paths at other paths in the view, each `(host
+    /// path, view path)`: 18d's credential socket's directory and helper,
+    /// under `/run/theseus`. Mounted after the operator's part, and before
+    /// the hidden paths, which still cover whatever binds them.
+    #[serde(default)]
+    pub binds: Vec<(PathBuf, PathBuf)>,
 }
 
 /// What one job may use. Memory is the cgroup's alone (`Spec::cgroup`).
@@ -89,6 +95,7 @@ impl Spec {
             limits: Limits::default(),
             cgroup: None,
             egress_port: None,
+            binds: Vec::new(),
         }
     }
 
@@ -110,6 +117,17 @@ impl Spec {
         for (what, p) in user {
             if let Some(why) = bad_view_path(p) {
                 return Some(format!("{what}, {}, {why}", p.display()));
+            }
+        }
+        for (from, to) in &self.binds {
+            if !from.is_absolute() {
+                return Some(format!(
+                    "a bind's source, {}, is not absolute",
+                    from.display()
+                ));
+            }
+            if let Some(why) = bad_view_path(to) {
+                return Some(format!("a bind's place, {}, {why}", to.display()));
             }
         }
         if let Some(p) = self.hidden.iter().find(|p| !p.is_absolute()) {

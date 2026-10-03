@@ -60,7 +60,7 @@ impl Tool for Run {
                 "cwd": {"type": "string", "description": "Working directory. Default: the working directory."},
                 "timeout_secs": {"type": "integer", "minimum": 1, "description": "Kill the program after this many seconds."},
                 "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables (no secrets; token/key names are refused)."},
-                "sandbox": {"anyOf": [{"type": "boolean"}, {"type": "object", "properties": {"egress": {"type": "array", "items": {"type": "string"}}}}], "description": "Run it in the sandbox (L1): no network, no credentials, an empty HOME, and its writes discarded afterwards. For untrusted code, builds, and tests. {\"egress\": [\"host:port\"]} lets it reach those hosts through the proxy HTTPS_PROXY names, once approved if the operator has not listed them; what it brings back is outside text."}
+                "sandbox": {"anyOf": [{"type": "boolean"}, {"type": "object", "properties": {"egress": {"type": "array", "items": {"type": "string"}}}}], "description": "Run it in the sandbox (L1): no network, an empty HOME, and its writes discarded afterwards; no credentials but those a script asks for by name while it runs, `theseus-cred get <name>`. For untrusted code, builds, and tests. {\"egress\": [\"host:port\"]} lets it reach those hosts through the proxy HTTPS_PROXY names, once approved if the operator has not listed them; what it brings back is outside text."}
             },
             "required": ["argv"],
             "additionalProperties": false

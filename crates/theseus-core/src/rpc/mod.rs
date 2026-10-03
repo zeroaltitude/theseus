@@ -625,6 +625,8 @@ impl Core {
             crash: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
+        // L1 jobs' credential sockets answer for this core (M4 18d).
+        core.tools.creds.attach(Arc::downgrade(&core));
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);

@@ -609,6 +609,11 @@ pub struct Action {
     /// messages (theseus-q4v). Other actions keep none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<serde_json::Value>,
+    /// The action this one belongs to (M4 18d; ACTION schema 4): a
+    /// credential request's job, whose call it was made under. Absent for
+    /// every other action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<CorrelationId>,
 }
 
 impl Action {

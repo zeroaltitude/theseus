@@ -10,6 +10,7 @@
 
 pub mod bench;
 pub mod cancel;
+pub mod cred;
 mod events;
 mod gate;
 mod health;
@@ -50,6 +51,11 @@ pub const BUDGET_TOOL: &str = "budget.reset";
 /// viewer who may not read what it draws on, so the outbox holds it, and this
 /// asks the owner whether to post it. Answered with `action.confirm`.
 pub const HELD_POST_TOOL: &str = "label.release";
+
+/// The `tool` of an L1 job's credential request (M4 18d): the job asked its
+/// socket for a secret, and one whose posture is approve waits on the
+/// operator's answer, with `action.confirm`, until the job's deadline.
+pub const CRED_TOOL: &str = "cred.request";
 
 /// The `tool` of a provider call's action. It is authorized in the frame after
 /// its plan and never asks the operator.
@@ -201,6 +207,10 @@ pub mod notify {
         /// row's, with `act` and `session_id`; `asker` names the process and its
         /// job.
         APPROVAL_REFUSED = "approval.refused",
+        /// An L1 job asked for a secret through its socket (M4 18d), and what
+        /// decision 15 made of it at once: granted, waiting on its card, or
+        /// declined. The params are a `SecretRequested`.
+        SECRET_REQUESTED = "secret.requested",
         /// One line of the narrative, to every `narrative.watch` subscriber.
         /// Unlike the others it is not a ledger row: the narrative is never stored.
         NARRATIVE_LINE = "narrative.line",
@@ -400,6 +410,11 @@ pub struct HealthResult {
     /// only, never a value.
     #[serde(default)]
     pub broker: Vec<GrantStatus>,
+    /// L1 jobs' credential requests since the daemon started (M4 18d): asked,
+    /// granted, declined, and waiting now; absent before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cred_requests: Option<cred::CredRequests>,
     /// Dollars across every session, from the model catalog.
     #[serde(default)]
     pub cost_usd_total: f64,

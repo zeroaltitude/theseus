@@ -1567,6 +1567,7 @@ impl Kernel {
             resolution: None,
             completions_seen: 0,
             detail: None,
+            parent: None,
         };
         frame.push(action_record(&a)?);
         frame.push(self.ledger(
@@ -1683,6 +1684,7 @@ impl Kernel {
             resolution: None,
             completions_seen: 0,
             detail: None,
+            parent: None,
         };
         let asked = json!({
             "execution_id": e.id,

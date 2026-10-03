@@ -97,6 +97,7 @@ impl Kernel {
             resolution: None,
             completions_seen: 0,
             detail: None,
+            parent: None,
         };
         let row = self.ledger(
             LedgerKind::ActionPlanned,
@@ -253,6 +254,7 @@ impl Kernel {
             resolution: None,
             completions_seen: 0,
             detail: None,
+            parent: None,
         };
         let row = self.ledger(
             LedgerKind::ActionPlanned,

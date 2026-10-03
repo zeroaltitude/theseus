@@ -42,6 +42,7 @@ use crate::trace::Trace;
 
 pub mod answer;
 pub mod cancel;
+pub mod cred;
 pub mod driver;
 pub mod index;
 pub mod label;
@@ -324,6 +325,9 @@ facts![
     sandbox::SandboxProbed<'static>,
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,
+    cred::CredRequested<'static>,
+    cred::CredGranted<'static>,
+    cred::CredDeclined<'static>,
     start::CrashFound<'static>,
 ];
 
