@@ -364,6 +364,8 @@ hours. The six designs cut the same scope into hour-sized steps, and it comes to
   - The SCP question: C1 follows the conversation (renewed 16:18). Its default holds, so it delays nothing unless
     he wants the SCPs in place first.
   - Voice: rows 77 and 78 wait for a test voice channel and his providers. Everything else finishes without them.
+    _(2026-10-03: they leave v1 until he chooses speech providers, and `theseus-voice` is parked outside the
+    workspace until then, theseus-o8nk; the spec's §2 and Part III Item 72.)_
   - TypeSafe consent: no build delay. Without it, M5's and M6's shadow data never starts, and their proves slip
     past the soak.
 - **Review bandwidth.** About 38 hours of spine reviews (30 minutes each) and 8 of lane reviews (15 each), over
