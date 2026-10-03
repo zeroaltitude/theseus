@@ -1,4 +1,4 @@
-# The Ship of Theseus — v0.79
+# The Ship of Theseus — v0.80
 
 _One document, three parts. Part I is the specification: what Theseus is meant to be. Part II is the build plan: the order it is built in, with the test that gates each step. Part III is the record of what was actually built, milestone by milestone, and where it diverged from Parts I and II. The document is therefore both spec and documentation; when the code and Part I disagree, Part III says so and one of them gets fixed._
 
@@ -30,7 +30,9 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 - the month is an AWS Budget whose stop at 100 % attaches `theseus-deny-spend`;
 - the day is an AWS Budget that alerts;
 - the hour is metered by Theseus itself, since AWS's billing lags by hours: each AWS action's estimated cost is
-  reserved before it runs. |
+  reserved before it runs.
+
+_As built (2026-10-03, C2; Part III Item 78): Eddie gave the go-ahead for the first writes at 11:24, with a cap under $1 a month on what the stacks themselves cost, and the stacks are lean, about ten cents a month: SSE-S3 rather than customer keys, and the CIS checks as EventBridge rules rather than alarms (§3.25). The month is built: a $50 AWS Budget whose stop at 100 % attaches `theseus-deny-spend`, reconciled from the config and read every six hours. The day's and the hour's tripwires are not built yet; they come with the hands' reservations (row 40). Eddie cleared the bootstrap that makes the stacks at 14:20, lean, and it runs after this record. Where the limits are enforced (theseus-mgw) he answered then too: no SCPs yet, "for now, budgets and notify are fine -- visibility first"._ |
 | Execution model | **Event-driven.** No in-flight state lives only in harness memory; every dispatched thing is a WAL record with a harness-minted correlation id; completion arrives as an event (in-process, Unix socket spool, SQS pull, loopback HTTP as the off-by-default exception); the harness is quiescent between events; the one-minute heartbeat is the level-triggered reconciler. Adopted 2026-09-24 from Eddie's all-webhook proposal, with "webhook" generalized to "completion event" and "unkillable" replaced by "detached, durable, cancellable" (§3.3, §3.16). |
 | Deployment | One large node: Theseus, source trees, and sandboxes together. Must also run on a home desktop with every AWS dependency optional at runtime. |
 | Durability | Local fsync to a persistent SSD is the floor, before any action is dispatched. Off-node durability is **eventual, 5–60 s** (measured, not asserted), produced by asynchronous durability work the core performs in the time a turn has surrendered to a remote (model call, shell, judge, human). Single node; no replication. |
@@ -92,13 +94,19 @@ It runs on one large node. That node may be an EC2 instance or Eddie's desktop. 
 | NOTIFY OVER BLOCK | The gate tells the operator what ran; it does not stand in the way. "Theseus should notify over block -- the operator should /know/ when something bad is going to happen", and the operator should be "asked, sure, but a hard no, almost never." The finite lists of tools and MCP servers are what the operator controls, and the gate never tries to infer what a command's contents do. Safety rests on a default-safe environment and on the operator knowing what ran (§3.9). (Eddie, 2026-09-28; replaces IRREVERSIBLE WAITS.) |
 | IRREVERSIBLE WAITS | _Superseded 2026-09-28 by NOTIFY OVER BLOCK: telling which calls are irreversible meant detecting what a command does, and that detection was removed (theseus-8az; Part III A3b). The principle as it stood:_ The gate protects the owner's options. A call is irreversible when, after it, no option the owner has restores what was there: a history rewrite, a destroyed remote, lost uncommitted work, a publication, a post outside Theseus. An irreversible call waits for approval at every enforcement level. Everything else may run with a notice when the owner chooses `notify` or `open`, because a notice is enough while the owner can still undo (§3.9). (Eddie, 2026-09-27.) |
 | FUNGIBLE ONTOLOGY | The kinds of context (channel, guild, person, topic, culture, expertise, and any kind added later) are data, not code. They live in a versioned table that the owner, operators, and Jev extend, and whose memberships are trained, re-associated, and indexed by embedding. Interpretations route context; they never grant access (§4.1a). (Eddie, 2026-09-27.) |
-| DEFAULT TRUST | Theseus runs in a default-trusted environment, set up by a security-wise operator. In Eddie's words (2026-10-02 23:57): "A primary principle of our operation is: we are in a default trusted environment as designed by a security wise operator. That doesn't mean do nothing to enhance and bolster security, but it does mean that we do nothing extraordinary or complex. ... Trust, safety, and provenance are in our zone of 'we already trust this very much by the time we run our first second of code' — performance, simplicity, speed, simplicity, scale and power are the lifeblood of theseus." So security is bolstered lightly and cheaply: where a mechanism for trust, safety, or provenance would be extraordinary or complex, Theseus takes the light path, or leans on what the trusted environment already gives, and a secret is traded as little as it can be. Default trust does not mean no attention to security (Eddie, 2026-10-03 01:42): isolation (L1, and running Theseus as a separate user), Jev's growing judgment of security, and the memory compiler stay. First applied to credentials: the stand-ins dropped (Part III Item 69), and grants at launch in L1 as at L0 (Item 71). |
+| DEFAULT TRUST | Theseus runs in a default-trusted environment, set up by a security-wise operator. In Eddie's words (2026-10-02 23:57): "A primary principle of our operation is: we are in a default trusted environment as designed by a security wise operator. That doesn't mean do nothing to enhance and bolster security, but it does mean that we do nothing extraordinary or complex. ... Trust, safety, and provenance are in our zone of 'we already trust this very much by the time we run our first second of code' — performance, simplicity, speed, simplicity, scale and power are the lifeblood of theseus." So security is bolstered lightly and cheaply: where a mechanism for trust, safety, or provenance would be extraordinary or complex, Theseus takes the light path, or leans on what the trusted environment already gives, and a secret is traded as little as it can be. Default trust does not mean no attention to security (Eddie, 2026-10-03 01:42): isolation (L1, and running Theseus as a separate user), Jev's growing judgment of security, and the memory compiler stay. First applied to credentials: the stand-ins dropped (Part III Item 69), and grants at launch in L1 as at L0 (Item 71); then to integrity, places, the sandbox and the gate (Items 74 to 77). |
 
 **The simplification review** (theseus-vm3n, 2026-10-03). Under this principle three read-only reviewers ranked what could go, in the security slice, the engine, and the periphery, and their consolidated cut-list went to Eddie. Nothing is cut until he picks. Decided so far:
-- **Done:** Tier 0, the housekeeping (voice parked outside the workspace until its row, the spec's PDF out of git, CI cut to what a stock runner passes, dead code gone, the gate's npm errors shown), and 5.2, an install that builds only the five binaries it ships (Part III Item 72); Tier 3, credentials granted at launch in L1 as at L0, with 18d's run-time socket deleted (Item 71).
-- **Kept, by Eddie's choice,** so the sections that specify them stand: the ontology (§4.1a), which is how Jev is told what to score, its categories and each category's entries grown with the operator; Jev's security judge (`security.v1`) and the promotion ladder, so that "this prompt is safe: %confidence" lets Jev "gradually increase its standing in evaluating security"; isolation, both the job host (22b) and the installer's `--separate` ("I don't think it's a bad idea to be able to spawn isolated shells, or an isolated theseus user"); the memory compiler ("a sophisticated memory compiler … as a central principle"), where whether FSRS decay ships in the first version is decided by the exam (§5.5a); and the books' several vector spaces (P8).
-- **Voice's rows** (77 and 78) leave v1 until Eddie chooses speech providers (§3.11, P9). This one is Tabitha's proposal from the review, standing unless he objects; he has not ruled on it.
-- **Still with Eddie,** so nothing in this document changes for them yet: labels (the review's Tier 2, and 1.1, integrity by labels), the sandbox's trims (Tier 4), the gate's mode (5.3), the periphery and the UI (Tier 6), and the engine (Tier 7).
+- **Done:** Tier 0, the housekeeping (voice parked outside the workspace until its row, the spec's PDF out of git, CI cut to what a stock runner passes, dead code gone, the gate's npm errors shown), and 5.2, an install that builds only the five binaries it ships (Part III Item 72); Tier 3, credentials granted at launch in L1 as at L0, with 18d's run-time socket deleted (Item 71). Then, on October 3:
+  - **Tier 1.1, integrity's light pieces** (11:24). T1's latch stays as built, per session, and trust clears it ("I like the latch being per session"). `[policy] external_programs` (`gh` by default) marks a listed program's output, and a job carries its session, so a session that a holding session's job opens, or sends a turn to, holds too. Integrity by labels (20a), the fomites (20b) and the Advisory are dropped: laundering through files is Jev's `security.v1`, "if it's failing, we boost its context for good classification" (Item 74).
+  - **Tier 2, the place rule in place of labels on nodes** (10:58, "a better start than owner labels"). Every place is private or shared, a shared place gets the public tools alone, and graduation becomes the owner's publish. Categories, the ontology's memberships, are preferred to labels (Item 76).
+  - **Tier 4, the sandbox's trims, as recommended** (11:25). A job that reaches only listed hosts no longer holds its session, there is no self-test at the start and no delegated cgroup, and a root daemon's L1 job is refused. Seccomp, the broker's per-program parsers and the scrubber are kept, and web text stays at ask: Jev's security judge earns relaxing it (Item 77).
+  - **5.3, one gate lock mode** (11:39), with Eddie's calibrated overage allowance for the timing budgets on a busy machine, "a business wiggle room parameter" (Item 75).
+  - **6.5, the spec in chapters** (12:28), its detail kept whole: "I don't want less detail, but breaking it up into 'chapters' is fine -- length here is not for humans, but for a durable implementation record you can review as we progress." Since v0.80 it is a directory of chapters, and the design sections these decisions cut carry banners, so nobody builds from them.
+- **Decided, and under way** (12:28): 6.2, the exam trimmed to one exam and one probe, its memory arm a setting of the exam's scratch daemon rather than a field of `turn.submit`; 6.3, the cockpit's history bounded to a window and followed by push, with a time index for date ranges (its per-day Parquet export of the ledger, proposed with row 32, was decided at 14:20: below); and 6.4, the cockpit replacing the Observatory, after a parity check. The third cloud batch runs 6.2, 6.3's server half, and 6.4's parity inventory.
+- **Kept, by Eddie's choice,** so the sections that specify them stand: the ontology (§4.1a), which is how Jev is told what to score, its categories and each category's entries grown with the operator; Jev's security judge (`security.v1`) and the promotion ladder, so that "this prompt is safe: %confidence" lets Jev "gradually increase its standing in evaluating security"; isolation, both the job host (22b) and the installer's `--separate` ("I don't think it's a bad idea to be able to spawn isolated shells, or an isolated theseus user"); the memory compiler ("a sophisticated memory compiler … as a central principle"), where whether FSRS decay ships in the first version is decided by the exam (§5.5a); and the books' several vector spaces (P8; the cut-list's 6.1, which would have narrowed them, was withdrawn at 01:42).
+- **Voice's rows** (77 and 78) ~~leave v1 until Eddie chooses speech providers (§3.11, P9). This one is Tabitha's proposal from the review, standing unless he objects; he has not ruled on it.~~ return to v1: at 14:20 Eddie chose Deepgram for both speech to text and synthesis ("I want to use Deepgram to implement the voice to text and audio synthesis"; §3.11, P9).
+- **Decided at 14:20, to be built** (Eddie answered every item still open). **Tier 7, the engine,** every pick: event-driven job completion (7.1); no whole-history reads on polled methods (7.2); records once per frame (7.3); an output golden that pins shapes, not numbers (7.4); acting on the config's copy at once, with the vault read after serving, with the digest check (7.5); a trusted channel is a private place, so the `[approval]` matrix retires (7.6); two fsyncs off every start, once an strace confirms the saving (7.7); the cheap half of the self-answer check, the CLI refusing to confirm, untighten or trust inside a job (7.8); one store format number, bumped by any step that adds fields (7.9, as amended); and the narrative kept server-side for v1, moving to the cockpit once the Observatory retires (7.10). He asked for explanations of 7.6, 7.8 and 7.9 first. Beside it: the gate's quiet bar at three quarters of the cores, with a 2-minute wait (Item 75); an approved fetch of a private address into a shared place left to the approver (theseus-94a6; Item 76); no SCPs yet ("for now, budgets and notify are fine -- visibility first"); the budget's question at its limit stays a question ("notify, not rails"); a per-day Parquet export of the ledger after v1, with row 32 ("Just watch size"); and C2's bootstrap, lean, without the trail's own key (Item 78). Until each is built, the sections that specify today's behaviour stand.
 
 ## 3. Architecture
 
@@ -339,6 +347,8 @@ Question packs in the design so far: `classify.v1`, `loop.v1`, `continuation.v1`
 
 The built-in default is `open`, and the template sets `notify`. The gate has no deny anywhere: no posture, list, or reason refuses a call. The strongest answer the gate gives is to wait, and the operator approves or declines. A `deny` in the config fails to load, and the error names the three postures.
 
+_(One exception since 2026-10-03: a shared place's call to a tool it is not offered, or to a file outside the public trees, is not run. The place rule decides it (below). The model is never offered such a tool, so the gate's refusal is a backstop; Part III Item 76.)_
+
 **Overrides.**
 - `[policy.tools]` sets one tool's posture. The template lists every tool, one line each: the read-only tools are `open`, and the writers and `proc.run` are commented, so they inherit. `proc.run`, the universal shell, is the one worth pinning stricter. A test keeps the list in step with the tool registry, and an unknown tool name fails to load.
 - `[policy.mcp]` does the same for MCP servers: `"server"` covers every tool from a server, and `"server/tool"` covers one tool. An MCP tool takes its `[policy.tools]` line first, then `"server/tool"`, then `"server"`, then `enforcement`.
@@ -376,9 +386,9 @@ _An L1 call skips the order: the floor and the approve lists guard what its view
 
 The call's tool line and its notice say what it was given ("gh got GH_TOKEN"). A spawn gives no secret whose posture is stricter than the one the call ran at.
 
-**External text** (theseus-9bp; built 2026-09-30; amended the same day, T1b, theseus-q4t). This is the interim, deterministic floor for web text, until provenance labels ("Exposure", below) and Jev (M5) arrive, and it stays the floor after them.
-- **When a session holds it.** A session reads external text when a result node marked `external` enters its context: `http.fetch` and `web.search` today, and MCP results and untrusted attachments when they come. The first such read since the operator last trusted the session is its **hold**, kept on the session's record, with a `session.external_read` row (the node, the tool, the URL, and a search's query). Both are written in the frame that writes the node, so no crash leaves the text in the context without the hold. A later read writes nothing.
-- **From another session.** A task that a holding session starts holds the text from its brief, which that session's model wrote. A session that reads a report from a holding task holds it too, from the frame that writes the report.
+**External text** (theseus-9bp; built 2026-09-30; amended the same day, T1b, theseus-q4t). This is the interim, deterministic floor for web text, until provenance labels ("Exposure", below) and Jev (M5) arrive, and it stays the floor after them. _(Provenance labels were dropped on 2026-10-03, with the cut-list's Tier 1.1: this hold, per session, is the floor, and Jev's `security.v1` (row 39) judges what it can't see; Part III Item 74.)_
+- **When a session holds it.** A session reads external text when a result node marked `external` enters its context: `http.fetch` and `web.search`; a `proc.run` of a program `[policy] external_programs` lists, `gh` by default, or of a shell or launcher whose command names one (since 2026-10-03, Part III Item 74); an L1 job that reached a host beyond `[sandbox] egress` (§7; Items 62 and 77); and MCP results and untrusted attachments when they come. The first such read since the operator last trusted the session is its **hold**, kept on the session's record, with a `session.external_read` row (the node, the tool, the URL, and a search's query). Both are written in the frame that writes the node, so no crash leaves the text in the context without the hold. A later read writes nothing.
+- **From another session.** A task that a holding session starts holds the text from its brief, which that session's model wrote. A session that reads a report from a holding task holds it too, from the frame that writes the report. A session that a holding session's job opens, or sends a turn to, holds it too (Item 74): every job carries its session as `THESEUS_SESSION`, the CLI sends it as `opened_from`, and the new or named session takes the hold (`via: job`) before the turn writes anything. A job can strip the variable, so this is a light guard, not a boundary.
 - **What waits.** After the order above and a granted secret's posture, every call whose class is not `read` waits for approval: writes, edits, patches, `proc.run`, and `task.create`, including the allow list's calls. The stricter posture wins, as a tightening's does. A call in the same response as the fetch keeps its posture too, since the model wrote it before it saw the page.
 - **What keeps its posture** (Eddie, 2026-09-30):
   - a `read` call, fetches and searches included. This is decided: research keeps flowing, and each fetch's notice shows its URL;
@@ -392,9 +402,9 @@ The call's tool line and its notice say what it was given ("gh got GH_TOKEN"). A
   A trust is ledgered as `session.trusted` (who, how, and the hold it cleared). Who is the person or the surface (`discord:eddie`, `the CLI`), never a connection's label. The same holds for a trust, an answer, a press, an undo, and a cancel (theseus-qiy). A trust accepts the text already in the context; a later read holds the session again.
 - Health, `theseus health`, and the Observatory list the sessions that hold external text, since when (in the daemon's local time, as the confirm says it), and from what. The hold is on the session's own record, so it survives a restart.
 - `[policy] external_text = "ask" | "notify"`, `ask` by default. `notify` runs a call that acts with at least a notice.
-- The rule judges what the session has read, not what the text says. It does not stop a page from sending data out through a fetch's URL, since a read keeps its posture (decided, above); each fetch's notice names its URL. It also does not follow a job's own process: a job the operator approves can open a clean session through the socket (theseus-d64).
+- The rule judges what the session has read, not what the text says. It does not stop a page from sending data out through a fetch's URL, since a read keeps its posture (decided, above); each fetch's notice names its URL. ~~It also does not follow a job's own process: a job the operator approves can open a clean session through the socket (theseus-d64).~~ Since Item 74 it follows a job that opens or names a session through the CLI (above); a job that strips its environment, or reaches the daemon by another tool, is not followed.
 
-**Notices and records.** Every call, under any posture, is recorded on its tool-call node with the gate's decision, the posture, and the reason. A call that runs under `notify` is also ledgered (`tool.notified`) and shown on every surface as a notice: what ran, the setting that made it a notice, and the outcome. In the web UI and the CLI it is its own line. On Discord it is the call's line in its loop's tool message, `🔔 notified (<setting>)` and then its outcome, and a loop that overflows one message counts the notices on the line that folds its oldest calls. _(Amended 2026-09-29, theseus-w4f: a separate Discord embed per call is `[discord] notice_embeds`, off by default, because the DM's roughly 160 shell calls a day would each post one; Part III A4, item 3.)_ A call that waits is a confirm on every surface. A declined call is recorded as declined and never runs. Only a toollet's own input validation stops a call at the gate, and it does so as an error, not a refusal.
+**Notices and records.** Every call, under any posture, is recorded on its tool-call node with the gate's decision, the posture, and the reason. A call that runs under `notify` is also ledgered (`tool.notified`) and shown on every surface as a notice: what ran, the setting that made it a notice, and the outcome. In the web UI and the CLI it is its own line. On Discord it is the call's line in its loop's tool message, `🔔 notified (<setting>)` and then its outcome, and a loop that overflows one message counts the notices on the line that folds its oldest calls. _(Amended 2026-09-29, theseus-w4f: a separate Discord embed per call is `[discord] notice_embeds`, off by default, because the DM's roughly 160 shell calls a day would each post one; Part III A4, item 3.)_ A call that waits is a confirm on every surface. A declined call is recorded as declined and never runs. Only a toollet's own input validation, and the place rule in a shared place, stop a call at the gate. Each is recorded as an input the gate refused, with its reason (`validation: …` or `place: …`), and the model reads `Not run: …` (the place rule since 2026-10-03, Part III Item 76).
 
 **What the gate is not.** It judges what a call names, not what a program does once it runs, so it is not a sandbox. For arbitrary commands, the operator's control is `proc.run`'s posture, and the boundary is the environment (§7; L1 in M4).
 
@@ -475,7 +485,7 @@ have asked". That tool then asks first, on every surface, until the press is und
 
 **Consequences** (Eddie, 2026-09-27; Appendix F). _Superseded 2026-09-28 (theseus-8az)._ The consequence kinds under one `irreversible` property, the rule table over argv with its shell parser, `opaque` for what the rules could not read, and replay (`theseus policy replay`) were built in steps 2a through 2a.3 (theseus-770 and three rounds of hardening), then removed, along with the "should have asked" flow planned for 2b. Hand-written detection of hidden commands can never be complete, and it had become the two largest files and the densest branching in the tree. Part III A3b records what was built and why it went.
 
-**Exposure** (M4; Appendix F).
+**Exposure** (M4; Appendix F). _Dropped 2026-10-03 with integrity by labels, the fomites and the Advisory (the cut-list's Tier 1.1; Part III Item 74): T1's hold stays the floor, and Jev's `security.v1` (row 39) judges text shaped like instructions. The rules as decided:_
 - Integrity labels (`untrusted`, `quarantined`) inherit only along transmission edges, as an `effective_trust` projection, so they do not saturate.
 - A tool call proposed from a context that holds a quarantined node, or untrusted text shaped like instructions, is judged one posture stricter: `open` behaves as `notify`, and `notify` as `approve`. This holds only while that node is in the compiled context. (Decided on the old four-level ladder; restated on the three postures, 2026-09-28.)
 
@@ -493,36 +503,44 @@ Beads: theseus-3vu.
 
 **Gate.** Every tool call passes the gate in one order: the toollet's plan (which validates the input), the policy's decision, a confirm bound to the proposal's digest, the kernel's revalidation of that confirm, then dispatch. _(Amended 2026-09-28. This said "the kernel's gate in the §3.17 order", starting with a transform. The transform went with the hooks (11d2f43), and bb3ce56 replaced the kernel's `Policy` trait with plan, then decide; Part III A3b.)_ The policy gives one of two bands: run, or wait for a confirm. A tool's class (read, write, run) describes the tool; its posture comes from its name, not its class. Confirm goes to the requesting principal as a component on the message that would perform the action; for owner-authority executions it goes to the owner. On timeout nothing happens and there is no other fallback.
 
-**Information flow.** Cross-channel and cross-namespace recall is two decisions, not one: a **read** decision (may this execution's principal see nodes from that namespace or channel?) and a **disclosure** decision (may the result be shown in this channel to these participants?). Identity continuity for a `Person` namespace is not permission to disclose that person's data in a different guild or to other people. Both decisions are policy, evaluated deterministically, with Jev able to tighten but not loosen.
+**Information flow.** Cross-channel and cross-namespace recall is two decisions, not one: a **read** decision (may this execution's principal see nodes from that namespace or channel?) and a **disclosure** decision (may the result be shown in this channel to these participants?). Identity continuity for a `Person` namespace is not permission to disclose that person's data in a different guild or to other people. Both decisions are policy, evaluated deterministically, with Jev able to tighten but not loosen. _(Since 2026-10-03 the disclosure decision is the place rule's: a shared place reads only its own conversation, and recall there will draw on its own sessions alone; Part III Item 76.)_
 
-**Enforcement is at compile time, not at output time.** Once private material is in the model's context there is no reliable deterministic test of whether generated prose reveals it. Theseus therefore enforces disclosure **before generation** with **audience-safe context compilation**: the compiler (§4.4) receives the destination audience (channel, participants, external target) and admits only nodes whose confidentiality labels permit disclosure to that audience. Nodes carry a **confidentiality label** derived from their namespace and origin; generated nodes (`Message`, `Summary`, `Synthesis`, tool arguments sent outward, MCP responses and sampling requests) **inherit the most restrictive label of their inputs**, so an agent-authored summary of private or untrusted material is not public or trusted merely because its `origin` is `agent`. Declassification is an explicit, ledgered action by an authorized principal. The same labels drive the learning channel, web UI views, and logs, and they are what redaction lineage (§5.6) walks.
+**Enforcement is before generation, per place** (amended 2026-10-03, theseus-nbsh). Once private material is in the model's context there is no reliable deterministic test of whether generated prose reveals it. So Theseus keeps it out of the context of every place it may not reach. Since 2026-10-03 that is decided per place, not per node: a shared place's request carries its own conversation, the public tools' results, the public trees and the public context files, and nothing else. Publishing into a shared place is the owner's explicit, ledgered act. _(From 19a to 19d a confidentiality label on every node, inherited by what was generated from it, decided each compile: Part III Items 61, 63, 66 and 68. Removed in Item 76.)_
 
-**As built** (theseus-7ve.3; built 2026-10-02 in step 19a, Part III Item 61). A node's label is its integrity (`trusted`, or `untrusted` with where its text came from, in T1's shape) and its readers (anyone; whoever can view a guild channel; named people; or the owner alone). Whoever writes a node labels it, in the frame that writes it, and nothing relabels it:
-- the operator's words are the owner's from the CLI and the web UI, and their place's through Discord (a DM's person, a guild channel), by the connection's surface, never by the author a client claims;
-- a fetched page or a search result is untrusted, and anyone may read it;
-- a file, a diff, or a text tool's result is the owner's, unless `[labels] public_paths` names a tree that holds every path of the call; a program's output (L0 and L1 alike), AWS's, and the harness's own tools' are the owner's;
-- the model's answer and its calls are trusted, whatever they read (never by exposure), and read by the meet of what their request admitted, the context files its system block carried included (19d, Part III Item 68), so an answer that drew on owner-only material, a context file's too, is owner-only;
-- a task's brief and report carry T1's transmission and the meet of the context they came from. A report carries its task's title, the brief's first line, so it meets the brief's readers in too, in the parent's node and in the post the binding renders, even when the task's own request withheld the brief (19d).
+**As built: the place rule** (theseus-nbsh; built 2026-10-03, Part III Item 76). This is the simplification review's Tier 2. Eddie approved it at 10:58 ("a better start than owner labels"), and kept a light way to graduate. Every place a session speaks in has a class:
+- **Private:** the CLI and the web UI, a DM with an owner, and a guild channel the bindings file binds with `private = true` (the operator's word, trusted). It gets everything.
+- **Shared:** every other guild place, and a DM with someone who is not an owner. It gets:
+  - its own conversation;
+  - the tools whose results are public by nature: `web.search`, `http.fetch`, `wake.*` and `task.*`;
+  - `fs.*`, `git.*` and `text.*` only under `[places] public_paths`, taken canonically, so a link out of a public tree is outside it. There are none by default, and then no file tools;
+  - no `proc.run`, no `aws.*`, and nothing else;
+  - only the context files marked `readers = "public"`.
 
-A session's **audience** is where it posts: the owner alone (the CLI, the web UI, a task that reports nowhere), a DM's person, or whoever can view a guild channel. The Discord binding reads that and tells the core at connect, on a channel or role change, and before a turn there when its last read is a minute old. Without the Server Members intent nobody's view can be read, and the channel counts as public. The **owner** is the local surfaces and `[labels] owner`, which defaults to `[approval] trusted_users`; with neither section, a bound DM's person is the owner, as approval takes them. A compile admits a node only when every member of the audience is one of its readers or the owner (a channel's own words always go back into that channel). A withheld node keeps its place as one line that says what was left out and why, so every tool call keeps its result; a context file becomes its header and why. The manifest records the audience it was compiled for, and a compile for another audience recompiles (§4.4a). A node written before labels is read only in its own session, so every older session compiles as it did. A label's integrity does not yet feed the hold on external text, which still reads T1's `external` mark: the latch fed by labels is 20a's. Graduation and the held post were built in 19c, and the disclosure simulator in 19b (below).
+  Its model is offered only those tools, and its system block says why. Any other call is not run: the gate records it as an input it refused (`place: …`).
+- **The owner** is `[places] owner` (a `[labels]` section still reads). Without it, the owner is `[approval] trusted_users`; without either, a bound DM's person, as approval takes the owner.
+- **A turn's class** depends on where its words go: the session's place; for a task, its parent's; for a session no place runs any more, the place its wakes and reports answer in. If that cannot be read, the turn is a shared place's. The class is fixed for the turn.
+- **The binding** tells the core its places when it starts, and nothing is stored. A guild place it has not named (Discord off, or not started yet) is shared. After serving, the binding reads once who can view each channel bound private, and health warns when anyone besides the owner can: `places: private: CLI, web, #ops (⚠ bound private, but 1 person besides the owner can view it: cy), DM @eddie · shared: #openclaw (public tools only)`. Nothing reads viewers before a turn or a post, so a member added mid-run is seen at the next start.
+- **Publish** is the one way the owner's material reaches a shared place. It goes through `place.publish`: `theseus publish NODE|FILE --to PLACE [--note …]` or `--text …`, Discord's `/publish`, or the cockpit's publish control on an answer or a result.
+  - **Who:** only the owner, from a private place. It is judged as an approval is (a Theseus job's process never may), then by the place rule. Both checks come before anything it names is read.
+  - **What it writes:** one frame, never while a turn holds the place's session. The item goes into the place's conversation as the owner's message, under a header that says what it is, with his note. A `derived_from` edge is added when it copies a node (`publish`, so `node.reach` follows it). A `place.published` row records who, through what, the source, a digest, the bytes and the place. A notice is posted in the place.
+  - **A refusal** is an `approval.refused` row, and nothing else is written.
+- **M6's recall and the books**, when built, draw in a shared place only on that place's own sessions.
 
-_(Built 2026-10-02 in 19c, theseus-7ve.5; Part III Item 63.)_ **Graduation and the held post, as built.** **Graduation** is the only way an audience widens, and it is never a relabel. The operator writes a new node with `theseus graduate <node> --to public|place|people:<ids> --why "<warrant>"`, the web UI's Graduate on a node its session's audience withholds, or `label.graduate`:
-- origin `operator`, in the source's session, carrying the source's content, with a line that says what it is;
-- readable by the wider readers, with the source's integrity untouched, and a warrant: the node it came from, who, through what, why, and when (NODE schema 6);
-- a `derived_from` edge, so `theseus reach` follows the source into its copy.
+Removed with labels:
+- `Node.label` (NODE 7) and the manifest's audience, readers, integrity and withheld (COMPILATION 5). Both readers ignore the old fields;
+- the compile filter and its placeholders;
+- held posts and quiet loops;
+- the post-time viewer read;
+- graduation (`theseus graduate`);
+- the disclosure simulator;
+- `theseus labels`;
+- the metric `theseus.compile.withheld`.
 
-It is judged as an approval is: a Theseus job's process cannot graduate, and under `[approval]` only a trusted user through a trusted channel can. One frame writes it, never while a turn holds the session. The session's next compile admits it as an append, and the source's placeholder stays where it was, its call still paired. A placeholder names the command.
+The five `label.*` ledger kinds read as unknown kinds, byte for byte. The T1 hold on external text is untouched.
 
-**The held post.** Before a reply or a task's report leaves for a guild channel, its words' readers (the meet of its answers' labels) are checked against who can view the channel when it goes, read fresh: `labels::may_leave`. Readers that fit any audience the channel can have (public, or the channel's own words) need no read. Who views a channel that cannot be read counts as public. A post that may not leave is held, and is never refused:
-- a question goes where approvals go: the approvals DM (never the channel itself), `theseus confirm`, and the web UI. It has no expiry;
-- approve, and the post goes; decline, and its place gets "a reply was held back";
-- the posts after it in that place wait behind it.
-
-Since the binding streams a turn's text while it runs, a loop in a guild channel whose request drew on what not every viewer may read streams no text, and its tool lines show 🔒 for their input: the post, checked when it goes, is where its words first appear. A DM's audience is fixed: its posts are never checked, and its loops always stream.
-
-_(Built 2026-10-02 in 19b, theseus-7ve.7; Part III Item 66.)_ **The disclosure tests, as built.** `theseus-sim disclosure --seed N --steps M` drives a whole core in process through a world made from its seed: the owner and others, guild channels whose viewers change (a member the binding hears of only at its next read, a role it hears of at once, mid-turn too), DMs and the CLI, a private and a public tree of files, context files of both kinds, messages with files through each surface, reads, fetches, jobs that connected out, tasks with briefs and reports, graduations, held posts and the owner's answers, trusts, and a test-only foreign node (another session's node with its own label, standing in for recall). The simulator plays the Discord binding (it tells the core who views a channel, and delivers posts with the binding's check at post time) and the driver. Every piece of content carries a marker, and the simulator's model repeats every marker its request carried, so whatever a compile admits reaches its words, its stream, its post, and the briefs it writes. An oracle of its own, never the core's labels, judges each marker against the audience it reached. After every compile, streamed edit, post, and step it checks that every request carries only what its audience may read, whole nodes and placeholders both; that every post's content may be read by who views its place when it goes, or the owner released it; that no text streams into a guild channel unless every viewer it could ever have may read it; that every tool call keeps its result; and that a session holds external text exactly when T1's sites say. A failure names its seed, step, invariant, markers, and nodes, and the seed reproduces it. The gate runs a few fixed seeds, and each bug planted to prove it fails in them.
-
-_(Built 2026-10-02 in 19d, theseus-7ve.8; Part III Item 68.)_ **The simulator's two findings, closed.** 19b's simulator found two places where a label let owner-only material reach a wider audience, and 19d closed both. The context files a request carries are part of what its compile admitted, so their readers join the meet that labels the answer: in a channel the owner alone can view, an answer that drew on an owner-only file is the owner's, its loop is quiet, its post takes a read, and once someone else can view the channel the answer is withheld with the file. A task's report carries the brief's readers wherever its title goes, so a task whose own request withheld its brief (its channel grew before it ran) reports to the owner alone: its node in the parent is withheld from the wider audience, and its post waits for the owner. No gap is known to the simulator now, so its run fails as `--strict` does. A node written before 19d keeps its label, as every label is kept; a session holding one moves on with `/new`.
+**What it costs, said plainly:**
+- One owner item can no longer be visible to named people across places. Publish replaces that as an explicit act.
+- A private channel that gains a member is noticed at the next start, not at once.
 
 **Provenance vs trust.** `origin` on a node (operator, agent, tool, external, MCP server) is immutable provenance. `trust` is an inferred, mutable projection Jev may adjust. Jev never relabels origin.
 
@@ -538,7 +556,7 @@ The **learning channel** is a Discord channel per guild (bound `listen_only` for
 
 ### 3.11 Voice
 
-Voice is a Discord voice channel via `songbird`, receive and transmit. STT and TTS are `Speech` plugins; Deepgram and Cartesia first, since the operator's earlier voice project carries the integration knowledge. Push-to-talk versus voice activity detection is a human Discord preference, not an agent concern. The agent joins a voice channel only when invited. Core behaviours lifted from that project: barge-in cancels TTS mid-sentence, proactive speech when background work reports back, deferred reports queued for the next pause, short verbal acknowledgements when a turn will take more than a couple of seconds. A voice channel is a channel; its conversation is shared with the paired text channel under the same binding; its transcript is text in the same graph. TTS voice is a persona attribute that roles may modulate. _(2026-10-03: voice leaves v1 until Eddie chooses speech providers, rows 77 and 78, and its crate is parked outside the workspace until then; §2, P9, Part III Item 72.)_
+Voice is a Discord voice channel via `songbird`, receive and transmit. STT and TTS are `Speech` plugins; Deepgram and Cartesia first, since the operator's earlier voice project carries the integration knowledge. Push-to-talk versus voice activity detection is a human Discord preference, not an agent concern. The agent joins a voice channel only when invited. Core behaviours lifted from that project: barge-in cancels TTS mid-sentence, proactive speech when background work reports back, deferred reports queued for the next pause, short verbal acknowledgements when a turn will take more than a couple of seconds. A voice channel is a channel; its conversation is shared with the paired text channel under the same binding; its transcript is text in the same graph. TTS voice is a persona attribute that roles may modulate. _(2026-10-03: voice leaves v1 until Eddie chooses speech providers, rows 77 and 78, and its crate is parked outside the workspace until then; §2, P9, Part III Item 72.)_ _(At 14:20 the same day Eddie chose Deepgram for both speech to text and synthesis, so voice returns to v1, rows 77 and 78, its crate rejoining the workspace with its row; §2.)_
 
 ### 3.12 Plugins
 
@@ -587,7 +605,7 @@ _(Amended 2026-10-01, theseus-in3, Part III Item 33: the web apps follow the pus
 
 **The cockpit** (theseus-45n5; built 2026-10-01, Part III Item 23). A second app at `/cockpit/`, which the Observatory links to as "see the new experience". It's the operator's instrument panel: how Theseus is running, with drill-down to each turn's loops, calls, tokens, cost, and context.
 - It is a protocol client like the Observatory, over the same `/ws` and the same client (`web/src/protocol.ts`). It is served from the binary under the same `Host`, `Origin`, and owner rules, and adds no privileged path.
-- It doesn't replace the Observatory, which stays the plain view.
+- It doesn't replace the Observatory, which stays the plain view. _(Decided 2026-10-03, the cut-list's 6.4: the cockpit replaces the Observatory, after a parity check; the parity inventory runs in the third cloud batch.)_
 - Its build is embedded when present. A daemon built without it says how to build it.
 - **Every call can be opened whole** (Item 27). The call inspector (`?call=<tool_use_id or correlation id>`) gathers
   one tool call's story from the transcript and the ledger: what the model asked, what the gate said and why, its
@@ -808,7 +826,7 @@ Native in-process calls of one response that only read run concurrently (§4.6).
 
 A cancel or a stop ends its jobs together (theseus-bzq; built 2026-10-01): SIGTERM to every job's process group at once, one shared grace (2 s), then SIGKILL for the stragglers, so N jobs cost one grace. A job is gone only when no live process is left in its group, not when its wrapper is: the wrapper dies at SIGTERM, and a command that traps it would run on. The daemon waits on its runtime's timer, never on a worker thread.
 
-**Verified per backend** (theseus-7ve.2, with theseus-hcc; built 2026-10-02 in step 18a, Part III Item 60). A cancel's `termination_verified` means every process of the job is gone, and the action's verdict says how that is known. Before 18a a `setsid` descendant left the group above and ran on, and a deadline killed only the command (theseus-hcc). Now the daemon asks each job's wrapper alone (SIGTERM by `sigqueue`, the grace in its value), and the wrapper, a child subreaper, stops its whole tree: SIGTERM to every descendant, the grace, then a freeze (SIGSTOP, rescanning until nothing new appears and every process reads stopped) and SIGKILL, each signal through a pidfd checked against the process's start time. The wrapper writes its verdict to the spool (`stops/<id>`) and exits with no completion, so a cancel settles as it did before; the deadline uses the same stop, its verdict in the completion. A plain SIGTERM stops the tree too, and still ends the wrapper by the signal. A wrapper that doesn't answer within the grace and 2.5 s is killed with its group, uncertain. A wrapper from before the install, which dies at the first SIGTERM (`/proc`'s `SigCgt` tells it), is stopped by its process group as above. An L1 job is stopped through its init (SIGTERM, which the init forwards, then SIGKILL), verified by its pid namespace, or by `cgroup.kill` where it has its delegated cgroup, verified by the cgroup. An async tool's task is aborted and verified once its handle has finished; an in-process toollet cannot be stopped (`unsupported`). A cancel, a task's cancel, `/stop`, the disk floor, and the stop at a launch all go through one `terminate_all`. Each action keeps its verdict (`verified_by`: `pidns`, `cgroup`, `tree`, `group`, `task`, or `none`; `killed`; `survivors`; and why, when not verified; ACTION schema 3, and OUTBOX schema 2, since a post is an action), with an `action.cancel_verified`, `_uncertain`, or `_unsupported` row, and the surfaces say it: `⏹️ cancelled proc.run …a1b2c3 (verified: pid namespace, 3 processes)`. At L0, verified means the wrapper's descendants (`scope: descendants`): a process outside the tree acting for the job (a user unit, a tmux server already running) is out of its sight, which L1's view closes.
+**Verified per backend** (theseus-7ve.2, with theseus-hcc; built 2026-10-02 in step 18a, Part III Item 60). A cancel's `termination_verified` means every process of the job is gone, and the action's verdict says how that is known. Before 18a a `setsid` descendant left the group above and ran on, and a deadline killed only the command (theseus-hcc). Now the daemon asks each job's wrapper alone (SIGTERM by `sigqueue`, the grace in its value), and the wrapper, a child subreaper, stops its whole tree: SIGTERM to every descendant, the grace, then a freeze (SIGSTOP, rescanning until nothing new appears and every process reads stopped) and SIGKILL, each signal through a pidfd checked against the process's start time. The wrapper writes its verdict to the spool (`stops/<id>`) and exits with no completion, so a cancel settles as it did before; the deadline uses the same stop, its verdict in the completion. A plain SIGTERM stops the tree too, and still ends the wrapper by the signal. A wrapper that doesn't answer within the grace and 2.5 s is killed with its group, uncertain. A wrapper from before the install, which dies at the first SIGTERM (`/proc`'s `SigCgt` tells it), is stopped by its process group as above. An L1 job is stopped through its init (SIGTERM, which the init forwards, then SIGKILL), verified by its pid namespace, ~~or by `cgroup.kill` where it has its delegated cgroup, verified by the cgroup~~ (the cgroup went with the sandbox trims, Part III Item 77; a stored `cgroup` verdict still reads). An async tool's task is aborted and verified once its handle has finished; an in-process toollet cannot be stopped (`unsupported`). A cancel, a task's cancel, `/stop`, the disk floor, and the stop at a launch all go through one `terminate_all`. Each action keeps its verdict (`verified_by`: `pidns`, `cgroup`, `tree`, `group`, `task`, or `none`; `killed`; `survivors`; and why, when not verified; ACTION schema 3, and OUTBOX schema 2, since a post is an action), with an `action.cancel_verified`, `_uncertain`, or `_unsupported` row, and the surfaces say it: `⏹️ cancelled proc.run …a1b2c3 (verified: pid namespace, 3 processes)`. At L0, verified means the wrapper's descendants (`scope: descendants`): a process outside the tree acting for the job (a user unit, a tmux server already running) is out of its sight, which L1's view closes.
 
 **A stop during a job's launch** (theseus-36to; built 2026-10-01, Part III Item 37). A job's action is dispatched durably before its wrapper is spawned, and the wrapper's pid reaches the spool only once the spawn returns. A `/stop` or a cancel marks each dispatched action `cancel = requested`, then reads its pid. The start reads the action just before the launch, and again once the pid is written, so one side always sees the other. A job the stop reached before its launch is never started: its result reads "Not run: stopped by …", as for any call a stop caught before it ran, and a `job.not_started` row records it. A job the stop reached during its launch, which the stop found without a pid, is stopped by the start itself, as the stop would have stopped it, with a `job.stopped_at_launch` row.
 
@@ -902,6 +920,8 @@ _(Amended 2026-10-02, theseus-u55z, Part III Item 50: the index and the children
 _(Amended 2026-10-02, steps 18a and 19a, Part III Items 60 and 61: a cancel's verdict, and labels.)_ `execution.cancel`, `task.cancel`, and `execution.stop` answer with each call's `verdicts`; an action carries its `verdict`, and `tool.ended` its `verified` words. Health's `cancels` counts each backend's cancels (`l0`, `l1`, `async`, `inproc`) by state since the start, and its `labels` names the owner and each guild channel's audience as the binding last read it, with how many viewers are not the owner, or why they can't be read. `context.compiled` carries the session's `audience`, and `withheld` when a compile withheld anything. `session.history`'s nodes carry their labels, so `theseus labels` needs no method of its own: it reads them, and `compilation.list`. `theseus health` prints `cancels since the start:` and `labels:` lines.
 
 _(Amended 2026-10-03, Part III Items 63, 64, 69, 70, and 71: graduation, the held post, the cockpit's reads, the build, and the harness-only line.)_ `label.graduate` writes a graduated node (19c), and a held post is a question of the tool `label.release`, answered by `action.confirm` as any question is. `context.compiled` carries the request's `readers`, a node of `session.history` says when its session's audience withholds it (`withheld`), and health's `labels` counts held posts. Three reads serve the cockpit, none taking a path from the caller: `ledger.tail` takes `after` and answers `next`, so the ledger can be read whole, a page at a time; `bench.history` reads the gate's bench history on the daemon's own machine; and `sandbox.usage` reads each running L1 job's cgroup, and names each running job's command. Health's `build` and `server.started`'s `data.build` name the binary's commit. Health's `harness_only` lists what a job may be handed and the keys that stay the harness's (§3.19), and `theseus health` prints its line. 18d's credential requests (a `cred.request` action, the `secret.requested` notification, and health's `cred_requests`) were added and removed the same night (Items 65 and 71).
+
+_(Amended 2026-10-03, Part III Items 74, 76, 77 and 78: a job's session, places and publish, the sandbox's health, and the AWS bootstrap.)_ `session.open` and `turn.submit` take an optional `opened_from`, absent from the bytes when unset, which the CLI fills from a job's `THESEUS_SESSION` (`JOB_SESSION_ENV`); `session.opened`'s row names it, and the hold's `via` gains `program` and `job` (Item 74). The labels' wire shapes went with them (Item 76): `label.graduate`, the held post's `label.release`, a node's `label`, the manifest's `audience`, `readers`, `integrity` and `withheld`, `context.compiled`'s `audience` and `readers`, and health's `labels`. In their place: health's `places` (each place, its class, and a channel bound private that others can view), `context.compiled`'s `class` and the context files it withheld, and the method `place.publish`, judged as an approval is (`Act::Publish`). Health's `sandbox` drops `memory_mb`, `probe` and `cgroup` and adds `last_launch` and `refuses`, and `sandbox.usage` lists the L1 jobs running now, with no cgroup readings (Item 77), so an older CLI can't read a newer daemon's health, and the binaries install together. `aws.bootstrap` is the CLI's alone (Item 78); the RPC server's act list holds 14.
 
 **Two binaries, one protocol** (revised in M0 at Eddie's request: a server binary paired with a CLI binary). `theseusd` is the server: the daemon on a Unix socket, or `--stdio` when a client spawns it, plus `check` and `example-config`; tenders and `restore` join it later. `theseus` is the CLI: `ask`, `health`, `sessions`, `rpc`, `shutdown` (`hooks list|watch` went with the hook system on 2026-09-28; `theseus watch` follows a session), with `--json`, `--spawn`, stdin prompts, and shell exit codes (0 ok, 1 server or provider error, 2 usage, 3 cannot connect, 4 a wait that timed out). The CLI links only `theseus-protocol`, never the core, so it cannot cheat. ~~Both are static musl binaries.~~ _(Corrected 2026-10-02, Part III Item 36: that held only for CI's artifacts. CI builds `theseusd`, `theseus`, and `theseus-tui` as static musl binaries. The install recipe builds them from `target/release` for the host's glibc, so the installed binaries are dynamically linked. ~~Lane bench2's reproducible builds (theseus-goa8) may settle which build the install uses.~~ Settled by measuring both (theseus-goa8, Part III Item 48): CI builds the static musl binaries on every push, as the portable artifact, and an install is the host's glibc build of the same commit, `scripts/build.sh --profile release-thin`. musl's resident memory is 16 to 25 % lower, and its stops, restarts, and swaps are 20 to 40 % quicker, but its allocator costs allocation-heavy work 36 % more user CPU and 3 to 5 times the system time. So the install keeps glibc, which the gate and the live checks run, until a musl build with a better allocator closes the gap (theseus-w6hg) and a musl run is part of the tests (theseus-3yu1). Both reproduce byte for byte from a commit.)_
 
@@ -1161,10 +1181,10 @@ the log, never in the row or health.
 
 **Under systemd** (theseus-w1nf; built 2026-10-02, Part III Item 56). The operator's daemon runs as a systemd
 user service: `scripts/user-service.sh install` checks the machine, writes the unit `theseusd install --user`
-plans (`Delegate=yes`, `KillSignal=SIGINT`, `KillMode=process`, `Restart=on-failure`), enables it with linger,
-and shows health. systemd restarts a crash, and a clean `theseus shutdown` stays stopped. The unit's
+plans (~~`Delegate=yes`,~~ `KillSignal=SIGINT`, `KillMode=process`, `Restart=on-failure`), enables it with linger,
+and shows health. systemd restarts a crash, and a clean `theseus shutdown` stays stopped. ~~The unit's
 `ExecStopPost=-theseusd cgroup-release` turns L1's job limits off at a stop, so the next daemon can start while
-an old job runs (§7; Part III Item 58). An upgrade is a build, a copy-then-rename, and `scripts/user-service.sh
+an old job runs (§7; Part III Item 58).~~ _(Since the sandbox trims, 2026-10-03, Part III Item 77: L1 uses no cgroup, so the unit has no `Delegate=` and no stop hook, and keeps `KillMode=process`, which lets a running job outlive a stop.)_ An upgrade is a build, a copy-then-rename, and `scripts/user-service.sh
 restart`.
 
 This is a deliberate contrast with the gateway Theseus replaces, where in-flight tool calls, subagent handles, and session state live in process memory and a restart loses them. The M0 binary is not yet restart-safe in this sense; M1 Keel and M2 Kernel are where the construction happens, and the simulator is what proves it.
@@ -1262,7 +1282,21 @@ _(As built 2026-10-01, theseus-8ye: see Part III Item 21. No model-facing task o
 
 _(Added 2026-10-02 with row 29, AWS's C1 = 14a; Part III Item 49. The design is `docs/design/aws-toolset.md`.)_ Theseus owns its home account (§1, "Home AWS account"). The config binds it as `[aws.accounts.<id>]`: its key, the root of trust, as two `[secrets]` entries (`credentials`; `aws_access_key_id` and `aws_secret_access_key` by default), its region, and the regions a call may name. The key resolves on the secrets board after serving like every secret, and the account is checked once, after serving: `sts:GetCallerIdentity` must name this account. Until that passes, no call of the account signs; a call waits for the check at most 30 s, then fails closed, and health says why (`aws:` per account, and the `aws.check` startup phase). Until the foundation stack exists (14b), the key signs the account's reads directly.
 
-The tools are one generic caller and three curated ones: `aws.call` (any operation of any service, from a catalog compiled from the AWS CLI's models, signed with AWS's `aws-sigv4`), `aws.describe` (the catalog, local), `aws.whoami`, and `aws.s3.list`. Each checks its whole call before the gate, with no network, so a bad call is invalid input and nothing is sent. Until 14b brings the guards, so is a call that writes, runs code, or returns a secret; the error names the step that brings it. An AWS call's posture is `[policy.tools]`'s line for its tool, then `[policy.aws]`'s for its operation (`"s3:ListBuckets"`), its service (`"s3"`), and its class (`read`), then `enforcement` (§3.9). Every request is attributed (the user agent's `exec/<execution>` and `call/<correlation id>`, which CloudTrail keeps), and recorded: an `aws.called` ledger row with AWS's request id, never a credential or a result, and a span under its call's in the turn's trace, in OpenTelemetry's AWS names. A tool call's gate record holds its class and its AWS call (`plan.class`, `plan.aws`).
+The tools are one generic caller and three curated ones: `aws.call` (any operation of any service, from a catalog compiled from the AWS CLI's models, signed with AWS's `aws-sigv4`), `aws.describe` (the catalog, local), `aws.whoami`, and `aws.s3.list`. Each checks its whole call before the gate, with no network, so a bad call is invalid input and nothing is sent. Until 14b brings the guards, so is a call that writes, runs code, or returns a secret; the error names the step that brings it. _(Since C2, Item 78, only a secret-bearing read is, until C3: writes and runs are planned against the guards, below.)_ An AWS call's posture is `[policy.tools]`'s line for its tool, then `[policy.aws]`'s for its operation (`"s3:ListBuckets"`), its service (`"s3"`), and its class (`read`), then `enforcement` (§3.9). Every request is attributed (the user agent's `exec/<execution>` and `call/<correlation id>`, which CloudTrail keeps), and recorded: an `aws.called` ledger row with AWS's request id, never a credential or a result, and a span under its call's in the turn's trace, in OpenTelemetry's AWS names. A tool call's gate record holds its class and its AWS call (`plan.class`, `plan.aws`).
+
+_(Amended 2026-10-03 with row 30, C2 = 14b; Part III Item 78.)_ **Who signs.** An account's key, its root of trust, signs everything until the config names the owner role that `theseus aws bootstrap` made (`owner_role = "theseus-owner"`). From then on the key signs only `sts:GetCallerIdentity` and `sts:AssumeRole` into that role. Every call signs in a role session minted from it: an execution's work session (the guards, then `theseus-allow-all`), a job's (adding `theseus-guard-stacks`), a floor session for one call the operator approved (`theseus-allow-all` alone, fifteen minutes, never cached), or a tender's (its own inline policy). Each session's source identity is the deployment; each mint is an `aws.session.minted` row; no credential is ever written.
+
+**Writes.** `aws.call` makes any operation of any service, and its plan reads the guard list (`theseus-aws-guard`), the one list AWS's guards are generated from. A guardrail is the floor and asks at every posture; durable infrastructure, and a stack's own writes, are invalid input that points to the stack tools; a deletion of what holds state asks. Everything else takes `[policy.aws]`: the operation, the service, then the call's class (`read`, `write`, `run`). A secret-bearing read stays invalid input until C3.
+
+**Stacks.** `aws.stack.plan` makes a change set under the deployer role and shows its diff and digest; `aws.stack.apply` executes exactly the change set a plan showed, at the floor when it touches a guardrail and asking when it would lose state; `aws.stack.status` and `aws.stack.delete` complete them.
+
+**The bootstrap.** `theseus aws bootstrap` plans the foundation and posture stacks, and the relay in us-east-1, read-only (a new stack's plan is its template's resources; no change set), and applies that plan, bound to its digest, on the operator's yes: the foundation with the key, the rest in a floor session through the deployer. A plan after it shows no change. It is the CLI's alone. _(Its first apply, on Eddie's account, was cleared by him at 14:20 the same day, lean, without the trail's own key, and follows this record: Item 78.)_
+
+**The lean posture.** The stacks add about ten cents a month to a quiet account: SSE-S3, not customer keys (the trail may take its own with `TrailKey=customer`); the CIS checks as EventBridge rules on CloudTrail's management events, not alarms on a log group; GuardDuty on, with its usage read weekly. Rules are regional, so a relay brings us-east-1's global-service events to the home region.
+
+**The budget.** `monthly_budget_usd` is reconciled into the foundation stack after serving: a change set that touches the budget alone, applied without asking, else stopped and said. Health reads the budget every six hours (free); at 100% AWS's own action attaches `theseus-deny-spend`.
+
+**Programs.** `[broker.programs.aws] aws_account` gives the `aws` CLI a short-lived job session at launch, never the key.
 
 ## 4. The context graph
 
@@ -1310,7 +1344,7 @@ The owner or an operator adds rows in the web UI. Jev or a dream may propose row
 
 **Two guardrails.**
 - *Given versus interpreted.* Channel, guild, and person memberships come from the transport. They are facts, and they are never re-associated. Topic, culture, and expertise memberships are interpretations, and they may be.
-- *Interpretations route context but never grant access.* Which nodes a principal may read, and which audiences may see them, is decided by §3.9's labels and the bindings the operator declares. An interpreted membership never decides it. It is the same line §1 draws for roles.
+- *Interpretations route context but never grant access.* Which nodes a principal may read, and which audiences may see them, is decided by §3.9's ~~labels~~ place rule (since 2026-10-03, Part III Item 76) and the bindings the operator declares. An interpreted membership never decides it. It is the same line §1 draws for roles.
 
 **The compiler.**
 - A compile looks up the session's current memberships, one read per kind, all precomputed. FAST forbids an embedding search or a Jev call on this path.
@@ -1321,7 +1355,7 @@ The owner or an operator adds rows in the web UI. Jev or a dream may propose row
 **Consequences** (§3.9) were also a kind in this table, on the authority side, with memberships from deterministic detection only. _Superseded 2026-09-28: the consequence kinds were removed with the detection that assigned them (§3.9; Part III A3b)._
 
 **Phasing.**
-- **M4:** the kinds table, declared memberships, guidance, and the compile walk, beside the labels.
+- **M4:** the kinds table, declared memberships, guidance, and the compile walk, beside ~~the labels~~ the place rule (Item 76).
 - **M5:** `categorize.v1` in shadow.
 - **M6:** embeddings, sweeps and dreams, lessons as guidance, and §5.5's namespaces as kinds.
 
@@ -1380,8 +1414,8 @@ came with it, and a tool result may carry an image.
   - A file that was not read keeps the reason.
   - Nothing about an attachment fails a turn.
 - **Placement.** Each attachment is its own block before the typed text, under a header that names the file and
-  its sender (`[Attachment message.txt from discord:eddie, 5,012 bytes]`). Until the labels of §3.9 exist, the
-  header is what marks the text as the file's.
+  its sender (`[Attachment message.txt from discord:eddie, 5,012 bytes]`). The
+  header is what marks the text as the file's (no label on a node does, since Part III Item 76).
 - **Vision.** The catalog entry of the compilation's model decides how an image shows. A model with vision gets
   an image block. Any other model gets one line: `[Image photo.png from discord:eddie, 1.2 MB: not shown, this
   model has no vision]`. `fs.read` of an image does the same inside its `tool_result`.
@@ -1416,7 +1450,7 @@ Compiling every turn from scratch would be wrong twice over: it burns a prompt-c
 
 Each turn the harness asks one question before the model runs: **append, or recompile?** The answer is layered so that the expensive judge is consulted only when something has actually changed.
 
-1. **Deterministic triggers force a recompile** and never consult Jev: the audience or a confidentiality label in play changed (disclosure, §3.9); a declared ontology membership changed in a way that alters access (§4.1a; an interpreted membership change waits for the next recompile, so the prompt cache survives it); policy, tool schemas, role, or binding revision changed; the model changed; the tail would overflow the window or the configured tail budget; the session is new (a promoted task's first turn is always a compile); the execution glided to another channel; a redaction touched a node inside the current compilation. _(The audience: built 2026-10-02 in 19a as the `audience` trigger, Part III Item 61. A compile for another audience than its manifest's recompiles, its prefix's thinking stripped, and any change of audience counts, not only one that changes an admission (theseus-osl1). A compilation from before labels keeps appending until something in its session would be withheld.)_
+1. **Deterministic triggers force a recompile** and never consult Jev: ~~the audience or a confidentiality label in play changed (disclosure, §3.9);~~ a declared ontology membership changed in a way that alters access (§4.1a; an interpreted membership change waits for the next recompile, so the prompt cache survives it); policy, tool schemas, role, or binding revision changed; the model changed; the tail would overflow the window or the configured tail budget; the session is new (a promoted task's first turn is always a compile); the execution glided to another channel; a redaction touched a node inside the current compilation. _(The audience: built 2026-10-02 in 19a as the `audience` trigger, Part III Item 61. A compile for another audience than its manifest's recompiles, its prefix's thinking stripped, and any change of audience counts, not only one that changes an admission (theseus-osl1). A compilation from before labels keeps appending until something in its session would be withheld.)_ _(The audience trigger went with the labels on 2026-10-03, Part III Item 76.)_
 2. **Candidate signals arm the judge**, cheaply and deterministically: a reference to another channel or an old topic (`mentions_conversation`, a recall hit outside the tail), a material task-state change in the session's scope, a long dormancy gap, a role hint change, a human asking for a fresh look, the tail crossing a soft length band, a cache-state change reported by the provider. If no signal fired, the turn **appends** and Jev is not called.
 3. **Jev decides when a signal fired**: `continue.v1` receives the signals, the tail length, the cache state, the current compilation's manifest summary, and the budget, and answers `append` or `recompile(strategy)`. Jev owns this judgment as a core responsibility: it is deciding whether the world has changed enough that the model needs a rebuilt view rather than one more message.
 
@@ -1459,7 +1493,7 @@ Session {
 }
 ```
 
-_(As built in 19a, Part III Item 61: what a compilation was compiled for, its audience, the meet of what its prefix admitted, the integrity in play, and the nodes it withheld, is in the compilation's manifest (COMPILATION schema 4). The session record has no `labels_in_play`, and 19a left it unchanged.)_
+_(As built in 19a, Part III Item 61: what a compilation was compiled for, its audience, the meet of what its prefix admitted, the integrity in play, and the nodes it withheld, is in the compilation's manifest (COMPILATION schema 4). The session record has no `labels_in_play`, and 19a left it unchanged.)_ _(COMPILATION 5 drops the audience, the readers, the integrity and the withheld nodes, with the labels; the manifest marks each context file public or not, and `context.compiled` records the place's class and what it withheld; Part III Item 76.)_
 
 **Finding a session's own records.** Positions are global across every session, so a `tail` position range is full of other sessions' records on a busy runtime. The index therefore carries a per-session ordered table, `session_id ‖ position → ()`, and the tail walk is a range scan over exactly this session's records. The table is the same shape as the per-kind table and is rebuilt from the WAL like the rest of the index. _(Added v0.24, before M2 began; Session records are M2 work.)_
 
@@ -1756,11 +1790,11 @@ workspace.{create, attach_repo, snapshot, list}
 | **A3 SSM** | tagged fleet | seconds | fleet's | the host's | the host's | operating a specific host |
 | **A4 dev box** | named EC2 | seconds | its own | full, curated | the box's | curated environments |
 
-**L1 contract** (what "sandbox" means here, so it is not called strong by assertion): user, pid, mount, uts, ipc, and **net** namespaces; no network by default, with an explicit per-job egress allowlist and **no access to the instance metadata service or to localhost services**, including Theseus's own MCP server and web UI; capabilities dropped to none; a default seccomp profile; no device nodes beyond null/zero/random; masked `/proc` and `/sys`; cgroup limits on CPU, memory, pids, and disk with output size caps; the whole process tree killed on timeout or cancel. Anything the contract does not grant is denied. L0 grants everything the operator's user can do, and the spec says so plainly.
+**L1 contract** (what "sandbox" means here, so it is not called strong by assertion): user, pid, mount, uts, ipc, and **net** namespaces; no network by default, with an explicit per-job egress allowlist and **no access to the instance metadata service or to localhost services**, including Theseus's own MCP server and web UI; capabilities dropped to none; a default seccomp profile; no device nodes beyond null/zero/random; masked `/proc` and `/sys`; cgroup limits on CPU, memory, pids, and disk with output size caps; the whole process tree killed on timeout or cancel. Anything the contract does not grant is denied. L0 grants everything the operator's user can do, and the spec says so plainly. _(As built since 2026-10-03, the sandbox trims, Part III Item 77: no cgroup. A job's limits are `RLIMIT_NPROC` (its processes), `RLIMIT_FSIZE` (any one file) and the scratch caps, with no memory limit, as at L0; a root daemon's L1 job is refused, since Linux exempts root from `RLIMIT_NPROC`.)_
 
-_(As built 2026-10-02, step 17b, theseus-7ve.1; Part III Item 58.)_ A `proc.run` runs in L1 when the model asks (`sandbox: true`), when `[sandbox] l1_argv` names its program, or when `[sandbox] default = "l1"`; nothing turns L1 back to L0. An L1 job runs at `notify` (Eddie, 2026-10-02 at 09:39): its view hides Theseus's floor, the approve list's paths, the daemon's socket, and cargo's credentials files, so the floor and the approve lists have nothing to guard, and a program's broker grant reaches it at its launch, as at L0, at the stricter of the two postures (theseus-w5op, Part III Item 71); a session holding external text still holds it (until 20a). The operator's own word about `proc.run` still reaches an L1 call: its `[policy.tools]` line saying `approve`, or a "should have asked" tightening, makes the call wait, still in L1. A looser line never makes it quieter than `notify`, and the inherited `enforcement` never makes it wait (Eddie, 2026-10-02 at 16:03; theseus-jfs6, Part III Item 59). The class is in the gate record and in the proposal a confirm binds, so an approved L1 call runs in L1. A job that can't start in L1 fails with the reason and never runs at L0. Its limits: `pids` (`RLIMIT_NPROC`, and `pids.max` with a delegated cgroup), `memory_mb` (only with a delegated cgroup: the daemon's own systemd service with `Delegate=yes`, judged by systemd's own answer), `scratch_mb` for scratch, `/tmp`, and HOME, and `output_mb` for any one file. What it writes to the workspace goes to scratch and is discarded; its result lists it. The first L1 job turns job limits on in the unit's cgroup, so a unit that keeps its jobs across a stop (`KillMode=process`) needs `ExecStopPost=-theseusd cgroup-release`, which turns them off again, or its next daemon can't start while an old job runs; the installer writes the hook, and the daemon delegates only under a unit that has it. Egress was built in 18c (Part III Item 62, below); credentials are grants at launch (Item 71), after 18d's run-time socket was built and removed (Item 65). Cancellation per backend is built (step 18a, Part III Item 60; §3.16): an L1 job stops through its init, verified by its pid namespace, or by `cgroup.kill` where it has its delegated cgroup, verified by the cgroup.
+_(As built 2026-10-02, step 17b, theseus-7ve.1; Part III Item 58.)_ A `proc.run` runs in L1 when the model asks (`sandbox: true`), when `[sandbox] l1_argv` names its program, or when `[sandbox] default = "l1"`; nothing turns L1 back to L0. An L1 job runs at `notify` (Eddie, 2026-10-02 at 09:39): its view hides Theseus's floor, the approve list's paths, the daemon's socket, and cargo's credentials files, so the floor and the approve lists have nothing to guard, and a program's broker grant reaches it at its launch, as at L0, at the stricter of the two postures (theseus-w5op, Part III Item 71); a session holding external text still holds it (the exemption Eddie chose for a job with no egress and no secret was 20a's, which was dropped, and is not built: theseus-oaf9). The operator's own word about `proc.run` still reaches an L1 call: its `[policy.tools]` line saying `approve`, or a "should have asked" tightening, makes the call wait, still in L1. A looser line never makes it quieter than `notify`, and the inherited `enforcement` never makes it wait (Eddie, 2026-10-02 at 16:03; theseus-jfs6, Part III Item 59). The class is in the gate record and in the proposal a confirm binds, so an approved L1 call runs in L1. A job that can't start in L1 fails with the reason and never runs at L0. Its limits: `pids` (`RLIMIT_NPROC`~~, and `pids.max` with a delegated cgroup~~), ~~`memory_mb` (only with a delegated cgroup: the daemon's own systemd service with `Delegate=yes`, judged by systemd's own answer),~~ `scratch_mb` for scratch, `/tmp`, and HOME, and `output_mb` for any one file. What it writes to the workspace goes to scratch and is discarded; its result lists it. ~~The first L1 job turns job limits on in the unit's cgroup, so a unit that keeps its jobs across a stop (`KillMode=process`) needs `ExecStopPost=-theseusd cgroup-release`, which turns them off again, or its next daemon can't start while an old job runs; the installer writes the hook, and the daemon delegates only under a unit that has it.~~ (The cgroup, its limits and its hook went with the sandbox trims, Part III Item 77.) Egress was built in 18c (Part III Item 62, below); credentials are grants at launch (Item 71), after 18d's run-time socket was built and removed (Item 65). Cancellation per backend is built (step 18a, Part III Item 60; §3.16): an L1 job stops through its init, verified by its pid namespace, ~~or by `cgroup.kill` where it has its delegated cgroup, verified by the cgroup~~ (since Item 77, the pid namespace alone).
 
-_(As built 2026-10-02, step 18c, theseus-7ve.4; Part III Item 62.)_ **Egress.** An L1 job has no network unless a list names hosts. `[sandbox] egress` (empty by default) is the operator's list: each entry `host:port`, a `*` in the host matching any run of characters (`*.crates.io:443` is every name under crates.io, not crates.io itself), the port exact. A call may name more, `proc.run { sandbox: { egress: ["pypi.org:443"] } }`, which also asks for L1; a host beyond the operator's list makes the call wait, as a path outside the roots does, and its approval lets that job reach those hosts and no other: the job's whole list is in its proposal, so the digest a confirm binds covers it. A job with a list gets a listener on 127.0.0.1:3128 inside its network namespace, handed to its wrapper, and `HTTPS_PROXY`, `HTTP_PROXY`, and `ALL_PROXY` naming it; the wrapper serves `CONNECT` there from the host's namespace. Each `CONNECT` is matched against the list, then resolved by DD5's public-only rule (a name any of whose addresses is loopback, private, link-local, the metadata service's, or otherwise not public is refused), then connected and copied both ways; a refusal is a 403 whose body says why. Plain `http://` forwarding is not offered, and a program that ignores the variables has no route. The proxy stops when the job ends, a stop or a deadline included, and records every tunnel it opened. A job with no list gets no listener and no proxy. **What it brings back is outside text:** a result whose job connected out is marked external, so its session holds it (§3.9), the reason naming the egress ("proc.run's egress to api.github.com:443"), and its node is untrusted, its readers still the owner's; a job that connected nowhere holds nothing. Every host on the list is a way out for anything the job can read. Recognizing request shapes would need TLS interception, which is dropped for v1 (Item 69); the list is M4's control.
+_(As built 2026-10-02, step 18c, theseus-7ve.4; Part III Item 62.)_ **Egress.** An L1 job has no network unless a list names hosts. `[sandbox] egress` (empty by default) is the operator's list: each entry `host:port`, a `*` in the host matching any run of characters (`*.crates.io:443` is every name under crates.io, not crates.io itself), the port exact. A call may name more, `proc.run { sandbox: { egress: ["pypi.org:443"] } }`, which also asks for L1; a host beyond the operator's list makes the call wait, as a path outside the roots does, and its approval lets that job reach those hosts and no other: the job's whole list is in its proposal, so the digest a confirm binds covers it. A job with a list gets a listener on 127.0.0.1:3128 inside its network namespace, handed to its wrapper, and `HTTPS_PROXY`, `HTTP_PROXY`, and `ALL_PROXY` naming it; the wrapper serves `CONNECT` there from the host's namespace. Each `CONNECT` is matched against the list, then resolved by DD5's public-only rule (a name any of whose addresses is loopback, private, link-local, the metadata service's, or otherwise not public is refused), then connected and copied both ways; a refusal is a 403 whose body says why. Plain `http://` forwarding is not offered, and a program that ignores the variables has no route. The proxy stops when the job ends, a stop or a deadline included, and records every tunnel it opened. A job with no list gets no listener and no proxy. **What it brings back is outside text:** a result whose job connected out is marked external, so its session holds it (§3.9), the reason naming the egress ("proc.run's egress to api.github.com:443"), and its node is untrusted, its readers still the owner's; a job that connected nowhere holds nothing. _(Since the sandbox trims, 2026-10-03, Part III Item 77: only a host beyond `[sandbox] egress`, which an approval of the call's own list let the job reach, makes its result outside text, and the reason names those hosts alone; a job that reached only listed hosts holds nothing. No node has a label since Item 76.)_ Every host on the list is a way out for anything the job can read. Recognizing request shapes would need TLS interception, which is dropped for v1 (Item 69); the list is M4's control.
 
 **The consequence boundary** (M4; §3.9 Consequences). _Superseded in part, 2026-09-28: the consequence kinds are gone (§3.9; Part III A3b), so the boundary has no consequence to name. What stands is the default-safe environment: an L1 job starts with no ambient credentials and reaches the network only through its allowlist. Whether a credential request or a recognized request shape should notify or wait is held for Eddie, with M4._ The design as it stood, where L1 is where consequences stop depending on spelling:
 - **Credential brokering.** A job starts with no ambient credentials. To push, publish, or post it must ask Theseus for a scoped credential, and that request is the consequence, judged by the gate.
@@ -1856,7 +1890,11 @@ which are never faster than release.
   restart's p95 was 2.3 s on a tree that had passed at 41 ms. Busy cores with nothing queued slow each thread
   with little CPU pressure (all-core turbo, shared SMT siblings): at load 14 on 16 cores every phase ran about 2×
   slow. The load bar is the core count, not half of it, so a long neighbouring build doesn't stall every gate.
-  After 5 minutes it measures anyway. The budgets don't change. A lane's niced gate whose only miss is the bench,
+  After 5 minutes it measures anyway. ~~The budgets don't change.~~ Since theseus-lew7 (Part III Item 75) the
+  timing budgets then get the busy allowance: a phase over its limit by no more than
+  `THESEUS_GATE_BENCH_ALLOWANCE` per cent (65 by default, calibrated on 22 busy runs; 0 is strict) passes, and
+  says so, while the history keeps the strict verdict. A count, such as a plain turn's frames, never gets an
+  allowance, and a quiet window keeps every budget strict. A lane's niced gate whose only miss is the bench,
   beside nice-0 neighbours, counts as green when the bench, rerun alone at normal priority, passes.
 - **A lane's gate skips the bench** (`THESEUS_GATE_NO_BENCH=1`; 359ac9e, 2026-10-01 at 23:15, for Eddie's "we have
   to figure out how to parallelize more"). The bench's wait for a quiet machine held the shared gate lock for
@@ -1865,6 +1903,13 @@ which are never faster than release.
   `theseus-sim bench lifecycle --runs 10 --check` alone, at normal priority, once before its join.
   Since theseus-rx91 (Part III Item 51), a lane's gate takes the shared gate lock itself, only around its
   tests and benches (`THESEUS_GATE_LOCK=inner`), so its compiles never hold another gate up.
+  Since theseus-lew7 (Item 75) that is every gate's only mode, the join's included: `outer` is refused, and
+  `theseus-quiet.sh`, which paused lanes' compilers during a join's bench, is retired.
+- **An L1 job's start** (theseus-mll1; Part III Item 73). After the lifecycle bench, the gate's `jobs` phase runs
+  `theseus-sim bench jobs --class l1 --runs 20 --check`: the p95 from the dispatch to the command's exec, under
+  25 ms (the M4 design's target), with one rerun after a flush and a settle on a miss. It is skipped where the
+  lifecycle bench is, so a join's gate runs it, and the suite measures the row and bounds nothing. At the joins
+  of 2026-10-03 its p95 was 5.37 to 7.22 ms.
 - **The push's seed** (theseus-in3). The first `executions.watch` or `session.wait` after a start reads every
   execution and action into the board, off the start path. It is measured, with no budget yet: on the gate's
   empty store about 0.5 ms; on the 10,000-session synthetic store, release, p50 37.1 ms and p95 41.5 ms
@@ -1879,7 +1924,7 @@ which are never faster than release.
   - the time, and the branch and commit judged (`git describe --always --dirty`);
   - the load;
   - each phase's p50, p95, and limit;
-  - whether the run passed.
+  - whether the run passed, strictly, and the busy allowance it passed on, if any (Item 75).
 
   `theseus-sim bench history` prints each phase's last runs, with the headroom left. A passing run warns,
   without failing, about each phase whose p95 is within 10% of its limit, so drift shows before it fails.
@@ -1890,7 +1935,7 @@ Measured values are in Part III (A3, lifecycle timings, the M3.5 entry, and Item
 
 | Metric | Target |
 |---|---|
-| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ _(Since theseus-8ni, F4a: the store's open checks the WAL only from the frame after the index's checkpoint to its end. The history is checked after serving, at about 5 % of a core, and a corrupt frame there is refused and loud. On 10,000 parked sessions the store phase went from 63.2 to 10.1 ms p50, and a cold start from 164.1 to 121.7 ms.)_ _(Since theseus-lv2 and theseus-0dq, lane perf1, Part III Item 46: of the executions, the start reads only those a crash interrupted, those with a unit budget, and those whose limit follows a changed config, by a projection by state in the store's index. Health counts by that projection, and the driver's tick reads only the queued executions and those a due time may wake. The history check after serving starts at the last check's mark, and reads the whole history once a day. A store an older build wrote last has its projection built after serving, and is read as before until then. On 10,000 parked sessions, release, a cold start went from 119.1 to 21.5 ms p50, the kernel's part of it from 35.8 to 7.6 ms.)_ _(Nothing else joined the start path on 2026-10-02. The index tender starts 2 s after serving (row 51, Part III Item 50), so neither a start nor its aftermath shares the disk with the tender's start, and health asks no tender before one runs; the L1 probe follows at 3 s (Item 58). AWS adds `[aws]`'s parsing and the tools' fixed definitions, in microseconds: no secret read, no catalog decoded, no client built, and no request before the socket answers, since the account's check runs after serving (Item 49). The lifecycle bench binds an account whose endpoint nothing listens on, so every budget holds with AWS out of reach.)_ |
+| Process start to answering the protocol socket (config parsed, store open, WAL tail replayed, spool drained; secrets, credential checks, and the Discord gateway may still be connecting) | under 50 ms at today's store sizes; under 250 ms with 10,000 parked sessions. It grows with the WAL tail since the last checkpoint, never with history _(With the config in the vault, a start serves from the note's last-known-good copy and reads the vault behind the socket. Only a first start, with no copy, reads it before serving, which takes about 1 s. theseus-2fo, step F1b. The bench's `vault` phase holds this to the budget in the gate.)_ _(Since theseus-8ni, F4a: the store's open checks the WAL only from the frame after the index's checkpoint to its end. The history is checked after serving, at about 5 % of a core, and a corrupt frame there is refused and loud. On 10,000 parked sessions the store phase went from 63.2 to 10.1 ms p50, and a cold start from 164.1 to 121.7 ms.)_ _(Since theseus-lv2 and theseus-0dq, lane perf1, Part III Item 46: of the executions, the start reads only those a crash interrupted, those with a unit budget, and those whose limit follows a changed config, by a projection by state in the store's index. Health counts by that projection, and the driver's tick reads only the queued executions and those a due time may wake. The history check after serving starts at the last check's mark, and reads the whole history once a day. A store an older build wrote last has its projection built after serving, and is read as before until then. On 10,000 parked sessions, release, a cold start went from 119.1 to 21.5 ms p50, the kernel's part of it from 35.8 to 7.6 ms.)_ _(Nothing else joined the start path on 2026-10-02. The index tender starts 2 s after serving (row 51, Part III Item 50), so neither a start nor its aftermath shares the disk with the tender's start, and health asks no tender before one runs; the L1 probe followed at 3 s (Item 58), until the sandbox trims removed it (Item 77). AWS adds `[aws]`'s parsing and the tools' fixed definitions, in microseconds: no secret read, no catalog decoded, no client built, and no request before the socket answers, since the account's check runs after serving (Item 49). The lifecycle bench binds an account whose endpoint nothing listens on, so every budget holds with AWS out of reach.)_ |
 | Clean shutdown, request to process exit, with work in flight | under 100 ms; nothing in flight is waited for, except the outbox's posts already sent, for at most `[server] stop_grace_ms` (50 ms by default) from the stop's start (theseus-pfv; a post still unanswered then stays dispatched, and the next start sends it again under the same nonce; a longer grace is the operator's choice, outside this budget) _(Since theseus-02k, lane perf1, Part III Item 46: redb's close makes the stop's checkpoints durable, so a stop pays one commit's syncs instead of two: 5 syncs, where it paid 6 or 7. Each phase of a stop is logged at debug. A rare slow stop is one of its two waits on the disk, stalled by the machine's writeback (theseus-26r). The index tender gets SIGTERM and is never waited for (row 51; a test stops a daemon whose tender is SIGSTOPped).)_ |
 | Crash to serving again (SIGKILL, then restart) | the cold-start budget plus tail replay, with the checkpoint interval keeping replay under 100 ms _(The bench's budget: the cold-start budget plus 100 ms.)_ |
 | Binary upgrade (swap, stop, start; job wrappers keep running) | under 200 ms without a protocol answer _(Since F4b, theseus-qa0: the bench's swap phase holds this in the gate, from the stop's request to the other build's first answer, with a job's wrapper running through every swap and ended at last by a daemon that never started it. `theseus shutdown` answers before the daemon has closed its store, so a start that follows at once waits for the store's lock, at most 3 s, instead of failing. Numbers in Part III A3c, F4b.)_ |
@@ -2272,12 +2317,12 @@ Make the durability and safety claims true, and measure them.
 **Build.**
 - The durability tender: WAL segments to S3, index rows to DynamoDB, scheduled in released turn-lock time by staleness; the "oldest unshipped committed record" metric and alarm.
 - `theseus restore --from s3://…` with reconciliation near the gap and redaction tombstones applied before restored content becomes visible. Redaction with receipts (`erased_local`, `pending_backup`, `external_copies`).
-- L1 native sandbox with the §7 contract, and **contract tests** that prove each denial: no route to the metadata service, no route to localhost services including Theseus's own UI, capabilities empty, seccomp active, process tree killed on cancel. _(Begun 2026-10-02: `proc.run` runs in L1 since step 17b, Part III Item 58, whose daemon test shows the contract in a real L1 job against L0's contrast. Egress was built in 18c, Item 62, and credentials are grants at launch, Item 71, after 18d's run-time socket, Item 65; cancellation per backend was built in 18a, Item 60.)_
-- Confidentiality labels on nodes with inheritance through generated nodes; audience-safe compilation; disclosure tests in the simulator (private material never reaches a public audience's context). _(Labels on nodes, the audience, and audience-safe compilation, with placeholders that keep the request valid: built 2026-10-02 in 19a, Part III Item 61. Graduation and the held post were built in 19c, Item 63, and the disclosure simulator in 19b, Item 66; 19d closed its two findings, Item 68, and its live check passes 40 seeds of 2,000 steps with `--strict`.)_
+- L1 native sandbox with the §7 contract, and **contract tests** that prove each denial: no route to the metadata service, no route to localhost services including Theseus's own UI, capabilities empty, seccomp active, process tree killed on cancel. _(Begun 2026-10-02: `proc.run` runs in L1 since step 17b, Part III Item 58, whose daemon test shows the contract in a real L1 job against L0's contrast. Egress was built in 18c, Item 62, and credentials are grants at launch, Item 71, after 18d's run-time socket, Item 65; cancellation per backend was built in 18a, Item 60.)_ _(Trimmed 2026-10-03, the cut-list's Tier 4, Item 77: no self-test at the start, no delegated cgroup, and a root daemon's L1 job refused.)_
+- Confidentiality labels on nodes with inheritance through generated nodes; audience-safe compilation; disclosure tests in the simulator (private material never reaches a public audience's context). _(Labels on nodes, the audience, and audience-safe compilation, with placeholders that keep the request valid: built 2026-10-02 in 19a, Part III Item 61. Graduation and the held post were built in 19c, Item 63, and the disclosure simulator in 19b, Item 66; 19d closed its two findings, Item 68, and its live check passes 40 seeds of 2,000 steps with `--strict`.)_ _Replaced 2026-10-03 by the place rule (Part III Item 76). Every place is private or shared; a shared place's request carries its own conversation, the public tools, the public trees and the public context files; and the owner publishes into it explicitly. Labels on nodes, the compile filter, held posts, quiet loops, graduation, and the disclosure simulator were removed._
 - Control-plane separation as an installer option: dedicated `theseus` user owning store, WAL, spool, and policy; L0 jobs as the operator.
-- Cancellation verification per backend (systemd scope, L1 process tree), and `cancel_unsupported` reporting. _(Built 2026-10-02 in 18a, Part III Item 60: an L0 job by its wrapper's process tree, an L1 job by its pid namespace or its cgroup, an async tool by its task, and `unsupported` for an in-process toollet. No systemd scope: an L0 job has no cgroup of its own yet, theseus-yfdj.)_
+- Cancellation verification per backend (systemd scope, L1 process tree), and `cancel_unsupported` reporting. _(Built 2026-10-02 in 18a, Part III Item 60: an L0 job by its wrapper's process tree, an L1 job by its pid namespace ~~or its cgroup~~ (its cgroup went in Item 77), an async tool by its task, and `unsupported` for an in-process toollet. No systemd scope: an L0 job has no cgroup of its own yet, theseus-yfdj.)_
 - The ontology (§4.1a, theseus-8kk): the kinds table, declared memberships, guidance, and the compile walk, with topics as the first new kind.
-- Integrity labels by transmission, and the one-step-stricter rule for exposed contexts (§3.9 Exposure). Also the `external` origin, file hashes, and the `Advisory` with its correction control (theseus-3vu).
+- ~~Integrity labels by transmission, and the one-step-stricter rule for exposed contexts (§3.9 Exposure). Also the `external` origin, file hashes, and the `Advisory` with its correction control (theseus-3vu).~~ **Dropped** (Eddie, 2026-10-03 11:24, the cut-list's Tier 1.1; Part III Item 74): T1's latch stays per session, and trust clears it; `[policy] external_programs` (`gh`) and a job's session feed it; text laundered through files is Jev's `security.v1` (row 39).
 - The consequence boundary under L1 (§7): credential brokering and egress recognition. _(Credential brokering under L1 is a grant at launch, Part III Item 71, after 18d's run-time requests, Item 65, were built and removed. Egress recognition stays filed: it would need TLS interception, dropped for v1; the list of hosts (18c, Item 62) is M4's control.)_
 - ~~**Credentials as stand-ins** (theseus-gh7; Eddie, 2026-10-01 15:13: build it before the AWS hands' first
   account write). A job granted a secret sees a stand-in, never the value. The L1 egress proxy terminates TLS for
@@ -2296,7 +2341,7 @@ Make the durability and safety claims true, and measure them.
 
   C2, the first account write, no longer waits on credentials; it waits on Eddie's go-ahead.
 
-**Prove.** Every row of the durability table is demonstrated by a test: process crash, node restart with disk intact, SSD loss with restore from S3, external effect without evidence. The measured off-node recovery point under a synthetic load is under 60 s at p99 and the turn-latency cost of the durability work is reported. L1 contract tests pass. Disclosure tests pass. _(They do: `theseus-sim disclosure`, a few seeds in the gate and 40 seeds of 2,000 steps at review, with `--strict` since 19d, Part III Items 66 and 68.)_
+**Prove.** Every row of the durability table is demonstrated by a test: process crash, node restart with disk intact, SSD loss with restore from S3, external effect without evidence. The measured off-node recovery point under a synthetic load is under 60 s at p99 and the turn-latency cost of the durability work is reported. L1 contract tests pass. Disclosure tests pass. _(They did until 2026-10-03, when the place rule replaced labels and the disclosure simulator went with them. The proof is now the place rule's tests, each with a planted revert that fails it, and a live check on a copy of Eddie's store, Part III Item 76.)_
 
 **Not yet.** No AWS shell classes. No hook handlers beyond tests; the hook points themselves are wired before M4 (P5c). No Jev.
 
@@ -2331,7 +2376,7 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 - **Books** (Eddie, 2026-10-01; theseus-lqo6): recall organizes the graph's context into typed books, each a different organization of knowing, built with the recall wire-in (the "mini RAG", rows 30a to 30c).
   - The five: a **dictionary** (keyed by the exact term), an **encyclopedia** (by topic), a **cookbook** (by goal), an **SOP reference** (by situation), and a **diary** (by time). A casebook (decisions, as precedent) and a register (items with a lifecycle state) are candidates.
   - A book type is five answers: its key, its entry's shape, its write discipline, its authority, and its compile rule. It extends the ontology's closed set of composition rules (`chain`, `intent_line`, `ranked`, `recall_only`), and §5.2's memory-pass kinds say which book an entry belongs to.
-  - Books are derived views, never the source of truth. Each entry cites its nodes (`derived_from`) and takes the strictest label of its sources (§5.4). A rebuild from the graph must reproduce the book, and that is a test.
+  - Books are derived views, never the source of truth. Each entry cites its nodes (`derived_from`) and takes the strictest label of its sources (§5.4) _(labels on nodes were removed on 2026-10-03, Part III Item 76: in a shared place, recall and the books draw only on that place's own sessions)_. A rebuild from the graph must reproduce the book, and that is a test.
   - Only the operator writes an SOP; a recipe is promoted only after repeated success; nothing retractable goes in the shared header (Appendix F). A book type exists only once the compiler reads it (the reader rule), and the exam measures recall per book.
 - The ontology's learning half (§4.1a): category embeddings, re-association by sweep and dream, lessons as guidance, and §5.5's namespaces as kinds. Also compilations that are never silently thinner, testimony and precedence, and volatile values rendered as-of (theseus-3nk).
 
@@ -2345,7 +2390,7 @@ Jev enters, in shadow first, and hooks arrive because Jev packs are the first re
 - Multi-guild, multi-channel bindings; per-channel ceilings; gliding with intersected ceilings; coalescing with per-author authority; proactive and scheduled work under derived authority and owner grants; `Wake` nodes.
 - Tasks fluid in chat with the three mutability layers, CAS, claim leases, workspace locks.
 - MCP client (tools, prompts, elicitation in), then MCP server on localhost with the static key, sampling budgeted and Jev-judged.
-- Voice: `songbird` receive and send, STT and TTS as accounted spend, the voice turn as a workload class in the Jev latency budget. _(Leaves v1 until Eddie chooses speech providers: rows 77 and 78. Its crate is parked outside the workspace since 2026-10-03, Part III Item 72.)_
+- Voice: `songbird` receive and send, STT and TTS as accounted spend, the voice turn as a workload class in the Jev latency budget. _(~~Leaves v1 until Eddie chooses speech providers: rows 77 and 78.~~ Its crate is parked outside the workspace since 2026-10-03, Part III Item 72. Rows 77 and 78 return to v1: Eddie chose Deepgram at 14:20 that day, §2.)_
 - AWS shell classes A1–A4 with scoped task roles, SQS completion transport live, EventBridge task-state changes into the queue, reconciler API polling only past deadline.
 - Web UI grows: in-thread observability, policy mapping administration, budgets, ledger views, learning channel.
 - Self-extension (§3.21): `extend.propose`, the operator ack, hot-loading a sandboxed MCP server as a tool, revocation.
@@ -2372,7 +2417,7 @@ Jev, roles, memory science, compaction, MCP, voice, AWS shells, hooks, multi-cha
 
 1. Beads epics `theseus-9w9` (M0) through `theseus-ext` (M7) exist in the theseus repo, chained by dependency, each carrying its "prove" line.
 2. M0 first steps: workspace crates, `rust-toolchain.toml`, `cargo deny`, the 1Password config loader, the hook registry, the turn runner, the protocol server, `theseus chat`.
-3. Repository: `~/projects/theseus`, `github.com/zeroaltitude/theseus` (decided). This document lives there as `docs/the-ship-of-theseus.md` alongside the design notes.
+3. Repository: `~/projects/theseus`, `github.com/zeroaltitude/theseus` (decided). This document lives there alongside the design notes: since v0.80 in chapters under `docs/spec/`, indexed by `docs/spec/README.md`, with `docs/the-ship-of-theseus.md` pointing to them; until v0.79 as the one file `docs/the-ship-of-theseus.md`.
 
 # Part III — As Built
 
@@ -4656,7 +4701,7 @@ section 6). Eddie chose the Brave Search API on 2026-09-29.
 |---|---|---|---|
 | "native toollets" (P5d, item 5) | Async tools on the runtime, not toollets on a core | They wait on the network: async for waiting, the pool for compute (F3) | Keep. §3.23's "a toollet computes on a core" still holds for toollets |
 | `http.*` fetch, post (§3.23) | `fetch` only | The audit's calls were GETs | `post` when a need shows |
-| External text is marked (§5.2) | `external { url }` on the result node | There are no provenance labels yet (§3.9). A field reads old records unchanged | The field is the mark until labels exist. _(Since 19a, Item 61, the result's label is untrusted, with the URL as its source; the field stays the hold's input until 20a.)_ |
+| External text is marked (§5.2) | `external { url }` on the result node | There are no provenance labels yet (§3.9). A field reads old records unchanged | The field is the mark until labels exist. _(Since 19a, Item 61, the result's label is untrusted, with the URL as its source; the field stays the hold's input until 20a. 20a was dropped and the labels removed, Items 74 and 76, so the field is the mark.)_ |
 | "a loopback or private address waits for approval" (P5d) | It waits when the URL names it, and is refused at connect when a name resolves to it | The gate sees the URL, and only the resolver sees the answer | Keep |
 | "text, image, PDF" (§3.24) | A PDF is named with its size, not read | Decision 10 | Held |
 
@@ -5139,7 +5184,7 @@ deterministic floor, and it landed before Eddie's end-to-end test.
 
 **Known gaps.**
 - A job's output that carries outside text (a download, `gh issue view`, a pulled README, and files it
-  leaves that `fs.read` reads later) is not marked external, so it gives no hold (theseus-20f). _(Since 18c, an L1 job that connected out is marked external, Item 62; the rest, at L0, is 20a's.)_
+  leaves that `fs.read` reads later) is not marked external, so it gives no hold (theseus-20f). _(Since 18c, an L1 job that connected out is marked external, Item 62; the rest, at L0, was 20a's, which Tier 1.1 dropped: a listed program's output is marked since Item 74, and text laundered through a file is Jev's, row 39.)_
 - A job the operator approves can open a clean session through the socket (theseus-d64).
 - A page can still send data out through a fetch's URL: a read keeps its posture, by design, and each
   fetch is a notice with its URL.
@@ -6931,7 +6976,7 @@ Nothing checked it, and 13 of `main`'s 21 crates sat unread.
 | crate `theseus-mcp` | row 66 (36b) | M7 | McpBoard and [mcp.servers], MCP tools in turns; the server side at row 72 (41b) |
 | crate `theseus-voice` | row 77 (44b) | M7 | /join, and utterances into turns; speech as spend at row 78 (45b) |
 
-_Read since (v0.77): `theseus-aws-catalog` and `theseus-aws` at C1 (Item 49), `theseus-follow` and `theseus-index` at row 51 (Item 50), and `theseus-sandbox` at 17b (Item 58)._
+_Read since (v0.77): `theseus-aws-catalog` and `theseus-aws` at C1 (Item 49), `theseus-follow` and `theseus-index` at row 51 (Item 50), and `theseus-sandbox` at 17b (Item 58)._ _And since v0.80: `theseus-aws-guard` at C2 (Item 78)._
 
 Tools, readers of their own: `theseus-sim` (the gate's lifecycle bench, the crash test, kernel-sim, and the fake
 Discord). No method, notification, edge kind, or label is reserved: every one has its reader.
@@ -7765,7 +7810,7 @@ rather than taken from C3's Node prototype: one binary, no Node in a check. The 
 **Known gaps.** The stand-in drives no slash command, select menu, attachment, `GUILD_CREATE`, or dropped gateway
 yet (theseus-ymi3); read-back on real Discord (theseus-w04x); three hand-written Messages-API stand-ins to unify
 (theseus-luxx), all P3. Four gate tests that flake beside nice-0 neighbours (theseus-zfaq, 1m3s, 535n, 1n5f), and an
-internal ENOENT naming no path from two tests (theseus-46ya, P2). Real Discord's half of kl8m, the bot's permissions
+internal ENOENT naming no path from two tests (theseus-46ya, P2; its likely cause found in Item 73). Real Discord's half of kl8m, the bot's permissions
 and intents, stays with Eddie: kl8m is closed as superseded, and he keeps the option of one human run at v1's call.
 
 ### Item 48. The `bench2` lane: what runs, measured; the toolchain pinned; builds that repeat; an offline deny; a shape budget (theseus-goa8; Review 2's S4, S7, SC1 to SC3, C1, C7, and consideration 8; 2026-10-01 23:19 to 2026-10-02 09:25, two runs (the first ended at the usage limit at about 01:30); reviewed from 09:32; rebased onto c72baf8 as 9a0e602, 02dbee7, 0cd880c, 0a6805f, 94c753b, 18cca8d, 9e675c0, ede2add, 821e054, and 34be7e2; joined 09:42 at 34be7e2, a fast-forward; installed 14:23 with 9f4035b)
@@ -8011,7 +8056,7 @@ rules check for it first.
 
 **Known gaps** (all P3, post-v1). theseus-quiet.sh pauses only compilers, while a lane's `fmt`, `deny`, and web
 builds now run beside the chain's bench (theseus-fsvv); the redundant bench build (theseus-7ykr); and no priority
-for the chain's gate in the lock's queue (theseus-rwhf).
+for the chain's gate in the lock's queue (theseus-rwhf). _(Since Item 75 the inner mode is every gate's only mode, and theseus-quiet.sh is retired.)_
 
 ### Item 52. S2: one writer thread owns the WAL, and the commit path's discipline (theseus-vni9, theseus-avvb, theseus-xprd; Review 2's S2, R7, and R8; spine; 2026-10-02 08:35 to 10:26, and the join's run 2 from 10:41, cut by the usage limit at 11:32; reviewed from 10:29; rebased onto 3a4beff as b9ce20a, 0c57746, 4d07398, 87ea9c7, and 85e5294; joined 11:49 at 85e5294; installed 14:23 with 9f4035b)
 
@@ -8369,7 +8414,7 @@ The workflow from here: change the overlay, run `theseusd example-config`, and p
 `proc.run` ran every job at L0, as the operator. Eddie answered M4's open questions on 2026-10-02 at 09:39: "notify
 only is the global default here" for an L1 job; only the jobs the model asks for go to L1, with no `l1_argv` list by
 default; `[sandbox]` gets templated defaults; and an L1 job with no egress and no secret will be exempt from the
-outside-text hold (at 20a).
+outside-text hold (at 20a; 20a was dropped, Item 74, and the exemption is not built: theseus-oaf9).
 
 **What landed** (§7, as amended; §3.9).
 - **The class goes toward L1 alone** (`Sandbox::l1_for`, at plan time): `[sandbox] default = "l1"`, then
@@ -8444,7 +8489,7 @@ hand-built seccomp filter (theseus-75z9); `sandbox.limit_hit` rows, the start me
 section (theseus-zupk; the section was built in Item 62); no generated config with `default = "l1"` (theseus-2ujy); the root `AGENTS.md` over its
 20 KB rule (theseus-9y38; cut to 16,949 bytes in Item 70). The `sandbox` input said an L1 job never waits for approval, which wasn't true in a
 session holding outside text; Item 59 dropped the phrase. The rest of L1 is ~~18a (cancellation per backend)~~ (built in Item 60), ~~18c
-(egress)~~ (built in Item 62), ~~18d (credentials)~~ (built in Item 65, and replaced by grants at launch in Item 71), and 20a.
+(egress)~~ (built in Item 62), ~~18d (credentials)~~ (built in Item 65, and replaced by grants at launch in Item 71), and ~~20a~~ (dropped; the integrity lane instead, Item 74). _The probe after serving, the delegated cgroup and its stop hook went with the sandbox trims (Item 77)._
 
 ### Item 59. The operator's own word about `proc.run` reaches L1 (theseus-jfs6; built on `main` by Tabitha, with no lane, 2026-10-02 16:03 to 16:50; 04a9fb3; installed 16:57 at 04a9fb3)
 
@@ -8462,7 +8507,7 @@ yes", the second.
   it. A looser line never makes L1 quieter than notify. The floor and the approve lists still don't apply to L1,
   whose view hides what they guard.
 - `proc.run`'s `sandbox` description drops "It never waits for approval", which wasn't true here, nor in a session
-  holding outside text before 20a. The template's `[sandbox]` comment and the core's `AGENTS.md` say so.
+  holding outside text before 20a (which was dropped: Item 74, and theseus-oaf9). The template's `[sandbox]` comment and the core's `AGENTS.md` say so.
 
 **How it is proven.** A new test, `the_operators_own_word_about_proc_run_reaches_l1` (an explicit approve line, and a
 tightening, each make an L1 call wait and name L1), fails against a planted revert; the existing L1 tests keep the
@@ -8555,7 +8600,7 @@ restart mid-cancel marks the action unknown without reading `stops/<id>`, and ol
 (theseus-yfdj); a job a stop reached before its pid was written keeps `unsupported`, though its launch's stop
 verified it (theseus-vn4d). At L0, verified means the wrapper's descendants (`scope: descendants`): a process
 outside the tree acting for the job, a user unit or a tmux server already running, is out of its sight, which L1's
-view closes. theseus-56r7 (P2) now covers two web UI tests on the flaky list.
+view closes. theseus-56r7 (P2) now covers two web UI tests on the flaky list. _(56r7 was fixed in the cloud, Item 73. Since Item 77 an L1 stop is verified by its pid namespace alone.)_
 
 ### Item 61. Confidentiality labels (theseus-7ve.3; M4 row 21, step 19a; spine; 2026-10-02 17:12 to 18:47; reviewed 18:49 to 18:50; rebased onto 1d33622 as 42a27af and 3e79aac, with one join commit, 8b82da6; joined 19:08 at 8b82da6; installed 19:13 at 8b82da6)
 
@@ -8644,7 +8689,7 @@ time, Item 63); ~~the filter's bench in an optimized build, against its 50 µs b
 results and a report with no answer are owner-only, where the session's audience would do (theseus-el4l); ~~read tests
 on literal old layouts (theseus-djfj)~~ (built in Items 63 and 67); a recompile only when an admission changes (theseus-osl1). `graph::Label`,
 the vocabulary Item 32 kept for 19a's first labels, is still empty, since a label is a field of the node; it was removed in theseus-i25g (Item 70). Next in
-M4: ~~the disclosure simulator (19b), graduation and the held post (19c)~~ (built in Items 66 and 63), and the latch fed by labels (20a).
+M4: ~~the disclosure simulator (19b), graduation and the held post (19c)~~ (built in Items 66 and 63), ~~and the latch fed by labels (20a)~~ (dropped, the cut-list's Tier 1.1: Item 74). _The labels themselves were removed by the place rule on 2026-10-03 (Item 76)._
 
 ### Item 62. Egress wired in (theseus-7ve.4; M4 row 19, step 18c; spine; 2026-10-02 19:19 to 20:30; reviewed 20:43 to 20:44; rebased onto 65562b3 as 415f669 and 02c4bcf, with one join commit, 79f2d1d; joined 20:50 at 79f2d1d; installed 21:08 at f79d52e, with 19c)
 
@@ -8721,9 +8766,9 @@ no record of its connections, counts as outside text by its list when it printed
 Sandbox section, 17b's gap, is built here.
 
 **Known gaps** (P3, post-v1): a stopped job's egress is not recorded, so its result is held by its list
-(theseus-fdxy); the egress bytes metric (theseus-zupk). The rest of theseus-20f, outside text at L0, is 20a's. Two
+(theseus-fdxy); the egress bytes metric (theseus-zupk). The rest of theseus-20f, outside text at L0, was 20a's (dropped: a listed program's output is marked since Item 74). Two
 facts for an operator's list: L1's view has `python3.12` but no `python3` on this machine, and `~/.cargo` is
-read-only in L1, so a `cargo` that fetches crates needs a writable `CARGO_HOME` (untested).
+read-only in L1, so a `cargo` that fetches crates needs a writable `CARGO_HOME` (untested). _(Since the sandbox trims, Item 77, only a host beyond the operator's list makes a result outside text.)_
 
 ### Item 63. Graduation and the held post (theseus-7ve.5; M4 row 23, step 19c; spine; 2026-10-02 19:21 to 20:41; reviewed 20:43 to 20:56; rebased onto 79f2d1d as 751780d and ec4d9bb, with two join commits, 3561360 and f79d52e; joined 21:04 at f79d52e; installed 21:08 at f79d52e, with 18c)
 
@@ -8787,7 +8832,7 @@ which reads the channel fresh already. Graduation is refused while a turn runs. 
 (theseus-b97e); kernel-sim does not drive the held post's question (theseus-tbv2); the post-time read walks a guild's
 whole member list (theseus-zupl); a quiet loop's tool lines keep their lock after the post (theseus-033g); the
 metrics, added to theseus-63xf. tbv2, zupl and 033g were built in the cloud and are parked on the simplification
-review's Tier 2 (Item 70).
+review's Tier 2 (Item 70). _(Graduation and the held post were removed by the place rule, Item 76, and tbv2, zupl and 033g closed as moot.)_
 
 ### Item 64. The cockpit's Ship, its time machine, and its boards (theseus-logs; the `cockpit3` lane, two rounds in one Item; round one 2026-10-02 18:15 to 20:16, reviewed 21:11, joined 21:21 at 2224c5d as c38f014, afd7972 and 2224c5d, installed 21:24; round two 20:17 to 22:27, reviewed 22:29 to 22:36, joined 22:40 at bfbe47b as 3806da3, 0f71a8f and bfbe47b, installed 22:45)
 
@@ -8863,7 +8908,7 @@ since in the cloud (Item 70): old calls' shields from the node (theseus-93ey), t
 the reach cap shown (theseus-7mcu), the board and the session deck under the time machine (theseus-j4qe), an install
 named in the log (theseus-9o5n), and a running job's command (theseus-kpz1); frames per live turn (theseus-wz4y) is
 parked. Five timing tests failed the lane's gates under load (theseus-f6f5, -so1a, -mll1, -lc4n, -vy7y; P2,
-`gate-flake`).
+`gate-flake`). _(All five fixed in the cloud: Item 73.)_
 
 ### Item 65. Credential requests at run time, built and then removed (theseus-7ve.6, with theseus-5gw9; M4 row 20, step 18d; spine; 2026-10-02 21:09 to 22:58; reviewed 22:59 to 23:04; rebased onto bfbe47b as c496f80, b981439, 1c59652 and 328e635, with one join commit, b63b483; joined 23:09 at b63b483; installed 23:15 at 74a009b, with 19b; removed 2026-10-03 at 8067161, Item 71)
 
@@ -8983,7 +9028,7 @@ out of the world would test less.
 
 **Known gaps** (P3, post-v1): the core is never restarted mid-run, and no approval card is driven
 (theseus-843s); the binding's tool lines are not replayed (theseus-0yz6). Both wait on the simplification review's
-Tier 2.
+Tier 2. _(The simulator was removed with the labels, Item 76, and both closed as moot.)_
 
 ### Item 67. The first cloud batch: L1's contract on a root VM, literal old layouts, and five telemetry gaps (theseus-celu.1 to .4; Claude cloud sessions fired 2026-10-02 22:45 from bfbe47b; l1-vm and store-literals reviewed and joined 23:29 at 54e4083, as 67b006c, a9b1aa7 and 54e4083; metrics reviewed 2026-10-03 00:51 to 01:05 and joined 01:00 at 5526591, as 39e4de0, d7ca3a7, e8c0f04, 54d99e3 and 5526591; installed 01:19 at c641ae4)
 
@@ -9005,7 +9050,7 @@ gate runs on this machine; and the cloud branch is deleted from here. Four sessi
 - **Clause 9 still fails on a root VM, as it should, and says why.** Linux exempts real uid 0 in the initial user
   namespace from `RLIMIT_NPROC`, and L1's user namespaces map a root operator's job back to that uid, so without a
   job cgroup (`pids.max`) a root daemon's L1 job has no process limit: its fork loop forked 4,096 times against a
-  limit of 16. As an ordinary user on the same VM, all 19 cases pass. Filed theseus-pv6i (P2). Eddie's daemon runs as
+  limit of 16. As an ordinary user on the same VM, all 19 cases pass. Filed theseus-pv6i (P2; fixed in Item 77, which refuses such a job). Eddie's daemon runs as
   his own user with a delegated cgroup, so he is not exposed; a root install is.
 
 **store-literals** (theseus-celu.3; a9b1aa7 and 54e4083).
@@ -9033,7 +9078,7 @@ of 1,716, lifecycle OK, a plain turn 5 frames; pushed 23:28:42.
 - theseus-gagg: the compile filter's bench runs in an optimized build. Its figure of record, taken here (release-thin,
   a quiet machine, two runs): a 1,000-node compile takes 1,775 µs with no judge; judging for the owner, with nothing
   withheld, adds nothing measurable (−45 µs), within the 50 µs budget; withholding 250 nodes for a channel of two
-  adds 194 to 216 µs, four times the budget (theseus-2lvc, P3, parked on the simplification review's Tier 2).
+  adds 194 to 216 µs, four times the budget (theseus-2lvc, P3, parked on the simplification review's Tier 2; moot since the filter went with the labels, Item 76).
 
   Planted reverts of b85w and 63xf were re-run here. The join's gate (01:00:34): 1,720 of 1,720, lifecycle OK (cold
   start p95 34.7 ms), a plain turn 5 frames; pushed 01:00:48.
@@ -9047,7 +9092,7 @@ output golden's one-digit duration (theseus-6a7o).
 
 **Still out.** core-flakes (theseus-celu.1), with fixes for seven timing tests, ran its load passes for hours and
 pushed its branch at 04:03 on October 3. It was reviewed and joined at 9a8f537 at 04:26, after this Item was
-written; the next docs pass records it.
+written; the next docs pass records it (Item 73).
 `TurnSubmitResult.first_token_ms` is still on the wire, and telemetry no longer reads it.
 
 ### Item 68. The disclosure simulator's two findings, closed (theseus-7ve.8, with theseus-42ub and theseus-jpff; M4 step 19d; spine, in a worktree; 2026-10-02 23:16 to 2026-10-03 00:03; reviewed by 00:24; rebased onto 54e4083 as 81f3dee; joined 00:28 at 81f3dee; installed 01:19 at c641ae4)
@@ -9107,7 +9152,7 @@ reproduction, no longer reaches it.
 
 **Known gaps** (P2), found by following where relayed text goes: a fired wake's note is labeled with its session's
 readers, not its setter's (theseus-nbln); `/tasks` and `/wakes` post titles and notes into a guild channel without
-their readers (theseus-ntx5). Neither reaches Eddie, and both are parked on the simplification review's Tier 2.
+their readers (theseus-ntx5). Neither reaches Eddie, and both are parked on the simplification review's Tier 2. _(Both closed as moot by the place rule, Item 76.)_
 
 ### Item 69. Credentials: the stand-ins dropped, and the harness-only keys said aloud (theseus-gh7, with theseus-3m11 and theseus-7y9y; spine; gh7 2026-10-02 23:17 to 23:39, blocked, reviewed 23:42 to 23:49; re-scoped by Eddie at 00:00; gh7s 2026-10-03 00:03 to 01:02, e473963 and 868b683; split at the join, its harness-only half joined 01:14 as gh7h at c641ae4; installed 01:19 at c641ae4)
 
@@ -9229,7 +9274,7 @@ the cut-list's Tier 7.1, which rewrites that path, and `main` was pushed at d337
 cgroup refused, theseus-pv6i; Tier 4); ksim-questions (theseus-celu.6: kernel-sim drives the held post's question,
 theseus-tbv2; Tier 2; its credential-request half went with Item 71); discord-p3 (theseus-celu.7: a cheaper read at
 post time and quiet loops' tool lines, theseus-zupl and theseus-033g; Tier 2). Not launched: the simulator's gaps
-(theseus-843s, -0yz6; Tier 2). Dropped: the printed-secret scrub (theseus-3m11), moot after Item 71.
+(theseus-843s, -0yz6; Tier 2). Dropped: the printed-secret scrub (theseus-3m11), moot after Item 71. _(Since then: root-l1's intent was built by the sandbox trims, Item 77, and its branch deleted; ksim-questions and discord-p3 went moot with the place rule, Item 76, their branches deleted; 843s and 0yz6 closed as moot.)_
 
 **The install** (03:02:17, at 8067161, with the grants step: Item 71's install).
 
@@ -9238,7 +9283,7 @@ carried wz4y, and were re-pointed to d337276 before their first commits.
 
 **Known gaps.** The flaky tests left by cockpit3 (theseus-f6f5, -so1a, -mll1) waited for the first batch's
 core-flakes session, joined at 9a8f537 after this was written, and a stop test of the index tender seen flaking under load joins them
-(theseus-ux8g).
+(theseus-ux8g). _(All four fixed in flakes-2, Item 73.)_
 
 ### Item 71. L1 credentials granted at launch, and 18d's run-time socket deleted (theseus-w5op; the simplification cut-list's Tier 3, C1; spine; 2026-10-03 01:47 to 02:39; one commit on d337276, 8067161; reviewed 02:49 to 02:55; joined 02:57 at 8067161; installed 03:02 at 8067161)
 
@@ -9371,3 +9416,654 @@ commit.
 **Known gaps** (P3, post-v1): nothing runs the shipped-features check automatically, so a crate waiting for its row
 could widen a shared dependency's features in the tested build and not in the install (theseus-dr2x); theseus-index
 has no `--version`, unlike the other four (theseus-t7ra). The PDF's old versions stay in history.
+
+### Item 73. Two cloud sessions on the gates' load-sensitive tests: ten made deterministic or rebounded, a product fault in `op inject`, and the gate's L1 bench (theseus-celu.1, the first batch's core-flakes, and theseus-celu.11, flakes-2; Claude cloud sessions; core-flakes fired 2026-10-02 22:45 from bfbe47b, reviewed 2026-10-03 04:15 to 04:30, joined 04:26 at 9a8f537 as 17289b0 to f3854ac with one join commit, 9a8f537; flakes-2 fired 04:40 from d85660e, reviewed from 07:50, joined 07:59 at a59b7c1 as c99e47f, e16626f, 0d2c2fb and a59b7c1; installed 13:47 at 57a3759)
+
+**A note on Items 73 to 78.** They landed on 2026-10-03 and reached the operator's daemon in one install, at 13:47
+at 57a3759. Their joins were made as before: a cloud branch's work commits cherry-picked onto `main` and re-signed,
+and a lane's commits rebased onto `main` and re-signed, or fast-forwarded where `main` had not moved. From 13:50 on, a
+join is a plain merge (Eddie, 13:18: "Is branch merge not enough?"): a fast-forward, or a signed merge commit, never a
+rebase, a cherry-pick, or a re-signing, so a branch shows as merged and its commits keep their ids.
+
+**Why.** Timing tests that pass on a quiet machine and fail beside a busy one fail joins for noise. Item 67 left the
+first cloud batch's core-flakes session out: it fixed seven of theseus-core's, and joined after that Item was written.
+The flakes-2 session took the three that the cockpit3 lane's gates had hit (theseus-f6f5, -so1a, -mll1; Item 64), and
+the index tender's stop test (theseus-ux8g; Item 70), and it investigated theseus-nuna: a held-post test that had once
+shown the owner's text in a shared channel on the cloud VM. Each session reproduced a test under load before fixing it,
+as Theseus's rule is (priority, not count: the test at `nice -n 19` beside four busy loops at nice 0; Item 31), then
+ran it 20 times under the same load, and planted a revert of what it guards.
+
+**core-flakes** (theseus-celu.1; eight commits, cherry-picked onto aa2e199 and re-signed, and one join commit).
+- **theseus-i1i4** (17289b0, with bea133a and f3854ac). The seven-calls test failed all three tries in the VM's full
+  suite, and not only from load: the in-process toollets share a CPU pool with one permit per core, so on 4 cores seven
+  calls can't run at once. `rpc::Parts` gains `cpu_cores`, a test seam (`None` in the daemon: a permit per core), which
+  the test sets to 7. Each stand-in call waits until all seven have begun (a rendezvous that gives up after 4 s), so no
+  call ends before the batch began, and the overlap is asserted as the peak number in flight, in the runs and in the
+  spans. The wall time keeps its floor, and its ceiling is the sum of the delays. `tests_m3.rs`'s line ceiling rose
+  from 8,000 to 8,050, and theseus-discord's four `Parts` literals name the new field; at the join, so did
+  theseus-sim's disclosure rig's (9a8f537), which was new since the session's base.
+- **theseus-ioq7** (d9b00c1). The two-fetches test drops its 780 ms ceiling; its order check (each request reaches the
+  server before either is answered) proves the overlap.
+- **theseus-535n** (ed9e9f5). The approval-in-the-middle test asserts the transcript's order, not which of two
+  concurrent calls ends first.
+- **theseus-56r7** (53f8065). The web UI's two refusal-span tests run on tokio's paused clock. No product change.
+- **theseus-vy7y** (30fee4b). The hung-receiver bound is 5 s, half the export timeout, not 2 s.
+- **theseus-lc4n** (32a17e4). Health from the config's copy is bounded by half the vault's wait (750 ms), not 50 ms.
+  The 50 ms budget is the lifecycle bench's, on a settled machine.
+
+**flakes-2** (theseus-celu.11; 1 h 28 min; four commits, cherry-picked onto d85660e, the session's own base, with no
+conflict, and re-signed).
+- **theseus-f6f5, a product fault** (c99e47f). The reaping test's failing line was the product's own, and no exit
+  status was lost. `OpReader::inject` wrote the template to `op`'s stdin with a `?` before it waited for `op`. So an `op`
+  that refuses at once, without reading its input (the fake's first injection; a real sealed vault, or a bad token),
+  surfaced as `running op inject: Broken pipe (os error 32)`, and `op`'s status and its own words were never read. The
+  write now takes a broken pipe as `op` having closed its input, and goes on to `op`'s status and stderr. A new unit
+  test makes the race certain: 2,000 references put the template past a pipe's 64 KiB, so the write always meets the
+  closed pipe. The reaping test's real guard grows stronger with it: `op`'s status is always read now, so a reaper
+  that took `op`'s child shows as `No child processes`.
+- **theseus-so1a** (e16626f). The store's open-waits test proves its order instead of timing it. A test-only count of
+  held tries (`HELD_TRIES`, `cfg(test)`) lets the holder close only once the open has found the store held, and the
+  open must return after the close, with a nonzero `lock_wait_us`. The store's own measure was right: the test's sleep
+  had begun before the open.
+- **theseus-mll1** (0d2c2fb). The suite measures an L1 start and bounds nothing. `scripts/gate.sh` gains a `jobs`
+  phase after the lifecycle bench: `theseus-sim bench jobs --class l1 --runs 20 --check`, a p95 under 25 ms (the M4
+  design's target), with one rerun after a flush and a settle on a miss. A lane's gate skips it with the lifecycle
+  bench, so the join's gate runs it (§9). The suite's 250 ms had been a load allowance that a tenfold regression on an
+  idle machine would still pass.
+- **theseus-ux8g** (a59b7c1). The tender's stop test waits until the tender reads `T`, stopped, before it stops the
+  daemon. In every failing run the SIGSTOP had not yet taken hold, and the stop's SIGTERM ended a running tender.
+  Nothing in the product escalates: a stop sends the tender SIGTERM once and never waits.
+- **theseus-nuna, investigated only.** No failure in 41 runs on the VM: 20 loaded runs alone, 20 full suites, and one
+  gate. Instrumented runs saw the same event order every time, and no post in the shared channel held the owner's text.
+  One unseen gap was named (the Discord renderer does nothing with a compile for a loop it has no view of, and that
+  loop would stream), with a fail-closed fix proposed. Nothing was joined for it, and it closed as moot when the place
+  rule removed quiet loops (Item 76).
+
+**How it is proven.**
+- **Before the fixes, under load:** f6f5 failed 4 of 40, two of them on `running op inject` (the other two were
+  theseus-46ya's fault, below), and a failed run's log named the broken pipe; ux8g failed 3 of 20, each with the tender
+  still running. so1a and mll1 did not reproduce: 60 of 60 and 40 of 40.
+- **After:** each test 20 of 20 under load, in both sessions.
+- **Planted reverts.** core-flakes: serial dispatch fails i1i4 ("1 calls overlapped, not 7") and ioq7's order check;
+  the refusals' dedupe off fails both 56r7 tests (3 rows for 1, and 100 for 3); a 6 s sleep in the export queue fails
+  vy7y; health handled as an acting method fails lc4n. flakes-2: f6f5's `?` back on the write fails the new unit test
+  (`left: "running op inject: Broken pipe (os error 32)"`, `right: "the vault is sealed"`); `op` spawned without its
+  `Kind::Owned` registration fails the reaping test on `No child processes`; so1a's held branch off fails ("the open
+  never found the store held"); a stop that polls until its tender is gone fails ux8g 3 of 3; a 250 ms sleep before the
+  sandbox's spawn makes the jobs bench report a p95 of 264.04 ms, `MISSED`, exit 1. The reviews re-ran the first two
+  of core-flakes' and the first three of flakes-2's, here, each failing as it should and passing restored.
+- **The joins' gates.** core-flakes (04:25:24, 126 s): 1,686 of 1,686, with no retry at all, a plain turn 5 frames;
+  pushed 04:25:56. flakes-2 (07:58:53, 122 s): 1,687 of 1,687, theseus-tphr's listed flake passing on its retry,
+  lifecycle ok (cold start p95 27.1 ms), **the new jobs phase p50 4.90 ms and p95 5.60 ms**, a plain turn 5 frames;
+  pushed 07:59:17. The jobs bench by hand before it: p95 5.77 ms.
+
+**The joins.** core-flakes: one conflict, in `.config/nextest.toml`, where `main` had added theseus-tphr's retry entry
+since the session's base. tphr's entry stayed, and the retry entries of i1i4 and 56r7 went, as the commits intend. One
+join commit gave the disclosure simulator's rig the new field. flakes-2 joined clean. Each session's report commit was
+dropped.
+
+**The install** (13:47, at 57a3759, with Items 74 to 78). f6f5's fix to the secrets reader is the one change here that
+a running daemon behaves differently by (i1i4's seam is `None` there); the install's `theseusd check` resolved the
+operator's 8 secrets in 2,038 ms.
+
+**Divergences.** i1i4's fix is a seam in product code (`Parts.cpu_cores`, `None` in the daemon). mll1 moved a bound
+out of the suite into the gate: a lane's gate no longer bounds an L1 start at all, and a join's gate bounds it ten
+times tighter (25 ms, not 250). Each session's commits were gated at their heads only, in the cloud and at the join, as
+the earlier cloud joins were.
+
+**Known gaps.** 535n has no planted revert its new assertions catch: serial dispatch passes it by design, and no
+one-line plant broke the transcript's order. vy7y is still a wall-clock bound (5 s, against a 2.2 s loaded turn). Found
+on the way, and recorded: theseus-46ya's likely cause, confirmed in the code (`Spool::read_completion` checks that a
+completion exists and then reads it with a `?`, while the daemon's spool drain reads and removes the same files, so a
+completion the drain takes in between faults the whole turn with a bare `ENOENT`; P2, on v1's path), and a new gate
+flake, theseus-amr2 (P2: the push's position-rule test failed once in 20 suites on the VM). Both went to the third
+cloud batch. Two failures in every VM suite are known: theseus-6a7o (the output golden's one-digit duration, on the
+flaky list) and clause 9 as root (theseus-pv6i, closed by Item 77).
+
+### Item 74. The integrity lane: a listed program's output, and a job's session, hold the latch (theseus-b5cl; the simplification cut-list's Tier 1.1; 2026-10-03 11:32 to 12:29; two commits on a59b7c1, dc027ae and 53d32e0; reviewed 12:50 to 12:56; joined 13:04 at 53d32e0, a fast-forward, pushed 13:18; installed 13:47 at 57a3759)
+
+**Why.** Eddie's decision on the cut-list's integrity tier, at 11:24: "Integrity: perfect! Yes, Jev should cover it. If
+it's failing, we boost its context for good classification. And I like the latch being per session." The goal is
+unchanged: a stranger's text must not steer Theseus into acting (§3.9). The plan to feed T1's latch from integrity
+labels with an `external` origin (20a), the fomites (20b: a hash on every `fs.read` and write), and the Advisory's
+quarantine levels (theseus-3vu) are dropped. T1's latch stays as built, per session, fed by DD5's own `external`
+marker, and trust clears it; it gets its two cheap missing pieces. Laundering through files is Jev's `security.v1`
+(row 39), with its context boosted if it misses. Under default trust (§2) both pieces are light guards, not
+boundaries: a job can strip its own environment.
+
+**What landed** (§3.9).
+- **`[policy] external_programs`**, `["gh"]` by default in the loader and the template, since `gh issue view` prints a
+  stranger's text.
+  - A `proc.run` whose `argv[0]` file name is listed, or that runs a shell or a launcher (`sh`, `bash`, `env`, `xargs`,
+    `timeout`, `python`, `make`, `npx`, and the broker's other launchers) whose command names a listed program in any
+    word, gets DD5's `external` marker on its result, at L0 and in L1 (`external::Listed`). The words are split at
+    spaces and the shell's punctuation, so `cd x && gh issue view 1 | head` and `$(command -v gh)` count. A program
+    that is neither listed nor a launcher has its arguments left unread: `grep gh notes.txt` is not marked.
+  - Every path that writes a job's result reads it from the call's input: a result within a turn, a late result, a
+    resumed call after a restart, and a cancel's sweep. Egress's marker comes first, for a job that connected out of L1.
+  - The session holds the latch `via: program`, and the hold names the command as the narrative does (`gh issue`),
+    never the rest of the argv. The result's first line says why: `[it runs gh, which [policy] external_programs
+    lists: what it printed may hold outside text]`.
+- **A job carries its session.**
+  - Every job, at L0 and in L1, gets `THESEUS_SESSION`, its session's id (`theseus_protocol::JOB_SESSION_ENV`), set
+    after the call's own variables; no call can set a `THESEUS*` name. The CLI sends it as `opened_from`, a new
+    optional field of `session.open` and `turn.submit`, absent from the bytes when unset, so every wire fixture keeps
+    its bytes.
+  - A session that a holding session's job opens holds its text from the frame that writes it (`via: job`, the holder
+    in `from_session`, no node), and `session.opened` names `opened_from`.
+  - A turn such a job sends to a named session gives that session the hold first, in a frame of its own, under the
+    record's lock, before the turn writes its input. A plain turn is still 5 frames.
+  - An `opened_from` that names a clean session, or none, opens a clean one, never a refusal, since a job could as well
+    strip the variable. Trust clears each session alone: the holder keeps its hold.
+  - This is theseus-d64, built by the job's own environment rather than J1's process trace.
+- **Records.** The roadmap's rows 24 and 25 (20a, 20b) are replaced and dropped, row 31 marks AWS text with DD5's
+  marker, row 72 (the MCP server) waits on `opened_from`, and row 39 (`security.v1`) is now the integrity path for
+  text laundered through files. The root `AGENTS.md` and two crate guides say both pieces are light guards.
+  theseus-3vu's unbuilt parts (its reverse columns among them, whose readers were the Advisory and the fomites) and
+  theseus-d64 are closed.
+
+**How it is proven.**
+- The latch's existing tests pass unchanged.
+- Ten new tests: the matching (direct, by path, through `sh`, `env`, `xargs`, `bash -c $(…)`, `python3 -c`, and
+  `timeout`; not `git log`, `grep gh …`, or `ghost`), the hold's and the label's words, the default, through the core a
+  listed run, a shell's run naming `gh` and an unlisted one, the job's variable, sessions opened and turns sent from a
+  holding session's job, trust on the child alone, and the real CLI sending `opened_from` only inside a job.
+- **Nine planted reverts**, one per new guard, each failing its tests: a result never marked by its program; a
+  launcher's words unread; the hold saying egress, not program; the label's source saying egress; a job with no
+  session; a session opened from a holder taking nothing; a turn sent to a named session taking nothing; the CLI never
+  naming its job's session; the built-in default listing nothing. Restored, all pass.
+- **The lane's gates**: 1,697 of 1,697, a plain turn 5 frames, at each commit.
+- **Live**, on scratch daemons over a copy of Eddie's store with his config:
+  - at L0, `gh --version` latched its session `via: program`, and health listed it;
+  - in that session, a `proc.run` of the CLI waited (`proc.run gh, at 12:10`); approved, the session its job opened
+    held the text `via: job`, from the first; trusting it left the holder held;
+  - in L1, a job printed its own session, and `gh --version` latched its session.
+
+**The join.** The review (12:50 to 12:56) read `open_session`, `take_from_job`, the job's environment and
+`job_result`, and the revert log, and accepted the lane. `main` fast-forwarded to 53d32e0. The join's gate (13:03:59,
+126 s): 1,697 of 1,697, lifecycle ok (cold start p95 39.7 ms), the jobs phase's L1 start p95 5.94 ms, a plain turn 5
+frames. The run that joined it ended before its push, and a later wake of the chain pushed `main` at 13:18. At the
+place rule's join (Item 76) the label half of the by-program mark went with the labels: the hold's `via: program`, the
+result's line, its `meta.external_program`, the ledger row and the next call's wait stay, with their test. At the
+sandbox trims' join (Item 77) the listed-program marker became the fallback after egress's: a `gh` that reached only
+listed hosts still holds its session.
+
+**The install** (13:47, at 57a3759). Eddie's note has no `external_programs` line, so his daemon lists `gh` by the
+built-in default: the first `gh` call in a session holds it, and that session's next call that acts waits, until a
+`/trust`. The CLI installed beside the daemon sends `opened_from` from inside jobs.
+
+**Divergences.** Through a launcher the rule reads words, not what runs (`sh -c 'echo gh'` counts), and a
+non-launcher's arguments are not read (`git -c alias.x='!gh …'` is not caught). An unknown or clean `opened_from`
+opens a clean session rather than refusing. A job-taken hold names no node. `config.rs`'s line ceiling rose to 2,910.
+
+**What it costs, said plainly.** A job can strip `THESEUS_SESSION`, or reach the daemon by a tool other than the CLI.
+A program not on the list can print a stranger's text unmarked, and text laundered through a file is not followed.
+Those are Jev's to judge (row 39).
+
+**Known gaps.** The terminal UI does not send `opened_from` (no job runs it), and Discord's turns come from people.
+Eddie's M4 answer that a held session doesn't hold an L1 job with no egress and no secret was 20a's (Item 58), and is
+not built: such a job waits under the hold like any call that acts (theseus-oaf9, P3).
+
+### Item 75. The `gate-mode` lane: one gate lock mode, and a busy allowance for the gate's timing budgets (theseus-lew7; the simplification cut-list's Tier 5.3; 2026-10-03 11:40 to 12:35; 6b6fcb5 and 7e2de99 on a59b7c1; reviewed 12:56; rebased onto 53d32e0 as ce42bba and 4c74f75; joined 13:23 at 4c74f75; installed 13:47 at 57a3759, in `theseus-sim`)
+
+**Why.** The simplification review's L3: the gate had two lock modes. The outer one, the default, had the caller hold
+the shared lock for the whole run. The chain's join gate ran that way under `theseus-quiet.sh`, which SIGSTOPped the
+lanes' compilers while it ran, and its paused processes wedged gates more than once (theseus-xfr1, theseus-e6xj). The
+inner mode (Item 51) already held the lock only around the tests and benches, settled on PSI before each bench, and
+reran a missed bench once. Eddie approved one mode at 11:39, and added: "If it slows down the wall time of our
+progress, I'm also fine with having a business wiggle room parameter, that basically says, gate performance checks
+have an overage allowance budget that satisfies real world observation of deltas to that performance on busy
+machines."
+
+**What landed** (§9; `scripts/AGENTS.md`, "The lock" and "The busy allowance").
+- **One mode.** The gate takes the lock itself, around the reader rule, the suite, and the benches, for every gate,
+  the chain's join gate on `main` included, after every compile has run without it. `THESEUS_GATE_LOCK=inner` is
+  accepted and changes nothing; `outer` is refused with exit 2 and a message saying it is gone, and so is any other
+  value.
+- **Kept:** `flock -o`'s re-exec, the lock's holders and queue in the log, the PSI settle, the flaky list, the one
+  rerun, and the deadlock guard. The guard now covers every gate: one under a wrapper that holds the lock (`flock -o`,
+  or a shell holding it on a descriptor, as `theseus-quiet.sh` did) exits 2 in a second, instead of compiling and then
+  waiting for itself.
+- **The busy allowance.** When settle's 5 minutes pass without a quiet window, the lifecycle and jobs benches get
+  `--allowance`: `THESEUS_GATE_BENCH_ALLOWANCE` per cent of each limit (budget plus margin), 65 by default, 0 strict;
+  a value that isn't a whole number is refused. A phase over its limit by no more than that passes, and says so:
+  `busy: allowance +65% applied to cold start (measured 61.2 ms, limit 57.08 ms)`, after the bench's own strict
+  `MISSED`.
+  - It applies to times only. The turn bench's frames never get one, the bench refuses an allowance for any verdict
+    not in milliseconds, and the run's other checks (the socket serving before the secrets, the swap's job kept and
+    adopted, the restored store serving) are never excused.
+  - A quiet window keeps every budget strict, as before, and so does a machine without PSI. Each settle decides for
+    the run after it, so the rerun after a miss decides again.
+  - The history keeps `passed` as the strict verdict, and a new last column, `allowance`, holds the percentage a run
+    passed on. `bench history` counts those runs (`3 run(s), 2 missed (1 of them passed on the busy allowance)`) and
+    marks each phase the allowance carried. Older binaries read the new rows, since they read columns by name.
+- **The calibration.** The bench history's 170 lifecycle runs (2026-10-01 10:30 to 2026-10-03 07:58) and the 76 join
+  gates' logs, classed by load and by priority.
+  - At a load of 12 or more, at normal priority (the join gates' benches, and the lanes' benches run alone), the code
+    otherwise healthy, there were 22 runs. In 21 of them every phase was within 63 % over its limit, and in all 22
+    within 75 %; 65 is the 95th percentile rounded up. In milliseconds it takes the cold start's 57.08 to 94.2, a
+    clean stop's 104 to 171.6, and an L1 start's 25 to 41.25.
+  - An IO storm's two runs and four one-sample stalls over twice a limit are left out. No allowance should cover
+    those, and the rerun does.
+  - Strictly, 9 of those 22 runs missed a phase, against 4 of the 68 runs on a quiet machine (a load under 8), which
+    the rerun covers, as before.
+
+**How it is proven.**
+- **The harness:** 19 cases of the gate, byte for byte, on a fake cargo and a fake bench, in seconds. Settle's PSI and
+  load are files the harness writes, in a user and mount namespace. The cases:
+  - the lock free, held, and failing inside and outside it; a leaked daemon that holds no lock; a compile under the
+    lock; a TERM while waiting; an unwritable lock path;
+  - `inner` accepted, `outer` and bad values refused, all before a single cargo call;
+  - the gate under `flock -o`, and under a shell holding the lock on fd 9, as `theseus-quiet.sh` does: exit 2 in a
+    second;
+  - a quiet machine: no allowance anywhere;
+  - a machine busy by IO pressure, and one busy by load: `--allowance 65` to the lifecycle and jobs benches, never to
+    the turn bench;
+  - an allowance of 0 (strict) and of 30;
+  - a quiet first run that misses, the machine turned busy, and the allowance on the rerun only.
+- **Unit tests:** the allowance's edge exact to the microsecond (94.18 ms is within 57.08 plus 65 %, and 94.19 is
+  not); a count never carried, even at 100 %; 0 strict; the history row and `bench history`'s counts and marks. All 50
+  of the sim binary's tests passed.
+- **The bench on real measurements:** with the limits pulled 22 ms tight and `--allowance 200`, the cold start's 30.4
+  ms against 28.08 printed `busy: allowance +200% applied to cold start (measured 30.4 ms, limit 28.08 ms)`, exited 0,
+  and recorded `false,200`. With them pulled 30 ms tight and `--allowance 65`, a cold start 242 % over and a 717 ms
+  stall failed, exit 1: a miss past the allowance still fails.
+- **Whole gates:** the lane's whole gate on a quiet window was strict and green, 1,689 tests, in 231 s (cold start p95
+  28.1 ms, an L1 start's 5.69 ms). The whole gate forced busy, by 16 niced `yes` processes: settle's 5 minutes passed
+  and gave the benches the allowance. The first run's cold-start stall (+182 %) was past it, so it reran. The rerun's
+  settle ended after 75 s at load 15.97, so the rerun was strict, and it missed by +56 %, inside the allowance. That
+  gate failed, after holding the lock 582 s; it is the known gap below.
+
+**The join** (12:56 to 13:23). The review accepted the lane as built and took one decision to Eddie (below; he answered at 14:20). The
+chain's wrappers retired with it: the join's own wrapper now runs `scripts/gate.sh` with nothing around it, and
+`theseus-quiet.sh` is gone, with the notes that taught it. Under the old wrapper, this commit's gate exits 2 at once.
+The join's gate, the first in the one mode (13:23:03, 166 s): 1,699 of 1,699, lifecycle ok in 10.0 s (cold start p95
+31.8 ms), the jobs phase's L1 start p95 5.59 ms, a plain turn 5 frames; the lock taken after 0 s and held 117 s.
+
+**The install** (13:47, at 57a3759). The allowance lives in `theseus-sim`, one of the five binaries an install ships;
+nothing in the daemon changed.
+
+**Divergences.**
+- The deadlock guard stays. The brief would have cut it if it guarded only the outer mode. It guards every gate that
+  takes the lock itself, so after this change it guards every gate, and it turns the chain's old wrappers into a
+  refused gate instead of a gate that waits for itself.
+- The jobs bench writes no history row, so its allowance passes show in the gate's log only.
+- `settle()`'s bars are unchanged (see the known gaps).
+- The shared bench history's file gained a new header; until every worktree has the change, old and new binaries
+  write their own headers in turn. Each row reads under the header above it, so nothing is lost.
+
+**Known gaps.**
+- Settle's quiet bar (a load under the core count) judges strictly a band, loads of 12 to 16, where 4 of 6
+  normal-priority runs beside unpaused lanes missed, and a second miss there fails a join. Eddie's call, made at
+  14:20: yes, a load bar at three quarters of the cores (12) and a 2-minute wait. Not built yet.
+- The jobs bench's L1 start has no history row, so its allowance passes show in the gate's log only (no issue filed).
+
+### Item 76. The place rule replaces labels on nodes, and the owner publishes (theseus-nbsh; the simplification cut-list's Tier 2; spine, in a worktree; 2026-10-03 11:03 to 13:11; four commits on a59b7c1, b0abb1f, deb7cf2, 9d80bd5 and 049ef27; reviewed 13:19 to 13:30; rebased onto 4c74f75 as 908f95b, c0b6b39, 8055609 and d2fd4d9; joined 13:31 at d2fd4d9; installed 13:47 at 57a3759)
+
+**Why.** Eddie's pick at 10:58, under the default-trust principle (§2): "Your place rule tactics are very innovative
+-- I think this is a great idea. I for sure believe that's a better start than owner labels. We still might need a way
+to 'graduate' private conversation content into publicly allowable, but the core there is superior." So graduation
+stays in a light form, the owner's publish. He was open to a light map of nodes to what they are, asserted by Jev, and
+at 11:24 preferred categories to labels: that map is the ontology's memberships (§4.1a), which route context and
+never grant access.
+
+19a to 19d kept private material out of a wider audience node by node. On Eddie's setup labels mattered only in
+`#openclaw` (8 viewers, 7 not the owner). There they withheld every owner node, including the session's own file, git,
+command and AWS results, so those tools were useless. Held posts, graduation and quiet loops never fired: his store
+held one `label.audience` row and no release. Four leaks surfaced in a day (42ub and jpff fixed, nbln and ntx5 parked),
+and a fifth was possible (nuna).
+
+The goal is unchanged: private material never reaches a shared place. It is now kept per place.
+
+**What landed** (§3.9; P6).
+- **The classes** (`places.rs`). Private: the CLI and the web UI (a session with no place), a DM with an owner, and a
+  guild channel the bindings file binds with `private = true` (the operator's word, trusted). Shared: every other
+  guild place, and a DM with someone who is not an owner. A private place gets everything, as before. A shared place
+  gets its own conversation; the tools whose results are public by nature (`web.search`, `http.fetch`, `wake.*`,
+  `task.*`); `fs.*`, `git.*` and `text.*` only under `[places] public_paths`, taken canonically (none by default, and
+  then no file tools); no `proc.run`, no `aws.*`, and nothing else, since the list is an allow list; and only the
+  context files marked `readers = "public"`.
+- **The owner** is `[places] owner`, else `[approval] trusted_users`, else a bound DM's person, as approval takes the
+  owner. 19a's `[labels]` section, which had the same two keys, still loads as `[places]`.
+- **A turn's class** follows where its words go: the session's place; for a task, its parent's, through the tasks
+  index; for a session no place runs any more (after `/new`), the place its wakes and reports answer in (theseus-4lx);
+  else the CLI's or the web UI's. If that cannot be read, the turn is a shared place's. It is fixed for the turn after
+  catch-up, as the request's spec is.
+- **Enforcement:**
+  - the catalog offers a shared place's model only those tools (`definitions_for`), and its system note says why;
+  - the gate refuses the rest, as a backstop, through the invalid-input path: the record's reason is `place: …`, and
+    the model reads `Not run: fs.write is not offered in a shared place: one others can read gets only the public
+    tools`;
+  - the compile drops a shared place's non-public context files, and the manifest and `context.compiled` record the
+    class and what was withheld.
+- **The binding** tells the core its places when it starts (`bind_places`): each `[[channel]]` with its new `private`
+  key (false by default), and each `[[dm]]`. Nothing is stored, so a place's class always matches this run's bindings
+  file. A guild place it has not named (Discord off, or not started yet) is shared. After serving it reads once who can
+  view each channel bound private, writes a `place.viewed` row, and health warns when anyone besides the owner can.
+  Nothing reads viewers before a turn or a post.
+- **Surfaces:** health's `places:` line; `theseus places`; the cockpit Boundaries board's Places panel and a
+  shared-places count; the Observatory's class badge on a session's transcript.
+- **Publish** (`place.publish`), light graduation and the one way the owner's material reaches a shared place: a node
+  by id, a file the owner can read, or a message, with an optional note, from `theseus publish NODE|FILE --to PLACE
+  [--note …]` or `--text …`, Discord's `/publish`, or the cockpit's publish control on an answer or a result. Only the
+  owner, from a private place: it is judged as an approval is (a Theseus job's process never may), then by the place
+  rule, and both checks come before anything it names is read. One frame, never while a turn holds the place's
+  session, writes the item into the place's conversation as the owner's message, under a header that says what it is,
+  with his note; a `derived_from` edge when it copies a node (`publish`, so `node.reach` follows it); a
+  `place.published` row (who, through what, the source, a digest, the bytes, the place); and a notice in the place. A
+  refusal is an `approval.refused` row, and nothing else is written.
+- **M6:** recall and the books, when built, draw in a shared place only on that place's own sessions
+  (`docs/design/m6-memory.md`).
+- **Deleted:**
+  - the work of 19a, 19b and 19c, and 19d's fixes, which lived in the meet: labels, the compile filter and its
+    placeholders, the audience recompile, held posts and the kernel's held-post stage, quiet loops (loops stream
+    everywhere again), the post-time viewer read, graduation (`theseus graduate`, the web UI's Graduate), and the
+    disclosure simulator (10 files, and its run in the gate);
+  - `theseus labels` (now `theseus places`), health's `labels:` line (now `places:`), the `theseus.compile.withheld`
+    metric and its bench, the Observatory's label and held badges, and the cockpit's labels and held panels;
+  - Discord's per-turn audience push and its viewer reads before guild turns. Its viewer walk stays, for the approval
+    check and the start-time read.
+
+  The removal commit is −8,850 lines (+621 −9,471); the step is net −6,426 (+2,999 −9,425). NODE 7 drops `label`, and
+  COMPILATION 5 drops the manifest's `audience`, `readers`, `integrity` and `withheld`; both readers ignore the old
+  fields. 19a's five `label.*` ledger kinds read as unknown kinds, byte for byte. Confidentiality no longer depends on
+  Discord's Server Members intent. T1's hold on outside text is untouched.
+
+**How it is proven.**
+- **Ten planted reverts**, each failing its test and passing restored: the catalog offering every tool; the gate
+  refusing nothing; a shared place carrying every context file; a task classed by its own place; a moved-on session
+  classed by its own place; a channel bound private taken as shared; publish taking a shared place for a private one;
+  publish taking anyone approvals trust for the owner; publish skipping the place check; publish reading what it names
+  before it judges who asks. The six place-class reverts ran twice, with 19a's labels still on (commit 1 turned the
+  class gate on before commit 2 removed them, so no commit let a shared place receive the owner's material) and after
+  the removal.
+- **Stored data:** a test stores 19a's five ledger kinds and reads them back byte for byte. Literal NODE 5 and 6 and
+  COMPILATION 3 and 4 records still read.
+- **The lane's gates:** 1,697, 1,662, 1,665 and 1,665 of as many, a plain turn 5 frames at each.
+- **Live, on a copy of Eddie's store** with his config, Discord off: his `#openclaw` session, unbound and so shared,
+  compiled with 14 tools and no `proc.run`, his own context file withheld and the public one carried; a CLI session
+  compiled private, with 15 tools and both files; his 19a-labeled nodes and audience manifests read whole.
+- **Live, on the fake Discord:** a write in a shared channel was not run (`place: fs.write is not offered in a shared
+  place…`, and no file); a published file reached the channel with its notice, its row and its digest, and the next
+  turn read it back; with the channel bound private, health named it private; open to another member, health read
+  `#lab (⚠ bound private, but 1 person besides the owner can view it: cy)`.
+
+**The join** (13:19 to 13:31). The review read the code (the class is fail-closed; the allow list; every file tool's
+plan names its base path, defaults included, so the path check covers a call that gives no path; publish judges before
+it reads) and re-ran two planted reverts on the rebased code, the gate's refusal and publish's order, both failing as
+they should. One conflict, with the integrity lane (Item 74) in `toolrun.rs`'s `result_node`, took this step's side, a
+result with no label: integrity's by-program mark on the label's source went with the labels, and only its test's
+label assertion (6 lines) and three doc lines went with it. The hold's `via: program` and the rest stay. The join's
+gate (13:31:16, 242 s): 1,677 of 1,677, lifecycle ok in 10.8 s (cold start p95 34.2 ms), the jobs phase's L1 start p95
+7.22 ms, a plain turn 5 frames. Closed as moot: theseus-nbln, -ntx5, -2lvc and -nuna (by the lane), theseus-celu.6,
+-celu.7, -tbv2, -zupl and -033g (at the join; two parked cloud branches deleted), and theseus-0yz6 and -843s (the
+simulator's gaps).
+
+**The install** (13:47, at 57a3759). Health on Eddie's daemon read `places: private: CLI, web, DM @eddie · shared:
+#openclaw (public tools only)`, as the step's report had predicted: his DM private, since his id is a trusted user, and
+`#openclaw` shared, with the public tools alone and no file tools, since his note names no public trees.
+
+**Divergences.** The brief's "read again when the binding changes" is the next start, since a bindings file is read
+only then. A DM with someone who is not an owner is shared, which the brief did not say. Publish judges who asks before
+it reads (049ef27, found while the report was written: before it, a non-owner's refused `/publish` in a shared channel
+could tell whether a path existed, or a file's size). The class follows a moved-on session's wake target (theseus-4lx),
+which the brief did not name. A class change keeps the conversation: a channel rebound from private to shared keeps
+what was said while it was private, the operator's act, and `/new` starts afresh.
+
+**What it costs, said plainly.** Fine-grained mixing is gone: one owner item visible to named people across places is
+now an explicit publish. A private channel that gains a member is noticed at the next start. `#openclaw` gets the
+public tools alone.
+
+**Known gaps.** theseus-94a6 (P3): an `http.fetch` of a private address, approved from a shared place, brings that
+page into the shared conversation; the approval rule makes it wait, but not on the place. Eddie's call, at 14:20:
+leave it to the approver, whose card is to say it is a private address in a shared place. Not built yet.
+
+### Item 77. The sandbox trims: listed egress doesn't latch, no probe at the start, no delegated cgroup, and no L1 job as root (theseus-gyin; the simplification cut-list's Tier 4, 4.1 to 4.3, with theseus-pv6i's intent; the `sandbox-trims` lane; 2026-10-03 11:36 to 12:55; one commit on a59b7c1, ba7a8c6; reviewed 13:19 to 13:37; rebased onto d2fd4d9 as 1378382; joined 13:37 at 1378382; installed 13:47 at 57a3759)
+
+**Why.** Eddie approved the explanation at 11:25: "4.1, 4.2, 4.3, and the keeps: I follow your recommendation for
+all". This is the default-trust principle (§2) applied to L1's add-ons. The core of the sandbox stays whole: the
+namespaces, the view, scratch, no capabilities, the egress allowlist, seccomp, and the pid namespace's verified stop.
+Kept as approved: seccomp, the broker's per-program parsers, the scrubber's heuristics, and `[policy] external_text`,
+which stays `ask`. At 11:26 he confirmed that web text stays at ask, and that Jev's security judge earns relaxing it
+("see if it works well in practice"; theseus-hnc8 brings him the numbers once row 39 runs).
+
+1. **Egress to listed hosts no longer counts as outside text.** Counting it had made a sandboxed build that fetched
+   its crates stop to ask.
+2. **No self-test after every start.** It cost a subprocess, an L1 clone, `systemctl show`, and a frame, 3 s after
+   every start.
+3. **No delegated cgroup.** It covered only the L1 jobs the model opted into, while L0, the default, has no memory
+   limit. It tied the sandbox to the unit's settings, and brought a bug class of its own.
+
+Without the cgroup, a root daemon's L1 job would have no process limit, since Linux exempts root from `RLIMIT_NPROC`
+(theseus-pv6i, found on the first cloud batch's root VM, Item 67), so it is refused.
+
+**What landed.**
+- **4.1.**
+  - The rule: a result is marked external only when its job reached a host beyond `[sandbox] egress`, which only the
+    approval of its call's own list let it reach (`egress::external`, `marker`). The marker names those hosts alone.
+    A job that left no report is marked only when its bound list held a host beyond the operator's. An operator list
+    that fails to parse counts every host as beyond it.
+  - Unchanged: the egress rows, health's counts, and the result's lines.
+- **4.2.**
+  - Gone: the probe after serving (`PROBE_AFTER` and its three helpers), `Sandbox::probe`, the kernel's probe mode,
+    theseusd's `sandbox-probe` role, the `SandboxProbed` fact, and `sandbox.probe`. A stored row still reads, as an
+    unknown kind: the copy of Eddie's store returned its 9 old rows.
+  - Health's line now reports the last real L1 launch, from its job's completion (`Sandbox::launched`): "no L1 job yet
+    since start", "the last L1 launch worked (start 8.1 ms)", or why it failed. The Observatory's and the cockpit's
+    sandbox lines say the same.
+  - `theseusd check` runs the self-test on demand, `/bin/true` through the real job path (`job::self_test`, then
+    `job_l1::run`), and prints its verdict; a failure fails nothing, since L1 is optional.
+- **4.3.**
+  - Gone: `theseus-sandbox`'s `cgroup.rs` (306 lines) and `Spec::cgroup`; the core's `find_cgroup`, `systemctl_show`
+    and `judge`; the daemon's move into a `daemon/` leaf; the `cgroup-release` role; the job cgroup, its limit-hit
+    lines (`pids_refused`, `oom_kills`, `cgroup_error`) and the cgroup branch of a stop. An L1 stop is verified by its
+    pid namespace alone; `VerifiedBy::Cgroup` stays so stored verdicts still read.
+  - The units (`--user`, `--separate`, and the job host's) lose `Delegate=yes` and the `ExecStopPost` stop hook, and
+    keep `KillMode=process`. `user-service.sh` loses its cgroup check, and `docs/user-service.md` says what an older
+    unit's leftover lines do.
+  - `[sandbox] memory_mb` leaves the template; a config that sets it still loads, with one warning per load
+    (`sandbox.memory_mb is retired and ignored`).
+  - `sandbox.usage` lists only the L1 jobs running now, each with its command and running time; the cockpit's live
+    list lost its gauges.
+  - Unchanged: each job's `RLIMIT_NPROC` and `RLIMIT_FSIZE`, the scratch caps, and the pid namespace.
+- **Root.** `theseus_sandbox::spawn` refuses a root operator's job before it makes anything, at the stage "checking the
+  job's process limit": "the daemon runs as root, and Linux exempts root from RLIMIT_NPROC, so an L1 job would have no
+  process limit: run theseusd as an ordinary user". Every L1 start passes through spawn: the wrapper's, `check`'s, and
+  the tests'. Health says `sandbox: L1 is unavailable: <why>`. This is the parked root-l1 branch's intent, lighter: no
+  process-limit module, no cgroup branch, and no narrative line for a refused job, whose result already says why.
+- **Net −764 lines** (+950 −1,714), the Rust sources −727; the debug `theseusd` is 569,512 bytes smaller. Health's
+  wire shape dropped `memory_mb`, `probe` and `cgroup` and added `last_launch` and `refuses`, so an older CLI can't read
+  a newer daemon's health: every binary installs together.
+
+**How it is proven.**
+- **Five planted reverts**, each failing its tests and passing restored:
+  - 4.1 both ways, through the core and the daemon's real proxy: every host latching again (4 tests fail), and no
+    host latching, not even one beyond the list (4 fail);
+  - the refusal's rule (`refusal()` never refuses);
+  - the refusal's place, run as root through the contract's root case (with the binary copied where root's user
+    namespace can execute it): planted, "a root operator's job started, with no process limit"; restored, refused with
+    its words;
+  - health's last launch (`job_result` records none).
+- **The lane's gate**: 1,690 of 1,690, a plain turn 5 frames.
+- **The lifecycle bench, alone, in two A/B rounds** (debug builds, one hold of the shared lock, a palindrome order, PSI
+  checked before each run; round 2 with one driver and a third build of the lane's commit in the first arm's tree): the
+  start is unchanged within noise, as the code requires (cold start p50 25.0, 24.1 and 27.3 ms), and every budget held
+  in every run. A start's aftermath lost one frame (the WAL went from frame 8 to 9, not 10, with no `sandbox.probe`) and
+  one subprocess with its L1 clone.
+- **Live**, on a scratch daemon over a copy of Eddie's store with his config, run as a plain `systemd-run --user` unit
+  with `Delegate=no`:
+  - health said "no L1 job yet since start", then "the last L1 launch worked";
+  - `theseusd check` said "L1: the self-test worked (start 10.4 ms)";
+  - GLM's L1 job to a listed stand-in host left its session clear, and a job to a host beyond the list, once approved,
+    held its session (`via: egress`);
+  - the unit's cgroup had no child cgroups, and the log gave the one `memory_mb` warning his note causes.
+
+**The join** (13:19 to 13:37). The review read `egress::external` and `marker` (fail-closed on an unparsable list) and
+the root refusal, and re-ran two planted reverts on the rebased code: every host latching (8 tests failed) and the
+refusal's rule (2 failed). The rebase onto the place rule met one conflict, in `toolrun/job.rs`: this step's marker
+with the operator's list comes first, then the integrity lane's listed-program marker when egress marked nothing, so a
+`gh` that reached only listed hosts still holds its session, `via: program` (Item 74), and a plain job reaching listed
+hosts holds nothing. The protocol's types and the web UI's build were regenerated, and one formatting fix amended
+before the gate. The join's gate (13:37:45, 211 s): 1,680 of 1,680, lifecycle ok in 9.9 s (cold start p95 33.7 ms), the
+jobs phase's L1 start p95 5.97 ms, a plain turn 5 frames. theseus-gyin, theseus-pv6i and theseus-celu.5 are closed,
+and root-l1's cloud branch was deleted.
+
+**The install** (13:47, at 57a3759). `scripts/user-service.sh install` rewrote Eddie's unit, with no `Delegate=` and
+no stop hook, and `KillMode=process` kept, before a restart taken with no turn held and no L1 job running. `theseusd
+check`: `L1: the self-test worked (start 4.2 ms)`. Health: `sandbox: no L1 job yet since start · default l0 · jobs: 0
+at L0, 0 in L1 · an L1 job gets 512 processes, 1024 MB of scratch, files up to 64 MB · no egress listed`. The journal
+held the one expected warning, `sandbox.memory_mb is retired`: his note sets it, and a re-paste of the template clears
+it.
+
+**Divergences.**
+- One commit, since 4.1, 4.2 and 4.3 share files.
+- The self-test reuses the job path instead of the old probe function.
+- root-l1's narrative line for a refused job was dropped.
+- `memory_mb`'s warning lives in `SandboxConfig`, because `config.rs` is at its line ceiling.
+
+**What it costs, said plainly.** An L1 job may use all the machine's memory, as an L0 job may (`RLIMIT_AS` is a
+one-line limit, if one is wanted). Text injected through a listed host no longer holds a session: 4.1's approved risk,
+latent while Eddie's list is empty. Health can't say "L1 works" before the first L1 job; `theseusd check` can. The root
+refusal was proved by the contract as root, not on a root daemon.
+
+### Item 78. AWS's C2: the stacks, owner-role sessions, writes behind the floor, and the budget, in the lean posture (theseus-nyzn; row 30, step 14b, stage D; spine, in a worktree; 2026-10-03 11:32 to 13:16; 3fc88ec and 1cbf640 on a59b7c1; reviewed 13:30 to 13:41; rebased onto 1378382 as 438a33d and 57a3759; joined 13:44 at 57a3759; installed 13:47 at 57a3759; the bootstrap's apply cleared by Eddie at 14:20)
+
+**Why.** C1 (Item 49) bound the account and its reads; C2 brings the writes, with AWS's own guards in front of them.
+It waited on Eddie's go-ahead for the first writes to his account, and he gave it at 11:24, with a cap under $1 a
+month on what the stacks themselves cost. A read-only cost check first (AWS's Pricing API) put the design as written at
+about $2.80 a month (two customer keys $2.00, 17 alarms $0.70, the trail's writes $0.07, GuardDuty about $0.02), and a
+lean posture at about $0.10. The account had no trail, alarms, GuardDuty detector or customer keys, one budget, and
+about 50 management events a day. C2 was built lean.
+
+**What landed** (§3.25).
+- **The templates** (`infra/aws`), lean by default.
+  - **`theseus-foundation`**: the Theseus bucket on SSE-S3 and the durability table on DynamoDB's own key, so the
+    foundation's `TheseusKey` and its alias are gone. The alerts topic has no SSE, on purpose: SNS encrypts only with
+    KMS, and EventBridge, Budgets and CloudWatch can publish to an encrypted topic only through a customer key's policy
+    ($1 a month); a message rests there only until delivered, and the queue it feeds is SSE-SQS. The template says so,
+    and the rule tests check that it does. The guards and the boundary are now the documents `guardrails.toml`
+    generates, one minified line each, and the guard crate's test fails when a line is out of step. `MonthlyBudgetUsd`
+    defaults to 50.
+  - **`theseus-posture`**: the trail's bucket on SSE-S3, with a `TrailKey` parameter (`aws-managed`, the default, or
+    `customer`, which creates the trail's own KMS key). The 17 checks are EventBridge rules on CloudTrail's management
+    events, into the alerts topic, each alert naming its rule; they replace the 17 metric filters, the 17 alarms, the
+    log group and its role. The root-of-trust rule fires on anything the vault key signs except `sts:GetCallerIdentity`
+    and an `sts:AssumeRole` into `theseus-owner`, so an AssumeRole into any other role alerts too. Three rules
+    (refused calls, the root user, the root-of-trust key) see read-only events as well. Access Analyzer, GuardDuty and
+    their findings rules, and the snapshot block are as before.
+  - **`theseus-posture-relay`**, new, in us-east-1 when the home region is another: rules are regional, and the global
+    services (IAM, Organizations, Budgets, the console's sign-in, STS's global endpoint) record their events in
+    us-east-1 only. One rule forwards that region's CloudTrail events to the home region's default bus, through a role
+    allowed only `events:PutEvents` there.
+  - The stack policies follow. `check.sh`: cfn-lint on five templates, 0 violations, and 32 rule tests ok.
+- **The guard crate, wired in** (`theseus-aws-guard`, merged ahead of its reader in Item 16, read now). `alarm-tamper`
+  became `alert-tamper` (the posture rules and the alerts topic). `planned_resources` reads a template's resources under
+  its parameters, an undecidable condition a maybe. Its `reserved_for` marker is removed.
+- **Who signs** (`aws/session.rs`). Until the config names `owner_role`, the key signs, as in C1. Once it does, the key
+  signs only STS, and each call signs in a role session minted by `sts:AssumeRole` into the owner role: **work**, named
+  by the execution, with the guards then `theseus-allow-all`, for 12 h, refreshed; **job**, named by the job's
+  correlation id, adding `theseus-guard-stacks`, for the job's deadline; **floor**, `<execution>.floor`, with
+  `theseus-allow-all` alone, for 15 minutes, never cached, minted only for a call the operator approved at the floor;
+  and the **tender**'s, with an inline policy that allows exactly the budget's change set, its read, and GuardDuty's
+  reads. Every session's source identity is the deployment, its tags name the execution, the kind and the deployment,
+  it is held in zeroizing memory and never written, and each mint is an `aws.session.minted` row, never a credential.
+- **`aws.call` writes.** Its plan reads the guard list: a direct guardrail is the floor at every posture; a stack
+  write, or durable infrastructure, is invalid input that points to `aws.stack.plan`, and nothing is sent; any other
+  guardrail is the floor; a deletion of what holds state waits. The verdict rides the plan in memory only
+  (`AwsPlan.guardrail` and `destructive`, `serde(skip)`), and the gate's record keeps it, so no node layout changes.
+  `[policy.aws]` reads the call's own class: the operation, the service, then `read`, `write` or `run`. An approved
+  floor call that AWS's guards would refuse runs in a floor session. `aws.call` is not repeated after a crash: a write
+  cut by one is unknown. Secret-bearing reads stay invalid until C3.
+- **The stack tools**, refused until the owner role is named: `aws.stack.plan` (a change set under
+  `theseus-cfn-deployer`, its diff, its floor and approval lines, and its digest); `aws.stack.apply {stack, digest}`
+  (exactly that change set, at the floor when it touches a guardrail, asking when state would be lost, re-described
+  and refused if its digest changed, waiting up to 30 minutes to settle: `Tool::deadline` is new); `aws.stack.status`
+  (the stacks, or one with its outputs, drift status and recent events); and `aws.stack.delete` (always asks, and says
+  what `Retain` keeps).
+- **The bootstrap**, `theseus aws bootstrap` (the method `aws.bootstrap`), the CLI's alone: refused from Discord, the
+  web UI and a job's process, before anything is read. Its plan is read-only: the account check, one probe for an owner
+  session, a new stack's resources from its template (no change set), an existing stack compared by `GetTemplate`, the
+  singletons (a GuardDuty detector, an account analyzer, other trails), and a digest over each stack's template,
+  parameters and action. Its apply plans again and refuses a changed digest, then makes the foundation by a change set
+  signed with the key, takes a floor session of the new role (retried for up to a minute while IAM learns it), makes the
+  posture and the relay through the deployer, each change set checked against the plan, and sets each stack's policy
+  and termination protection. The operator's one approval covers its guarded changes. On a terminal it asks `[y/N]`
+  after a plan with changes.
+- **The tenders** (`aws/tend.rs`), after serving, once the account is bound and names an owner role: the budget's
+  reconcile once a start (a change set of the foundation with the config's `monthly_budget_usd`, executed only if its
+  one change is `MonthlyBudget` modified with no replacement, else deleted and health says STOPPED; ledgered as
+  `aws.budget.reconciled`); the budget's line every six hours (free); and GuardDuty's usage weekly (free), projected to
+  a month, health warning past $1.
+- **`aws.cost`**: Cost Explorer's month to date, or last month, by service, at $0.01 a call, so an answer is kept a
+  day.
+- **`[broker.programs.aws] aws_account`**: the `aws` CLI, run by its own argv, gets a job session at its launch (its
+  key, secret and token, the region, and `/dev/null` for both profile files), never the key, and nothing before the
+  owner role exists. The harness-only line then ends `; jobs get short-lived AWS sessions, never the key (aws)`.
+- **The config and the surfaces.** New keys: `[aws.accounts.<id>] owner_role`, `deployment` and
+  `monthly_budget_usd`; `[policy.aws]` takes `write` and `run`; `[broker.programs.<p>] aws_account`. Health and
+  `aws.whoami` say what signs each account and give the budget line (`$3.21 of $50 this month (forecast $4.10)`), and
+  health gives GuardDuty's projection and the reconcile. `config/aws.rs` and the CLI's `render/aws.rs` split out of
+  files that sat at their line ceilings since C1 (theseus-sk47, theseus-wdcw).
+
+**How it is proven.**
+- **Tests** (`aws/tests_c2.rs` and beside it): the floor for each guardrail group at every posture (public ingress, the
+  trail, encryption at rest, long-lived credentials, the budget, the guards), each near miss open; IaC-only and stack
+  writes invalid at plan and at run, the fake seeing no request; deletions waiting, and each class taking its line; the
+  session policies composing as their kinds say, by an IAM evaluation of the generated documents, within STS's limits;
+  the key signing only STS, against a fake STS and service; the reconcile idempotent and touching only the budget, and
+  the bootstrap planning read-only, applying once and planning no change after, both against a fake CloudFormation with
+  state; the lean templates making no key, alarm, metric filter or log group by default, and exactly one key with
+  `TrailKey=customer`; a program's AWS grant a job session, never the key.
+- **Five planted reverts**, each failing its tests and passing restored: the floor not asking, IaC-only cleared, the
+  approve list off, a work session without the guards, a reconcile that applies a change beyond the budget. The
+  sessions plant was caught by the composition test; the signing test passes under it, since both its sides read the
+  same list.
+- **The lane's gates**: 1,702 of 1,702, twice, a plain turn 5 frames.
+- **Live, read-only, no write of any kind**: `ValidateTemplate` on the three templates; `TestEventPattern` on all 20
+  rules, 51 cases, 0 wrong (among the misses an AssumeRole into `theseus-owner` by the key; among the matches an
+  AssumeRole into another role); and the bootstrap's plan through a scratch daemon of this build: three stacks to
+  create, 22, 25 and 2 resources, and no warnings. CloudTrail's event history showed 95 events by the key since 11:30,
+  every one read-only, and no successful write.
+
+**The join** (13:30 to 13:41, joined 13:44). The review read the bootstrap's refusals (the CLI only, then not a job's
+process, before anything is read), the reconcile's one allowed change, the floor session's use, and the `aws` CLI's
+job session, and re-ran two planted reverts on the rebased code, the floor and the sessions, both caught. The rebase
+onto the trims was clean: the RPC server's act list holds 14, with the place rule's `PLACE_PUBLISH` and this step's
+`AWS_BOOTSTRAP`. The join's gate (13:44:25, 233 s): 1,695 of 1,695, lifecycle ok in 9.7 s (cold start p95 26.4 ms), the
+jobs phase's L1 start p95 5.37 ms, a plain turn 5 frames.
+
+**The install** (13:46:59 to 13:47:08, at 57a3759: one install of everything since 03:32, Items 73 to 78 and docs
+v0.79). A `release-thin` build of the five binaries (1 m 58 s), the store backed up first, `theseusd check` (8 secrets
+resolved in 2,038 ms, the L1 self-test 4.2 ms), the unit rewritten by `scripts/user-service.sh install` for the
+sandbox trims, then a restart with no turn held and no L1 job. Health: the places line and the sandbox line (Items 76
+and 77); the config confirmed by the vault in 975 ms; the secrets ready 1,025 ms after the start; Discord ready; the
+index ready; the unit active, with no restarts; the cockpit answering. C2 itself shows nothing yet: Eddie's note binds
+no AWS account, so his daemon has no `aws:` line until the bootstrap is done.
+
+**The bootstrap, cleared.** Its apply is a write to Eddie's account, and waited on two answers from him: the address
+the alerts topic emails (committed nowhere), and lean or the trail's own key (`--trail-key customer`, $1 a month more).
+He gave both at 14:20: lean, with no trail key. What follows, after this record: a fresh cost check of the exact stacks; the plan, from a scratch daemon of the installed build, showing three
+creates of 22, 25 and 2 resources and no warnings; the apply; his note's `[aws.accounts.<id>]` table with
+`owner_role`, after which health should say the account signs with role sessions; the design's write checks, with his
+go-ahead; and S3's account-level Block Public Access and EBS encryption by default, set by hand.
+
+**Divergences.** `owner_role` is a config key the operator adds after the bootstrap: the design had the bootstrap set
+it, but the config is a note no agent writes, and an AssumeRole probe in the daemon could fall back to the key silently
+on a passing failure. `aws_account`, not the design's `account`. The relay stack is new. The verdict rides `AwsPlan` in
+memory only, so NODE's schema stands. The bootstrap's one approval covers its guarded changes, in one floor session
+that lasts an hour. The alerts topic is unencrypted, on purpose (above).
+
+**What it costs, said plainly.** About $0.08 to $0.10 a month at this account's activity: the trail's log and digest
+writes about $0.07, GuardDuty $0.01 to $0.02 after its 30-day trial, storage and the relay under $0.01. The trail
+records every region, but the rules alert only in us-west-2 and us-east-1, the account's allowed regions, and
+GuardDuty runs in the home region alone; the alarms' log group had seen every region. That is the lean posture's
+trade. SCPs would make the other regions unusable instead, and Eddie set them aside at 14:20: "for now, budgets and
+notify are fine -- visibility first".
+
+**Known gaps** (not built, as the design allows): the 100 % budget wait, the $5-a-day and $1-an-hour tripwires (they
+come with the hands' reservations, row 40; until then AWS spend is bounded by the $50 budget, its stop at 100 %, which
+lags spend by hours, and the six-hourly line), the weekly drift tender (`aws.stack.status` shows drift), the key's
+90-day age warning, the inventory (C3), the plan's cost estimates, a job's narrowing (`aws_policy`), the
+`aws.stack.planned` and `aws.stack.applied` rows, and committing a planned template to git. The stack tools' writes
+and the bootstrap's apply are tested against fakes only, and GuardDuty's usage read was not exercised live (the
+account has no detector yet).

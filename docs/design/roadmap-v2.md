@@ -182,17 +182,17 @@ counts half. The blocks:
 
 | # | Step | Ids | Slots | Waits on |
 |---|---|---|---|---|
-| 17 | 17b: L1 for `proc.run`: the class choice, `[sandbox]`, the wrapper's L1 path, the probe after serving. **Joins 17a** | 7ve | 1 | the sandbox lane (17a) |
-| 18 | 18a: cancellation verified per backend (the tree stop, the pid namespace, the cgroup, `verified_by`) | hcc, 7ve | 1 | 17b; w98 (batch 1). Its L0 half can run earlier, as a filler |
-| 19 | 18c: egress wired in; a result that connected out is external. **Joins 18b** | 20f (its L1 half) | 1 | 17b; 18b |
+| 17 | 17b: L1 for `proc.run`: the class choice, `[sandbox]`, the wrapper's L1 path, ~~the probe after serving~~ (removed by the sandbox trims, theseus-gyin, 2026-10-03: `theseusd check` runs the self-test on demand). **Joins 17a** | 7ve | 1 | the sandbox lane (17a) |
+| 18 | 18a: cancellation verified per backend (the tree stop, the pid namespace, ~~the cgroup~~ (gone with the sandbox trims, theseus-gyin), `verified_by`) | hcc, 7ve | 1 | 17b; w98 (batch 1). Its L0 half can run earlier, as a filler |
+| 19 | 18c: egress wired in; a result that connected out is external (since the sandbox trims, theseus-gyin, 2026-10-03: only one that reached a host beyond the operator's list). **Joins 18b** | 20f (its L1 half) | 1 | 17b; 18b |
 | 20 | 18d: credential brokering under L1: the per-job socket, `cred.request`, and a `kind: aws` seam with no AWS code in it (removed by theseus-w5op, 2026-10-03: an L1 job takes its grants at launch) | 7ve | 1 | 17b; 18c |
-| 21 | 19a: labels on nodes, the audience, the compile filter with placeholders | 7ve | 1 | T1 and F4a (done) |
-| 22 | 19b's join: the disclosure simulator, and its short run in the gate | 7ve | 0.5 | the disclosure lane |
-| 23 | 19c: graduation, and `may_leave` in the outbox | 3vu | 1 | 19a |
+| 21 | ~~19a: labels on nodes, the audience, the compile filter with placeholders~~ **Replaced by the place rule** (theseus-nbsh; Eddie, 2026-10-03, the cut-list's Tier 2): every place is private or shared, a shared place gets the public tools alone, and the owner publishes into it. 19a's labels were built on 2026-10-02 and removed | 7ve, nbsh | 1 | T1 and F4a (done) |
+| 22 | ~~19b's join: the disclosure simulator, and its short run in the gate~~ Built on 2026-10-02, and removed with the labels (theseus-nbsh) | 7ve | 0.5 | the disclosure lane |
+| 23 | ~~19c: graduation, and `may_leave` in the outbox~~ Built on 2026-10-02, and removed with the labels: graduation is the owner's publish (theseus-nbsh) | 3vu | 1 | 19a |
 | 24 | ~~20a: integrity by labels (T1's hold becomes the latch), origin `external`, `external_programs`; d64 built here~~ **Replaced by the integrity lane** (theseus-b5cl; Eddie, 2026-10-03, the cut-list's Tier 1.1): T1's latch stays as it is, per session, fed by DD5's own `external` marker. The lane adds its two cheap pieces: `[policy] external_programs` (`["gh"]` by default), whose `proc.run` output is outside text, and a job's session, `THESEUS_SESSION`, which the CLI sends as `opened_from`, so a session that a holding session's job opens or sends a turn to holds it too (d64, built here). No labels feed the latch, and there is no `external` origin | b5cl, d64 | 0 (a lane) | — |
 | 25 | ~~20b: file hashes and fomites (`via: file`)~~ **Dropped** (theseus-b5cl; Eddie, 2026-10-03), with the Advisory (theseus-3vu's quarantine levels). Laundering through files is Jev's: `security.v1` (row 39) | — | 0 | — |
-| 26 | 21b: the ontology wired in: records, the snapshot, the compile walk, the CLI, the Observatory. **Joins 21a** | 8kk | 1 | the ontology lane; 19a |
-| 27 | 21c's join: the web UI's Ontology view | 8kk | 0.5 | 21c (lane) |
+| 26 | 21b: the ontology wired in: records, the snapshot, the compile walk, the CLI, the ~~Observatory~~ cockpit (the cut-list's 6.4). **Joins 21a** | 8kk | 1 | the ontology lane; ~~19a~~ (its labels were removed, theseus-nbsh) |
+| 27 | 21c's join: the ~~web UI's~~ cockpit's Ontology view (the cut-list's 6.4: the cockpit replaces the Observatory) | 8kk | 0.5 | 21c (lane) |
 | 28 | 22b: the job host, `RemoteLauncher`, `[control_plane]`. **Joins 22a** | 7ve | 1 | the installer lane; 18a |
 
 **D. AWS** ([AWS design](aws-toolset.md); theseus-mgw). Floats on Eddie's go; drawn here after C.
@@ -200,7 +200,7 @@ counts half. The blocks:
 | # | Step | Ids | Slots | Waits on |
 |---|---|---|---|---|
 | 29 | C1 = 14a: the bound account; `aws.call` for reads, `aws.describe`, `aws.whoami`, `aws.s3.list`. **Joins P1 and P2** | mgw | 1 | P1, P2; the SCP conversation (renewed 16:18; its default holds until he answers) |
-| 30 | C2 = 14b: stacks, `theseus aws bootstrap`, the owner role, writes, the budget. **Joins P3 and P4** | mgw | 1 | C1; P3, P4; **Eddie's go-ahead for the first writes to his account** |
+| 30 | C2 = 14b: stacks, `theseus aws bootstrap`, the owner role, writes, the budget. **Joins P3 and P4**. **Done 2026-10-03** (theseus-nyzn; Eddie's go-ahead at 11:24, with a cap under $1 a month: the lean posture), joined and installed; Eddie cleared the bootstrap's apply at 14:20, lean | mgw | 1 | C1; P3, P4; **Eddie's go-ahead for the first writes to his account** |
 | 31 | C3 = 14c: the curated tools, the reaper in report mode, AWS text marked external (by DD5's own `external` marker, as a fetch is: 20a was dropped, theseus-b5cl) | mgw | 1 | C2 |
 | 32 | 15: the durability tender: WAL segments **and `blobs/`** to S3, index rows to DynamoDB, on the index lane's WAL follower | mgw | 1 | C2; the WAL follower (§6, conflict 3) |
 | 33 | 16: `theseus restore --from s3://…` | mgw | 1 | 15 |
@@ -361,12 +361,14 @@ hours. The six designs cut the same scope into hour-sized steps, and it comes to
 **What could stretch it**
 - **Eddie's answers.**
   - The AWS go (P1, P3, P4) and C2's first writes. Without them, D's 7.5 slots never enter, and v1's AWS part
-    waits for him. Late, they cost nothing until D is all that's left.
+    waits for him. Late, they cost nothing until D is all that's left. _(Answered 2026-10-03: the go at 11:24, with
+    a cap under $1 a month, and C2's bootstrap at 14:20.)_
   - The SCP question: C1 follows the conversation (renewed 16:18). Its default holds, so it delays nothing unless
-    he wants the SCPs in place first.
+    he wants the SCPs in place first. _(Answered 2026-10-03 at 14:20: no SCPs yet; budgets and notices.)_
   - Voice: rows 77 and 78 wait for a test voice channel and his providers. Everything else finishes without them.
     _(2026-10-03: they leave v1 until he chooses speech providers, and `theseus-voice` is parked outside the
-    workspace until then, theseus-o8nk; the spec's §2 and Part III Item 72.)_
+    workspace until then, theseus-o8nk; the spec's §2 and Part III Item 72. At 14:20 he chose Deepgram for both,
+    so they return to v1.)_
   - TypeSafe consent: no build delay. Without it, M5's and M6's shadow data never starts, and their proves slip
     past the soak.
 - **Review bandwidth.** About 38 hours of spine reviews (30 minutes each) and 8 of lane reviews (15 each), over
