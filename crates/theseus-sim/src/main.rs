@@ -289,9 +289,10 @@ fn main() -> Result<()> {
                 .with_context(|| format!("listening on {addr}"))?;
             println!("fake discord REST on {}", fake.addr);
             if let Some(g) = guild {
-                let text = std::fs::read_to_string(&g)
-                    .with_context(|| format!("reading {}", g.display()))?;
-                fake.set_guild(serde_json::from_str(&text).context("the guild's JSON")?);
+                // Read again at every request, so a live check can change
+                // who can view a channel while a turn runs (M4 19c).
+                fake.watch_guild_file(&g)
+                    .with_context(|| format!("reading the guild from {}", g.display()))?;
             }
             if let Some(gw) = gateway {
                 let url = fake

@@ -60,16 +60,27 @@ const PREVIEW_CHARS: usize = 1500;
 /// The held post's question in words: what the post draws on, and what
 /// changed.
 pub fn held_reason(readers: &Readers, audience: &Audience) -> String {
-    let place = match audience {
-        Audience::Place { name: Some(n), .. } => format!("#{n}"),
-        Audience::Place { place, .. } => format!("channel {place}"),
-        a => a.describe(),
+    let (place, now) = match audience {
+        Audience::Place {
+            place,
+            name,
+            viewers,
+            ..
+        } => (
+            name.as_ref()
+                .map_or_else(|| format!("channel {place}"), |n| format!("#{n}")),
+            match viewers {
+                Some(1) => "1 person".to_string(),
+                Some(n) => format!("{n} people"),
+                None => "public: who can view it cannot be read".to_string(),
+            },
+        ),
+        a => (a.describe(), a.describe()),
     };
     format!(
-        "This reply draws on material labeled {}, and who can view {place} changed since it \
-         was written (now {}). Post it?",
-        readers.describe(),
-        audience.describe()
+        "This reply draws on material labeled {}, and {place}'s audience changed (now {now}). \
+         Post it?",
+        readers.describe()
     )
 }
 

@@ -48,6 +48,12 @@ const WRITE_WORD: &str = "PROOF-WRITE";
 /// what the read gave it, so a withheld result shows in the reply.
 const READ_WORD: &str = "PROOF-READ";
 const READ_ID: &str = "toolu_proof_read";
+/// M4 19c's live check: `PROOF-GROW` reads `notes.txt` as `PROOF-READ` does,
+/// and while it answers, opens every channel of the rig's `guild.json` to the
+/// whole guild, so the channel gains a viewer mid-turn; `PROOF-SAY` answers
+/// with the start of a graduated node its request carries.
+const GROW_WORD: &str = "PROOF-GROW";
+const SAY_WORD: &str = "PROOF-SAY";
 const READY_TEXT: &str = "ready";
 const DONE_TEXT: &str = "Done: the proof file is written.";
 const WRITTEN: &str = "written through the Discord stand-in";
@@ -181,6 +187,9 @@ fn answer_model(mut stream: TcpStream, write: &Value) -> Result<()> {
     let result = blocks.iter().find(|b| b["type"] == "tool_result");
     let events = match result {
         Some(r) if r["tool_use_id"] == READ_ID => {
+            if req["messages"].to_string().contains(GROW_WORD) {
+                open_the_guild(write);
+            }
             let got: String = r["content"]
                 .as_str()
                 .unwrap_or("")
@@ -192,6 +201,8 @@ fn answer_model(mut stream: TcpStream, write: &Value) -> Result<()> {
         Some(_) => sse_text(model, DONE_TEXT),
         None if last.to_string().contains(WRITE_WORD) => sse_write(model, write),
         None if last.to_string().contains(READ_WORD) => sse_read(model),
+        None if last.to_string().contains(GROW_WORD) => sse_read(model),
+        None if last.to_string().contains(SAY_WORD) => sse_text(model, &said(&req)),
         None => sse_text(model, READY_TEXT),
     };
     let mut out = String::from(
@@ -205,6 +216,46 @@ fn answer_model(mut stream: TcpStream, write: &Value) -> Result<()> {
     }
     stream.write_all(out.as_bytes())?;
     Ok(stream.flush()?)
+}
+
+/// Open every channel of the rig's `guild.json` to the whole guild (M4 19c):
+/// the fake reads the file again at its next request. The rig's directory is
+/// the write's, two levels up (`write_input`).
+fn open_the_guild(write: &Value) {
+    let Some(dir) = write["path"]
+        .as_str()
+        .map(Path::new)
+        .and_then(|p| p.parent()?.parent())
+    else {
+        return;
+    };
+    let path = dir.join("guild.json");
+    let Some(mut g) = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    else {
+        return;
+    };
+    for c in g["channels"].as_array_mut().into_iter().flatten() {
+        c["overwrites"] = json!([]);
+    }
+    let _ = std::fs::write(&path, g.to_string());
+}
+
+/// What `PROOF-SAY` answers: the start of the graduated node its request
+/// carries, or that it carries none (M4 19c).
+fn said(req: &Value) -> String {
+    let graduated = req["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+        .filter_map(|b| b["text"].as_str().map(str::to_string))
+        .find(|t| t.starts_with("[Graduated by the operator"));
+    match graduated {
+        Some(t) => format!("Said: {}", t.chars().take(220).collect::<String>()),
+        None => "Said: no graduated node is in my context".into(),
+    }
 }
 
 fn sse(model: &str, block: Value, delta: Value, stop: &str) -> Vec<Value> {

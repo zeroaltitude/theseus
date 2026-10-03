@@ -47,7 +47,7 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -381,6 +381,9 @@ struct State {
     /// The guild's member list answers 403 (M4 19c): who can view a channel
     /// cannot be read.
     refuse_members: bool,
+    /// The file the guild is read from again at every request (M4 19c), so a
+    /// live check can change who can view a channel while a turn runs.
+    guild_file: Option<PathBuf>,
 }
 
 pub struct FakeDiscord {
@@ -439,6 +442,28 @@ impl FakeDiscord {
     /// Discord keeps a nonce for a few minutes; the fake, forever unless told.
     pub fn set_nonce_window_ms(&self, ms: u64) {
         self.state.lock().unwrap().nonce_window_ms = Some(ms);
+    }
+
+    /// Read the guild from `path` now, and again at every request (M4 19c).
+    pub fn watch_guild_file(&self, path: &Path) -> anyhow::Result<()> {
+        let text = std::fs::read_to_string(path)?;
+        self.set_guild(serde_json::from_str(&text)?);
+        self.state.lock().unwrap().guild_file = Some(path.to_path_buf());
+        Ok(())
+    }
+
+    /// The guild as its file says now; a file that does not read keeps the
+    /// guild as it was.
+    fn reread_guild(&self) {
+        let Some(path) = self.state.lock().unwrap().guild_file.clone() else {
+            return;
+        };
+        if let Some(g) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Guild>(&t).ok())
+        {
+            self.set_guild(g);
+        }
     }
 
     /// Refuse the guild's member list, as Discord does a bot without access
@@ -713,6 +738,7 @@ impl FakeDiscord {
         let Some((method, full, body)) = read_request(&stream)? else {
             return Ok(());
         };
+        self.reread_guild();
         let path = full.split('?').next().unwrap_or("").to_string();
         let route = path.trim_start_matches("/api/v10");
         let segs: Vec<&str> = route.trim_matches('/').split('/').collect();

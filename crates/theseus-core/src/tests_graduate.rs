@@ -182,10 +182,16 @@ async fn a_graduated_result_is_admitted_at_the_next_compile_and_its_placeholder_
         "the placeholder names the command: {line}"
     );
 
+    let before = r.core.store.stats().unwrap().frames_appended;
     let g = r
         .core
         .graduate(&trs, "place", "alice works on the vault too", "cli")
         .unwrap();
+    assert_eq!(
+        r.core.store.stats().unwrap().frames_appended - before,
+        1,
+        "a graduation is one frame: its node, its edge, and its row"
+    );
     assert!(g.covers, "the place's readers cover its audience: {g:?}");
     assert_eq!(g.readers, Readers::Place(format!("discord:{LAB}")));
     assert_eq!(g.warrant.graduated_from, trs);
@@ -382,4 +388,90 @@ async fn an_untrusted_channel_cannot_graduate() {
         .graduate(&trs, "place", "the lab may read it", "cli")
         .unwrap();
     assert_eq!(ledgered(&r.core, "label.graduated").len(), 1);
+}
+
+/// The held post's frames (M4 19c): in `#lab`, which the owner alone can
+/// view, a reply that drew on the owner's file fits, and its check writes
+/// nothing. Once alice can view it, the same check holds the reply: its
+/// question, its card, and its row are one frame; the question waits in
+/// `confirm.list` though the session is not parked, holds with no expiry,
+/// and an approval releases the post.
+#[tokio::test]
+async fn a_held_post_is_one_frame_and_a_fitting_check_writes_none() {
+    let r = rig(read_hello(), |_| {});
+    let sid = lab_session(&r.core);
+    r.core
+        .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER]), None);
+    turn(&r.core, &sid, "read hello.txt").await;
+    let target = format!("discord:channel:{LAB}");
+    let post = r
+        .core
+        .outbox
+        .open_for(&target)
+        .into_iter()
+        .find(|a| crate::outbox::kind_of(a) == "reply")
+        .expect("the reply waits for its lane");
+    let readers = r.core.post_readers(&post).unwrap();
+    assert_eq!(
+        readers,
+        Readers::Owner,
+        "its second loop read the owner's file"
+    );
+    let frames = || r.core.store.stats().unwrap().frames_appended;
+    let before = frames();
+    let fits = r.core.check_post(&post, &readers, true, 1.0).unwrap();
+    assert_eq!(fits, crate::held::PostCheck::Go);
+    assert_eq!(frames(), before, "a check that fits writes nothing");
+    assert_eq!(r.core.held_state(&post.correlation_id), None);
+
+    r.core
+        .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER, ALICE]), None);
+    let before = frames();
+    let crate::held::PostCheck::Held(q) = r.core.check_post(&post, &readers, true, 1.0).unwrap()
+    else {
+        panic!("the reply fits a channel alice can view");
+    };
+    assert_eq!(frames() - before, 1, "the hold is one frame");
+    assert_eq!(
+        r.core.held_state(&post.correlation_id),
+        Some(crate::held::Held::Waiting)
+    );
+    let row = &ledgered(&r.core, "label.held_post")[0];
+    assert_eq!(
+        (row["post"].as_str(), row["question"].as_str()),
+        (Some(post.correlation_id.as_str()), Some(q.as_str()))
+    );
+    let asks = r.core.confirm_list().unwrap();
+    assert_eq!(asks.len(), 1, "it waits in `theseus confirm`: {asks:?}");
+    assert_eq!(asks[0].tool, theseus_protocol::HELD_POST_TOOL);
+    assert_eq!(asks[0].expires_at_ms, 0, "it holds until it is answered");
+    assert!(
+        asks[0].reason.contains("labeled owner-only"),
+        "{}",
+        asks[0].reason
+    );
+    assert_eq!(
+        r.core.expire_questions(u64::MAX / 2),
+        0,
+        "no expiry takes it"
+    );
+    let before = frames();
+    r.core.confirm_action(&q, true, None, "cli").unwrap();
+    assert_eq!(
+        frames() - before,
+        2,
+        "the answer and its row, then the card's settle post"
+    );
+    assert_eq!(
+        r.core.held_state(&post.correlation_id),
+        Some(crate::held::Held::Released)
+    );
+    assert_eq!(
+        ledgered(&r.core, "label.held_post_answered")[0]["approved"],
+        true
+    );
+    assert_eq!(
+        r.core.held_health().map(|h| (h.now, h.since_start)),
+        Some((1, 1))
+    );
 }
