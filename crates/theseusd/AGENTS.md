@@ -22,6 +22,9 @@ operator's overlay on his machine.
   serving. `tests/sandbox.rs` runs real L1 jobs, its state dir and socket inside the workspace so the view's
   hiding is what keeps them out. The hidden `cgroup-release` is every installed unit's `ExecStopPost=`: it turns
   off the job limits in the unit's cgroup, or a restart while a job runs fails (`status=219/CGROUP`).
+- `job-wrapper` catches SIGTERM from its first moments (M4 18a): a cancel asks it alone, and it stops its job's
+  whole tree (`theseus_kernel::tree`), an L1 job through its init or its cgroup, then answers in the spool.
+  `tests/job_wrapper.rs` stops real trees, a `setsid` sleeper included; `tests/sandbox.rs` an L1 job's.
 - `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
   refuses a wrong `Host` or `Origin` and any uid but the daemon's own.
 - `src/install/`: `theseusd install`, the daemon as a systemd service (`--user`, or `--separate` as root). It prints

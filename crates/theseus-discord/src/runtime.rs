@@ -2462,6 +2462,7 @@ mod tests {
             execution: exec,
             stopped: true,
             stopped_actions: vec!["act_1".into()],
+            verdicts: vec![],
             declined: vec![],
             turn_running: true,
             tasks_running: 0,

@@ -156,6 +156,11 @@ fn route(path: &str, headers: &BTreeMap<String, String>, port: u16) -> Reply {
             delay_ms: 2_000,
             ..ok("text/plain", b"late")
         },
+        // A page that never comes in a test's time (a cancel's abort, 18a).
+        "/hang" => Reply {
+            delay_ms: 600_000,
+            ..ok("text/plain", b"never")
+        },
         "/wait" => Reply {
             delay_ms: 400,
             ..ok("text/plain", b"waited")

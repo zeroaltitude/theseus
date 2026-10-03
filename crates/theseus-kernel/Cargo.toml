@@ -25,5 +25,9 @@ libc = "0.2"
 tempfile = "3"
 tokio.workspace = true
 
+[[test]]
+name = "tree"
+harness = false
+
 [lints]
 workspace = true

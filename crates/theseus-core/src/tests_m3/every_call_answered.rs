@@ -147,7 +147,8 @@ async fn a_cancel_that_verified_a_job_gone_says_it_was_stopped() {
     assert_eq!(cancel.to_kill.len(), 1);
     let corr = &cancel.to_kill[0];
     r.core.kernel.cancel_acknowledged(corr).unwrap();
-    r.core.kernel.cancel_verified(corr).unwrap();
+    let tree = theseus_kernel::Verdict::verified_as(theseus_kernel::VerifiedBy::Tree, Some(1));
+    r.core.kernel.cancel_verified(corr, Some(&tree)).unwrap();
     let written = r
         .core
         .tools

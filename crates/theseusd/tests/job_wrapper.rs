@@ -3,7 +3,8 @@
 //! double-forked descendant is reparented to it instead of to init; it reaps
 //! the orphans that exit while the command runs; after the command exits it
 //! reports as before, then lingers until the last descendant has exited; and
-//! a cancel kills what it killed before, the wrapper's process group.
+//! a cancel stops its whole tree (M4 18a): the wrapper is asked alone, and
+//! stops every descendant, one in its own session too.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -311,11 +312,11 @@ fn stubborn(i: usize) -> String {
     format!("trap '' TERM; echo $$ > main{i}.pid; while [ -d \"$1\" ]; do sleep 0.05; done")
 }
 
-/// What review 2's S2 hid (theseus-bzq): the wrapper dies at SIGTERM, so a
+/// What review 2's S2 hid (theseus-bzq): the wrapper died at SIGTERM, so a
 /// cancel that waited on the wrapper alone said the job was gone at once,
-/// and a command that ignores SIGTERM ran on, orphaned. The cancel now waits
-/// on the job's process group: the grace passes, SIGKILL ends the command,
-/// and only then is the job gone.
+/// and a command that ignores SIGTERM ran on, orphaned. Since 18a the
+/// wrapper stops its tree: the grace passes, the freeze and SIGKILL end the
+/// command, and only then is the job gone, verified.
 #[test]
 fn a_cancel_waits_out_a_command_that_ignores_sigterm_then_kills_it() {
     let rig = Rig::new();
@@ -323,7 +324,8 @@ fn a_cancel_waits_out_a_command_that_ignores_sigterm_then_kills_it() {
     let main = rig.pid("main0.pid");
     let grace = Duration::from_millis(400);
     let t0 = Instant::now();
-    assert!(job::terminate(wrapper, "act_stubborn", grace));
+    let v = job::terminate(&rig.spool, wrapper, "act_stubborn", grace);
+    assert!(v.verified(), "{v:?}");
     let took = t0.elapsed();
     assert!(!alive(main), "the command is gone");
     assert!(took >= grace, "it waited out the grace: {took:?}");
@@ -345,7 +347,7 @@ fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
     }
     let grace = Duration::from_millis(600);
     let t0 = Instant::now();
-    let mut stop = job::Stopping::start(jobs, grace);
+    let mut stop = job::Stopping::start(&rig.spool, jobs, grace);
     while let Some(wait) = stop.poll() {
         std::thread::sleep(wait);
     }
@@ -358,12 +360,12 @@ fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
     assert!(took < grace * 2, "one grace, not three: {took:?}");
 }
 
-/// A cancel kills what it killed before: the wrapper's process group, which
-/// is the wrapper, the command, and the descendants that stayed in it. A
-/// descendant that left the group with `setsid` was never in reach of a
-/// cancel, and still is not.
+/// A cancel ends the whole job (M4 18a; theseus-hcc): the command, the
+/// descendants that stayed in its group, and one that left it with `setsid`,
+/// which a cancel by the group never reached. The wrapper, `theseusd
+/// job-wrapper` itself, stops its tree and exits; the verdict says how.
 #[test]
-fn a_cancel_kills_the_wrappers_process_group_as_before() {
+fn a_cancel_kills_the_whole_tree_a_setsid_descendant_too() {
     let rig = Rig::new();
     let wrapper = rig.start(
         "act_cancel",
@@ -379,35 +381,34 @@ fn a_cancel_kills_the_wrappers_process_group_as_before() {
             .ok()
             .filter(|c| c.trim() == "sleep")
     });
-    assert!(job::terminate(
-        wrapper,
-        "act_cancel",
-        Duration::from_secs(2)
-    ));
+    let v = job::terminate(&rig.spool, wrapper, "act_cancel", Duration::from_secs(2));
+    if alive(own_session) {
+        kill(own_session);
+        panic!("the descendant in its own session survived the cancel: {v:?}");
+    }
     for (what, pid) in [
         ("the wrapper", wrapper),
         ("the command", main),
         ("its child", in_group),
     ] {
-        wait_for(&format!("{what} to be killed"), || {
+        wait_for(&format!("{what} to be gone"), || {
             (!alive(pid)).then_some(())
         });
     }
-    assert!(
-        alive(own_session),
-        "a descendant in its own session is out of a cancel's reach, as before"
-    );
-    kill(own_session);
+    assert!(v.verified(), "{v:?}");
+    assert_eq!(v.verified_by, theseus_kernel::VerifiedBy::Tree);
+    assert_eq!((v.killed, v.survivors), (Some(3), Some(0)), "{v:?}");
     assert!(
         rig.spool.read_completion("act_cancel").unwrap().is_none(),
-        "a killed wrapper reports nothing; the reconciler finds it gone"
+        "a cancelled job writes no completion: its verdict is the cancel's"
     );
 }
 
 /// Once the daemon has reaped a wrapper, its pid may become another
 /// process's (theseus-z4b). A cancel then finds the wrapper gone and signals
 /// nothing, since that process's command line does not name the job: here, a
-/// `sleep` that leads its own process group, as a new wrapper would.
+/// `sleep` that leads its own process group, as a new wrapper would. With no
+/// verdict and no report from the job, its cancel is uncertain (18a).
 #[test]
 fn a_cancel_leaves_a_process_that_took_the_wrappers_pid_alone() {
     use std::os::unix::process::CommandExt;
@@ -424,7 +425,9 @@ fn a_cancel_leaves_a_process_that_took_the_wrappers_pid_alone() {
             .filter(|c| c.starts_with(b"sleep\0"))
     });
     assert!(!job::wrapper_alive(pid, "act_gone"));
-    assert!(job::terminate(pid, "act_gone", Duration::from_secs(2)));
+    let rig = Rig::new();
+    let v = job::terminate(&rig.spool, pid, "act_gone", Duration::from_secs(2));
+    assert!(!v.verified(), "nothing says the job ended: {v:?}");
     assert!(alive(pid), "not the job's wrapper, so not signalled");
     let _ = other.kill();
     let _ = other.wait();
@@ -598,7 +601,7 @@ fn a_stop_waits_for_a_wrapper_still_in_its_exec_then_stops_it() {
         job::wrapper_alive(w.pid, id),
         "in its exec, it counts as alive"
     );
-    let mut stop = job::Stopping::start([(w.pid, id.to_string())], job::STOP_GRACE);
+    let mut stop = job::Stopping::start(&rig.spool, [(w.pid, id.to_string())], job::STOP_GRACE);
     assert!(!stop.all_gone(), "not taken for another process");
     assert!(stop.poll().is_some(), "still waiting for it");
     assert!(alive(w.pid), "nothing signalled while it cannot be told");
@@ -611,10 +614,12 @@ fn a_stop_waits_for_a_wrapper_still_in_its_exec_then_stops_it() {
     }
     assert!(stop.all_gone(), "the stop saw it end");
     assert!(!alive(main), "the command is gone");
+    let v = stop.verdicts().next().unwrap().1;
+    assert!(v.verified(), "{v:?}");
     let status = w.reap();
     assert!(
-        libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGTERM,
-        "the wrapper ended by the stop's SIGTERM: status {status:#x}"
+        libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
+        "the wrapper stopped its tree and exited (18a): status {status:#x}"
     );
 }
 
@@ -631,7 +636,7 @@ fn a_stop_leaves_alone_a_process_in_its_exec_that_becomes_another_program() {
         .unwrap();
     let w = InExec::start(rig.dir.path(), &[sleep.to_string(), "30".into()]);
     w.wait_starting(id);
-    let mut stop = job::Stopping::start([(w.pid, id.to_string())], job::STOP_GRACE);
+    let mut stop = job::Stopping::start(&rig.spool, [(w.pid, id.to_string())], job::STOP_GRACE);
     assert!(!stop.all_gone());
     w.release();
     wait_for("sleep's exec", || {

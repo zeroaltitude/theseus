@@ -122,6 +122,7 @@ impl Core {
                 .cancel
                 .and_then(|c| serde_json::to_value(c).ok())
                 .and_then(|v| v.as_str().map(str::to_string)),
+            verdict: a.verdict.as_ref().map(|v| crate::cancel::wire(a, v)),
             external_op_id: a.external_op_id.clone(),
             // A node's id; a job's is the path of its raw output in the
             // daemon's spool, which stays out of what clients get

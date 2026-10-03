@@ -315,7 +315,9 @@ fn a_cancelled_tasks_late_completion_reconciles_what_it_held() {
     let call = dispatched(&w, &tg, "provider.messages", 10_000);
     let stop = w.kernel.cancel_execution(&task.id, "operator").unwrap();
     assert_eq!(stop, vec![call.correlation_id.clone()]);
-    w.kernel.cancel_unsupported(&call.correlation_id).unwrap();
+    w.kernel
+        .cancel_unsupported(&call.correlation_id, "it runs in process")
+        .unwrap();
     assert_eq!(exec(&w, &task.id).budget.held_unknown_micros, 10_000);
     assert_eq!(carved(&w, &parent.id, &task.id), Some(10_000), "still held");
     let late = w

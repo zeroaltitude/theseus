@@ -138,6 +138,15 @@ impl JobCgroup {
         fs::write(self.path.join("cgroup.kill"), "1")
     }
 
+    /// The processes in it now (`cgroup.procs`), by pid.
+    pub fn procs(&self) -> io::Result<Vec<u32>> {
+        let procs = fs::read_to_string(self.path.join("cgroup.procs"))?;
+        Ok(procs
+            .split_whitespace()
+            .filter_map(|p| p.parse().ok())
+            .collect())
+    }
+
     /// Whether any process is still in it (`cgroup.events`).
     pub fn populated(&self) -> io::Result<bool> {
         let events = fs::read_to_string(self.path.join("cgroup.events"))?;

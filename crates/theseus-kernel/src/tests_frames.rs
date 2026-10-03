@@ -528,7 +528,10 @@ fn script(w: &World, log: &Log) {
     );
     log.step(
         "cancel_verified",
-        k.cancel_verified(&job.correlation_id),
+        k.cancel_verified(
+            &job.correlation_id,
+            Some(&Verdict::verified_as(VerifiedBy::Tree, Some(2))),
+        ),
         act,
     );
     tick();

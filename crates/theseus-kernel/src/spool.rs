@@ -9,6 +9,8 @@
 //! - `lingering/<correlation_id>`   the wrapper's pid while it waits, its command done,
 //!   for descendants that outlived the command (theseus-6qy)
 //! - `results/<correlation_id>.out` captured output the completion's `result_ref` points at
+//! - `stops/<correlation_id>`       a cancel's verdict, from the wrapper that stopped the job
+//!   (M4 18a): a cancelled job writes it, and no completion
 //! - `malformed/`                   files that did not parse, moved aside and surfaced
 
 use std::fs::{self, File, OpenOptions};
@@ -17,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::types::{Completion, CorrelationId};
+use crate::types::{Completion, CorrelationId, Verdict};
 
 #[derive(Debug, Clone)]
 pub struct Spool {
@@ -36,6 +38,7 @@ impl Spool {
         fs::create_dir_all(dir.join("pids"))?;
         fs::create_dir_all(dir.join("lingering"))?;
         fs::create_dir_all(dir.join("results"))?;
+        fs::create_dir_all(dir.join("stops"))?;
         fs::create_dir_all(dir.join("malformed"))?;
         Ok(Self {
             dir: dir.to_path_buf(),
@@ -175,6 +178,30 @@ impl Spool {
     }
     pub fn remove_pid(&self, id: &CorrelationId) {
         let _ = fs::remove_file(self.pid_path(id));
+    }
+
+    fn stop_path(&self, id: &str) -> PathBuf {
+        self.dir.join("stops").join(id)
+    }
+
+    /// A cancel's verdict, from the wrapper that stopped job `id` (M4 18a):
+    /// tmp+rename, so a reader sees all of it or nothing.
+    pub fn write_stop(&self, id: &str, v: &Verdict) -> Result<()> {
+        fs::create_dir_all(self.dir.join("stops"))?;
+        let tmp = self.dir.join("stops").join(format!("{id}.tmp"));
+        fs::write(&tmp, serde_json::to_vec(v)?)?;
+        fs::rename(&tmp, self.stop_path(id))?;
+        Ok(())
+    }
+
+    /// The verdict a wrapper wrote for job `id`, if it wrote one.
+    pub fn read_stop(&self, id: &str) -> Option<Verdict> {
+        serde_json::from_slice(&fs::read(self.stop_path(id)).ok()?).ok()
+    }
+
+    /// Remove job `id`'s verdict once its cancel has read it.
+    pub fn remove_stop(&self, id: &str) {
+        let _ = fs::remove_file(self.stop_path(id));
     }
 
     fn lingering_path(&self, id: &str) -> PathBuf {

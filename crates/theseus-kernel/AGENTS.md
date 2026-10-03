@@ -12,6 +12,15 @@ theseusd, and theseus-sim.
 - `locks.rs`: one writer at a time per execution (theseus-id9).
 - `tx.rs`: the kernel transaction (`Kernel::frame`, theseus-0owd): several transitions staged, then one frame.
 - `job.rs`: the job wrapper (detached, durable, cancellable), `job::Stopping`, `holder`, and `wrapper_alive`.
+  Since M4 18a a wrapper catches SIGTERM: the daemon's cancel asks it alone (`ask_to_stop`, by `sigqueue`, the grace
+  in the signal's value), and it stops its whole tree, writes its verdict to the spool's `stops/`, and exits with no
+  completion. `Stopping` tells it from a wrapper from before 18a by `/proc/<pid>/status`'s `SigCgt`
+  (`catches_sigterm`) and stops an older one by its process group, as before (`verified_by: group`).
+- `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases:
+  SIGTERM to every process, the grace, the freeze (SIGSTOP, rescanning until nothing new appears and all read
+  stopped), then SIGKILL and the reap. Each process is signalled through a pidfd checked against its start time.
+- `cancels.rs`: a cancel's steps on one action (`cancel_acknowledged`, then `cancel_verified`, `_unsupported`, or
+  `_uncertain`), each settle with its `Verdict` (ACTION schema 3).
   `job_l1.rs` (M4 17b): the wrapper's L1 path, when `WrapperArgs.sandbox` is set: the command below
   `theseus_sandbox`'s init, its cgroup, its scratch summary, and the probe's run (`job::probe`). It never falls back
   to L0.
@@ -49,6 +58,11 @@ theseusd, and theseus-sim.
   sweep as an orphan, and its `wait()` fails with `ECHILD`. Never call `waitpid(-1)`.
 - **A wrapper's pid can be reused**, so "alive" is `wrapper_alive(pid, job)`, whose command line names the job. A
   process in the middle of its exec has an empty command line: `holder` counts it as still starting (Item 35).
+- **A cancel's verdict says how it knows** (M4 18a): `termination_verified` only with a means (`pidns`, `cgroup`,
+  `tree`, `group`, `task`), and `verified_by: none` for a call nothing can stop. A cancelled job writes no
+  completion, so a cancel never races the drain into a `failed` settle; its verdict is `stops/<id>`. A deadline
+  uses the cancel's stop, and its verdict rides in the completion's `detail.stop`. A SIGTERM that is not a cancel
+  (no `SI_QUEUE`) still ends the wrapper by the signal once its tree is stopped (theseus-6uo).
 - **A stop is not a cancel.** A cancel is terminal; `stop_execution` halts the work and keeps the conversation
   (Item 9). A cancel settles every action that was never dispatched, in its own frame (Item 17). The results of
   the calls a cancel ended are the core's sweep (`ToolRuntime::answer_after_cancel`, theseus-0o8): it runs under
@@ -73,6 +87,8 @@ theseusd, and theseus-sim.
   change you mean.
 - `tests/children.rs` makes its process a subreaper, so it is a test binary of its own: a sweep reaps any child of
   the process, other tests' included.
+- `tests/tree.rs` (`harness = false`, 18a) re-execs itself as a job's wrapper, and as stand-ins for a wrapper from
+  before 18a and a deaf one; each case ends with a `/proc` scan for its own `sleep` marker.
 - `theseus-sim kernel-sim` drives the kernel under seeded faults and races (`--p-race`; 0 is fully
   deterministic) and checks its invariants. A new transition belongs in its random operations.
 - Run this crate's tests as `cargo nextest run --workspace -E 'package(theseus-kernel)'`, never `cargo test -p`,

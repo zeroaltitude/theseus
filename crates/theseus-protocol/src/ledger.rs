@@ -47,6 +47,9 @@ macro_rules! ledger_kinds {
 ledger_kinds! {
     ActionAuthorized = "action.authorized",
     ActionCancel = "action.cancel",
+    ActionCancelUncertain = "action.cancel_uncertain",
+    ActionCancelUnsupported = "action.cancel_unsupported",
+    ActionCancelVerified = "action.cancel_verified",
     ActionCancelled = "action.cancelled",
     ActionConfirmAnswered = "action.confirm_answered",
     ActionConfirmed = "action.confirmed",

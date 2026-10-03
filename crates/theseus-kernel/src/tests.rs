@@ -495,7 +495,11 @@ fn cancel_of_dispatched_job_then_late_completion_does_not_revive() {
     let a2 = w.kernel.cancel_acknowledged(&a.correlation_id).unwrap();
     assert_eq!(a2.cancel, Some(CancelState::Acknowledged));
     assert_eq!(a2.state, ActionState::Dispatched);
-    let a3 = w.kernel.cancel_verified(&a.correlation_id).unwrap();
+    let tree = Verdict::verified_as(VerifiedBy::Tree, Some(2));
+    let a3 = w
+        .kernel
+        .cancel_verified(&a.correlation_id, Some(&tree))
+        .unwrap();
     assert_eq!(a3.state, ActionState::Cancelled);
     let e4 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert!(e4.outstanding.is_empty());

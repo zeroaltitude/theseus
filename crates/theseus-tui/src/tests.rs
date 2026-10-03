@@ -1146,6 +1146,7 @@ async fn stop_and_cancel_each_ask_for_a_second_key() {
         .unwrap(),
         stopped: true,
         stopped_actions: vec!["cor_job1".into()],
+        verdicts: vec![],
         declined: vec![],
         turn_running: true,
         tasks_running: 1,

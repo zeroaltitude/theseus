@@ -18,9 +18,11 @@ use theseus_protocol::{
     ToolEnded, ToolListResult, TurnSubmitResult,
 };
 
+mod cancel;
 mod index;
 mod sandbox;
 mod store;
+pub use cancel::{cancels_line, verdict_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
@@ -540,6 +542,7 @@ pub fn tool_ended_line(t: &ToolEnded) -> String {
     if t.late {
         extra.push("late".into());
     }
+    extra.extend(t.verified.clone());
     format!(
         "  ← {} {}{}",
         t.tool,
@@ -1753,6 +1756,9 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     }
     if let Some(s) = &h.sandbox {
         push(o, Tag::Plain, &sandbox_line(s));
+    }
+    if let Some(line) = cancels_line(&h.cancels) {
+        push(o, Tag::Plain, &line);
     }
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);

@@ -113,7 +113,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         index::IndexForgetResult, index::IndexWarmResult, index::IndexBackfill, index::IndexStatus,
         index::IndexVectorStatus, index::IndexCompactions, index::IndexReembed,
         index::IndexEmbedStats, index::IndexRebuildResult, index::IndexHealth,
-        sandbox::SandboxHealth, sandbox::SandboxProbe,
+        sandbox::SandboxHealth, sandbox::SandboxProbe, cancel::CancelVerdict, cancel::CancelCount,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

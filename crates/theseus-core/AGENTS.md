@@ -21,6 +21,12 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
   `sandbox: true`), L1's posture (notify), the view an L1 job gets, the probe after serving (`PROBE_AFTER`), the
   delegated cgroup (systemd's own answer), and health's block. Its facts are `fact/sandbox.rs`; its tests
   `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs.
+- **Cancellation** (M4 18a): `cancel.rs`, the one stop every path that stops running calls goes through
+  (`ToolRuntime::terminate_all`: a cancel, a task's cancel, `/stop`, the disk's floor, a stop at a job's launch).
+  A job's wrapper is asked to stop its tree; an async tool's task is aborted (`Stops::track`) and verified once its
+  handle has finished; anything else is unsupported. Each verdict lands on its action, in health's `cancels`, and
+  as a fact (`fact/cancel.rs`). An aborted call's result waits for the cancel's verdict (`after_abort`). Its test is
+  `tests_cancel.rs`; the daemon's are `tests/job_wrapper.rs`, `tests/sandbox.rs` (L1), and `tests/tasks.rs`.
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection).
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and

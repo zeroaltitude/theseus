@@ -8,6 +8,8 @@ Every client and the core read it, and the web apps' TypeScript is generated fro
 - `lib.rs`: the methods' params and results, `VERSION`, and three tables: `method` and `notify`, each one list
   from which its `ALL` is built, and `error_code`.
 - `events.rs`: one struct per notification, and the `events!` table, from which `Event::VARIANTS` is built.
+- `cancel.rs` (M4 18a): a cancel's verdict on the wire (`CancelVerdict`), health's `CancelCount`, and `words`, the
+  one wording of a verdict every surface shows.
 - `gate.rs`: the gate's record of a tool call (`GateRecord`), written through `canonical` (sorted keys), so stored
   records keep their bytes.
 - `push.rs`: what every surface shows of an execution: `ExecutionView` and `attention()`, the design's rules,

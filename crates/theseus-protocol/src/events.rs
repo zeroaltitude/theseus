@@ -246,6 +246,11 @@ pub struct ToolEnded {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub scratch: Option<String>,
+    /// How a call a cancel or a stop ended is known to have stopped (M4
+    /// 18a): "verified: pid namespace, 4 processes", or "not verified: …".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub verified: Option<String>,
 }
 
 /// `confirm.resolved`: a question waiting for the operator closed.

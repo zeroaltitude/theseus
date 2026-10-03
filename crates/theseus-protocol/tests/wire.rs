@@ -945,6 +945,7 @@ fn typed_tool_started_ended_and_written() {
                 stopped_by: stopped_by.map(Into::into),
                 preview: "a.md\nb.md\n".repeat(300).chars().take(2000).collect(),
                 scratch: None,
+                verified: None,
             }),
         );
     }

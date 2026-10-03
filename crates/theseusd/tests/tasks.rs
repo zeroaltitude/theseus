@@ -501,9 +501,9 @@ fn a_stop_kills_the_sessions_job_and_the_next_message_continues_the_session() {
         .unwrap();
     let nodes = h["nodes"].as_array().unwrap();
     assert!(
-        nodes.iter().any(|n| n["text"]
-            .as_str()
-            .is_some_and(|t| t.contains("[cancelled: stopped by test]"))),
+        nodes.iter().any(|n| n["text"].as_str().is_some_and(
+            |t| t.contains("[cancelled: stopped by test; verified: process tree, 1 process]")
+        )),
         "the job's late result says it was stopped: {}",
         serde_json::to_string(&nodes).unwrap()
     );
@@ -516,11 +516,18 @@ fn a_stop_kills_the_sessions_job_and_the_next_message_continues_the_session() {
     assert_eq!(
         (
             late["detail"]["status"].as_str(),
-            late["detail"]["meta"]["stopped_by"].as_str()
+            late["detail"]["meta"]["stopped_by"].as_str(),
+            late["detail"]["meta"]["verified"].as_str()
         ),
-        (Some("cancelled"), Some("test")),
+        (
+            Some("cancelled"),
+            Some("test"),
+            Some("verified: process tree, 1 process")
+        ),
         "{late}"
     );
+    // The stop answered with the job's verdict (M4 18a).
+    assert_eq!(res["verdicts"][0]["verified_by"], "tree", "{res}");
     assert_eq!(execution_of(&r, &sid)["turns"], 2);
 }
 
@@ -528,9 +535,10 @@ fn a_stop_kills_the_sessions_job_and_the_next_message_continues_the_session() {
 /// its raw output waited for the spool's sweep after its cancelled result
 /// was written. Now the turn that writes that result deletes the file, with
 /// no restart, and the result shows what the job printed before the stop.
-/// theseus-gsn9: the job printed past its cap's head, and the stop killed
-/// its wrapper with the end in its ring: the file holds the head, and the
-/// result says the end was lost.
+/// The job printed past its cap's head (theseus-gsn9). Since 18a the stop
+/// ends the job's tree and not its wrapper, which writes the end its ring
+/// held once the last writer is gone: the file keeps both ends, and the
+/// result says how the stop was verified, and loses nothing.
 #[test]
 fn a_stopped_jobs_raw_output_goes_with_its_cancelled_result() {
     let r = Rig::with(
@@ -565,14 +573,16 @@ fn a_stopped_jobs_raw_output_goes_with_its_cancelled_result() {
     assert_eq!(res["stopped"], true, "{res}");
     let job = res["stopped_actions"][0].as_str().unwrap().to_string();
     let raw = r.path(&format!("state/spool/results/{job}.out"));
-    // The head of a 65,536-byte cap, and no more: the end was in the ring.
+    // Both ends of a 65,536-byte cap: the head, the marker, and the end.
     let head = 65_536 - 32_768 - 128;
-    assert_eq!(
-        std::fs::metadata(&raw).unwrap().len(),
-        head,
-        "{}",
-        raw.display()
+    let kept = std::fs::read(&raw).unwrap();
+    assert!(
+        kept.len() as u64 > head,
+        "{}: {}",
+        raw.display(),
+        kept.len()
     );
+    assert!(kept.ends_with(b"still building\n"), "the end was kept");
 
     r.ask(&sid, "What happened to the build?");
     assert!(
@@ -591,11 +601,8 @@ fn a_stopped_jobs_raw_output_goes_with_its_cancelled_result() {
         .expect("the job's late result");
     let text = late["text"].as_str().unwrap();
     assert!(
-        text.starts_with(
-            "[cancelled: stopped by test]\n[its output reached the first 32,640 bytes, all the \
-             file takes before the end, and its end was lost: the job's wrapper was killed \
-             before it could write it]\nxxxx"
-        ),
+        text.starts_with("[cancelled: stopped by test; verified: process tree, "),
         "{text}"
     );
+    assert!(!text.contains("its end was lost"), "{text}");
 }

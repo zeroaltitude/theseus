@@ -17,7 +17,7 @@ lane 17a; read by the job wrapper's L1 path (`theseus-kernel`'s `job_l1.rs`, ste
   `/sys`), and `Spec::hidden` (17b), the paths covered whatever binds them: Theseus's floor and socket, and the
   approve list's paths.
 - `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry), `cgroup.rs` (`own`,
-  `delegate`, `JobCgroup`), `report.rs` (`Started`, `Exit`, `Scratch::summary`), `spec.rs`, `egress.rs`.
+  `delegate`, `JobCgroup`: its limits, `kill`, `populated`, and `procs`, which an 18a stop counts), `report.rs` (`Started`, `Exit`, `Scratch::summary`), `spec.rs`, `egress.rs`.
 
 ## Invariants
 

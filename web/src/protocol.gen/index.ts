@@ -21,6 +21,8 @@ export type * from './BindingStatus';
 export type * from './BudgetAsk';
 export type * from './BudgetInfo';
 export type * from './CacheSummary';
+export type * from './CancelCount';
+export type * from './CancelVerdict';
 export type * from './CatalogListResult';
 export type * from './CatalogModel';
 export type * from './CensusSummary';

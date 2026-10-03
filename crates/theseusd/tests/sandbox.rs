@@ -405,6 +405,97 @@ fn a_granted_program_asked_to_run_in_l1_gets_no_secret() {
     assert!(l0[0].contains("token=yes"), "{}", l0[0]);
 }
 
+/// Every live process whose command line holds `marker` as an argument, from
+/// the host's `/proc`, which sees into an L1 job's pid namespace.
+fn with_marker(marker: &str) -> Vec<u32> {
+    std::fs::read_dir("/proc")
+        .unwrap()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| {
+            std::fs::read(format!("/proc/{pid}/cmdline"))
+                .is_ok_and(|c| c.split(|&b| b == 0).any(|a| a == marker.as_bytes()))
+        })
+        .collect()
+}
+
+/// M4 18a's L1 row (design §2.3): an L1 job whose command leaves a `setsid`
+/// sleeper behind runs on in the background; `execution.cancel` stops it
+/// through its init (this rig's cgroup is not delegated), and answers that its
+/// pid namespace is gone, with the count: the init and the two sleepers. The
+/// action, the ledger, health, and a `/proc` scan agree.
+#[test]
+fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
+    let marker = "300.1806";
+    let r = Rig::start(|t| {
+        let tools = t.get_mut("tools").and_then(|v| v.as_table_mut()).unwrap();
+        tools.insert("proc_sync_secs".into(), 1.into());
+    });
+    let script = format!("setsid sleep {marker} & exec sleep {marker}");
+    let out = r.turn(
+        "sleepers in L1",
+        vec![(
+            "proc_run",
+            json!({"argv": ["sh", "-c", script], "sandbox": true}),
+        )],
+    );
+    assert!(out[0].contains("background job"), "{}", out[0]);
+    let t0 = Instant::now();
+    while with_marker(marker).len() < 2 {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the sleepers never ran"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let actions = r.call("action.list", json!({})).unwrap();
+    let job = actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["tool"] == "proc.run" && a["state"] == "dispatched")
+        .cloned()
+        .expect("the job, running");
+    let res = r
+        .call(
+            "execution.cancel",
+            json!({"execution_id": job["execution_id"], "author": "test"}),
+        )
+        .unwrap();
+    let left = with_marker(marker);
+    for pid in &left {
+        unsafe { libc::kill(*pid as i32, libc::SIGKILL) };
+    }
+    assert!(
+        left.is_empty(),
+        "a /proc scan found the job still running: {left:?}"
+    );
+    let v = &res["verdicts"][0];
+    assert_eq!(v["verified_by"], "pidns", "{res}");
+    assert_eq!(v["state"], "termination_verified", "{res}");
+    assert_eq!(
+        (v["killed"].as_u64(), v["survivors"].as_u64()),
+        (Some(3), Some(0)),
+        "{res}"
+    );
+    let after = r.call("action.list", json!({})).unwrap();
+    let a = after["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["correlation_id"] == job["correlation_id"])
+        .unwrap();
+    assert_eq!(a["verdict"]["verified_by"], "pidns", "{a}");
+    let rows = r.ledger("action.cancel_verified");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["killed"], 3);
+    let h = r.call("health", Value::Null).unwrap();
+    assert_eq!(
+        h["cancels"],
+        json!([{"backend": "l1", "state": "verified", "n": 1}])
+    );
+}
+
 /// The jobs bench's L1 row (design §2.10; `theseus-sim bench jobs`): `/bin/true`
 /// through the real job wrapper, detached as the daemon starts a job, in L1,
 /// 20 times. Each start, from the wrapper's spawn to the command's exec, is

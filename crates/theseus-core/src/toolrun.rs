@@ -248,6 +248,8 @@ pub struct ToolRuntime {
     pub question_due: std::sync::atomic::AtomicU64,
     /// L1 (M4 17b): `[sandbox]`, the class, an L1 job's view, the probe.
     pub sandbox: Arc<Sandbox>,
+    /// What a cancel reaches besides jobs, and health's cancel counts (18a).
+    pub stops: crate::cancel::Stops,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -411,6 +413,7 @@ impl ToolRuntime {
             aws: None,
             question_due: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
+            stops: Default::default(),
         }
     }
 
@@ -1306,6 +1309,7 @@ impl ToolRuntime {
         let aws = ctx.aws.clone();
         let deadline = Duration::from_millis(INPROC_DEADLINE_MS);
         let timed_out = || format!("timed out after {} ms", INPROC_DEADLINE_MS);
+        let mut aborted = false;
         let (started, outcome, took) = if tool.backend() == Backend::Async {
             // A task of its own, so a panic is the call's error and not the
             // turn's, and its deadline can stop it. Only an approved call
@@ -1314,9 +1318,15 @@ impl ToolRuntime {
             let started = theseus_protocol::now_unix_ms();
             let t0 = Instant::now();
             let mut task = tokio::spawn(t.run_async(&input, &ctx));
+            // A cancel or a stop aborts it (M4 18a).
+            let _reachable = self.stops.track(correlation_id, task.abort_handle());
             let outcome = match tokio::time::timeout(deadline, &mut task).await {
                 Ok(Ok(Ok((out, external)))) => Ok((out, None, external)),
                 Ok(Ok(Err(f))) => Err(f.message),
+                Ok(Err(join)) if join.is_cancelled() => {
+                    aborted = true;
+                    Err(join.to_string())
+                }
                 Ok(Err(join)) => Err(format!("the tool panicked: {join}")),
                 Err(_) => {
                     task.abort();
@@ -1347,9 +1357,19 @@ impl ToolRuntime {
             (started, outcome, took)
         };
         let dur = took.as_millis() as u64;
-        let (status, mut text, meta, img, external) = match outcome {
-            Ok((o, img, external)) => (ResultStatus::Ok, o.text, o.meta, img, external),
-            Err(m) => (ResultStatus::Error, m, Value::Null, None, None),
+        // A task a cancel aborted (18a): the cancel settles its call, with its
+        // verdict, and its result says so, riding as a late one does.
+        let by_cancel = match aborted {
+            true => crate::cancel::after_abort(tc.kernel, correlation_id).await,
+            false => None,
+        };
+        let (status, mut text, meta, img, external) = match (outcome, &by_cancel) {
+            (_, Some(a)) => {
+                let (status, text, meta) = crate::cancel::aborted_result(a);
+                (status, text, meta, None, None)
+            }
+            (Ok((o, img, external)), None) => (ResultStatus::Ok, o.text, o.meta, img, external),
+            (Err(m), None) => (ResultStatus::Error, m, Value::Null, None, None),
         };
         // An image the tool read goes to the blobs once; the node holds the
         // reference (theseus-9g2).
@@ -1412,7 +1432,12 @@ impl ToolRuntime {
         for r in aws.iter().flat_map(|a| a.requests()) {
             tc.record(&fact::tool::AwsCalled { row: &r.row });
         }
-        let accepted = self.complete(tc, &c, &node)?;
+        let accepted = match by_cancel {
+            Some(_) => Accepted::LateAfterCancel {
+                correlation_id: correlation_id.into(),
+            },
+            None => self.complete(tc, &c, &node)?,
+        };
         // A call a cancel settled while it ran: its completion is recorded on
         // the action alone, and the kernel dropped the node that rode with it.
         // The call did run, and this turn still holds what it said, so the
@@ -1745,7 +1770,7 @@ impl ToolRuntime {
         let a = if a.state.is_settled() {
             a.clone()
         } else {
-            tc.kernel.cancel_verified(&a.correlation_id)?
+            tc.kernel.cancel_verified(&a.correlation_id, None)?
         };
         tc.record(&fact::tool::JobNotStarted { action: &a, tool });
         let (status, _) = not_run_answer(&a);
@@ -1754,26 +1779,18 @@ impl ToolRuntime {
     }
 
     /// Stop a job a stop or a cancel reached during its launch
-    /// (theseus-36to), as `terminate_all` stops one: SIGTERM to its process
-    /// group, the grace on the runtime's timer, then SIGKILL; its cancel is
-    /// acknowledged, then verified or left uncertain. A cancel step on an
-    /// action the stop already settled writes nothing, so the
-    /// `job.stopped_at_launch` row is what says the job was stopped.
+    /// (theseus-36to), through the one stop (`terminate_all`): its wrapper
+    /// is asked to stop its tree, and its cancel walks to a verdict. A
+    /// cancel step on an action the stop already settled writes nothing, so
+    /// the `job.stopped_at_launch` row is what says the job was stopped.
     async fn stop_launched(&self, tc: &TurnCtx<'_>, correlation_id: &str, pid: u32) {
-        let _ = tc.kernel.cancel_acknowledged(correlation_id);
-        let mut stopping = theseus_kernel::job::Stopping::start(
-            [(pid, correlation_id.to_string())],
-            theseus_kernel::job::STOP_GRACE,
-        );
-        while let Some(wait) = stopping.poll() {
-            tokio::time::sleep(wait).await;
+        let ended = self
+            .terminate_all(tc.kernel, &[correlation_id.to_string()])
+            .await;
+        for e in ended.iter().filter(|e| e.written) {
+            e.record(&tc.rec());
         }
-        let gone = stopping.all_gone();
-        let _ = if gone {
-            tc.kernel.cancel_verified(correlation_id)
-        } else {
-            tc.kernel.cancel_uncertain(correlation_id)
-        };
+        let gone = ended.iter().all(|e| e.verdict.verified());
         tc.record(&fact::tool::JobStoppedAtLaunch {
             correlation_id,
             pid,
@@ -1845,10 +1862,11 @@ impl ToolRuntime {
             (_, _, Some(true)) => "[timed out and killed]\n".to_string(),
             // A `/stop` killed it (W1), or a cancel did.
             (ResultStatus::Cancelled, _, _) => format!(
-                "[cancelled: {}]\n",
+                "[cancelled: {}{}]\n",
                 a.resolution
                     .as_deref()
-                    .unwrap_or("its execution was cancelled")
+                    .unwrap_or("its execution was cancelled"),
+                crate::cancel::words(a).map_or(String::new(), |w| format!("; {w}"))
             ),
             (ResultStatus::Unknown, _, _) => {
                 "[outcome unknown: the harness could not establish whether this finished]\n"
@@ -1957,7 +1975,7 @@ impl ToolRuntime {
             format!("{header}{out}")
         };
         let mut meta = json!({"exit_code": exit, "detail": detail});
-        stopped_meta(&mut meta, status, a);
+        crate::cancel::stopped_meta(&mut meta, status, a);
         ResultNode {
             correlation_id: Some(&a.correlation_id),
             duration_ms: detail.get("duration_ms").and_then(Value::as_u64),
@@ -2404,7 +2422,7 @@ impl ToolRuntime {
         let (_, name) = self.tool_of(u);
         let (status, text) = not_run_answer(a);
         let mut meta = Value::Null;
-        stopped_meta(&mut meta, status, a);
+        crate::cancel::stopped_meta(&mut meta, status, a);
         self.answer(
             tc,
             ResultNode {
@@ -2652,10 +2670,14 @@ impl ToolRuntime {
             .get(tool)
             .is_some_and(|t| t.backend() == Backend::Job);
         let why = cancel_why(e);
-        let says = |status, text: String, cancel: &str| ResultNode {
-            correlation_id: Some(&a.correlation_id),
-            meta: json!({"cancel": cancel}),
-            ..ResultNode::new(tool_use_id, tool, status, text)
+        let says = |status, text: String, cancel: &str| {
+            let mut meta = json!({"cancel": cancel});
+            crate::cancel::stopped_meta(&mut meta, status, a);
+            ResultNode {
+                correlation_id: Some(&a.correlation_id),
+                meta,
+                ..ResultNode::new(tool_use_id, tool, status, text)
+            }
         };
         Some(match (a.state, a.cancel) {
             // Still being stopped.
@@ -2669,7 +2691,7 @@ impl ToolRuntime {
                     (ResultStatus::Cancelled, format!("Not run: {why}."))
                 };
                 let mut meta = Value::Null;
-                stopped_meta(&mut meta, status, a);
+                crate::cancel::stopped_meta(&mut meta, status, a);
                 let r = ResultNode {
                     correlation_id: Some(&a.correlation_id),
                     meta,
@@ -2684,7 +2706,10 @@ impl ToolRuntime {
                 let (status, how, tag) = match c {
                     CancelState::TerminationVerified => (
                         ResultStatus::Cancelled,
-                        "it was stopped".to_string(),
+                        // A job's head line says how; another call's line does.
+                        crate::cancel::words(a)
+                            .filter(|_| !job)
+                            .map_or("it was stopped".into(), |w| format!("it was stopped ({w})")),
                         "stopped",
                     ),
                     CancelState::Unsupported => (
@@ -2696,9 +2721,11 @@ impl ToolRuntime {
                     ),
                     _ => (
                         ResultStatus::Unknown,
-                        "it was told to stop, but its end was not verified, so it may still be \
-                         running: check the current state before relying on it"
-                            .to_string(),
+                        format!(
+                            "it was told to stop, but its end was not verified{}, so it may still be \
+                             running: check the current state before relying on it",
+                            a.verdict.as_ref().and_then(|v| v.why.as_deref()).map_or(String::new(), |w| format!(" ({w})"))
+                        ),
                         "uncertain",
                     ),
                 };
@@ -2788,21 +2815,6 @@ fn not_run_answer(a: &Action) -> (ResultStatus, String) {
     }
 }
 
-/// A call a `/stop` ended (W1) says who stopped it, in its result's `meta`
-/// (`stopped_by`), which `tool.ended` carries: every surface then shows it as
-/// a stop the operator asked for, `⏹️ stopped by …`, never as a failure, and
-/// apart from a cancel's `not run` (theseus-4uw). Only a call that did not
-/// finish: one that finished before the stop reached it keeps its result.
-fn stopped_meta(meta: &mut Value, status: ResultStatus, a: &Action) {
-    let Some(by) = a.stopped_by().filter(|_| status == ResultStatus::Cancelled) else {
-        return;
-    };
-    if !meta.is_object() {
-        *meta = json!({});
-    }
-    meta["stopped_by"] = json!(by);
-}
-
 /// The results of the tool calls a cancel ended before they ran
 /// (theseus-w98), as the session's next turn would have written them: a
 /// node for each call in `not_run` whose tool-call node the session holds and
@@ -2848,7 +2860,7 @@ pub(crate) fn not_run_results(
         }
         let (status, text) = not_run_answer(a);
         let mut meta = Value::Null;
-        stopped_meta(&mut meta, status, a);
+        crate::cancel::stopped_meta(&mut meta, status, a);
         let node = Node::tool_result(
             session_id,
             call.turn_id.as_deref(),
@@ -3125,6 +3137,7 @@ pub fn build_runtime(
         aws,
         question_due: Default::default(),
         sandbox,
+        stops: Default::default(),
     })
 }
 

@@ -426,6 +426,115 @@ pub enum CancelState {
     OutcomeUncertain,
 }
 
+/// How a cancel knows its call stopped (M4 18a; design §2.3): what a
+/// `termination_verified` rests on, by backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerifiedBy {
+    /// An L1 job's pid namespace: its init was killed and reaped, and the
+    /// kernel kills every process of a namespace before its init's exit ends.
+    Pidns,
+    /// The job's cgroup: `cgroup.kill`, then `cgroup.events` at `populated 0`.
+    Cgroup,
+    /// An L0 job's process tree: its wrapper stopped every descendant and
+    /// found none left (`scope: descendants`).
+    Tree,
+    /// A wrapper from before 18a, which dies at the first SIGTERM: its
+    /// process group has no live member. A descendant that left the group
+    /// (`setsid`) is out of its reach.
+    Group,
+    /// An async tool's task: aborted, and its handle finished.
+    Task,
+    /// Nothing verified it: the call cannot be stopped, or its end was not
+    /// seen.
+    None,
+}
+
+impl VerifiedBy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            VerifiedBy::Pidns => "pidns",
+            VerifiedBy::Cgroup => "cgroup",
+            VerifiedBy::Tree => "tree",
+            VerifiedBy::Group => "group",
+            VerifiedBy::Task => "task",
+            VerifiedBy::None => "none",
+        }
+    }
+}
+
+/// A stop's verdict (M4 18a): how it knows the call stopped, and what it
+/// counted. A job's wrapper writes it to the spool when a cancel stops the
+/// job (`Spool::write_stop`), and into its completion's `detail.stop` when its
+/// deadline does; the driver makes one for a wrapper from before 18a and for
+/// an aborted task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Verdict {
+    /// The means: for a verdict that is not verified, what was tried.
+    pub verified_by: VerifiedBy,
+    /// The processes the stop ended (a job's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub killed: Option<u32>,
+    /// The processes still alive after the stop's kill and its wait: 0 when
+    /// it is verified; absent when nobody could count them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub survivors: Option<u32>,
+    /// What the stop could see: `descendants` at L0, the wrapper's tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// From the stop's signal to its verdict.
+    #[serde(default)]
+    pub ms: u64,
+    /// Why it is not verified, when it is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl Verdict {
+    /// Verified: nothing left, and nothing said otherwise.
+    pub fn verified(&self) -> bool {
+        self.why.is_none()
+            && self.survivors.unwrap_or(0) == 0
+            && self.verified_by != VerifiedBy::None
+    }
+
+    /// A verified verdict: by `by`, having ended `killed` processes.
+    pub fn verified_as(by: VerifiedBy, killed: Option<u32>) -> Self {
+        Self {
+            verified_by: by,
+            killed,
+            survivors: Some(0),
+            scope: None,
+            ms: 0,
+            why: None,
+        }
+    }
+
+    /// A verdict that is not verified, and why.
+    pub fn uncertain(tried: VerifiedBy, why: impl Into<String>) -> Self {
+        Self {
+            verified_by: tried,
+            killed: None,
+            survivors: None,
+            scope: None,
+            ms: 0,
+            why: Some(why.into()),
+        }
+    }
+
+    /// In words, as every surface shows it (`theseus_protocol::cancel::words`):
+    /// "verified: pid namespace, 4 processes", or "not verified: …".
+    pub fn words(&self) -> String {
+        theseus_protocol::cancel::words(
+            self.verified(),
+            self.verified_by.as_str(),
+            self.killed,
+            self.survivors,
+            self.why.as_deref(),
+        )
+    }
+}
+
 /// A confirmation bound to the final action (§3.9, §3.17): the digest covers
 /// tool, arguments, resource, and policy context; any later change to those
 /// invalidates it.
@@ -476,6 +585,14 @@ pub struct Action {
     pub confirm: Option<ConfirmBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cancel: Option<CancelState>,
+    /// The cancel's verdict (M4 18a; ACTION schema 3), set with its last
+    /// step: how it knows the backend stopped (`verified_by`), what its stop
+    /// ended and left (`killed`, `survivors`), and why it is not verified
+    /// when it is not. `verified_by` is `none` for a call that cannot be
+    /// stopped. Absent when the cancel reached no running backend (a job
+    /// stopped before its launch, a call before its dispatch), or before 18a.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<Verdict>,
     /// Budget reservation held for this action, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reservation_id: Option<String>,

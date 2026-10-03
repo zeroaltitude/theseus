@@ -7,6 +7,18 @@ use crate::kernel::*;
 use crate::tests::*;
 use crate::types::*;
 
+/// The cancel's last step for a job its tree stop verified gone (18a).
+fn verified(w: &World, job: &str) {
+    let tree = Verdict::verified_as(VerifiedBy::Tree, Some(1));
+    w.kernel.cancel_verified(job, Some(&tree)).unwrap();
+}
+
+/// The cancel's last step for a job whose wrapper did not answer (18a).
+fn uncertain(w: &World, job: &str) {
+    let why = Verdict::uncertain(VerifiedBy::Tree, "its wrapper did not answer");
+    w.kernel.cancel_uncertain(job, &why).unwrap();
+}
+
 fn exec(w: &World, id: &str) -> Execution {
     w.kernel.execution(id).unwrap().unwrap()
 }
@@ -78,7 +90,7 @@ fn a_stop_during_a_turn_refuses_its_next_step_and_parks_it_on_input() {
             Some(2_000),
         ))
         .unwrap();
-    w.kernel.cancel_verified(&job.correlation_id).unwrap();
+    verified(&w, &job.correlation_id);
     // The turn's end parks it on input, whatever the turn asked for.
     let ended = w
         .kernel
@@ -175,7 +187,7 @@ fn a_stop_between_turns_stops_the_job_declines_what_waits_and_waits_on_input() {
     assert_eq!(rows(&w, &sid, "action.declined")[0]["reason"], "stopped");
     // A job whose outcome the kill could not verify still reaches the next
     // turn, and nothing queues the execution for it.
-    w.kernel.cancel_uncertain(&job.correlation_id).unwrap();
+    uncertain(&w, &job.correlation_id);
     let x = exec(&w, &e.id);
     assert_eq!(x.state, ExecState::Waiting);
     assert_eq!(x.queued_results, vec![job.correlation_id]);

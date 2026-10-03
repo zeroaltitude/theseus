@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 
 use crate::kernel::{Evidence, Probe};
 use crate::spool::Spool;
-use crate::types::{Action, Completion, Outcome};
+use crate::types::{Action, Completion, Outcome, Verdict, VerifiedBy};
 
 /// Arguments the wrapper mode receives.
 #[derive(Clone)]
@@ -202,13 +202,135 @@ pub use theseus_sandbox::Limits as SandboxLimits;
 /// the command's result as `run_wrapper` does, then lingers until no
 /// descendant remains, and only then exits. It kills nothing.
 pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
+    // First, so the daemon reads this wrapper as one that stops its tree
+    // (`catches_sigterm`) from as early as it can (M4 18a).
+    let caught = catch_sigterm();
     let subreaper = crate::children::set_subreaper();
-    let (spool, mut copier) = run(args, Reap::Descendants, subreaper.err())?;
+    let errors: Vec<String> = [subreaper.err(), caught.err()]
+        .into_iter()
+        .flatten()
+        .collect();
+    let (spool, mut copier) = run(
+        args,
+        Reap::Descendants,
+        (!errors.is_empty()).then(|| errors.join("; ")),
+    )?;
     linger(&spool, &args.correlation_id);
     // What a descendant printed after the report goes through the copy too,
     // to the pipe's end, which comes once the last descendant has gone.
     copier.wait(crate::redact::DRAIN);
+    // A SIGTERM that was not a cancel ends the wrapper by it, as it did
+    // before 18a, once its tree is stopped: the daemon still reads a wrapper
+    // killed before it reported (theseus-6uo).
+    if stop_asked() == Some(StopAsked::Signal) {
+        // SAFETY: the default action back, then the signal to this thread.
+        unsafe {
+            libc::signal(libc::SIGTERM, libc::SIG_DFL);
+            libc::raise(libc::SIGTERM);
+        }
+    }
     Ok(())
+}
+
+/// What asked the wrapper to stop its job (M4 18a), as its SIGTERM handler
+/// noted it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StopAsked {
+    /// The daemon's cancel (`ask_to_stop`): the grace rides in the signal's
+    /// value. The wrapper stops its tree, writes its verdict to the spool,
+    /// and exits, with no completion.
+    Cancel { grace: Duration },
+    /// A SIGTERM from anything else: the job itself, a `kill` by hand, a
+    /// daemon from before 18a stopping the group. The tree is stopped, then
+    /// the wrapper ends by the signal.
+    Signal,
+}
+
+impl StopAsked {
+    pub(crate) fn grace(self) -> Duration {
+        match self {
+            StopAsked::Cancel { grace } => grace,
+            StopAsked::Signal => STOP_GRACE,
+        }
+    }
+}
+
+/// The stop's signal, as the handler noted it: 0, none; `u64::MAX`, a plain
+/// SIGTERM; otherwise a cancel's grace in milliseconds, plus one.
+static STOP_ASKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The wrapper's SIGTERM handler: it only notes what came, with an atomic
+/// store, which is async-signal-safe; the wrapper's loop acts on it.
+extern "C" fn on_sigterm(_: libc::c_int, info: *mut libc::siginfo_t, _: *mut libc::c_void) {
+    // SAFETY: the kernel's siginfo, read in the handler it was given to.
+    let asked = unsafe {
+        match info.as_ref() {
+            Some(i) if i.si_code == libc::SI_QUEUE => {
+                (i.si_value().sival_ptr as usize as u64).clamp(0, u64::MAX - 2) + 1
+            }
+            _ => u64::MAX,
+        }
+    };
+    let _ = STOP_ASKED.compare_exchange(
+        0,
+        asked,
+        std::sync::atomic::Ordering::SeqCst,
+        std::sync::atomic::Ordering::SeqCst,
+    );
+}
+
+/// Catch SIGTERM (M4 18a). Without `SA_RESTART`, so the linger's blocking
+/// wait returns to look. `/proc/<pid>/status` then shows it caught, which is
+/// how the daemon tells this wrapper from one from before 18a.
+fn catch_sigterm() -> std::result::Result<(), String> {
+    // SAFETY: a handler that only stores to an atomic, installed for SIGTERM.
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = on_sigterm as *const () as usize;
+        sa.sa_flags = libc::SA_SIGINFO;
+        libc::sigemptyset(&mut sa.sa_mask);
+        if libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut()) == -1 {
+            return Err(format!(
+                "catching SIGTERM: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// What asked this wrapper to stop, if anything has.
+pub(crate) fn stop_asked() -> Option<StopAsked> {
+    match STOP_ASKED.load(std::sync::atomic::Ordering::SeqCst) {
+        0 => None,
+        u64::MAX => Some(StopAsked::Signal),
+        ms => Some(StopAsked::Cancel {
+            grace: Duration::from_millis(ms - 1),
+        }),
+    }
+}
+
+/// Ask job `pid`'s wrapper to stop its job (M4 18a): SIGTERM to the wrapper
+/// alone, by `sigqueue`, the grace in its value. Whether it was sent.
+pub fn ask_to_stop(pid: u32, grace: Duration) -> bool {
+    let value = libc::sigval {
+        sival_ptr: grace.as_millis().min(u32::MAX as u128) as usize as *mut libc::c_void,
+    };
+    // SAFETY: sigqueue sends a signal and a value; no memory is shared.
+    unsafe { libc::sigqueue(pid as libc::pid_t, libc::SIGTERM, value) == 0 }
+}
+
+/// Whether `pid` catches SIGTERM: its `/proc/<pid>/status` lists it among
+/// the signals it catches (`SigCgt`). A wrapper from 18a on does from its
+/// first moments; one from before dies at it.
+pub fn catches_sigterm(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .ok()
+        .and_then(|s| {
+            let hex = s.lines().find_map(|l| l.strip_prefix("SigCgt:"))?;
+            u64::from_str_radix(hex.trim(), 16).ok()
+        })
+        .is_some_and(|mask| mask & (1 << (libc::SIGTERM - 1)) != 0)
 }
 
 /// The wrapper's body on a thread of this process (the tests' in-process
@@ -297,6 +419,20 @@ fn run(
         Some(l1) => crate::job_l1::run(args, l1, reap, write.into(), err.into(), &mut detail),
         None => run_l0(args, reap, (write, err), t0, &mut detail),
     };
+    // A stop ended the job (M4 18a). Its verdict goes to the spool for the
+    // cancel that asked, and no completion, as a cancelled job wrote none
+    // before; once the copy has ended, since the stop left no writer.
+    if detail.get("stopped").is_some() {
+        let _ = copier.wait(crate::redact::DRAIN);
+        if let (Some(StopAsked::Cancel { .. }), Ok(v)) = (
+            stop_asked(),
+            serde_json::from_value::<Verdict>(detail["stop"].clone()),
+        ) {
+            spool.write_stop(&args.correlation_id, &v)?;
+        }
+        spool.remove_pid(&args.correlation_id);
+        return Ok((spool, copier));
+    }
     // The copy ends once the command and every descendant sharing its output
     // have closed it (theseus-l0d). One that keeps it open does not hold the
     // report: the copy goes on after it, and the report says what was
@@ -433,18 +569,63 @@ fn run_l0(
                 };
             }
             Ok(None) => {
+                // A stop asked of a wrapper process ends its whole tree (18a).
+                if let (Reap::Descendants, Some(asked)) = (reap, stop_asked()) {
+                    let v = stop_tree(asked.grace(), detail);
+                    detail["stopped"] = serde_json::Value::Bool(true);
+                    return (Outcome::Failed, format!("stopped: {}", v.words()));
+                }
                 if t0.elapsed() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
                     detail["timed_out"] = serde_json::Value::Bool(true);
+                    // The deadline's stop is the cancel's: the whole tree,
+                    // not only the command (theseus-hcc). A thread in a test
+                    // process kills its command alone.
+                    let how = match reap {
+                        Reap::Descendants => stop_tree(STOP_GRACE, detail).words(),
+                        Reap::Command => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            "killed".into()
+                        }
+                    };
                     return (
                         Outcome::Failed,
-                        format!("deadline {} ms exceeded; killed", args.deadline_ms),
+                        format!("deadline {} ms exceeded; {how}", args.deadline_ms),
                     );
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(e) => return (Outcome::Unknown, format!("wait: {e}")),
+        }
+    }
+}
+
+/// Stop this wrapper's whole tree (M4 18a; `tree::stop`) and put its verdict
+/// in `detail.stop`: verified by the tree when nothing is left, which is
+/// everything below the wrapper (`scope: descendants`).
+fn stop_tree(grace: Duration, detail: &mut serde_json::Value) -> Verdict {
+    let s = crate::tree::stop(std::process::id(), grace, &mut reap_all);
+    let v = Verdict {
+        verified_by: VerifiedBy::Tree,
+        killed: Some(s.killed),
+        survivors: Some(s.survivors.len() as u32),
+        scope: Some("descendants".into()),
+        ms: s.ms,
+        why: s.why(),
+    };
+    detail["stop"] = serde_json::to_value(&v).unwrap_or_default();
+    v
+}
+
+/// Reap every child that has exited, and nothing more: what a stop waits on
+/// is its tree.
+fn reap_all() {
+    loop {
+        let mut status = 0;
+        match unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) } {
+            -1 if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) => {}
+            0 | -1 => return,
+            _ => {}
         }
     }
 }
@@ -485,12 +666,25 @@ fn reap_children(command: u32) -> std::io::Result<Option<std::process::ExitStatu
 /// After the report: wait for every descendant that outlived the command,
 /// each reparented here as its parent exited (theseus-6qy). While any
 /// remains, the spool's `lingering/<id>` names this wrapper, which health
-/// counts. The wrapper signals nothing; it only waits.
+/// counts. The wrapper signals nothing unless it is asked to stop (18a):
+/// then it stops what is left of its tree, and a cancel gets its verdict.
 fn linger(spool: &Spool, correlation_id: &str) {
     #[cfg(unix)]
     {
         let mut marked = false;
+        let mut stopped = false;
         loop {
+            if let Some(asked) = stop_asked().filter(|_| !stopped) {
+                stopped = true;
+                let mut detail = serde_json::json!({});
+                let v = stop_tree(asked.grace(), &mut detail);
+                // A stop that ended the command has written its verdict.
+                if matches!(asked, StopAsked::Cancel { .. })
+                    && spool.read_stop(correlation_id).is_none()
+                {
+                    let _ = spool.write_stop(correlation_id, &v);
+                }
+            }
             let mut status = 0;
             let flags = if marked { 0 } else { libc::WNOHANG };
             match unsafe { libc::waitpid(-1, &mut status, flags) } {
@@ -687,37 +881,48 @@ pub const STOP_GRACE: Duration = Duration::from_secs(2);
 /// run.
 const KILL_WAIT: Duration = Duration::from_millis(500);
 
+/// How long past the grace a wrapper asked to stop its tree has to answer
+/// (M4 18a): its freeze and its kill's wait (`tree::KILL_WAIT`) take up to a
+/// second, and its verdict and exit the rest. Then the daemon kills its
+/// group, and the cancel is uncertain.
+pub const ANSWER_WAIT: Duration = Duration::from_millis(2500);
+
 /// The longest a stop waits between two looks at its jobs.
 const STOP_POLL_MAX: Duration = Duration::from_millis(50);
 
-/// Jobs stopped together (theseus-bzq): each job's process group gets SIGTERM
-/// at once, they share one grace, and the stragglers get SIGKILL together, so
-/// N jobs that ignore SIGTERM cost one grace, not N. It never sleeps: its
-/// owner waits between polls, a task on the runtime's timer (the daemon's
-/// cancel and stop) or a thread (`terminate`), so no runtime worker is held
-/// while a job takes its time.
+/// Jobs stopped together (theseus-bzq): each is asked at once, they share one
+/// grace, and the stragglers are killed together, so N jobs that ignore
+/// SIGTERM cost one grace, not N. It never sleeps: its owner waits between
+/// polls, a task on the runtime's timer (the daemon's cancel and stop) or a
+/// thread (`terminate`), so no runtime worker is held while a job takes its
+/// time.
 ///
-/// A job is gone when its wrapper is and no live process is left in its
-/// process group (a zombie is not live). The wrapper dies at SIGTERM, so a
-/// wait on it alone ended at once and left a command that traps SIGTERM
-/// running, orphaned to the daemon, while the cancel said
-/// `termination_verified`. A descendant that left the group (`setsid`) was
-/// never in a stop's reach, and is not waited for.
+/// **How a job is stopped (M4 18a).** A wrapper from 18a on catches SIGTERM
+/// (`catches_sigterm`): it gets SIGTERM alone, by `ask_to_stop`, stops its
+/// whole tree itself (`tree::stop`, or the L1 job's init or cgroup), writes
+/// its verdict to the spool, and exits. Its job is gone once it has, and its
+/// verdict says how that is known. One that has not answered within the
+/// grace and `ANSWER_WAIT`, or that exits with no verdict and no completion,
+/// has its process group killed, and its verdict is uncertain, with why.
+///
+/// A wrapper from before 18a dies at the first SIGTERM, so it is stopped as
+/// every job was before: its process group gets SIGTERM, then SIGKILL past the
+/// grace, and it is gone when no live process is left in the group (a zombie
+/// is not live), its verdict `group`. A descendant that left the group
+/// (`setsid`) is out of that stop's reach.
 ///
 /// A group is signalled only while `pid` is still this job's wrapper, or no
 /// live process at all: while any process of the group lives, its id is not
 /// handed out again, but once the wrapper has been reaped and the group is
 /// empty, `pid` may be another process's, which is left alone. A live process
 /// whose command line is still empty is in its exec (theseus-mi6a), and may
-/// be either: its group is signalled once it reads as the wrapper, at a later
-/// look, and never if it reads as another process. Before, a stop that came
-/// a moment after a job's spawn took its wrapper for another process, sent
-/// nothing, and said the job was gone while it ran on.
+/// be either: it is asked once it reads as the wrapper, at a later look, and
+/// never if it reads as another process.
 pub struct Stopping {
+    spool: Spool,
     jobs: Vec<Stopped>,
     grace: Duration,
     started: Instant,
-    killed: Option<Instant>,
     polls: u32,
 }
 
@@ -725,116 +930,267 @@ pub struct Stopping {
 struct Stopped {
     pid: u32,
     job: String,
-    /// Its group has been signalled: its wrapper read as the job's, or as no
+    /// How it was asked: `None` until its pid read as its wrapper, or as no
     /// live process.
-    signalled: bool,
-    gone: bool,
+    asked: Option<Asked>,
+    /// When its group got SIGKILL.
+    killed: Option<Instant>,
+    /// Its group's live members when it was asked (an older wrapper's).
+    members: u32,
+    /// Its verdict, once it is settled.
+    verdict: Option<Verdict>,
+}
+
+/// How a job was asked to stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// Its wrapper stops its tree and answers with a verdict.
+    Tree,
+    /// Its process group, as before 18a: a wrapper that dies at SIGTERM, or
+    /// one already gone.
+    Group,
 }
 
 impl Stopping {
-    /// SIGTERM every job's process group, now; a job whose wrapper is still
-    /// in its exec, at the first look that reads it as the job's.
-    pub fn start(jobs: impl IntoIterator<Item = (u32, String)>, grace: Duration) -> Self {
+    /// Ask every job to stop, now; a job whose wrapper is still in its exec,
+    /// at the first look that reads it as the job's. `spool` is where a
+    /// wrapper's verdict is.
+    pub fn start(
+        spool: &Spool,
+        jobs: impl IntoIterator<Item = (u32, String)>,
+        grace: Duration,
+    ) -> Self {
         let mut s = Self {
+            spool: spool.clone(),
             jobs: jobs
                 .into_iter()
                 .map(|(pid, job)| Stopped {
                     pid,
                     job,
-                    signalled: false,
-                    gone: false,
+                    asked: None,
+                    killed: None,
+                    members: 0,
+                    verdict: None,
                 })
                 .collect(),
             grace,
             started: Instant::now(),
-            killed: None,
             polls: 0,
         };
-        s.signal_known();
+        s.ask_known();
         s
     }
 
-    /// Signal each job not yet signalled whose pid now reads as its wrapper
-    /// or as no live process: SIGTERM, or SIGKILL once the grace is over. A
-    /// pid another process holds means the job is long gone; one still in
-    /// its exec waits for the next look.
-    fn signal_known(&mut self) {
-        let signal = if self.killed.is_some() {
-            libc::SIGKILL
-        } else {
-            libc::SIGTERM
-        };
-        for j in self.jobs.iter_mut().filter(|j| !j.signalled && !j.gone) {
-            match holder(j.pid, &j.job) {
-                Holder::Other => j.gone = true,
+    /// Ask each job not yet asked whose pid now reads as its wrapper or as
+    /// no live process. A pid another process holds means the job's wrapper
+    /// is long gone: its verdict is whatever it left. One still in its exec
+    /// waits for the next look.
+    fn ask_known(&mut self) {
+        let late = self.started.elapsed() >= self.grace;
+        for i in 0..self.jobs.len() {
+            let j = &self.jobs[i];
+            if j.asked.is_some() || j.verdict.is_some() {
+                continue;
+            }
+            let (pid, grace) = (j.pid, self.grace);
+            match holder(pid, &j.job) {
                 Holder::Starting => {}
+                Holder::Other => {
+                    let v = self.left_behind(i, false);
+                    self.jobs[i].verdict = Some(v);
+                }
+                // A wrapper that answered an earlier ask (a stop at its launch, then the cancel's).
+                Holder::Gone if self.spool.read_stop(&self.jobs[i].job).is_some() => {
+                    let v = self.left_behind(i, true);
+                    self.jobs[i].verdict = Some(v);
+                }
+                Holder::Wrapper if catches_sigterm(pid) => {
+                    ask_to_stop(pid, grace.saturating_sub(self.started.elapsed()));
+                    self.jobs[i].asked = Some(Asked::Tree);
+                }
                 Holder::Wrapper | Holder::Gone => {
-                    signal_group(j.pid, signal);
-                    j.signalled = true;
+                    let j = &mut self.jobs[i];
+                    j.members = group_members(pid);
+                    j.asked = Some(Asked::Group);
+                    if late {
+                        signal_group(pid, libc::SIGKILL);
+                        j.killed = Some(Instant::now());
+                    } else {
+                        signal_group(pid, libc::SIGTERM);
+                    }
                 }
             }
         }
     }
 
-    /// Look at every job not yet gone; past the grace, SIGKILL the group of
-    /// each signalled one, once. How long to wait before the next look, or
-    /// `None` once the stop has settled: every job gone, or the kill's wait
-    /// over. A job never signalled, its wrapper in its exec all along, is not
-    /// gone.
+    /// The verdict of job `i`, whose wrapper was asked to stop its tree and
+    /// is gone: what it wrote; or, with no verdict but a completion, a job
+    /// that ended before the stop reached it, whose wrapper left only once
+    /// its tree was empty; or neither, and its group is killed, uncertain.
+    /// `asked`: whether it was asked at all (its pid read as another
+    /// process's at the first look).
+    fn left_behind(&self, i: usize, asked: bool) -> Verdict {
+        let j = &self.jobs[i];
+        let ms = self.started.elapsed().as_millis() as u64;
+        if let Some(v) = self.spool.read_stop(&j.job) {
+            self.spool.remove_stop(&j.job);
+            return v;
+        }
+        if self.spool.has_completion(&j.job) {
+            return Verdict {
+                verified_by: VerifiedBy::Tree,
+                killed: Some(0),
+                survivors: Some(0),
+                scope: Some("descendants".into()),
+                ms,
+                why: None,
+            };
+        }
+        // Its group: what is left of it, killed, when the pid is free (a
+        // pid another process holds left an empty group).
+        if holder(j.pid, &j.job) == Holder::Gone {
+            signal_group(j.pid, libc::SIGKILL);
+        }
+        let why = if asked {
+            "its wrapper ended without a verdict or a report"
+        } else {
+            "its wrapper had ended before the stop, with no report"
+        };
+        Verdict {
+            ms,
+            ..Verdict::uncertain(VerifiedBy::Tree, why)
+        }
+    }
+
+    /// Look at every job not yet settled; kill the groups whose time is up.
+    /// How long to wait before the next look, or `None` once every job has
+    /// its verdict.
     pub fn poll(&mut self) -> Option<Duration> {
-        self.signal_known();
-        let running: Vec<u32> = self
+        self.ask_known();
+        let now = Instant::now();
+        let ms = self.started.elapsed().as_millis() as u64;
+        let grace_over = now >= self.started + self.grace;
+        let answer_over = now >= self.started + self.grace + ANSWER_WAIT;
+        let groups: Vec<u32> = self
             .jobs
             .iter()
-            .filter(|j| j.signalled && !j.gone)
+            .filter(|j| j.verdict.is_none() && j.asked == Some(Asked::Group))
             .map(|j| j.pid)
             .collect();
-        let live = live_groups(&running);
-        for j in self.jobs.iter_mut().filter(|j| j.signalled && !j.gone) {
-            j.gone = !live.contains(&j.pid) && !wrapper_alive(j.pid, &j.job);
+        let live = live_groups(&groups);
+        for i in 0..self.jobs.len() {
+            let j = &self.jobs[i];
+            if j.verdict.is_some() {
+                continue;
+            }
+            let (pid, alive, in_group) =
+                (j.pid, wrapper_alive(j.pid, &j.job), live.contains(&j.pid));
+            let killed_over = j.killed.is_some_and(|k| now >= k + KILL_WAIT);
+            let verdict = match j.asked {
+                // Never read as its wrapper: once the kill's time is past too.
+                None => (now >= self.started + self.grace + ANSWER_WAIT + KILL_WAIT).then(|| Verdict {
+                    ms,
+                    ..Verdict::uncertain(VerifiedBy::None, "its wrapper never read as the job's")
+                }),
+                Some(Asked::Group) if !alive && !in_group => Some(Verdict {
+                    verified_by: VerifiedBy::Group,
+                    killed: Some(j.members),
+                    survivors: Some(0),
+                    scope: Some("group".into()),
+                    ms,
+                    why: None,
+                }),
+                Some(Asked::Group) if killed_over => {
+                    let left = group_members(pid);
+                    Some(Verdict {
+                        killed: Some(j.members),
+                        survivors: Some(left),
+                        ms,
+                        ..Verdict::uncertain(
+                            VerifiedBy::Group,
+                            format!("{left} of its process group outlived the kill"),
+                        )
+                    })
+                }
+                Some(Asked::Group) => {
+                    if j.killed.is_none() && grace_over {
+                        signal_group(pid, libc::SIGKILL);
+                        self.jobs[i].killed = Some(now);
+                    }
+                    None
+                }
+                Some(Asked::Tree) if !alive && j.killed.is_none() => Some(self.left_behind(i, true)),
+                Some(Asked::Tree) if killed_over || (!alive && j.killed.is_some()) => Some(Verdict {
+                    survivors: Some(group_members(pid)),
+                    ms,
+                    ..Verdict::uncertain(
+                        VerifiedBy::Tree,
+                        format!(
+                            "its wrapper did not answer within {} ms, so its process group was killed",
+                            (self.grace + ANSWER_WAIT).as_millis()
+                        ),
+                    )
+                }),
+                Some(Asked::Tree) => {
+                    if j.killed.is_none() && answer_over {
+                        signal_group(pid, libc::SIGKILL);
+                        self.jobs[i].killed = Some(now);
+                    }
+                    None
+                }
+            };
+            if verdict.is_some() {
+                self.jobs[i].verdict = verdict;
+            }
         }
         if self.all_gone() {
             return None;
         }
-        let now = Instant::now();
-        let left = match self.killed {
-            None if now >= self.started + self.grace => {
-                for j in self.jobs.iter().filter(|j| j.signalled && !j.gone) {
-                    signal_group(j.pid, libc::SIGKILL);
-                }
-                self.killed = Some(now);
-                KILL_WAIT
-            }
-            None => self.started + self.grace - now,
-            Some(k) if now >= k + KILL_WAIT => return None,
-            Some(k) => k + KILL_WAIT - now,
-        };
-        // Soon at first, since most jobs end at SIGTERM; then less often.
+        // The next deadline: the grace's end, the answer's, or a kill's wait.
+        let next = [
+            Some(self.started + self.grace),
+            Some(self.started + self.grace + ANSWER_WAIT),
+            Some(self.started + self.grace + ANSWER_WAIT + KILL_WAIT),
+        ]
+        .into_iter()
+        .chain(self.jobs.iter().map(|j| j.killed.map(|k| k + KILL_WAIT)))
+        .flatten()
+        .filter(|t| *t > now)
+        .min()
+        .map_or(STOP_POLL_MAX, |t| t - now);
+        // Soon at first, since most jobs end at once; then less often.
         self.polls += 1;
         let step = Duration::from_millis(5 << self.polls.min(4)).min(STOP_POLL_MAX);
-        Some(step.min(left))
+        Some(step.min(next).max(Duration::from_millis(1)))
     }
 
-    /// Each job, and whether it is gone.
-    pub fn outcome(&self) -> impl Iterator<Item = (&str, bool)> {
-        self.jobs.iter().map(|j| (j.job.as_str(), j.gone))
+    /// Each job, and its verdict (uncertain while it has none).
+    pub fn verdicts(&self) -> impl Iterator<Item = (&str, Verdict)> {
+        self.jobs.iter().map(|j| {
+            (
+                j.job.as_str(),
+                j.verdict.clone().unwrap_or_else(|| {
+                    Verdict::uncertain(VerifiedBy::None, "the stop ended before its verdict")
+                }),
+            )
+        })
     }
 
-    /// Every job is gone.
+    /// Every job has its verdict.
     pub fn all_gone(&self) -> bool {
-        self.jobs.iter().all(|j| j.gone)
+        self.jobs.iter().all(|j| j.verdict.is_some())
     }
 }
 
-/// Terminate one job and wait for it on this thread: SIGTERM to its process
-/// group, up to `grace` for every live process of it to exit, then SIGKILL.
-/// True if the job is gone afterwards. See `Stopping`.
-pub fn terminate(pid: u32, job: &str, grace: Duration) -> bool {
-    let mut s = Stopping::start([(pid, job.to_string())], grace);
+/// Stop one job and wait for it on this thread, as `Stopping` stops several.
+/// Its verdict.
+pub fn terminate(spool: &Spool, pid: u32, job: &str, grace: Duration) -> Verdict {
+    let mut s = Stopping::start(spool, [(pid, job.to_string())], grace);
     while let Some(wait) = s.poll() {
         std::thread::sleep(wait);
     }
-    s.all_gone()
+    let v = s.verdicts().next().map(|(_, v)| v);
+    v.expect("one job")
 }
 
 /// Signal the process group `pgid`. One with no member left is a no-op.
@@ -843,6 +1199,23 @@ fn signal_group(pgid: u32, signal: libc::c_int) {
     unsafe {
         libc::kill(-(pgid as i32), signal);
     }
+}
+
+/// The live members of process group `pgid`: running, sleeping, or stopped,
+/// never a zombie. A group with no member costs no scan.
+fn group_members(pgid: u32) -> u32 {
+    // SAFETY: signal 0 only checks that the group exists.
+    if unsafe { libc::kill(-(pgid as i32), 0) } != 0 {
+        return 0;
+    }
+    let Ok(dir) = std::fs::read_dir("/proc") else {
+        return 1;
+    };
+    dir.flatten()
+        .filter_map(|e| e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()))
+        .filter_map(proc_stat)
+        .filter(|s| s.pgrp == pgid && !matches!(s.state, 'Z' | 'X'))
+        .count() as u32
 }
 
 /// The process groups among `pgids` with a live member: running, sleeping,

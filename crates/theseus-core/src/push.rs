@@ -701,6 +701,7 @@ mod tests {
             result_ref: None,
             confirm: None,
             cancel: None,
+            verdict: None,
             reservation_id: None,
             reserved_micros: 0,
             resolution: None,

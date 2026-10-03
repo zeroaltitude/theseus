@@ -3,6 +3,7 @@ import type { ApprovalStatus } from "./ApprovalStatus";
 import type { AwsStatus } from "./AwsStatus";
 import type { BinaryStatus } from "./BinaryStatus";
 import type { BindingStatus } from "./BindingStatus";
+import type { CancelCount } from "./CancelCount";
 import type { ChildrenStatus } from "./ChildrenStatus";
 import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
@@ -155,4 +156,9 @@ crash?: CrashStatus,
  * L1 (M4 17b): the class choice's settings, the limits, the probe after
  * serving, the cgroup, and the jobs by class. Absent without tools.
  */
-sandbox?: SandboxHealth, };
+sandbox?: SandboxHealth, 
+/**
+ * Each backend's cancels since the daemon started, by how they ended
+ * (M4 18a). Empty until the first.
+ */
+cancels?: Array<CancelCount>, };

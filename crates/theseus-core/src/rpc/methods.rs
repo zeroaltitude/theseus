@@ -97,6 +97,7 @@ impl Core {
             store: self.store_status(),
             crash: self.crash_status(),
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
+            cancels: self.tools.stops.counts(),
         }
     }
 
@@ -610,11 +611,12 @@ impl Core {
             .map_err(crate::task::NoSuchTask)?
             .id
             .clone();
-        let (e, cancelled) = self.cancel_execution(&id, by).await?;
+        let (e, cancelled, verdicts) = self.cancel_execution_judged(&id, by).await?;
         let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
         Ok(theseus_protocol::TaskCancelResult {
             task: crate::task::info(&e, rec.as_ref(), 0),
             cancelled_actions: cancelled,
+            verdicts,
         })
     }
 
@@ -1117,12 +1119,13 @@ impl Core {
                 format!("no execution {}", p.execution_id),
             ));
         }
-        let (e, cancelled) = self
-            .cancel_execution(&p.execution_id, &conn.actor(p.author.as_deref()))
+        let (e, cancelled, verdicts) = self
+            .cancel_execution_judged(&p.execution_id, &conn.actor(p.author.as_deref()))
             .await?;
         Ok(theseus_protocol::ExecutionCancelResult {
             execution: Self::execution_info(&e),
             cancelled_actions: cancelled,
+            verdicts,
         })
     }
 

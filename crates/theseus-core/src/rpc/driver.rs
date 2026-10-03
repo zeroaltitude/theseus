@@ -140,6 +140,18 @@ impl Core {
     /// own. Then each question's card settles where it was posted, and the
     /// session's watchers hear that it closed.
     pub async fn cancel_execution(&self, id: &str, by: &str) -> Result<(Execution, Vec<String>)> {
+        self.cancel_execution_judged(id, by)
+            .await
+            .map(|(e, to_kill, _)| (e, to_kill))
+    }
+
+    /// `cancel_execution`, with how each call it stopped is known to have
+    /// stopped (M4 18a), as `execution.cancel` and `task.cancel` answer.
+    pub async fn cancel_execution_judged(
+        &self,
+        id: &str,
+        by: &str,
+    ) -> Result<(Execution, Vec<String>, Vec<theseus_protocol::CancelVerdict>)> {
         let mut report = None;
         let cancel = self.kernel.cancel_execution_with(id, by, |end| {
             let (mut records, post) =
@@ -171,7 +183,7 @@ impl Core {
             }
         }
         let to_kill = cancel.to_kill;
-        self.terminate_all(&to_kill).await;
+        let verdicts = self.terminate_all(&to_kill).await;
         self.admission.notify_waiters();
         let e = self
             .kernel
@@ -199,46 +211,20 @@ impl Core {
                 by,
                 stopped: to_kill.len(),
             });
-        Ok((e, to_kill))
+        Ok((e, to_kill, verdicts))
     }
 
     /// Terminate the backends of actions a cancel or a stop told to stop,
-    /// and walk each one's cancel: a job's wrapper through the spool, and an
-    /// in-process call, which nothing can reach, as unsupported.
-    ///
-    /// The jobs are stopped together (theseus-bzq): every one gets SIGTERM
-    /// first, they share one grace, and the stragglers get SIGKILL together.
-    /// The waits are the runtime's timer, so no worker is held meanwhile, and
-    /// N jobs that ignore SIGTERM cost one grace, not N.
-    async fn terminate_all(&self, to_kill: &[String]) {
-        let mut jobs = Vec::new();
-        for corr in to_kill {
-            match self.spool.read_pid(corr) {
-                Some(pid) => {
-                    let _ = self.kernel.cancel_acknowledged(corr);
-                    jobs.push((pid, corr.clone()));
-                }
-                None => {
-                    // In-process or already gone: nothing to reach.
-                    let _ = self.kernel.cancel_unsupported(corr);
-                }
-            }
+    /// through the one stop (`ToolRuntime::terminate_all`, M4 18a), and
+    /// record how each one ended: its fact, in its session. Each verdict, as
+    /// the wire carries it.
+    async fn terminate_all(&self, to_kill: &[String]) -> Vec<theseus_protocol::CancelVerdict> {
+        let ended = self.tools.terminate_all(&self.kernel, to_kill).await;
+        let written: Vec<_> = ended.iter().filter(|e| e.written).collect();
+        for e in &written {
+            e.record(&self.session_rec(&e.action.session_id));
         }
-        if jobs.is_empty() {
-            return;
-        }
-        let mut stopping =
-            theseus_kernel::job::Stopping::start(jobs, theseus_kernel::job::STOP_GRACE);
-        while let Some(wait) = stopping.poll() {
-            tokio::time::sleep(wait).await;
-        }
-        for (corr, gone) in stopping.outcome() {
-            let _ = if gone {
-                self.kernel.cancel_verified(corr)
-            } else {
-                self.kernel.cancel_uncertain(corr)
-            };
-        }
+        written.iter().map(|e| e.wire()).collect()
     }
 
     /// Watch the disk's floor while jobs run (theseus-ht82). The floor refuses
@@ -334,6 +320,7 @@ impl Core {
                 execution: Self::execution_info(&e),
                 stopped: false,
                 stopped_actions: vec![],
+                verdicts: vec![],
                 declined: vec![],
                 turn_running: false,
                 tasks_running: 0,
@@ -356,7 +343,7 @@ impl Core {
             self.session_rec(&stop.execution.session_id)
                 .record(&fact::driver::QuestionStopped { question: a, by });
         }
-        self.terminate_all(&stop.to_kill).await;
+        let verdicts = self.terminate_all(&stop.to_kill).await;
         self.admission.notify_waiters();
         let e = self
             .kernel
@@ -389,6 +376,7 @@ impl Core {
             turn_running: stop.turn_running,
             tasks_running,
             wakes_pending: e.wakes.len() as u32,
+            verdicts,
         })
     }
 

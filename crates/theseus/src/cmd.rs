@@ -704,6 +704,9 @@ pub async fn executions(conn: &mut Conn, json: bool, cmd: ExecutionsCmd) -> Resu
                         .map(|x| format!(" · {x}"))
                         .unwrap_or_default()
                 );
+                for line in render::verdict_lines("cancelled", &r.verdicts) {
+                    println!("{line}");
+                }
                 Ok(())
             })
         }
@@ -882,8 +885,11 @@ pub async fn stop(conn: &mut Conn, json: bool, session: String) -> Result<()> {
             },
         )
         .await?;
-    output(json, v, |r| {
+    output(json, v, |r: theseus_protocol::ExecutionStopResult| {
         println!("{}", render::stop_line(&r));
+        for line in render::verdict_lines("stopped", &r.verdicts) {
+            println!("{line}");
+        }
         Ok(())
     })
 }
@@ -1020,6 +1026,9 @@ pub async fn cancel(conn: &mut Conn, json: bool, name: String) -> Result<()> {
                 .map(|x| format!(" · {x}"))
                 .unwrap_or_default()
         );
+        for line in render::verdict_lines("cancelled", &r.verdicts) {
+            println!("{line}");
+        }
         Ok(())
     })
 }
@@ -1352,6 +1361,7 @@ mod tests {
             turn_running: false,
             tasks_running: 1,
             wakes_pending: 0,
+            verdicts: vec![],
         };
         assert_eq!(
             stop_line(&r),

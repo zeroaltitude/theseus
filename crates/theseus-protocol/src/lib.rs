@@ -8,6 +8,7 @@
 //! Requests change state and get exactly one response. Notifications report
 //! state and are also ledger rows on the server side.
 
+pub mod cancel;
 mod events;
 mod gate;
 mod health;
@@ -18,6 +19,7 @@ pub mod sandbox;
 #[cfg(test)]
 mod ts;
 
+pub use cancel::{CancelCount, CancelVerdict};
 pub use events::*;
 pub use gate::*;
 pub use health::*;
@@ -452,6 +454,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub sandbox: Option<sandbox::SandboxHealth>,
+    /// Each backend's cancels since the daemon started, by how they ended
+    /// (M4 18a). Empty until the first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cancels: Vec<CancelCount>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).
@@ -1403,6 +1409,10 @@ pub struct ActionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub cancel: Option<String>,
+    /// The cancel's verdict (M4 18a): how it knows the call stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub verdict: Option<CancelVerdict>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub external_op_id: Option<String>,
@@ -1449,6 +1459,9 @@ pub struct ExecutionCancelResult {
     pub execution: ExecutionInfo,
     /// Dispatched actions whose backends were asked to stop.
     pub cancelled_actions: Vec<String>,
+    /// How each of them stopped, and how that is known (M4 18a).
+    #[serde(default)]
+    pub verdicts: Vec<CancelVerdict>,
 }
 
 /// `execution.stop` (W1, theseus-lji; `/stop`): halt a conversation's work
@@ -1475,6 +1488,9 @@ pub struct ExecutionStopResult {
     pub stopped: bool,
     /// Running jobs and calls whose backends were asked to stop.
     pub stopped_actions: Vec<String>,
+    /// How each of them stopped, and how that is known (M4 18a).
+    #[serde(default)]
+    pub verdicts: Vec<CancelVerdict>,
     /// Planned calls, approvals, and a budget question that will not run.
     pub declined: Vec<String>,
     /// A turn was running: it ends at its next step.
@@ -1579,6 +1595,9 @@ pub struct TaskCancelResult {
     pub task: TaskInfo,
     /// Dispatched actions whose backends were asked to stop.
     pub cancelled_actions: Vec<String>,
+    /// How each of them stopped, and how that is known (M4 18a).
+    #[serde(default)]
+    pub verdicts: Vec<CancelVerdict>,
 }
 
 /// A pending wake (DD8, theseus-cff): a conversation asked, with `wake.at`,

@@ -1080,13 +1080,14 @@ async fn a_running_job_is_stopped_when_the_disk_falls_below_its_floor() {
         })
         .expect("the stopped job's late result");
     assert_eq!(late.0, ResultStatus::Cancelled);
-    assert!(
-        late.1
-            .starts_with(&format!("[cancelled: stopped by {by}]\n")),
-        "{}",
-        late.1
-    );
+    // Its stand-in wrapper, as one from before 18a, is stopped by its group.
+    let head = format!("[cancelled: stopped by {by}; verified: process group, ");
+    assert!(late.1.starts_with(&head), "{}", late.1);
     assert_eq!(late.2["stopped_by"], by);
+    assert!(late.2["verified"]
+        .as_str()
+        .unwrap()
+        .starts_with("verified: process group"));
     drop(wrapper);
     std::fs::remove_file(r.root.join("running.marker")).unwrap();
 }
@@ -1227,7 +1228,10 @@ async fn the_sweep_removes_raw_output_no_result_will_absorb_and_keeps_the_rest()
         .cancel_execution(e.execution_id.as_deref().unwrap(), "test")
         .unwrap()
     {
-        r.core.kernel.cancel_unsupported(&corr).unwrap();
+        r.core
+            .kernel
+            .cancel_unsupported(&corr, "no wrapper")
+            .unwrap();
     }
     let a = r.core.kernel.action(&running_on).unwrap().unwrap();
     assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);

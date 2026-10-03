@@ -689,7 +689,10 @@ impl Kernel {
     }
 
     /// `locked_action`, for a transition that needs the action to exist.
-    fn locked_known_action(&self, correlation_id: &str) -> Result<(ExecLock<'_>, Action)> {
+    pub(crate) fn locked_known_action(
+        &self,
+        correlation_id: &str,
+    ) -> Result<(ExecLock<'_>, Action)> {
         self.locked_action(correlation_id)?
             .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()).into())
     }
@@ -1558,6 +1561,7 @@ impl Kernel {
             result_ref: None,
             confirm: None,
             cancel: None,
+            verdict: None,
             reservation_id,
             reserved_micros: reserve_micros,
             resolution: None,
@@ -1673,6 +1677,7 @@ impl Kernel {
             result_ref: None,
             confirm: None,
             cancel: None,
+            verdict: None,
             reservation_id: None,
             reserved_micros: 0,
             resolution: None,
@@ -2625,65 +2630,6 @@ impl Kernel {
         Ok(ended)
     }
 
-    /// The backend acknowledged the cancel (signal delivered, stop requested).
-    pub fn cancel_acknowledged(&self, correlation_id: &str) -> Result<Action> {
-        self.cancel_step(correlation_id, CancelState::Acknowledged, false)
-    }
-    /// Termination verified (process gone, task stopped): the action settles `Cancelled`.
-    pub fn cancel_verified(&self, correlation_id: &str) -> Result<Action> {
-        self.cancel_step(correlation_id, CancelState::TerminationVerified, true)
-    }
-    /// The backend offers no external termination; the action settles
-    /// `Cancelled` but the side effect may still complete (`LateAfterCancel`).
-    pub fn cancel_unsupported(&self, correlation_id: &str) -> Result<Action> {
-        self.cancel_step(correlation_id, CancelState::Unsupported, true)
-    }
-    pub fn cancel_uncertain(&self, correlation_id: &str) -> Result<Action> {
-        self.cancel_step(correlation_id, CancelState::OutcomeUncertain, true)
-    }
-
-    fn cancel_step(&self, correlation_id: &str, st: CancelState, settle: bool) -> Result<Action> {
-        let (_w, mut a) = self.locked_known_action(correlation_id)?;
-        if a.state.is_settled() {
-            return Ok(a);
-        }
-        let now = self.now_ms();
-        a.cancel = Some(st);
-        let mut frame = Vec::new();
-        if settle {
-            a.state = ActionState::Cancelled;
-            a.settled_at_ms = Some(now);
-            if let Some(mut e) = self.execution(&a.execution_id)? {
-                let spent_before = e.budget.spent_micros;
-                e.outstanding.retain(|x| x != &a.correlation_id);
-                if let Some(r) = &a.reservation_id {
-                    if st == CancelState::TerminationVerified {
-                        settle_reservation_in(&mut e.budget, r, Some(0));
-                    } else {
-                        hold_reservation_in(&mut e.budget, r);
-                    }
-                }
-                // A stop (W1) leaves the execution open: its next turn reads
-                // the call as cancelled, as it reads any late result. Nothing
-                // queues the execution for it.
-                if !e.state.is_terminal() && !e.queued_results.contains(&a.correlation_id) {
-                    e.queued_results.push(a.correlation_id.clone());
-                }
-                e.updated_at_ms = now;
-                frame.push(exec_record(&e)?);
-                self.carry_to_parent(&e, spent_before, &mut frame)?;
-            }
-        }
-        frame.push(action_record(&a)?);
-        frame.push(self.ledger(
-            LedgerKind::ActionCancel,
-            Some(&a.session_id),
-            json!({"correlation_id": a.correlation_id, "cancel": st, "settled": settle}),
-        )?);
-        self.commit(&frame)?;
-        Ok(a)
-    }
-
     // ------------------------------------------------------------ reconcile
 
     /// The heartbeat reconciler (§3.3, §3.16): due wakes fire; dispatched
@@ -3004,7 +2950,7 @@ pub(crate) fn settle_reservation_in(b: &mut Budget, reservation_id: &str, actual
     }
 }
 
-fn hold_reservation_in(b: &mut Budget, reservation_id: &str) {
+pub(crate) fn hold_reservation_in(b: &mut Budget, reservation_id: &str) {
     settle_reservation_in(b, reservation_id, None)
 }
 

@@ -1280,4 +1280,92 @@ mod tests {
             .collect();
         assert_eq!(nodes, vec![read, l1]);
     }
+
+    /// An action as schema 2 wrote it: a job a cancel verified gone, before
+    /// 18a's verdict.
+    const ACTION_SCHEMA_2: &str = r#"{"correlation_id":"act_00000000000000000000000000000041","schema":2,"execution_id":"exe_lighthouse","session_id":"ses_lighthouse","tool":"proc.run","args_digest":"7ad721861f8d37f2a13e31ce6588122b125276a670f610806e09c6516d851cd6","retry_class":{"class":"non_repeatable"},"state":"cancelled","deadline_at_ms":1790000060041,"planned_at_ms":1790000000041,"authorized_at_ms":1790000000041,"dispatched_at_ms":1790000000041,"settled_at_ms":1790000001041,"cancel":"termination_verified","reserved_micros":0,"completions_seen":0}"#;
+
+    /// A post as outbox schema 1 wrote it: a notice its channel took.
+    const OUTBOX_SCHEMA_1: &str = r#"{"correlation_id":"out_00000000000000000000000000000044","schema":2,"execution_id":"","session_id":"ses_lighthouse","tool":"outbox","args_digest":"9f2c7a1e4b8d3f6a0c5e9b2d7f1a4c8e3b6d9f0a2c5e8b1d4f7a0c3e6b9d2f5a","proposal":{"tool":"outbox","args":{"kind":"notice","text":"the harbour opens at six"},"resource":"discord:dm:42","policy_context":null},"resource":"discord:dm:42","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"succeeded","deadline_at_ms":0,"planned_at_ms":1790000000044,"authorized_at_ms":1790000000044,"dispatched_at_ms":1790000000045,"settled_at_ms":1790000000144,"reserved_micros":0,"completions_seen":1,"detail":{"messages":["m_44"]}}"#;
+
+    /// ACTION schema 3 (M4 18a): a cancel's verdict on the action. A
+    /// schema-2 action reads through the store with no verdict, and its bytes
+    /// encode again unchanged; one a cancel verified by its pid namespace is
+    /// written at schema 3 and reads back whole. A post is an action of its
+    /// own kind, so OUTBOX moves with it, 1 to 2: a schema-1 post reads the
+    /// same way.
+    #[test]
+    fn an_action_written_before_its_cancels_verdict_reads() {
+        use theseus_kernel::{Action, Verdict, VerifiedBy};
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        assert_eq!(kinds::schema(kinds::ACTION), 3);
+        assert_eq!(kinds::schema(kinds::OUTBOX), 2);
+        let post_id = "out_00000000000000000000000000000044";
+        let post = NewRecord {
+            schema: 1,
+            ..NewRecord::bytes(
+                kinds::OUTBOX,
+                Some(post_id),
+                OUTBOX_SCHEMA_1.as_bytes().to_vec(),
+            )
+        }
+        .scoped("ses_lighthouse");
+        store.append(&[post]).unwrap();
+        let rec = store
+            .inner
+            .latest_by_key(kinds::OUTBOX, post_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(rec.schema, 1);
+        let post: Action = rec.decode().unwrap();
+        assert_eq!((post.tool.as_str(), &post.verdict), ("outbox", &None));
+        assert_eq!(serde_json::to_string(&post).unwrap(), OUTBOX_SCHEMA_1);
+        let id = "act_00000000000000000000000000000041";
+        let old = NewRecord {
+            schema: 2,
+            ..NewRecord::bytes(kinds::ACTION, Some(id), ACTION_SCHEMA_2.as_bytes().to_vec())
+        }
+        .scoped("ses_lighthouse");
+        store.append(&[old]).unwrap();
+        let rec = store
+            .inner
+            .latest_by_key(kinds::ACTION, id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(rec.schema, 2, "it keeps the schema it was written at");
+        let read: Action = rec.decode().unwrap();
+        assert_eq!(read.verdict, None);
+        assert_eq!(
+            serde_json::to_string(&read).unwrap(),
+            ACTION_SCHEMA_2,
+            "an action with no verdict keeps its bytes"
+        );
+
+        let mut judged = read;
+        judged.correlation_id = "act_00000000000000000000000000000042".into();
+        judged.verdict = Some(Verdict {
+            verified_by: VerifiedBy::Pidns,
+            killed: Some(4),
+            survivors: Some(0),
+            scope: Some("namespace".into()),
+            ms: 120,
+            why: None,
+        });
+        let r = NewRecord::json(kinds::ACTION, Some(&judged.correlation_id), &judged)
+            .unwrap()
+            .scoped("ses_lighthouse");
+        assert_eq!(r.schema, 3);
+        let text = String::from_utf8_lossy(&r.payload).into_owned();
+        assert!(text.contains(r#""verified_by":"pidns""#), "{text}");
+        store.append(&[r]).unwrap();
+        let back: Action = store
+            .inner
+            .latest_by_key(kinds::ACTION, &judged.correlation_id)
+            .unwrap()
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(back, judged);
+    }
 }

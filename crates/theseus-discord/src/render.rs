@@ -337,10 +337,11 @@ impl Renderer {
                 let use_id = &t.tool_use_id;
                 // A `/stop` ended it (theseus-4uw): the stopper, not a failure.
                 let stopped = t.stopped_by.clone().filter(|_| status == "cancelled");
+                let verified = theseus_protocol::cancel::note(t.verified.as_deref());
                 let mut ops = vec![];
                 if let Some((card, _)) = self.notices.get_mut(use_id) {
                     let outcome = match (status, &stopped) {
-                        (_, Some(by)) => format!("⏹️ stopped by {by} · {ms} ms"),
+                        (_, Some(by)) => format!("⏹️ stopped by {by}{verified} · {ms} ms"),
                         ("ok", _) => format!("✅ ok · {ms} ms"),
                         ("background", _) => "⏳ running in the background".to_string(),
                         (other, _) => format!("❌ {other} · {ms} ms"),
@@ -357,7 +358,9 @@ impl Renderer {
                 self.update_tool(turn_id, use_id, |l| {
                     l.summary.extend(scratch.iter().map(|s| format!(" · {s}")));
                     l.state = match (status, &stopped) {
-                        (_, Some(by)) => ToolState::Stopped { by: by.clone() },
+                        (_, Some(by)) => ToolState::Stopped {
+                            by: format!("{by}{verified}"),
+                        },
                         // A stop that declined it while it waited said so
                         // already (`confirm.resolved`); its not-run result
                         // keeps that.
@@ -2122,13 +2125,16 @@ mod tests {
         );
         let ops = r.on_notification(
             "tool.ended",
-            &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "cancelled",
-                    "duration_ms": 2100, "stopped_by": "discord:eddie"}),
+            &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "cancelled", "duration_ms": 2100,
+                    "stopped_by": "discord:eddie", "verified": "verified: process tree, 2 processes"}),
         );
         let Op::Notice { card, .. } = &ops[0] else {
             panic!("{ops:?}")
         };
-        assert_eq!(card.fields[2].1, "⏹️ stopped by discord:eddie · 2100 ms");
+        assert_eq!(
+            card.fields[2].1,
+            "⏹️ stopped by discord:eddie (verified) · 2100 ms"
+        );
         // A waiting call the stop declined.
         r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u2", "tool": "fs.write",
             "input": {"path": "a.txt", "content": "x"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
@@ -2149,7 +2155,7 @@ mod tests {
             upserts(&r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
         let text = &lines[0].1;
         assert!(
-            text.contains("⏹️ `proc.run` sleep 30 · 🔔 notified (enforcement = notify) · stopped by discord:eddie"),
+            text.contains("⏹️ `proc.run` sleep 30 · 🔔 notified (enforcement = notify) · stopped by discord:eddie (verified)"),
             "{text}"
         );
         assert!(

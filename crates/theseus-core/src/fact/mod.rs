@@ -41,6 +41,7 @@ use crate::store::Store;
 use crate::trace::Trace;
 
 pub mod answer;
+pub mod cancel;
 pub mod driver;
 pub mod index;
 pub mod sandbox;
@@ -304,6 +305,9 @@ facts![
     driver::QuestionStopped<'static>,
     driver::ExecutionStopped<'static>,
     driver::WrapperLost<'static>,
+    cancel::CancelVerified<'static>,
+    cancel::CancelUnsupported<'static>,
+    cancel::CancelUncertain<'static>,
     driver::DriverResumes<'static>,
     index::TenderStarted<'static>,
     index::TenderAdopted,

@@ -65,19 +65,24 @@ pub mod kinds {
     /// `a_tool_call_node_written_before_its_class_and_aws_reads`). Node
     /// schema 4 adds an L1 call's class to its gate record's decision
     /// (`decision.class`, theseus-7ve.1), read from 3 as none (theseus-core's
-    /// `a_tool_call_node_written_before_its_l1_class_reads`).
+    /// `a_tool_call_node_written_before_its_l1_class_reads`). Action schema
+    /// 3 adds how a cancel was verified (`verified_by`, `killed`,
+    /// `survivors`, M4 18a), read from 2 as none of them (theseus-core's
+    /// `an_action_written_before_its_cancels_verdict_reads`). Outbox schema 2
+    /// is the same change: a post is an action, read from 1 with no verdict
+    /// (the same test).
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
         (SESSION, 6),
         (LEDGER, 1),
         (META, 1),
         (EXECUTION, 2),
-        (ACTION, 2),
+        (ACTION, 3),
         (COMPLETION, 2),
         (NODE, 4),
         (EDGE, 1),
         (COMPILATION, 3),
-        (OUTBOX, 1),
+        (OUTBOX, 2),
     ];
 
     /// The schema this build writes for `k`, and the newest it reads; 0 for

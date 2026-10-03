@@ -14,6 +14,7 @@ pub mod binary;
 pub mod blobs;
 pub mod broker;
 pub mod bus;
+pub mod cancel;
 pub mod catalog;
 pub mod compiler;
 pub mod config;
@@ -71,6 +72,8 @@ pub fn new_id(prefix: &str) -> String {
 
 #[cfg(test)]
 mod tests_books;
+#[cfg(test)]
+mod tests_cancel;
 #[cfg(test)]
 mod tests_config;
 #[cfg(test)]

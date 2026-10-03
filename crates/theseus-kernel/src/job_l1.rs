@@ -8,6 +8,7 @@
 //! own processes live in the job's pid namespace, and the kernel kills them
 //! all when the init exits, so none is ever reparented to the wrapper.
 
+use std::collections::BTreeSet;
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -17,7 +18,8 @@ use theseus_sandbox::cgroup::JobCgroup;
 use theseus_sandbox::{Exit, Init, SandboxChild, Spec, Stdio};
 
 use crate::job::{Reap, WrapperArgs, L1};
-use crate::types::Outcome;
+use crate::tree::{self, Proc};
+use crate::types::{Outcome, Verdict, VerifiedBy};
 
 /// The first words of a failed start's note.
 const NOT_STARTED: &str = "the job could not start in L1";
@@ -184,8 +186,9 @@ pub(crate) fn run(
     sandbox["setup_us"] = json!(started.setup_us);
     sandbox["sys"] = json!(started.sys);
     sandbox["lo"] = json!(started.lo);
-    let (exit, timed_out) = wait(
+    let (exit, end) = wait(
         &mut child,
+        cgroup.as_ref(),
         reap,
         Duration::from_millis(args.deadline_ms),
         t0,
@@ -195,9 +198,30 @@ pub(crate) fn run(
         // Empty once the init is reaped: its pid namespace went with it.
         let _ = c.remove();
     }
-    let ended = match exit {
-        Ok(e) => ended(&e, timed_out, args.deadline_ms, &mut sandbox, detail),
-        Err(e) => (Outcome::Unknown, format!("wait: {e}")),
+    // An init a stop could not reap (a process of its namespace in `D`):
+    // its handle would wait for it, and the verdict would never be written.
+    // It is reparented to the daemon, which reaps it once it ends.
+    if exit.is_err() {
+        std::mem::forget(child);
+    }
+    if let End::Stopped(v) | End::TimedOut(v) = &end {
+        detail["stop"] = serde_json::to_value(v).unwrap_or_default();
+    }
+    let ended = match (exit, end) {
+        (_, End::Stopped(v)) => {
+            detail["stopped"] = json!(true);
+            (Outcome::Failed, format!("stopped: {}", v.words()))
+        }
+        (Ok(e), end) => ended(&e, end, args.deadline_ms, &mut sandbox, detail),
+        (Err(e), End::TimedOut(v)) => (
+            Outcome::Failed,
+            format!(
+                "deadline {} ms exceeded; {}: {e}",
+                args.deadline_ms,
+                v.words()
+            ),
+        ),
+        (Err(e), End::Finished) => (Outcome::Unknown, format!("wait: {e}")),
     };
     detail["sandbox"] = sandbox;
     ended
@@ -229,33 +253,169 @@ fn spec(args: &WrapperArgs, l1: &L1, env: Vec<(String, String)>) -> (Spec, Vec<S
     (spec, skipped)
 }
 
-/// Waits for the job's end; past its deadline, kills the whole job (SIGKILL
-/// to the init: the kernel then kills its pid namespace) and waits for that.
-/// Whether the deadline killed it.
+/// How an L1 job ended: by itself, or stopped, at its deadline or when asked
+/// (M4 18a), with the stop's verdict.
+enum End {
+    Finished,
+    TimedOut(Verdict),
+    Stopped(Verdict),
+}
+
+/// Waits for the job's end. Past its deadline, or asked to stop, it stops
+/// the whole job (`stop`).
 fn wait(
     child: &mut SandboxChild,
+    cgroup: Option<&JobCgroup>,
     reap: Reap,
     deadline: Duration,
     t0: Instant,
-) -> (std::io::Result<Exit>, bool) {
-    let mut timed_out = false;
+) -> (std::io::Result<Exit>, End) {
     loop {
-        let r = match reap {
-            Reap::Command => child.try_wait(),
-            Reap::Descendants => reap_init(child),
-        };
-        match r {
-            Ok(Some(exit)) => return (Ok(exit), timed_out),
-            Ok(None) => {
-                if !timed_out && t0.elapsed() >= deadline {
-                    let _ = child.kill();
-                    timed_out = true;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(e) => return (Err(e), timed_out),
+        match try_reap(child, reap) {
+            Ok(Some(exit)) => return (Ok(exit), End::Finished),
+            Err(e) => return (Err(e), End::Finished),
+            Ok(None) => {}
         }
+        if let (Reap::Descendants, Some(asked)) = (reap, crate::job::stop_asked()) {
+            let (exit, v) = stop(child, cgroup, reap, asked.grace());
+            return (exit, End::Stopped(v));
+        }
+        if t0.elapsed() >= deadline {
+            // A test's thread kills at once, as it did.
+            let grace = match reap {
+                Reap::Descendants => crate::job::STOP_GRACE,
+                Reap::Command => Duration::ZERO,
+            };
+            let (exit, v) = stop(child, cgroup, reap, grace);
+            return (exit, End::TimedOut(v));
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// The init's end, if it has ended: a wrapper process reaps every child, a
+/// test's thread its own.
+fn try_reap(child: &mut SandboxChild, reap: Reap) -> std::io::Result<Option<Exit>> {
+    match reap {
+        Reap::Command => child.try_wait(),
+        Reap::Descendants => reap_init(child),
+    }
+}
+
+/// Stop the whole job (M4 18a; design §2.3): SIGTERM to its init, which
+/// forwards it to the command, and up to `grace` for the job to end; then
+/// the kill. With the job's cgroup, `cgroup.kill`, verified by
+/// `cgroup.events` at `populated 0`; without, SIGKILL to the init, whose reap
+/// means the kernel has killed its pid namespace: a namespace's init does not
+/// finish exiting until every other process of it has. The verdict counts
+/// the job's processes, the init and each one below it, found before the
+/// stop and as it went, and checks each one gone. The init's end, unless it
+/// could not be reaped within the kill's wait.
+fn stop(
+    child: &mut SandboxChild,
+    cgroup: Option<&JobCgroup>,
+    reap: Reap,
+    grace: Duration,
+) -> (std::io::Result<Exit>, Verdict) {
+    let t0 = Instant::now();
+    let init = child.id();
+    let mut met: BTreeSet<Proc> = BTreeSet::new();
+    let look = |met: &mut BTreeSet<Proc>| {
+        if let Some(s) = tree::stat(init).filter(|s| !matches!(s.state, 'Z' | 'X')) {
+            met.insert(Proc {
+                pid: init,
+                start: s.start,
+            });
+        }
+        met.extend(tree::descendants(init));
+        // The cgroup's own list, the kernel's accounting of the same set.
+        for pid in cgroup.and_then(|c| c.procs().ok()).unwrap_or_default() {
+            if let Some(s) = tree::stat(pid) {
+                met.insert(Proc {
+                    pid,
+                    start: s.start,
+                });
+            }
+        }
+    };
+    look(&mut met);
+    let _ = child.terminate();
+    let mut exit = None;
+    let until = t0 + grace;
+    loop {
+        match try_reap(child, reap) {
+            Ok(Some(e)) => exit = Some(Ok(e)),
+            Err(e) => exit = Some(Err(e)),
+            Ok(None) => {}
+        }
+        if exit.is_some() || Instant::now() >= until {
+            break;
+        }
+        look(&mut met);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The kill: the cgroup's, or the init's.
+    let by = match cgroup {
+        Some(c) if exit.is_some() || c.kill().is_ok() => VerifiedBy::Cgroup,
+        _ => {
+            if exit.is_none() {
+                look(&mut met);
+                let _ = child.kill();
+            }
+            VerifiedBy::Pidns
+        }
+    };
+    let until = Instant::now() + tree::KILL_WAIT;
+    let gone = || match (by, cgroup) {
+        (VerifiedBy::Cgroup, Some(c)) => !c.populated().unwrap_or(true),
+        _ => true,
+    };
+    loop {
+        if exit.is_none() {
+            match try_reap(child, reap) {
+                Ok(Some(e)) => exit = Some(Ok(e)),
+                Err(e) => exit = Some(Err(e)),
+                Ok(None) => {}
+            }
+        }
+        if (exit.is_some() && gone()) || Instant::now() >= until {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let survivors = match (by, cgroup) {
+        (VerifiedBy::Cgroup, Some(c)) if !gone() => c.procs().map_or(1, |p| p.len().max(1)),
+        _ => met.iter().filter(|p| tree::alive(**p)).count(),
+    } as u32;
+    let why = match (survivors, &exit) {
+        (0, Some(Ok(_))) => None,
+        (0, _) => Some("its init was not reaped".to_string()),
+        (n, _) => Some(format!(
+            "{} of the job outlived the kill",
+            if n == 1 {
+                "1 process".to_string()
+            } else {
+                format!("{n} processes")
+            }
+        )),
+    };
+    let v = Verdict {
+        verified_by: by,
+        killed: Some(met.len() as u32),
+        survivors: Some(survivors),
+        scope: Some(
+            if by == VerifiedBy::Cgroup {
+                "cgroup"
+            } else {
+                "namespace"
+            }
+            .into(),
+        ),
+        ms: t0.elapsed().as_millis() as u64,
+        why,
+    };
+    let exit = exit.unwrap_or_else(|| Err(std::io::Error::other("its init was not reaped")));
+    (exit, v)
 }
 
 /// A subreaper's wait: every child that has exited is reaped, and the
@@ -304,7 +464,7 @@ fn limits_hit(c: &JobCgroup, sandbox: &mut Value) {
 /// scratch summary: its outcome and the note.
 fn ended(
     e: &Exit,
-    timed_out: bool,
+    end: End,
     deadline_ms: u64,
     sandbox: &mut Value,
     detail: &mut Value,
@@ -318,11 +478,14 @@ fn ended(
         detail["scratch"] = json!({"files": s.files, "bytes": s.bytes, "removed": s.removed,
             "paths": s.paths, "summary": s.summary()});
     }
-    if timed_out {
+    if let End::TimedOut(v) = &end {
         detail["timed_out"] = json!(true);
         return (
             Outcome::Failed,
-            format!("deadline {deadline_ms} ms exceeded; the whole job was killed"),
+            format!(
+                "deadline {deadline_ms} ms exceeded; the whole job was stopped ({})",
+                v.words()
+            ),
         );
     }
     match (e.code, e.signal.or(e.init_signal)) {

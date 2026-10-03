@@ -8,6 +8,7 @@
 //! only overdue work. Everything is synchronous and takes its time from a
 //! `Clock`, so the simulator drives it deterministically.
 
+mod cancels;
 pub mod children;
 pub mod clock;
 pub mod gate;
@@ -22,6 +23,7 @@ pub mod spool;
 pub mod stops;
 pub mod tasks;
 pub mod terms;
+pub mod tree;
 mod tx;
 pub mod types;
 pub mod umask;

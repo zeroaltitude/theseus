@@ -33,4 +33,9 @@ preview: string,
  * An L1 job's scratch (M4 17b): what it wrote there, which was
  * discarded (`wrote 3 files, 41 KB, to scratch: target/…; discarded`).
  */
-scratch?: string, };
+scratch?: string, 
+/**
+ * How a call a cancel or a stop ended is known to have stopped (M4
+ * 18a): "verified: pid namespace, 4 processes", or "not verified: …".
+ */
+verified?: string, };

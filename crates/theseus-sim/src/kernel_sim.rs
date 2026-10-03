@@ -1464,9 +1464,14 @@ impl World {
                 if self.rng.random_bool(0.7) {
                     j.finish_at = None;
                     self.kernel.cancel_acknowledged(corr)?;
-                    self.kernel.cancel_verified(corr)?;
+                    let tree = theseus_kernel::Verdict::verified_as(
+                        theseus_kernel::VerifiedBy::Tree,
+                        Some(1),
+                    );
+                    self.kernel.cancel_verified(corr, Some(&tree))?;
                 } else {
-                    self.kernel.cancel_unsupported(corr)?;
+                    self.kernel
+                        .cancel_unsupported(corr, "a simulated job out of reach")?;
                 }
             }
         }

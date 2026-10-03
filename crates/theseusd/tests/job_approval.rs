@@ -823,12 +823,12 @@ fn a_job_cannot_answer_through_the_web_ui_and_the_operator_can() {
     assert_eq!(written, "approved\n");
 }
 
-/// A cancel kills what it killed before: the wrapper's process group, the
-/// command and what stayed in its group. A descendant in its own session
-/// was never in a cancel's reach, and is not now. The kill is verified at
-/// once: the wrapper it killed is not taken for alive.
+/// A cancel ends the job's whole tree (M4 18a; theseus-hcc): the command,
+/// what stayed in its group, and a descendant in its own session, which a
+/// cancel by the group never reached. The wrapper stops them and says how:
+/// the cancel's answer and the action carry its verdict, verified at once.
 #[test]
-fn a_cancel_still_kills_the_jobs_process_group() {
+fn a_cancel_kills_the_jobs_whole_tree_a_setsid_descendant_too() {
     let r = Rig::start(false);
     let script = r#"O="$3"
 echo "$PPID" > "$O/wrapper.pid"; echo "$$" > "$O/main.pid"
@@ -865,10 +865,22 @@ wait
             (!alive(pid)).then_some(())
         });
     }
-    assert!(alive(own_session), "out of a cancel's reach, as before");
-    let _ = Command::new("kill")
-        .args(["-9", &own_session.to_string()])
-        .status();
+    if alive(own_session) {
+        let _ = Command::new("kill")
+            .args(["-9", &own_session.to_string()])
+            .status();
+        panic!("the descendant in its own session survived the cancel: {c}");
+    }
+    let v = &c["verdicts"][0];
+    assert_eq!(
+        (
+            v["verified_by"].as_str(),
+            v["killed"].as_u64(),
+            v["survivors"].as_u64()
+        ),
+        (Some("tree"), Some(3), Some(0)),
+        "{c}"
+    );
     let actions = r
         .call("action.list", json!({"execution_id": exec}))
         .unwrap();
@@ -888,8 +900,8 @@ wait
         took < Duration::from_millis(1500),
         "a verified kill is quick: {took:?}"
     );
-    // A cancel's own kill is expected: once the daemon has reaped the wrapper,
-    // there is no `job.wrapper_lost` (theseus-6uo).
+    // A cancel's own stop is expected: once the daemon has reaped the
+    // wrapper, there is no `job.wrapper_lost` (theseus-6uo).
     let mut r = r;
     r.until("the killed wrapper reaped", |h| {
         h["children"]["reaped_wrappers"].as_u64() >= Some(1)

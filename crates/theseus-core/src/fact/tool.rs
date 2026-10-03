@@ -534,6 +534,11 @@ impl Fact for ToolEnded<'_> {
                 .pointer("/detail/scratch/summary")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            // How a cancel or a stop knows it stopped (M4 18a).
+            verified: meta
+                .get("verified")
+                .and_then(Value::as_str)
+                .map(str::to_string),
         }))
     }
 
