@@ -6464,6 +6464,26 @@ mod parallel {
         assert_eq!(results_sent(&r), ["p1", "p2", "p3", "p4"].map(String::from));
     }
 
+    /// A slice of `v`, sorted: a group's nodes reordered only among themselves.
+    fn group(v: &[String], s: std::ops::Range<usize>) -> Vec<String> {
+        let mut g = v[s].to_vec();
+        g.sort();
+        g
+    }
+
+    /// Every `result <id>` comes after its `call <id>`.
+    fn assert_calls_before_results(v: &[String]) {
+        for (i, l) in v.iter().enumerate() {
+            if let Some(id) = l.strip_prefix("result ") {
+                let call = v.iter().position(|x| *x == format!("call {id}"));
+                assert!(
+                    call.is_some_and(|c| c < i),
+                    "result {id} before its call: {v:?}"
+                );
+            }
+        }
+    }
+
     /// An approval in the middle: the calls before it run, together; it asks;
     /// the calls after it are not even gated. After the approval, it runs,
     /// then the rest, together. The transcript is the sequential one with
@@ -6508,18 +6528,17 @@ mod parallel {
         let corr = res.awaiting_confirm.clone().expect("the write asks");
         assert_eq!(res.tool_calls, 3, "a4 and a5 were not gated");
         let sid = res.session_id.clone();
+        // The order the transcript must keep: each call before its result. Which of two
+        // concurrent calls finishes first is the load's to decide (theseus-535n).
+        let before = labels(&r.core, &sid);
+        assert_eq!(before.len(), 7, "{before:?}");
+        assert_eq!(before[..2], ["user", "assistant"], "{before:?}");
+        assert_eq!(before[6], "call a3", "{before:?}");
         assert_eq!(
-            labels(&r.core, &sid),
-            [
-                "user",
-                "assistant",
-                "call a1",
-                "call a2",
-                "result a2",
-                "result a1",
-                "call a3"
-            ]
+            group(&before, 2..6),
+            ["call a1", "call a2", "result a1", "result a2"]
         );
+        assert_calls_before_results(&before);
         assert_eq!(r.fake.requests().len(), 1);
 
         r.core.confirm_action(&corr, true, None, "test").unwrap();
@@ -6528,17 +6547,14 @@ mod parallel {
         assert_eq!(cont.output, "All done.");
         assert!(r.root.join("c.txt").exists());
         let actual = labels(&r.core, &sid);
+        // The approved call's result comes first, then the calls after it, together.
+        assert_eq!(actual[7], "result a3", "{actual:?}");
+        assert_eq!(actual[12], "assistant", "{actual:?}");
         assert_eq!(
-            actual[7..],
-            [
-                "result a3",
-                "call a4",
-                "call a5",
-                "result a5",
-                "result a4",
-                "assistant"
-            ]
+            group(&actual, 8..12),
+            ["call a4", "call a5", "result a4", "result a5"]
         );
+        assert_calls_before_results(&actual);
         // The sequential transcript, with each group's nodes reordered only
         // among themselves.
         let sequential = [
@@ -6556,11 +6572,6 @@ mod parallel {
             "result a5",
             "assistant",
         ];
-        let group = |v: &[String], s: std::ops::Range<usize>| {
-            let mut g = v[s].to_vec();
-            g.sort();
-            g
-        };
         let seq: Vec<String> = sequential.iter().map(|s| s.to_string()).collect();
         assert_eq!(actual.len(), seq.len());
         for s in [2..6, 8..12] {
