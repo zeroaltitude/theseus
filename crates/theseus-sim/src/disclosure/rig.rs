@@ -105,6 +105,7 @@ pub fn build(shared: &Arc<Mutex<Shared>>) -> Result<Rig> {
                 shared: shared.clone(),
             }),
         ],
+        cpu_cores: None,
     })?;
     let _ = model.core.set(Arc::downgrade(&core));
     core.outbox.warm();
