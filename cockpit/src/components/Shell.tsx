@@ -168,6 +168,14 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
 function HeartbeatBar() {
   const { data: h, dataUpdatedAt } = useRpc<Health>('health', undefined, 2000)
   const conn = useConn()
+  const nav = useNavigate()
+  // What needs you (theseus-in3): each session's attention, from the push-kept list, the longest waiting first; one press
+  // opens that session, as the Observatory's 'N need you' did.
+  const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 2000)
+  const needsYou = useMemo(() => (sl?.sessions ?? [])
+    .filter((s) => (s.attention ? s.attention.level === 'needs_you' : (s.pending_confirms ?? 0) > 0))
+    .sort((x, y) => (x.attention?.since_ms ?? 0) - (y.attention?.since_ms ?? 0)), [sl])
+  const firstWaiting = needsYou[0]
   const now = useTick()
   const rtt = useMemo(() => {
     const r = conn.rtts.slice(-12).sort((a, b) => a - b)
@@ -202,7 +210,16 @@ function HeartbeatBar() {
         <span className="num w-11 text-[12px] text-ink">{(flow[flow.length - 1] ?? 0).toFixed(1)}/s</span>
       </div>
       <Indicator label="model" tone="model" value={h ? h.model : '—'} title={h ? `${h.provider} · ${h.model} · profile ${h.profile}` : undefined} />
-      <div className="ml-auto flex shrink-0 items-center gap-4">
+      <div className="ml-auto flex shrink-0 items-center gap-3">
+        {firstWaiting && (
+          <button type="button" onClick={() => nav(`/session/${firstWaiting.session_id}`)}
+            title={`sessions that need you: a question, a failure, or a block; this opens the longest waiting${firstWaiting.attention ? ` (${firstWaiting.attention.label})` : ''}`}
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-wait/10 px-2 py-1 text-[11px] text-wait ring-1 ring-wait/40 hover:bg-wait/20">
+            <LiveDot tone="wait" size={6} />
+            <span className="font-semibold uppercase tracking-wider">{needsYou.length} need{needsYou.length === 1 ? 's' : ''} you</span>
+          </button>
+        )}
+        {!!h?.provider_errors && <Indicator label="provider errors" tone="fault" value={String(h.provider_errors)} title="model calls the provider failed since the daemon started; the ledger's provider.error rows say each" />}
         <DiskAttention disk={h?.disk} />
         <div className="flex items-center gap-2.5 rounded-md bg-white/[0.03] px-2 py-1 ring-1 ring-line">
           <Dot label="kernel" tone={h?.kernel.accepting ? 'ok' : 'wait'} title={h ? (h.kernel.accepting ? 'kernel accepting' : 'kernel holding new turns') : ''} />
@@ -262,6 +279,10 @@ function Dot({ label, tone, title }: { label: string; tone: keyof typeof toneHex
 interface RiverLine { key: string; at: number; part: string; tone: keyof typeof toneHex; session: string | null; text: string }
 
 function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const nav = useNavigate()
+  // On a session's deck the river can narrow to that session, as the Observatory's Narrative 'this session' did.
+  const here = useMatch('/session/:id')?.params.id ?? null
+  const [onlyHere, setOnlyHere] = useState(false)
   const narrative = usePush((s) => s.narrative)
   const on = usePush((s) => s.narrativeOn)
   const { data: ledger } = useLedger(120, 2500)
@@ -275,19 +296,26 @@ function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void
       if (r.kind === 'hook.site') continue
       out.push({ key: `l${r.position}`, at: r.at_unix_ms, part: r.kind, tone: ledgerKind(r.kind).tone, session: r.session_id, text: summarize(r) })
     }
-    return out.sort((a, b) => b.at - a.at).slice(0, 120)
-  }, [narrative, ledger])
+    return out.filter((l) => !(onlyHere && here) || l.session === here).sort((a, b) => b.at - a.at).slice(0, 120)
+  }, [narrative, ledger, onlyHere, here])
   return (
     <section className={cn('shrink-0 border-t border-line bg-deck/80 backdrop-blur transition-[height]', open ? 'h-44' : 'h-8')}>
-      <button onClick={onToggle} className="flex h-8 w-full items-center gap-2 px-4 text-left">
-        <Activity size={13} className="text-live" />
-        <span className="panel-title">Activity</span>
-        <span className="text-[11px] text-ink-faint">
-          {on === false ? 'ledger only (the narrative is off in this daemon’s config)' : `narrative ${narrative.length} · ledger ${ledger?.total ?? 0}`}
-        </span>
-        <span className="ml-1"><LiveDot tone="live" size={5} /></span>
-        <span className="ml-auto text-[11px] text-ink-faint">{open ? 'hide' : 'show'}</span>
-      </button>
+      <div className="flex h-8 w-full items-center gap-2 px-4">
+        <button onClick={onToggle} className="flex h-8 min-w-0 flex-1 items-center gap-2 text-left">
+          <Activity size={13} className="text-live" />
+          <span className="panel-title">Activity</span>
+          <span className="text-[11px] text-ink-faint">
+            {on === false ? 'ledger only (the narrative is off in this daemon’s config)' : `narrative ${narrative.length} · ledger ${ledger?.total ?? 0}`}
+          </span>
+          <span className="ml-1"><LiveDot tone="live" size={5} /></span>
+          <span className="ml-auto text-[11px] text-ink-faint">{open ? 'hide' : 'show'}</span>
+        </button>
+        {here && (
+          <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-ink-faint hover:text-ink" title="only the session open here">
+            <input type="checkbox" checked={onlyHere} onChange={(e) => setOnlyHere(e.target.checked)} /> this session
+          </label>
+        )}
+      </div>
       {open && (
         <div className="h-36 overflow-auto px-4 pb-2">
           {/* New lines fade in; no layout animation, which overlapped rows when many arrived at once. */}
@@ -302,7 +330,7 @@ function ActivityRiver({ open, onToggle }: { open: boolean; onToggle: () => void
               >
                 <span className="num shrink-0 text-[11px] text-ink-faint">{stamp(l.at)}</span>
                 <span className="num w-44 shrink-0 truncate text-[10.5px] font-medium" style={{ color: toneHex[l.tone] }}>{l.part}</span>
-                {l.session && <span className="num shrink-0 text-[11px] text-ink-faint">{short(l.session)}</span>}
+                {l.session && <button onClick={() => nav(`/session/${l.session}`)} title={`open session ${l.session}`} className="num shrink-0 text-[11px] text-ink-faint hover:text-live">{short(l.session)}</button>}
                 <span className="min-w-0 truncate text-ink-dim">{l.text}</span>
               </motion.div>
             ))}

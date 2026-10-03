@@ -8,7 +8,7 @@ import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { providerCalls, totalIn, type ProviderCall } from '@/lib/derive'
 import { useHistoryRows } from '@/lib/history'
-import { pricing, split } from '@/lib/money'
+import { cacheBy, pricing, split } from '@/lib/money'
 import { ms, pct, short, tokens, usd } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
 import { axisStyle, type EChartsOption } from '@/lib/chart'
@@ -27,6 +27,8 @@ export default function Economics() {
   const { data: h } = useRpc<Health>('health', undefined, 5000)
   const [bucket, setBucket] = useState<(typeof BUCKETS)[number]>('day')
   const prices = useMemo(() => pricing(cat), [cat])
+  // A session's profile, as the session list says it now: every call of a session counts under it.
+  const profileOf = useMemo(() => new Map((sl?.sessions ?? []).map((s) => [s.session_id, s.profile ?? '—'])), [sl])
   const title = useMemo(() => new Map((sl?.sessions ?? []).map((s) => [s.session_id, s.title || s.label || short(s.session_id)])), [sl])
 
   const totals = useMemo(() => {
@@ -91,7 +93,38 @@ export default function Economics() {
           <LatencyByModel calls={calls} />
         </Panel>
       </div>
+
+      <Panel title="Caching · by profile" icon={<PiggyBank size={13} />} bodyClassName="p-2">
+        <CacheByProfile calls={calls} prices={prices} profileOf={profileOf} />
+      </Panel>
     </div>
+  )
+}
+
+/** The provider's prompt cache, by profile: of each input, the share read from cache, the tokens written to it, and the
+ *  dollars it saved at the catalog's prices, net of what its writes cost over plain input. A read costs the cache-read
+ *  price instead of the input price; a write costs the cache-write price. */
+function CacheByProfile({ calls, prices, profileOf }: { calls: ProviderCall[]; prices: ReturnType<typeof pricing>; profileOf: Map<string, string> }) {
+  const rows = useMemo(() => cacheBy(calls, (c) => profileOf.get(c.session_id ?? '') ?? '—', prices), [calls, prices, profileOf])
+  if (!rows.length) return <Empty>no model call has read or written the cache yet</Empty>
+  return (
+    <table className="w-full text-[12px]" title="the provider's prompt cache: of each input, the share read from cache, and the dollars that saved at the catalog's prices. A read costs the cache-read price instead of the input price; a write costs the cache-write price, and its premium over the input price counts against the saving">
+      <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
+        <tr><th className="px-2 py-1 text-left">profile</th><th className="px-2 py-1 text-right">sessions</th><th className="px-2 py-1 text-right">input</th><th className="px-2 py-1 text-right">read from cache</th><th className="px-2 py-1 text-right">written</th><th className="px-2 py-1 text-right">saved</th></tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key} className="border-t border-line/50">
+            <td className="num px-2 py-1 text-ink">{r.key}</td>
+            <td className="num px-2 py-1 text-right text-ink-faint">{r.sessions}</td>
+            <td className="num px-2 py-1 text-right text-ink-dim">{tokens(r.input)}</td>
+            <td className="num px-2 py-1 text-right text-think">{pct(r.read / r.input, 1)}</td>
+            <td className="num px-2 py-1 text-right text-ink-faint">{tokens(r.written)}</td>
+            <td className={`num px-2 py-1 text-right ${r.saved < 0 ? 'text-wait' : 'text-ok'}`}>{r.saved < 0 ? `−${usd(-r.saved)}` : usd(r.saved)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 
