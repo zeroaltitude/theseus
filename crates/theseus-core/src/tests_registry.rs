@@ -13,7 +13,7 @@
 //!   it with anything but "method not found".
 //! - **Notifications.** Every `notify::*` name has its `Event`, and every
 //!   `Event` a sender: this crate's code, its tests aside, builds it.
-//! - **Edge kinds and labels** (`graph`). Every variant has a reader: a
+//! - **Edge kinds** (`graph`). Every variant has a reader: a
 //!   `match` arm, a pattern, or an `==` that names it by its type, in the code
 //!   of a crate the binaries run, its tests aside.
 //!
@@ -33,7 +33,7 @@ use serde_json::Value;
 use theseus_protocol::{error_code, method, notify, Event, Id, LedgerKind, Message, Request};
 use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::graph::{EdgeKind, Label};
+use crate::graph::EdgeKind;
 use crate::provider::FakeProvider;
 use crate::rpc::{Core, Parts};
 use crate::store::Store;
@@ -45,7 +45,7 @@ const ROOTS: [&str; 2] = ["theseusd", "theseus"];
 
 /// What is declared ahead of its reader, besides crates (whose markers are in
 /// their own manifests): `("<kind> <name>", "row <n> (<step>), <milestone>:
-/// <its reader>")`. The kind is `method`, `notify`, `edge`, or `label`, and
+/// <its reader>")`. The kind is `method`, `notify`, or `edge`, and
 /// the name is the wire's (`node.reach`, `derived_from`). Empty: everything
 /// else has its reader.
 const RESERVED: &[(&str, &str)] = &[];
@@ -502,16 +502,13 @@ fn every_ledger_kind_is_written() {
     fail_on(problems);
 }
 
-// ---------------------------------------------------------------- edge kinds and labels
+// ---------------------------------------------------------------- edge kinds
 
-/// Every edge kind and every label has its reader. Both are empty until rows 12
-/// (12a) and 21 (19a).
+/// Every edge kind has its reader. (A node's label is a field of the node, not
+/// a vocabulary here: M4 19a.)
 #[test]
-fn every_edge_kind_and_label_has_its_reader() {
-    let vocabularies = [
-        ("edge", "edge kind", "EdgeKind", EdgeKind::VARIANTS),
-        ("label", "label", "Label", Label::VARIANTS),
-    ];
+fn every_edge_kind_has_its_reader() {
+    let vocabularies = [("edge", "edge kind", "EdgeKind", EdgeKind::VARIANTS)];
     // The scan reads every crate the binaries run, so only when there is
     // something to look for.
     let uses = if vocabularies
@@ -526,7 +523,7 @@ fn every_edge_kind_and_label_has_its_reader() {
             .filter(|m| reached.contains_key(&m.name))
             .map(|m| root.join(&m.dir))
             .collect();
-        uses_of(&dirs, &["EdgeKind", "Label"])
+        uses_of(&dirs, &["EdgeKind"])
     } else {
         Uses::default()
     };
@@ -563,11 +560,11 @@ fn every_reserved_entry_has_its_form() {
     for (item, marker) in RESERVED {
         if !matches!(
             item.split_once(' '),
-            Some(("method" | "notify" | "edge" | "label", _))
+            Some(("method" | "notify" | "edge", _))
         ) {
             problems.push(format!(
                 "`RESERVED` entry `{item}`: name it `<kind> <name>`, the kind one of method, notify, \
-                 edge, or label"
+                 or edge"
             ));
         }
         if let Some(why) = malformed(marker) {

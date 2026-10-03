@@ -1,9 +1,9 @@
 //! The content graph's vocabulary: the kinds of edge between nodes (§4.1,
-//! §6.1), and the labels a node carries (§3.9: integrity by transmission, and
-//! the audience's confidentiality labels).
+//! §6.1). A node's label is not here: it is a field of the node (`Node.label`,
+//! `theseus_protocol::label::Label`, with `Integrity` and `Readers`; M4 19a).
 //!
 //! Row 12 (12a) of the roadmap re-cut added the first edge, `derived_from`
-//! on the report route; row 21 (19a) adds the first labels. A variant lands
+//! on the report route. A variant lands
 //! with its reader, on the same commit, or with a reserved marker (the reader
 //! rule, P0's rule 3, theseus-wjy): the registry test, `tests_registry`,
 //! enumerates `VARIANTS` and fails a variant that nothing reads. A reader
@@ -60,13 +60,6 @@ vocabulary! {
         /// and a graduated node, in its source's own session (M4 19c).
         DerivedFrom = "derived_from",
     }
-}
-
-vocabulary! {
-    /// A label on a node. Row 21 (19a) adds the first: the audience's
-    /// confidentiality labels, then integrity by transmission (`untrusted`,
-    /// `quarantined`, §3.9's Exposure, row 24).
-    pub enum Label {}
 }
 
 /// An EDGE record (§6.1), keyed `<kind>|<from>|<to>` and scoped `in:<to>`,
@@ -139,6 +132,5 @@ mod tests {
         assert_eq!(EdgeKind::named(&old.kind), Some(EdgeKind::DerivedFrom));
         assert_eq!(old.via, "");
         assert_eq!(EdgeKind::named("mentions"), None);
-        assert_eq!(Label::named("untrusted"), None);
     }
 }
