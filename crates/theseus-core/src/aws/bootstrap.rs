@@ -12,14 +12,25 @@
 //! makes a second plan after the apply show none. It also reads the
 //! singletons that would collide (a GuardDuty detector, an account analyzer)
 //! and other trails. Its digest covers every stack's template, parameters,
-//! and action.
+//! action, policy, and what the apply sets on it.
+//!
+//! **A stack's policy names only resources the stack has.** AWS refuses a
+//! stack policy that names a logical id its stack lacks, so each stack's
+//! policy file is cut to the resources its template makes under the plan's
+//! parameters: the lean posture (`TrailKey=aws-managed`) has no `TrailKmsKey`.
+//!
+//! **A re-run finishes what a stopped run skipped.** For an existing stack the
+//! plan also reads its policy and its termination protection, and the apply
+//! sets whichever is missing. A policy that is set but is not this binary's
+//! stays as it is, with a warning.
 //!
 //! **The apply** carries out the plan whose digest the operator approved,
 //! after planning again: the foundation by a change set signed with the key
 //! (no role exists yet); then, in a floor session of the owner role it made,
 //! the posture and the relay by change sets the deployer applies, each
 //! change set's resources checked against the plan first; then each stack's
-//! policy and termination protection.
+//! policy and termination protection, where the plan says the stack lacks
+//! them, with no change set.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -28,7 +39,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use theseus_aws::Credentials;
-use theseus_aws_guard::{Context, Truth};
+use theseus_aws_guard::{glob, Context, Truth};
 use theseus_protocol::{AwsBootstrapParams, AwsBootstrapResult, AwsBootstrapStack};
 
 use super::session::{self, Kind};
@@ -39,12 +50,15 @@ use super::{Account, Failure, Request, Signer};
 pub const FOUNDATION_TEMPLATE: &str = include_str!("../../../../infra/aws/theseus-foundation.yaml");
 pub const POSTURE_TEMPLATE: &str = include_str!("../../../../infra/aws/theseus-posture.yaml");
 pub const RELAY_TEMPLATE: &str = include_str!("../../../../infra/aws/theseus-posture-relay.yaml");
-const FOUNDATION_POLICY: &str =
+pub const FOUNDATION_POLICY: &str =
     include_str!("../../../../infra/aws/stack-policies/theseus-foundation.json");
-const POSTURE_POLICY: &str =
+pub const POSTURE_POLICY: &str =
     include_str!("../../../../infra/aws/stack-policies/theseus-posture.json");
-const RELAY_POLICY: &str =
+pub const RELAY_POLICY: &str =
     include_str!("../../../../infra/aws/stack-policies/theseus-posture-relay.json");
+/// What the apply sets on a stack besides its change set.
+pub const STACK_POLICY: &str = "stack policy";
+pub const TERMINATION_PROTECTION: &str = "termination protection";
 
 pub const POSTURE: &str = "theseus-posture";
 pub const RELAY: &str = "theseus-posture-relay";
@@ -63,15 +77,21 @@ pub struct Planned {
     pub stack: &'static str,
     pub region: String,
     pub template: &'static str,
-    pub policy: &'static str,
+    /// The stack's policy: its file's, naming only `logical_ids`.
+    pub policy: String,
     pub parameters: BTreeMap<String, String>,
     /// `create`, `update`, or `none`.
     pub action: &'static str,
-    /// A create's resources, `LogicalId (Type)`, and their logical ids.
+    /// A create's resources, `LogicalId (Type)`.
     pub resources: Vec<String>,
+    /// The resources the template makes under the parameters, by logical id.
     pub logical_ids: Vec<String>,
     /// An update's changes.
     pub changes: Vec<String>,
+    /// What the apply sets besides a change set (`STACK_POLICY`,
+    /// `TERMINATION_PROTECTION`): a create, both; an existing stack, what it
+    /// lacks.
+    pub sets: Vec<&'static str>,
 }
 
 /// The whole plan.
@@ -105,6 +125,52 @@ fn held(stack: &Value) -> BTreeMap<String, String> {
             ))
         })
         .collect()
+}
+
+/// A stack's policy from its file, naming only the resources the stack
+/// makes (`made`, by logical id): a `LogicalResourceId/<id>` that matches
+/// none of them leaves its statement, and a statement left with no resource
+/// goes. `"*"` and every other form stay. AWS refuses a policy that names a
+/// logical id its stack lacks ("stack policies can only be applied to
+/// logical ids referenced in the template"). With nothing cut, the file as
+/// written.
+pub fn stack_policy(file: &str, made: &[String]) -> Result<String, String> {
+    let mut doc: Value =
+        serde_json::from_str(file).map_err(|e| format!("a stack policy is not JSON: {e}"))?;
+    let has = |r: &Value| match r
+        .as_str()
+        .and_then(|r| r.strip_prefix("LogicalResourceId/"))
+    {
+        Some(id) => made.iter().any(|m| glob(id, m)),
+        None => true,
+    };
+    let Some(statements) = doc.get_mut("Statement").and_then(Value::as_array_mut) else {
+        return Ok(file.to_string());
+    };
+    let before = statements.clone();
+    statements.retain_mut(|st| match st.get_mut("Resource") {
+        Some(Value::Array(rs)) => {
+            rs.retain(has);
+            !rs.is_empty()
+        }
+        Some(r) => has(r),
+        None => true,
+    });
+    if *statements == before {
+        return Ok(file.to_string());
+    }
+    serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())
+}
+
+/// Two stack policies say the same, whatever their spacing.
+fn same_policy(a: &str, b: &str) -> bool {
+    match (
+        serde_json::from_str::<Value>(a),
+        serde_json::from_str::<Value>(b),
+    ) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a.trim() == b.trim(),
+    }
 }
 
 /// What the plan reads with: a session of the owner role when it exists
@@ -240,12 +306,12 @@ pub async fn plan(account: &Arc<Account>, p: &AwsBootstrapParams) -> Result<Plan
     let mut stacks = vec![
         stack_plan(
             &cfn,
-            account,
             FOUNDATION,
             FOUNDATION_TEMPLATE,
             FOUNDATION_POLICY,
             params,
             found,
+            &mut warnings,
         )
         .await?,
     ];
@@ -259,12 +325,12 @@ pub async fn plan(account: &Arc<Account>, p: &AwsBootstrapParams) -> Result<Plan
     stacks.push(
         stack_plan(
             &cfn,
-            account,
             POSTURE,
             POSTURE_TEMPLATE,
             POSTURE_POLICY,
             params,
             posture,
+            &mut warnings,
         )
         .await?,
     );
@@ -280,12 +346,12 @@ pub async fn plan(account: &Arc<Account>, p: &AwsBootstrapParams) -> Result<Plan
         stacks.push(
             stack_plan(
                 &east,
-                account,
                 RELAY,
                 RELAY_TEMPLATE,
                 RELAY_POLICY,
                 params,
                 relay,
+                &mut warnings,
             )
             .await?,
         );
@@ -359,56 +425,73 @@ fn posture_params(
     ])
 }
 
-/// The plan's digest: every stack's name, region, action, template, and
-/// parameters.
-fn digest(stacks: &[Planned]) -> String {
+/// The plan's digest: every stack's name, region, action, template,
+/// parameters, policy, and what the apply sets on it.
+pub(super) fn digest(stacks: &[Planned]) -> String {
     let all: Vec<Value> = stacks
         .iter()
-        .map(|s| json!([s.stack, s.region, s.action, sha(s.template), s.parameters]))
+        .map(|s| {
+            json!([
+                s.stack,
+                s.region,
+                s.action,
+                sha(s.template),
+                s.parameters,
+                sha(&s.policy),
+                s.sets
+            ])
+        })
         .collect();
     sha(&json!(all).to_string())[..16].to_string()
 }
 
-/// One stack's plan: a create's resources, or an update's changes, or none.
+/// One stack's plan: a create's resources, or an update's changes, or none;
+/// its policy, cut to the resources the template makes under the
+/// parameters (for an existing stack, the template and parameters the plan
+/// applies); and what the apply sets besides a change set.
 async fn stack_plan(
     cfn: &Cfn<'_>,
-    account: &Account,
     stack: &'static str,
     template: &'static str,
     policy: &'static str,
     parameters: BTreeMap<String, String>,
     existing: Option<Value>,
+    warnings: &mut Vec<String>,
 ) -> Result<Planned, String> {
+    let parsed = theseus_aws_guard::parse_template(template).map_err(|e| e.to_string())?;
+    let ctx = Context {
+        account: cfn.account.id.clone(),
+        region: cfn.region.to_string(),
+    };
+    let made = theseus_aws_guard::planned_resources(&parsed, &ctx, &parameters)
+        .map_err(|e| e.to_string())?;
+    let logical_ids: Vec<String> = made.iter().map(|r| r.logical_id.clone()).collect();
     let mut p = Planned {
         stack,
         region: cfn.region.to_string(),
         template,
-        policy,
+        policy: stack_policy(policy, &logical_ids)?,
         parameters,
         action: "none",
         resources: Vec::new(),
-        logical_ids: Vec::new(),
+        logical_ids,
         changes: Vec::new(),
+        sets: Vec::new(),
     };
     let Some(existing) = existing else {
-        let parsed = theseus_aws_guard::parse_template(template).map_err(|e| e.to_string())?;
-        let ctx = Context {
-            account: account.id.clone(),
-            region: cfn.region.to_string(),
-        };
-        for r in theseus_aws_guard::planned_resources(&parsed, &ctx, &p.parameters)
-            .map_err(|e| e.to_string())?
-        {
-            let maybe = if r.exists == Truth::Maybe {
-                ", if its condition holds"
-            } else {
-                ""
-            };
-            p.resources
-                .push(format!("{} ({}{maybe})", r.logical_id, r.resource_type));
-            p.logical_ids.push(r.logical_id);
-        }
+        p.resources = made
+            .iter()
+            .map(|r| {
+                let maybe = if r.exists == Truth::Maybe {
+                    ", if its condition holds"
+                } else {
+                    ""
+                };
+                format!("{} ({}{maybe})", r.logical_id, r.resource_type)
+            })
+            .collect();
         p.action = "create";
+        p.sets = vec![STACK_POLICY, TERMINATION_PROTECTION];
         return Ok(p);
     };
     let status = existing["StackStatus"].as_str().unwrap_or("?");
@@ -436,12 +519,42 @@ async fn stack_plan(
     if !p.changes.is_empty() {
         p.action = "update";
     }
+    unprotected(cfn, &mut p, &existing, warnings).await?;
     Ok(p)
+}
+
+/// What an existing stack lacks, which a run stopped after its change set
+/// left unset: its policy (`GetStackPolicy`) and its termination protection
+/// (`DescribeStacks`). A policy that is set but is not this binary's stays as
+/// it is, with a warning: a hand edit is the operator's, and `aws.stack.*`
+/// governs the stack after the bootstrap.
+async fn unprotected(
+    cfn: &Cfn<'_>,
+    p: &mut Planned,
+    existing: &Value,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
+    match cfn.policy(p.stack).await.map_err(|f| said(&f))? {
+        None => p.sets.push(STACK_POLICY),
+        Some(held) if !same_policy(&held, &p.policy) => warnings.push(format!(
+            "{} in {} has a stack policy that is not the one this binary would set: the bootstrap \
+             leaves it as it is, and aws.stack.* governs the stack from here",
+            p.stack, p.region
+        )),
+        Some(_) => {}
+    }
+    if existing["EnableTerminationProtection"].as_bool() != Some(true) {
+        p.sets.push(TERMINATION_PROTECTION);
+    }
+    Ok(())
 }
 
 /// The plan as the wire carries it.
 pub fn result(account: &Account, plan: &Plan, applied: bool) -> AwsBootstrapResult {
-    let changes = plan.stacks.iter().any(|s| s.action != "none");
+    let changes = plan
+        .stacks
+        .iter()
+        .any(|s| s.action != "none" || !s.sets.is_empty());
     let mut next = Vec::new();
     if applied {
         if plan
@@ -490,6 +603,8 @@ pub fn result(account: &Account, plan: &Plan, applied: bool) -> AwsBootstrapResu
                 resources: s.resources.clone(),
                 changes: s.changes.clone(),
                 parameters: s.parameters.clone(),
+                sets: s.sets.iter().map(|x| x.to_string()).collect(),
+                policy: s.policy.clone(),
             })
             .collect(),
         warnings: plan.warnings.clone(),
@@ -537,34 +652,54 @@ pub async fn apply(
         ));
     }
     let name = format!("bootstrap-{}", theseus_protocol::now_unix_ms());
-    let key = Signer::Key;
     let mut floor_creds: Option<Credentials> = None;
-    for s in plan.stacks.iter().filter(|s| s.action != "none") {
+    for s in plan
+        .stacks
+        .iter()
+        .filter(|s| s.action != "none" || !s.sets.is_empty())
+    {
         let first = s.stack == FOUNDATION && s.action == "create";
         if !first && floor_creds.is_none() {
             floor_creds = Some(floor(account, &format!("{name}.floor")).await?);
         }
-        let signer = if first {
-            key
-        } else {
-            Signer::With(floor_creds.as_ref().expect("minted"))
-        };
-        apply_stack(account, s, signer, &name, !first).await?;
+        if s.action != "none" {
+            let signer = if first {
+                Signer::Key
+            } else {
+                Signer::With(floor_creds.as_ref().expect("minted"))
+            };
+            apply_stack(account, s, signer, &name, !first).await?;
+        }
         if first {
             floor_creds = Some(floor(account, &format!("{name}.floor")).await?);
         }
-        let cfn = Cfn {
-            account,
-            region: &s.region,
-            binding: None,
-            signer: Signer::With(floor_creds.as_ref().expect("minted")),
-        };
-        cfn.set_policy(s.stack, s.policy)
-            .await
-            .map_err(|f| said(&f))?;
-        cfn.protect(s.stack).await.map_err(|f| said(&f))?;
+        set_what_it_lacks(account, s, floor_creds.as_ref().expect("minted")).await?;
     }
     Ok(plan)
+}
+
+/// What the stack's plan says the apply sets on it besides a change set,
+/// in the floor session: its policy, its termination protection.
+async fn set_what_it_lacks(
+    account: &Arc<Account>,
+    s: &Planned,
+    floor: &Credentials,
+) -> Result<(), String> {
+    let cfn = Cfn {
+        account,
+        region: &s.region,
+        binding: None,
+        signer: Signer::With(floor),
+    };
+    if s.sets.contains(&STACK_POLICY) {
+        cfn.set_policy(s.stack, &s.policy)
+            .await
+            .map_err(|f| said(&f))?;
+    }
+    if s.sets.contains(&TERMINATION_PROTECTION) {
+        cfn.protect(s.stack).await.map_err(|f| said(&f))?;
+    }
+    Ok(())
 }
 
 /// One stack's change set: made, checked against the plan, executed, and

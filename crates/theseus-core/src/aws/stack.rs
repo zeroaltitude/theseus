@@ -187,6 +187,18 @@ impl Cfn<'_> {
             .to_string())
     }
 
+    /// The stack's policy, or none: `GetStackPolicy` gives no body, or an
+    /// empty one, when no policy is set.
+    pub async fn policy(&self, name: &str) -> Result<Option<String>, Failure> {
+        let out = self
+            .call("GetStackPolicy", &json!({"StackName": name}), "read")
+            .await?;
+        Ok(out.body["StackPolicyBody"]
+            .as_str()
+            .filter(|b| !b.trim().is_empty())
+            .map(String::from))
+    }
+
     /// Make a change set; its id.
     pub async fn create_change_set(&self, s: &ChangeSetSpec<'_>) -> Result<String, Failure> {
         let mut input = json!({

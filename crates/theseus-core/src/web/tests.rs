@@ -548,10 +548,10 @@ async fn the_byte_cap_truncates_and_the_timeout_fails_and_each_says_so() {
     assert!(t0.elapsed() < Duration::from_millis(1_900));
 }
 
-#[test]
-fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
-    let w = Web::new(&WebToolsConfig::default(), 30_000, CpuPool::new(1));
-    let policy = ToolPolicy {
+/// A policy whose postures are all open, with the floor's programs: what
+/// the gate's own steps ask, alone.
+fn open_policy() -> ToolPolicy {
+    ToolPolicy {
         roots: vec![],
         approve_paths: vec![],
         allow_argv: vec![],
@@ -563,7 +563,13 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
         confirmer: "operator".into(),
         floor_paths: vec![],
         floor_argv: crate::policy::floor_argv(),
-    };
+    }
+}
+
+#[test]
+fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
+    let w = Web::new(&WebToolsConfig::default(), 30_000, CpuPool::new(1));
+    let policy = open_policy();
     let c = ctx(false);
     let (fetch, search) = (Fetch(w.clone()), Search(w));
     // Planned and decided only: nothing connects.
@@ -609,6 +615,57 @@ fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
     for bad in [json!({"query": " "}), json!({"query": "x", "count": 21})] {
         assert!(search.plan(&bad, &c).is_err(), "{bad}");
     }
+}
+
+/// theseus-94a6: in a shared place, the card of a fetch that waits on a
+/// private address also says that the page would join a conversation others
+/// can read; in a private place the same fetch asks without the clause; and a
+/// public URL asks in neither, its reason unchanged. Planned and decided as
+/// the gate does (the policy, then `places::private_fetch`): nothing connects.
+#[test]
+fn a_private_address_in_a_shared_place_says_so_on_its_card() {
+    use crate::places::{private_fetch, PlaceClass};
+    let policy = open_policy();
+    let fetch = Fetch(Web::new(
+        &WebToolsConfig::default(),
+        30_000,
+        CpuPool::new(1),
+    ));
+    let c = ctx(false);
+    let decided = |class, url: &str| {
+        let plan = fetch.plan(&json!({ "url": url }), &c).unwrap();
+        private_fetch(class, &plan, policy.decide(&fetch, &plan))
+    };
+    for (url, why) in [
+        (
+            "http://127.0.0.1:7455/notes",
+            "127.0.0.1 is a loopback address",
+        ),
+        ("http://10.0.0.1/", "10.0.0.1 is a private address"),
+    ] {
+        let asks = format!(
+            "fetch {url}: http.fetch — approve ({why}, and a private address waits for approval"
+        );
+        let shared = decided(PlaceClass::Shared, url);
+        assert_eq!(shared.posture, Posture::Approve, "{url}");
+        assert_eq!(
+            shared.reason,
+            format!(
+                "{asks}; this is a shared place, so the page joins a conversation others can read)"
+            )
+        );
+        let private = decided(PlaceClass::Private, url);
+        assert_eq!(private.posture, Posture::Approve, "{url}");
+        assert_eq!(private.reason, format!("{asks})"));
+    }
+    let public = "https://doc.rust-lang.org/std/";
+    let alone = policy.decide(&fetch, &fetch.plan(&json!({ "url": public }), &c).unwrap());
+    let shared = decided(PlaceClass::Shared, public);
+    assert_eq!(shared.posture, Posture::Open);
+    assert_eq!(
+        shared.reason, alone.reason,
+        "a public URL's reason is unchanged"
+    );
 }
 
 /// A board holding `brave_api_key`'s value.

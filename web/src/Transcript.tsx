@@ -235,7 +235,7 @@ function ShouldHaveAsked({ tool, corr, tightened, onTighten }: {
     <>
       <button type="button" className="link small" disabled={busy} onClick={press}
         title={`${tool} asks first from now on, on every surface. It only tightens; undo it in the Observatory's Tools view.`}>
-        should have asked
+        Make actions like this ask in the future
       </button>
       {err && <span className="warn small">{err}</span>}
     </>

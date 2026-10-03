@@ -538,6 +538,66 @@ async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_bot
     );
 }
 
+/// theseus-94a6 through the binding: a fetch of a private address, asked in a
+/// shared channel, posts a card whose reason says that the page would join a
+/// conversation others can read. The card goes to the trusted user's DM, as
+/// any card for a channel that is not a trusted channel does. Nothing
+/// connects: the question is never answered.
+#[tokio::test]
+async fn a_private_address_card_from_a_shared_channel_says_where_the_page_goes() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let url = "http://127.0.0.1:7455/notes";
+    let script = vec![Scripted::tools(
+        "",
+        &[("t1", "http_fetch", serde_json::json!({ "url": url }))],
+    )];
+    let core = core_at(d.path(), &fake, script, |c| {
+        c.approval = Some(theseus_core::config::ApprovalConfig {
+            trusted_users: vec![format!("discord:{USER}")],
+            channels: vec!["discord:dm".into(), "cli".into()],
+        })
+    });
+    let bindings = format!(
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"general\"\nusers = [\"{USER}\"]\nmention_only = false\nprivate = false\n",
+        dm_only()
+    );
+    let rpc = bind(&core, d.path(), &bindings).await;
+    let c = core.clone();
+    until("the channel is bound", 10, move || {
+        c.outbox
+            .place_session(&format!("channel:{CHANNEL}"))
+            .unwrap()
+            .is_some()
+    })
+    .await;
+    let sid = core
+        .outbox
+        .place_session(&format!("channel:{CHANNEL}"))
+        .unwrap()
+        .unwrap();
+    ask(&rpc, &sid, "fetch the notes")
+        .await
+        .awaiting_confirm
+        .expect("the fetch waits");
+    let c = core.clone();
+    until("the card delivered", 10, move || pending(&c) == 0).await;
+    let card = fake
+        .messages(DM)
+        .into_iter()
+        .find(|m| m.content.starts_with("**Approve?** `http.fetch`"))
+        .expect("the card in the DM");
+    assert!(
+        card.content.contains(&format!(
+            "fetch {url}: http.fetch — approve (127.0.0.1 is a loopback address, and a private \
+             address waits for approval; this is a shared place, so the page joins a \
+             conversation others can read)"
+        )),
+        "{}",
+        card.content
+    );
+}
+
 /// Pending live edits of one message collapse into the last: a burst of
 /// updates to a slow Discord costs a handful of edits, not one per update.
 #[tokio::test]

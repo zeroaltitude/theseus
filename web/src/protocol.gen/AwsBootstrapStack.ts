@@ -15,4 +15,15 @@ resources: Array<string>,
 /**
  * What an update changes: the template, a parameter, a tag.
  */
-changes: Array<string>, parameters: { [key in string]: string }, };
+changes: Array<string>, parameters: { [key in string]: string }, 
+/**
+ * What the apply sets on the stack besides a change set: `stack policy`,
+ * `termination protection`. A create gets both; an existing stack, what
+ * it lacks, as when a run stopped before setting them.
+ */
+sets: Array<string>, 
+/**
+ * The stack policy the apply sets: its file's, naming only the resources
+ * the stack makes under these parameters. The digest covers it.
+ */
+policy: string, };

@@ -454,7 +454,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
               </tbody>
             </table>
             <div className="pad small muted">
-              <b>Should have asked:</b> one press on a notice makes that tool ask first from then on. It is stored, never in the config,
+              <b>Make actions like this ask in the future:</b> one press on a notice makes that tool ask first from then on. It is stored, never in the config,
               and only tightens: the stricter of it and the config wins. Undo returns the tool to what the config says, so it counts only
               where an approval would.
             </div>
@@ -896,7 +896,7 @@ function NoticeAsk({ r, tightened, onTighten }: {
   const corr = typeof d.correlation_id === 'string' ? d.correlation_id : ''
   return (
     <button type="button" className="link small" title={`${tool} asks first from now on, on every surface; undo it in the Tools view`}
-      onClick={(e) => { e.stopPropagation(); void onTighten(tool, corr) }}>should have asked</button>
+      onClick={(e) => { e.stopPropagation(); void onTighten(tool, corr) }}>Make actions like this ask in the future</button>
   )
 }
 
@@ -1115,10 +1115,10 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'tool.confirm_requested': return `${s('tool')} · ${s('reason')}`
     case r.kind === 'tool.job_started': return `${JSON.stringify(g('argv') ?? [])} · pid ${s('pid')}`
     case r.kind === 'action.confirm_answered': return `${g('approved') ? 'approved' : 'declined'} by ${s('by')}${g('via') ? ` via ${s('via')}` : ''}${g('note') ? ` · ${s('note')}` : ''}`
-    case r.kind === 'approval.refused': return `${g('act') === 'policy.untighten' ? 'undo of ' : g('act') === 'policy.tighten' ? 'should have asked for ' : ''}${s('tool')} · ${s('who')} via ${s('via')} did not count: ${s('why')}`
+    case r.kind === 'approval.refused': return `${g('act') === 'policy.untighten' ? 'undo of ' : g('act') === 'policy.tighten' ? '“Make actions like this ask in the future” for ' : ''}${s('tool')} · ${s('who')} via ${s('via')} did not count: ${s('why')}`
     case r.kind === 'policy.tightened': return `${s('tool')} asks first: tightened by ${s('by')} via ${s('via')}${g('correlation_id') ? ` · from ${s('correlation_id')}` : ''}${g('changed') === false ? ` · the config already asks (${s('config_setting')})` : ` · the config says ${s('config_posture')}`}`
     case r.kind === 'policy.untightened': return `${s('tool')} back to ${s('posture')} (${s('setting')}) · undone by ${s('by')} via ${s('via')} · tightened by ${s('tightened_by')}`
-    case r.kind === 'discord.tighten': return `should have asked: ${s('tool')} by ${s('by')}${g('ok') ? '' : ` · failed: ${s('error')}`}`
+    case r.kind === 'discord.tighten': return `“Make actions like this ask in the future”: ${s('tool')} by ${s('by')}${g('ok') ? '' : ` · failed: ${s('error')}`}`
     case r.kind === 'approval.channel_checked': return `${s('channel')} · ${g('trusted') ? 'trusted' : 'not trusted'}: ${s('detail')}`
     case r.kind === 'turn.trace': return 'timing tree (open for spans)'
     case r.kind === 'discord.message.in': return `${s('place')} · from ${s('author')} · ${s('chars')} chars`

@@ -14,7 +14,8 @@ warnings: Array<string>,
  */
 digest: string, 
 /**
- * Some stack is created or changed.
+ * Some stack is created or changed, or gets a policy or termination
+ * protection it lacks.
  */
 changes: boolean, applied: boolean, 
 /**

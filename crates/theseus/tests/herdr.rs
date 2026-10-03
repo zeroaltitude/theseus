@@ -248,6 +248,19 @@ impl Watch {
         });
     }
 
+    /// Wait until the question has been asked `n` times: the prompt's own
+    /// line, two spaces and the prompt. The start's help line repeats the
+    /// prompt's words ("a question asks approve? [y/N/t/note]"), so a count of
+    /// the words was one ahead, and a test typed its answer before the CLI
+    /// asked again (theseus-jhie).
+    fn wait_prompt(&self, n: usize) {
+        const PROMPT: &str = "  approve? [y/N/t/note]";
+        wait_until(&format!("{n} × the prompt `{PROMPT}` on stderr"), || {
+            let err = self.err.lock().unwrap();
+            (err.lines().filter(|l| *l == PROMPT).count() >= n).then_some(())
+        });
+    }
+
     fn start(d: &FakeDaemon, herdr: Option<&FakeHerdr>, extra: &[&str]) -> Self {
         let mut cmd = Command::new(THESEUS);
         cmd.arg("--socket")
@@ -486,7 +499,7 @@ fn interactive_answers_the_question_and_sends_messages() {
         vec![question("act_m3")],
     );
     let mut w = Watch::start(&d, Some(&herdr), &["--interactive"]);
-    w.wait_err("approve? [y/N/t/note]", 1);
+    w.wait_prompt(1);
     herdr.wait_for("pane.report_metadata", 1);
     w.type_line("y");
     let answers = d.wait_for("action.confirm", 1);
@@ -635,7 +648,7 @@ fn a_note_declines_and_a_refused_answer_is_asked_again() {
         }))
     });
     let mut w = Watch::start(&d, None, &["--interactive"]);
-    w.wait_err("approve? [y/N/t/note]", 1);
+    w.wait_prompt(1);
     w.type_line("use the staging port");
     let first = d.wait_for("action.confirm", 1);
     assert_eq!(
@@ -645,7 +658,8 @@ fn a_note_declines_and_a_refused_answer_is_asked_again() {
         ),
         (json!(false), json!("use the staging port"))
     );
-    w.wait_err("approve? [y/N/t/note]", 2);
+    // The re-ask: typed before it, `t` would find no question open.
+    w.wait_prompt(2);
     w.type_line("t");
     let both = d.wait_for("action.confirm", 2);
     assert_eq!(

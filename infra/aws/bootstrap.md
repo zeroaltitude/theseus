@@ -24,12 +24,18 @@ It makes no change set: a create's change set makes a stack in `REVIEW_IN_PROGRE
   plan reads with the key; after, it reads in that session, so a second plan signs nothing with the key but STS.
 - **Each stack:** `DescribeStacks`. A new stack's plan is its template's resources under its parameters, read
   statically. An existing one is compared with `GetTemplate` and its parameters: equal is no change, so a plan after
-  the apply shows none.
+  the apply shows none. An existing stack's termination protection (`DescribeStacks`) and policy (`GetStackPolicy`)
+  are read too: what it lacks, the apply sets.
+- **Each stack's policy** is its file in `stack-policies/`, cut to the resources the template makes under the plan's
+  parameters: AWS refuses a policy that names a logical id its stack lacks, and the lean posture
+  (`TrailKey=aws-managed`) has no `TrailKmsKey`. The digest covers the policy.
 - **Singletons that would collide**, for a new posture: a GuardDuty detector in the region (then
   `GuardDuty=disabled`), an `ACCOUNT` analyzer (then `AccessAnalyzer=disabled`), and other trails (the trail's
   management events are free only as the account's first copy). Each is a warning in the plan.
 
-The plan prints every stack, its parameters, each resource a create makes, the warnings, and its digest.
+The plan prints every stack, its parameters, each resource a create makes, what an existing stack lacks (`none; its
+stack policy and termination protection are not set, and the apply sets them`), each policy the apply sets, the
+warnings, and its digest.
 
 ## 1. The apply, on the operator's yes
 
@@ -43,10 +49,28 @@ It plans again, and refuses a plan whose digest is not the one approved. Then, i
    deployment), tried for up to a minute while IAM learns the new role. The operator's one approval of the plan
    covers every guarded change the bootstrap makes in it.
 3. **The posture and the relay**, by change sets the deployer applies, each checked against the plan first.
-4. **Each stack's policy** (`stack-policies/`) **and termination protection.**
+4. **Each stack's policy and termination protection,** in the floor session, with no change set: on each stack the
+   apply made, and on each existing stack that lacks them. A policy that is set but is not the one the plan computes
+   stays as it is, and the plan warns: a hand edit is the operator's.
 
 The foundation's later change sets name the deployer too (the budget's reconcile does), so CloudFormation uses it
 from then on.
+
+### When an apply stops
+
+- **Run the bootstrap again.** A stack the stopped run made plans as `none`, with what it lacks: the apply sets its
+  policy and termination protection, and goes on with the stacks still to make.
+- **An owner role that can't mint sessions** is one thing the bootstrap can't repair: it changes an existing
+  foundation only in a floor session of that same role. (The first live run hit this: the role's trust refused
+  `sts:TagSession`.) The operator's key can apply the fix as a foundation change set directly, checked first:
+  1. an `UPDATE` change set of `theseus-foundation` from the fixed template, every parameter `UsePreviousValue`, with
+     `CAPABILITY_NAMED_IAM`, signed with the key;
+  2. described before it runs: execute it only if its one change is `Modify OwnerRole`, with no replacement and only
+     the properties the fix names (for the trust, `AssumeRolePolicyDocument`); otherwise delete it;
+  3. wait for `UPDATE_COMPLETE`, then run the bootstrap again.
+
+  Once the posture exists, each call the key signs, but `GetCallerIdentity` and an `AssumeRole` into
+  `theseus-owner`, trips `theseus-posture-root-of-trust-key-use`: those alerts are this repair's.
 
 ## 2. After
 
