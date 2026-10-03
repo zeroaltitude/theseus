@@ -31,13 +31,13 @@ export function useAct() {
 }
 
 /** What an approval would do, as the Observatory showed it: an edit as a diff, a write as its text, a command as typed. */
-function Preview({ tool, input }: { tool: string; input: unknown }) {
+function Preview({ tool, input, here }: { tool: string; input: unknown; here?: boolean }) {
   const p = previewOf(tool, input)
   if (!p) return input !== undefined && input !== null ? <JsonView value={input} maxHeight="180px" /> : null
   return (
     <div>
       {p.caption && <div className="num mb-1 text-[11px] text-ink-faint">{p.caption}</div>}
-      <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2.5 font-mono text-[11.5px] text-ink-dim ring-1 ring-line">
+      <pre className={cn("overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2.5 font-mono text-[11.5px] text-ink-dim ring-1 ring-line", here ? "max-h-28" : "max-h-60")}>
         {p.kind === 'diff'
           ? diffLines(p.text).map((l, i) => (
             <span key={i} className={cn(l.kind === 'add' && 'text-ok', l.kind === 'del' && 'text-fault', l.kind === 'hunk' && 'text-live', l.kind === 'meta' && 'text-ink-faint')}>{l.line}{'\n'}</span>
@@ -90,7 +90,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             </div>
           )}
           {c.external_text && <div className="num mt-1 text-[11.5px] text-wait">this session read {c.external_text.tool} {c.external_text.url} {ago(c.external_text.since_ms, now)}, so a call that acts waits</div>}
-          {!budget && <div className="mt-2"><Preview tool={c.tool} input={c.input} /></div>}
+          {!budget && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} /></div>}
           {past !== undefined && <div className="mt-2 text-[11px] text-ink-faint">asked by {c.by}; the log shows how it was answered after this moment</div>}
           {past === undefined && <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <Btn tone="ok" busy={busy === 'yes'} onClick={() => answer('yes', true)}><CircleCheck size={13} /> {budget ? 'Reset to $0 and continue' : 'Approve'}</Btn>

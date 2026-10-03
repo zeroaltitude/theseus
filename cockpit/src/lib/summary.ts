@@ -104,15 +104,15 @@ export function summarize(r: LedgerEntry): string {
     }
     default: {
       // The families whose rows carry their own outcome: an action's, a budget's, a completion's, an execution's.
-      // (Each row of a family that has no case above reads by these.)
+      // (Each row of a family that has no case above reads by these, or by its first fields when it has none of them.)
+      let fam = ''
       if (r.kind.startsWith('action.')) {
-        return `${s('outcome') || s('cancel')}${d.duration_ms != null ? ` · ${s('duration_ms')} ms` : ''}${d.cost_usd != null ? ` · ${usd(Number(d.cost_usd))}` : ''}${d.usage_units != null ? ` · ${s('usage_units')} units` : ''}${d.execution_state ? ` · execution ${s('execution_state')}` : ''}`
-      }
-      if (r.kind.startsWith('budget.')) {
-        return `${d.units ? `${s('units')} units · ` : ''}${s('purpose')}${d.actual != null ? `actual ${s('actual')}` : ''}${d.available_after != null ? ` · ${s('available_after')} available` : ''}`
-      }
-      if (r.kind.startsWith('completion.')) return `${s('producer')} · ${s('outcome')}${d.seen ? ` · seen ${s('seen')}` : ''}`
-      if (r.kind.startsWith('execution.')) return s('reason') || s('why') || s('by')
+        fam = `${s('outcome') || s('cancel')}${d.duration_ms != null ? ` · ${s('duration_ms')} ms` : ''}${d.cost_usd != null ? ` · ${usd(Number(d.cost_usd))}` : ''}${d.usage_units != null ? ` · ${s('usage_units')} units` : ''}${d.execution_state ? ` · execution ${s('execution_state')}` : ''}`
+      } else if (r.kind.startsWith('budget.')) {
+        fam = `${d.units ? `${s('units')} units · ` : ''}${s('purpose')}${d.actual != null ? `actual ${s('actual')}` : ''}${d.available_after != null ? ` · ${s('available_after')} available` : ''}`
+      } else if (r.kind.startsWith('completion.')) fam = `${s('producer')} · ${s('outcome')}${d.seen ? ` · seen ${s('seen')}` : ''}`
+      else if (r.kind.startsWith('execution.')) fam = s('reason') || s('why') || s('by')
+      if (fam.replace(/[ ·]/g, '')) return fam
       const keys = Object.entries(d).filter(([, v]) => typeof v !== 'object').slice(0, 3)
       return keys.map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(' · ')
     }

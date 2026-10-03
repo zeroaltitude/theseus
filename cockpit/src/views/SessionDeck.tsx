@@ -3,10 +3,11 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
+import { AnimatePresence } from 'motion/react'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Tabs } from 'radix-ui'
 import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, Layers, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer } from 'lucide-react'
-import type { CompilationInfo, ExecutionInfo, LedgerEntry, SessionHistory, Span } from '@protocol'
+import type { CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, SessionHistory, Span, Tightening } from '@protocol'
 import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
@@ -18,7 +19,8 @@ import { useAsOf } from '@/lib/timemachine'
 import { Echart } from '@/components/Echart'
 import { Flame, flatten } from '@/components/Flame'
 import { JsonView } from '@/components/JsonView'
-import { Transcript } from '@/components/Transcript'
+import { Transcript, type LiveTurn } from '@/components/Transcript'
+import { ConfirmCard, HELD_POST_TOOL } from '@/components/ConfirmCard'
 import { CallInspector } from '@/components/CallInspector'
 import { ModelInspector } from '@/components/ModelInspector'
 import { SessionGraph } from '@/components/SessionGraph'
@@ -37,6 +39,7 @@ export default function SessionDeck() {
   const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
   const { data: comps } = useRpc<{ compilations: CompilationInfo[] }>('compilation.list', { session_id: id, n: 50 }, 10_000)
   const { data: ledger } = useLedger(3000, 4000, undefined, id)
+  const { data: health } = useRpc<Health>('health', undefined, 5000)
   // The time machine's moment (null while live): the transcript is the nodes written by then, and the spans, calls, and
   // ledger rows beside it stop there too. Each is filtered once per moment, so a scrub redraws only what changed.
   const asOf = useDeferredValue(useAsOf((x) => x.t))
@@ -64,6 +67,11 @@ export default function SessionDeck() {
     }
   }, [lastEvent, qc])
 
+  // The calls waiting for the operator (the held posts are the boundaries', not this deck's), and the tools that ask first now.
+  const asks = useMemo(() => (hist?.pending_confirms ?? []).filter((c) => c.tool !== HELD_POST_TOOL), [hist])
+  const asking = useMemo(() => new Set(asks.map((c) => c.correlation_id)), [asks])
+  const tightened = useMemo(() => new Map<string, Tightening>((health?.tightenings ?? []).map((t) => [t.tool, t])), [health])
+
   const s = hist?.session
   const exec = el?.executions.find((e) => e.execution_id === s?.execution_id) ?? el?.executions.find((e) => e.session_id === id)
 
@@ -77,13 +85,20 @@ export default function SessionDeck() {
         <RPanel defaultSize="58" minSize={420} className="min-h-0">
           <Panel title={<>transcript · {nodes.length}{asOf !== null && nodes.length !== hist.nodes.length ? ` of ${hist.nodes.length}` : ''} nodes</>} icon={<ScrollText size={13} />} className="h-full"
             bodyClassName="min-h-0"
-            actions={live ? <span className="flex items-center gap-1.5 text-[11px] text-live"><LiveDot size={5} /> {live.text ? 'streaming' : 'turn running'}</span> : null}>
+            actions={live ? <span className="flex items-center gap-1.5 text-[11px] text-live"><LiveDot size={5} /> {live.text ? 'streaming' : live.thinking ? 'thinking' : 'turn running'}</span> : null}>
             <div className="flex h-full min-h-0 flex-col">
               <div className="relative min-h-0 flex-1">
                 <Follow deps={[nodes.length, live?.text]}>
-                  <Transcript nodes={nodes} turns={turnMap} live={live} />
+                  <Transcript nodes={nodes} turns={turnMap} live={live} asking={asking} tightened={tightened} />
+                  {!nodes.length && !live && <Empty>{s.turns > 0 ? `This session's ${s.turns} turn${s.turns === 1 ? '' : 's'} ran before Theseus kept what was said (conversation content is stored from M3 on). Only their numbers survive: timings, tokens, and any error are in its ledger rows.` : 'This session has no messages yet.'}</Empty>}
                 </Follow>
               </div>
+              {asOf === null && asks.length > 0 && (
+                <div className="max-h-[45%] shrink-0 overflow-auto border-t border-wait/30 bg-wait/[0.03] p-2.5">
+                  <div className="panel-title mb-2 flex items-center gap-1.5 text-wait"><ShieldCheck size={12} /> waiting for you · {asks.length}</div>
+                  <AnimatePresence initial={false}>{asks.map((c) => <ConfirmCard key={c.correlation_id} c={c} here />)}</AnimatePresence>
+                </div>
+              )}
               {asOf === null && <Composer sessionId={id} busy={!!live || exec?.state === 'running' || exec?.state === 'queued'} />}
             </div>
           </Panel>
@@ -129,22 +144,28 @@ function Follow({ children, deps }: { children: React.ReactNode; deps: unknown[]
   )
 }
 
-/** The streaming text of this session's current turn, from model.delta pushes. */
-function useLive(sessionId: string) {
+/** What this session's current turn is doing that no node holds yet, from the push: the streamed text and thinking of
+ *  the loop under way, and the tools running (`tool.started` until `tool.ended`). */
+function useLive(sessionId: string): LiveTurn | null {
   const events = usePush((s) => s.events)
   return useMemo(() => {
     let turn: string | null = null
     let text = ''
+    let thinking = ''
+    let running: { id: string; tool: string; startedAt: number }[] = []
     for (const e of events) {
       const p = e.params as Record<string, any>
-      if (e.method === 'turn.started' && p.session_id === sessionId) { turn = p.turn_id; text = '' }
+      if (e.method === 'turn.started' && p.session_id === sessionId) { turn = p.turn_id; text = ''; thinking = ''; running = [] }
       else if (turn && p.turn_id === turn) {
         if (e.method === 'model.delta') text += p.text ?? ''
-        else if (e.method === 'loop.started') text = ''
-        else if (e.method === 'turn.ended' || e.method === 'turn.failed') { turn = null; text = '' }
+        else if (e.method === 'model.thinking') thinking += p.text ?? ''
+        else if (e.method === 'loop.started') { text = ''; thinking = '' }
+        else if (e.method === 'tool.started') running = [...running, { id: String(p.tool_use_id), tool: String(p.tool), startedAt: e.at }]
+        else if (e.method === 'tool.ended') running = running.filter((t) => t.id !== String(p.tool_use_id))
+        else if (e.method === 'turn.ended' || e.method === 'turn.failed') { turn = null; text = ''; thinking = ''; running = [] }
       }
     }
-    return turn ? { turn_id: turn, text } : null
+    return turn ? { turn_id: turn, text, thinking, running } : null
   }, [events, sessionId])
 }
 
@@ -350,6 +371,15 @@ function TimelineTab({ turns, traces }: { turns: TurnRow[]; traces: Map<string, 
   const turnId = pick ?? withTrace[withTrace.length - 1]?.turn_id ?? null
   const trace = turnId ? traces.get(turnId) : null
   const replay = useReplay(trace)
+  // Where the time went, by kind of span: the leaf-ish spans only (a `tools` span holds calls that ran together, so its
+  // calls count, not it), as the Observatory's trace summary said.
+  const byKind = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const f of trace ? flatten(trace) : []) {
+      if (f.kind !== 'turn' && f.kind !== 'loop' && f.kind !== 'tools' && f.end > f.start) m.set(f.kind, (m.get(f.kind) ?? 0) + (f.end - f.start))
+    }
+    return [...m.entries()].sort((x, y) => y[1] - x[1])
+  }, [trace])
   if (!withTrace.length) return <Empty>no turn traces in this session’s rows</Empty>
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -364,6 +394,12 @@ function TimelineTab({ turns, traces }: { turns: TurnRow[]; traces: Map<string, 
         ))}
       </div>
       <ReplayBar replay={replay} />
+      {trace && (
+        <div className="num flex flex-wrap items-baseline gap-x-3 border-b border-line px-3 py-1 text-[11px] text-ink-faint" title="where the turn's time went, by kind of span">
+          <span className="font-semibold text-ink">{ms(((trace.end_us ?? trace.start_us) - trace.start_us) / 1000)}</span> total
+          {byKind.map(([k, u]) => <span key={k}>{k} {ms(u / 1000)}</span>)}
+        </div>
+      )}
       <div className="min-h-0 flex-1 p-2"><Flame trace={trace} onPick={setSpan} cursor={replay.t} /></div>
       <div className="h-44 shrink-0 overflow-auto border-t border-line p-2">
         {replay.t != null ? <AtInstant trace={trace} t={replay.t} /> : span ? (
@@ -385,6 +421,8 @@ function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: 
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="h-48"><ContextGrowth rows={rows} sessions={[session]} /></div>
+      <CompileLog rows={rows} />
+      <ContextFiles files={((comps.find((c) => c.current)?.manifest as { context_files?: ContextFileRef[] } | undefined)?.context_files) ?? []} />
       <div className="panel-title flex items-center gap-1.5"><GitBranch size={12} /> compilation lineage</div>
       {comps.map((c) => (
         <div key={c.compilation_id} className={cn('rounded-lg ring-1 ring-inset', c.current ? 'bg-think/5 ring-think/30' : 'ring-line')}>
@@ -397,12 +435,71 @@ function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: 
             </div>
             <div className="num mt-0.5 text-[11px] text-ink-faint">
               {c.strategy} · includes {c.includes} · as of {c.as_of}{c.derived_from ? ` · from ${short(c.derived_from)}` : ''} · {String((c.manifest as Record<string, unknown>).model ?? '')}
+              {' · '}<span className={(c.manifest as Record<string, unknown>).strip_thinking ? 'text-wait' : ''}>thinking {(c.manifest as Record<string, unknown>).strip_thinking ? 'stripped' : 'kept'}</span>
             </div>
           </button>
           {open === c.compilation_id && <div className="px-3 pb-3"><JsonView value={c.manifest} maxHeight="280px" /></div>}
         </div>
       ))}
       {!comps.length && <Empty>no compilations</Empty>}
+    </div>
+  )
+}
+
+/** Each loop's compile decision, as the ledger recorded it: append or recompile, the prefix and the tail it joined, the
+ *  prompt's size, and the tool calls it repaired (a call with no recorded result got a synthetic error result). */
+function CompileLog({ rows }: { rows: Rows }) {
+  const list = useMemo(() => (rows ?? []).filter((r) => r.kind === 'context.compiled').slice(-12).reverse(), [rows])
+  if (!list.length) return null
+  return (
+    <div>
+      <div className="panel-title mb-1 flex items-center gap-1.5"><Layers size={12} /> context compiles · the last {list.length}</div>
+      <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-[11.5px]">
+        <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
+          <tr><th className="py-1 text-left">when</th><th className="px-1 text-left">loop</th><th className="px-1 text-left">decision</th><th className="px-1 text-right">prefix + tail</th><th className="px-1 text-right">msgs</th><th className="px-1 text-right">~tokens</th><th className="px-1 text-right">repairs</th><th className="pl-1 text-left">digest</th></tr>
+        </thead>
+        <tbody>
+          {list.map((r) => {
+            const d = (r.data ?? {}) as Record<string, any>
+            const rep: unknown[] = Array.isArray(d.repairs) ? d.repairs : []
+            return (
+              <tr key={r.position} className="border-t border-line/50" title={`compilation ${String(d.compilation_id ?? '')}\nturn ${r.turn_id ?? ''}\nnodes scanned ${String(d.nodes_scanned ?? '')}\ntools offered ${String(d.tools ?? '')}`}>
+                <td className="num py-1 text-ink-faint">{clock(r.at_unix_ms)}</td>
+                <td className="num px-1 text-ink-faint">{String(d.loop ?? '')}</td>
+                <td className={cn('px-1', d.decision === 'recompile' ? 'text-think' : 'text-ink-dim')}>{String(d.decision ?? '')}{d.trigger ? <span className="text-ink-faint"> ({String(d.trigger)}, {String(d.strategy ?? '')})</span> : null}</td>
+                <td className="num px-1 text-right text-ink-dim">{String(d.prefix_nodes ?? 0)} + {String(d.tail_nodes ?? 0)}</td>
+                <td className="num px-1 text-right text-ink-dim">{String(d.messages ?? '')}</td>
+                <td className="num px-1 text-right text-ink">{tokens(Number(d.est_tokens ?? 0))}</td>
+                <td className={cn('num px-1 text-right', rep.length ? 'text-wait' : 'text-ink-faint')} title={rep.length ? `tool_use ids with no recorded result got a synthetic error result: ${rep.join(', ')}` : ''}>{rep.length}</td>
+                <td className="num pl-1 text-ink-faint">{String(d.digest ?? '').slice(0, 10)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table></div>
+    </div>
+  )
+}
+
+/** The files the current compilation's system block carries, in order; an edit changes the digest and recompiles the next turn. */
+function ContextFiles({ files }: { files: ContextFileRef[] }) {
+  if (!files.length) return null
+  return (
+    <div title="the files the current compilation's system block carries, in order; an edit changes the digest and recompiles the next turn">
+      <div className="panel-title mb-1 flex items-center gap-1.5"><ScrollText size={12} /> context files · the system block</div>
+      <table className="w-full text-[11.5px]">
+        <thead className="text-[10px] uppercase tracking-wider text-ink-faint"><tr><th className="py-1 text-left">file</th><th className="px-1 text-left">level</th><th className="px-1 text-left">digest</th><th className="pl-1 text-right">bytes</th></tr></thead>
+        <tbody>
+          {files.map((f, i) => (
+            <tr key={`${i}:${f.path}`} className="border-t border-line/50">
+              <td className="num break-all py-1 text-ink">{f.path}</td>
+              <td className="px-1 text-ink-faint">{f.persona ? `persona ${f.persona}` : 'system'}</td>
+              <td className={cn('num px-1', f.missing ? 'text-wait' : 'text-ink-faint')}>{f.missing ? `missing: ${f.missing}` : f.digest}</td>
+              <td className={cn('num pl-1 text-right', f.cut ? 'text-wait' : 'text-ink-faint')}>{f.missing ? '' : `${f.bytes.toLocaleString()}${f.cut ? ' (cut)' : ''}`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

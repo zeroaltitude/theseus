@@ -71,6 +71,8 @@ export function spendCurve(calls: ProviderCall[]): [number, number][] {
 export interface TurnRow {
   turn_id: string; session_id: string | null; start: number; end?: number; elapsed_ms?: number; first_token_ms?: number
   loops?: number; tool_calls?: number; cost?: number; model?: string; stop?: string; failed?: boolean
+  /** A failed turn's error and its class (`turn.failed`). */
+  error?: string; errorClass?: string | null
 }
 
 /** Turns from turn.started / turn.ended / turn.failed, oldest first. */
@@ -85,6 +87,7 @@ export function turnRows(rows: LedgerEntry[] | undefined): TurnRow[] {
       Object.assign(t, {
         end: r.at_unix_ms, elapsed_ms: d.elapsed_ms ?? r.at_unix_ms - t.start, first_token_ms: d.first_token_ms,
         loops: d.loops, tool_calls: d.tool_calls, cost: d.cost_usd, model: d.model, stop: d.stop_reason, failed: r.kind === 'turn.failed',
+        ...(r.kind === 'turn.failed' ? { error: d.error ?? d.reason ?? d.message, errorClass: d.class ?? null } : {}),
       })
       m.set(r.turn_id, t)
     }

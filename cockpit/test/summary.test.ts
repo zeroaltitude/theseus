@@ -38,6 +38,10 @@ test('a family with no case of its own reads by its outcome', () => {
     'woke 1 · unknown 0 · settled 2 · 40 µs')
 })
 
+test('a family row with none of its fields falls back to its first fields', () => {
+  assert.equal(summarize(row('action.cancel_verified', { correlation_id: 'act_1', state: 'verified' })), 'correlation_id=act_1 · state=verified')
+})
+
 test('discord rows name the place, the author, and a failed press', () => {
   assert.equal(summarize(row('discord.message.in', { place: 'ops', author: 'ada', chars: 12 })), '← ops · from ada · 12 chars')
   assert.equal(summarize(row('discord.confirm', { approve: true, by: 'ada', ok: false, error: 'late' })),
