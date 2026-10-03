@@ -4681,6 +4681,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "hex",
+ "jiff",
  "libc",
  "serde",
  "serde_json",

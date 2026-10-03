@@ -132,6 +132,13 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         count(" of them transactions") > 0,
         "no racing thread ran a transaction: {total}"
     );
+    // Wakes, one-shot and repeating (37a): series put back at their next
+    // occurrence, and occurrences a crash passed over.
+    assert!(count(" repeating;") > 0, "no series was set: {total}");
+    assert!(
+        count(" series put back") > 0,
+        "no series was put back: {total}"
+    );
 }
 
 /// The disclosure simulator (M4 19b) on fixed seeds: a synthetic world of

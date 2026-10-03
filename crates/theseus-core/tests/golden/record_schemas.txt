@@ -274,6 +274,71 @@ enum ExecState: queued|running|waiting|blocked|cancelled|failed|budget_exhausted
 enum SessionKind: conversation|task
 enum Wake: due_at|actions|execution|confirm|input|budget
 
+== execution @ 3
+.authority.ceilings.{}: string
+.authority.delegated_by: string
+.authority.principal: string
+.budget.held_unknown_micros: int
+.budget.limit_micros: int
+.budget.pinned: bool
+.budget.question: string
+.budget.question_needs_micros: int
+.budget.reservations.{}: int
+.budget.reserved_micros: int
+.budget.resets: int
+.budget.spent_micros: int
+.budget.units_before.control_reserve: int
+.budget.units_before.held_unknown: int
+.budget.units_before.limit: int
+.budget.units_before.reservations.{}: int
+.budget.units_before.reserved: int
+.budget.units_before.spent: int
+.cancel: string
+.created_at_ms: int
+.ended_reason: string
+.id: string
+.interrupted: int
+.kind: string
+.outstanding[]: string
+.parent: string
+.queued_results[]: string
+.report_wakes[]: string
+.reports[]: string
+.reports_to: string
+.resume_pending: bool
+.schema: int
+.session_id: string
+.state: string
+.stopped.at_ms: int
+.stopped.by: string
+.stopped.turn: int
+.turns: int
+.updated_at_ms: int
+.wake_parent: bool
+.wakes[].by: string
+.wakes[].due_at_ms: int
+.wakes[].id: string
+.wakes[].note: string
+.wakes[].occurrence: int
+.wakes[].repeat.days[]: string
+.wakes[].repeat.every.n: int
+.wakes[].repeat.every.unit: string
+.wakes[].repeat.first_ms: int
+.wakes[].repeat.until_ms: int
+.wakes[].set_at_ms: int
+.wakes[].target: string
+.wake{on=actions}.correlation_ids[]: string
+.wake{on=budget}.correlation_id: string
+.wake{on=confirm}.confirm_id: string
+.wake{on=due_at}.at_ms: int
+.wake{on=execution}.execution_id: string
+enum CancelState: requested|acknowledged|termination_verified|unsupported|outcome_uncertain
+enum Day: mon|tue|wed|thu|fri|sat|sun
+enum ExecState: queued|running|waiting|blocked|cancelled|failed|budget_exhausted|complete
+enum SessionKind: conversation|task
+enum Unit: m|h|d|w
+enum Wake: due_at|actions|execution|confirm|input|budget
+
 == ledger @ 1
 .at_unix_ms: int
 .data: any

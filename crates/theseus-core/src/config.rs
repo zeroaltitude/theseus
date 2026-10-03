@@ -517,6 +517,10 @@ pub struct KernelSection {
     /// not run (theseus-830), and how long an approval stays valid.
     #[serde(default = "default_confirm_ttl_secs")]
     pub confirm_ttl_secs: u64,
+    /// The shortest span a repeating wake may take, in minutes (37a): a
+    /// floor on a runaway series' turns. At least 1.
+    #[serde(default = "default_min_repeat_minutes")]
+    pub min_repeat_minutes: u64,
 }
 
 fn default_admission_ceiling() -> u32 {
@@ -534,6 +538,9 @@ fn default_deadline_secs() -> u64 {
 fn default_confirm_ttl_secs() -> u64 {
     900
 }
+fn default_min_repeat_minutes() -> u64 {
+    5
+}
 
 impl Default for KernelSection {
     fn default() -> Self {
@@ -545,6 +552,7 @@ impl Default for KernelSection {
             heartbeat_secs: default_heartbeat_secs(),
             default_deadline_secs: default_deadline_secs(),
             confirm_ttl_secs: default_confirm_ttl_secs(),
+            min_repeat_minutes: default_min_repeat_minutes(),
         }
     }
 }
@@ -570,6 +578,9 @@ impl KernelSection {
             heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
             fault_after_startup_step: None,
             unconfirmed_config: false,
+            min_repeat_ms: self.min_repeat_minutes.max(1) * 60_000,
+            // The system's zone.
+            ..Default::default()
         }
     }
 }

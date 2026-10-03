@@ -163,6 +163,7 @@ ledger_kinds! {
     TurnStarted = "turn.started",
     TurnTrace = "turn.trace",
     WakeCancelled = "wake.cancelled",
+    WakeEnded = "wake.ended",
     WakeFired = "wake.fired",
     WakeSet = "wake.set",
     WebDevOrigin = "web.dev_origin",

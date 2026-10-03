@@ -82,12 +82,15 @@ pub mod kinds {
     /// same change: a post is an action, read from 2 with no parent. Since
     /// those requests went (theseus-w5op) nothing writes it; a stored
     /// request still reads whole.
+    /// Execution schema 3 adds a wake's repeat and occurrence (37a,
+    /// theseus-d4pt), read from 2 as a one-shot wake (theseus-kernel's
+    /// `an_execution_written_before_repeating_wakes_reads`).
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
         (SESSION, 6),
         (LEDGER, 1),
         (META, 1),
-        (EXECUTION, 2),
+        (EXECUTION, 3),
         (ACTION, 4),
         (COMPLETION, 2),
         (NODE, 6),

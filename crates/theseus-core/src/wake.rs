@@ -189,7 +189,7 @@ pub fn set(
     let target = tc.outbox.target(tc.session_id);
     let set = match tc
         .kernel
-        .set_wake(tc.guard, correlation_id, due, &i.note, target.clone())
+        .set_wake(tc.guard, correlation_id, due, &i.note, target.clone(), None)
     {
         Ok(s) => s,
         Err(e) => {
@@ -730,12 +730,16 @@ mod tests {
             set_at_ms: set_at,
             by: "act_x".into(),
             target: None,
+            repeat: None,
+            occurrence: 0,
         };
         let set = local(set_at).hm();
         let on_time = FiredWake {
             wake: w.clone(),
             late_ms: 300,
             while_down: false,
+            missed: 0,
+            next_due_at_ms: None,
         };
         assert_eq!(
             fired_text(&on_time),
@@ -745,6 +749,8 @@ mod tests {
             wake: w.clone(),
             late_ms: 36_000,
             while_down: true,
+            missed: 0,
+            next_due_at_ms: None,
         };
         let due = local(set_at + 60_000).hms();
         assert_eq!(
@@ -758,6 +764,8 @@ mod tests {
             wake: w,
             late_ms: 90_000,
             while_down: false,
+            missed: 0,
+            next_due_at_ms: None,
         };
         assert!(fired_text(&busy).contains("1 min 30 s late):"));
     }
@@ -796,6 +804,8 @@ mod tests {
             set_at_ms: 0,
             by: "act".into(),
             target: None,
+            repeat: None,
+            occurrence: 0,
         };
         let all = vec![
             (e.clone(), w("wak_0199aaaa1111")),
