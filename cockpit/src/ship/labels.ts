@@ -113,19 +113,26 @@ export class LabelLayer {
     const H = this.root.clientHeight
     this.measureReserved()
     const taken: Rect[] = [...this.reserved]
-    // Places: on their ring's north side, while the ring is a size worth naming.
-    for (const f of m.formations) {
+    // Places: on their ring's north side, while the ring is a size worth naming; the biggest first, and none over
+    // another.
+    const order = [...m.formations].sort((a, b) => b.members.length - a.members.length || a.key.localeCompare(b.key))
+    for (const f of order) {
       const el = this.forms.get(f.key)!
       const ppu = e.pixelsPerUnit(f.x, f.z)
       const rpx = f.radius * ppu
       const p = e.project(f.x, 0, f.z - f.radius)
-      const show = p.on && rpx > 46 && rpx < 2600 && p.y > 4 && p.y < H - 4
-      el.style.display = show ? '' : 'none'
+      let show = p.on && rpx > 46 && rpx < 2600 && p.y > 4 && p.y < H - 4
       if (show) {
-        el.style.transform = `translate(${p.x}px, ${p.y - 8}px) translate(-50%, -100%)`
+        el.style.display = ''
         const w = sizeOf(el).w
-        taken.push({ x0: p.x - w / 2, y0: p.y - 30, x1: p.x + w / 2, y1: p.y - 6 })
+        const r = { x0: p.x - w / 2 - 6, y0: p.y - 30, x1: p.x + w / 2 + 6, y1: p.y - 6 }
+        if (taken.some((t) => overlaps(t, r))) show = false
+        else {
+          el.style.transform = `translate(${p.x}px, ${p.y - 8}px) translate(-50%, -100%)`
+          taken.push(r)
+        }
       }
+      if (!show) el.style.display = 'none'
     }
     // Plates: the selected and hovered first, then the biggest on screen.
     const cand: { i: number; px: number; x: number; y: number }[] = []

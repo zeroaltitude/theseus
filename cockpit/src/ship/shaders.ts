@@ -347,6 +347,7 @@ varying vec3 vColor;
 varying float vFlags;
 varying vec2 vAge;
 varying float vRing;
+varying float vFade;
 void main() {
   vec4 a = vRow(aIdx, 0.0);
   vec4 b = vRow(aIdx, 1.0);
@@ -359,7 +360,14 @@ void main() {
   float ringed = max(max(bit(aFlags, 1.0), bit(aFlags, 2.0)), bit(aFlags, 4.0));
   float s = aSize * (1.0 + ringed * 1.3) * (1.0 + flare * 2.6 * (1.0 - uCalm * 0.7)) * (1.0 + bit(aFlags, 16.0) * 1.4);
   float dim = bit(b.z, 16.0);
-  gl_PointSize = clamp(s * uScale / -mv.z, 2.2 * uPixel, 72.0 * uPixel);
+  float px = s * uScale / -mv.z;
+  gl_PointSize = clamp(px, 2.2 * uPixel, 72.0 * uPixel);
+  // A light smaller than the smallest point we draw gives only its share of the light: far out, a keel of fifty
+  // lights reads as a faint string, not a white blob.
+  vFade = clamp(px / (2.2 * uPixel), 0.18, 1.0);
+  // And the keel's lights come up as their vessel grows on screen: far out, its rail and rig say enough.
+  float hullPx = a.w * uScale / max(1.0, -(viewMatrix * vec4(a.x, 0.0, a.y, 1.0)).z);
+  vFade *= mix(0.22, 1.0, smoothstep(40.0 * uPixel, 180.0 * uPixel, hullPx));
   vColor = aColor * (1.0 - dim * 0.75);
   vFlags = aFlags;
   vAge = vec2(age, aTimes.y > 0.0 ? uTime - aTimes.y : -1.0);
@@ -374,6 +382,7 @@ varying vec3 vColor;
 varying float vFlags;
 varying vec2 vAge;
 varying float vRing;
+varying float vFade;
 float bit(float flags, float b) { return mod(floor(flags / b + 0.001), 2.0); }
 float hexDist(vec2 p) { p = abs(p); return max(p.x * 0.8660254 + p.y * 0.5, p.y); }
 void main() {
@@ -425,6 +434,8 @@ void main() {
     col += vec3(1.0, 0.93, 0.74) * (ring * f + core * f);
     alpha = max(alpha, ring * f);
   }
+  col *= vFade;
+  alpha *= vFade;
   if (alpha < 0.01) discard;
   gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
 }
@@ -434,18 +445,24 @@ void main() {
 
 export const LINE_VERT = /* glsl */ `
 ${VESSEL_COMMON}
+uniform float uScale;
+uniform float uPixel;
 attribute float aIdx;
 attribute vec4 aColor;
 varying vec4 vColor;
 void main() {
   vec3 w = position;
   float dim = 0.0;
+  float fade = 1.0;
   if (aIdx >= 0.0) {
     vec4 a = vRow(aIdx, 0.0);
     dim = bit(vRow(aIdx, 1.0).z, 16.0);
     w = toWorld(a, position);
+    // Oars and keels come up as their vessel grows on screen.
+    float hullPx = a.w * uScale / max(1.0, -(viewMatrix * vec4(a.x, 0.0, a.y, 1.0)).z);
+    fade = mix(0.15, 1.0, smoothstep(50.0 * uPixel, 200.0 * uPixel, hullPx));
   }
-  vColor = vec4(aColor.rgb * (1.0 - dim * 0.7), aColor.a);
+  vColor = vec4(aColor.rgb * (1.0 - dim * 0.7) * fade, aColor.a);
   gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
 }
 `
