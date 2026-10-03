@@ -840,8 +840,19 @@ pub struct Report {
 }
 
 impl Report {
+    /// The strict verdict: every budget met within its limit, and every other
+    /// check of the run held.
     pub fn ok(&self) -> bool {
-        self.verdicts.iter().all(|v| v.ok)
+        self.ok_with(0)
+    }
+
+    /// The verdict with the busy allowance `pct` on the timing budgets
+    /// (theseus-lew7; `history::allowed`). The run's other checks are never
+    /// excused.
+    pub fn ok_with(&self, pct: u32) -> bool {
+        self.verdicts
+            .iter()
+            .all(|v| crate::history::allowed(v, pct))
             && self.served_before_secrets
             && self.served_from_copy
             && self.driver_before_token

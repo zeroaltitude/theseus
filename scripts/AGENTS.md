@@ -11,80 +11,80 @@
 ## The gate
 
 Run it before every commit, in the tree you will commit, and chain the commit with `&&` (a `;` once let an unformatted
-commit through). Its tests and benches take the shared machine-wide lock, and `THESEUS_GATE_LOCK` says who takes it (see
-"The lock: outer and inner"):
+commit through). Its tests and benches take the shared machine-wide lock, and the gate takes it itself (see "The lock"):
 
 ```bash
-# a lane's gate: the gate takes the lock itself, around its tests only. NO `flock` around it.
-THESEUS_GATE_LOCK=inner THESEUS_GATE_NO_BENCH=1 scripts/gate.sh && git commit -S -F <message file>
-# the chain's gate on main: the caller takes the lock for the whole run (outer, the default).
-flock -o ~/.cache/theseus-gate.lock scripts/gate.sh && git commit -S -F <message file>
+# a lane's gate: no timing bench. NO `flock` around it.
+THESEUS_GATE_NO_BENCH=1 scripts/gate.sh && git commit -S -F <message file>
+# the chain's gate on main: the same gate, with its benches. NO `flock`, and no theseus-quiet.sh, around it either.
+scripts/gate.sh && git commit -S -F <message file>
 ```
 
-In outer mode it runs, in order:
+It runs, in order:
 
-1. `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500 lines unless listed), then `cargo clippy
-   --workspace --all-targets -- -D warnings`, which also holds the shape budget's functions (see "The shape budget").
-2. The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
-   and names every fix at once.
-3. The whole suite, `cargo nextest run --workspace` (about 1,300 tests).
-4. The generated TypeScript: it fails when `web/src/protocol.gen/` differs from the commit.
-5. The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
-   first flushes dirty pages and waits, up to 5 minutes, until IO and CPU pressure are low and the load is under the
-   core count. A miss reruns once, and only a second miss fails. Every run goes to the bench history
-   (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With `THESEUS_GATE_NO_BENCH=1` (a
-   lane's gate, which the lane recipe sets), this step is skipped: the gate that joins the lane to `main` runs it.
-   Then, skipped with it, the jobs bench's L1 row (`theseus-sim bench jobs --class l1 --runs 20 --check`): an L1
-   start's p95 under §2.2's 25 ms, on the machine the lifecycle bench settled; a miss reruns once. The suite's
-   `the_jobs_bench_l1_row` measures the row and bounds nothing, since the suite runs under any load (theseus-mll1).
-   Then the turn bench (`theseus-sim bench turn --check`): a plain turn's frames, counted from the daemon's WAL,
-   against §9's per-turn overhead restated as frames (5; the floor is 2). A count needs no quiet machine, so it runs
-   in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the join it runs ten runs and a
-   burst of 30 turns and records the row (about 11 s). A miss reruns once.
-6. `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database as
-   its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was yanked
-   between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh` refreshes it.
-7. The web apps' lint and build (and the cockpit's `npm test`), each when its `node_modules` exists, and then a check that the Observatory's
-   committed build is current. A failing npm step prints its name and the last 40 lines of its output above the table.
+1. *Without the lock*, every compile: `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500
+   lines unless listed), then `cargo clippy --workspace --all-targets -- -D warnings`, which also holds the shape
+   budget's functions (see "The shape budget"); then `bench build` (`cargo build` of the five binaries an install
+   ships, `scripts/build.sh`'s list, among them those the benches run: the gate's `bench_build` function lists them)
+   and `test build` (`cargo nextest run --workspace --no-run`, which builds what the suite runs).
+2. *With the lock*, the locked part. Nothing compiles here: step 1 built everything it runs (a `gate: NOTE` says so
+   when something does, which means the tree changed after step 1).
+   - The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
+     and names every fix at once.
+   - The whole suite, `cargo nextest run --workspace` (about 1,300 tests).
+   - The generated TypeScript: it fails when `web/src/protocol.gen/` differs from the commit.
+   - The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
+     first flushes dirty pages and waits, up to 5 minutes, until IO and CPU pressure are low and the load is under the
+     core count; when the 5 minutes pass with the machine still busy, the timing budgets get the busy allowance (see
+     "The busy allowance"). A miss reruns once, and only a second miss fails. Every run goes to the bench history
+     (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With `THESEUS_GATE_NO_BENCH=1` (a
+     lane's gate, which the lane recipe sets), this step is skipped: the gate that joins the lane to `main` runs it.
+   - Then, skipped with it, the jobs bench's L1 row (`theseus-sim bench jobs --class l1 --runs 20 --check`): an L1
+     start's p95 under §2.2's 25 ms, on the machine the lifecycle bench settled, with the allowance when that settle
+     found no quiet window; a miss reruns once. The suite's `the_jobs_bench_l1_row` measures the row and bounds
+     nothing, since the suite runs under any load (theseus-mll1).
+   - Then the turn bench (`theseus-sim bench turn --check`): a plain turn's frames, counted from the daemon's WAL,
+     against §9's per-turn overhead restated as frames (5; the floor is 2). A count needs no quiet machine, and never
+     gets the allowance, so it runs in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the
+     join it runs ten runs and a burst of 30 turns and records the row (about 11 s). A miss reruns once.
+
+   Cargo links the binaries of the build it ran last, and the suite's cargo links the test build's `theseusd` and
+   `theseus-sim`, so the benches run those: the workspace's features, which an install has too.
+3. *Without it again*:
+   - `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database
+     as its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was
+     yanked between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh`
+     refreshes it.
+   - The web apps' lint and build (and the cockpit's `npm test`), each when its `node_modules` exists, and then a check
+     that the Observatory's committed build is current. A failing npm step prints its name and the last 40 lines of
+     its output above the table.
 
 It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it
 ends, a failed run's too (with `<- failed here` on the phase that stopped it, and `gate: FAILED in <phase>`; a signal's
 too, after `gate: stopped by a signal`), and appends it to `~/.cache/theseus/gate-times.csv` (time, label, phase,
 seconds, status; `$THESEUS_GATE_TIMES`). The gate's own cost has a history now: read it before calling a gate slow.
 
-### The lock: outer and inner
+### The lock
 
-(theseus-rx91.) The suite's timing-sensitive tests and the benches need the machine to themselves, so one gate's tests
-never land in another's bench: they run under a machine-wide lock, `~/.cache/theseus-gate.lock`
-(`$THESEUS_GATE_LOCK_FILE`). Until 2026-10-02 the caller held it for the whole gate, so every gate's `fmt`, `clippy`,
-and test build (minutes) kept every other gate waiting too: that morning six lanes' gates and the chain's join gates
-queued behind each other's compiles, and three join gates lost about 25 minutes. `THESEUS_GATE_LOCK` says who takes it:
+(theseus-rx91, theseus-lew7.) The suite's timing-sensitive tests and the benches need the machine to themselves, so one
+gate's tests never land in another's bench: they run under a machine-wide lock, `~/.cache/theseus-gate.lock`
+(`$THESEUS_GATE_LOCK_FILE`). The gate takes it itself, only around the locked part (step 2 above), and every gate runs
+this way, the chain's join gate on `main` included.
 
-- **outer** (the default): the caller takes the lock for the whole run, as `flock -o ~/.cache/theseus-gate.lock
-  scripts/gate.sh` or the chain's `theseus-quiet.sh` does, and the gate takes none. The chain's gate on `main` runs this
-  way: it wants the whole machine, and runs rarely. Its phases are the list above, unchanged.
-- **inner** (`THESEUS_GATE_LOCK=inner`): the gate takes the lock itself, only around the phases that need the machine.
-  A lane's gate runs this way. The order is:
-  1. *Without the lock*, every compile: `fmt`, `shape`, `clippy`, then `bench build` (`cargo build` of the five binaries
-     an install ships, `scripts/build.sh`'s list, among them those the benches run: the gate's `bench_build` function
-     lists them) and `test build` (`cargo nextest run --workspace --no-run`, which builds what the suite runs).
-  2. *With the lock*, the locked part: the reader rule, the suite, the protocol-types check, the lifecycle and jobs
-     benches (skipped under `THESEUS_GATE_NO_BENCH`), and the turn bench. Nothing compiles here: step 1 built everything it runs (a
-     `gate: NOTE` says so when something does, which means the tree changed after step 1). Cargo links the binaries of
-     the build it ran last, and the suite's cargo links the test build's `theseusd` and `theseus-sim`, so in inner
-     mode the benches run those (the workspace's features, which an install has too); outer mode's run the `-p`
-     build's, with exactly an install's features (theseus-o8nk).
-  3. *Without it again*: `deny`, `web`, `cockpit`, and the `web dist` check.
+- **Why.** Until 2026-10-02 the caller held the lock for the whole gate, so every gate's `fmt`, `clippy`, and test
+  build (minutes) kept every other gate waiting too: that morning six lanes' gates and the chain's join gates queued
+  behind each other's compiles, and three join gates lost about 25 minutes. The gate then took the lock itself in an
+  inner mode, and the old way stayed as the default outer mode, which the chain's join gate used under
+  `theseus-quiet.sh` (it paused the lanes' compilers while the gate ran, and its paused processes wedged gates more than
+  once: memory `theseus-gate-hangs`). On 2026-10-03 the outer mode went (cut-list Tier 5.3): one mode, everywhere.
+- **`THESEUS_GATE_LOCK`.** `inner` is accepted and changes nothing; `outer` is refused (exit 2), as is any other
+  value. A worktree cut before theseus-lew7 still has the two-mode gate, whose default, outer, takes no lock unless its
+  caller does: give that gate `THESEUS_GATE_LOCK=inner` until the worktree rebases.
+- **Never wrap the gate in `flock`, or in `theseus-quiet.sh`.** The wrapper would hold the lock that the gate then waits
+  for, and the gate would wait for itself forever. The gate checks: it refuses to start (exit 2, in a second) when a
+  process above it holds the lock.
 
-  **Never wrap an inner-mode gate in `flock`, or in `theseus-quiet.sh`.** The wrapper would hold the lock that the gate
-  then waits for, and the gate would wait for itself forever. The gate checks: it refuses to start (exit 2, in a
-  second) when a process above it holds the lock.
-
-  **Check the worktree's gate has inner mode before you rely on it:** `grep -q THESEUS_GATE_LOCK scripts/gate.sh`. A
-  `gate.sh` from before this change ignores the variable, and with no `flock` around it runs with no lock at all. A
-  worktree cut before it keeps `flock -o ~/.cache/theseus-gate.lock scripts/gate.sh` until it rebases onto a `main` that has it.
-
-How inner mode takes the lock: after its compile phases the gate runs itself again, as `flock -o LOCK scripts/gate.sh
+How the gate takes the lock: after its compile phases the gate runs itself again, as `flock -o LOCK scripts/gate.sh
 --locked-part …` (an internal option, never a caller's). `-o` closes the lock's fd before that part starts, so nothing
 its tests start (a daemon that outlives its test) can keep the lock past the part (theseus-e6xj), and no function of the
 gate ever holds a lock fd. While the part runs, the one process with the lock open is its `flock`; once the gate ends,
@@ -104,29 +104,57 @@ gate: lock taken after waiting 19 s
 gate: lock released after holding it 128 s
 ```
 
-The wait is the one cost the gate cannot shorten, so read it first when a gate is slow. To stop an inner-mode gate, stop
-its process group (`timeout` and the harness do): a signal to the gate's own pid ends it at once, but its locked part
-runs on to the end under the lock, and a signal to its `flock` alone frees the lock under a running part.
+The wait is the one cost the gate cannot shorten, so read it first when a gate is slow. To stop a gate, stop its
+process group (`timeout` and the harness do): a signal to the gate's own pid ends it at once, but its locked part runs
+on to the end under the lock, and a signal to its `flock` alone frees the lock under a running part.
+
+### The busy allowance
+
+(theseus-lew7; Eddie's "business wiggle room", 2026-10-03.) The chain's join gate no longer pauses the lanes' compilers,
+so its benches can measure a busy machine, and a busy machine slows the daemon's starts and stops. There, and only
+there, the timing budgets get an overage allowance.
+
+- **When.** Only when the settle step before the bench waited its whole 5 minutes without a quiet window (IO pressure
+  under 10 %, CPU pressure under 20 %, and the load under the core count, all at once). A quiet window, a machine
+  without PSI, or `THESEUS_GATE_BENCH_ALLOWANCE=0` keeps every budget strict, as before. Each settle decides for the
+  run after it, so a rerun after a miss decides again.
+- **What.** The timing budgets only: the lifecycle bench's phases, and the jobs bench's L1 start. A phase over its
+  limit by no more than the allowance, a percentage of the limit, passes. A count never gets one: the turn bench's 5
+  frames are held exactly. The run's other checks (the socket served before the secrets, the swap's job adopted, and
+  the rest) are never excused.
+- **How much.** `THESEUS_GATE_BENCH_ALLOWANCE`, a whole percentage, by default 65, from the bench history on
+  2026-10-03. It had 22 runs at a load of 12 or more at normal priority (the join gates' benches, and the lanes'
+  benches run alone), the code otherwise healthy. In 21 of them every phase was within 63 % over its limit, and in all
+  22 within 75 %. Left out: an IO storm's two runs (several phases at once over twice their limits), and four
+  one-sample stalls over twice a limit (one fsync waiting on a neighbour), which no allowance should cover: the rerun
+  does. On a quiet machine (a load under 8; 68 runs), 3 % of the runs missed a phase, and the rerun covers those, as
+  before.
+- **Seen.** The settle line says the allowance is in force (`lifecycle: still busy after 5 minutes (…); measuring
+  anyway, with the busy allowance: +65% over a timing budget's limit`). A phase it carries prints the bench's own
+  `MISSED`, the strict verdict, and then `lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms,
+  limit 104 ms)`. Its history row keeps `passed` as the strict verdict (`false`), and the allowance in its last column,
+  `allowance`; `bench history` counts those runs ("N of them passed on the busy allowance") and marks each phase the
+  allowance carried. A run of them is either a regression the busy machine hid, or a machine that stays busy: read
+  them before raising the allowance.
 
 ### How long it takes
 
 On a warm target, a few minutes: the suite is about 90 s and the bench about 7 s of it, plus any wait for a quiet
 machine. A lane's niced gate on a warm target took 135 s once it had the lock (2026-10-01: the suite 105 s at 4
 threads, a 15 s wait to settle, the bench 7 s). A fresh worktree's first gate also compiles the whole workspace,
-dependencies at opt-level 2 included, which takes far longer: about 22 minutes at nice 19 beside busy neighbours. In
-inner mode that build runs without the lock, so it holds nobody up. Waiting for the lock behind another gate's tests,
+dependencies at opt-level 2 included, which takes far longer: about 22 minutes at nice 19 beside busy neighbours.
+That build runs without the lock, so it holds nobody up. Waiting for the lock behind another gate's tests,
 and for a quiet machine, can each add minutes, so give the gate's command a timeout of 30 minutes or more (a
 `proc.run` call can ask for up to its `proc_timeout_max_secs`).
 
 ### Running it beside other work
 
-- **The lock** keeps one gate's tests out of another's timing bench (see "The lock: outer and inner"). Whoever takes
+- **The lock** keeps one gate's tests out of another's timing bench (see "The lock"). Whoever takes
   it takes it with `flock -o`, which closes the lock's fd in the gate, so nothing it starts can keep the lock after it.
   Never take it with `exec N>lock; flock N` in a shell that starts anything long-lived.
 - **A lane's gate runs niced**, with its own `CARGO_TARGET_DIR`, and `CARGO_BUILD_JOBS=4` and
   `NEXTEST_TEST_THREADS=4` exported (one or the other, never also nextest's `--test-threads`, which it then refuses
-  as given twice): `THESEUS_GATE_LOCK=inner THESEUS_GATE_NO_BENCH=1 nice -n 19 ionice -c3 scripts/gate.sh`, with no
-  `flock`. The bench runs `target/debug/theseus-sim` by a relative path, so a worktree needs a `target` symlink to its
+  as given twice): `THESEUS_GATE_NO_BENCH=1 nice -n 19 ionice -c3 scripts/gate.sh`, with no `flock`. The bench runs `target/debug/theseus-sim` by a relative path, so a worktree needs a `target` symlink to its
   target dir.
 - **A lane's gate skips the bench** (`THESEUS_GATE_NO_BENCH=1`). The bench's settle step waits for a quiet machine
   while holding the shared lock, so every other agent's gate queued behind it; the join's gate on `main` benches
@@ -135,9 +163,9 @@ and for a quiet machine, can each add minutes, so give the gate's command a time
 - **A niced gate whose only miss is the bench**, beside busier neighbours, counts as green when the bench rerun alone
   at normal priority passes. Quote both runs.
 - **A gate that sits at 0% CPU** is waiting on a lock: this one (held by another gate, or by an orphan that
-  inherited it: scan `/proc/*/fd` for it, since `/proc/locks` hides a dead owner), or cargo's package cache. An
-  inner-mode gate names the holders in its log (`gate: waiting, the lock is held by:`, with each one's worktree). Find the
-  holder before waiting longer, and never kill another agent's process.
+  inherited it: scan `/proc/*/fd` for it, since `/proc/locks` hides a dead owner), or cargo's package cache. The gate
+  names the holders in its log (`gate: waiting, the lock is held by:`, with each one's worktree). Find the holder
+  before waiting longer, and never kill another agent's process.
 
 ### The shape budget
 
@@ -361,7 +389,7 @@ Theseus is built on one WSL2 machine, beside the operator's own running daemon a
 - **`pgrep -f`, `pkill -f`, and `ps | grep` match your own shell**, whose command line holds the pattern. Find a
   process by pid (`$!`, `pgrep -P`) or by `/proc/<pid>/comm`.
 - **`git stash` is shared by every worktree.** Set work aside as a patch file instead.
-- **The gate lock.** An inner-mode gate takes it itself; any other holder uses `flock -o`. A gate at 0% CPU is waiting
+- **The gate lock.** The gate takes it itself; any other holder uses `flock -o`. A gate at 0% CPU is waiting
   on a lock (cargo's package cache, or this one): find the holder before waiting longer.
 - **`/tmp` is wiped by a WSL restart.** Keep harnesses, logs, and reports where they survive, and commit and push at
   every green point: a restart, or an account's usage limit, can end a run at any moment.

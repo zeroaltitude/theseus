@@ -3,27 +3,22 @@
 # Use as `scripts/gate.sh && git commit …` (a `;` anywhere in a hand-written
 # chain once let an unformatted commit through).
 #
-# THE SHARED LOCK (theseus-rx91). The suite's timing-sensitive tests and the benches
-# need the machine to themselves, so one gate's tests never land in another's bench:
-# `~/.cache/theseus-gate.lock` (`$THESEUS_GATE_LOCK_FILE`). Who takes it, and for
-# how long, is the caller's choice, `$THESEUS_GATE_LOCK`:
+# THE SHARED LOCK (theseus-rx91, theseus-lew7). The suite's timing-sensitive tests
+# and the benches need the machine to themselves, so one gate's tests never land in
+# another's bench: `~/.cache/theseus-gate.lock` (`$THESEUS_GATE_LOCK_FILE`). The
+# gate takes it itself, only around the reader rule, the suite, and the benches,
+# after every compile has run without it, so it never holds another gate up through
+# its own fmt, clippy, and builds (minutes), and queues for the tests alone (about
+# two minutes). One mode, everywhere: the outer mode, where the caller held the lock
+# for the whole run, is gone. `THESEUS_GATE_LOCK=inner`, from when there were two,
+# is accepted and changes nothing; `outer` is refused.
 #
-#   outer (the default): the CALLER holds the lock for the whole run, and the gate
-#     takes none: `flock -o ~/.cache/theseus-gate.lock scripts/gate.sh`, or the
-#     chain's theseus-quiet.sh. The join's gate on main runs this way: it wants the
-#     whole machine, and runs rarely.
-#   inner (`THESEUS_GATE_LOCK=inner scripts/gate.sh`): the GATE takes the lock,
-#     only around the reader rule, the suite, and the benches, after every compile
-#     has run without it. A lane's gate runs this way, so it stops holding every
-#     other gate up through its own fmt, clippy, and builds (minutes), and queues
-#     for the tests alone (about two minutes).
-#
-#   *** NEVER WRAP AN INNER-MODE GATE IN `flock`, OR IN theseus-quiet.sh. ***
+#   *** NEVER WRAP THE GATE IN `flock`, OR IN theseus-quiet.sh. ***
 #   The wrapper would hold the lock that the gate then waits for, and the gate would
 #   wait for itself forever. The gate checks, and refuses to start (exit 2) when a
 #   process above it holds the lock.
 #
-# How inner mode works: after its compile phases the gate runs itself again, as
+# How it takes the lock: after its compile phases the gate runs itself again, as
 # `flock -o LOCK gate.sh --locked-part …`, the "locked part", which runs the checks
 # that need the machine. `-o` closes the lock's fd before the part starts, so nothing
 # the tests start (a daemon that outlives its test) can keep the lock after the part
@@ -36,7 +31,7 @@ self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# `--locked-part DIR ASKED LABEL` is the gate calling itself (inner mode), not an option.
+# `--locked-part DIR ASKED LABEL` is the gate calling itself under the lock, not an option.
 part=whole
 if [ "${1:-}" = --locked-part ]; then
   [ "$#" -eq 4 ] || { echo "gate: --locked-part is the gate's own call, not an option" >&2; exit 2; }
@@ -45,14 +40,27 @@ if [ "${1:-}" = --locked-part ]; then
   asked=$3
   label=$4
 elif [ "$#" -ne 0 ]; then
-  echo "usage: scripts/gate.sh   (no arguments; THESEUS_GATE_LOCK=inner|outer, THESEUS_GATE_NO_BENCH=1)" >&2
+  echo "usage: scripts/gate.sh   (no arguments; THESEUS_GATE_NO_BENCH=1, THESEUS_GATE_BENCH_ALLOWANCE=PERCENT)" >&2
   exit 2
 fi
-mode="${THESEUS_GATE_LOCK:-outer}"
-case "$mode" in
-  outer | inner) ;;
+case "${THESEUS_GATE_LOCK:-inner}" in
+  inner) ;;
+  outer)
+    echo "gate: THESEUS_GATE_LOCK=outer is gone (theseus-lew7): the gate takes the shared lock itself, around its tests and benches. Unset it, and run the gate with no flock or theseus-quiet.sh around it" >&2
+    exit 2
+    ;;
   *)
-    echo "gate: THESEUS_GATE_LOCK is '$mode'; it is 'outer' (the default) or 'inner'" >&2
+    echo "gate: THESEUS_GATE_LOCK is '$THESEUS_GATE_LOCK'; leave it unset: the gate takes the shared lock itself" >&2
+    exit 2
+    ;;
+esac
+# The busy allowance (theseus-lew7): the overage a timing budget may take, as a percentage of its limit, when the
+# machine never settled before the bench (see settle()). Calibrated from the bench history: it covers 95% of the
+# runs measured on a busy machine at normal priority, the code otherwise healthy. 0 judges every run strictly.
+allowance="${THESEUS_GATE_BENCH_ALLOWANCE:-65}"
+case "$allowance" in
+  '' | *[!0-9]*)
+    echo "gate: THESEUS_GATE_BENCH_ALLOWANCE is '$allowance'; it is a whole percentage (0: strict)" >&2
     exit 2
     ;;
 esac
@@ -66,13 +74,13 @@ holds_lock() {
   done
   return 1
 }
-# An inner-mode gate under a caller that holds the lock would wait for it forever: say so, and stop.
+# A gate under a caller that holds the lock would wait for it forever: say so, and stop.
 refuse_nested_lock() {
   local pid=$PPID stat
   while [ "$pid" -gt 1 ]; do
     if holds_lock "$pid"; then
-      echo "gate: THESEUS_GATE_LOCK=inner takes the lock itself, but process $pid ($(cat "/proc/$pid/comm" 2>/dev/null)), above this gate, already holds $lock" >&2
-      echo "gate: it would wait for itself forever. Run it without the outer flock (or theseus-quiet.sh), or leave THESEUS_GATE_LOCK unset for the outer mode" >&2
+      echo "gate: the gate takes the shared lock itself, but process $pid ($(cat "/proc/$pid/comm" 2>/dev/null)), above this gate, already holds $lock" >&2
+      echo "gate: it would wait for itself forever. Run it with no flock (or theseus-quiet.sh) around it" >&2
       exit 2
     fi
     stat="$(cat "/proc/$pid/stat" 2>/dev/null)" || return 0
@@ -105,7 +113,7 @@ lock_users() {
   for pid in $queued; do echo "queued $pid $(readlink "/proc/$pid/cwd" 2>/dev/null || echo '?')"; done
   return 0
 }
-if [ "$mode" = inner ] && [ "$part" = whole ]; then refuse_nested_lock; fi
+if [ "$part" = whole ]; then refuse_nested_lock; fi
 
 # Phase timings (theseus-goa8; review 2's C7). Each check runs under `phase`,
 # which times it, and the gate prints the table before it ends, a failed run's
@@ -114,8 +122,8 @@ if [ "$mode" = inner ] && [ "$part" = whole ]; then refuse_nested_lock; fi
 # Each run's table is appended to a log outside the tree, so the gate's own
 # cost has a history (`$THESEUS_GATE_TIMES`, by default
 # `~/.cache/theseus/gate-times.csv`: time, label, phase, seconds, status).
-# In inner mode the table covers both halves, with the wait for the lock as its
-# own row (`lock wait`).
+# The table covers both halves, with the wait for the lock as its own row
+# (`lock wait`).
 history="${THESEUS_BENCH_HISTORY:-$HOME/.cache/theseus/bench-history.csv}"
 times="${THESEUS_GATE_TIMES:-$HOME/.cache/theseus/gate-times.csv}"
 flaky_log="${THESEUS_FLAKY_LOG:-$HOME/.cache/theseus/flaky.csv}"
@@ -254,7 +262,7 @@ protocol_types() {
 # passes. A passing run warns about a phase within 10% of its limit.
 # `theseus-sim bench history` reads it (theseus-1hk).
 lifecycle() {
-  target/debug/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label"
+  target/debug/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label" "${busy_args[@]}"
 }
 # A neighbour's sustained IO (a parallel build, a package install) stalls a
 # start's fsyncs for seconds, and then the bench measures the neighbour, not
@@ -273,7 +281,18 @@ lifecycle() {
 # oversubscribed. That bar, not half the cores, keeps a long neighbouring
 # build from stalling every gate; the wait is bounded at 5 minutes
 # (theseus-611s).
+#
+# When the 5 minutes pass with no quiet window, the bench measures a busy
+# machine, and its timing budgets get the busy allowance (theseus-lew7):
+# `--allowance` with `$THESEUS_GATE_BENCH_ALLOWANCE`, a percentage of each
+# limit. A phase over its limit by no more than that passes, and the bench
+# says so ("busy: allowance +N% applied …"); its history row records the
+# strict verdict, a miss, with the allowance it passed on. A quiet window, a
+# machine without PSI, and an allowance of 0 keep every budget strict, and a
+# count (the turn bench's frames) never gets one.
+busy_args=()
 settle() {
+  busy_args=()
   [ -r /proc/pressure/io ] && [ -r /proc/pressure/cpu ] || return 0
   local io cpu load waited=0
   local cores
@@ -284,7 +303,12 @@ settle() {
     load=$(awk '{print $1}' /proc/loadavg)
     if [ "$io" -lt 10 ] && [ "$cpu" -lt 20 ] && awk -v l="$load" -v c="$cores" 'BEGIN {exit !(l < c)}'; then break; fi
     if [ "$waited" -ge 300 ]; then
-      echo "lifecycle: still busy after 5 minutes (IO pressure $io %, CPU $cpu %, load $load on $cores cores); measuring anyway"
+      if [ "$allowance" -eq 0 ]; then
+        echo "lifecycle: still busy after 5 minutes (IO pressure $io %, CPU $cpu %, load $load on $cores cores); measuring anyway, strictly (THESEUS_GATE_BENCH_ALLOWANCE=0)"
+      else
+        busy_args=(--allowance "$allowance")
+        echo "lifecycle: still busy after 5 minutes (IO pressure $io %, CPU $cpu %, load $load on $cores cores); measuring anyway, with the busy allowance: +$allowance% over a timing budget's limit"
+      fi
       return 0
     fi
     sleep 5
@@ -320,17 +344,18 @@ lifecycle_bench() {
 # A real start (a clone, namespaces) can't run on a paused clock, and the suite
 # runs under any load (its own tests beside it put a p95 at 1.1 s), so the suite
 # measures the row and this bounds it, on the machine the lifecycle bench just
-# settled. Skipped with it in a lane's gate; a miss reruns once, as its does.
+# settled, with the busy allowance when that settle found no quiet window.
+# Skipped with it in a lane's gate; a miss reruns once, as its does.
 jobs_bench() {
   if [ -n "${THESEUS_GATE_NO_BENCH:-}" ]; then
     echo "jobs: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
     return 0
   fi
-  target/debug/theseus-sim bench jobs --class l1 --runs 20 --check || {
+  target/debug/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}" || {
     echo "jobs: an L1 start's p95 missed its target; running the bench once more"
     sync
     settle
-    target/debug/theseus-sim bench jobs --class l1 --runs 20 --check
+    target/debug/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}"
   }
 }
 
@@ -402,10 +427,9 @@ web_dist() {
   git diff --quiet -- crates/theseusd/web/dist || { echo "web dist changed by the build: commit it"; exit 1; }
 }
 
-# The binaries the benches run, one list for both modes: built after the suite in outer mode (`build`),
-# and before the lock in inner mode (`bench build`). It is the five an install ships, scripts/build.sh's
-# list (theseus-o8nk), so the benches run binaries with an install's features; a tool the benches start
-# that an install does not ship is added here too.
+# The binaries the benches run, built before the lock (`bench build`). It is the five an install ships,
+# scripts/build.sh's list (theseus-o8nk), so the benches run binaries with an install's features; a tool
+# the benches start that an install does not ship is added here too.
 bench_build() {
   cargo build -q -p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index
 }
@@ -421,27 +445,24 @@ compiled_under_lock() {
   fi
 }
 
-# The checks that need the machine to themselves, in order: the lock is held across them. In
-# outer mode the caller holds it and this runs inside the whole gate, with the bench binaries
-# built between the suite and the benches; in inner mode it is the locked part, whose binaries
-# the compile phases built beforehand. Cargo links the binaries of the build it last ran, so in
-# inner mode the benches run the test build's `theseusd` and `theseus-sim` (the workspace's
-# features, which the install has too; the suite's cargo links them over the `-p` build's, and the
-# compile phases run the test build last, so they leave what the benches will find), and in
-# outer mode the `-p` build's.
+# The checks that need the machine to themselves, in order: the locked part, which holds the
+# lock across them, and whose binaries the compile phases built beforehand. Cargo links the
+# binaries of the build it last ran, so the benches run the test build's `theseusd` and
+# `theseus-sim` (the workspace's features, which the install has too; the suite's cargo links
+# them over the `-p` build's, and the compile phases run the test build last, so they leave
+# what the benches will find).
 machine_checks() {
   phase "reader rule" registry
   phase suite suite
   phase "protocol types" protocol_types
-  if [ "$mode" = inner ]; then compiled_under_lock; fi
-  if [ "$mode" = outer ]; then phase build bench_build; fi
+  compiled_under_lock
   phase lifecycle lifecycle_bench
   phase jobs jobs_bench
   phase turn turn_step
 }
 
-# Inner mode: take the lock around machine_checks, by running the gate again as the locked part.
-# The wait, the hold, and the part's phases go into this run's log and table.
+# Take the lock around machine_checks, by running the gate again as the locked part. The wait,
+# the hold, and the part's phases go into this run's log and table.
 locked_checks() {
   local asked status=0 began="" kind secs name rec="$gate_tmp/locked.rec" users held queued
   asked=$(date +%s)
@@ -503,17 +524,13 @@ phase fmt cargo fmt --all -- --check
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
-if [ "$mode" = inner ]; then
-  # Every compile first, without the lock: the bench binaries, then the test binaries (what the suite runs).
-  # Cargo links the binaries of the build it ran last, and the suite's cargo (in the locked part) links the
-  # test build's, so this order leaves target/debug as the benches will find it.
-  # (`env -u`: nextest warns that --no-run ignores the lane's NEXTEST_TEST_THREADS.)
-  phase "bench build" bench_build
-  phase "test build" env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run
-  locked_checks
-else
-  machine_checks
-fi
+# Every compile first, without the lock: the bench binaries, then the test binaries (what the suite runs).
+# Cargo links the binaries of the build it ran last, and the suite's cargo (in the locked part) links the
+# test build's, so this order leaves target/debug as the benches will find it.
+# (`env -u`: nextest warns that --no-run ignores the lane's NEXTEST_TEST_THREADS.)
+phase "bench build" bench_build
+phase "test build" env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run
+locked_checks
 phase deny deny_check
 phase web web_apps
 phase cockpit cockpit

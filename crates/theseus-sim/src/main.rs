@@ -253,6 +253,13 @@ enum BenchCmd {
         /// own, measured on this machine (`lifecycle::margin_ms`).
         #[arg(long)]
         margin_ms: Option<f64>,
+        /// The busy allowance, a percentage of each limit (theseus-lew7): a
+        /// phase over its limit by no more than this passes --check, and says
+        /// so. The gate gives it only when its settle step found no quiet
+        /// window. The history records the strict verdict, a miss, with the
+        /// allowance the run passed on.
+        #[arg(long, default_value_t = 0)]
+        allowance: u32,
         /// Also write the report as JSON here.
         #[arg(long)]
         json: Option<PathBuf>,
@@ -362,6 +369,7 @@ fn main() -> Result<()> {
                     phases,
                     check,
                     margin_ms,
+                    allowance,
                     json,
                     dir,
                     config,
@@ -402,28 +410,7 @@ fn main() -> Result<()> {
             if let Some(path) = json {
                 std::fs::write(&path, serde_json::to_vec_pretty(&report)?)?;
             }
-            if let Some(path) = record {
-                let label = label.unwrap_or_default();
-                let row = history::Row::of(
-                    &report.phases,
-                    &report.verdicts,
-                    report.ok(),
-                    &label,
-                    history::load1(),
-                    history::now(),
-                );
-                match history::append(&path, &row) {
-                    Ok(()) => println!("lifecycle: recorded in {} as {label:?}", path.display()),
-                    Err(e) => eprintln!("lifecycle: the run was NOT recorded: {e:#}"),
-                }
-            }
-            // Drift shows before it fails: a warning, never a failure.
-            if report.ok() {
-                for line in history::near_limits(&report.verdicts) {
-                    println!("{line}");
-                }
-            }
-            if check && !report.ok() {
+            if !lifecycle_verdict(&report, record, label, allowance) && check {
                 std::process::exit(1);
             }
             Ok(())
@@ -592,6 +579,50 @@ fn main() -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// The lifecycle bench's verdict after its report, and its row in the history
+/// when `record` names one: whether the run passed, strictly or on the busy
+/// allowance (theseus-lew7). A run the allowance carried says so phase by
+/// phase, and its row records the strict verdict, a miss, with the allowance.
+fn lifecycle_verdict(
+    report: &lifecycle::Report,
+    record: Option<PathBuf>,
+    label: Option<String>,
+    allowance: u32,
+) -> bool {
+    let passed = report.ok();
+    let carried = !passed && report.ok_with(allowance);
+    if let Some(path) = record {
+        let label = label.unwrap_or_default();
+        let mut row = history::Row::of(
+            &report.phases,
+            &report.verdicts,
+            passed,
+            &label,
+            history::load1(),
+            history::now(),
+        );
+        row.allowance = carried.then_some(allowance);
+        match history::append(&path, &row) {
+            Ok(()) => println!("lifecycle: recorded in {} as {label:?}", path.display()),
+            Err(e) => eprintln!("lifecycle: the run was NOT recorded: {e:#}"),
+        }
+    }
+    if passed {
+        // Drift shows before it fails: a warning, never a failure.
+        for line in history::near_limits(&report.verdicts) {
+            println!("{line}");
+        }
+    } else if carried {
+        for line in history::allowance_applied("lifecycle", &report.verdicts, allowance) {
+            println!("{line}");
+        }
+        println!(
+            "lifecycle: passed on the busy allowance (+{allowance}%); the history records the strict verdict, a miss"
+        );
+    }
+    passed || carried
 }
 
 // ---------------------------------------------------------------- workload

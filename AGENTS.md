@@ -171,9 +171,9 @@ Each traces to the Part III item that taught it.
   A lane pushes only its own branch. The reviewer merges it once reviewed, one lane at a time and never while a
   spine step works on `main`: rebased, `Cargo.lock` regenerated, the whole gate, `main` fast-forwarded, and the
   branch and worktree deleted.
-- **The gate before every commit.** A lane: `THESEUS_GATE_LOCK=inner THESEUS_GATE_NO_BENCH=1 scripts/gate.sh && git
-  commit …`, which takes the shared lock itself (never also wrap it in `flock`). The chain's gate on `main`: `flock -o
-  ~/.cache/theseus-gate.lock scripts/gate.sh && …`. Chain with `&&`, never `;`. `scripts/AGENTS.md` has the rest.
+- **The gate before every commit.** A lane: `THESEUS_GATE_NO_BENCH=1 scripts/gate.sh && git commit …`. The chain's
+  gate on `main`: `scripts/gate.sh && …`, with its benches. The gate takes the shared lock itself, so never wrap it in
+  `flock` or `theseus-quiet.sh`. Chain with `&&`, never `;`. `scripts/AGENTS.md` has the rest.
 - **Commits** are signed (`git commit -S`), one per green sub-step. The subject is `area: what changed (<issue>)`,
   the area in lower case (`kernel`, `store`, `toolrun`, `cli`, `docs`, …), and the body says what changed and why, in
   plain words. A trailer names the agent, as `Co-Authored-By: Tabitha/Claude <noreply@anthropic.com>` does, or the

@@ -15,6 +15,15 @@
 //! same file (theseus-goa8): the columns after the lifecycle's phases (`OTHER`),
 //! each with its unit, empty in a row of another bench.
 //!
+//! The busy allowance (theseus-lew7): when the gate's settle step finds no
+//! quiet window, it gives the timing benches `--allowance PERCENT`, and a
+//! phase over its limit by no more than that share of it passes. `passed`
+//! stays the strict verdict, and the last column, `allowance`, holds the
+//! percentage a run passed on (empty for every other run), so a trend of runs
+//! that passed only on it shows: `bench history` counts them, and marks each
+//! phase it carried "busy: allowance +N% applied (measured X ms, limit Y ms)".
+//! A count, such as a turn's frames, never gets an allowance.
+//!
 //! The file is `$THESEUS_BENCH_HISTORY`, or `~/.cache/theseus/bench-history.csv`,
 //! outside the tree: a tracked file the gate rewrote would dirty every commit.
 //! Every worktree shares it, and the gate lock serializes its writers. A row
@@ -88,7 +97,12 @@ pub struct Row {
     pub load1: Option<f64>,
     /// The phases the run measured, in the order of the file's columns.
     pub phases: Vec<PhaseRow>,
+    /// The strict verdict: every budget met within its limit.
     pub passed: bool,
+    /// The busy allowance the run passed on, a percentage of each limit: set
+    /// only on a run that missed strictly (`passed` is false) and passed with
+    /// the allowance the gate gave it, the machine having never settled.
+    pub allowance: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +148,7 @@ impl Row {
             load1: load1.map(round2),
             phases,
             passed,
+            allowance: None,
         }
     }
 
@@ -148,13 +163,14 @@ impl Row {
             }
         }
         f.push(self.passed.to_string());
+        f.push(self.allowance.map_or(String::new(), |a| a.to_string()));
         f.join(",")
     }
 }
 
 /// The history's header: the time, the label, the load, three columns per
 /// phase (`cold_p50`, `cold_p95`, `cold_limit`, …; the other benches' too),
-/// and `passed`.
+/// `passed`, and `allowance`.
 pub fn header() -> String {
     let mut h = vec!["time".to_string(), "label".to_string(), "load1".to_string()];
     for name in columns() {
@@ -165,6 +181,7 @@ pub fn header() -> String {
         ]);
     }
     h.push("passed".to_string());
+    h.push("allowance".to_string());
     h.join(",")
 }
 
@@ -255,6 +272,14 @@ pub fn parse(header: &[String], line: &str) -> Result<Row, String> {
             Some("true") => true,
             Some("false") => false,
             other => return Err(format!("passed is {other:?}, not true or false")),
+        },
+        // Absent under a header from before theseus-lew7.
+        allowance: match col("allowance") {
+            None | Some("") => None,
+            Some(s) => Some(
+                s.parse()
+                    .map_err(|_| format!("allowance is {s:?}, not a whole percentage"))?,
+            ),
         },
     })
 }
@@ -393,9 +418,49 @@ pub fn near(p95: f64, limit: f64) -> bool {
     p <= l && (l - p) * 100 <= l * NEAR_PERCENT
 }
 
+/// The busy allowance (theseus-lew7): whether `p95` is at or under `limit`
+/// plus `pct` % of it. In whole microseconds, as [`near`] is, so the edge is
+/// exact: 94.18 ms against 57.08 plus 65% is in.
+pub fn within(p95: f64, limit: f64, pct: u32) -> bool {
+    let us = |ms: f64| (ms * 1000.0).round() as i64;
+    us(p95) * 100 <= us(limit) * (100 + i64::from(pct))
+}
+
+/// Whether a verdict passes with the busy allowance `pct`: it met its limit,
+/// or it is a time over its limit by no more than the allowance. A count (a
+/// turn's frames) is held to its budget exactly, whatever the allowance, and
+/// an allowance of 0 is the strict verdict.
+pub fn allowed(v: &Verdict, pct: u32) -> bool {
+    v.ok || (pct > 0 && unit(&v.phase) == "ms" && within(v.p95, v.budget + v.margin, pct))
+}
+
+/// What a phase the allowance carried says, in the gate's log and in `bench
+/// history`: `busy: allowance +65% applied (measured 112.0 ms, limit 104 ms)`.
+fn applied(pct: u32, what: &str, p95: f64, limit: f64) -> String {
+    format!("busy: allowance +{pct}% applied{what} (measured {p95:.1} ms, limit {limit} ms)")
+}
+
+/// For a run that missed strictly: one line for each verdict the allowance
+/// `pct` carried, such as `lifecycle: busy: allowance +65% applied to clean
+/// shutdown (measured 112.0 ms, limit 104 ms)`.
+pub fn allowance_applied(bench: &str, verdicts: &[Verdict], pct: u32) -> Vec<String> {
+    verdicts
+        .iter()
+        .filter(|v| !v.ok && allowed(v, pct))
+        .map(|v| {
+            let what = format!(" to {}", name(&v.phase));
+            format!(
+                "{bench}: {}",
+                applied(pct, &what, v.p95, round2(v.budget + v.margin))
+            )
+        })
+        .collect()
+}
+
 /// A phase's name in a sentence.
 fn name(phase: &str) -> &str {
     match phase {
+        "l1_start" => "an L1 job's start",
         "cold" => "cold start",
         "vault" => "cold start from the config copy",
         "shutdown" => "clean shutdown",
@@ -468,6 +533,47 @@ pub fn record(
     }
 }
 
+/// One phase of one run, as `bench history` shows it: its limit and headroom,
+/// what it did against the limit, and what its run did.
+struct Marks {
+    limit: String,
+    headroom: String,
+    mark: String,
+    run: &'static str,
+}
+
+/// A phase over its limit is `MISSED`, or carried by the run's busy
+/// allowance; one within 10% of it says so when `warn`; and a phase of a run
+/// that missed, or passed only on the allowance, says that.
+fn marks(r: &Row, p: &PhaseRow, warn: bool) -> Marks {
+    let over = p.limit.is_some_and(|l| p.p95 > l);
+    let run = match (r.passed || over, r.allowance) {
+        (true, _) => "",
+        (false, Some(_)) => "  (the run passed on the busy allowance)",
+        (false, None) => "  (the run missed)",
+    };
+    let Some(l) = p.limit else {
+        return Marks {
+            limit: "-".to_string(),
+            headroom: "-".to_string(),
+            mark: String::new(),
+            run,
+        };
+    };
+    let mark = match r.allowance {
+        Some(a) if over && within(p.p95, l, a) => format!("  {}", applied(a, "", p.p95, l)),
+        _ if over => "  MISSED".to_string(),
+        _ if warn && near(p.p95, l) => "  within 10%".to_string(),
+        _ => String::new(),
+    };
+    Marks {
+        limit: l.to_string(),
+        headroom: format!("{:.1}", l - p.p95),
+        mark,
+        run,
+    }
+}
+
 /// `bench history`: the last `last` runs of each phase, with the headroom
 /// left (the limit minus the p95).
 pub fn render(path: &Path, history: Option<&History>, last: usize) -> String {
@@ -481,11 +587,17 @@ pub fn render(path: &Path, history: Option<&History>, last: usize) -> String {
         return o;
     };
     let missed = h.rows.iter().filter(|r| !r.passed).count();
+    let carried = h.rows.iter().filter(|r| r.allowance.is_some()).count();
     let _ = writeln!(
         o,
-        "bench history · {} · {} run(s), {missed} missed{}",
+        "bench history · {} · {} run(s), {missed} missed{}{}",
         path.display(),
         h.rows.len(),
+        if carried > 0 {
+            format!(" ({carried} of them passed on the busy allowance)")
+        } else {
+            String::new()
+        },
         if h.rows.is_empty() {
             String::new()
         } else {
@@ -535,25 +647,12 @@ pub fn render(path: &Path, history: Option<&History>, last: usize) -> String {
         );
         for (r, p) in shown {
             let load = r.load1.map_or("-".to_string(), |l| format!("{l:.2}"));
-            let (limit, headroom, mark) = match p.limit {
-                Some(l) => (
-                    l.to_string(),
-                    format!("{:.1}", l - p.p95),
-                    if p.p95 > l {
-                        "  MISSED"
-                    } else if warns_near(phase) && near(p.p95, l) {
-                        "  within 10%"
-                    } else {
-                        ""
-                    },
-                ),
-                None => ("-".to_string(), "-".to_string(), ""),
-            };
-            let run = if !r.passed && mark != "  MISSED" {
-                "  (the run missed)"
-            } else {
-                ""
-            };
+            let Marks {
+                limit,
+                headroom,
+                mark,
+                run,
+            } = marks(r, p, warns_near(phase));
             let _ = writeln!(
                 o,
                 "  {:<25}  {:<width$}  {load:>5}  {:>w$.1}  {:>w$.1}  {limit:>6}  {headroom:>8}{mark}{run}",
@@ -628,13 +727,14 @@ mod tests {
             format!(
                 "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
              23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,\
-             {},true",
+             {},true,",
                 // The other benches' columns, empty: three cells for each.
+                // The last cell, the allowance, is empty: the run passed strictly.
                 ",".repeat(3 * OTHER.len())
             )
         );
         let cols = split(&header()).unwrap();
-        assert_eq!(cols.len(), 3 + 3 * columns().count() + 1);
+        assert_eq!(cols.len(), 3 + 3 * columns().count() + 2);
         assert_eq!(parse(&cols, &line).unwrap(), r);
 
         // A label with a comma, a quote, and a newline: one line, and back.
@@ -702,6 +802,10 @@ mod tests {
         assert_eq!(h.rows.len(), 2);
         assert_eq!(h.rows[0].phases.len(), 1);
         assert_eq!(h.rows[0].phases[0].p95, 56.7);
+        assert_eq!(
+            h.rows[0].allowance, None,
+            "no allowance column, no allowance"
+        );
         // Every phase the row measured: all but `inflight` (theseus-ndw).
         assert_eq!(h.rows[1].phases.len(), PHASES.len() - 1);
     }
@@ -818,5 +922,97 @@ mod tests {
         );
         // Restore has no limit, so no headroom.
         assert!(out.contains("restore from a local WAL (restore)"), "{out}");
+    }
+
+    #[test]
+    fn the_busy_allowance_carries_a_time_and_never_a_count() {
+        // At the edge, exactly: 57.08 ms plus 65% is 94.182 ms.
+        assert!(within(94.18, 57.08, 65));
+        assert!(!within(94.19, 57.08, 65));
+        assert!(within(57.0, 57.0, 0), "at the limit is in, with none");
+        assert!(!within(57.01, 57.0, 0));
+
+        // A cold start 10% over its 57 ms limit: carried by 65% and by 11%, not
+        // by 5%, nor by 0, which is the strict verdict.
+        let v = verdicts(&[("cold".to_string(), summary(23.8, 62.8))], 0, None);
+        assert!(!v[0].ok);
+        assert!(allowed(&v[0], 65) && allowed(&v[0], 11));
+        assert!(!allowed(&v[0], 5));
+        assert!(
+            !allowed(&v[0], 0),
+            "an allowance of 0 is the strict verdict"
+        );
+
+        // A count is held to its budget whatever the allowance: one frame over.
+        let frames = crate::perf::turn_verdicts(&summary(6.0, 6.0));
+        assert!(!frames[0].ok);
+        assert!(!allowed(&frames[0], 100));
+
+        // A phase within its limit passes with or without one.
+        let ok = verdicts(&[("shutdown".to_string(), summary(41.6, 51.9))], 0, None);
+        assert!(allowed(&ok[0], 0) && allowed(&ok[0], 65));
+
+        // The lines name each phase the allowance carried, and only those: not a
+        // phase within its limit, and not one past the allowance too.
+        let v = verdicts(
+            &[
+                ("cold".to_string(), summary(23.8, 33.5)),
+                ("shutdown".to_string(), summary(70.0, 112.0)),
+                ("kill".to_string(), summary(300.0, 400.0)),
+            ],
+            0,
+            None,
+        );
+        assert_eq!(
+            allowance_applied("lifecycle", &v, 65),
+            ["lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms, limit 104 ms)"]
+        );
+        assert!(allowance_applied("lifecycle", &v, 0).is_empty());
+    }
+
+    #[test]
+    fn a_run_the_allowance_carried_reads_back_and_is_counted_apart() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("h.csv");
+        // A busy run: the cold start 7% over its limit, carried by 65%. Its
+        // strict verdict is a miss.
+        let mut carried = row("main busy", 61.2);
+        assert!(!carried.passed);
+        carried.allowance = Some(65);
+        assert!(
+            carried.to_csv().ends_with(",false,65"),
+            "{}",
+            carried.to_csv()
+        );
+        append(&path, &row("main quiet", 33.5)).unwrap();
+        append(&path, &carried).unwrap();
+        append(&path, &row("main miss", 99.0)).unwrap();
+        let h = read(&path).unwrap().unwrap();
+        assert!(h.skipped.is_empty(), "{:?}", h.skipped);
+        assert_eq!(h.rows[1], carried);
+        assert_eq!((h.rows[0].allowance, h.rows[2].allowance), (None, None));
+
+        let out = render(&path, Some(&h), 3);
+        assert!(
+            out.contains("3 run(s), 2 missed (1 of them passed on the busy allowance)"),
+            "{out}"
+        );
+        let line = |label: &str, end: &str| {
+            out.lines()
+                .any(|l| l.contains(label) && l.contains("  2026") && l.ends_with(end))
+        };
+        assert!(
+            line(
+                "main busy",
+                "busy: allowance +65% applied (measured 61.2 ms, limit 57 ms)"
+            ),
+            "{out}"
+        );
+        assert!(line("main miss", "MISSED"), "{out}");
+        // Its phases within their limits say how the run passed.
+        assert!(
+            line("main busy", "(the run passed on the busy allowance)"),
+            "{out}"
+        );
     }
 }

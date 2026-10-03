@@ -19,7 +19,8 @@ use anyhow::{bail, Context, Result};
 use theseus_kernel::job::{self, WrapperArgs, L1};
 use theseus_kernel::Spool;
 
-use crate::lifecycle::percentile;
+use crate::history;
+use crate::lifecycle::{percentile, Verdict};
 
 /// §2.2's target for an L1 start's p95.
 const START_P95_MS: f64 = 25.0;
@@ -40,6 +41,11 @@ pub struct JobsArgs {
     /// Exit 1 when an L1 start's p95 is over 25 ms.
     #[arg(long)]
     check: bool,
+    /// The busy allowance, a percentage of the 25 ms (theseus-lew7): a p95
+    /// over it by no more than this passes --check, and says so. The gate
+    /// gives it only when its settle step found no quiet window.
+    #[arg(long, default_value_t = 0)]
+    allowance: u32,
 }
 
 pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
@@ -107,15 +113,24 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
             );
         } else {
             let p95 = p(&start, 95.0);
-            let ok = p95 < START_P95_MS;
-            miss |= !ok;
+            let v = Verdict {
+                phase: "l1_start".to_string(),
+                p95,
+                budget: START_P95_MS,
+                margin: 0.0,
+                ok: p95 < START_P95_MS,
+            };
+            miss |= !history::allowed(&v, a.allowance);
             println!(
                 "  {class}: start p50 {:.2} ms, p95 {p95:.2} ms (target under {START_P95_MS} ms: {}); total p50 {:.2} ms, p95 {:.2} ms",
                 p(&start, 50.0),
-                if ok { "ok" } else { "MISSED" },
+                if v.ok { "ok" } else { "MISSED" },
                 p(&total, 50.0),
                 p(&total, 95.0),
             );
+            for line in history::allowance_applied("jobs", &[v], a.allowance) {
+                println!("{line}");
+            }
         }
     }
     if a.check && miss {
