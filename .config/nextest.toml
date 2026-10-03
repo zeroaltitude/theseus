@@ -22,12 +22,6 @@ leak-timeout = "500ms"
 filter = 'package(theseusd) & test(=the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_place)'
 retries = 2
 #
-# theseus-3dsz: while a stop waits out its grace, health must answer in under 500 ms, and one
-# scheduler stall on a loaded machine (880 ms at load 23 to 27) fails it.
-[[profile.default.overrides]]
-filter = 'package(theseusd) & test(=a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker)'
-retries = 2
-#
 # theseus-6a7o: a duration in the transcript's text has a digit more or less with the load, so
 # the output golden's request size for the parent's turn that reads a report moves by a byte
 # (17,219 run alone, 17,220 in a full suite; security3's join, 2026-10-02 12:08).
