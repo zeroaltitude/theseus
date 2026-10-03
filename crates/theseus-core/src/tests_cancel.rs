@@ -123,6 +123,7 @@ async fn a_cancel_aborts_an_async_tools_task_and_verifies_it() {
                     recompile: None,
                     attachments: vec![],
                     arrived: None,
+                    from_discord: false,
                     config_wait_us: 0,
                     reply_to: None,
                 })
