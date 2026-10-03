@@ -301,7 +301,9 @@ mod tests {
 
     /// A burst is counted whole in health and ledgered as two rows, not one
     /// per request: the first at once, the rest in the span's one row.
-    #[tokio::test]
+    // On the paused clock (theseus-56r7): "within one span" is a fact of the test, and
+    // the sleeps move it, not the scheduler.
+    #[tokio::test(start_paused = true)]
     async fn a_burst_of_refusals_is_counted_and_ledgered_at_most_once_a_span() {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(&d.path().join("store")).unwrap();
@@ -356,7 +358,9 @@ mod tests {
 
     /// The dev page's uses (theseus-zab) are counted whole and ledgered as
     /// `web.dev_origin` under the same rule, apart from the refusals.
-    #[tokio::test]
+    // On the paused clock (theseus-56r7): "within one span" is a fact of the test, and
+    // the sleeps move it, not the scheduler.
+    #[tokio::test(start_paused = true)]
     async fn the_dev_origins_uses_are_counted_and_ledgered_at_most_once_a_span() {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(&d.path().join("store")).unwrap();

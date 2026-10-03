@@ -35,20 +35,6 @@ retries = 2
 filter = 'package(theseus-core) & test(=tests_output::the_cores_output_matches_its_golden)'
 retries = 2
 #
-# theseus-56r7: three dev-page uses must land in one 300 ms span of the wall clock, so a
-# scheduler stall under load (load 4, nice 19; spine 17b's gate, 2026-10-02 12:39) makes a
-# second web.dev_origin row.
-[[profile.default.overrides]]
-filter = 'package(theseus-core) & test(=webui::tests::the_dev_origins_uses_are_counted_and_ledgered_at_most_once_a_span)'
-retries = 2
-#
-# theseus-56r7 too: the refusals' burst test has the same 300 ms span of the wall clock; under
-# load its later burst landed in the earlier span and wrote 4 rows, not 5 (18a's join gate,
-# 2026-10-02 18:29).
-[[profile.default.overrides]]
-filter = 'package(theseus-core) & test(=webui::tests::a_burst_of_refusals_is_counted_and_ledgered_at_most_once_a_span)'
-retries = 2
-#
 # theseus-tphr: health's refused_records is compared with total - shown from an earlier ledger.tail,
 # two reads that are not one snapshot, so a row written after serving between them counts once more
 # (5 against 6; spine gh7s's fourth gate, 2026-10-03 00:53, load 3.6).
