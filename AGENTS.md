@@ -10,7 +10,7 @@ Theseus is a durable agent runtime in Rust: `theseusd`, a daemon that owns the t
 log of everything it does; `theseus`, a thin CLI over the daemon's JSON-RPC protocol; and two web apps the daemon
 serves. AI agents build it in small, reviewed steps.
 
-- **The spec, `docs/the-ship-of-theseus.md`**, is the source of truth. It is about 7,500 lines: find a section with
+- **The spec, `docs/the-ship-of-theseus.md`**, is the source of truth. It is about 8,600 lines: find a section with
   `grep -n '^##'`, and read it by ranges. Part I is the specification (§1 settled decisions, §2 principles, §9
   budgets), Part II the plan (P0 holds the standing rules), and Part III the record: one item per step, with what it
   built, how it was proven, where it diverged, and what it left open.
@@ -30,7 +30,7 @@ serves. AI agents build it in small, reviewed steps.
 | `theseus-store` | The keel: a WAL of checksummed atomic frames (the truth), and a redb index rebuilt from it. | `wal.rs`, `index.rs`, `record.rs` (`kinds::SCHEMAS`), `store.rs` | kernel, core, theseusd, sim |
 | `theseus-kernel` | The durable kernel: executions, actions, completions, the spool, budgets, locks, tasks, wakes, stops, the outbox's actions, the job wrapper. | `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.rs` | core, discord, theseusd, sim |
 | `theseus-tools` | Toollets: `fs.*`, `git.diff`, `git.log`, `text.diff`, and `proc.run`'s spec. | `fs.rs`, `git.rs`, `proc.rs`, `paths.rs` | core |
-| `theseus-core` | The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools. | `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `aws/` | theseusd, discord, sim |
+| `theseus-core` | The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools. | `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash.rs`, `aws/` | theseusd, discord, sim |
 | `theseus-aws-catalog`, `theseus-aws` | Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1). | `classify.rs`, `describe.rs`; `client.rs`, `error.rs` | core (`aws/`) |
 | `theseus-discord` | The Discord binding, in-process; it acts through the protocol. | `runtime.rs`, `courier.rs`, `render.rs` | theseusd |
 | `theseus-sandbox` | L1: a job in its own namespaces, seccomp, and cgroup; the egress proxy (wired at 18c) | `spawn.rs`, `init.rs`, `view.rs` | the kernel's `job_l1.rs` |
@@ -39,7 +39,7 @@ serves. AI agents build it in small, reviewed steps.
 | `theseus-tui` | The terminal UI: every session in a sidebar, what needs you answered inline, a session's history and input line. A protocol client. | `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs` | `theseus tui`, which execs it |
 | `theseus-index` | The index tender (M6): a child of the daemon that follows the WAL read-only into BM25, exact entities, and vectors, and answers on `<state>/index/sock`. An installed binary of its own, beside `theseusd`. | `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs` | `theseusd`, which runs it after serving (row 51; the core's `tender.rs`) |
 | `theseus-follow` | The WAL follower: a store's log read from outside the process that writes it, from a cursor, woken by inotify. | `lib.rs`, `wake.rs` | `theseus-index` (and step 15's durability tender) |
-| `theseus-sim` | A tool beside the binaries: the crash test, `kernel-sim`, the lifecycle bench and its history, fake Discord and model servers. | `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs` | the gate, and tests |
+| `theseus-sim` | A tool beside the binaries: the crash test, `kernel-sim`, the lifecycle bench and its history, fake Discord and model servers, and the Discord proof. | `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.rs` | the gate, and tests |
 
 The rest were merged ahead of their reader (Part III Items 16, 18, and 20). Each says so in its own manifest:
 `reserved_for` under `[package.metadata.theseus]` names the roadmap row that wires it in (Item 32):
@@ -97,7 +97,7 @@ Directory guides: each crate in the first table, `web`, `cockpit`, and `scripts`
 - **The outbox**: `crates/theseus-kernel/src/outbox.rs`, `crates/theseus-core/src/outbox.rs`, and
   `crates/theseus-discord/src/courier.rs`.
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
-  (`theseusd example-config` prints it).
+  (`theseusd example-config` prints it, with an operator's private overlay in place: `config_overlay.rs`).
 - **L1**: `crates/theseus-core/src/sandbox.rs` (`[sandbox]`, the class, the probe), and the wrapper's L1 path in
   `crates/theseus-kernel/src/job_l1.rs`.
 - **The index tender**: the binary in `crates/theseus-index`, its supervisor in `crates/theseus-core/src/tender.rs`
@@ -128,8 +128,9 @@ Each is a requirement, with its spec section.
   `tests_registry` in theseus-core enforces it, and the gate runs it first. A ledger kind (`LedgerKind`) is declared
   by being written; the same test fails a kind nothing writes.
 - **The store's version rule** (P5b; Part III F4a). A record layout change bumps its kind in `kinds::SCHEMAS`, with
-  a reader for the old layout and a test that reads it. A frame or record encoding change bumps `MANIFEST_FORMAT`.
-  A build refuses a store newer than it knows. Schema numbers are assigned when a step lands on `main`.
+  a reader for the old layout and a test that reads it, its old bytes a literal (Item 61). A frame or record
+  encoding change bumps `MANIFEST_FORMAT`. A build refuses a store newer than it knows. Schema numbers are assigned
+  when a step lands on `main`.
 - **A typed protocol** (§1, "Wire protocol"; §3.18; Item 30). Every client, the CLI, Discord, and the web apps
   included, reaches the core only through the protocol. Each wire shape has one Rust definition, and the TypeScript is
   generated from it.

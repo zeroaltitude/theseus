@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-02 17:08 MST. Version 0.0.1; the design document is at v0.77._
+_Updated 2026-10-02 19:40 MST. Version 0.0.1; the design document is at v0.78._
 
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
@@ -32,6 +32,15 @@ for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
 - **Sandboxed commands (L1).** A command the agent asks to sandbox runs with no network, no secret, its writes
   discarded, and its own memory and process limits, at notify, unless your own setting for commands asks first. It
   never falls back to the host.
+- **A cancel that says how it knows.** A cancel or a stop ends every process of a job, one that detached into a
+  session of its own too, and says how that is known, in the terminal (`⏹️ cancelled proc.run …a1b2c3 (verified:
+  process tree, 2 processes)`) and on Discord. A sandboxed job's end is verified by its own process namespace or
+  its cgroup.
+- **Confidentiality labels.** Every new message, result, and answer records who may read it, and a session's
+  context holds only what its audience may. In a Discord channel other people can see, what your files, commands,
+  and AWS return is left out, each as a one-line placeholder that says why; your DMs, the terminal, and the web UI
+  hold everything. `theseus labels` shows a session's audience and each message's label, and `theseus health` says,
+  for each channel, whether anything is withheld there.
 - **Search over every session.** The index tender, a process of its own beside the daemon, keeps every session in
   a search index (words, exact names, and vectors); `theseus index search` finds a phrase from any of them.
 - **AWS reads** on Theseus's own account, once the config binds it: any read of any service, the service catalog,
@@ -61,12 +70,21 @@ These are built and tested in their own crates, and each is wired into the core 
 - **Jev in the loop:** the client and its question packs (M5, in shadow first).
 - **Memory and recall:** vector search, weighted fusion, forgetting, and the memory math. The memory exam
   measures each part before it goes live (M6). The index tender runs; recall in turns is next.
-- **Sandboxes:** L1 runs commands now; the egress proxy, which keeps credentials out of the sandbox, is next (M4).
+- **Sandboxes:** L1 runs commands, and a cancel of one is verified; the egress proxy, which keeps credentials out
+  of the sandbox, is being wired in now (M4).
 - **AWS hands:** the guardrails and the account's templates. The account comes under Theseus's ownership with
   spending tripwires: $50 a month, $5 a day, and $1 an hour. Its reads are in; its writes, with the guards, are
   next.
 - **MCP** in both directions, and the **voice** engine for Discord (M7).
 - **The ontology**, and an installer for running Theseus under its own user.
+
+## Under way now
+
+- **Egress for sandboxed commands** (stage C, 18c): a sandboxed command reaches only the hosts it is allowed, and
+  a result that connected out counts as outside text.
+- **Graduation and the held post** (stage C, 19c): the operator can widen who may read a message, and a reply is
+  checked against who can see it again as it is posted.
+- **The cockpit's restyle** (a lane): The Ship, a live map of the graph, and a new look for every view.
 
 ## The roadmap
 
@@ -78,7 +96,7 @@ starts.
 |---|---|---|
 | **A. Stage 1's remainder** | Fix batches from two reviews, the dogfood pilot, the complexity cuts, the reader rule | Done. Review 2 was accepted whole on October 1. Its spine items (C6, C2, and S2) are all in, with its security items (installed on October 2) and the lanes for robustness, security, performance, proof points, and the bench. What it deferred is in the v1.1 roadmap. |
 | **B. The operator's surfaces** | Live updates pushed instead of polled, `session.wait`, the CLI's client library, the first graph edge, a terminal UI, herdr | Done on October 1: the push, the client library, reach, the terminal UI, and herdr. |
-| **C. M4, boundaries** | The sandbox wired into `proc.run`, egress, credentials as stand-ins, disclosure labels, integrity, the ontology, the job host | Begun. The kernel transaction (C6), one typed fact per event (C2), and the store's writer thread (S2) have landed, and on October 2 its first row, L1 for `proc.run` (17b), landed and was installed. Next: cancellation verified per backend (18a, under way) and labels (19a); egress and credentials follow. The ontology and the installer are built as lanes. |
+| **C. M4, boundaries** | The sandbox wired into `proc.run`, egress, credentials as stand-ins, disclosure labels, integrity, the ontology, the job host | Begun. The kernel transaction (C6), one typed fact per event (C2), and the store's writer thread (S2) have landed. On October 2 its first three rows landed and were installed: L1 for `proc.run` (17b), cancellation verified per backend (18a), and confidentiality labels (19a). Under way: egress (18c), and graduation with the held post (19c). Then credentials as stand-ins (18d), the disclosure simulator (19b), and integrity by labels (20a). The ontology and the installer are built as lanes. |
 | **D. AWS** | The bound account, its stacks and budget, curated tools, the durability tender, restore from S3, hands on Lambda and Fargate | Begun. Its first row, the bound account and its reads (C1), landed on October 2. Next: its stacks and the writes, with the guards. |
 | **E. M5, judgment** | Jev wired in: the loop's stopping point, the gate's safety call, roles, continuation, all in shadow and then under canary | The client and packs are built. |
 | **F. M6, memory** | Recall in turns, the memory pass, retention and activation as measured arms, tiering, and books | Begun. Its first row, the index tender, runs since October 2. Recall in turns is next. |
@@ -93,6 +111,10 @@ two-week soak in daily use, so it lands around **October 20 or 21**, and v1.1 ar
 
 ## Recently landed
 
+- **2026-10-02:** confidentiality labels: every new message, result, and answer records who may read it, and a
+  session's context holds only what its audience may, with a placeholder for the rest (Part III, Item 61;
+  installed at 19:13). Cancellation verified per backend: a cancel or a stop ends every process of a job, a
+  detached one too, and says how it knows (Item 60; installed at 18:37).
 - **2026-10-02:** L1 for `proc.run`, stage C's first row: a command the model asks to sandbox runs with no
   network, no secret, and its writes discarded, at notify, and never falls back to the host. At the join, a stop
   hook in the user service lets the daemon restart while a sandboxed job runs (Part III, Item 58). The operator's
@@ -133,3 +155,6 @@ two-week soak in daily use, so it lands around **October 20 or 21**, and v1.1 ar
 - AWS is reads only until its writes land with the guards.
 - A sandboxed command has no network and no secret yet: egress and credentials come with the next steps of
   stage C.
+- A Discord channel whose viewers can't be read (the bot's Server Members intent is off) counts as public, so a
+  session there leaves out what your files and commands return.
+- The web UI doesn't show a cancel's verdict yet; the terminal and Discord do.
