@@ -169,3 +169,39 @@ async fn ledger_tail_pages_back_by_before_and_keeps_to_a_window() {
     assert_eq!(window(Some(now + 600_000), None), 0);
     assert_eq!(window(None, Some(now - 600_000)), 0);
 }
+
+/// A page and its `total` are one snapshot (theseus-tphr): read while a
+/// writer appends rows, every answer that holds the whole ledger counts
+/// exactly the rows it shows. Two reads, the page then the count, once let
+/// a row land between them, and a caller that compared the two (the daemon's
+/// history-check test, against health's refused count) saw one too many.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pages_total_is_counted_in_the_same_snapshot_as_its_rows() {
+    let core = test_core("ok");
+    let writer = {
+        let core = core.clone();
+        std::thread::spawn(move || {
+            for i in 0..800u64 {
+                let row = json!({"at_unix_ms": i, "kind": "loop.started", "data": {"i": i}});
+                core.store.append_ledger(&row).unwrap();
+            }
+        })
+    };
+    let mut reads = 0;
+    while !writer.is_finished() {
+        let r = core
+            .ledger_tail(LedgerTailParams {
+                n: Some(1000),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(
+            r.total,
+            r.rows.len() as u64,
+            "read {reads}: the count and the rows of one snapshot"
+        );
+        reads += 1;
+    }
+    writer.join().unwrap();
+    assert!(reads > 10, "{reads} reads raced the writer");
+}
