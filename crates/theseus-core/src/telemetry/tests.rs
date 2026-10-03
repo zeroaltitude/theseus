@@ -2203,3 +2203,63 @@ async fn a_failed_turns_tokens_and_dollars_are_counted() {
     assert_eq!(cost["asDouble"], json!(0.0425));
     assert_eq!(attrs_of(cost)["gen_ai.request.model"], "glm-5.1");
 }
+
+/// A tool span whose call failed has OTel's error status, though its
+/// `outcome` is the call's Debug form; `unknown`, `cancelled`, and `declined`
+/// are not failures of the call and stay unset (theseus-iu3a).
+#[test]
+fn a_failed_tool_calls_span_has_error_status() {
+    let call = |wire: &str, outcome: &str, result: &str| {
+        s(
+            &format!("tool {wire}"),
+            "tool",
+            10,
+            20,
+            json!({"tool_use_id": "tu_1", "outcome": outcome, "tool": wire,
+                "family": "fs", "backend": "inproc", "result": result}),
+            vec![],
+        )
+    };
+    let root = s(
+        "turn",
+        "turn",
+        0,
+        100,
+        json!({"origin_unix_ms": 1u64, "outcome": "complete"}),
+        vec![
+            call("fs_ok", "Done { status: Ok }", "ok"),
+            call("fs_bad", "Done { status: Error }", "error"),
+            call("fs_maybe", "Done { status: Unknown }", "unknown"),
+            call("fs_cut", "Done { status: Cancelled }", "cancelled"),
+            call("fs_no", "Done { status: Declined }", "declined"),
+            call(
+                "fs_wait",
+                "AwaitingConfirm { correlation_id: \"c\" }",
+                "awaiting_confirm",
+            ),
+        ],
+    );
+    let out = spans::spans(&root);
+    let status = |name: &str| {
+        out.iter()
+            .find(|x| x.name == name)
+            .unwrap()
+            .status
+            .as_ref()
+            .map(|st| (i64::from(st.code), st.message.clone()))
+    };
+    assert_eq!(
+        status("tool fs_bad"),
+        Some((STATUS_CODE_ERROR, "failed".into()))
+    );
+    for ok in [
+        "turn",
+        "tool fs_ok",
+        "tool fs_maybe",
+        "tool fs_cut",
+        "tool fs_no",
+        "tool fs_wait",
+    ] {
+        assert_eq!(status(ok), None, "{ok}");
+    }
+}

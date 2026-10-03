@@ -191,10 +191,19 @@ fn gen_ai(attrs: &Value) -> Vec<KeyValue> {
     out
 }
 
-/// Error status, with a message, for a span that failed.
+/// Error status, with a message, for a span that failed: its outcome says
+/// `failed`, it carries an error, or (a tool span, whose `outcome` is the
+/// call's Debug form) its `result` is `error` (theseus-iu3a).
+///
+/// Only `error` counts among a call's results. `unknown` is a call that may
+/// have run, and nothing says it failed: OTel's status stays unset where the
+/// outcome is not known. `cancelled` and `declined` are the operator's choice
+/// (a stop, a refused approval), not the call's failure; the turn's own
+/// outcome and the tool's `result` attribute and metric still say so.
 fn failed(attrs: &Value) -> Option<otlp::Status> {
     let failed = attrs.get("outcome").and_then(Value::as_str) == Some("failed")
-        || attrs.get("error").is_some();
+        || attrs.get("error").is_some()
+        || attrs.get("result").and_then(Value::as_str) == Some("error");
     failed.then(|| otlp::Status {
         message: attrs
             .get("message")
