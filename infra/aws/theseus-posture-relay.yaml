@@ -4,8 +4,9 @@ Description: >-
   The global services (IAM, Organizations, Budgets, the console's sign-in, STS's global endpoint)
   record their CloudTrail events in us-east-1, and EventBridge rules see only their own region's.
   One rule here forwards this region's CloudTrail events to the home region's default bus, where
-  theseus-posture's checks see them beside the home region's own. Forwarded events cost $1 a
-  million; a quiet account sends a few thousand a month.
+  theseus-posture's checks see them beside the home region's own. AWS's price list has no line
+  for forwarding its events to another region; at most it bills them as custom events, $1 a
+  million, and a quiet account sends a few thousand a month.
 
 Parameters:
   HomeRegion:
