@@ -670,13 +670,25 @@ fn a_node_from_before_labels_is_read_only_in_its_own_session() {
 /// 50 µs added). A 1,000-node session (250 exchanges: a channel's message,
 /// an answer calling `fs.read`, its owner-only result, an answer), compiled
 /// with no judge (before labels), for the owner (nothing withheld), and for
-/// a channel two people view (the 250 results withheld): the median of 101
-/// compiles each, in this build's profile. Run it alone:
-/// `cargo nextest run --workspace --run-ignored only -E 'test(bench_the_compile_filter)' --no-capture`.
+/// a channel two people view (the 250 results withheld).
+///
+/// Every input and the result go through `black_box`, so an optimized build
+/// can't hoist or drop the compile; the result is dropped outside the timed
+/// span. The three cases run interleaved, round after round, after a warm-up,
+/// so a drift in the machine's load lands on all of them (the order rotates, so no case
+/// always follows the same other), and the added cost
+/// is the median of each round's own difference from the no-judge compile,
+/// not the difference of two medians. Run it in an optimized profile, alone:
+/// `cargo nextest run -p theseus-core --cargo-profile release-thin --run-ignored only -E
+/// 'test(bench_the_compile_filter)' --no-capture`. The dev profile's figure is not the
+/// budget's: the spec's budget is for the build that ships.
 #[test]
-#[ignore = "a bench: run it alone"]
+#[ignore = "a bench: run it alone, in an optimized profile"]
 fn bench_the_compile_filter() {
     use crate::labels::{PlaceViewers, Places};
+    use std::hint::black_box;
+    const WARMUP: usize = 200;
+    const ROUNDS: usize = 2_001;
     let d = tempfile::tempdir().unwrap();
     let store = Store::open(d.path()).unwrap();
     let place = "discord:channel:314159265358979323";
@@ -696,14 +708,14 @@ fn bench_the_compile_filter() {
     let two = Judge::new(Some(place), people(&[OWNER]), &places, &store, false);
     let sp = spec();
     let catalog = crate::catalog::Catalog::builtin();
+    // One compile, in ns, and what it withheld.
     let run = |judge: Option<&Judge>| {
-        let t = std::time::Instant::now();
-        let c = compile(CompileInput {
+        let input = black_box(CompileInput {
             session_id: "s",
             current: None,
-            nodes: &nodes,
+            nodes: black_box(&nodes),
             last_position: nodes.len() as u64,
-            spec: &sp,
+            spec: black_box(&sp),
             catalog: &catalog,
             force: None,
             window_override: Some(10_000_000),
@@ -711,23 +723,61 @@ fn bench_the_compile_filter() {
             hidden: &[],
             strip: None,
             overflowed: None,
-            judge,
+            judge: black_box(judge),
         });
-        (t.elapsed().as_micros() as u64, c.withheld)
+        let t = std::time::Instant::now();
+        let c = compile(input);
+        let ns = t.elapsed().as_nanos() as i64;
+        let withheld = black_box(&c).withheld;
+        drop(black_box(c));
+        (ns, withheld)
     };
-    let median = |judge: Option<&Judge>| {
-        let mut times: Vec<u64> = (0..101).map(|_| run(judge).0).collect();
-        times.sort_unstable();
-        times[50]
+    for _ in 0..WARMUP {
+        for j in [None, Some(&owner), Some(&two)] {
+            run(j);
+        }
+    }
+    let (mut none, mut by_owner, mut by_two) = (vec![], vec![], vec![]);
+    let (mut add_owner, mut add_two) = (vec![], vec![]);
+    let mut withheld = (0, 0, 0);
+    for round in 0..ROUNDS {
+        // The order rotates, so no case always runs right after the same other.
+        let mut ns = [0i64; 3];
+        let mut ws = [0u64; 3];
+        for k in 0..3 {
+            let case = (round + k) % 3;
+            let judge = [None, Some(&owner), Some(&two)][case];
+            (ns[case], ws[case]) = run(judge);
+        }
+        withheld = (ws[0], ws[1], ws[2]);
+        none.push(ns[0]);
+        by_owner.push(ns[1]);
+        by_two.push(ns[2]);
+        add_owner.push(ns[1] - ns[0]);
+        add_two.push(ns[2] - ns[0]);
+    }
+    assert_eq!(
+        withheld,
+        (0, 0, 250),
+        "nothing withheld, then the 250 results"
+    );
+    // The median, the 90th percentile, and the best, in µs.
+    let q = |mut v: Vec<i64>| {
+        v.sort_unstable();
+        let at = |p: usize| v[v.len() * p / 100] as f64 / 1000.0;
+        (at(50), at(90), v[0] as f64 / 1000.0)
     };
-    let (none, by_owner, by_two) = (median(None), median(Some(&owner)), median(Some(&two)));
-    assert_eq!(run(Some(&two)).1, 250, "the 250 results withheld");
+    let (n, o, t) = (q(none), q(by_owner), q(by_two));
+    let (ao, at) = (q(add_owner), q(add_two));
     println!(
-        "compile filter, {} nodes: no judge {none} µs; the owner {by_owner} µs ({:+} µs); a channel of two \
-         {by_two} µs ({:+} µs, 250 withheld)",
+        "compile filter, {} nodes, {ROUNDS} interleaved rounds after {WARMUP} warm-ups (µs: median / p90 / best)\n  \
+         no judge:                   {:8.1} / {:8.1} / {:8.1}\n  \
+         the owner (0 withheld):     {:8.1} / {:8.1} / {:8.1}   added {:+.1} / {:+.1} / {:+.1}\n  \
+         a channel of two (250):     {:8.1} / {:8.1} / {:8.1}   added {:+.1} / {:+.1} / {:+.1}",
         nodes.len(),
-        by_owner as i64 - none as i64,
-        by_two as i64 - none as i64
+        n.0, n.1, n.2,
+        o.0, o.1, o.2, ao.0, ao.1, ao.2,
+        t.0, t.1, t.2, at.0, at.1, at.2,
     );
 }
 
