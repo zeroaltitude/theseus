@@ -407,12 +407,11 @@ async fn a_listed_channel_an_outsider_can_view_sends_its_card_to_the_dm() {
     .await;
 }
 
-/// M4 19a: the binding tells the core who can view `#lab`. Open to the guild,
-/// cy, who is not the owner, can view it, so the owner's file that ana's
-/// turn reads goes into the next request as a placeholder, its call still
-/// paired; private to ana and ben, the owners, it goes in whole.
+/// The place rule (theseus-nbsh): `#lab` is bound private, so ana's turn
+/// there reads the owner's file whole, whoever can view the channel: the
+/// operator's word decides, and the start-time read only warns.
 #[tokio::test]
-async fn a_channel_a_stranger_can_view_gets_an_owner_only_read_as_a_placeholder() {
+async fn a_channel_bound_private_reads_the_owners_file_whole() {
     for open in [true, false] {
         let r = Rig::start(
             |dir| {
@@ -433,203 +432,35 @@ async fn a_channel_a_stranger_can_view_gets_an_owner_only_read_as_a_placeholder(
             open,
         )
         .await;
-        r.until("#lab's viewers", || !r.ledger("label.audience").is_empty())
-            .await;
-        let read = &r.ledger("label.audience")[0];
-        assert_eq!(read["viewers"], if open { 3 } else { 2 }, "{read}");
-        assert_eq!(read["name"], "lab");
         r.say((ANA, "ana"), Some(LAB), "read notes.txt");
         r.until("the reply in #lab", || {
             r.posted(LAB).iter().any(|m| m.content.contains("Done."))
         })
         .await;
         let compiled = r.ledger("context.compiled");
-        let last = compiled.last().unwrap();
-        assert_eq!(last["audience"]["viewers"], if open { 3 } else { 2 });
-        assert_eq!(
-            last["withheld"].as_u64().unwrap_or(0),
-            u64::from(open),
+        assert!(
+            compiled.iter().all(|c| c["class"] == "private"),
             "{compiled:?}"
         );
-        assert_eq!(r.ledger("label.withheld").len(), usize::from(open));
-    }
-}
-
-/// A stand-in model that answers each request from the request (M4 19c).
-struct Model(Box<dyn Fn(&theseus_core::provider::ProviderRequest) -> Scripted + Send + Sync>);
-
-impl Provider for Model {
-    fn name(&self) -> &str {
-        "fake"
-    }
-    fn stream_message<'a>(
-        &'a self,
-        req: &'a theseus_core::provider::ProviderRequest,
-        on_delta: theseus_core::provider::DeltaSink<'a>,
-    ) -> theseus_core::provider::ProviderFuture<'a> {
-        Box::pin(async move {
-            let answer = (self.0)(req);
-            FakeProvider::scripted(vec![answer])
-                .stream_message(req, on_delta)
-                .await
-        })
-    }
-}
-
-/// A turn that reads the owner's file, and, `grow`n, gives cy `#lab` while it
-/// runs: the second request (the file's result in it) opens the channel to
-/// the whole guild before the model answers.
-fn read_and_grow(dir: &Path, fake: Arc<FakeDiscord>, grow: bool) -> Arc<dyn Provider> {
-    std::fs::create_dir_all(dir.join("work")).unwrap();
-    std::fs::write(
-        dir.join("work").join("notes.txt"),
-        "the vault code is 4417\n",
-    )
-    .unwrap();
-    Arc::new(Model(Box::new(move |req| {
-        let read = serde_json::to_string(&req.messages)
+        assert!(r.ledger("tool.invalid_input").is_empty(), "open: {open}");
+        let sid = r
+            .core
+            .outbox
+            .place_session(&format!("channel:{LAB}"))
             .unwrap()
-            .contains("tool_result");
-        if !read {
-            return Scripted::tools(
-                "Reading it.",
-                &[("t1", "fs_read", serde_json::json!({"path": "notes.txt"}))],
-            );
-        }
-        if grow {
-            fake.set_guild(guild(true));
-        }
-        Scripted::text("Read: the vault code is 4417")
-    })))
-}
-
-/// Every version of every message in `channel` that says `what`.
-fn said_in(r: &Rig, channel: u64, what: &str) -> bool {
-    r.fake
-        .messages(channel)
-        .iter()
-        .any(|m| m.content.contains(what) || m.versions.iter().any(|v| v.contains(what)))
-}
-
-/// M4 19c, the held post: `#lab` is private to ana and ben, the owners, so
-/// ana's turn reads the owner's file whole. While it runs, cy is given the
-/// channel. The reply, which draws on the file, is held: nothing of it reaches
-/// `#lab` (its loop streams no text), its card goes to ana's DM, and the
-/// question waits in `theseus confirm`. Approving it posts it in `#lab`;
-/// declining it leaves the note there instead.
-#[tokio::test]
-async fn a_post_whose_place_gained_a_viewer_is_held_and_its_answer_decides() {
-    for approve in [true, false] {
-        let r = Rig::start_with(|dir, fake| read_and_grow(dir, fake, true), false).await;
-        r.until("#lab's viewers", || !r.ledger("label.audience").is_empty())
-            .await;
-        r.say((ANA, "ana"), Some(LAB), "read notes.txt");
-        r.until("the hold", || !r.ledger("label.held_post").is_empty())
-            .await;
-        let held = &r.ledger("label.held_post")[0];
-        assert_eq!(held["readers"], "owner", "{held}");
-        assert_eq!(held["audience"]["viewers"], 3, "cy counted at the post");
-        r.until("the held post's card in ana's DM", || {
-            said_in(&r, ANA_DM, "A reply is held")
-        })
-        .await;
-        assert!(!said_in(&r, LAB, "4417"), "nothing of the reply in #lab");
-        assert_eq!(r.waiting(), 1, "it waits in `theseus confirm`");
-        let health = r.core.held_health().expect("held");
-        assert_eq!((health.now, health.since_start), (1, 1));
-        let card = r
-            .posted(ANA_DM)
-            .into_iter()
-            .find(|m| m.versions[0].contains("A reply is held"))
             .unwrap();
-        assert!(card.versions[0].contains("draws on material labeled owner-only"));
-        r.press(
-            &card.id,
-            if approve { "Approve" } else { "Decline" },
-            (ANA, "ana"),
-        );
-        if approve {
-            r.until("the reply in #lab", || said_in(&r, LAB, "4417"))
-                .await;
-        } else {
-            r.until("the note in #lab", || {
-                said_in(&r, LAB, crate::courier::HELD_BACK)
-            })
-            .await;
-            assert!(!said_in(&r, LAB, "4417"));
-        }
-        let answered = r.ledger("label.held_post_answered");
-        assert_eq!(answered[0]["approved"], approve, "{answered:?}");
-        r.until("the card settled", || {
-            r.posted(ANA_DM).iter().any(|m| {
-                m.content
-                    .contains(if approve { "Approved" } else { "Declined" })
-                    && m.content.contains("held reply")
-            })
-        })
-        .await;
-        r.until("held no more", || {
-            r.core.held_health().is_some_and(|h| h.now == 0)
-        })
-        .await;
+        let read = r
+            .core
+            .store
+            .session_nodes(&sid)
+            .unwrap()
+            .into_iter()
+            .any(|(_, n)| {
+                matches!(&n.body, theseus_core::node::Body::ToolResult { content, .. }
+                if content.contains("4417"))
+            });
+        assert!(read, "the owner's file, whole: open {open}");
     }
-}
-
-/// M4 19c: a post whose audience still fits goes out with no new frame: the
-/// check at post time reads who can view `#lab`, finds the owners alone, and
-/// writes nothing; a reply that drew on the channel alone needs no read.
-#[tokio::test]
-async fn a_post_whose_audience_still_fits_goes_out_with_no_new_frame() {
-    let r = Rig::start_with(|dir, fake| read_and_grow(dir, fake, false), false).await;
-    r.until("#lab's viewers", || !r.ledger("label.audience").is_empty())
-        .await;
-    r.say((ANA, "ana"), Some(LAB), "read notes.txt");
-    r.until("the reply in #lab", || said_in(&r, LAB, "4417"))
-        .await;
-    assert!(r.ledger("label.held_post").is_empty());
-    assert_eq!(
-        r.ledger("label.audience").len(),
-        1,
-        "no new read was written"
-    );
-    assert!(r.core.held_health().is_none());
-}
-
-/// M4 19c, Q6's rule at post time: when who can view `#lab` cannot be read
-/// as the reply goes out (the guild's member list is refused), the channel
-/// counts as public, and the reply that drew on the owner's file is held.
-#[tokio::test]
-async fn an_unreadable_audience_at_post_time_counts_as_public() {
-    let r = Rig::start_with(
-        |dir, fake| {
-            // The file to read; the model below is this one's, but for the
-            // refusal it makes while the turn runs.
-            read_and_grow(dir, fake.clone(), false);
-            Arc::new(Model(Box::new(move |req| {
-                let read = serde_json::to_string(&req.messages)
-                    .unwrap()
-                    .contains("tool_result");
-                if !read {
-                    return Scripted::tools(
-                        "Reading it.",
-                        &[("t1", "fs_read", serde_json::json!({"path": "notes.txt"}))],
-                    );
-                }
-                fake.refuse_members(true);
-                Scripted::text("Read: the vault code is 4417")
-            })))
-        },
-        false,
-    )
-    .await;
-    r.until("#lab's viewers", || !r.ledger("label.audience").is_empty())
-        .await;
-    r.say((ANA, "ana"), Some(LAB), "read notes.txt");
-    r.until("the hold", || !r.ledger("label.held_post").is_empty())
-        .await;
-    let held = &r.ledger("label.held_post")[0];
-    assert!(held["audience"].get("viewers").is_none(), "public: {held}");
-    assert!(!said_in(&r, LAB, "4417"));
 }
 
 /// The place rule's one check (theseus-nbsh): `#lab` is bound private, so

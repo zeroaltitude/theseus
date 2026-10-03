@@ -26,8 +26,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::compiler::ContextFileRef;
 
-/// A context file as `[context] files` and `[personas.<name>] files` name it
-/// (M4 19a): its path, or a table with its path and its readers.
+/// A context file as `[context] files` and `[personas.<name>] files` name it:
+/// its path, or a table with its path and its readers (since M4 19a; a shared
+/// place carries only the public ones, the place rule).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ContextEntry {
@@ -87,8 +88,8 @@ pub struct ContextPath {
     pub path: String,
     /// The persona whose file it is; None: the system level.
     pub persona: Option<String>,
-    /// Its entry says `readers = "public"` (M4 19a); otherwise the owner
-    /// alone may read it.
+    /// Its entry says `readers = "public"`: a shared place carries it (the
+    /// place rule). Otherwise it is the owner's alone.
     pub public: bool,
 }
 
@@ -181,7 +182,7 @@ impl ContextFiles {
             files.push(ContextFile {
                 file: ContextFileRef {
                     persona: p.persona.clone(),
-                    readers: p.public.then_some(theseus_protocol::Readers::Public),
+                    public: p.public,
                     ..held.file.clone()
                 },
                 section: format!("{}\n\n{}", header(&shown, p.persona.as_deref()), held.body),
@@ -223,44 +224,13 @@ impl ContextFiles {
     }
 }
 
-/// Leave out each file whose readers do not cover the session's audience
-/// (M4 19a, §2.7): its section becomes its header and why, so the block still
-/// says the file is there, and the manifest records it as withheld. A file is
-/// the owner's unless its entry says `readers = "public"`.
-pub fn withhold(files: &mut [ContextFile], judge: &crate::labels::Judge) {
-    for f in files {
-        if f.file.withheld.is_some() {
-            continue;
-        }
-        let readers = f
-            .file
-            .readers
-            .clone()
-            .unwrap_or(theseus_protocol::Readers::Owner);
-        if judge.covers(&readers) {
-            continue;
-        }
-        f.section = format!(
-            "{} — withheld: {}, and this session's audience is {}",
-            header(&f.file.path, f.file.persona.as_deref()),
-            readers.describe(),
-            judge.audience.describe()
-        );
-        f.file.withheld = Some(readers.describe());
-        f.file.digest = None;
-        f.file.bytes = 0;
-        f.file.cut = false;
-    }
-}
-
 /// Leave out each file a shared place may not carry (the place rule,
 /// theseus-nbsh): every file whose entry does not say `readers = "public"`.
 /// Its section becomes its header and why, and the manifest records it as
 /// withheld.
 pub fn withhold_shared(files: &mut [ContextFile]) {
     for f in files {
-        let public = f.file.readers == Some(theseus_protocol::Readers::Public);
-        if public || f.file.withheld.is_some() {
+        if f.file.public || f.file.withheld.is_some() {
             continue;
         }
         f.section = format!(
@@ -327,7 +297,7 @@ fn section(shown: &str, mut buf: Vec<u8>) -> Held {
             cut,
             missing: None,
             persona: None,
-            readers: None,
+            public: false,
             withheld: None,
         },
         body,
@@ -343,7 +313,7 @@ fn missing(shown: &str, error: &str) -> Held {
             cut: false,
             missing: Some(error.to_string()),
             persona: None,
-            readers: None,
+            public: false,
             withheld: None,
         },
         body: format!("[Missing: the file could not be read ({error}).]"),

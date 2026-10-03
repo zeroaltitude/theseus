@@ -44,7 +44,6 @@ pub mod answer;
 pub mod cancel;
 pub mod driver;
 pub mod index;
-pub mod label;
 pub mod place;
 pub mod sandbox;
 pub mod start;
@@ -230,11 +229,6 @@ facts![
     turn::ContextFileMissing<'static>,
     turn::LoopOpened,
     turn::ContextCompiled<'static>,
-    turn::Withheld<'static>,
-    label::AudienceRead<'static>,
-    label::Graduated<'static>,
-    label::PostHeld<'static>,
-    label::HeldPostAnswered<'static>,
     place::PlaceViewed<'static>,
     turn::LoopStarted<'static>,
     turn::LoopCut<'static>,

@@ -11,13 +11,11 @@ use serde_json::{json, Value};
 use theseus_kernel::{
     Action, ActionState, CancelState, ExecState, Execution, Kernel, BUDGET_TOOL, PROVIDER_TOOL,
 };
-use theseus_protocol::Readers;
 use theseus_tools::Backend;
 
 use super::{not_run_answer, unanswered, ResultNode, ToolRuntime, TurnCtx};
 use crate::egress;
 use crate::fact;
-use crate::labels;
 use crate::node::{Body, Node, ResultStatus};
 use crate::store::Store;
 
@@ -482,13 +480,7 @@ pub(crate) fn not_run_results(
                 image: None,
                 external: None,
             },
-        )
-        // The harness's answer for the call: read as the call is (M4 19a).
-        .labeled(labels::for_agent(
-            call.label
-                .as_ref()
-                .map_or(Readers::Owner, |l| l.readers.clone()),
-        ));
+        );
         out.push(node.record()?);
     }
     Ok(out)

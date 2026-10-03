@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 /// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
@@ -90,9 +91,10 @@ pub struct Config {
     /// in a config from before theseus-sgh): no rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval: Option<ApprovalConfig>,
-    /// `[labels]` (M4 19a): who the owner is, and which trees are public.
-    #[serde(default, skip_serializing_if = "crate::labels::LabelsConfig::is_empty")]
-    pub labels: crate::labels::LabelsConfig,
+    /// `[places]` (the place rule; `[labels]`, its old name, still reads).
+    #[serde(default, alias = "labels")]
+    #[serde(skip_serializing_if = "PlacesConfig::is_empty")]
+    pub places: PlacesConfig,
     /// The 1Password token file this daemon was pointed at (`--op-token-file`
     /// or `THESEUS_OP_TOKEN_FILE`): set at startup, never read from the TOML.
     /// The floor keeps it, whichever way it was named (theseus-8az).
@@ -1353,7 +1355,7 @@ impl Config {
                 anyhow::bail!("{key} entry {f:?} must be an absolute path or start with ~/");
             }
         }
-        self.validate_labels()?;
+        self.validate_places()?;
         if let Some(name) = &self.context.default_persona {
             if !self.personas.contains_key(name) {
                 anyhow::bail!(

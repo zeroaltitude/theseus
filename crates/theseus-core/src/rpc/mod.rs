@@ -14,7 +14,6 @@ mod bindings;
 mod confirms;
 pub(crate) use confirms::{expired_answer, Act};
 mod driver;
-mod graduate;
 mod info;
 mod methods;
 mod policy;
@@ -575,9 +574,7 @@ impl Core {
             startup_log: startup_log.clone(),
             stops: Default::default(),
             latest_stops: Default::default(),
-            // Each place's viewers, read from META at a channel session's
-            // first compile, never on the start path (FAST).
-            places: Default::default(),
+            // Told by the binding as it starts (the place rule).
             place_rule: Default::default(),
         };
         let telemetry_cell = std::sync::OnceLock::new();

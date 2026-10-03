@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Execution, Wake};
-use theseus_protocol::{Readers, SessionKind, TurnSubmitResult};
+use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::node::{Body, Node, ResultStatus};
@@ -170,31 +170,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
-        })
-        .await
-        .unwrap()
-}
-
-/// A turn typed through Discord by `who` (M4 19a: its words are its place's).
-async fn discord_turn(core: &Arc<Core>, sid: &str, input: &str, who: u64) -> TurnSubmitResult {
-    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
-    core.runner
-        .run(TurnRequest {
-            session: rec,
-            input: Some(input.into()),
-            target,
-            sink,
-            author: format!("discord:{who}"),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            config_wait_us: 0,
-            reply_to: None,
-            from_discord: true,
         })
         .await
         .unwrap()
@@ -1209,115 +1184,4 @@ async fn a_stop_declines_a_waiting_approval_and_the_next_turn_hears_it() {
     assert_eq!(meta["stopped_by"], "discord:eddie");
     let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
     assert!(!root.join("a.txt").exists());
-}
-
-/// theseus-jpff: a report carries its task's title, the first line of its
-/// brief, so it takes the brief's readers wherever the title goes. In a
-/// channel the owner alone can view, the owner's words reach a task's brief
-/// (owner-only, rightly); a second person can view the channel before the
-/// task runs, so the task's request withholds its brief, and its answer is
-/// public. Its report is still the owner's: the parent's next request,
-/// for the two of them, carries it as a placeholder, its post takes a read
-/// at post time, and once the owner alone views the channel again the
-/// parent reads it whole.
-#[tokio::test]
-async fn a_report_takes_its_briefs_readers_when_the_channel_grows_before_the_task_runs() {
-    const OWNER: u64 = 271_828_182_845_904_523;
-    const ALICE: u64 = 222_222_222_222_222_222;
-    const LAB: u64 = 314_159_265_358_979_323;
-    let mut r = rig(
-        |req| {
-            let (first, last) = (first_user(req), last_user(req));
-            // The task's request: its brief alone, withheld.
-            if req.messages.len() == 1 && first.starts_with("[withheld:") {
-                return Scripted::text("My brief was withheld, so I did nothing.");
-            }
-            if answers_a_call(req) {
-                return Scripted::text("Started it.");
-            }
-            if last.starts_with("START") {
-                return start("CHILD: look into the vault code 4417", Some(1.5));
-            }
-            Scripted::text("Noted.")
-        },
-        |cfg| cfg.labels.owner = Some(vec![format!("discord:{OWNER}")]),
-    );
-    let parent = {
-        let rec = SessionRecord::new(SessionKind::Conversation, None);
-        r.core.store.put_session(&rec.session_id, &rec).unwrap();
-        let place = format!("channel:{LAB}");
-        r.core.outbox.bind_place(&place, &rec.session_id).unwrap();
-        rec.session_id
-    };
-    r.core
-        .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER]), None);
-    // The owner's words, from the CLI, in the channel's session: its turn's
-    // audience is the owner's alone, fixed for the turn. Alice can view the
-    // channel by the time its call starts the task.
-    *r.model.hold.lock().unwrap() = Some("START".into());
-    let first = {
-        let (core, sid) = (r.core.clone(), parent.clone());
-        tokio::spawn(async move { turn(&core, &sid, "START the vault code is 4417").await })
-    };
-    r.entered.recv().await.unwrap();
-    r.core
-        .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER, ALICE]), None);
-    r.model.gate.add_permits(2);
-    assert!(first.await.unwrap().output.ends_with("Started it."));
-    *r.model.hold.lock().unwrap() = None;
-    let task = only_task(&r.core, &parent);
-    until("task complete", || {
-        exec(&r.core, &task.id).state == ExecState::Complete
-    })
-    .await;
-    let readers = |sid: &str| -> Vec<Option<Readers>> {
-        r.core
-            .store
-            .session_nodes(sid)
-            .unwrap()
-            .into_iter()
-            .map(|(_, n)| n.label.map(|l| l.readers))
-            .collect()
-    };
-    assert_eq!(
-        readers(&task.session_id),
-        [Some(Readers::Owner), Some(Readers::Public)],
-        "the brief is the owner's; the answer, which never saw it, is public"
-    );
-    let post = &posts(&r.core, "report")[0];
-    assert_eq!(
-        crate::outbox::body_of(post)["title"],
-        "CHILD: look into the vault code 4417"
-    );
-    assert_eq!(
-        r.core.post_readers(post),
-        Some(Readers::Owner),
-        "the post carries the title: it takes a read at post time"
-    );
-
-    // The parent's next turn, for the two of them: the report is withheld.
-    discord_turn(&r.core, &parent, "THIRD what did it find?", OWNER).await;
-    let report = report_nodes(&r.core, &parent).remove(0);
-    assert_eq!(
-        report.label.as_ref().map(|l| &l.readers),
-        Some(&Readers::Owner)
-    );
-    let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
-    let seen = serde_json::to_string(&req.messages).unwrap();
-    assert!(!seen.contains("4417"), "{seen}");
-    assert!(
-        seen.contains(&format!("theseus graduate {} --to place", report.id)),
-        "{seen}"
-    );
-
-    // The owner alone again: the parent reads the report whole.
-    r.core
-        .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER]), None);
-    discord_turn(&r.core, &parent, "FOURTH and now?", OWNER).await;
-    let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
-    let seen = serde_json::to_string(&req.messages).unwrap();
-    assert!(
-        seen.contains("(\\\"CHILD: look into the vault code 4417\\\")"),
-        "{seen}"
-    );
 }

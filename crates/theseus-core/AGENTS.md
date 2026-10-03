@@ -13,25 +13,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and the cancel path).
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching).
-- **Labels** (M4 19a): `labels.rs`. Each node's label (integrity and readers) is set where the node is made
-  (`for_input`, `for_result`, `for_harness`, `for_agent`, `relayed`), and each compile's `Judge` admits a node only
-  when its readers cover the session's audience (from `outbox.target`; a guild channel's viewers are pushed by the
-  binding into `Places`, kept in META). A withheld node renders as a placeholder in its place; the manifest
-  records the audience, and a compile for another one recompiles (`audience`). What the model writes is read
-  by the meet of all its request carried: the nodes admitted, and the context files the system block carries
-  whole (`labels::carried_files`, theseus-42ub). A task's report, in its parent and in its post, meets its
-  brief's readers in too, since it carries the title, the brief's first line (`Report::readers_in_parent`,
-  `post_readers`; theseus-jpff). Tests: `tests_labels.rs`, and `tests_tasks.rs` for the report.
-  - **Graduation** (M4 19c, `rpc/graduate.rs`): the only way an audience widens. `label.graduate` writes a new node
-    (origin `operator`) with the source's content, wider readers, the source's integrity, and a `Warrant`, with a
-    `derived_from` edge (`graduate`) and its `label.graduated` row, in one frame under the execution's lock, never
-    while a turn holds the session; the next compile appends it. Judged as an approval (`Act::Graduate`). A
-    placeholder names the command. Tests: `tests_graduate.rs`.
-  - **The held post** (M4 19c, `held.rs`): before a reply or a report leaves for a guild channel, the binding reads
-    who can view it then, and `labels::may_leave` decides. A post that may not is held: a question
-    (`HELD_POST_TOOL`, a planned action with no turn and no expiry), its card where approvals go (never the place),
-    and `label.held_post`, in one frame; `confirm_action` answers it (`answer_held_post`). Readers that fit any
-    audience the place can have (`fits_any_audience`) need no read. Tests: the binding's `tests_gateway.rs`.
+- **Places** (the place rule, theseus-nbsh; it replaced 19a's labels on nodes): `places.rs`. Every place a session
+  speaks in is private or shared. Private: the CLI and the web UI (no place), a DM with an owner (`Config::owners_for`),
+  and a guild channel the binding bound `private = true`; it gets everything. Shared: every other place; it gets the
+  public tools (`places::public_tool`), the file tools only under `[places] public_paths` (canonical roots, so a link
+  out of a tree is outside it), and only the context files marked `readers = "public"`
+  (`context_files::withhold_shared`). A turn's class is `TurnRunner::class_of`: where its words go, which is its
+  session's place (a task's is its parent's, `outbox.target`), or, for a session whose place moved on, where its wakes
+  and reports answer (`outbox.wake_target`); shared when that cannot be read. It is fixed in `TurnCtx.class` once the
+  turn has taken its wakes and reports. The catalog (`ToolRuntime::definitions_for`) and the tools note
+  (`system_note_for`) are per class, and the gate refuses a shared place's other calls (`places::refusal`, answered
+  `Not run: …`, reason `place: …`). The binding tells the core its places as it starts (`Core::bind_places`, in
+  memory: an unnamed guild place is shared), and reads each private channel's viewers once (`private_place_viewed`,
+  `place.viewed`), for health's `places:` line. M6's recall and the books, when built, draw in a shared place only on
+  that place's own sessions. Tests: `tests_places.rs`, `places::tests`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs`, the continuation in `toolrun/resume.rs`, and the results no call's own run
   writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are `policy.rs`
@@ -148,10 +143,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Results tell the truth.** `toolrun::cap` cuts on line edges and says what it left out, with the tool's own way
   to get the rest (`Tool::rest`). A listing names its scope.
 - **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking.
-- **A request never carries what its audience may not read** (M4 19a). A node from 19a on is labeled in the frame
-  that writes it, never by exposure, and never relabeled; one from before has no label and is read only in its own
-  session. A withheld node keeps its place (a `tool_use` keeps its `tool_result`), and the judge is fixed for the
-  turn, as the spec is, so an audience never changes between a call and its result.
+- **A shared place never receives the owner's material** (the place rule). Its model is offered only the public
+  tools, the gate refuses anything else, and its system block carries only public context files. A task takes its
+  parent's class. Nothing flows from a private place to a shared one but what a person says there. A class is fixed
+  for the turn, as the spec is, so a change applies at the next turn's first loop.
 - **Nothing retractable goes in the shared header** (Appendix F), so sessions on a profile share one cache entry.
 - **The config template is the contract.** Change a default there, not only in code. The loader rejects unknown
   keys, and `example_template_uncommented_still_parses` un-comments every line and parses it.

@@ -28,7 +28,6 @@ use theseus_protocol::LedgerKind;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use theseus_core::held::{Held, PostCheck};
 use theseus_core::outbox::{body_of, kind_of, Closed};
 use theseus_kernel::{Action, ActionState, Outcome};
 use theseus_protocol::TurnSubmitResult;
@@ -133,20 +132,6 @@ fn refused_connection(e: &twilight_http::Error) -> bool {
         src = s.source();
     }
     format!("{e:?}").contains("ConnectionRefused")
-}
-
-/// What a held-back post leaves in its place (M4 19c).
-pub const HELD_BACK: &str = "🔒 A reply was held back.";
-
-/// What the check at post time lets a post do (M4 19c).
-enum Leave {
-    Go,
-    /// Held: it waits for the owner's answer, and the posts after it wait.
-    Waits,
-    /// Held back: its place gets this instead.
-    Note(String),
-    /// Discord is away: the read could not be made.
-    Away(SendErr),
 }
 
 /// What a card does now (theseus-50p).
@@ -284,9 +269,6 @@ pub(crate) struct Lane {
     /// The place showed a call after live progress came: that progress goes
     /// before the next post.
     pub stream_first: bool,
-    /// How long the next post's check read who can view its place, when it
-    /// did (M4 19c): its settle keeps it.
-    pub read_ms: Option<f64>,
 }
 
 impl Lane {
@@ -318,7 +300,6 @@ impl Lane {
             asked: VecDeque::new(),
             held: None,
             stream_first: false,
-            read_ms: None,
         }
     }
 
@@ -436,19 +417,7 @@ impl Lane {
             if self.waits_for_its_call(&a) {
                 return true;
             }
-            // The check at post time (M4 19c): a post that may not leave for
-            // who can view its place now waits for the owner, and so do the
-            // posts after it; a held-back one leaves its note instead.
-            let note = match self.leave(&a).await {
-                Leave::Go => None,
-                Leave::Waits => return true,
-                Leave::Note(n) => Some(n),
-                Leave::Away(e) => {
-                    self.away(&e);
-                    return false;
-                }
-            };
-            match self.deliver(&a, note).await {
+            match self.deliver(&a).await {
                 Ok(()) => self.attempt = 0,
                 // The stop came while this post was planned or sent: it is
                 // the stop's, not Discord's absence.
@@ -472,8 +441,7 @@ impl Lane {
     /// for a session no place here renders (a task's), has no tool line here
     /// to wait for.
     fn waits_for_its_call(&mut self, a: &Action) -> bool {
-        // A held post's card has no call to wait for (M4 19c).
-        if kind_of(a) != "card" || body_of(a)["held"].is_string() {
+        if kind_of(a) != "card" {
             return false;
         }
         let q = body_of(a)["question"].as_str().unwrap_or("").to_string();
@@ -515,13 +483,9 @@ impl Lane {
     /// back means Discord is away (or the store would not take the settle)
     /// and the post waits, dispatched; a refusal settles it as failed, and the
     /// lane goes on.
-    async fn deliver(&mut self, a: &Action, note: Option<String>) -> Result<(), SendErr> {
+    async fn deliver(&mut self, a: &Action) -> Result<(), SendErr> {
         let t0 = std::time::Instant::now();
-        let planned = match note {
-            Some(n) => self.held_back(a, n).await,
-            None => self.plan(a).await,
-        };
-        let plan = match planned {
+        let plan = match self.plan(a).await {
             Ok(p) => p,
             Err(e) if e.away => return Err(e),
             Err(e) => {
@@ -582,9 +546,6 @@ impl Lane {
         }
         let mut extra = plan.extra;
         extra["ms"] = json!(t0.elapsed().as_millis() as u64);
-        if let Some(ms) = self.read_ms.take() {
-            extra["audience_read_ms"] = json!(ms);
-        }
         if resend {
             extra["resent"] = json!(true);
         }
@@ -647,7 +608,6 @@ impl Lane {
                 let channel = self.place_channel().await?;
                 Ok(self.reply(&body, channel))
             }
-            "card" if self.kind == "operator" => self.owner_card(&body).await,
             "card" => self.card(&body).await,
             "settle" => Ok(self.settled(&body)),
             "notice" => {
@@ -840,143 +800,6 @@ impl Lane {
             writes,
             extra: json!({"question": q, "route": how, "dm": dm, "line": card.line, "budget": card.budget, "mentions": named}),
         })
-    }
-
-    /// A held post's card (M4 19c), on the operator's lane: in the DM where
-    /// approvals go, never in the held post's place, whose audience is the
-    /// question. With no such DM it waits in the web UI and `theseus
-    /// confirm`.
-    async fn owner_card(&mut self, body: &Value) -> Result<Plan, SendErr> {
-        let q = body["question"].as_str().unwrap_or("").to_string();
-        let core = self.shared.core.clone();
-        let req = match core.kernel.action(&q) {
-            Ok(Some(a)) => match core.question_request(&a, None) {
-                Ok(Some(r)) => r,
-                Ok(None) => return Ok(Plan::nothing("its question could not be read")),
-                Err(e) => return Err(SendErr::refused(format!("{e:#}"))),
-            },
-            Ok(None) => return Ok(Plan::nothing("its question is not in the store")),
-            Err(e) => return Err(SendErr::refused(format!("{e:#}"))),
-        };
-        self.shared.open_dm_channels().await?;
-        let Some((user, dm)) = self.shared.approval_dm(None) else {
-            return Ok(Plan::nothing(
-                "no DM takes approvals: it waits in the web UI and `theseus confirm`",
-            ));
-        };
-        let channel = self.shared.dm_channel(user).await?;
-        let place = req.input["place_name"]
-            .as_str()
-            .or_else(|| req.input["place"].as_str())
-            .unwrap_or("its place")
-            .to_string();
-        let text = req.input["text"].as_str().unwrap_or("");
-        let quoted: String = text
-            .chars()
-            .take(800)
-            .collect::<String>()
-            .lines()
-            .map(|l| format!("> {l}\n"))
-            .collect();
-        let elsewhere = core.approval.elsewhere();
-        let also = match elsewhere.as_str() {
-            "" => String::new(),
-            e => format!(" You can also answer {e}."),
-        };
-        let content = format!(
-            "🔒 **A reply is held** for {place}. {}\n{quoted}-# Approve posts it there. Decline \
-             leaves \"a reply was held back\" in its place.{also}",
-            req.reason
-        );
-        let line = format!("held reply for {place}");
-        Ok(Plan {
-            writes: vec![Write {
-                key: format!("confirm:{q}"),
-                channel,
-                content,
-                buttons: Buttons::Confirm(q.clone()),
-                reply_to: None,
-                message: None,
-                mentions: vec![],
-            }],
-            extra: json!({"question": q, "route": "dm", "dm": dm, "line": line, "budget": false, "held": body["held"]}),
-        })
-    }
-
-    /// A held-back post (M4 19c): its place gets one line saying so, under a
-    /// key of its own, so it posts once.
-    async fn held_back(&mut self, a: &Action, note: String) -> Result<Plan, SendErr> {
-        let channel = self.place_channel().await?;
-        let key = match body_of(a)["turn_id"].as_str() {
-            Some(t) => format!("{t}:held"),
-            None => format!("held:{}", a.correlation_id),
-        };
-        Ok(Plan {
-            writes: vec![Write {
-                key,
-                channel,
-                content: note,
-                buttons: Buttons::Keep,
-                reply_to: None,
-                message: None,
-                mentions: vec![],
-            }],
-            extra: json!({"held_back": true}),
-        })
-    }
-
-    /// The check at post time (M4 19c, `labels::may_leave`), for a post
-    /// that carries the model's words into a guild channel: a reply, or a
-    /// task's report. Readers that fit any audience the channel can have
-    /// need no read; others take a fresh read of who can view it, and a post
-    /// they do not cover is held for the owner. A held post waits for its
-    /// answer: approved, it goes; otherwise its note does.
-    async fn leave(&mut self, a: &Action) -> Leave {
-        if self.kind != "channel" || !matches!(kind_of(a), "reply" | "report") {
-            return Leave::Go;
-        }
-        let core = self.shared.core.clone();
-        match core.held_state(&a.correlation_id) {
-            Some(Held::Waiting) => return Leave::Waits,
-            Some(Held::Released) => return Leave::Go,
-            Some(Held::HeldBack) => return Leave::Note(HELD_BACK.into()),
-            None => {}
-        }
-        let Some(readers) = core.post_readers(a) else {
-            return Leave::Go;
-        };
-        let place = theseus_core::labels::place_of(&self.target);
-        let Some(channel) = self.channel else {
-            return Leave::Go;
-        };
-        if theseus_core::labels::fits_any_audience(&readers, place.as_deref()) {
-            return Leave::Go;
-        }
-        let t0 = std::time::Instant::now();
-        let readable = match self.shared.read_audience_now(channel).await {
-            Ok(r) => r,
-            Err(e) => return Leave::Away(e),
-        };
-        let read_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        match core.check_post(a, &readers, readable, read_ms) {
-            Ok(PostCheck::Go) => {
-                self.read_ms = Some(read_ms);
-                Leave::Go
-            }
-            Ok(PostCheck::Held(q)) => {
-                tracing::info!(target = %self.target, post = %a.correlation_id, question = %q, "a post was held for the owner: who can view its place changed");
-                Leave::Waits
-            }
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), post = %a.correlation_id, "a post's hold could not be written: it waits");
-                Leave::Away(SendErr {
-                    away: true,
-                    unsure: false,
-                    gone: false,
-                    message: format!("hold: {e:#}"),
-                })
-            }
-        }
     }
 
     /// How a card's question closed: each message its card posted, edited,

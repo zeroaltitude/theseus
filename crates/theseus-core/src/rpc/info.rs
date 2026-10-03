@@ -234,8 +234,6 @@ impl Core {
             thinking,
             detail,
             bytes,
-            label: n.label.clone(),
-            withheld: None,
         }
     }
 }

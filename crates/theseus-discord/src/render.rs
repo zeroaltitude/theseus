@@ -173,18 +173,12 @@ struct ToolLine {
     /// `egress: github.com:443`; its summary gains what it wrote to scratch,
     /// and the hosts it reached.
     l1: Option<String>,
-    /// Its loop is quiet (M4 19c): its line names the tool, not its input.
-    quiet: bool,
 }
 
 #[derive(Debug, Default)]
 struct LoopView {
     text: String,
     tools: Vec<ToolLine>,
-    /// In a guild channel, it drew on what not everyone who could view the
-    /// channel may read (M4 19c): its text and its calls' inputs wait for
-    /// the reply's post, which is checked against who can view it then.
-    quiet: bool,
 }
 
 #[derive(Debug)]
@@ -213,8 +207,6 @@ pub struct Renderer {
     /// `[discord] notice_embeds`: a notified call posts its own card. Off, its
     /// tool line alone carries the notice.
     notice_embeds: bool,
-    /// The guild channel it renders for, `discord:<id>`; None for a DM.
-    place: Option<String>,
 }
 
 /// Where else an approval can be answered when `[approval]` does not say.
@@ -227,29 +219,6 @@ impl Renderer {
             notice_embeds,
             ..Self::default()
         }
-    }
-
-    /// The renderer of a guild channel, `discord:<id>` (M4 19c).
-    pub fn in_place(mut self, place: Option<String>) -> Self {
-        self.place = place;
-        self
-    }
-
-    /// A loop's context was compiled (M4 19c): in a guild channel, a loop
-    /// whose request drew on what not everyone who could view the channel may
-    /// read is quiet. A DM's audience is fixed, so its loops stream.
-    fn compiled(&mut self, turn_id: &str, c: &theseus_protocol::ContextCompiled) -> Vec<Op> {
-        let Some(place) = self.place.clone() else {
-            return vec![];
-        };
-        let open = c
-            .readers
-            .as_ref()
-            .is_none_or(|r| theseus_core::labels::fits_any_audience(r, Some(&place)));
-        if let Some(t) = self.turn_mut(turn_id) {
-            t.loops.entry(c.loop_index).or_default().quiet = !open;
-        }
-        vec![]
     }
 
     /// True while a turn is running (the place keeps "typing…" alive).
@@ -305,8 +274,6 @@ impl Renderer {
                 }
                 vec![Op::Typing]
             }
-            // What the loop's request admitted labels its answer (M4 19c).
-            Event::ContextCompiled(c) => self.compiled(turn_id, c),
             Event::ModelDelta(d) => {
                 if let Some(t) = self.turn_mut(turn_id) {
                     t.loops
@@ -338,15 +305,10 @@ impl Renderer {
                             &p.gate.proposal.policy_context,
                         ))
                     }),
-                    quiet: false,
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
-                    let lv = t.loops.entry(li).or_default();
-                    lv.tools.push(ToolLine {
-                        quiet: lv.quiet,
-                        ..line
-                    });
+                    t.loops.entry(li).or_default().tools.push(line);
                     t.dirty = true;
                 }
                 vec![]
@@ -722,7 +684,7 @@ impl Rendered {
 fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) -> Vec<Rendered> {
     let mut out: Vec<Rendered> = Vec::new();
     for (li, lv) in &t.loops {
-        if !t.ended && !lv.quiet {
+        if !t.ended {
             for (i, part) in split_text(&lv.text, PART_LIMIT).into_iter().enumerate() {
                 out.push(Rendered::text(format!("{}:L{li}:p{i}", t.turn_id), part));
             }
@@ -1146,9 +1108,7 @@ fn tool_lines(tools: &[ToolLine], reserve: usize) -> String {
             let l1 =
                 l.l1.as_ref()
                     .map_or(String::new(), |r| format!("🛡️ L1 · {r} · "));
-            // A quiet loop's input is not shown here (M4 19c).
-            let summary = if l.quiet { "🔒" } else { l.summary.as_str() };
-            let head = format!("`{}` {l1}{summary}{key}{mark}", l.tool);
+            let head = format!("`{}` {l1}{}{key}{mark}", l.tool, l.summary);
             match &l.state {
                 ToolState::Proposed => format!("▫️ {head}"),
                 ToolState::Running => format!("⏳ {head}"),
@@ -1515,84 +1475,6 @@ mod tests {
                "provider_stop_reason": null, "model": "claude-sonnet-5", "provider": "anthropic", "profile": "sonnet",
                "usage": {"input_tokens": 1, "output_tokens": 2, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
                "elapsed_ms": 4200, "tool_calls": 1, "cost_usd": 0.0123, "awaiting_confirm": awaiting, "continuation": false})
-    }
-
-    #[test]
-    fn a_restricted_loop_in_a_guild_channel_streams_no_text_and_no_input() {
-        let compiled = |li: u32, readers: theseus_protocol::Readers| {
-            Event::ContextCompiled(theseus_protocol::ContextCompiled {
-                session_id: "s".into(),
-                turn_id: "t1".into(),
-                loop_index: li,
-                decision: "append".into(),
-                trigger: None,
-                compilation_id: "cmp_1".into(),
-                strategy: "transcript".into(),
-                prefix_nodes: 1,
-                tail_nodes: 1,
-                messages: 1,
-                est_tokens: 1,
-                estimate: None,
-                digest: "d".into(),
-                repairs: vec![],
-                tools: 1,
-                nodes_scanned: 1,
-                context_files: vec![],
-                persona: None,
-                cache: theseus_protocol::CacheSummary::default(),
-                audience: None,
-                withheld: 0,
-                readers: Some(readers),
-            })
-        };
-        let run = |mut r: Renderer| {
-            r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
-            r.on_event(&compiled(
-                0,
-                theseus_protocol::Readers::Place("discord:7".into()),
-            ));
-            r.on_notification(
-                "model.delta",
-                &json!({"turn_id": "t1", "loop_index": 0, "text": "Reading."}),
-            );
-            let first = upserts(&r.tick());
-            r.on_event(&compiled(1, theseus_protocol::Readers::Owner));
-            r.on_notification(
-                "model.delta",
-                &json!({"turn_id": "t1", "loop_index": 1, "text": "The code is 4417."}),
-            );
-            r.on_notification(
-                "tool.proposed",
-                &json!({"turn_id": "t1", "tool_use_id": "u1", "tool": "fs.read",
-                "input": {"path": "vault/plan.md"}, "gate": {"result": {"gate": "allow"}}}),
-            );
-            r.on_notification(
-                "tool.ended",
-                &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "ok", "duration_ms": 3}),
-            );
-            let then = upserts(
-                &r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 1})),
-            );
-            (first, then)
-        };
-        let (first, then) = run(Renderer::default().in_place(Some("discord:7".into())));
-        assert_eq!(
-            first,
-            vec![("t1:L0:p0".into(), "Reading.".into())],
-            "its own words"
-        );
-        assert_eq!(
-            then,
-            vec![("t1:L1:tools".into(), "✅ `fs.read` 🔒 · 3 ms".into())],
-            "no text, and no input"
-        );
-        // A DM's audience is fixed: the same loop streams whole there.
-        let (_, dm) = run(Renderer::default());
-        assert!(
-            dm.iter()
-                .any(|(k, c)| k == "t1:L1:p0" && c.contains("4417")),
-            "{dm:?}"
-        );
     }
 
     #[test]

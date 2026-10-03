@@ -976,32 +976,6 @@ pub async fn reach(
     })
 }
 
-/// `theseus graduate NODE --to TO --why WARRANT` (M4 19c): `label.graduate`.
-pub async fn graduate(
-    conn: &mut Conn,
-    json: bool,
-    node_id: String,
-    to: String,
-    why: String,
-) -> Result<()> {
-    let v = conn
-        .request(
-            method::LABEL_GRADUATE,
-            theseus_protocol::LabelGraduateParams {
-                node_id,
-                to,
-                why,
-                author: None,
-                discord: None,
-            },
-        )
-        .await?;
-    output(json, v, |r| {
-        println!("{}", render::graduated_line(&r));
-        Ok(())
-    })
-}
-
 /// `theseus places` (the place rule, theseus-nbsh): health's places, a
 /// line each.
 pub async fn places(conn: &mut Conn, json: bool) -> Result<()> {
@@ -1014,67 +988,6 @@ pub async fn places(conn: &mut Conn, json: bool) -> Result<()> {
     for line in render::places_lines(&places) {
         println!("{line}");
     }
-    Ok(())
-}
-
-/// `theseus labels [SESSION]` (M4 19a): the session's audience as its
-/// current compilation was made for it, what the model may say to whom, what
-/// its prefix withheld, and each node's label. Reads `session.history` and
-/// `compilation.list`.
-pub async fn labels(conn: &mut Conn, json: bool, session: Option<String>) -> Result<()> {
-    let session_id = resolve_session(conn, session).await?;
-    let history: SessionHistoryResult = serde_json::from_value(
-        conn.request(
-            method::SESSION_HISTORY,
-            SessionHistoryParams {
-                session_id: session_id.clone(),
-                n: None,
-            },
-        )
-        .await?,
-    )?;
-    let comps: theseus_protocol::CompilationListResult = serde_json::from_value(
-        conn.request(
-            method::COMPILATION_LIST,
-            theseus_protocol::CompilationListParams {
-                session_id: Some(session_id.clone()),
-                n: None,
-            },
-        )
-        .await?,
-    )?;
-    let current = comps.compilations.iter().find(|c| c.current);
-    if json {
-        let nodes: Vec<Value> = history
-            .nodes
-            .iter()
-            .map(|n| serde_json::json!({"node_id": n.node_id, "kind": n.kind, "label": n.label}))
-            .collect();
-        let m = current.map(|c| &c.manifest);
-        let field = |k: &str| m.and_then(|m| m.get(k)).cloned().unwrap_or(Value::Null);
-        println!(
-            "{}",
-            serde_json::json!({
-                "session_id": session_id,
-                "compilation_id": current.map(|c| &c.compilation_id),
-                "audience": field("audience"),
-                "readers": field("readers"),
-                "integrity": field("integrity"),
-                "withheld": field("withheld"),
-                "nodes": nodes,
-            })
-        );
-        return Ok(());
-    }
-    // A withheld node is what to look at.
-    let lines: Vec<render::Line> = render::labels_lines(&session_id, current, &history.nodes)
-        .into_iter()
-        .map(|t| match t.ends_with("· withheld") {
-            true => render::Line::new(render::Tag::Warn, t),
-            false => render::Line::new(render::Tag::Plain, t),
-        })
-        .collect();
-    print::lines(&mut io::stdout().lock(), &lines)?;
     Ok(())
 }
 

@@ -5,7 +5,7 @@
 // - The sandbox (17b): each L1 job live, with gauges for memory and processes against its limits, read from its own
 //   cgroup (`sandbox.usage`); each finished one with what it left in scratch; each cancelled one with 18a's verdict.
 // - The broker: which program or tool is handed which secret, by name only; and what it withheld.
-// - Labels (19a): who may see what, by place, and what a compile left out for its audience.
+// - Places (the place rule): each place and its class, a private channel's start-time read, and the public trees.
 // - Egress (18c, a seam): the hosts sandboxed jobs reach, and the refusals, once 18c records them.
 import { useDeferredValue, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
@@ -24,10 +24,10 @@ type D = Record<string, any>
 
 const KINDS = new Set([
   'session.external_read', 'session.trusted', 'policy.tightened', 'policy.untightened', 'secret.granted', 'secret.withheld',
-  'label.withheld', 'label.audience', 'action.cancel_verified', 'action.cancel_uncertain', 'action.cancel_unsupported',
+  'place.viewed', 'action.cancel_verified', 'action.cancel_uncertain', 'action.cancel_unsupported',
   'tool.job_started', 'sandbox.started', 'action.succeeded', 'action.failed', 'action.cancelled',
-  // 18c's egress and 19c's graduations and held posts.
-  'sandbox.egress', 'sandbox.egress_refused', 'label.graduated', 'label.held_post', 'label.held_post_answered',
+  // 18c's egress.
+  'sandbox.egress', 'sandbox.egress_refused',
 ])
 
 export default function Boundaries() {
@@ -64,8 +64,8 @@ export default function Boundaries() {
   // A cgroup can't be read back: in the past, the L1 jobs running then are counted from the fold, not gauged.
   const live = useMemo(() => (world ? [] : liveJobs(usage)), [world, usage])
   const l1Then = useMemo(() => (world ? [...world.jobsRunning].filter((id) => world.l1.has(id)).length : 0), [world])
-  const withheldRows = mine.filter((r) => r.kind === 'label.withheld')
-  const labelRows = mine.filter((r) => r.kind === 'label.graduated' || r.kind === 'label.held_post' || r.kind === 'label.held_post_answered')
+  const placeRows = mine.filter((r) => r.kind === 'place.viewed')
+  const shared = (h?.places?.places ?? []).filter((p) => p.class === 'shared').length
   const secretsWithheld = mine.filter((r) => r.kind === 'secret.withheld').length
   const egress = mine.filter((r) => r.kind === 'sandbox.egress' || r.kind === 'sandbox.egress_refused')
   const reachedOut = new Set(egress.filter((r) => r.kind === 'sandbox.egress').map((r) => String((r.data as D)?.correlation_id))).size
@@ -84,7 +84,7 @@ export default function Boundaries() {
         <Seal icon={<Lock size={15} />} n={tight.length} word="tightened" tone="#fbbf24" hint="tools that ask first because someone pressed “should have asked”" />
         <Seal icon={<ShieldHalf size={15} />} n={world ? l1Then : live.length} word={world ? 'in L1 then' : 'in L1 now'} tone="#5eead4" hint="sandboxed jobs running, each in its own cgroup" />
         <Seal icon={<KeyRound size={15} />} n={h?.broker.length ?? 0} word="grants" tone="#d6a548" hint="the broker's grants: who is handed which secret (names only)" />
-        <Seal icon={<Eye size={15} />} n={withheldRows.length} word="compiles withheld" tone="#22d3ee" hint="compiles that left nodes out for their audience (19a's labels)" />
+        <Seal icon={<Eye size={15} />} n={shared} word="shared places" tone="#22d3ee" hint="guild places others read: the public tools alone, and only the context files marked public" />
         <Seal icon={<Radar size={15} />} n={reachedOut} word="reached out" tone="#5eead4" hint="sandboxed jobs that connected out through their egress list (18c)" />
       </div>
 
@@ -106,8 +106,8 @@ export default function Boundaries() {
         <Panel title={<>The broker · grants and withholdings</>} icon={<KeyRound size={13} />} bodyClassName="p-2.5">
           <Broker health={h} rows={mine} title={title} withheld={secretsWithheld} />
         </Panel>
-        <Panel title={<>Labels · who may see what</>} icon={<Eye size={13} />} bodyClassName="p-2.5">
-          <Labels health={h} rows={withheldRows} log={labelRows} title={title} />
+        <Panel title={<>Places · who reads where</>} icon={<Eye size={13} />} bodyClassName="p-2.5">
+          <Places health={h} log={placeRows} />
         </Panel>
         <Panel title={<>Egress · where sandboxed jobs reach</>} icon={<Radar size={13} />} bodyClassName="p-2.5">
           <Egress rows={egress} health={h} title={title} now={now} />
@@ -422,59 +422,32 @@ function Broker({ health, rows, title, withheld }: { health?: Health; rows: Ledg
 
 // ---------------------------------------------------------------- labels (19a)
 
-function Labels({ health, rows, log, title }: { health?: Health; rows: LedgerEntry[]; log: LedgerEntry[]; title: (s?: string | null) => string }) {
-  const l = health?.labels
-  const bySession = useMemo(() => {
-    const m = new Map<string, { compiles: number; nodes: number; reasons: Set<string> }>()
-    for (const r of rows) {
-      if (!r.session_id) continue
-      const d = (r.data ?? {}) as D
-      const e = m.get(r.session_id) ?? { compiles: 0, nodes: 0, reasons: new Set<string>() }
-      e.compiles++
-      e.nodes += Array.isArray(d.withheld) ? d.withheld.length : Number(d.withheld ?? 0)
-      for (const k of Object.keys(d.reasons ?? {})) e.reasons.add(k)
-      m.set(r.session_id, e)
-    }
-    return [...m.entries()].sort((a, b) => b[1].nodes - a[1].nodes)
-  }, [rows])
-  if (!l) return <Empty>this daemon predates labels (19a)</Empty>
+function Places({ health, log }: { health?: Health; log: LedgerEntry[] }) {
+  const pl = health?.places
+  if (!pl) return <Empty>this daemon predates the place rule</Empty>
   return (
     <div className="flex flex-col gap-1.5 text-[12px]">
-      <div className="flex items-center gap-2 rounded-md px-2 py-1.5 ring-1 ring-line">
-        <Anchor size={13} className="text-gold" />
-        <span className="text-ink-dim"><span className="text-ink">The owner:</span> the CLI, the web UI, and {l.owners} {l.owners === 1 ? 'person' : 'people'} on Discord</span>
-      </div>
-      {!l.places.length && <div className="px-1 text-ink-faint">no guild channel bound: every place is the owner&rsquo;s</div>}
-      {l.places.map((p) => (
+      {pl.places.map((p) => (
         <div key={p.place} className="flex items-center gap-2 rounded-md px-2 py-1.5 ring-1 ring-line">
-          <span className="num min-w-0 flex-1 truncate text-tool">{p.name ? `#${p.name}` : p.place}</span>
-          <span className="num text-ink-dim">{p.viewers ?? '?'} can view</span>
-          {(p.others ?? 0) > 0 ? <Pill tone="wait">{p.others} not the owner: owner-only withheld</Pill> : <Pill tone="ok">the owner only</Pill>}
+          {p.class === 'private' ? <Anchor size={13} className="text-gold" /> : <Eye size={13} className="text-live" />}
+          <span className="num min-w-0 flex-1 truncate text-tool" title={p.place}>{p.name}</span>
+          {p.class === 'private' ? <Pill tone="ok">private: everything</Pill> : <Pill tone="wait">shared: public tools</Pill>}
+          {(p.others?.length ?? 0) > 0 && <Pill tone="fault">{`⚠ ${p.others?.join(', ')} can view it`}</Pill>}
+          {p.unchecked && <span className="text-[11px] text-ink-faint" title={p.unchecked}>unchecked</span>}
         </div>
       ))}
-      <div className="ship-engraved mt-1 text-[9.5px]">Withheld from compiles, by session</div>
-      {!bySession.length && <div className="px-1 text-ink-faint">no compile has left anything out</div>}
-      {bySession.slice(0, 6).map(([sid, e]) => (
-        <div key={sid} className="num flex items-baseline gap-2 text-[11.5px]">
-          <span className="min-w-0 flex-1 truncate text-ink-dim">{title(sid)}</span>
-          <span className="text-live">{e.nodes} nodes</span>
-          <span className="text-ink-faint">{e.compiles} compile{e.compiles === 1 ? '' : 's'} · {[...e.reasons].join(', ')}</span>
-        </div>
-      ))}
-      {/* 19c: a reply whose place gained a viewer waits for the owner; graduation widens a node's readers. */}
-      <div className="ship-engraved mt-1 text-[9.5px]">Held posts and graduations</div>
       <div className="num px-1 text-[11.5px] text-ink-dim">
-        {l.held ? <>{l.held.now} held for the owner now · {l.held.since_start} since the start</> : 'no post held for the owner since the start'}
+        {pl.public_paths?.length ? <>a shared place&rsquo;s file tools reach {pl.public_paths.join(', ')}</> : 'no public tree: a shared place gets no file tools'}
       </div>
       {log.slice(-5).reverse().map((r) => {
         const d = (r.data ?? {}) as D
-        const what = r.kind === 'label.graduated' ? `graduated to ${typeof d.readers === 'string' ? d.readers : JSON.stringify(d.readers ?? '')}${d.why ? `: ${d.why}` : ''}`
-          : r.kind === 'label.held_post' ? `a ${d.kind ?? 'post'} to ${d.place ?? 'a place'} held for the owner`
-            : `${d.approved ? 'posted' : 'kept back'} by ${d.by ?? 'the owner'}`
+        const what = Array.isArray(d.others)
+          ? (d.others.length ? `${d.name} is bound private, but ${d.others.join(', ')} can view it` : `only the owner can view ${d.name}`)
+          : `who can view ${d.name} is unchecked: ${d.unread ?? ''}`
         return (
           <div key={r.position} className="num flex items-baseline gap-2 text-[11px]">
             <span className="w-16 shrink-0 text-ink-faint">{clock(r.at_unix_ms)}</span>
-            <span className="min-w-0 truncate text-ink-dim">{what} · {title(r.session_id)}</span>
+            <span className="min-w-0 truncate text-ink-dim">{what}</span>
           </div>
         )
       })}

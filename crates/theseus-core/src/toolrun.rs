@@ -23,15 +23,12 @@ use theseus_kernel::job::{spawn_detached, WrapperArgs};
 use theseus_kernel::{
     Accepted, Action, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
 };
-use theseus_protocol::{
-    ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified, Readers,
-};
+use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
 use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::broker::Broker;
 use crate::bus::EventSink;
 use crate::fact;
-use crate::labels;
 use crate::ledger::LedgerRow;
 use crate::narrative::{self, Narrator};
 use crate::node::{Body, Node, ResultStatus};
@@ -103,10 +100,6 @@ pub struct TurnCtx<'a> {
     /// Where this session came from, when it is a task (DD7): its notices
     /// name it, and it starts no tasks.
     pub task: Option<&'a crate::session::TaskOf>,
-    /// The readers of the model's answer whose calls these are (M4 19a):
-    /// the meet of what its compile admitted, which labels its call nodes
-    /// and a task's brief. None outside a loop.
-    pub readers: Option<&'a theseus_protocol::Readers>,
     /// The class of the place the turn's words go to (the place rule,
     /// theseus-nbsh), fixed once it has taken its wakes and reports: a
     /// shared place's calls are only the public tools (`places::refusal`).
@@ -266,10 +259,8 @@ pub struct ToolRuntime {
     pub sandbox: Arc<Sandbox>,
     /// What a cancel reaches besides jobs, and health's cancel counts (18a).
     pub stops: crate::cancel::Stops,
-    /// `[labels] public_paths`, expanded (M4 19a): files anyone may read.
-    pub public_paths: Vec<PathBuf>,
-    /// The same trees, canonical: all a shared place's file tools reach
-    /// (the place rule, theseus-nbsh).
+    /// `[places] public_paths`, expanded and canonical: all a shared place's
+    /// file tools reach (the place rule, theseus-nbsh).
     pub public_roots: Vec<PathBuf>,
 }
 
@@ -381,7 +372,6 @@ impl ToolRuntime {
             question_due: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
-            public_paths: Vec::new(),
             public_roots: Vec::new(),
         }
     }
@@ -557,17 +547,7 @@ impl ToolRuntime {
         if redactions > 0 {
             meta["redactions"] = json!(redactions);
         }
-        let query = crate::external::search_query(r.tool, &meta).map(str::to_string);
-        let at = |n: &Node| {
-            let (ext, public) = (r.external.as_ref(), &self.public_paths);
-            let mut l = labels::for_result(r.tool, &n.id, ext, query.as_deref(), &r.paths, public);
-            // A listed program's job (theseus-b5cl) says so, not egress.
-            if let (Some(s), Body::ToolResult { meta, .. }) = (l.source.as_mut(), &n.body) {
-                crate::external::by_program(s, meta);
-            }
-            l
-        };
-        let node = Node::tool_result(
+        Node::tool_result(
             session_id,
             turn_id,
             loop_index,
@@ -595,9 +575,7 @@ impl ToolRuntime {
                 image: r.image,
                 external: r.external.clone(),
             },
-        );
-        let label = at(&node);
-        node.labeled(label)
+        )
     }
 
     /// A result on its own frame, announced.
@@ -726,9 +704,6 @@ impl ToolRuntime {
                 gate: Some(Box::new(gate)),
             },
         )
-        .labeled(labels::for_agent(
-            tc.readers.cloned().unwrap_or(Readers::Owner),
-        ))
     }
 
     /// A response's `tool_use`s (theseus-a60): gated in order, then run, the
@@ -1441,7 +1416,6 @@ impl ToolRuntime {
                 meta: meta.clone(),
                 image,
                 external,
-                paths: labels::paths_of(tool.as_ref(), &call.input, &self.ctx, &self.public_paths),
                 ..ResultNode::new(&call.id, tool.name(), status, text)
             },
         );
@@ -1556,8 +1530,6 @@ struct ResultNode<'a> {
     image: Option<crate::node::Attachment>,
     /// Where its text came from, when that is outside Theseus (DD5).
     external: Option<theseus_tools::External>,
-    /// The paths a files tool read, for `[labels] public_paths` (M4 19a).
-    paths: Vec<PathBuf>,
 }
 
 impl<'a> ResultNode<'a> {
@@ -1579,7 +1551,6 @@ impl<'a> ResultNode<'a> {
             meta: Value::Null,
             image: None,
             external: None,
-            paths: Vec::new(),
         }
     }
 }
@@ -1774,12 +1745,6 @@ pub fn build_runtime(
         question_due: Default::default(),
         sandbox,
         stops: Default::default(),
-        public_paths: cfg
-            .labels
-            .public_paths
-            .iter()
-            .map(|p| crate::config::expand(p))
-            .collect(),
         public_roots: crate::places::public_roots(cfg),
     })
 }

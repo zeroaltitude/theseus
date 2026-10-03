@@ -18,13 +18,91 @@
 //!   Discord is off) is shared until it does. The class is fixed for a turn,
 //!   as its request's spec is.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::RwLock;
 
+use serde::{Deserialize, Serialize};
 use theseus_protocol::{PlaceInfo, PlacesHealth, Plan};
 use theseus_tools::paths;
 
 pub use theseus_protocol::PlaceClass;
+
+/// `[places]` (`[labels]` before the place rule, still read): who the owner
+/// is on Discord, and the trees a shared place's file tools may reach.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlacesConfig {
+    /// The owner on Discord, as `discord:<user id>`, beside the local
+    /// surfaces (the CLI and the web UI). Absent: `[approval] trusted_users`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Vec<String>>,
+    /// Trees anyone may read (a public repository), `~/` or absolute: a
+    /// shared place's `fs.*`, `git.*`, and `text.*` reach these alone.
+    /// Default none: a shared place gets no file tools.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub public_paths: Vec<String>,
+}
+
+impl PlacesConfig {
+    pub fn is_empty(&self) -> bool {
+        self.owner.is_none() && self.public_paths.is_empty()
+    }
+}
+
+impl crate::config::Config {
+    /// The owner on Discord: `[places] owner`, else `[approval]
+    /// trusted_users`, as `discord:<user id>`. The local surfaces are the
+    /// owner's too, and need no entry.
+    pub fn owners(&self) -> BTreeSet<String> {
+        match &self.places.owner {
+            Some(o) => o.iter().cloned().collect(),
+            None => self
+                .approval
+                .as_ref()
+                .map(|a| a.trusted_users.iter().cloned().collect())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The owner, for a session posting to `place` (`outbox.target`): the
+    /// owners, and, with neither `[places] owner` nor `[approval]`, the
+    /// person of a DM the bindings file binds, whom approval takes for the
+    /// owner then too (review 2's consideration 2): the binding lets nobody
+    /// else reach it.
+    pub fn owners_for(&self, place: Option<&str>) -> BTreeSet<String> {
+        let mut owners = self.owners();
+        if self.places.owner.is_none() && self.approval.is_none() {
+            if let Some(u) = place.and_then(|p| p.strip_prefix("discord:dm:")) {
+                owners.insert(format!("discord:{u}"));
+            }
+        }
+        owners
+    }
+
+    /// `[places]`: the owner's ids as `[approval] trusted_users` writes them,
+    /// and the public trees as paths.
+    pub(crate) fn validate_places(&self) -> anyhow::Result<()> {
+        for o in self.places.owner.iter().flatten() {
+            if crate::approval::parse_user(o).is_err() {
+                anyhow::bail!(
+                    "places.owner entry {o:?} is not a surface-qualified id: write \"discord:<user id>\""
+                );
+            }
+        }
+        if let Some(p) = self
+            .places
+            .public_paths
+            .iter()
+            .find(|p| !(p.starts_with('/') || p.starts_with("~/")))
+        {
+            anyhow::bail!(
+                "places.public_paths entry {p:?} must be an absolute path or start with ~/"
+            );
+        }
+        Ok(())
+    }
+}
 
 /// A place the Discord binding binds, as its bindings file names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,7 +220,7 @@ impl PlaceRule {
         }
         PlacesHealth {
             places,
-            public_paths: cfg.labels.public_paths.clone(),
+            public_paths: cfg.places.public_paths.clone(),
         }
     }
 }
@@ -208,7 +286,7 @@ pub fn shown(public: &[PathBuf]) -> String {
 
 /// `public_paths`, expanded and canonical.
 pub fn public_roots(cfg: &crate::Config) -> Vec<PathBuf> {
-    cfg.labels
+    cfg.places
         .public_paths
         .iter()
         .map(|p| paths::canonical_best_effort(&crate::config::expand(p)))
@@ -227,8 +305,101 @@ mod tests {
 
     fn cfg() -> Config {
         let mut c = Config::example();
-        c.labels.owner = Some(vec![format!("discord:{OWNER}")]);
+        c.places.owner = Some(vec![format!("discord:{OWNER}")]);
         c
+    }
+
+    /// The template's `[places]` block and its persona's files, uncommented,
+    /// are real: the owner, the public tree, and a file's table with its
+    /// readers parse and validate.
+    #[test]
+    fn the_templates_places_lines_are_real() {
+        use crate::context_files::ContextReaders;
+        let t = Config::EXAMPLE_TOML;
+        let block = |head: &str| -> String {
+            let from = t.find(head).unwrap();
+            t[from..]
+                .lines()
+                .take_while(|l| l.starts_with("# "))
+                .map(|l| format!("{}\n", &l[2..]))
+                .collect()
+        };
+        let doc = format!(
+            "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n{}\n{}",
+            block("# [places]"),
+            block("# [personas.theseus]")
+        );
+        let (cfg, _) = Config::parse(&doc).unwrap();
+        assert_eq!(
+            cfg.owners().into_iter().collect::<Vec<_>>(),
+            ["discord:271828182845904523"]
+        );
+        assert_eq!(cfg.places.public_paths, ["~/projects/some-public-repo"]);
+        let f = &cfg.personas["theseus"].files;
+        assert_eq!(
+            (f[0].readers(), f[1].readers()),
+            (ContextReaders::Owner, ContextReaders::Public)
+        );
+        assert_eq!(f[1].path(), "~/projects/some-public-repo/README.md");
+    }
+
+    /// `[places]`: the owner is `[approval] trusted_users` unless the section
+    /// names one; `[labels]`, its name before, still reads; a context file
+    /// may be a table with its readers; and a malformed owner, a relative
+    /// public tree, or an unknown key in a file's table is refused with its
+    /// key.
+    #[test]
+    fn places_name_the_owner_and_the_public_trees() {
+        let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                    [approval]\ntrusted_users = [\"discord:271828182845904523\"]\n\n\
+                    [context]\nfiles = [\"~/w/USER.md\", { path = \"/w/open/README.md\", readers = \"public\" }]\n";
+        let (cfg, _) = Config::parse(base).unwrap();
+        assert_eq!(
+            cfg.owners().into_iter().collect::<Vec<_>>(),
+            ["discord:271828182845904523"],
+            "the trusted users by default"
+        );
+        let public: Vec<(String, bool)> = cfg
+            .context_paths(None)
+            .into_iter()
+            .map(|p| (p.path, p.public))
+            .collect();
+        assert_eq!(
+            public,
+            [
+                ("~/w/USER.md".to_string(), false),
+                ("/w/open/README.md".to_string(), true)
+            ]
+        );
+        for section in ["places", "labels"] {
+            let named = format!(
+                "{base}\n[{section}]\nowner = [\"discord:314159265358979323\"]\npublic_paths = [\"~/w/open\"]\n"
+            );
+            let (cfg, _) = Config::parse(&named).unwrap();
+            assert_eq!(
+                cfg.owners().into_iter().collect::<Vec<_>>(),
+                ["discord:314159265358979323"],
+                "[{section}]"
+            );
+            assert_eq!(cfg.places.public_paths, ["~/w/open"]);
+        }
+        for (bad, says) in [
+            ("[places]\nowner = [\"eddie\"]", "places.owner"),
+            (
+                "[places]\npublic_paths = [\"w/open\"]",
+                "places.public_paths",
+            ),
+        ] {
+            let doc = format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n{bad}\n");
+            let e = format!("{:#}", Config::parse(&doc).unwrap_err());
+            assert!(e.contains(says), "{e}");
+        }
+        let doc = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
+                   [context]\nfiles = [{ path = \"/w/a.md\", readers = \"public\", who = 1 }]\n";
+        assert!(
+            Config::parse(doc).is_err(),
+            "an unknown key in a file's table"
+        );
     }
 
     /// The rule, place by place: the local surfaces and an owner's DM are

@@ -105,7 +105,6 @@ async fn turn(
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
 }

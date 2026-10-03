@@ -81,7 +81,13 @@ pub mod kinds {
     /// `an_action_written_before_its_parent_reads`). Outbox schema 3 is the
     /// same change: a post is an action, read from 2 with no parent. Since
     /// those requests went (theseus-w5op) nothing writes it; a stored
-    /// request still reads whole.
+    /// request still reads whole. Node schema 7 drops the label (the place
+    /// rule, theseus-nbsh): a node of 5 or 6 reads with its label left
+    /// unread (`a_node_written_with_a_label_reads`). Compilation schema 5
+    /// drops the manifest's audience, readers, integrity, and withheld nodes,
+    /// and a context file's readers, and adds the class its compile was for:
+    /// one of 4 reads with the old fields left unread and no class
+    /// (`a_compilation_written_with_an_audience_reads`).
     /// Bump a kind here with the reader for the layout it replaces.
     pub const SCHEMAS: [(RecordKind, u16); 10] = [
         (SESSION, 6),
@@ -90,9 +96,9 @@ pub mod kinds {
         (EXECUTION, 2),
         (ACTION, 4),
         (COMPLETION, 2),
-        (NODE, 6),
+        (NODE, 7),
         (EDGE, 1),
-        (COMPILATION, 4),
+        (COMPILATION, 5),
         (OUTBOX, 3),
     ];
 

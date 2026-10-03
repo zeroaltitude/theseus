@@ -327,20 +327,3 @@ pub(super) fn tool_calls(node: &Span, out: &mut Vec<ToolCall>) {
         tool_calls(c, out);
     }
 }
-
-/// What each compile left out of a request, by readers (`label.withheld`'s
-/// event on a loop, theseus-63xf): one entry per reason per compile, with
-/// the nodes and the context files it took, from the row's `reasons`.
-pub(super) fn withheld(node: &Span, out: &mut Vec<(String, u64)>) {
-    if node.kind == "compile" && node.name == "label.withheld" {
-        if let Some(reasons) = node.attrs.get("reasons").and_then(Value::as_object) {
-            for (why, n) in reasons {
-                let count = |k: &str| n.get(k).and_then(Value::as_u64).unwrap_or(0);
-                out.push((why.clone(), count("nodes") + count("context_files")));
-            }
-        }
-    }
-    for c in &node.children {
-        withheld(c, out);
-    }
-}

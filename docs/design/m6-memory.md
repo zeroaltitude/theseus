@@ -264,7 +264,7 @@ pub trait MemoryScience: Send + Sync {
    | Reason | Drops |
    |---|---|
    | `in_context` | Already in the session's prefix or tail, or recalled earlier in this compilation |
-   | `audience` | Its readers do not cover the session's audience (M4's `covers`). An old, unlabeled node reads as `Owner`, so it can be recalled only where the whole audience is the owner |
+   | `place` | The session is in a shared place (the place rule, theseus-nbsh, which replaced M4's labels) and the candidate is from any session but that place's own. A private place recalls from any session |
    | `untrusted` | External text (DD5's `external`, M4's `untrusted`), unless the arm admits it |
    | `labeled_wrong` | The operator marked it wrong or stale |
    | `recursion` | A `Recall` node, or a harness line |
@@ -712,9 +712,11 @@ idle_unload_mins = 10
 ### 2.15 Disclosure and integrity
 
 Recall is a new way for text to travel, so it gets the same guards as any other:
-- **Audience.** M4's `covers`, with unlabeled nodes read as `Owner`. A property test draws random labels and
-  audiences and asserts that no admitted item ever fails `covers`. The exam's private items check it end to
-  end, and any violation rolls a canary back.
+- **Place** (the place rule, theseus-nbsh, which replaced M4's per-node labels, 2026-10-03). In a shared place,
+  recall, and the books when they are built, draw only on that place's own sessions; in a private place (the CLI,
+  the web UI, an owner's DM, a channel bound private), on any. A test asserts that no item from another session
+  reaches a shared place's request. The exam's private items check it end to end, and any violation rolls a
+  canary back.
 - **Integrity.** External text is excluded by default. An arm that admits it latches the session exactly as
   reading it did (T1's hold, `via: recall`), so a call that acts after it waits.
 - **Framing.** Every note says it is testimony, not instructions.

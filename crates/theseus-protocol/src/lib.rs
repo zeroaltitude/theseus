@@ -15,7 +15,6 @@ mod events;
 mod gate;
 mod health;
 pub mod index;
-mod label;
 mod ledger;
 mod places;
 mod push;
@@ -28,7 +27,6 @@ pub use events::*;
 pub use gate::*;
 pub use health::*;
 pub use index::TenderStatus;
-pub use label::*;
 pub use ledger::*;
 pub use places::*;
 pub use push::*;
@@ -48,11 +46,6 @@ pub const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
 /// limit, and a `confirm.requested` with this tool asks the operator whether
 /// its spend may go back to $0. Answered with `action.confirm` like any other.
 pub const BUDGET_TOOL: &str = "budget.reset";
-
-/// The `tool` of a held post's question (M4 19c): a reply's place gained a
-/// viewer who may not read what it draws on, so the outbox holds it, and this
-/// asks the owner whether to post it. Answered with `action.confirm`.
-pub const HELD_POST_TOOL: &str = "label.release";
 
 /// The `tool` of a provider call's action. It is authorized in the frame after
 /// its plan and never asks the operator.
@@ -118,11 +111,6 @@ pub mod method {
         /// text, so its calls that act go back to their postures. It loosens, so
         /// it takes the same trusted answer as an approval.
         POLICY_TRUST = "policy.trust",
-        /// Graduate a node (M4 19c): a new node with its content, wider
-        /// readers, and the operator's warrant, which the session's next
-        /// compile admits. It widens an audience, so it takes the same trusted
-        /// answer as an approval.
-        LABEL_GRADUATE = "label.graduate",
         /// Tasks (DD7): the child sessions conversations started, with state and
         /// spend.
         TASK_LIST = "task.list",
@@ -490,10 +478,6 @@ pub struct HealthResult {
     /// (M4 18a). Empty until the first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cancels: Vec<CancelCount>,
-    /// Labels (M4 19a): the owner, and each guild channel's audience.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub labels: Option<LabelsHealth>,
     /// The place rule (theseus-nbsh): each place and its class.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -2082,16 +2066,6 @@ pub struct NodeInfo {
     pub detail: Value,
     #[serde(default)]
     pub bytes: u64,
-    /// Its label (M4 19a): its integrity and its readers. Absent on a node
-    /// written before 19a, which is disclosable only within its own session.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub label: Option<Label>,
-    /// Its readers in words when its session's audience now withholds it
-    /// (M4 19c): what `label.graduate` could widen. Set by `session.history`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub withheld: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

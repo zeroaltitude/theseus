@@ -14,15 +14,6 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
   - `kernel-sim` (the M2 exit test): the kernel under a virtual clock with seeded faults (a crash between any two
     frames or inside a startup step, lost, duplicate, and late completions, cancels) and invariants checked at every
     step. `--p-race` races a second thread against turns; 0 is fully deterministic.
-  - `disclosure` (M4 19b, `src/disclosure/`): a whole core in process (`rig.rs`: an unsynced temp store, the sim's
-    model as its provider, stand-ins for `http.fetch` and `proc.run` over the built-ins) in a seeded world of people,
-    guild channels whose viewers change (mid-turn too), DMs, the CLI, files in a private and a public tree, context
-    files, tasks, graduations, held posts, trusts, and the test-only foreign node (another session's node with its
-    label, standing in for M6's recall). The sim plays the binding (it pushes who views a channel and delivers
-    posts with the binding's check at post time) and the driver (one continuation at a time). Every piece of
-    content carries an atom, `zq<n>qz`; the model repeats every atom its request carried (`model.rs`); the oracle
-    (`atoms.rs`) judges each atom by its own copy of §2.5's rules, never by the core's labels. `--strict` also fails
-    on the known gaps (`atoms::KNOWN_GAPS`), which a run otherwise counts.
   - `bench lifecycle` (`src/lifecycle.rs`): §9's budgets on a real `theseusd`: cold start, the same from a vault
     note's copy, clean shutdown with a job running, the same with a reply's post in flight to the in-process fake
     Discord (`inflight`, its own rig), SIGKILL and restart, a binary swap with the job's wrapper adopted, restore
@@ -63,19 +54,6 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
   commit, as `tests_m3::a_plain_turn_stays_within_its_frame_budget` is raised. The bench holds it at the daemon, over
   the protocol; the test holds it inside the core.
 - **A new kernel transition belongs in kernel-sim's random operations**, with any invariant it must keep.
-- **The disclosure simulator's invariants** (`disclosure/check.rs`, `courier.rs`): every atom a request carries
-  may be read by the audience its compile was for, which is the session's; every node it carries whole has readers
-  that cover that audience, and its placeholders are as many as the compile withheld; every post's atoms may be
-  read by who views its place when it goes (the truth), or the post was held and the owner approved it; no text
-  streams into a guild channel unless each atom in it fits any audience the channel can have; every `tool_use` is
-  paired; and a session holds external text exactly when T1's sites say (I1). A new way content reaches a model or
-  a place (a tool, a post kind, M6's recall) joins its world, with its atoms.
-- **A gap the simulator finds is filed, then listed in `atoms::KNOWN_GAPS`** with its issue, and a rule in
-  `Atoms::gap_for` that names its atoms, so the gate's run counts it instead of failing; the step that fixes it
-  deletes both. None is open: 19d fixed the first two (theseus-42ub, an answer's readers leaving out its
-  request's context files; theseus-jpff, a report's title without its brief's readers), so a run fails as
-  `--strict` does. Never widen the oracle to make a seed pass: find whether the core or the oracle is wrong,
-  and say which.
 - The fake Discord never records a header, so no token reaches its log; its gateway never keeps what an IDENTIFY
   or a RESUME carries, and an interaction's token is cut out of a recorded path.
 - Its payloads are checked against twilight-model's own types (a dev-dependency): a shape the binding's model
@@ -83,15 +61,7 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
 
 ## Tests and use
 
-- `tests/sim.rs`: the crash test, the kernel simulation, and the disclosure simulator on fixed seeds, in the gate.
-  The disclosure seeds (7 and 10 at 40 steps, 34 at 3; about 1.3 s) are chosen so each planted bug fails in them
-  (19b's: the compile filter rendering a withheld message's files; `held_state` reading a waiting question as
-  released; a loop's `context.compiled` readers taken from the manifest's prefix. 19d's: a request's context files
-  left out of the meet; a report node labeled by its task's answer alone). A change to the world, the model, or
-  the core's labels moves what every seed does (19d's fixes moved 3 to 6 off the quiet-loop plant), so after one,
-  plant them again and choose the seeds again if they slip.
-- `src/disclosure/tests.rs`: the world generator, the oracle's `covers`, the pairing check, and that a seed
-  reproduces its run exactly (its decisions' trace, and every count).
+- `tests/sim.rs`: the crash test and the kernel simulation on fixed seeds, in the gate.
 - The Discord proof is in the gate through theseusd's `tests/discord_proof.rs` (it needs the daemon's binary).
 - Release numbers of record: `target/release/theseus-sim bench lifecycle --theseusd target/release/theseusd --runs
   10`, with `--sessions 10000` for the synthetic store, or `--store` on a copy of a real store.
@@ -105,10 +75,6 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
 - With ten runs, a p95 is the slowest run, so one stalled fsync decides it. The gate reruns a miss once; read
   `bench history` before calling a miss a regression.
 - A raced kernel-sim run reproduces from its seed only up to its first race.
-- The disclosure simulator reproduces a seed exactly, its node ids aside (UUIDv7): its decisions never read an id,
-  only its own counters, names, and atoms. Keep it so: no `HashMap` iteration and no id in a decision or a `note`.
-- A disclosure step costs about 20 ms in a debug build, most of it the core's own turn; 2,000 steps take about
-  45 s. The live check runs seeds in parallel processes.
 - A bench of release binaries while a build runs: copy them first, since cargo replaces them mid-run.
 - `bench turn` counts every frame the WAL gains from just before a turn until it has been still for 50 ms, so a frame
   another writer put in that window counts as the turn's. The gate reruns a miss once; a regression writes its frame

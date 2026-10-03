@@ -111,7 +111,6 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
         .unwrap()
@@ -2677,7 +2676,6 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
                 arrived: None,
                 config_wait_us: 0,
                 reply_to: None,
-                from_discord: false,
             })
             .await
             .expect_err("the turn faults");
@@ -2907,7 +2905,6 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
         .expect_err("the second call fails");
@@ -3413,7 +3410,6 @@ async fn failing_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Error
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
         .expect_err("the turn fails")
@@ -3720,7 +3716,6 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
         .unwrap()
@@ -3828,7 +3823,6 @@ async fn a_task_caches_its_own_conversation_for_five_minutes() {
     let (spec, _) = r.core.runner.request_spec(
         &target,
         SessionKind::Conversation,
-        None,
         crate::places::PlaceClass::Private,
     );
     assert_eq!(
@@ -3841,7 +3835,6 @@ async fn a_task_caches_its_own_conversation_for_five_minutes() {
     let (task, _) = r.core.runner.request_spec(
         &target,
         SessionKind::Task,
-        None,
         crate::places::PlaceClass::Private,
     );
     assert_eq!(task.conversation_ttl, crate::config::CacheTtl::FiveMinutes);
@@ -3883,7 +3876,6 @@ async fn a_model_with_no_price_is_not_called() {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
         .unwrap_err();
@@ -3974,7 +3966,7 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
         cut: false,
         missing: None,
         persona: None,
-        readers: None,
+        public: false,
         withheld: None,
     };
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
@@ -4922,7 +4914,6 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         };
         let core = core.clone();
         async move { core.runner.run(req).await }
@@ -6722,7 +6713,6 @@ mod parallel {
                 arrived: None,
                 config_wait_us: 0,
                 reply_to: None,
-                from_discord: false,
             })
             .await
     }
@@ -7941,7 +7931,6 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await;
     assert!(out.is_err());

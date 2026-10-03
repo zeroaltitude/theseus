@@ -414,6 +414,12 @@ the job is gone, and the record says how it knows.
 
 ### 2.5 Labels: one model for integrity and confidentiality
 
+> **Superseded in part (2026-10-03, theseus-nbsh).** §2.5's confidentiality half and §2.7 (labels on nodes, the
+> audience-safe compile, held posts, quiet loops, graduation, and the disclosure tests) were replaced by the place
+> rule: every place is private or shared, a shared place gets the public tools alone, and the owner publishes into
+> one explicitly. Read the core's `places.rs` and its AGENTS.md, not these sections, before building on them.
+
+
 Each node written from M4 on carries one small label, set in the frame that writes the node and never
 rewritten. The shape goes in `theseus-protocol`, so every surface reads the same thing:
 
@@ -557,6 +563,12 @@ session.
 - `quarantined` joins `Integrity` only then, by the reader rule.
 
 ### 2.7 Confidentiality: audience-safe compilation, disclosure, and graduation
+
+> **Superseded in part (2026-10-03, theseus-nbsh).** §2.5's confidentiality half and §2.7 (labels on nodes, the
+> audience-safe compile, held posts, quiet loops, graduation, and the disclosure tests) were replaced by the place
+> rule: every place is private or shared, a shared place gets the public tools alone, and the owner publishes into
+> one explicitly. Read the core's `places.rs` and its AGENTS.md, not these sections, before building on them.
+
 
 **Enforced at compile time** (§3.9: "Once private material is in the model's context there is no reliable
 deterministic test of whether generated prose reveals it"). Each compile admits a node only when

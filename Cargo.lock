@@ -4769,8 +4769,6 @@ dependencies = [
  "theseus-kernel",
  "theseus-protocol",
  "theseus-store",
- "theseus-tools",
- "tokio",
  "toml",
  "tungstenite",
  "twilight-model",

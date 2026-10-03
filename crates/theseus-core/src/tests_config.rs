@@ -225,7 +225,6 @@ async fn turn(core: &Arc<Core>, input: &str) -> theseus_protocol::TurnSubmitResu
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
         .unwrap()

@@ -425,9 +425,8 @@ impl Store {
     }
 
     /// The store at `dir` with no fsync per frame: for a test that writes
-    /// thousands of frames and times nothing (theseus-in3's lag prove), and
-    /// for the disclosure simulator's core (`theseus-sim disclosure`, 19b),
-    /// whose store is a temp dir thrown away when the run ends.
+    /// thousands of frames and times nothing (theseus-in3's lag prove), whose
+    /// store is a temp dir thrown away when the run ends.
     pub fn open_unsynced(dir: &Path) -> Result<Self> {
         Self::open_with(
             dir,
@@ -1515,136 +1514,125 @@ pub(crate) mod tests {
         }
     }
 
+    /// The labels' five ledger kinds as 19a's and 19c's builds stored them
+    /// (literal bytes, in their rows' shapes): a place's viewers read, a
+    /// compile that withheld, a graduation, a held post, and its answer.
+    const LABEL_ROWS: [&str; 5] = [
+        r#"{"at_unix_ms":1790000000071,"kind":"label.audience","data":{"name":"lab","place":"discord:314159265358979323","viewers":2,"why":null}}"#,
+        r#"{"at_unix_ms":1790000000072,"kind":"label.withheld","session_id":"ses_lighthouse","data":{"audience":{"digest":"0f1e2d3c4b5a6978","kind":"place","name":"lab","place":"discord:314159265358979323","viewers":2},"compilation_id":"cmp_00000000000000000000000000000052","reasons":{"owner-only":{"context_files":0,"nodes":1}},"withheld":1}}"#,
+        r#"{"at_unix_ms":1790000000073,"kind":"label.graduated","session_id":"ses_lighthouse","data":{"node_id":"msg_00000000000000000000000000000061","readers":{"place":"discord:7"},"source":"trs_00000000000000000000000000000051","why":"the code is for the whole lab"}}"#,
+        r#"{"at_unix_ms":1790000000074,"kind":"label.held_post","session_id":"ses_lighthouse","data":{"post":"out_00000000000000000000000000000074","question":"act_00000000000000000000000000000074","target":"discord:channel:314159265358979323"}}"#,
+        r#"{"at_unix_ms":1790000000075,"kind":"label.held_post_answered","session_id":"ses_lighthouse","data":{"approve":false,"by":"the CLI","question":"act_00000000000000000000000000000074"}}"#,
+    ];
+
+    /// Old rows of the labels' kinds still read (the place rule,
+    /// theseus-nbsh): each keeps its kind's name and its data, byte for byte,
+    /// and the registry names none of the five (an unknown kind parses to
+    /// none), so the ledger, the cockpit, and `theseus ledger` show them as
+    /// they were.
+    #[test]
+    fn the_labels_rows_still_read() {
+        use theseus_protocol::LedgerKind;
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        for bytes in LABEL_ROWS {
+            let rec = NewRecord::bytes(kinds::LEDGER, None, bytes.as_bytes().to_vec());
+            store.append(&[rec]).unwrap();
+        }
+        let rows = store.ledger_tail::<LedgerRow>(10).unwrap();
+        assert_eq!(rows.len(), 5);
+        for ((_, row), bytes) in rows.iter().zip(LABEL_ROWS) {
+            assert!(row.kind.starts_with("label."), "{}", row.kind);
+            assert_eq!(
+                LedgerKind::parse(&row.kind),
+                None,
+                "{} is written",
+                row.kind
+            );
+            assert_eq!(
+                serde_json::to_string(row).unwrap(),
+                bytes,
+                "it keeps its bytes"
+            );
+        }
+    }
+
     /// An L1 call's node as 17b's build wrote it (NODE schema 4): its gate
     /// decision names its class, and it carries no label. Literal bytes, never
     /// re-serialized (theseus-djfj). Its source: the build before 42a27af
     /// (1d33622) reads it and writes it back byte for byte.
     const NODE_SCHEMA_4: &str = r#"{"id":"tcl_00000000000000000000000000000041","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t2","loop_index":0,"origin":"harness","author":null,"created_at_ms":1790000000021,"body":{"kind":"tool_call","tool_use_id":"tu_21","tool":"proc.run","wire_name":"fs_read","input":{"path":"/w/log/tides.md"},"assistant_node":"asm_00000000000000000000000000000021","correlation_id":"act_t21","gate":{"decision":{"class":"l1","posture":"open","reason":"fs.read — open (policy.tools)"},"plan":{"class":"run","resources":[{"access":"read","path":"/w/log/tides.md"}],"summary":"read /w/log/tides.md"},"proposal":{"args":{"path":"/w/log/tides.md"},"policy_context":{"cwd":"/w","roots":["/w"]},"resource":"/w/log/tides.md","tool":"fs.read"},"result":{"gate":"allow"},"validated":true}}}"#;
 
-    /// NODE schema 5 (M4 19a, theseus-7ve.3): a node carries its label. A
-    /// schema-4 node (an L1 call's, as 17b writes it) reads with no label,
-    /// and its bytes encode again unchanged; a labeled node, a fetched
-    /// page's result with its source, is written at this build's schema (6
-    /// since 19c) and reads back whole.
-    #[test]
-    fn a_node_written_before_its_label_reads() {
-        use theseus_protocol::{ExternalText, Label, Readers};
-        let d = tempfile::tempdir().unwrap();
-        let store = Store::open(d.path()).unwrap();
-        assert_eq!(kinds::schema(kinds::NODE), 6);
-        let rec = NewRecord {
-            schema: 4,
-            ..NewRecord::bytes(
-                kinds::NODE,
-                Some("tcl_00000000000000000000000000000041"),
-                NODE_SCHEMA_4.as_bytes().to_vec(),
-            )
-        }
-        .scoped("ses_lighthouse");
-        store.append(&[rec]).unwrap();
-        let read = store.session_nodes("ses_lighthouse").unwrap()[0].1.clone();
-        assert_eq!(read.label, None);
-        assert_eq!(
-            serde_json::to_string(&read).unwrap(),
-            NODE_SCHEMA_4,
-            "a node with no label keeps its bytes"
-        );
-
-        let mut page = read.clone();
-        page.id = "trs_00000000000000000000000000000042".into();
-        let source = ExternalText {
-            since_ms: 1_790_000_000_042,
-            tool: "http.fetch".into(),
-            url: "https://example.invalid/tides".into(),
-            node_id: page.id.clone(),
-            from_session: None,
-            via: None,
-            query: None,
-        };
-        let page = page.labeled(Label::untrusted(source, Readers::Public));
-        let r = page.record().unwrap();
-        assert_eq!(r.schema, 6);
-        let text = String::from_utf8_lossy(&r.payload).into_owned();
-        assert!(
-            text.contains(r#""label":{"integrity":"untrusted","source":{"#)
-                && text.contains(r#""readers":"public"}"#),
-            "{text}"
-        );
-        store.append(&[r]).unwrap();
-        let nodes: Vec<Node> = store
-            .session_nodes("ses_lighthouse")
-            .unwrap()
-            .into_iter()
-            .map(|(_, n)| n)
-            .collect();
-        assert_eq!(nodes, vec![read, page]);
-    }
-
     /// A labeled node as 19a's build wrote it (NODE schema 5): an owner-only
     /// file's result, with no warrant. Literal bytes (theseus-djfj). Its
-    /// source: the build before 751780d (79f2d1d)
-    /// reads it and writes it back byte for byte.
+    /// source: the build before 751780d (79f2d1d) reads it and writes it back
+    /// byte for byte.
     const NODE_SCHEMA_5: &str = r#"{"id":"trs_00000000000000000000000000000051","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t5","loop_index":0,"origin":"tool","author":null,"created_at_ms":1790000000051,"body":{"kind":"tool_result","tool_use_id":"tu_51","tool":"fs.read","status":"ok","is_error":false,"content":"the vault code is 4417","correlation_id":"act_t51","bytes_total":22,"truncated":false,"full_ref":null,"duration_ms":3,"late":false,"meta":{}},"label":{"integrity":"trusted","readers":"owner"}}"#;
 
-    /// NODE schema 6 (M4 19c, theseus-7ve.5): a graduated node's label
-    /// carries the operator's warrant. A schema-5 node, taken as its literal
-    /// bytes, reads with no warrant and encodes again unchanged; a graduated
-    /// one is written at schema 6 and reads back whole.
+    /// A graduated node as 19c's build wrote it (NODE schema 6): its label
+    /// names a place's readers and the operator's warrant. Literal bytes, in
+    /// serde's order for 19c's `Label` and `Warrant`.
+    const NODE_SCHEMA_6: &str = r#"{"id":"msg_00000000000000000000000000000061","schema":1,"session_id":"ses_lighthouse","turn_id":null,"loop_index":null,"origin":"operator","author":"cli","created_at_ms":1790000000061,"body":{"kind":"user_message","text":"the vault code is 4417"},"label":{"integrity":"trusted","readers":{"place":"discord:7"},"warrant":{"graduated_from":"trs_00000000000000000000000000000051","who":"cli","how":"cli","why":"the code is for the whole lab","at_ms":1790000000062}}}"#;
+
+    /// NODE schema 7 (the place rule, theseus-nbsh): a node has no label. A
+    /// schema-4 node, from before labels, reads and keeps its bytes; a
+    /// schema-5 and a schema-6 node read whole, their labels left unread, and
+    /// encode again without them; a node is written at schema 7 with no
+    /// label.
     #[test]
-    fn a_node_written_before_graduation_reads() {
-        use theseus_protocol::{Readers, Warrant};
+    fn a_node_written_with_a_label_reads() {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
-        assert_eq!(kinds::schema(kinds::NODE), 6);
-        let rec = NewRecord {
-            schema: 5,
-            ..NewRecord::bytes(
-                kinds::NODE,
-                Some("trs_00000000000000000000000000000051"),
-                NODE_SCHEMA_5.as_bytes().to_vec(),
-            )
-        }
-        .scoped("ses_lighthouse");
-        store.append(&[rec]).unwrap();
-        let read = store.session_nodes("ses_lighthouse").unwrap()[0].1.clone();
-        let label = read.label.clone().expect("19a's label");
-        assert_eq!((label.readers, label.warrant), (Readers::Owner, None));
-        assert_eq!(
-            serde_json::to_string(&read).unwrap(),
-            NODE_SCHEMA_5,
-            "a node with no warrant keeps its bytes"
-        );
-
-        let warrant = Warrant {
-            graduated_from: read.id.clone(),
-            who: "cli".into(),
-            how: "cli".into(),
-            why: "the code is for the whole lab".into(),
-            at_ms: 1_790_000_000_052,
+        assert_eq!(kinds::schema(kinds::NODE), 7);
+        let old = |schema: u16, id: &str, bytes: &str| {
+            NewRecord {
+                schema,
+                ..NewRecord::bytes(kinds::NODE, Some(id), bytes.as_bytes().to_vec())
+            }
+            .scoped("ses_lighthouse")
         };
-        let copy = Node::user("ses_lighthouse", None, "cli", "the vault code is 4417").labeled(
-            crate::labels::graduated(
-                read.label.as_ref(),
-                None,
-                Readers::Place("discord:7".into()),
-                warrant,
-            ),
-        );
-        let r = copy.record().unwrap();
-        assert_eq!(r.schema, 6);
-        let text = String::from_utf8_lossy(&r.payload).into_owned();
-        assert!(
-            text.contains(r#""warrant":{"graduated_from":"trs_00000000000000000000000000000051","#),
-            "{text}"
-        );
-        store.append(&[r]).unwrap();
-        let nodes: Vec<Node> = store
+        store
+            .append(&[
+                old(4, "tcl_00000000000000000000000000000041", NODE_SCHEMA_4),
+                old(5, "trs_00000000000000000000000000000051", NODE_SCHEMA_5),
+                old(6, "msg_00000000000000000000000000000061", NODE_SCHEMA_6),
+            ])
+            .unwrap();
+        let read: Vec<Node> = store
             .session_nodes("ses_lighthouse")
             .unwrap()
             .into_iter()
             .map(|(_, n)| n)
             .collect();
-        assert_eq!(nodes, vec![read, copy]);
+        assert_eq!(read.len(), 3, "every node reads");
+        let unlabeled = |bytes: &str| -> String {
+            let at = bytes.find(r#","label":"#).unwrap();
+            format!("{}}}", &bytes[..at])
+        };
+        let again: Vec<String> = read
+            .iter()
+            .map(|n| serde_json::to_string(n).unwrap())
+            .collect();
+        assert_eq!(
+            again,
+            [
+                NODE_SCHEMA_4.to_string(),
+                unlabeled(NODE_SCHEMA_5),
+                unlabeled(NODE_SCHEMA_6)
+            ],
+            "a node from before labels keeps its bytes; a labeled one loses its label"
+        );
+        match &read[1].body {
+            crate::node::Body::ToolResult { content, .. } => {
+                assert_eq!(content, "the vault code is 4417")
+            }
+            other => panic!("{other:?}"),
+        }
+        let r = Node::user("ses_lighthouse", None, "cli", "a new node")
+            .record()
+            .unwrap();
+        assert_eq!(r.schema, 7);
+        assert!(!String::from_utf8_lossy(&r.payload).contains("label"));
     }
 
     /// A compilation as cache2's build wrote it (COMPILATION schema 3): its
@@ -1653,69 +1641,66 @@ pub(crate) mod tests {
     /// (1d33622) reads it and writes it back byte for byte.
     const COMPILATION_SCHEMA_3: &str = r#"{"id":"cmp_00000000000000000000000000000051","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000051,"trigger":"new_session","strategy":"transcript","as_of":17,"includes":["msg_00000000000000000000000000000051"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"context_files":[{"path":"/w/NOTES.md","digest":"a1b2c3d4e5f60718","bytes":12}],"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true}]}}}"#;
 
-    /// COMPILATION schema 4 (M4 19a, theseus-7ve.3): the manifest records
-    /// the audience it was compiled for, the meet of what its prefix
-    /// admitted, the integrity in play, and the nodes it withheld, and a
-    /// context file its readers and its withholding. A schema-3 compilation
-    /// reads with none of them, and its bytes encode again unchanged; a 19a
-    /// one is written at schema 4 and reads back whole.
+    /// A compilation as 19a's build wrote it (COMPILATION schema 4): its
+    /// manifest records the audience, the readers, the integrity in play,
+    /// and a withheld node, and its context files their readers and
+    /// withholding. Literal bytes, in serde's order for 19a's types.
+    const COMPILATION_SCHEMA_4: &str = r#"{"id":"cmp_00000000000000000000000000000052","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000052,"trigger":"audience","strategy":"transcript","as_of":18,"includes":["msg_00000000000000000000000000000051"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"context_files":[{"path":"/w/NOTES.md","bytes":0,"withheld":"owner-only"},{"path":"/w/open/README.md","digest":"0f1e2d3c4b5a6978","bytes":9,"readers":"public"}],"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true}]},"audience":{"kind":"place","place":"discord:314159265358979323","name":"lab","viewers":2,"digest":"0f1e2d3c4b5a6978"},"readers":{"place":"discord:314159265358979323"},"integrity":{"latched":false,"untrusted":0},"withheld":[{"node_id":"trs_00000000000000000000000000000052","reason":"owner-only"}]}}"#;
+
+    /// COMPILATION schema 5 (the place rule, theseus-nbsh): the manifest has
+    /// no audience, readers, integrity, or withheld nodes, and a context file
+    /// no readers. A schema-3 compilation reads and keeps its bytes; a
+    /// schema-4 one reads, its label fields left unread, and encodes again
+    /// without them (a public file's mark is not read back: the next compile
+    /// takes it from the config).
     #[test]
-    fn a_compilation_written_before_its_audience_reads() {
-        use theseus_protocol::{Audience, InPlay, Readers, Withheld};
+    fn a_compilation_written_with_an_audience_reads() {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(d.path()).unwrap();
-        assert_eq!(kinds::schema(kinds::COMPILATION), 4);
-        let rec = NewRecord {
-            schema: 3,
-            ..NewRecord::bytes(
-                kinds::COMPILATION,
-                Some("cmp_00000000000000000000000000000051"),
-                COMPILATION_SCHEMA_3.as_bytes().to_vec(),
-            )
-        }
-        .scoped("ses_lighthouse");
-        store.append(&[rec]).unwrap();
-        let read = store
-            .get_compilation("cmp_00000000000000000000000000000051")
-            .unwrap()
+        assert_eq!(kinds::schema(kinds::COMPILATION), 5);
+        let old = |schema: u16, id: &str, bytes: &str| {
+            NewRecord {
+                schema,
+                ..NewRecord::bytes(kinds::COMPILATION, Some(id), bytes.as_bytes().to_vec())
+            }
+            .scoped("ses_lighthouse")
+        };
+        store
+            .append(&[
+                old(
+                    3,
+                    "cmp_00000000000000000000000000000051",
+                    COMPILATION_SCHEMA_3,
+                ),
+                old(
+                    4,
+                    "cmp_00000000000000000000000000000052",
+                    COMPILATION_SCHEMA_4,
+                ),
+            ])
             .unwrap();
-        let m = &read.manifest;
-        assert_eq!(
-            (&m.audience, &m.readers, &m.integrity),
-            (&None, &None, &None)
-        );
-        assert!(m.withheld.is_empty());
-        assert_eq!(m.context_files[0].withheld, None);
-        assert_eq!(
-            serde_json::to_string(&read).unwrap(),
-            COMPILATION_SCHEMA_3,
-            "a compilation from before 19a keeps its bytes"
-        );
-
-        let mut now = read.clone();
-        now.id = "cmp_00000000000000000000000000000052".into();
-        now.manifest.audience = Some(Audience::Place {
-            place: "discord:314159265358979323".into(),
-            name: Some("lab".into()),
-            viewers: Some(2),
-            digest: Some("0f1e2d3c4b5a6978".into()),
-        });
-        now.manifest.readers = Some(Readers::Place("discord:314159265358979323".into()));
-        now.manifest.integrity = Some(InPlay {
-            latched: false,
-            untrusted: 0,
-        });
-        now.manifest.withheld = vec![Withheld {
-            node_id: "trs_00000000000000000000000000000052".into(),
-            reason: "owner-only".into(),
-        }];
-        now.manifest.context_files[0].withheld = Some("owner-only".into());
-        let r = NewRecord::json(kinds::COMPILATION, Some(&now.id), &now)
-            .unwrap()
-            .scoped("ses_lighthouse");
-        assert_eq!(r.schema, 4);
-        store.append(&[r]).unwrap();
         let both = store.session_compilations("ses_lighthouse").unwrap();
-        assert_eq!(both, vec![read, now]);
+        assert_eq!(
+            serde_json::to_string(&both[0]).unwrap(),
+            COMPILATION_SCHEMA_3,
+            "a compilation from before labels keeps its bytes"
+        );
+        let m = &both[1].manifest;
+        assert_eq!(m.context_files[0].withheld.as_deref(), Some("owner-only"));
+        assert!(!m.context_files[1].public, "the mark is not read back");
+        let again = serde_json::to_string(&both[1]).unwrap();
+        for field in [
+            r#""audience":"#,
+            r#""readers":"#,
+            r#""integrity":"#,
+            r#""node_id":"#,
+        ] {
+            assert!(!again.contains(field), "{field} is left unread: {again}");
+        }
+        assert!(again.ends_with(
+            r#""cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true}]}}}"#
+        ));
+        let r = NewRecord::json(kinds::COMPILATION, Some(&both[1].id), &both[1]).unwrap();
+        assert_eq!(r.schema, 5);
     }
 }

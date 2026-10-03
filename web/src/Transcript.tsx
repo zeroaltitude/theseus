@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Audience, ConfirmRequest, GraduateResult, NodeInfo, ProviderErrorData, Span, Tightening, TightenResult, TurnResult, Usage } from './protocol'
+import type { ConfirmRequest, NodeInfo, ProviderErrorData, Span, Tightening, TightenResult, TurnResult, Usage } from './protocol'
 import TraceView from './TraceView'
 import { heldWhat } from './protocol'
 
@@ -35,12 +35,7 @@ export interface TranscriptProps {
   /// Tool → its tightening ("should have asked", theseus-sgh), from health.
   tightened: Record<string, Tightening>
   onTighten: (tool: string, correlationId: string) => Promise<TightenResult>
-  /// Graduate (M4 19c): widen who may read a node its session's audience withholds.
-  onGraduate?: (nodeId: string, to: string, why: string) => Promise<GraduateResult>
 }
-
-/// The question of a reply the outbox held (M4 19c): theseus-protocol's `HELD_POST_TOOL`.
-const HELD_POST_TOOL = 'label.release'
 
 const fmt = (n: number) => n.toLocaleString()
 const money = (n: number | null | undefined) => n == null ? null : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`
@@ -179,94 +174,16 @@ function BudgetCard({ c, onConfirm }: { c: ConfirmRequest; onConfirm: Transcript
   )
 }
 
-/// A compile's audience in words (M4 19a), as `context.compiled` carries it.
-function audienceWords(a: Audience | undefined): string {
-  if (!a) return 'not said'
-  switch (a.kind) {
-    case 'owner': return 'the owner'
-    case 'people': return a.people.join(', ')
-    case 'place': {
-      const at = a.name ? `#${a.name}` : `channel ${a.place}`
-      return a.viewers != null ? `${at} (${a.viewers} people)` : `${at} (public: its viewers cannot be read)`
-    }
-  }
-}
-
-/// A node's label (M4 19a): 🔒 the owner's alone, 👥 a place's or people's, 🌐 anyone's;
-/// text from outside says where it came from. A node from before labels shows none.
-function LabelBadge({ n }: { n: NodeInfo }) {
-  const l = n.label
-  if (!l) return null
-  const r = l.readers
-  const [icon, cls, words] =
-    r === 'owner' ? ['🔒', 'muted', 'owner-only']
-      : r === 'public' ? ['🌐', '', 'public']
-        : 'place' in r ? ['👥', 'accent', `whoever can view channel ${r.place}`]
-          : ['👥', 'accent', r.people.join(', ')]
-  const untrusted = l.integrity === 'untrusted'
-  const from = l.source ? `, from ${l.source.tool} ${l.source.url}` : ''
-  return (
-    <span className={`pill ${untrusted ? 'warn' : cls}`} title={`readers: ${words}${untrusted ? ` · untrusted${from}` : ''}`}>
-      {icon}{untrusted ? ' untrusted' : ''}
-    </span>
-  )
-}
-
-/// Graduate (M4 19c) on a node its session's audience withholds: a new node in the session's
-/// tail, with wider readers and your reason, which its next compile admits. The node itself
-/// keeps its label.
-function GraduateButton({ n, onGraduate }: { n: NodeInfo; onGraduate?: TranscriptProps['onGraduate'] }) {
-  const [open, setOpen] = useState(false)
-  const [to, setTo] = useState('place')
-  const [why, setWhy] = useState('')
-  const [said, setSaid] = useState<string | null>(null)
-  if (!n.withheld || !onGraduate) return null
-  if (said) return <span className="muted small">{said}</span>
-  if (!open) {
-    return <button type="button" className="small" onClick={() => setOpen(true)}
-      title={`withheld from this session's audience: it is ${n.withheld}. Graduate it to widen who may read it.`}>🎓 Graduate</button>
-  }
-  const go = async () => {
-    try {
-      const r = await onGraduate(n.node_id, to, why)
-      setSaid(r.covers ? `🎓 graduated as ${r.node_id}: the next compile admits it` : `🎓 graduated as ${r.node_id}; it still does not cover this session's audience`)
-    } catch (e) { setSaid((e as { message?: string }).message ?? String(e)) }
-  }
-  return (
-    <span className="graduate">
-      <select value={to} onChange={(e) => setTo(e.target.value)}>
-        <option value="place">whoever can view this place</option>
-        <option value="public">anyone</option>
-      </select>
-      <input value={why} onChange={(e) => setWhy(e.target.value)} placeholder="why (your warrant)" />
-      <button type="button" disabled={!why.trim()} onClick={() => void go()}>Graduate</button>
-    </span>
-  )
-}
-
-/// A reply the outbox held back (M4 19c): its place gained a viewer since it was written, and
-/// it draws on material they may not read. It waits for you; it is never refused.
-function HeldPostCard({ c, onConfirm }: { c: ConfirmRequest; onConfirm: TranscriptProps['onConfirm'] }) {
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const i = (c.input ?? {}) as Record<string, unknown>
-  const answer = async (approve: boolean) => {
-    setBusy(true); setErr(null)
-    try { await onConfirm(c.correlation_id, approve, '') } catch (e) { setErr((e as { message?: string }).message ?? String(e)); setBusy(false) }
-  }
-  return (
-    <div className="confirm">
-      <div className="confirm-head"><b>Held post</b> a reply waits for you before it goes to {str(i.place_name) || str(i.place)}</div>
-      <div>{c.reason}</div>
-      {typeof i.text === 'string' && <pre className="tool-out">{clip(i.text, 4000)}</pre>}
-      <div className="confirm-actions">
-        <button type="button" className="approve" disabled={busy} onClick={() => void answer(true)}>Post it</button>
-        <button type="button" className="decline" disabled={busy} onClick={() => void answer(false)}>Hold it back</button>
-      </div>
-      <div className="muted small">{busy ? 'answered…' : `declining leaves "a reply was held back" there · ${c.correlation_id}`}</div>
-      {err && <div className="warn small">{err}</div>}
-    </div>
-  )
+/// The class of the place a compile's turn speaks in (the place rule), as `context.compiled`
+/// carries it: a shared place gets the public tools alone, and only the context files marked
+/// public. Absent from a daemon before it.
+function ClassBadge({ c }: { c: Record<string, unknown> }) {
+  if (c.class !== 'private' && c.class !== 'shared') return null
+  const shared = c.class === 'shared'
+  const title = shared
+    ? `a shared place: the public tools alone${c.withheld != null ? `, and ${str(c.withheld)} context file(s) withheld (not public)` : ''}`
+    : 'a private place: everything'
+  return <span className={shared ? 'warn' : 'muted'} title={title}> · {shared ? '👥 shared' : '🔒 private'}</span>
 }
 
 // A call that never ran; rows from before theseus-8az say `denied`.
@@ -274,7 +191,7 @@ const NOT_RUN = ['declined', 'denied']
 const STATUS_CLASS: Record<string, string> = { ok: 'ok', error: 'bad', declined: 'warn', denied: 'warn', background: 'accent', unknown: 'warn', cancelled: 'muted' }
 const GATE_CLASS: Record<string, string> = { allow: 'ok', open: 'ok', notify: 'warn', confirm: 'accent', approve: 'accent', deny: 'bad' }
 
-function ResultLine({ r, open, onGraduate }: { r: NodeInfo; open: boolean; onGraduate?: TranscriptProps['onGraduate'] }) {
+function ResultLine({ r, open }: { r: NodeInfo; open: boolean }) {
   const d = (r.detail ?? {}) as Record<string, unknown>
   const status = str(d.status)
   const meta = d.meta as Record<string, unknown> | undefined
@@ -288,8 +205,6 @@ function ResultLine({ r, open, onGraduate }: { r: NodeInfo; open: boolean; onGra
           ? <span className="pill muted" title="a /stop ended this call">⏹️ stopped by {stoppedBy}</span>
           : <span className={`pill ${STATUS_CLASS[status] ?? ''}`}>{NOT_RUN.includes(status) ? 'not run' : status}</span>}
         {d.late === true && <span className="pill accent" title="arrived after the turn that asked for it">late</span>}
-        <LabelBadge n={r} />
-        <GraduateButton n={r} onGraduate={onGraduate} />
         {exit != null && <span className={exit === 0 ? 'muted' : 'bad'}>exit {str(exit)}</span>}
         {d.duration_ms != null && <span className="muted">{fmt(Number(d.duration_ms))} ms</span>}
         <span className="muted">{bytes(r.bytes)}</span>
@@ -327,7 +242,7 @@ function ShouldHaveAsked({ tool, corr, tightened, onTighten }: {
   )
 }
 
-function ToolCard({ call, use, results, confirm, running, onConfirm, now, tightened, onTighten, onGraduate }: {
+function ToolCard({ call, use, results, confirm, running, onConfirm, now, tightened, onTighten }: {
   call: NodeInfo | null
   use: { id: string; name: string; input: unknown }
   results: NodeInfo[]
@@ -337,7 +252,6 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now, tighte
   now: number
   tightened: TranscriptProps['tightened']
   onTighten: TranscriptProps['onTighten']
-  onGraduate?: TranscriptProps['onGraduate']
 }) {
   const [open, setOpen] = useState(false)
   const d = (call?.detail ?? {}) as Record<string, unknown>
@@ -366,7 +280,7 @@ function ToolCard({ call, use, results, confirm, running, onConfirm, now, tighte
         </div>
       )}
       {confirm && <ConfirmCard c={confirm} onConfirm={onConfirm} now={now} />}
-      {results.map((r) => <ResultLine key={r.node_id} r={r} open={open} onGraduate={onGraduate} />)}
+      {results.map((r) => <ResultLine key={r.node_id} r={r} open={open} />)}
     </div>
   )
 }
@@ -399,14 +313,12 @@ export default function Transcript(p: TranscriptProps) {
   const confirmByCorr = new Map(p.pending.map((c) => [c.correlation_id, c]))
   const liveIds = Object.keys(p.live).filter((id) => !turns.some((t) => t.id === id))
   const budgetAsks = p.pending.filter((c) => c.budget)
-  const heldPosts = p.pending.filter((c) => c.tool === HELD_POST_TOOL)
 
   return (
     <>
       {turns.map((t) => <TurnView key={t.id} t={t} p={p} resultsByUse={resultsByUse} callsByUse={callsByUse} confirmByCorr={confirmByCorr} />)}
       {liveIds.map((id) => <TurnView key={id} t={{ id, nodes: [] }} p={p} resultsByUse={resultsByUse} callsByUse={callsByUse} confirmByCorr={confirmByCorr} />)}
       {budgetAsks.map((c) => <BudgetCard key={c.correlation_id} c={c} onConfirm={p.onConfirm} />)}
-      {heldPosts.map((c) => <HeldPostCard key={c.correlation_id} c={c} onConfirm={p.onConfirm} />)}
     </>
   )
 }
@@ -441,7 +353,7 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
   return (
     <section className="exchange">
       {user ? (
-        <div className="prompt" title={`${user.author ?? 'operator'} · ${new Date(user.at_unix_ms).toLocaleString()}`}><LabelBadge n={user} /><GraduateButton n={user} onGraduate={p.onGraduate} /><pre>{user.text}</pre></div>
+        <div className="prompt" title={`${user.author ?? 'operator'} · ${new Date(user.at_unix_ms).toLocaleString()}`}><pre>{user.text}</pre></div>
       ) : (
         <div className="turn-divider muted small">continuation{lateResults.length > 0 ? ` · ${lateResults.length} background result(s) arrived` : ' · resumed after a confirmation or a restart'}</div>
       )}
@@ -454,7 +366,7 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
               <div className="tool-head"><span className="chev">↩</span><code className="tool-name">{str(d.tool)}</code>
                 <span className="tool-sum">{call ? callSummary(str(d.tool), (call.detail ?? {}).input) : str(d.tool_use_id)}</span>
                 <span className="muted small">background result</span></div>
-              <ResultLine r={r} open={false} onGraduate={p.onGraduate} />
+              <ResultLine r={r} open={false} />
             </div>
           )
         })}
@@ -462,8 +374,6 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
           const d = (a.detail ?? {}) as { tool_calls?: { id: string; name: string; input: unknown }[] }
           return (
             <div key={a.node_id} className="loop">
-              <LabelBadge n={a} />
-              <GraduateButton n={a} onGraduate={p.onGraduate} />
               {a.thinking && <details className="thinking"><summary className="muted small">thinking · {fmt(a.thinking.length)} chars</summary><pre>{a.thinking}</pre></details>}
               {a.text && <pre className="text">{a.text}</pre>}
               {(d.tool_calls ?? []).map((u) => {
@@ -474,8 +384,7 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
                   return <div key={u.id} className="tool queued"><div className="tool-head"><span className="chev">·</span><code className="tool-name">{wireToName(u.name)}</code><span className="tool-sum">{callSummary(wireToName(u.name), u.input)}</span><span className="muted small">waits for the call before it</span></div></div>
                 }
                 return <ToolCard key={u.id} call={call} use={u} results={res} confirm={corr ? confirmByCorr.get(corr) : undefined}
-                  running={live?.running[u.id]} onConfirm={p.onConfirm} now={p.now} tightened={p.tightened} onTighten={p.onTighten}
-                  onGraduate={p.onGraduate} />
+                  running={live?.running[u.id]} onConfirm={p.onConfirm} now={p.now} tightened={p.tightened} onTighten={p.onTighten} />
               })}
             </div>
           )
@@ -514,7 +423,7 @@ function TurnView({ t, p, resultsByUse, callsByUse, confirmByCorr }: {
             {(live?.compiles ?? []).map((c, i) => (
               <span key={i} className={c.decision === 'recompile' ? 'accent' : 'muted'} title={`compilation ${str(c.compilation_id)}\nprefix ${str(c.prefix_nodes)} + tail ${str(c.tail_nodes)} nodes\ndigest ${str(c.digest)}`}>
                 context {str(c.decision)}{c.trigger ? ` (${str(c.trigger)})` : ''} · {str(c.messages)} msg · ~{fmt(Number(c.est_tokens ?? 0))} tok
-                {c.withheld != null && <span className="warn" title={`withheld for its audience: ${audienceWords(c.audience as Audience | undefined)}`}> · {str(c.withheld)} withheld</span>}
+                <ClassBadge c={c} />
               </span>
             ))}
             {!t.id.startsWith('n:') && (

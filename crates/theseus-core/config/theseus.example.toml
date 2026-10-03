@@ -101,9 +101,8 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # default_persona = "theseus"
 
 # A persona's files, compiled after the system level's while it is in play. A file is
-# yours alone to read ([labels] below); a table entry with readers = "public" lets any
-# session's audience read it, and a session whose audience may not read a file gets its
-# header and why instead.
+# yours alone ([places] below); a table entry with readers = "public" lets a shared place
+# carry it too, and a shared place gets any other file's header and why instead.
 # [personas.theseus]
 # files = ["~/.openclaw/workspace/contexts/theseus-persona-draft.md", { path = "~/projects/some-public-repo/README.md", readers = "public" }]
 
@@ -582,20 +581,17 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # trusted_users = ["discord:271828182845904523"]   # who may answer on Discord (default: nobody)
 # channels = ["cli", "web", "discord:dm"]          # where (default: ["cli", "discord:dm"])
 
-# ---------------------------------------------------------------- labels
-# Confidentiality (M4). Every node carries a label: who may read it. What you type in
-# the CLI or the web UI, what your files and programs return, and your context files are
-# yours alone (the owner's); a fetched page is anyone's; what is said in a Discord DM or
-# guild channel is that place's. A session's audience is who sees what its model says:
-# you alone for the CLI, the web UI, and a task that reports nowhere; the person in a DM;
-# whoever can view a guild channel. Reading that takes the bot's Server Members intent
-# (developer portal), and without it the channel counts as public. Each request carries
-# only what its audience may read: anything else keeps its place as a line that says it
-# was withheld and why, and a change of audience recompiles the session's context.
-# Nothing is withheld in your DM, the CLI, or the web UI.
-# [labels]
+# ---------------------------------------------------------------- places
+# Confidentiality: every place a session speaks in is private or shared (the place rule).
+# Private: the CLI, the web UI, a DM with you, and a guild channel the bindings file binds
+# with private = true. It gets everything. Shared: every other guild channel. It gets its own
+# conversation, the tools whose results are public by nature (web_search, http_fetch,
+# wake_at, task_create), the file tools only under public_paths, no proc_run and no AWS, and
+# only the context files marked readers = "public". A task takes its parent's class.
+# The section's name before the place rule, labels, still reads.
+# [places]
 # owner = ["discord:271828182845904523"]   # who you are on Discord, beside the CLI and the web UI (default: [approval] trusted_users)
-# public_paths = ["~/projects/some-public-repo"]   # trees anyone may read: an fs.*, git.*, or text.* result from inside one is public (default none)
+# public_paths = ["~/projects/some-public-repo"]   # trees a shared place's file tools reach (default none: no file tools there)
 
 # ---------------------------------------------------------------- github
 # The GitHub token is checked at startup: login, expiry, days left. Never fatal.

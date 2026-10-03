@@ -20,10 +20,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   one line each. Writers take a variant, so a new kind is a new line here, and core's `tests_registry` fails a
   variant nothing writes. A row stores the kind's name, so old kinds (`LedgerKind::RENAMED`) and unknown ones still
   read; renaming a kind is a store version change (P5b).
-- `label.rs` (M4 19a): a node's `Label` (integrity, readers, and an untrusted node's source), a session's
-  `Audience`, and the manifest's `Withheld` and `InPlay`. The rules that combine them are the core's (`labels.rs`).
-  Since 19c a graduated node's label carries its `Warrant`, and `label.graduate`'s params and result and health's
-  `HeldPosts` are here too.
+- `places.rs` (the place rule, theseus-nbsh): a place's `PlaceClass` (private or shared), and health's
+  `PlacesHealth`, each place with its class. The rule itself is the core's (`places.rs`). 19a's labels went with it:
+  a stored node's `label` and a manifest's audience fields read and are left unread (NODE 7, COMPILATION 5), and a
+  row of the five `label.*` kinds reads as an unknown kind.
 - `sandbox.rs`: health's `sandbox` block (17b, with 18c's egress counts), and `reach` and `egress_in`, the one
   wording of an L1 job's reach (`no network`, `egress: github.com:443`) and the list a proposal binds.
 - `cred.rs` (theseus-gh7): `HarnessOnly`, health's and `theseusd check`'s line of the secrets a job may be handed

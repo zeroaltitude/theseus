@@ -219,8 +219,8 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.roots = vec![];
     // Every call runs at once: a call the rule let through would run, not wait.
     cfg.policy.enforcement = Posture::Notify;
-    cfg.labels.owner = Some(vec![format!("discord:{OWNER}")]);
-    cfg.labels.public_paths = vec![path(&root.join("open"))];
+    cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
+    cfg.places.public_paths = vec![path(&root.join("open"))];
     cfg.context.files = vec![
         ContextEntry::Path(path(&root.join("notes.md"))),
         ContextEntry::Table(ContextFileEntry {
@@ -266,7 +266,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: true,
         })
         .await
         .unwrap()
@@ -376,9 +375,6 @@ async fn a_private_place_gets_everything_and_anyone_elses_dm_is_shared() {
         name: "#lab".into(),
         private: true,
     }]);
-    // 19a's audience of the channel, while its labels still judge too.
-    r.core
-        .place_viewers(LAB, Some("lab".into()), Some(vec![OWNER]), None);
     for place in [
         Some(format!("dm:{OWNER}")),
         None,

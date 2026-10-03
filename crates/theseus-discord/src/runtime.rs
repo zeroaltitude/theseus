@@ -297,7 +297,6 @@ async fn connect(
         files_http: files::client(),
         max_text: core.cfg.tools.max_read_bytes as u64,
         members_intent: OnceLock::new(),
-        audience_read: Mutex::default(),
         lanes: Mutex::new(HashMap::new()),
     });
     // The lanes first: what the outbox holds for these places needs only
@@ -393,15 +392,8 @@ async fn start_places(
         for (c, name) in &private {
             checks.check_private(*c, name).await;
         }
-        let listed = checks.core.approval.discord_channels();
-        for c in &listed {
+        for c in &checks.core.approval.discord_channels() {
             checks.check_channel(*c).await;
-        }
-        // Each bound guild channel's viewers (M4 19a): a listed one's came
-        // with its check.
-        let bound = checks.routes.lock().unwrap().guild_channels.clone();
-        for c in bound.into_iter().filter(|c| !listed.contains(c)) {
-            checks.read_audience(c).await;
         }
     });
     Ok(())
@@ -478,24 +470,6 @@ async fn event_loop(
                     json!({"why": why}),
                 );
                 board.state("resuming", Some(why));
-            }
-            // Who can view a bound channel may have changed (M4 19a). Member
-            // events come only with the Server Members intent on the gateway,
-            // which the binding does not ask for; a turn there reads again
-            // when its last read is a minute old.
-            Event::ChannelUpdate(c) if shared.bound_channel(c.id.get()) => {
-                let s = shared.clone();
-                tokio::spawn(async move { s.read_audience(c.id.get()).await });
-            }
-            Event::RoleCreate(_)
-            | Event::RoleUpdate(_)
-            | Event::RoleDelete(_)
-            | Event::GuildUpdate(_)
-            | Event::MemberAdd(_)
-            | Event::MemberRemove(_)
-            | Event::MemberUpdate(_) => {
-                let s = shared.clone();
-                tokio::spawn(async move { s.read_audiences().await });
             }
             Event::MessageCreate(m) => shared.clone().on_message(&m.0),
             Event::InteractionCreate(i) => {
@@ -588,8 +562,6 @@ pub(crate) struct Shared {
     /// The portal has the Server Members intent on: a listed guild channel's
     /// viewers can be checked (theseus-sgh). Asked on first need.
     members_intent: OnceLock<bool>,
-    /// When each bound guild channel's viewers were last read (M4 19a).
-    audience_read: Mutex<HashMap<u64, std::time::Instant>>,
     /// Each place's lane, and the operator's, by target (theseus-q4v).
     lanes: Mutex<HashMap<String, mpsc::UnboundedSender<LaneMsg>>>,
 }
@@ -653,11 +625,6 @@ struct Routes {
     users: HashMap<u64, Vec<u64>>,
     /// channel ids where only an @mention or a reply to the bot starts a turn
     mention_only: std::collections::HashSet<u64>,
-    /// the guild channels the bindings file binds, whose viewers are their
-    /// sessions' audience (M4 19a)
-    guild_channels: Vec<u64>,
-    /// a bound guild channel's name, as the bindings file gives it
-    channel_names: HashMap<u64, String>,
     /// the bot's roles in the guild (an @Theseus can arrive as its managed role)
     bot_roles: Vec<u64>,
     /// turn id → session id (deltas name only the turn)
@@ -1026,13 +993,6 @@ impl Shared {
                     r.mention_only.insert(c.get());
                 }
             }
-            if let (Some(c), "channel") = (channel, kind) {
-                r.guild_channels.push(c.get());
-                let name = label.trim_start_matches('#');
-                if name != c.get().to_string() {
-                    r.channel_names.insert(c.get(), name.to_string());
-                }
-            }
             if kind == "dm" {
                 r.by_dm_user.insert(users[0], tx.clone());
                 if let Some(c) = channel {
@@ -1043,7 +1003,7 @@ impl Shared {
         if let (Some(c), "dm") = (channel, kind) {
             let _ = lane.send(LaneMsg::Channel(c.get()));
         }
-        let renderer = self.renderer(&target);
+        let renderer = self.renderer();
         let place = Place {
             shared: self.clone(),
             key,
@@ -1480,10 +1440,9 @@ impl Shared {
         }
     }
 
-    /// A place's renderer: the `[discord]` notice setting, and a guild
-    /// channel's place, whose restricted loops are quiet (M4 19c).
-    fn renderer(&self, target: &str) -> Renderer {
-        Renderer::new(self.notice_embeds).in_place(theseus_core::labels::place_of(target))
+    /// A place's renderer: the `[discord]` notice setting.
+    fn renderer(&self) -> Renderer {
+        Renderer::new(self.notice_embeds)
     }
 
     /// Who may drive the bound channel `channel` (its `[[channel]] users`):
@@ -1576,10 +1535,6 @@ impl Shared {
                 at_ms: theseus_protocol::now_unix_ms(),
             },
         );
-        // The same walk is the audience of a session there (M4 19a).
-        if self.bound_channel(channel) {
-            self.tell_audience(channel, view);
-        }
         trusted
     }
 
@@ -2107,15 +2062,7 @@ impl Place {
             self.tx.clone(),
             self.session_id.clone(),
         );
-        let audience = match (self.kind, self.channel) {
-            ("channel", Some(c)) => Some((self.shared.clone(), c.get())),
-            _ => None,
-        };
         tokio::spawn(async move {
-            // Its compile is for whoever can view the channel now (M4 19a).
-            if let Some((shared, c)) = audience {
-                shared.read_audience_if_stale(c).await;
-            }
             let mut attachments = Vec::new();
             for p in pending {
                 attachments.extend(p.wait().await);
@@ -2362,7 +2309,7 @@ impl Place {
             )
             .await;
         self.session_id = sid;
-        self.renderer = self.shared.renderer(&self.target);
+        self.renderer = self.shared.renderer();
         self.report();
         Ok(())
     }
@@ -2422,7 +2369,6 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         files_http: files::client(),
         max_text: 0,
         members_intent: OnceLock::new(),
-        audience_read: Mutex::default(),
         lanes: Mutex::new(HashMap::new()),
     })
 }
@@ -2815,7 +2761,7 @@ mod tests {
             .by_session
             .insert(sid.to_string(), tx.clone());
         let place = Place {
-            renderer: shared.renderer("discord:dm:42"),
+            renderer: shared.renderer(),
             shared,
             key: "dm:42".into(),
             target: "discord:dm:42".into(),

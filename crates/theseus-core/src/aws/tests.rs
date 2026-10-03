@@ -932,7 +932,6 @@ async fn turn(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::TurnSub
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
         .unwrap()

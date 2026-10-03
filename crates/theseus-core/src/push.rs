@@ -60,8 +60,8 @@ pub fn pending_of(
     confirm_ttl_ms: u64,
 ) -> PendingConfirm {
     let budget = a.tool == BUDGET_TOOL;
-    // A budget question and a held post's hold until answered (M4 19c).
-    let holds = budget || a.tool == theseus_protocol::HELD_POST_TOOL;
+    // A budget question holds until it is answered.
+    let holds = budget;
     PendingConfirm {
         correlation_id: a.correlation_id.clone(),
         tool: a

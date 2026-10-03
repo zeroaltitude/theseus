@@ -295,19 +295,16 @@ fn context_compiled() {
         if recompile {
             summary["context_files"] = json!([
                 {"path": "/w/AGENTS.md", "digest": "a1b2c3d4e5f60718", "bytes": 2048,
-                 "readers": "public"},
+                 "public": true},
                 {"path": "/w/persona/clerk.md", "bytes": 65536, "cut": true, "persona": "clerk",
                  "digest": "0f1e2d3c4b5a6978"},
                 {"path": "/w/missing.md", "bytes": 0, "missing": "not found"},
-                {"path": "/w/notes.md", "bytes": 0, "withheld": "owner-only"}
+                {"path": "/w/notes.md", "bytes": 0, "withheld": "not public, in a shared place"}
             ]);
             summary["persona"] = json!("clerk");
-            // M4 19a: the audience, and what it withheld.
-            summary["audience"] = json!({"kind": "place", "place": "discord:900000000000000001",
-                "name": "harbour", "viewers": 3, "digest": "5e8f0a1b2c3d4e6f"});
-            summary["withheld"] = json!(3);
-            // M4 19c: who may read what the model writes from it.
-            summary["readers"] = json!({"place": "discord:900000000000000001"});
+            // The place rule: a shared place's compile, and the file it withheld.
+            summary["class"] = json!("shared");
+            summary["withheld"] = json!(1);
         }
         summary["cache"] = json!({
             "breakpoints": if recompile { vec!["header", "conversation"] } else { vec![] },
@@ -829,7 +826,7 @@ fn summary(recompile: bool) -> ContextCompiled {
                     cut: false,
                     missing: None,
                     persona: None,
-                    readers: Some(Readers::Public),
+                    public: true,
                     withheld: None,
                 },
                 ContextFileRef {
@@ -839,7 +836,7 @@ fn summary(recompile: bool) -> ContextCompiled {
                     cut: true,
                     missing: None,
                     persona: Some("clerk".into()),
-                    readers: None,
+                    public: false,
                     withheld: None,
                 },
                 ContextFileRef {
@@ -849,7 +846,7 @@ fn summary(recompile: bool) -> ContextCompiled {
                     cut: false,
                     missing: Some("not found".into()),
                     persona: None,
-                    readers: None,
+                    public: false,
                     withheld: None,
                 },
                 ContextFileRef {
@@ -859,8 +856,8 @@ fn summary(recompile: bool) -> ContextCompiled {
                     cut: false,
                     missing: None,
                     persona: None,
-                    readers: None,
-                    withheld: Some("owner-only".into()),
+                    public: false,
+                    withheld: Some("not public, in a shared place".into()),
                 },
             ]
         } else {
@@ -876,17 +873,10 @@ fn summary(recompile: bool) -> ContextCompiled {
             ttl: "1h".into(),
             conversation_ttl: "5m".into(),
         },
-        // M4 19a: a guild channel of three, which withheld one file and two
-        // nodes; an append from a daemon before it has neither.
-        audience: recompile.then(|| Audience::Place {
-            place: "discord:900000000000000001".into(),
-            name: Some("harbour".into()),
-            viewers: Some(3),
-            digest: Some("5e8f0a1b2c3d4e6f".into()),
-        }),
-        withheld: if recompile { 3 } else { 0 },
-        // M4 19c: what the model writes from it is the channel's.
-        readers: recompile.then(|| Readers::Place("discord:900000000000000001".into())),
+        // The place rule: a shared place's compile, which withheld one file;
+        // an append from a daemon before it has neither.
+        class: recompile.then_some(PlaceClass::Shared),
+        withheld: if recompile { 1 } else { 0 },
     }
 }
 

@@ -40,7 +40,6 @@ use serde_json::{json, Value};
 use theseus_store::kinds;
 
 use theseus_kernel::types::{RetryClass, Wake};
-use theseus_protocol::Audience;
 
 use crate::node::{Attachment, AttachmentContent, Body, ResultStatus};
 
@@ -129,14 +128,6 @@ impl Filler {
                 tag: "class",
                 variants: &["safe_to_repeat", "non_repeatable", "idempotent_with_key"],
                 sample: retry_class,
-            },
-        );
-        tagged.insert(
-            "Audience",
-            Tagged {
-                tag: "kind",
-                variants: &["owner", "people", "place"],
-                sample: audience,
             },
         );
         Self {
@@ -616,24 +607,6 @@ fn retry_class(_: &Filler, variant: &str) -> Value {
     serde_json::to_value(c).unwrap()
 }
 
-/// A compilation's audience (M4 19a), of the variant named.
-fn audience(_: &Filler, variant: &str) -> Value {
-    let a = match variant {
-        "owner" => Audience::Owner,
-        "people" => Audience::People {
-            people: BTreeSet::from(["x".to_string()]),
-        },
-        "place" => Audience::Place {
-            place: "x".into(),
-            name: Some("x".into()),
-            viewers: Some(1),
-            digest: Some("x".into()),
-        },
-        other => panic!("no sample of Audience::{other}"),
-    };
-    serde_json::to_value(a).unwrap()
-}
-
 /// An internally tagged enum's variants, as serde lists them when it meets
 /// one it doesn't know.
 fn variants_of<T: DeserializeOwned>(tag: &str) -> BTreeSet<String> {
@@ -752,7 +725,6 @@ fn each_kinds_record_shape_is_recorded_under_its_schema_number() {
         ),
         ("Wake", variants_of::<Wake>("on")),
         ("RetryClass", variants_of::<RetryClass>("class")),
-        ("Audience", variants_of::<Audience>("kind")),
     ];
     assert_eq!(
         checked.iter().map(|(n, _)| *n).collect::<BTreeSet<_>>(),

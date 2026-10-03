@@ -177,7 +177,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
             arrived: None,
             config_wait_us: 0,
             reply_to: None,
-            from_discord: false,
         })
         .await
         .unwrap()
@@ -943,8 +942,8 @@ fn run_result(core: &Core, sid: &str) -> crate::node::Node {
 
 /// `[policy] external_programs` (theseus-b5cl): a `proc.run` of a listed
 /// program runs at its own posture, and its result holds its session, by
-/// program: the result says why, its label's source and the hold name the
-/// command, and health lists the session. The session's next run waits,
+/// program: the result says why, the hold names the command, and health
+/// lists the session. The session's next run waits,
 /// naming the command.
 #[tokio::test]
 async fn a_listed_programs_run_holds_its_session_by_program() {
@@ -985,12 +984,6 @@ async fn a_listed_programs_run_holds_its_session_by_program() {
         "{content}"
     );
     assert_eq!(meta["external_program"], "gh");
-    let source = node.label.as_ref().and_then(|l| l.source.as_ref());
-    assert_eq!(
-        source.map(|s| (s.url.as_str(), s.via.as_deref())),
-        Some(("gh issue", Some("program"))),
-        "untrusted, by program, not egress"
-    );
     let read = ledgered(core, "session.external_read");
     assert_eq!(read.len(), 1);
     assert_eq!(

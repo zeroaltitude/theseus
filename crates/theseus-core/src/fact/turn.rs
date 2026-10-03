@@ -610,6 +610,13 @@ impl Fact for ContextCompiled<'_> {
         if let Some(p) = &spec.persona {
             files.push_str(&format!(", persona {p}"));
         }
+        // A shared place's files not marked public (the place rule).
+        if self.summary.withheld > 0 {
+            files.push_str(&format!(
+                ", {} withheld (not public, in a shared place)",
+                narrative::count(self.summary.withheld, "context file", "context files")
+            ));
+        }
         let sizes = format!(
             "prefix {} + tail {}, {}, about {} tokens{files}",
             narrative::count(compiled.prefix_nodes as u64, "node", "nodes"),
@@ -676,82 +683,6 @@ impl Fact for ContextCompiled<'_> {
                 ),
             );
         }
-    }
-}
-
-/// A loop's request carries placeholders for what its audience may not read
-/// (`label.withheld`, M4 19a): once per compile that withholds anything,
-/// with counts by readers. The manifest names the prefix's nodes.
-pub struct Withheld<'a> {
-    pub compiled: &'a Compiled,
-    pub spec: &'a RequestSpec,
-    pub audience: &'a theseus_protocol::Audience,
-}
-
-impl Withheld<'_> {
-    /// Each reason, with how many nodes and context files it left out.
-    fn by_reason(&self) -> std::collections::BTreeMap<String, (u64, u64)> {
-        let mut by = std::collections::BTreeMap::<String, (u64, u64)>::new();
-        for w in self.compiled.admitted.iter().flat_map(|a| &a.withheld) {
-            by.entry(w.reason.clone()).or_default().0 += 1;
-        }
-        for f in &self.spec.context_files {
-            if let Some(why) = &f.withheld {
-                by.entry(why.clone()).or_default().1 += 1;
-            }
-        }
-        by
-    }
-}
-
-impl Fact for Withheld<'_> {
-    const KIND: Option<LedgerKind> = Some(LedgerKind::LabelWithheld);
-
-    fn row(&self) -> Value {
-        let reasons: serde_json::Map<String, Value> = self
-            .by_reason()
-            .into_iter()
-            .map(|(why, (nodes, files))| (why, json!({"nodes": nodes, "context_files": files})))
-            .collect();
-        json!({
-            "compilation_id": self.compiled.compilation.id,
-            "audience": self.audience,
-            "withheld": self.compiled.withheld,
-            "reasons": reasons,
-        })
-    }
-
-    /// An event on the loop, with the row's data: the counts by readers,
-    /// which telemetry's `theseus.compile.withheld` reads (theseus-63xf).
-    fn span(&self, trace: &mut Trace) {
-        let at = trace.now_us();
-        trace.record("label.withheld", "compile", at, at, self.row());
-    }
-
-    fn narrate(&self, say: &mut Say<'_>) {
-        let parts: Vec<String> = self
-            .by_reason()
-            .into_iter()
-            .flat_map(|(why, (nodes, files))| {
-                let n = (nodes > 0)
-                    .then(|| format!("{} {why}", narrative::count(nodes, "node", "nodes")));
-                let f = (files > 0).then(|| {
-                    format!(
-                        "{} {why}",
-                        narrative::count(files, "context file", "context files")
-                    )
-                });
-                n.into_iter().chain(f)
-            })
-            .collect();
-        say.line(
-            Context,
-            format!(
-                "Context: withheld {}: this session's audience is {}.",
-                parts.join(", "),
-                self.audience.describe()
-            ),
-        );
     }
 }
 

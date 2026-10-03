@@ -15,7 +15,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use theseus_kernel::job::WrapperArgs;
 use theseus_kernel::{Completion, Outcome, Spool};
-use theseus_protocol::{ExternalText, Integrity, Readers, SessionKind, TurnSubmitResult};
+use theseus_protocol::{ExternalText, SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::node::{Body, Node};
@@ -169,7 +169,6 @@ impl Rig {
                 arrived: None,
                 config_wait_us: 0,
                 reply_to: None,
-                from_discord: false,
             })
             .await
             .unwrap()
@@ -346,15 +345,14 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
         "{why}"
     );
     let result = r.results(&out.session_id).remove(0);
-    let label = result.label.clone().unwrap();
-    assert_eq!(
-        (label.integrity, label.readers),
-        (Integrity::Untrusted, Readers::Owner)
-    );
-    assert_eq!(label.source.unwrap().via.as_deref(), Some("egress"));
-    let Body::ToolResult { content, .. } = &result.body else {
+    // DD5's marker: the result is outside text, which the latch reads.
+    let Body::ToolResult {
+        content, external, ..
+    } = &result.body
+    else {
         unreachable!()
     };
+    assert!(external.is_some(), "the job connected out: {external:?}");
     assert!(
         content.contains("[ran in L1, the sandbox: egress: api.tides.test:443, no secret; "),
         "{content}"
@@ -392,10 +390,16 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
         "a job that connected nowhere holds nothing"
     );
     let result = r.results(&clear.session_id).remove(0);
-    assert_eq!(result.label.unwrap().integrity, Integrity::Trusted);
-    let Body::ToolResult { content, .. } = &result.body else {
+    let Body::ToolResult {
+        content, external, ..
+    } = &result.body
+    else {
         unreachable!()
     };
+    assert!(
+        external.is_none(),
+        "a job that connected nowhere: {external:?}"
+    );
     assert!(
         content.contains("[L1: egress refused: pypi.test:443 is not on this job's egress list]"),
         "{content}"

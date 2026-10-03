@@ -20,13 +20,11 @@ use theseus_protocol::{
 
 mod cancel;
 mod index;
-mod labels;
 mod places;
 mod sandbox;
 mod store;
 pub use cancel::{cancels_line, verdict_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
-pub use labels::{graduated_line, label_words, labels_health_line, labels_lines};
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
@@ -1766,14 +1764,6 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     }
     if let Some(line) = cancels_line(&h.cancels) {
         push(o, Tag::Plain, &line);
-    }
-    if let Some(l) = &h.labels {
-        let intent = h
-            .bindings
-            .iter()
-            .find(|b| b.kind == "discord")
-            .and_then(|b| b.members_intent);
-        push(o, Tag::Plain, &labels_health_line(l, intent));
     }
     places::push_health(o, h.places.as_ref());
     if let Some(line) = disk_line(&h.disk) {

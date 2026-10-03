@@ -292,16 +292,6 @@ pub fn create(
                 &format!("session:{}", tc.session_id),
                 &text,
             );
-            // The parent's latch, and the meet of its context (M4 19a).
-            let latch = parent_hold.as_ref().map(|h| {
-                let now = theseus_protocol::now_unix_ms();
-                crate::external::taken(h, tc.session_id, crate::external::VIA_TASK, &brief.id, now)
-            });
-            let readers = tc
-                .readers
-                .cloned()
-                .unwrap_or(theseus_protocol::Readers::Owner);
-            let brief = brief.labeled(crate::labels::relayed(latch, readers));
             let mut records = match &parent_hold {
                 Some(h) => {
                     let taken = crate::external::taken(
@@ -451,15 +441,6 @@ pub struct Report {
     /// The task held external text when its report was read (theseus-9bp):
     /// the parent that reads the report holds it too.
     pub external: Option<theseus_protocol::ExternalText>,
-    /// Who may read its last message, by that message's label (M4 19a): the
-    /// meet of the task's context, which its report in the parent takes.
-    /// None for a message from before labels, or no message.
-    pub readers: Option<theseus_protocol::Readers>,
-    /// Who may read its brief, by the brief's label: the report carries its
-    /// title, the brief's first line (theseus-jpff). None for a brief from
-    /// before labels, or a task that did not finish (its report is the
-    /// owner's either way).
-    pub brief: Option<theseus_protocol::Readers>,
 }
 
 /// The line a turn that a report started shows above its reply (W1), as a
@@ -497,22 +478,7 @@ impl Report {
             elapsed_ms: e.updated_at_ms.saturating_sub(e.created_at_ms),
             target: None,
             external: None,
-            readers: None,
-            brief: None,
         }
-    }
-
-    /// Who may read the report's node in the parent (§2.5: the meet of the
-    /// task's context): its last message's readers met with its brief's,
-    /// since the node carries its title, the brief's first line, even when
-    /// the task's own request withheld the brief (theseus-jpff). Either from
-    /// before labels, or missing, is the owner's.
-    pub fn readers_in_parent(&self, judge: &crate::labels::Judge) -> theseus_protocol::Readers {
-        let owner = theseus_protocol::Readers::Owner;
-        judge.meet(
-            self.readers.as_ref().unwrap_or(&owner),
-            self.brief.as_ref().unwrap_or(&owner),
-        )
     }
 
     /// The outbox post: the text by its node, as a reply names its loops'
@@ -588,28 +554,17 @@ pub fn load_report(
         return Ok(None);
     }
     let rec: Option<SessionRecord> = store.get_session(&e.session_id)?;
-    let (last, readers, brief) = if e.state == ExecState::Complete {
+    let last = if e.state == ExecState::Complete {
         let nodes = store.session_nodes(&e.session_id)?;
-        let last = last_message(nodes.iter().map(|(_, n)| n));
-        let readers = last.as_ref().and_then(|(id, _)| {
-            let n = nodes.iter().find(|(_, n)| n.id == *id)?;
-            Some(n.1.label.as_ref()?.readers.clone())
-        });
-        let brief = nodes
-            .first()
-            .filter(|(_, n)| is_brief(n))
-            .and_then(|(_, n)| Some(n.label.as_ref()?.readers.clone()));
-        (last, readers, brief)
+        last_message(nodes.iter().map(|(_, n)| n))
     } else {
-        (None, None, None)
+        None
     };
     let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
     let external = rec.as_ref().and_then(|r| r.external.clone());
     Ok(Some(Report {
         target,
         external,
-        readers,
-        brief,
         ..Report::new(&e, rec.and_then(|r| r.title), last)
     }))
 }

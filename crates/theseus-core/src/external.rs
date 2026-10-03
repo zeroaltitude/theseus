@@ -90,7 +90,7 @@ pub const VIA_JOB: &str = "job";
 pub const VIA_PROGRAM: &str = "program";
 
 /// The key of a job result's `meta` that names the listed program its job
-/// ran (theseus-b5cl), so its hold and its label say `via: program`.
+/// ran (theseus-b5cl), so its hold says `via: program`.
 pub const PROGRAM_KEY: &str = "external_program";
 
 /// The hold a result marked external gives its session: a search keeps its
@@ -124,9 +124,9 @@ pub fn search_query<'a>(tool: &str, meta: &'a serde_json::Value) -> Option<&'a s
         .flatten()
 }
 
-/// A hold, or an untrusted label's source, from a result whose `meta` names
-/// the listed program its job ran (`PROGRAM_KEY`): it came `via: program`,
-/// where `read` alone would take a `proc.run`'s mark for 18c's egress.
+/// A hold from a result whose `meta` names the listed program its job ran
+/// (`PROGRAM_KEY`): it came `via: program`, where `read` alone would take a
+/// `proc.run`'s mark for 18c's egress.
 pub fn by_program(h: &mut ExternalText, meta: &serde_json::Value) {
     if meta
         .get(PROGRAM_KEY)
@@ -846,7 +846,7 @@ mod tests {
     }
 
     /// A listed program's result is marked with its command, its line says
-    /// why, and its hold and label say `via: program`, where a `proc.run`'s
+    /// why, and its hold says `via: program`, where a `proc.run`'s
     /// mark alone is 18c's egress.
     #[test]
     fn a_listed_programs_hold_says_it_came_by_program() {
