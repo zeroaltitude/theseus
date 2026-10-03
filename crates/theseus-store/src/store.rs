@@ -343,6 +343,12 @@ pub const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 /// How often a held store is tried again.
 const LOCK_POLL: std::time::Duration = std::time::Duration::from_micros(500);
 
+/// A test's view of an open that waits: the tries that found the store held,
+/// by its directory, so a test's holder closes only once the open is known
+/// to wait (theseus-so1a).
+#[cfg(test)]
+static HELD_TRIES: Mutex<BTreeMap<PathBuf, u64>> = Mutex::new(BTreeMap::new());
+
 /// A replay of at least this many records builds the index in key order
 /// (`RedbIndex::apply_bulk`, theseus-byu).
 const BULK: usize = 4096;
@@ -584,6 +590,11 @@ impl WalStore {
                     return Self::start(inner);
                 }
                 Err(e) if RedbIndex::held_elsewhere(&e) && t0.elapsed() < wait => {
+                    #[cfg(test)]
+                    {
+                        let mut held = HELD_TRIES.lock().unwrap();
+                        *held.entry(dir.to_path_buf()).or_default() += 1;
+                    }
                     std::thread::sleep(LOCK_POLL);
                     began = t0.elapsed();
                 }

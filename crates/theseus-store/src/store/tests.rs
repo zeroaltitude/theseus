@@ -207,31 +207,63 @@ fn a_manifests_mark_waits_for_the_batch_being_written() {
 
 /// A start at once after a stop (theseus-qa0 F4b): the stopping process
 /// still holds the store for a while after its socket is gone. The next
-/// open waits for it, and serves what the last holder wrote.
+/// open waits for it, and serves what the last holder wrote. The order is
+/// proved, not timed (theseus-so1a): the holder closes only once the open
+/// has found the store held, and the open returns only after it closed.
 #[test]
 fn an_open_waits_for_the_last_holder_to_close() {
+    use std::sync::atomic::AtomicBool;
     let dir = tempfile::tempdir().unwrap();
     let first = open(dir.path());
     let rec = NewRecord::json(kinds::SESSION, Some("s1"), &serde_json::json!({"turns": 1}));
     first.append(&[rec.unwrap()]).unwrap();
-    let closer = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(80));
-        drop(first);
-    });
+    let closed = Arc::new(AtomicBool::new(false));
+    let opener = {
+        let (path, closed) = (dir.path().to_path_buf(), closed.clone());
+        std::thread::spawn(move || {
+            let next = WalStore::open(&path, WalConfig::default());
+            (next, closed.load(Ordering::SeqCst))
+        })
+    };
+    let held = || {
+        HELD_TRIES
+            .lock()
+            .unwrap()
+            .get(dir.path())
+            .copied()
+            .unwrap_or(0)
+    };
     let t0 = std::time::Instant::now();
-    let next = WalStore::open(dir.path(), WalConfig::default()).unwrap();
-    let waited = t0.elapsed();
-    closer.join().unwrap();
-    assert!(waited >= std::time::Duration::from_millis(60), "{waited:?}");
+    while held() == 0 {
+        assert!(
+            t0.elapsed() < std::time::Duration::from_secs(20),
+            "the open never found the store held"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    closed.store(true, Ordering::SeqCst);
+    drop(first);
+    let (next, after_close) = opener.join().unwrap();
+    let next = next.unwrap();
+    assert!(
+        after_close,
+        "the open returned while the first holder held the store"
+    );
     let st = next.stats().unwrap();
-    assert!(st.lock_wait_us >= 60_000, "{}", st.lock_wait_us);
+    assert!(
+        st.lock_wait_us > 0,
+        "the wait is counted: {}",
+        st.lock_wait_us
+    );
     assert!(!st.index_repaired, "the last holder closed it");
     let s1 = next.latest_by_key(kinds::SESSION, "s1").unwrap().unwrap();
     assert_eq!(s1.decode::<serde_json::Value>().unwrap()["turns"], 1);
     // An open that found the store free waited for nothing.
     drop(next);
+    let tries = held();
     let again = WalStore::open(dir.path(), WalConfig::default()).unwrap();
     assert_eq!(again.stats().unwrap().lock_wait_us, 0);
+    assert_eq!(held(), tries, "it never found the store held");
 }
 
 /// A second process beside one that is not stopping still fails, once
