@@ -51,8 +51,8 @@ secrets_resolved: Array<string>,
  */
 secrets: SecretsStatus, 
 /**
- * Where the config came from, and whether the vault has confirmed the
- * copy this start served from (theseus-2fo).
+ * Where the config came from, and what the vault said of the copy this
+ * start served from (theseus-2fo, theseus-zmgb).
  */
 config: ConfigStatus, 
 /**

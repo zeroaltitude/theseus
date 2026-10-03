@@ -1077,9 +1077,9 @@ pub fn context_line(c: &theseus_protocol::ContextStatus) -> Option<String> {
 }
 
 /// `config: vault (confirmed in 1034 ms)`, `config: confirming …`, or
-/// `config: held: <why>` (theseus-2fo): where the config came from, and
-/// whether the vault has confirmed the copy this start served from. A daemon
-/// older than that says nothing.
+/// `config: held: <why>` (theseus-2fo): where the config came from, and what
+/// the vault said of the copy this start served from, which acts either way
+/// (theseus-zmgb). A daemon older than that says nothing.
 pub fn config_line(c: &theseus_protocol::ConfigStatus) -> Option<String> {
     let ms = |v: Option<u64>| v.map(|ms| format!("{ms} ms")).unwrap_or_else(|| "?".into());
     let mut line = match (c.source.as_str(), c.state.as_str()) {
@@ -1102,8 +1102,8 @@ pub fn config_line(c: &theseus_protocol::ConfigStatus) -> Option<String> {
             l
         }
         (_, "confirming") => format!(
-            "config: confirming · serving from the copy of {}; nothing acts until the vault \
-             confirms it",
+            "config: confirming · acting on the copy of {}, which the daemon wrote; the vault \
+             is being read",
             c.reference
         ),
         (_, state) => format!(
@@ -1111,11 +1111,10 @@ pub fn config_line(c: &theseus_protocol::ConfigStatus) -> Option<String> {
             c.detail.as_deref().unwrap_or("(no reason given)")
         ),
     };
-    if let Some(ms) = c.retry_in_ms.filter(|_| c.state == "held") {
-        line.push_str(&format!(
-            "\n  the vault is read again in {:.0} s",
-            ms as f64 / 1000.0
-        ));
+    if c.state == "held" {
+        line.push_str(
+            "\n  acting on the copy this start served from; the next start reads the vault again",
+        );
     }
     if let Some(r) = &c.restarted {
         line.push_str(&format!(
@@ -2694,9 +2693,9 @@ mod tests {
 
     /// `config:` in `theseus health` (theseus-2fo): a file, a read before
     /// serving, confirming, confirmed from the copy, and held after a restart
-    /// onto a changed note, with the next read.
+    /// onto a changed note, acting on the copy (theseus-zmgb).
     #[test]
-    fn health_says_where_the_config_came_from_and_whether_it_may_act() {
+    fn health_says_where_the_config_came_from_and_what_the_vault_said() {
         use theseus_protocol::{ConfigRestart, ConfigStatus};
         let vault = |state: &str, from: &str| ConfigStatus {
             source: "vault".into(),
@@ -2729,8 +2728,8 @@ mod tests {
         );
         assert_eq!(
             config_line(&vault("confirming", "copy")).unwrap(),
-            "config: confirming · serving from the copy of op://V/c/notesPlain; nothing acts \
-             until the vault confirms it"
+            "config: confirming · acting on the copy of op://V/c/notesPlain, which the daemon \
+             wrote; the vault is being read"
         );
         let ok = ConfigStatus {
             confirmed_ms: Some(1034),
@@ -2745,7 +2744,6 @@ mod tests {
             detail: Some(
                 "the vault's note changed again since the restart; restart to apply".into(),
             ),
-            retry_in_ms: Some(10_000),
             restarted: Some(ConfigRestart {
                 reference: "op://V/c/notesPlain".into(),
                 at_unix_ms: 3_600_000,
@@ -2757,8 +2755,9 @@ mod tests {
         assert_eq!(
             config_line(&held).unwrap(),
             "config: held: the vault's note changed again since the restart; restart to apply\n  \
-             the vault is read again in 10 s\n  restarted at 01:00:00.000Z onto the vault's \
-             changed note; changed since the copy: kernel"
+             acting on the copy this start served from; the next start reads the vault again\n  \
+             restarted at 01:00:00.000Z onto the vault's changed note; changed since the copy: \
+             kernel"
         );
     }
 

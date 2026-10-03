@@ -27,10 +27,8 @@ pub(super) struct Conn<'a> {
     /// Closed when the connection's reader ends: a parked `session.wait`
     /// ends with it (theseus-in3).
     pub closed: &'a watch::Receiver<()>,
-    /// When the request arrived, and how long it waited at the config gate
-    /// (theseus-2fo): a turn's trace starts at the arrival.
+    /// When the request arrived: a turn's trace starts there.
     pub arrived: std::time::Instant,
-    pub config_wait_us: u64,
 }
 
 impl Conn<'_> {
@@ -216,8 +214,7 @@ impl Core {
     }
 
     /// Every method, by name: each parses its params, runs, and serializes
-    /// its result (`route`, `reply`). A method that acts waits first for the
-    /// vault to confirm the config this start served from (`ACTS`).
+    /// its result (`route`, `reply`).
     async fn dispatch(
         self: Arc<Self>,
         req: Request,
@@ -228,15 +225,6 @@ impl Core {
         closed: &watch::Receiver<()>,
     ) -> Result<Value, RpcFailure> {
         let arrived = std::time::Instant::now();
-        let mut config_wait_us = 0;
-        if ACTS.contains(&req.method.as_str()) {
-            let waited = self.config_gate.wait().await.map_err(|why| RpcFailure {
-                code: error_code::CONFIG_UNCONFIRMED,
-                message: why,
-                data: json!({"class": "config_unconfirmed", "state": self.config_gate.status().state}),
-            })?;
-            config_wait_us = waited.as_micros() as u64;
-        }
         let conn = Conn {
             client,
             surface,
@@ -244,7 +232,6 @@ impl Core {
             tx: &tx,
             closed,
             arrived,
-            config_wait_us,
         };
         let params = req.params;
         match req.method.as_str() {
@@ -387,27 +374,6 @@ async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool 
     let _ = writer.flush().await;
     true
 }
-
-/// The methods that change anything or start work (theseus-2fo). Until the
-/// vault confirms the config a start served from, each waits at the gate,
-/// bounded like the secrets, then fails with `config_unconfirmed`. Every
-/// other method only reads, and answers at once; `shutdown` works too.
-pub const ACTS: [&str; 14] = [
-    method::TURN_SUBMIT,
-    method::SESSION_OPEN,
-    method::PROFILE_USE,
-    method::SESSION_RECOMPILE,
-    method::ACTION_CONFIRM,
-    method::POLICY_TIGHTEN,
-    method::POLICY_UNTIGHTEN,
-    method::POLICY_TRUST,
-    method::PLACE_PUBLISH,
-    method::EXECUTION_CANCEL,
-    method::EXECUTION_STOP,
-    method::TASK_CANCEL,
-    method::WAKE_CANCEL,
-    method::AWS_BOOTSTRAP,
-];
 
 /// A failed request: JSON-RPC code, human message, structured data.
 #[derive(Debug)]

@@ -454,7 +454,7 @@ impl Rig {
         bail!("no live job wrapper in {}", dir.display())
     }
 
-    /// Ask `health` until the vault has confirmed the config, at most 30 s:
+    /// Ask `health` until the vault's read has confirmed the copy, at most 30 s:
     /// ms from `t0`.
     fn until_confirmed(&self, t0: Instant) -> Result<f64> {
         let deadline = Instant::now() + Duration::from_secs(30);
@@ -512,7 +512,7 @@ impl Rig {
     }
 
     /// When the continuation driver started, by the daemon's clock, once
-    /// health shows it (it starts once the config may act).
+    /// health shows it (it starts once the socket answers).
     fn driver_started(&self) -> Result<Option<f64>> {
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline {
@@ -971,9 +971,11 @@ pub fn run(o: &Opts) -> Result<Report> {
             std::fs::write(&config, &text)?;
             std::fs::write(state.join("bindings.toml"), BENCH_BINDINGS)?;
             // The vault phase starts from the note's copy, as a daemon that
-            // has run before does; the fake op answers the note with the same
-            // text after `resolver_ms`.
-            theseus_core::config_copy::write(
+            // has run before does, its digest in the store (theseus-zmgb);
+            // the fake op answers the note with the same text after
+            // `resolver_ms`.
+            theseus_core::config_copy::keep(
+                &theseus_core::store::Store::open(&state.join("store"))?,
                 &theseus_core::config_copy::path(Some(&state)),
                 VAULT_REF,
                 &text,

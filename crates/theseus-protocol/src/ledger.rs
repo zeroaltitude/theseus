@@ -77,7 +77,6 @@ ledger_kinds! {
     CompletionLateAfterCancel = "completion.late_after_cancel",
     CompletionQuarantined = "completion.quarantined",
     ConfigChanged = "config.changed",
-    ConfigConfirmed = "config.confirmed",
     ConfigHeld = "config.held",
     ConfigInvalid = "config.invalid",
     ConfigUnreachable = "config.unreachable",

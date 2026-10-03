@@ -109,7 +109,6 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -2674,7 +2673,6 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
                 recompile: None,
                 attachments: vec![],
                 arrived: None,
-                config_wait_us: 0,
                 reply_to: None,
             })
             .await
@@ -2903,7 +2901,6 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -3408,7 +3405,6 @@ async fn failing_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Error
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -3714,7 +3710,6 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -3874,7 +3869,6 @@ async fn a_model_with_no_price_is_not_called() {
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -4912,7 +4906,6 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
             recompile: None,
             attachments: files,
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         };
         let core = core.clone();
@@ -6711,7 +6704,6 @@ mod parallel {
                 recompile: None,
                 attachments: vec![],
                 arrived: None,
-                config_wait_us: 0,
                 reply_to: None,
             })
             .await
@@ -7206,7 +7198,7 @@ async fn a_jobs_process_can_tighten_but_not_undo_a_tightening() {
 // ---------------------------------------------------------------- the limit follows the config (theseus-3pj)
 
 /// A lower `spend_limit_usd`, and a restart: the open session takes it in
-/// startup (a config that may act at once), with nothing else changed, and
+/// startup, with nothing else changed, and
 /// its next turn's first call no longer fits, so the turn asks, as usual.
 #[tokio::test]
 async fn a_lowered_limit_makes_the_next_turn_over_it_ask() {
@@ -7929,7 +7921,6 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await;

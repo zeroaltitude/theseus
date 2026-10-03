@@ -1874,8 +1874,8 @@ fn an_error_answer_exits_1_with_its_class() {
         method: "session.list",
         before: vec![],
         answer: Err(
-            json!({"code": -32006, "message": "the config is not confirmed yet",
-            "data": {"class": "config_unconfirmed"}}),
+            json!({"code": -32003, "message": "the secret anthropic_api_key did not resolve",
+            "data": {"class": "secret_failed"}}),
         ),
         after: vec![],
     };

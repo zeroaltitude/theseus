@@ -8,11 +8,12 @@
 //! never runs without it.
 //!
 //! The config is a file, or a note in the vault. A start whose config is in
-//! the vault serves from the note's last-known-good copy and reads the vault
-//! behind the socket, beside the secrets (theseus-2fo). Until the vault
-//! confirms the copy it answers only what reads, and nothing acts; a changed
-//! note restarts the daemon onto the vault's version. A start with no copy
-//! reads the vault first, and keeps the copy after serving.
+//! the vault serves from the note's last-known-good copy and acts on it, when
+//! the copy's digest is the one the daemon recorded in the store as it wrote
+//! it (theseus-zmgb), and reads the vault once behind the socket, beside the
+//! secrets (theseus-2fo); a changed note restarts the daemon onto the vault's
+//! version. A start with no copy, or one edited since, reads the vault first,
+//! and keeps the copy after serving.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -269,8 +270,9 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     // The copy is found before any config is read: in `--state-dir`, else ~/.theseus.
     let copy_path = in_vault.then(|| config_copy::path(cli.state_dir.as_deref()));
     let t = Instant::now();
-    // A start that serves (the socket or `--stdio`) serves from the copy;
-    // `check`, `config`, and `restore` read the vault itself, as before.
+    // A start that serves (the socket or `--stdio`) serves from the copy,
+    // once the store says it is the daemon's (below); `check`, `config`, and
+    // `restore` read the vault itself, as before.
     let vault_first = std::env::var(VAULT_FIRST_ENV).ok();
     let mut why_vault = vault_first.clone();
     let copy = match (&copy_path, &cli.cmd, &vault_first) {
@@ -357,35 +359,6 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         return Ok(Exit::Done);
     }
     tracing::info!(source = %cli.config, from, model = %cfg.model.model, "config loaded");
-    // Whether the config may act, the note to keep as the copy once serving
-    // (a read before serving), and the vault's read of the copy (a start
-    // from it).
-    let (gate, keep, confirm) = match start {
-        Start::File => (ConfigGate::file(&cli.config), None, None),
-        Start::Vault(text) => {
-            let before = why_vault
-                .clone()
-                .unwrap_or_else(|| "there was no copy yet".to_string());
-            let copy = copy_path
-                .clone()
-                .context("a vault config has a copy path")?;
-            (
-                ConfigGate::vault(&cli.config, copy, origin, Instant::now(), before),
-                Some(text),
-                None,
-            )
-        }
-        Start::Copy { text, first, began } => {
-            let copy = copy_path
-                .clone()
-                .context("a vault config has a copy path")?;
-            (
-                ConfigGate::from_copy(&cli.config, copy, text, origin),
-                None,
-                Some((first, began)),
-            )
-        }
-    };
 
     // Serve first (FAST, §2): the secrets resolve in the background while
     // the store opens and the socket binds.
@@ -439,36 +412,61 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         syncs = st.syncs,
         "store open"
     );
+    // A copy acts at once only when it is the one the daemon wrote: its
+    // digest is in the store (theseus-zmgb). One edited since, or one an
+    // older build wrote, makes this start one that reads the vault first.
+    if let Start::Copy { text, .. } = &start {
+        if let Err(why) = config_copy::written_by_daemon(&store, text) {
+            tracing::warn!(why = %why, "the config copy cannot serve this start; restarting to read the vault first");
+            return Ok(Exit::Exec(
+                VAULT_FIRST_ENV,
+                format!("the copy was not used: {why}"),
+            ));
+        }
+    }
+    // Where the config came from, the note to keep as the copy once serving
+    // (a read before serving), and the vault's read of the copy (a start
+    // from it).
+    let (gate, keep, check) = match start {
+        Start::File => (ConfigGate::file(&cli.config), None, None),
+        Start::Vault(text) => {
+            let before = why_vault
+                .clone()
+                .unwrap_or_else(|| "there was no copy yet".to_string());
+            let copy = copy_path
+                .clone()
+                .context("a vault config has a copy path")?;
+            (
+                ConfigGate::vault(&cli.config, copy, origin, Instant::now(), before),
+                Some(text),
+                None,
+            )
+        }
+        Start::Copy { text, first, began } => {
+            let copy = copy_path
+                .clone()
+                .context("a vault config has a copy path")?;
+            (
+                ConfigGate::from_copy(&cli.config, copy, text, origin),
+                None,
+                Some((first, began)),
+            )
+        }
+    };
     let socket_path = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
     let bindings_path = cfg.discord.bindings_path(&state_dir);
     // Records `providers`, `kernel`, and `core`, one after another.
-    let core = match Core::new(cfg, secrets, store, startup.clone(), gate) {
-        Ok(core) => {
-            let _ = CORE.set(Arc::downgrade(&core));
-            // No L1 job's view shows this daemon's socket (M4 17b).
-            core.tools.sandbox.hide(socket_path.clone());
-            core
-        }
-        // A store with unit budgets is migrated only under the vault's own
-        // config: this start becomes one that reads the vault first.
-        Err(e) if unconfirmed_config(&e) => {
-            tracing::warn!(error = %format!("{e:#}"), "restarting to read the vault's config note before serving");
-            return Ok(Exit::Exec(
-                VAULT_FIRST_ENV,
-                "the store still holds unit budgets, which are migrated only under a config \
-                 the vault has confirmed"
-                    .into(),
-            ));
-        }
-        Err(e) => return Err(e),
-    };
-    if let Some((first, began)) = confirm {
-        tokio::spawn(config_gate::confirm(core.clone(), op, Some(first), began));
+    let core = Core::new(cfg, secrets, store, startup.clone(), gate)?;
+    let _ = CORE.set(Arc::downgrade(&core));
+    // No L1 job's view shows this daemon's socket (M4 17b).
+    core.tools.sandbox.hide(socket_path.clone());
+    if let Some((first, began)) = check {
+        tokio::spawn(config_gate::check(core.clone(), op, Some(first), began));
     }
 
     // The harness loop and the continuation driver start once the socket
-    // answers and the config may act (`after_serving`); neither waits for
-    // Discord, whose posts are in the outbox (theseus-q4v).
+    // answers (`after_serving`); neither waits for Discord, whose posts are
+    // in the outbox (theseus-q4v).
     tokio::spawn(core.clone().watch_secrets());
 
     if cli.stdio {
@@ -603,15 +601,6 @@ fn exit(core: &Core) -> Exit {
         ),
         None => Exit::Done,
     }
-}
-
-/// Whether the kernel refused a store with unit budgets under a config the
-/// vault has not confirmed (theseus-2fo).
-fn unconfirmed_config(e: &anyhow::Error) -> bool {
-    matches!(
-        e.downcast_ref::<theseus_kernel::KernelError>(),
-        Some(theseus_kernel::KernelError::UnconfirmedConfig { .. })
-    )
 }
 
 /// Become the same binary image with the same arguments, and `var` set
@@ -819,7 +808,8 @@ fn copy_line(path: &std::path::Path, reference: &str, vault: &str) -> String {
 }
 
 /// A first start keeps the note it read as the last-known-good copy, once
-/// serving (theseus-2fo): never a note with a credential in a URL.
+/// serving (theseus-2fo), with its digest in the store (theseus-zmgb): never
+/// a note with a credential in a URL.
 fn keep_copy(core: &Core, text: &str) {
     let Some(path) = core.cfg.config_copy.clone() else {
         return;
@@ -829,7 +819,7 @@ fn keep_copy(core: &Core, text: &str) {
             tracing::warn!(field = %field, "no config copy is kept: this field carries a credential in its URL, so every start reads the vault first");
             format!("no copy is kept, since {field} carries a credential in its URL")
         }
-        None => match config_copy::write(&path, &core.config_gate.reference(), text) {
+        None => match config_copy::keep(&core.store, &path, &core.config_gate.reference(), text) {
             Ok(()) => {
                 tracing::info!(copy = %path.display(), "config copy kept for the next start");
                 "the copy is kept for the next start".to_string()
@@ -888,12 +878,10 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
 /// check once its secret resolves. The network and every fsync but the
 /// kernel's one stay off the start path (§9).
 ///
-/// Then, once the config may act (at once for a file or a vault read before
-/// serving; when the vault confirms the copy otherwise, theseus-2fo), the
-/// actors: the harness loop, the driver, telemetry, the web UI, Discord
-/// (`bindings`: the socket daemon only), and the GitHub check. Nothing acts,
-/// sends a secret, or talks to the network on a copy's word. `keep` is a
-/// note read before serving, kept as the copy now.
+/// Then the actors: the harness loop, the driver, telemetry, the web UI,
+/// Discord (`bindings`: the socket daemon only), and the GitHub check. A
+/// copy the daemon wrote acts at once (theseus-zmgb). `keep` is a note read
+/// before serving, kept as the copy now.
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn after_serving(
     core: Arc<Core>,
@@ -935,14 +923,9 @@ async fn after_serving(
     tokio::task::spawn_blocking(move || outbox.warm());
     // The index tender (roadmap row 51; M6 §2.2), started once the socket
     // answers, never before, and by the socket daemon alone (`bindings` is
-    // its): a `--stdio` daemon serves `store-stdio` for one client. The
-    // tender reads the WAL and writes only its own directory, so it waits
-    // for nothing the config gate guards.
+    // its): a `--stdio` daemon serves `store-stdio` for one client.
     if bindings.is_some() {
         tokio::spawn(core.index.clone().run());
-    }
-    if !core.config_gate.opened().await {
-        return;
     }
     // The harness loop (heartbeat reconciler, wrapper notify socket) and the
     // driver (continuation turns: job results, confirms, restarts). Both

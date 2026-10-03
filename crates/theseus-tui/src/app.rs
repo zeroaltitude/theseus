@@ -545,11 +545,7 @@ impl App {
             Purpose::Cancel(_) => method::TASK_CANCEL,
             Purpose::Answer { .. } => method::ACTION_CONFIRM,
         };
-        let text = if e.code == error_code::CONFIG_UNCONFIRMED {
-            format!("{what}: {} (the daemon waits for its vault)", e.message)
-        } else {
-            format!("{what}: {}", e.message)
-        };
+        let text = format!("{what}: {}", e.message);
         if let Purpose::Submit(sid) | Purpose::Stop(sid) | Purpose::Cancel(sid) = purpose {
             self.note(sid, Tag::Bad, &format!("✗ {text}"));
         }

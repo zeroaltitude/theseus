@@ -1,10 +1,14 @@
 //! The last-known-good copy of the vault's config note (theseus-2fo, spec
 //! §3.19). A start whose config is an `op://` reference serves from this copy
-//! at once and reads the vault behind the socket; nothing acts until the
-//! vault confirms the copy (`config_gate`). The note holds only `op://`
-//! references, so the copy holds no secret. The vault stays the one
-//! authority: the copy is a file the operator's user can write, and at L0 a
-//! job runs as that user (theseus-6qy), while an agent cannot write the vault.
+//! and acts on it at once, when it is the copy the daemon wrote: as the daemon
+//! writes it, it records its sha256 in the store (`keep`), and a start checks
+//! it (`written_by_daemon`, theseus-zmgb). A copy edited since is not used:
+//! that start reads the vault first. The vault is read once after serving
+//! (`config_gate`). The note holds only `op://` references, so the copy holds
+//! no secret. The vault stays the one authority: the copy is a file the
+//! operator's user can write, and at L0 a job runs as that user, while an
+//! agent cannot write the vault. The digest is a light check, not a boundary:
+//! a job that can write the copy can write the store while the daemon is down.
 
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -13,10 +17,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
+use crate::store::Store;
 use crate::Config;
 
 /// The copy's name in the state dir.
 pub const FILE: &str = "config.last-good.toml";
+
+/// The store's meta key for the sha256 of the copy's note, as the daemon last
+/// wrote it.
+pub const DIGEST: &str = "config.copy_sha256";
 
 /// The copy's first line names the reference it came from, and the note's
 /// exact text follows it.
@@ -84,6 +93,32 @@ pub fn write(path: &Path, source: &str, text: &str) -> Result<()> {
     drop(f);
     std::fs::rename(&tmp, path)
         .with_context(|| format!("renaming the copy into {}", path.display()))
+}
+
+/// Keep `text` as the copy (`write`), then record its digest in `store`, so
+/// the next start knows the copy is the one the daemon wrote. A crash between
+/// the two leaves a copy whose digest does not match: one start that reads
+/// the vault first.
+pub fn keep(store: &Store, path: &Path, source: &str, text: &str) -> Result<()> {
+    write(path, source, text)?;
+    store
+        .put_meta(DIGEST, &sha256(text))
+        .context("recording the copy's digest")
+}
+
+/// Whether `text`, the note of the copy a start found, is the one the daemon
+/// last wrote (theseus-zmgb): `Err(why)` when it is not, and the start reads
+/// the vault first.
+pub fn written_by_daemon(store: &Store, text: &str) -> Result<(), String> {
+    match store.get_meta::<String>(DIGEST) {
+        Ok(Some(d)) if d == sha256(text) => Ok(()),
+        Ok(Some(_)) => Err(
+            "its sha256 is not the one the daemon recorded as it wrote it, so it was edited since"
+                .into(),
+        ),
+        Ok(None) => Err("the store records no digest for it (an older build wrote it)".into()),
+        Err(e) => Err(format!("its digest could not be read: {e:#}")),
+    }
 }
 
 /// The digest `config.changed` names each version by.
@@ -190,6 +225,32 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(names, ["config.last-good.toml"]);
+    }
+
+    /// A copy the daemon kept carries its digest in the store: the same text
+    /// passes; an edit, or a copy no digest was recorded for, does not
+    /// (theseus-zmgb).
+    #[test]
+    fn a_kept_copy_passes_its_digest_and_an_edited_one_does_not() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(&d.path().join("store")).unwrap();
+        let p = path(Some(d.path()));
+        write(&p, REF, NOTE).unwrap();
+        let none = written_by_daemon(&store, NOTE).unwrap_err();
+        assert!(none.contains("records no digest"), "{none}");
+        keep(&store, &p, REF, NOTE).unwrap();
+        let c = read(&p, REF).unwrap().unwrap();
+        assert_eq!(written_by_daemon(&store, &c.text), Ok(()));
+        // Edited by hand, or by a job running as the operator's user.
+        let raw = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(&p, raw.replace("op://V/i/f", "op://V/i/g")).unwrap();
+        let c = read(&p, REF).unwrap().unwrap();
+        let e = written_by_daemon(&store, &c.text).unwrap_err();
+        assert!(e.contains("edited since"), "{e}");
+        assert_eq!(
+            store.get_meta::<String>(DIGEST).unwrap(),
+            Some(sha256(NOTE))
+        );
     }
 
     /// A copy that does not load, or whose first line names no reference, is

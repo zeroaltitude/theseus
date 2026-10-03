@@ -632,8 +632,7 @@ warn_days = 30                          # warn when the token expires within thi
 
 # ---------------------------------------------------------------- telemetry
 # OpenTelemetry export, in every build: nothing leaves the process until
-# otlp_endpoint is set, the vault has confirmed this config, and the headers
-# secret (if any) has resolved. It speaks OTLP/HTTP with the JSON encoding, which
+# otlp_endpoint is set and the headers secret (if any) has resolved. It speaks OTLP/HTTP with the JSON encoding, which
 # the OpenTelemetry Collector and most vendors accept. Each turn's trace becomes
 # one OTel trace with the recorded timestamps, sent when the turn ends; the turn
 # never waits for it. Metrics, cumulative, every metrics_interval_secs:

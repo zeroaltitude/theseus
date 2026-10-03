@@ -132,16 +132,6 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
         board.state("disabled", Some("[discord].enabled = false".into()));
         return;
     }
-    // Nothing talks to Discord on a config copy's word (theseus-2fo).
-    if !core.config_gate.is_open() {
-        board.state(
-            "waiting",
-            Some("waiting for the vault to confirm the config this daemon started from".into()),
-        );
-        if !core.config_gate.opened().await {
-            return;
-        }
-    }
     board.update(|s| s.bindings_file = Some(path.display().to_string()));
     if !path.exists() {
         board.state(

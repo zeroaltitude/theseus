@@ -588,7 +588,6 @@ impl KernelSection {
             confirm_ttl_ms: self.confirm_ttl_secs * 1000,
             heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
             fault_after_startup_step: None,
-            unconfirmed_config: false,
         }
     }
 }

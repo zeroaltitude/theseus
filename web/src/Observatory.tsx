@@ -930,8 +930,8 @@ function startupCount(health: Health | null): string {
   return [serving, config, secrets].filter(Boolean).join(' · ')
 }
 
-/// Where the config came from, whether it may act, and what a restart onto the vault's
-/// changed note changed (theseus-2fo).
+/// Where the config came from, what the vault said of the copy it acts on, and what a
+/// restart onto the vault's changed note changed (theseus-2fo, theseus-zmgb).
 function ConfigLine({ c }: { c: ConfigStatus }) {
   const from = c.source === 'file' ? `file ${c.reference}`
     : c.started_from === 'copy' ? `the copy of ${c.reference}` : c.reference
@@ -943,10 +943,9 @@ function ConfigLine({ c }: { c: ConfigStatus }) {
         {c.state === 'confirmed' && c.confirmed_ms != null && c.source === 'vault' &&
           <span className="muted small"> · {c.started_from === 'copy' ? 'confirmed by the vault' : 'read before serving'} {fmt(c.confirmed_ms)} ms after start</span>}
         {c.detail && <span className={c.state === 'held' ? 'bad small' : 'muted small'}> · {c.detail}</span>}
-        {c.state === 'held' && c.retry_in_ms != null && <span className="muted small"> · read again in {Math.ceil(c.retry_in_ms / 1000)} s</span>}
       </div>
-      {c.state !== 'confirmed' && c.source === 'vault' &&
-        <div className="warn small">Nothing acts until the vault confirms the copy: reads answer, and every method that acts waits.</div>}
+      {c.state === 'held' &&
+        <div className="warn small">The copy this start served from keeps serving and acting; the next start reads the vault again.</div>}
       {c.restarted &&
         <div className="warn small">Restarted {new Date(c.restarted.at_unix_ms).toLocaleTimeString()} onto the vault's note, which had changed since the copy: {c.restarted.tables.join(', ')}.</div>}
     </>

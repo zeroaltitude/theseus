@@ -694,23 +694,8 @@ impl Core {
 }
 
 impl Core {
-    /// Open sessions follow `[kernel] spend_limit_usd` (theseus-3pj). The
-    /// core runs this when the vault confirms the copy this start served
-    /// from, before the gate opens, so nothing acts on an old limit once the
-    /// vault has confirmed a new one. (A start whose config may act at once
-    /// had the kernel's startup do it.) A failure is loud, and the gate still
-    /// opens: a store that cannot write this frame cannot write a turn either.
-    pub fn follow_spend_limit(&self) {
-        match self.kernel.follow_spend_limit() {
-            Ok(followed) => self.said_limits_followed(&followed),
-            Err(e) => tracing::error!(
-                error = %format!("{e:#}"),
-                "open sessions could not take the configured spend limit; they keep the one they had"
-            ),
-        }
-    }
-
-    /// Say what following the spend limit did: one log line, a narrative
+    /// Say what following the spend limit did (theseus-3pj, the kernel's
+    /// startup step 2): one log line, a narrative
     /// line per session, and `confirm.resolved` to the clients of each
     /// session whose question a raise withdrew.
     pub(crate) fn said_limits_followed(&self, followed: &[LimitFollowed]) {

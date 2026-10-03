@@ -731,7 +731,6 @@ impl Core {
                 recompile: None,
                 attachments: p.attachments,
                 arrived: Some(conn.arrived),
-                config_wait_us: conn.config_wait_us,
                 reply_to: p.reply_to,
             })
             .await;

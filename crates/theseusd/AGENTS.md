@@ -14,7 +14,7 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 - `src/main.rs`: the start, in the order serve-first requires: the token, the config, secrets resolving in the
   background, the store, the kernel's startup, then serving. The network, and every fsync but the kernel's one, go
   in `after_serving`, as do the actors (the harness loop, the driver, telemetry, the web UI, Discord), which start
-  only once the config may act. Also the signal arms (SIGINT and SIGTERM are one clean stop) and the reaper.
+  as soon as the socket answers. Also the signal arms (SIGINT and SIGTERM are one clean stop) and the reaper.
 - The index tender (row 51): `after_serving` starts the core's supervisor (`theseus_core::tender`) as soon as the
   socket answers, the socket daemon only, and the supervisor starts a tender 2 s later (one an exec kept is taken
   over at once); the reaper hands it each tender's exit; a stop sends the tender SIGTERM and never waits. It runs
@@ -41,9 +41,10 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 
 - **Serve first.** Nothing on the start path waits for a secret, the network, or a model, and no new work joins it
   without its bench row (`theseus-sim bench lifecycle`).
-- **A config in the vault** starts from its last-known-good copy. Until the vault confirms it, the daemon answers
-  only what reads (`config_unconfirmed` for acting methods). A changed note restarts the daemon in place: an exec of
-  `/proc/self/exe`, with the same pid.
+- **A config in the vault** starts from its last-known-good copy, and acts on it at once when its sha256 is the one
+  the daemon recorded in the store as it wrote it (theseus-zmgb); an edited copy makes the start exec itself to read
+  the vault first. After serving, the vault is read once, and a changed note restarts the daemon in place: an exec
+  of `/proc/self/exe`, with the same pid.
 - **Every clean stop is one path**: the `shutdown` method, SIGINT, SIGTERM, and a restart onto a changed note. Each
   writes `server.stopping` and checkpoints, so the next start replays nothing. The stop's answer is written before
   the daemon stops.
