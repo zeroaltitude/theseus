@@ -126,8 +126,9 @@ pub struct Report {
     pub grants: u64,
     pub invariant_checks: u64,
     /// Atoms that reached an audience by a known gap (`atoms::KNOWN_GAPS`),
-    /// counted instead of failing.
+    /// counted instead of failing, in all and by gap.
     pub known_gaps: u64,
+    pub gaps: BTreeMap<String, u64>,
     pub trace: String,
     #[serde(skip)]
     pub wall_ms: u64,
@@ -254,13 +255,17 @@ pub fn line(r: &Report) -> String {
 }
 
 /// The known gaps a run counted, in words.
-fn known_line(n: u64) -> String {
+fn known_line(total: &Report) -> String {
     let gaps: Vec<String> = atoms::KNOWN_GAPS
         .iter()
-        .map(|(id, what)| format!("{id} ({what})"))
+        .map(|(id, what)| {
+            let n = total.gaps.get(*id).copied().unwrap_or(0);
+            format!("{id}, {n} ({what})")
+        })
         .collect();
     format!(
-        "{n} atoms reached an audience by a known gap, counted, not failed: {}",
+        "KNOWN GAPS: {} atoms reached an audience by a known gap, counted, not failed: {}",
+        total.known_gaps,
         gaps.join("; ")
     )
 }
@@ -299,7 +304,7 @@ pub fn cli(p: &Params, seeds: u32, json: bool) -> Result<()> {
         total.tasks, total.invariant_checks
     );
     if total.known_gaps > 0 {
-        println!("{}", known_line(total.known_gaps));
+        println!("{}", known_line(&total));
     }
     Ok(())
 }
@@ -339,6 +344,9 @@ fn add(t: &mut Report, r: &Report) {
     t.grants += r.grants;
     t.invariant_checks += r.invariant_checks;
     t.known_gaps += r.known_gaps;
+    for (gap, n) in &r.gaps {
+        *t.gaps.entry(gap.clone()).or_default() += n;
+    }
 }
 
 /// Run one seed.
