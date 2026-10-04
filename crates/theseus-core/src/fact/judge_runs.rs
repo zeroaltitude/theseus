@@ -1,12 +1,12 @@
 //! The owner's runs over the learning ledger (M5 25d; design §2.9): a
-//! replay, an audit. Each run is one row, keyed by its id and scoped as
-//! what it wrote (`judge.replay:<pack id>` for a replay, beside its calls;
-//! `judge:<pack id>` for an audit, beside its labels), written in the frame
-//! that ends the run, and one sentence. The runs are outside every turn: no
-//! span.
+//! replay, an audit, a backfill. Each run is one row, keyed by its id and
+//! scoped as what it wrote (`judge.replay:<pack id>` for a replay, beside
+//! its calls; `judge:<pack id>` for an audit and a backfill, beside the
+//! labels and judgments the report reads), written in the frame that ends
+//! the run, and one sentence. The runs are outside every turn: no span.
 
 use serde_json::{json, Value};
-use theseus_protocol::judge_runs::{JudgeAuditResult, JudgeReplayResult};
+use theseus_protocol::judge_runs::{JudgeAuditResult, JudgeBackfillResult, JudgeReplayResult};
 use theseus_protocol::{LedgerKind, NarrativePart};
 
 use super::{Fact, Say};
@@ -99,6 +99,45 @@ impl Fact for JudgeAudited<'_> {
                 r.sampled,
                 r.labels,
                 r.dropped,
+                usd(r.cost_usd)
+            ),
+        );
+    }
+}
+
+/// A backfill ran (`judge.backfill`), under the consent of the config whose
+/// digest it names.
+pub struct JudgeBackfilled<'a> {
+    pub result: &'a JudgeBackfillResult,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for JudgeBackfilled<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeBackfill);
+
+    fn row(&self) -> Value {
+        let mut v = serde_json::to_value(self.result).unwrap_or(Value::Null);
+        if let Some(o) = v.as_object_mut() {
+            o.insert("who".into(), json!(self.who));
+            o.insert("via".into(), json!(self.via));
+        }
+        v
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let r = self.result;
+        say.line(
+            NarrativePart::Session,
+            format!(
+                "{} backfilled {} from its recorded history: {} events, {} judged now, {} \
+                 judged before, {} left out, {}.",
+                self.who,
+                r.pack,
+                r.events,
+                r.judged,
+                r.already,
+                r.left_out.len(),
                 usd(r.cost_usd)
             ),
         );

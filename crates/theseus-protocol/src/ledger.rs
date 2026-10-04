@@ -126,6 +126,7 @@ ledger_kinds! {
     JobStoppedBelowFloor = "job.stopped_below_floor",
     JobWrapperLost = "job.wrapper_lost",
     JudgeAudit = "judge.audit",
+    JudgeBackfill = "judge.backfill",
     JudgeBlockBooked = "judge.block_booked",
     JudgeCall = "judge.call",
     JudgeCircuit = "judge.circuit",

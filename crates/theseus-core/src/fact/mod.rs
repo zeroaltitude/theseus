@@ -369,6 +369,7 @@ facts![
     judge::JudgeReport<'static>,
     judge_runs::JudgeReplayed<'static>,
     judge_runs::JudgeAudited<'static>,
+    judge_runs::JudgeBackfilled<'static>,
     mcp::McpStarted,
     mcp::McpReady,
     mcp::McpExited,

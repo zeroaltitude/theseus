@@ -124,6 +124,8 @@ export type * from './IndexWarmResult';
 export type * from './IndexWeights';
 export type * from './JudgeAuditParams';
 export type * from './JudgeAuditResult';
+export type * from './JudgeBackfillParams';
+export type * from './JudgeBackfillResult';
 export type * from './JudgeDayBudget';
 export type * from './JudgeGetParams';
 export type * from './JudgeGetResult';

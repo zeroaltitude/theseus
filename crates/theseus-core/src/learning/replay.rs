@@ -141,22 +141,39 @@ enum Ready {
 /// The run's calls: through the judge's client and breaker, one at a time,
 /// each reserved inside the run's limit and settled at what it cost (its
 /// reservation, when its usage is unknown).
-struct Caller<'a> {
+pub(super) struct Caller<'a> {
     rt: &'a tokio::runtime::Handle,
     built: &'a crate::judge::Built,
-    limit: Micros,
-    spent: Micros,
+    pub(super) limit: Micros,
+    pub(super) spent: Micros,
     /// Every call made, answered or not: each is a row.
-    called: Vec<Judgment>,
+    pub(super) called: Vec<Judgment>,
 }
 
-impl Caller<'_> {
+impl<'a> Caller<'a> {
+    pub(super) fn new(
+        rt: &'a tokio::runtime::Handle,
+        built: &'a crate::judge::Built,
+        limit: Micros,
+    ) -> Self {
+        Self {
+            rt,
+            built,
+            limit,
+            spent: 0,
+            called: Vec::new(),
+        }
+    }
+
     fn reserve(&self, a: &Ask) -> Option<Micros> {
         self.built.jev().reserve_micros(std::slice::from_ref(a))
     }
 
     /// What the asks would reserve; `Err` when a model is unpriced.
-    fn estimate<'a>(&self, asks: impl Iterator<Item = &'a Ask>) -> anyhow::Result<Micros> {
+    pub(super) fn estimate<'b>(
+        &self,
+        asks: impl Iterator<Item = &'b Ask>,
+    ) -> anyhow::Result<Micros> {
         let mut sum = 0;
         for a in asks {
             sum += self.reserve(a).with_context(|| {
@@ -170,7 +187,7 @@ impl Caller<'_> {
     }
 
     /// One call; none when it would pass the run's limit.
-    fn ask(&mut self, ask: Ask) -> Option<Judgment> {
+    pub(super) fn ask(&mut self, ask: Ask) -> Option<Judgment> {
         let need = self.reserve(&ask).unwrap_or(0);
         if self.spent + need > self.limit {
             return None;
@@ -506,13 +523,7 @@ impl Core {
         let ready = self.replay_ready(&mut plan, change, &id);
         // A security candidate's planted-injection set, beside the incumbent.
         let eval_asks = self.eval_asks(&plan, &id);
-        let mut caller = Caller {
-            rt,
-            built: &built,
-            limit: usd_to_micros(self.cfg.judge.replay_limit_usd),
-            spent: 0,
-            called: Vec::new(),
-        };
+        let mut caller = Caller::new(rt, &built, usd_to_micros(self.cfg.judge.replay_limit_usd));
         let asks = ready
             .iter()
             .filter_map(|(_, r)| match r {

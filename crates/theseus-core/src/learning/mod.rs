@@ -22,6 +22,7 @@
 //!   off.
 
 pub mod audit;
+pub mod backfill;
 pub mod labels;
 pub mod rebuild;
 pub mod replay;

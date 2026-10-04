@@ -114,6 +114,8 @@ mod tests_arrangement;
 #[cfg(test)]
 mod tests_audit;
 #[cfg(test)]
+mod tests_backfill;
+#[cfg(test)]
 mod tests_books;
 #[cfg(test)]
 mod tests_budgets;

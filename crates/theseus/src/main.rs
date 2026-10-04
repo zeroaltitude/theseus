@@ -690,6 +690,10 @@ enum JudgeCmd {
     /// judgments, as audit labels (weight 0.5), inside `[judge] audit_limit_usd`. The operator's
     /// alone: refused inside a Theseus job, and from a shared place.
     Audit(judge_runs::AuditArgs),
+    /// Rebuild a pack's judged points from the recorded history since a local day, and judge
+    /// them in shadow, once each. It sends your history to Jev, so it runs only under your
+    /// consent (`[judge] backfill_consent = true`). The operator's alone.
+    Backfill(judge_runs::BackfillArgs),
 }
 
 #[derive(Subcommand, Debug)]

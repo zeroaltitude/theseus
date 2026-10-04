@@ -69,8 +69,8 @@ pub struct JudgeConfig {
     /// night the daemon missed runs once, 10 minutes after the next start.
     #[serde(default = "learning_hour")]
     pub learning_hour: u8,
-    /// What one replay (`theseus judge replay`, M5 25d) may spend, in
-    /// dollars: a run whose estimate passes it is refused,
+    /// What one replay (`theseus judge replay`, M5 25d), or one backfill,
+    /// may spend, in dollars: a run whose estimate passes it is refused,
     /// with the numbers.
     #[serde(default = "replay_limit")]
     pub replay_limit_usd: f64,
@@ -78,6 +78,12 @@ pub struct JudgeConfig {
     /// dollars: the run stops before a request would pass it (§2.6).
     #[serde(default = "audit_limit")]
     pub audit_limit_usd: f64,
+    /// The owner's consent that a backfill sends his recorded history to
+    /// Jev (§2.9; §4). Off by default; it lives in his config note, which
+    /// agents can't write (§2.7). Without it `theseus judge backfill` is
+    /// refused, naming this line.
+    #[serde(default)]
+    pub backfill_consent: bool,
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
@@ -176,6 +182,7 @@ impl Default for JudgeConfig {
             learning_hour: learning_hour(),
             replay_limit_usd: replay_limit(),
             audit_limit_usd: audit_limit(),
+            backfill_consent: false,
             packs: BTreeMap::new(),
             signals: SignalsConfig::default(),
         }

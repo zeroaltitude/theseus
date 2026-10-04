@@ -1,6 +1,7 @@
 //! The owner's runs over the learning ledger (M5 step 25d; design §2.9):
-//! replay and audit. Each spends money, so each is the owner's alone, from
-//! a private place, and the CLI refuses each inside a job.
+//! replay, audit, and backfill. Each spends money, and backfill sends the
+//! owner's history to Jev, so each is the owner's alone, from a private
+//! place, and the CLI refuses each inside a job.
 //!
 //! - **`judge.replay`** asks a candidate pack version (one the build embeds
 //!   but does not wire, or a pack file's text) the incumbent's questions over
@@ -18,6 +19,11 @@
 //!   answer a `judge.label` row, `source: audit`, weight 0.5. The run stops
 //!   before it would pass `[judge] audit_limit_usd`; a `judge.audit` row
 //!   holds it.
+//! - **`judge.backfill`** rebuilds a pack's judged points from the recorded
+//!   history since a date and judges them in shadow (`purpose: backfill`),
+//!   one judgment per event (a second run writes nothing). It runs only
+//!   under the owner's recorded consent, `[judge] backfill_consent = true`;
+//!   a `judge.backfill` row records the run and the config's digest.
 
 use serde::{Deserialize, Serialize};
 
@@ -193,6 +199,41 @@ pub struct JudgeAuditResult {
     /// Why the run stopped before its sample, when it did.
     #[serde(default)]
     pub stopped: Option<String>,
+    pub limit_usd: f64,
+    pub cost_usd: f64,
+}
+
+/// `judge.backfill`'s params.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeBackfillParams {
+    /// A pack version (`loop.v1`), or its id for the wired version.
+    pub pack: String,
+    /// The local day the window starts (`2026-10-01`); it ends now.
+    pub since: String,
+}
+
+/// `judge.backfill`'s result.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeBackfillResult {
+    /// `bkf_…`: the `judge.backfill` row's key.
+    pub id: String,
+    pub pack: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub since_ms: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub until_ms: u64,
+    /// The sha256 of the config the run read its consent from.
+    pub consent: String,
+    /// Events in the window; those judged before (by the live point or an
+    /// earlier backfill, skipped), those judged now, and those left out.
+    pub events: u32,
+    pub already: u32,
+    pub judged: u32,
+    pub failed: u32,
+    pub left_out: Vec<ReplayLeftOut>,
+    pub estimate_usd: f64,
     pub limit_usd: f64,
     pub cost_usd: f64,
 }

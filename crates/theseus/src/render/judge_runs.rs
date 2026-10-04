@@ -1,8 +1,8 @@
 //! The owner's runs over the learning ledger (M5 25d): a replay, its two
-//! versions side by side; an audit. Apart from `render.rs`,
+//! versions side by side; an audit; a backfill. Apart from `render.rs`,
 //! whose length the shape budget caps.
 
-use theseus_protocol::judge_runs::{JudgeAuditResult, JudgeReplayResult};
+use theseus_protocol::judge_runs::{JudgeAuditResult, JudgeBackfillResult, JudgeReplayResult};
 use theseus_protocol::learning::{PackReport, QuestionReport};
 
 fn share(v: Option<f64>) -> String {
@@ -193,6 +193,29 @@ pub fn judge_audit_lines(r: &JudgeAuditResult) -> Vec<String> {
     )];
     if let Some(s) = &r.stopped {
         out.push(format!("  stopped early: {s}"));
+    }
+    out
+}
+
+/// `theseus judge backfill`: the run's counts, cost, and consent.
+pub fn judge_backfill_lines(r: &JudgeBackfillResult) -> Vec<String> {
+    let mut out = vec![format!(
+        "{} backfilled {}: {} events, {} judged now, {} judged before, {} failed, {} left out · \
+         ${:.4} of an estimated ${:.4} (limit ${:.2}) · consent of config {}",
+        r.id,
+        r.pack,
+        r.events,
+        r.judged,
+        r.already,
+        r.failed,
+        r.left_out.len(),
+        r.cost_usd,
+        r.estimate_usd,
+        r.limit_usd,
+        &r.consent[..r.consent.len().min(12)]
+    )];
+    for l in &r.left_out {
+        out.push(format!("  left out {}: {}", l.judgment, l.reason));
     }
     out
 }
