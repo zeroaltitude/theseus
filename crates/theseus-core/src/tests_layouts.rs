@@ -52,6 +52,12 @@ const SAMPLES: &[Sample] = &[
     },
     Sample {
         kind: kinds::SESSION,
+        layout: "a conversation after a few turns, before its routed profile (format 15, M5 25e; unchanged through 14): its run of failures and the images its provider refused; by hand, in the layout the build before 25e (802f913) writes",
+        bytes: r#"{"session_id":"ses_00000000000000000000000000000091","kind":"conversation","label":null,"created_at_unix_ms":1790000000091,"turns":3,"last_turn_id":"turn_00000000000000000000000000000093","usage":{"input_tokens":1200,"output_tokens":300,"cache_read_input_tokens":800,"cache_creation_input_tokens":400},"execution_id":"exe_00000000000000000000000000000091","compilation_id":"cmp_00000000000000000000000000000091","last_target":{"profile":"opus","provider":"anthropic","model":"claude-opus-5-5"},"last_active_ms":1790000000099,"cost_usd":0.0123,"tool_calls":2,"title":"Weigh the two log designs","failing":{"turns":1,"lasting":0,"class":"timeout","noticed":true,"parked":false,"since_ms":1790000000095},"not_shown":[{"digest":"a1b2c3d4e5f60718","why":"the image could not be read","at_ms":1790000000096}]}"#,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::SESSION,
         layout: "a task's session (DD7, W1): its origin and where it reports, before its arrangement's node (format 9, M5 27; unchanged through 8); the build before theseus-vug.2 (f1fccec) writes it back byte for byte",
         bytes: r#"{"session_id":"ses_00000000000000000000000000000081","kind":"task","label":"task","created_at_unix_ms":1790000000081,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000081","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":0,"cost_usd":0.0,"tool_calls":0,"title":"Chart the harbour soundings","task":{"parent_session":"ses_lighthouse","parent_execution":"exe_lighthouse","by":"act_00000000000000000000000000000081","target":"discord:dm:42"}}"#,
         kept: Kept::All,

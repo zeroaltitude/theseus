@@ -25,7 +25,16 @@ pub const BINS: usize = 10;
 /// (§2.8): `loop.v1` nudges a task on `work_state: progressing`. role.v1's
 /// classes are the roles table's, known only from each state, so its
 /// minimum counts its deciding question alone.
-pub const ACTING: &[(&str, &str, &[&str])] = &[("loop", "work_state", &["progressing"])];
+pub const ACTING: &[(&str, &str, &[&str])] = &[
+    ("loop", "work_state", &["progressing"]),
+    // route.v1 (25e) acts on every mode whose profiles move the turn; `chat`
+    // and `other` run on the session's own, the baseline.
+    (
+        "route",
+        "mode",
+        &["trivial", "sophisticated", "deep_coding", "routine_coding"],
+    ),
+];
 
 fn acting(pack_id: &str) -> Option<(&'static str, &'static [&'static str])> {
     ACTING

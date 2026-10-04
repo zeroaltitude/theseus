@@ -1,0 +1,641 @@
+//! Routing (M5 step 25e): the model per interaction mode. `route.v1` judges,
+//! at `inbound`, which mode a person's message needs (`judge::inbound`), and
+//! this module decides, purely, which profile the turn runs on: the mode's
+//! first usable profile, under the place's cap, by the switch rule. The turn
+//! applies it (`turn::route_step`).
+//!
+//! - **Usable** (model providers have no breaker; only Jev has): configured,
+//!   its provider's key settled, its model priced in the catalog, and able to
+//!   read the turn's images (glm-5.3 is text only).
+//! - **`cheapest`**: the usable profile cheapest for a short turn
+//!   ([`SHORT_INPUT`] uncached input tokens and [`SHORT_OUTPUT`] output, at
+//!   catalog prices).
+//! - **A detour** (`trivial`): that turn alone runs on the trivial profile;
+//!   the session's profile, `last_target` and compilation stay as they were.
+//! - **A switch** (any other mode): the session's routed profile moves, at
+//!   once while the first compile's estimate is under `cold_switch_tokens`,
+//!   above it only when the turn before agreed (a [`Hold`]): the switch
+//!   recompiles, strips the prefix's thinking, and leaves the cache cold.
+//! - **Confidence.** A verdict under `switch_confidence` routes nothing, a
+//!   detour included, and breaks a hold's row.
+//! - **The cap.** A place's profile is its default and its cap: a profile
+//!   dearer than it at catalog prices is passed over, and the turn says
+//!   `capped`.
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::catalog::CatalogEntry;
+use crate::config::routing::CHEAPEST;
+use crate::config::RoutingConfig;
+
+/// A short turn's uncached input, in tokens, for `cheapest` and the cap.
+pub const SHORT_INPUT: u64 = 4_000;
+/// A short turn's output, in tokens.
+pub const SHORT_OUTPUT: u64 = 500;
+
+/// What the session keeps of routing (a stored field: store format 15).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Routed {
+    /// The profile routing moved the session to; its turns run there unless
+    /// the owner chooses another.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// A switch the cache held back: the next agreeing turn makes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold: Option<Hold>,
+}
+
+/// A switch held back above `cold_switch_tokens`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hold {
+    pub mode: String,
+    pub profile: String,
+    /// The turn that held it.
+    pub turn: String,
+}
+
+/// Why a turn runs where it runs (the `route.decided` row's `reason`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reason {
+    /// The verdict's mode picked the profile (or the session's own, for a
+    /// mode with no list, or the one it is on).
+    Verdict,
+    /// A trivial message's detour.
+    Detour,
+    /// The mode's pick was dearer than the place's profile.
+    Capped,
+    /// No profile in the mode's list was usable: the session's own.
+    Fallback,
+    /// A switch the cache held back, waiting for a second agreeing turn.
+    CacheHold,
+    /// The verdict's confidence was under `switch_confidence`.
+    Unsure,
+    /// The verdict came after the wait: it applies from the next message.
+    Late,
+    /// Jev gave no verdict (down, slow past its call, rate-limited,
+    /// malformed, the breaker, the budget).
+    NoVerdict,
+    /// The owner chose the profile, provider, or model: recorded in shadow.
+    Pinned,
+    /// `route.v1` in shadow: recorded, never routed.
+    Shadow,
+}
+
+impl Reason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Reason::Verdict => "verdict",
+            Reason::Detour => "detour",
+            Reason::Capped => "capped",
+            Reason::Fallback => "fallback",
+            Reason::CacheHold => "cache_hold",
+            Reason::Unsure => "unsure",
+            Reason::Late => "late",
+            Reason::NoVerdict => "no_verdict",
+            Reason::Pinned => "pinned",
+            Reason::Shadow => "shadow",
+        }
+    }
+}
+
+/// A verdict: `route.v1`'s answer, as the turn reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Verdict {
+    pub mode: String,
+    pub confidence: f64,
+    /// The judgment's id.
+    pub judgment: String,
+    /// The turn it was asked for.
+    pub turn: String,
+}
+
+/// One configured profile, as routing weighs it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Profile {
+    pub provider: String,
+    pub model: String,
+    /// Why it cannot run a turn now, if it cannot.
+    pub unusable: Option<&'static str>,
+    /// A short turn's cost at catalog prices, in dollars (none: unpriced).
+    pub short_cost: Option<f64>,
+    pub vision: bool,
+}
+
+/// What a `turn.submit` names that is the owner's choice: a provider or a
+/// model, or a profile the pane did not carry from the last turn.
+pub fn chosen(p: &theseus_protocol::TurnSubmitParams) -> Option<String> {
+    let profile = p.profile.as_ref().filter(|_| !p.carried);
+    match (profile, &p.provider, &p.model) {
+        (None, None, None) => None,
+        (pr, pv, m) => Some(
+            [
+                pr.map(|x| format!("profile {x}")),
+                pv.as_ref().map(|x| format!("provider {x}")),
+                m.as_ref().map(|x| format!("model {x}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(", "),
+        ),
+    }
+}
+
+/// A short turn's cost at a catalog row's prices, in dollars.
+pub fn short_cost(e: &CatalogEntry) -> f64 {
+    (SHORT_INPUT as f64 * e.input_per_mtok + SHORT_OUTPUT as f64 * e.output_per_mtok) / 1e6
+}
+
+/// Every configured profile, by name, as routing weighs it.
+pub type Profiles = BTreeMap<String, Profile>;
+
+impl Profile {
+    fn runs(&self, images: bool) -> bool {
+        self.unusable.is_none() && self.short_cost.is_some() && (self.vision || !images)
+    }
+}
+
+/// What a mode's list gives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Picked {
+    /// The list is empty: the session's own.
+    Own,
+    /// Its first usable profile within the cap.
+    Profile(String),
+    /// Its first usable profile was dearer than the cap: the next one within
+    /// it, or none (the session's own).
+    Capped(Option<String>),
+    /// None of it is usable: the session's own.
+    Fallback,
+}
+
+/// The cheapest usable profile for a short turn, within `cap` (dollars).
+pub fn cheapest(profiles: &Profiles, images: bool, cap: Option<f64>) -> Option<String> {
+    profiles
+        .iter()
+        .filter(|(_, p)| p.runs(images))
+        .filter(|(_, p)| within(p, cap))
+        .min_by(|a, b| {
+            a.1.short_cost
+                .partial_cmp(&b.1.short_cost)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(b.0))
+        })
+        .map(|(n, _)| n.clone())
+}
+
+fn within(p: &Profile, cap: Option<f64>) -> bool {
+    match (cap, p.short_cost) {
+        (Some(cap), Some(c)) => c <= cap + 1e-12,
+        _ => true,
+    }
+}
+
+/// A mode's list, walked: its first usable profile within the cap.
+pub fn pick(list: &[String], profiles: &Profiles, images: bool, cap: Option<f64>) -> Picked {
+    if list.is_empty() {
+        return Picked::Own;
+    }
+    let mut capped = false;
+    for name in list {
+        let found = if name == CHEAPEST {
+            // `cheapest` within no cap, so a dearer cheapest still says capped.
+            cheapest(profiles, images, None)
+        } else {
+            profiles
+                .get(name)
+                .filter(|p| p.runs(images))
+                .map(|_| name.clone())
+        };
+        let Some(found) = found else { continue };
+        if within(&profiles[&found], cap) {
+            return match capped {
+                true => Picked::Capped(Some(found)),
+                false => Picked::Profile(found),
+            };
+        }
+        capped = true;
+        if name == CHEAPEST {
+            if let Some(c) = cheapest(profiles, images, cap) {
+                return Picked::Capped(Some(c));
+            }
+        }
+    }
+    match capped {
+        true => Picked::Capped(None),
+        false => Picked::Fallback,
+    }
+}
+
+/// What a turn asks the rule.
+#[derive(Debug, Clone)]
+pub struct Ask<'a> {
+    pub verdict: &'a Verdict,
+    /// The profile the turn runs on without routing: the session's.
+    pub base: &'a str,
+    /// The first compile's estimate.
+    pub est_tokens: u64,
+    pub hold: Option<&'a Hold>,
+    pub images: bool,
+    /// The place's profile's short-turn cost, when a place caps it.
+    pub cap: Option<f64>,
+}
+
+/// What the hold becomes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HoldNext {
+    Keep,
+    Clear,
+    Set(Hold),
+}
+
+/// The rule's answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decision {
+    /// The profile the turn runs on.
+    pub profile: String,
+    pub reason: Reason,
+    /// This turn alone (trivial): the session stays where it was.
+    pub detour: bool,
+    /// The session's routed profile moves to `profile`.
+    pub switch: bool,
+    pub hold: HoldNext,
+}
+
+/// The switch rule.
+pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision {
+    let trivial = a.verdict.mode == "trivial";
+    let stay = |reason, hold| Decision {
+        profile: a.base.to_string(),
+        reason,
+        detour: false,
+        switch: false,
+        hold,
+    };
+    let keep_or_clear = if trivial {
+        HoldNext::Keep
+    } else {
+        HoldNext::Clear
+    };
+    if a.verdict.confidence < cfg.switch_confidence {
+        return stay(Reason::Unsure, keep_or_clear);
+    }
+    let picked = pick(cfg.modes.of(&a.verdict.mode), profiles, a.images, a.cap);
+    let (target, reason) = match picked {
+        Picked::Own => (a.base.to_string(), Reason::Verdict),
+        Picked::Profile(p) => (p, Reason::Verdict),
+        Picked::Capped(Some(p)) => (p, Reason::Capped),
+        Picked::Capped(None) => (a.base.to_string(), Reason::Capped),
+        Picked::Fallback => (a.base.to_string(), Reason::Fallback),
+    };
+    if target == a.base {
+        return stay(reason, keep_or_clear);
+    }
+    if trivial {
+        return Decision {
+            profile: target,
+            reason: match reason {
+                Reason::Capped => Reason::Capped,
+                _ => Reason::Detour,
+            },
+            detour: true,
+            switch: false,
+            hold: HoldNext::Keep,
+        };
+    }
+    let agreed = a.hold.is_some_and(|h| h.profile == target);
+    if a.est_tokens < cfg.cold_switch_tokens || agreed {
+        return Decision {
+            profile: target,
+            reason,
+            detour: false,
+            switch: true,
+            hold: HoldNext::Clear,
+        };
+    }
+    stay(
+        Reason::CacheHold,
+        HoldNext::Set(Hold {
+            mode: a.verdict.mode.clone(),
+            profile: target,
+            turn: a.verdict.turn.clone(),
+        }),
+    )
+}
+
+/// How many turns a switch at `context` tokens takes to pay back its cold
+/// cache, from `from` to `to`, with `output` tokens a turn: the cold write
+/// (at `to`'s cache-write rate) over what each later turn saves (cache reads
+/// and output at the two rates). None: it never pays back.
+pub fn break_even_turns(
+    from: &CatalogEntry,
+    to: &CatalogEntry,
+    context: u64,
+    output: u64,
+) -> Option<f64> {
+    let m = 1e6;
+    let cold = context as f64 * to.cache_write_per_mtok.max(to.cache_read_per_mtok) / m;
+    let saved = context as f64 * (from.cache_read_per_mtok - to.cache_read_per_mtok) / m
+        + output as f64 * (from.output_per_mtok - to.output_per_mtok) / m;
+    (saved > 0.0).then(|| cold / saved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn p(provider: &str, model: &str, cost: f64, vision: bool) -> Profile {
+        Profile {
+            provider: provider.into(),
+            model: model.into(),
+            unusable: None,
+            short_cost: Some(cost),
+            vision,
+        }
+    }
+
+    /// The template's five, at their catalog costs for a short turn.
+    fn five() -> Profiles {
+        let c = crate::catalog::Catalog::builtin();
+        let mut out = Profiles::new();
+        for (name, provider, model) in [
+            ("sonnet", "anthropic", "claude-sonnet-5-5"),
+            ("glm", "zai", "glm-5.3-flash"),
+            ("opus", "anthropic", "claude-opus-5-5"),
+            ("fable", "anthropic", "claude-fable-5-1"),
+            ("glm53", "zai", "glm-5.3"),
+        ] {
+            let e = c.get(model).unwrap();
+            out.insert(name.into(), p(provider, model, short_cost(e), e.vision));
+        }
+        out
+    }
+
+    fn verdict(mode: &str, confidence: f64) -> Verdict {
+        Verdict {
+            mode: mode.into(),
+            confidence,
+            judgment: "jdg_1".into(),
+            turn: "turn_1".into(),
+        }
+    }
+
+    fn ask<'a>(v: &'a Verdict, base: &'a str, est: u64) -> Ask<'a> {
+        Ask {
+            verdict: v,
+            base,
+            est_tokens: est,
+            hold: None,
+            images: false,
+            cap: None,
+        }
+    }
+
+    #[test]
+    fn each_modes_first_usable_profile_then_the_next_then_the_sessions() {
+        let cfg = RoutingConfig::default();
+        let mut ps = five();
+        let list = |m: &str| cfg.modes.of(m).to_vec();
+        assert_eq!(
+            pick(&list("sophisticated"), &ps, false, None),
+            Picked::Profile("opus".into())
+        );
+        assert_eq!(
+            pick(&list("deep_coding"), &ps, false, None),
+            Picked::Profile("opus".into())
+        );
+        assert_eq!(
+            pick(&list("routine_coding"), &ps, false, None),
+            Picked::Profile("glm53".into())
+        );
+        assert_eq!(pick(&list("chat"), &ps, false, None), Picked::Own);
+        assert_eq!(pick(&list("other"), &ps, false, None), Picked::Own);
+        // The first unusable: the next.
+        ps.get_mut("opus").unwrap().unusable = Some("key");
+        assert_eq!(
+            pick(&list("sophisticated"), &ps, false, None),
+            Picked::Profile("fable".into())
+        );
+        assert_eq!(
+            pick(&list("deep_coding"), &ps, false, None),
+            Picked::Profile("sonnet".into())
+        );
+        // An image: glm-5.3 reads none, so glm (5.3 Flash) takes it.
+        assert_eq!(
+            pick(&list("routine_coding"), &ps, true, None),
+            Picked::Profile("glm".into())
+        );
+        // None usable: the session's own.
+        ps.get_mut("fable").unwrap().short_cost = None;
+        assert_eq!(
+            pick(&list("sophisticated"), &ps, false, None),
+            Picked::Fallback
+        );
+        let d = decide(
+            &cfg,
+            &ps,
+            &ask(&verdict("sophisticated", 0.95), "sonnet", 100),
+        );
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("sonnet", Reason::Fallback, false)
+        );
+        // Unconfigured names are passed over.
+        assert_eq!(
+            pick(&["nope".into(), "glm".into()], &ps, false, None),
+            Picked::Profile("glm".into())
+        );
+    }
+
+    #[test]
+    fn cheapest_is_the_usable_profile_cheapest_for_a_short_turn() {
+        let mut ps = five();
+        assert_eq!(cheapest(&ps, false, None).as_deref(), Some("glm"));
+        ps.get_mut("glm").unwrap().unusable = Some("key");
+        assert_eq!(cheapest(&ps, false, None).as_deref(), Some("glm53"));
+        // glm-5.3 reads no image.
+        assert_eq!(cheapest(&ps, true, None).as_deref(), Some("sonnet"));
+        let cfg = RoutingConfig::default();
+        assert_eq!(
+            pick(cfg.modes.of("trivial"), &ps, false, None),
+            Picked::Profile("glm53".into())
+        );
+    }
+
+    #[test]
+    fn a_trivial_message_detours_and_holds_nothing() {
+        let cfg = RoutingConfig::default();
+        let ps = five();
+        let v = verdict("trivial", 0.9);
+        let d = decide(&cfg, &ps, &ask(&v, "opus", 200_000));
+        assert_eq!(
+            d,
+            Decision {
+                profile: "glm".into(),
+                reason: Reason::Detour,
+                detour: true,
+                switch: false,
+                hold: HoldNext::Keep
+            }
+        );
+        // A detour needs the confidence too.
+        let d = decide(&cfg, &ps, &ask(&verdict("trivial", 0.59), "opus", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.detour),
+            ("opus", Reason::Unsure, false)
+        );
+    }
+
+    #[test]
+    fn under_cold_switch_tokens_a_switch_is_at_once_and_above_it_waits_for_agreement() {
+        let cfg = RoutingConfig::default();
+        let ps = five();
+        let v = verdict("sophisticated", 0.8);
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 29_999));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("opus", Reason::Verdict, true)
+        );
+        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 30_000));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("sonnet", Reason::CacheHold, false)
+        );
+        let HoldNext::Set(hold) = d.hold else {
+            panic!("{:?}", d.hold)
+        };
+        assert_eq!(hold.profile, "opus");
+        // The next turn agrees: the switch.
+        let v2 = verdict("sophisticated", 0.8);
+        let d = decide(
+            &cfg,
+            &ps,
+            &Ask {
+                hold: Some(&hold),
+                ..ask(&v2, "sonnet", 90_000)
+            },
+        );
+        assert_eq!(
+            (d.profile.as_str(), d.switch, &d.hold),
+            ("opus", true, &HoldNext::Clear)
+        );
+        // A turn that disagrees clears it.
+        let v3 = verdict("routine_coding", 0.8);
+        let d = decide(
+            &cfg,
+            &ps,
+            &Ask {
+                hold: Some(&hold),
+                ..ask(&v3, "sonnet", 90_000)
+            },
+        );
+        assert_eq!(d.reason, Reason::CacheHold);
+        assert!(matches!(d.hold, HoldNext::Set(Hold { ref profile, .. }) if profile == "glm53"));
+    }
+
+    #[test]
+    fn nothing_routes_under_switch_confidence() {
+        let cfg = RoutingConfig::default();
+        let ps = five();
+        for c in [0.0, 0.3, 0.599] {
+            let d = decide(&cfg, &ps, &ask(&verdict("sophisticated", c), "sonnet", 10));
+            assert_eq!(
+                (d.profile.as_str(), d.reason, d.switch),
+                ("sonnet", Reason::Unsure, false)
+            );
+            assert_eq!(d.hold, HoldNext::Clear, "an unsure turn breaks the row");
+        }
+        let d = decide(
+            &cfg,
+            &ps,
+            &ask(&verdict("sophisticated", 0.6), "sonnet", 10),
+        );
+        assert!(d.switch);
+    }
+
+    #[test]
+    fn a_places_cap_lets_a_detour_below_it_and_says_capped_above_it() {
+        let cfg = RoutingConfig::default();
+        let ps = five();
+        let cap = Some(ps["sonnet"].short_cost.unwrap());
+        // Below the cap: the detour goes.
+        let v = verdict("trivial", 0.9);
+        let d = decide(
+            &cfg,
+            &ps,
+            &Ask {
+                cap,
+                ..ask(&v, "sonnet", 10)
+            },
+        );
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.detour),
+            ("glm", Reason::Detour, true)
+        );
+        // Opus and Fable are dearer than Sonnet: nothing climbs above it.
+        let v = verdict("sophisticated", 0.95);
+        let d = decide(
+            &cfg,
+            &ps,
+            &Ask {
+                cap,
+                ..ask(&v, "sonnet", 10)
+            },
+        );
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("sonnet", Reason::Capped, false)
+        );
+        // deep_coding's opus is dearer, its sonnet is the place's own.
+        let v = verdict("deep_coding", 0.95);
+        let d = decide(
+            &cfg,
+            &ps,
+            &Ask {
+                cap,
+                ..ask(&v, "sonnet", 10)
+            },
+        );
+        assert_eq!((d.profile.as_str(), d.reason), ("sonnet", Reason::Capped));
+        // Under a glm cap, routine coding's glm53 is dearer, glm is not.
+        let cap = Some(ps["glm"].short_cost.unwrap());
+        let v = verdict("routine_coding", 0.95);
+        let d = decide(
+            &cfg,
+            &ps,
+            &Ask {
+                cap,
+                ..ask(&v, "sonnet", 10)
+            },
+        );
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.switch),
+            ("glm", Reason::Capped, true)
+        );
+    }
+
+    /// The break-even the rule implies (reported): a switch above
+    /// `cold_switch_tokens` waits for a second agreeing turn because the cold
+    /// write takes turns to pay back, and to GLM 5.3 only output pays it.
+    #[test]
+    fn the_break_even_of_a_switch() {
+        let c = crate::catalog::Catalog::builtin();
+        let (sonnet, opus, glm53) = (
+            c.get("claude-sonnet-5-5").unwrap(),
+            c.get("claude-opus-5-5").unwrap(),
+            c.get("glm-5.3").unwrap(),
+        );
+        // GLM 5.3's cache read is dearer than Sonnet's: with no output, never.
+        assert_eq!(break_even_turns(sonnet, glm53, 30_000, 0), None);
+        let n = break_even_turns(sonnet, glm53, 30_000, 1_000).unwrap();
+        assert!((10.5..11.5).contains(&n), "{n}");
+        // Opus is dearer than Sonnet on every rate: it never pays back in money.
+        assert_eq!(break_even_turns(sonnet, opus, 30_000, 1_000), None);
+        // From Opus to GLM 5.3, output pays for it in about three turns.
+        let n = break_even_turns(opus, glm53, 30_000, 1_000).unwrap();
+        assert!((2.5..3.5).contains(&n), "{n}");
+    }
+}

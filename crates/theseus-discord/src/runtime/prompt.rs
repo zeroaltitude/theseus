@@ -526,6 +526,7 @@ impl Place {
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
                     TurnSubmitParams {
+                        carried: false,
                         prompt: Some(r),
                         session_id: Some(sid),
                         input: String::new(),

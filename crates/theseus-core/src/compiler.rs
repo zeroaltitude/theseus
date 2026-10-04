@@ -1112,9 +1112,9 @@ fn late_result_text(r: &Node) -> String {
 /// Nodes → provider messages. Tool results are placed in one user message
 /// right after the assistant message whose `tool_use` blocks they answer,
 /// `tool_result` blocks first; consecutive same-role messages merge. An
-/// assistant message whose provider is not `provider`, the request's, keeps
-/// no thinking block: its signature is one only its own provider can verify
-/// (theseus-kol). An answer cut at the window that a later call replaced is
+/// assistant message whose provider is not `provider`, the request's, or
+/// whose model is not the request's, keeps no thinking block: its signature
+/// is one only its own provider and model can verify (theseus-kol; 25e). An answer cut at the window that a later call replaced is
 /// left out, with its calls (theseus-9p88): the one `retrying` names, and
 /// any that a later answer of its turn followed. Also returns the repaired
 /// calls and the tokens the images are estimated at.
@@ -1171,9 +1171,14 @@ pub fn render_messages(
             Body::AssistantMessage {
                 blocks,
                 provider: wrote,
+                model: wrote_model,
                 ..
             } => {
-                let strip = (in_prefix && strip_prefix_thinking) || wrote != provider;
+                // A signature is the writing model's: a detour's answer on
+                // another model (M5 25e) carries none back either.
+                let strip = (in_prefix && strip_prefix_thinking)
+                    || wrote != provider
+                    || wrote_model != media.model;
                 let bl: Vec<Value> = if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
                 } else {
@@ -1375,7 +1380,9 @@ mod tests {
             0,
             Body::AssistantMessage {
                 blocks,
-                model: "m".into(),
+                // The model these tests' requests mostly name: a message
+                // another model wrote carries no thinking back (25e).
+                model: "claude-opus-5".into(),
                 provider: "anthropic".into(),
                 stop_reason: None,
                 usage: Usage::default(),

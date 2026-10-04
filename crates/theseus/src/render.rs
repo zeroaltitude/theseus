@@ -411,11 +411,17 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
     } else {
         String::new()
     };
+    // How routing placed the turn (25e): its mode and why.
+    let route = r.route.as_ref().map_or(String::new(), |ro| match &ro.mode {
+        Some(m) => format!(" · {m} ({})", ro.reason),
+        None => format!(" · route {}", ro.reason),
+    });
     format!(
-        "[{} → {}/{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}]",
+        "[{} → {}/{}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}]",
         r.profile,
         r.provider,
         r.model,
+        route,
         r.loops,
         if r.tool_calls > 0 {
             format!(" · {} tool call(s)", r.tool_calls)

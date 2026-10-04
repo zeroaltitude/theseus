@@ -5,7 +5,7 @@
 
 use super::{Turn, TurnRunner};
 use crate::judge::inbound::{author_of, place_kind, Inbound};
-use crate::node::{Body, Node};
+use crate::node::{AttachmentContent, Body, Node};
 
 impl TurnRunner {
     /// `node` is this turn's input, written; `author` the client that sent
@@ -15,12 +15,18 @@ impl TurnRunner {
         if !self.judge.config().enabled {
             return;
         }
-        let Body::UserMessage { text, .. } = &node.body else {
+        let Body::UserMessage { text, attachments } = &node.body else {
             return;
         };
         let class = t.tc.class;
         let place = self.outbox.try_target(t.tc.session_id).ok().flatten();
-        self.judge.at_inbound(
+        // route.v1 (25e): live, or shadow for a turn whose profile the
+        // owner chose; its verdict's channel waits for the first compile.
+        let route = self.route_mode(t.target);
+        let images = attachments
+            .iter()
+            .any(|a| matches!(a.content, AttachmentContent::Image { .. }));
+        let wait = self.judge.at_inbound(
             &mut t.trace,
             Inbound {
                 session_id: t.tc.session_id.into(),
@@ -31,7 +37,10 @@ impl TurnRunner {
                 place_kind: place_kind(place.as_deref(), author, class),
                 author: author_of(class).into(),
                 kernel: self.kernel.clone(),
+                route,
+                chosen: t.target.chosen.clone(),
             },
         );
+        Self::route_asked(t, wait, route, images);
     }
 }

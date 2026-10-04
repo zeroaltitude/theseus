@@ -93,6 +93,25 @@ thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
 
+# The profiles [routing] names by default (M5 25e): hard reasoning on Opus 5.5 or
+# Fable 5.1, routine programming on GLM-5.3 (text only: a turn with an image skips it).
+[profiles.opus]
+provider = "anthropic"
+model = "claude-opus-5-5"
+thinking_display = "summarized"
+max_loops = 40
+
+[profiles.fable]
+provider = "anthropic"
+model = "claude-fable-5-1"
+thinking_display = "summarized"
+max_loops = 40
+
+[profiles.glm53]
+provider = "zai"
+model = "glm-5.3"
+max_loops = 40
+
 # ---------------------------------------------------------------- context files
 # Files (~/ or absolute paths) compiled into every session's system block, after the
 # built-in persona, the tools note, and the profile's system, each under a header that
@@ -734,6 +753,37 @@ learning_hour = 3                       # the local hour of the nightly learning
 # [judge.signals]
 # dormancy_minutes = 360                # a new input more than this long after the node before it
 # tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
+
+# ---------------------------------------------------------------- routing
+# Jev's model per interaction mode (M5 25e). While [judge] is on, route.v1 asks at each
+# message you send which mode it needs (in the same call as classify.v1 and role.v1), and
+# the turn runs on that mode's first usable profile: configured, its key settled, its
+# model priced, and able to read the turn's images; else the next; else the session's
+# own. "cheapest" is the usable profile cheapest for a short turn at catalog prices. A
+# trivial message is a detour: that turn alone runs on its profile, with the last
+# trivial_context_turns exchanges, and the session stays where it was. Any other mode
+# moves the session: at once under cold_switch_tokens of context, above it only when two
+# messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
+# or model you chose (`theseus ask -P/-p/-m`, the cockpit's picker) is never routed, and
+# a place's profile (its ceiling) is its cap: nothing routes to a dearer model there.
+[routing]
+enabled = true                          # acts only while [judge] is on
+mode = "live"                           # "shadow" records each verdict and routes nothing
+max_wait_ms = 200                       # the most the first call waits for the verdict after its compile
+trivial_context_turns = 2               # the exchanges a trivial detour carries
+cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
+switch_confidence = 0.6                 # a verdict routes only at this confidence or more
+# Each mode's profiles, in order: the first usable wins. Empty: the session's own.
+# [routing.modes.trivial]
+# profiles = ["cheapest"]
+# [routing.modes.chat]
+# profiles = []
+# [routing.modes.sophisticated]
+# profiles = ["opus", "fable"]
+# [routing.modes.deep_coding]
+# profiles = ["opus", "sonnet"]
+# [routing.modes.routine_coding]
+# profiles = ["glm53", "glm"]
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

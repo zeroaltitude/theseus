@@ -17,6 +17,7 @@ mod judge;
 mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
+pub(crate) mod routing;
 mod sparse;
 pub use aws::{
     default_hourly_alert_usd, AwsAccountConfig, AwsConfig, AwsCredentialNames, HandsNetwork,
@@ -26,6 +27,7 @@ pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
 pub use memory::{MemoryConfig, MemoryMode};
+pub use routing::{RoutingConfig, RoutingMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
 pub mod mcp_server;
@@ -104,6 +106,9 @@ pub struct Config {
     /// `[memory]`: recall (M6 step 30a), off by default, in `config/memory.rs`.
     #[serde(default, skip_serializing_if = "MemoryConfig::is_default")]
     pub memory: MemoryConfig,
+    /// `[routing]`: Jev's model per interaction mode (M5 25e), in `config/routing.rs`.
+    #[serde(default, skip_serializing_if = "RoutingConfig::is_default")]
+    pub routing: RoutingConfig,
     /// `[mcp.servers.<name>]`: the MCP servers whose tools turns are offered
     /// (M7 36b), in `config::mcp`.
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
@@ -1262,6 +1267,8 @@ impl Config {
         }
         self.validate_places()?;
         self.memory.validate()?;
+        self.routing
+            .validate(|p| self.all_profiles().contains_key(p))?;
         self.lsp.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -1802,6 +1809,7 @@ mod tests {
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
         memory::the_templates_memory_section(&cfg.memory);
         judge::the_templates_judge_section(&cfg);
+        routing::the_templates_routing_section(&cfg);
         lsp::the_templates_lsp_section(&cfg.lsp);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);

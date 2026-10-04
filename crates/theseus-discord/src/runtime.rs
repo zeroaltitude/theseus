@@ -2058,6 +2058,7 @@ impl Place {
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
                     TurnSubmitParams {
+                        carried: false,
                         prompt: None,
                         session_id: Some(sid),
                         input,
@@ -2942,6 +2943,7 @@ mod tests {
             .call(
                 theseus_protocol::method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    carried: false,
                     prompt: None,
                     session_id: Some(sid.clone()),
                     input: "FIRST write a file".into(),

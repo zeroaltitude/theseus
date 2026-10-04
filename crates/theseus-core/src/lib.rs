@@ -56,6 +56,7 @@ pub mod push;
 pub mod reach;
 pub mod recall;
 pub mod restore;
+pub mod routing;
 pub mod rpc;
 pub mod sandbox;
 pub mod scrub;
@@ -187,6 +188,8 @@ mod tests_refused;
 mod tests_registry;
 #[cfg(test)]
 mod tests_rerank;
+#[cfg(test)]
+mod tests_route;
 #[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]

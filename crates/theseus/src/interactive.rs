@@ -412,6 +412,8 @@ impl Watch {
         let mut params = json!({"session_id": self.sid, "input": text, "author": AUTHOR});
         if let Some(profile) = &self.profile {
             params["profile"] = json!(profile);
+            // Carried, not chosen: routing may still move the turn (25e).
+            params["carried"] = json!(true);
         }
         // Inside a job, its session (theseus-b5cl).
         if let Some(from) = theseus_client::client::job_session() {

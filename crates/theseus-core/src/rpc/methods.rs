@@ -767,6 +767,9 @@ impl Core {
     }
 
     /// Run one turn for a client, streaming its events to that connection.
+    /// What the owner named is their choice, never routed (25e); the pane's
+    /// carried profile is not.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) async fn turn_submit(
         &self,
         p: TurnSubmitParams,
@@ -805,7 +808,7 @@ impl Core {
         };
         // A place's profile, unless the turn names one (step 38a).
         let live = self.place_profile(&session.session_id, self.live_profile().0);
-        let target = self
+        let mut target = self
             .runner
             .resolve_target(
                 &live,
@@ -814,6 +817,7 @@ impl Core {
                 p.model.as_deref(),
             )
             .map_err(RpcFailure::invalid)?;
+        target.chosen = crate::routing::chosen(&p);
         let (t_profile, t_provider, t_model) = (
             target.profile.clone(),
             target.provider.clone(),

@@ -58,7 +58,9 @@ impl TurnRunner {
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }
-        if compiled.new_compilation {
+        // Routing may move the turn (25e): only the compilation the call
+        // uses is persisted (`route_step`).
+        if compiled.new_compilation && !t.route.defer_persist {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();

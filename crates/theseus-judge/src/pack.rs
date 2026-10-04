@@ -37,7 +37,8 @@ use crate::learn::RollbackRule;
 
 /// Every pack version this build knows, by file name: the test pack,
 /// §2.4's six, `security.v2` and `security.v3`, candidates beside `security.v1`,
-/// and `rerank.v1`, recall's `+rerank` arm (M6 step 32c).
+/// `rerank.v1`, recall's `+rerank` arm (M6 step 32c), and `route.v1`, the
+/// model per interaction mode (M5 step 25e).
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
@@ -54,6 +55,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "attribution.v1",
         include_str!("../packs/attribution.v1.toml"),
     ),
+    ("route.v1", include_str!("../packs/route.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -109,6 +111,8 @@ pub enum Baseline {
     Fused,
     /// The memory pass's deterministic labels and attribution (M6 31a).
     Rules,
+    /// The turn runs on the session's own profile (`route.v1`, 25e).
+    SessionProfile,
 }
 
 /// The live action in code (closed set), or none.
@@ -119,6 +123,8 @@ pub enum Action {
     NudgeTask,
     Notice,
     RoleHint,
+    /// Runs the turn on the mode's profile (`route.v1`, 25e).
+    Route,
 }
 
 /// Where a question's dynamic options or per-item Nouls come from.
@@ -1173,6 +1179,14 @@ mod tests {
                     "rollback []",
                 ],
             ),
+            (
+                "route.v1",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "mode Choice decides [trivial chat sophisticated deep_coding routine_coding other]",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1215,6 +1229,19 @@ mod tests {
             ]
         );
         assert_eq!(
+            rules("route.v1"),
+            vec![
+                RollbackRule::LabelsPerDay {
+                    label: "wrong model".into(),
+                    count: 3
+                },
+                RollbackRule::OnPathP95 {
+                    max_ms: 250,
+                    min_samples: 20
+                }
+            ]
+        );
+        assert_eq!(
             rules("role.v1"),
             vec![
                 RollbackRule::SwitchesPerExchange { max: 2 },
@@ -1232,8 +1259,8 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            11,
-            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1 and attribution.v1"
+            12,
+            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1 and route.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

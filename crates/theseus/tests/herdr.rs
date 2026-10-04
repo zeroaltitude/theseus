@@ -602,7 +602,7 @@ fn a_message_continues_the_session_on_the_profile_of_its_last_turn() {
     assert_eq!(
         first[0]["params"],
         json!({"session_id": S, "input": "what is the tide at noon?",
-               "author": "theseus watch", "profile": "glm"})
+               "author": "theseus watch", "profile": "glm", "carried": true})
     );
     // Another client's turn ran on another profile: the next message follows.
     *profile.lock().unwrap() = "sonnet".into();

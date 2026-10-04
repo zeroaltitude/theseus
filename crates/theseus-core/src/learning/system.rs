@@ -26,6 +26,14 @@
 //!   the message started (`task_create`): `should_promote`, once that turn
 //!   has ended (a later node in the session, or an hour gone).
 //!
+//! - **`route.v1`** (25e): the owner chose a profile (`ask -P`, the
+//!   cockpit's picker: a pinned turn, whose `route.v1` judgment says so in
+//!   its context) for the session's next message, within 10 minutes after a
+//!   routed turn (`chosen`): that turn's `mode` was wrong, `{"not": mode}`;
+//!   and where the chosen profile is in exactly one other mode's list, that
+//!   mode was the right answer. A choice that names the routed mode's own
+//!   list says nothing of the mode, and labels nothing.
+//!
 //! `role.v1` and `continue.v1` take none in M5 (§2.9), nor do nudges (26a)
 //! or a slash command (25a judges none).
 
@@ -47,6 +55,8 @@ pub const PHRASES: [&str; 4] = ["continue", "go on", "keep going", "you didn't f
 
 /// How soon after a turn its continuation counts.
 pub const CONTINUATION_MS: u64 = 10 * 60 * 1000;
+/// How soon after a routed turn the owner's choice of a profile labels it.
+pub const CHOSEN_MS: u64 = 10 * 60 * 1000;
 /// How soon after a task a near-identical one is a false completion.
 pub const FALSE_COMPLETION_MS: u64 = 24 * 60 * 60 * 1000;
 /// When a classified turn counts as ended with no later node.
@@ -124,6 +134,7 @@ impl Core {
                 "loop" => self.loop_labels(seen, now_ms, &mut reads),
                 "security" => self.security_labels(seen, scope),
                 "classify" => self.classify_labels(seen, now_ms, &mut reads),
+                "route" => self.route_labels(seen, scope),
                 _ => Vec::new(),
             };
             out.extend(
@@ -332,6 +343,65 @@ impl Core {
             } else {
                 "the model did not call task.create in the turn".into()
             },
+        }]
+    }
+}
+
+impl Core {
+    /// `route.v1`'s rule (`chosen`): the session's next judged message, a
+    /// pinned one within [`CHOSEN_MS`] after a routed turn, labels its mode.
+    fn route_labels(&self, s: &Seen, scope: &Scope) -> Vec<SystemLabel> {
+        let j = &s.judgment;
+        let routed = j.mode != theseus_judge::Mode::Shadow
+            && j.context.get("pinned").and_then(Value::as_bool) != Some(true);
+        let (Some(session), true) = (s.context("session"), routed) else {
+            return vec![];
+        };
+        let Some(mode) = j.answer("mode").and_then(|a| match &a.answer {
+            theseus_judge::Answer::Choice { choice, .. } => Some(choice.clone()),
+            _ => None,
+        }) else {
+            return vec![];
+        };
+        let next = scope
+            .judgments
+            .values()
+            .flatten()
+            .filter(|o| o.context("session") == Some(session) && o.at_ms > s.at_ms)
+            .min_by_key(|o| o.at_ms);
+        let Some(next) = next.filter(|o| o.at_ms - s.at_ms <= CHOSEN_MS) else {
+            return vec![];
+        };
+        if next.judgment.context.get("pinned").and_then(Value::as_bool) != Some(true) {
+            return vec![];
+        }
+        let chosen = next.context("chosen").unwrap_or_default();
+        let profile = chosen
+            .split(", ")
+            .find_map(|c| c.strip_prefix("profile "))
+            .unwrap_or_default();
+        let modes = &self.cfg.routing.modes;
+        let owning: Vec<&str> = crate::config::routing::MODES
+            .into_iter()
+            .filter(|m| modes.of(m).iter().any(|p| p == profile))
+            .collect();
+        let label = match owning.as_slice() {
+            [one] if *one == mode => return vec![],
+            [one] => json!(one),
+            _ => json!({"not": mode}),
+        };
+        vec![SystemLabel {
+            id: system_key(&j.id, "mode", "chosen"),
+            judgment: j.id.clone(),
+            pack: j.pack.clone(),
+            session: Some(session.to_string()),
+            question: "mode",
+            label,
+            rule: "chosen",
+            note: format!(
+                "the owner chose {chosen} for the next message, {} s after the routed turn",
+                (next.at_ms - s.at_ms) / 1000
+            ),
         }]
     }
 }

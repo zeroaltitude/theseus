@@ -1,0 +1,45 @@
+# route.v1 (ROUTE): which interaction mode a person's new message needs, so
+# the core can run its turn on a model to match, from the cheapest for a
+# message that needs nothing to the strongest for hard reasoning (M5 step
+# 25e). At `inbound`, batched with classify.v1 and role.v1: the same
+# `inbound` state, one request. Live whenever the judge is on (the core's
+# `[routing]` lowers it to shadow); the baseline runs every message on the
+# session's own profile. The core maps each mode to its ordered profiles
+# (`[routing.modes.<mode>]`); `other` is routed as `chat`.
+id = "route"
+version = 1
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "session_profile"
+action = "route"
+description = "ROUTE: the interaction mode a message needs (nothing, conversation, hard reasoning, hard programming, routine programming), which picks the model its turn runs on."
+
+[questions.mode]
+type = "choice"
+decides = true
+instructions = "What kind of work does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "trivial", means = "It needs almost nothing: a thank-you, an acknowledgement such as ok or got it, a greeting, or a farewell." },
+  { id = "chat", means = "Ordinary conversation or a quick question with a short, direct answer that needs no deep thought and no programming." },
+  { id = "sophisticated", means = "Hard reasoning that is not mainly programming: system design, weighing several approaches, research, analysis, or careful writing." },
+  { id = "deep_coding", means = "Hard or novel programming: designing or writing tricky code, or debugging a problem whose cause is unknown." },
+  { id = "routine_coding", means = "Programming that is long but well understood: repeated mechanical edits, renames across many places, or following a clear plan already agreed." },
+  { id = "other", means = "None of the kinds above fits." },
+]
+
+# A routed model that the operator overrides often, or a wait past its bar.
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20

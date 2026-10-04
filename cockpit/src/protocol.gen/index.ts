@@ -291,6 +291,7 @@ export type * from './ToolProposed';
 export type * from './ToolStarted';
 export type * from './TrustResult';
 export type * from './TurnFailed';
+export type * from './TurnRoute';
 export type * from './TurnStarted';
 export type * from './TurnSubmitParams';
 export type * from './TurnSubmitResult';
