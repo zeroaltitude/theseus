@@ -10,6 +10,8 @@ import { Minimap, type MinimapHandle } from '@/ship/Minimap'
 import { Compass, EngineTelegraph, FuelGauge, Nixie, PressureGauge, ShipsClock } from '@/ship/instruments'
 import { useShipLive, useShipSynthetic, type ShipData } from '@/ship/useShipData'
 import { placeOf, type Light, type ShipModel, type Vessel } from '@/ship/model'
+import { ShipBoundary, ShipFallback } from '@/ship/NoWebGL'
+import { hasWebGL, NO_WEBGL, tryBuild } from '@/ship/webgl'
 import { CallInspector } from '@/components/CallInspector'
 import { ModelInspector } from '@/components/ModelInspector'
 import { PlankStrip } from '@/components/brass'
@@ -21,18 +23,29 @@ import { ago, clock, cn, short, stamp } from '@/lib/format'
 // The synthetic fleet is for measuring, in dev and bench builds only (never in a production build).
 const SYNTH = (import.meta.env.DEV || import.meta.env.MODE === 'bench') && new URLSearchParams(window.location.search).has('synthetic')
 
+// Probed once a page: WebGL turned off comes back only with a browser restart, and a context that fails later is
+// caught where the engine is built.
+let webgl: boolean | undefined
+const canDraw = () => (webgl ??= hasWebGL(() => document.createElement('canvas')))
+
 export default function ShipRoute() {
-  return SYNTH ? <ShipSynthetic /> : <ShipLive />
+  // Without WebGL (hardware acceleration off) the Ship can't draw: its place says why and how to fix it, and the rest
+  // of the cockpit works (theseus-9k53). The probe runs before the Ship reads anything.
+  const [failed, setFailed] = useState<string | null>(() => (canDraw() ? null : NO_WEBGL))
+  if (failed !== null) return <ShipFallback reason={failed} />
+  return <ShipBoundary>{SYNTH ? <ShipSynthetic onFail={setFailed} /> : <ShipLive onFail={setFailed} />}</ShipBoundary>
 }
 
-function ShipLive() {
+type OnFail = (reason: string) => void
+
+function ShipLive({ onFail }: { onFail: OnFail }) {
   const [params] = useSearchParams()
   const world = useWorld()
-  return <ShipView data={useShipLive(params.get('s') ?? undefined, world)} />
+  return <ShipView data={useShipLive(params.get('s') ?? undefined, world)} onFail={onFail} />
 }
 
-function ShipSynthetic() {
-  return <ShipView data={useShipSynthetic()} />
+function ShipSynthetic({ onFail }: { onFail: OnFail }) {
+  return <ShipView data={useShipSynthetic()} onFail={onFail} />
 }
 
 declare global {
@@ -41,7 +54,7 @@ declare global {
 
 const KIND_WORD: Record<Light['kind'], string> = { user: 'message', model: 'model call', call: 'tool call', result: 'result' }
 
-function ShipView({ data }: { data: ShipData }) {
+function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   const [params, setParams] = useSearchParams()
   const calm = useCalm((s) => s.calm)
   const setCalm = useCalm((s) => s.setCalm)
@@ -62,7 +75,10 @@ function ShipView({ data }: { data: ShipData }) {
   // The engine lives as long as the view.
   useEffect(() => {
     const mountedAt = performance.now()
-    const e = new ShipEngine(host.current!, { calm: useCalm.getState().calm, bench, scale: pin })
+    // A probe can pass and the renderer's context still fail: then the Ship's place says so too.
+    const made = tryBuild(() => new ShipEngine(host.current!, { calm: useCalm.getState().calm, bench, scale: pin }))
+    if ('failed' in made) { onFail(made.failed); return }
+    const e = made.engine
     // The title above and the instruments below cover the canvas's edges: a fit keeps the fleet between them.
     e.insets = { top: 112, right: 28, bottom: 196, left: 28 }
     labels.current = new LabelLayer(labelsRoot.current!)
@@ -75,7 +91,7 @@ function ShipView({ data }: { data: ShipData }) {
       e.dispose()
       setEngine(null)
     }
-  }, [bench, pin])
+  }, [bench, pin, onFail])
 
   useEffect(() => { engine?.setCalm(calm) }, [engine, calm])
 
