@@ -1149,8 +1149,12 @@ impl Config {
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn validate(&self) -> Result<()> {
         for (name, r) in &self.secrets {
-            SecretRef::parse(r)
-                .with_context(|| format!("secrets.{name} is not a valid op:// reference"))?;
+            if crate::secrets::is_local(r) {
+                continue;
+            }
+            SecretRef::parse(r).with_context(|| {
+                format!("secrets.{name} is not a valid op:// reference, env:NAME, or file:PATH")
+            })?;
         }
         if !self.secrets.contains_key(&self.model.api_key_secret) {
             anyhow::bail!(

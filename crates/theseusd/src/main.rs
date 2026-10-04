@@ -263,7 +263,16 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         // The socket daemon and `--stdio` both spawn job wrappers.
         tokio::spawn(reap_children());
     }
-    let op = Arc::new(OpReader::from_env(cli.op_token_file.as_deref())?);
+    let op = Arc::new(match OpReader::from_env(cli.op_token_file.as_deref()) {
+        Ok(op) => op,
+        // No vault (a benchmark's container, theseus-2sg0 spike): a file
+        // config whose secrets are `env:` or `file:` entries needs none.
+        Err(e) if !cli.config.starts_with("op://") => {
+            tracing::info!(why = %format!("{e:#}"), "no 1Password access: only env: and file: secrets resolve");
+            OpReader::absent(format!("{e:#}"))
+        }
+        Err(e) => return Err(e),
+    });
     let startup = Arc::new(StartupLog::new(origin));
     let in_vault = cli.config.starts_with("op://");
     // The copy is found before any config is read: in `--state-dir`, else ~/.theseus.
