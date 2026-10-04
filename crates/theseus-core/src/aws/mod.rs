@@ -77,6 +77,8 @@ mod tests_inventory;
 mod tests_l1;
 #[cfg(test)]
 mod tests_outside;
+#[cfg(test)]
+mod tests_restore;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 16] = [

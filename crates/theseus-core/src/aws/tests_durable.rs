@@ -26,16 +26,16 @@ use crate::config::{AwsAccountConfig, AwsConfig};
 
 /// A request as the fake saw it, its body as bytes.
 #[derive(Clone, Debug)]
-struct Req {
-    method: String,
-    path: String,
-    query: BTreeMap<String, String>,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub(super) struct Req {
+    pub(super) method: String,
+    pub(super) path: String,
+    pub(super) query: BTreeMap<String, String>,
+    pub(super) headers: Vec<(String, String)>,
+    pub(super) body: Vec<u8>,
 }
 
 impl Req {
-    fn header(&self, k: &str) -> Option<&str> {
+    pub(super) fn header(&self, k: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(h, _)| h.eq_ignore_ascii_case(k))
@@ -43,7 +43,7 @@ impl Req {
     }
 
     /// What the request is: `PutObject`, `UploadPart`, `BatchWriteItem`, …
-    fn op(&self) -> String {
+    pub(super) fn op(&self) -> String {
         let text = String::from_utf8_lossy(&self.body);
         if let Some(a) = text.split('&').find_map(|kv| kv.strip_prefix("Action=")) {
             return a.to_string();
@@ -59,13 +59,14 @@ impl Req {
             "POST" if q("uploadId") => "CompleteMultipartUpload",
             "GET" if q("uploadId") => "ListParts",
             "HEAD" => "HeadObject",
+            "GET" => "GetObject",
             _ => "Unknown",
         }
         .to_string()
     }
 
     /// The S3 object's key: the path past the bucket.
-    fn key(&self) -> String {
+    pub(super) fn key(&self) -> String {
         let p = self.path.trim_start_matches('/');
         p.split_once('/')
             .map(|(_, k)| k.to_string())
@@ -81,29 +82,29 @@ struct Upload {
 
 /// AWS as the tender needs it, with state.
 #[derive(Default)]
-struct State {
-    seen: Vec<Req>,
+pub(super) struct State {
+    pub(super) seen: Vec<Req>,
     /// Each object: its bytes and its checksum as S3 states it.
-    objects: BTreeMap<String, (Vec<u8>, String)>,
+    pub(super) objects: BTreeMap<String, (Vec<u8>, String)>,
     uploads: BTreeMap<String, Upload>,
     next_upload: u32,
     /// The table's items, by (pk, sk).
-    items: BTreeMap<(String, String), Value>,
+    pub(super) items: BTreeMap<(String, String), Value>,
     /// How many of the next `BatchWriteItem`s leave their last two items
     /// unprocessed.
     unprocessed: u32,
     /// Requests of this operation are refused (403) while set.
-    refuse: Option<String>,
+    pub(super) refuse: Option<String>,
 }
 
 type Reply = (u16, Vec<(String, String)>, Vec<u8>);
 
-struct Fake {
-    url: String,
-    state: Arc<Mutex<State>>,
+pub(super) struct Fake {
+    pub(super) url: String,
+    pub(super) state: Arc<Mutex<State>>,
 }
 
-fn sha_b64(bytes: &[u8]) -> String {
+pub(super) fn sha_b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(Sha256::digest(bytes))
 }
 
@@ -128,7 +129,7 @@ fn s3_error(status: u16, code: &str) -> Reply {
 }
 
 impl Fake {
-    fn start() -> Self {
+    pub(super) fn start() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let state: Arc<Mutex<State>> = Arc::default();
@@ -144,12 +145,12 @@ impl Fake {
         Fake { url, state }
     }
 
-    fn ops(&self, op: &str) -> Vec<Req> {
+    pub(super) fn ops(&self, op: &str) -> Vec<Req> {
         let s = self.state.lock().unwrap();
         s.seen.iter().filter(|r| r.op() == op).cloned().collect()
     }
 
-    fn object(&self, key: &str) -> Option<Vec<u8>> {
+    pub(super) fn object(&self, key: &str) -> Option<Vec<u8>> {
         self.state
             .lock()
             .unwrap()
@@ -158,7 +159,7 @@ impl Fake {
             .map(|(b, _)| b.clone())
     }
 
-    fn keys(&self, prefix: &str) -> Vec<String> {
+    pub(super) fn keys(&self, prefix: &str) -> Vec<String> {
         let s = self.state.lock().unwrap();
         s.objects
             .keys()
@@ -409,13 +410,66 @@ fn answer(s: &mut State, r: &Req, n: usize) -> Reply {
                 json!({"UnprocessedItems": left}).to_string().into_bytes(),
             )
         }
+        "GetObject" => {
+            let Some((bytes, sha)) = s.objects.get(&r.key()).cloned() else {
+                return s3_error(404, "NoSuchKey");
+            };
+            let mut headers = vec![
+                ("x-amz-request-id".into(), format!("req-{n}")),
+                ("content-type".into(), "application/octet-stream".into()),
+            ];
+            match r.header("range").and_then(|v| v.strip_prefix("bytes=")) {
+                Some(range) => {
+                    let (a, b) = range.split_once('-').unwrap();
+                    let a: usize = a.parse().unwrap();
+                    let b = b.parse::<usize>().unwrap().min(bytes.len() - 1);
+                    headers.push((
+                        "content-range".into(),
+                        format!("bytes {a}-{b}/{}", bytes.len()),
+                    ));
+                    (206, headers, bytes[a..=b].to_vec())
+                }
+                None => {
+                    if r.header("x-amz-checksum-mode") == Some("ENABLED") {
+                        headers.push(("x-amz-checksum-sha256".into(), sha));
+                    }
+                    (200, headers, bytes)
+                }
+            }
+        }
+        "Query" => {
+            let v: Value = serde_json::from_slice(&r.body).unwrap();
+            let pk = v["ExpressionAttributeValues"][":pk"]["S"].as_str().unwrap().to_string();
+            let after = v["ExclusiveStartKey"]["sk"]["S"].as_str().map(String::from);
+            let limit = v["Limit"].as_u64().map_or(usize::MAX, |l| l as usize);
+            let page: Vec<Value> = s
+                .items
+                .iter()
+                .filter(|((p, k), _)| *p == pk && after.as_ref().is_none_or(|a| k > a))
+                .take(limit)
+                .map(|(_, i)| i.clone())
+                .collect();
+            let mut out = json!({"Items": page, "Count": page.len()});
+            if page.len() == limit {
+                let last = page.last().unwrap();
+                out["LastEvaluatedKey"] = json!({"pk": last["pk"], "sk": last["sk"]});
+            }
+            (
+                200,
+                vec![
+                    ("x-amzn-requestid".into(), format!("req-{n}")),
+                    ("content-type".into(), "application/x-amz-json-1.0".into()),
+                ],
+                out.to_string().into_bytes(),
+            )
+        }
         other => s3_error(400, &format!("TheFakeDoesNotKnow{other}")),
     }
 }
 
 // ------------------------------------------------------------------ the rig
 
-fn layer(fake: &Fake) -> Arc<Aws> {
+pub(super) fn layer(fake: &Fake) -> Arc<Aws> {
     let cfg = AwsConfig {
         accounts: BTreeMap::from([(
             ACCOUNT.to_string(),
@@ -436,7 +490,7 @@ fn layer(fake: &Fake) -> Arc<Aws> {
     Aws::from_config(&cfg, board()).expect("an account")
 }
 
-const PREFIX: &str = "durability/theseus-lab/";
+pub(super) const PREFIX: &str = "durability/theseus-lab/";
 
 /// A store's directory with its WAL in small segments, so a few frames seal
 /// several.
@@ -449,7 +503,7 @@ struct Rig {
     rows: Arc<Mutex<Vec<crate::ledger::LedgerRow>>>,
 }
 
-fn tuning() -> Tuning {
+pub(super) fn tuning() -> Tuning {
     Tuning {
         part_bytes: 128,
         single_max: 150,
@@ -545,7 +599,7 @@ fn shipped_segment(fake: &Fake, n: u32) -> Option<Vec<u8>> {
 }
 
 /// Each key S3 was sent (a put, or a completed upload), and how many times.
-fn sends(fake: &Fake) -> BTreeMap<String, usize> {
+pub(super) fn sends(fake: &Fake) -> BTreeMap<String, usize> {
     let mut m = BTreeMap::new();
     for r in fake
         .ops("PutObject")
