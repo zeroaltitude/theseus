@@ -138,7 +138,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         sandbox::SandboxHealth, judge::JudgeHealth, judge::JudgeScored, judge::JudgeListParams, judge::JudgeListResult,
         judge::JudgeGetParams, judge::JudgeGetResult, learning::JudgeLabelParams, learning::JudgeLabelResult,
         learning::LearningReportParams, learning::LearningReport, judge_runs::JudgeReplayParams, judge_runs::ReplayLeftOut, judge_runs::ReplayJudgment, judge_runs::ReplayClassFell, judge_runs::ReplayEvalSide,
-        judge_runs::ReplayEval, judge_runs::JudgeReplayResult, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
+        judge_runs::ReplayEval, judge_runs::JudgeReplayResult, judge_runs::JudgeAuditParams, judge_runs::JudgeAuditResult, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
         signals::CompileSignal, sandbox::SandboxUsage, sandbox::RunningJob, lsp::LspServerStatus,
         bench::BenchHistoryParams,
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,

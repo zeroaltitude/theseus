@@ -255,7 +255,7 @@ pub fn job_session() -> Option<String> {
 /// memory label (M6 30b: `wrong` keeps a node out of every session's
 /// recall), and a judgment's label (M5 25c: the learning ledger grades Jev
 /// by it).
-pub const OPERATORS: [(&str, &str); 14] = [
+pub const OPERATORS: [(&str, &str); 15] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -270,6 +270,7 @@ pub const OPERATORS: [(&str, &str); 14] = [
     (method::MEMORY_LABEL, "theseus memory label"),
     (method::JUDGE_LABEL, "theseus judge label"),
     (method::JUDGE_REPLAY, "theseus judge replay"),
+    (method::JUDGE_AUDIT, "theseus judge audit"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):

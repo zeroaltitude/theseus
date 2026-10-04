@@ -717,6 +717,7 @@ connect_secs = 2
 total_secs = 5                          # a whole call, connect included
 learning_hour = 3                       # the local hour of the nightly learning report (labels, calibration, holdouts); a missed night runs 10 minutes after the next start
 replay_limit_usd = 0.5                  # what one `theseus judge replay` may spend; a run whose estimate passes it is refused
+audit_limit_usd = 5.0                   # what one `theseus judge audit` may spend on its model; the run stops before it would pass it
 # api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
 # A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
 # [judge.packs."loop.v1"]

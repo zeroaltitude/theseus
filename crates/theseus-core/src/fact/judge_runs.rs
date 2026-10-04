@@ -1,10 +1,12 @@
 //! The owner's runs over the learning ledger (M5 25d; design §2.9): a
-//! replay. Each run is one row, keyed by its id and scoped beside its calls
-//! (`judge.replay:<pack id>`), written in the frame that ends the run, and
-//! one sentence. The runs are outside every turn: no span.
+//! replay, an audit. Each run is one row, keyed by its id and scoped as
+//! what it wrote (`judge.replay:<pack id>` for a replay, beside its calls;
+//! `judge:<pack id>` for an audit, beside its labels), written in the frame
+//! that ends the run, and one sentence. The runs are outside every turn: no
+//! span.
 
 use serde_json::{json, Value};
-use theseus_protocol::judge_runs::JudgeReplayResult;
+use theseus_protocol::judge_runs::{JudgeAuditResult, JudgeReplayResult};
 use theseus_protocol::{LedgerKind, NarrativePart};
 
 use super::{Fact, Say};
@@ -52,6 +54,51 @@ impl Fact for JudgeReplayed<'_> {
                 r.left_out.len(),
                 r.fixed,
                 r.broken,
+                usd(r.cost_usd)
+            ),
+        );
+    }
+}
+
+/// An audit ran (`judge.audit`): its profile, model, seed, counts, and cost.
+pub struct JudgeAudited<'a> {
+    pub result: &'a JudgeAuditResult,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for JudgeAudited<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeAudit);
+
+    fn row(&self) -> Value {
+        let mut v = serde_json::to_value(self.result).unwrap_or(Value::Null);
+        if let Some(o) = v.as_object_mut() {
+            o.insert("who".into(), json!(self.who));
+            o.insert("via".into(), json!(self.via));
+        }
+        v
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let r = self.result;
+        let stopped = r
+            .stopped
+            .as_deref()
+            .map(|s| format!("; it stopped early: {s}"))
+            .unwrap_or_default();
+        say.line(
+            NarrativePart::Session,
+            format!(
+                "{} audited {} with {} ({}): {} of {} judgments asked, {} audit labels, {} \
+                 dropped, {}{stopped}.",
+                self.who,
+                r.pack,
+                r.profile,
+                r.model,
+                r.asked,
+                r.sampled,
+                r.labels,
+                r.dropped,
                 usd(r.cost_usd)
             ),
         );

@@ -21,6 +21,7 @@
 //!   about 5% of a core, holding the core weakly. Nothing runs with the judge
 //!   off.
 
+pub mod audit;
 pub mod labels;
 pub mod rebuild;
 pub mod replay;

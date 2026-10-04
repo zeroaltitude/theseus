@@ -122,6 +122,8 @@ export type * from './IndexTimings';
 export type * from './IndexVectorStatus';
 export type * from './IndexWarmResult';
 export type * from './IndexWeights';
+export type * from './JudgeAuditParams';
+export type * from './JudgeAuditResult';
 export type * from './JudgeDayBudget';
 export type * from './JudgeGetParams';
 export type * from './JudgeGetResult';

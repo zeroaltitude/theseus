@@ -1,9 +1,9 @@
 //! The owner's runs over the learning ledger (M5 25d; design §2.9):
-//! `judge.replay`. Each is judged as an approval is
+//! `judge.replay` and `judge.audit`. Each is judged as an approval is
 //! (`judge_act(Act::JudgeRun)`: the owner, from a private place; the CLI
 //! refuses each inside a job), and runs on a thread of its own at low
 //! priority (`learning::tender::on_low_thread`). The runs themselves are
-//! `learning::replay`.
+//! `learning::replay` and `learning::audit`.
 
 use serde_json::{json, Value};
 use theseus_protocol::error_code;
@@ -37,6 +37,17 @@ impl Core {
         let p = parse(params)?;
         let who = conn.answerer(None, None);
         let r = self.judge_replay(p, who).await.map_err(failure)?;
+        Ok(serde_json::to_value(r).unwrap_or(Value::Null))
+    }
+
+    pub(super) async fn rpc_judge_audit(
+        self: &std::sync::Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p = parse(params)?;
+        let who = conn.answerer(None, None);
+        let r = self.judge_audit(p, who).await.map_err(failure)?;
         Ok(serde_json::to_value(r).unwrap_or(Value::Null))
     }
 }

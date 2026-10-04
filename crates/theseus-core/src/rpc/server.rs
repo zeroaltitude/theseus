@@ -315,6 +315,7 @@ impl Core {
             method::LEARNING_REPORT => reply(self.learning_report(params).await?),
             // The owner's runs over the ledger (M5 25d).
             method::JUDGE_REPLAY => self.rpc_judge_replay(params, conn).await,
+            method::JUDGE_AUDIT => self.rpc_judge_audit(params, conn).await,
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),

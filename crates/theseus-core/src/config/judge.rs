@@ -74,6 +74,10 @@ pub struct JudgeConfig {
     /// with the numbers.
     #[serde(default = "replay_limit")]
     pub replay_limit_usd: f64,
+    /// What one audit (`theseus judge audit`) may spend on its model, in
+    /// dollars: the run stops before a request would pass it (§2.6).
+    #[serde(default = "audit_limit")]
+    pub audit_limit_usd: f64,
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
@@ -154,6 +158,9 @@ fn learning_hour() -> u8 {
 fn replay_limit() -> f64 {
     0.5
 }
+fn audit_limit() -> f64 {
+    5.0
+}
 
 impl Default for JudgeConfig {
     fn default() -> Self {
@@ -168,6 +175,7 @@ impl Default for JudgeConfig {
             shadow_limit_usd_per_day: shadow_limit(),
             learning_hour: learning_hour(),
             replay_limit_usd: replay_limit(),
+            audit_limit_usd: audit_limit(),
             packs: BTreeMap::new(),
             signals: SignalsConfig::default(),
         }
@@ -196,7 +204,10 @@ impl JudgeConfig {
         if !limit.is_finite() || limit < 0.0 {
             anyhow::bail!("judge.shadow_limit_usd_per_day must be zero or more, in dollars");
         }
-        for (name, usd) in [("replay_limit_usd", self.replay_limit_usd)] {
+        for (name, usd) in [
+            ("replay_limit_usd", self.replay_limit_usd),
+            ("audit_limit_usd", self.audit_limit_usd),
+        ] {
             if !usd.is_finite() || usd < 0.0 {
                 anyhow::bail!("judge.{name} must be zero or more, in dollars");
             }

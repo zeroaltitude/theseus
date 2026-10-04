@@ -686,6 +686,10 @@ enum JudgeCmd {
     /// side by side. Real Jev calls, inside `[judge] replay_limit_usd`; the candidate never acts.
     /// The operator's alone: refused inside a Theseus job, and from a shared place.
     Replay(judge_runs::ReplayArgs),
+    /// Have a model profile answer a pack's questions over a seeded sample of its answered
+    /// judgments, as audit labels (weight 0.5), inside `[judge] audit_limit_usd`. The operator's
+    /// alone: refused inside a Theseus job, and from a shared place.
+    Audit(judge_runs::AuditArgs),
 }
 
 #[derive(Subcommand, Debug)]

@@ -371,9 +371,9 @@ impl Fact for JudgeLabel<'_> {
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
-        // A system label is the report's, said in its summary; a person's
-        // is said here.
-        if self.source == "system" {
+        // A system label is the report's, said in its summary, and an
+        // audit's its run's (25d); a person's is said here.
+        if self.source == "system" || self.source == "audit" {
             return;
         }
         let what = self

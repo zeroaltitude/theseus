@@ -1,8 +1,8 @@
 //! The owner's runs over the learning ledger (M5 25d): a replay, its two
-//! versions side by side. Apart from `render.rs`,
+//! versions side by side; an audit. Apart from `render.rs`,
 //! whose length the shape budget caps.
 
-use theseus_protocol::judge_runs::JudgeReplayResult;
+use theseus_protocol::judge_runs::{JudgeAuditResult, JudgeReplayResult};
 use theseus_protocol::learning::{PackReport, QuestionReport};
 
 fn share(v: Option<f64>) -> String {
@@ -168,6 +168,31 @@ pub fn judge_replay_lines(r: &JudgeReplayResult) -> Vec<String> {
     }
     for l in &r.left_out {
         out.push(format!("  left out {}: {}", l.judgment, l.reason));
+    }
+    out
+}
+
+/// `theseus judge audit`: the run's counts and cost.
+pub fn judge_audit_lines(r: &JudgeAuditResult) -> Vec<String> {
+    let mut out = vec![format!(
+        "{} audited {} with {} ({}, seed {}): {} of {} eligible judgments sampled, {} asked, {} \
+         failed; {} audit labels, {} answers dropped · ${:.4} (limit ${:.2})",
+        r.id,
+        r.pack,
+        r.profile,
+        r.model,
+        r.seed,
+        r.sampled,
+        r.eligible,
+        r.asked,
+        r.failed,
+        r.labels,
+        r.dropped,
+        r.cost_usd,
+        r.limit_usd
+    )];
+    if let Some(s) = &r.stopped {
+        out.push(format!("  stopped early: {s}"));
     }
     out
 }

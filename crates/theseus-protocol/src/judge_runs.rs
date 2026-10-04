@@ -1,6 +1,6 @@
-//! The owner's runs over the learning ledger (M5 step 25d; design §2.9).
-//! Each spends money, so each is the owner's alone, from a private place,
-//! and the CLI refuses each inside a job.
+//! The owner's runs over the learning ledger (M5 step 25d; design §2.9):
+//! replay and audit. Each spends money, so each is the owner's alone, from
+//! a private place, and the CLI refuses each inside a job.
 //!
 //! - **`judge.replay`** asks a candidate pack version (one the build embeds
 //!   but does not wire, or a pack file's text) the incumbent's questions over
@@ -13,6 +13,11 @@
 //!   `judge.replay:<pack id>`, which the nightly report never reads, and the
 //!   run is one `judge.replay` row (`rpl_…`). Both sides' numbers are the
 //!   learning report's, on the same judgments and labels.
+//! - **`judge.audit`** has a model profile answer a pack's questions over a
+//!   seeded sample of answered judgments that have no audit label yet: each
+//!   answer a `judge.label` row, `source: audit`, weight 0.5. The run stops
+//!   before it would pass `[judge] audit_limit_usd`; a `judge.audit` row
+//!   holds it.
 
 use serde::{Deserialize, Serialize};
 
@@ -146,4 +151,48 @@ pub struct JudgeReplayResult {
     /// A security candidate's planted-injection set, beside the incumbent.
     #[serde(default)]
     pub eval: Option<ReplayEval>,
+}
+
+/// `judge.audit`'s params.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeAuditParams {
+    /// A pack version (`loop.v1`), or its id for the wired version.
+    pub pack: String,
+    /// How many judgments to sample.
+    pub sample: u32,
+    /// The model profile that answers (`[profiles.<name>]`).
+    pub profile: String,
+    /// The sample's seed; none takes the run's.
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub seed: Option<u64>,
+}
+
+/// `judge.audit`'s result.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeAuditResult {
+    /// `aud_…`: the `judge.audit` row's key.
+    pub id: String,
+    pub pack: String,
+    pub profile: String,
+    pub model: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub seed: u64,
+    /// Answered judgments with no audit label, and those sampled.
+    pub eligible: u32,
+    pub sampled: u32,
+    /// Requests sent, and those that failed.
+    pub asked: u32,
+    pub failed: u32,
+    /// Audit labels written; answers dropped (outside the options, or not
+    /// a question the pack asks).
+    pub labels: u32,
+    pub dropped: u32,
+    /// Why the run stopped before its sample, when it did.
+    #[serde(default)]
+    pub stopped: Option<String>,
+    pub limit_usd: f64,
+    pub cost_usd: f64,
 }

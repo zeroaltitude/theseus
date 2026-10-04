@@ -41,7 +41,7 @@ pub use cancel::{cancels_line, verdict_lines};
 pub use catalog::catalog_config_lines;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use judge::{judge_line, judge_log_lines, judge_show_lines};
-pub use judge_runs::judge_replay_lines;
+pub use judge_runs::{judge_audit_lines, judge_replay_lines};
 pub use learning::{judge_label_line, learning_report_lines};
 pub use lsp::lsp_line;
 pub use mcp::{mcp_line, mcp_lines};
