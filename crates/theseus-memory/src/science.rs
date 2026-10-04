@@ -96,6 +96,9 @@ pub trait MemoryScience: Send + Sync {
     /// What to do with a node seen for the first time (row 57, 31a: the
     /// memory pass).
     fn gate(&self, fresh: &Fresh, near: &[Neighbour]) -> GateDecision;
+    /// The gate's thresholds, merge then supersede, for the row that
+    /// records its decision.
+    fn gate_thresholds(&self) -> (f32, f32);
     /// One step of a node's retention fold (row 58, 32a: the retention
     /// projection); `None`: the science keeps no retention.
     fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention>;
@@ -178,6 +181,10 @@ impl MemoryScience for Baseline {
             }
             _ => GateDecision::Store,
         }
+    }
+
+    fn gate_thresholds(&self) -> (f32, f32) {
+        (self.merge_cosine, self.supersede_cosine)
     }
 
     fn schedule(&self, _prior: Option<&Retention>, _ev: &AccessEvent) -> Option<Retention> {

@@ -62,6 +62,14 @@ vocabulary! {
         /// graduations wrote one in the source's own session, via `graduate`:
         /// they still read.)
         DerivedFrom = "derived_from",
+        /// `from` says what `to`, written before it, says (M6 31a, the memory
+        /// pass's gate: cosine at or above the science's merge threshold).
+        /// The duplicate stays; `baseline` keeps only the newest of a group.
+        SameEntity = "same_entity",
+        /// `from` corrects `to`, written before it (M6 31a: an operator's
+        /// correction close enough to its top neighbour). `baseline`
+        /// prefers the newer side.
+        Supersedes = "supersedes",
     }
 }
 
@@ -92,6 +100,8 @@ pub const VIA_PUBLISH: &str = "publish";
 /// A `Recall` node to each source it renders (M6 30b): the copy `node.reach`
 /// counts as it counts a report's.
 pub const VIA_RECALL: &str = "recall";
+/// The memory pass's gate (M6 31a): `same_entity` and `supersedes`.
+pub const VIA_MEMORY: &str = "memory";
 
 impl Edge {
     pub fn new(kind: EdgeKind, from: &str, to: &str, via: &str) -> Self {

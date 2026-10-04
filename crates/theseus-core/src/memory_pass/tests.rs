@@ -1,6 +1,9 @@
 //! The memory pass's tests (M6 step 31a, §3.2): eligibility and the
-//! recursion exclusion, the labels' rows, the frame rule on tokio's paused
-//! clock, and nothing at all with memory off.
+//! recursion exclusion, the labels' rows, the gate's thresholds making the
+//! right edges over a stand-in index with fixed neighbours, a node not yet
+//! embedded waiting for the next pass, an index without vectors said and
+//! no edge written, the frame rule on tokio's paused clock, and nothing at
+//! all with memory off.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -12,6 +15,7 @@ use theseus_store::kinds;
 
 use super::{eligible, IndexFuture, MemoryPass, PassIndex, Timing};
 use crate::config::{MemoryConfig, MemoryMode};
+use crate::graph::Edge;
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, Origin, RecalledRef, ResultStatus};
 use crate::recall::Memory;
@@ -30,6 +34,15 @@ pub(crate) struct Fixed {
     pub state: Mutex<String>,
     pub down: Mutex<Option<String>>,
     pub asked: Mutex<Vec<String>>,
+}
+
+impl Fixed {
+    pub fn near(&self, node: &str, near: &[(&str, f64)]) {
+        self.near.lock().unwrap().insert(
+            node.into(),
+            near.iter().map(|(n, c)| (n.to_string(), *c)).collect(),
+        );
+    }
 }
 
 pub(crate) fn toy_entities(text: &str) -> Vec<String> {
@@ -120,12 +133,14 @@ pub(crate) struct Rig {
     _dir: tempfile::TempDir,
 }
 
-/// Short clocks: a 2 s window, and a short quiet.
+/// Short clocks: a 2 s window, a short quiet, a short wait for vectors.
 pub(crate) fn timing() -> Timing {
     Timing {
         window: Duration::from_secs(2),
         quiet: Duration::from_millis(20),
         quiet_bound: Duration::from_secs(1),
+        wait_first: Duration::from_millis(10),
+        wait: Duration::from_millis(100),
     }
 }
 
@@ -170,6 +185,24 @@ impl Rig {
 
     pub fn labeled(&self, sid: &str) -> Vec<LedgerRow> {
         self.rows(&crate::fact::memory::scope(sid), "memory.labeled")
+    }
+
+    pub fn gated(&self, sid: &str) -> BTreeMap<String, Value> {
+        self.rows(&crate::fact::memory::scope(sid), "memory.gated")
+            .into_iter()
+            .map(|r| (r.data["node_id"].as_str().unwrap().to_string(), r.data))
+            .collect()
+    }
+
+    /// The edges into `to`.
+    pub fn edges_into(&self, to: &str) -> Vec<Edge> {
+        self.store
+            .scope_after(&Edge::scope_into(to), 0)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.kind == kinds::EDGE)
+            .map(|r| r.decode::<Edge>().unwrap())
+            .collect()
     }
 
     /// A pass of `sid` after `turn`, and its frames written: the window
@@ -313,6 +346,9 @@ async fn only_the_eligible_are_labeled_and_a_recall_never_is() {
         .map(|l| l.data["node_id"].as_str().unwrap().to_string())
         .collect();
     assert_eq!(labeled, [u.id.clone(), t.id.clone(), a.id.clone()]);
+    // Each is gated beside its labels, and the index was asked only of them.
+    assert_eq!(r.gated(sid).len(), 3);
+    assert!(!r.index.asked.lock().unwrap().contains(&rc.id));
     // A second pass labels nothing again.
     let frames = r.frames();
     r.pass(sid, "trn_1").await;
@@ -350,6 +386,149 @@ async fn a_labeled_row_carries_the_tables_labels_and_the_indexs_entities() {
     r.pass(sid, "trn_1").await;
     let l = r.labeled(sid);
     assert_eq!(l[0].data["kind"], "preference");
+    assert!(l[0].data["entities_unavailable"]
+        .as_str()
+        .unwrap()
+        .contains("enabled = false"));
+}
+
+/// §2.3's thresholds over fixed neighbours: a near-duplicate (0.92 or
+/// more) is `same_entity`, an operator's correction whose top neighbour
+/// reaches 0.75 is `supersedes` from the newer node to the older, and the
+/// rest store. Each edge is `via = "memory"`, scoped into the older node;
+/// each row names the neighbours it saw.
+#[tokio::test(start_paused = true)]
+async fn the_gates_thresholds_make_the_right_edges() {
+    let r = rig(MemoryMode::Shadow);
+    let sid = "ses_larkspur";
+    let dup = user(
+        sid,
+        "trn_1",
+        "The staging port of the Larkspur service is 8081, as configured.",
+    );
+    let fix = user(
+        sid,
+        "trn_2",
+        "Correction: Larkspur's staging port is 8082, not 8081.",
+    );
+    let far = user(
+        sid,
+        "trn_3",
+        "Correction: lunch moved to the second floor this week.",
+    );
+    let plain = user(
+        sid,
+        "trn_4",
+        "The Larkspur dashboards live on the staging host.",
+    );
+    r.index
+        .near(&dup.id, &[("msg_old_a", 0.95), ("msg_old_b", 0.40)]);
+    r.index.near(&fix.id, &[("msg_old_a", 0.80)]);
+    r.index.near(&far.id, &[("msg_old_c", 0.70)]);
+    r.index.near(&plain.id, &[("msg_old_a", 0.80)]);
+    r.put(&[&dup, &fix, &far, &plain]);
+    r.pass(sid, "trn_4").await;
+    let g = r.gated(sid);
+    assert_eq!(g[&dup.id]["decision"], "same_entity");
+    assert_eq!(g[&dup.id]["to"], "msg_old_a");
+    assert_eq!(g[&dup.id]["neighbours"].as_array().unwrap().len(), 2);
+    assert_eq!(g[&fix.id]["decision"], "supersedes");
+    assert_eq!(g[&fix.id]["correction"], true);
+    assert_eq!(g[&far.id]["decision"], "store", "a correction below 0.75");
+    assert_eq!(
+        g[&plain.id]["decision"], "store",
+        "0.80 without a correction"
+    );
+    assert_eq!(g[&dup.id]["merge_cosine"].as_f64().unwrap(), 0.92f32 as f64);
+    let edges = r.edges_into("msg_old_a");
+    let mut seen: Vec<(String, String, String)> = edges
+        .iter()
+        .map(|e| (e.kind.clone(), e.from.clone(), e.via.clone()))
+        .collect();
+    seen.sort();
+    let mut want = vec![
+        (
+            "same_entity".to_string(),
+            dup.id.clone(),
+            "memory".to_string(),
+        ),
+        (
+            "supersedes".to_string(),
+            fix.id.clone(),
+            "memory".to_string(),
+        ),
+    ];
+    want.sort();
+    assert_eq!(seen, want);
+    assert!(r.edges_into("msg_old_c").is_empty());
+    // The gate asked as of each node's position: only nodes before it.
+}
+
+/// The tender embeds a node a little after its frame: the gate asks again
+/// within its bound, and a node still without a vector waits whole (no
+/// labels either) for the session's next pass. An index with no vectors at
+/// all (`bm25_only`), or none, is said in the row, with no edge.
+#[tokio::test(start_paused = true)]
+async fn a_node_not_yet_embedded_waits_and_an_index_without_vectors_is_said() {
+    let r = rig(MemoryMode::Shadow);
+    let sid = "ses_wren";
+    let soon = user(
+        sid,
+        "trn_1",
+        "The wren build cache lives on the scratch volume.",
+    );
+    let late = user(
+        sid,
+        "trn_1",
+        "The wren release train leaves every second Tuesday.",
+    );
+    r.index.not_yet.lock().unwrap().insert(soon.id.clone(), 2);
+    r.index
+        .not_yet
+        .lock()
+        .unwrap()
+        .insert(late.id.clone(), 1000);
+    r.index.near(&soon.id, &[("msg_twin", 0.97)]);
+    r.put(&[&soon, &late]);
+    r.pass(sid, "trn_1").await;
+    let g = r.gated(sid);
+    assert_eq!(
+        g[&soon.id]["decision"], "same_entity",
+        "asked again, and answered"
+    );
+    assert!(
+        !g.contains_key(&late.id),
+        "still no vector: left for the next pass"
+    );
+    assert_eq!(r.labeled(sid).len(), 1);
+    // Its vector lands; the session's next pass takes it.
+    r.index.not_yet.lock().unwrap().insert(late.id.clone(), 0);
+    r.pass(sid, "trn_2").await;
+    assert_eq!(r.gated(sid)[&late.id]["decision"], "store");
+
+    // No model files: the gate says so, and writes no edge.
+    let r = rig(MemoryMode::Shadow);
+    *r.index.state.lock().unwrap() = "bm25_only".into();
+    let n = user(
+        sid,
+        "trn_1",
+        "The wren build cache lives on the scratch volume.",
+    );
+    r.index.not_yet.lock().unwrap().insert(n.id.clone(), 1000);
+    r.put(&[&n]);
+    r.pass(sid, "trn_1").await;
+    let g = r.gated(sid);
+    assert_eq!(g[&n.id]["decision"], "unavailable");
+    assert!(g[&n.id]["why"].as_str().unwrap().contains("BM25 alone"));
+    assert_eq!(r.labeled(sid).len(), 1, "labeled all the same");
+
+    // No tender at all: the row says why, and the entities are unavailable.
+    let r = rig(MemoryMode::Shadow);
+    *r.index.down.lock().unwrap() = Some("the index is off: [index] enabled = false".into());
+    r.put(&[&n]);
+    r.pass(sid, "trn_1").await;
+    assert_eq!(r.gated(sid)[&n.id]["decision"], "unavailable");
+    let l = r.labeled(sid);
     assert!(l[0].data["entities_unavailable"]
         .as_str()
         .unwrap()
@@ -404,6 +583,7 @@ async fn at_most_one_frame_per_32_nodes_or_2_seconds() {
         "and the 6 left when the window ran out"
     );
     assert_eq!(r.labeled(sid).len(), 70);
+    assert_eq!(r.gated(sid).len(), 70, "a node's rows ride together");
 }
 
 /// With memory off the pass reads nothing and writes nothing.
@@ -416,5 +596,5 @@ async fn with_memory_off_the_pass_does_nothing() {
     let before = r.frames();
     r.pass(sid, "trn_1").await;
     assert_eq!(r.frames(), before);
-    assert!(r.labeled(sid).is_empty());
+    assert!(r.index.asked.lock().unwrap().is_empty());
 }

@@ -1,5 +1,6 @@
 //! The memory pass (M6 step 31a; design §2.6): after a turn ends, off its
-//! path, it labels the session's new nodes.
+//! path, it labels the session's new nodes and gates each against its
+//! nearest neighbours.
 //!
 //! - **When.** One call beside the judge's `after_turn` hands the session to
 //!   the pass's task and returns ([`MemoryPass::after_turn`]); everything
@@ -11,6 +12,17 @@
 //! - **Labels** (`labels`): §2.6's table, deterministic; `about` is the
 //!   index's entity field, asked of the tender (`index.entities`), the one
 //!   extractor.
+//! - **The gate**: the node's neighbours by the 768-d vector
+//!   (`index.neighbours`, only nodes written before it), and the science's
+//!   thresholds (`MemoryScience::gate`): a near-duplicate is a `same_entity`
+//!   edge, an operator's correction close enough to its top neighbour a
+//!   `supersedes` edge from the newer node to the older, both `via =
+//!   "memory"`. The tender embeds a node a little after its frame: the gate
+//!   asks again, waiting [`NEIGHBOUR_WAIT_FIRST`] and doubling, for at most
+//!   [`NEIGHBOUR_WAIT`] in a pass, and a node still without its vector is
+//!   left whole for the session's next pass. An index that has no vectors
+//!   at all (no model files: `bm25_only`), or no tender, is said in the
+//!   `memory.gated` row, with no edge.
 //! - **Frames.** The rows and edges go in the pass's own frames: one per
 //!   [`MAX_NODES`] nodes, or [`WINDOW`] after the first waiting, whichever
 //!   comes first; a node's records never split across frames. A frame waits
@@ -33,6 +45,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock, Weak};
 use std::time::Duration;
 
+use theseus_memory::science::{Fresh, GateDecision, Neighbour};
 use theseus_protocol::index::{
     method, IndexEntitiesParams, IndexEntitiesResult, IndexNeighboursParams, IndexNeighboursResult,
 };
@@ -40,11 +53,12 @@ use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 use tokio::sync::mpsc;
 
-use crate::fact::memory::{scope, MemoryLabeled};
+use crate::fact::memory::{scope, MemoryGated, MemoryLabeled, Seen};
+use crate::graph::{Edge, EdgeKind, VIA_MEMORY};
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, Origin};
 use crate::recall::Memory;
-use crate::store::Store;
+use crate::store::{Store, Transcript};
 use crate::tender::{IndexTender, TenderMiss};
 use labels::Shape;
 
@@ -56,6 +70,13 @@ pub const WINDOW: Duration = Duration::from_secs(2);
 pub const QUIET: Duration = Duration::from_millis(500);
 /// The pass writes anyway after waiting this long for a still WAL.
 pub const QUIET_BOUND: Duration = Duration::from_secs(60);
+/// The neighbours a gate asks for.
+pub const K: usize = 10;
+/// The first wait for a node the tender has not embedded yet.
+pub const NEIGHBOUR_WAIT_FIRST: Duration = Duration::from_millis(250);
+/// The most a pass waits for the tender's vectors, all its nodes together.
+pub const NEIGHBOUR_WAIT: Duration = Duration::from_secs(4);
+
 /// What the pass asks of the index: the tender, or a test's stand-in.
 pub type IndexFuture<T> = Pin<Box<dyn Future<Output = Result<T, TenderMiss>> + Send>>;
 
@@ -132,6 +153,8 @@ pub struct Timing {
     pub window: Duration,
     pub quiet: Duration,
     pub quiet_bound: Duration,
+    pub wait_first: Duration,
+    pub wait: Duration,
 }
 
 impl Default for Timing {
@@ -140,6 +163,8 @@ impl Default for Timing {
             window: WINDOW,
             quiet: QUIET,
             quiet_bound: QUIET_BOUND,
+            wait_first: NEIGHBOUR_WAIT_FIRST,
+            wait: NEIGHBOUR_WAIT,
         }
     }
 }
@@ -324,7 +349,7 @@ impl MemoryPass {
             .or_insert(d);
     }
 
-    /// One session's pass: its unlabeled eligible nodes, labeled.
+    /// One session's pass: its unlabeled eligible nodes, labeled and gated.
     async fn session(&self, job: &Job) -> Vec<Unit> {
         let sid = job.session_id.as_str();
         self.load_done(sid);
@@ -355,9 +380,15 @@ impl MemoryPass {
         let texts: Vec<String> = todo.iter().map(|(_, n)| text_of(n)).collect();
         let (entities, unavailable) = entities(index.as_deref(), texts).await;
         let mut units = Vec::new();
+        let mut gate = Gate::new(self, index.clone());
         for (i, (pos, n)) in todo.iter().enumerate() {
             let about = entities.get(i).cloned().unwrap_or_default();
-            units.extend(node_unit(*pos, n, about, unavailable.as_deref()));
+            if let Some(u) = self
+                .node_unit(&mut gate, &nodes, *pos, n, about, unavailable.as_deref())
+                .await
+            {
+                units.push(u);
+            }
         }
         let mut done = self.done.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(d) = done.get_mut(sid) {
@@ -367,36 +398,204 @@ impl MemoryPass {
         }
         units
     }
+
+    /// A node's labels, its gate's decision, and its edge: its unit. `None`:
+    /// the tender has not embedded it yet; it waits for the next pass.
+    async fn node_unit(
+        &self,
+        gate: &mut Gate<'_>,
+        nodes: &Transcript,
+        position: u64,
+        n: &Node,
+        about: Vec<String>,
+        unavailable: Option<&str>,
+    ) -> Option<Unit> {
+        let (shape, external) = shape_of(n)?;
+        let text = text_of(n);
+        let l = labels::label(shape, n.origin, &text, about, external);
+        let same_turn: BTreeSet<&str> = nodes
+            .iter()
+            .filter(|(_, m)| m.turn_id.is_some() && m.turn_id == n.turn_id)
+            .map(|(_, m)| m.id.as_str())
+            .collect();
+        let gated = gate.of(n, position, l.correction, &same_turn).await?;
+        let sid = n.session_id.as_str();
+        let turn = n.turn_id.as_deref();
+        let body = n.kind_str();
+        let mut records = Vec::new();
+        let labeled = MemoryLabeled {
+            node_id: &n.id,
+            position,
+            body,
+            labels: &l,
+            entities_unavailable: unavailable,
+        };
+        let science = self.memory.science();
+        let id = science.id().to_string();
+        let (merge, supersede) = science.gate_thresholds();
+        let (decision, to, why) = match &gated {
+            Gated::Decided(d, _) => match d {
+                GateDecision::Store => ("store", None, None),
+                GateDecision::MergeInto(t) => ("same_entity", Some(t.as_str()), None),
+                GateDecision::Supersedes(t) => ("supersedes", Some(t.as_str()), None),
+            },
+            Gated::Unavailable(why) => ("unavailable", None, Some(why.as_str())),
+        };
+        let seen = match &gated {
+            Gated::Decided(_, s) => s.as_slice(),
+            Gated::Unavailable(_) => &[],
+        };
+        let g = MemoryGated {
+            node_id: &n.id,
+            decision,
+            to,
+            correction: l.correction,
+            neighbours: seen,
+            science: &id,
+            merge_cosine: merge,
+            supersede_cosine: supersede,
+            why,
+        };
+        for r in [
+            crate::fact::row(&labeled, Some(sid), turn),
+            crate::fact::row(&g, Some(sid), turn),
+        ] {
+            match r {
+                Ok(mut r) => {
+                    r.key = Some(n.id.clone());
+                    records.push(r.scoped(&scope(sid)));
+                }
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "memory: a row cannot be encoded");
+                    return None;
+                }
+            }
+        }
+        if let Gated::Decided(d, _) = &gated {
+            let edge = match d {
+                GateDecision::Store => None,
+                GateDecision::MergeInto(t) => {
+                    Some(Edge::new(EdgeKind::SameEntity, &n.id, t, VIA_MEMORY))
+                }
+                GateDecision::Supersedes(t) => {
+                    Some(Edge::new(EdgeKind::Supersedes, &n.id, t, VIA_MEMORY))
+                }
+            };
+            if let Some(e) = edge {
+                records.push(e.record().ok()?);
+            }
+        }
+        Some(Unit {
+            session_id: sid.to_string(),
+            records,
+            labeled: n.id.clone(),
+        })
+    }
 }
 
-/// A node's labels: its unit.
-fn node_unit(
-    position: u64,
-    n: &Node,
-    about: Vec<String>,
-    unavailable: Option<&str>,
-) -> Option<Unit> {
-    let (shape, external) = shape_of(n)?;
-    let text = text_of(n);
-    let l = labels::label(shape, n.origin, &text, about, external);
-    let sid = n.session_id.as_str();
-    let labeled = MemoryLabeled {
-        node_id: &n.id,
-        position,
-        body: n.kind_str(),
-        labels: &l,
-        entities_unavailable: unavailable,
-    };
-    let mut r = crate::fact::row(&labeled, Some(sid), n.turn_id.as_deref())
-        .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "memory: a row cannot be encoded"))
-        .ok()?;
-    r.key = Some(n.id.clone());
-    Some(Unit {
-        session_id: sid.to_string(),
-        records: vec![r.scoped(&scope(sid))],
-        labeled: n.id.clone(),
-    })
+/// What the gate made of a node.
+enum Gated {
+    /// The science's decision, and the neighbours it saw.
+    Decided(GateDecision, Vec<Seen>),
+    /// No vectors to ask, and why: the row says it, and no edge is written.
+    Unavailable(String),
 }
+
+/// The gate of one pass: its wait budget, and what the index's state is.
+struct Gate<'a> {
+    pass: &'a MemoryPass,
+    index: Option<Arc<dyn PassIndex>>,
+    /// The pass's remaining wait for vectors.
+    left: Duration,
+    /// The index's state, once read.
+    state: Option<String>,
+}
+
+impl<'a> Gate<'a> {
+    fn new(pass: &'a MemoryPass, index: Option<Arc<dyn PassIndex>>) -> Self {
+        Self {
+            pass,
+            index,
+            left: pass.timing.wait,
+            state: None,
+        }
+    }
+
+    /// The decision for `n`, at `position`; `None`: its vector is not there
+    /// yet, and the pass's wait is spent.
+    async fn of(
+        &mut self,
+        n: &Node,
+        position: u64,
+        correction: bool,
+        same_turn: &BTreeSet<&str>,
+    ) -> Option<Gated> {
+        let Some(index) = self.index.clone() else {
+            return Some(Gated::Unavailable("no index is configured".into()));
+        };
+        let p = IndexNeighboursParams {
+            node_id: n.id.clone(),
+            k: K,
+            as_of: Some(position),
+        };
+        let mut wait = self.pass.timing.wait_first;
+        loop {
+            match index.neighbours(p.clone()).await {
+                Ok(r) => {
+                    let seen: Vec<Seen> = r
+                        .neighbours
+                        .into_iter()
+                        .filter(|x| GATED_KINDS.contains(&x.kind.as_str()))
+                        .filter(|x| !same_turn.contains(x.node_id.as_str()))
+                        .map(|x| Seen {
+                            node_id: x.node_id,
+                            session_id: x.session_id,
+                            kind: x.kind,
+                            cosine: x.score,
+                        })
+                        .collect();
+                    let near: Vec<Neighbour> = seen
+                        .iter()
+                        .map(|s| Neighbour {
+                            node_id: s.node_id.clone(),
+                            cosine: s.cosine as f32,
+                        })
+                        .collect();
+                    let fresh = Fresh {
+                        node_id: n.id.clone(),
+                        correction,
+                    };
+                    let d = self.pass.memory.science().gate(&fresh, &near);
+                    return Some(Gated::Decided(d, seen));
+                }
+                Err(TenderMiss::Down(why)) => {
+                    return Some(Gated::Unavailable(format!("no index answered: {why}")))
+                }
+                Err(TenderMiss::Refused(why)) => {
+                    if self.state.is_none() {
+                        self.state = Some(index.state().await.unwrap_or_default());
+                    }
+                    if self.state.as_deref() == Some("bm25_only") {
+                        return Some(Gated::Unavailable(
+                            "the index answers BM25 alone: it has no model files ([index] weights_dir), so no vectors"
+                                .into(),
+                        ));
+                    }
+                    if wait > self.left {
+                        tracing::debug!(node_id = %n.id, why, "memory: no vector yet; the node waits for the next pass");
+                        return None;
+                    }
+                    tokio::time::sleep(wait).await;
+                    self.left -= wait;
+                    wait *= 2;
+                }
+            }
+        }
+    }
+}
+
+/// The kinds the gate weighs as neighbours: those the pass labels.
+const GATED_KINDS: &[&str] = &["user_message", "assistant_message", "tool_result"];
 
 /// Each text's entities from the tender, in order, in requests of at most
 /// its limit; with why there are none, if the tender could not name them.

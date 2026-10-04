@@ -241,6 +241,7 @@ facts![
     recall::ArmAssigned<'static>,
     recall::Labeled<'static>,
     memory::MemoryLabeled<'static>,
+    memory::MemoryGated<'static>,
     place::PlaceViewed<'static>,
     place::Published<'static>,
     turn::LoopStarted<'static>,
