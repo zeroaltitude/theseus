@@ -681,6 +681,33 @@ async fn an_unpriced_model_is_never_called() {
     assert_eq!(judge.sink().judgments().len(), 1, "a skip is recorded too");
 }
 
+/// The core mints a judgment's id at its dispatch (one convention for every
+/// point in a turn): the judgment, answered or skipped, carries it. An ask
+/// with none gets a fresh `jdg_` id.
+#[tokio::test]
+async fn a_minted_id_is_the_judgments_and_none_mints_one() {
+    let fake = FakeJev::start().unwrap();
+    let judge = judge_for(&fake);
+    let mut minted = ask_with(probe_pack(), probe_input());
+    minted.id = Some("jdg_minted0001".into());
+    let mut unpriced = ask_with(versioned(2, "jev-9.9.9"), probe_input());
+    unpriced.id = Some("jdg_minted0002".into());
+    let fresh = ask_with(probe_pack(), probe_input());
+    assert_eq!(fresh.id, None);
+    let js = judge
+        .judge(DecisionPoint {
+            asks: vec![minted, unpriced, fresh],
+            urgency: Urgency::Shadow,
+        })
+        .await;
+    assert_eq!(js[0].id, "jdg_minted0001");
+    assert_eq!(js[0].outcome, Outcome::Answered);
+    assert_eq!(js[1].id, "jdg_minted0002");
+    assert!(js[2].id.starts_with("jdg_") && js[2].id.len() > 20);
+    let recorded: Vec<String> = judge.sink().judgments().into_iter().map(|j| j.id).collect();
+    assert!(recorded.contains(&"jdg_minted0001".to_string()));
+}
+
 #[tokio::test]
 async fn an_outage_opens_the_breaker_and_then_costs_nothing() {
     let fake = FakeJev::start().unwrap();
