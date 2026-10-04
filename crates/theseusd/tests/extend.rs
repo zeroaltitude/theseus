@@ -238,6 +238,18 @@ impl Rig {
             .collect()
     }
 
+    /// `theseus extend list`'s output.
+    fn extend_list(&self) -> String {
+        let out = Command::new(bin("theseus"))
+            .arg("--socket")
+            .arg(self.path("sock"))
+            .args(["extend", "list"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
     /// `theseus confirm <id>`, with `env` set: its status and output.
     fn confirm(&self, id: &str, env: &[(&str, &str)]) -> (bool, String) {
         let out = Command::new(bin("theseus"))
@@ -281,6 +293,22 @@ fn proposal(r: &Rig) -> (&'static str, Value) {
     )
 }
 
+/// As root, L1 refuses the trial: the proposal says why, its manifest is
+/// `failed`, and nothing is asked.
+fn refused_as_root(r: &Rig, text: &str, tested: &Value) {
+    assert!(text.contains("did not come up in L1"), "{text}");
+    assert!(text.contains("RLIMIT_NPROC"), "{text}");
+    assert!(tested["error"].is_string(), "{tested}");
+    let asks = r.call("confirm.list", Value::Null).unwrap();
+    assert!(asks["confirms"].as_array().unwrap().is_empty(), "{asks}");
+    let listed = r.extend_list();
+    assert!(
+        listed.starts_with("wordcount ") && listed.contains("  failed  "),
+        "{listed}"
+    );
+    assert!(listed.contains("did not come up in L1"), "{listed}");
+}
+
 /// The brief's live check, offline: proposed, frozen, tried in L1, and put
 /// to the operator; a job's shell cannot ack it; the operator's shell does;
 /// and no extension's tool is offered or runs.
@@ -292,12 +320,7 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
     let tested = &r.ledger("extend.tested")[0];
     assert_eq!(r.ledger("extend.proposed").len(), 1, "{}", r.log());
     if root() {
-        assert!(text.contains("did not come up in L1"), "{text}");
-        assert!(text.contains("RLIMIT_NPROC"), "{text}");
-        assert!(tested["error"].is_string(), "{tested}");
-        let asks = r.call("confirm.list", Value::Null).unwrap();
-        assert!(asks["confirms"].as_array().unwrap().is_empty(), "{asks}");
-        return;
+        return refused_as_root(&r, text, tested);
     }
     assert!(text.contains("2 of 2 tests passed"), "{text}\n{}", r.log());
     assert_eq!(
@@ -332,6 +355,15 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
         "{q}"
     );
     let id = q["correlation_id"].as_str().unwrap().to_string();
+    let listed = r.extend_list();
+    assert!(
+        listed.contains("  proposed  2 of 2 tests passed  no network"),
+        "{listed}"
+    );
+    assert!(
+        listed.contains(&format!("waiting: theseus confirm {id}")),
+        "{listed}"
+    );
     // From a job's shell: refused, and it still waits.
     let (ok, said) = r.confirm(&id, &[("THESEUS_SESSION", sid.as_str())]);
     assert!(!ok && said.contains("theseus confirm refused"), "{said}");
@@ -348,6 +380,13 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
     assert!(ok, "{said}");
     assert!(said.contains("nothing resumes"), "{said}");
     assert_eq!(r.ledger("extend.acked")[0]["name"], "wordcount");
+    assert!(
+        r.extend_list().contains("  acked by "),
+        "{}",
+        r.extend_list()
+    );
+    let h = r.call("health", Value::Null).unwrap();
+    assert_eq!(h["extensions"]["acked"], 1, "{}", h["extensions"]);
     let list = r.call("mcp.list", Value::Null).unwrap();
     assert!(list["tools"].as_array().unwrap().is_empty(), "{list}");
     assert!(r.call("confirm.list", Value::Null).unwrap()["confirms"]
