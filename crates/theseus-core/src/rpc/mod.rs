@@ -12,6 +12,7 @@
 
 mod aws;
 mod bindings;
+mod budgets;
 mod confirms;
 pub(crate) use confirms::{expired_answer, Act};
 mod driver;

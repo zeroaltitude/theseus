@@ -1,0 +1,17 @@
+$ theseus budgets
+--- requests
+budget.list
+--- stdout
+session        state     limit                      spent  reserved      held available  lifetime  resets
+…q7f3k2        waiting   $100.00 config           $3.2500   $4.5000   $0.0000  $92.2500   $7.5000  1 (last at 06:31:40.000Z by cli)
+└ …lamp01      running   $3.00 carve of …q7f3k2   $0.5000   $0.0000   $0.0000   $2.5000   $0.5000  0
+└ …lens02      running   $2.00 carve of …q7f3k2   $0.0000   $0.0000   $0.0000   $2.0000   $0.0000  0
+…pier01        waiting   $40.00 #pier             $1.0000   $0.0000   $0.0000  $39.0000   $1.0000  2 (the last not read: the ledger's index is being built after the start; ask again in a moment)
+…q7f3k2 waits at its limit: its next call needs $0.2500 · theseus confirm act_q7f3k2
+…lamp01 is a task of …q7f3k2: its parent holds $2.5000 of its $3.00 carve
+…lens02 is a task of …q7f3k2: its parent holds $2.0000 of its $2.00 carve
+total: 2 executions and 2 tasks · spent $4.2500 of $140.00 · reserved $4.5000 · held $0.0000 · available $131.2500 · lifetime $9.0000 · 1 question waiting
+a task's spend is its parent's too, and its carve a reservation of its parent's: the totals add the top rows · the config's limit is $100.00
+judge: shadow budget $0.0125 of $1.00 on 2026-10-04
+--- stderr
+--- exit 0

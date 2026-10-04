@@ -1,0 +1,10 @@
+$ theseus budgets
+--- requests
+budget.list
+--- stdout
+no open executions
+total: 0 executions and 0 tasks · spent $0.0000 of $0.00 · reserved $0.0000 · held $0.0000 · available $0.0000 · lifetime $0.0000
+a task's spend is its parent's too, and its carve a reservation of its parent's: the totals add the top rows · the config's limit is $100.00
+judge: off ([judge] enabled = false), so no shadow budget is spent
+--- stderr
+--- exit 0

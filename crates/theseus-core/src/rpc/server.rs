@@ -262,6 +262,7 @@ impl Core {
             method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
             method::HANDS_LIST => route(params, |p| self.rpc_hands_list(&p)),
+            method::BUDGET_LIST => reply(self.budget_list()?),
             method::ONTOLOGY_LIST
             | method::ONTOLOGY_CATEGORY_ADD
             | method::ONTOLOGY_GUIDANCE_SET

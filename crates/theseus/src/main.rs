@@ -12,6 +12,7 @@
 //! (`render`) are this package's library, which the TUI shares, and
 //! `print.rs` writes the lines they return.
 
+mod budgets;
 mod cmd;
 mod herdr;
 mod herdr_sync;
@@ -44,6 +45,7 @@ Quick start:
   theseus watch --all                        every session's executions as they change, with what needs you
   theseus tui                                every session in one terminal: what needs you, answered inline
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
+  theseus budgets                            where the money is: each session's limit and its source, spend, tasks' carves
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
   theseus wakes                              pending wakes (wake.at): session, due time, and note
   theseus reach <node>                       where a node went: the contexts that held it, and its copies in other sessions
@@ -244,6 +246,10 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<SessionsCmd>,
     },
+    /// Where the money is: each open session's limit and where it comes from, spent, reserved,
+    /// held, available, and lifetime cost, its resets and any budget question, each task under
+    /// its parent with its carve, and the totals.
+    Budgets,
     /// Executions (one per session): state, turns, outstanding actions, budget; `executions cancel <id>`.
     Executions {
         #[command(subcommand)]
@@ -684,6 +690,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { cmd } => cmd::sessions(c, json, cmd.unwrap_or(SessionsCmd::List)).await,
+        Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { cmd } => {
             cmd::executions(c, json, cmd.unwrap_or(ExecutionsCmd::List)).await
         }

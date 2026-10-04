@@ -235,6 +235,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the node, which `task.list` reads; the rows are `task.arranged` and `task.arrangement_refused`
   (`fact/arrangement.rs`). A scripted `task.create` in a test needs an arrangement whose quote its parent's
   transcript holds once. Tests: `tests_arrangement.rs`, `arrangement::tests`.
+- **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
+  money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
+  `pinned`), its session's lifetime cost, and its last reset from one small ledger page by kind and session tag,
+  never a scan (`last_reset_unread` while the index's shape is built); tasks under their parents, and totals of the
+  top rows, since a task's spend is its parent's too. Tests: `tests_budgets.rs`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

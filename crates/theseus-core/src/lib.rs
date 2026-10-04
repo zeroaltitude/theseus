@@ -109,6 +109,8 @@ mod tests_arrangement;
 #[cfg(test)]
 mod tests_books;
 #[cfg(test)]
+mod tests_budgets;
+#[cfg(test)]
 mod tests_cancel;
 #[cfg(test)]
 mod tests_ceilings;

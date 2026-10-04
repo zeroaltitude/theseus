@@ -112,6 +112,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         WaitUntil, SessionWaitParams, SessionWaitResult, EventsLost, ToolClass, AwsPlan, AwsStatus,
         AwsAccountStatus, TenderStatus, PlaceClass, PlacesHealth, PlaceInfo, PlacePublishParams, PublishResult,
         HandsListParams, HandsGroupInfo, HandsListResult,
+        BudgetListResult, BudgetRow, BudgetResetInfo, BudgetQuestionInfo, BudgetTotals, JudgeDayBudget,
         OntologyListParams, OntologyListResult, OntologyKind, OntologyCategory, OntologyGuidance,
         OntologyMembership, OntologyCategoryAddParams, OntologyGuidanceSetParams,
         OntologyMembershipSetParams, OntologyMembershipResult,

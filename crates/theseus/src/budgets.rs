@@ -1,0 +1,138 @@
+//! `theseus budgets` (step 42a, theseus-ext.7): where the money is, from
+//! `budget.list`. A table of the open executions, each task under its
+//! parent with its carve, then the questions waiting, the totals, and the
+//! judge's shadow day budget.
+
+use anyhow::Result;
+use serde_json::Value;
+use theseus_client::{render, Conn};
+use theseus_protocol::{method, BudgetListResult, BudgetRow};
+
+use crate::cmd::output;
+
+pub async fn budgets(conn: &mut Conn, json: bool) -> Result<()> {
+    let v = conn.request(method::BUDGET_LIST, Value::Null).await?;
+    output(json, v, |r: BudgetListResult| {
+        print!("{}", table(&r));
+        Ok(())
+    })
+}
+
+/// The table, and the lines after it.
+pub fn table(r: &BudgetListResult) -> String {
+    let mut out = String::new();
+    if r.executions.is_empty() {
+        out.push_str("no open executions\n");
+    } else {
+        out.push_str(&format!(
+            "{:<14} {:<9} {:<22} {:>9} {:>9} {:>9} {:>9} {:>9}  resets\n",
+            "session", "state", "limit", "spent", "reserved", "held", "available", "lifetime"
+        ));
+    }
+    let mut after = Vec::new();
+    for e in &r.executions {
+        row(&mut out, &mut after, e, "");
+        for t in &e.tasks {
+            row(&mut out, &mut after, t, "└ ");
+        }
+    }
+    for line in after {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    let t = &r.totals;
+    out.push_str(&format!(
+        "total: {} execution{} and {} task{} · spent ${:.4} of ${:.2} · reserved ${:.4} · held ${:.4} · available ${:.4} · lifetime ${:.4}{}\n",
+        t.executions,
+        plural(t.executions),
+        t.tasks,
+        plural(t.tasks),
+        t.spent_usd,
+        t.limit_usd,
+        t.reserved_usd,
+        t.held_unknown_usd,
+        t.available_usd,
+        t.lifetime_usd,
+        match t.questions {
+            0 => String::new(),
+            n => format!(" · {n} question{} waiting", plural(n)),
+        }
+    ));
+    out.push_str(&format!(
+        "a task's spend is its parent's too, and its carve a reservation of its parent's: the totals add the top rows · the config's limit is ${:.2}\n",
+        r.config_limit_usd
+    ));
+    if let Some(j) = &r.judge {
+        out.push_str(&match j.enabled {
+            true => format!(
+                "judge: shadow budget ${:.4} of ${:.2} on {}{}\n",
+                j.spent_usd,
+                j.limit_usd,
+                j.day,
+                if j.paused {
+                    " · paused at its limit until tomorrow"
+                } else {
+                    ""
+                }
+            ),
+            false => "judge: off ([judge] enabled = false), so no shadow budget is spent\n".into(),
+        });
+    }
+    out
+}
+
+/// One row, and what it adds after the table: its question, its last reset.
+fn row(out: &mut String, after: &mut Vec<String>, e: &BudgetRow, lead: &str) {
+    let from = match (&e.limit_from[..], &e.limit_by) {
+        ("carve", Some(p)) => format!("carve of {}", render::short_id(p)),
+        ("place", Some(p)) => p.clone(),
+        (from, _) => from.to_string(),
+    };
+    let limit = format!("${:.2} {from}", e.limit_usd);
+    let resets = match (&e.last_reset, &e.last_reset_unread) {
+        (_, _) if e.resets == 0 => "0".to_string(),
+        (Some(r), _) => format!(
+            "{} (last at {} by {})",
+            e.resets,
+            render::fmt_time(r.at_ms),
+            r.by
+        ),
+        (None, Some(why)) => format!("{} (the last not read: {why})", e.resets),
+        (None, None) => e.resets.to_string(),
+    };
+    out.push_str(&format!(
+        "{:<14} {:<9} {:<22} {:>9} {:>9} {:>9} {:>9} {:>9}  {resets}\n",
+        format!("{lead}{}", render::short_id(&e.session_id)),
+        e.state,
+        limit,
+        format!("${:.4}", e.spent_usd),
+        format!("${:.4}", e.reserved_usd),
+        format!("${:.4}", e.held_unknown_usd),
+        format!("${:.4}", e.available_usd),
+        format!("${:.4}", e.lifetime_usd),
+    ));
+    if let Some(c) = e.carve_held_usd {
+        after.push(format!(
+            "{} is a task of {}: its parent holds ${c:.4} of its ${:.2} carve",
+            render::short_id(&e.session_id),
+            e.limit_by.as_deref().map_or("?".into(), render::short_id),
+            e.limit_usd
+        ));
+    }
+    if let Some(q) = &e.question {
+        after.push(format!(
+            "{} waits at its limit: its next call needs ${:.4} · theseus confirm {}",
+            render::short_id(&e.session_id),
+            q.needs_usd,
+            q.correlation_id
+        ));
+    }
+}
+
+fn plural(n: u32) -> &'static str {
+    if n == 1 {
+        ""
+    } else {
+        "s"
+    }
+}
