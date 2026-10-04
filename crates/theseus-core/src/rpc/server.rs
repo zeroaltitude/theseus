@@ -311,6 +311,9 @@ impl Core {
             // Recall (M6 30a): the pipeline for a query, and a session's recalls.
             method::MEMORY_SEARCH => reply(self.memory_search(parse(params)?).await?),
             method::MEMORY_RECALLS => reply(self.memory_recalls(parse(params)?)?),
+            // Jev's judgments (M5 23b): their rows, and one with its state.
+            method::JUDGE_LIST => reply(self.judge_list(parse(params)?)?),
+            method::JUDGE_GET => reply(self.judge_get(parse(params)?)?),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.

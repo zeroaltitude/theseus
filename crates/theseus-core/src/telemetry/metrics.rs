@@ -115,8 +115,41 @@ const PUSH_DELAY: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const JUDGE_CALLS: Instrument = Instrument {
+    name: "theseus.judge.calls",
+    description:
+        "Jev's judgments (M5), by pack, mode, band (or skipped, failed), and workload class",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const JUDGE_DURATION: Instrument = Instrument {
+    name: "theseus.judge.duration_ms",
+    description: "Each judgment's call to Jev, end to end, by pack and workload class",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+const JUDGE_ON_PATH: Instrument = Instrument {
+    name: "theseus.judge.on_path_ms",
+    description:
+        "What each judgment kept its turn waiting (0 in shadow), by pack and workload class",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+const JUDGE_ERRORS: Instrument = Instrument {
+    name: "theseus.judge.errors",
+    description: "Judgments whose call to Jev failed, by error class",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const JUDGE_DISAGREEMENTS: Instrument = Instrument {
+    name: "theseus.judge.disagreements",
+    description: "Answered judgments whose pack, in its act band, would have done otherwise than the baseline",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 14] = [
+const INSTRUMENTS: [&Instrument; 19] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -131,7 +164,18 @@ const INSTRUMENTS: [&Instrument; 14] = [
     &PUSH_EVENTS,
     &PUSH_LOST,
     &PUSH_DELAY,
+    &JUDGE_CALLS,
+    &JUDGE_DURATION,
+    &JUDGE_ON_PATH,
+    &JUDGE_ERRORS,
+    &JUDGE_DISAGREEMENTS,
 ];
+
+/// A judgment's attributes (M5 23b).
+const JUDGE_PACK: &str = "theseus.judge.pack";
+const JUDGE_MODE: &str = "theseus.judge.mode";
+const JUDGE_BAND: &str = "theseus.judge.band";
+const JUDGE_CLASS: &str = "theseus.judge.class";
 
 /// A tool call's attributes (§3.23). `theseus.tool.name` was `theseus.tool`
 /// until theseus-yf1: OTel's naming rules keep a name from being both an
@@ -317,6 +361,52 @@ impl Metrics {
             n,
         );
         self.record(&PUSH_DELAY, Vec::new(), delay_ms);
+    }
+
+    /// A judgment (M5 23b): counted by pack, mode, band, and workload
+    /// class (`band` is its headline answer's, or `skipped` or `failed` when
+    /// there is none); a call that reached Jev timed; what it kept the turn
+    /// waiting; a failure by its class; a disagreement with the baseline; and
+    /// its cost, as `theseus.spend = judge`.
+    pub(super) fn judgment(&mut self, j: &theseus_judge::Judgment, disagrees: bool) {
+        use theseus_judge::Outcome;
+        let ctx = |k: &str| j.context.get(k);
+        let class = ctx("class")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let s = |v: serde_json::Value| v.as_str().unwrap_or_default().to_string();
+        let mode = s(serde_json::to_value(j.mode).unwrap_or_default());
+        let band = match &j.outcome {
+            Outcome::Answered => crate::fact::judge::headline(j).map_or_else(
+                || "none".to_string(),
+                |a| s(serde_json::to_value(a.band.band).unwrap_or_default()),
+            ),
+            Outcome::Skipped { .. } => "skipped".into(),
+            Outcome::Failed { .. } => "failed".into(),
+        };
+        let pack = vec![(JUDGE_PACK, Attr::S(j.pack.clone()))];
+        let by_class = with(&pack, JUDGE_CLASS, class);
+        let calls = with(&with(&by_class, JUDGE_MODE, &mode), JUDGE_BAND, &band);
+        self.add(&JUDGE_CALLS, calls, 1);
+        if !matches!(j.outcome, Outcome::Skipped { .. }) {
+            self.record(&JUDGE_DURATION, by_class.clone(), j.timing.total_ms as f64);
+        }
+        let on_path = ctx("on_path_ms").and_then(serde_json::Value::as_f64);
+        self.record(&JUDGE_ON_PATH, by_class, on_path.unwrap_or(0.0));
+        if let Outcome::Failed { class, .. } = &j.outcome {
+            self.add(
+                &JUDGE_ERRORS,
+                vec![("theseus.error.class", Attr::S(class.clone()))],
+                1,
+            );
+        }
+        if disagrees {
+            self.add(&JUDGE_DISAGREEMENTS, pack.clone(), 1);
+        }
+        if let Some(m) = j.cost_micros.filter(|m| *m > 0) {
+            let spend = with(&pack, "theseus.spend", "judge");
+            self.add_f64(&COST, spend, m as f64 / 1_000_000.0);
+        }
     }
 
     /// The push (theseus-in3): `n` notifications dropped at a backlog cap.

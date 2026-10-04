@@ -870,6 +870,11 @@ impl Store {
         }
     }
 
+    /// The newest ledger row keyed `key` (a judgment's `jdg_…`).
+    pub fn ledger_by_key(&self, key: &str) -> Result<Option<Record>> {
+        self.inner.latest_by_key(kinds::LEDGER, key)
+    }
+
     /// Every record of a scope after the position `after`, oldest first: a
     /// session's, or the edges into a node (`in:<node>`, 12a).
     pub fn scope_after(&self, scope: &str, after: u64) -> Result<Vec<Record>> {

@@ -163,6 +163,13 @@ pub mod method {
         /// A session's recalls (`memory::MemoryRecallsParams`): each turn's
         /// `recall.shadow` manifest, newest last. A read.
         MEMORY_RECALLS = "memory.recalls",
+        /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
+        /// `judge.call` rows, by pack, session, and time, without their
+        /// states. A read.
+        JUDGE_LIST = "judge.list",
+        /// One judgment by its id (`judge::JudgeGetParams`): its row, and the
+        /// state Jev was sent, from its blob. A read.
+        JUDGE_GET = "judge.get",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

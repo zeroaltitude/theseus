@@ -18,6 +18,8 @@ mod otlp;
 mod spans;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_judge;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -93,11 +95,14 @@ pub struct FailedTurn<'a> {
     pub cost_usd: Option<f64>,
 }
 
-/// The telemetry pipeline. Cheap to hold; off unless an endpoint is set.
+/// The telemetry pipeline. Cheap to hold, and to clone (a clone shares the
+/// pipeline); off unless an endpoint is set.
+#[derive(Clone)]
 pub struct Telemetry {
     state: State,
 }
 
+#[derive(Clone)]
 enum State {
     Off,
     /// An endpoint is set, and its exporter could not be built.
@@ -191,6 +196,17 @@ impl Telemetry {
             n,
             delay.as_secs_f64() * 1000.0,
         );
+    }
+
+    /// A judgment the judge's sink wrote (M5 23b): its counts, its times,
+    /// its error, whether it disagrees with the baseline, and its cost, as
+    /// the judge's spend.
+    pub fn record_judgment(&self, j: &theseus_judge::Judgment, disagrees: bool) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .judgment(j, disagrees);
     }
 
     /// The push (theseus-in3): `n` notifications a connection's backlog cap

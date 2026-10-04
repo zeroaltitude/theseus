@@ -330,6 +330,7 @@ facts![
     ontology::MembershipSet<'static>,
     judge::JudgeCall<'static>,
     judge::JudgePaused<'static>,
+    judge::JudgeResumed<'static>,
     judge::JudgeBlockBooked<'static>,
     judge::JudgeCircuit<'static>,
     judge::JudgeShed,

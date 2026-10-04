@@ -27,14 +27,14 @@ use crate::turn::TurnRequest;
 use crate::Config;
 use theseus_protocol::SessionKind;
 
-struct Rig {
-    core: Arc<Core>,
-    fake: Arc<FakeProvider>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) fake: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
 /// A board with the Jev key ready, as it is once the secrets settle.
-fn board() -> Arc<SecretBoard> {
+pub(crate) fn board() -> Arc<SecretBoard> {
     let b = SecretBoard::new(["jev_api_key".to_string()], Instant::now());
     b.publish(
         BTreeMap::from([(
@@ -46,7 +46,7 @@ fn board() -> Arc<SecretBoard> {
     b
 }
 
-fn config(state: &Path, jev: Option<&FakeJev>) -> Config {
+pub(crate) fn config(state: &Path, jev: Option<&FakeJev>) -> Config {
     let mut cfg = Config::example();
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
@@ -59,7 +59,11 @@ fn config(state: &Path, jev: Option<&FakeJev>) -> Config {
     cfg
 }
 
-fn rig_with(script: Vec<Scripted>, jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig_with(
+    script: Vec<Scripted>,
+    jev: Option<&FakeJev>,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(dir.path(), jev);
     tweak(&mut cfg);
@@ -76,13 +80,13 @@ fn rig_with(script: Vec<Scripted>, jev: Option<&FakeJev>, tweak: impl FnOnce(&mu
     }
 }
 
-fn texts(n: usize) -> Vec<Scripted> {
+pub(crate) fn texts(n: usize) -> Vec<Scripted> {
     (0..n)
         .map(|i| Scripted::text(&format!("Done: answer {i}.")))
         .collect()
 }
 
-async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
     let rec = match session {
         Some(id) => core
             .store
@@ -115,7 +119,7 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
 }
 
 /// The `judge:loop` scope's rows, decoded.
-fn judged(store: &Store) -> Vec<(Record, LedgerRow)> {
+pub(crate) fn judged(store: &Store) -> Vec<(Record, LedgerRow)> {
     store
         .scope_after("judge:loop", 0)
         .unwrap()
@@ -128,7 +132,7 @@ fn judged(store: &Store) -> Vec<(Record, LedgerRow)> {
 }
 
 /// Wait (on the runtime's timer) until `n` judgments are recorded.
-async fn until_judged(store: &Store, n: usize) -> Vec<(Record, LedgerRow)> {
+pub(crate) async fn until_judged(store: &Store, n: usize) -> Vec<(Record, LedgerRow)> {
     let t0 = Instant::now();
     loop {
         let rows = judged(store);
@@ -144,7 +148,7 @@ async fn until_judged(store: &Store, n: usize) -> Vec<(Record, LedgerRow)> {
     }
 }
 
-fn kinds(store: &Store, kind: &str) -> Vec<LedgerRow> {
+pub(crate) fn kinds(store: &Store, kind: &str) -> Vec<LedgerRow> {
     store
         .ledger_tail::<LedgerRow>(10_000)
         .unwrap()
