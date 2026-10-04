@@ -1,8 +1,10 @@
-//! `extend.list` (`theseus extend list`) and health's count of proposals
-//! (M7 43a): each manifest as it is now, read by one META prefix scan.
+//! `extend.list` (`theseus extend list`, Discord's `/extensions`) and
+//! health's counts (M7 43a, 43b): each manifest as it is now, read by one
+//! META prefix scan, and each loaded extension with its server's state.
 
-use theseus_protocol::extend::{ExtendHealth, ExtendInfo, ExtendListResult};
+use theseus_protocol::extend::{ExtendHealth, ExtendInfo, ExtendListResult, ExtendLoadedInfo};
 
+use super::load::{Loaded, LoadedSet};
 use super::Manifest;
 use crate::rpc::Core;
 
@@ -29,6 +31,33 @@ impl From<&Manifest> for ExtendInfo {
     }
 }
 
+/// A loaded extension as `extend.list` shows it, with its server now.
+fn loaded_info(l: &Loaded, board: &crate::mcp::McpBoard) -> ExtendLoadedInfo {
+    let server = l.server();
+    let status = board.status().into_iter().find(|s| s.name == server);
+    ExtendLoadedInfo {
+        name: l.name.clone(),
+        digest: l.digest.clone(),
+        description: l.description.clone(),
+        command: l.command.clone(),
+        frozen: l.frozen.clone(),
+        tools: l.canonical(),
+        network: l.capabilities.network.clone(),
+        acked_by: l.acked_by.clone(),
+        acked_via: l.acked_via.clone(),
+        acked_at_ms: l.acked_at_ms,
+        session_id: l.proposed_by.session_id.clone(),
+        replaced: l.replaced.clone(),
+        state: status
+            .as_ref()
+            .map_or_else(|| "stopped".into(), |s| s.state.clone()),
+        calls: status.as_ref().map_or(0, |s| s.calls),
+        errors: status.as_ref().map_or(0, |s| s.errors),
+        last_error: status.and_then(|s| s.last_error),
+        server,
+    }
+}
+
 /// Proposals by state; None when there are none.
 pub fn health_of(ms: &[Manifest]) -> Option<ExtendHealth> {
     if ms.is_empty() {
@@ -41,6 +70,7 @@ pub fn health_of(ms: &[Manifest]) -> Option<ExtendHealth> {
         acked: n("acked"),
         declined: n("declined"),
         failed: n("failed"),
+        loaded: 0,
     })
 }
 
@@ -52,13 +82,22 @@ impl Core {
                 .iter()
                 .map(ExtendInfo::from)
                 .collect(),
+            loaded: LoadedSet::read(&self.store)?
+                .loaded
+                .values()
+                .map(|l| loaded_info(l, &self.mcp))
+                .collect(),
         })
     }
 
     /// Health's `extensions`: a store that cannot be read says nothing.
     pub fn extend_health(&self) -> Option<ExtendHealth> {
-        super::manifests(&self.store)
+        let mut h = super::manifests(&self.store)
             .ok()
-            .and_then(|ms| health_of(&ms))
+            .and_then(|ms| health_of(&ms))?;
+        h.loaded = LoadedSet::read(&self.store)
+            .map(|s| s.loaded.len() as u64)
+            .unwrap_or_default();
+        Some(h)
     }
 }

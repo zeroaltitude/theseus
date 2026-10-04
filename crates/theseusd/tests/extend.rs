@@ -4,7 +4,10 @@
 //! frozen, its frozen copy started in L1 through the `mcp-sandbox` role and
 //! tested, and the operator asked. `theseus confirm` from a job's shell
 //! (`THESEUS_SESSION`) is refused and the question keeps waiting; from the
-//! operator's own, it acks: `extend.acked`, and still no `mcp__ext-` tool.
+//! operator's own, it acks: `extend.acked`, and it loads (43b): its tools
+//! run, a restart starts it after serving from its frozen copy, neither the
+//! daemon's stop nor its `kill -9` leaves it running, and a revoke from a
+//! job's shell is refused while the operator's stops it.
 //!
 //! As root, L1 refuses the trial (theseus-pv6i): the proposal says so, and
 //! nothing is asked. Run the rest as an ordinary user (on a root-only
@@ -119,35 +122,7 @@ impl Rig {
         let sim_dir = bin("theseus-sim").parent().unwrap().display().to_string();
         tbl(&mut t, "sandbox").insert("ro_paths".into(), vec![sim_dir].into());
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
-        let log = std::fs::File::create(path("theseusd.log")).unwrap();
-        let daemon = Daemon::spawn(
-            Command::new(&theseusd)
-                .arg("--config")
-                .arg(path("config.toml"))
-                .arg("--state-dir")
-                .arg(path("state"))
-                .arg("--socket")
-                .arg(path("sock"))
-                .env(
-                    "PATH",
-                    format!(
-                        "{}:{}",
-                        path("bin").display(),
-                        std::env::var("PATH").unwrap_or_default()
-                    ),
-                )
-                .env("HOME", path("home"))
-                .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
-                .env_remove("THESEUS_OP_TOKEN_FILE")
-                .env_remove("THESEUS_CONFIG")
-                .env_remove("THESEUS_STATE_DIR")
-                .env_remove("THESEUS_SOCKET")
-                .env_remove("THESEUS_SESSION")
-                .env_remove("THESEUS_OPERATOR_UMASK")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(log),
-        );
+        let daemon = spawn(dir.path());
         let mut r = Self {
             dir,
             daemon,
@@ -156,6 +131,20 @@ impl Rig {
         };
         r.until("the secrets", |h| h["secrets"]["state"] == "ready");
         r
+    }
+
+    /// A new daemon on the same state, once the last one has gone.
+    fn respawn(&mut self) {
+        let t0 = Instant::now();
+        while self.daemon.try_wait().is_none() {
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "the daemon did not stop"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        self.daemon = spawn(self.dir.path());
+        self.until("the secrets", |h| h["secrets"]["state"] == "ready");
     }
 
     fn path(&self, p: &str) -> PathBuf {
@@ -293,6 +282,44 @@ fn proposal(r: &Rig) -> (&'static str, Value) {
     )
 }
 
+/// The daemon on `dir`'s config and state, its log appended to.
+fn spawn(dir: &Path) -> Daemon {
+    let path = |p: &str| dir.join(p);
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path("theseusd.log"))
+        .unwrap();
+    Daemon::spawn(
+        Command::new(env!("CARGO_BIN_EXE_theseusd"))
+            .arg("--config")
+            .arg(path("config.toml"))
+            .arg("--state-dir")
+            .arg(path("state"))
+            .arg("--socket")
+            .arg(path("sock"))
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    path("bin").display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("HOME", path("home"))
+            .env("OP_SERVICE_ACCOUNT_TOKEN", "test-not-a-token")
+            .env_remove("THESEUS_OP_TOKEN_FILE")
+            .env_remove("THESEUS_CONFIG")
+            .env_remove("THESEUS_STATE_DIR")
+            .env_remove("THESEUS_SOCKET")
+            .env_remove("THESEUS_SESSION")
+            .env_remove("THESEUS_OPERATOR_UMASK")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(log),
+    )
+}
+
 /// As root, L1 refuses the trial: the proposal says why, its manifest is
 /// `failed`, and nothing is asked.
 fn refused_as_root(r: &Rig, text: &str, tested: &Value) {
@@ -375,7 +402,7 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
             .len(),
         1
     );
-    // From the operator's own: acked, and still nothing offered.
+    // From the operator's own: acked.
     let (ok, said) = r.confirm(&id, &[]);
     assert!(ok, "{said}");
     assert!(said.contains("nothing resumes"), "{said}");
@@ -387,10 +414,270 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
     );
     let h = r.call("health", Value::Null).unwrap();
     assert_eq!(h["extensions"]["acked"], 1, "{}", h["extensions"]);
+    // Acked, it loads (43b): its tools are offered from the next turn.
     let list = r.call("mcp.list", Value::Null).unwrap();
-    assert!(list["tools"].as_array().unwrap().is_empty(), "{list}");
+    assert_eq!(list["tools"].as_array().unwrap().len(), 5, "{list}");
     assert!(r.call("confirm.list", Value::Null).unwrap()["confirms"]
         .as_array()
         .unwrap()
         .is_empty());
+}
+
+/// `pid` and every process below it, parents first.
+fn tree(pid: u32) -> Vec<u32> {
+    let mut out = vec![pid];
+    let mut i = 0;
+    while i < out.len() {
+        let p = out[i];
+        let kids =
+            std::fs::read_to_string(format!("/proc/{p}/task/{p}/children")).unwrap_or_default();
+        out.extend(
+            kids.split_whitespace()
+                .filter_map(|k| k.parse::<u32>().ok()),
+        );
+        i += 1;
+    }
+    out
+}
+
+fn gone(pid: u32) -> bool {
+    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Err(_) => true,
+        Ok(s) => s
+            .rfind(')')
+            .and_then(|i| s[i + 2..].chars().next())
+            .is_some_and(|c| c == 'Z' || c == 'X'),
+    }
+}
+
+fn kill(pid: u32, sig: i32) {
+    // SAFETY: plain integers; each pid is this test's daemon or a process it
+    // saw that daemon start.
+    unsafe {
+        libc::kill(pid as libc::pid_t, sig);
+    }
+}
+
+/// Kills, at the end of a test, every process it saw, whatever happened.
+struct Reap(Vec<u32>);
+
+impl Drop for Reap {
+    fn drop(&mut self) {
+        for &pid in self.0.iter().rev() {
+            if !gone(pid) {
+                kill(pid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+fn wait_gone(pids: &[u32], what: &str) {
+    let t0 = Instant::now();
+    while let Some(p) = pids.iter().find(|p| !gone(**p)) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "pid {p} outlived {what}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+impl Rig {
+    /// `theseus <args>`, with `env` set: its status and output.
+    fn cli(&self, args: &[&str], env: &[(&str, &str)]) -> (bool, String) {
+        let out = Command::new(bin("theseus"))
+            .arg("--socket")
+            .arg(self.path("sock"))
+            .args(args)
+            .env_remove("THESEUS_SESSION")
+            .envs(env.iter().copied())
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ),
+        )
+    }
+
+    /// `ext-wordcount` ready: its role and every process below it (the
+    /// role, the init, the server), once the server is there.
+    fn ext_ready(&mut self) -> Vec<u32> {
+        let h = self.until("ext-wordcount ready", |h| {
+            h["mcp"].as_array().is_some_and(|m| {
+                m.iter()
+                    .any(|s| s["name"] == "ext-wordcount" && s["state"] == "ready")
+            })
+        });
+        let s = h["mcp"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == "ext-wordcount")
+            .unwrap()
+            .clone();
+        let role = s["pid"].as_u64().unwrap() as u32;
+        let t0 = Instant::now();
+        loop {
+            let t = tree(role);
+            if t.len() >= 3 {
+                return t;
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(5),
+                "no server below its role: {t:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// The wire names `mcp.list` offers.
+    fn mcp_tools(&self) -> Vec<String> {
+        let list = self.call("mcp.list", Value::Null).unwrap();
+        list["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["wire_name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// The ledger's kinds, oldest first.
+    fn kinds(&self) -> Vec<(String, Value)> {
+        let t = self.call("ledger.tail", json!({"n": 5000})).unwrap();
+        t["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| (r["kind"].as_str().unwrap().to_string(), r["data"].clone()))
+            .collect()
+    }
+}
+
+/// 43b's live check, offline: acked, the extension loads and its tool runs;
+/// a stop ends its processes, and a start offers its tools at once and
+/// starts it after serving, from the frozen copy; a `kill -9` of the daemon
+/// leaves none of it running; a revoke from a job's shell is refused, and
+/// the operator's stops it and drops its tools.
+#[test]
+fn an_acked_extension_loads_survives_a_restart_and_is_revoked() {
+    let mut r = Rig::start();
+    let (_, results) = r.turn("propose the counter", vec![proposal(&r)]);
+    if root() {
+        // L1 refuses the trial (the first test says how): nothing to load.
+        assert!(
+            results[0].contains("did not come up in L1"),
+            "{}",
+            results[0]
+        );
+        return;
+    }
+    let asks = r.call("confirm.list", Value::Null).unwrap();
+    let id = asks["confirms"][0]["correlation_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (ok, said) = r.confirm(&id, &[]);
+    assert!(ok, "{said}");
+    // Loaded: the row, its tools in the catalog, its server in L1.
+    let loaded = &r.ledger("extend.loaded")[0];
+    assert_eq!(loaded["server"], "ext-wordcount", "{loaded}");
+    assert!(r
+        .mcp_tools()
+        .iter()
+        .any(|t| t == "mcp__ext-wordcount__echo"));
+    let pids = r.ext_ready();
+    let _seen = Reap(pids.clone());
+    let listed = r.extend_list();
+    assert!(
+        listed.contains("loaded as ext-wordcount  ready"),
+        "{listed}"
+    );
+    // The next turn calls it, at notify.
+    let (_, results) = r.turn(
+        "count the words",
+        vec![(
+            "mcp__ext-wordcount__echo",
+            json!({"text": "four words right here"}),
+        )],
+    );
+    assert!(
+        results[0].contains("four words right here"),
+        "{results:?}\n{}",
+        r.log()
+    );
+    // The daemon's stop ends it, its role and its namespace.
+    let _ = r.call("shutdown", Value::Null);
+    wait_gone(&pids, "the daemon's stop");
+    // A start offers its tools at once, and starts it after serving.
+    r.respawn();
+    assert!(r
+        .mcp_tools()
+        .iter()
+        .any(|t| t == "mcp__ext-wordcount__echo"));
+    let pids = r.ext_ready();
+    let _seen2 = Reap(pids.clone());
+    let kinds = r.kinds();
+    let serving = kinds
+        .iter()
+        .rposition(|(k, _)| k == "server.serving")
+        .expect("the start's serving row");
+    let started = kinds
+        .iter()
+        .rposition(|(k, d)| k == "mcp.started" && d["server"] == "ext-wordcount")
+        .expect("its start");
+    assert!(serving < started, "it started after serving");
+    // From the frozen copy: the role's server runs there.
+    let frozen = r.extend_list();
+    assert!(frozen.contains("state/extensions/wordcount/"), "{frozen}");
+    let (_, results) = r.turn(
+        "count again",
+        vec![(
+            "mcp__ext-wordcount__echo",
+            json!({"text": "after the restart"}),
+        )],
+    );
+    assert!(results[0].contains("after the restart"), "{results:?}");
+    // The daemon's kill -9 leaves none of it running.
+    kill(r.daemon.id(), libc::SIGKILL);
+    wait_gone(&pids, "the daemon's kill -9");
+    r.respawn();
+    let pids = r.ext_ready();
+    let _seen3 = Reap(pids.clone());
+    revoked_from_the_operators_shell_alone(&r, &pids);
+}
+
+/// A revoke from a job's shell is refused, and it stays; the operator's
+/// stops its processes and drops its tools, and keeps the frozen copy.
+fn revoked_from_the_operators_shell_alone(r: &Rig, pids: &[u32]) {
+    // A revoke from a job's shell is refused; it stays.
+    let (ok, said) = r.cli(
+        &["extend", "revoke", "wordcount"],
+        &[("THESEUS_SESSION", "ses_0000aa1b2c3")],
+    );
+    assert!(
+        !ok && said.contains("theseus extend revoke refused"),
+        "{said}"
+    );
+    assert!(r.ledger("extend.revoked").is_empty());
+    // The operator's: stopped, its tools gone, the frozen copy kept.
+    let (ok, said) = r.cli(&["extend", "revoke", "wordcount"], &[]);
+    assert!(ok && said.starts_with("Revoked wordcount "), "{said}");
+    assert_eq!(r.ledger("extend.revoked")[0]["name"], "wordcount");
+    wait_gone(pids, "the revoke");
+    assert!(r.mcp_tools().is_empty(), "{:?}", r.mcp_tools());
+    let h = r.call("health", Value::Null).unwrap();
+    assert!(
+        h["mcp"]
+            .as_array()
+            .is_none_or(|m| m.iter().all(|s| s["name"] != "ext-wordcount")),
+        "{}",
+        h["mcp"]
+    );
+    let listed = r.extend_list();
+    assert!(!listed.contains("loaded as"), "{listed}");
+    assert!(listed.contains("  revoked  "), "{listed}");
 }

@@ -1083,6 +1083,11 @@ impl ToolRuntime {
                 Some(c) => c.floor(decision, tool.name(), &plan.summary),
                 None => decision,
             };
+            // An extension's call: no looser than its load's ceiling (43b).
+            let decision = self
+                .extend
+                .floors
+                .floor(tool.name(), decision, &plan.summary);
             // After the whole order (theseus-9bp): a call that acts in a
             // session that read external text waits. A read and a one-shot
             // `wake.at` keep their postures (T1b), and cost no record read;

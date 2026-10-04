@@ -7,4 +7,8 @@ export type ExtendHealth = { proposals: number,
 /**
  * Waiting for the operator's ack.
  */
-waiting: number, acked: number, declined: number, failed: number, };
+waiting: number, acked: number, declined: number, failed: number, 
+/**
+ * Loaded now (43b).
+ */
+loaded?: number, };

@@ -722,6 +722,10 @@ pub(crate) enum Act<'a> {
     /// it out of every session's recall, so a job's process that wrote it
     /// would grade its own memory. `what` names it: `wrong on msg_…`.
     Label { what: &'a str },
+    /// A loaded extension's revoke (M7 43b, `extension.revoke`): it stops a
+    /// server the owner acked, so a job's process that made it would undo
+    /// the owner's word.
+    Revoke { name: &'a str },
 }
 
 impl Act<'_> {
@@ -735,6 +739,7 @@ impl Act<'_> {
             Act::Publish { .. } => theseus_protocol::method::PLACE_PUBLISH,
             Act::Ontology { method, .. } => method,
             Act::Label { .. } => theseus_protocol::method::MEMORY_LABEL,
+            Act::Revoke { .. } => theseus_protocol::method::EXTENSION_REVOKE,
         }
     }
 }

@@ -366,6 +366,8 @@ facts![
     extend::ExtendTested<'static>,
     extend::ExtendAcked<'static>,
     extend::ExtendDeclined<'static>,
+    extend::ExtendLoaded<'static>,
+    extend::ExtendRevoked<'static>,
 ];
 
 #[cfg(test)]

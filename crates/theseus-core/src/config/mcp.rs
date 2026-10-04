@@ -147,6 +147,13 @@ impl super::Config {
                      (no `__`), at most 32 characters"
                 );
             }
+            if name.starts_with(crate::extend::SERVER_PREFIX) {
+                anyhow::bail!(
+                    "mcp.servers.\"{name}\": the `{}` prefix is an extension's (M7 43b), \
+                     loaded by its ack: name a configured server otherwise",
+                    crate::extend::SERVER_PREFIX
+                );
+            }
             match (s.command.is_empty(), &s.url) {
                 (true, None) => anyhow::bail!("{at} needs `command` (stdio) or `url` (HTTP)"),
                 (false, Some(_)) => {
@@ -305,6 +312,10 @@ mod tests {
                 "unknown field",
             ),
             ("[mcp]\nother = 1", "unknown field"),
+            (
+                "[mcp.servers.\"ext-wordcount\"]\ncommand = [\"x\"]",
+                "an extension's",
+            ),
             ("[mcp.servers.a]\nread = [\"x\"]", "needs `command`"),
             (
                 "[mcp.servers.a]\ncommand = [\"x\"]\nurl = \"http://h/\"",

@@ -7,7 +7,8 @@
 //!   `extend.proposed` and `extend.tested`, and its question waits;
 //! - the digest is stable, and an edit in the workspace after the freeze
 //!   changes nothing that runs;
-//! - no `mcp__ext-` tool is offered before the ack, nor after it;
+//! - no `mcp__ext-` tool is offered before the ack (after it, 43b's
+//!   `tests_load.rs`);
 //! - an ack from a shared place is refused, and the question keeps waiting;
 //!   the owner's ack from a private place writes `extend.acked`;
 //! - a decline, and a question nobody answered, load nothing and wake
@@ -43,18 +44,21 @@ const LAB: u64 = 4_100_000_000_000_000_777;
 /// names, from the directory the board is given. Each start is kept, with
 /// what the catalog offered at that moment; `edit` is written into the
 /// workspace just before a start, as an edit after the freeze would be.
-struct FromDir {
-    catalog: Mutex<Option<Arc<McpCatalog>>>,
-    starts: Mutex<Vec<(String, McpServerConfig, Vec<String>)>>,
-    edit: Mutex<Option<(PathBuf, String)>>,
+pub(super) struct FromDir {
+    pub(super) catalog: Mutex<Option<Arc<McpCatalog>>>,
+    pub(super) starts: Mutex<Vec<(String, McpServerConfig, Vec<String>)>>,
+    pub(super) edit: Mutex<Option<(PathBuf, String)>>,
+    /// Each fake's serving task: finished once its connection closes.
+    pub(super) served: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 impl FromDir {
-    fn new() -> Arc<Self> {
+    pub(super) fn new() -> Arc<Self> {
         Arc::new(Self {
             catalog: Mutex::default(),
             starts: Mutex::default(),
             edit: Mutex::default(),
+            served: Arc::default(),
         })
     }
 }
@@ -87,6 +91,7 @@ impl Connect for FromDir {
             .and_then(|d| std::fs::read_to_string(d.join("mode")).ok())
             .and_then(|m| Mode::parse(&m));
         let name = server.to_string();
+        let served = self.served.clone();
         let hangs = cfg
             .frozen
             .as_ref()
@@ -105,7 +110,9 @@ impl Connect for FromDir {
             });
             let (ours, theirs) = tokio::io::duplex(1 << 16);
             let (r, w) = tokio::io::split(theirs);
-            tokio::spawn(fake.serve_pipes(r, w));
+            served.lock().unwrap().push(tokio::spawn(async move {
+                let _ = fake.serve_pipes(r, w).await;
+            }));
             let (r, w) = tokio::io::split(ours);
             let (client, events) = Client::connect(Transport::pipes(r, w), Default::default())
                 .await
@@ -293,7 +300,7 @@ impl Rig {
     }
 }
 
-fn proposal(dir: &Path) -> Value {
+pub(super) fn proposal(dir: &Path) -> Value {
     json!({
         "name": "wordcount",
         "dir": dir.display().to_string(),
@@ -427,10 +434,10 @@ async fn an_edit_after_proposing_changes_nothing_that_runs() {
     );
 }
 
-/// No `mcp__ext-` tool is offered before the ack, nor after it in this
-/// step: not while it is tried, not at the next turn, not once acked.
+/// No `mcp__ext-` tool is offered before the ack: not while it is tried,
+/// not at the next turn. Once acked, it loads (43b, `tests_load.rs`).
 #[tokio::test]
-async fn no_tool_is_offered_before_the_ack_nor_after_it() {
+async fn no_tool_is_offered_before_the_ack() {
     let r = rig();
     let src = r.server("wc", "ok");
     let sid = r.session();
@@ -442,6 +449,12 @@ async fn no_tool_is_offered_before_the_ack_nor_after_it() {
         starts[0].2
     );
     r.turn(&sid, "what now?", None).await;
+    let offered = r.offered();
+    assert!(offered.iter().any(|t| t == "extend_propose"), "{offered:?}");
+    assert!(
+        offered.iter().all(|t| !t.starts_with("mcp__")),
+        "an extension's tool was offered: {offered:?}"
+    );
     let q = r.core.confirm_list().unwrap().remove(0);
     let done = r
         .core
@@ -457,14 +470,6 @@ async fn no_tool_is_offered_before_the_ack_nor_after_it() {
     let h = r.core.health().extensions.unwrap();
     assert_eq!((h.proposals, h.waiting, h.acked), (1, 0, 1));
     assert!(r.core.confirm_list().unwrap().is_empty());
-    r.turn(&sid, "and now?", None).await;
-    let offered = r.offered();
-    assert!(offered.iter().any(|t| t == "extend_propose"), "{offered:?}");
-    assert!(
-        offered.iter().all(|t| !t.starts_with("mcp__")),
-        "an extension's tool was offered: {offered:?}"
-    );
-    assert!(r.core.tools.mcp.is_empty());
 }
 
 /// An ack from a shared place is refused, ledgered, and the question keeps

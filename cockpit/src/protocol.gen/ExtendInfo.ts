@@ -10,7 +10,8 @@ export type ExtendInfo = { name: string,
 digest: string, 
 /**
  * `proposed` (its question waits), `failed` (it did not come up in L1,
- * so nothing was asked), `acked`, or `declined`.
+ * so nothing was asked), `acked` (and loaded, 43b), `declined`,
+ * `replaced` (a later version of its name was acked), or `revoked`.
  */
 state: string, description: string, command: Array<string>, 
 /**

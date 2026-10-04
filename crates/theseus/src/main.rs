@@ -345,8 +345,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<mcp::McpCmd>,
     },
-    /// Proposed extensions (M7 43a): `extend list` shows each with its state, its frozen digest,
-    /// its tools and tests, and the question `theseus confirm` answers.
+    /// Extensions (M7 43a, 43b): `extend list` shows each proposal with its state, its frozen
+    /// digest, its tools and tests, and the question `theseus confirm` answers, and each loaded
+    /// one; `extend revoke <NAME>` stops a loaded one and drops its tools.
     Extend {
         #[command(subcommand)]
         cmd: extend::ExtendCmd,

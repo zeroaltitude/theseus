@@ -3,6 +3,7 @@
 //! `mcp.prompt.list` and a `turn.submit`'s prompt (36c) are here too. And
 //! the MCP server's connection (step 41b, `crate::mcp_server`): what a
 //! request on `Surface::Mcp` may do, the session it opens, and its rows.
+//! And `extension.revoke`'s connection (43b, `crate::extend::revoke`).
 
 use serde_json::Value;
 use theseus_protocol::mcp::{
@@ -20,6 +21,28 @@ use crate::mcp_server;
 use crate::narrative::narrate;
 
 impl Core {
+    /// `extension.revoke` from a connection: a refusal is `REFUSED`, with
+    /// who and why.
+    pub(super) fn rpc_extension_revoke(
+        &self,
+        p: theseus_protocol::extend::ExtensionRevokeParams,
+        conn: super::server::Conn<'_>,
+    ) -> Result<theseus_protocol::extend::ExtensionRevokeResult, RpcFailure> {
+        let who = conn.answerer(p.author.clone(), p.discord.clone());
+        self.extension_revoke(&p, who)
+            .map_err(|e| match e.downcast::<crate::approval::Refusal>() {
+                Ok(r) => RpcFailure {
+                    code: error_code::REFUSED,
+                    message: format!(
+                        "a revoke from {} does not count: {}. It stays loaded.",
+                        r.who, r.why
+                    ),
+                    data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+                },
+                Err(e) => RpcFailure::new(error_code::INVALID_PARAMS, format!("{e:#}")),
+            })
+    }
+
     /// `mcp.prompt.list`: the prompts of one server, or of every server.
     pub(super) fn mcp_prompt_list(&self, params: Value) -> Result<McpPromptListResult, RpcFailure> {
         // No params lists every server's prompts.

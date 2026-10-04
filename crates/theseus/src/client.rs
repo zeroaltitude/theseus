@@ -251,9 +251,10 @@ pub fn job_session() -> Option<String> {
 /// (theseus-zmgb): an answer to a waiting call, the undo of a tightening, a
 /// trust, a publish, the AWS bootstrap, the alerts' confirmation, the
 /// ontology's writes (theseus-8kk.1: guidance steers every session in its
-/// category), and a memory label (M6 30b: `wrong` keeps a node out of every
-/// session's recall).
-pub const OPERATORS: [(&str, &str); 10] = [
+/// category), a memory label (M6 30b: `wrong` keeps a node out of every
+/// session's recall), and an extension's revoke (M7 43b: it undoes the
+/// owner's ack).
+pub const OPERATORS: [(&str, &str); 11] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -264,6 +265,7 @@ pub const OPERATORS: [(&str, &str); 10] = [
     (method::ONTOLOGY_GUIDANCE_SET, "theseus ontology guide"),
     (method::ONTOLOGY_MEMBERSHIP_SET, "theseus ontology member"),
     (method::MEMORY_LABEL, "theseus memory label"),
+    (method::EXTENSION_REVOKE, "theseus extend revoke"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
