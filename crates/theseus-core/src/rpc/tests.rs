@@ -332,6 +332,51 @@ async fn web_refusals_held_in_their_span_are_written_at_the_stop() {
     assert_eq!(core.health().web.refused_peer, 3);
 }
 
+/// theseus-81kk: secrets that settle after the stop's last checkpoint write
+/// no row, since the next start would replay it. The watcher used to ledger
+/// them whenever the vault answered, so a slow `op` that answered after that
+/// checkpoint left a clean stop with a row to replay.
+#[tokio::test]
+async fn secrets_that_settle_after_the_stops_last_checkpoint_write_no_row() {
+    let (vault, open) = crate::secrets::fake::FakeVault::gated(&[
+        ("op://V/anthropic/notesPlain", "sk-test-0000000000"),
+        ("op://V/github/notesPlain", "github-test-000000"),
+    ]);
+    let (core, board) = serving_core(vault, "x");
+    tokio::spawn(core.clone().watch_secrets());
+    core.finish_stop().await;
+    let frames = |core: &Core| core.store.stats().unwrap().frames_appended;
+    let at_the_stop = frames(&core);
+    open.send(true).unwrap();
+    board.wait_settled(Duration::from_secs(5)).await.unwrap();
+    // The watcher ends its phase and then writes its row in one poll of its
+    // task, so once the phase has ended the row has been written, or dropped.
+    let ended = || {
+        core.startup_log
+            .snapshot()
+            .iter()
+            .any(|p| p.name == "secrets" && p.end_us.is_some())
+    };
+    for _ in 0..250 {
+        if ended() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(ended(), "the watcher ended its phase");
+    assert_eq!(board.status().state, "ready");
+    let rows: Vec<String> = core
+        .store
+        .ledger_tail::<LedgerRow>(50)
+        .unwrap()
+        .into_iter()
+        .map(|(_, r)| r.kind)
+        .filter(|k| k.starts_with("secrets."))
+        .collect();
+    assert!(rows.is_empty(), "a row after the last checkpoint: {rows:?}");
+    assert_eq!(frames(&core), at_the_stop, "nothing written after the stop");
+}
+
 #[tokio::test]
 async fn health_and_unknown_method() {
     let core = test_core("x");

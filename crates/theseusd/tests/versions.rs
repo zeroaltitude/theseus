@@ -149,6 +149,22 @@ impl Rig {
         self.phase_end("store.verify")
     }
 
+    /// Everything a start writes on its own time is written: the history
+    /// check's end, this start's driver, and the secrets' row (theseus-81kk),
+    /// which can come before `server.started` when the vault answers first.
+    fn settled(&self) {
+        self.verified();
+        self.wait("the driver and the secrets", || {
+            let rows = self.call("ledger.tail", json!({"n": 200})).ok()?;
+            let rows = rows["rows"].as_array()?;
+            let stopped = rows.iter().rposition(|r| r["kind"] == "server.stopping");
+            let since = &rows[stopped.map_or(0, |i| i + 1)..];
+            let has = |k: &str| since.iter().any(|r| r["kind"] == k);
+            (has("driver.started") && (has("secrets.resolved") || has("secrets.failed")))
+                .then_some(())
+        });
+    }
+
     /// A background startup phase's detail, once it has ended.
     fn phase_end(&self, name: &str) -> Value {
         self.wait(&format!("{name}'s end"), || {
@@ -358,7 +374,7 @@ fn store_phase(rig: &Rig) -> Value {
 fn a_clean_stop_closes_the_index_and_the_next_start_repairs_nothing() {
     let rig = Rig::new();
     let mut d = rig.spawn();
-    rig.verified();
+    rig.settled();
     rig.call("shutdown", Value::Null).unwrap();
     rig.wait("the stop", || d.try_wait());
     let mut d = rig.spawn();
@@ -392,18 +408,7 @@ fn a_sigterm_or_a_sigint_stops_cleanly_and_the_next_start_replays_nothing() {
     let rig = Rig::new();
     let mut d = rig.spawn();
     for signal in ["SIGTERM", "SIGINT"] {
-        // Everything a start writes is written: the history check's end,
-        // and this start's driver.
-        rig.verified();
-        rig.wait("the driver", || {
-            let rows = rig.call("ledger.tail", json!({"n": 200})).ok()?;
-            let rows = rows["rows"].as_array()?;
-            let started = rows.iter().rposition(|r| r["kind"] == "server.started")?;
-            rows[started..]
-                .iter()
-                .any(|r| r["kind"] == "driver.started")
-                .then_some(())
-        });
+        rig.settled();
         let pid = d.id().to_string();
         let sent = std::process::Command::new("kill")
             .args([format!("-{}", &signal[3..]), pid])

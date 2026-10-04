@@ -107,6 +107,11 @@ pub struct Core {
     /// The newest crash a start found (Review 2's consideration 1), for
     /// health: set after serving (`report_crash`).
     crash: std::sync::Mutex<Option<theseus_protocol::CrashStatus>>,
+    /// Set as the stop writes its last checkpoint (theseus-81kk). From then on
+    /// a row that work after serving writes on its own time (the secrets as
+    /// they settle) is dropped, since the next start would replay it. A write
+    /// holds it to read, so the checkpoint waits for one in progress.
+    closed: std::sync::RwLock<bool>,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -357,7 +362,6 @@ impl Core {
     /// Ledger the secrets as they settle (theseus-qa0): the first round's
     /// outcome, then each retry that makes one ready. Closes the `secrets`
     /// startup phase.
-    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     pub async fn watch_secrets(self: Arc<Self>) {
         let start = self
             .secrets
@@ -387,9 +391,7 @@ impl Core {
                 json!({"failed": st.failed, "ready": st.ready, "ms": st.settled_ms, "method": st.method, "rounds": st.rounds, "retry_in_ms": st.retry_in_ms}),
             )
         };
-        if let Err(e) = self.store.append_ledger(&row) {
-            tracing::warn!(error = %e, "ledger append failed");
-        }
+        self.ledger_unless_closed(&row);
         let mut ready: std::collections::BTreeSet<String> = st.ready.into_iter().collect();
         while self.secrets.status().state == "failed" && rx.changed().await.is_ok() {
             let newly: Vec<String> = self
@@ -409,11 +411,38 @@ impl Core {
                 None,
                 json!({"names": newly, "ms": self.startup_log.us(std::time::Instant::now()) / 1000, "method": st.method, "rounds": st.rounds, "still_failed": st.failed}),
             );
-            if let Err(e) = self.store.append_ledger(&row) {
-                tracing::warn!(error = %e, "ledger append failed");
-            }
+            self.ledger_unless_closed(&row);
             ready.extend(newly);
         }
+    }
+
+    /// Ledger `row`, unless the stop has written its last checkpoint
+    /// (theseus-81kk): then it is dropped with a debug line, since a row
+    /// after that checkpoint is replayed by the next start, and a clean
+    /// stop leaves nothing to replay.
+    pub(crate) fn ledger_unless_closed(&self, row: &LedgerRow) {
+        let closed = self
+            .closed
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *closed {
+            tracing::debug!(kind = %row.kind, "the stop's last checkpoint is written: a row after it is dropped");
+            return;
+        }
+        if let Err(e) = self.store.append_ledger(row) {
+            tracing::warn!(error = %e, "ledger append failed");
+        }
+    }
+
+    /// The stop's last checkpoint is next: from now on `ledger_unless_closed`
+    /// writes nothing, and a write in progress ends first.
+    pub(crate) fn close_late_rows(&self) {
+        theseus_store::blocking(|| {
+            *self
+                .closed
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        });
     }
 
     /// Build a core from its parts: the kernel opened on the store and started
@@ -606,6 +635,7 @@ impl Core {
             push: crate::push::Push::default(),
             index,
             crash: Default::default(),
+            closed: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         // `server.started` waits for `announce_serving`: nothing on the start
