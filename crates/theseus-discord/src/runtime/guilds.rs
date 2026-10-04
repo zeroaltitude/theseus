@@ -10,6 +10,11 @@
 //!   guild (`Routes::resolve`): a channel id is Discord's, unique across
 //!   guilds, so routing needs no guild.
 //! - Slash commands stay global (one list reaches every guild and the DMs).
+//! - A bad place fails alone (theseus-ext.11): a ceiling naming a profile the
+//!   config lacks leaves only its place unbound, read like a channel the file
+//!   does not name, and every other place binds (`tell_core`). The core says
+//!   why in health, the log and the ledger (`Core::place_warnings`), with a
+//!   ceiling's unknown tool family and a spend limit below one call.
 
 use std::collections::HashMap;
 
@@ -85,23 +90,64 @@ pub(super) fn guild_ids(b: &Bindings) -> anyhow::Result<Vec<Id<GuildMarker>>> {
         .collect()
 }
 
-/// What the binding checks a ceiling's profile against: each one the config
-/// names. `Err` names the first ceiling whose profile it lacks.
-pub(super) fn check_profiles(core: &theseus_core::Core, b: &Bindings) -> anyhow::Result<()> {
-    let ceilings = b
-        .channel
-        .iter()
-        .map(|c| (c.label(), &c.ceiling))
-        .chain(b.dm.iter().map(|d| (d.label(), &d.ceiling)));
-    for (label, c) in ceilings {
-        let Some(p) = c.as_ref().and_then(|c| c.profile.as_deref()) else {
-            continue;
-        };
-        if core.cfg.profile(p).is_err() {
-            anyhow::bail!("{label}'s ceiling names profile {p:?}, which the config does not have");
+/// The profile a ceiling names that the config lacks, if any.
+fn unknown_profile<'c>(core: &theseus_core::Core, c: Option<&'c PlaceCeiling>) -> Option<&'c str> {
+    let p = c?.profile.as_deref()?;
+    core.cfg.profile(p).is_err().then_some(p)
+}
+
+/// Take out of `b` each place whose ceiling names a profile the config
+/// lacks (theseus-ext.11): only that place is left unbound, as though the
+/// file did not name it, and the rest bind. Returns why, a warning each.
+pub(super) fn unbind_unknown_profiles(
+    core: &theseus_core::Core,
+    b: &mut Bindings,
+) -> Vec<theseus_protocol::PlaceWarning> {
+    let configured: Vec<String> = core.cfg.all_profiles().keys().cloned().collect();
+    let mut out = Vec::new();
+    b.channel
+        .retain(|c| match unknown_profile(core, c.ceiling.as_ref()) {
+            Some(p) => {
+                let place = format!("discord:channel:{}", c.id);
+                out.push(theseus_core::place_warnings::unbound(
+                    &place,
+                    &c.label(),
+                    p,
+                    &configured,
+                ));
+                false
+            }
+            None => true,
+        });
+    b.dm.retain(|d| match unknown_profile(core, d.ceiling.as_ref()) {
+        Some(p) => {
+            let place = format!("discord:dm:{}", d.user);
+            out.push(theseus_core::place_warnings::unbound(
+                &place,
+                &d.label(),
+                p,
+                &configured,
+            ));
+            false
         }
-    }
-    Ok(())
+        None => true,
+    });
+    out
+}
+
+/// What the binding's start tells the core of its file, before it reads a
+/// message (the place rule): each guild's word and each place it binds, a
+/// place whose ceiling the config cannot serve left out, and what the start
+/// found wrong (theseus-ext.11). Returns the warnings.
+pub(super) fn tell_core(
+    core: &theseus_core::Core,
+    b: &mut Bindings,
+) -> Vec<theseus_protocol::PlaceWarning> {
+    let unbound = unbind_unknown_profiles(core, b);
+    core.trust_guilds(b.trusted());
+    let places = bound_places(b);
+    core.bind_places(places.clone());
+    core.place_warnings(&places, unbound)
 }
 
 impl Shared {
@@ -296,5 +342,126 @@ mod tests {
             .await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(fake.replies().len(), before);
+    }
+
+    /// One guild with `#lab`, whose ceiling names a profile the config lacks;
+    /// `#pier`, whose tools name a family this daemon has none of and whose
+    /// limit is $1; and a DM.
+    fn one_bad() -> Bindings {
+        Bindings::parse(&format!(
+            "[[guild]]\nid = \"{AWAY}\"\n\
+             [[channel]]\nguild = \"{AWAY}\"\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{EDDIE}\"]\nmention_only = false\n\
+             [channel.ceiling]\nprofile = \"nosuch\"\n\
+             [[channel]]\nguild = \"{AWAY}\"\nid = \"{PIER}\"\nname = \"pier\"\nusers = [\"{EDDIE}\"]\nmention_only = false\n\
+             [channel.ceiling]\ntools = [\"web\", \"nosuch\"]\nspend_limit_usd = 1\n\
+             [[dm]]\nuser = \"{EDDIE}\"\nname = \"eddie\"\n"
+        ))
+        .unwrap()
+    }
+
+    /// A bad place fails alone (theseus-ext.11): with `#lab`'s profile
+    /// unknown, `#pier` and the DM bind and answer, `#lab` is unbound (no
+    /// session, no answer, a shared class like any channel the file does not
+    /// name), and health names it and why, beside `#pier`'s unknown family
+    /// and its limit below one call; each is a `place.warned` row.
+    #[tokio::test]
+    async fn one_places_unknown_profile_leaves_only_it_unbound() {
+        let fake = theseus_sim::fake_discord::FakeDiscord::start();
+        let d = tempfile::tempdir().unwrap();
+        let addr = fake.addr.clone();
+        let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
+            c.discord.rest_proxy = Some(addr)
+        });
+        let mut b = one_bad();
+        let warned = tell_core(&core, &mut b);
+        let mut shared = shared_for_tests(&core);
+        Arc::get_mut(&mut shared).unwrap().place_bits = PlaceBits::new(&b);
+        shared.clone().start_lanes(&b).unwrap();
+        let (_notes_tx, notes) = tokio::sync::mpsc::unbounded_channel();
+        start_places(&shared, &b, &shared.board, notes)
+            .await
+            .unwrap();
+
+        // Health: the binding's places are #pier and the DM; #lab is a
+        // warning with its reason, beside #pier's two.
+        let st = core.bindings.all().pop().unwrap();
+        let labels: Vec<&str> = st.places.iter().map(|p| p.label.as_str()).collect();
+        assert_eq!(labels, ["#pier", "DM @eddie"]);
+        let h = core.runner.place_rule.health(&core.cfg);
+        assert_eq!(h.warnings, warned);
+        let kinds: Vec<(&str, &str)> = h
+            .warnings
+            .iter()
+            .map(|w| (w.name.as_str(), w.kind.as_str()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("#lab", "unbound"),
+                ("#pier", "unknown_family"),
+                ("#pier", "limit_below_call")
+            ]
+        );
+        assert!(
+            h.warnings[0].detail.contains("profile \"nosuch\""),
+            "{:?}",
+            h.warnings[0]
+        );
+        assert_eq!(
+            h.warnings[2].detail,
+            "#pier's $1.00 limit is below one call's $1.28 on sonnet (before its input)"
+        );
+        let rows = core
+            .store
+            .ledger_tail::<theseus_core::ledger::LedgerRow>(10_000)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, r)| r.kind == "place.warned")
+            .count();
+        assert_eq!(rows, 3);
+        assert!(core
+            .outbox
+            .place_session(&format!("channel:{LAB}"))
+            .unwrap()
+            .is_none());
+        let rule = &core.runner.place_rule;
+        assert_eq!(
+            rule.class(&core.cfg, Some(&format!("discord:channel:{LAB}"))),
+            theseus_protocol::PlaceClass::Shared
+        );
+
+        // #pier and the DM answer; #lab does not.
+        let said = |what: &str| {
+            fake.replies()
+                .iter()
+                .any(|r| r.content.as_deref().is_some_and(|c| c.contains(what)))
+        };
+        // A DM is found by its person, whatever its channel.
+        let dm_channel = ELSEWHERE;
+        for (guild, channel, label) in [
+            (Some(AWAY), PIER, "(#pier)"),
+            (None, dm_channel, "(DM @eddie)"),
+        ] {
+            shared
+                .clone()
+                .on_interaction(slash(guild, channel, EDDIE, "status"))
+                .await;
+            let t0 = Instant::now();
+            while !said(label) {
+                assert!(
+                    t0.elapsed() < Duration::from_secs(10),
+                    "{label}: {:?}",
+                    fake.replies()
+                );
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+        let before = fake.replies().len();
+        shared
+            .clone()
+            .on_interaction(slash(Some(AWAY), LAB, EDDIE, "status"))
+            .await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(fake.replies().len(), before, "#lab is not bound");
     }
 }

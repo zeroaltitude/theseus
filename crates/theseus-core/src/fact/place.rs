@@ -48,6 +48,26 @@ impl Fact for PlaceViewed<'_> {
     }
 }
 
+/// What the binding's start found wrong with one place (`place.warned`,
+/// theseus-ext.11): left unbound, a ceiling's unknown tool family, or a
+/// spend limit below one call. Recorded once a start, as `place.viewed` is.
+pub struct PlaceWarned<'a> {
+    pub warning: &'a theseus_protocol::PlaceWarning,
+}
+
+impl Fact for PlaceWarned<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::PlaceWarned);
+
+    fn row(&self) -> Value {
+        let w = self.warning;
+        json!({"place": w.place, "name": w.name, "kind": w.kind, "detail": w.detail})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(Session, format!("Places: {}.", self.warning.detail));
+    }
+}
+
 /// The owner published an item into a place (`place.published`): who, what
 /// (its source, its digest, its size), and where, in the frame that writes it.
 pub struct Published<'a> {

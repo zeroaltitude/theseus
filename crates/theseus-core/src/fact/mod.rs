@@ -248,6 +248,7 @@ facts![
     recall::ArmAssigned<'static>,
     recall::Labeled<'static>,
     place::PlaceViewed<'static>,
+    place::PlaceWarned<'static>,
     place::Published<'static>,
     turn::LoopStarted<'static>,
     turn::LoopCut<'static>,

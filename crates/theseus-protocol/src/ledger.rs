@@ -154,6 +154,7 @@ ledger_kinds! {
     OntologyMembership = "ontology.membership",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
+    PlaceWarned = "place.warned",
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",
     ProfileChanged = "profile.changed",

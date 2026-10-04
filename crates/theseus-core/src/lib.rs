@@ -48,6 +48,7 @@ pub mod outbound;
 pub mod outbox;
 pub mod parked;
 pub mod peer;
+pub mod place_warnings;
 pub mod places;
 pub mod policy;
 pub mod provider;

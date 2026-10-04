@@ -130,6 +130,10 @@ pub(super) fn push_health(o: &mut Vec<super::Line>, h: Option<&PlacesHealth>) {
         super::Tag::Plain
     };
     super::push(o, tag, &places_health_line(h));
+    // What the binding's start found wrong with a place (theseus-ext.11).
+    for w in &h.warnings {
+        super::push(o, super::Tag::Warn, &format!("  ⚠ {}", w.detail));
+    }
 }
 
 /// `theseus places`: each place and its class, a line each, then what each
@@ -154,6 +158,7 @@ pub fn places_lines(h: &PlacesHealth) -> Vec<String> {
             )
         })
         .collect();
+    lines.extend(h.warnings.iter().map(|w| format!("⚠ {}", w.detail)));
     lines.push(String::new());
     lines.push("private: everything, as the CLI has it.".into());
     lines.push(format!(
@@ -199,6 +204,7 @@ mod tests {
                 place("#hall", PlaceClass::Shared),
             ],
             public_paths: vec![],
+            warnings: vec![],
         };
         assert_eq!(
             places_health_line(&h),
@@ -223,6 +229,7 @@ mod tests {
                 place("#openclaw", PlaceClass::Shared),
             ],
             public_paths: vec![],
+            warnings: vec![],
         };
         assert_eq!(
             places_health_line(&h),
@@ -239,5 +246,28 @@ mod tests {
              the owner can view it: alice) · shared: #openclaw (public tools, and files under \
              ~/projects/open)"
         );
+    }
+
+    /// theseus-ext.11: what the binding's start found wrong with a place is
+    /// a warning line each, in health and in `theseus places`.
+    #[test]
+    fn a_places_warnings_are_lines_of_their_own() {
+        let h = PlacesHealth {
+            places: vec![place("CLI", PlaceClass::Private)],
+            public_paths: vec![],
+            warnings: vec![theseus_protocol::PlaceWarning {
+                place: "discord:channel:7".into(),
+                name: "#lab".into(),
+                kind: "unbound".into(),
+                detail: "#lab is not bound: its ceiling names profile \"nosuch\"".into(),
+            }],
+        };
+        let mut o = Vec::new();
+        push_health(&mut o, Some(&h));
+        assert_eq!(o.len(), 2);
+        assert_eq!(o[1].tag, super::super::Tag::Warn);
+        assert!(places_lines(&h)
+            .iter()
+            .any(|l| l == "⚠ #lab is not bound: its ceiling names profile \"nosuch\""));
     }
 }
