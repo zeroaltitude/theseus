@@ -130,6 +130,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`Sandbox::job_view`), its own `egress` list (none: no network), and its pipes the board's own. It never falls
   back to L0: a root daemon's start fails with L1's refusal. `l0` stays a configured server's default. Its
   test is theseusd's `tests/mcp_l1.rs`, which as root checks the refusal alone.
+- **Proposed extensions** (M7 43a, theseus-ext.5): `extend/`. `extend.propose`, a harness tool the turn awaits
+  (`ToolRuntime::run_extend`, never on a core): `freeze.rs` copies the directory into
+  `<state>/extensions/<name>/<digest>/`, read-only, the digest a SHA-256 over the sorted tree (paths, 755/644
+  modes, bytes; a link is refused); the board starts the frozen copy as `ext-<name>` in L1 on trial
+  (`mcp/trial.rs`, state `proposed`, never in `servers`, so `rebuild` never offers its tools), lists, runs each
+  test, and stops it; the manifest is a META record, `extend.manifest.<name>.<digest>`; and the ack is a planned
+  `extend.ack` action with its card, answered by `action.confirm` (`judge_act`'s place rule, then
+  `extend/answer.rs`: an ack binds its confirm, a decline or an expiry declines it, neither wakes anything, and
+  nothing loads until 43b). Facts in `fact/extend.rs`; `extend.list` and health's `extensions` in
+  `extend/list.rs`; tests in `extend/tests.rs` and theseusd's `tests/extend.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

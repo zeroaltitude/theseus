@@ -26,6 +26,7 @@ pub mod cpu;
 pub mod crash;
 pub mod disk;
 pub mod egress;
+pub mod extend;
 pub mod external;
 pub mod fact;
 pub mod github;

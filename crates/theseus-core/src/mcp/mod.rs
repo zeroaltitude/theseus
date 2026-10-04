@@ -31,6 +31,7 @@ pub mod l1;
 #[cfg(test)]
 mod tests;
 pub mod tool;
+mod trial;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -78,6 +79,9 @@ pub enum State {
     Restarting,
     Failed,
     Disabled,
+    /// A proposed extension on trial (43a): started and tested, its tools
+    /// never offered.
+    Proposed,
 }
 
 impl State {
@@ -89,6 +93,7 @@ impl State {
             State::Restarting => "restarting",
             State::Failed => "failed",
             State::Disabled => "disabled",
+            State::Proposed => "proposed",
         }
     }
 }
@@ -465,6 +470,9 @@ pub struct McpBoard {
     /// Set once the daemon stops.
     stop: watch::Sender<bool>,
     started: std::sync::atomic::AtomicBool,
+    /// Proposed extensions on trial (43a, `trial.rs`): never in `servers`,
+    /// so `rebuild` never offers their tools.
+    trials: Mutex<BTreeMap<String, Arc<Server>>>,
 }
 
 impl McpBoard {
@@ -492,6 +500,7 @@ impl McpBoard {
             core: OnceLock::new(),
             stop: watch::Sender::new(false),
             started: Default::default(),
+            trials: Mutex::default(),
         });
         board.rebuild();
         board
@@ -517,7 +526,12 @@ impl McpBoard {
 
     /// Health's `mcp[]`.
     pub fn status(&self) -> Vec<theseus_protocol::mcp::McpServerStatus> {
-        self.servers.values().map(|s| s.status()).collect()
+        let trials = self.trials.lock().unwrap_or_else(PoisonError::into_inner);
+        self.servers
+            .values()
+            .chain(trials.values())
+            .map(|s| s.status())
+            .collect()
     }
 
     /// After serving: tend every enabled server, each in a task of its own.
@@ -534,7 +548,8 @@ impl McpBoard {
     /// The daemon stops: SIGTERM to each server's group, never waited for.
     pub fn stop(&self) {
         self.stop.send_replace(true);
-        for s in self.servers.values() {
+        let trials = self.trials.lock().unwrap_or_else(PoisonError::into_inner);
+        for s in self.servers.values().chain(trials.values()) {
             if let Some(c) = s.live().client.take() {
                 c.terminate();
             }

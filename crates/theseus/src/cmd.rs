@@ -388,6 +388,18 @@ pub async fn confirm(conn: &mut Conn, json: bool, a: ConfirmArgs) -> Result<()> 
         )
         .await?;
     let r: ActionConfirmResult = serde_json::from_value(v.clone())?;
+    if !r.resumes && r.approved {
+        // A proposed extension's ack (M7 43a): nothing loads, and no turn
+        // resumes.
+        return output(json, v, |r: ActionConfirmResult| {
+            println!(
+                "approved {} · session {} · nothing resumes: an extension's ack loads nothing \
+                 in this build",
+                r.correlation_id, r.session_id
+            );
+            Ok(())
+        });
+    }
     if !r.resumes {
         // A declined budget question: nothing resumes until a new message.
         return output(json, v, |r: ActionConfirmResult| {

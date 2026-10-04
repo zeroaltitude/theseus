@@ -49,6 +49,10 @@ impl Core {
         if a.tool == BUDGET_TOOL {
             return self.budget_confirm(a, session);
         }
+        if a.tool == crate::extend::ACK {
+            let ttl = self.kernel.config().confirm_ttl_ms;
+            return Some(crate::extend::confirm_request(a, session, ttl));
+        }
         let (tool, input, gate) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
                 tool,
@@ -144,6 +148,9 @@ impl Core {
         if q.tool == BUDGET_TOOL {
             return Ok(self.budget_confirm(q, &rec));
         }
+        if q.tool == crate::extend::ACK {
+            return Ok(self.confirm_request(q, &rec, &[]));
+        }
         let Some(id) = node_id else {
             return Ok(None);
         };
@@ -236,7 +243,10 @@ impl Core {
             if asks.is_empty() || !parked {
                 continue;
             }
-            let nodes = if asks.iter().any(|a| a.tool != BUDGET_TOOL) {
+            let nodes = if asks
+                .iter()
+                .any(|a| a.tool != BUDGET_TOOL && a.tool != crate::extend::ACK)
+            {
                 self.store.session_nodes(&rec.session_id)?
             } else {
                 vec![]
@@ -310,6 +320,17 @@ impl Core {
         let via = who.via();
         if a.tool == BUDGET_TOOL {
             return self.answer_budget(&a, approve, note, by, &via);
+        }
+        // A proposed extension's ack (M7 43a): nothing loads, and nothing
+        // wakes.
+        if a.tool == crate::extend::ACK {
+            let answer = match approve {
+                true => crate::extend::answer::Answer::Ack,
+                false => crate::extend::answer::Answer::Decline(note),
+            };
+            let done = self.answer_extension(&a, answer, by, &via)?;
+            self.admission.notify_waiters();
+            return Ok(done);
         }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
         // bind or the decline, an approval's trust, the answer's row, and the
@@ -470,6 +491,13 @@ impl Core {
     /// frame, as an answer's are (theseus-jj9f); then its clients hear it,
     /// and its card settles `expired`.
     fn expire_question(&self, a: &Action, ttl_ms: u64) -> Result<()> {
+        // A proposed extension's ack: declined by expiry, waking nothing.
+        if a.tool == crate::extend::ACK {
+            let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+            let answer = crate::extend::answer::Answer::Expired(&why);
+            self.answer_extension(a, answer, EXPIRY, EXPIRY)?;
+            return Ok(());
+        }
         let fact = fact::answer::QuestionExpired {
             action: a,
             waited_ms: ttl_ms,

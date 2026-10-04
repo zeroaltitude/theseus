@@ -375,6 +375,10 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # a wake into this conversation later (DD8): inherits enforcement, so each one
 # set is a notice with its time; its turn spends from this session's limit
 # "wake.at" = "notify"
+# a proposed extension (M7 43a): its directory frozen, started in L1, and tested;
+# nothing loads until you ack its card. Inherits enforcement, so each proposal is
+# a notice
+# "extend.propose" = "notify"
 # AWS, when an [aws.accounts] table binds an account: aws.describe reads the
 # local catalog; the others call AWS, and [policy.aws] gives each call its
 # posture unless a line here sets the tool's

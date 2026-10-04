@@ -43,6 +43,7 @@ use crate::trace::Trace;
 pub mod answer;
 pub mod cancel;
 pub mod driver;
+pub mod extend;
 pub mod index;
 pub mod judge;
 pub mod mcp;
@@ -339,6 +340,10 @@ facts![
     mcp::McpExited,
     mcp::McpFailed,
     mcp::McpToolsChanged,
+    extend::ExtendProposed<'static>,
+    extend::ExtendTested<'static>,
+    extend::ExtendAcked<'static>,
+    extend::ExtendDeclined<'static>,
 ];
 
 #[cfg(test)]
