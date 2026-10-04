@@ -7,7 +7,9 @@
 //! secret: each consumer waits for its own, and one that fails to resolve
 //! never runs without it.
 //!
-//! The config is a file, or a note in the vault. A start whose config is in
+//! The config is a file, or a note in the vault: `--config`, else
+//! `THESEUS_CONFIG`, else `~/.theseus/theseus.toml` if it exists, else
+//! `/etc/theseus/theseus.toml` (theseus-5aqz). A start whose config is in
 //! the vault serves from the note's last-known-good copy and acts on it, when
 //! the copy's digest is the one the daemon recorded in the store as it wrote
 //! it (theseus-zmgb), and reads the vault once behind the socket, beside the
@@ -23,7 +25,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 use theseus_core::approval::{Client, Surface};
-use theseus_core::config::{DEFAULT_CONFIG, NO_CONFIG};
+use theseus_core::config::{Lookup, NO_CONFIG};
 use theseus_core::config_copy::{self, Compared};
 use theseus_core::config_gate::{self, ConfigGate};
 use theseus_core::secrets::{OpReader, Secret, SecretBoard, Waited};
@@ -54,9 +56,11 @@ Running it:
   THESEUS_LOG=debug theseusd            more detail (tracing filter syntax)
   theseusd --socket /tmp/dbg.sock --state-dir /tmp/dbg   a scratch instance beside a running one
 
-Config source (--config / THESEUS_CONFIG): a local TOML file (default: ~/.theseus/theseus.toml),
-or the op:// reference of a 1Password note that holds it. `theseusd example-config` prints a
-template; it is not what the server runs with.";
+Config source: --config, else THESEUS_CONFIG: a local TOML file, or the op:// reference of a
+1Password note that holds it. With neither, the default lookup: ~/.theseus/theseus.toml if it
+exists, else /etc/theseus/theseus.toml (scripts/setup.sh writes it). `theseusd check` and
+`theseusd config` name the one in use. `theseusd example-config` prints a template; it is not
+what the server runs with.";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -66,9 +70,10 @@ template; it is not what the server runs with.";
     after_help = AFTER_HELP
 )]
 struct Cli {
-    /// Config source: a file path, or an op:// reference.
-    #[arg(long, env = "THESEUS_CONFIG", default_value = DEFAULT_CONFIG)]
-    config: String,
+    /// Config source: a file path, or an op:// reference. With neither this nor THESEUS_CONFIG,
+    /// ~/.theseus/theseus.toml if it exists, else /etc/theseus/theseus.toml.
+    #[arg(long, env = "THESEUS_CONFIG")]
+    config: Option<String>,
 
     /// File holding the 1Password service-account token (used when OP_SERVICE_ACCOUNT_TOKEN is unset).
     // Global, so `theseusd install --user --op-token-file F` works as well as
@@ -213,10 +218,15 @@ fn main() -> Result<()> {
         // No config, no store, no secrets: its spec is its whole input.
         std::process::exit(theseus_core::aws::hands::hand::main());
     }
+    // Where the config comes from: `--config`, `THESEUS_CONFIG`, then the
+    // operator's own file if it exists, then the machine's (theseus-5aqz).
+    let lookup = theseus_core::config::find_config(cli.config.as_deref());
     if let Some(Cmd::Install(args)) = &cli.cmd {
-        // No config, no secrets, no runtime: never on the start path.
+        // No config, no secrets, no runtime: never on the start path. The
+        // unit names the config the lookup found, so it reads that one
+        // whatever the files are later.
         let globals = install::Globals {
-            config: cli.config.clone(),
+            config: lookup.or_default().to_string(),
             op_token_file: cli.op_token_file.clone(),
             state_dir: cli.state_dir.clone(),
             socket: cli.socket.clone(),
@@ -231,7 +241,7 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    match rt.block_on(daemon(cli, origin))? {
+    match rt.block_on(daemon(cli, lookup, origin))? {
         Exit::Done => {
             // The runtime's tasks go, and with them the store, which closes
             // (redb's close, logged by the index): each timed (theseus-26r).
@@ -275,7 +285,12 @@ enum Start {
 
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
+async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
+    // Nothing named a config, and the lookup found neither file: the start
+    // says where a config comes from (theseus-8d1b, theseus-5aqz).
+    let Some(source) = lookup.source().map(str::to_string) else {
+        anyhow::bail!(NO_CONFIG);
+    };
     if cli.cmd.is_none() {
         // The socket daemon and `--stdio` both spawn job wrappers.
         tokio::spawn(reap_children());
@@ -286,7 +301,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         // theseus-n88g.1): a file config whose secrets are `env:` or `file:`
         // entries needs none, and any `op://` entry fails with this reason,
         // one consumer at a time, as `theseusd check` and health say.
-        Err(e) if !cli.config.starts_with("op://") => {
+        Err(e) if !source.starts_with("op://") => {
             tracing::info!(why = %format!("{e:#}"), "no 1Password access: only env: and file: secrets resolve");
             OpReader::absent(format!("{e:#}"))
         }
@@ -297,7 +312,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         }
     });
     let startup = Arc::new(StartupLog::new(origin));
-    let in_vault = cli.config.starts_with("op://");
+    let in_vault = source.starts_with("op://");
     // The copy is found before any config is read: in `--state-dir`, else ~/.theseus.
     let copy_path = in_vault.then(|| config_copy::path(cli.state_dir.as_deref()));
     let t = Instant::now();
@@ -307,7 +322,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     let vault_first = std::env::var(VAULT_FIRST_ENV).ok();
     let mut why_vault = vault_first.clone();
     let copy = match (&copy_path, &cli.cmd, &vault_first) {
-        (Some(p), None, None) => match config_copy::read(p, &cli.config) {
+        (Some(p), None, None) => match config_copy::read(p, &source) {
             Ok(c) => c,
             Err(why) => {
                 tracing::warn!(copy = %p.display(), why = %why, "the config copy cannot serve this start; reading the vault first");
@@ -323,7 +338,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
                 tracing::warn!("{w}");
             }
             // The vault's word on the copy, read now, beside the secrets.
-            let (reader, reference) = (op.clone(), cli.config.clone());
+            let (reader, reference) = (op.clone(), source.clone());
             let began = Instant::now();
             let first = tokio::spawn(async move {
                 config_gate::ReadNote::read_note(reader.as_ref(), &reference).await
@@ -338,14 +353,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
             )
         }
         None => {
-            // The default names no one's vault (theseus-8d1b): its file
-            // missing, the start says where a config comes from.
-            let default_missing = cli.config == DEFAULT_CONFIG
-                && !theseus_core::config::expand(DEFAULT_CONFIG).exists();
-            if default_missing {
-                anyhow::bail!(NO_CONFIG);
-            }
-            let (cfg, text) = Config::load_text(&cli.config, &op).await?;
+            let (cfg, text) = Config::load_text(&source, &op).await?;
             (
                 cfg,
                 if in_vault {
@@ -382,9 +390,9 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
             out(&theseus_core::config::sparse_note(text)?)?;
             return Ok(Exit::Done);
         }
-        let mut text = format!("# source: {}\n", cli.config);
+        let mut text = format!("# source: {source}{}\n", lookup.how());
         if let (Some(p), Start::Vault(note)) = (&copy_path, &start) {
-            text.push_str(&format!("# copy: {}\n", copy_line(p, &cli.config, note)));
+            text.push_str(&format!("# copy: {}\n", copy_line(p, &source, note)));
         }
         text.push_str(&toml::to_string_pretty(&cfg)?);
         out(&text)?;
@@ -400,7 +408,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         restore(&cli, &cfg, from, *force, *repair, (fetch, origin)).await?;
         return Ok(Exit::Done);
     }
-    tracing::info!(source = %cli.config, from, model = %cfg.model.model, "config loaded");
+    tracing::info!(source = %source, from, model = %cfg.model.model, "config loaded");
 
     // Serve first (FAST, §2): the secrets resolve in the background while
     // the store opens and the socket binds.
@@ -413,7 +421,13 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
 
     let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     if let Some(Cmd::Check) = cli.cmd {
-        check(&cli.config, &cfg, &secrets, &state_dir).await?;
+        check(
+            &format!("{source}{}", lookup.how()),
+            &cfg,
+            &secrets,
+            &state_dir,
+        )
+        .await?;
         return Ok(Exit::Done);
     }
 
@@ -475,7 +489,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     // (a read before serving), and the vault's read of the copy (a start
     // from it).
     let (gate, keep, check) = match start {
-        Start::File(_) => (ConfigGate::file(&cli.config), None, None),
+        Start::File(_) => (ConfigGate::file(&source), None, None),
         Start::Vault(text) => {
             let before = why_vault
                 .clone()
@@ -484,7 +498,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
                 .clone()
                 .context("a vault config has a copy path")?;
             (
-                ConfigGate::vault(&cli.config, copy, origin, Instant::now(), before),
+                ConfigGate::vault(&source, copy, origin, Instant::now(), before),
                 Some(text),
                 None,
             )
@@ -494,7 +508,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
                 .clone()
                 .context("a vault config has a copy path")?;
             (
-                ConfigGate::from_copy(&cli.config, copy, text, origin),
+                ConfigGate::from_copy(&source, copy, text, origin),
                 None,
                 Some((first, began)),
             )

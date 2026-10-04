@@ -14,6 +14,7 @@ use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
 mod judge;
+mod lookup;
 pub(crate) mod lsp;
 pub(crate) mod memory;
 mod sparse;
@@ -21,23 +22,14 @@ pub use aws::{
     default_hourly_alert_usd, AwsAccountConfig, AwsConfig, AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
+// Where the config comes from when nothing names one (theseus-5aqz).
+pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
 pub use memory::{MemoryConfig, MemoryMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
 pub mod mcp_server;
 pub use mcp::{McpConfig, McpServerConfig};
-
-/// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
-/// names it: a local file, so nothing here names anyone's vault
-/// (theseus-8d1b). A deployment kept in 1Password names its note in its
-/// environment or its service unit.
-pub const DEFAULT_CONFIG: &str = "~/.theseus/theseus.toml";
-
-/// What a start says when the default config file is missing.
-pub const NO_CONFIG: &str = "no config: set THESEUS_CONFIG (or --config) to your config's \
-     op:// reference or file, or write one at ~/.theseus/theseus.toml, the default \
-     (`theseusd example-config` prints a template)";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

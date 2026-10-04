@@ -180,7 +180,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   hook's crash file beside the store, which the next start takes and health reports). The config template is
   `config/theseus.example.toml`, public, so it never carries a deployment's own values: a deployment's note holds
   only what differs from the defaults, and `config/sparse.rs` cuts a whole note to that (`theseusd config
-  --sparse`, theseus-vwar).
+  --sparse`, theseus-vwar). `config/lookup.rs` finds the config when nothing names one (theseus-5aqz):
+  `~/.theseus/theseus.toml` if it exists, else `/etc/theseus/theseus.toml`, which `scripts/setup.sh` writes.
 - **MCP servers** (M7 36b): `mcp/`. `McpBoard` tends each `[mcp.servers]` server (`config/mcp.rs`) after serving,
   never before: a stdio server through `children::spawn(Kind::Owned)` in its own process group (stderr to
   `<state>/mcp/<name>.log`, capped), with the job's environment and its `env` secrets; an HTTP one over reqwest.

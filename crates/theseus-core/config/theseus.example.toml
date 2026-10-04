@@ -7,9 +7,11 @@
 # keys), and a test un-comments every line and parses the result, so this file
 # cannot drift from the code.
 #
-# Where it lives: by default the file ~/.theseus/theseus.toml. Keep it in
-# 1Password instead, as a Secure Note, so a deployment is reconstructible from
-# the vault, and point --config or THESEUS_CONFIG at the note:
+# Where it lives: --config, else THESEUS_CONFIG, else the file
+# ~/.theseus/theseus.toml if it exists, else /etc/theseus/theseus.toml
+# (scripts/setup.sh writes that one from this template, every secret an op://
+# reference). Or keep it in 1Password, as a Secure Note, so a deployment is
+# reconstructible from the vault, and point --config or THESEUS_CONFIG at it:
 #   export THESEUS_CONFIG='op://<your vault>/<config note>/notesPlain'
 # A config needs only what differs from the defaults: every key has one, so a
 # note of only [secrets] loads. Keep yours that way rather than as a copy of
