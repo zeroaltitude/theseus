@@ -244,6 +244,10 @@ struct Inner {
     /// The position the last durable checkpoint claims: a stop's checkpoint
     /// is made durable by redb's close, not by itself (theseus-02k).
     durable_to: AtomicU64,
+    /// A build after serving (`build_shape`) wrote index pages that no
+    /// durable checkpoint has written since: until one has, no checkpoint is
+    /// free (theseus-celu.16.1).
+    built: std::sync::atomic::AtomicBool,
     /// The manifest names a format older than this build's: the writer
     /// moves it before its first frame (theseus-ptx1). Only the writer
     /// reads it after the open.
@@ -704,8 +708,12 @@ impl WalStore {
     /// clocks, and its tags to this. Each stretch reads `n` records up to
     /// the log's end at the first call (an append since keeps its own) and
     /// puts their tags and times; the last counts every table once, in one
-    /// transaction, and the shape is whole from then on, which the next
-    /// checkpoint marks. Until then, the counts walk, and a page by tag or
+    /// transaction, and the shape is whole from then on. The stretches and
+    /// the count go in with no sync, so the build ends with a durable
+    /// checkpoint of its own: it marks the shape, and redb writes the
+    /// build's pages now, after serving, and not in the next stop's close,
+    /// which took 230 ms more for them at 587,000 records
+    /// (theseus-celu.16.1). Until then, the counts walk, and a page by tag or
     /// by time is `None`, so its reader reads as it did before. A record
     /// whose read is refused (a corrupt frame) is passed over, uncounted
     /// among the refused: the history check reports it. Returns the cursor
@@ -727,6 +735,13 @@ impl WalStore {
         let locs = s.index.locations_after(c.after, c.upto, n.max(1))?;
         let Some(&(last, _)) = locs.last() else {
             s.index.recount(&c.clocks)?;
+            s.built.store(true, Ordering::Relaxed);
+            let t = std::time::Instant::now();
+            s.checkpoint_as(true)?;
+            tracing::debug!(
+                ms = t.elapsed().as_secs_f64() * 1000.0,
+                "store: the shape's build made durable"
+            );
             return Ok(None);
         };
         let built: Vec<crate::index::Built> = locs
@@ -902,6 +917,7 @@ impl Inner {
             since_checkpoint: AtomicU64::new(replayed),
             checkpointed: AtomicU64::new(cp),
             durable_to: AtomicU64::new(cp),
+            built: std::sync::atomic::AtomicBool::new(false),
             behind: std::sync::atomic::AtomicBool::new(behind),
             fsync,
             appending: RwLock::new(()),
@@ -991,13 +1007,18 @@ impl Inner {
         // already, and only an append writes it between checkpoints. So a
         // clean stop's last checkpoint, after its own, is free when nothing
         // came between them (theseus-pfv). A durable one is free only when
-        // the last durable one claimed `last` too.
+        // the last durable one claimed `last` too. A build after serving
+        // writes the index between checkpoints as well, so none is free
+        // while its pages wait for a durable one (`built`).
         let done = if durable {
             &self.durable_to
         } else {
             &self.checkpointed
         };
-        if done.load(Ordering::Relaxed) == last && verified.is_none() {
+        if done.load(Ordering::Relaxed) == last
+            && verified.is_none()
+            && !self.built.load(Ordering::Relaxed)
+        {
             return Ok(last);
         }
         let meta = verified.as_ref().map(verified_meta);
@@ -1013,6 +1034,7 @@ impl Inner {
         self.checkpointed.store(last, Ordering::Relaxed);
         if durable {
             self.durable_to.store(last, Ordering::Relaxed);
+            self.built.store(false, Ordering::Relaxed);
         }
         self.since_checkpoint.store(0, Ordering::Relaxed);
         Ok(last)

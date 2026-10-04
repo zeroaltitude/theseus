@@ -538,6 +538,72 @@ fn an_index_of_another_shape_is_built_after_serving_and_then_answers_whole() {
     counts_agree(&s, &["ses_a"]);
 }
 
+/// A build after serving ends with a durable checkpoint of its own, which
+/// marks the shape (theseus-celu.16.1): its stretches and its count went in
+/// with no sync, and without it redb would write their pages in the next
+/// stop's close. It is taken even when nothing was appended since the last
+/// durable checkpoint, the case that makes any other checkpoint free.
+#[test]
+fn a_build_ends_with_a_durable_checkpoint_that_marks_the_shape() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = open(dir.path());
+    for i in 0..40u64 {
+        s.append(&[row(
+            KINDS[(i % 4) as usize],
+            Some(SESSIONS[(i % 3) as usize]),
+            i,
+        )])
+        .unwrap();
+    }
+    s.checkpoint().unwrap();
+    drop(s);
+    // As an older build leaves it: no shape tables, and no mark.
+    {
+        let db = redb::Database::create(dir.path().join("index.redb")).unwrap();
+        let txn = db.begin_write().unwrap();
+        txn.delete_table(crate::index::COUNTS).unwrap();
+        txn.delete_table(crate::index::TAGGED).unwrap();
+        {
+            let mut meta = txn.open_table(crate::index::META).unwrap();
+            meta.remove(crate::index::SHAPE).unwrap();
+        }
+        txn.commit().unwrap();
+    }
+    let s = open(dir.path());
+    assert!(!s.shaped());
+    let last = s.inner.wal.last_position();
+    let marks = |s: &WalStore| {
+        s.inner
+            .index
+            .meta(&["checkpoint", crate::index::SHAPE])
+            .unwrap()
+    };
+    assert_eq!(marks(&s), vec![Some(last), None], "nothing appended since");
+    let mut at = None;
+    loop {
+        at = s.build_shape(at, 7).unwrap();
+        if at.is_none() {
+            break;
+        }
+    }
+    assert!(s.shaped());
+    assert_eq!(
+        marks(&s),
+        vec![Some(last), Some(last)],
+        "the build's own checkpoint marks the shape"
+    );
+    assert_eq!(s.inner.durable_to.load(Ordering::Relaxed), last);
+    assert!(
+        !s.inner.built.load(Ordering::Relaxed),
+        "a durable checkpoint wrote the build's pages"
+    );
+    // With no other checkpoint, the next open finds it whole.
+    drop(s);
+    let s = open(dir.path());
+    assert!(s.shaped(), "whole at the next open, with no build");
+    counts_agree(&s, &["ses_a"]);
+}
+
 fn state_terms(_: RecordKind, payload: &[u8]) -> Vec<String> {
     let n: u64 = serde_json::from_slice(payload).unwrap_or(0);
     let mut t = vec![format!(

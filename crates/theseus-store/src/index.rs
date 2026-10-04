@@ -195,12 +195,12 @@ const BORN: TableDefinition<&[u8], u64> = TableDefinition::new("born");
 const BYBIRTH: TableDefinition<&[u8], &[u8]> = TableDefinition::new("bybirth");
 
 /// The index's shape (theseus-vm3n.5): `meta` keeps under this name the
-/// checkpoint at which the counts, the clock, `bytime`, and `tagged` were
-/// whole. Every checkpoint of this build sets it; an older build, which keeps
-/// none of them, moves the checkpoint alone. An open that finds it anywhere
-/// but at the checkpoint empties the index, and the store's open then
-/// rebuilds it from the WAL, as for an index with no checkpoint (a restore).
-/// A change to what those tables hold renames it.
+/// checkpoint at which the counts, the clock, `bytime`, `tagged`, and the
+/// births were whole. Every checkpoint of this build sets it; an older build,
+/// which keeps none of them, moves the checkpoint alone. An open that finds
+/// it anywhere but at the checkpoint drops only those tables and still reads
+/// only the WAL's tail; `WalStore::build_shape` builds them again after
+/// serving (`shape_or_empty`). A change to what those tables hold renames it.
 pub const SHAPE: &str = "index.shape.3";
 
 /// A minute, in ms: `bytime`'s grain.

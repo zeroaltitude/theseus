@@ -75,6 +75,18 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   the projection's name; a writer with no projection (an older build, a tool) moves the checkpoint alone, and the
   next projected open leaves them to `build_terms`, after serving, never at open. Until they are whole, the store
   answers `latest_by_terms`, `count_by_terms`, and `totals` with `None`, and the reader reads every record.
+- **The shape is a projection too, whole only when marked** (theseus-vm3n.5). With every append and replay, in the
+  transaction that indexes the frame, the index keeps counts (`counts`, `keycounts`, `scopecounts`, `termcounts`), a
+  clock per kind (`clock`) with `bytime` (a window of time's first position), the records' tags (`tagged`,
+  `pages::tags_of`), and each key's birth (`born`, `bybirth`). A checkpoint marks them whole under `SHAPE`
+  (`index.shape.3`). An open that finds the mark anywhere but at the checkpoint (an older build wrote last) drops only
+  these tables and still reads only the WAL's tail; `build_shape` rebuilds them after serving, a stretch at a time, and
+  `recount` counts every table in one transaction. Until the build is whole, the counts walk, and a page by tag or time
+  and the newest keys by birth are `None`, so their readers scan as before. The build writes with no sync, so it ends
+  with a durable checkpoint of its own, which `built` keeps from being skipped as free: redb writes the build's pages
+  then, after serving, and not in the next stop's close (theseus-celu.16.1). An index with no checkpoint is emptied,
+  all but `verified.*`, and replayed whole. A change to what these tables hold renames the mark, never
+  `MANIFEST_FORMAT`: the index is rebuilt, not read in place.
 - **The history check starts at the last one's mark** (theseus-0dq): `verified.*` in the index's meta, written
   with the next checkpoint. Its frame is checked again first; a frame that no longer checks or holds other
   positions sends the check back to the log's start, which finds what is wrong.
