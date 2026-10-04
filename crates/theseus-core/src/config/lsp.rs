@@ -11,6 +11,11 @@
 //! installed. `[lsp.servers.<name>]` changes a preset's `command`,
 //! `extensions`, `roots` (its markers), or `settings`, or, with a command
 //! and extensions, adds a server.
+//!
+//! L3 (theseus-n88g.9): with `edit_diagnostics` (on), an edit's result
+//! carries its files' errors, waiting up to `edit_wait_ms` for them, where
+//! a server for the file's root is up; a server whose `start_on_edit` is on
+//! (off for every preset: the owner's call) is started for an edit too.
 
 use std::collections::BTreeMap;
 
@@ -29,6 +34,12 @@ pub struct LspConfig {
     /// A request unanswered this long is cancelled, and its server stopped.
     #[serde(default = "default_request_timeout_secs")]
     pub request_timeout_secs: u64,
+    /// An edit's result carries the errors its files' servers report (L3).
+    #[serde(default = "yes")]
+    pub edit_diagnostics: bool,
+    /// How long an edit waits for them; a file the bound beats is pending.
+    #[serde(default = "default_edit_wait_ms")]
+    pub edit_wait_ms: u64,
     /// Changes to the presets, and servers of the operator's own.
     #[serde(default)]
     pub servers: BTreeMap<String, LspServerConfig>,
@@ -52,6 +63,11 @@ pub struct LspServerConfig {
     /// Off: this preset is never started.
     #[serde(default = "yes")]
     pub enabled: bool,
+    /// An edit of one of its files starts it, as a call would, when it is
+    /// not up: judged at `proc.run`'s posture as any start is. Off: an edit
+    /// carries diagnostics only from a server already up.
+    #[serde(default)]
+    pub start_on_edit: bool,
 }
 
 fn yes() -> bool {
@@ -66,6 +82,7 @@ impl Default for LspServerConfig {
             roots: None,
             settings: None,
             enabled: true,
+            start_on_edit: false,
         }
     }
 }
@@ -75,6 +92,12 @@ fn default_idle_stop_mins() -> f64 {
 fn default_request_timeout_secs() -> u64 {
     30
 }
+fn default_edit_wait_ms() -> u64 {
+    1500
+}
+
+/// The longest an edit may wait for its diagnostics.
+pub const MAX_EDIT_WAIT_MS: u64 = 30_000;
 
 /// The longest a request may wait.
 pub const MAX_REQUEST_TIMEOUT_SECS: u64 = 600;
@@ -85,6 +108,8 @@ impl Default for LspConfig {
             enabled: false,
             idle_stop_mins: default_idle_stop_mins(),
             request_timeout_secs: default_request_timeout_secs(),
+            edit_diagnostics: true,
+            edit_wait_ms: default_edit_wait_ms(),
             servers: BTreeMap::new(),
         }
     }
@@ -106,6 +131,12 @@ impl LspConfig {
             bail!(
                 "lsp.request_timeout_secs = {} is outside 1 to {MAX_REQUEST_TIMEOUT_SECS}",
                 self.request_timeout_secs
+            );
+        }
+        if !(1..=MAX_EDIT_WAIT_MS).contains(&self.edit_wait_ms) {
+            bail!(
+                "lsp.edit_wait_ms = {} is outside 1 to {MAX_EDIT_WAIT_MS}",
+                self.edit_wait_ms
             );
         }
         for (name, s) in &self.servers {
@@ -141,7 +172,10 @@ pub(crate) fn the_templates_lsp_section(l: &LspConfig) {
     assert!(l.enabled);
     assert_eq!(l.idle_stop_mins, 10.0);
     assert_eq!(l.request_timeout_secs, 30);
+    assert!(l.edit_diagnostics);
+    assert_eq!(l.edit_wait_ms, 1500);
     assert!(l.servers["pyright"].settings.is_some());
+    assert!(l.servers["ty"].start_on_edit);
     assert_eq!(
         l.servers["some-server"].extensions.as_deref(),
         Some(&["some".to_string()][..])
@@ -166,6 +200,14 @@ mod tests {
         let d = crate::Config::example().lsp;
         assert!(!d.enabled);
         assert_eq!((d.idle_stop_mins, d.request_timeout_secs), (10.0, 30));
+        assert!(d.edit_diagnostics);
+        assert_eq!(d.edit_wait_ms, 1500);
+        assert!(crate::lsp::PRESETS.iter().all(|p| !d
+            .servers
+            .get(*p)
+            .cloned()
+            .unwrap_or_default()
+            .start_on_edit));
         let cfg = parse("[lsp]\nenabled = true\n").unwrap();
         cfg.validate().unwrap();
         assert!(parse("[lsp]\nidle_stop = 1\n").is_err());
@@ -174,6 +216,8 @@ mod tests {
             "idle_stop_mins = 0.0",
             "request_timeout_secs = 0",
             "request_timeout_secs = 601",
+            "edit_wait_ms = 0",
+            "edit_wait_ms = 30001",
             "[lsp.servers.mine]\ncommand = [\"mine\"]",
             "[lsp.servers.ty]\ncommand = []",
             "[lsp.servers.ty]\nextensions = [\".py\"]",

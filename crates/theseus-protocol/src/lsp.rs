@@ -36,6 +36,9 @@ pub struct LspServerStatus {
     /// Requests the tools sent it.
     #[serde(default)]
     pub requests: u64,
+    /// The edit results that carried its diagnostics (L3).
+    #[serde(default)]
+    pub edit_blocks: u64,
     /// Why its last start failed, or why it ended unasked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

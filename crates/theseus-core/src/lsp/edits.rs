@@ -8,8 +8,11 @@
 //!   task, never inside the toollet or on its core.
 //! - **Each file written is announced** to the server for its root
 //!   (`file_changed`, after a sync of the other open documents), and the call
-//!   waits up to the edit bound for that file's diagnostics. Only where a
-//!   server for that root is up already.
+//!   waits up to `[lsp] edit_wait_ms` for that file's diagnostics. Only
+//!   where a server for that root is up already, or where its
+//!   `start_on_edit` is on: that start is judged at `proc.run`'s posture at
+//!   the gate ([`gate`]), as L2's starts are. `[lsp] edit_diagnostics = false`
+//!   turns the hook off.
 //! - **The block** follows the result's text: "Errors after this edit:",
 //!   each file's errors first, then its warnings, at most [`MAX_LINES`]
 //!   lines with a count of the rest, and the count of new errors the server
@@ -35,7 +38,11 @@ use theseus_lsp::{FileDiagnostics, Freshness};
 use theseus_tools::ToolCtx;
 
 use super::tools::{lines_of, place};
-use super::{lock, Board, Key, Live};
+use super::{lock, Board, Key, Live, Spec};
+use crate::policy::Decision;
+use crate::toolrun::ToolRuntime;
+use std::sync::atomic::Ordering;
+use theseus_tools::{Access, Plan, Tool};
 
 /// The tools whose success writes files, and so carries the block.
 pub const EDITS: [&str; 4] = ["fs.write", "fs.edit", "fs.patch", "lsp.rename"];
@@ -58,11 +65,11 @@ pub(super) struct Pending {
     wait: Wait,
 }
 
+/// The files of one server and root, and the server when it is up.
+type Group = (Spec, Option<Arc<Live>>, Vec<PathBuf>);
+
 /// Each session's pending waits, oldest first.
 pub(super) type Pendings = Mutex<HashMap<String, Vec<Pending>>>;
-
-/// How long an edit waits for its files' diagnostics.
-pub const EDIT_WAIT: Duration = Duration::from_millis(1500);
 
 impl crate::toolrun::ToolRuntime {
     /// `run_inproc`'s hook: the block (and what arrived since for the
@@ -93,6 +100,42 @@ impl crate::toolrun::ToolRuntime {
             meta["lsp"] = a.meta;
         }
     }
+}
+
+/// The gate's step for an edit (L3), after the call's own order: an edit
+/// that would start its file's server (`start_on_edit`, none started for
+/// that root yet) is judged at `proc.run`'s posture for the server's argv
+/// too, the stricter winning, as L2's starts are. Never in a shared place,
+/// whose edits start nothing; `lsp.rename` is L2's.
+pub(crate) fn gate(
+    rt: &ToolRuntime,
+    class: crate::places::PlaceClass,
+    tool: &dyn Tool,
+    plan: &Plan,
+    d: Decision,
+) -> Decision {
+    let Some(board) = rt.lsp.as_ref() else {
+        return d;
+    };
+    let edit = EDITS.contains(&tool.name()) && tool.family() != "lsp";
+    if !edit || !board.edit_diagnostics || class != crate::places::PlaceClass::Private {
+        return d;
+    }
+    let mut d = d;
+    let mut judged = BTreeSet::new();
+    for r in plan.resources.iter().filter(|r| r.access == Access::Write) {
+        let Ok((spec, root)) = board.server_for(&r.path) else {
+            continue;
+        };
+        if !spec.start_on_edit
+            || board.started_before(&spec.name, &root)
+            || !judged.insert((spec.name.clone(), root.clone()))
+        {
+            continue;
+        }
+        d = super::judge_start(rt, &spec, &root, plan, d);
+    }
+    d
 }
 
 /// The files an edit's result says it wrote (`meta.path`; `fs.patch`'s
@@ -161,7 +204,7 @@ impl Board {
         meta: &Value,
         ctx: &ToolCtx,
     ) -> Option<Attached> {
-        let edit = ok && EDITS.contains(&tool);
+        let edit = ok && EDITS.contains(&tool) && self.edit_diagnostics;
         if !edit && !tool.starts_with("lsp.") {
             return None;
         }
@@ -226,7 +269,7 @@ impl Board {
             return None;
         }
         let heading = "Diagnostics that arrived since an earlier edit:";
-        Some(render(heading, &files, 0, Duration::ZERO).await)
+        Some(render(heading, &files, 0, Duration::ZERO, self.edit_wait).await)
     }
 
     /// Keep a wait the bound beat for the session's next result.
@@ -247,6 +290,65 @@ impl Board {
             .cloned()
     }
 
+    /// Each file's server: one up for its root, or one that starts on an
+    /// edit; a file with neither is left out.
+    fn targets(&self, paths: &[PathBuf]) -> BTreeMap<Key, Group> {
+        let mut groups: BTreeMap<Key, Group> = BTreeMap::new();
+        for p in paths {
+            let Ok((spec, root)) = self.server_for(p) else {
+                continue;
+            };
+            let key: Key = (spec.name.clone(), root);
+            let up = self.up_for(&key);
+            if up.is_none() && !spec.start_on_edit {
+                continue;
+            }
+            groups
+                .entry(key)
+                .or_insert((spec, up, Vec::new()))
+                .2
+                .push(p.clone());
+        }
+        groups
+    }
+
+    /// One file's wait, a task of its own: its server (started when it is
+    /// not up), the file announced, then its diagnostics within the
+    /// request timeout. The edit waits on it within its bound; past that,
+    /// it goes on as a pending wait.
+    fn wait_for(
+        self: &Arc<Self>,
+        up: Option<Arc<Live>>,
+        spec: Spec,
+        root: PathBuf,
+        path: PathBuf,
+    ) -> Wait {
+        let board = self.clone();
+        tokio::spawn(async move {
+            let live = match up {
+                Some(l) => l,
+                None => match board.live(&spec, &root).await {
+                    Ok(l) => l,
+                    Err(why) => return Some(Err(why)),
+                },
+            };
+            let _ = live.client.file_changed(&path).await;
+            if tokio::fs::metadata(&path).await.is_err() {
+                return None;
+            }
+            let timeout = board.request_timeout();
+            Some(
+                board
+                    .call(
+                        &live,
+                        "textDocument/diagnostic",
+                        live.client.diagnostics(&path, timeout),
+                    )
+                    .await,
+            )
+        })
+    }
+
     /// Announce each file to its root's server, wait within the edit bound
     /// for its diagnostics, and render them.
     pub async fn after_edit(
@@ -256,52 +358,27 @@ impl Board {
         paths: &[PathBuf],
     ) -> Option<Attached> {
         let start = tokio::time::Instant::now();
-        let deadline = start + EDIT_WAIT;
-        // Each file's server, where one is up for its root.
-        let mut groups: BTreeMap<Key, (Arc<Live>, Vec<PathBuf>)> = BTreeMap::new();
-        for p in paths {
-            let Ok((spec, root)) = self.server_for(p) else {
-                continue;
-            };
-            let key: Key = (spec.name.clone(), root);
-            let Some(live) = self.up_for(&key) else {
-                continue;
-            };
-            groups
-                .entry(key)
-                .or_insert((live, Vec::new()))
-                .1
-                .push(p.clone());
-        }
+        let deadline = start + self.edit_wait;
+        let groups = self.targets(paths);
         if groups.is_empty() {
             return None;
         }
         let mut waits = Vec::new();
         let mut before = Vec::new();
-        for (live, files) in groups.values() {
-            before.push((live.clone(), live.client.pushed_errors(), files.clone()));
+        for (key, (spec, up, files)) in &groups {
+            let was = up
+                .as_ref()
+                .map(|l| l.client.pushed_errors())
+                .unwrap_or_default();
+            before.push((key.clone(), was, files.clone()));
             // The other open documents first, so what the server says of
             // them during the wait is counted.
-            let _ = live.client.sync_disk().await;
+            if let Some(live) = up {
+                let _ = live.client.sync_disk().await;
+            }
             for file in files {
-                let server = live.server().to_string();
-                let (board, live, path) = (self.clone(), live.clone(), file.clone());
-                let task = tokio::spawn(async move {
-                    let _ = live.client.file_changed(&path).await;
-                    if tokio::fs::metadata(&path).await.is_err() {
-                        return None;
-                    }
-                    let timeout = board.request_timeout();
-                    Some(
-                        board
-                            .call(
-                                &live,
-                                "textDocument/diagnostic",
-                                live.client.diagnostics(&path, timeout),
-                            )
-                            .await,
-                    )
-                });
+                let server = spec.name.clone();
+                let task = self.wait_for(up.clone(), spec.clone(), key.1.clone(), file.clone());
                 waits.push((server, file.clone(), task));
             }
         }
@@ -333,14 +410,27 @@ impl Board {
             self.bind(task.id(), tool_use_id);
             files.push(File { path, server, got });
         }
-        let mut others = 0;
-        for (live, was, edited) in &before {
-            others += new_errors(was, &live.client.pushed_errors(), &live.client, edited);
-        }
         if files.is_empty() {
             return None;
         }
-        Some(render("Errors after this edit:", &files, others, start.elapsed()).await)
+        let mut others = 0;
+        for (key, was, edited) in &before {
+            if let Some(live) = self.up_for(key) {
+                others += new_errors(was, &live.client.pushed_errors(), &live.client, edited);
+                live.edit_blocks.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let wait = self.edit_wait;
+        Some(
+            render(
+                "Errors after this edit:",
+                &files,
+                others,
+                start.elapsed(),
+                wait,
+            )
+            .await,
+        )
     }
 }
 
@@ -384,7 +474,13 @@ fn shown(items: &[Diagnostic]) -> Vec<&Diagnostic> {
 }
 
 /// The block, and `meta.lsp`.
-async fn render(heading: &str, files: &[File], others: usize, waited: Duration) -> Attached {
+async fn render(
+    heading: &str,
+    files: &[File],
+    others: usize,
+    waited: Duration,
+    wait: Duration,
+) -> Attached {
     let mut out = vec![String::new(), heading.to_string()];
     let (mut lines, mut errors_all, mut errors_shown, mut warnings_all) = (0, 0, 0, 0);
     let mut hidden = 0;
@@ -410,7 +506,7 @@ async fn render(heading: &str, files: &[File], others: usize, waited: Duration) 
                 "{name}: pending: {} had not answered for it within {} ms; what it reports \
                  rides on this session's next edit or lsp result",
                 f.server,
-                EDIT_WAIT.as_millis()
+                wait.as_millis()
             )),
             Got::Failed(why) => out.push(format!("{name}: {} failed: {why}", f.server)),
             Got::Diagnostics(d) => {
@@ -521,13 +617,9 @@ mod tests {
             server: "ty".into(),
             got: Got::Diagnostics(d),
         }];
-        let a = render(
-            "Errors after this edit:",
-            &files,
-            2,
-            Duration::from_millis(3),
-        )
-        .await;
+        let wait = Duration::from_millis(1500);
+        let heading = "Errors after this edit:";
+        let a = render(heading, &files, 2, Duration::from_millis(3), wait).await;
         let lines: Vec<&str> = a.text.lines().collect();
         assert_eq!(lines[1], "Errors after this edit:");
         assert_eq!(lines[2], "/w/a.py (ty): 25 errors, 1 warning");

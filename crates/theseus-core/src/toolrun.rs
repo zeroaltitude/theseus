@@ -1044,6 +1044,8 @@ impl ToolRuntime {
             let (decision, job_class) = sandbox::decide(self, tool, &plan, &call.input, t);
             // A call that starts a language server is a run too (L2).
             let decision = crate::lsp::gate(self, tool, &plan, decision);
+            // And an edit that starts one (L3).
+            let decision = crate::lsp::edits::gate(self, tc.class, tool, &plan, decision);
             // A private address's card in a shared place says where the page
             // goes (theseus-94a6).
             let decision = crate::places::private_fetch(tc.class, &plan, decision);

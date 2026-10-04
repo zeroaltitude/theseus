@@ -267,8 +267,7 @@ async fn a_server_that_never_answers_costs_the_bound_and_is_pending() {
         .expect("a block");
     let waited = t0.elapsed();
     assert!(
-        waited >= crate::lsp::edits::EDIT_WAIT
-            && waited < crate::lsp::edits::EDIT_WAIT + Duration::from_millis(50),
+        waited >= Duration::from_millis(1500) && waited < Duration::from_millis(1550),
         "waited {waited:?}"
     );
     assert!(
@@ -376,4 +375,97 @@ async fn the_block_adds_no_frame() {
         with <= without,
         "with the block {with} frames, without {without}"
     );
+}
+
+/// `[lsp.servers.fake] start_on_edit`: with no server up, an edit's gate
+/// judges the start at `proc.run`'s posture (here `approve`), naming it,
+/// though not in a shared place; off, the edit keeps its own posture.
+#[tokio::test]
+async fn an_edit_that_starts_its_server_is_judged_as_proc_run() {
+    use crate::places::PlaceClass;
+    let decided = |r: &Rig, class: PlaceClass| {
+        let rt = &r.core.tools;
+        let tool = rt.registry.get("fs.edit").unwrap().clone();
+        let input =
+            json!({"path": r.work.join("a.fake"), "old_string": "let y", "new_string": "let z"});
+        let plan = tool.plan(&input, &rt.ctx).unwrap();
+        let d = rt.policy.decide_with(tool.as_ref(), &plan, None);
+        crate::lsp::edits::gate(rt, class, tool.as_ref(), &plan, d)
+    };
+    let approve = |cfg: &mut Config| {
+        cfg.policy.tools.insert("fs.edit".into(), Posture::Open);
+        cfg.policy.tools.insert("proc.run".into(), Posture::Approve);
+    };
+    let on = rig(vec![], FakeConfig::default(), |cfg, _| {
+        approve(cfg);
+        cfg.lsp.servers.get_mut("fake").unwrap().start_on_edit = true;
+    });
+    let d = decided(&on, PlaceClass::Private);
+    assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
+    assert!(d.reason.contains("starts fake on"), "{}", d.reason);
+    assert_eq!(decided(&on, PlaceClass::Shared).posture, Posture::Open);
+    let off = rig(vec![], FakeConfig::default(), |cfg, _| approve(cfg));
+    assert_eq!(decided(&off, PlaceClass::Private).posture, Posture::Open);
+}
+
+/// `start_on_edit` on, nothing up: the edit starts the server and carries
+/// its block, and health's line counts the block.
+#[tokio::test]
+async fn start_on_edit_starts_the_server_and_health_counts_the_block() {
+    let r = rig(
+        edit("e1", "a.fake", "let y = 2\n", "ERROR 2\n"),
+        FakeConfig::default(),
+        |cfg, _| cfg.lsp.servers.get_mut("fake").unwrap().start_on_edit = true,
+    );
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "edit").await;
+    let (text, meta) = result_of(&r.core, &sid, "e1");
+    assert!(text.contains("(fake): 2 errors"), "{text}");
+    assert_eq!(meta["lsp"]["errors"], 2);
+    assert_eq!(r.spawner.count(), 1);
+    let health = r.core.tools.lsp.as_ref().unwrap().health();
+    assert_eq!(health.len(), 1);
+    assert_eq!(health[0].edit_blocks, 1);
+}
+
+/// `[lsp] edit_diagnostics = false`: a server up, and no block.
+#[tokio::test]
+async fn edit_diagnostics_off_is_no_block() {
+    let r = rig(
+        edit("e1", "a.fake", "let y = 2\n", "ERROR 2\n"),
+        FakeConfig::default(),
+        |cfg, _| cfg.lsp.edit_diagnostics = false,
+    );
+    open(&r, &["a.fake"]).await;
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "edit").await;
+    let (text, meta) = result_of(&r.core, &sid, "e1");
+    assert!(!text.contains("Errors after this edit"), "{text}");
+    assert!(meta.get("lsp").is_none(), "{meta}");
+}
+
+/// `[lsp] edit_wait_ms` is the bound, on tokio's paused clock.
+#[tokio::test(start_paused = true)]
+async fn edit_wait_ms_is_the_bound() {
+    let fake = FakeConfig {
+        diagnostics: Diagnostics::Pull,
+        slow_ms: 5_000,
+        ..FakeConfig::default()
+    };
+    let r = rig(vec![], fake, |cfg, _| cfg.lsp.edit_wait_ms = 300);
+    let board = r.core.tools.lsp.clone().unwrap();
+    let a = r.work.join("a.fake");
+    let (spec, root) = board.server_for(&a).unwrap();
+    board.live(&spec, &root).await.unwrap();
+    let t0 = tokio::time::Instant::now();
+    let got = board
+        .after_edit("s1", "tu_1", std::slice::from_ref(&a))
+        .await
+        .unwrap();
+    let waited = t0.elapsed();
+    assert!(
+        waited >= Duration::from_millis(300) && waited < Duration::from_millis(350),
+        "waited {waited:?}"
+    );
+    assert!(got.text.contains("within 300 ms"), "{}", got.text);
 }

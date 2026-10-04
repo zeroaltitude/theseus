@@ -30,6 +30,9 @@ pub fn lsp_line(servers: &[LspServerStatus]) -> String {
             if s.requests > 0 {
                 parts.push(format!("{} requests", s.requests));
             }
+            if s.edit_blocks > 0 {
+                parts.push(format!("{} edit results with its errors", s.edit_blocks));
+            }
             if let Some(w) = &s.why {
                 parts.push(w.clone());
             }
@@ -54,6 +57,7 @@ mod tests {
             ready_ms: Some(18_200),
             memory_kib: Some(4 << 20),
             requests: 3,
+            edit_blocks: 2,
             ..Default::default()
         };
         let f = LspServerStatus {
@@ -68,7 +72,10 @@ mod tests {
             line.starts_with("lsp: rust-analyzer on /p/app (pid 4242, ready in 18.2 s, 4"),
             "{line}"
         );
-        assert!(line.contains("3 requests"), "{line}");
+        assert!(
+            line.contains("3 requests, 2 edit results with its errors"),
+            "{line}"
+        );
         assert!(
             line.contains("ty on /p/tool (failed, initialize: no answer)"),
             "{line}"

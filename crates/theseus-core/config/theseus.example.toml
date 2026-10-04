@@ -594,11 +594,21 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # ready, and its memory (rust-analyzer can take gigabytes on a large workspace).
 # A file's server is the first installed of: rust-analyzer; ty, pyright,
 # basedpyright; tsgo (TypeScript 7's tsc --lsp), typescript-language-server.
+# An edit (fs.write, fs.edit, fs.patch, lsp.rename) whose file has a server up
+# for its root waits up to edit_wait_ms for that server's errors, and its result
+# shows them under "Errors after this edit:"; a file the wait beats is pending,
+# and what arrives rides on the session's next edit or lsp result. Never in a
+# shared place. A server with start_on_edit is started by an edit too, as a
+# call would start it (ty and tsgo take tens of milliseconds and 40 to 50 MB).
 # An older binary refuses an [lsp] table: install first, then paste.
 # [lsp]
 # enabled = true                          # off by default
 # idle_stop_mins = 10.0                   # a server unused this long stops
 # request_timeout_secs = 30               # a request unanswered this long is cancelled, and its server stopped
+# edit_diagnostics = true                 # an edit's result carries its files' errors
+# edit_wait_ms = 1500                     # how long an edit waits for them, 1 to 30000
+# [lsp.servers.ty]                        # start_on_edit: an edit starts this server too (off for every preset)
+# start_on_edit = true
 # [lsp.servers.pyright]                   # change a preset: command, extensions, roots (its markers), settings, enabled
 # settings = { python = { analysis = { diagnosticMode = "openFilesOnly" } } }
 # [lsp.servers.some-server]               # or add one: a command and its extensions
