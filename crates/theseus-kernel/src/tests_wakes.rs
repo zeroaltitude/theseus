@@ -22,7 +22,7 @@ fn with_wake(w: &World, in_ms: u64, note: &str) -> (Execution, String) {
     let due = w.kernel.now_ms() + in_ms;
     let set = w
         .kernel
-        .set_wake(&g, &call, due, note, Some("discord:dm:1".into()))
+        .set_wake(&g, &call, due, note, Some("discord:dm:1".into()), None)
         .unwrap();
     assert_eq!(set.wake.target.as_deref(), Some("discord:dm:1"));
     assert!(set.set);
@@ -192,7 +192,7 @@ fn a_wake_fires_while_a_job_runs_and_waits_for_an_approval() {
     let job = dispatched(&w, &g, "proc.run", 0);
     let due = w.kernel.now_ms() + 1_000;
     w.kernel
-        .set_wake(&g, &new_id("act"), due, "check the build", None)
+        .set_wake(&g, &new_id("act"), due, "check the build", None, None)
         .unwrap();
     w.kernel
         .end_turn(
@@ -307,13 +307,13 @@ fn the_cap_is_enforced_and_a_call_sets_its_wake_once() {
     for i in 0..MAX_PENDING as u64 {
         let call = if i == 0 { first.clone() } else { new_id("act") };
         w.kernel
-            .set_wake(&g, &call, now + 60_000 - i * 1_000, "n", None)
+            .set_wake(&g, &call, now + 60_000 - i * 1_000, "n", None, None)
             .unwrap();
     }
     let before = w.kernel.store().last_position();
     let err = w
         .kernel
-        .set_wake(&g, &new_id("act"), now + 1_000, "one too many", None)
+        .set_wake(&g, &new_id("act"), now + 1_000, "one too many", None, None)
         .unwrap_err();
     assert!(matches!(
         err.downcast_ref::<KernelError>(),
@@ -323,7 +323,7 @@ fn the_cap_is_enforced_and_a_call_sets_its_wake_once() {
     assert_eq!(w.kernel.store().last_position(), before);
     let again = w
         .kernel
-        .set_wake(&g, &first, now + 1, "again", None)
+        .set_wake(&g, &first, now + 1, "again", None, None)
         .unwrap();
     assert!(!again.set, "the same call's wake");
     assert_eq!(again.wake.due_at_ms, now + 60_000);

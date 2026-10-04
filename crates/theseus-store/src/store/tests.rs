@@ -669,7 +669,7 @@ fn the_manifest_alone_says_whether_this_build_may_open_a_store() {
     .unwrap();
     check_manifest(dir.path()).unwrap();
     for (manifest, says) in [
-        (r#"{"format": 5, "engine": "redb"}"#, "is format 5"),
+        (r#"{"format": 6, "engine": "redb"}"#, "is format 6"),
         ("{", "reading store manifest"),
     ] {
         std::fs::write(dir.path().join("MANIFEST.json"), manifest).unwrap();
