@@ -256,6 +256,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning` thread at nice 19 and about 5% of a core). `judge.label` (`judge_act(Act::JudgeLabel)`) and
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
     in one frame, then `<state>/learning/<date>.json`. Tests: `tests_learning.rs`, `learning::*::tests`.
+  - **Replay, audit, and backfill** (step 25d, theseus-0j2.14; the owner's runs, each `judge_act(Act::JudgeRun)`
+    and in the CLI's `OPERATORS`, each on a `learning` thread at nice 19, routed together by `rpc/judge_runs.rs`).
+    `learning/replay.rs` (`Core::judge_replay`, public for the learning loop): a candidate the build does not wire
+    over a report's frozen holdout, its train split, the incumbent's errors, or ids; stored states when builder,
+    version and cap match, else `learning/rebuild.rs` (only `loop.v1`'s input: the turn's `turn.ended` row and its
+    nodes through `loop_end::input`; `unrebuildable` says why for the rest); thresholds-only re-bands, no call. Its
+    calls and run are scoped `judge.replay:<pack id>`, which the report never reads; `[judge] replay_limit_usd`.
+    `learning/audit.rs`: a profile's answers as audit labels (weight 0.5), capped by `audit_limit_usd`.
+    `learning/backfill.rs`: under `backfill_consent` only; one judgment per event (keyed by it), `event_at_ms`, which
+    `read_scope` takes as the judgment's time. Tests: `tests_replay.rs`, `tests_audit.rs`, `tests_backfill.rs`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it
