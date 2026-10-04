@@ -183,6 +183,21 @@ impl Listed {
         })
     }
 
+    /// The listed program text typed into a terminal names (theseus-n88g.4):
+    /// any of its words, as a launcher's command is read. A terminal sent
+    /// `gh issue view 1` is outside text from then on.
+    pub fn in_text(text: &str, programs: &[String]) -> Option<Listed> {
+        let p = words(text).find_map(|w| {
+            programs
+                .iter()
+                .find(|p| !p.is_empty() && file_name(p) == file_name(w))
+        })?;
+        Some(Listed {
+            program: p.clone(),
+            command: format!("a terminal sent keys that name {p}"),
+        })
+    }
+
     /// DD5's marker on its result: its `url` the command.
     pub fn marker(&self) -> theseus_tools::External {
         theseus_tools::External {

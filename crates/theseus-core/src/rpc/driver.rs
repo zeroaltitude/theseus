@@ -203,6 +203,15 @@ impl Core {
             .kernel
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+        // Its session's terminals end with it (theseus-n88g.4).
+        self.tools
+            .terms
+            .close_session_recorded(
+                &e.session_id,
+                crate::term::BY_CANCEL,
+                &self.session_rec(&e.session_id),
+            )
+            .await;
         // What the cancel left unanswered in the transcript (theseus-0o8): the
         // calls it stopped, now that they have settled. A turn that holds the
         // execution answers its own at its end, and this finds it held.
@@ -360,6 +369,15 @@ impl Core {
             .kernel
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+        // A stop halts its terminals' programs too (theseus-n88g.4).
+        self.tools
+            .terms
+            .close_session_recorded(
+                &e.session_id,
+                crate::term::BY_STOP,
+                &self.session_rec(&e.session_id),
+            )
+            .await;
         let tasks_running = self
             .kernel
             .tasks(Some(id))?

@@ -1225,7 +1225,10 @@ pub fn aws_summary(a: &theseus_protocol::AwsPlan) -> String {
 
 pub fn summarize(tool: &str, input: &Value) -> String {
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
-    let text = if let Some(argv) = input.get("argv").and_then(Value::as_array) {
+    // A terminal's call names its terminal and keys (theseus-n88g.4).
+    let text = if let Some(line) = theseus_protocol::term::summary(tool, input) {
+        line
+    } else if let Some(argv) = input.get("argv").and_then(Value::as_array) {
         argv.iter()
             .filter_map(Value::as_str)
             .collect::<Vec<_>>()

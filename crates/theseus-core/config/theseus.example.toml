@@ -376,6 +376,15 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # a wake into this conversation later (DD8): inherits enforcement, so each one
 # set is a notice with its time; its turn spends from this session's limit
 # "wake.at" = "notify"
+# terminals (a program on a pty: a REPL, an editor, a pager): term.open is
+# judged as proc.run is, by its program and arguments, and term.send as a run
+# of its terminal's program, so the floor and the approve and allow lists
+# apply to both; a listed external program's screen holds the session.
+# term.read and term.close are reads, and never wait on that hold
+# "term.open" = "notify"
+# "term.send" = "notify"
+"term.read" = "open"
+"term.close" = "open"
 # AWS, when an [aws.accounts] table binds an account: aws.describe reads the
 # local catalog; the others call AWS, and [policy.aws] gives each call its
 # posture unless a line here sets the tool's

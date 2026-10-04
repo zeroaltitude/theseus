@@ -24,6 +24,7 @@ mod ontology;
 mod places;
 mod push;
 pub mod sandbox;
+pub mod term;
 #[cfg(test)]
 mod ts;
 pub mod voice;
@@ -38,6 +39,7 @@ pub use ledger::*;
 pub use ontology::*;
 pub use places::*;
 pub use push::*;
+pub use term::TerminalInfo;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -518,6 +520,9 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub places: Option<PlacesHealth>,
+    /// The open terminals (`term.*`, theseus-n88g.4), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terminals: Vec<TerminalInfo>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

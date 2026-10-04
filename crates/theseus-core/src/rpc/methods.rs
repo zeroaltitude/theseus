@@ -103,6 +103,7 @@ impl Core {
             cancels: self.tools.stops.counts(),
             places: Some(self.runner.place_rule.health(&self.cfg)),
             judge: Some(self.runner.judge.health()),
+            terminals: self.tools.terms.all().iter().map(|t| t.info()).collect(),
         }
     }
 

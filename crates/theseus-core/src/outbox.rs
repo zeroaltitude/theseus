@@ -885,6 +885,8 @@ impl crate::Core {
     /// written first (theseus-sqpx), in one frame, only when some wait.
     #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     pub async fn finish_stop(&self) -> InFlight {
+        // Each terminal's program ends with the daemon (theseus-n88g.4).
+        self.close_terminals().await;
         self.flush_web_rows();
         let t0 = std::time::Instant::now();
         let grace = std::time::Duration::from_millis(self.cfg.server.stop_grace_ms);

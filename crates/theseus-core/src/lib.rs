@@ -58,6 +58,7 @@ pub mod sweep;
 pub mod task;
 pub mod telemetry;
 pub mod tender;
+pub mod term;
 pub mod tighten;
 pub mod toolrun;
 pub mod trace;
@@ -151,5 +152,7 @@ mod tests_task_wakes;
 mod tests_tasks;
 #[cfg(test)]
 mod tests_tender;
+#[cfg(test)]
+mod tests_term;
 #[cfg(test)]
 mod tests_wakes;

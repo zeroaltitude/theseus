@@ -52,6 +52,7 @@ pub mod place;
 pub mod recall;
 pub mod sandbox;
 pub mod start;
+pub mod term;
 pub mod tool;
 pub mod turn;
 
@@ -344,6 +345,8 @@ facts![
     crate::aws::hands::group::Launched<'static>,
     crate::aws::hands::group::Settled<'static>,
     crate::aws::hands::poller::Quarantined<'static>,
+    term::TermOpened<'static>,
+    term::TermClosed<'static>,
 ];
 
 #[cfg(test)]
