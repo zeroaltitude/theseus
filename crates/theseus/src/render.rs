@@ -54,7 +54,7 @@ pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
 pub use task_graph::{task_tree_lines, tree_line};
-pub use tasks::task_pieces;
+pub use tasks::{task_check, task_pieces};
 
 /// What a line is, as the CLI's marks have always told one from another. The
 /// CLI prints a line's text alone, so a tag changes nothing it prints; the

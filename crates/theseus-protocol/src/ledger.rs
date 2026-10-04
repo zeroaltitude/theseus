@@ -190,6 +190,8 @@ ledger_kinds! {
     TaskChangeAccepted = "task.change_accepted",
     TaskChangeDeclined = "task.change_declined",
     TaskChangeProposed = "task.change_proposed",
+    TaskCheckOpened = "task.check_opened",
+    TaskCheckRefused = "task.check_refused",
     TaskClosed = "task.closed",
     TaskCreated = "task.created",
     TaskEnded = "task.ended",

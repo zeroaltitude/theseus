@@ -205,6 +205,11 @@ pub struct TaskOf {
     /// started before the arrangement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arrangement: Option<String>,
+    /// A check task's basis (M5 28a, `check.rs`): the task it checks, what
+    /// it was admitted and kept from, its model, and the overlap flags.
+    /// Absent in records written before it (format 14).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<theseus_protocol::TaskCheck>,
 }
 
 impl SessionRecord {

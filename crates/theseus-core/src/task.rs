@@ -107,11 +107,20 @@ struct Input {
     /// A one-line brief from a long discussion, with one piece, on purpose.
     #[serde(default)]
     fidelity_ack: bool,
+    /// The task this one checks, by its claim (M5 28a, `check.rs`).
+    #[serde(default)]
+    check_of: Option<String>,
+    /// A check's model: a profile's name (M5 28a). Only a check takes one.
+    #[serde(default)]
+    profile: Option<String>,
 }
 
 fn input_of(input: &Value) -> Result<Input, String> {
     let i: Input = parse(input)?;
     let Some(brief) = &i.brief else {
+        if i.check_of.is_some() || i.profile.is_some() {
+            return Err("a check (`check_of`) is a task session: give it a `brief`".into());
+        }
         if i.title.as_deref().is_none_or(|t| t.trim().is_empty()) {
             return Err("give a `brief` to start a task session, or a `title` to record a plan                         item"
                 .into());
@@ -120,6 +129,13 @@ fn input_of(input: &Value) -> Result<Input, String> {
     };
     if brief.trim().is_empty() {
         return Err("the brief is empty: say what the task should do".into());
+    }
+    if i.profile.is_some() && i.check_of.is_none() {
+        return Err(
+            "`profile` is for a check (`check_of`): every other task runs on this \
+                    conversation's model"
+                .into(),
+        );
     }
     let n = brief.chars().count();
     if n > MAX_BRIEF_CHARS {
@@ -172,7 +188,13 @@ impl Tool for TaskCreate {
          Every task is a record in the task graph, which you see each turn. Without `brief`, \
          the call records a plan item (a `title`, and `objective`, `acceptance`, `parent`, and \
          `deps` if you have them): no session works on it, and it needs no arrangement. Edit \
-         the graph with task.update, task.split, and task.close."
+         the graph with task.update, task.split, and task.close.\n\n\
+         To check a task's work independently, start a check: `check_of` names a task this \
+         conversation started that has reported. The check reads its brief, that task's \
+         objective and acceptance pieces, and its report as a claim, and nothing else of its \
+         session, so write the brief from the claim and the goal, not from how the task worked. \
+         It needs no arrangement of its own (you may add pieces), and `profile` runs it on \
+         another model."
     }
 
     fn input_schema(&self) -> Value {
@@ -242,7 +264,9 @@ impl Tool for TaskCreate {
                 "objective": {"type": "string", "description": "What the task is for, when no `objective` piece says it."},
                 "acceptance": {"type": "array", "items": {"type": "string"}, "description": "How to know it is done, one line each, beside any `acceptance` pieces."},
                 "parent": {"type": "string", "description": "The task it goes under (tsk_…)."},
-                "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."}
+                "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."},
+                "check_of": {"type": "string", "description": "Start a check of this task (its id, or the end of it): one this conversation started, which has reported."},
+                "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."}
             },
             "additionalProperties": false
         })
@@ -271,10 +295,10 @@ impl Tool for TaskCreate {
             });
         };
         // The notice says so when the task will start a turn by itself (W1).
-        let how = if i.wake_parent {
-            "start a task whose report starts this conversation's next turn"
-        } else {
-            "start a task"
+        let how = match (&i.check_of, i.wake_parent) {
+            (Some(c), _) => format!("start a check of task {c}"),
+            (None, true) => "start a task whose report starts this conversation's next turn".into(),
+            (None, false) => "start a task".into(),
         };
         Ok(Plan {
             summary: format!(
@@ -346,6 +370,7 @@ pub fn create<'a>(
     tc: &TurnCtx<'a>,
     input: &Value,
     correlation_id: &str,
+    profiles: &std::collections::BTreeMap<String, TargetRef>,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
@@ -378,7 +403,27 @@ pub fn create<'a>(
     // The brief copies the call's input, which the parent's reply holds
     // (12a): the brief is `derived_from` that reply.
     let holder = holder_of(&nodes, correlation_id);
-    let (pieces, humans) = arranged(tc, &i, &nodes, holder.as_deref())?;
+    // A check's pieces are the checked task's and its own, and its claim
+    // (M5 28a); every other task's, its arrangement's (M5 27).
+    let check = match i.check_of.as_deref() {
+        Some(name) => Some(crate::check::prepare(
+            tc,
+            &crate::check::Ask {
+                name,
+                profile: i.profile.as_deref(),
+                arrangement: i.arrangement.as_ref(),
+                brief,
+            },
+            &nodes,
+            holder.as_deref(),
+            profiles,
+        )?),
+        None => None,
+    };
+    let (pieces, humans) = match &check {
+        Some(c) => (c.pieces.clone(), 0),
+        None => arranged(tc, &i, &nodes, holder.as_deref())?,
+    };
     let left = parent.budget.available();
     let want = match i.budget_usd {
         Some(b) => usd_to_micros(b),
@@ -422,14 +467,24 @@ pub fn create<'a>(
                 model: t.model.clone(),
             });
             let author = format!("session:{}", tc.session_id);
-            let arrangement =
+            let mut arrangement =
                 Node::arrangement(&task.session_id, &author, pieces.clone(), i.fidelity_ack);
+            // A check runs on its profile, and reads its claim (M5 28a).
+            if let Some(c) = &check {
+                if let Some(t) = &c.target {
+                    rec.last_target = Some(t.clone());
+                }
+                if let Body::Arrangement { claim, .. } = &mut arrangement.body {
+                    *claim = Some(c.claim.clone());
+                }
+            }
             rec.task = Some(TaskOf {
                 parent_session: tc.session_id.into(),
                 parent_execution: tc.execution_id.into(),
                 by: correlation_id.into(),
                 target: target.clone(),
                 arrangement: Some(arrangement.id.clone()),
+                check: check.as_ref().map(|c| c.basis.clone()),
             });
             let brief = Node::relayed(&task.session_id, None, Origin::Agent, &author, &text);
             let mut records = match &parent_hold {
@@ -471,6 +526,17 @@ pub fn create<'a>(
                         &arrangement.id,
                         &p.node,
                         crate::graph::VIA_ARRANGEMENT,
+                    )
+                    .record()?,
+                );
+            }
+            if let Some(c) = &check {
+                records.push(
+                    crate::graph::Edge::new(
+                        crate::graph::EdgeKind::DerivedFrom,
+                        &arrangement.id,
+                        &c.claim.node,
+                        crate::graph::VIA_CLAIM,
                     )
                     .record()?,
                 );
@@ -519,6 +585,13 @@ pub fn create<'a>(
             humans,
             brief_chars: brief.trim().chars().count(),
         });
+        if let Some(c) = &check {
+            tc.record(&crate::fact::check::TaskCheckOpened {
+                short: &s,
+                session_id: &task.session_id,
+                basis: &c.basis,
+            });
+        }
         crate::fact::task_graph::announce(&tc.rec(), "created", &created);
         if parent_hold.is_some() {
             tc.record(&crate::fact::tool::TaskHoldsExternal { short: &s });
@@ -584,6 +657,10 @@ pub fn create<'a>(
         "{text}\nIts record in the task graph: {}",
         crate::task_graph::line(&graph)
     );
+    let (text, meta) = match &check {
+        Some(c) => crate::check::said(text, meta, &c.basis),
+        None => (text, meta),
+    };
     Ok(crate::task_graph::tools::Done {
         text,
         meta,
@@ -714,6 +791,8 @@ pub struct Report {
     /// The task held external text when its report was read (theseus-9bp):
     /// the parent that reads the report holds it too.
     pub external: Option<theseus_protocol::ExternalText>,
+    /// A check's basis, as its line (M5 28a): shown beside its report.
+    pub check: Option<String>,
 }
 
 /// Whether a task's turn that would end it parks instead (37b): its
@@ -765,13 +844,14 @@ impl Report {
             elapsed_ms: e.updated_at_ms.saturating_sub(e.created_at_ms),
             target: None,
             external: None,
+            check: None,
         }
     }
 
     /// The outbox post: the text by its node, as a reply names its loops'
     /// (§3.16 references, not payloads), and the facts beside it.
     pub fn post_body(&self) -> Value {
-        json!({
+        let mut body = json!({
             "kind": "report",
             "task": self.task,
             "short": self.short,
@@ -784,7 +864,11 @@ impl Report {
             "limit_usd": micros_to_usd(self.limit_micros),
             "turns": self.turns,
             "elapsed_ms": self.elapsed_ms,
-        })
+        });
+        if let Some(c) = &self.check {
+            body["check"] = json!(c);
+        }
+        body
     }
 
     /// The node the parent's next turn reads.
@@ -815,6 +899,10 @@ impl Report {
             ),
         };
         let mut out = format!("[Report from task {}{title}: {head}]", self.short);
+        if let Some(c) = &self.check {
+            out.push('\n');
+            out.push_str(c);
+        }
         if let Some(t) = &self.text {
             let (t, _) = crate::toolrun::cap(t, REPORT_NODE_CHARS, |_| {
                 format!("the whole message stays in task {}'s session", self.short)
@@ -849,9 +937,11 @@ pub fn load_report(
     };
     let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
     let external = rec.as_ref().and_then(|r| r.external.clone());
+    let check = check_line(rec.as_ref());
     Ok(Some(Report {
         target,
         external,
+        check,
         ..Report::new(&e, rec.and_then(|r| r.title), last)
     }))
 }
@@ -919,7 +1009,13 @@ pub fn info(
         wake_parent: e.wake_parent,
         attention: None,
         arrangement: None,
+        check: task_of.and_then(|t| t.check.clone()),
     }
+}
+
+/// A check's line (M5 28a), from its session's record.
+fn check_line(rec: Option<&SessionRecord>) -> Option<String> {
+    Some(rec?.task.as_ref()?.check.as_ref()?.line())
 }
 
 /// A task's arrangement, as its surfaces show it: read from its node, which
@@ -1004,7 +1100,11 @@ pub fn cancelled_report(
     let Some(target) = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone()) else {
         return Ok((vec![], None));
     };
-    let report = Report::new(e, rec.and_then(|r| r.title), None);
+    let check = check_line(rec.as_ref());
+    let report = Report {
+        check,
+        ..Report::new(e, rec.and_then(|r| r.title), None)
+    };
     let (post, records) = outbox.stage(&e.session_id, &e.id, &target, report.post_body())?;
     Ok((records, Some(post)))
 }

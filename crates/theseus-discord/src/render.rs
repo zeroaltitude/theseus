@@ -998,10 +998,14 @@ pub fn tasks(tasks: &[theseus_protocol::TaskInfo], now_ms: u64) -> String {
             ""
         };
         // The pieces it was started from (M5 27).
-        let pieces = t
+        let mut pieces = t
             .arrangement
             .as_ref()
             .map_or(String::new(), |a| format!(" · 📎 {}", a.pieces.len()));
+        // A check names what it checks (M5 28a).
+        if let Some(c) = &t.check {
+            pieces.push_str(&format!(" · 🔍 `{}`", c.checked_short));
+        }
         lines.push(format!(
             "• `{}` {state}{asks}{pieces} · {} of {} · {age} · {}",
             t.short,
@@ -1053,6 +1057,11 @@ pub fn report(body: &Value, said: Option<&str>) -> String {
                 400
             )
         ),
+    };
+    // A check's basis, beside its report (M5 28a).
+    let head = match body["check"].as_str() {
+        Some(c) => format!("{head}\n-# {}", clip(c, 300)),
+        None => head,
     };
     let turns = body["turns"].as_u64().unwrap_or(0);
     let secs = body["elapsed_ms"].as_u64().unwrap_or(0) as f64 / 1000.0;
@@ -2572,6 +2581,16 @@ mod tests {
         assert!(
             failed.starts_with("⚠️ **Task `a1b2c3` failed** · Run the gate: provider_overloaded"),
             "{failed}"
+        );
+        // A check's report carries its basis (M5 28a).
+        let mut checked = body("complete", None);
+        checked["check"] =
+            json!("🔍 check of task d4e5f6 · independent (excluded ses_…d4e5f6, glm-4.6)");
+        assert_eq!(
+            report(&checked, Some("It holds.")),
+            "📋 **Task `a1b2c3` finished** · Run the gate\n\
+             -# 🔍 check of task d4e5f6 · independent (excluded ses_…d4e5f6, glm-4.6)\nIt holds.\n\
+             -# 3 turns · $0.0123 of $2.50 · 1 min 4 s"
         );
     }
 

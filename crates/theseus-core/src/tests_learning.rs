@@ -652,6 +652,7 @@ async fn loop_history(c: &Arc<Core>) -> Vec<Judgment> {
             by: "corr_parent".into(),
             target: None,
             arrangement: None,
+            check: None,
         });
         c.store.put_session(&rec.session_id, &rec).unwrap();
         let _ = brief;

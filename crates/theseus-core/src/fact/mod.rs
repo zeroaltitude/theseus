@@ -43,6 +43,7 @@ use crate::trace::Trace;
 pub mod answer;
 pub mod arrangement;
 pub mod cancel;
+pub mod check;
 pub mod compaction;
 pub mod driver;
 pub mod durability;
@@ -310,6 +311,8 @@ facts![
     tool::TaskHoldsExternal<'static>,
     arrangement::TaskArranged<'static>,
     arrangement::TaskArrangementRefused<'static>,
+    check::TaskCheckOpened<'static>,
+    check::TaskCheckRefused<'static>,
     task_graph::TaskCreated<'static>,
     task_graph::TaskUpdated<'static>,
     task_graph::TaskSplit<'static>,

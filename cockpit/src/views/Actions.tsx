@@ -11,6 +11,7 @@ import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { verdictWords } from '@/lib/verdict'
+import { checkLine } from '@/lib/check'
 import { ago, cn, ms, short, stamp, usd, clock } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Btn, Empty, Panel, Pill, StatePill } from '@/components/ui'
@@ -113,6 +114,11 @@ function Tasks({ past }: { past?: { t: number; tasks: TaskInfo[] } }) {
               </button>
             )}
           </div>
+          {t.check && (
+            <div className="num mt-1 text-[10.5px] text-ink-dim" title={t.check.overlaps?.map((o) => `${o.source}: ${o.words} words shared with ${o.node_id}: "${o.span}"`).join('\n') || 'it read its brief, the pieces, and the claim, and nothing else of the task it checks'}>
+              {checkLine(t.check)}
+            </div>
+          )}
           {pieces === t.task_id && t.arrangement && <Pieces a={t.arrangement} />}
         </div>
       ))}

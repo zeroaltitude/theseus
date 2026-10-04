@@ -19,6 +19,7 @@ pub mod bus;
 pub mod cancel;
 pub mod catalog;
 pub mod ceiling;
+pub mod check;
 pub mod compiler;
 pub mod config;
 pub mod config_copy;
@@ -121,6 +122,8 @@ mod tests_cancel;
 mod tests_categorize;
 #[cfg(test)]
 mod tests_ceilings;
+#[cfg(test)]
+mod tests_check;
 #[cfg(test)]
 mod tests_compaction;
 #[cfg(test)]

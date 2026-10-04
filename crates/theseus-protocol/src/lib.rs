@@ -13,6 +13,7 @@ mod aws;
 pub mod bench;
 mod budgets;
 pub mod cancel;
+pub mod check;
 pub mod cred;
 mod events;
 mod explain;
@@ -43,6 +44,7 @@ pub use arrangement::{ArrangementPiece, TaskArrangement};
 pub use aws::*;
 pub use budgets::*;
 pub use cancel::{CancelCount, CancelVerdict};
+pub use check::{CheckOverlap, CheckPiece, TaskCheck};
 pub use events::*;
 pub use explain::*;
 pub use gate::*;
@@ -1650,6 +1652,11 @@ pub struct TaskInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub arrangement: Option<TaskArrangement>,
+    /// A check task's basis (M5 28a): what it checks, and why it is
+    /// independent of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub check: Option<TaskCheck>,
 }
 
 /// `task.list`: every task, the newest first, or only one session's, or

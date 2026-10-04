@@ -575,6 +575,7 @@ fn arranged_as_shown(
     let Body::Arrangement {
         pieces,
         fidelity_ack,
+        ..
     } = &arrangement.body
     else {
         panic!("the arrangement follows the brief: {arrangement:?}")

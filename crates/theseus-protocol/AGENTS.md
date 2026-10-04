@@ -30,6 +30,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   and the keys that stay the harness's own. 18d's credential requests, `secret.requested` among them, went in
   theseus-w5op: a stored row of their kinds still reads, as an unknown kind.
 - `arrangement.rs` (M5 27): a task's arrangement as `TaskInfo` carries it, its pieces by reference.
+- `check.rs` (M5 28a): a check task's basis (`TaskCheck`) as `TaskInfo` carries it, and `TaskCheck::line`, the one
+  wording every surface shows (`cockpit/src/lib/check.ts` mirrors it).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

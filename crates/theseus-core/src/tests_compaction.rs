@@ -632,6 +632,7 @@ async fn a_tasks_first_compile_is_assembled_with_its_recall_section_first() {
         by: "act_brief".into(),
         target: None,
         arrangement: None,
+        check: None,
     });
     r.core.store.put_session(&task.session_id, &task).unwrap();
     let sid = task.session_id.clone();
