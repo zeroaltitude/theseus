@@ -1451,10 +1451,10 @@ mod tests {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["join", "leave"]);
-        // The binding registers them after its own nine (`/prompt` is the ninth).
+        // The binding registers them after its own ten (`/extensions` is the tenth).
         let all = super::super::commands();
-        let last: Vec<&str> = all[9..].iter().map(|c| c.name.as_str()).collect();
-        assert_eq!((all.len(), last), (11, vec!["join", "leave"]));
+        let last: Vec<&str> = all[10..].iter().map(|c| c.name.as_str()).collect();
+        assert_eq!((all.len(), last), (12, vec!["join", "leave"]));
         let join = &cmds[0];
         assert_eq!(join.options.len(), 1);
         assert_eq!(join.options[0].name, "channel");

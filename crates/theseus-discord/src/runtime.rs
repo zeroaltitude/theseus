@@ -51,6 +51,7 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod audience;
+mod extensions;
 mod guilds;
 mod prompt;
 mod publish;
@@ -549,6 +550,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
         .build(),
     );
     cmds.push(prompt::command());
+    cmds.push(extensions::command());
     cmds.extend(voice::commands());
     cmds
 }
@@ -712,6 +714,10 @@ enum Control {
     Leave,
     /// Run an MCP server's prompt as the next turn (36c, `runtime/prompt.rs`).
     Prompt(Box<theseus_protocol::mcp::McpPromptRef>),
+    /// The loaded extensions (43b, `runtime/extensions.rs`).
+    Extensions,
+    /// Revoke a loaded extension, as the presser.
+    Revoke(String, Option<DiscordOrigin>),
 }
 
 /// What a place says when it is bound to a fresh session: how to talk, and
@@ -1238,6 +1244,13 @@ impl Shared {
             }),
             _ => None,
         };
+        // `/extensions` and its Revoke buttons (`runtime/extensions.rs`).
+        if self
+            .extensions_interaction(&i, &tx, &who, discord.clone())
+            .await
+        {
+            return;
+        }
         match &i.data {
             Some(InteractionData::MessageComponent(c)) => {
                 if let Some(asked) = parse_asked_pick(&c.custom_id, &c.values) {
@@ -2198,6 +2211,8 @@ impl Place {
             }
             Control::Trust(origin) => self.trust(origin, by).await,
             Control::Publish(ask) => self.publish(*ask, by).await,
+            Control::Extensions => self.extensions().await,
+            Control::Revoke(name, origin) => self.revoke(name, origin, by).await,
             Control::Join(named, origin) => self.join(named, origin, by).await,
             Control::Leave => self.leave(by).await,
         }
