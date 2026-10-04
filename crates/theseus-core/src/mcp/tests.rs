@@ -337,6 +337,12 @@ struct Rig {
 }
 
 fn rig(mode: Mode) -> Rig {
+    rig_with(mode, server_cfg(&[]), None)
+}
+
+/// `rig`, with this server's table, and this list stored before the core
+/// is built.
+fn rig_with(mode: Mode, server: McpServerConfig, stored: Option<StoredList>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -345,8 +351,13 @@ fn rig(mode: Mode) -> Rig {
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = Posture::Notify;
-    cfg.mcp.servers.insert("fake".into(), server_cfg(&[]));
+    cfg.mcp.servers.insert("fake".into(), server);
     let store = Store::open(&dir.path().join("store")).unwrap();
+    if let Some(list) = stored {
+        store
+            .put_meta(&format!("{}fake", super::STORED_PREFIX), &list)
+            .unwrap();
+    }
     let model = Arc::new(Model {
         script: Box::new(script),
         requests: Mutex::default(),
@@ -588,10 +599,9 @@ async fn a_changed_list_applies_at_the_next_turn_with_its_row() {
     r.core.mcp.stop();
 }
 
-/// An error result is a failure the model reads, and still outside text;
-/// a server that is down fails `mcp_unavailable`, saying nothing was sent.
+/// An error result is a failure the model reads, and still outside text.
 #[tokio::test]
-async fn an_error_result_is_outside_text_and_a_down_server_is_unavailable() {
+async fn an_error_result_is_a_failure_and_still_outside_text() {
     let r = rig(Mode::Error);
     r.core.mcp.start();
     r.core
@@ -608,5 +618,44 @@ async fn an_error_result_is_outside_text_and_a_down_server_is_unavailable() {
     assert_eq!(status, ResultStatus::Error, "{text}");
     assert!(text.contains("answered an error"), "{text}");
     assert!(external, "the server's error is its text too");
+    r.core.mcp.stop();
+}
+
+/// A call to a server that does not come up within its start timeout
+/// fails `mcp_unavailable`, saying nothing was sent: not unknown, and not
+/// outside text, since the server said nothing.
+#[tokio::test]
+async fn a_call_to_a_server_that_never_comes_up_is_unavailable() {
+    // The stored list offers the tool; the server never answers.
+    let stored = StoredList {
+        digest: "stored".into(),
+        tools: vec![serde_json::from_value(json!({
+            "name": "echo", "description": "Echoes its text.",
+            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}}
+        }))
+        .unwrap()],
+    };
+    let r = rig_with(
+        Mode::Ok,
+        McpServerConfig {
+            start_timeout_secs: 1,
+            ..server_cfg(&[])
+        },
+        Some(stored),
+    );
+    let down = InProcess::with(&[("fake", Mode::Ok)]);
+    down.set_down("fake", true);
+    r.core.mcp.set_connect(down);
+    r.core.mcp.start();
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "echo into the void").await;
+    let (status, text, external) = result_of(&r.core, &sid, "m1");
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(
+        text.starts_with("mcp_unavailable: MCP server fake"),
+        "{text}"
+    );
+    assert!(text.contains("Nothing was sent"), "{text}");
+    assert!(!external, "the server said nothing");
     r.core.mcp.stop();
 }
