@@ -155,7 +155,7 @@ async fn a_tool_outside_the_ceiling_is_not_offered_and_a_call_naming_it_is_refus
 async fn a_ceiling_never_offers_a_shared_place_a_private_tool() {
     let r = rig();
     let every = [
-        "fs", "git", "text", "proc", "aws", "web", "http", "wake", "task",
+        "fs", "git", "text", "proc", "aws", "web", "http", "wake", "task", "channel",
     ];
     bind(&r.core, None, tools(&every));
     let pier = session(&r.core, Some(&format!("channel:{PIER}")));

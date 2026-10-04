@@ -395,31 +395,58 @@ user = "<user id>"
   it waits for approval at every posture. §3.1's "versioned config in the store, editable by slash command
   and the web UI" is filed. The file's revision (its SHA-256 prefix) is already ledgered.
 
-**38b: gliding.**
+**38b: gliding, on the place rule.** _Rewritten 2026-10-04 (theseus-ypy0). The first design gated a glide
+by a subset rule on each place's users, until M4's confidentiality labels (step 19) took it over. The place
+rule removed those labels on 2026-10-03 (Part III Item 76), so the rule they named is gone. Eddie's call
+(2026-10-04, "Gliding with the place rule: yes!") is the rule below, which replaces both._
 - **`channel.post { to, text }`** (§3.24's `channel` family) posts into another bound place.
-  - It is an outbox post (`glide:<correlation id>`), sent once by that place's lane. `to` names a place by
-    its label (`#deploys`, `DM @eddie`) or its key.
-  - The destination must be bound in this daemon; otherwise the call fails with "not a place Theseus is bound
-    to".
-  - **Intersected ceilings.** The call's posture is the stricter of its own and the destination's floor.
-  - **Audience.** A post discloses what this session knows to the destination's users. When they are all
-    users of this place too, the call runs at its posture. Otherwise it waits for approval: "posting into
-    #x, whose users include people not in this place".
+  - It is an outbox post (`glide:<correlation id>`), written in the frame that settles the call, and sent
+    once by that place's lane, in its order. Its message ends with a line naming the session that posted it.
+  - `to` names a place by its label (`#deploys`, `DM @eddie`) or its key (`channel:<id>`, `dm:<user id>`).
+    A place this daemon isn't bound to fails with words: "not a place Theseus is bound to".
+  - **The destination's floor.** The call's posture is no looser than the destination's ceiling's floor
+    (38a).
   - It is class `Write`, so T1's hold applies: a page could steer a post elsewhere.
+  - At most 4,000 characters, two Discord messages.
 - **`channel.read { from, last? }`** borrows another place's recent conversation: its last N messages (20 by
-  default), as one node marked `borrowed from #x`.
-  - When this place's users are all users of the source too, it runs at its posture, since everyone who will
-    see the answer could already see the source. Otherwise it waits for approval. It is class `Read`.
-  - Confidentiality labels (M4, step 19) take this over when they land. This subset rule is the interim
-    floor, as T1 was for provenance.
+  default, 100 at most), people's and Theseus's, oldest first, as one node, the call's result, marked
+  `borrowed from #x`. The node has a `derived_from` edge to each message it took (P0's rule 3), which
+  `node.reach` reads. It is class `Read`.
+- **The rule**, in one function both tools' gate and run take (`places::glide_rule(from, to)`). Words go from
+  where they were said to where they go: a post's from its session's place to its destination, and a
+  read's from its source into its session's place. The CLI and the web UI are private.
+
+  | from \ to | private | shared |
+  |---|---|---|
+  | **private** | allowed | asks first, as `/publish` does |
+  | **shared** | allowed; a read's text is outside text | asks first: different audiences |
+
+  - **The same place** is allowed, since its audience is the same.
+  - **Into a private place: always allowed,** at the call's own posture. What a read brings there from a
+    shared place is outside text, as a fetched page is: the result is marked `external`, and the session
+    takes T1's hold. A read from a shared place is marked so wherever it goes.
+  - **Out of a private place: never without the owner.** A post from a private place into a shared one asks
+    first, exactly like `/publish`. The answer counts only from the owner in a private place
+    (`owner_in_private`), a shared place's card goes to the owner's DM, and the approved post is recorded as
+    a publish is, with a `place.published` row naming who approved it and through what. A read of a private
+    place's history from a session in a shared place asks first too.
+  - **Between two shared places: asks first,** since they are different audiences.
+  - **Private to private: allowed,** at the call's own posture.
+  - Every place is offered both tools, a shared one too, since the rule asks wherever it must. A shared
+    place's people can make a glide into the owner's DM; it is the owner's to read.
+  - The run checks the rule again. A call that waited runs only as approved, so a place the binding rebound
+    meanwhile with a stricter class is not glided past.
 
 **Seen in.**
 - **Health:** `bindings[]` gains each place's guild and ceiling. `theseus health`'s bindings line counts
   places by guild.
 - **Observatory:** the Discord section groups places by guild and shows each ceiling. The Policy tab (42)
   shows each place's postures.
-- **Ledger:** `discord.bound` gains `guild` and `ceiling`. New rows `glide.posted` and `glide.read`.
-- **Narrative:** "session a1b2c3 posted to #deploys (1,204 chars, floor notify)".
+- **Ledger:** `discord.bound` gains `guild` and `ceiling`. New rows `glide.posted` and `glide.read`: from and
+  to, the characters (and a read's messages, and whether it is outside text), and how the rule allowed it,
+  `allowed`, or `approved` with the rule's words.
+- **Narrative:** "session a1b2c3 posted to #deploys (1,204 chars, asked first and approved)", and "session
+  a1b2c3 borrowed 20 messages from #ops (3,410 chars, allowed; outside text)".
 
 **Filed:**
 - threads (thread over channel over guild);
@@ -802,7 +829,7 @@ it), and joins `main` through its SPINE wire-in.
 | 37a | SPINE | the repeating wake: `every`, `days`, `until`; the re-arm in `take_wakes`; ~~execution schema 3~~ store format 5; the hold rule. **Done 2026-10-03** (Part III Item 84) | T1b (4b) |
 | 37b | SPINE | tasks set one-shot wakes (theseus-7kg) | 37a |
 | 38a | SPINE | bindings format 2 (many guilds), per-place ceilings in the gate, tools offered, spend, and profile | T1b (theseus-e89) |
-| 38b | SPINE | gliding: `channel.post`, `channel.read`, the audience rule | 38a |
+| 38b | SPINE | gliding: `channel.post`, `channel.read`, on the place rule (rewritten 2026-10-04) | 38a |
 | 39a | SPINE | the `TASK` record kind, three layers, CAS, the tools, the view in context | 37b |
 | 39b | SPINE | claim leases; the board and `/tasks`; the layer-1 card; the web task graph | 39a |
 | 41a | LANE | `theseus-mcp::server`: `/mcp`, the key, Origin, rate limit, a fake core | 36a |
@@ -832,7 +859,8 @@ it), and joins `main` through its SPINE wire-in.
 - **From other phases:**
   - T1b and step 9's protocol push (Stage 1), and theseus-d64 (fix batch 2).
   - L1 (step 17), for 36b's sandbox and all of 43.
-  - Confidentiality labels (step 19) later replace 38b's audience rule.
+  - ~~Confidentiality labels (step 19) later replace 38b's audience rule.~~ The place rule removed the labels
+    (2026-10-03), and 38b takes the place rule directly (2026-10-04).
   - M5, for the voice latency class; M6, for the server's memory tools.
   - None of this phase depends on step 40.
 
@@ -918,13 +946,17 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
 
 **38b.**
 - *Tests:*
+  - the rule's whole matrix: private and shared, each way, and the same place;
   - a glide reaches the other lane once (the nonce), in order;
-  - the destination's floor applies;
-  - a destination with more users waits;
-  - a read runs or waits by the audience rule;
-  - T1's hold makes `channel.post` wait.
-- *Live:* two places at the fake Discord. GLM posts a summary into the other place (one message at the fake),
-  then reads it back from the first.
+  - a post into a private place runs; one out of a private place asks first, posts once when approved, and
+    posts nothing when declined;
+  - the destination's floor applies, and T1's hold makes `channel.post` wait;
+  - a place not bound here fails with words;
+  - a read from a shared place is outside text, and holds its session; a read of a private place from a
+    shared one asks first;
+  - the ledger rows.
+- *Live:* a scratch daemon, a CLI session (private) and a fake shared channel: posts and reads each way,
+  showing allowed and asks first.
 
 **39a.**
 - *Tests:*
@@ -1080,7 +1112,7 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
 | 14 | The lease's length? | 30 minutes, renewed by each of the holder's turns that touches the task. |
 | 15 | Who accepts a layer-1 change? | The task's requester, else the owner, in trusted channels only. |
 | 16 | Where do bindings live? | The operator's file, under the floor. Tighten-only edits kept in the store come later. |
-| 17 | The audience rule for a glide's post and read? | The subset rule; otherwise the call waits for approval. |
+| 17 | The audience rule for a glide's post and read? | The place rule (Eddie, 2026-10-04): into a private place it is allowed; out of one, or between two shared places, it asks first. The subset rule it replaces waited for 19a's labels, which the place rule removed. |
 | 18 | The MCP server's tools? | `conversation_*`, `task_list`, `wake_list`, and memory once M6 has its methods. |
 | 19 | Voice and text: one session or two? | One. |
 | 20 | Where does an utterance end? | After 700 ms of silence (the stand-in), until a provider's endpointing replaces it. |

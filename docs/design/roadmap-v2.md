@@ -258,7 +258,7 @@ counts half. The blocks:
 | 66 | 36b: MCP tools in turns: the `&str` change, `McpBoard`, `[mcp.servers]`, `theseus-sim fake-mcp`; servers in L1. **Joins 36a** | ext | 1.5 (M7's biggest) | the MCP lane (36a); 17b |
 | 67 | 36c: MCP prompts: `/prompt`, `theseus prompt`, the web picker | ext | 1 | 36b |
 | 68 | 38a: bindings format 2: many guilds, per-place ceilings | ext | 1 | e89 (T1b) |
-| 69 | 38b: gliding: `channel.post` and `channel.read`, under 19a's audience rule. _19a's labels were removed with the place rule (Part III Item 76), so its design waits for Eddie's call on a redesign._ | ext | 1 | 38a; 19a |
+| 69 | 38b: gliding: `channel.post` and `channel.read`, on the place rule. _19a's labels were removed with the place rule (Part III Item 76), and Eddie chose the redesign on 2026-10-04: into a private place a glide always may, and a read from a shared place is outside text; out of a private place, or between two shared places, it asks first, as `/publish` does (M7 §2.3, rewritten; theseus-ypy0)._ | ext | 1 | 38a |
 | 70 | 39a: the `TASK` record kind, three layers, CAS, the tools; 27's arrangement kept | ext | 1 | 37b; 27 |
 | 71 | 39b: claim leases, the board, `/tasks`, the web task graph | ext | 1 | 39a |
 | 72 | 41b: the MCP server's wire-in: `[mcp_server]`, `Surface::Mcp`. **Joins 41a** | ext | 1 | 41a (lane); 9c; d64 (a job's session and `opened_from`, in the integrity lane, theseus-b5cl) |
@@ -498,7 +498,8 @@ filed twice.
 7. **The audience rule, built twice.** M7's 38b builds a subset rule for gliding, to be "later replaced" by
    M4's labels. M6 falls back to owner-only recall until 19a exists.
    - *Resolution:* in this order 19a lands before both. 38b uses 19a's audience rule (`covers`) directly, and
-     neither interim rule is built.
+     neither interim rule is built. _Since 2026-10-04: the place rule removed 19a's labels, and 38b takes the
+     place rule instead (theseus-ypy0)._
 8. **Three new sources of external text.** AWS's C3 marks AWS data-plane reads external (its question 4). M7's
    36b marks MCP results external. M4's 20a moves T1's hold onto integrity labels, with an `external` origin.
    - *Resolution:* after 20a, a source sets the `external` origin label rather than calling T1's hold directly,

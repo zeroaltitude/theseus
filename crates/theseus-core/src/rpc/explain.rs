@@ -188,7 +188,7 @@ impl Core {
             says: match (s.view.class, rule_offers) {
                 (PlaceClass::Private, _) => "a private place: every tool is offered".into(),
                 (PlaceClass::Shared, true) => {
-                    "a shared place: offered, one of the public tools or a file tool under the public paths".into()
+                    "a shared place: offered, one of the public tools, a glide, or a file tool under the public paths".into()
                 }
                 (PlaceClass::Shared, false) => {
                     "a shared place: only the public tools, and the file tools under the public paths".into()
@@ -229,10 +229,13 @@ impl Core {
         let held = move || hold.clone();
         let mcp = s.mcp;
         let mcp = move || mcp;
+        // A glide's other place is its call's (38b): `glide`'s condition
+        // says what the rule does there.
         let at = At {
             place: s.view,
             held: &held,
             mcp: &mcp,
+            glide: None,
         };
         let mut seen: Vec<(Layer, Decision)> = Vec::new();
         let (d, _) = rt.order(&at, tool, &plan, &serde_json::Value::Null, &mut |l, d| {
@@ -299,7 +302,7 @@ impl Core {
                 "a call on a root whose language server has started takes its own posture".into(),
                 None,
             )],
-            Layer::Lsp | Layer::SharedFetch => return None,
+            Layer::Lsp | Layer::SharedFetch | Layer::Glide => return None,
             Layer::Floor => vec![row(
                 "floor",
                 match s.view.ceiling.and_then(|c| c.floor.map(|f| (c, f))) {
@@ -461,6 +464,15 @@ fn conditions(core: &Core, s: &Scene, tool: &dyn Tool) -> Vec<ExplainCondition> 
             "a path outside the public paths, in a shared place",
             shown(&rt.public_roots),
             "refused",
+        ));
+    }
+    if crate::glide::is_glide(name) {
+        out.push(cond(
+            "glide",
+            "out of a private place into a shared one, or between two shared places, by the place \
+             the call names (38b); into a private place it keeps its posture",
+            Vec::new(),
+            "approve",
         ));
     }
     if tool.backend() == Backend::Harness {

@@ -79,7 +79,7 @@ fn first_user(req: &ProviderRequest) -> String {
         .unwrap_or_default()
 }
 
-fn last_user(req: &ProviderRequest) -> String {
+pub(crate) fn last_user(req: &ProviderRequest) -> String {
     req.messages
         .iter()
         .rev()
@@ -214,6 +214,20 @@ pub(crate) fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
 
 /// `rig_with`, with `setup` run on the store before the core is built.
 pub(crate) fn rig_setup(tweak: impl FnOnce(&mut Config), setup: impl FnOnce(&Store)) -> Rig {
+    rig_full(tweak, setup, Box::new(script))
+}
+
+/// `rig_with`, its model answering by `script` (38b's glides).
+pub(crate) fn rig_scripted(
+    tweak: impl FnOnce(&mut Config),
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+) -> Rig {
+    rig_full(tweak, |_| {}, Box::new(script))
+}
+
+type Script = Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>;
+
+fn rig_full(tweak: impl FnOnce(&mut Config), setup: impl FnOnce(&Store), script: Script) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("open")).unwrap();
@@ -225,7 +239,7 @@ pub(crate) fn rig_setup(tweak: impl FnOnce(&mut Config), setup: impl FnOnce(&Sto
     let store = Store::open(&dir.path().join("store")).unwrap();
     setup(&store);
     let model = Arc::new(Model {
-        script: Box::new(script),
+        script,
         requests: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
@@ -325,6 +339,8 @@ impl Rig {
 /// What a shared place is offered: the public tools, and the file tools
 /// for the public tree.
 pub(crate) const SHARED_TOOLS: &[&str] = &[
+    "channel_post",
+    "channel_read",
     "fs_edit",
     "fs_glob",
     "fs_grep",

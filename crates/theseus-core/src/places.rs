@@ -28,6 +28,12 @@
 //!   undo of a tightening, a trust, and a publish count only from a private
 //!   place, by the owner (`owner_in_private`). A shared place's cards go to
 //!   the owner's DM.
+//! - **Gliding follows it** (38b, Eddie 2026-10-04): words that move between
+//!   places, a `channel.post` or a `channel.read`, take `glide_rule`. Into a
+//!   private place they always may, and what comes from a shared place is
+//!   outside text there; out of a private place, or between two shared
+//!   places, they ask the owner first, as `/publish` does. Every place is
+//!   offered the two tools, since the rule asks wherever it must.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -366,12 +372,106 @@ pub fn files_tool(name: &str) -> bool {
     ["fs.", "git.", "text."].iter().any(|p| name.starts_with(p))
 }
 
+/// The gliding tools (38b), `channel.post` and `channel.read`: offered in a
+/// shared place too, since every way out of a private place, and every way
+/// between two shared ones, asks the owner first (`glide_rule`).
+pub fn glide_tool(name: &str) -> bool {
+    name.starts_with("channel.")
+}
+
 /// Whether the model in a place of `class` is offered the tool `name`.
 /// `public` is `public_paths`, canonical.
 pub fn offered(class: PlaceClass, name: &str, public: &[PathBuf]) -> bool {
     match class {
         PlaceClass::Private => true,
-        PlaceClass::Shared => public_tool(name) || (files_tool(name) && !public.is_empty()),
+        PlaceClass::Shared => {
+            public_tool(name) || glide_tool(name) || (files_tool(name) && !public.is_empty())
+        }
+    }
+}
+
+/// One end of a glide (38b): where its words were said, or where they go.
+/// `target` is the place's (`discord:channel:<id>`), none for the CLI or
+/// the web UI; `name` is how the rule's words say it (`#deploys`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct End<'a> {
+    pub target: Option<&'a str>,
+    pub name: &'a str,
+    pub class: PlaceClass,
+}
+
+/// What the place rule says of a glide (38b): it runs at the call's own
+/// posture, or it asks the owner first, for the reason given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Glide {
+    Allow,
+    AskFirst(String),
+}
+
+/// The place rule for words that move between places (38b, approved by
+/// Eddie on 2026-10-04), the one rule every glide takes: `from` is where
+/// the words were said, `to` where they go. A post goes from its session's
+/// place to the place it names; a read goes from the place it names into
+/// its session's.
+/// - **The same place**: allowed, since its audience is the same.
+/// - **Into a private place**: allowed. What a read brings there from a
+///   shared place is outside text (`glide::outside`).
+/// - **Out of a private place into a shared one**: asks first, as
+///   `/publish` does. Only the owner puts the owner's material where others
+///   read it, and the answer counts only from a private place.
+/// - **Between two shared places**: asks first: they are different
+///   audiences.
+pub fn glide_rule(from: &End<'_>, to: &End<'_>) -> Glide {
+    if from.target.is_some() && from.target == to.target {
+        return Glide::Allow;
+    }
+    match (from.class, to.class) {
+        (_, PlaceClass::Private) => Glide::Allow,
+        (PlaceClass::Private, PlaceClass::Shared) => Glide::AskFirst(format!(
+            "out of a private place: {} is shared, so this puts words from {} where others \
+             read them, and only the owner does that, as with /publish",
+            to.name, from.name
+        )),
+        (PlaceClass::Shared, PlaceClass::Shared) => Glide::AskFirst(format!(
+            "between two shared places: {} and {} are different audiences",
+            from.name, to.name
+        )),
+    }
+}
+
+/// The place rule with the config its classes read (the owners): what a
+/// turn's tools resolve a named place by (38b).
+#[derive(Clone, Copy)]
+pub struct Places<'a> {
+    pub rule: &'a PlaceRule,
+    pub cfg: &'a crate::Config,
+}
+
+impl Places<'_> {
+    /// The bound place `name` names, as `PlaceRule::find` reads it.
+    pub fn find(&self, name: &str) -> Option<BoundPlace> {
+        self.rule.find(name)
+    }
+
+    /// The class and ceiling of the place `target`, as the gate reads them.
+    pub fn view(&self, target: Option<&str>) -> PlaceView {
+        self.rule.place(self.cfg, target)
+    }
+
+    /// The name of the place `target`: its bound name, else the target
+    /// itself; none is the CLI or the web UI.
+    pub fn name_of(&self, target: Option<&str>) -> String {
+        match target {
+            None => "the CLI or the web UI".into(),
+            Some(t) => self
+                .rule
+                .bound
+                .read()
+                .unwrap()
+                .iter()
+                .find(|b| b.place.target == t)
+                .map_or_else(|| t.to_string(), |b| b.place.name.clone()),
+        }
     }
 }
 
@@ -625,12 +725,75 @@ mod tests {
         );
     }
 
+    /// The glide rule's whole matrix (38b): each way between a private place
+    /// and a shared one, both ways, two shared places, and the same place of
+    /// each class. Into a private place it allows; out of a private place
+    /// into a shared one, and between two shared ones, it asks first, naming
+    /// both places; within one place it allows.
+    #[test]
+    fn the_glide_rule_allows_into_private_and_asks_out_of_it_and_between_shared() {
+        use PlaceClass::{Private, Shared};
+        let end = |target, name, class| End {
+            target: Some(target),
+            name,
+            class,
+        };
+        let dm = end("discord:dm:1", "DM @owner", Private);
+        let lab = end("discord:channel:2", "#lab", Private);
+        let hall = end("discord:channel:3", "#hall", Shared);
+        let pier = end("discord:channel:4", "#pier", Shared);
+        let cli = End {
+            target: None,
+            name: "the CLI or the web UI",
+            class: Private,
+        };
+        let out = Some("out of a private place");
+        let between = Some("between two shared places");
+        let table = [
+            (cli, dm, None),
+            (dm, lab, None),
+            (hall, dm, None),
+            (hall, cli, None),
+            (dm, hall, out),
+            (cli, hall, out),
+            (lab, pier, out),
+            (hall, pier, between),
+            (pier, hall, between),
+            (hall, hall, None),
+            (dm, dm, None),
+            (cli, cli, None),
+        ];
+        for (from, to, asks) in table {
+            match (glide_rule(&from, &to), asks) {
+                (Glide::Allow, None) => {}
+                (Glide::AskFirst(why), Some(says)) => {
+                    assert!(why.starts_with(says), "{} to {}: {why}", from.name, to.name);
+                    assert!(
+                        why.contains(from.name) && why.contains(to.name),
+                        "it names both places: {why}"
+                    );
+                }
+                (got, want) => panic!(
+                    "{} to {}: the rule said {got:?}, and the table {want:?}",
+                    from.name, to.name
+                ),
+            }
+        }
+    }
+
     /// A shared place is offered the public tools, and the file tools only
     /// with a public tree; a private one everything.
     #[test]
     fn a_shared_place_is_offered_the_public_tools() {
         let public = [PathBuf::from("/w/open")];
-        for name in ["web.search", "http.fetch", "wake.at", "task.create"] {
+        for name in [
+            "web.search",
+            "http.fetch",
+            "wake.at",
+            "task.create",
+            "channel.post",
+            "channel.read",
+        ] {
             assert!(offered(PlaceClass::Shared, name, &[]), "{name}");
         }
         for name in [

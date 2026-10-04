@@ -120,6 +120,8 @@ ledger_kinds! {
     ExtendProposed = "extend.proposed",
     ExtendRevoked = "extend.revoked",
     ExtendTested = "extend.tested",
+    GlidePosted = "glide.posted",
+    GlideRead = "glide.read",
     ImageNotShown = "image.not_shown",
     IndexTender = "index.tender",
     JobNotStarted = "job.not_started",
