@@ -10,9 +10,17 @@
 //! - `fixture`: the fixture writer, which puts every item's past into a
 //!   scratch store as the product writes sessions, and a manifest of where.
 //! - `check`: the check language that scores an answer, deterministically.
-//! - `render`: the oracle arm's note, in the recall note's format (§2.4).
-//! - `drive`: the run, arms × items × runs, through a scratch daemon's socket.
-//! - `stats` and `report`: paired by item, clustered by item, with intervals.
+//! - `render`: the oracle arm's note, the core's own render of a `Recall`
+//!   node of the item's gold (§2.4, step 30b).
+//! - `drive`: the run, arms × items × runs, each cell through its arm's
+//!   scratch daemon's socket.
+//! - `daemon` and `arms`: one scratch daemon per arm of the real pipeline
+//!   (`none`, `bm25`, `baseline`), each on its own copy of the exam's store,
+//!   started, waited for until its tender holds the store, and stopped
+//!   (row 55, step 34b's wire-in).
+//! - `stats` and `report`: paired by item, clustered by item, with intervals,
+//!   and the decision per feature under the plan (`docs/m6-ablation-plan.md`,
+//!   whose digest every report names).
 //! - `words`: a text's content words, which the paraphrase and scale
 //!   families' definitions are checked with.
 //! - `probe`: where the gold ranked, per item, and recall per family.
@@ -20,19 +28,23 @@
 //!   per arm of sources and fusion weights, so the exam can judge BM25,
 //!   vectors and fusion without building a model (theseus-emc).
 //!
-//! The crate is a lane (34a): it changes nothing in the core. At the join
-//! (34b) its driver becomes `theseus-sim exam`, and its scoring moves to
-//! `theseus-memory` beside the arms.
+//! The crate is a tool of its own (its manifest's `tool` marker): the
+//! `theseus-exam` binary, which a maintainer runs by hand, beside
+//! `theseusd`. 34a planned to move its driver into `theseus-sim exam` and its
+//! scoring into `theseus-memory` at 34b's join; 34b kept both here instead:
+//! the exam needs no code in the shipped binaries, and `theseus-sim` stays
+//! the gate's tool.
 //!
 //! **Memory arms (row 55).** An arm of the real memory pipeline is chosen by
 //! the scratch daemon's config key `[memory] arm`, never by a field of
-//! `turn.submit`: the exam's scratch daemon sets it, one daemon per arm, and
-//! every client's submit stays as it is. Row 55 adds the key to the daemon;
-//! until then the driver has the arms `none` and `oracle` only, and sets
-//! nothing.
+//! `turn.submit`: the exam runs one daemon per arm, each in `live` mode, and
+//! every client's submit stays as it is. `oracle` is the driver's own: the
+//! gold, sent after the task to the `none` daemon.
 
+pub mod arms;
 pub mod check;
 pub mod client;
+pub mod daemon;
 pub mod drive;
 pub mod fixture;
 pub mod generate;

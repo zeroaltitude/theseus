@@ -1,15 +1,15 @@
 [package]
 name = "theseus-exam"
-description = "M6's memory exam (step 34a): items whose success needs something from an earlier session, a fixture writer that puts their past into a scratch store, the check language that scores an answer, the paired statistics, and the headroom run's driver (arms `none` and `oracle`) over a scratch daemon's socket."
+description = "M6's memory exam (steps 34a, 34b): items whose success needs something from an earlier session, a fixture writer that puts their past into a scratch store, the check language that scores an answer, the paired statistics, and the driver over the real recall pipeline: one scratch daemon per arm (`none`, `bm25`, `baseline`), and the oracle's note."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
+# The reader rule (theseus-wjy): a tool, an installed binary of its own.
 [package.metadata.theseus]
-reserved_for = "row 55 (34b's wire-in), M6: the exam's harness over the real pipeline, through the scratch daemon's `[memory] arm` config key"
+tool = "run by hand beside theseusd: M6's memory exam, which starts one scratch daemon per `[memory] arm` and writes the report (step 34b)"
 
 [[bin]]
 name = "theseus-exam"
@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 theseus-core.workspace = true
 theseus-kernel.workspace = true
+theseus-memory = { path = "../theseus-memory" }
 theseus-protocol.workspace = true
 theseus-store.workspace = true
 anyhow.workspace = true
