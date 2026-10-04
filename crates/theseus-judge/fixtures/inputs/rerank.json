@@ -1,0 +1,9 @@
+{
+  "message": "Where does the grey heron nest?\nAnd when does it fly south?",
+  "notes": [
+    {"key": "nod_weir#0", "text": "Remember: the grey heron nests by the old weir at Millbrook."},
+    {"key": "nod_kettle#0", "text": "The kettle in the shed needs descaling before the weekend."},
+    {"key": "nod_heron2#1", "text": "Herons left the weir in late October last year, after the first frost."},
+    {"key": "nod_gate#0", "text": "The north gate's padlock code changed on Monday; ask Wren for it."}
+  ]
+}
