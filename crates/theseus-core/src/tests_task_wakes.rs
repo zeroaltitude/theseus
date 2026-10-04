@@ -194,13 +194,19 @@ fn config(root: &Path, state: &Path) -> Config {
 }
 
 /// One life of the daemon over the store in `dir`, with its driver.
-struct Life {
-    core: Arc<Core>,
+pub(crate) struct Life {
+    pub core: Arc<Core>,
     model: Arc<Model>,
     driver: tokio::task::JoinHandle<()>,
 }
 
 fn life(dir: &Path) -> Life {
+    life_with(dir, |_| {})
+}
+
+/// One life, its parts as `tweak` leaves them (the inbound point's tests
+/// turn the judge on).
+pub(crate) fn life_with(dir: &Path, tweak: impl FnOnce(&mut crate::rpc::Parts)) -> Life {
     let root = dir.join("work");
     std::fs::create_dir_all(&root).unwrap();
     let cfg = config(&root.canonicalize().unwrap(), dir);
@@ -208,7 +214,9 @@ fn life(dir: &Path) -> Life {
     let model = Arc::new(Model {
         requests: Mutex::default(),
     });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    tweak(&mut parts);
+    let core = Core::build(parts).unwrap();
     // A DM's person is its owner once the binding binds it (the place rule).
     core.runner.place_rule.bind_one(crate::places::BoundPlace {
         target: TARGET.into(),
@@ -226,7 +234,7 @@ fn life(dir: &Path) -> Life {
 
 impl Life {
     /// End this life: the driver stops, and the store closes with the core.
-    async fn stop(self) {
+    pub(crate) async fn stop(self) {
         self.driver.abort();
         let _ = self.driver.await;
         let core = self.core;
@@ -248,7 +256,7 @@ fn parent_session(core: &Arc<Core>) -> String {
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -270,7 +278,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
         .unwrap()
 }
 
-fn exec(core: &Core, id: &str) -> Execution {
+pub(crate) fn exec(core: &Core, id: &str) -> Execution {
     core.kernel.execution(id).unwrap().unwrap()
 }
 
@@ -282,7 +290,7 @@ fn only_task(core: &Core, parent: &str) -> Execution {
     tasks.into_iter().next().unwrap()
 }
 
-async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
+pub(crate) async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
     let t0 = Instant::now();
     while !f() {
         assert!(
@@ -293,7 +301,7 @@ async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
     }
 }
 
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
+pub(crate) fn rows(core: &Core, kind: &str) -> Vec<Value> {
     core.store
         .ledger_tail::<crate::ledger::LedgerRow>(100_000)
         .unwrap()
@@ -362,7 +370,7 @@ fn results(core: &Core, task: &Execution) -> Vec<String> {
 
 /// Starts a task with `brief` from a fresh parent, and waits until the
 /// task's first turn has parked on its wake.
-async fn parked(core: &Arc<Core>, brief: &str) -> (String, Execution) {
+pub(crate) async fn parked(core: &Arc<Core>, brief: &str) -> (String, Execution) {
     let parent = parent_session(core);
     turn(core, &parent, &format!("START {brief}")).await;
     let task = only_task(core, &parent);

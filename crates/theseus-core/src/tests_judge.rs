@@ -46,7 +46,27 @@ pub(crate) fn board() -> Arc<SecretBoard> {
     b
 }
 
+/// A pack's line that turns it off.
+pub(crate) fn off() -> crate::config::JudgePackConfig {
+    crate::config::JudgePackConfig {
+        mode: Some(PackMode::Off),
+        sample: None,
+    }
+}
+
+/// The config these tests run: with a Jev, the judge on, and `loop.v1`
+/// judging alone (the inbound point's packs off: `tests_inbound` judges
+/// them).
 pub(crate) fn config(state: &Path, jev: Option<&FakeJev>) -> Config {
+    let mut cfg = judge_config(state, jev);
+    for p in crate::judge::inbound::PACKS {
+        cfg.judge.packs.insert(p.into(), off());
+    }
+    cfg
+}
+
+/// The config with every wired pack as the build gives it.
+pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
     let mut cfg = Config::example();
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
@@ -64,8 +84,22 @@ pub(crate) fn rig_with(
     jev: Option<&FakeJev>,
     tweak: impl FnOnce(&mut Config),
 ) -> Rig {
+    rig_on(script, jev, |c| {
+        for p in crate::judge::inbound::PACKS {
+            c.judge.packs.insert(p.into(), off());
+        }
+        tweak(c);
+    })
+}
+
+/// A core with every wired pack as the build gives it, then `tweak`.
+pub(crate) fn rig_on(
+    script: Vec<Scripted>,
+    jev: Option<&FakeJev>,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
-    let mut cfg = config(dir.path(), jev);
+    let mut cfg = judge_config(dir.path(), jev);
     tweak(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();
@@ -226,7 +260,9 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
         [
             "loop.v1: shadow",
             "security.v1: shadow",
-            "security.v3: shadow"
+            "security.v3: shadow",
+            "classify.v1: off",
+            "role.v1: off"
         ]
     );
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
@@ -366,13 +402,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
     let off = rig_with(texts(1), None, |c| c.judge.api_base = jev.base());
     turn(&off.core, None, "Say done.").await;
     let pack_off = rig_with(texts(1), Some(&jev), |c| {
-        c.judge.packs.insert(
-            "loop.v1".into(),
-            crate::config::JudgePackConfig {
-                mode: Some(PackMode::Off),
-                sample: None,
-            },
-        );
+        c.judge.packs.insert("loop.v1".into(), self::off());
     });
     turn(&pack_off.core, None, "Say done.").await;
     let capped = rig_with(texts(1), Some(&jev), |c| c.judge.max_mode = PackMode::Off);
@@ -384,7 +414,13 @@ async fn an_off_judge_or_pack_calls_nothing() {
     }
     assert_eq!(
         pack_off.core.health().judge.unwrap().packs,
-        ["loop.v1: off", "security.v1: shadow", "security.v3: shadow"]
+        [
+            "loop.v1: off",
+            "security.v1: shadow",
+            "security.v3: shadow",
+            "classify.v1: off",
+            "role.v1: off"
+        ]
     );
 }
 

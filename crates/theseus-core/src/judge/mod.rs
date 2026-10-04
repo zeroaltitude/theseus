@@ -2,6 +2,8 @@
 //! asks Jev its typed questions, through `theseus-judge`, and records every
 //! answer. In 23a one pack judges, `loop.v1`, in shadow: at each turn the
 //! baseline ended with no tool calls, after the turn, and nothing acts on it.
+//! In 25a two more, `classify.v1` and `role.v1`, judge each message a person
+//! sends, in one request (`inbound`).
 //!
 //! - **Off the start path.** `JudgeService::new` reads nothing and sends
 //!   nothing. The client, its breaker, and its sink's task are built by the
@@ -24,6 +26,7 @@
 //!   call never waits on them.
 
 pub mod gate;
+pub mod inbound;
 pub mod loop_end;
 pub mod mark;
 pub mod sink;
@@ -57,6 +60,8 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (LOOP_PACK, PackMode::Shadow),
     (gate::SECURITY_PACK, PackMode::Shadow),
     (gate::SECURITY_CANDIDATE, PackMode::Shadow),
+    (inbound::CLASSIFY_PACK, PackMode::Shadow),
+    (inbound::ROLE_PACK, PackMode::Shadow),
 ];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.

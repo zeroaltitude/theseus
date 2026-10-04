@@ -665,10 +665,14 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # shadow: each judgment is made, priced, and recorded in the ledger, and nothing
 # acts on one. A judgment sends its state (your messages, the assistant's final
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
-# runs after the turn and the turn never waits for it: a slow or failing Jev
-# changes no turn. Today one pack judges: loop.v1, at each turn that ends with
-# no tool calls (where does the work on the ask stand?). `theseus judge log`
-# lists the judgments, and health's judge: line counts them and their spend.
+# runs beside the turn and the turn never waits for it: a slow or failing Jev
+# changes no turn. Today three packs judge: loop.v1, at each turn that ends with
+# no tool calls (where does the work on the ask stand?), and classify.v1 and
+# role.v1, in one request, at each message a person sends (what kind of message
+# is it, and which working role does its reply need?); a slash command, a
+# wake's turn, a report's turn, and a task's first turn are not judged.
+# `theseus judge log` lists the judgments, and health's judge: line counts them
+# and their spend.
 [judge]
 enabled = false                         # true sends judgments to Jev; needs the key_secret entry under [secrets]
 key_secret = "jev_api_key"              # the [secrets] entry holding the Jev key, read after serving

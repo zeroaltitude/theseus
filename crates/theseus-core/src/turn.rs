@@ -51,6 +51,7 @@ use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
+mod inbound_step;
 mod prompt_input;
 mod recall_step;
 
@@ -1542,6 +1543,7 @@ impl TurnRunner {
                 t.tc.store.append(&[node.record()?])?;
             }
             t.tc.node_written(&node);
+            self.inbound_point(t, &node, &author);
         }
 
         // 3. The loops, while the model has something new to read.
