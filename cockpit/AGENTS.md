@@ -8,9 +8,10 @@ build.
 
 ## What's here
 
-- `src/views/`: the eleven views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
+- `src/views/`: the twelve views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
-  `Speed` (the speed wall), `Systems`.
+  `Speed` (the speed wall), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
+  `src/lib/judgment.ts`), `Systems`.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before
