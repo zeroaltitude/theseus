@@ -1,0 +1,73 @@
+# Theseus's bench profile (theseus-n88g.1): the config a benchmark's task container runs.
+#
+# A container has no vault and no operator, so this profile has neither:
+#   - the one secret, the model's key, comes from the daemon's environment
+#     (`env:ANTHROPIC_API_KEY`), and nothing reads 1Password;
+#   - every tool is open (`enforcement = "open"`, no dangerous-argv list, no
+#     approve paths), and the workspace roots are `/`, so no call waits for an
+#     approval no one can give. Theseus's floor (its own state, `theseusd` and
+#     `op` as programs) still asks; no task touches it;
+#   - text from outside (a fetched page) gives notices only;
+#   - L0: jobs run as the daemon's user, with no sandbox, as a container's
+#     agent does;
+#   - Discord, the web UI, and the index tender are off.
+#
+# The Harbor adapter (bench/harbor/theseus_agent.py) writes this file into each
+# trial's container, with the lines marked "set by the adapter" set for that
+# run: the task's working directory, the model, and the limits. The state dir
+# comes from THESEUS_STATE_DIR. A test loads it as it is (theseusd's
+# tests/bench_profile.rs), so it cannot drift from the code.
+
+[model]
+live = "bench"
+provider = "anthropic"
+model = "claude-sonnet-5-5"             # set by the adapter
+api_key_secret = "anthropic_api_key"
+max_output_tokens = 32000
+max_loops = 200                         # set by the adapter: a task's turn runs until the model ends it
+
+[profiles.bench]
+provider = "anthropic"
+model = "claude-sonnet-5-5"             # set by the adapter
+max_output_tokens = 32000
+max_loops = 200                         # set by the adapter
+
+[secrets]
+anthropic_api_key = "env:ANTHROPIC_API_KEY"
+
+[server]
+# A container's disk is the task's: no free-space warning, and no floor that
+# refuses a job.
+disk_warn_mb = 0
+disk_floor_mb = 0
+
+[kernel]
+spend_limit_usd = 2.0                   # set by the adapter: the most one trial may spend
+
+[tools]
+projects_dir = "/app"                   # set by the adapter: the task's working directory
+roots = ["/"]
+approve_paths = []
+# A command the task runs (a build, a test suite) keeps the turn waiting up to
+# this long; a headless run ends with its turn, so a job left running in the
+# background would never be read.
+proc_sync_secs = 900                    # set by the adapter
+
+[policy]
+enforcement = "open"
+allow_argv = []
+approve_argv = []
+external_text = "notify"
+external_programs = []
+
+[sandbox]
+default = "l0"
+
+[discord]
+enabled = false
+
+[web]
+enabled = false
+
+[index]
+enabled = false

@@ -1,0 +1,3 @@
+# bench/build.sh's static binaries, and the adapter's test runs.
+/bin/
+__pycache__/

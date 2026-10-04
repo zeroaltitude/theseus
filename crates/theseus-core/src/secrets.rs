@@ -1,7 +1,11 @@
-//! Secrets. All of them live in 1Password and are read through a service
-//! account. The only secret this process accepts by any other path is the
-//! service-account token itself. Values live in zeroizing memory and are
-//! never logged, stored, or written anywhere but the header they belong in.
+//! Secrets. The recommended source is 1Password, read through a service
+//! account: a `[secrets]` entry is then an `op://` reference. An entry may
+//! instead be `env:NAME`, the daemon's own environment variable, or
+//! `file:PATH`, a file only its owner can read (theseus-n88g.1, Eddie's D6:
+//! a container, CI, or anyone without a vault). Those resolve locally,
+//! before any `op` call, and `theseusd check` and health name each one with
+//! its source. Values live in zeroizing memory and are never logged, stored,
+//! or written anywhere but the header they belong in.
 //!
 //! Serve first (FAST, §2; theseus-qa0). The daemon answers its socket before
 //! any secret resolves: `resolve_into` fills a `SecretBoard` in the
@@ -20,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use futures_util::future::BoxFuture;
-use theseus_protocol::{SecretFailed, SecretsStatus};
+use theseus_protocol::{SecretFailed, SecretSource, SecretsStatus};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 use zeroize::Zeroizing;
@@ -158,6 +162,112 @@ pub struct OpReader {
     /// The token file it was pointed at, expanded; read only when
     /// `OP_SERVICE_ACCOUNT_TOKEN` is unset.
     token_file: Option<PathBuf>,
+    /// No vault at all (a container with no 1Password, theseus-n88g.1): why.
+    /// Every `op://` reference fails with it; `env:` and `file:` entries
+    /// never reach the reader.
+    absent: Option<String>,
+}
+
+/// Where a `[secrets]` entry's value comes from (theseus-n88g.1): the vault,
+/// the recommended source, or, outside it, the daemon's own environment
+/// (`env:NAME`) or a file only its owner can read (`file:PATH`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    Vault,
+    Env,
+    File,
+}
+
+impl Source {
+    /// An entry's source, by its prefix. Anything else is the vault's, and
+    /// `SecretRef::parse` judges it.
+    pub fn of(reference: &str) -> Self {
+        if reference.starts_with("env:") {
+            Self::Env
+        } else if reference.starts_with("file:") {
+            Self::File
+        } else {
+            Self::Vault
+        }
+    }
+
+    /// `vault`, `env`, or `file`: what health and `theseusd check` say.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Vault => "vault",
+            Self::Env => "env",
+            Self::File => "file",
+        }
+    }
+}
+
+/// Whether an entry's value comes from outside the vault (`env:` or `file:`).
+pub fn is_local(reference: &str) -> bool {
+    Source::of(reference) != Source::Vault
+}
+
+/// A local entry's form, as `Config::validate` checks it: `env:` names a
+/// variable (letters, digits, and `_`, not starting with a digit), and
+/// `file:` an absolute path, or one under `~` or a variable. A relative path
+/// would be read from wherever the daemon was started.
+pub fn check_local(reference: &str) -> Result<()> {
+    if let Some(var) = reference.strip_prefix("env:") {
+        let named = var.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && var.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !named {
+            bail!("{reference:?}: env: takes a variable's name (letters, digits, and _)");
+        }
+    } else if let Some(path) = reference.strip_prefix("file:") {
+        if !path.starts_with(['/', '~', '$']) {
+            bail!("{reference:?}: file: takes an absolute path, or one under ~ or a $VARIABLE");
+        }
+    }
+    Ok(())
+}
+
+/// The value of a local entry (`is_local`), or why it has none; `None` for an
+/// `op://` reference. A variable's value and a file's text are trimmed.
+fn local_value(reference: &str) -> Option<Result<Secret, String>> {
+    if let Some(var) = reference.strip_prefix("env:") {
+        return Some(match std::env::var(var) {
+            Ok(v) if !v.trim().is_empty() => Ok(Secret::new(v.trim().to_string())),
+            _ => Err(format!("{reference}: the variable is unset or empty")),
+        });
+    }
+    let path = reference.strip_prefix("file:")?;
+    Some(
+        read_private(&crate::config::expand(path))
+            .map(Secret::new)
+            .map_err(|e| format!("{reference}: {e:#}")),
+    )
+}
+
+/// A file's trimmed text, refused when its group or others may read it: the
+/// service-account token file's rule, and a `file:` entry's.
+fn read_private(path: &std::path::Path) -> Result<String> {
+    let meta =
+        std::fs::metadata(path).with_context(|| format!("{} is not readable", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            bail!(
+                "{} has mode {:o}; it must not be group- or world-readable (chmod 600)",
+                path.display(),
+                mode
+            );
+        }
+    }
+    let _ = meta;
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("{} is not readable", path.display()))?
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        bail!("{} is empty", path.display());
+    }
+    Ok(text)
 }
 
 /// Why an `op inject` gave no values.
@@ -171,30 +281,17 @@ enum InjectFailed {
 
 impl OpReader {
     /// Token from `OP_SERVICE_ACCOUNT_TOKEN`, or from `token_file` if given.
+    /// Without either, or without `op`, there is no vault: a config in the
+    /// vault cannot start, and a file config starts on `absent`.
     pub fn from_env(token_file: Option<&str>) -> Result<Self> {
         let token_file = token_file.map(crate::config::expand);
         let token = match std::env::var(TOKEN_ENV) {
             Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
             _ => {
                 let path = token_file.as_deref().with_context(|| {
-                    format!("{TOKEN_ENV} is not set and no --op-token-file was given; refusing to start without 1Password access")
+                    format!("{TOKEN_ENV} is not set and no --op-token-file was given")
                 })?;
-                let meta = std::fs::metadata(path)
-                    .with_context(|| format!("token file {} not readable", path.display()))?;
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let mode = meta.permissions().mode() & 0o777;
-                    if mode & 0o077 != 0 {
-                        bail!(
-                            "token file {} has mode {:o}; it must not be group- or world-readable",
-                            path.display(),
-                            mode
-                        );
-                    }
-                }
-                let _ = meta;
-                std::fs::read_to_string(path)?.trim().to_string()
+                read_private(path).context("the service-account token file")?
             }
         };
         if token.is_empty() {
@@ -205,7 +302,20 @@ impl OpReader {
             token: Secret::new(token),
             op_bin,
             token_file,
+            absent: None,
         })
+    }
+
+    /// A reader with no vault behind it (theseus-n88g.1): a file config
+    /// whose secrets are `env:` or `file:` entries needs none, and any
+    /// `op://` entry fails with `why`, one consumer at a time.
+    pub fn absent(why: String) -> Self {
+        Self {
+            token: Secret::new(String::new()),
+            op_bin: PathBuf::from("op"),
+            token_file: None,
+            absent: Some(why),
+        }
     }
 
     /// The token file this reader was pointed at (`--op-token-file` or
@@ -247,6 +357,9 @@ impl OpReader {
     }
 
     async fn read_raw(&self, op_ref: &str) -> Result<Zeroizing<String>, String> {
+        if let Some(why) = &self.absent {
+            return Err(format!("no 1Password access: {why}"));
+        }
         let mut cmd = self.op();
         cmd.arg("read").arg("--no-newline").arg(op_ref);
         let child = Self::start(&mut cmd).map_err(|e| format!("spawning op: {e}"))?;
@@ -278,6 +391,9 @@ impl OpReader {
     /// measured 1 s either way, and a sixth of the CPU for the injection).
     /// Each reference gets its own slot between random boundary lines.
     async fn inject(&self, refs: &[String]) -> Result<Vec<Zeroizing<String>>, InjectFailed> {
+        if let Some(why) = &self.absent {
+            return Err(InjectFailed::Error(format!("no 1Password access: {why}")));
+        }
         let boundary = format!("--theseus-{}-", uuid::Uuid::now_v7().simple());
         let mut template = String::new();
         for (i, r) in refs.iter().enumerate() {
@@ -419,11 +535,33 @@ pub struct SecretBoard {
     /// Process start, for the timings health reports.
     origin: Instant,
     progress: Mutex<Progress>,
+    /// The entries whose values come from outside the vault, by name, with
+    /// their source (theseus-n88g.1). Empty for `new`'s board.
+    outside: Vec<(String, Source)>,
 }
 
 impl SecretBoard {
-    /// Every named secret resolving.
+    /// Every named secret resolving, each counted as the vault's.
     pub fn new(names: impl IntoIterator<Item = String>, origin: Instant) -> Arc<Self> {
+        Self::with_outside(names, Vec::new(), origin)
+    }
+
+    /// The config's `[secrets]` (name → entry), every one resolving, with
+    /// the ones from outside the vault noted for health (theseus-n88g.1).
+    pub fn for_config(refs: &BTreeMap<String, String>, origin: Instant) -> Arc<Self> {
+        let outside = refs
+            .iter()
+            .map(|(n, r)| (n.clone(), Source::of(r)))
+            .filter(|(_, s)| *s != Source::Vault)
+            .collect();
+        Self::with_outside(refs.keys().cloned(), outside, origin)
+    }
+
+    fn with_outside(
+        names: impl IntoIterator<Item = String>,
+        outside: Vec<(String, Source)>,
+        origin: Instant,
+    ) -> Arc<Self> {
         let map = names
             .into_iter()
             .map(|n| (n, SecretState::Resolving))
@@ -432,6 +570,7 @@ impl SecretBoard {
             tx: watch::Sender::new(map),
             origin,
             progress: Mutex::default(),
+            outside,
         })
     }
 
@@ -599,6 +738,14 @@ impl SecretBoard {
             retry_in_ms: p
                 .retry_at
                 .map(|t| t.saturating_duration_since(Instant::now()).as_millis() as u64),
+            outside_vault: self
+                .outside
+                .iter()
+                .map(|(name, s)| SecretSource {
+                    name: name.clone(),
+                    kind: s.as_str().into(),
+                })
+                .collect(),
         }
     }
 }
@@ -612,7 +759,10 @@ impl fmt::Debug for SecretBoard {
 }
 
 /// Fetch `names` from `refs` (config name → reference) once: each distinct
-/// reference is fetched once, and each name takes its `#label` line.
+/// reference is fetched once, and each name takes its `#label` line. An
+/// `env:` or `file:` entry is read here first, with no `op` call. The method
+/// is the vault's (`inject`, …), `local` when every entry was read here, or
+/// the vault's with ` + local` when some were.
 async fn round(
     refs: &BTreeMap<String, String>,
     names: &[String],
@@ -621,7 +771,13 @@ async fn round(
     let mut out = BTreeMap::new();
     let mut parsed = Vec::new();
     let mut distinct: Vec<String> = Vec::new();
+    let mut local = false;
     for name in names {
+        if let Some(v) = refs.get(name).and_then(|raw| local_value(raw)) {
+            out.insert(name.clone(), v);
+            local = true;
+            continue;
+        }
         match refs.get(name).map(|raw| SecretRef::parse(raw)) {
             Some(Ok(r)) => {
                 let i = match distinct.iter().position(|d| d == r.op_ref()) {
@@ -642,9 +798,12 @@ async fn round(
         }
     }
     if distinct.is_empty() {
-        return (out, String::new());
+        return (out, if local { "local" } else { "" }.to_string());
     }
-    let fetched = fetch.fetch(&distinct).await;
+    let mut fetched = fetch.fetch(&distinct).await;
+    if local {
+        fetched.method.push_str(" + local");
+    }
     for (name, r, i) in parsed {
         let v = match fetched.values.get(i) {
             Some(Ok(raw)) => r
@@ -805,6 +964,130 @@ mod tests {
         assert_eq!(plain.select("raw".into()).unwrap(), "raw");
     }
 
+    #[tokio::test]
+    async fn env_and_file_entries_resolve_without_the_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("key");
+        std::fs::write(&file, "tv-file-7f3a9c\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let open = dir.path().join("open");
+        std::fs::write(&open, "x").unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o644)).unwrap();
+        // A variable every test process has, so the test changes no one's
+        // environment.
+        let path_var = std::env::var("PATH").unwrap();
+        let refs: BTreeMap<String, String> = [
+            ("a", "env:PATH".to_string()),
+            ("b", format!("file:{}", file.display())),
+            ("c", format!("file:{}", open.display())),
+            ("d", "env:THESEUS_N88G_UNSET".to_string()),
+            ("e", "op://v/i/f".to_string()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let names: Vec<String> = refs.keys().cloned().collect();
+        let reader = OpReader::absent("a container with no vault".into());
+        let (out, method) = round(&refs, &names, &reader).await;
+        assert_eq!(out["a"].as_ref().unwrap().expose(), path_var.trim());
+        assert_eq!(out["b"].as_ref().unwrap().expose(), "tv-file-7f3a9c");
+        let c = out["c"].as_ref().unwrap_err();
+        assert!(c.contains("has mode 644") && !c.contains("token"), "{c}");
+        assert!(out["d"].as_ref().unwrap_err().contains("unset or empty"));
+        assert!(out["e"]
+            .as_ref()
+            .unwrap_err()
+            .contains("no 1Password access"));
+        assert!(method.ends_with(" + local"), "{method}");
+        // Only local entries: the method says so, and no fetch is made.
+        let local: BTreeMap<String, String> = refs.clone().into_iter().take(2).collect();
+        let vault = fake::FakeVault::new(&[]);
+        let names: Vec<String> = local.keys().cloned().collect();
+        let (out, method) = round(&local, &names, &vault).await;
+        assert_eq!((out.len(), method.as_str()), (2, "local"));
+        assert_eq!(vault.fetches.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    /// theseus-n88g.1: health names each secret from outside the vault with
+    /// its source, never its value, and `new`'s board names none.
+    #[tokio::test]
+    async fn the_board_names_the_secrets_from_outside_the_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("db");
+        std::fs::write(&file, "tv-db-7f3a9c").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let refs: BTreeMap<String, String> = [
+            ("anthropic_api_key", "env:PATH".to_string()),
+            ("db", format!("file:{}", file.display())),
+            ("zai_api_key", "op://Test/zai/credential".to_string()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let board = SecretBoard::for_config(&refs, Instant::now());
+        let outside: Vec<(String, String)> = board
+            .status()
+            .outside_vault
+            .into_iter()
+            .map(|s| (s.name, s.kind))
+            .collect();
+        assert_eq!(
+            outside,
+            [
+                ("anthropic_api_key".to_string(), "env".to_string()),
+                ("db".to_string(), "file".to_string())
+            ]
+        );
+        let vault = fake::FakeVault::new(&[("op://Test/zai/credential", "tv-zai-7f3a9c")]);
+        // Every entry resolves, so this is one round.
+        resolve_into(board.clone(), refs, Arc::new(vault)).await;
+        let st = board.status();
+        assert_eq!((st.state.as_str(), st.ready.len()), ("ready", 3), "{st:?}");
+        assert_eq!(st.method.as_deref(), Some("fake + local"));
+        let json = serde_json::to_string(&st).unwrap();
+        for value in [
+            "tv-db-7f3a9c",
+            "tv-zai-7f3a9c",
+            std::env::var("PATH").unwrap().trim(),
+        ] {
+            assert!(!json.contains(value), "a value in health: {json}");
+        }
+        let plain = SecretBoard::new(["k".to_string()], Instant::now());
+        assert!(plain.status().outside_vault.is_empty());
+    }
+
+    /// theseus-n88g.1: an `env:` entry names a variable, and a `file:` entry
+    /// a path that does not depend on where the daemon was started.
+    #[test]
+    fn a_local_entry_is_checked_for_its_form() {
+        for good in [
+            "env:ANTHROPIC_API_KEY",
+            "env:_k1",
+            "file:/run/secrets/key",
+            "file:~/.config/theseus/key",
+            "file:$CREDENTIALS_DIRECTORY/key",
+            "op://v/i/f",
+        ] {
+            check_local(good).unwrap_or_else(|e| panic!("{good}: {e:#}"));
+        }
+        for bad in [
+            "env:",
+            "env:1KEY",
+            "env:A-B",
+            "env:A B",
+            "file:",
+            "file:key.txt",
+        ] {
+            assert!(check_local(bad).is_err(), "{bad}");
+        }
+        assert_eq!(Source::of("env:X"), Source::Env);
+        assert_eq!(Source::of("file:/x"), Source::File);
+        assert_eq!(Source::of("op://v/i/f"), Source::Vault);
+        assert!(is_local("file:/x") && !is_local("op://v/i/f"));
+    }
+
     #[test]
     fn rejects_short_refs() {
         assert!(SecretRef::parse("op://vault/item").is_err());
@@ -856,6 +1139,7 @@ mod tests {
             token: Secret::new("test-not-a-token".into()),
             op_bin,
             token_file: None,
+            absent: None,
         };
         let refs: Vec<String> = (0..2000)
             .map(|i| format!("op://Harbor/item-{i:04}/notesPlain"))

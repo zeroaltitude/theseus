@@ -31,6 +31,8 @@
   - Review 2, a read-only review of complexity, speed, and hardening, whose findings became fix batches.
 - **[user-service.md](user-service.md)**: running the daemon as a systemd user service. It covers why, the one
   command (`scripts/user-service.sh install`), what each step does, daily use, undoing it, and the WSL notes.
+- **[benchmarks.md](benchmarks.md)**: Theseus's results on public benchmarks, published here first, and how each is
+  reported. How to run them: [`bench/README.md`](../bench/README.md).
 - **[research/](research/)**: what Theseus was measured against. Its [README](research/README.md) indexes it:
   - "Theseus among the harnesses": how Theseus compares with the provider-made and independent agent harnesses,
     as of October 2026;

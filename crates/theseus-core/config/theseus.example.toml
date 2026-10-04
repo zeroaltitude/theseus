@@ -20,10 +20,15 @@
 # Precedence for the few things that also have flags (socket, state dir):
 #   command-line flag > environment variable > this file > built-in default.
 #
-# Secrets never appear as values. Every secret is an op:// reference into
-# 1Password, resolved at startup through the service account; the process
-# refuses to start if any reference fails. A reference may end in `#label`
-# to select one `label: value` line of a multi-line note.
+# Secrets never appear as values. The recommended source is 1Password: each
+# secret is an op:// reference, read through the service account, and a
+# reference may end in `#label` to select one `label: value` line of a
+# multi-line note. Where there is no vault (a container, CI), a secret may come
+# from the daemon's environment or a private file instead ([secrets] below).
+# Secrets resolve in the background while the daemon serves: each consumer
+# waits for its own, and fails closed if it did not resolve, and a failed one
+# is fetched again. A config kept in the vault cannot start without vault
+# access; a config file can, and then only its op:// secrets fail.
 
 # The Narrative: a web UI tab narrating every session, turn, loop, and model call (default false: no tab, no lines).
 narrative = true
@@ -120,7 +125,7 @@ kind = "anthropic_messages"             # the only wire protocol today
 # total_secs = 600
 
 # ---------------------------------------------------------------- secrets
-# name → op:// reference. All must resolve or the process does not start.
+# name → where its value comes from. The vault is the recommended source.
 # Each placeholder below names what to put there: make one item per secret in
 # a vault your service account can read (a Secure Note or a password item),
 # and write its reference as op://<vault>/<item>/<field>, the field being
@@ -129,6 +134,18 @@ kind = "anthropic_messages"             # the only wire protocol today
 # item whose title another shares is named by its id instead
 # (`op item list --vault <vault>` shows ids). Remove a line you don't use,
 # and the key that names it (the Discord bot token, web.search's key).
+#
+# Outside the vault, where there is none (a container, CI, a machine without
+# 1Password), an entry may instead be
+#   env:NAME    the daemon's own environment variable NAME, or
+#   file:PATH   a file only its owner can read (mode 600, the token file's
+#               rule), at an absolute path or one under ~ or a $VARIABLE.
+# Either is read at once, trimmed, with no `op` call. Prefer the vault: such
+# a value lives in a process's environment or on disk, where the vault keeps
+# it in one place you can rotate. `theseusd check` and `theseus health` name
+# every secret from outside the vault, with its source. With a config file
+# and no vault access, the daemon starts anyway, and each op:// entry fails
+# with the reason.
 [secrets]
 anthropic_api_key = "op://<your vault>/<Anthropic API key item>/notesPlain"
 zai_api_key = "op://<your vault>/<Z.ai API key item>/notesPlain"
@@ -139,6 +156,8 @@ aws_secret_access_key = "op://<your vault>/<AWS key item>/notesPlain#AWS_SECRET_
 discord_bot_token = "op://<your vault>/<Discord bot item>/notesPlain"
 brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # web.search's key
 # deepgram_api_key = "op://<your vault>/<Deepgram API key item>/notesPlain"   # voice's key ([voice])
+# ci_runner_key = "env:CI_RUNNER_KEY"                 # from outside the vault: the environment
+# ci_deploy_key = "file:~/.config/theseus/deploy-key"  # from outside the vault: a mode-600 file
 
 # ---------------------------------------------------------------- broker
 # What a job can get, plainly: only a secret a program's grant in this

@@ -260,7 +260,22 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         // The socket daemon and `--stdio` both spawn job wrappers.
         tokio::spawn(reap_children());
     }
-    let op = Arc::new(OpReader::from_env(cli.op_token_file.as_deref())?);
+    let op = Arc::new(match OpReader::from_env(cli.op_token_file.as_deref()) {
+        Ok(op) => op,
+        // No vault (a container, CI, or anyone without 1Password;
+        // theseus-n88g.1): a file config whose secrets are `env:` or `file:`
+        // entries needs none, and any `op://` entry fails with this reason,
+        // one consumer at a time, as `theseusd check` and health say.
+        Err(e) if !cli.config.starts_with("op://") => {
+            tracing::info!(why = %format!("{e:#}"), "no 1Password access: only env: and file: secrets resolve");
+            OpReader::absent(format!("{e:#}"))
+        }
+        Err(e) => {
+            return Err(
+                e.context("refusing to start without 1Password access: the config is in the vault")
+            )
+        }
+    });
     let startup = Arc::new(StartupLog::new(origin));
     let in_vault = cli.config.starts_with("op://");
     // The copy is found before any config is read: in `--state-dir`, else ~/.theseus.
@@ -368,7 +383,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
 
     // Serve first (FAST, §2): the secrets resolve in the background while
     // the store opens and the socket binds.
-    let secrets = SecretBoard::new(cfg.secrets.keys().cloned(), origin);
+    let secrets = SecretBoard::for_config(&cfg.secrets, origin);
     tokio::spawn(theseus_core::secrets::resolve_into(
         secrets.clone(),
         cfg.secrets.clone(),
@@ -811,9 +826,10 @@ fn keep_copy(core: &Core, text: &str) {
 
 /// `theseusd check`: every secret resolves, or the check fails naming each
 /// one that did not and why. It waits for the first round, as serving does not.
-/// Then L1's self-test, on demand (theseus-gyin): `/bin/true` in L1 over the
-/// view a job of a daemon on `state` gets, and its verdict. L1 is not
-/// required, so a failed self-test is said, and fails nothing.
+/// The secrets from outside the vault are named with their sources
+/// (theseus-n88g.1). Then L1's self-test, on demand (theseus-gyin): `/bin/true`
+/// in L1 over the view a job of a daemon on `state` gets, and its verdict. L1
+/// is not required, so a failed self-test is said, and fails nothing.
 async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &Path) -> Result<()> {
     secrets.settle_all().await;
     let st = secrets.status();
@@ -836,12 +852,18 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
     let l1 = theseus_core::toolrun::sandbox_for(cfg, state)
         .self_test()
         .await;
+    // The secrets from outside the vault, by name and source; the vault
+    // stays the recommended source (theseus-n88g.1).
+    let outside = st
+        .outside_vault_words()
+        .map(|w| format!("{w}; the vault is the recommended source\n"))
+        .unwrap_or_default();
     out(&format!(
-        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n{}\nL1: the \
-         self-test {}\n",
+        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n{outside}{}\nL1: \
+         the self-test {}\n",
         st.ready.len(),
         st.settled_ms.unwrap_or(0),
-        st.method.as_deref().unwrap_or("nothing to fetch"),
+        st.method.as_deref().filter(|m| !m.is_empty()).unwrap_or("nothing to fetch"),
         st.ready.join(", "),
         kept.line(),
         theseus_protocol::sandbox::launch_words(&l1)

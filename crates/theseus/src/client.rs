@@ -10,7 +10,7 @@ use std::process::Stdio;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
-use theseus_protocol::{method, Id, Message, Request};
+use theseus_protocol::{method, Id, Message, Request, Response};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 /// A JSON-RPC error response, kept structured so callers can read `data`.
@@ -70,7 +70,8 @@ impl Conn {
     }
 
     /// Spawn `BIN --stdio` and talk over its pipes. Its stderr is this
-    /// process's, and it is killed when the connection is dropped.
+    /// process's. `close` stops it cleanly; a connection dropped without
+    /// `close` kills it.
     pub fn spawn(bin: &str) -> Result<Self> {
         let mut child = tokio::process::Command::new(bin)
             .arg("--stdio")
@@ -154,17 +155,7 @@ impl Conn {
         while let Some(msg) = self.next().await? {
             match msg {
                 Message::Notification(n) => on_notify(&n.method, &n.params),
-                Message::Response(r) if r.id == id => {
-                    if let Some(e) = r.error {
-                        return Err(CallError {
-                            code: e.code,
-                            message: e.message,
-                            data: e.data,
-                        }
-                        .into());
-                    }
-                    return Ok(r.result.unwrap_or(Value::Null));
-                }
+                Message::Response(r) if r.id == id => return answer(r),
                 _ => {}
             }
         }
@@ -177,6 +168,62 @@ impl Conn {
         self.call(method, serde_json::to_value(params)?, |_, _| {})
             .await
     }
+
+    /// End the connection. A daemon this connection spawned gets the clean
+    /// stop every daemon has, `shutdown`: its stopping row and its
+    /// checkpoint, so the next open of its store replays nothing
+    /// (theseus-n88g.2; before, the drop killed it, and the next open
+    /// replayed the run's tail). Then its stdin closes, which ends its read,
+    /// and it is waited for, at most `STOP_WAIT`, and killed only past that:
+    /// `Err` says so. A socket's connection just closes.
+    ///
+    /// A daemon that has already exited (`theseus --spawn shutdown`, or one
+    /// that failed) is not written to. One that exits as the stop is written
+    /// breaks the pipe: the caller ignores SIGPIPE around this call, or the
+    /// write's signal ends the process (the CLI restores its default).
+    pub async fn close(mut self) -> Result<()> {
+        let Some(mut child) = self._child.take() else {
+            return Ok(());
+        };
+        if matches!(child.try_wait(), Ok(None)) {
+            // Its answer is not needed: its exit is what counts.
+            let _ = tokio::time::timeout(
+                STOP_WAIT,
+                self.request(theseus_protocol::method::SHUTDOWN, Value::Null),
+            )
+            .await;
+        }
+        drop(self);
+        match tokio::time::timeout(STOP_WAIT, child.wait()).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(anyhow!("waiting for the spawned theseusd: {e}")),
+            Err(_) => {
+                let _ = child.kill().await;
+                Err(anyhow!(
+                    "the spawned theseusd did not stop within {} s of its shutdown; it was killed",
+                    STOP_WAIT.as_secs()
+                ))
+            }
+        }
+    }
+}
+
+/// How long a spawned daemon has to answer its `shutdown` and to exit after
+/// it (`Conn::close`). A clean stop takes tens of milliseconds.
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// An answer's result, or its error as a `CallError`: what `Conn::call`
+/// returns, for a caller that reads the messages itself (`Conn::next`).
+pub fn answer(r: Response) -> Result<Value> {
+    if let Some(e) = r.error {
+        return Err(CallError {
+            code: e.code,
+            message: e.message,
+            data: e.data,
+        }
+        .into());
+    }
+    Ok(r.result.unwrap_or(Value::Null))
 }
 
 /// `path` with a leading `~` (alone, or before `/`) as `home`, as a shell

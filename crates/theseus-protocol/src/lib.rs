@@ -662,56 +662,6 @@ fn is_zero(n: &u64) -> bool {
     *n == 0
 }
 
-/// Where the vault's secrets stand (theseus-qa0, spec §2 FAST): the daemon
-/// answers its socket before they resolve, and each consumer waits for its own.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SecretsStatus {
-    /// `resolving` until every secret has settled, then `ready`, or `failed`
-    /// with `failed` naming each one that did not resolve.
-    pub state: String,
-    #[serde(default)]
-    pub ready: Vec<String>,
-    #[serde(default)]
-    pub resolving: Vec<String>,
-    #[serde(default)]
-    pub failed: Vec<SecretFailed>,
-    /// How the vault was read: `inject` (one `op inject` for every reference),
-    /// or `inject, then read` after a failed injection.
-    #[serde(default)]
-    pub method: Option<String>,
-    /// Rounds run: the first, then one per retry of what failed.
-    #[serde(default)]
-    pub rounds: u32,
-    /// When resolution began, and when its first round settled, in ms after
-    /// the process started.
-    #[serde(default)]
-    pub started_ms: Option<u64>,
-    #[serde(default)]
-    pub settled_ms: Option<u64>,
-    /// Until the next fetch of what failed.
-    #[serde(default)]
-    pub retry_in_ms: Option<u64>,
-}
-
-impl SecretsStatus {
-    /// `resolving`, `ready`, or `failed a, b`: what health says in a word.
-    pub fn summary(&self) -> String {
-        match self.state.as_str() {
-            "failed" => format!(
-                "failed {}",
-                self.failed
-                    .iter()
-                    .map(|f| f.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            "" => "unknown".into(),
-            s => s.into(),
-        }
-    }
-}
-
 /// The context files in the config (theseus-c48), as configured: the
 /// system level, which every session gets, and the persona in play, whose
 /// files follow the system level's. Until Jev chooses a persona, the persona
@@ -788,14 +738,6 @@ pub struct ConfigRestart {
     pub tables: Vec<String>,
     pub copy_sha256: String,
     pub vault_sha256: String,
-}
-
-/// A secret that did not resolve, and why (never a value).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SecretFailed {
-    pub name: String,
-    pub error: String,
 }
 
 /// One phase of the last start (theseus-qa0), timed from process start.

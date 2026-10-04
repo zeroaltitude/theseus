@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use theseus_client::render::{self, Frame};
-use theseus_client::{CallError, Conn};
+use theseus_client::{outcome, CallError, Conn};
 use theseus_protocol::{
     method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
     Event, HealthResult, LedgerTailParams, LedgerTailResult, Message, ProfileListResult,
@@ -38,8 +38,18 @@ fn output<T: DeserializeOwned>(
     lines(serde_json::from_value(v)?)
 }
 
-/// `theseus ask`: one turn, streamed (theseus-9g2 for `--attach`).
-pub async fn ask(conn: &mut Conn, json: bool, no_stream: bool, a: AskArgs) -> Result<()> {
+/// `theseus ask`: one turn, streamed (theseus-9g2 for `--attach`). A turn
+/// the model did not end returns how it ended as an `outcome::Ended`, which
+/// the process's exit code says (theseus-n88g.2). `spawned`: the daemon is
+/// this process's own (`--spawn`), so a signal stops the turn
+/// (`submit_stoppable`).
+pub async fn ask(
+    conn: &mut Conn,
+    json: bool,
+    no_stream: bool,
+    a: AskArgs,
+    spawned: bool,
+) -> Result<()> {
     let attachments = a
         .attach
         .iter()
@@ -56,24 +66,24 @@ pub async fn ask(conn: &mut Conn, json: bool, no_stream: bool, a: AskArgs) -> Re
         (false, false) => Mode::Quiet,
     };
     let mut printer = Printer::new(mode, a.thinking);
-    let call = conn
-        .call(
-            method::TURN_SUBMIT,
-            serde_json::to_value(TurnSubmitParams {
-                session_id: a.session,
-                input: prompt,
-                profile: a.profile,
-                provider: a.provider,
-                model: a.model,
-                author: None,
-                attachments,
-                reply_to: None,
-                // Inside a job, its session (theseus-b5cl).
-                opened_from: theseus_client::client::job_session(),
-            })?,
-            |m, p| printer.on(m, p),
-        )
-        .await;
+    let params = serde_json::to_value(TurnSubmitParams {
+        session_id: a.session,
+        input: prompt,
+        profile: a.profile,
+        provider: a.provider,
+        model: a.model,
+        author: None,
+        attachments,
+        reply_to: None,
+        // Inside a job, its session (theseus-b5cl).
+        opened_from: theseus_client::client::job_session(),
+    })?;
+    let call = if spawned {
+        submit_stoppable(conn, params, &mut printer).await
+    } else {
+        conn.call(method::TURN_SUBMIT, params, |m, p| printer.on(m, p))
+            .await
+    };
     printer.settle();
     let result = match call {
         Ok(v) => v,
@@ -107,7 +117,68 @@ pub async fn ask(conn: &mut Conn, json: bool, no_stream: bool, a: AskArgs) -> Re
             )?;
         }
     }
-    Ok(())
+    match outcome::TurnEnd::of(&r) {
+        outcome::TurnEnd::Done => Ok(()),
+        end => Err(outcome::Ended {
+            end,
+            stop_reason: r.stop_reason,
+        }
+        .into()),
+    }
+}
+
+/// `turn.submit` under `--spawn`, whose daemon ends with this process
+/// (theseus-n88g.2): the first SIGINT or SIGTERM stops the turn as `/stop`
+/// does (`execution.stop`, once `turn.started` has named its execution). The
+/// turn then ends `stopped`, with what it spent, and nothing is left for the
+/// store's next open to resume. A second signal ends the run at once
+/// (`outcome::Signalled`); the daemon still gets its clean stop after.
+async fn submit_stoppable(conn: &mut Conn, params: Value, printer: &mut Printer) -> Result<Value> {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let id = conn.send(method::TURN_SUBMIT, params).await?;
+    let mut execution: Option<String> = None;
+    // The signal that asked for the stop, and whether it was sent.
+    let mut stop: Option<(i32, bool)> = None;
+    loop {
+        let signal = tokio::select! {
+            msg = conn.next() => {
+                match msg? {
+                    None => return Err(anyhow!("connection closed before response")),
+                    Some(Message::Response(r)) if r.id == id => {
+                        return theseus_client::client::answer(r);
+                    }
+                    Some(Message::Notification(n)) => {
+                        if n.method == notify::TURN_STARTED && execution.is_none() {
+                            execution = n.params["execution_id"].as_str().map(str::to_string);
+                        }
+                        printer.on(&n.method, &n.params);
+                    }
+                    Some(_) => {}
+                }
+                None
+            }
+            _ = sigint.recv() => Some(libc::SIGINT),
+            _ = sigterm.recv() => Some(libc::SIGTERM),
+        };
+        if let Some(s) = signal {
+            if stop.is_some() {
+                return Err(outcome::Signalled { signal: s }.into());
+            }
+            eprintln!(
+                "theseus: {}: stopping the turn; a second signal ends the run at once",
+                outcome::signal_name(s)
+            );
+            stop = Some((s, false));
+        }
+        if let (Some((s, false)), Some(exec)) = (stop, &execution) {
+            let author = format!("cli:{}", outcome::signal_name(s));
+            let params = serde_json::json!({"execution_id": exec, "author": author});
+            conn.send(method::EXECUTION_STOP, params).await?;
+            stop = Some((s, true));
+        }
+    }
 }
 
 /// A failed turn's trace, from its error's data, when the daemon sent one.

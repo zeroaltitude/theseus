@@ -6,7 +6,9 @@
 //! API streams it, as the model the request named. Every request's body is
 //! kept, in arrival order (theseus-kol), with the time it arrived, parsed
 //! and as the bytes that came (theseus-ev1). It can be told to refuse the
-//! next requests with an error status, as the API refuses (theseus-ljr).
+//! next requests with an error status, as the API refuses (theseus-ljr), or
+//! to answer them as a model that declines, with the `refusal` stop reason
+//! (theseus-n88g.2).
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -29,6 +31,8 @@ struct Seen {
     /// The statuses the next requests get, one each, in order; `u16::MAX`
     /// for every request from then on.
     fails: Mutex<VecDeque<u16>>,
+    /// How many of the next requests the model declines (`refusal`).
+    refusals: Mutex<u32>,
 }
 
 pub struct FakeModel {
@@ -89,6 +93,12 @@ impl FakeModel {
         f.clear();
         f.push_back(status);
         f.push_back(u16::MAX);
+    }
+
+    /// Decline the next `n` requests as a model does: a short text that
+    /// ends with the `refusal` stop reason, a 200 answer.
+    pub fn decline_next(&self, n: u32) {
+        *self.seen.refusals.lock().unwrap() += n;
     }
 }
 
@@ -154,7 +164,15 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
         return stream.flush();
     }
     let model = req["model"].as_str().unwrap_or(MODEL);
-    let events = if carries_tool_result(&req) {
+    let declines = {
+        let mut r = seen.refusals.lock().unwrap();
+        let declines = *r > 0;
+        *r = r.saturating_sub(1);
+        declines
+    };
+    let events = if declines {
+        text_turn_ending(model, "I can't help with that.", "refusal")
+    } else if carries_tool_result(&req) {
         text_turn(model, "Done.")
     } else {
         match calls(&prompt(&req)) {
@@ -223,12 +241,16 @@ fn tool_turn(model: &str, calls: &[(&'static str, Value)]) -> Vec<Value> {
 }
 
 fn text_turn(model: &str, text: &str) -> Vec<Value> {
+    text_turn_ending(model, text, "end_turn")
+}
+
+fn text_turn_ending(model: &str, text: &str, stop_reason: &str) -> Vec<Value> {
     let mut v = vec![
         start(model, 60),
         json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
         json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
         json!({"type": "content_block_stop", "index": 0}),
     ];
-    v.extend(end("end_turn"));
+    v.extend(end(stop_reason));
     v
 }
