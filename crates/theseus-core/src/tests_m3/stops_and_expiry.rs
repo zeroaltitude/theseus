@@ -64,7 +64,6 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
         recompile: None,
         attachments: vec![],
         arrived: Some(std::time::Instant::now()),
-        config_wait_us: 0,
         reply_to: None,
     };
     let core = r.core.clone();

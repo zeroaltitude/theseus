@@ -5,12 +5,11 @@
 use serde_json::{json, Value};
 use theseus_kernel::{Action, LimitFollowed, Micros};
 use theseus_protocol::NarrativePart::{Approval, Session};
-use theseus_protocol::{notify, ApprovalRefused, ConfirmResolved, Event, LedgerKind};
+use theseus_protocol::{notify, ConfirmResolved, Event, LedgerKind};
 
 use super::{Fact, Say};
 use crate::approval::Refusal;
 use crate::narrative;
-use crate::peer::Traced;
 use crate::rpc::Act;
 
 /// The operator answered a call that waited (`action.confirm_answered`,
@@ -23,8 +22,6 @@ pub struct CallAnswered<'a> {
     /// Who answered, and through what.
     pub by: &'a str,
     pub via: &'a str,
-    /// The process that answered, as traced (theseus-6qy).
-    pub asker: Value,
     /// The answer trusts the session again (theseus-9bp).
     pub trust: bool,
 }
@@ -35,7 +32,7 @@ impl Fact for CallAnswered<'_> {
 
     fn row(&self) -> Value {
         json!({"correlation_id": self.action.correlation_id, "approved": self.approve, "note": self.note, "by": self.by, "via": self.via,
-               "asker": self.asker, "trust": self.trust})
+               "trust": self.trust})
     }
 
     fn event(&self) -> Option<Event> {
@@ -93,7 +90,6 @@ pub struct BudgetAnswered<'a> {
     pub note: Option<&'a str>,
     pub by: &'a str,
     pub via: &'a str,
-    pub asker: Value,
 }
 
 impl Fact for BudgetAnswered<'_> {
@@ -102,8 +98,7 @@ impl Fact for BudgetAnswered<'_> {
 
     fn row(&self) -> Value {
         let q = self.question;
-        json!({"correlation_id": q.correlation_id, "approved": self.approve, "note": self.note, "by": self.by, "via": self.via, "tool": q.tool,
-               "asker": self.asker})
+        json!({"correlation_id": q.correlation_id, "approved": self.approve, "note": self.note, "by": self.by, "via": self.via, "tool": q.tool})
     }
 
     fn event(&self) -> Option<Event> {
@@ -161,14 +156,12 @@ impl Fact for ResetDeclined<'_> {
 }
 
 /// An approval-like act did not count (theseus-sgh; `approval.refused`):
-/// who, through what, why, and the process that asked. One from a Theseus
-/// job's process is the security event `JobActRefused` says.
+/// who, through what, and why.
 pub struct ActRefused<'a> {
     pub(crate) act: Act<'a>,
     pub refusal: &'a Refusal,
     /// The label of who answered.
     pub by: &'a str,
-    pub traced: &'a Traced,
 }
 
 impl ActRefused<'_> {
@@ -181,10 +174,6 @@ impl ActRefused<'_> {
             Act::Publish { .. } => None,
         }
     }
-
-    fn by_a_job(&self) -> bool {
-        self.traced.refusal().is_some()
-    }
 }
 
 impl Fact for ActRefused<'_> {
@@ -192,7 +181,7 @@ impl Fact for ActRefused<'_> {
 
     fn row(&self) -> Value {
         let (r, act) = (self.refusal, self.act);
-        let mut data = match act {
+        match act {
             Act::Answer { action: a, approve } => {
                 json!({"correlation_id": a.correlation_id, "tool": a.tool, "approve": approve,
                        "who": r.who, "via": r.via, "why": r.why, "by": self.by})
@@ -209,20 +198,10 @@ impl Fact for ActRefused<'_> {
                 json!({"act": act.method(), "place": place, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
-        };
-        if *self.traced != Traced::NoProcess {
-            data["asker"] = self.traced.json();
         }
-        if self.by_a_job() {
-            data["from_job"] = json!(true);
-        }
-        data
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
-        if self.by_a_job() {
-            return;
-        }
         let r = self.refusal;
         say.line(
             Approval,
@@ -252,49 +231,6 @@ impl Fact for ActRefused<'_> {
                     r.who, r.via, r.why
                 ),
             },
-        );
-    }
-}
-
-/// A Theseus job's process, or one that cannot be traced, tried an
-/// approval-like act (theseus-6qy): a security event, said in the narrative
-/// and to every connection (`approval.refused`, with the row's fields).
-pub struct JobActRefused<'a> {
-    pub(crate) act: Act<'a>,
-    pub refusal: &'a Refusal,
-    pub params: &'a ApprovalRefused,
-}
-
-impl Fact for JobActRefused<'_> {
-    const METHOD: Option<&'static str> = Some(notify::APPROVAL_REFUSED);
-
-    fn event(&self) -> Option<Event> {
-        Some(Event::ApprovalRefused(self.params.clone()))
-    }
-
-    fn narrate(&self, say: &mut Say<'_>) {
-        let what = match self.act {
-            Act::Answer { action: a, .. } => format!("an answer to {}", a.tool),
-            Act::Untighten { tool } => format!("the undo of {tool}'s tightening"),
-            Act::Tighten { tool } => format!("\"should have asked\" for {tool}"),
-            Act::Trust { session } => {
-                format!("trusting session {} again", narrative::short(session))
-            }
-            Act::Publish { place } => format!("publishing into {place}"),
-        };
-        let then = match self.act {
-            Act::Answer { .. } => "It keeps waiting for the operator's answer.",
-            Act::Untighten { .. } => "It keeps asking first.",
-            Act::Tighten { .. } => "Nothing changed.",
-            Act::Trust { .. } => "It still holds external text, and its calls that act wait.",
-            Act::Publish { .. } => "Nothing was published.",
-        };
-        say.line(
-            Approval,
-            format!(
-                "Refused {what} {} through {}: a job's process cannot answer an approval. {then}",
-                self.refusal.why, self.refusal.via
-            ),
         );
     }
 }

@@ -993,11 +993,6 @@ fn a_host_beyond_the_list_once_approved_is_outside_text() {
         .as_str()
         .unwrap()
         .to_string();
-    // The operator's part needs a process outside every job (theseus-6qy).
-    if let Some(job) = common::job_above_this_test() {
-        eprintln!("skipped the operator's part: this test runs inside Theseus job {job}");
-        return;
-    }
     r.call(
         "action.confirm",
         json!({"correlation_id": corr, "approve": true}),

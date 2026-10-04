@@ -7,10 +7,10 @@
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
-use theseus_protocol::{Id, Message, Request};
+use theseus_protocol::{method, Id, Message, Request};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 /// A JSON-RPC error response, kept structured so callers can read `data`.
@@ -103,8 +103,10 @@ impl Conn {
     }
 
     /// Send a request and return its id at once: its answer comes from
-    /// `next`, with the same id.
+    /// `next`, with the same id. An operator's method is refused inside a
+    /// Theseus job before anything is sent (`refuse_in_a_job`).
     pub async fn send(&mut self, method: &str, params: Value) -> Result<Id> {
+        refuse_in_a_job(method, job_session().as_deref())?;
         let id = Id::Num(self.next_id);
         self.next_id += 1;
         let mut line = serde_json::to_string(&Request::new(id.clone(), method, params))?;
@@ -198,6 +200,34 @@ pub fn job_session() -> Option<String> {
     job_session_in(std::env::var(theseus_protocol::JOB_SESSION_ENV).ok())
 }
 
+/// The methods only the operator makes, each with the command that makes it
+/// (theseus-zmgb): an answer to a waiting call, the undo of a tightening, a
+/// trust, a publish, and the AWS bootstrap.
+pub const OPERATORS: [(&str, &str); 5] = [
+    (method::ACTION_CONFIRM, "theseus confirm"),
+    (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
+    (method::POLICY_TRUST, "theseus policy trust"),
+    (method::PLACE_PUBLISH, "theseus publish"),
+    (method::AWS_BOOTSTRAP, "theseus aws bootstrap"),
+];
+
+/// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
+/// `session` is the job's marker, the `THESEUS_SESSION` every job's
+/// environment carries. A speed bump, not a boundary: a job can strip its
+/// environment. L1, whose view has no route to the daemon, is the boundary.
+pub fn refuse_in_a_job(method: &str, session: Option<&str>) -> Result<()> {
+    let (Some(session), Some((_, command))) =
+        (session, OPERATORS.iter().find(|(m, _)| *m == method))
+    else {
+        return Ok(());
+    };
+    bail!(
+        "{command} refused: it is the operator's to run, and this shell is a Theseus job's \
+         (THESEUS_SESSION={session} is set), so it would answer for the operator. Run it from \
+         your own shell."
+    )
+}
+
 /// `job_session` of the variable's value: an empty one names none.
 fn job_session_in(value: Option<String>) -> Option<String> {
     value
@@ -209,6 +239,32 @@ fn job_session_in(value: Option<String>) -> Option<String> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// The operator's methods, refused inside a job with the reason and the
+    /// way out, and only there; every other method goes (theseus-zmgb).
+    #[test]
+    fn the_operators_methods_are_refused_inside_a_job() {
+        for (m, command) in OPERATORS {
+            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3"))
+                .unwrap_err()
+                .to_string();
+            assert!(e.starts_with(&format!("{command} refused:")), "{e}");
+            assert!(
+                e.contains("(THESEUS_SESSION=ses_0000aa1b2c3 is set)"),
+                "{e}"
+            );
+            assert!(e.ends_with("Run it from your own shell."), "{e}");
+            assert!(refuse_in_a_job(m, None).is_ok(), "{m}");
+        }
+        for m in [
+            method::POLICY_TIGHTEN,
+            method::CONFIRM_LIST,
+            method::TURN_SUBMIT,
+            method::HEALTH,
+        ] {
+            assert!(refuse_in_a_job(m, Some("ses_0000aa1b2c3")).is_ok(), "{m}");
+        }
+    }
 
     #[test]
     fn a_jobs_session_is_its_variable_and_an_empty_one_is_none() {

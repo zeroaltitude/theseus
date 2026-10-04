@@ -1,7 +1,7 @@
-//! Who can view a guild channel: one walk of its viewers serves the approval
-//! check (`check_channel`, theseus-sgh) and the place rule's one read of a
-//! channel bound `private = true` (theseus-nbsh). A child of `runtime`, apart
-//! from it for the shape budget's file ceiling.
+//! Who can view a guild channel: the place rule's one read of a channel bound
+//! `private = true` (theseus-nbsh), at the binding's start, which health
+//! shows. A child of `runtime`, apart from it for the shape budget's file
+//! ceiling.
 
 use twilight_model::guild::Permissions;
 use twilight_model::id::marker::RoleMarker;
@@ -10,12 +10,10 @@ use twilight_model::id::Id;
 use super::Shared;
 use crate::viewers;
 
-/// A guild channel as a read of its viewers finds it (theseus-sgh).
+/// A guild channel as a read of its viewers finds it.
 pub(crate) struct View {
     /// Every member who can view it, the bot aside.
     pub(super) viewers: Vec<viewers::Member>,
-    /// The guild's members checked.
-    pub(super) checked: usize,
 }
 
 impl Shared {
@@ -36,9 +34,8 @@ impl Shared {
 
     /// Everyone who can view a guild channel, the bot aside: the guild's
     /// roles and owner, the channel's overwrites, and every member, through
-    /// twilight's permission calculation. The approval check takes those
-    /// outside `[approval].trusted_users`; the place rule's check, those who
-    /// are not the owner.
+    /// twilight's permission calculation. The place rule's check takes those
+    /// who are not an owner.
     pub(super) async fn view(&self, channel: u64) -> anyhow::Result<View> {
         let ch = self.http.channel(Id::new(channel)).await?.model().await?;
         let guild_id = ch
@@ -76,9 +73,6 @@ impl Shared {
             .into_iter()
             .cloned()
             .collect();
-        Ok(View {
-            viewers,
-            checked: members.len(),
-        })
+        Ok(View { viewers })
     }
 }

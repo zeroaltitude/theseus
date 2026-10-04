@@ -102,22 +102,22 @@ impl Op {
     }
 }
 
-/// Where a place's approval cards go (theseus-sgh, spec §3.9 "Approval").
+/// Where a place's approval cards go (the place rule, theseus-zmgb).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Route {
-    /// Here: the place is a trusted channel, or there is no `[approval]`.
+    /// Here: the place is private, so the owner's answer here counts.
     #[default]
     Here,
-    /// To the DM with a trusted user, `user`, which `dm` names (`DM @eddie`);
-    /// the place (`place`, as `#general`) gets a one-line note that says so
-    /// and why it is not trusted (`why`).
+    /// To the DM with an owner, `user`, which `dm` names (`DM @eddie`); the
+    /// place (`place`, as `#general`) gets a one-line note that says so and
+    /// why an answer here would not count (`why`).
     Dm {
         user: u64,
         dm: String,
         place: String,
         why: String,
     },
-    /// Nowhere on Discord: the place is not trusted, and no trusted DM is
+    /// Nowhere on Discord: the place is shared, and no DM with an owner is
     /// bound. The note says why, and where to answer.
     Elsewhere { why: String },
 }
@@ -209,7 +209,8 @@ pub struct Renderer {
     notice_embeds: bool,
 }
 
-/// Where else an approval can be answered when `[approval]` does not say.
+/// Where else an approval can be answered: the owner's own surfaces, the web
+/// UI on (`theseus_core::approval::elsewhere`).
 pub const ELSEWHERE: &str = "in the web UI or with `theseus confirm`";
 
 impl Renderer {
@@ -867,24 +868,20 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     }
 }
 
-/// The note a place gets when its card goes elsewhere: to a trusted DM, or
+/// The note a place gets when its card goes elsewhere: to an owner's DM, or
 /// nowhere on Discord. None when the card is here.
 pub fn card_note(route: &Route, line: &str, elsewhere: &str) -> Option<String> {
     match route {
         Route::Here => None,
-        Route::Dm { dm, why, .. } => Some(format!(
-            "🔐 Approval for {line} was asked in {dm}: this channel is not a trusted channel \
-             ({why})."
-        )),
+        Route::Dm { dm, why, .. } => {
+            Some(format!("🔐 Approval for {line} was asked in {dm}: {why}."))
+        }
         Route::Elsewhere { why } => {
             let answer = match elsewhere {
-                "" => ", and no trusted channel is bound here to answer it".to_string(),
+                "" => ", and no DM with an owner is bound here to answer it".to_string(),
                 e => format!(": answer {e}"),
             };
-            Some(format!(
-                "🔐 {line} waits for approval, and this channel is not a trusted channel \
-                 ({why}){answer}."
-            ))
+            Some(format!("🔐 {line} waits for approval: {why}{answer}."))
         }
     }
 }
@@ -1253,61 +1250,9 @@ pub fn summarize(tool: &str, input: &Value) -> String {
     clip(&text.replace('`', "'").replace('\n', " "), 90)
 }
 
-/// The notice for a refusal of a Theseus job's process (theseus-6qy), from
-/// the `approval.refused` notification: what it tried, from which process
-/// of which job, and that nothing moved. It goes where approvals go.
-pub fn job_refusal(p: &Value) -> String {
-    let tool = str_of(p, "tool");
-    let what = match str_of(p, "act").as_str() {
-        theseus_protocol::method::POLICY_UNTIGHTEN => format!("undo the tightening of `{tool}`"),
-        _ if tool == theseus_protocol::BUDGET_TOOL => "answer the spend reset".to_string(),
-        _ => format!("answer the approval of `{tool}`"),
-    };
-    let a = p.get("asker").cloned().unwrap_or(Value::Null);
-    let argv0 = || clip(&str_of(&a, "argv0").replace('`', "'"), 40);
-    let from = match (
-        a.get("job").and_then(Value::as_str),
-        a.get("pid").and_then(Value::as_u64),
-        a.get("under_daemon").and_then(Value::as_u64),
-        a.get("under_other_daemon").and_then(Value::as_u64),
-    ) {
-        (Some(job), Some(pid), ..) => {
-            format!("`{}` (pid {pid}), a process of job `{job}`", argv0())
-        }
-        // A job's orphan, whose wrapper died (theseus-z4b).
-        (None, Some(pid), Some(daemon), _) => format!(
-            "`{}` (pid {pid}), a process under theseusd itself (pid {daemon}), which is a job's \
-             orphan",
-            argv0()
-        ),
-        // Under another serving daemon, a scratch one or `--stdio` (theseus-6uo).
-        (None, Some(pid), None, Some(daemon)) => format!(
-            "`{}` (pid {pid}), a process under another serving theseusd (pid {daemon}), which \
-             counts as that daemon's job",
-            argv0()
-        ),
-        _ => format!(
-            "a process that could not be traced ({}), which counts as a job's",
-            clip(&str_of(&a, "untraceable").replace('`', "'"), 160)
-        ),
-    };
-    let then = match str_of(p, "act").as_str() {
-        theseus_protocol::method::POLICY_UNTIGHTEN => "It keeps asking first.",
-        _ => "It keeps waiting for your answer.",
-    };
-    format!(
-        "🚨 Refused: {from}, tried to {what} through {}. A job cannot answer an approval. {then}",
-        str_of(p, "via")
-    )
-}
-
 /// Dollars as the narrative says them: `$100`, `$0.45`, `$0.0045`.
 fn dollars(usd: f64) -> String {
     theseus_core::narrative::dollars((usd.max(0.0) * 1e6).round() as u64)
-}
-
-fn str_of(v: &Value, k: &str) -> String {
-    v.get(k).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
 pub(crate) fn clip(s: &str, max: usize) -> String {
@@ -1410,68 +1355,6 @@ fn open_fence(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A refusal of a Theseus job's process goes to the DM as one line: what
-    /// it tried, from which process of which job, and that nothing moved
-    /// (theseus-6qy).
-    #[test]
-    fn a_jobs_refused_answer_is_one_notice() {
-        let asker = json!({"pid": 4242, "argv0": "theseus", "job": "act_job", "wrapper_pid": 4200});
-        let n = |act: &str, tool: &str, asker: &Value| {
-            job_refusal(&json!({"act": act, "tool": tool, "via": "cli", "asker": asker}))
-        };
-        assert_eq!(
-            n("action.confirm", "fs.write", &asker),
-            "🚨 Refused: `theseus` (pid 4242), a process of job `act_job`, tried to answer the \
-             approval of `fs.write` through cli. A job cannot answer an approval. It keeps \
-             waiting for your answer."
-        );
-        assert!(
-            n("action.confirm", "budget.reset", &asker).contains("tried to answer the spend reset")
-        );
-        let undo = n("policy.untighten", "fs.edit", &asker);
-        assert!(
-            undo.contains("tried to undo the tightening of `fs.edit`"),
-            "{undo}"
-        );
-        assert!(undo.ends_with("It keeps asking first."), "{undo}");
-        let lost = n(
-            "action.confirm",
-            "fs.write",
-            &json!({"untraceable": "pid 9 has exited"}),
-        );
-        assert!(
-            lost.contains(
-                "a process that could not be traced (pid 9 has exited), which counts as a job's"
-            ),
-            "{lost}"
-        );
-        // A job's orphan, whose wrapper died, under the daemon (theseus-z4b).
-        let orphan = n(
-            "action.confirm",
-            "fs.write",
-            &json!({"pid": 4343, "argv0": "theseus", "under_daemon": 4000}),
-        );
-        assert_eq!(
-            orphan,
-            "🚨 Refused: `theseus` (pid 4343), a process under theseusd itself (pid 4000), which \
-             is a job's orphan, tried to answer the approval of `fs.write` through cli. A job \
-             cannot answer an approval. It keeps waiting for your answer."
-        );
-        // Under another serving daemon (theseus-6uo).
-        let other = n(
-            "action.confirm",
-            "fs.write",
-            &json!({"pid": 4343, "argv0": "theseus", "under_other_daemon": 5000}),
-        );
-        assert!(
-            other.starts_with(
-                "🚨 Refused: `theseus` (pid 4343), a process under another serving theseusd \
-                 (pid 5000), which counts as that daemon's job, tried to answer"
-            ),
-            "{other}"
-        );
-    }
     use serde_json::json;
 
     fn upserts(ops: &[Op]) -> Vec<(String, String)> {
@@ -2051,12 +1934,12 @@ mod tests {
         }
     }
 
-    /// A place that is not a trusted channel (theseus-sgh) sends its card to
+    /// A shared place (the place rule, theseus-zmgb) sends its card to
     /// the trusted user's DM and says so in one line here; the answer settles
     /// the card in the DM and the note here.
     #[test]
-    fn a_card_for_an_untrusted_place_goes_to_the_dm_with_a_note_here() {
-        let route = to_dm("it is not listed in [approval] channels");
+    fn a_card_for_a_shared_place_goes_to_the_dm_with_a_note_here() {
+        let route = to_dm("this channel is shared, and an answer counts only from a private place");
         let c = card(&waiting_write(), &route, "with `theseus confirm`");
         assert!(
             c.content
@@ -2073,8 +1956,8 @@ mod tests {
         );
         assert_eq!(
             card_note(&route, &c.line, "with `theseus confirm`").unwrap(),
-            "🔐 Approval for `proc.run` cargo test was asked in DM @eddie: this channel is not a \
-             trusted channel (it is not listed in [approval] channels)."
+            "🔐 Approval for `proc.run` cargo test was asked in DM @eddie: this channel is shared, \
+             and an answer counts only from a private place."
         );
         let done = settled(
             &Closed::new("approved", Some("discord:eddie")),
@@ -2243,12 +2126,12 @@ mod tests {
 
     /// A budget question takes the same route as a tool call.
     #[test]
-    fn a_budget_question_for_an_untrusted_place_goes_to_the_dm_too() {
+    fn a_budget_question_for_a_shared_place_goes_to_the_dm_too() {
         let route = Route::Dm {
             user: 7,
             dm: "DM @eddie".into(),
             place: "#general".into(),
-            why: "cannot be verified".into(),
+            why: "this channel is shared, and an answer counts only from a private place".into(),
         };
         let req = request(json!({"correlation_id": "act_b", "session_id": "s",
             "execution_id": "e", "tool": "budget.reset", "input": {}, "by": "operator", "requested_at_ms": 1,
@@ -2276,26 +2159,27 @@ mod tests {
         );
     }
 
-    /// Not trusted, and no trusted DM: no card on Discord, only a note that
+    /// Shared, and no DM with an owner: no card on Discord, only a note that
     /// says where to answer (or that nowhere here can).
     #[test]
-    fn with_no_trusted_dm_the_place_gets_only_a_note() {
+    fn with_no_owners_dm_the_place_gets_only_a_note() {
         for (elsewhere, tail) in [
             (
                 "in the web UI or with `theseus confirm`",
                 ": answer in the web UI or with `theseus confirm`.",
             ),
-            ("", ", and no trusted channel is bound here to answer it."),
+            ("", ", and no DM with an owner is bound here to answer it."),
         ] {
             let route = Route::Elsewhere {
-                why: "it is not listed in [approval] channels".into(),
+                why: "this channel is shared, and an answer counts only from a private place"
+                    .into(),
             };
             let c = card(&waiting_write(), &route, elsewhere);
             assert_eq!(
                 card_note(&route, &c.line, elsewhere).unwrap(),
                 format!(
-                    "🔐 `proc.run` cargo test waits for approval, and this channel is not a \
-                     trusted channel (it is not listed in [approval] channels){tail}"
+                    "🔐 `proc.run` cargo test waits for approval: this channel is shared, and an \
+                     answer counts only from a private place{tail}"
                 )
             );
             let done = settled(&Closed::new("declined", Some("sock#3")), &c.line, false);
@@ -2307,8 +2191,8 @@ mod tests {
         assert!(card_note(&Route::Here, "x", ELSEWHERE).is_none());
     }
 
-    /// With `[approval]`, a card names only the trusted local surfaces; with
-    /// none, it names none. Without `[approval]` it reads as before.
+    /// A card names where else it can be answered: the owner's own surfaces,
+    /// the CLI always and the web UI when it is on; with none named, none.
     #[test]
     fn a_card_names_where_else_it_can_be_answered() {
         let text = |elsewhere: &str| {

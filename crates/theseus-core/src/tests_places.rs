@@ -278,7 +278,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -561,7 +560,6 @@ fn from_discord(user: u64, channel: Option<u64>) -> crate::approval::Answerer {
             channel_id: channel.unwrap_or(user + 1).to_string(),
             guild_id: channel.map(|_| "712398310421561444".to_string()),
         }),
-        peer: crate::peer::Peer::None,
     }
 }
 
@@ -657,17 +655,12 @@ async fn the_owner_publishes_into_a_shared_place() {
 }
 
 /// Only the owner, from a private place, publishes: through Discord, from a
-/// channel that is shared (though `[approval]` trusts it), or by someone
-/// approvals trust who is not the owner, it is refused and nothing is
-/// written; from the owner's DM it goes.
+/// channel that is shared, or by someone who is not the owner (`[places]
+/// owner`), it is refused and nothing is written; from the owner's DM it
+/// goes.
 #[tokio::test]
 async fn only_the_owner_from_a_private_place_publishes() {
-    let r = rig_with(|cfg| {
-        cfg.approval = Some(crate::config::ApprovalConfig {
-            trusted_users: vec![format!("discord:{OWNER}"), format!("discord:{ALICE}")],
-            channels: vec!["cli".into(), "discord:dm".into(), format!("discord:{LAB}")],
-        })
-    });
+    let r = rig_with(|_| {});
     r.core.bind_places(vec![BoundPlace {
         target: format!("discord:channel:{LAB}"),
         name: "#lab".into(),
@@ -675,14 +668,6 @@ async fn only_the_owner_from_a_private_place_publishes() {
     }]);
     let shared = session(&r.core, Some(&format!("channel:{LAB}")));
     turn(&r.core, &shared, "hello").await;
-    r.core.approval_checked(
-        LAB,
-        crate::approval::Checked {
-            trusted: true,
-            detail: "only the owner can view it".into(),
-            at_ms: theseus_protocol::now_unix_ms(),
-        },
-    );
     let p = theseus_protocol::PlacePublishParams {
         text: Some(SECRET.into()),
         to: "#lab".into(),
@@ -703,7 +688,7 @@ async fn only_the_owner_from_a_private_place_publishes() {
         "place.publish",
         "{refused:?}"
     );
-    // Alice may answer approvals, but she is not the owner (`[places] owner`).
+    // Alice is not the owner (`[places] owner`).
     let e = r.core.publish(&p, from_discord(ALICE, None)).unwrap_err();
     assert!(format!("{e:#}").contains("is not an owner"), "{e:#}");
     assert!(

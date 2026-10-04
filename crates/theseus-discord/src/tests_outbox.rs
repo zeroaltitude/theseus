@@ -408,7 +408,6 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
         label: "cli#1".into(),
         surface: Surface::Cli,
         discord: None,
-        peer: theseus_core::approval::Peer::None,
     };
     core.confirm_action(&q, false, Some("not now"), cli)
         .unwrap();
@@ -441,29 +440,35 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     assert!(create < edit, "the edit went after its create, to its id");
 }
 
-/// 2b's approval route through the lanes: a card for a place that is not a
-/// trusted channel goes to the trusted user's DM, with a note in the place;
-/// how its question closed edits both, the card's buttons gone.
-#[tokio::test]
-async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_both() {
-    let d = tempfile::tempdir().unwrap();
-    let fake = FakeDiscord::start();
-    let script = vec![Scripted::tools(
-        "",
+/// A call that asks, as a shared place may make one: a wake (public by
+/// nature), set to ask first.
+fn wake_call(text: &str) -> Scripted {
+    Scripted::tools(
+        text,
         &[(
             "t1",
-            "fs_write",
-            serde_json::json!({"path": "a.txt", "content": "x"}),
+            "wake_at",
+            serde_json::json!({"after": "10m", "note": "check the build"}),
         )],
-    )];
-    let core = core_at(d.path(), &fake, script, |c| {
-        c.approval = Some(theseus_core::config::ApprovalConfig {
-            trusted_users: vec![format!("discord:{USER}")],
-            channels: vec!["discord:dm".into(), "cli".into()],
-        })
+    )
+}
+
+/// How a card names `wake_call`'s call.
+const WAKE: &str = "`wake.at` {\"after\":\"10m\",\"note\":\"check the build\"}";
+
+/// 2b's approval route through the lanes, under the place rule
+/// (theseus-zmgb): a card for a shared channel goes to the owner's DM, with
+/// a note in the channel; how its question closed edits both, the card's
+/// buttons gone.
+#[tokio::test]
+async fn a_card_for_a_shared_channel_goes_to_the_dm_and_its_settle_edits_both() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![wake_call("")], |c| {
+        c.policy.tools.insert("wake.at".into(), Posture::Approve);
     });
     let bindings = format!(
-        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"general\"\nusers = [\"{USER}\"]\nmention_only = false\nprivate = true\n",
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"general\"\nusers = [\"{USER}\"]\nmention_only = false\n",
         dm_only()
     );
     let rpc = bind(&core, d.path(), &bindings).await;
@@ -480,10 +485,10 @@ async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_bot
         .place_session(&format!("channel:{CHANNEL}"))
         .unwrap()
         .unwrap();
-    let q = ask(&rpc, &sid, "write a")
+    let q = ask(&rpc, &sid, "remind me")
         .await
         .awaiting_confirm
-        .expect("the write waits");
+        .expect("the wake waits");
     let c = core.clone();
     until("the card and the reply delivered", 10, move || {
         pending(&c) == 0
@@ -492,7 +497,7 @@ async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_bot
     let card = fake
         .messages(DM)
         .into_iter()
-        .find(|m| m.content.starts_with("**Approve?** `fs.write` a.txt"))
+        .find(|m| m.content.starts_with(&format!("**Approve?** {WAKE}")))
         .expect("the card in the DM");
     assert!(
         card.content.contains("-# for #general · expires"),
@@ -507,8 +512,10 @@ async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_bot
         .expect("the note in the channel");
     assert_eq!(
         note.content,
-        "🔐 Approval for `fs.write` a.txt was asked in DM @eddie: this channel is not a trusted \
-         channel (it is not listed in [approval] channels)."
+        format!(
+            "🔐 Approval for {WAKE} was asked in DM @eddie: this channel is shared, and an \
+             answer counts only from a private place."
+        )
     );
     // Closed with no event that says so; the reconcile finds it.
     core.kernel
@@ -524,7 +531,7 @@ async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_bot
         .unwrap();
     assert_eq!(
         card.content,
-        "❎ **Declined** by operator · `fs.write` a.txt"
+        format!("❎ **Declined** by operator · {WAKE}")
     );
     assert_eq!(card.components, 0, "its buttons are gone");
     let note = fake
@@ -534,15 +541,15 @@ async fn a_card_for_an_untrusted_channel_goes_to_the_dm_and_its_settle_edits_bot
         .unwrap();
     assert_eq!(
         note.content,
-        "🔐 ❎ **Declined** by operator · `fs.write` a.txt (in DM @eddie)"
+        format!("🔐 ❎ **Declined** by operator · {WAKE} (in DM @eddie)")
     );
 }
 
 /// theseus-94a6 through the binding: a fetch of a private address, asked in a
 /// shared channel, posts a card whose reason says that the page would join a
-/// conversation others can read. The card goes to the trusted user's DM, as
-/// any card for a channel that is not a trusted channel does. Nothing
-/// connects: the question is never answered.
+/// conversation others can read. The card goes to the owner's DM, as any
+/// card for a shared place does (theseus-zmgb). Nothing connects: the
+/// question is never answered.
 #[tokio::test]
 async fn a_private_address_card_from_a_shared_channel_says_where_the_page_goes() {
     let d = tempfile::tempdir().unwrap();
@@ -552,12 +559,7 @@ async fn a_private_address_card_from_a_shared_channel_says_where_the_page_goes()
         "",
         &[("t1", "http_fetch", serde_json::json!({ "url": url }))],
     )];
-    let core = core_at(d.path(), &fake, script, |c| {
-        c.approval = Some(theseus_core::config::ApprovalConfig {
-            trusted_users: vec![format!("discord:{USER}")],
-            channels: vec!["discord:dm".into(), "cli".into()],
-        })
-    });
+    let core = core_at(d.path(), &fake, script, |_| {});
     let bindings = format!(
         "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"general\"\nusers = [\"{USER}\"]\nmention_only = false\nprivate = false\n",
         dm_only()
@@ -658,27 +660,22 @@ fn mentioned_out(core: &Core) -> Vec<(String, serde_json::Value)> {
         .collect()
 }
 
-/// theseus-9j9, under review 2's consideration 2: with no `[approval]`, a
-/// guild channel answers nothing, so its card goes to the owner's DM, which
-/// needs no mention, and the channel gets the note. No message mentions
-/// anyone: the bind notice, the turn's tool line, its reply (whose text
-/// names a user), the note, or the card. (A card that stays in a trusted
-/// channel names its answerers: `courier::answerers` and `mentioning`.)
+/// theseus-9j9, under the place rule (theseus-zmgb): a shared channel
+/// answers nothing, so its card goes to the owner's DM, which needs no
+/// mention, and the channel gets the note. No message mentions anyone: the
+/// bind notice, the turn's tool line, its reply (whose text names a user),
+/// the note, or the card. (A card that stays in a private channel names its
+/// answerers: `courier::answerers` and `mentioning`.)
 #[tokio::test]
-async fn without_approval_a_channels_card_goes_to_the_dm_and_nothing_mentions_anyone() {
+async fn a_shared_channels_card_goes_to_the_dm_and_nothing_mentions_anyone() {
     let d = tempfile::tempdir().unwrap();
     let fake = FakeDiscord::start();
-    let script = vec![Scripted::tools(
-        &format!("Asking <@{USER}> about it."),
-        &[(
-            "t1",
-            "fs_write",
-            serde_json::json!({"path": "a.txt", "content": "x"}),
-        )],
-    )];
-    let core = core_at(d.path(), &fake, script, |_| {});
+    let script = vec![wake_call(&format!("Asking <@{USER}> about it."))];
+    let core = core_at(d.path(), &fake, script, |c| {
+        c.policy.tools.insert("wake.at".into(), Posture::Approve);
+    });
     let bindings = format!(
-        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"lighthouse\"\nusers = [\"{USER}\", \"{OTHER}\"]\nmention_only = false\nprivate = true\n",
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"lighthouse\"\nusers = [\"{USER}\", \"{OTHER}\"]\nmention_only = false\n",
         dm_only()
     );
     let rpc = bind(&core, d.path(), &bindings).await;
@@ -695,14 +692,14 @@ async fn without_approval_a_channels_card_goes_to_the_dm_and_nothing_mentions_an
         .place_session(&format!("channel:{CHANNEL}"))
         .unwrap()
         .unwrap();
-    ask(&rpc, &sid, "write a")
+    ask(&rpc, &sid, "remind me")
         .await
         .awaiting_confirm
-        .expect("the write waits");
+        .expect("the wake waits");
     // Live progress can come after the outbox first drains, so wait for every
     // message the test reads, not only for an empty outbox.
     let c = core.clone();
-    let expected = ["🔗 Theseus is bound here", "Asking <@", "`fs.write`", "🔐"];
+    let expected = ["🔗 Theseus is bound here", "Asking <@", "`wake.at`", "🔐"];
     until(
         "the card, the tool line, the reply, and the note delivered",
         10,
@@ -730,7 +727,7 @@ async fn without_approval_a_channels_card_goes_to_the_dm_and_nothing_mentions_an
             .unwrap_or_else(|| panic!("no {what}: {msgs:#?}"))
     };
     let text = at("text", &|m| m.content.contains("Asking <@"));
-    let line = at("tool line", &|m| m.content.contains("`fs.write`"));
+    let line = at("tool line", &|m| m.content.contains("`wake.at`"));
     let note_at = at("note", &|m| m.content.starts_with("🔐"));
     assert!(
         text < line && line < note_at,
@@ -739,8 +736,10 @@ async fn without_approval_a_channels_card_goes_to_the_dm_and_nothing_mentions_an
     let note = &msgs[note_at];
     assert_eq!(
         note.content,
-        "🔐 Approval for `fs.write` a.txt was asked in DM @eddie: this channel is not a trusted \
-         channel (there is no [approval] section, so only the CLI and a Discord DM answer)."
+        format!(
+            "🔐 Approval for {WAKE} was asked in DM @eddie: this channel is shared, and an \
+             answer counts only from a private place."
+        )
     );
     let card = fake
         .messages(DM)
@@ -748,7 +747,7 @@ async fn without_approval_a_channels_card_goes_to_the_dm_and_nothing_mentions_an
         .find(|m| m.components > 0)
         .expect("the card in the DM");
     assert!(
-        card.content.starts_with("**Approve?** `fs.write` a.txt"),
+        card.content.starts_with(&format!("**Approve?** {WAKE}")),
         "{}",
         card.content
     );

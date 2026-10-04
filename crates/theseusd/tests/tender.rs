@@ -408,12 +408,18 @@ fn a_restart_in_place_takes_the_running_tender_over() {
         toml::to_string(&t).unwrap()
     };
     std::fs::write(path("note.toml"), note(42.5)).unwrap();
-    config_copy::write(
-        &config_copy::path(Some(&path("state"))),
-        NOTE_REF,
-        &note(100.0),
-    )
-    .unwrap();
+    {
+        // The copy as the daemon keeps one, its digest in the store
+        // (theseus-zmgb), so the start serves from it.
+        let store = theseus_core::store::Store::open(&path("state").join("store")).unwrap();
+        config_copy::keep(
+            &store,
+            &config_copy::path(Some(&path("state"))),
+            NOTE_REF,
+            &note(100.0),
+        )
+        .unwrap();
+    }
     let mut daemon = on_the_vault(&theseusd, dir.path());
     let daemon_pid = daemon.id();
     let logs = || std::fs::read_to_string(path("theseusd.log")).unwrap_or_default();

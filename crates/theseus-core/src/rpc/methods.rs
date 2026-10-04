@@ -80,7 +80,6 @@ impl Core {
                 .collect(),
             narrative: self.narrator.on(),
             context: self.context_status(),
-            approval: self.approval_status(),
             tightenings: self.tools.tightened.all(),
             wakes: self.wakes(None, None).unwrap_or_default(),
             external_text: crate::external::listed(
@@ -205,20 +204,6 @@ impl Core {
     /// clean stop's (theseus-sqpx), before its last checkpoint.
     pub(crate) fn flush_web_rows(&self) {
         self.web_refusals.flush(&self.store);
-    }
-
-    /// `[approval]` for health: each listed channel's state, judged with the
-    /// Discord binding's latest checks and state.
-    pub fn approval_status(&self) -> theseus_protocol::ApprovalStatus {
-        let discord = self
-            .bindings
-            .all()
-            .into_iter()
-            .find(|b| b.kind == "discord");
-        self.approval.status(
-            self.cfg.web.enabled,
-            discord.as_ref().map(|b| b.state.as_str()),
-        )
     }
 
     pub(super) fn session_open(
@@ -774,7 +759,6 @@ impl Core {
                 recompile: None,
                 attachments: p.attachments,
                 arrived: Some(conn.arrived),
-                config_wait_us: conn.config_wait_us,
                 reply_to: p.reply_to,
             })
             .await;

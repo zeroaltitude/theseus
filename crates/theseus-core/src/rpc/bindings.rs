@@ -33,30 +33,6 @@ impl BindingBoard {
 }
 
 impl Core {
-    /// The Discord binding checked who can view a guild channel listed in
-    /// `[approval]` (theseus-sgh). An answer from there is judged against the
-    /// latest check; a change of verdict is ledgered and narrated.
-    pub fn approval_checked(&self, channel: u64, checked: crate::approval::Checked) {
-        let (trusted, detail) = (checked.trusted, checked.detail.clone());
-        if !self.approval.report(channel, checked) {
-            return;
-        }
-        tracing::info!(channel, trusted, detail = %detail, "approval: Discord channel checked");
-        self.binding_ledger(
-            LedgerKind::ApprovalChannelChecked,
-            None,
-            serde_json::json!({"channel": format!("discord:{channel}"), "trusted": trusted, "detail": detail}),
-        );
-        crate::narrative::narrate!(
-            self.narrator,
-            Approval,
-            None,
-            None,
-            "Discord channel {channel} is {} for approvals: {detail}.",
-            if trusted { "trusted" } else { "not trusted" }
-        );
-    }
-
     /// The Discord binding's places, from its bindings file (the place rule,
     /// theseus-nbsh): each one's class follows from them. Told as the binding
     /// starts, before it reads a message from any of them; until then a guild
@@ -75,7 +51,7 @@ impl Core {
         name: &str,
         viewers: std::result::Result<Vec<(u64, String)>, String>,
     ) {
-        let owners = self.cfg.owners();
+        let owners = self.runner.place_rule.owners(&self.cfg);
         let viewed = match viewers {
             Ok(v) => crate::places::Viewed::Others(
                 v.into_iter()

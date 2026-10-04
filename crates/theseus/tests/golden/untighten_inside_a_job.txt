@@ -1,0 +1,7 @@
+$ theseus policy untighten fs.edit
+--- requests
+
+--- stdout
+--- stderr
+theseus: theseus policy untighten refused: it is the operator's to run, and this shell is a Theseus job's (THESEUS_SESSION=ses_job01 is set), so it would answer for the operator. Run it from your own shell.
+--- exit 1

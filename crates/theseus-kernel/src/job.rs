@@ -744,9 +744,9 @@ pub const DAEMON_VALUE_FLAGS: [&str; 4] =
 
 /// Is this command line a serving `theseusd` (theseus-6uo)? Its program's file
 /// name is `theseusd`, and no subcommand follows: the socket daemon or
-/// `--stdio`, not a job wrapper, `check`, or `config`. Any daemon's descendant
-/// is refused an answer, as a job's is, since no process that answers an
-/// approval runs under one.
+/// `--stdio`, not a job wrapper, `check`, or `config`. The approval trace that
+/// read it is retired (theseus-zmgb); it goes with the daemon's subreaper
+/// (core review §F9).
 pub fn daemon_in_cmdline(cmdline: &[u8]) -> bool {
     let mut args = cmdline.split(|&b| b == 0);
     let Some(first) = args.next() else {

@@ -93,10 +93,11 @@ pub struct Config {
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
-    /// Who may answer a waiting call, and through which channels. Absent (as
-    /// in a config from before theseus-sgh): no rule.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approval: Option<ApprovalConfig>,
+    /// `[approval]`, retired (theseus-zmgb): an answer counts only from a
+    /// private place, by the owner (the place rule). A config that still has
+    /// the section loads, with one warning a load; nothing reads it.
+    #[serde(default, skip_serializing)]
+    pub approval: Option<toml::Table>,
     /// `[places]` (the place rule; `[labels]`, its old name, still reads).
     #[serde(default, alias = "labels")]
     #[serde(skip_serializing_if = "PlacesConfig::is_empty")]
@@ -182,30 +183,11 @@ impl Default for DiscordConfig {
     }
 }
 
-/// `[approval]` (spec §3.9 "Approval", theseus-sgh): an answer to a waiting
-/// call counts only from a trusted user through a trusted channel. Without
-/// the section, only the owner's CLI and Discord DM answer (review 2's
-/// consideration 2); the web UI and a guild channel answer once it names
-/// them.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ApprovalConfig {
-    /// Who may answer, as surface-qualified ids: `discord:<user id>`. The CLI
-    /// and the web UI need no entry: whoever reaches them is this machine's
-    /// operator. Default: nobody on Discord.
-    #[serde(default)]
-    pub trusted_users: Vec<String>,
-    /// Where an approval dialogue may happen: `cli`, `web`, `discord:dm` (a
-    /// DM between the bot and a trusted user), or `discord:<channel id>` (a
-    /// guild channel that only trusted users can view). Default: the CLI and
-    /// a trusted user's DM; the web UI by name.
-    #[serde(default = "default_approval_channels")]
-    pub channels: Vec<String>,
-}
-
-fn default_approval_channels() -> Vec<String> {
-    vec!["cli".into(), "discord:dm".into()]
-}
+/// The warning a config with `[approval]` loads with (theseus-zmgb).
+pub const APPROVAL_RETIRED: &str = "[approval] is retired, and nothing reads it: an answer counts \
+     only from a private place (the CLI, the web UI, a DM with the owner, or a channel bound \
+     private = true), by the owner ([places] owner, else the person of a DM the bindings file \
+     binds). Delete the section";
 
 impl DiscordConfig {
     pub fn bindings_path(&self, state_dir: &std::path::Path) -> PathBuf {
@@ -599,7 +581,6 @@ impl KernelSection {
             confirm_ttl_ms: self.confirm_ttl_secs * 1000,
             heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
             fault_after_startup_step: None,
-            unconfirmed_config: false,
             min_repeat_ms: self.min_repeat_minutes.max(1) * 60_000,
             // The system's zone.
             ..Default::default()
@@ -1136,23 +1117,8 @@ impl Config {
                 cfg.persona_names()
             ));
         }
-        if let Some(a) = &cfg.approval {
-            if a.channels.is_empty() {
-                warnings.push(
-                    "approval.channels is empty, so no answer counts: a call that waits for \
-                     approval waits until it expires, and a budget question until a new message \
-                     replaces it"
-                        .into(),
-                );
-            } else if a.trusted_users.is_empty()
-                && a.channels.iter().any(|c| c.starts_with("discord:"))
-            {
-                warnings.push(
-                    "approval.channels lists Discord, but approval.trusted_users names nobody, \
-                     so no Discord answer counts"
-                        .into(),
-                );
-            }
+        if cfg.approval.is_some() {
+            warnings.push(APPROVAL_RETIRED.into());
         }
         Ok((cfg, warnings))
     }
@@ -1393,14 +1359,6 @@ impl Config {
                     "catalog.\"{id}\" is not a built-in model, so its table needs {}",
                     missing.join(", ")
                 );
-            }
-        }
-        if let Some(a) = &self.approval {
-            for u in &a.trusted_users {
-                crate::approval::parse_user(u).map_err(anyhow::Error::msg)?;
-            }
-            for c in &a.channels {
-                crate::approval::Channel::parse(c).map_err(anyhow::Error::msg)?;
             }
         }
         // The web UI has no auth yet (§3.14): whoever reaches it is the
@@ -2339,15 +2297,13 @@ mod tests {
         assert!(Config::parse(&format!("{base}[catalog.\"glm-5.3\"]\nprice = 1.0\n")).is_err());
     }
 
-    /// `[approval]` (theseus-sgh). Eddie's vault config (its sections checked
-    /// 2026-09-29, by name only) has none: it loads with the owner's rule
-    /// (review 2's consideration 2) and no new warning, and `theseusd config`
-    /// prints no such section. The template keeps it commented, with Eddie's
-    /// DM as the example, and each of its lines parses. A section sets only
-    /// what it names: channels default to the CLI and a trusted user's DM
-    /// (the web UI by name), trusted users to nobody.
+    /// `[approval]` is retired (theseus-zmgb). Eddie's vault config without it
+    /// loads with no warning, and `theseusd config` prints no such section;
+    /// the template has none. A config that still has one, his three lines
+    /// among them, loads with one warning that it is retired, whatever it
+    /// holds, and prints none.
     #[test]
-    fn approval_is_the_owners_unless_the_config_has_the_section() {
+    fn an_approval_section_is_retired_and_loads_with_a_warning() {
         let vault = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
                      [kernel]\nadmission_ceiling = 8\nheartbeat_secs = 60\n\n\
                      [discord]\nenabled = true\ntoken_secret = \"discord_bot_token\"\n\
@@ -2356,73 +2312,22 @@ mod tests {
         let (cfg, warnings) = Config::parse(vault).unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
         assert!(cfg.approval.is_none());
-        assert!(!crate::approval::Approval::new(cfg.approval.as_ref()).configured());
-        let shown = toml::to_string_pretty(&cfg).unwrap();
-        assert!(!shown.contains("approval"), "{shown}");
+        assert!(Config::example().approval.is_none());
         assert!(
-            Config::example().approval.is_none(),
-            "the template leaves it commented"
+            !Config::EXAMPLE_TOML.contains("[approval]"),
+            "the template has no section"
         );
-        let has = |line: &str| Config::EXAMPLE_TOML.lines().any(|l| l.starts_with(line));
-        assert!(has("# [approval]"));
-        assert!(has("# trusted_users = [\"discord:271828182845904523\"]"));
-        assert!(has("# channels = [\"cli\", \"web\", \"discord:dm\"]"));
-
-        let with = |section: &str| Config::parse(&format!("{vault}\n[approval]\n{section}\n"));
-        let (cfg, w) = with("").unwrap();
-        let a = cfg.approval.unwrap();
-        assert_eq!(
-            w,
-            [
-                "approval.channels lists Discord, but approval.trusted_users names nobody, so no \
-              Discord answer counts"
-            ],
-            "the default DM needs a trusted user"
-        );
-        assert_eq!(
-            (a.trusted_users.len(), a.channels),
-            (0, vec!["cli".to_string(), "discord:dm".to_string()])
-        );
-        let (cfg, w) = with(
-            "trusted_users = [\"discord:271828182845904523\"]\nchannels = [\"cli\", \"web\", \"discord:dm\", \"discord:333333333333333333\"]",
-        )
-        .unwrap();
-        assert!(w.is_empty(), "{w:?}");
-        assert_eq!(cfg.approval.unwrap().channels.len(), 4);
-        for (bad, says) in [
-            (
-                "trusted_users = [\"eddie\"]",
-                "approval.trusted_users entry \"eddie\" is not a surface-qualified id",
-            ),
-            (
-                "trusted_users = [\"271828182845904523\"]",
-                "write \"discord:<user id>\"",
-            ),
-            (
-                "channels = [\"discord:general\"]",
-                "approval.channels entry \"discord:general\" is not a channel",
-            ),
-            (
-                "channels = [\"slack\"]",
-                "\"discord:dm\", or \"discord:<channel id>\"",
-            ),
-            ("users = []", "unknown field `users`"),
+        for section in [
+            "trusted_users = [\"discord:271828182845904523\"]\nchannels = [\"cli\", \"web\", \"discord:dm\"]",
+            "",
+            "channels = [\"discord:general\"]\nusers = []",
         ] {
-            let e = format!("{:#}", with(bad).unwrap_err());
-            assert!(e.contains(says), "{bad}: {e}");
+            let (cfg, w) = Config::parse(&format!("{vault}\n[approval]\n{section}\n")).unwrap();
+            assert_eq!(w, [APPROVAL_RETIRED], "{section}");
+            assert!(cfg.approval.is_some());
+            let shown = toml::to_string_pretty(&cfg).unwrap();
+            assert!(!shown.contains("approval"), "{shown}");
         }
-        let (_, w) = with("channels = []").unwrap();
-        assert!(
-            w.len() == 1 && w[0].starts_with("approval.channels is empty, so no answer counts"),
-            "{w:?}"
-        );
-        let (_, w) = with("channels = [\"discord:dm\"]").unwrap();
-        assert!(
-            w.len() == 1
-                && w[0]
-                    .contains("approval.trusted_users names nobody, so no Discord answer counts"),
-            "{w:?}"
-        );
     }
 
     /// `[web] bind` is a loopback address or the config fails to load, since

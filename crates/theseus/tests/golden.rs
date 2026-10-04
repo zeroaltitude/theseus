@@ -50,6 +50,12 @@ fn note(method: &str, params: Value) -> Value {
 /// Run `theseus --socket <sock> ARGS` against `steps`, in order. The daemon
 /// closes the connection after the last step, as a stopped daemon would.
 fn run(args: &[&str], steps: Vec<Step>) -> String {
+    run_in(args, steps, None)
+}
+
+/// `run`, inside the Theseus job `job` names when it names one: its marker,
+/// `THESEUS_SESSION`, in the CLI's environment (theseus-zmgb).
+fn run_in(args: &[&str], steps: Vec<Step>, job: Option<&str>) -> String {
     let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("sock");
     let listener = UnixListener::bind(&sock).unwrap();
@@ -87,17 +93,21 @@ fn run(args: &[&str], steps: Vec<Step>) -> String {
         seen
     });
     // Hermetic: a gate run inside a herdr pane would turn the watch's
-    // reporter on (theseus-l1l).
-    let out = Command::new(THESEUS)
-        .arg("--socket")
+    // reporter on (theseus-l1l), and one inside a Theseus job would carry its
+    // marker (theseus-zmgb).
+    let mut cmd = Command::new(THESEUS);
+    cmd.arg("--socket")
         .arg(&sock)
         .args(args)
         .env_remove("THESEUS_SOCKET")
+        .env_remove("THESEUS_SESSION")
         .env_remove("HERDR_ENV")
         .env_remove("HERDR_PANE_ID")
-        .env_remove("HERDR_SOCKET_PATH")
-        .output()
-        .unwrap();
+        .env_remove("HERDR_SOCKET_PATH");
+    if let Some(job) = job {
+        cmd.env("THESEUS_SESSION", job);
+    }
+    let out = cmd.output().unwrap();
     let seen = daemon.join().unwrap();
     format!(
         "$ theseus {}\n--- requests\n{}\n--- stdout\n{}--- stderr\n{}--- exit {}\n",
@@ -324,21 +334,6 @@ fn turn_notes() -> Vec<Value> {
         ),
         note("policy.tightened", tighten_result(true, false)),
         note("policy.untightened", tighten_result(true, false)),
-        note(
-            "approval.refused",
-            json!({"correlation_id": "act_k4", "tool": "fs.write",
-            "approve": true, "who": "sock#9", "via": "cli",
-            "why": "from a Theseus job's process (job act_j1, pid 4300, theseus)",
-            "by": "the CLI", "asker": {"pid": 4300, "argv0": "theseus", "trace_us": 210,
-                                       "job": "act_j1", "wrapper_pid": 4290},
-            "from_job": true, "act": "action.confirm", "session_id": S}),
-        ),
-        note(
-            "approval.refused",
-            json!({"act": "policy.untighten", "tool": "proc.run",
-            "who": "sock#9", "via": "cli", "why": "from a Theseus job's process",
-            "by": "the CLI", "from_job": true, "session_id": null}),
-        ),
         note(
             "session.trusted",
             json!({"session_id": S, "by": "the CLI", "who": "sock#3",
@@ -625,10 +620,6 @@ fn health() -> Value {
                       "ignored": 0, "errors": 0,
                       "places": [{"kind": "channel", "label": "#lab", "session_id": S},
                                  {"kind": "dm", "label": "DM ana", "session_id": null}]}],
-        "approval": {"configured": true, "trusted_users": ["ana"],
-                     "channels": [{"channel": "discord", "state": "trusted", "detail": ""},
-                                  {"channel": "web", "state": "not_trusted",
-                                   "detail": "no owner check on this system"}]},
         "tightenings": [{"tool": "proc.run", "posture": "approve", "by": "the CLI",
                          "at_ms": 1_759_300_300_250u64}],
         "external_text": [],
@@ -722,6 +713,7 @@ fn request_params(args: &[&str], result: Value) -> Value {
         .arg(&sock)
         .args(args)
         .env_remove("THESEUS_SOCKET")
+        .env_remove("THESEUS_SESSION")
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");
@@ -1868,14 +1860,37 @@ fn shutdown_prints_nothing_but_json_when_asked() {
     );
 }
 
+/// Inside a Theseus job the CLI refuses the operator's commands before it
+/// sends anything (theseus-zmgb): an answer and the undo of a tightening,
+/// each saying why and that the operator runs it from their own shell. The
+/// listing of what waits, which only reads, goes.
+#[test]
+fn inside_a_job_the_operators_commands_are_refused_and_nothing_is_sent() {
+    let job = Some("ses_job01");
+    golden(
+        "confirm_inside_a_job",
+        &run_in(&["confirm", "--approve", "act_k4"], vec![], job),
+    );
+    golden(
+        "untighten_inside_a_job",
+        &run_in(&["policy", "untighten", "fs.edit"], vec![], job),
+    );
+    let listed = run_in(
+        &["confirm"],
+        vec![step("confirm.list", json!({"confirms": []}))],
+        job,
+    );
+    assert!(listed.contains("--- requests\nconfirm.list\n"), "{listed}");
+}
+
 #[test]
 fn an_error_answer_exits_1_with_its_class() {
     let s = Step {
         method: "session.list",
         before: vec![],
         answer: Err(
-            json!({"code": -32006, "message": "the config is not confirmed yet",
-            "data": {"class": "config_unconfirmed"}}),
+            json!({"code": -32003, "message": "the secret anthropic_api_key did not resolve",
+            "data": {"class": "secret_failed"}}),
         ),
         after: vec![],
     };

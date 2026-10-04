@@ -608,29 +608,6 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # Rust's registry and GitHub, for builds that fetch their dependencies:
 # egress = ["crates.io:443", "index.crates.io:443", "static.crates.io:443", "github.com:443", "api.github.com:443", "codeload.github.com:443", "objects.githubusercontent.com:443"]
 
-# ---------------------------------------------------------------- approval
-# Who may answer a call that waits for approval, or a budget question, and
-# where (spec §3.9 "Approval"). Without this section only you answer: the CLI,
-# and a Discord DM your bindings file binds. The web UI and a guild channel
-# answer only once this section names them, and health says "approval: open"
-# while one may. With it, an answer counts only from a trusted user through a
-# trusted channel; any other is turned down with the reason, ledgered as
-# approval.refused, and the call keeps waiting. Channels:
-#   "cli"                    `theseus confirm`: the socket is mode 0600, so only you
-#   "web"                    the web UI: loopback, so anyone on this machine
-#   "discord:dm"             a DM between the bot and a trusted user
-#   "discord:<channel id>"   a guild channel, trusted only while nobody outside
-#                            trusted_users can view it; checking that needs the
-#                            bot's Server Members intent (developer portal), and
-#                            without it the channel is not trusted
-# The CLI and the web UI need no trusted_users entry: whoever reaches them is
-# this machine's operator. A Discord card for a place that is not trusted goes
-# to a trusted user's DM, when discord:dm is listed (without this section, to a
-# DM the bindings file binds).
-# [approval]
-# trusted_users = ["discord:271828182845904523"]   # who may answer on Discord (default: nobody)
-# channels = ["cli", "web", "discord:dm"]          # where (default: ["cli", "discord:dm"])
-
 # ---------------------------------------------------------------- places
 # Confidentiality: every place a session speaks in is private or shared (the place rule).
 # Private: the CLI, the web UI, a DM with you, and a guild channel the bindings file binds
@@ -639,9 +616,11 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # wake_at, task_create), the file tools only under public_paths, no proc_run and no AWS, and
 # only the context files marked readers = "public". A task takes its parent's class. To put
 # something of yours in a shared place, publish it there yourself: `theseus publish`, or
-# /publish in a private place. The section's name before the place rule, labels, still reads.
+# /publish in a private place. Approvals follow the same rule: an answer to a call that waits,
+# or to a budget question, counts only from a private place, by you; a shared place's cards
+# go to your DM. The section's name before the place rule, labels, still reads.
 # [places]
-# owner = ["discord:271828182845904523"]   # who you are on Discord, beside the CLI and the web UI (default: [approval] trusted_users)
+# owner = ["discord:271828182845904523"]   # who you are on Discord, beside the CLI and the web UI (default: the person of each DM the bindings file binds)
 # public_paths = ["~/projects/some-public-repo"]   # trees a shared place's file tools reach (default none: no file tools there)
 
 # ---------------------------------------------------------------- github
@@ -652,8 +631,7 @@ warn_days = 30                          # warn when the token expires within thi
 
 # ---------------------------------------------------------------- telemetry
 # OpenTelemetry export, in every build: nothing leaves the process until
-# otlp_endpoint is set, the vault has confirmed this config, and the headers
-# secret (if any) has resolved. It speaks OTLP/HTTP with the JSON encoding, which
+# otlp_endpoint is set and the headers secret (if any) has resolved. It speaks OTLP/HTTP with the JSON encoding, which
 # the OpenTelemetry Collector and most vendors accept. Each turn's trace becomes
 # one OTel trace with the recorded timestamps, sent when the turn ends; the turn
 # never waits for it. Metrics, cumulative, every metrics_interval_secs:

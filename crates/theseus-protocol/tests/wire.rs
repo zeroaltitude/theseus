@@ -547,7 +547,7 @@ fn tighten_result(changed: bool) -> TightenResult {
 }
 
 #[test]
-fn policy_trust_and_refusals() {
+fn policy_and_trust() {
     wire(
         "policy_tightened",
         &line(notify::POLICY_TIGHTENED, tighten_result(true)),
@@ -571,69 +571,6 @@ fn policy_trust_and_refusals() {
                 by: "the CLI".into(),
             },
         ),
-    );
-    // rpc/confirms.rs, `refused` and `refused_from_job`: the ledger row's
-    // fields, then the act and the session. peer.rs, `Traced::json`: the asker.
-    let (who, via, why, by) = (
-        "sock#9",
-        "cli",
-        "from a Theseus job's process (job act_j1, pid 4300, theseus)",
-        "the CLI",
-    );
-    let answer = {
-        let mut data = json!({"correlation_id": "act_k4", "tool": "fs.write", "approve": true,
-                       "who": who, "via": via, "why": why, "by": by});
-        data["asker"] = json!({"pid": 4300u32, "argv0": "theseus", "trace_us": 210u64,
-            "job": "act_j1", "wrapper_pid": 4290u32});
-        data["from_job"] = json!(true);
-        data["act"] = json!("action.confirm");
-        data["session_id"] = json!(Some(S));
-        data
-    };
-    wire(
-        "approval_refused_answer",
-        &line(notify::APPROVAL_REFUSED, answer),
-    );
-    let tighten = {
-        let mut data = json!({"act": "policy.tighten", "tool": "proc.run", "who": who, "via": via,
-                       "why": why, "by": by});
-        data["asker"] = json!({"pid": 4301u32, "argv0": "sh", "trace_us": 95u64,
-            "under_other_daemon": 777u32});
-        data["from_job"] = json!(true);
-        data["act"] = json!("policy.tighten");
-        data["session_id"] = json!(None::<&str>);
-        data
-    };
-    wire(
-        "approval_refused_tighten",
-        &line(notify::APPROVAL_REFUSED, tighten),
-    );
-    let trust = {
-        let mut data = json!({"act": "policy.trust", "session_id": S, "who": who, "via": via,
-                       "why": why, "by": by});
-        data["asker"] = json!({"untraceable": "no such process", "trace_us": 12u64});
-        data["from_job"] = json!(true);
-        data["act"] = json!("policy.trust");
-        data["session_id"] = json!(Some(S));
-        data
-    };
-    wire(
-        "approval_refused_trust",
-        &line(notify::APPROVAL_REFUSED, trust),
-    );
-    let orphan = {
-        let mut data = json!({"act": "policy.untighten", "tool": "proc.run", "who": who,
-                       "via": via, "why": why, "by": by});
-        data["asker"] = json!({"pid": 4302u32, "argv0": "bash", "trace_us": 40u64,
-            "under_daemon": 4000u32});
-        data["from_job"] = json!(true);
-        data["act"] = json!("policy.untighten");
-        data["session_id"] = json!(None::<&str>);
-        data
-    };
-    wire(
-        "approval_refused_orphan",
-        &line(notify::APPROVAL_REFUSED, orphan),
     );
 }
 
@@ -1102,84 +1039,6 @@ fn typed_policy_notified_and_resolved() {
     }
 }
 
-#[test]
-fn typed_approval_refused() {
-    let refused = |act: &str, session: Option<&str>, asker: Asker| ApprovalRefused {
-        act: act.into(),
-        session_id: session.map(Into::into),
-        who: "sock#9".into(),
-        via: "cli".into(),
-        why: "from a Theseus job's process (job act_j1, pid 4300, theseus)".into(),
-        by: "the CLI".into(),
-        asker: Some(asker),
-        from_job: true,
-        ..Default::default()
-    };
-    let seen = |pid: u32, argv0: &str, trace_us: u64| Asker {
-        pid: Some(pid),
-        argv0: Some(argv0.into()),
-        trace_us,
-        ..Default::default()
-    };
-    typed(
-        "approval_refused_answer",
-        Event::ApprovalRefused(ApprovalRefused {
-            correlation_id: Some("act_k4".into()),
-            tool: Some("fs.write".into()),
-            approve: Some(true),
-            ..refused(
-                "action.confirm",
-                Some(S),
-                Asker {
-                    job: Some("act_j1".into()),
-                    wrapper_pid: Some(4290),
-                    ..seen(4300, "theseus", 210)
-                },
-            )
-        }),
-    );
-    typed(
-        "approval_refused_tighten",
-        Event::ApprovalRefused(ApprovalRefused {
-            tool: Some("proc.run".into()),
-            ..refused(
-                "policy.tighten",
-                None,
-                Asker {
-                    under_other_daemon: Some(777),
-                    ..seen(4301, "sh", 95)
-                },
-            )
-        }),
-    );
-    typed(
-        "approval_refused_trust",
-        Event::ApprovalRefused(refused(
-            "policy.trust",
-            Some(S),
-            Asker {
-                untraceable: Some("no such process".into()),
-                trace_us: 12,
-                ..Default::default()
-            },
-        )),
-    );
-    typed(
-        "approval_refused_orphan",
-        Event::ApprovalRefused(ApprovalRefused {
-            tool: Some("proc.run".into()),
-            ..refused(
-                "policy.untighten",
-                None,
-                Asker {
-                    under_daemon: Some(4000),
-                    ..seen(4302, "bash", 40)
-                },
-            )
-        }),
-    );
-}
-
 /// Every fixture decodes as its `Event` and writes the same bytes again: what a
 /// client reads is what the daemon sent.
 #[test]
@@ -1202,7 +1061,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 44);
+    assert_eq!(n, 40);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in
