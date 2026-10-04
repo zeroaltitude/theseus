@@ -742,6 +742,10 @@ pub(crate) enum Act<'a> {
     /// it out of every session's recall, so a job's process that wrote it
     /// would grade its own memory. `what` names it: `wrong on msg_…`.
     Label { what: &'a str },
+    /// A label on a judgment (M5 25c, `judge.label`): the learning ledger
+    /// grades Jev by it, so a job's process that wrote it would grade the
+    /// judge watching it. `what` names it: `wrong on jdg_…`.
+    JudgeLabel { what: &'a str },
 }
 
 impl Act<'_> {
@@ -755,6 +759,7 @@ impl Act<'_> {
             Act::Publish { .. } => theseus_protocol::method::PLACE_PUBLISH,
             Act::Ontology { method, .. } => method,
             Act::Label { .. } => theseus_protocol::method::MEMORY_LABEL,
+            Act::JudgeLabel { .. } => theseus_protocol::method::JUDGE_LABEL,
         }
     }
 }

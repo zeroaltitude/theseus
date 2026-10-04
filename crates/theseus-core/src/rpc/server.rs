@@ -288,11 +288,7 @@ impl Core {
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
             method::LEDGER_TAIL => route(params, |p| self.ledger_tail(p)),
             method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
-                Err(RpcFailure::new(
-                    error_code::DISABLED,
-                    "narration is off: put `narrative = true` at the top of the config, \
-                     before any [table], and restart the daemon",
-                ))
+                Err(narration_off())
             }
             method::NARRATIVE_WATCH => reply(self.narrative_watch(conn)),
             method::NARRATIVE_UNWATCH => reply(self.narrative_unwatch(conn)),
@@ -314,6 +310,9 @@ impl Core {
             // Jev's judgments (M5 23b): their rows, and one with its state.
             method::JUDGE_LIST => reply(self.judge_list(parse(params)?)?),
             method::JUDGE_GET => reply(self.judge_get(parse(params)?)?),
+            // The learning ledger (M5 25c): a label, and the report.
+            method::JUDGE_LABEL => route(params, |p| self.rpc_judge_label(p, conn)),
+            method::LEARNING_REPORT => reply(self.learning_report(params).await?),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),
@@ -428,6 +427,15 @@ fn or_empty(v: Value) -> Value {
     } else {
         v
     }
+}
+
+/// The narrative's methods while narration is off.
+fn narration_off() -> RpcFailure {
+    RpcFailure::new(
+        error_code::DISABLED,
+        "narration is off: put `narrative = true` at the top of the config, before any \
+         [table], and restart the daemon",
+    )
 }
 
 /// Parse a method's params, run it, and serialize its result.

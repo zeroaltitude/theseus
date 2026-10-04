@@ -20,6 +20,7 @@ mod hands;
 mod health;
 pub mod index;
 pub mod judge;
+pub mod learning;
 mod ledger;
 pub mod lsp;
 pub mod mcp;
@@ -196,6 +197,10 @@ pub mod method {
         /// One judgment by its id (`judge::JudgeGetParams`): its row, and the
         /// state Jev was sent, from its blob. A read.
         JUDGE_GET = "judge.get",
+        /// The learning ledger (M5 25c; `learning`): an operator's label on a judgment (acting:
+        /// the owner, from a private place), and the report, stored by date or run now.
+        JUDGE_LABEL = "judge.label",
+        LEARNING_REPORT = "learning.report",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

@@ -13,10 +13,11 @@
 mod aws;
 mod bindings;
 mod confirms;
-pub(crate) use confirms::{expired_answer, Act};
+pub(crate) use confirms::{expired_answer, Act, EXPIRY};
 mod driver;
 mod info;
-mod judge;
+pub(crate) mod judge;
+mod learning;
 mod mcp;
 mod memory;
 mod methods;

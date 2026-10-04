@@ -355,6 +355,9 @@ pub struct JudgeLabel<'a> {
     pub note: &'a str,
     /// The call it was of, when it was a call's.
     pub correlation_id: Option<&'a str>,
+    /// A system label's rule (`continuation`, `declined`, …; 25c), which
+    /// with the judgment and question makes its key: none for a person's.
+    pub rule: Option<&'a str>,
 }
 
 impl Fact for JudgeLabel<'_> {
@@ -364,7 +367,68 @@ impl Fact for JudgeLabel<'_> {
         json!({"id": self.id, "judgment": self.judgment, "pack": self.pack,
             "question": self.question, "label": self.label, "source": self.source,
             "who": self.who, "via": self.via, "weight": self.weight, "note": self.note,
-            "correlation_id": self.correlation_id})
+            "correlation_id": self.correlation_id, "rule": self.rule})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        // A system label is the report's, said in its summary; a person's
+        // is said here.
+        if self.source == "system" {
+            return;
+        }
+        let what = self
+            .question
+            .map_or_else(|| "the whole judgment".to_string(), |q| format!("`{q}`"));
+        say.line(
+            NarrativePart::Session,
+            format!(
+                "{} labeled {what} of {} judgment {} {} (through {}).",
+                self.who, self.pack, self.judgment, self.label, self.via
+            ),
+        );
+    }
+}
+
+/// A pack version's learning report (`judge.report`, 25c; design §2.9),
+/// scoped `judge:<pack id>` and keyed `rpt_<date>_<pack name>` by its writer,
+/// so a day's report is one lookup and a run again the same day supersedes
+/// it. The row is the report whole: `<state dir>/learning/<date>.json` is
+/// rebuilt from these rows.
+pub struct JudgeReport<'a> {
+    pub date: &'a str,
+    pub trigger: &'a str,
+    pub at_unix_ms: u64,
+    pub labels: &'a theseus_protocol::learning::LabelCounts,
+    pub pack: &'a theseus_protocol::learning::PackReport,
+}
+
+impl Fact for JudgeReport<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeReport);
+
+    fn row(&self) -> Value {
+        json!({"date": self.date, "trigger": self.trigger, "at_unix_ms": self.at_unix_ms,
+            "labels": self.labels, "report": self.pack})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let p = self.pack;
+        let h = &p.holdout;
+        let holdout = h.insufficient.as_deref().map_or_else(
+            || {
+                format!(
+                    "its holdout is sufficient ({} judgments)",
+                    h.judgments.len()
+                )
+            },
+            |why| format!("its holdout is insufficient ({why})"),
+        );
+        say.line(
+            NarrativePart::Session,
+            format!(
+                "The learning report for {} ({}): {} calls, {} labeled; {holdout}.",
+                p.pack, self.date, p.calls, p.labeled
+            ),
+        );
     }
 }
 

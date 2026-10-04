@@ -6,12 +6,13 @@
 //   the judgment picked, `judge.get`, once. It keeps no copy of the ledger of its own.
 // - Its state is in the address: `?pack=`, `?session=`, `?since=` (1h, 24h, 7d), and `?id=` (the judgment open).
 // - With the time machine set, the list stops at the moment, and the counts are the fold's (`World.judge`).
-// - Agreement against labels, the calibration strip, label buttons, and promote or rollback are later steps' (25c,
-//   26a); "disagrees" here is the core's: an answered judgment whose pack, in its act band, would have done otherwise
-//   than the baseline.
+// - The learning report (25c; `?report=<date>`, the Learning panel) and a judgment's label buttons (its detail) are
+//   `components/LearningReport.tsx` and `components/JudgmentLabels.tsx`; promote or rollback are 26a's. "disagrees"
+//   here is the core's: an answered judgment whose pack, in its act band, would have done otherwise than the
+//   baseline.
 import { useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { Gavel, ListFilter, Scale } from 'lucide-react'
+import { GraduationCap, Gavel, ListFilter, Scale } from 'lucide-react'
 import type { Health, JudgeGetResult, JudgeListResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
@@ -20,6 +21,9 @@ import { bars, judged, line, packStats, type Judged } from '@/lib/judgment'
 import { cn, ms, short, stamp, usd } from '@/lib/format'
 import { Empty, Field, Panel, Pill, Segmented } from '@/components/ui'
 import { JsonView } from '@/components/JsonView'
+import { JudgmentLabels } from '@/components/JudgmentLabels'
+import { LearningReport } from '@/components/LearningReport'
+import { localDay } from '@/lib/learning'
 
 type D = Record<string, any>
 
@@ -100,6 +104,14 @@ export default function Judgment() {
           )}
         </Panel>
 
+        <Panel title="Learning" icon={<GraduationCap size={14} />} actions={
+          <button className="text-[11px] text-ink-faint hover:text-live" onClick={() => set('report', params.get('report') ? null : localDay(new Date()))}>
+            {params.get('report') ? 'hide' : 'show the report'}
+          </button>
+        }>
+          {params.get('report') && <LearningReport date={params.get('report')!} pack={pack} onDate={(d) => set('report', d)} />}
+        </Panel>
+
         <Panel className="min-h-[320px] flex-1" title="Judgment log" icon={<ListFilter size={14} />} actions={
           <Segmented value={since} options={SINCE} onChange={(v) => set('since', v === 'all' ? null : v)} />
         }>
@@ -166,6 +178,7 @@ function Detail({ id }: { id: string }) {
         <Field label="cost" mono>{money(j.costMicros)} of {money(d.reserve_micros)} reserved · {String(d.budget ?? '')} budget</Field>
         <Field label="state" mono>{d.state?.bytes} bytes · ~{d.state?.tokens} of {d.state?.cap_tokens} tokens · {short(d.state?.sha256)}</Field>
       </div>
+      {!!(d.answers ?? []).length && j.outcome === 'answered' && <JudgmentLabels id={id} answers={d.answers as D[]} />}
       {!!(d.answers ?? []).length && (
         <div>
           <div className="panel-title mb-1">answers</div>
