@@ -291,6 +291,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     and `rerank`: the recall's id, both orders' admitted keys, `changed`, `fallback`, the latency against the
     deadline, the cost). The day's limit sends nothing and writes no rerank row. Tests: `tests_rerank.rs` (the
     place test over generated stores reads what the fake Jev was sent).
+  - **Rerank live, bounded** (step 32d, theseus-6fn.7): `WIRED` gives `rerank.v1` `Live`. The arms rule: memory's
+    mode decides what reaches the model, rerank's whether Jev orders it. A recall in front of the model goes through
+    one call, `TurnRunner::recall_reranked` (`turn/rerank_step.rs`; the mode is read before the candidates are
+    cloned): live, `JudgeService::at_recall_live` dispatches as `at_recall` does and the turn waits at most
+    `[memory] rerank_wait_ms` (200; 1 to 600) from the rerank's start, on a oneshot the turn closes when the wait
+    ends (`try_recv` takes what was sent before, so `applied` and `late` never both hold); in time and answered,
+    `Memory::refill` packs again in Jev's order. Rerank's breaker open or the day's budget paused is read before the
+    dispatch and not waited on. A `judge` span of kind `wait`, the manifest's `rerank`, and the row's
+    `live`/`applied`/`late` say what happened. Rerank has a breaker of its own (`rerank::BREAKER`,
+    `JevJudge::with_breaker`): its outcomes move only it; the client, its permits and its shed count stay shared,
+    and `breaker_status()` is the shared one's. Per-item answers (`helps.3`, `about` the note's key) take labels of
+    their own (`learning/items.rs`: the check, the report's per-definition questions), and the owner's memory labels
+    write rerank's system labels (`learning/rerank.rs`). Tests: `tests_rerank_live.rs` (one on tokio's paused clock,
+    with Jev a channel: `JudgeService::rerank_with`), `tests_rerank_labels.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier
