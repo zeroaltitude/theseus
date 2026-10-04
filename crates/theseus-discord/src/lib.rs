@@ -14,8 +14,9 @@
 //! - **What it delivers and reports, it reads and writes in the core
 //!   directly**: the outbox, whose posts it delivers in order per place and
 //!   once (the courier, theseus-q4v), the question behind each card, the
-//!   `[approval]` channels, its state on the bindings board and its ledger
-//!   rows, and at its start the config gate, the secrets, and the startup log.
+//!   place rule (who the owner is, and which places are private), its state
+//!   on the bindings board and its ledger rows, and at its start the secrets
+//!   and the startup log.
 //!
 //! What is Discord's alone stays here: the gateway, the rendering, the confirm
 //! button, and the slash commands.

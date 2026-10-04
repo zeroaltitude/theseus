@@ -186,9 +186,6 @@ pub const SECRET_WAIT: Duration = Duration::from_secs(30);
 
 /// What a turn waited for before it ran, in microseconds from its arrival.
 struct Waits {
-    /// The vault's confirmation of the config this start served from
-    /// (theseus-2fo), at the dispatcher's gate.
-    config_us: u64,
     /// Its secrets (theseus-qa0), before admission.
     secrets_us: u64,
     /// Arrival to admission, the secrets included.
@@ -229,11 +226,8 @@ pub struct TurnRequest {
     pub recompile: Option<Recompile>,
     /// Files that came with the input (theseus-9g2); kept on its node.
     pub attachments: Vec<theseus_protocol::Attachment>,
-    /// When the request reached the daemon, before the config gate
-    /// (theseus-2fo); `None`: now.
+    /// When the request reached the daemon; `None`: now.
     pub arrived: Option<Instant>,
-    /// How long it waited there for the vault to confirm the config.
-    pub config_wait_us: u64,
     /// The surface's message it answers (a Discord message id), which the
     /// reply's post names (theseus-q4v).
     pub reply_to: Option<String>,
@@ -443,7 +437,6 @@ impl<'a> Turn<'a> {
             input_chars: input.map(|s| s.chars().count()),
             attachments: files,
             author,
-            config_us: waits.config_us,
             secrets_us: waits.secrets_us,
             lock_us: waits.lock_us,
             admit_us: waits.admit_us,
@@ -1069,7 +1062,6 @@ impl TurnRunner {
         let admission_wait_us = arrived.elapsed().as_micros() as u64;
         let failure_sink = req.sink.clone();
         let waits = Waits {
-            config_us: req.config_wait_us,
             secrets_us: secret_wait_us,
             lock_us: admission_wait_us,
             admit_us,

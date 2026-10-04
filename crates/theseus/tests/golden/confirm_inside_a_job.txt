@@ -1,0 +1,7 @@
+$ theseus confirm --approve act_k4
+--- requests
+
+--- stdout
+--- stderr
+theseus: theseus confirm refused: it is the operator's to run, and this shell is a Theseus job's (THESEUS_SESSION=ses_job01 is set), so it would answer for the operator. Run it from your own shell.
+--- exit 1

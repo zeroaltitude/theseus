@@ -266,7 +266,6 @@ export default function Observatory({ client, health, tick, currentSession, onRe
 
   const k = health?.kernel
   const ch = health?.children
-  const approval = health?.approval
   const approvalRows = ledger.filter((r) => r.kind.startsWith('approval.')).slice(0, 8)
   const startup = (k?.startup ?? null) as null | {
     steps?: { step: number; name: string; elapsed_us: number }[]
@@ -563,7 +562,7 @@ export default function Observatory({ client, health, tick, currentSession, onRe
                 {b.bot_user && <div><span className="muted">bot</span> <b>{b.bot_user}</b>{b.guild_id && <span className="muted"> · guild <code>{b.guild_id}</code></span>}</div>}
                 {b.bindings_file && <div><span className="muted">bindings</span> <code>{b.bindings_file}</code>{b.revision && <span className="muted"> · revision <code>{b.revision}</code></span>}</div>}
                 {b.members_intent != null && <div><span className="muted">Server Members intent</span> <b className={b.members_intent ? 'ok' : 'warn'}>{b.members_intent ? 'on' : 'off'}</b>
-                  <span className="muted small"> · {b.members_intent ? 'who can view a guild channel is checked for approvals' : 'a guild channel cannot be verified for approvals, so none is trusted'}</span></div>}
+                  <span className="muted small"> · {b.members_intent ? 'who can view a channel bound private is read at the start' : 'who can view a channel bound private cannot be read'}</span></div>}
                 {b.connected_at_ms > 0 && <div><span className="muted">connected</span> {ago(b.connected_at_ms, now)}{b.latency_ms != null && <span className="muted"> · heartbeat {b.latency_ms} ms</span>}</div>}
                 <div><span className="muted">traffic</span> <b>{b.messages_in}</b> in · <b>{b.messages_out}</b> sent · <b>{b.edits}</b> edits · <b>{b.interactions}</b> button/command presses
                   · <b className={b.ignored ? 'warn' : ''}>{b.ignored}</b> ignored · <b className={b.errors ? 'bad' : ''}>{b.errors}</b> errors</div>
@@ -611,44 +610,21 @@ export default function Observatory({ client, health, tick, currentSession, onRe
       </ObsSection>
 
       <ObsSection id="approval" title="Approval" open={open.approval ?? true} onToggle={() => toggle('approval')}
-        count={approval?.configured ? `${approval.channels.filter((c) => c.state === 'trusted').length} of ${approval.channels.length} channels trusted` : 'no rule'}>
-        {!approval?.configured ? (
-          <div className="muted pad">no <code>[approval]</code> section: the CLI, this web UI, and a place's listed Discord users can answer a waiting call</div>
-        ) : (
-          <>
-            <div className="kv">
-              <div><span className="muted">trusted users</span> {approval.trusted_users.length === 0 ? <span className="muted">nobody on Discord</span> :
-                approval.trusted_users.map((u) => <code key={u}>{u} </code>)}</div>
-              <div className="muted small">an answer counts only from a trusted user through a trusted channel; any other is refused with the reason, and the call keeps waiting</div>
-            </div>
-            <table className="obs-table">
-              <thead><tr><th>channel</th><th>state</th><th>why</th><th>checked</th></tr></thead>
-              <tbody>
-                {approval.channels.map((c) => (
-                  <tr key={c.channel}>
-                    <td><code>{c.channel}</code></td>
-                    <td><span className={`pill ${c.state === 'trusted' ? 'ok' : 'warn'}`}>{c.state === 'trusted' ? 'trusted' : 'not trusted'}</span></td>
-                    <td className="small">{c.detail}</td>
-                    <td className="muted small">{c.checked_at_ms ? ago(c.checked_at_ms, now) : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {approvalRows.length > 0 && (
-              <table className="obs-table">
-                <thead><tr><th>when</th><th>kind</th><th>what</th></tr></thead>
-                <tbody>
-                  {approvalRows.map((r) => (
-                    <tr key={r.position} title={JSON.stringify(r.data, null, 2)}>
-                      <td className="muted small">{clock(r.at_unix_ms)}</td>
-                      <td className={r.kind === 'approval.refused' ? 'warn' : ''}>{r.kind.replace('approval.', '')}</td>
-                      <td className="small">{summarize(r)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </>
+        count={approvalRows.length > 0 ? `${approvalRows.length} recent` : 'the place rule'}>
+        <div className="muted pad">an answer counts only from a private place (the CLI, this web UI, a DM with the owner, or a channel bound <code>private = true</code>), by the owner; a shared place's cards go to the owner's DM, and any other answer is refused with the reason while the call keeps waiting</div>
+        {approvalRows.length > 0 && (
+          <table className="obs-table">
+            <thead><tr><th>when</th><th>kind</th><th>what</th></tr></thead>
+            <tbody>
+              {approvalRows.map((r) => (
+                <tr key={r.position} title={JSON.stringify(r.data, null, 2)}>
+                  <td className="muted small">{clock(r.at_unix_ms)}</td>
+                  <td className={r.kind === 'approval.refused' ? 'warn' : ''}>{r.kind.replace('approval.', '')}</td>
+                  <td className="small">{summarize(r)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </ObsSection>
 
@@ -930,8 +906,8 @@ function startupCount(health: Health | null): string {
   return [serving, config, secrets].filter(Boolean).join(' · ')
 }
 
-/// Where the config came from, whether it may act, and what a restart onto the vault's
-/// changed note changed (theseus-2fo).
+/// Where the config came from, what the vault said of the copy it acts on, and what a
+/// restart onto the vault's changed note changed (theseus-2fo, theseus-zmgb).
 function ConfigLine({ c }: { c: ConfigStatus }) {
   const from = c.source === 'file' ? `file ${c.reference}`
     : c.started_from === 'copy' ? `the copy of ${c.reference}` : c.reference
@@ -943,10 +919,9 @@ function ConfigLine({ c }: { c: ConfigStatus }) {
         {c.state === 'confirmed' && c.confirmed_ms != null && c.source === 'vault' &&
           <span className="muted small"> · {c.started_from === 'copy' ? 'confirmed by the vault' : 'read before serving'} {fmt(c.confirmed_ms)} ms after start</span>}
         {c.detail && <span className={c.state === 'held' ? 'bad small' : 'muted small'}> · {c.detail}</span>}
-        {c.state === 'held' && c.retry_in_ms != null && <span className="muted small"> · read again in {Math.ceil(c.retry_in_ms / 1000)} s</span>}
       </div>
-      {c.state !== 'confirmed' && c.source === 'vault' &&
-        <div className="warn small">Nothing acts until the vault confirms the copy: reads answer, and every method that acts waits.</div>}
+      {c.state === 'held' &&
+        <div className="warn small">The copy this start served from keeps serving and acting; the next start reads the vault again.</div>}
       {c.restarted &&
         <div className="warn small">Restarted {new Date(c.restarted.at_unix_ms).toLocaleTimeString()} onto the vault's note, which had changed since the copy: {c.restarted.tables.join(', ')}.</div>}
     </>
@@ -1119,7 +1094,6 @@ function summarize(r: LedgerEntry): string {
     case r.kind === 'policy.tightened': return `${s('tool')} asks first: tightened by ${s('by')} via ${s('via')}${g('correlation_id') ? ` · from ${s('correlation_id')}` : ''}${g('changed') === false ? ` · the config already asks (${s('config_setting')})` : ` · the config says ${s('config_posture')}`}`
     case r.kind === 'policy.untightened': return `${s('tool')} back to ${s('posture')} (${s('setting')}) · undone by ${s('by')} via ${s('via')} · tightened by ${s('tightened_by')}`
     case r.kind === 'discord.tighten': return `“Make actions like this ask in the future”: ${s('tool')} by ${s('by')}${g('ok') ? '' : ` · failed: ${s('error')}`}`
-    case r.kind === 'approval.channel_checked': return `${s('channel')} · ${g('trusted') ? 'trusted' : 'not trusted'}: ${s('detail')}`
     case r.kind === 'turn.trace': return 'timing tree (open for spans)'
     case r.kind === 'discord.message.in': return `${s('place')} · from ${s('author')} · ${s('chars')} chars`
     case r.kind === 'discord.message.out': return `${s('place')} · ${s('chars')} chars${g('buttons') ? ' · with Approve/Decline' : ''} · ${s('part')}`

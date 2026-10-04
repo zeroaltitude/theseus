@@ -55,28 +55,13 @@ impl Core {
                 place.name
             )
         })?;
-        let asker = self.judge_act(
+        // The owner, from a private place (`judge_act`, the place rule).
+        self.judge_act(
             &who,
             Act::Publish {
                 place: &place.target,
             },
         )?;
-        if let Err(why) = crate::places::may_publish(&who, &self.runner.place_rule, &self.cfg) {
-            let r = Refusal {
-                who: who.who(),
-                via: who.via(),
-                why,
-            };
-            self.refused(
-                Act::Publish {
-                    place: &place.target,
-                },
-                &who,
-                &r,
-                &asker,
-            )?;
-            return Err(r.into());
-        }
         // Read only once who asks may publish: a refusal says nothing of
         // what it named, not even whether a file exists, or its size.
         let item = self.item(p)?;

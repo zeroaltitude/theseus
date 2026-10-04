@@ -54,7 +54,6 @@ export function summarize(r: LedgerEntry): string {
       return `${s('tool')} · job ${s('correlation_id')} lost its wrapper (pid ${s('pid')}, signal ${s('signal')}) before it reported · outcome unknown`
     case 'approval.refused':
       return `${d.act === 'policy.untighten' ? 'undo of ' : d.act === 'policy.tighten' ? 'should have asked for ' : ''}${s('tool')} · ${s('who')} via ${s('via')} did not count: ${s('why')}`
-    case 'approval.channel_checked': return `${s('channel')} · ${d.trusted ? 'trusted' : 'not trusted'}: ${s('detail')}`
     case 'policy.tightened':
       return `${s('tool')} asks first: tightened by ${s('by')} via ${s('via')}${d.correlation_id ? ` · from ${s('correlation_id')}` : ''}${d.changed === false ? ` · the config already asks (${s('config_setting')})` : ` · the config says ${s('config_posture')}`}`
     case 'policy.untightened':

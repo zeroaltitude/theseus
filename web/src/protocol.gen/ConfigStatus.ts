@@ -2,10 +2,11 @@
 import type { ConfigRestart } from "./ConfigRestart";
 
 /**
- * Where the config came from, and whether it may act (theseus-2fo, spec
- * §3.19). A start whose config is an `op://` reference serves from the
- * last-known-good copy of the note and reads the vault behind the socket;
- * until the vault confirms the copy, the daemon answers only what reads.
+ * Where the config came from, and what the vault said of it (theseus-2fo,
+ * spec §3.19). A start whose config is an `op://` reference serves from the
+ * last-known-good copy of the note and acts on it at once when its digest is
+ * the one the daemon recorded as it wrote it (theseus-zmgb); after serving,
+ * it reads the vault once.
  */
 export type ConfigStatus = { 
 /**
@@ -17,10 +18,12 @@ source: string,
  */
 reference: string, 
 /**
- * `confirmed` (it may act), `confirming` (serving from the copy while
- * the vault is read), `held` (the vault answered, and the copy may not
- * act: `detail` says why), or `restarting` (onto the vault's changed
- * note).
+ * `confirmed` (a file, a note read before serving, or a copy the vault
+ * agrees with), `confirming` (acting on the copy while the vault is
+ * read), `held` (the vault's read did not settle it: it did not answer,
+ * its note does not load, or it changed again since a restart; the
+ * daemon keeps serving the copy, and `detail` says why), or
+ * `restarting` (onto the vault's changed note).
  */
 state: string, 
 /**
@@ -41,13 +44,9 @@ confirmed_ms?: number,
  */
 copy?: string, 
 /**
- * Reads of the vault behind the socket: the first, then each retry.
+ * Reads of the vault behind the socket: one a start from the copy.
  */
 reads: number, 
-/**
- * Until the next read, when held.
- */
-retry_in_ms?: number, 
 /**
  * This process began as a restart onto the vault's changed note.
  */

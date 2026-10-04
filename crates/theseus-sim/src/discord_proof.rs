@@ -9,8 +9,8 @@
 //! a stand-in that answers by script. Nothing leaves the machine.
 //!
 //! The steps: the daemon serves; the gateway identifies; the binding binds
-//! `#lab` and ana's DM; the viewer check trusts `#lab`, which only ana and
-//! ben can view (theseus-ck0k); ana types a message in `#lab` and its reply
+//! `#lab` and ana's DM; the place rule reads `#lab`, bound private, as one
+//! only its owners, ana and ben, can view (theseus-nbsh); ana types a message in `#lab` and its reply
 //! answers it; ben, whom `#lab` doesn't list, is ignored; ana asks for a
 //! write to a path on the approve list, and the call waits with its card in
 //! `#lab`, naming ana; ben's press of Approve is refused, and the call keeps
@@ -365,8 +365,8 @@ pub fn daemon_command(theseusd: &Path, dir: &Path) -> Command {
 }
 
 /// The daemon's config: the template, with every endpoint on a stand-in,
-/// every secret on the fake `op`, the web UI off, and `[approval]` trusting
-/// ana and ben in the CLI, a DM, and `#lab`.
+/// every secret on the fake `op`, the web UI off, and ana and ben the
+/// owners (`[places] owner`, the place rule, theseus-zmgb).
 fn config(theseusd: &Path, ends: &Ends<'_>, projects: &Path) -> Result<String> {
     let model = format!("http://{}", ends.model);
     let model = model.as_str();
@@ -424,19 +424,9 @@ fn config(theseusd: &Path, ends: &Ends<'_>, projects: &Path) -> Result<String> {
     );
     tools.insert("approve_paths".into(), approve.into());
     table(&mut t, "policy").insert("enforcement".into(), "notify".into());
-    let approval = table(&mut t, "approval");
-    approval.insert(
-        "trusted_users".into(),
+    table(&mut t, "places").insert(
+        "owner".into(),
         vec![format!("discord:{ANA}"), format!("discord:{BEN}")].into(),
-    );
-    approval.insert(
-        "channels".into(),
-        vec![
-            "cli".to_string(),
-            "discord:dm".into(),
-            format!("discord:{LAB}"),
-        ]
-        .into(),
     );
     Ok(toml::to_string(&t)?)
 }
@@ -451,7 +441,7 @@ pub fn bindings() -> String {
 }
 
 /// ana owns the guild; ben and cy are members; `#lab` is private to ana and
-/// ben, so cy, who is not trusted, cannot view it.
+/// ben, so cy, who is not an owner, cannot view it.
 pub fn guild() -> Guild {
     Guild::new(DEFAULT_GUILD, (ANA, "ana"))
         .member(BEN, "ben")
@@ -657,8 +647,11 @@ fn steps(r: &mut Rig, theseusd: &Path) -> Option<()> {
         })
     })
     .then_some(())?;
-    r.step("the viewer check trusts #lab (theseus-ck0k)", viewer_check)
-        .then_some(())?;
+    r.step(
+        "the place rule reads #lab: private, only its owners can view it",
+        viewer_check,
+    )
+    .then_some(())?;
     r.step(
         "ana types a message in #lab and its reply answers it",
         typed_message,
@@ -717,22 +710,21 @@ fn start(r: &mut Rig, theseusd: &Path) -> Result<String, String> {
     .map_err(|e| format!("{e}; the log ends:\n{}", r.log_tail()))
 }
 
-/// The binding's check of `#lab`, as health reports it: trusted, or why not.
+/// The binding's one read of `#lab`, bound private, as health's places block
+/// reports it (theseus-nbsh): private, and nobody but an owner can view it.
 fn viewer_check(r: &mut Rig) -> Result<String, String> {
-    let c = wait("check of #lab in health", || {
+    let p = wait("the read of #lab in health", || {
         let h = r.health();
-        let c = h["approval"]["channels"]
+        let p = h["places"]["places"]
             .as_array()?
             .iter()
-            .find(|c| c["channel"] == format!("discord:{LAB}"))?
+            .find(|p| p["place"] == format!("discord:channel:{LAB}"))?
             .clone();
-        (c["checked_at_ms"].as_u64() > Some(0)).then_some(c)
+        (!p["others"].is_null() || !p["unchecked"].is_null()).then_some(p)
     })?;
-    let detail = c["detail"].as_str().unwrap_or("").to_string();
-    if c["state"] == "trusted" {
-        Ok(detail)
-    } else {
-        Err(format!("#lab is {}: {detail}", c["state"]))
+    match (&p["class"], p["others"].as_array()) {
+        (c, Some(o)) if c == "private" && o.is_empty() => Ok(format!("{p}")),
+        _ => Err(format!("#lab reads {p}")),
     }
 }
 

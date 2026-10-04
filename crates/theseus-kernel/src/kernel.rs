@@ -42,8 +42,8 @@ pub struct KernelConfig {
     pub default_deadline_ms: u64,
     /// The spend limit, in micro-dollars, of a new execution whose caller
     /// names none, and of an execution stored with a unit budget. Every open
-    /// execution whose limit is the config's follows it once this config may
-    /// act (theseus-3pj; `Kernel::follow_spend_limit`).
+    /// execution whose limit is the config's follows it at startup
+    /// (theseus-3pj; startup's step 2).
     pub spend_limit_micros: Micros,
     /// How long a confirmation stays valid.
     pub confirm_ttl_ms: u64,
@@ -53,15 +53,6 @@ pub struct KernelConfig {
     /// died there. Never set outside the simulator.
     #[serde(skip)]
     pub fault_after_startup_step: Option<u8>,
-    /// The config this kernel runs under came from a copy the vault has not
-    /// confirmed yet (theseus-2fo). Startup then writes nothing that config
-    /// decides: an execution stored with a unit budget takes its dollar
-    /// limit from `spend_limit_micros` when startup rewrites it, so a store
-    /// that still holds one refuses to start (`KernelError::UnconfirmedConfig`);
-    /// and the open executions follow the config's limit only once the vault
-    /// confirms it (`Kernel::follow_spend_limit`), not in startup.
-    #[serde(skip)]
-    pub unconfirmed_config: bool,
     /// The shortest span a repeating wake may take (37a, `[kernel]
     /// min_repeat_minutes`).
     #[serde(default = "default_min_repeat_ms")]
@@ -85,7 +76,6 @@ impl Default for KernelConfig {
             confirm_ttl_ms: 15 * 60 * 1000,
             heartbeat_ms: 60_000,
             fault_after_startup_step: None,
-            unconfirmed_config: false,
             min_repeat_ms: default_min_repeat_ms(),
             zone: jiff::tz::TimeZone::system(),
         }
@@ -139,13 +129,6 @@ pub enum KernelError {
     UnknownAction(CorrelationId),
     #[error("kernel is not accepting events yet (startup step {step})")]
     NotAccepting { step: u8 },
-    /// Startup found executions stored with unit budgets under a config the
-    /// vault has not confirmed; nothing was written (theseus-2fo).
-    #[error(
-        "{executions} execution(s) still have unit budgets (from before theseus-0sg), and their \
-         dollar limit comes from the config, which the vault has not confirmed; nothing was written"
-    )]
-    UnconfirmedConfig { executions: usize },
     /// A task cannot open tasks (DD7: depth one).
     #[error("execution {id} is a task, and a task cannot start tasks (depth one)")]
     TaskDepth { id: ExecutionId },
@@ -342,8 +325,8 @@ pub struct StartupReport {
     /// their limit, reopened in step 2 to wait on input (theseus-3ebd).
     #[serde(default)]
     pub reopened: Vec<ExecutionId>,
-    /// Open executions that took a changed spend limit in step 2 (a config
-    /// that may act at once; theseus-3pj).
+    /// Open executions that took a changed spend limit in step 2
+    /// (theseus-3pj).
     #[serde(default)]
     pub limits_followed: Vec<LimitFollowed>,
     pub spool_drained: u32,
@@ -1814,48 +1797,6 @@ impl Kernel {
         Ok((e, before))
     }
 
-    /// Every open execution whose limit is the config's takes the config's
-    /// spend limit, when it has changed (theseus-3pj): the transition the
-    /// core runs when the vault confirms the copy a start served from.
-    /// (A start whose config may act at once does this in startup's step 2.)
-    /// The rewrites share one frame, and each is ledgered as
-    /// `budget.limit_changed`. Spend, reservations, held amounts, and resets
-    /// are untouched: a lower limit refuses the next reservation that does
-    /// not fit, which asks as usual. A higher one lets a call that waited at
-    /// the old limit proceed (`follow_limit`).
-    pub fn follow_spend_limit(&self) -> Result<Vec<LimitFollowed>> {
-        self.require_accepting()?;
-        let ids: Vec<ExecutionId> = self
-            .executions_by(&terms::limits_other_than(self.cfg.spend_limit_micros))?
-            .into_iter()
-            .filter(|e| self.follows_limit(e))
-            .map(|e| e.id)
-            .collect();
-        if ids.is_empty() {
-            return Ok(vec![]);
-        }
-        // Decided from the scan; each is read again under the locks.
-        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let _w = self.lock(&refs);
-        let now = self.now_ms();
-        let mut frame = Vec::new();
-        let mut followed = Vec::new();
-        for id in &ids {
-            let Some(mut e) = self.execution(id)? else {
-                continue;
-            };
-            if let Some((f, records)) = self.follow_limit(&mut e, now)? {
-                frame.push(exec_record(&e)?);
-                frame.extend(records);
-                followed.push(f);
-            }
-        }
-        if !frame.is_empty() {
-            self.commit(&frame)?;
-        }
-        Ok(followed)
-    }
-
     /// An open execution whose limit is the config's and differs from it.
     fn follows_limit(&self, e: &Execution) -> bool {
         !e.state.is_terminal()
@@ -2786,11 +2727,9 @@ impl Kernel {
 
         // 2. load executions; requeue interrupted turns; rewrite, once, the
         //    executions stored with a unit budget (theseus-0sg), reopening those
-        //    under their dollar limit (theseus-3ebd); and, under a
-        //    config that may act, give every open execution that follows the
-        //    config a changed spend limit (theseus-3pj; under a copy the vault
-        //    has not confirmed, `follow_spend_limit` does it on the vault's
-        //    word). The rewrites share one frame: the first start under this
+        //    under their dollar limit (theseus-3ebd); and give every open
+        //    execution that follows the config a changed spend limit
+        //    (theseus-3pj). The rewrites share one frame: the first start under this
         //    binary, or under a changed limit, pays one fsync for them, and
         //    every later start finds none. It reads only those executions,
         //    by their terms (theseus-lv2): a turn running, a unit budget or
@@ -2801,20 +2740,13 @@ impl Kernel {
         let now = self.now_ms();
         let mut migrated = Vec::new();
         let mut rewritten = 0u32;
-        let follow = !self.cfg.unconfirmed_config;
         let mut wanted = vec![
             terms::one(&terms::state(ExecState::Running)),
             terms::one("legacy"),
             terms::one(&terms::state(ExecState::BudgetExhausted)),
         ];
-        if follow {
-            wanted.extend(terms::limits_other_than(self.cfg.spend_limit_micros));
-        }
+        wanted.extend(terms::limits_other_than(self.cfg.spend_limit_micros));
         let all = self.executions_by(&wanted)?;
-        let legacy = all.iter().filter(|e| e.schema < SCHEMA).count();
-        if legacy > 0 && self.cfg.unconfirmed_config {
-            return Err(KernelError::UnconfirmedConfig { executions: legacy }.into());
-        }
         // The executions this step rewrites are read again under their locks,
         // taken together in id order and held to the step's end, so the scan
         // decides nothing it writes. A clean start reads and rewrites none.
@@ -2822,7 +2754,7 @@ impl Kernel {
             e.state == ExecState::Running
                 || e.schema < SCHEMA
                 || reopens(e)
-                || (follow && self.follows_limit(e))
+                || self.follows_limit(e)
         };
         let ids: Vec<&str> = all
             .iter()
@@ -2874,11 +2806,9 @@ impl Kernel {
                     )?,
                 );
             }
-            if follow {
-                if let Some((f, records)) = self.follow_limit(&mut e, now)? {
-                    rows.extend(records);
-                    rep.limits_followed.push(f);
-                }
+            if let Some((f, records)) = self.follow_limit(&mut e, now)? {
+                rows.extend(records);
+                rep.limits_followed.push(f);
             }
             if interrupted {
                 let mut frame = vec![exec_record(&e)?];

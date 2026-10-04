@@ -129,7 +129,6 @@ async fn turn(
             recompile,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await

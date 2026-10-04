@@ -264,7 +264,7 @@ discord: ready · 0 in · 0 sent · 0 edits · 0 presses · 0 ignored · 0 error
 ```
 
 The daemon answers before anything slow happens: the vault, the secrets, and GitHub are checked after it serves,
-and nothing acts until the vault confirms the config.
+and the copy of its config note it wrote last acts while the vault is read.
 
 </details>
 

@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::Core;
-use crate::approval::{Answerer, Client, Peer, Surface};
+use crate::approval::{Answerer, Client, Surface};
 use crate::outbound::{Drain, Outbound};
 
 /// The connection a request came in on: who it is, the surface its listener
@@ -20,17 +20,13 @@ use crate::outbound::{Drain, Outbound};
 pub(super) struct Conn<'a> {
     pub client: &'a str,
     pub surface: Surface,
-    /// The process on the other end, as the listener read it (theseus-6qy).
-    pub peer: &'a Peer,
     /// The connection's one queue, with the backlog cap (theseus-in3).
     pub tx: &'a Outbound,
     /// Closed when the connection's reader ends: a parked `session.wait`
     /// ends with it (theseus-in3).
     pub closed: &'a watch::Receiver<()>,
-    /// When the request arrived, and how long it waited at the config gate
-    /// (theseus-2fo): a turn's trace starts at the arrival.
+    /// When the request arrived: a turn's trace starts there.
     pub arrived: std::time::Instant,
-    pub config_wait_us: u64,
 }
 
 impl Conn<'_> {
@@ -49,8 +45,8 @@ impl Conn<'_> {
     /// Who makes an approval-like act on this connection (an answer, a
     /// "should have asked" press, an undo, a trust), as the connection knows
     /// it: the label names, as a cancel's actor does (`the CLI`, never
-    /// `sock#32`; theseus-qiy), and the surface, the binding's Discord ids,
-    /// and the process on the other end decide (theseus-sgh, theseus-6qy).
+    /// `sock#32`; theseus-qiy), and the surface and the binding's Discord ids
+    /// decide (the place rule, theseus-zmgb).
     /// Every such method builds it here, so whatever judges an answer judges
     /// the others the same way, and an approval's trust and `policy.trust`
     /// name the same one.
@@ -63,7 +59,6 @@ impl Conn<'_> {
             label: self.actor(author.as_deref()),
             surface: self.surface,
             discord,
-            peer: self.peer.clone(),
         }
     }
 }
@@ -85,7 +80,6 @@ impl Core {
         let Client {
             label: client,
             surface,
-            peer,
         } = client;
         // One ordered outbound queue: notifications and responses share it, so a
         // turn's events always precede its response on the wire. Past the
@@ -156,13 +150,12 @@ impl Core {
                     let resp_tx = resp_tx.clone();
                     let flush_tx = flush_tx.clone();
                     let client = client.clone();
-                    let peer = peer.clone();
                     let closed = closed_rx.clone();
                     let shutdown = req.method == method::SHUTDOWN;
                     tokio::spawn(async move {
                         let resp = core
                             .clone()
-                            .handle(req, tx, &client, surface, &peer, &closed)
+                            .handle(req, tx, &client, surface, &closed)
                             .await;
                         let stopping = shutdown && resp.error.is_none();
                         resp_tx.respond(Message::Response(resp));
@@ -205,46 +198,32 @@ impl Core {
         tx: Outbound,
         client: &str,
         surface: Surface,
-        peer: &Peer,
         closed: &watch::Receiver<()>,
     ) -> Response {
         let id = req.id.clone();
-        match self.dispatch(req, tx, client, surface, peer, closed).await {
+        match self.dispatch(req, tx, client, surface, closed).await {
             Ok(v) => Response::ok(id, v),
             Err(f) => Response::err_with(id, f.code, f.message, f.data),
         }
     }
 
     /// Every method, by name: each parses its params, runs, and serializes
-    /// its result (`route`, `reply`). A method that acts waits first for the
-    /// vault to confirm the config this start served from (`ACTS`).
+    /// its result (`route`, `reply`).
     async fn dispatch(
         self: Arc<Self>,
         req: Request,
         tx: Outbound,
         client: &str,
         surface: Surface,
-        peer: &Peer,
         closed: &watch::Receiver<()>,
     ) -> Result<Value, RpcFailure> {
         let arrived = std::time::Instant::now();
-        let mut config_wait_us = 0;
-        if ACTS.contains(&req.method.as_str()) {
-            let waited = self.config_gate.wait().await.map_err(|why| RpcFailure {
-                code: error_code::CONFIG_UNCONFIRMED,
-                message: why,
-                data: json!({"class": "config_unconfirmed", "state": self.config_gate.status().state}),
-            })?;
-            config_wait_us = waited.as_micros() as u64;
-        }
         let conn = Conn {
             client,
             surface,
-            peer,
             tx: &tx,
             closed,
             arrived,
-            config_wait_us,
         };
         let params = req.params;
         match req.method.as_str() {
@@ -387,27 +366,6 @@ async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool 
     let _ = writer.flush().await;
     true
 }
-
-/// The methods that change anything or start work (theseus-2fo). Until the
-/// vault confirms the config a start served from, each waits at the gate,
-/// bounded like the secrets, then fails with `config_unconfirmed`. Every
-/// other method only reads, and answers at once; `shutdown` works too.
-pub const ACTS: [&str; 14] = [
-    method::TURN_SUBMIT,
-    method::SESSION_OPEN,
-    method::PROFILE_USE,
-    method::SESSION_RECOMPILE,
-    method::ACTION_CONFIRM,
-    method::POLICY_TIGHTEN,
-    method::POLICY_UNTIGHTEN,
-    method::POLICY_TRUST,
-    method::PLACE_PUBLISH,
-    method::EXECUTION_CANCEL,
-    method::EXECUTION_STOP,
-    method::TASK_CANCEL,
-    method::WAKE_CANCEL,
-    method::AWS_BOOTSTRAP,
-];
 
 /// A failed request: JSON-RPC code, human message, structured data.
 #[derive(Debug)]

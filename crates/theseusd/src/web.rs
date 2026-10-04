@@ -51,7 +51,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
 use serde_json::json;
-use theseus_core::approval::{Client, Peer, Surface};
+use theseus_core::approval::{Client, Surface};
 use theseus_core::webui::{clip, Why};
 use theseus_core::Core;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -323,35 +323,16 @@ async fn own_host(
         .into_response()
 }
 
-/// A TCP connection's two ends, as it was accepted.
+/// A TCP connection's client end, as it was accepted.
 #[derive(Clone, Copy, Debug)]
 struct Ends {
-    server: Option<SocketAddr>,
     client: SocketAddr,
 }
 
 impl Connected<axum::serve::IncomingStream<'_, OwnUser>> for Ends {
     fn connect_info(s: axum::serve::IncomingStream<'_, OwnUser>) -> Self {
         Self {
-            server: s.io().local_addr().ok(),
             client: *s.remote_addr(),
-        }
-    }
-}
-
-impl Ends {
-    /// The process on the other end, looked up only when a judged act
-    /// arrives (theseus-6qy).
-    fn peer(self) -> Peer {
-        match self.server {
-            Some(server) => Peer::Loopback {
-                server,
-                client: self.client,
-            },
-            None => Peer::Unknown(format!(
-                "the web UI's connection from {} had no local address",
-                self.client
-            )),
         }
     }
 }
@@ -440,13 +421,13 @@ async fn ws_upgrade(
             .into_response();
     }
     let core = ui.core.clone();
-    ws.on_upgrade(move |socket| bridge(socket, core, ends.peer()))
+    ws.on_upgrade(move |socket| bridge(socket, core))
 }
 
 /// WebSocket ⇄ protocol connection. The core serves one end of an in-memory
 /// duplex exactly as it would a Unix socket; this task pumps frames.
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
-async fn bridge(socket: WebSocket, core: Arc<Core>, peer: Peer) {
+async fn bridge(socket: WebSocket, core: Arc<Core>) {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let client = format!("web#{n}");
@@ -457,7 +438,7 @@ async fn bridge(socket: WebSocket, core: Arc<Core>, peer: Peer) {
     let server = tokio::spawn(core.serve_connection(
         core_r,
         core_w,
-        Client::new(client.clone(), Surface::Web).with_peer(peer),
+        Client::new(client.clone(), Surface::Web),
     ));
 
     let (from_core, mut to_core) = tokio::io::split(ours);

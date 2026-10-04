@@ -119,7 +119,16 @@ Each is a requirement, with its spec section.
     name each such secret (theseus-n88g.1). Never print, log, or store a value.
   - The gate never refuses, and never guesses what a command does: each tool has a posture (`open`, `notify`, or
     `approve`), and the floor always asks.
-  - Approvals come from the operator; a job's own process cannot answer one.
+  - Approvals come from the operator, in a private place (the place rule, theseus-zmgb). The CLI refuses an answer,
+    an undo of a tightening, a trust, a publish, and the AWS bootstrap inside a job (its `THESEUS_SESSION`), saying
+    why and that the operator runs it from their own shell. That is a speed bump, said honestly: an L0 job can strip
+    its environment, or talk to the socket itself. L1, whose view hides the socket, is the boundary.
+  - The config copy acts (§3.19, amended by theseus-zmgb). A start serves from its copy of the vault's note and acts
+    on it at once when the copy is the one the daemon wrote: as the daemon writes it, it records its sha256 in the
+    store. A copy edited since is not used, and that start reads the vault first. After serving, the vault is read
+    once: a changed note rewrites the copy and restarts the daemon onto it; a note that changed again, one that does
+    not load, or a vault that does not answer is said in health, and the copy keeps serving. The digest is a light
+    check, not a boundary: a job that can write the copy can write the store while the daemon is down.
   - External text holds a session: after a session reads web text, a call that acts waits until the operator trusts
     it again. So does a `proc.run` of a program `[policy] external_programs` lists (`gh`), and a session that a
     holding session's job opens or sends a turn to (its `THESEUS_SESSION`, sent as `opened_from`). Under default

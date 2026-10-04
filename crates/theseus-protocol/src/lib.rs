@@ -197,12 +197,6 @@ pub mod notify {
         /// The operator trusted a session again (theseus-9bp), to the session's
         /// watchers. The params are a `TrustResult`.
         SESSION_TRUSTED = "session.trusted",
-        /// A Theseus job's process tried to answer an approval, reset the spend,
-        /// or undo a tightening, and was refused (theseus-6qy): a security event,
-        /// to every connection. The params are the `approval.refused` ledger
-        /// row's, with `act` and `session_id`; `asker` names the process and its
-        /// job.
-        APPROVAL_REFUSED = "approval.refused",
         /// One line of the narrative, to every `narrative.watch` subscriber.
         /// Unlike the others it is not a ledger row: the narrative is never stored.
         NARRATIVE_LINE = "narrative.line",
@@ -295,10 +289,8 @@ pub mod error_code {
     /// §3.9 "Approval"): not from a trusted user, or not through a trusted
     /// channel. The message says why; the call keeps waiting.
     pub const REFUSED: i64 = -32005;
-    /// A method that acts, sent while the daemon serves from its copy of the
-    /// vault's config note and the vault has not confirmed it (theseus-2fo).
-    /// The message says why; `data.class` is `config_unconfirmed`.
-    pub const CONFIG_UNCONFIRMED: i64 = -32006;
+    // -32006 was `CONFIG_UNCONFIRMED`, the act-gate's refusal (theseus-2fo),
+    // retired when the daemon began acting on its config copy (theseus-zmgb).
     /// A bound on what one connection may hold was reached (theseus-in3):
     /// 64 parked `session.wait`s.
     pub const LIMIT: i64 = -32007;
@@ -380,8 +372,8 @@ pub struct HealthResult {
     /// (theseus-qa0), and each consumer waits for its own.
     #[serde(default)]
     pub secrets: SecretsStatus,
-    /// Where the config came from, and whether the vault has confirmed the
-    /// copy this start served from (theseus-2fo).
+    /// Where the config came from, and what the vault said of the copy this
+    /// start served from (theseus-2fo, theseus-zmgb).
     #[serde(default)]
     pub config: ConfigStatus,
     /// The last start's phases, timed from process start: those on the path
@@ -426,9 +418,6 @@ pub struct HealthResult {
     /// persona in play with its own (theseus-c48).
     #[serde(default)]
     pub context: ContextStatus,
-    /// Who may answer a waiting call, and through which channels (theseus-sgh).
-    #[serde(default)]
-    pub approval: ApprovalStatus,
     /// The tools that ask first because someone pressed "should have asked"
     /// (theseus-sgh), oldest first. They are stored, not configured.
     #[serde(default)]
@@ -692,10 +681,11 @@ pub struct ContextStatus {
     pub personas: Vec<String>,
 }
 
-/// Where the config came from, and whether it may act (theseus-2fo, spec
-/// §3.19). A start whose config is an `op://` reference serves from the
-/// last-known-good copy of the note and reads the vault behind the socket;
-/// until the vault confirms the copy, the daemon answers only what reads.
+/// Where the config came from, and what the vault said of it (theseus-2fo,
+/// spec §3.19). A start whose config is an `op://` reference serves from the
+/// last-known-good copy of the note and acts on it at once when its digest is
+/// the one the daemon recorded as it wrote it (theseus-zmgb); after serving,
+/// it reads the vault once.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ConfigStatus {
@@ -704,10 +694,12 @@ pub struct ConfigStatus {
     /// The `op://` reference, or the file's path.
     #[serde(default)]
     pub reference: String,
-    /// `confirmed` (it may act), `confirming` (serving from the copy while
-    /// the vault is read), `held` (the vault answered, and the copy may not
-    /// act: `detail` says why), or `restarting` (onto the vault's changed
-    /// note).
+    /// `confirmed` (a file, a note read before serving, or a copy the vault
+    /// agrees with), `confirming` (acting on the copy while the vault is
+    /// read), `held` (the vault's read did not settle it: it did not answer,
+    /// its note does not load, or it changed again since a restart; the
+    /// daemon keeps serving the copy, and `detail` says why), or
+    /// `restarting` (onto the vault's changed note).
     pub state: String,
     /// How this start got it: `vault` (read before serving), `copy`, or `file`.
     #[serde(default)]
@@ -725,13 +717,9 @@ pub struct ConfigStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub copy: Option<String>,
-    /// Reads of the vault behind the socket: the first, then each retry.
+    /// Reads of the vault behind the socket: one a start from the copy.
     #[serde(default)]
     pub reads: u32,
-    /// Until the next read, when held.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub retry_in_ms: Option<u64>,
     /// This process began as a restart onto the vault's changed note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -989,42 +977,6 @@ pub struct TrustResult {
     /// health's `since_local`. Empty from a daemon before it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub since_local: String,
-}
-
-/// `[approval]` as health reports it (spec §3.9 "Approval"): the trusted
-/// users, and each listed channel with its state now.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ApprovalStatus {
-    /// The config has an `[approval]` section. Without one, only the owner's
-    /// CLI and Discord DM answer (review 2's consideration 2), and `channels`
-    /// lists those two.
-    pub configured: bool,
-    /// Surface-qualified ids, as configured (`discord:<user id>`).
-    #[serde(default)]
-    pub trusted_users: Vec<String>,
-    #[serde(default)]
-    pub channels: Vec<ApprovalChannel>,
-    /// The channels beyond the CLI and the owner's Discord DM that may answer
-    /// now (`web` while it is on, `discord:<channel id>` while its check
-    /// trusts it): health says `approval: open` while there is one.
-    #[serde(default)]
-    pub open: Vec<String>,
-}
-
-/// One entry of `[approval].channels` and whether it is trusted now.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ApprovalChannel {
-    /// As configured: `cli`, `web`, `discord:dm`, or `discord:<channel id>`.
-    pub channel: String,
-    /// `trusted` | `not_trusted`.
-    pub state: String,
-    /// Why, in words: what the channel is, or why it does not count.
-    pub detail: String,
-    /// When Discord last checked who can view it (a guild channel); 0 if never.
-    #[serde(default)]
-    pub checked_at_ms: u64,
 }
 
 /// The Discord ids behind an answer, which the Discord binding reads off the
@@ -2499,8 +2451,9 @@ pub enum NarrativePart {
     Tool,
     Approval,
     Job,
-    /// The daemon's config: the vault confirming the copy a start served
-    /// from, holding it, or restarting onto a changed note (theseus-2fo).
+    /// The daemon's config: the vault's read of the copy a start served
+    /// from, what it could not settle, or a restart onto a changed note
+    /// (theseus-2fo).
     Config,
 }
 

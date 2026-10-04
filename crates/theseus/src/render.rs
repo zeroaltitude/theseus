@@ -14,8 +14,8 @@
 
 use serde_json::Value;
 use theseus_protocol::{
-    method, ApprovalRefused, Attention, ConfirmRequest, Event, Level, NodeInfo, SessionInfo,
-    ToolEnded, ToolListResult, TurnSubmitResult,
+    Attention, ConfirmRequest, Event, Level, NodeInfo, SessionInfo, ToolEnded, ToolListResult,
+    TurnSubmitResult,
 };
 
 mod aws;
@@ -210,9 +210,6 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                 Tag::Warn,
                 &format!("  🔒 {}", tightened_line(r, tightened)),
             );
-        }
-        Event::ApprovalRefused(r) => {
-            push(&mut out, Tag::Bad, &format!("  🚨 {}", job_refusal_line(r)));
         }
         Event::ConfirmResolved(r) => {
             let by = r.by.as_deref().unwrap_or("");
@@ -751,63 +748,6 @@ pub fn confirm_lines(c: &ConfirmRequest) -> Vec<Line> {
     out
 }
 
-/// Health's `[approval]` (theseus-sgh): who may answer, and each listed
-/// channel's state, with the reason for any that is not trusted; first,
-/// `approval: open` while more than the CLI and the owner's Discord DM may
-/// (review 2's consideration 2).
-pub fn approval_lines(a: &theseus_protocol::ApprovalStatus) -> Vec<Line> {
-    let mut out = Vec::new();
-    if !a.open.is_empty() {
-        push(
-            &mut out,
-            Tag::Plain,
-            &format!(
-                "approval: open: {} may answer, beyond the CLI and the owner's Discord DM",
-                a.open.join(", ")
-            ),
-        );
-    }
-    if !a.configured {
-        push(
-            &mut out,
-            Tag::Plain,
-            "approval: no [approval] section, so only the CLI and a Discord DM the bindings file \
-             binds answer (the web UI answers once [approval] channels names it)",
-        );
-        return out;
-    }
-    let users = if a.trusted_users.is_empty() {
-        "nobody on Discord".to_string()
-    } else {
-        a.trusted_users.join(", ")
-    };
-    let channels: Vec<String> = a
-        .channels
-        .iter()
-        .map(|c| format!("{} {}", c.channel, c.state.replace('_', " ")))
-        .collect();
-    push(
-        &mut out,
-        Tag::Plain,
-        &format!(
-            "approval: trusted users {users} · channels: {}",
-            if channels.is_empty() {
-                "none".to_string()
-            } else {
-                channels.join(", ")
-            }
-        ),
-    );
-    for c in a.channels.iter().filter(|c| c.state != "trusted") {
-        push(
-            &mut out,
-            Tag::Plain,
-            &format!("  {} is not trusted: {}", c.channel, c.detail),
-        );
-    }
-    out
-}
-
 /// A binding's outbox (theseus-q4v): `discord outbox: 2 pending, the oldest
 /// 3 min old · 41 sent · 0 refused · last error …`.
 pub fn outbox_line(kind: &str, o: &theseus_protocol::OutboxStatus) -> String {
@@ -870,17 +810,6 @@ pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> St
         line.push_str(&format!("\n  {words}"));
     }
     line
-}
-
-/// A Theseus job's process tried to answer an approval and was refused
-/// (theseus-6qy), as `theseus watch` says it.
-pub fn job_refusal_line(r: &ApprovalRefused) -> String {
-    let tool = r.tool.as_deref().unwrap_or("?");
-    let what = match r.act.as_str() {
-        method::POLICY_UNTIGHTEN => format!("the undo of {tool}'s tightening"),
-        _ => format!("an answer to {tool}"),
-    };
-    format!("refused {what} {} through {}", r.why, r.via)
 }
 
 /// The kernel line's note of job wrappers that linger for descendants their
@@ -1081,9 +1010,9 @@ pub fn context_line(c: &theseus_protocol::ContextStatus) -> Option<String> {
 }
 
 /// `config: vault (confirmed in 1034 ms)`, `config: confirming …`, or
-/// `config: held: <why>` (theseus-2fo): where the config came from, and
-/// whether the vault has confirmed the copy this start served from. A daemon
-/// older than that says nothing.
+/// `config: held: <why>` (theseus-2fo): where the config came from, and what
+/// the vault said of the copy this start served from, which acts either way
+/// (theseus-zmgb). A daemon older than that says nothing.
 pub fn config_line(c: &theseus_protocol::ConfigStatus) -> Option<String> {
     let ms = |v: Option<u64>| v.map(|ms| format!("{ms} ms")).unwrap_or_else(|| "?".into());
     let mut line = match (c.source.as_str(), c.state.as_str()) {
@@ -1106,8 +1035,8 @@ pub fn config_line(c: &theseus_protocol::ConfigStatus) -> Option<String> {
             l
         }
         (_, "confirming") => format!(
-            "config: confirming · serving from the copy of {}; nothing acts until the vault \
-             confirms it",
+            "config: confirming · acting on the copy of {}, which the daemon wrote; the vault \
+             is being read",
             c.reference
         ),
         (_, state) => format!(
@@ -1115,11 +1044,10 @@ pub fn config_line(c: &theseus_protocol::ConfigStatus) -> Option<String> {
             c.detail.as_deref().unwrap_or("(no reason given)")
         ),
     };
-    if let Some(ms) = c.retry_in_ms.filter(|_| c.state == "held") {
-        line.push_str(&format!(
-            "\n  the vault is read again in {:.0} s",
-            ms as f64 / 1000.0
-        ));
+    if c.state == "held" {
+        line.push_str(
+            "\n  acting on the copy this start served from; the next start reads the vault again",
+        );
     }
     if let Some(r) = &c.restarted {
         line.push_str(&format!(
@@ -1760,7 +1688,6 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
             push(o, Tag::Plain, &voice.line());
         }
     }
-    o.extend(approval_lines(&h.approval));
     if let Some(line) = wakes_line(&h.wakes, now_ms) {
         push(o, Tag::Plain, &line);
     }
@@ -2241,26 +2168,6 @@ mod tests {
         }
     }
 
-    /// `theseus watch` says what a job's process tried, and why it was
-    /// refused (theseus-6qy).
-    #[test]
-    fn a_jobs_refused_answer_is_one_line() {
-        let why = "from a Theseus job's process (job act_j, pid 42, theseus)";
-        let refused = |v: Value| serde_json::from_value::<ApprovalRefused>(v).unwrap();
-        assert_eq!(
-            job_refusal_line(&refused(
-                serde_json::json!({"act": "action.confirm", "tool": "fs.write", "via": "cli", "why": why})
-            )),
-            format!("refused an answer to fs.write {why} through cli")
-        );
-        assert_eq!(
-            job_refusal_line(&refused(
-                serde_json::json!({"act": "policy.untighten", "tool": "fs.edit", "via": "web", "why": why})
-            )),
-            format!("refused the undo of fs.edit's tightening {why} through web")
-        );
-    }
-
     /// The kernel line counts the job wrappers that linger, and says nothing
     /// when none does (theseus-6qy).
     #[test]
@@ -2278,30 +2185,6 @@ mod tests {
 
     /// The broker line names each grant and its uses, never a value
     /// (theseus-dcy), and says when there is none.
-    #[test]
-    fn approval_says_open_while_more_than_the_cli_and_a_dm_may_answer() {
-        let lines = |a: &theseus_protocol::ApprovalStatus| -> Vec<String> {
-            approval_lines(a).into_iter().map(|l| l.text).collect()
-        };
-        let none = theseus_protocol::ApprovalStatus::default();
-        assert_eq!(
-            lines(&none),
-            [
-                "approval: no [approval] section, so only the CLI and a Discord DM the bindings \
-              file binds answer (the web UI answers once [approval] channels names it)"
-            ]
-        );
-        let open = theseus_protocol::ApprovalStatus {
-            configured: true,
-            open: vec!["web".into()],
-            ..Default::default()
-        };
-        assert_eq!(
-            lines(&open)[0],
-            "approval: open: web may answer, beyond the CLI and the owner's Discord DM"
-        );
-    }
-
     #[test]
     fn the_binary_line_says_only_when_jobs_can_write_it() {
         let b = |state: &str| theseus_protocol::BinaryStatus {
@@ -2744,9 +2627,9 @@ mod tests {
 
     /// `config:` in `theseus health` (theseus-2fo): a file, a read before
     /// serving, confirming, confirmed from the copy, and held after a restart
-    /// onto a changed note, with the next read.
+    /// onto a changed note, acting on the copy (theseus-zmgb).
     #[test]
-    fn health_says_where_the_config_came_from_and_whether_it_may_act() {
+    fn health_says_where_the_config_came_from_and_what_the_vault_said() {
         use theseus_protocol::{ConfigRestart, ConfigStatus};
         let vault = |state: &str, from: &str| ConfigStatus {
             source: "vault".into(),
@@ -2779,8 +2662,8 @@ mod tests {
         );
         assert_eq!(
             config_line(&vault("confirming", "copy")).unwrap(),
-            "config: confirming · serving from the copy of op://V/c/notesPlain; nothing acts \
-             until the vault confirms it"
+            "config: confirming · acting on the copy of op://V/c/notesPlain, which the daemon \
+             wrote; the vault is being read"
         );
         let ok = ConfigStatus {
             confirmed_ms: Some(1034),
@@ -2795,7 +2678,6 @@ mod tests {
             detail: Some(
                 "the vault's note changed again since the restart; restart to apply".into(),
             ),
-            retry_in_ms: Some(10_000),
             restarted: Some(ConfigRestart {
                 reference: "op://V/c/notesPlain".into(),
                 at_unix_ms: 3_600_000,
@@ -2807,8 +2689,9 @@ mod tests {
         assert_eq!(
             config_line(&held).unwrap(),
             "config: held: the vault's note changed again since the restart; restart to apply\n  \
-             the vault is read again in 10 s\n  restarted at 01:00:00.000Z onto the vault's \
-             changed note; changed since the copy: kernel"
+             acting on the copy this start served from; the next start reads the vault again\n  \
+             restarted at 01:00:00.000Z onto the vault's changed note; changed since the copy: \
+             kernel"
         );
     }
 
@@ -3009,10 +2892,6 @@ mod tests {
                 "  ✗ turn failed (auth): the key was refused".to_string()
             )]
         );
-        let refused = serde_json::json!({"act": "action.confirm", "tool": "proc.run",
-            "who": "sock#9", "via": "cli", "why": "from a Theseus job's process",
-            "by": "the CLI", "from_job": true});
-        assert_eq!(shown(notify::APPROVAL_REFUSED, refused, ALL)[0].0, Tag::Bad);
         let answered = |approved: bool, superseded: bool| {
             let v = serde_json::json!({"session_id": "ses_a", "correlation_id": "act_q",
                 "approved": approved, "superseded": superseded, "by": "the CLI"});

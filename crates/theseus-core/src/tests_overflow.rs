@@ -78,7 +78,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSu
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await

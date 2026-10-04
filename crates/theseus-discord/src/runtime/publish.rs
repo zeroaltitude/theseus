@@ -132,10 +132,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
             c.discord.rest_proxy = Some("127.0.0.1:9".into());
-            c.approval = Some(theseus_core::config::ApprovalConfig {
-                trusted_users: vec![format!("discord:{EDDIE}")],
-                channels: vec!["discord:dm".into(), "cli".into()],
-            });
+            c.places.owner = Some(vec![format!("discord:{EDDIE}")]);
         });
         core.bind_places(vec![theseus_core::places::BoundPlace {
             target: format!("discord:channel:{LAB}"),
