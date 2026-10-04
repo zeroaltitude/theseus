@@ -620,7 +620,7 @@ fn the_tender_waits_at_a_torn_tail_and_indexes_on_after_the_cores_repair() {
     drop(wal);
     // The core dies inside its next frame: half a frame at the log's end.
     let seg = theseus_store::wal::segment_path(&wal_dir, 1);
-    let mut torn = theseus_store::wal::MAGIC.to_le_bytes().to_vec();
+    let mut torn = theseus_store::wal::MAGIC_MARKED.to_le_bytes().to_vec();
     torn.extend_from_slice(&900u32.to_le_bytes());
     torn.extend_from_slice(&[0u8; 30]);
     std::io::Write::write_all(

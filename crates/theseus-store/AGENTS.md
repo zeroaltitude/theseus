@@ -8,7 +8,7 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
 
 ## What's here
 
-- `wal.rs`: segment files of atomic frames, with torn-tail truncation.
+- `wal.rs`: segment files of atomic frames, each with its synced mark, and torn-tail truncation.
 - `index.rs`: the rebuildable redb projection, and `move_aside` for an index that is not a database.
 - `record.rs`: records and their kinds, and the header's frozen schema field (`FROZEN_SCHEMA`).
 - `store.rs`: the `Store` contract the kernel writes through, and `WalStore`, which composes the WAL and the index,
@@ -53,15 +53,28 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   of that record alone (`get`, `latest_by_key`) is still refused. `repair.rs` takes a frame that does not check
   whole from a copy of the store, and `theseus_core::restore::repair` swaps the repaired WAL in.
 - **An open cuts a bad frame in the last segment as a torn tail only past every position known synced**
-  (theseus-gt12). The index's checkpoint claims only synced positions (it takes `appending` alone, and the writer
-  indexes a batch only after its sync), so the store's open passes it as `WalConfig::synced_to`, and a repair
-  passes the checkpoint of the store it repairs (`index::checkpoint_of`, read-only). A bad frame at or before it is
-  refused, naming `theseusd restore --repair`, and nothing is cut. Past it the bytes cannot tell rot from a batch
-  torn before its sync (a later frame of the batch can reach the disk whole), so the frame is cut, with all after
-  it, and `Recovery::cut` says whether a whole frame followed. Both walks (every segment, and the tail after the
-  checkpoint) decide alike. What this still cuts: rot after the last checkpoint, and any bad last frame of a log
-  opened with no index (a full replay with no index, `theseusd restore`). Don't open a store you suspect is
-  corrupt with its index moved aside; repair it from a copy first.
+  (theseus-gt12, theseus-7nfj). Two facts say a position was synced, and the larger decides:
+  - the index's checkpoint, which claims only synced positions (it takes `appending` alone, and the writer indexes
+    a batch only after its sync). The store's open passes it as `WalConfig::synced_to`, and a repair passes the
+    checkpoint of the store it repairs (`index::checkpoint_of`, read-only);
+  - **the mark** of any whole frame after the bad one: the writer stamps each frame with the last position whose
+    sync had returned Ok when it wrote the frame (`Wal::synced`, advanced only by a `sync` that returned Ok), so a
+    later batch's frame proves the bad one synced. It needs no index: a full replay and `theseusd restore` refuse
+    by it too.
+
+  A bad frame at or before either is refused, naming the evidence and `theseusd restore --repair`, and nothing is
+  cut. Past both, the bytes cannot tell rot from a batch torn before its sync (a later frame of the batch can reach
+  the disk whole, and carries the batch before's mark), so the frame is cut, with all after it, and `Recovery::cut`
+  says whether a whole frame followed and how far the log was known synced; `StoreStats::cut`, health's store
+  phase, and restore's report and `store.restored` row carry it. Both walks (every segment, and the tail after the
+  checkpoint) decide alike. What this still cuts: rot in the log's last batch, until a checkpoint reaches it, and
+  rot in an unmarked frame (an older build's) that no marked frame follows.
+- **Two frame layouts, one reader** (theseus-7nfj, format 6). Frames are marked (magic `THWM`, the mark the body's
+  first 8 bytes, the crc over the magic and the body) or unmarked (`THWL`, every frame before it). The writer writes
+  marked frames only; a log holds unmarked ones until its segments rotate, so the reader tells them apart frame by
+  frame by the magic (`wal::Layout`), and a magic that rots into the other's fails the crc. A crc-valid frame whose
+  mark is not before its first position is wrong, never torn. Anything that walks frames by hand goes through
+  `Layout` (`repair.rs`) or `wal::first_position` / `wal::read_frame`.
 - **A checkpoint takes the store's `appending` lock alone**, so the position it claims is synced and indexed: the
   writer holds it shared from a batch's first write to its index. Don't take a checkpoint while holding that lock.
   The periodic one (every 1,000 records) runs on the writer, after it has answered the batch that crossed the

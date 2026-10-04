@@ -91,7 +91,7 @@ fn it_stops_at_a_torn_tail_and_resumes_after_the_cores_repair() {
     drop(w);
     // A crash in the middle of a frame: its header, and part of its body.
     let mut torn = Vec::new();
-    torn.extend_from_slice(&theseus_store::wal::MAGIC.to_le_bytes());
+    torn.extend_from_slice(&theseus_store::wal::MAGIC_MARKED.to_le_bytes());
     torn.extend_from_slice(&500u32.to_le_bytes());
     torn.extend_from_slice(&0u32.to_le_bytes());
     torn.extend_from_slice(&[7u8; 40]);

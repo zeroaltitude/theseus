@@ -403,6 +403,11 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     if let Some(m) = &st.index_moved_aside {
         detail["index_moved_aside"] = json!(m.path);
     }
+    // A torn tail the open cut: where, whether a whole frame followed it,
+    // and how far the log was known synced (theseus-gt12, theseus-7nfj).
+    if let Some(cut) = &st.cut {
+        detail["cut"] = json!(cut);
+    }
     // The index's terms are not whole (an older build wrote last): they are
     // built after serving, and until then the kernel reads every record
     // (theseus-lv2).
@@ -1092,6 +1097,23 @@ async fn restore(
         text.push_str(&format!(
             "cut a torn final frame of {} bytes (a write the source never finished)\n",
             r.truncated_bytes
+        ));
+    }
+    // A whole frame after the cut, which no mark made a refusal of
+    // (theseus-7nfj): the source's last batch, torn before its sync.
+    if let Some((cut, whole)) = r.cut.and_then(|c| c.whole_after.map(|w| (c, w))) {
+        text.push_str(&format!(
+            "  from position {} at offset {} of segment {}; a whole frame followed it (offset {}, \
+             position {}), and no frame's mark said position {} was synced (known synced to {}): \
+             a batch torn before its sync, or rot in the source's last batch, which no frame can \
+             prove\n",
+            cut.position,
+            cut.offset,
+            cut.segment,
+            whole.offset,
+            whole.first,
+            cut.position,
+            cut.synced_to
         ));
     }
     text.push_str(&format!(

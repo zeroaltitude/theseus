@@ -2,10 +2,22 @@
 //!
 //! ```text
 //! segment file: frame frame frame ...
-//! frame:  MAGIC u32 | body_len u32 | crc32(body) u32 | body
-//! body:   count u32 | record*
+//! frame:  magic u32 | body_len u32 | crc u32 | body
+//!   marked:   magic "THWM", crc32(magic ‖ body); body: mark u64 | count u32 | record*
+//!   unmarked: magic "THWL", crc32(body);         body: count u32 | record*
 //! record: position u64 | kind u16 | schema u16 | at_unix_ms u64 | key_len u16 | scope_len u16 | payload_len u32 | key | scope | payload
 //! ```
+//!
+//! **The mark** (theseus-7nfj, store format 6). The writer stamps each frame
+//! with the last position whose sync had returned Ok when it wrote the frame:
+//! the end of the batch before. It costs 8 bytes a frame, and no syscall. A
+//! log writes marked frames only; frames from before the mark are unmarked,
+//! and a log holds them until its segments rotate, so the reader tells the
+//! layouts apart frame by frame, by the magic it reads first anyway
+//! ([`Layout`]). A marked frame's crc covers its magic too: a magic that rots
+//! into the other layout's fails the crc, whatever the body (a crc over one
+//! prefix never equals the crc over another for the same bytes after, since
+//! each byte's step is a bijection of the crc's state).
 //!
 //! A frame is written with one `write_all` (`write`), and made durable by an
 //! `fdatasync` that may cover several frames (`sync`): the store's writer
@@ -20,14 +32,17 @@
 //! the log. A bad frame followed by good bytes in an earlier segment is
 //! corruption, not a torn tail, and recovery refuses to guess. In the last
 //! segment it is cut, with all after it, as a torn write, unless it is known
-//! to have been synced (theseus-gt12): a frame at or before a position known
-//! synced (`WalConfig::synced_to`; a store's open passes its index's
-//! checkpoint) went bad after it was written, and cutting it would lose
-//! acknowledged frames, so the open refuses it. The bytes alone cannot tell
-//! rot from a torn batch: the writer writes a batch's frames back to back and
-//! syncs once, and a power loss before that sync can leave a later frame of
-//! the batch whole and an earlier one torn. `Recovery::cut` says what was
-//! cut, and whether a whole frame followed it.
+//! to have been synced (theseus-gt12, 7nfj): a frame at or before a position
+//! known synced went bad after it was written, and cutting it would lose
+//! acknowledged frames, so the open refuses it. Two facts say a position was
+//! synced: the index's checkpoint (`WalConfig::synced_to`; a store's open
+//! passes its own), and the mark of any whole frame after the bad one. The
+//! bytes alone cannot tell rot from a torn batch: the writer writes a batch's
+//! frames back to back and syncs once, and a power loss before that sync can
+//! leave a later frame of the batch whole and an earlier one torn. A later
+//! batch's frame can tell, by its mark: so only rot in the log's last batch,
+//! past the checkpoint, is still cut. `Recovery::cut` says what was cut,
+//! whether a whole frame followed it, and how far the log was known synced.
 //!
 //! **What open checks** (theseus-8ni). Given where a known-good record lies
 //! (the index's checkpoint), `open_from` checks only the frames after it:
@@ -48,9 +63,76 @@ use std::time::{Duration, Instant};
 
 use crate::record::{now_unix_ms, NewRecord, Record, FROZEN_SCHEMA};
 
-pub const MAGIC: u32 = 0x5448_574C; // "THWL"
-/// MAGIC, the body's length, and its crc.
+/// An unmarked frame's magic: every frame written before theseus-7nfj. Read,
+/// never written.
+pub const MAGIC_UNMARKED: u32 = 0x5448_574C; // "THWL"
+/// A marked frame's magic (theseus-7nfj): every frame written since.
+pub const MAGIC_MARKED: u32 = 0x5448_574D; // "THWM"
+/// The magic, the body's length, and its crc.
 pub const FRAME_HEADER: usize = 12;
+/// A marked frame's mark: the first bytes of its body.
+const MARK: usize = 8;
+
+/// A frame's layout, told by its magic, frame by frame (theseus-7nfj): a log
+/// holds unmarked frames until its segments rotate, and a store an older
+/// build wrote goes on with marked frames after them. Nothing else differs:
+/// the header is the same 12 bytes, so a frame ends at its header plus its
+/// body's length in either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    /// Before theseus-7nfj: no mark, so it says nothing of what was synced.
+    Unmarked,
+    /// The body begins with the frame's mark.
+    Marked,
+}
+
+impl Layout {
+    /// The layout whose magic is `magic`, or `None`.
+    pub fn of(magic: u32) -> Option<Self> {
+        match magic {
+            MAGIC_MARKED => Some(Self::Marked),
+            MAGIC_UNMARKED => Some(Self::Unmarked),
+            _ => None,
+        }
+    }
+
+    /// The layout of the frame whose header is at `off` of `bytes`, when
+    /// the bytes there are a magic.
+    pub fn at(bytes: &[u8], off: usize) -> Option<Self> {
+        Self::of(u32_at(bytes.get(off..off.checked_add(4)?)?, 0))
+    }
+
+    /// The crc the writer stored for `body`: a marked frame's covers its
+    /// magic too, so a magic that rots into the other layout's never checks.
+    pub fn crc(self, body: &[u8]) -> u32 {
+        match self {
+            Self::Unmarked => crc32fast::hash(body),
+            Self::Marked => {
+                let mut h = crc32fast::Hasher::new();
+                h.update(&MAGIC_MARKED.to_le_bytes());
+                h.update(body);
+                h.finalize()
+            }
+        }
+    }
+
+    /// Where the body's record count lies; its records follow it.
+    pub fn count_at(self) -> usize {
+        match self {
+            Self::Unmarked => 0,
+            Self::Marked => MARK,
+        }
+    }
+
+    /// The frame's mark, from its body: the last position whose sync had
+    /// returned when the frame was written. `None` when unmarked.
+    pub fn mark(self, body: &[u8]) -> Option<u64> {
+        match self {
+            Self::Unmarked => None,
+            Self::Marked => body.get(..MARK).map(|b| u64_at(b, 0)),
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalError {
@@ -131,7 +213,7 @@ pub struct Recovery {
 
 /// A torn tail an open cut from the last segment (theseus-gt12): the frame
 /// that did not check, and all after it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Cut {
     pub segment: u32,
     pub offset: u64,
@@ -139,10 +221,25 @@ pub struct Cut {
     /// The position the frame that did not check would have begun with.
     pub position: u64,
     /// The first whole frame found after it, which continues the positions
-    /// past it: (its offset, its first position). Whole frames after a bad
-    /// one are a torn batch's when no sync covered the bad one, as nothing
-    /// known synced did here; they are cut with it, and the open says so.
-    pub whole_after: Option<(u64, u64)>,
+    /// past it. Whole frames after a bad one are a torn batch's when no sync
+    /// covered the bad one, as nothing known synced did here; they are cut
+    /// with it, and the open says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whole_after: Option<WholeAfter>,
+    /// The last position known synced when the open cut (theseus-7nfj): the
+    /// larger of the index's checkpoint and the newest mark of a whole frame
+    /// after the cut. Always before `position`, or the open refuses instead.
+    #[serde(default)]
+    pub synced_to: u64,
+}
+
+/// A whole frame found after one that does not check (theseus-gt12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WholeAfter {
+    /// Its offset in the segment.
+    pub offset: u64,
+    /// Its first record's position.
+    pub first: u64,
 }
 
 /// What `verify_history` checked.
@@ -213,6 +310,11 @@ pub struct Wal {
     /// Counters for visibility: frames appended, fdatasync calls made.
     frames: std::sync::atomic::AtomicU64,
     syncs: std::sync::atomic::AtomicU64,
+    /// The last position known synced, which each frame written carries as
+    /// its mark (theseus-7nfj): what the open knew (the index's checkpoint,
+    /// the newest mark it read), then the last position each `sync` that
+    /// returned Ok covered.
+    synced: std::sync::atomic::AtomicU64,
     /// Directories that hold a name no sync has made durable yet: the log's
     /// own, once a segment is created in it, and the one that holds the log,
     /// once open created the log's directory. The next `sync` syncs each
@@ -476,6 +578,11 @@ impl Wal {
         recovery.segments = segments.len().max(1) as u32;
         recovery.last_position = walk.expected - 1;
         let expected_pos = walk.expected;
+        // The first frames' mark: what this open knows synced, never past
+        // what it found (theseus-7nfj). The frames after the newest mark are
+        // known synced only once this log's own first sync returns, which
+        // covers them too: an fdatasync takes every dirty page of the file.
+        let synced = cfg.synced_to.max(walk.mark).min(recovery.last_position);
 
         let (segment, file, segment_len, unsynced_dirs) = append_segment(dir, last_seg, new_dir)?;
         let wal = Self {
@@ -495,6 +602,7 @@ impl Wal {
             recovery,
             frames: std::sync::atomic::AtomicU64::new(0),
             syncs: std::sync::atomic::AtomicU64::new(0),
+            synced: std::sync::atomic::AtomicU64::new(synced),
             unsynced_dirs: Mutex::new(unsynced_dirs),
             dir_syncs: std::sync::atomic::AtomicU64::new(0),
             readers: Mutex::default(),
@@ -579,8 +687,10 @@ impl Wal {
         let at = test_clock::now(&w.dir);
         let first = w.next_position;
 
-        // Build body.
+        // Build body: the mark first (theseus-7nfj). A sync advances it only
+        // past frames already written, so it is always before `first`.
         let mut body = Vec::new();
+        body.extend_from_slice(&self.synced().to_le_bytes());
         body.extend_from_slice(&(batch.len() as u32).to_le_bytes());
         let mut rel: Vec<(u64, usize, usize)> = Vec::with_capacity(batch.len());
         for (i, r) in batch.iter().enumerate() {
@@ -590,9 +700,9 @@ impl Wal {
             body.extend_from_slice(&enc);
         }
         let mut frame = Vec::with_capacity(FRAME_HEADER + body.len());
-        frame.extend_from_slice(&MAGIC.to_le_bytes());
+        frame.extend_from_slice(&MAGIC_MARKED.to_le_bytes());
         frame.extend_from_slice(&(body.len() as u32).to_le_bytes());
-        frame.extend_from_slice(&crc32fast::hash(&body).to_le_bytes());
+        frame.extend_from_slice(&Layout::Marked.crc(&body).to_le_bytes());
         frame.extend_from_slice(&body);
 
         if let Some(max) = w.cfg.max_total_bytes {
@@ -665,9 +775,16 @@ impl Wal {
     /// holding a name created since the last sync (a new segment's), so no
     /// frame is reported durable in a segment a power loss could unname
     /// (theseus-xprd). The handle is cloned, so the fdatasync holds no lock a
-    /// reader of the last position waits on.
+    /// reader of the last position waits on. Once it returns Ok, every frame
+    /// written before it is synced, and the frames written after it say so
+    /// (their mark, theseus-7nfj).
     pub fn sync(&self) -> Result<(), WalError> {
-        let file = self.w.lock().unwrap().file.try_clone()?;
+        // The last position written before the fdatasync starts: a frame is
+        // written whole under this lock, so it is all in the file by then.
+        let (file, last) = {
+            let w = self.w.lock().unwrap();
+            (w.file.try_clone()?, w.next_position - 1)
+        };
         file.sync_data()?;
         self.syncs
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -681,7 +798,15 @@ impl Wal {
             self.dir_syncs
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
+        self.synced
+            .fetch_max(last, std::sync::atomic::Ordering::AcqRel);
         Ok(())
+    }
+
+    /// The last position known synced: the mark the next frame carries
+    /// (theseus-7nfj).
+    pub fn synced(&self) -> u64 {
+        self.synced.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Cut the next write short after `bytes`, as a full disk would.
@@ -749,15 +874,18 @@ impl Wal {
             let bytes = fs::read(segment_path(&self.dir, seg))?;
             let mut off = 0usize;
             while off + FRAME_HEADER <= bytes.len() {
+                let Some(layout) = Layout::at(&bytes, off) else {
+                    break;
+                };
                 let body_len = u32_at(&bytes, off + 4) as usize;
                 let body_start = off + FRAME_HEADER;
                 let body_end = body_start + body_len;
-                if body_end > bytes.len() {
+                if body_end > bytes.len() || body_len < layout.count_at() + 4 {
                     break;
                 }
                 let body = &bytes[body_start..body_end];
-                let count = u32_at(body, 0) as usize;
-                let mut i = 4usize;
+                let count = u32_at(body, layout.count_at()) as usize;
+                let mut i = layout.count_at() + 4;
                 for _ in 0..count {
                     let Some((rec, used)) = decode_record(body, i) else {
                         break;
@@ -1008,12 +1136,16 @@ enum Bad {
 }
 
 /// A walk over frames in position order: the next position expected, what
-/// it has counted, and the records after `keep` with their locations.
+/// it has counted, the newest mark it read, and the records after `keep`
+/// with their locations.
 struct Walk {
     expected: u64,
     keep: u64,
     frames: u64,
     records: u64,
+    /// The newest mark of the frames checked (theseus-7nfj): 0 when none
+    /// was marked.
+    mark: u64,
     out: Vec<(Record, RecordLocation)>,
 }
 
@@ -1024,6 +1156,7 @@ impl Walk {
             keep,
             frames: 0,
             records: 0,
+            mark: 0,
             out: Vec::new(),
         }
     }
@@ -1049,9 +1182,10 @@ impl Walk {
 }
 
 /// Check the frame at `off` in `bytes` (which begin at offset `base` of
-/// segment `seg`): its magic, length, crc, and records, whose positions must
-/// be the walk's next. Returns the frame's end; on success the walk moves
-/// past its records and keeps those after `keep`.
+/// segment `seg`): its magic, length, crc, mark, and records, whose
+/// positions must be the walk's next. Returns the frame's end; on success
+/// the walk moves past its records, keeps those after `keep`, and keeps the
+/// frame's mark when it is the newest.
 fn check_frame(
     bytes: &[u8],
     off: usize,
@@ -1068,9 +1202,9 @@ fn check_frame(
     if off + FRAME_HEADER > bytes.len() {
         return torn("short frame header");
     }
-    if u32_at(bytes, off) != MAGIC {
+    let Some(layout) = Layout::at(bytes, off) else {
         return torn("bad magic");
-    }
+    };
     let body_len = u32_at(bytes, off + 4) as usize;
     let crc = u32_at(bytes, off + 8);
     let body_start = off + FRAME_HEADER;
@@ -1081,7 +1215,7 @@ fn check_frame(
         return torn("short frame body");
     }
     let body = &bytes[body_start..body_end];
-    if crc32fast::hash(body) != crc {
+    if layout.crc(body) != crc {
         return torn("crc mismatch");
     }
     let wrong = |at: usize, reason: &str| {
@@ -1091,15 +1225,24 @@ fn check_frame(
             reason: reason.into(),
         }))
     };
-    if body.len() < 4 {
+    let count_at = layout.count_at();
+    if body.len() < count_at + 4 {
         return wrong(
             body_start,
             "a crc-valid frame too short for its record count",
         );
     }
+    // A mark claims only positions written before its frame (theseus-7nfj).
+    let mark = layout.mark(body);
+    if mark.is_some_and(|m| m >= walk.expected) {
+        return wrong(
+            body_start,
+            "a crc-valid frame whose mark claims its own positions synced",
+        );
+    }
     // Frame is intact: positions inside must be the next in sequence.
-    let count = u32_at(body, 0) as usize;
-    let mut i = 4usize;
+    let count = u32_at(body, count_at) as usize;
+    let mut i = count_at + 4;
     let mut next = walk.expected;
     let mut kept = Vec::new();
     for _ in 0..count {
@@ -1130,6 +1273,7 @@ fn check_frame(
         i += used;
     }
     walk.expected = next;
+    walk.mark = walk.mark.max(mark.unwrap_or(0));
     walk.out.extend(kept);
     Ok(body_end)
 }
@@ -1139,10 +1283,12 @@ fn check_frame(
 #[derive(Debug)]
 pub enum FrameRead {
     /// A whole frame: where it ends in the bytes given, the crc of its body,
-    /// and its records with their locations.
+    /// its mark (theseus-7nfj; `None` when it is unmarked), and its records
+    /// with their locations.
     Whole {
         end: usize,
         crc: u32,
+        mark: Option<u64>,
         records: Vec<(Record, RecordLocation)>,
     },
     /// Short, bad magic, an absurd length, or a crc mismatch: at the log's
@@ -1163,6 +1309,7 @@ pub fn read_frame(bytes: &[u8], off: usize, seg: u32, base: u64, first: u64) -> 
         Ok(end) => FrameRead::Whole {
             end,
             crc: u32_at(bytes, off + 8),
+            mark: Layout::at(bytes, off).and_then(|l| l.mark(&bytes[off + FRAME_HEADER..end])),
             records: walk.out,
         },
         Err(Bad::Torn { reason, .. }) => FrameRead::Partial { reason },
@@ -1174,7 +1321,7 @@ pub fn read_frame(bytes: &[u8], off: usize, seg: u32, base: u64, first: u64) -> 
 /// its stated length when the header is whole and fits, else nowhere short
 /// of its segment's end.
 fn frame_end(bytes: &[u8], off: usize) -> u64 {
-    if off + FRAME_HEADER <= bytes.len() && u32_at(bytes, off) == MAGIC {
+    if off + FRAME_HEADER <= bytes.len() && Layout::at(bytes, off).is_some() {
         let end = off + FRAME_HEADER + u32_at(bytes, off + 4) as usize;
         if end <= bytes.len() {
             return end as u64;
@@ -1194,15 +1341,19 @@ fn read_range(path: &Path, from: u64, to: u64) -> io::Result<Vec<u8>> {
 /// A frame of the last segment that does not check, at `good` of `bytes`
 /// (which begin at offset `base` of segment `seg`), where position
 /// `expected` was due: a torn tail to cut, or a synced frame gone bad, which
-/// is refused (theseus-gt12).
+/// is refused (theseus-gt12, theseus-7nfj).
 ///
-/// A frame at or before `synced` was synced: every position up to it was,
-/// since a sync covers every frame written before it, and frames are written
-/// in position order. Cutting it would lose it and every acknowledged frame
-/// after it. Anything past `synced` is a torn write the bytes alone cannot
-/// tell from rot, even with a whole frame after it (a torn batch, whose
-/// pages reached the disk out of order), so it is cut, and the cut says
-/// whether a whole frame followed.
+/// A frame at or before a position known synced was synced: a sync covers
+/// every frame written before it, and frames are written in position order.
+/// Cutting it would lose it and every acknowledged frame after it. Two facts
+/// say how far the log was synced, and the larger decides: `synced` (the
+/// index's checkpoint), and the mark of each whole frame after the bad one,
+/// written only once every position to its mark was synced. Anything past
+/// both is a torn write the bytes alone cannot tell from rot, even with a
+/// whole frame after it (a torn batch, whose pages reached the disk out of
+/// order, and whose frames all carry the mark of the batch before), so it is
+/// cut, and the cut says whether a whole frame followed, and how far the log
+/// was known synced.
 fn torn_or_rot(
     bytes: &[u8],
     (good, reason): (u64, &'static str),
@@ -1211,20 +1362,38 @@ fn torn_or_rot(
     synced: u64,
 ) -> Result<Cut, WalError> {
     let off = good as usize;
-    let whole_after = whole_frame_after(bytes, off, seg, base, expected);
-    if expected <= synced {
-        let follows = whole_after.map_or_else(String::new, |(at, first)| {
-            format!(", and a whole frame follows it at offset {at} (position {first})")
+    let after = after_bad_frame(bytes, off, seg, base, expected);
+    let marked = after.marked.map_or(0, |(mark, _)| mark);
+    if expected <= synced.max(marked) {
+        let mut says = Vec::new();
+        if expected <= synced {
+            says.push(format!(
+                "position {synced} of the index's checkpoint says so"
+            ));
+        }
+        if let Some((mark, at)) = after.marked.filter(|&(m, _)| expected <= m) {
+            says.push(format!(
+                "the whole frame at offset {} (position {}) says so: it was written once every \
+                 position to {mark} was synced (its mark)",
+                at.offset, at.first
+            ));
+        }
+        let follows = after.first.map_or_else(String::new, |w| {
+            format!(
+                ", and a whole frame follows it at offset {} (position {})",
+                w.offset, w.first
+            )
         });
         return Err(WalError::Corrupt {
             segment: seg,
             offset: base + good,
             reason: format!(
-                "{reason} in the last segment, at position {expected}, which position {synced} \
-                 of the index's checkpoint says was synced: the frame went bad after it was \
-                 written, so it is no torn tail{follows}. Cutting it would lose acknowledged \
-                 records; nothing was cut. Stop the daemon and repair it from a copy that holds \
-                 the frame whole: `theseusd restore --repair --from <a copy of the store>`"
+                "{reason} in the last segment, at position {expected}, which was synced: {}. The \
+                 frame went bad after it was written, so it is no torn tail{follows}. Cutting it \
+                 would lose acknowledged records; nothing was cut. Stop the daemon and repair it \
+                 from a copy that holds the frame whole: `theseusd restore --repair --from <a \
+                 copy of the store>`",
+                says.join("; and ")
             ),
         });
     }
@@ -1233,44 +1402,87 @@ fn torn_or_rot(
         offset: base + good,
         bytes: (bytes.len() - off) as u64,
         position: expected,
-        whole_after,
+        whole_after: after.first,
+        synced_to: synced.max(marked),
     };
-    if let Some((at, first)) = whole_after {
+    if let Some(w) = after.first {
         tracing::warn!(
             segment = seg,
             offset = cut.offset,
             bytes = cut.bytes,
             position = expected,
-            whole_at = at,
-            whole_first = first,
-            "wal: cut a torn tail with a whole frame after it: a batch torn before its sync, \
-             or, if this frame was synced, rot, and the frames after it are lost (nothing known \
-             synced reaches it)"
+            whole_at = w.offset,
+            whole_first = w.first,
+            synced_to = cut.synced_to,
+            "wal: cut a torn tail with a whole frame after it: a batch torn before its sync, since \
+             no mark after it and no checkpoint says it was synced; rot in the log's last batch \
+             would look the same, and the frames after it are lost"
         );
     }
     Ok(cut)
 }
 
-/// The first whole frame after the one at `off` in `bytes` that does not
-/// check: found by its magic, from `off + 1`, checked as a frame, with
-/// positions past `expected`, which the bad frame would have begun with.
-/// Its offset in the segment and its first position. Read only after a bad
-/// frame, so a healthy open never pays for it.
-fn whole_frame_after(
-    bytes: &[u8],
-    off: usize,
-    seg: u32,
-    base: u64,
-    expected: u64,
-) -> Option<(u64, u64)> {
-    let magic = MAGIC.to_le_bytes();
-    let mut i = off + 1;
+/// What follows a frame that does not check (theseus-gt12, theseus-7nfj):
+/// the first whole frame after it, and the newest mark among the whole
+/// frames after it, with the frame that holds it.
+#[derive(Default)]
+struct AfterBad {
+    first: Option<WholeAfter>,
+    marked: Option<(u64, WholeAfter)>,
+}
+
+/// Every whole frame after the one at `off` of `bytes` that does not check,
+/// each found by its magic, checked as a frame, and holding positions past
+/// those before it (the first, past `expected`, which the bad frame would
+/// have begun with). Read only after a bad frame, so a healthy open never
+/// pays for it.
+fn after_bad_frame(bytes: &[u8], off: usize, seg: u32, base: u64, expected: u64) -> AfterBad {
+    let mut found = AfterBad::default();
+    let (mut from, mut past) = (off + 1, expected);
+    while let Some(f) = next_whole_frame(bytes, from, seg, base, past) {
+        let whole = WholeAfter {
+            offset: base + f.at as u64,
+            first: f.first,
+        };
+        found.first.get_or_insert(whole);
+        if f.mark > found.marked.map_or(0, |(m, _)| m) {
+            found.marked = Some((f.mark, whole));
+        }
+        from = f.end;
+        past = f.next - 1;
+    }
+    found
+}
+
+/// A whole frame `next_whole_frame` found: its offset and end in the bytes
+/// searched, its first position, the position after its last, and its mark
+/// (0 when unmarked).
+struct Found {
+    at: usize,
+    end: usize,
+    first: u64,
+    next: u64,
+    mark: u64,
+}
+
+/// The first whole frame at or after `from` of `bytes`: found by its magic,
+/// checked as a frame, with positions past `past`.
+fn next_whole_frame(bytes: &[u8], from: usize, seg: u32, base: u64, past: u64) -> Option<Found> {
+    let mut i = from;
     while i + FRAME_HEADER <= bytes.len() {
-        let at = i + bytes[i..].windows(4).position(|w| w == magic)?;
-        let first = first_position(bytes, at).filter(|&p| p > expected);
-        if let Some(first) = first {
-            if check_frame(bytes, at, seg, base, &mut Walk::new(first, u64::MAX)).is_ok() {
-                return Some((base + at as u64, first));
+        let at = i + bytes[i..]
+            .windows(4)
+            .position(|w| Layout::of(u32_at(w, 0)).is_some())?;
+        if let Some(first) = first_position(bytes, at).filter(|&p| p > past) {
+            let mut walk = Walk::new(first, u64::MAX);
+            if let Ok(end) = check_frame(bytes, at, seg, base, &mut walk) {
+                return Some(Found {
+                    at,
+                    end,
+                    first,
+                    next: walk.expected,
+                    mark: walk.mark,
+                });
             }
         }
         i = at + 1;
@@ -1278,12 +1490,14 @@ fn whole_frame_after(
     None
 }
 
-/// The position of the first record of the frame whose header is at `at`,
-/// when its body fits in `bytes`.
-fn first_position(bytes: &[u8], at: usize) -> Option<u64> {
+/// The position of the first record of the frame whose header is at `at`
+/// of `bytes`, in either layout, when its body fits. Nothing is checked: a
+/// way to find a frame by its position.
+pub fn first_position(bytes: &[u8], at: usize) -> Option<u64> {
+    let layout = Layout::at(bytes, at)?;
     let body = at.checked_add(FRAME_HEADER)?;
     let end = body.checked_add(u32_at(bytes.get(at..body)?, 4) as usize)?;
-    decode_record(bytes.get(body..end)?, 4).map(|(r, _)| r.position)
+    decode_record(bytes.get(body..end)?, layout.count_at() + 4).map(|(r, _)| r.position)
 }
 
 /// Cut the last segment at `at`: what `cut` says goes.
@@ -1296,6 +1510,7 @@ fn cut_tail(path: &Path, at: u64, cut: Cut) -> io::Result<()> {
         offset = cut.offset,
         bytes = cut.bytes,
         whole_after = cut.whole_after.is_some(),
+        synced_to = cut.synced_to,
         "wal: cut a torn tail"
     );
     Ok(())
@@ -1384,6 +1599,9 @@ mod tests {
     use super::*;
     use crate::record::kinds;
 
+    /// The synced mark (theseus-7nfj).
+    mod mark;
+
     fn rec(kind: u16, key: Option<&str>, payload: &[u8]) -> NewRecord {
         NewRecord::bytes(kind, key, payload.to_vec())
     }
@@ -1430,7 +1648,7 @@ mod tests {
         {
             let mut f = OpenOptions::new().append(true).open(&path).unwrap();
             let mut half = Vec::new();
-            half.extend_from_slice(&MAGIC.to_le_bytes());
+            half.extend_from_slice(&MAGIC_MARKED.to_le_bytes());
             half.extend_from_slice(&(500u32).to_le_bytes());
             half.extend_from_slice(&(0u32).to_le_bytes());
             half.extend_from_slice(&[7u8; 40]);
@@ -1465,17 +1683,32 @@ mod tests {
         offs
     }
 
-    /// A log of five frames, one record each, each appended and synced.
-    fn five_frames(dir: &Path) -> (PathBuf, Vec<u8>) {
+    /// A log of five frames, one record each, written in `batches`: each
+    /// batch's frames back to back, then one sync, as the store's writer
+    /// writes them. So each frame's mark is the last position of the batch
+    /// before its own (theseus-7nfj).
+    fn five_frames_in(dir: &Path, batches: &[u8]) -> (PathBuf, Vec<u8>) {
         let wal = Wal::open(dir, WalConfig::default()).unwrap();
-        for i in 1..=5u8 {
-            wal.append(&[rec(kinds::LEDGER, None, &[i; 40])]).unwrap();
+        let mut i = 0u8;
+        for &n in batches {
+            for _ in 0..n {
+                i += 1;
+                wal.write(&[rec(kinds::LEDGER, None, &[i; 40])]).unwrap();
+            }
+            wal.sync().unwrap();
         }
+        assert_eq!(i, 5);
         drop(wal);
         let path = segment_path(dir, 1);
         let bytes = fs::read(&path).unwrap();
         assert_eq!(frame_offsets(&bytes).len(), 5);
         (path, bytes)
+    }
+
+    /// Five frames, each its own batch: each frame's mark is the position
+    /// before it.
+    fn five_frames(dir: &Path) -> (PathBuf, Vec<u8>) {
+        five_frames_in(dir, &[1, 1, 1, 1, 1])
     }
 
     /// theseus-gt12, rot: frame 3 of the last segment goes bad after the
@@ -1515,58 +1748,68 @@ mod tests {
     /// theseus-gt12, a torn batch: frames 3 to 5 were one batch, written back
     /// to back, and the power went before its sync; frame 3's last page never
     /// reached the disk, and frames 4 and 5 did. Nothing past position 2 was
-    /// acknowledged, so the batch is cut as a torn tail, and the cut says a
-    /// whole frame followed it.
+    /// acknowledged, and the batch's marks say only that much (theseus-7nfj),
+    /// so the batch is cut as a torn tail, with no index or with one, and the
+    /// cut says a whole frame followed it, and how far the log was synced.
     #[test]
     fn a_batch_torn_before_its_sync_is_cut_though_a_whole_frame_follows() {
-        let dir = tempfile::tempdir().unwrap();
-        let (path, mut bytes) = five_frames(dir.path());
-        let offs = frame_offsets(&bytes);
-        let (third, fourth) = (offs[2], offs[3]);
-        bytes[fourth - 16..fourth].fill(0);
-        fs::write(&path, &bytes).unwrap();
-        let wal = Wal::open(
-            dir.path(),
-            WalConfig {
-                synced_to: 2,
-                ..WalConfig::default()
-            },
-        )
-        .unwrap();
-        let r = wal.recovery();
-        assert_eq!(wal.last_position(), 2);
-        assert_eq!(r.truncated_bytes, (bytes.len() - third) as u64);
-        assert_eq!(
-            r.cut,
-            Some(Cut {
-                segment: 1,
-                offset: third as u64,
-                bytes: (bytes.len() - third) as u64,
-                position: 3,
-                whole_after: Some((fourth as u64, 4)),
-            })
-        );
-        assert_eq!(fs::metadata(&path).unwrap().len(), third as u64);
+        for synced_to in [0, 2] {
+            let dir = tempfile::tempdir().unwrap();
+            let (path, mut bytes) = five_frames_in(dir.path(), &[1, 1, 3]);
+            let offs = frame_offsets(&bytes);
+            let (third, fourth) = (offs[2], offs[3]);
+            bytes[fourth - 16..fourth].fill(0);
+            fs::write(&path, &bytes).unwrap();
+            let wal = Wal::open(
+                dir.path(),
+                WalConfig {
+                    synced_to,
+                    ..WalConfig::default()
+                },
+            )
+            .unwrap();
+            let r = wal.recovery();
+            assert_eq!(wal.last_position(), 2);
+            assert_eq!(r.truncated_bytes, (bytes.len() - third) as u64);
+            assert_eq!(
+                r.cut,
+                Some(Cut {
+                    segment: 1,
+                    offset: third as u64,
+                    bytes: (bytes.len() - third) as u64,
+                    position: 3,
+                    whole_after: Some(WholeAfter {
+                        offset: fourth as u64,
+                        first: 4
+                    }),
+                    synced_to: 2,
+                }),
+                "synced_to {synced_to}"
+            );
+            assert_eq!(fs::metadata(&path).unwrap().len(), third as u64);
+        }
+    }
+
+    /// Where record `n` (1 to 5) of a `five_frames_in` log lies.
+    fn record_at(bytes: &[u8], n: usize) -> RecordLocation {
+        let off = frame_offsets(bytes)[n - 1];
+        RecordLocation {
+            segment: 1,
+            offset: (off + FRAME_HEADER + MARK + 4) as u64,
+            len: (RECORD_HEADER + 40) as u32,
+        }
     }
 
     /// theseus-gt12: the tail-only open (after the index's checkpoint, here
     /// position 2) decides as the walk of every segment does: frame 3 gone
     /// bad with position 5 known synced is refused, and torn with only
     /// position 2 known synced is cut, with the whole frame after it said.
+    /// Frames 3 to 5 are one batch, so no mark says more.
     #[test]
     fn the_tail_only_open_refuses_rot_and_cuts_a_torn_batch_alike() {
         let dir = tempfile::tempdir().unwrap();
-        let wal = Wal::open(dir.path(), WalConfig::default()).unwrap();
-        let mut at = None;
-        for i in 1..=5u8 {
-            let placed = wal.append(&[rec(kinds::LEDGER, None, &[i; 40])]).unwrap();
-            if i == 2 {
-                at = Some(placed[0].1);
-            }
-        }
-        drop(wal);
-        let path = segment_path(dir.path(), 1);
-        let mut bytes = fs::read(&path).unwrap();
+        let (path, mut bytes) = five_frames_in(dir.path(), &[1, 1, 3]);
+        let at = Some(record_at(&bytes, 2));
         let offs = frame_offsets(&bytes);
         bytes[offs[3] - 16..offs[3]].fill(0);
         fs::write(&path, &bytes).unwrap();
@@ -1584,8 +1827,14 @@ mod tests {
         let r = wal.recovery();
         assert!(r.checked_from.is_some(), "the tail-only open");
         assert_eq!(
-            r.cut.map(|c| c.whole_after),
-            Some(Some((offs[3] as u64, 4)))
+            r.cut.map(|c| (c.whole_after, c.synced_to)),
+            Some((
+                Some(WholeAfter {
+                    offset: offs[3] as u64,
+                    first: 4
+                }),
+                2
+            ))
         );
         assert_eq!(wal.last_position(), 2);
     }

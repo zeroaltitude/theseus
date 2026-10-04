@@ -1391,7 +1391,15 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(e.budget.spent_micros, 1_535);
-        let status = p.shared.voice.status();
+        // A booking counts in the status once its row is written, on the
+        // same worker: wait for the count as for the rows (theseus-zuz9).
+        let status = loop {
+            let status = p.shared.voice.status();
+            if status.spend_micros >= 1_535 || std::time::Instant::now() >= deadline {
+                break status;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
         assert_eq!(
             (status.utterances, status.sentences, status.spend_micros),
             (1, 1, 1_535)
