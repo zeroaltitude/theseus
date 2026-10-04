@@ -83,7 +83,7 @@ fn inbound_only(c: &mut crate::Config) {
 }
 
 /// Health's pack list under `inbound_only`.
-const INBOUND_ALONE: [&str; 8] = [
+const INBOUND_ALONE: [&str; 10] = [
     "loop.v1: off",
     "security.v1: off",
     "security.v3: off",
@@ -92,6 +92,8 @@ const INBOUND_ALONE: [&str; 8] = [
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off",
+    "memory.v1: shadow",
+    "attribution.v1: shadow",
 ];
 
 /// A person's message is judged by both packs in one request: the fake

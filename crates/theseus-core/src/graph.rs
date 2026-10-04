@@ -63,6 +63,14 @@ vocabulary! {
         /// graduations wrote one in the source's own session, via `graduate`:
         /// they still read.)
         DerivedFrom = "derived_from",
+        /// `from` says what `to`, written before it, says (M6 31a, the memory
+        /// pass's gate: cosine at or above the science's merge threshold).
+        /// The duplicate stays; `baseline` keeps only the newest of a group.
+        SameEntity = "same_entity",
+        /// `from` corrects `to`, written before it (M6 31a: an operator's
+        /// correction close enough to its top neighbour). `baseline`
+        /// prefers the newer side.
+        Supersedes = "supersedes",
     }
 }
 
@@ -99,6 +107,8 @@ pub const VIA_ARRANGEMENT: &str = "arrangement";
 /// A check task's arrangement, from the checked task's report, its claim
 /// (M5 28a).
 pub const VIA_CLAIM: &str = "claim";
+/// The memory pass's gate (M6 31a): `same_entity` and `supersedes`.
+pub const VIA_MEMORY: &str = "memory";
 
 impl Edge {
     pub fn new(kind: EdgeKind, from: &str, to: &str, via: &str) -> Self {

@@ -125,6 +125,8 @@ pub struct TurnRunner {
     pub place_rule: crate::places::PlaceRule,
     /// Recall (M6 step 30a): `[memory]`, and the index it asks.
     pub memory: Arc<crate::recall::Memory>,
+    /// The memory pass (M6 31a): after each turn, off its path.
+    pub pass: Arc<crate::memory_pass::MemoryPass>,
     /// The ontology's snapshot (theseus-8kk.1), built after serving.
     pub ontology: crate::ontology::Board,
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
@@ -1205,6 +1207,7 @@ impl TurnRunner {
         drop(session_hold);
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
+            self.pass.after_turn(res);
         }
         // A failed turn extends its session's run of failures (theseus-ljr),
         // which says whether its execution retries and whether the turn posts

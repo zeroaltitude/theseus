@@ -96,6 +96,9 @@ pub trait MemoryScience: Send + Sync {
     /// What to do with a node seen for the first time (row 57, 31a: the
     /// memory pass).
     fn gate(&self, fresh: &Fresh, near: &[Neighbour]) -> GateDecision;
+    /// The gate's thresholds, merge then supersede, for the row that
+    /// records its decision.
+    fn gate_thresholds(&self) -> (f32, f32);
     /// One step of a node's retention fold (row 58, 32a: the retention
     /// projection); `None`: the science keeps no retention.
     fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention>;
@@ -112,12 +115,18 @@ pub trait MemoryScience: Send + Sync {
     fn decay_sweep(&self, now_ms: u64, view: &[Heat]) -> Vec<Demotion>;
     /// The final order of recall's candidates.
     fn rank(&self, fused: Vec<Scored>, ctx: &RankCtx) -> Vec<Scored>;
+    /// Whether recall reads the memory pass's edges and prefers the newer
+    /// node (31a's "deterministic freshness and provenance rules").
+    fn prefers_newer(&self) -> bool;
 }
 
 /// The baseline (§2.3): no retention model and no activation. It ranks by
 /// the index's fused order, and gates by cosine alone.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Baseline {
+    /// Its version: 1 (30a) ranks the fused order alone; 2 (31a) also reads
+    /// the memory pass's edges and prefers the newer node.
+    pub version: u32,
     /// The least fused score admitted; 0 admits every hit, until shadow's
     /// rows calibrate it.
     pub min_score: f64,
@@ -134,6 +143,7 @@ pub struct Baseline {
 impl Default for Baseline {
     fn default() -> Self {
         Self {
+            version: 2,
             min_score: 0.0,
             merge_cosine: 0.92,
             supersede_cosine: 0.75,
@@ -147,10 +157,15 @@ const DAY_MS: f64 = 86_400_000.0;
 impl Baseline {
     /// Its parameters as one line: what the digest is of.
     fn canonical(&self) -> String {
-        format!(
+        let mut c = format!(
             "min_score={};merge_cosine={};supersede_cosine={};idle_days={}",
             self.min_score, self.merge_cosine, self.supersede_cosine, self.idle_days
-        )
+        );
+        // The first version's line is as it was, so its digest is too.
+        if self.version != 1 {
+            c.push_str(&format!(";version={}", self.version));
+        }
+        c
     }
 }
 
@@ -178,6 +193,10 @@ impl MemoryScience for Baseline {
             }
             _ => GateDecision::Store,
         }
+    }
+
+    fn gate_thresholds(&self) -> (f32, f32) {
+        (self.merge_cosine, self.supersede_cosine)
     }
 
     fn schedule(&self, _prior: Option<&Retention>, _ev: &AccessEvent) -> Option<Retention> {
@@ -208,6 +227,10 @@ impl MemoryScience for Baseline {
                 .then_with(|| a.node_id.cmp(&b.node_id))
         });
         out
+    }
+
+    fn prefers_newer(&self) -> bool {
+        self.version >= 2
     }
 
     fn rank(&self, mut fused: Vec<Scored>, _ctx: &RankCtx) -> Vec<Scored> {
@@ -335,5 +358,16 @@ mod tests {
         .id();
         assert_ne!(a.params, b.params);
         assert!(a.to_string().starts_with("baseline@"));
+        // 31a's version is a new digest; the first keeps 30a's.
+        let v1 = Baseline {
+            version: 1,
+            ..Baseline::default()
+        };
+        assert_ne!(v1.id().params, a.params);
+        assert_eq!(
+            v1.id().params,
+            "46038939f14a4f49",
+            "30a's digest, unchanged"
+        );
     }
 }

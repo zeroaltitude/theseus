@@ -1,0 +1,48 @@
+# memory.v1 (M6 step 31a, design m6 §2.6): what one message or tool result is,
+# as memory keeps it. At `memory_pass`: after a turn ends, off its path, for
+# each node the memory pass labels, beside the deterministic labels (its
+# baseline, `rules`), in shadow. The nightly report compares the two with the
+# operator's labels. The state is the node's text as the session's model saw
+# it, who wrote it, and the message before it in the session. No live action.
+id = "memory"
+version = 1
+jev_model = "jev-1.13.0"
+point = "memory_pass"
+state = "memory"
+state_cap_tokens = 1500
+sample = 1.0
+baseline = "rules"
+action = "none"
+description = "What a message or a tool result is as memory keeps it: its kind, whether it corrects what was said before, and whether its values will soon change."
+
+[questions.kind]
+type = "choice"
+instructions = "What kind of thing does this text record?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "preference", means = "A standing wish of the person about how things should be done, such as always or never doing something, or preferring one way over another." },
+  { id = "decision", means = "A choice that was settled, such as which approach, tool, or design to go with." },
+  { id = "procedure", means = "Steps or a command to run to get something done, given as an instruction." },
+  { id = "episode", means = "A record of something that happened once, such as a command's output or a tool's result." },
+  { id = "transient", means = "A short acknowledgement or pleasantry with nothing to remember, such as thanks or ok." },
+  { id = "fact", means = "A statement about how something is, such as a setting, a location, a name, an owner, or a number." },
+  { id = "other", means = "None of the kinds above fits the text." },
+]
+
+[questions.corrects_earlier]
+type = "noul"
+instructions = "Does this text correct something that was said before it?"
+act = 0.90
+confirm = 0.60
+when_true = "The text says an earlier statement was wrong and gives the right one, such as a corrected number, name, place, or setting."
+when_false = "The text adds, asks, or agrees with something, without saying that anything said before was wrong."
+
+[questions.volatile]
+type = "noul"
+instructions = "Does this text state a value that is likely to change soon?"
+act = 0.90
+confirm = 0.60
+when_true = "The text names something that changes often: a version, a branch, a commit, a count, a time, or a state it describes as current."
+when_false = "The text states something that stays true for a long time, or names no such value."

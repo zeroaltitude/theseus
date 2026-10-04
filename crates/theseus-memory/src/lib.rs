@@ -26,5 +26,7 @@ pub mod science;
 pub use access::{Access, AccessEvent, Durability, Label, Outcome};
 pub use activation::{spread, Adjacency, AdjacencyList, EdgeKind, EdgeWeights, SpreadParams};
 pub use fsrs::{Fsrs6, Grade, ParamsError, Retention, FSRS6_DEFAULT};
-pub use recall::{Admitted, Asker, Candidate, Dropped, Pack, Params, Place, Reason};
+pub use recall::{
+    Admitted, Asker, Candidate, Dropped, Link, LinkKind, Pack, Params, Place, Reason,
+};
 pub use science::{Baseline, MemoryScience, ScienceId};

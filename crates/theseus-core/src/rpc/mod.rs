@@ -615,11 +615,26 @@ impl Core {
             None,
             Arc::new(crate::tender::ChildrenOs),
         ));
+        let memory = Arc::new(crate::recall::Memory::new(
+            cfg.memory.clone(),
+            Some(index.clone()),
+        ));
+        // Builds nothing until its first judgment (FAST).
+        let judge = crate::judge::JudgeService::new(
+            cfg.judge.clone(),
+            store.clone(),
+            secrets.clone(),
+            tools.scrubber.clone(),
+        );
         let runner = TurnRunner {
-            memory: Arc::new(crate::recall::Memory::new(
-                cfg.memory.clone(),
+            // Reads nothing and starts nothing until a turn ends (FAST).
+            pass: crate::memory_pass::MemoryPass::new(
+                memory.clone(),
+                store.clone(),
                 Some(index.clone()),
-            )),
+                Some(judge.clone()),
+            ),
+            memory,
             outbox: outbox.clone(),
             cfg: cfg.clone(),
             providers,
@@ -640,13 +655,7 @@ impl Core {
             place_rule: Default::default(),
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
-            // Builds nothing until its first judgment (FAST).
-            judge: crate::judge::JudgeService::new(
-                cfg.judge.clone(),
-                store.clone(),
-                secrets.clone(),
-                tools.scrubber.clone(),
-            ),
+            judge,
         };
         // Every call that acts goes to the judge at its gate (M5 step 24).
         let _ = runner.tools.judge.set(runner.judge.clone());

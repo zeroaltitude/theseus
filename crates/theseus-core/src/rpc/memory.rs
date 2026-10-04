@@ -73,7 +73,14 @@ impl Core {
             labeled: memory.labeled(&self.store)?,
             budget_tokens: None,
         };
-        Ok(memory.manifest(&scene, &begun, answer, |s| self.runner.place_of(s), true))
+        Ok(memory.manifest(
+            &scene,
+            &begun,
+            answer,
+            |s| self.runner.place_of(s),
+            |ids| crate::recall::links(&self.store, ids),
+            true,
+        ))
     }
 
     /// `memory.recalls`: the session's recall rows, newest last, each

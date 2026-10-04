@@ -35,7 +35,7 @@ use theseus_judge::builders::{RerankInput, RerankNote, RERANK_NOTES};
 use theseus_judge::{
     Ask, DecisionPoint, Input, Judge, Judgment, JudgmentSink, Mode, Outcome, Pack, Urgency,
 };
-use theseus_memory::recall::{Asker, Candidate, Params, Place};
+use theseus_memory::recall::{Asker, Candidate, Link, Params, Place};
 use theseus_memory::rerank::{eligible, reorder, repack};
 use theseus_memory::MemoryScience;
 
@@ -75,6 +75,9 @@ pub struct Recalled {
     /// recall's pipeline, the rerank drops them.
     pub labeled: BTreeSet<String>,
     pub candidates: Vec<Candidate>,
+    /// The memory pass's links among them (31a): the repack prefers the
+    /// newer node, as the recall did.
+    pub links: Vec<Link>,
     pub params: Params,
     pub science: Arc<dyn MemoryScience>,
     /// What the fused pack admitted, by key (`<node>#<chunk>`).
@@ -89,6 +92,7 @@ impl Recalled {
             place: &self.place,
             in_context: &self.in_context,
             labeled: &self.labeled,
+            links: &self.links,
             now_ms: self.now_ms,
         }
     }

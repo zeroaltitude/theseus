@@ -104,6 +104,14 @@ impl MemoryScience for Reranked<'_> {
         self.inner.gate(fresh, near)
     }
 
+    fn gate_thresholds(&self) -> (f32, f32) {
+        self.inner.gate_thresholds()
+    }
+
+    fn prefers_newer(&self) -> bool {
+        self.inner.prefers_newer()
+    }
+
     fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention> {
         self.inner.schedule(prior, ev)
     }
@@ -237,6 +245,7 @@ mod tests {
             place: &here,
             in_context: &in_context,
             labeled: &BTreeSet::new(),
+            links: &[],
             now_ms: 0,
         };
         let mut second = cand("n1", Place::Private, 0.85);
@@ -301,7 +310,7 @@ mod tests {
         ) {
             let science = Baseline { min_score: 0.01, ..Baseline::default() };
             let none = BTreeSet::new();
-            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, now_ms: 0 };
+            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, links: &[], now_ms: 0 };
             let cands: Vec<Candidate> = places
                 .iter()
                 .enumerate()

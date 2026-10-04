@@ -172,6 +172,8 @@ fn copies_of(store: &Store, id: &str) -> Result<Vec<Edge>> {
         let e: Edge = r.decode()?;
         match EdgeKind::named(&e.kind) {
             Some(EdgeKind::DerivedFrom) => out.push(e),
+            // The memory pass's (M6 31a): a likeness, not a copy.
+            Some(EdgeKind::SameEntity | EdgeKind::Supersedes) => {}
             None => {
                 // A kind a newer build wrote: no copy this build follows.
             }

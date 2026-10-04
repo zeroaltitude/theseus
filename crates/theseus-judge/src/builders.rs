@@ -34,6 +34,8 @@ pub const CONTINUE_VERSION: u32 = 1;
 pub const CATEGORIZE_VERSION: u32 = 1;
 /// `rerank.v1`'s builder (module `rerank`, M6 step 32c).
 pub const RERANK_VERSION: u32 = 1;
+pub const MEMORY_VERSION: u32 = 1;
+pub const ATTRIBUTION_VERSION: u32 = 1;
 
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
@@ -283,6 +285,8 @@ pub enum Input {
     Continue(ContinueInput),
     Categorize(CategorizeInput),
     Rerank(RerankInput),
+    Memory(MemoryInput),
+    Attribution(AttributionInput),
 }
 
 impl Input {
@@ -296,6 +300,8 @@ impl Input {
             Input::Continue(_) => Builder::Continue,
             Input::Categorize(_) => Builder::Categorize,
             Input::Rerank(_) => Builder::Rerank,
+            Input::Memory(_) => Builder::Memory,
+            Input::Attribution(_) => Builder::Attribution,
         }
     }
 
@@ -310,6 +316,8 @@ impl Input {
             Builder::Continue => Input::Continue(serde_json::from_str(json)?),
             Builder::Categorize => Input::Categorize(serde_json::from_str(json)?),
             Builder::Rerank => Input::Rerank(serde_json::from_str(json)?),
+            Builder::Memory => Input::Memory(serde_json::from_str(json)?),
+            Builder::Attribution => Input::Attribution(serde_json::from_str(json)?),
         })
     }
 }
@@ -341,6 +349,8 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Continue(i) => continue_state(i, cap, scrub),
         Input::Categorize(i) => categorize(i, cap, scrub),
         Input::Rerank(i) => rerank::rerank(i, cap, scrub),
+        Input::Memory(i) => memory::memory(i, cap, scrub),
+        Input::Attribution(i) => memory::attribution(i, cap, scrub),
     })
 }
 
@@ -537,9 +547,11 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     }
 }
 
+mod memory;
 mod rerank;
 mod security2;
 
+pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
 pub use rerank::{RerankInput, RerankNote, RERANK_NOTES};
 
 /// `security.v1`: the call (tool, class, posture and why), its arguments
@@ -934,6 +946,8 @@ mod tests {
             "continue.v1",
             "categorize.v1",
             "rerank.v1",
+            "memory.v1",
+            "attribution.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(
@@ -1269,6 +1283,28 @@ mod tests {
                         .map(|i| RerankNote {
                             key: format!("nod_{i}#0"),
                             text: if i < 25 { big.clone() } else { item.clone() },
+                        })
+                        .collect(),
+                }),
+            ),
+            (
+                "memory.v1",
+                Input::Memory(MemoryInput {
+                    role: big.clone(),
+                    tool: Some(big.clone()),
+                    text: big.clone(),
+                    previous: Some(big.clone()),
+                }),
+            ),
+            (
+                "attribution.v1",
+                Input::Attribution(AttributionInput {
+                    ask: big.clone(),
+                    reply: big,
+                    notes: (0..2_000)
+                        .map(|i| NoteInput {
+                            id: format!("n{i}"),
+                            excerpt: item.clone(),
                         })
                         .collect(),
                 }),

@@ -41,6 +41,7 @@ pub mod ledger;
 pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;
+pub mod memory_pass;
 pub mod narrative;
 pub mod node;
 pub mod ontology;

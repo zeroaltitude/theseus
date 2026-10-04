@@ -16,7 +16,8 @@ use serde_json::Value;
 use theseus_protocol::{error_code, Id, Request, Response};
 
 use crate::proto::{
-    method, EmbedParams, ForgetParams, NeighboursParams, QueryParams, RebuildResult,
+    method, EmbedParams, EntitiesParams, EntitiesResult, ForgetParams, NeighboursParams,
+    QueryParams, RebuildResult,
 };
 use crate::tender::Shared;
 
@@ -120,6 +121,16 @@ pub fn answer(line: &str, shared: &Shared) -> Response {
             }
         }
         method::WARM => Response::ok(id, shared.warm()),
+        method::ENTITIES => {
+            let p: EntitiesParams = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => return Response::err(id, error_code::INVALID_PARAMS, e.to_string()),
+            };
+            match entities(&p) {
+                Ok(r) => Response::ok(id, r),
+                Err(e) => Response::err(id, error_code::INVALID_PARAMS, e),
+            }
+        }
         method::FORGET => {
             let p: ForgetParams = match serde_json::from_value(req.params) {
                 Ok(p) => p,
@@ -137,4 +148,23 @@ pub fn answer(line: &str, shared: &Shared) -> Response {
             Value::Null,
         ),
     }
+}
+
+/// `index.entities`: each text through the one extractor the entity field
+/// is built by (`entity::entities`). Pure: no index, no model.
+pub fn entities(p: &EntitiesParams) -> Result<EntitiesResult, String> {
+    if p.texts.len() > EntitiesParams::MAX_TEXTS {
+        return Err(format!(
+            "{} texts: index.entities takes at most {}",
+            p.texts.len(),
+            EntitiesParams::MAX_TEXTS
+        ));
+    }
+    Ok(EntitiesResult {
+        entities: p
+            .texts
+            .iter()
+            .map(|t| crate::entity::entities(t).into_iter().collect())
+            .collect(),
+    })
 }

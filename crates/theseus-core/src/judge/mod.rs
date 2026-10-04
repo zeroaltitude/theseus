@@ -32,6 +32,7 @@ pub mod gate;
 pub mod inbound;
 pub mod loop_end;
 pub mod mark;
+pub mod memory;
 pub mod rerank;
 pub mod sink;
 pub mod spend;
@@ -70,6 +71,8 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Shadow),
+    (memory::MEMORY_PACK, PackMode::Shadow),
+    (memory::ATTRIBUTION_PACK, PackMode::Shadow),
 ];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.

@@ -347,6 +347,45 @@ fn a_query_finds_a_node_by_its_words_and_by_its_entities() {
     assert!(shared.query(&p).is_err());
 }
 
+/// `index.entities` (M6 step 31a): texts through the same extractor the
+/// entity field is built by, in order, and a request past its limit
+/// refused. The memory pass asks it, so the core keeps no second copy.
+#[test]
+fn the_socket_names_the_entities_of_texts_with_the_one_extractor() {
+    let rig = Rig::new();
+    rig.put(&[user("ses_1", "seed")]);
+    let mut t = rig.open();
+    settle(&mut t);
+    let shared = t.shared();
+    let ask = |texts: Vec<String>| {
+        let line = serde_json::to_string(&theseus_protocol::Request::new(
+            theseus_protocol::Id::Num(7),
+            method::ENTITIES,
+            crate::proto::EntitiesParams { texts },
+        ))
+        .unwrap();
+        server::answer(&line, &shared)
+    };
+    let texts = vec![
+        "see crates/theseus-store/src/wal.rs and https://example.org/x".to_string(),
+        "nothing here".to_string(),
+    ];
+    let r = ask(texts.clone());
+    let got: crate::proto::EntitiesResult =
+        serde_json::from_value(r.result.expect("answered")).unwrap();
+    assert_eq!(got.entities.len(), 2);
+    let want: Vec<String> = crate::entity::entities(&texts[0]).into_iter().collect();
+    assert_eq!(got.entities[0], want);
+    assert!(got.entities[0].contains(&"host:example.org".to_string()));
+    assert!(got.entities[0].contains(&"file:wal.rs".to_string()));
+    assert!(got.entities[1].is_empty());
+    let r = ask(vec![
+        String::new();
+        crate::proto::EntitiesParams::MAX_TEXTS + 1
+    ]);
+    assert!(r.error.is_some(), "a request past the limit is refused");
+}
+
 #[test]
 fn as_of_hides_later_nodes() {
     let rig = Rig::new();

@@ -49,6 +49,11 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
     ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
+    ("memory.v1", include_str!("../packs/memory.v1.toml")),
+    (
+        "attribution.v1",
+        include_str!("../packs/attribution.v1.toml"),
+    ),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -64,6 +69,8 @@ pub enum Point {
     /// After a recall's pipeline (M6 step 32c), off the turn's path.
     Recall,
     Probe,
+    /// After a turn ends, off its path: the memory pass (M6 31a).
+    MemoryPass,
 }
 
 /// The state builder a pack names (a closed set, in code).
@@ -81,6 +88,10 @@ pub enum Builder {
     Categorize,
     /// `rerank.v1`'s: the message and recall's top notes (M6 step 32c).
     Rerank,
+    /// `memory.v1`'s: one node the memory pass labels (M6 31a).
+    Memory,
+    /// `attribution.v1`'s: a reply and the notes recall admitted (M6 31a).
+    Attribution,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -96,6 +107,8 @@ pub enum Baseline {
     NoMembership,
     /// Recall's fused order, which `+rerank` re-sorts.
     Fused,
+    /// The memory pass's deterministic labels and attribution (M6 31a).
+    Rules,
 }
 
 /// The live action in code (closed set), or none.
@@ -117,7 +130,7 @@ pub enum Source {
     Topics,
     Memberships,
     /// Recall's notes: the first ten, and the next ten (a per-item Noul asks
-    /// at most ten).
+    /// at most ten); `attribution.v1`'s are the notes a recall admitted.
     Notes,
     MoreNotes,
 }
@@ -1219,8 +1232,8 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            9,
-            "§2.4's six, security.v2 and v3, and rerank.v1 (M6 32c)"
+            11,
+            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1 and attribution.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

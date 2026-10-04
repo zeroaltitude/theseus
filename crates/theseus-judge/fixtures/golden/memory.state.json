@@ -1,0 +1,1 @@
+{"role":"operator","text":"Correction: the staging port of the Larkspur service is 8082, not 8081. The deploy notes in docs/larkspur/deploy.md say so too.","previous_message":"What port does Larkspur listen on in staging?"}

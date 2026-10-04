@@ -27,6 +27,9 @@ pub mod method {
     /// Nodes, or the chunks holding texts, leave the index now, and their
     /// vectors leave every vector file (the core's forget and redaction).
     pub const FORGET: &str = "index.forget";
+    /// The entities the index's one extractor finds in texts (the memory
+    /// pass's labels and attribution: M6 step 31a).
+    pub const ENTITIES: &str = "index.entities";
 }
 
 fn default_k() -> usize {
@@ -391,6 +394,28 @@ pub struct IndexEmbedResult {
     /// Each text's tokens, its prefix and `[CLS]`/`[SEP]` included.
     pub tokens: Vec<usize>,
     pub embed_ms: f64,
+}
+
+/// `index.entities` (M6 step 31a): texts through the index's extractor,
+/// so the memory pass names a node's entities exactly as the entity field
+/// holds them, and no second copy of the rules exists.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct IndexEntitiesParams {
+    /// At most [`IndexEntitiesParams::MAX_TEXTS`].
+    pub texts: Vec<String>,
+}
+
+impl IndexEntitiesParams {
+    pub const MAX_TEXTS: usize = 256;
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct IndexEntitiesResult {
+    /// Each text's entities, as `type:value` terms, sorted, in the texts'
+    /// order.
+    pub entities: Vec<Vec<String>>,
 }
 
 /// `index.forget` (theseus-64x): what must leave the index now. The core's

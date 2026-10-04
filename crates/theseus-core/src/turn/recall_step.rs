@@ -193,9 +193,14 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let scene = self.scene(t, "shadow");
-        let (mut m, candidates) =
-            self.memory
-                .manifest_with(&scene, &begun, answer, |s| self.place_of(s), false);
+        let (mut m, candidates, links) = self.memory.manifest_with(
+            &scene,
+            &begun,
+            answer,
+            |s| self.place_of(s),
+            |ids| crate::recall::links(&self.store, ids),
+            false,
+        );
         // What the rerank reads of the scene (32c), taken now: the rest of
         // the scene borrows the turn, which the row and the mark need.
         let Scene {
@@ -228,6 +233,7 @@ impl TurnRunner {
                 in_context,
                 labeled,
                 candidates,
+                links,
                 params: self.memory.cfg().params(),
                 science: self.memory.science_owned(),
                 admitted: m
@@ -254,9 +260,14 @@ impl TurnRunner {
         let answer = begun.answer().await;
         let mode = self.memory.cfg().mode.as_str();
         let scene = self.scene(t, mode);
-        let mut m = self
-            .memory
-            .manifest(&scene, &begun, answer, |s| self.place_of(s), true);
+        let mut m = self.memory.manifest(
+            &scene,
+            &begun,
+            answer,
+            |s| self.place_of(s),
+            |ids| crate::recall::links(&self.store, ids),
+            true,
+        );
         m.arm = Some(a.arm.as_str().into());
         let cap = self.memory.cfg().session_recall_cap_tokens;
         // An assembled section sits in the prefix: the tail's cap is not its.

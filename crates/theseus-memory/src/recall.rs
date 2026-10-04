@@ -4,6 +4,11 @@
 //! and this decides what would be admitted.
 //!
 //! 30b adds `labeled_wrong`: a node the operator labeled wrong or stale.
+//! 31a adds the memory pass's edges, read by a science that prefers the
+//! newer node (`baseline`'s second version): of a `same_entity` group only
+//! the newest is kept (`duplicate`), and the older side of a `supersedes`
+//! is dropped (`superseded`), each when its newer node is a candidate the
+//! filters kept, or already in the turn's context.
 //!
 //! The place rule (theseus-nbsh) is the first filter: a turn in a shared
 //! place draws only on that place's own sessions, and a turn in a private
@@ -50,6 +55,11 @@ pub enum Reason {
     LabeledWrong,
     /// A recall, or a line the harness wrote.
     Recursion,
+    /// A newer node corrects it, and is a candidate or in context (31a).
+    Superseded,
+    /// A newer node of its `same_entity` group is a candidate or in context
+    /// (31a).
+    Duplicate,
     /// Below the science's least fused score.
     Threshold,
     /// It did not fit the budget, or the items were already at their most.
@@ -57,12 +67,14 @@ pub enum Reason {
 }
 
 impl Reason {
-    pub const ALL: [Reason; 7] = [
+    pub const ALL: [Reason; 9] = [
         Reason::Place,
         Reason::InContext,
         Reason::Untrusted,
         Reason::LabeledWrong,
         Reason::Recursion,
+        Reason::Superseded,
+        Reason::Duplicate,
         Reason::Threshold,
         Reason::Budget,
     ];
@@ -74,6 +86,8 @@ impl Reason {
             Reason::Untrusted => "untrusted",
             Reason::LabeledWrong => "labeled_wrong",
             Reason::Recursion => "recursion",
+            Reason::Superseded => "superseded",
+            Reason::Duplicate => "duplicate",
             Reason::Threshold => "threshold",
             Reason::Budget => "budget",
         }
@@ -116,7 +130,27 @@ pub struct Asker<'a> {
     pub in_context: &'a BTreeSet<String>,
     /// The nodes the operator labeled wrong or stale.
     pub labeled: &'a BTreeSet<String>,
+    /// The memory pass's edges among the candidates (31a).
+    pub links: &'a [Link],
     pub now_ms: u64,
+}
+
+/// What a memory pass's edge says of two nodes (31a), as recall reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum LinkKind {
+    /// The two say the same: `same_entity`.
+    SameEntity,
+    /// The newer corrects the older: `supersedes`.
+    Supersedes,
+}
+
+/// An edge between two nodes, from the newer to the older (the pass gates a
+/// node against nodes written before it).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Link {
+    pub kind: LinkKind,
+    pub newer: String,
+    pub older: String,
 }
 
 /// The pack's limits (§2.4's defaults: 1,500 tokens, 6 items, 400 a item).
@@ -226,6 +260,45 @@ fn filter(c: &Candidate, asker: &Asker<'_>, p: &Params, min_score: f64) -> Optio
     None
 }
 
+/// The kept candidates less the older nodes of the pass's edges (31a): the
+/// older side of a `supersedes`, and every node of a `same_entity` group but
+/// its newest, when the newer node is kept or already in the turn's context.
+/// Chains resolve: of `c → b → a`, only `c` stays.
+fn fresher(kept: Vec<Candidate>, asker: &Asker<'_>, dropped: &mut Vec<Dropped>) -> Vec<Candidate> {
+    let present: BTreeSet<&str> = kept
+        .iter()
+        .map(|c| c.node_id.as_str())
+        .chain(asker.in_context.iter().map(String::as_str))
+        .collect();
+    let mut older: std::collections::BTreeMap<&str, Reason> = std::collections::BTreeMap::new();
+    for l in asker.links {
+        if l.newer == l.older || !present.contains(l.newer.as_str()) {
+            continue;
+        }
+        let reason = match l.kind {
+            LinkKind::Supersedes => Reason::Superseded,
+            LinkKind::SameEntity => Reason::Duplicate,
+        };
+        // A correction outranks a likeness when a node is both.
+        let e = older.entry(l.older.as_str()).or_insert(reason);
+        if reason == Reason::Superseded {
+            *e = reason;
+        }
+    }
+    let mut out = Vec::new();
+    for c in kept {
+        match older.get(c.node_id.as_str()) {
+            Some(reason) => dropped.push(Dropped {
+                candidate: c,
+                reason: *reason,
+                tokens: 0,
+            }),
+            None => out.push(c),
+        }
+    }
+    out
+}
+
 /// The pipeline after the index: filter, rank by the science, and pack
 /// greedily under the budget. Every candidate is admitted or dropped, once.
 pub fn recall(
@@ -245,6 +318,9 @@ pub fn recall(
             }),
             None => kept.push(c),
         }
+    }
+    if science.prefers_newer() {
+        kept = fresher(kept, asker, &mut pack.dropped);
     }
     let order = science.rank(
         kept.iter()
@@ -326,6 +402,24 @@ mod tests {
     }
 
     fn run(place: &Place, in_context: &[&str], cands: Vec<Candidate>, p: &Params) -> Pack {
+        run_with(place, in_context, cands, p, &[])
+    }
+
+    fn link(kind: LinkKind, newer: &str, older: &str) -> Link {
+        Link {
+            kind,
+            newer: newer.into(),
+            older: older.into(),
+        }
+    }
+
+    fn run_with(
+        place: &Place,
+        in_context: &[&str],
+        cands: Vec<Candidate>,
+        p: &Params,
+        links: &[Link],
+    ) -> Pack {
         let in_context = in_context.iter().map(|s| s.to_string()).collect();
         let labeled = BTreeSet::from(["wrong".to_string()]);
         let asker = Asker {
@@ -333,6 +427,7 @@ mod tests {
             place,
             in_context: &in_context,
             labeled: &labeled,
+            links,
             now_ms: 0,
         };
         recall(
@@ -380,12 +475,18 @@ mod tests {
             big,
             second_chunk,
             cand("wrong", "ses_b", Place::Private, 0.95),
+            cand("stale", "ses_b", Place::Private, 0.9),
+            cand("twin", "ses_b", Place::Private, 0.9),
         ];
         let p = Params {
             budget_tokens: 300,
             ..Params::default()
         };
-        let pack = run(&Place::Private, &["seen"], cands, &p);
+        let links = [
+            link(LinkKind::Supersedes, "ok", "stale"),
+            link(LinkKind::SameEntity, "seen", "twin"),
+        ];
+        let pack = run_with(&Place::Private, &["seen"], cands, &p, &links);
         let admitted: Vec<_> = pack
             .admitted
             .iter()
@@ -402,6 +503,8 @@ mod tests {
             ("faint", Reason::Threshold),
             ("big", Reason::Budget),
             ("wrong", Reason::LabeledWrong),
+            ("stale", Reason::Superseded),
+            ("twin", Reason::Duplicate),
         ] {
             assert_eq!(reason_of(&pack, node), Some(reason), "{node}");
         }
@@ -410,7 +513,7 @@ mod tests {
             .dropped
             .iter()
             .any(|d| d.candidate.key() == "ok#1" && d.reason == Reason::InContext));
-        assert_eq!(pack.admitted.len() + pack.dropped.len(), 11);
+        assert_eq!(pack.admitted.len() + pack.dropped.len(), 13);
         // Every reason this step builds is met above.
         for r in Reason::ALL {
             assert!(pack.dropped_for(r) > 0, "{}", r.as_str());
@@ -473,6 +576,64 @@ mod tests {
         let cut = excerpt(&"é".repeat(100), 10);
         assert!(cut.len() <= 40 && cut.ends_with('…'), "{cut}");
         assert_eq!(tokens_of("abcde"), 2);
+    }
+
+    /// `baseline`'s second version (31a) prefers the newer side of a
+    /// `supersedes` and keeps only the newest of a `same_entity` group, a
+    /// chain included; a link whose newer node is not here (another place's,
+    /// or below the threshold) drops nothing; and the first version reads no
+    /// link at all.
+    #[test]
+    fn the_newer_node_is_preferred() {
+        let p = Params {
+            max_items: 10,
+            ..Params::default()
+        };
+        let cands = || {
+            vec![
+                cand("old", "ses_a", Place::Private, 0.9),
+                cand("new", "ses_b", Place::Private, 0.5),
+                cand("a", "ses_c", Place::Private, 0.8),
+                cand("b", "ses_c", Place::Private, 0.7),
+                cand("c", "ses_c", Place::Private, 0.6),
+                cand("lone", "ses_d", Place::Private, 0.4),
+            ]
+        };
+        let links = [
+            link(LinkKind::Supersedes, "new", "old"),
+            link(LinkKind::SameEntity, "b", "a"),
+            link(LinkKind::SameEntity, "c", "b"),
+            link(LinkKind::Supersedes, "elsewhere", "lone"),
+        ];
+        let pack = run_with(&Place::Private, &[], cands(), &p, &links);
+        let admitted: Vec<_> = pack
+            .admitted
+            .iter()
+            .map(|a| a.candidate.node_id.as_str())
+            .collect();
+        assert_eq!(admitted, ["c", "new", "lone"]);
+        assert_eq!(reason_of(&pack, "old"), Some(Reason::Superseded));
+        assert_eq!(reason_of(&pack, "a"), Some(Reason::Duplicate));
+        assert_eq!(reason_of(&pack, "b"), Some(Reason::Duplicate));
+        // The first version reads no link: the older node outranks.
+        let v1 = Baseline {
+            version: 1,
+            min_score: 0.01,
+            ..Baseline::default()
+        };
+        let in_context = BTreeSet::new();
+        let labeled = BTreeSet::new();
+        let asker = Asker {
+            session_id: "ses_here",
+            place: &Place::Private,
+            in_context: &in_context,
+            labeled: &labeled,
+            links: &links,
+            now_ms: 0,
+        };
+        let pack = recall(&v1, &asker, cands(), &p);
+        assert_eq!(pack.admitted[0].candidate.node_id, "old");
+        assert_eq!(pack.dropped.len(), 0);
     }
 
     fn place_strategy() -> impl Strategy<Value = Place> {
