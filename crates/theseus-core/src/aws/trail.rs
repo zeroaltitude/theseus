@@ -104,6 +104,9 @@ pub(super) struct Event {
     pub(super) error: Option<String>,
     pub(super) source_identity: Option<String>,
     pub(super) resources: Vec<String>,
+    /// Who called, as CloudTrail's record names it: its ARN
+    /// (`…:assumed-role/theseus-owner/exe_…`, `…:user/x`).
+    pub(super) arn: Option<String>,
 }
 
 impl Event {
@@ -139,6 +142,7 @@ impl Event {
                 .filter_map(|x| x["ResourceName"].as_str().map(String::from))
                 .take(3)
                 .collect(),
+            arn: r("/userIdentity/arn"),
         }
     }
 

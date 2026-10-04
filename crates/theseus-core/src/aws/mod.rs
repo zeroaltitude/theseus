@@ -46,6 +46,7 @@ use crate::secrets::{Secret, SecretBoard, SecretState};
 pub mod alerts;
 pub mod bootstrap;
 pub mod cost;
+pub mod crosscheck;
 pub mod external;
 pub mod inventory;
 pub mod logs;
