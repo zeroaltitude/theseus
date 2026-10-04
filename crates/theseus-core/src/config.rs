@@ -17,7 +17,9 @@ mod judge;
 pub(crate) mod lsp;
 pub(crate) mod memory;
 mod sparse;
-pub use aws::{default_hourly_alert_usd, AwsAccountConfig, AwsConfig, AwsCredentialNames};
+pub use aws::{
+    default_hourly_alert_usd, AwsAccountConfig, AwsConfig, AwsCredentialNames, HandsNetwork,
+};
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 pub use lsp::{LspConfig, LspServerConfig};
 pub use memory::{MemoryConfig, MemoryMode};
@@ -1777,6 +1779,11 @@ mod tests {
         assert_eq!(a.owner_role.as_deref(), Some("theseus-owner"));
         assert_eq!(a.deployment(), "theseus-desktop");
         assert_eq!(a.monthly_budget_usd, Some(50));
+        let net = a
+            .hands_network
+            .as_ref()
+            .expect("the template's existing network");
+        assert_eq!((net.subnets.len(), net.security_group.is_some()), (2, true));
         assert_eq!(
             cfg.broker.programs["aws"].aws_account.as_deref(),
             Some("111122223333")

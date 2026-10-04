@@ -34,6 +34,7 @@ fn the_foundation_template_carries_the_generated_guards() {
         .into_iter()
         .chain(l.guard_iac())
         .chain(l.guard_stacks())
+        .chain(l.guard_deployer())
         .chain([l.boundary()])
         .collect();
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
@@ -405,4 +406,127 @@ fn the_policies_on_disk_are_what_the_list_generates() {
         "policies/ is out of step with guardrails.toml ({}): rewrite it with THESEUS_GUARD_WRITE=1 cargo test -p theseus-aws-guard --test policies",
         stale.join(", ")
     );
+}
+
+/// The condition every network deny carries: no `theseus:owner` tag, and not a tag put on at a create.
+fn untagged() -> BTreeMap<String, BTreeMap<String, Value>> {
+    let t = |k: &str| (k.to_string(), Value::String("true".into()));
+    BTreeMap::from([(
+        "Null".to_string(),
+        BTreeMap::from([t("aws:ResourceTag/theseus:owner"), t("ec2:CreateAction")]),
+    )])
+}
+
+/// Does `s` deny `action` on `arn`, whatever its condition?
+fn on(s: &Statement, action: &str, arn: &str) -> bool {
+    s.effect == "Deny"
+        && s.action.iter().any(|a| glob(a, action))
+        && s.resource.iter().any(|r| glob(r, arn))
+}
+
+/// Changes to network plumbing, each with a resource it names.
+const NETWORK_CHANGES: [(&str, &str); 5] = [
+    (
+        "ec2:DeleteRoute",
+        "arn:aws:ec2:us-west-2:111122223333:route-table/rtb-0a1b2c3d4e5f6074a",
+    ),
+    (
+        "ec2:ReplaceRoute",
+        "arn:aws:ec2:us-west-2:111122223333:route-table/rtb-0a1b2c3d4e5f6074a",
+    ),
+    (
+        "ec2:DeleteNatGateway",
+        "arn:aws:ec2:us-west-2:111122223333:natgateway/nat-0a1b2c3d4e5f6075a",
+    ),
+    (
+        "ec2:ModifySubnetAttribute",
+        "arn:aws:ec2:us-west-2:111122223333:subnet/subnet-0a1b2c3d4e5f60711",
+    ),
+    (
+        "ec2:CreateTags",
+        "arn:aws:ec2:us-west-2:111122223333:route-table/rtb-0a1b2c3d4e5f6074a",
+    ),
+];
+
+/// Use, never change (theseus-mgw.9): the session guard, the boundary, and the deployer's guard each
+/// refuse a change to network plumbing on a resource not tagged `theseus:owner`. Running a task in
+/// another VPC's subnets stays allowed: ECS's own role makes its network interface.
+#[test]
+fn network_plumbing_not_ours_is_refused_and_running_in_it_is_not() {
+    let l = embedded();
+    let mut wrong = Vec::new();
+    for (form, policies) in [
+        ("theseus-guard-limits", l.guard_limits()),
+        ("theseus-boundary", vec![l.boundary()]),
+        ("theseus-guard-deployer", l.guard_deployer()),
+    ] {
+        let statements: Vec<&Statement> = policies
+            .iter()
+            .flat_map(|p| &p.document.statement)
+            .collect();
+        for (action, arn) in NETWORK_CHANGES {
+            let refused = statements.iter().any(|s| {
+                on(s, action, arn) && (s.condition.is_none() || s.condition == Some(untagged()))
+            });
+            if !refused {
+                wrong.push(format!(
+                    "{form}: {action} on an untagged {arn} is not refused"
+                ));
+            }
+        }
+        for (action, arn) in [
+            (
+                "ecs:RunTask",
+                "arn:aws:ecs:us-west-2:111122223333:task-definition/theseus-hand:1",
+            ),
+            (
+                "ec2:CreateNetworkInterface",
+                "arn:aws:ec2:us-west-2:111122223333:subnet/subnet-0a1b2c3d4e5f60711",
+            ),
+        ] {
+            if let Some(s) = statements
+                .iter()
+                .find(|s| on(s, action, arn) || on(s, action, "*"))
+            {
+                wrong.push(format!("{form}: {} denies {action}", s.sid));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The deployer's guard is all that binds the stacks: plumbing Theseus tagged stays theirs to change,
+/// and the hands' own group may be made in another VPC. IAM authorizes `ec2:CreateSecurityGroup`
+/// against the VPC too, so the group comes first, and the AWS side leaves that create out.
+#[test]
+fn the_deployer_changes_only_what_it_tagged_and_may_make_the_hands_group() {
+    let deployer = embedded().guard_deployer();
+    let statements: Vec<&Statement> = deployer
+        .iter()
+        .flat_map(|p| &p.document.statement)
+        .collect();
+    let mut wrong = Vec::new();
+    for (action, arn) in NETWORK_CHANGES {
+        if let Some(s) = statements
+            .iter()
+            .find(|s| on(s, action, arn) && s.condition != Some(untagged()))
+        {
+            wrong.push(format!("{}: denies {action} whatever the tag", s.sid));
+        }
+    }
+    for arn in [
+        "arn:aws:ec2:us-west-2:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+        "arn:aws:ec2:us-west-2:111122223333:security-group/sg-0a1b2c3d4e5f60733",
+    ] {
+        if let Some(s) = statements
+            .iter()
+            .find(|s| on(s, "ec2:CreateSecurityGroup", arn))
+        {
+            wrong.push(format!(
+                "{}: denies ec2:CreateSecurityGroup on {arn}",
+                s.sid
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

@@ -484,6 +484,7 @@ pub(super) fn layer(fake: &Fake) -> Arc<Aws> {
                 daily_budget_usd: None,
                 hourly_alert_usd: crate::config::default_hourly_alert_usd(),
                 durability: true,
+                hands_network: None,
             },
         )]),
     };
@@ -985,6 +986,7 @@ fn the_tender_session_is_narrowed_to_its_prefix_and_its_rows() {
         daily_budget_usd: None,
         hourly_alert_usd: crate::config::default_hourly_alert_usd(),
         durability: true,
+        hands_network: None,
     };
     assert!(durable::policy("tender", ACCOUNT, &fake_cfg).is_none());
     let p = durable::policy(durable::TENDER, ACCOUNT, &fake_cfg).unwrap();

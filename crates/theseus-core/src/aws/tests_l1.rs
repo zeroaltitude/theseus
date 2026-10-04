@@ -101,6 +101,7 @@ fn rig(script: Vec<Scripted>, egress: &[&str]) -> Rig {
             daily_budget_usd: None,
             hourly_alert_usd: crate::config::default_hourly_alert_usd(),
             durability: false,
+            hands_network: None,
         },
     )]);
     cfg.broker.programs = BTreeMap::from([(

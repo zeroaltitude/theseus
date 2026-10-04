@@ -8,7 +8,8 @@
 # An entry:
 #   name, limit, summary   what the floor's confirm says. `limit` is the operator limit it serves:
 #                          public-ingress, audit-trail, credentials, encryption (the SOC2 stance),
-#                          budget, or guard (the guards' own integrity).
+#                          budget, guard (the guards' own integrity), or others-resources (another
+#                          project's, which Theseus uses and never changes).
 #   operations             API operations, "service:Operation", by the botocore service id.
 #   iam                    the IAM actions the AWS side denies, when they differ from `operations`.
 #   resources              the IAM resources the AWS side denies them on (default: every resource).
@@ -31,6 +32,8 @@
 #                      account: "*" unpinned, another account, a federated or canonical user
 #   foreign_account    an account id or ARN of another account, or an organization or OU
 #   own_account        an account id or ARN of this account
+#   not_own            (templates) a resource the template does not make: a literal id or a parameter's
+#                      value; an import is a maybe, and a Ref or GetAtt of its own resource is not
 #   true, false        a boolean (or "true"/"false")
 #   equals, matches    a string equal to one of the values (case-insensitive), or matching a glob
 #   present, absent    the member is there, or not
@@ -698,6 +701,64 @@ resources = ["arn:aws:iam::*:role/theseus-hand-*"]
 scp = "deny-except-deployer"
 [guardrail.when]
 matches = { RoleName = "theseus-hand-*" }
+
+# ---------------------------------------------------------------------------------------------
+# Another project's resources (the design's §2, its first principle): the account holds a network
+# Theseus did not make, and Fargate hands may run in it (theseus-mgw.9). Theseus uses it and never
+# changes it. Running a task there is use: ECS's own service-linked role makes the task's network
+# interface. A security group of Theseus's own, tagged and with no ingress, may be made in it (the
+# hands network's stack does, unless the config names a group): IAM authorizes CreateSecurityGroup
+# against the VPC as well, so the AWS side leaves that create out, and the group comes first.
+
+[[guardrail]]
+name = "network-not-ours"
+limit = "others-resources"
+summary = "a change to network plumbing (a VPC, subnet, route table or route, NAT or internet gateway, network ACL, endpoint, flow log, or security group), which may be another project's"
+operations = [
+    "ec2:DeleteVpc", "ec2:ModifyVpcAttribute", "ec2:DisassociateVpcCidrBlock", "ec2:DeleteSubnet",
+    "ec2:ModifySubnetAttribute", "ec2:DisassociateSubnetCidrBlock", "ec2:DeleteRouteTable", "ec2:DeleteRoute",
+    "ec2:ReplaceRoute", "ec2:DisassociateRouteTable", "ec2:ReplaceRouteTableAssociation", "ec2:DeleteNatGateway",
+    "ec2:DeleteInternetGateway", "ec2:DetachInternetGateway", "ec2:DeleteEgressOnlyInternetGateway",
+    "ec2:DeleteNetworkAcl", "ec2:DeleteNetworkAclEntry", "ec2:ReplaceNetworkAclEntry",
+    "ec2:ReplaceNetworkAclAssociation", "ec2:DeleteVpcEndpoints", "ec2:ModifyVpcEndpoint", "ec2:DeleteFlowLogs",
+    "ec2:DeleteSecurityGroup", "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress",
+    "ec2:ModifySecurityGroupRules", "ec2:DeleteVpcPeeringConnection",
+]
+iam = [
+    "ec2:Delete*", "ec2:Disassociate*", "ec2:Detach*", "ec2:Replace*", "ec2:Modify*", "ec2:Associate*",
+    "ec2:Attach*", "ec2:Authorize*", "ec2:Revoke*", "ec2:CreateRoute", "ec2:CreateNetworkAclEntry", "ec2:CreateTags",
+]
+resources = [
+    "arn:aws:ec2:*:*:vpc*", "arn:aws:ec2:*:*:subnet/*", "arn:aws:ec2:*:*:route-table/*",
+    "arn:aws:ec2:*:*:natgateway/*", "arn:aws:ec2:*:*:internet-gateway/*", "arn:aws:ec2:*:*:network-acl/*",
+    "arn:aws:ec2:*:*:security-group/*",
+]
+direct = true
+scp = "deny"
+note = "Every call names plumbing that exists (its `when`): a change to it is direct by nature, so the floor, even for an otherwise IaC-only operation. The gate cannot see a resource's tags, so it asks before every direct change to network plumbing, and before a stack resource that names plumbing the stack does not own. AWS refuses the same, to every identity the guards bind, on whatever lacks theseus:owner: a tag Theseus did not put there is not one it may add (ec2:CreateTags outside a create). Making something new in another VPC (a subnet, a route table, an endpoint) stays IaC-only, and in a stack is the template rule's."
+[guardrail.when]
+present = [
+    "VpcId", "SubnetId", "RouteTableId", "AssociationId", "NatGatewayId", "InternetGatewayId",
+    "EgressOnlyInternetGatewayId", "NetworkAclId", "VpcEndpointId", "VpcEndpointIds", "FlowLogIds", "GroupId",
+    "GroupName", "VpcPeeringConnectionId",
+]
+[guardrail.iam_condition]
+Null = { "aws:ResourceTag/theseus:owner" = "true", "ec2:CreateAction" = "true" }
+[[guardrail.template]]
+types = [
+    "AWS::EC2::Route", "AWS::EC2::SubnetRouteTableAssociation", "AWS::EC2::GatewayRouteTableAssociation",
+    "AWS::EC2::Subnet", "AWS::EC2::SubnetCidrBlock", "AWS::EC2::RouteTable", "AWS::EC2::VPCEndpoint",
+    "AWS::EC2::NatGateway", "AWS::EC2::FlowLog", "AWS::EC2::VPCGatewayAttachment", "AWS::EC2::EgressOnlyInternetGateway",
+    "AWS::EC2::NetworkAcl", "AWS::EC2::NetworkAclEntry", "AWS::EC2::SubnetNetworkAclAssociation",
+    "AWS::EC2::SecurityGroupIngress", "AWS::EC2::SecurityGroupEgress", "AWS::EC2::VPCCidrBlock",
+    "AWS::EC2::VPCDHCPOptionsAssociation", "AWS::EC2::VPCPeeringConnection", "AWS::EC2::TransitGatewayAttachment",
+    "AWS::EC2::TransitGatewayVpcAttachment", "AWS::EC2::VPNGatewayRoutePropagation",
+]
+[guardrail.template.when]
+not_own = [
+    "VpcId", "PeerVpcId", "SubnetId", "SubnetIds", "RouteTableId", "RouteTableIds", "NetworkAclId", "GroupId",
+    "ResourceId",
+]
 
 # ---------------------------------------------------------------------------------------------
 # IaC-only (§3.4): durable infrastructure is made and changed through stacks. `aws.call` returns

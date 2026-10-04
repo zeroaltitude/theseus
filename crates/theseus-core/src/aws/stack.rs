@@ -493,6 +493,13 @@ impl PlanTool {
         let account = self.0.account(a.account.as_deref())?.clone();
         needs_bootstrap(&account)?;
         let region = account.region(a.region.as_deref())?;
+        // The hands network's VPC is the config's to choose (theseus-mgw.9).
+        let parameters = super::hands::network::plan_parameters(
+            &a.stack,
+            &account.id,
+            account.cfg.hands_network.as_ref(),
+            a.parameters,
+        )?;
         let path = ctx.resolve(&a.template);
         let body = std::fs::read_to_string(&path)
             .map_err(|e| format!("the template {} could not be read: {e}", path.display()))?;
@@ -502,7 +509,7 @@ impl PlanTool {
             region: region.clone(),
         };
         let scan = theseus_aws_guard::embedded()
-            .scan(&template, &gctx, &a.parameters)
+            .scan(&template, &gctx, &parameters)
             .map_err(|e| e.to_string())?;
         Ok(Planning {
             account,
@@ -510,7 +517,7 @@ impl PlanTool {
             stack: a.stack,
             path,
             body,
-            parameters: a.parameters,
+            parameters,
             scan: scan.hits.iter().map(|h| h.confirm()).collect(),
             notes: scan.notes,
         })

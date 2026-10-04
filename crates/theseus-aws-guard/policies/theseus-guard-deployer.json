@@ -1,0 +1,110 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Guardrails",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutAccountPublicAccessBlock",
+        "cloudtrail:StopLogging",
+        "ec2:DisableEbsEncryptionByDefault",
+        "iam:CreateUser",
+        "iam:CreateAccessKey",
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "iam:CreateServiceSpecificCredential",
+        "iam:UploadSSHPublicKey",
+        "iam:UploadSigningCertificate",
+        "ec2:CreateKeyPair",
+        "ec2:ImportKeyPair",
+        "iam:DeleteAccessKey",
+        "iam:UpdateAccessKey",
+        "iam:DeleteUser",
+        "iam:UpdateUser",
+        "iam:AttachUserPolicy",
+        "iam:DetachUserPolicy",
+        "iam:PutUserPolicy",
+        "iam:DeleteUserPolicy",
+        "iam:AddUserToGroup",
+        "iam:RemoveUserFromGroup",
+        "iam:PutUserPermissionsBoundary",
+        "iam:DeleteUserPermissionsBoundary",
+        "iam:DeleteLoginProfile",
+        "budgets:ExecuteBudgetAction",
+        "organizations:CreateOrganization",
+        "organizations:AcceptHandshake",
+        "organizations:LeaveOrganization",
+        "account:PutAlternateContact",
+        "account:DeleteAlternateContact",
+        "account:PutContactInformation"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "KmsGrantDirect",
+      "Effect": "Deny",
+      "Action": "kms:CreateGrant",
+      "Resource": "*",
+      "Condition": {
+        "Bool": {
+          "kms:GrantIsForAWSResource": "false"
+        }
+      }
+    },
+    {
+      "Sid": "BudgetStopDetach",
+      "Effect": "Deny",
+      "Action": "iam:DetachRolePolicy",
+      "Resource": "*",
+      "Condition": {
+        "ArnLike": {
+          "iam:PolicyARN": "arn:aws:iam::*:policy/theseus-deny-spend"
+        }
+      }
+    },
+    {
+      "Sid": "DeployerPass",
+      "Effect": "Deny",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/theseus-cfn-deployer",
+      "Condition": {
+        "StringNotEquals": {
+          "iam:PassedToService": "cloudformation.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "NetworkNotOurs",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:Delete*",
+        "ec2:Disassociate*",
+        "ec2:Detach*",
+        "ec2:Replace*",
+        "ec2:Modify*",
+        "ec2:Associate*",
+        "ec2:Attach*",
+        "ec2:Authorize*",
+        "ec2:Revoke*",
+        "ec2:CreateRoute",
+        "ec2:CreateNetworkAclEntry",
+        "ec2:CreateTags"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*:*:vpc*",
+        "arn:aws:ec2:*:*:subnet/*",
+        "arn:aws:ec2:*:*:route-table/*",
+        "arn:aws:ec2:*:*:natgateway/*",
+        "arn:aws:ec2:*:*:internet-gateway/*",
+        "arn:aws:ec2:*:*:network-acl/*",
+        "arn:aws:ec2:*:*:security-group/*"
+      ],
+      "Condition": {
+        "Null": {
+          "aws:ResourceTag/theseus:owner": "true",
+          "ec2:CreateAction": "true"
+        }
+      }
+    }
+  ]
+}

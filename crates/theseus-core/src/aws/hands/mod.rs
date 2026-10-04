@@ -8,6 +8,8 @@
 //!   wrapper inside the hand image.
 //! - [`launch`] and [`tool`]: `aws.hands.run`, its backend, and each hand's
 //!   launch on Lambda or Fargate.
+//! - [`network`]: the hands' network, the stack's own VPC or an existing
+//!   one the config names, which Theseus uses and never changes.
 //! - [`grid`]: a group as its surfaces show it: `hands.list`'s cells and
 //!   money, and Discord's one line per group, edited in place.
 //! - [`group`]: a group's record, its hands' actions, and its steps as they
@@ -38,6 +40,7 @@ pub mod grid;
 pub mod group;
 pub mod hand;
 pub mod launch;
+pub mod network;
 pub mod overdue;
 pub mod poller;
 pub mod quota;
@@ -50,6 +53,8 @@ pub use launch::{HAND, RUN};
 mod tests_hand;
 #[cfg(test)]
 mod tests_hands;
+#[cfg(test)]
+mod tests_network;
 #[cfg(test)]
 mod tests_part2;
 
@@ -96,7 +101,11 @@ impl Hands {
             return Ok(e.clone());
         }
         let e = launch::discover(account, binding, region).await?;
-        self.envs.lock().unwrap().insert(k, e.clone());
+        // An existing VPC whose routes refused Fargate is read again at the
+        // next call: its owner may route it since.
+        if !matches!(e.existing, Some(Err(_))) {
+            self.envs.lock().unwrap().insert(k, e.clone());
+        }
         Ok(e)
     }
 

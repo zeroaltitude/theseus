@@ -5,7 +5,10 @@ Description: >-
   public IP; an S3 gateway endpoint, which is free; and the NAT as a parameter, so Theseus turns
   internet egress on with a stack update when a hand needs it and off after an idle hour
   (question 5). With the NAT off, the VPC has no internet gateway and no public address at all.
-  Built by P4 (theseus-mgw.4).
+  Built by P4 (theseus-mgw.4). Or, with ExistingVpcId, an existing VPC's private subnets, which
+  route out through that VPC's own NAT: the stack then makes the hands' security group alone (or
+  nothing, when ExistingSecurityGroupId names one), never a NAT, and changes nothing of the VPC's
+  (theseus-mgw.9).
 
 Parameters:
   NatGateway:
@@ -20,18 +23,59 @@ Parameters:
     Default: 10.42.0.0/16
     AllowedPattern: "(\\d{1,3}\\.){3}\\d{1,3}/16"
     Description: The VPC's /16; it is cut into four /20s (two private, one egress, one spare).
+  ExistingVpcId:
+    Type: String
+    Default: ""
+    AllowedPattern: "(vpc-[0-9a-f]{8,17})?"
+    Description: >-
+      An existing VPC to run hands in, instead of one of the stack's own (default none). Theseus
+      uses it and never changes it: its subnets must route out through its own NAT.
+  ExistingSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: The existing VPC's private subnets the hands run in, with ExistingVpcId.
+  ExistingSecurityGroupId:
+    Type: String
+    Default: ""
+    AllowedPattern: "(sg-[0-9a-f]{8,17})?"
+    Description: >-
+      A security group of the existing VPC for the hands (default none: the stack makes one, with
+      no ingress).
   FlowLogRetentionDays:
     Type: Number
     Default: 90
     AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
     Description: How long the VPC's flow logs are kept.
 
+Rules:
+  NoNatBesideAnExistingVpc:
+    RuleCondition: !Not [!Equals [!Ref ExistingVpcId, ""]]
+    Assertions:
+      - Assert: !Equals [!Ref NatGateway, disabled]
+        AssertDescription: >-
+          An existing VPC routes out through its own NAT: the stack never makes one beside it
+          (NatGateway=enabled is refused with ExistingVpcId).
+      - Assert: !Not [!EachMemberEquals [!Ref ExistingSubnetIds, ""]]
+        AssertDescription: An existing VPC needs ExistingSubnetIds, the subnets the hands run in.
+  NoExistingPartsWithoutTheVpc:
+    RuleCondition: !Equals [!Ref ExistingVpcId, ""]
+    Assertions:
+      - Assert: !And
+          - !Equals [!Ref ExistingSecurityGroupId, ""]
+          - !EachMemberEquals [!Ref ExistingSubnetIds, ""]
+        AssertDescription: ExistingSubnetIds and ExistingSecurityGroupId need ExistingVpcId.
+
 Conditions:
-  NatEnabled: !Equals [!Ref NatGateway, enabled]
+  ExistingVpc: !Not [!Equals [!Ref ExistingVpcId, ""]]
+  # Everything that belongs to the VPC itself exists only in the stack's own VPC.
+  OwnVpc: !Equals [!Ref ExistingVpcId, ""]
+  NatEnabled: !And [!Condition OwnVpc, !Equals [!Ref NatGateway, enabled]]
+  OwnSecurityGroup: !Equals [!Ref ExistingSecurityGroupId, ""]
 
 Resources:
   Vpc:
     Type: AWS::EC2::VPC
+    Condition: OwnVpc
     Properties:
       CidrBlock: !Ref VpcCidr
       EnableDnsSupport: true
@@ -46,6 +90,7 @@ Resources:
 
   PrivateSubnetA:
     Type: AWS::EC2::Subnet
+    Condition: OwnVpc
     Properties:
       VpcId: !Ref Vpc
       CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 4, 12]]
@@ -61,6 +106,7 @@ Resources:
 
   PrivateSubnetB:
     Type: AWS::EC2::Subnet
+    Condition: OwnVpc
     Properties:
       VpcId: !Ref Vpc
       CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, 12]]
@@ -79,6 +125,7 @@ Resources:
   # gets a public IP here: MapPublicIpOnLaunch is off, and the NAT takes its Elastic IP explicitly.
   EgressSubnet:
     Type: AWS::EC2::Subnet
+    Condition: OwnVpc
     Properties:
       VpcId: !Ref Vpc
       CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 4, 12]]
@@ -94,6 +141,7 @@ Resources:
 
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
+    Condition: OwnVpc
     Properties:
       VpcId: !Ref Vpc
       Tags:
@@ -106,18 +154,21 @@ Resources:
 
   PrivateSubnetARouteTable:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: OwnVpc
     Properties:
       SubnetId: !Ref PrivateSubnetA
       RouteTableId: !Ref PrivateRouteTable
 
   PrivateSubnetBRouteTable:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: OwnVpc
     Properties:
       SubnetId: !Ref PrivateSubnetB
       RouteTableId: !Ref PrivateRouteTable
 
   EgressRouteTable:
     Type: AWS::EC2::RouteTable
+    Condition: OwnVpc
     Properties:
       VpcId: !Ref Vpc
       Tags:
@@ -130,12 +181,14 @@ Resources:
 
   EgressSubnetRouteTable:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: OwnVpc
     Properties:
       SubnetId: !Ref EgressSubnet
       RouteTableId: !Ref EgressRouteTable
 
   S3GatewayEndpoint:
     Type: AWS::EC2::VPCEndpoint
+    Condition: OwnVpc
     Properties:
       VpcId: !Ref Vpc
       VpcEndpointType: Gateway
@@ -150,13 +203,16 @@ Resources:
         - Key: "theseus:stack"
           Value: !Ref AWS::StackName
 
-  # The hands' security group: no ingress rule at all, and the default egress (everything out).
+  # The hands' security group: no ingress rule at all, and the default egress (everything out). In
+  # an existing VPC it is the stack's one resource, tagged as Theseus's, unless the config names a
+  # group there; a group with no rule that nothing else uses changes nothing for the VPC's traffic.
   HandsSecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    Condition: OwnSecurityGroup
     Properties:
       GroupName: theseus-hands
       GroupDescription: Theseus hands. No ingress; egress through the NAT and the S3 endpoint.
-      VpcId: !Ref Vpc
+      VpcId: !If [ExistingVpc, !Ref ExistingVpcId, !Ref Vpc]
       Tags:
         - Key: Name
           Value: theseus-hands
@@ -166,8 +222,9 @@ Resources:
           Value: !Ref AWS::StackName
 
   # ---------------------------------------------------------------------------------------------
-  # The NAT, while NatGateway is enabled. These are the template's only guardrail hits (public
-  # ingress: an internet gateway and an Elastic IP), each one floor approval at bootstrap.
+  # The NAT, while NatGateway is enabled in the stack's own VPC (never beside an existing one).
+  # These are the template's only guardrail hits (public ingress: an internet gateway and an
+  # Elastic IP), each one floor approval at bootstrap.
   # ---------------------------------------------------------------------------------------------
 
   InternetGateway:
@@ -235,11 +292,13 @@ Resources:
       NatGatewayId: !Ref Nat
 
   # ---------------------------------------------------------------------------------------------
-  # Flow logs (CIS: every VPC), to a log group with a retention
+  # Flow logs (CIS: every VPC), to a log group with a retention: the stack's own VPC only. A VPC
+  # Theseus did not make keeps whatever logs its owner gave it.
   # ---------------------------------------------------------------------------------------------
 
   FlowLogGroup:
     Type: AWS::Logs::LogGroup
+    Condition: OwnVpc
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
@@ -253,6 +312,7 @@ Resources:
 
   FlowLogRole:
     Type: AWS::IAM::Role
+    Condition: OwnVpc
     Properties:
       RoleName: theseus-hands-flow-logs
       Description: VPC flow logs' delivery into their log group, and nothing else.
@@ -282,6 +342,7 @@ Resources:
 
   FlowLog:
     Type: AWS::EC2::FlowLog
+    Condition: OwnVpc
     Properties:
       ResourceType: VPC
       ResourceId: !Ref Vpc
@@ -300,18 +361,23 @@ Resources:
 
 Outputs:
   VpcId:
-    Value: !Ref Vpc
+    Value: !If [ExistingVpc, !Ref ExistingVpcId, !Ref Vpc]
     Export:
       Name: !Sub "${AWS::StackName}-VpcId"
   PrivateSubnetIds:
     Description: The hands' subnets, for RunTask's awsvpcConfiguration.
-    Value: !Join [",", [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    Value: !If
+      - ExistingVpc
+      - !Join [",", !Ref ExistingSubnetIds]
+      - !Join [",", [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
     Export:
       Name: !Sub "${AWS::StackName}-PrivateSubnetIds"
   HandsSecurityGroupId:
-    Value: !GetAtt HandsSecurityGroup.GroupId
+    Value: !If [OwnSecurityGroup, !GetAtt HandsSecurityGroup.GroupId, !Ref ExistingSecurityGroupId]
     Export:
       Name: !Sub "${AWS::StackName}-HandsSecurityGroupId"
   NatGateway:
-    Description: Whether the NAT is on, as the stack's parameter last set it.
-    Value: !Ref NatGateway
+    Description: >-
+      Whether the NAT is on, as the stack's parameter last set it; `existing` in an existing VPC,
+      whose subnets route out through its own NAT.
+    Value: !If [ExistingVpc, existing, !Ref NatGateway]

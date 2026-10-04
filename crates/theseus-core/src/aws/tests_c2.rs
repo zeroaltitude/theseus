@@ -38,6 +38,7 @@ fn config(endpoint: &str, owner: bool, budget: Option<u32>) -> AwsConfig {
                 daily_budget_usd: None,
                 hourly_alert_usd: crate::config::default_hourly_alert_usd(),
                 durability: false,
+                hands_network: None,
             },
         )]),
     }
@@ -1911,4 +1912,106 @@ fn the_owner_role_lets_its_root_of_trust_tag_sessions() {
         .find(|s| actions(s).iter().any(|a| a == "sts:AssumeRole"))
         .unwrap();
     assert!(names_source(assume), "the source identity stays required");
+}
+
+/// The hands network's plan takes the config's existing network
+/// (theseus-mgw.9): a new stack's change set adds the hands' security group
+/// alone, no VPC, subnet, route, endpoint, or NAT, and its parameters are
+/// the config's; a plan that names another VPC, or the NAT beside it, is
+/// refused before anything is sent. With no network in the config, the
+/// plan's parameters say the stack's own VPC.
+#[tokio::test]
+async fn the_hands_network_plan_takes_the_configs_existing_network() {
+    let (fake, _c) = cloud(Cloud {
+        owner_role: true,
+        ..Default::default()
+    });
+    let mut cfg = config(&fake.url, true, None);
+    for a in cfg.accounts.values_mut() {
+        a.hands_network = Some(crate::config::HandsNetwork {
+            vpc: "vpc-0a1b2c3d4e5f60718".into(),
+            subnets: vec![
+                "subnet-0a1b2c3d4e5f60711".into(),
+                "subnet-0a1b2c3d4e5f60722".into(),
+            ],
+            security_group: None,
+        });
+    }
+    let aws = Aws::from_config(&cfg, board()).expect("an account");
+    let dir = tempfile::tempdir().unwrap();
+    let template = dir.path().join("theseus-hands-network.yaml");
+    std::fs::write(&template, super::tests_network::NETWORK_TEMPLATE).unwrap();
+    let path = template.display().to_string();
+    let (r, _) = super::tests::call(
+        &aws,
+        "aws.stack.plan",
+        json!({"stack": "theseus-hands-network", "template": path}),
+    )
+    .await;
+    let text = r.expect("the plan").0.text;
+    assert!(
+        text.contains("a new stack): 1 change")
+            && text.contains("+ HandsSecurityGroup (AWS::EC2::SecurityGroup)"),
+        "{text}"
+    );
+    for part in [
+        "VPC",
+        "Subnet",
+        "Route",
+        "VPCEndpoint",
+        "NatGateway",
+        "FlowLog",
+        "EIP",
+    ] {
+        assert!(
+            !text.contains(&format!("(AWS::EC2::{part})")),
+            "{part}: {text}"
+        );
+    }
+    assert!(!text.contains("At the floor"), "{text}");
+    let sets: Vec<BTreeMap<String, String>> = fake
+        .seen()
+        .iter()
+        .map(|s| form(&s.body))
+        .filter(|f| f.get("Action").map(String::as_str) == Some("CreateChangeSet"))
+        .collect();
+    assert_eq!(sets.len(), 1);
+    let params = parameters(&sets[0], &BTreeMap::new());
+    assert_eq!(params["ExistingVpcId"], "vpc-0a1b2c3d4e5f60718");
+    assert_eq!(
+        params["ExistingSubnetIds"],
+        "subnet-0a1b2c3d4e5f60711,subnet-0a1b2c3d4e5f60722"
+    );
+    assert_eq!(params["ExistingSecurityGroupId"], "");
+
+    // Another VPC, or the NAT beside this one: refused, nothing sent.
+    let sent = fake.seen().len();
+    let t = tool(&aws, "aws.stack.plan");
+    for (given, says) in [
+        (
+            json!({"ExistingVpcId": "vpc-0b1c2d3e4f5a60729"}),
+            "ExistingVpcId comes from the config's [aws.accounts.111122223333.hands_network] (vpc-0a1b2c3d4e5f60718)",
+        ),
+        (
+            json!({"NatGateway": "enabled"}),
+            "the stack never makes a NAT beside it",
+        ),
+    ] {
+        let input = json!({"stack": "theseus-hands-network", "template": path, "parameters": given});
+        let e = t.plan(&input, &plain_ctx()).unwrap_err();
+        assert!(e.contains(says), "{e}");
+    }
+    assert_eq!(fake.seen().len(), sent);
+
+    // No network in the config: the stack's own VPC, and a plan may not
+    // name one.
+    let aws = layer(&fake, true, None);
+    let t = tool(&aws, "aws.stack.plan");
+    let input = json!({"stack": "theseus-hands-network", "template": path,
+                       "parameters": {"ExistingVpcId": "vpc-0a1b2c3d4e5f60718"}});
+    let e = t.plan(&input, &plain_ctx()).unwrap_err();
+    assert!(
+        e.contains("[aws.accounts.111122223333.hands_network] (none)"),
+        "{e}"
+    );
 }

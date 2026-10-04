@@ -54,6 +54,12 @@ pub(super) struct State {
     /// unset, the reads answer nothing, and no quota caps a group.
     pub(super) quota: Mutex<Option<f64>>,
     pub(super) quota_reads: AtomicUsize,
+    /// The network stack is in an existing VPC (theseus-mgw.9), whose
+    /// second subnet's route table sends 0.0.0.0/0 nowhere while `unrouted`.
+    pub(super) existing: AtomicBool,
+    pub(super) unrouted: AtomicBool,
+    /// Each DescribeRouteTables' body.
+    pub(super) route_reads: Mutex<Vec<String>>,
 }
 
 impl State {
@@ -121,7 +127,11 @@ pub(super) fn answer(state: &State, s: &Seen, n: usize) -> Reply {
             } else {
                 "disabled"
             };
-            let body = if s.body.contains("theseus-hands-network") {
+            let body = if s.body.contains("theseus-hands-network")
+                && state.existing.load(Ordering::SeqCst)
+            {
+                super::tests_network::existing_outputs()
+            } else if s.body.contains("theseus-hands-network") {
                 outputs(
                     &[
                         ("PrivateSubnetIds", "subnet-0example0a,subnet-0example0b"),
@@ -177,6 +187,12 @@ pub(super) fn answer(state: &State, s: &Seen, n: usize) -> Reply {
                 )
             };
             return xml(body);
+        }
+        Some("DescribeRouteTables") => {
+            state.route_reads.lock().unwrap().push(s.body.clone());
+            return xml(super::tests_network::route_tables(
+                state.unrouted.load(Ordering::SeqCst),
+            ));
         }
         _ => {}
     }
@@ -315,6 +331,7 @@ pub(super) fn account(endpoint: &str) -> AwsConfig {
                 daily_budget_usd: None,
                 hourly_alert_usd: crate::config::default_hourly_alert_usd(),
                 durability: false,
+                hands_network: None,
             },
         )]),
     }

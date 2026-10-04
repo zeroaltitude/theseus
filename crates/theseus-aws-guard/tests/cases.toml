@@ -1148,6 +1148,82 @@ op = "iam:DeleteRolePermissionsBoundary"
 hit = false
 input = '{"RoleName": "theseus-owner"}'
 
+# --- network-not-ours: a direct change to plumbing that exists asks, IaC-only or not; a read, or a
+# create of something new (still IaC-only), does not. In a template, a resource naming plumbing the
+# stack does not make asks; one naming the stack's own does not, and a security group does not.
+[[call]]
+guardrail = "network-not-ours"
+op = "ec2:DeleteRoute"
+hit = true
+input = '{"RouteTableId": "rtb-0a1b2c3d4e5f6074a", "DestinationCidrBlock": "0.0.0.0/0"}'
+[[call]]
+guardrail = "network-not-ours"
+op = "ec2:ReplaceRoute"
+hit = true
+input = '{"RouteTableId": "rtb-0a1b2c3d4e5f6074a", "DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": "nat-0a1b2c3d4e5f6075b"}'
+[[call]]
+guardrail = "network-not-ours"
+op = "ec2:DeleteNatGateway"
+hit = true
+input = '{"NatGatewayId": "nat-0a1b2c3d4e5f6075a"}'
+[[call]]
+guardrail = "network-not-ours"
+op = "ec2:ModifySubnetAttribute"
+hit = true
+input = '{"SubnetId": "subnet-0a1b2c3d4e5f60711", "MapPublicIpOnLaunch": {"Value": false}}'
+[[call]]
+guardrail = "network-not-ours"
+op = "ec2:DescribeRouteTables"
+hit = false
+input = '{"Filters": [{"Name": "vpc-id", "Values": ["vpc-0a1b2c3d4e5f60718"]}]}'
+[[call]]
+guardrail = "network-not-ours"
+op = "ec2:CreateRoute"
+hit = false
+input = '{"RouteTableId": "rtb-0a1b2c3d4e5f6074a", "DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": "nat-0a1b2c3d4e5f6075b"}'
+[[template]]
+guardrail = "network-not-ours"
+type = "AWS::EC2::Route"
+hit = true
+properties = '''
+RouteTableId: rtb-0a1b2c3d4e5f6074a
+DestinationCidrBlock: 0.0.0.0/0
+NatGatewayId: nat-0a1b2c3d4e5f6075b
+'''
+[[template]]
+guardrail = "network-not-ours"
+type = "AWS::EC2::Route"
+hit = false
+properties = '''
+RouteTableId: !Ref R
+DestinationCidrBlock: 0.0.0.0/0
+NatGatewayId: nat-0a1b2c3d4e5f6075b
+'''
+[[template]]
+guardrail = "network-not-ours"
+type = "AWS::EC2::SubnetRouteTableAssociation"
+hit = true
+properties = '''
+SubnetId: subnet-0a1b2c3d4e5f60711
+RouteTableId: !Ref R
+'''
+[[template]]
+guardrail = "network-not-ours"
+type = "AWS::EC2::VPCEndpoint"
+hit = true
+properties = '''
+VpcId: !ImportValue another-stack-VpcId
+ServiceName: com.amazonaws.us-west-2.s3
+'''
+[[template]]
+guardrail = "network-not-ours"
+type = "AWS::EC2::SecurityGroup"
+hit = false
+properties = '''
+GroupDescription: the hands' own group, in an existing VPC
+VpcId: vpc-0a1b2c3d4e5f60718
+'''
+
 # --- change sets: an entry with change rules asks at a modify or a removal
 [[change]]
 guardrail = "trail-change"
