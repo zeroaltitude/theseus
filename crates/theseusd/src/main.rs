@@ -950,6 +950,9 @@ async fn after_serving(
         // The budget's reconcile and reads, and GuardDuty's usage (C2), each
         // once its account's check has passed.
         core.tend_aws_after_serving();
+        // The completion queue's poller (step 40): idle until a hands group
+        // is open, then a long poll while one is.
+        core.poll_hands_after_serving();
     }
     if let Some(path) = bindings {
         core.post_restart_notice();

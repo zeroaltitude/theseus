@@ -38,6 +38,7 @@ use crate::sandbox::{self, Sandbox};
 use crate::scrub::Scrubber;
 use crate::store::Store;
 
+mod hands;
 mod job;
 mod late;
 mod resume;
@@ -1218,6 +1219,11 @@ impl ToolRuntime {
         ran_at: Posture,
         class: sandbox::Bound,
     ) -> Result<CallOutcome> {
+        if tool.name() == crate::aws::hands::RUN {
+            return self
+                .run_hands(tc, correlation_id, tool.as_ref(), call)
+                .await;
+        }
         match tool.backend() {
             Backend::Inproc | Backend::Async => {
                 self.run_inproc(tc, correlation_id, tool, call, ran_at)

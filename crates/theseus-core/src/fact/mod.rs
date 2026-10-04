@@ -321,6 +321,9 @@ facts![
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,
     start::CrashFound<'static>,
+    crate::aws::hands::group::Launched<'static>,
+    crate::aws::hands::group::Settled<'static>,
+    crate::aws::hands::poller::Quarantined<'static>,
 ];
 
 #[cfg(test)]

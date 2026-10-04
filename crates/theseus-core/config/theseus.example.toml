@@ -357,6 +357,7 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # "aws.stack.status" = "approve"
 # "aws.stack.delete" = "approve"
 # "aws.cost" = "approve"
+# "aws.hands.run" = "approve"            # a group of hands in AWS (unset: [policy.aws] run)
 
 # Per-MCP postures, for when MCP servers land (M7): "server" covers every tool
 # from that server, "server/tool" one tool. An MCP tool's posture comes from
