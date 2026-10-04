@@ -24,7 +24,10 @@ It runs, in order:
 
 1. *Without the lock*, every compile: `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500
    lines unless listed), then `cargo clippy --workspace --all-targets -- -D warnings`, which also holds the shape
-   budget's functions (see "The shape budget"); then `bench build` (`cargo build` of the five binaries an install
+   budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and `npm run build`,
+   when `cockpit/node_modules` exists (else the gate says it skipped them), before the suite, whose tests of `/` read
+   that build; a failing npm step prints its name and the last 40 lines of its output above the table. Then
+   `bench build` (`cargo build` of the five binaries an install
    ships, `scripts/build.sh`'s list, among them those the benches run: the gate's `bench_build` function lists them)
    and `test build` (`cargo nextest run --workspace --no-run`, which builds what the suite runs).
 2. *With the lock*, the locked part. Nothing compiles here: step 1 built everything it runs (a `gate: NOTE` says so
@@ -32,7 +35,7 @@ It runs, in order:
    - The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
      and names every fix at once.
    - The whole suite, `cargo nextest run --workspace` (about 1,300 tests).
-   - The generated TypeScript: it fails when `web/src/protocol.gen/` differs from the commit.
+   - The generated TypeScript: it fails when `cockpit/src/protocol.gen/` differs from the commit.
    - The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
      first flushes dirty pages and waits, up to 2 minutes, until IO and CPU pressure are low and the load is under
      three quarters of the cores; when the 2 minutes pass with the machine still busy, the timing budgets get the busy
@@ -56,9 +59,6 @@ It runs, in order:
      as its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was
      yanked between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh`
      refreshes it.
-   - The web apps' lint and build (and the cockpit's `npm test`), each when its `node_modules` exists, and then a check
-     that the Observatory's committed build is current. A failing npm step prints its name and the last 40 lines of
-     its output above the table.
 
 It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it
 ends, a failed run's too (with `<- failed here` on the phase that stopped it, and `gate: FAILED in <phase>`; a signal's
@@ -381,9 +381,9 @@ Theseus is built on one WSL2 machine, beside the operator's own running daemon a
 
   | Port | Whose |
   |---|---|
-  | 7433 | the operator's daemon (web UI and cockpit) |
+  | 7433 | the operator's daemon (its web UI, the cockpit) |
   | 7434 to 7439 | scratch daemons' web UIs, one each (7434 is the cockpit's dev default) |
-  | 5173, 5174 | the Observatory's and the cockpit's dev servers |
+  | 5174 | the cockpit's dev server |
 - **The disk.** WSL's disk is a file on the Windows drive (C:), and it only grows. When C: fills, the whole VM
   pauses, while Linux's `df` still shows hundreds of GB free. Check C: with the operator's disk guard before a heavy
   build, and don't build under 30 GB. Keep one target dir per worktree. Delete build caches outright, never to the

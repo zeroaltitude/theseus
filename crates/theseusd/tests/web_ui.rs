@@ -53,6 +53,44 @@ fn get(path: &str, host: &str) -> String {
     format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n")
 }
 
+/// The UI at `ui`: its whole answer to `head`, which closes the connection, as the status line and the body.
+fn fetch(ui: std::net::SocketAddr, head: &str) -> (String, String) {
+    let mut s = TcpStream::connect_timeout(&ui, Duration::from_secs(5)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    s.write_all(head.as_bytes()).unwrap();
+    let mut got = Vec::new();
+    let _ = s.read_to_end(&mut got);
+    let got = String::from_utf8_lossy(&got).into_owned();
+    let (head, body) = got.split_once("\r\n\r\n").unwrap_or((&got, ""));
+    (
+        head.lines().next().unwrap_or("").to_string(),
+        body.to_string(),
+    )
+}
+
+/// What `/` answers (theseus-vm3n.6): the cockpit's app shell when its build is there, as the gate builds it
+/// before the suite (a debug daemon reads `cockpit/dist` as it serves), and otherwise the 404 that says how to
+/// build it.
+fn assert_cockpit(ui: std::net::SocketAddr, host: &str, what: &str) {
+    let (st, body) = fetch(ui, &get("/", host));
+    let built = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("cockpit/dist/index.html")
+        .exists();
+    if built {
+        assert!(
+            st.contains(" 200 ")
+                && body.contains("<title>Theseus · Cockpit</title>")
+                && body.contains(r#"<div id="root">"#),
+            "{what}: {st}\n{body}"
+        );
+    } else {
+        assert!(
+            st.contains(" 404 ") && body.contains("the cockpit is not built"),
+            "{what}: {st}\n{body}"
+        );
+    }
+}
+
 fn upgrade(host: &str, origin: Option<&str>) -> String {
     let origin = origin.map_or(String::new(), |o| format!("Origin: {o}\r\n"));
     format!(
@@ -89,13 +127,14 @@ fn the_web_ui_answers_only_its_own_page_and_address() {
     let own = format!("127.0.0.1:{port}");
     let local = format!("localhost:{port}");
     let page = format!("http://{own}");
-    let ok = |st: &str, what: &str| assert!(st.contains(" 200 "), "{what}: {st}");
     let switched = |st: &str, what: &str| assert!(st.contains(" 101 "), "{what}: {st}");
     let refused = |st: &str, what: &str| assert!(st.contains(" 403 "), "{what}: {st}");
 
-    // The UI's own address and page: served, and the socket opens.
-    ok(&status(port, &get("/", &own)), "the app");
-    ok(&status(port, &get("/", &local)), "the app at localhost");
+    // The UI's own address and page: the cockpit, and the socket opens.
+    assert_cockpit(ui, &own, "the app");
+    assert_cockpit(ui, &local, "the app at localhost");
+    let (st, _) = fetch(ui, &get("/cockpit/session/ses_x", &own));
+    assert!(st.contains(" 308 "), "the cockpit's old address: {st}");
     switched(&status(port, &upgrade(&own, Some(&page))), "its own page");
     switched(
         &status(port, &upgrade(&local, Some(&format!("http://{local}")))),
@@ -279,8 +318,7 @@ fn the_web_ui_on_ipv6_serves_its_own_user() {
         std::thread::sleep(Duration::from_millis(5));
     }
     let own = format!("[::1]:{port}");
-    let st = status_at(ui, &get("/", &own));
-    assert!(st.contains(" 200 "), "the app: {st}");
+    assert_cockpit(ui, &own, "the app");
     let st = status_at(ui, &upgrade(&own, Some(&format!("http://{own}"))));
     assert!(st.contains(" 101 "), "its own page: {st}");
     let h = s.call("health", Value::Null).unwrap();

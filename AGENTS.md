@@ -7,8 +7,8 @@ every directory you touch (listed under "The map"): each says what is there, its
 ## What Theseus is, and where the truth lives
 
 Theseus is a durable agent runtime in Rust: `theseusd`, a daemon that owns the turn loop, the tools, and a write-ahead
-log of everything it does; `theseus`, a thin CLI over the daemon's JSON-RPC protocol; and two web apps the daemon
-serves. AI agents build it in small, reviewed steps.
+log of everything it does; `theseus`, a thin CLI over the daemon's JSON-RPC protocol; and the cockpit, the web app
+the daemon serves. AI agents build it in small, reviewed steps.
 
 - **The spec, `docs/spec/`**, is the source of truth: *The Ship of Theseus* in chapters of under about 150 KB, so read
   a chapter whole. Start at its index, `docs/spec/README.md`, which says what each chapter holds and how they fit
@@ -49,8 +49,7 @@ The reserved ones, with the row that wires each in, are listed in `docs/design/R
 
 ### Directories
 
-- **`web/`**: the Observatory, the daemon's first web UI. Its build, `crates/theseusd/web/dist`, is committed.
-- **`cockpit/`**: the cockpit, served at `/cockpit/`. Its build is not committed.
+- **`cockpit/`**: the cockpit, the daemon's web UI, served at `/`. Its build is not committed.
 - **`scripts/`**: `gate.sh`, the commit gate, and `smoke.sh`, an end-to-end check with real secrets and real models.
 - **`infra/aws/`**: the CloudFormation templates for Theseus's AWS account, with their stack policies and
   `check.sh` (see its README).
@@ -60,16 +59,14 @@ The reserved ones, with the row that wires each in, are listed in `docs/design/R
   `rust-toolchain.toml` (one exact release), `clippy.toml` (shape), `.cargo/config.toml` (the musl target),
   `.config/nextest.toml` (a hung test dies at two minutes; named flaky tests retry), and `.github/workflows/ci.yml`.
 
-Directory guides: each crate, `web`, `cockpit`, and `scripts` has an `AGENTS.md`.
+Directory guides: each crate, `cockpit`, and `scripts` has an `AGENTS.md`.
 
 ### Generated files: never edit them by hand
 
-- **`web/src/protocol.gen/`**: the web apps' TypeScript, written from the Rust types by theseus-protocol's test
-  `the_web_apps_types_are_generated_from_the_rust_ones`. `git add` what it writes; the gate fails when it is stale.
-- **`crates/theseusd/web/dist/`**: the Observatory's build (`npm run build` in `web/`), committed. The gate fails
-  when a build changes it uncommitted.
+- **`cockpit/src/protocol.gen/`**: the cockpit's TypeScript, written from the Rust types by theseus-protocol's test
+  `the_cockpits_types_are_generated_from_the_rust_ones`. `git add` what it writes; the gate fails when it is stale.
 - **`crates/theseusd/cockpit/dist/`**: the cockpit's build, ignored by git and embedded when present. Build it before
-  a release build.
+  a release build. The gate builds it before the suite, whose tests of `/` read it.
 - **`Cargo.lock`**: regenerated, never merged by hand.
 
 ### Where the big things live
@@ -104,7 +101,7 @@ Each is a requirement, with its spec section.
   `MANIFEST_FORMAT`. Any step that adds a field to a stored record, or changes the frame or record encoding, bumps
   it, with a reader for the old layout and a sample of it in theseus-core's `tests_layouts`, its old bytes a literal
   (Item 61). A build refuses a store newer than it knows. The number is assigned when a step lands on `main`.
-- **A typed protocol** (§1, "Wire protocol"; §3.18; Item 30). Every client, the CLI, Discord, and the web apps
+- **A typed protocol** (§1, "Wire protocol"; §3.18; Item 30). Every client, the CLI, Discord, and the cockpit
   included, reaches the core only through the protocol. Each wire shape has one Rust definition, and the TypeScript is
   generated from it.
 - **Opinionated** (§2, OPINIONATED and NATIVE FIRST). One blessed path and few knobs: no plugin architecture, and no
@@ -166,7 +163,8 @@ Each traces to the Part III item that taught it.
   - with its own `CARGO_TARGET_DIR`, never the main tree's `target/` (a shared one poisons both), and a `target`
     symlink to it, since the gate runs `target/debug/theseus-sim`;
   - inside its own crate or directory. Shared files change only at the join: `scripts/gate.sh`, `deny.toml`,
-    `web/src/App.tsx`, `web/src/protocol.ts`, the CLI's `main.rs`, and any dispatch `match`. The one exception is
+    the cockpit's routes (`cockpit/src/main.tsx`) and `cockpit/src/protocol.ts`, the CLI's `main.rs`, and any
+    dispatch `match`. The one exception is
     the line that adds the lane's crate to the workspace's `members`.
 
   A lane pushes only its own branch. The reviewer merges it once reviewed, one lane at a time and never while a

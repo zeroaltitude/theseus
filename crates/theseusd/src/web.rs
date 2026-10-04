@@ -14,8 +14,8 @@
 //! page cannot change them. Refusals are counted in health and ledgered
 //! (`web.refused`, `Core::web_refused`), never narrated.
 //!
-//! A second app, the cockpit (theseus-45n5), is served at `/cockpit/` from its own embedded folder, under the
-//! same Host and Origin rules, and speaks the same protocol over the same `/ws`. The classic UI links to it.
+//! The app is the cockpit (theseus-45n5), served at `/`. It took the place of the first app, the Observatory, on
+//! 2026-10-03 (theseus-vm3n.6), and its old address still works: `/cockpit/…` redirects to the same route at `/…`.
 //!
 //! There is no per-start token. It would have to reach the page from this
 //! same server, so it would reach exactly the clients that already pass
@@ -25,11 +25,12 @@
 //! client socket another uid owns is refused as it is accepted, before any
 //! of its request is read (`OwnUser`).
 //!
-//! For UI development, `[web] dev_origin` names the Vite dev page, whose
-//! `/ws` proxy passes that page's `Host` and `Origin` (theseus-zab). Off by
-//! default; while set, `/ws` serves that one origin too, counted and
-//! ledgered (`web.dev_origin`). The proxy rewrites neither header, so
-//! another page's upgrade through it still carries its own `Origin`.
+//! For UI development, `[web] dev_origin` names the Vite dev page
+//! (theseus-zab). Off by default; while set, `/ws` serves that one origin
+//! too, counted and ledgered (`web.dev_origin`), whether the page opens it
+//! straight, as the cockpit's does, or through a dev server's proxy, which
+//! passes the page's `Host` and `Origin`. A proxy rewrites neither header,
+//! so another page's upgrade through it still carries its own `Origin`.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -42,7 +43,7 @@ use axum::{
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
         ConnectInfo, Path, Request, State,
     },
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode, Uri},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -56,13 +57,9 @@ use theseus_core::webui::{clip, Why};
 use theseus_core::Core;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
-#[derive(Embed)]
-#[folder = "web/dist/"]
-struct Assets;
-
-/// The new experience, the cockpit (theseus-45n5), served at `/cockpit/`. It is built by `npm run build` in
-/// `cockpit/`, and the build is not committed (it is several MB and changes with every edit): a binary built
-/// without it serves a page that says so, and the classic UI is unaffected.
+/// The app, the cockpit (theseus-45n5), served at `/`. It is built by `npm run build` in `cockpit/`, and the
+/// build is not committed (it is several MB and changes with every edit): a binary built without it answers each
+/// page with a 404 that says how to build it. `/ws` is the same either way.
 #[derive(Embed)]
 #[folder = "cockpit/dist/"]
 #[allow_missing = true]
@@ -70,8 +67,6 @@ struct Cockpit;
 
 const COCKPIT_MISSING: &str =
     "the cockpit is not built into this binary: run `npm ci && npm run build` in cockpit/, then rebuild theseusd";
-const WEB_MISSING: &str =
-    "web UI assets are not built into this binary (run `npm run build` in web/)";
 
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
@@ -108,12 +103,9 @@ pub async fn serve(core: Arc<Core>, bind: &str, port: u16) -> Result<()> {
     let app = Router::new()
         .route("/", get(index))
         .route("/ws", get(ws_upgrade))
-        .route(
-            "/cockpit",
-            get(|| async { Redirect::permanent("/cockpit/") }),
-        )
-        .route("/cockpit/", get(cockpit_index))
-        .route("/cockpit/{*path}", get(cockpit_asset))
+        .route("/cockpit", get(moved))
+        .route("/cockpit/", get(moved))
+        .route("/cockpit/{*path}", get(moved))
         .route("/{*path}", get(asset))
         .layer(middleware::from_fn_with_state(ui.clone(), own_host))
         .with_state(ui);
@@ -357,27 +349,30 @@ impl Ends {
 }
 
 async fn index() -> Response {
-    serve_embedded::<Assets>("index.html", WEB_MISSING)
-}
-
-async fn asset(Path(path): Path<String>) -> Response {
-    match Assets::get(&path) {
-        Some(_) => serve_embedded::<Assets>(&path, WEB_MISSING),
-        // Client-side routes fall back to the app shell.
-        None => serve_embedded::<Assets>("index.html", WEB_MISSING),
-    }
-}
-
-async fn cockpit_index() -> Response {
     serve_embedded::<Cockpit>("index.html", COCKPIT_MISSING)
 }
 
-async fn cockpit_asset(Path(path): Path<String>) -> Response {
+async fn asset(Path(path): Path<String>) -> Response {
     match Cockpit::get(&path) {
         Some(_) => serve_embedded::<Cockpit>(&path, COCKPIT_MISSING),
-        // The cockpit's own client-side routes (`/cockpit/session/…`) fall back to its app shell.
+        // The cockpit's own client-side routes (`/session/…`) fall back to its app shell.
         None => serve_embedded::<Cockpit>("index.html", COCKPIT_MISSING),
     }
+}
+
+/// The cockpit's old address (theseus-vm3n.6): `/cockpit/<route>?<query>` moves for good to `/<route>?<query>`,
+/// so a bookmark or a link from before still lands.
+async fn moved(uri: Uri) -> Redirect {
+    Redirect::permanent(&moved_to(
+        uri.path_and_query().map_or("/cockpit", |p| p.as_str()),
+    ))
+}
+
+/// Where an old cockpit address goes: always a path on this same address. Its leading slashes and backslashes
+/// fold into one, since a browser reads `//host` (or `/\host`) as another site's address.
+fn moved_to(old: &str) -> String {
+    let rest = old.strip_prefix("/cockpit").unwrap_or(old);
+    format!("/{}", rest.trim_start_matches(['/', '\\']))
 }
 
 fn serve_embedded<E: Embed>(path: &str, missing: &'static str) -> Response {
@@ -613,18 +608,60 @@ mod tests {
         accepting.abort();
     }
 
-    /// The cockpit (theseus-45n5) serves its app shell when it is built into the binary, and otherwise
-    /// a 404 that says how to build it; its client-side routes fall back to the shell.
+    /// The cockpit (theseus-45n5) is the app at `/` (theseus-vm3n.6): its app shell when it is built into the
+    /// binary, as the gate builds it before the suite, and otherwise a 404 that says how to build it. Its
+    /// client-side routes fall back to the shell.
     #[tokio::test]
-    async fn the_cockpit_serves_its_shell_or_says_how_to_build_it() {
-        let shell = serve_embedded::<Cockpit>("index.html", COCKPIT_MISSING);
-        let deep = cockpit_asset(Path("session/ses_x".to_string())).await;
-        if Cockpit::get("index.html").is_some() {
-            assert_eq!(shell.status(), StatusCode::OK);
-            assert_eq!(deep.status(), StatusCode::OK);
-        } else {
-            assert_eq!(shell.status(), StatusCode::NOT_FOUND);
-            assert_eq!(deep.status(), StatusCode::NOT_FOUND);
+    async fn the_cockpit_serves_its_shell_at_the_root_or_says_how_to_build_it() {
+        let built = Cockpit::get("index.html").is_some();
+        for (r, what) in [
+            (index().await, "/"),
+            (
+                asset(Path("session/ses_x".to_string())).await,
+                "/session/ses_x",
+            ),
+        ] {
+            let status = r.status();
+            let body = axum::body::to_bytes(r.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let body = String::from_utf8_lossy(&body);
+            if built {
+                assert_eq!(status, StatusCode::OK, "{what}");
+                assert!(
+                    body.contains("<title>Theseus · Cockpit</title>")
+                        && body.contains(r#"<div id="root">"#),
+                    "{what}: {body}"
+                );
+            } else {
+                assert_eq!(status, StatusCode::NOT_FOUND, "{what}");
+                assert_eq!(body, COCKPIT_MISSING, "{what}");
+            }
         }
+    }
+
+    /// The cockpit's old address moves for good to the same route at the root, its query kept, and never to
+    /// another site's address.
+    #[tokio::test]
+    async fn the_cockpits_old_address_moves_to_the_root() {
+        for (old, new) in [
+            ("/cockpit", "/"),
+            ("/cockpit/", "/"),
+            ("/cockpit?calm=1", "/?calm=1"),
+            ("/cockpit/ship", "/ship"),
+            (
+                "/cockpit/session/ses_x?call=act_1",
+                "/session/ses_x?call=act_1",
+            ),
+            ("/cockpit//elsewhere.example/x", "/elsewhere.example/x"),
+            ("/cockpit/\\elsewhere.example", "/elsewhere.example"),
+        ] {
+            assert_eq!(moved_to(old), new, "{old}");
+        }
+        let r = moved(Uri::from_static("/cockpit/ledger?family=tool"))
+            .await
+            .into_response();
+        assert_eq!(r.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(r.headers()[header::LOCATION], "/ledger?family=tool");
     }
 }

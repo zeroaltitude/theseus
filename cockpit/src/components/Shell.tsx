@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, ArrowUpRight, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
+  Activity, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
   RefreshCw, Sailboat, ScrollText, ShieldCheck, ShieldHalf, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, ProfileList, SessionInfo } from '@protocol'
@@ -159,9 +159,6 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
         <button onClick={onPalette} title="Command palette (Ctrl+K)" className="rounded-lg p-2 text-ink-faint hover:bg-white/5 hover:text-ink">
           <CommandIcon size={17} />
         </button>
-        <a href="/" title="The classic Observatory" className="rounded-lg p-2 text-ink-faint hover:bg-white/5 hover:text-ink">
-          <ArrowUpRight size={17} />
-        </a>
       </div>
     </nav>
   )

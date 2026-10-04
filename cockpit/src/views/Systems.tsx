@@ -298,7 +298,7 @@ function WebAccess({ web }: { web: Health['web'] }) {
           {web.dev_origin && 'Unset [web] dev_origin when you are done developing: the dev server checks no one.'}
         </div>
       </> : <Empty>this daemon doesn't report its web UI's refusals</Empty>}
-      <div className="mt-2 border-t border-line/50 pt-1.5 text-[11px] text-ink-faint">This page talks to the daemon over one WebSocket (<span className="num">/ws</span>), JSON-RPC 2.0, the same protocol as the CLI and the classic Observatory.</div>
+      <div className="mt-2 border-t border-line/50 pt-1.5 text-[11px] text-ink-faint">This page talks to the daemon over one WebSocket (<span className="num">/ws</span>), JSON-RPC 2.0, the same protocol as the CLI and the TUI.</div>
     </Card>
   )
 }

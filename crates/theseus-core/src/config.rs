@@ -620,9 +620,10 @@ pub struct WebConfig {
     #[serde(default = "default_web_port")]
     pub port: u16,
     /// For UI development only (theseus-zab): the Vite dev page's origin
-    /// (`npm run dev` in `web/`), such as `http://localhost:5173`. The dev
-    /// server's `/ws` proxy passes that page's `Host` and `Origin`, which the
-    /// UI otherwise refuses. While set, a `/ws` upgrade from exactly this
+    /// (`npm run dev` in `cockpit/`), such as `http://127.0.0.1:5174`. The
+    /// cockpit's page opens `/ws` straight, with that `Origin`, which the UI
+    /// otherwise refuses; a dev server's proxy would pass the page's `Host`
+    /// too. While set, a `/ws` upgrade from exactly this
     /// origin is served too, counted in health, and ledgered
     /// (`web.dev_origin`); every other route still answers only the UI's own
     /// address. Off by default. `http://`, `localhost` or a loopback address,

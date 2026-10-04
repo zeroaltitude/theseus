@@ -1,9 +1,9 @@
 # theseus-protocol
 
 The wire types (spec §3.18): JSON-RPC 2.0 over newline-delimited JSON. Types only: no runtime, no I/O, no clock.
-Every client and the core read it, and the web apps' TypeScript is generated from it.
+Every client and the core read it, and the cockpit's TypeScript is generated from it.
 
-Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`, `push.rs`, `gate.rs`, `ts.rs`. Read by: every crate on the wire, and the web apps (generated).
+Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`, `push.rs`, `gate.rs`, `ts.rs`. Read by: every crate on the wire, and the cockpit (generated).
 
 ## What's here
 
@@ -42,9 +42,10 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `crates/theseus-core/src/rpc/server.rs` on the same commit. A new notification goes into `notify`, gets its
   `Event` in `events!`, and a sender in theseus-core. Otherwise core's `tests_registry` fails, naming the fix, or
   it takes a marker in that test's `RESERVED` table naming the row that brings its reader.
-- **The generated TypeScript is part of the change.** Any test run of this crate rewrites `web/src/protocol.gen/`
-  (`the_web_apps_types_are_generated_from_the_rust_ones`). `git add` it, or the gate fails. A `serde_json::Value`
-  field names its TypeScript type with `#[ts(type = "...")]`. Large integers are `number`.
+- **The generated TypeScript is part of the change.** Any test run of this crate rewrites
+  `cockpit/src/protocol.gen/` (`the_cockpits_types_are_generated_from_the_rust_ones`). `git add` it, or the gate
+  fails. A `serde_json::Value` field names its TypeScript type with `#[ts(type = "...")]`. Large integers are
+  `number`.
 
 ## Tests
 

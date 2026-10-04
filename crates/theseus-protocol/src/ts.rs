@@ -1,17 +1,17 @@
-//! The web apps' protocol types, generated from these (theseus-0g4; Eddie's
-//! call, 2026-10-01): one file per type in `web/src/protocol.gen/`, and
-//! `index.ts` exporting them all. `web/src/protocol.ts` re-exports them, so the
-//! Observatory and the cockpit import what they always did.
+//! The cockpit's protocol types, generated from these (theseus-0g4; Eddie's
+//! call, 2026-10-01): one file per type in `cockpit/src/protocol.gen/`, and
+//! `index.ts` exporting them all. `cockpit/src/protocol.ts` re-exports them
+//! beside the client, and the cockpit imports it as `@protocol`.
 //!
 //! The test writes the files, and the gate fails when they differ from the
-//! commit, as it does for `web/dist`: a Rust type changed without its
-//! TypeScript fails the gate. Large integers are `number`, since the wire is
-//! JSON and `JSON.parse` reads numbers. A `serde_json::Value` field says its
-//! TypeScript type itself (`#[ts(type = "...")]`).
+//! commit: a Rust type changed without its TypeScript fails the gate. Large
+//! integers are `number`, since the wire is JSON and `JSON.parse` reads
+//! numbers. A `serde_json::Value` field says its TypeScript type itself
+//! (`#[ts(type = "...")]`).
 //!
-//! The place: the cockpit already imports `web/src/protocol.ts` through its
-//! `@protocol` alias, so a directory beside it serves both apps with no new
-//! path, and `.gen` says nobody edits it.
+//! The place: the directory sat in `web/src/` until the Observatory retired,
+//! and moved into the cockpit byte for byte (theseus-vm3n.6). `.gen` says
+//! nobody edits it.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ macro_rules! export {
 }
 
 fn out_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/src/protocol.gen")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cockpit/src/protocol.gen")
 }
 
 /// The types this crate declares, by its sources: (name, derives `TS`).
@@ -66,7 +66,7 @@ fn declared() -> Vec<(String, bool)> {
 }
 
 #[test]
-fn the_web_apps_types_are_generated_from_the_rust_ones() {
+fn the_cockpits_types_are_generated_from_the_rust_ones() {
     let dir = out_dir();
     std::fs::create_dir_all(&dir).unwrap();
     // A type that went away takes its file with it.

@@ -15,7 +15,7 @@ import { Crash, NotFound } from './components/Crash'
 const loadShip = () => import('./views/Ship')
 const Ship = lazy(loadShip)
 // The landing view: its chunk starts loading at once, beside the app's own start, not after the router's redirect.
-if (/^\/cockpit\/?(ship\/?)?$/.test(window.location.pathname)) void loadShip()
+if (/^\/(ship\/?)?$/.test(window.location.pathname)) void loadShip()
 const Bridge = lazy(() => import('./views/Bridge').then((m) => ({ default: m.Bridge })))
 const Fleet = lazy(() => import('./views/Fleet'))
 const SessionDeck = lazy(() => import('./views/SessionDeck'))
@@ -64,7 +64,6 @@ const router = createBrowserRouter(
       ],
     },
   ],
-  { basename: '/cockpit' },
 )
 
 createRoot(document.getElementById('root')!).render(
