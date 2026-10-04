@@ -720,8 +720,9 @@ impl Broker {
 /// What a job may be handed, and what stays the harness's own (theseus-gh7),
 /// for `theseusd check` and health. The AWS keys (each bound account's, and
 /// the template's two names when `[secrets]` keeps them) and the providers'
-/// keys are read only by Theseus's own tools (`aws`, the providers); a job is
-/// never handed one unless `[broker]` names it, which `exposed` then says.
+/// keys, the speech provider's among them (`[voice]`), are read only by
+/// Theseus's own tools (`aws`, the providers, voice); a job is never handed
+/// one unless `[broker]` names it, which `exposed` then says.
 pub fn harness_only(cfg: &crate::Config, broker: &Broker) -> theseus_protocol::cred::HarnessOnly {
     let template = crate::config::AwsCredentialNames::default();
     let aws: BTreeSet<String> = cfg
@@ -740,8 +741,10 @@ pub fn harness_only(cfg: &crate::Config, broker: &Broker) -> theseus_protocol::c
                 .filter(|n| cfg.secrets.contains_key(n)),
         )
         .collect();
+    // The speech provider's key (rows 77 and 78) is a provider's key too.
     let providers: BTreeSet<String> = std::iter::once(cfg.model.api_key_secret.clone())
         .chain(cfg.providers.values().map(|p| p.api_key_secret.clone()))
+        .chain(cfg.voice_key_secret().map(str::to_string))
         .collect();
     let exposed = aws
         .iter()
@@ -767,7 +770,11 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
     broker.grant_tool("web.search", &cfg.tools.web.search_key_secret);
     let h = harness_only(cfg, &broker);
     assert_eq!(h.aws, ["aws_access_key_id", "aws_secret_access_key"]);
-    assert_eq!(h.providers, ["anthropic_api_key", "zai_api_key"]);
+    // The template's [voice], un-commented, names Deepgram's key: a provider's.
+    assert_eq!(
+        h.providers,
+        ["anthropic_api_key", "deepgram_api_key", "zai_api_key"]
+    );
     for name in h.aws.iter().chain(&h.providers) {
         assert!(!broker.may_hand_out(name), "a job may be handed {name}");
     }
@@ -777,7 +784,7 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
         h.line(),
         "broker: a job may be handed 1 secret (github_token); harness-only: the AWS keys \
          (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key, \
-         zai_api_key); jobs get short-lived AWS sessions, never the key (aws)"
+         deepgram_api_key, zai_api_key); jobs get short-lived AWS sessions, never the key (aws)"
     );
 }
 
@@ -2286,5 +2293,15 @@ mod tests {
              harness-only: the AWS keys (aws_access_key_id, aws_secret_access_key); not \
              harness-only, since [broker] names them: anthropic_api_key"
         );
+        // The speech provider's key (rows 77 and 78) is a provider's: its
+        // [secrets] line comes first, so it lands in that table.
+        let voice = "deepgram_api_key = \"op://v/d/f\"\n[voice]\nenabled = true\n";
+        let spoken = with(voice);
+        assert_eq!(spoken.providers, ["anthropic_api_key", "deepgram_api_key"]);
+        assert!(spoken.exposed.is_empty());
+        let handed = with(&format!(
+            "{voice}[broker.secrets.deepgram_api_key]\nposture = \"approve\"\n"
+        ));
+        assert_eq!(handed.exposed, ["deepgram_api_key"]);
     }
 }

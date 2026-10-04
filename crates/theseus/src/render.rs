@@ -1674,6 +1674,9 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         if let Some(outbox) = &b.outbox {
             push(o, Tag::Plain, &outbox_line(&b.kind, outbox));
         }
+        if let Some(voice) = &b.voice {
+            push(o, Tag::Plain, &voice.line());
+        }
     }
     if let Some(line) = wakes_line(&h.wakes, now_ms) {
         push(o, Tag::Plain, &line);

@@ -121,7 +121,6 @@ mod tests {
         let e = Edge::new(EdgeKind::DerivedFrom, "msg_b", "msg_a", VIA_REPORT);
         let r = e.record().unwrap();
         assert_eq!(r.kind, kinds::EDGE);
-        assert_eq!(r.schema, 1, "EDGE stays at schema 1");
         assert_eq!(r.key.as_deref(), Some("derived_from|msg_b|msg_a"));
         assert_eq!(r.scope.as_deref(), Some("in:msg_a"));
         let v: serde_json::Value = serde_json::from_slice(&r.payload).unwrap();

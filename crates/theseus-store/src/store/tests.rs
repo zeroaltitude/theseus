@@ -170,41 +170,6 @@ fn an_append_that_waits_for_the_disk_holds_no_runtime_worker() {
     }
 }
 
-/// The manifest moves under `appending` alone (Review 2's R8): a newer
-/// record's mark waits while a batch is being written, and no frame is
-/// written while it moves.
-#[test]
-fn a_manifests_mark_waits_for_the_batch_being_written() {
-    let dir = tempfile::tempdir().unwrap();
-    let s = open(dir.path());
-    s.append(&[NewRecord::json(kinds::LEDGER, None, &"a").unwrap()])
-        .unwrap();
-    drop(s);
-    std::fs::write(
-        dir.path().join("MANIFEST.json"),
-        r#"{"format": 2, "engine": "redb"}"#,
-    )
-    .unwrap();
-    let s = Arc::new(open(dir.path()));
-    let batch = s.inner.appending.read().unwrap();
-    let newer = {
-        let s = s.clone();
-        std::thread::spawn(move || {
-            s.append(&[NewRecord::json(kinds::SESSION, Some("s1"), &"v").unwrap()])
-                .unwrap()
-        })
-    };
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    assert_eq!(
-        manifest(dir.path())["format"],
-        2,
-        "the manifest moved while a batch was being written"
-    );
-    drop(batch);
-    newer.join().unwrap();
-    assert_eq!(manifest(dir.path())["format"], 3);
-}
-
 /// A start at once after a stop (theseus-qa0 F4b): the stopping process
 /// still holds the store for a while after its socket is gone. The next
 /// open waits for it, and serves what the last holder wrote. The order is
@@ -635,12 +600,11 @@ fn manifest(dir: &Path) -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(dir.join("MANIFEST.json")).unwrap()).unwrap()
 }
 
-/// F4a: a store marked with a schema newer than this build knows is
-/// refused, with a message that names the kind, both schemas, and what to
-/// do, and nothing in it is written: not the WAL's tail, not the index,
-/// not the manifest.
+/// F4a: a store whose format is newer than this build's is refused, with a
+/// message that names both formats and what to do, and nothing in it is
+/// written: not the WAL's tail, not the index, not the manifest.
 #[test]
-fn a_newer_schema_is_refused_and_nothing_is_written() {
+fn a_newer_format_is_refused_and_nothing_is_written() {
     let dir = tempfile::tempdir().unwrap();
     let s = open(dir.path());
     s.append(&[NewRecord::json(kinds::SESSION, Some("s1"), &"v1").unwrap()])
@@ -649,16 +613,10 @@ fn a_newer_schema_is_refused_and_nothing_is_written() {
     s.append(&[NewRecord::json(kinds::LEDGER, None, &"after").unwrap()])
         .unwrap();
     drop(s);
-    let session = kinds::schema(kinds::SESSION);
-    let mut m = manifest(dir.path());
-    for k in m["kinds"].as_array_mut().unwrap() {
-        if k["kind"] == kinds::SESSION {
-            k["schema"] = (session + 1).into();
-        }
-    }
+    let newer = MANIFEST_FORMAT + 1;
     std::fs::write(
         dir.path().join("MANIFEST.json"),
-        serde_json::to_vec_pretty(&m).unwrap(),
+        format!(r#"{{"format": {newer}, "engine": "redb"}}"#),
     )
     .unwrap();
     // A torn frame too, which an open would cut: it must stay.
@@ -678,9 +636,8 @@ fn a_newer_schema_is_refused_and_nothing_is_written() {
             .unwrap()
     );
     for says in [
-        "session records (kind 1)".to_string(),
-        format!("at schema {}", session + 1),
-        format!("up to schema {session}"),
+        format!("is format {newer}"),
+        format!("reads formats {MANIFEST_OLDEST} to {MANIFEST_FORMAT}"),
         "install the newer theseusd".to_string(),
     ] {
         assert!(e.contains(&says), "{says:?} missing from: {e}");
@@ -690,35 +647,12 @@ fn a_newer_schema_is_refused_and_nothing_is_written() {
         before,
         "the refused store was written to"
     );
-
-    // A kind this build does not know, and a newer format, are refused
-    // the same way.
-    for (manifest, says) in [
-        (
-            r#"{"format": 3, "engine": "redb", "kinds": [{"kind": 77, "name": "hold", "schema": 1}]}"#,
-            "hold records (kind 77) at schema 1, a kind this build does not know",
-        ),
-        (r#"{"format": 4, "engine": "redb"}"#, "is format 4"),
-    ] {
-        std::fs::write(dir.path().join("MANIFEST.json"), manifest).unwrap();
-        let before = snapshot(dir.path());
-        let e = format!(
-            "{:#}",
-            WalStore::open(dir.path(), WalConfig::default())
-                .err()
-                .unwrap()
-        );
-        assert!(
-            e.contains(says) && e.contains("install the newer theseusd"),
-            "{e}"
-        );
-        assert_eq!(snapshot(dir.path()), before);
-    }
 }
 
 /// theseus-7hh: the manifest alone says what `open` would, for a store
-/// this build reads, one it is too old for, and a directory with no
-/// store yet, and the check writes nothing.
+/// this build reads (a format-3 one too, its per-kind marks left unread),
+/// one it is too old for, and a directory with no store yet, and the check
+/// writes nothing.
 #[test]
 fn the_manifest_alone_says_whether_this_build_may_open_a_store() {
     let dir = tempfile::tempdir().unwrap();
@@ -728,12 +662,14 @@ fn the_manifest_alone_says_whether_this_build_may_open_a_store() {
         .unwrap();
     drop(s);
     check_manifest(dir.path()).unwrap();
+    std::fs::write(
+        dir.path().join("MANIFEST.json"),
+        r#"{"format": 3, "engine": "redb", "kinds": [{"kind": 77, "name": "hold", "schema": 9}]}"#,
+    )
+    .unwrap();
+    check_manifest(dir.path()).unwrap();
     for (manifest, says) in [
-        (
-            r#"{"format": 3, "engine": "redb", "kinds": [{"kind": 77, "name": "hold", "schema": 1}]}"#,
-            "a kind this build does not know",
-        ),
-        (r#"{"format": 4, "engine": "redb"}"#, "is format 4"),
+        (r#"{"format": 5, "engine": "redb"}"#, "is format 5"),
         ("{", "reading store manifest"),
     ] {
         std::fs::write(dir.path().join("MANIFEST.json"), manifest).unwrap();
@@ -744,75 +680,112 @@ fn the_manifest_alone_says_whether_this_build_may_open_a_store() {
     }
 }
 
-/// F4a: a format-2 store (an older build's) opens as it is and stays
-/// format 2 while this build writes only what the older one could
-/// (schema-1 records), so a rollback still opens it. The first record of
-/// a newer schema marks the manifest first, with every kind this build
-/// writes, once.
+/// F4a, one format number (theseus-ptx1): a store an older build wrote
+/// (format 2, and format 3 with its per-kind marks) opens as it is, and
+/// stays as it is while this build only reads it, so a rollback still opens
+/// it. The writer's first frame moves the manifest to this build's format
+/// first, once; a manifest that cannot move fails the append, and nothing
+/// reaches the WAL under the old one.
 #[test]
-fn a_format_2_store_is_marked_at_its_first_newer_record() {
+fn an_older_store_moves_to_this_builds_format_at_its_first_write() {
+    for old in [
+        r#"{"format": 2, "engine": "redb"}"#,
+        r#"{"format": 3, "engine": "redb", "kinds": [{"kind": 1, "name": "session", "schema": 6}]}"#,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(dir.path());
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &"a").unwrap()])
+            .unwrap();
+        drop(s);
+        let path = dir.path().join("MANIFEST.json");
+        std::fs::write(&path, old).unwrap();
+
+        let s = open(dir.path());
+        assert_eq!(s.last_position(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            old,
+            "reading moved it"
+        );
+        // The rewrite's temporary file can't be made: the append fails.
+        let blocker = dir.path().join("MANIFEST.json.tmp");
+        std::fs::create_dir(&blocker).unwrap();
+        let e = s
+            .append(&[NewRecord::json(kinds::SESSION, Some("s1"), &"v").unwrap()])
+            .unwrap_err();
+        assert!(format!("{e:#}").contains("this build's format"), "{e:#}");
+        assert_eq!(s.last_position(), 1, "a frame was written under {old}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        std::fs::remove_dir(&blocker).unwrap();
+
+        s.append(&[NewRecord::json(kinds::SESSION, Some("s1"), &"v").unwrap()])
+            .unwrap();
+        let m = manifest(dir.path());
+        assert_eq!(
+            m,
+            serde_json::json!({"format": MANIFEST_FORMAT, "engine": "redb"})
+        );
+        let moved = std::fs::metadata(&path).unwrap().modified().unwrap();
+        s.append(&[NewRecord::json(kinds::EXECUTION, Some("e1"), &"x").unwrap()])
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            moved,
+            "moved once per upgrade"
+        );
+        drop(s);
+        // And the moved store opens again under this build.
+        let s = open(dir.path());
+        assert_eq!(s.last_position(), 3);
+        assert_eq!(
+            s.latest_by_key(kinds::SESSION, "s1")
+                .unwrap()
+                .unwrap()
+                .decode::<String>()
+                .unwrap(),
+            "v"
+        );
+    }
+}
+
+/// An open takes no checkpoint after a replay (theseus-ptx1): the WAL is
+/// durable, so the start pays no sync for it, and a stop before the next
+/// checkpoint only replays the tail again. The replayed tail counts toward
+/// the next periodic checkpoint, which the writer takes after serving.
+#[test]
+fn a_replay_takes_no_checkpoint_and_counts_toward_the_next() {
     let dir = tempfile::tempdir().unwrap();
     let s = open(dir.path());
-    s.append(&[NewRecord::json(kinds::LEDGER, None, &"a").unwrap()])
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &0).unwrap()])
         .unwrap();
+    s.checkpoint().unwrap();
+    for i in 1..4 {
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &i).unwrap()])
+            .unwrap();
+    }
     drop(s);
-    std::fs::write(
-        dir.path().join("MANIFEST.json"),
-        r#"{"format": 2, "engine": "redb"}"#,
-    )
-    .unwrap();
-    let s = open(dir.path());
-    assert!(s.schema_marks().values().all(|v| *v == 1));
-    s.append(&[NewRecord::json(kinds::LEDGER, None, &"b").unwrap()])
-        .unwrap();
-    assert_eq!(
-        manifest(dir.path())["format"],
-        2,
-        "a schema-1 write keeps format 2"
-    );
-    let session = NewRecord::json(kinds::SESSION, Some("s1"), &"v").unwrap();
-    assert_eq!(session.schema, kinds::schema(kinds::SESSION));
-    assert!(session.schema > 1, "the session kind is bumped (T1's hold)");
-    s.append(&[session]).unwrap();
-    let m = manifest(dir.path());
-    assert_eq!(m["format"], 3);
-    let marked: BTreeMap<u16, u16> = m["kinds"]
-        .as_array()
+    for _ in 0..2 {
+        let s = open(dir.path());
+        let st = s.stats().unwrap();
+        assert_eq!(
+            (st.replayed_into_index, st.checkpoint),
+            (3, Some(1)),
+            "the open replays the tail, and moves no checkpoint"
+        );
+    }
+    let s = WalStore::open(dir.path(), WalConfig::default())
         .unwrap()
-        .iter()
-        .map(|k| {
-            (
-                k["kind"].as_u64().unwrap() as u16,
-                k["schema"].as_u64().unwrap() as u16,
-            )
-        })
-        .collect();
-    let want: BTreeMap<u16, u16> = kinds::SCHEMAS.iter().copied().collect();
-    assert_eq!(marked, want, "every kind this build writes, at its schema");
-    let modified = std::fs::metadata(dir.path().join("MANIFEST.json"))
-        .unwrap()
-        .modified()
+        .with_checkpoint_every(4);
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &4).unwrap()])
         .unwrap();
-    s.append(&[NewRecord::json(kinds::EXECUTION, Some("e1"), &"x").unwrap()])
+    // The writer checkpoints after answering the batch that crossed the
+    // mark, and before it takes the next.
+    s.append(&[NewRecord::json(kinds::LEDGER, None, &5).unwrap()])
         .unwrap();
     assert_eq!(
-        std::fs::metadata(dir.path().join("MANIFEST.json"))
-            .unwrap()
-            .modified()
-            .unwrap(),
-        modified,
-        "marked once per upgrade"
-    );
-    drop(s);
-    // And the marked store opens again under this build.
-    let s = open(dir.path());
-    assert_eq!(s.last_position(), 4);
-    assert_eq!(
-        s.latest_by_key(kinds::SESSION, "s1")
-            .unwrap()
-            .unwrap()
-            .schema,
-        kinds::schema(kinds::SESSION)
+        s.stats().unwrap().checkpoint,
+        Some(5),
+        "3 replayed and 1 written"
     );
 }
 
@@ -1303,6 +1276,9 @@ fn an_index_that_is_not_a_database_is_moved_aside_and_rebuilt_from_the_wal() {
             39,
             "{shape}"
         );
+        // A stop's checkpoint keeps the rebuild: the open takes none
+        // (theseus-ptx1).
+        s.checkpoint_for_close().unwrap();
         drop(s);
 
         let s = open(dir.path());

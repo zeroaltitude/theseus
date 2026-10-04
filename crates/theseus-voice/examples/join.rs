@@ -17,7 +17,12 @@
 //! seconds = 60       # stay this long, then leave
 //! echo = []          # user ids: run the engine too, listening to these users
 //!                    # and answering each turn with the stand-in voice
+//! greet = "Hello."   # optional (45a): say this through Deepgram instead of
+//!                    # the stand-in clip, with THESEUS_DEEPGRAM_KEY set
 //! ```
+//!
+//! `THESEUS_VOICE_LOG` (a tracing filter, such as `songbird=debug`) logs
+//! songbird's own lines to stderr: the voice gateway, and DAVE's handshake.
 //!
 //! **Dry**, with no token and no network (`-- --dry`): builds songbird's
 //! manager (no task spawned), then a driver (songbird's tasks start), decodes
@@ -43,6 +48,8 @@ struct Join {
     seconds: u64,
     #[serde(default)]
     echo: Vec<u64>,
+    #[serde(default)]
+    greet: Option<String>,
 }
 
 fn a_minute() -> u64 {
@@ -52,6 +59,12 @@ fn a_minute() -> u64 {
 #[tokio::main]
 async fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
+    if let Ok(filter) = std::env::var("THESEUS_VOICE_LOG") {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .with_writer(std::io::stderr)
+            .init();
+    }
     let arg = std::env::args().nth(1);
     let result = match arg.as_deref() {
         Some("--dry") => dry().await,
@@ -186,8 +199,8 @@ mod voice {
     use theseus_voice::songbird::shards::TwilightMap;
     use theseus_voice::songbird::Songbird;
     use theseus_voice::{
-        manager, Audio, ClipId, Command, Config, Engine, Event, Heard, SongbirdIo, Speaker,
-        StandInSpeech, VoiceIo,
+        manager, Audio, ClipId, Command, Config, DeepgramSettings, DeepgramSpeech, Engine, Event,
+        Heard, SongbirdIo, Speaker, Speech, StandInSpeech, VoiceIo,
     };
     use twilight_gateway::Shard;
     use twilight_model::id::{marker::UserMarker, Id};
@@ -214,12 +227,21 @@ mod voice {
         pub async fn join(&self, join: Join) -> Result<(), Error> {
             let guild = NonZeroU64::new(join.guild).ok_or("guild must be nonzero")?;
             let channel = NonZeroU64::new(join.channel).ok_or("channel must be nonzero")?;
+            // The greeting is made before the join, so the call plays it at once.
+            let clip = match &join.greet {
+                Some(text) => greeting(text).await?,
+                None => Audio::chime(),
+            };
+            let t = std::time::Instant::now();
             let call = self.0.join(guild, channel).await?;
-            eprintln!("joined channel {channel} in guild {guild}");
+            eprintln!(
+                "joined channel {channel} in guild {guild} in {} ms",
+                t.elapsed().as_millis()
+            );
             let mut io = SongbirdIo::attach(call).await;
             let stay = Duration::from_secs(join.seconds);
             if join.echo.is_empty() {
-                listen(&mut io, stay).await;
+                listen(&mut io, stay, clip).await;
             } else {
                 echo(io, &join.echo, stay).await;
             }
@@ -229,9 +251,31 @@ mod voice {
         }
     }
 
-    /// Play the stand-in clip, and log frames per SSRC every 2 s.
-    async fn listen(io: &mut SongbirdIo, stay: Duration) {
-        io.play(ClipId(0), Audio::chime()).await;
+    /// `text` through Deepgram (45a), the key from the environment.
+    async fn greeting(text: &str) -> Result<Audio, Error> {
+        let key = std::env::var("THESEUS_DEEPGRAM_KEY")
+            .map_err(|_| "THESEUS_DEEPGRAM_KEY is not set: the Deepgram key")?;
+        let speech = DeepgramSpeech::new(&key, DeepgramSettings::default())?;
+        drop(key);
+        let t = std::time::Instant::now();
+        let said = speech.synthesize(text).await?;
+        eprintln!(
+            "greeting: {:?} synthesized by Deepgram ({}) in {} ms: {:.2} s of audio, {} chars",
+            text,
+            said.usage.model,
+            t.elapsed().as_millis(),
+            said.audio.duration().as_secs_f64(),
+            said.usage.chars
+        );
+        Ok(said.audio)
+    }
+
+    /// Play `clip`, and log frames per SSRC every 2 s.
+    async fn listen(io: &mut SongbirdIo, stay: Duration, clip: Audio) {
+        let length = clip.duration();
+        let started = tokio::time::Instant::now();
+        io.play(ClipId(0), clip).await;
+        eprintln!("clip 0 playing: {:.2} s", length.as_secs_f64());
         let end = tokio::time::Instant::now() + stay;
         let mut log = tokio::time::interval(Duration::from_secs(2));
         let mut heard: BTreeMap<Speaker, u64> = BTreeMap::new();
@@ -253,7 +297,11 @@ mod voice {
                             *heard.entry(f.speaker).or_default() += 1;
                         }
                     }
-                    Some(Heard::Ended(id)) => eprintln!("clip {} ended", id.0),
+                    Some(Heard::Ended(id)) => eprintln!(
+                        "clip {} ended, {:.2} s after it began",
+                        id.0,
+                        started.elapsed().as_secs_f64()
+                    ),
                     None => {
                         eprintln!("the connection dropped");
                         break;

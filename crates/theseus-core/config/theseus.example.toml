@@ -138,6 +138,7 @@ aws_access_key_id = "op://<your vault>/<AWS key item>/notesPlain#AWS_ACCESS_KEY_
 aws_secret_access_key = "op://<your vault>/<AWS key item>/notesPlain#AWS_SECRET_ACCESS_KEY"
 discord_bot_token = "op://<your vault>/<Discord bot item>/notesPlain"
 brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # web.search's key
+# deepgram_api_key = "op://<your vault>/<Deepgram API key item>/notesPlain"   # voice's key ([voice])
 
 # ---------------------------------------------------------------- broker
 # What a job can get, plainly: only a secret a program's grant in this
@@ -510,6 +511,24 @@ notice_embeds = false                   # an embed per notified call; off, its l
 # reaches Discord:
 # rest_proxy = "127.0.0.1:9447"         # REST at http://<this>/api/v10
 # gateway_proxy = "ws://127.0.0.1:9448" # the gateway's websocket
+
+# ---------------------------------------------------------------- voice
+# Voice in a Discord voice channel. Bind the voice channel in the bindings
+# file as a channel with voice = true (its text chat is the place's text: the
+# transcript, the replies, the cards), then invite Theseus with /join from a
+# private place; /leave ends the call, and the conversation goes on in text.
+# Only the place's users are heard. Deepgram does both directions on one key:
+# speech to text per utterance, synthesis per sentence. Each call is priced in
+# code (by the minute heard, by the thousand characters spoken) and counts
+# against its session's spend. Off unless enabled; the key's line in the
+# secrets section is commented out too.
+# [voice]
+# enabled = true
+# key_secret = "deepgram_api_key"       # the [secrets] entry holding the Deepgram key; only Theseus reads it
+# stt_model = "nova-3"                  # speech to text
+# language = "en-US"
+# tts_voice = "aura-2-andromeda-en"     # the voice: an Aura model
+# api_base = "https://api.deepgram.com" # tests and scratch daemons: a local stand-in
 
 # ---------------------------------------------------------------- web
 # The localhost web UI. Loopback only; a non-loopback bind is refused. It

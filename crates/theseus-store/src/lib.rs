@@ -20,11 +20,11 @@
 //! ever rewritten (append-only, §1); a torn tail that never committed is the
 //! only thing recovery removes.
 //!
-//! **Formats and schemas** (theseus-qa0 F4a). Every record carries its kind
-//! and schema; the manifest names the store's format and the newest schema
-//! written for each kind, and a build older than the store refuses to open
-//! it. The standing rule, in `record.rs`: a new on-disk layout lands with
-//! the reader for the layout it replaces, and bumps its kind's schema.
+//! **One format number** (theseus-qa0 F4a; theseus-ptx1). The manifest names
+//! the store's format, and a build older than the store refuses to open it.
+//! The standing rule, in `record.rs`: a step that adds a field to a stored
+//! record bumps the format, and lands with the reader for the layout it
+//! replaces.
 
 pub mod index;
 pub mod record;
@@ -33,6 +33,6 @@ pub mod store;
 pub mod wal;
 
 pub use index::{Engine, Location, MovedAside, Sums};
-pub use record::{kinds, NewRecord, Record, RecordKind};
+pub use record::{kinds, NewRecord, Record, RecordKind, FROZEN_SCHEMA};
 pub use store::{blocking, Projection, Store, StoreStats, VerifiedSlot, WalStore};
 pub use wal::{History, HistoryCheck, Verified, Wal, WalConfig, WalError};
