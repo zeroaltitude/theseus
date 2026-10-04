@@ -592,10 +592,12 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # include_external = false                # whether fetched text may be recalled
 # Compaction (step 30c): where the ring would drop a session's leading turns to fit
 # the model's window, this profile summarizes them instead, and the request carries
-# the summary, then the turns kept. The dropped range goes to that profile's
-# provider, which may not be the session's. "off" keeps the ring. A call that
-# fails, or a summary that would not fit, rings as before, and the row says why.
-# summary_profile = "glm"                 # a key of [profiles], or "off"
+# the summary, then the turns kept. "session" (the default) is the turn's own
+# profile, provider and model, so the range goes nowhere the session's turns
+# don't. A key of [profiles] sends it to that profile's provider, which may not be
+# the session's. "off" keeps the ring. A call that fails, or a summary that would
+# not fit, rings as before, and the row says why.
+# summary_profile = "session"             # "session", a key of [profiles], or "off"
 # assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (canary and live)
 
 # ---------------------------------------------------------------- lsp

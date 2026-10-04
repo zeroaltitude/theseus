@@ -10,6 +10,8 @@
 //!   cost;
 //! - a second compaction folds the first summary in;
 //! - the ring runs when the summary call fails, and when the profile is off;
+//! - `session`, the default, summarizes on the session's own model: glm is
+//!   never asked;
 //! - the newest exchange alone past the window fails the turn before any
 //!   call (`context_overage`), and nothing retries it.
 //! - the assembled strategy (recall live, a stand-in index): a task's first
@@ -25,6 +27,7 @@ use theseus_protocol::{SessionKind, TurnSubmitResult, Usage};
 
 use crate::bus::EventSink;
 use crate::compiler::compaction;
+use crate::config::memory::SUMMARY_SESSION;
 use crate::node::Body;
 use crate::provider::{FakeProvider, ProviderError, ProviderRequest, Scripted};
 use crate::session::SessionRecord;
@@ -456,6 +459,72 @@ async fn summary_profile_off_keeps_the_ring() {
     );
     assert!(r.glm.requests().is_empty());
     assert!(rows(&r.core, "context.compacted").is_empty());
+}
+
+/// `summary_profile = "session"`, the default: the session's own profile,
+/// provider and model summarize the range, so it goes nowhere the session's
+/// turns don't. glm is never asked; the node, its header and the row name
+/// the session's profile.
+#[tokio::test]
+async fn summary_profile_session_summarizes_on_the_sessions_own_model() {
+    assert_eq!(
+        crate::config::MemoryConfig::default().summary_profile,
+        SUMMARY_SESSION
+    );
+    let r = rig_with(SUMMARY_SESSION, vec![], vec![]);
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    assert_eq!(
+        rows(&r.core, "context.compiled").last().unwrap()["strategy"],
+        "compaction"
+    );
+    assert!(r.glm.requests().is_empty(), "no second provider");
+
+    let (live, _) = r.core.live_profile();
+    let nodes = r.core.store.transcript(&sid).unwrap();
+    let Some(Body::Summary {
+        profile,
+        model,
+        header,
+        ..
+    }) = nodes
+        .iter()
+        .map(|(_, n)| &n.body)
+        .find(|b| matches!(b, Body::Summary { .. }))
+    else {
+        panic!("no summary node");
+    };
+    assert_eq!(
+        (profile.as_str(), model.as_str()),
+        (live.as_str(), "claude-sonnet-5-5")
+    );
+    assert!(
+        header.ends_with(&format!(", written by {live}]")),
+        "{header}"
+    );
+    let row = &rows(&r.core, "context.compacted")[0];
+    assert_eq!(
+        (&row["outcome"], &row["profile"]),
+        (&json!("compaction"), &json!(live)),
+        "{row}"
+    );
+
+    // The summary call went to the session's provider, with the dropped
+    // turns.
+    let calls: Vec<ProviderRequest> = r
+        .model
+        .requests()
+        .into_iter()
+        .filter(|q| {
+            q.system
+                .first()
+                .and_then(|s| s["text"].as_str())
+                .is_some_and(|s| s.starts_with("You summarize the earlier part"))
+        })
+        .collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].model, "claude-sonnet-5-5");
+    assert!(text_of(&calls[0]).contains("turn0 "));
 }
 
 /// The newest exchange alone does not fit, with every earlier turn the

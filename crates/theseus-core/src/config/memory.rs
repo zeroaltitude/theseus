@@ -105,8 +105,10 @@ pub struct MemoryConfig {
     #[serde(default)]
     pub include_external: bool,
     /// The profile that summarizes what the ring would drop (step 30c):
-    /// compaction. `off` keeps the ring. The dropped range goes to that
-    /// profile's provider, which may not be the session's.
+    /// compaction. `session`, the default, is the turn's own profile,
+    /// provider and model, so the range goes nowhere the session's turns
+    /// don't. A key of `[profiles]` sends it to that profile's provider,
+    /// which may not be the session's. `off` keeps the ring.
     #[serde(default = "default_summary_profile")]
     pub summary_profile: String,
     /// The tokens of the recall section an assembled prefix carries (30c):
@@ -134,7 +136,7 @@ fn default_session_cap() -> u64 {
     12_000
 }
 fn default_summary_profile() -> String {
-    "glm".into()
+    SUMMARY_SESSION.into()
 }
 fn default_assembled_budget() -> u64 {
     4_000
@@ -142,6 +144,11 @@ fn default_assembled_budget() -> u64 {
 
 /// `summary_profile`'s word for no compaction: the ring drops leading turns.
 pub const SUMMARY_OFF: &str = "off";
+
+/// `summary_profile`'s word for the turn's own profile, provider and model:
+/// the default until Jev routes the summary (the owner's call at 30c's join,
+/// 2026-10-04: no second provider reads a session's text by default).
+pub const SUMMARY_SESSION: &str = "session";
 
 /// The longest a recall may wait for the index.
 pub const MAX_RECALL_DEADLINE_MS: u64 = 5_000;

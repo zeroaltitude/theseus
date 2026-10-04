@@ -39,6 +39,10 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
+    // The ring's suite. Compaction (30c), on by default with the session's
+    // own model, would summarize with this rig's scripted model;
+    // tests_compaction covers it.
+    cfg.memory.summary_profile = crate::config::memory::SUMMARY_OFF.into();
     cfg
 }
 

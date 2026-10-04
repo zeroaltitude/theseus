@@ -301,8 +301,9 @@ pub trait MemoryScience: Send + Sync {
 The roadmap names no step for these, but §5.5a's baseline includes summaries, and M5's design keeps
 CONTINUE (its `recompile_compaction` among them) in shadow until M6 builds the compaction and assembled
 strategies.
-- **Compaction.** Where the ring would drop leading turns (overflow, or CONTINUE once live), a cheap profile
-  (`[memory] summary_profile`) summarizes the dropped range into a `Summary` node. The new compilation is
+- **Compaction.** Where the ring would drop leading turns (overflow, or CONTINUE once live), a profile
+  (`[memory] summary_profile`; by default `session`, the turn's own profile, provider and model, until Jev routes
+  the summary) summarizes the dropped range into a `Summary` node. The new compilation is
   `strategy: compaction`: the summary, then the kept tail, with thinking stripped as the ring strips it.
   - The `Summary` carries its range (first and last position, node count). That range is its lineage, so it
     needs no per-node `summarizes` edges; a summary only reaches another context through recall, whose edge
@@ -695,7 +696,7 @@ recall_max_items = 6
 recall_deadline_ms = 250
 session_recall_cap_tokens = 12000
 include_external = false
-summary_profile = "glm"         # compaction (30c)
+summary_profile = "session"     # compaction (30c): the session's own model
 synth_profile = "glm"           # consolidation (31b)
 synth_limit_usd_per_day = 0.50
 consolidate_hour = 4

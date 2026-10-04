@@ -3,7 +3,8 @@
 //!
 //! - **Compaction.** Where a loop's compile rang (the estimate passed the
 //!   window, or the provider said so), `[memory] summary_profile` summarizes
-//!   the range the ring dropped instead. The call goes the turn's own way to
+//!   the range the ring dropped instead: by default `session`, the turn's
+//!   own profile, provider and model. The call goes the turn's own way to
 //!   a provider: a kernel action, planned with its reservation and dispatched
 //!   in one frame, and settled at its real cost in the frame that writes the
 //!   `Summary` node and the `context.compacted` row. The compilation is then
@@ -32,6 +33,7 @@ use theseus_protocol::memory::{BudgetDrop, BudgetRange};
 use super::{Failure, Target, Turn, TurnRunner};
 use crate::catalog::ThinkingMode;
 use crate::compiler::{self, compaction, CompileInput, Compiled};
+use crate::config::memory::SUMMARY_SESSION;
 use crate::fact::compaction::{overage_words, Compacted, Overage};
 use crate::node::{Body, Node};
 use crate::provider::{ProviderError, ProviderRequest};
@@ -105,11 +107,16 @@ impl TurnRunner {
         {
             return Ok(ring);
         }
-        let Some(profile) = self.memory.cfg().summary_profile().map(str::to_string) else {
+        let Some(word) = self.memory.cfg().summary_profile().map(str::to_string) else {
             return Ok(ring);
         };
+        // `session`, the default: the turn's own profile, provider and model,
+        // so the range goes nowhere the session's turns don't. The row, the
+        // node and its header name that profile.
+        let own = (word == SUMMARY_SESSION).then(|| t.target.clone());
+        let profile = own.as_ref().map_or(word, |o| o.profile.clone());
         let t0 = t.trace.now_us();
-        let attempt = self.summarize(t, &ring, base, &profile, i).await?;
+        let attempt = self.summarize(t, &ring, base, &profile, own, i).await?;
         let (summary, done) = match attempt {
             Ok(s) => s,
             Err(f) => {
@@ -205,25 +212,29 @@ impl TurnRunner {
         t.record(&fact);
     }
 
-    /// What the summary call would be: its range, its target, its provider
-    /// and price, and its request; or why there is none, or why it would
-    /// not fit.
+    /// What the summary call would be: its range, its target (`own`, the
+    /// turn's, when the profile is `session`), its provider and price, and
+    /// its request; or why there is none, or why it would not fit.
     fn plan_summary<'n>(
         &self,
         ring: &Compiled,
         nodes: &'n [(u64, Arc<Node>)],
         profile: &str,
+        own: Option<Target>,
     ) -> Result<Planned<'n>, Fallback> {
         let c = &ring.compilation;
         let range = dropped(nodes, &c.includes, c.as_of).map_err(Fallback::new)?;
         let messages = range.nodes.len() as u64 + range.folded.map_or(0, folded_count);
-        let target = self
-            .resolve_target(profile, Some(profile), None, None)
-            .map_err(|e| {
-                Fallback::new(format!(
-                    "summary_profile {profile:?} does not resolve: {e:#}"
-                ))
-            })?;
+        let target = match own {
+            Some(own) => own,
+            None => self
+                .resolve_target(profile, Some(profile), None, None)
+                .map_err(|e| {
+                    Fallback::new(format!(
+                        "summary_profile {profile:?} does not resolve: {e:#}"
+                    ))
+                })?,
+        };
         let fail = |why: String| Fallback {
             why,
             model: Some(target.model.clone()),
@@ -317,18 +328,20 @@ impl TurnRunner {
             })
     }
 
-    /// Summarize what `ring` dropped with `profile`: the `Summary` node,
-    /// written with its call's settlement and row, and what the attempt
-    /// knew; or why the ring runs instead.
+    /// Summarize what `ring` dropped with `profile` (on `own`, the turn's
+    /// target, for `session`): the `Summary` node, written with its call's
+    /// settlement and row, and what the attempt knew; or why the ring runs
+    /// instead.
     async fn summarize(
         &self,
         t: &mut Turn<'_>,
         ring: &Compiled,
         base: CompileInput<'_>,
         profile: &str,
+        own: Option<Target>,
         i: u32,
     ) -> anyhow::Result<Result<(Node, Done), Fallback>> {
-        let p = match self.plan_summary(ring, base.nodes, profile) {
+        let p = match self.plan_summary(ring, base.nodes, profile, own) {
             Ok(p) => p,
             Err(f) => return Ok(Err(f)),
         };
