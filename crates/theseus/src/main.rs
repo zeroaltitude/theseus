@@ -15,6 +15,7 @@ mod cmd;
 mod herdr;
 mod herdr_sync;
 mod interactive;
+mod mcp;
 mod print;
 
 use std::path::PathBuf;
@@ -292,6 +293,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: IndexCmd,
     },
+    /// The MCP servers the config attaches (M7): each server's state, and its tools with their
+    /// postures and classes; `mcp restart <NAME>` starts one again, a failed one included.
+    Mcp {
+        #[command(subcommand)]
+        cmd: Option<mcp::McpCmd>,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -545,6 +552,7 @@ async fn run(cli: Cli) -> Result<()> {
             herdr_sync::run(c, json, cmd, socket).await
         }
         Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
+        Cmd::Mcp { cmd } => mcp::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

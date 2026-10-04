@@ -306,6 +306,8 @@ impl Core {
             method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
+            method::MCP_LIST => reply(self.mcp.list(&self.tools)),
+            method::MCP_RESTART => reply(self.mcp_restart(parse(params)?)?),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.
             method::AWS_BOOTSTRAP => reply(self.aws_bootstrap(parse(params)?, conn).await?),
             // The loops wake once the answer is written (`serve_connection`).

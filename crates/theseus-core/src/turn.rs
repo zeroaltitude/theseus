@@ -2741,7 +2741,7 @@ impl TurnRunner {
         let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;
         t.tool_calls += batch.ran.len() as u32;
         let aws = self.tools.aws.as_deref();
-        Self::trace_calls(&mut t.trace, &self.tools.registry, aws, uses, &batch.ran);
+        Self::trace_calls(&mut t.trace, &self.tools, aws, uses, &batch.ran);
         let mut answered = 0;
         for r in batch.ran {
             match r.outcome {
@@ -2765,24 +2765,27 @@ impl TurnRunner {
     /// (AWS design §3.8).
     fn trace_calls(
         trace: &mut Trace,
-        tools: &theseus_tools::Registry,
+        tools: &crate::toolrun::ToolRuntime,
         aws: Option<&crate::aws::Aws>,
         uses: &[ToolUse],
         ran: &[Ran],
     ) {
         let span = |r: &Ran| {
             let wire = uses[r.index].name.as_str();
-            let tool = tools.by_wire(wire);
+            let tool = tools.tool_by_wire(wire);
+            let tool = tool.as_deref();
+            let mut attrs = json!({"tool_use_id": uses[r.index].id, "outcome": format!("{:?}", r.outcome),
+                "tool": tool.map_or(wire, |t| t.name()),
+                "family": tool.map_or("unknown", |t| t.family()),
+                "backend": tool.map_or("none", |t| t.backend().as_str()),
+                "result": call_result(&r.outcome)});
+            crate::mcp::span_attrs(tool, &mut attrs);
             Span {
                 name: format!("tool {wire}"),
                 kind: "tool".into(),
                 start_us: trace.at(r.started),
                 end_us: Some(trace.at(r.ended)),
-                attrs: json!({"tool_use_id": uses[r.index].id, "outcome": format!("{:?}", r.outcome),
-                    "tool": tool.map_or(wire, |t| t.name()),
-                    "family": tool.map_or("unknown", |t| t.family()),
-                    "backend": tool.map_or("none", |t| t.backend().as_str()),
-                    "result": call_result(&r.outcome)}),
+                attrs,
                 children: aws
                     .map(|a| a.spans(&uses[r.index].id, |i| trace.at(i)))
                     .unwrap_or_default(),

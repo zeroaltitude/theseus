@@ -165,11 +165,7 @@ impl super::Config {
                 }
             }
             for (var, secret) in &s.env {
-                if var.is_empty()
-                    || !var
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-                {
+                if var.is_empty() || !var.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                     anyhow::bail!("{at}.env: {var:?} is not an environment variable's name");
                 }
                 if !self.secrets.contains_key(secret) {
@@ -259,18 +255,45 @@ mod tests {
     #[test]
     fn unknown_keys_and_bad_servers_are_refused() {
         for (toml, says) in [
-            ("[mcp.servers.a]\ncommand = [\"x\"]\nshell = true", "unknown field"),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\nshell = true",
+                "unknown field",
+            ),
             ("[mcp]\nother = 1", "unknown field"),
             ("[mcp.servers.a]\nread = [\"x\"]", "needs `command`"),
-            ("[mcp.servers.a]\ncommand = [\"x\"]\nurl = \"http://h/\"", "one transport"),
-            ("[mcp.servers.a]\ncommand = [\"x\"]\nenv = { K = \"nope\" }", "no matching entry"),
-            ("[mcp.servers.a]\nurl = \"http://h/\"\nauth_secret = \"nope\"", "no matching entry"),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\nurl = \"http://h/\"",
+                "one transport",
+            ),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\nenv = { K = \"nope\" }",
+                "no matching entry",
+            ),
+            (
+                "[mcp.servers.a]\nurl = \"http://h/\"\nauth_secret = \"nope\"",
+                "no matching entry",
+            ),
             ("[mcp.servers.a]\nurl = \"ftp://h/\"", "not an http"),
-            ("[mcp.servers.\"a__b\"]\ncommand = [\"x\"]", "a server's name"),
-            ("[mcp.servers.\"a.b\"]\ncommand = [\"x\"]", "a server's name"),
-            ("[mcp.servers.a]\ncommand = [\"x\"]\nsandbox = \"l1\"", "follow-up"),
-            ("[mcp.servers.a]\ncommand = [\"x\"]\ncall_timeout_secs = 120", "under the 120"),
-            ("[mcp.servers.a]\ncommand = [\"x\"]\nauth_secret = \"tok\"", "over HTTP"),
+            (
+                "[mcp.servers.\"a__b\"]\ncommand = [\"x\"]",
+                "a server's name",
+            ),
+            (
+                "[mcp.servers.\"a.b\"]\ncommand = [\"x\"]",
+                "a server's name",
+            ),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\nsandbox = \"l1\"",
+                "follow-up",
+            ),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\ncall_timeout_secs = 120",
+                "under the 120",
+            ),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\nauth_secret = \"tok\"",
+                "over HTTP",
+            ),
         ] {
             let e = format!("{:#}", with(toml).unwrap_err());
             assert!(e.contains(says), "{toml}: {e}");

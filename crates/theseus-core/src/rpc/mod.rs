@@ -16,6 +16,7 @@ mod confirms;
 pub(crate) use confirms::{expired_answer, Act};
 mod driver;
 mod info;
+mod mcp;
 mod methods;
 mod policy;
 mod publish;
@@ -104,6 +105,9 @@ pub struct Core {
     /// The index tender's supervisor (roadmap row 51): the socket daemon runs
     /// it after serving; health and `index.*` ask the tender through it.
     pub index: Arc<crate::tender::IndexTender>,
+    /// The MCP servers `[mcp.servers]` attaches (M7 36b): started after
+    /// serving; their stored lists are offered from the start.
+    pub mcp: Arc<crate::mcp::McpBoard>,
     /// The newest crash a start found (Review 2's consideration 1), for
     /// health: set after serving (`report_crash`).
     crash: std::sync::Mutex<Option<theseus_protocol::CrashStatus>>,
@@ -517,6 +521,20 @@ impl Core {
             tools.cpu = crate::cpu::CpuPool::new(n);
         }
         let tools = Arc::new(tools);
+        // The MCP servers' stored lists, one META key each, offered at once;
+        // nothing starts until after serving (M7 36b).
+        let mcp = crate::mcp::McpBoard::new(
+            &cfg.mcp,
+            tools.mcp.clone(),
+            tools.broker.clone(),
+            secrets.clone(),
+            Arc::new(crate::mcp::Spawn {
+                log_dir: crate::mcp::log_dir(store.dir()),
+                cwd: tools.ctx.cwd.clone(),
+                base_env: tools.proc_env.clone(),
+            }),
+            |name| crate::mcp::read_stored(&store, name),
+        );
         // "Should have asked" presses are the store's, not the config's.
         tools
             .tightened
@@ -605,9 +623,11 @@ impl Core {
             last_sweep: Default::default(),
             push: crate::push::Push::default(),
             index,
+            mcp,
             crash: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
+        core.mcp.attach(Arc::downgrade(&core));
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);

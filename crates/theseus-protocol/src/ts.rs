@@ -39,6 +39,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("events.rs"),
         include_str!("gate.rs"),
         include_str!("index.rs"),
+        include_str!("mcp.rs"),
         include_str!("places.rs"),
         include_str!("push.rs"),
     ] {
@@ -119,7 +120,8 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         sandbox::SandboxUsage, sandbox::RunningJob, bench::BenchHistoryParams,
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,
         AwsBudgetStatus, AwsGuardDutyStatus, AwsBootstrapParams, AwsBootstrapStack,
-        AwsBootstrapResult,
+        AwsBootstrapResult, mcp::McpServerStatus, mcp::McpToolInfo, mcp::McpListResult,
+        mcp::McpRestartParams, mcp::McpRestartResult,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

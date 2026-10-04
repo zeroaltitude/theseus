@@ -21,12 +21,14 @@ use theseus_protocol::{
 mod aws;
 mod cancel;
 mod index;
+mod mcp;
 mod places;
 mod sandbox;
 mod store;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
+pub use mcp::{mcp_line, mcp_lines};
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
@@ -1611,8 +1613,15 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     if let Some(line) = children_line(&h.children) {
         push(o, Tag::Plain, &line);
     }
-    if let Some(i) = &h.index {
-        push(o, Tag::Plain, &index_line(i));
+    // The index tender's line, then the MCP servers' (M7 36b).
+    for line in h
+        .index
+        .as_ref()
+        .map(index_line)
+        .into_iter()
+        .chain(mcp_line(&h.mcp))
+    {
+        push(o, Tag::Plain, &line);
     }
     if let Some(s) = &h.sandbox {
         push(o, Tag::Plain, &sandbox_line(s));

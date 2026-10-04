@@ -3,6 +3,7 @@
 //! returns its typed result, and `?` on an internal error is `INTERNAL`.
 
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use theseus_protocol::LedgerKind;
 
 use anyhow::Result;
@@ -95,6 +96,7 @@ impl Core {
             // Asked of the tender by `health_now`, never here: this answers
             // at once.
             index: None,
+            mcp: self.mcp.status(),
             store: self.store_status(),
             crash: self.crash_status(),
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
@@ -1069,15 +1071,23 @@ impl Core {
         let calls = self.tools.calls.lock().unwrap().clone();
         let total: u64 = calls.values().sum();
         let proc_calls = calls.get("proc.run").copied().unwrap_or(0);
-        let tools = self
-            .tools
-            .registry
-            .all()
+        // The built-ins, then the MCP servers' tools (M7 36b).
+        let mut all: Vec<Arc<dyn theseus_tools::Tool>> =
+            self.tools.registry.all().cloned().collect();
+        all.extend(
+            self.tools
+                .mcp
+                .all()
+                .iter()
+                .map(|t| t.clone() as Arc<dyn theseus_tools::Tool>),
+        );
+        let tools = all
+            .iter()
             .map(|t| {
                 let now = self.tools.posture_now(t.name());
                 theseus_protocol::ToolInfo {
                     name: t.name().into(),
-                    wire_name: theseus_tools::wire_name(t.name()),
+                    wire_name: t.wire_name(),
                     family: t.family().into(),
                     description: t.description().into(),
                     class: t.class().as_str().into(),
@@ -1350,6 +1360,8 @@ impl Core {
     fn stop_record(&self, data: Value) {
         crate::startup::stop_began();
         self.outbox.stop_sending();
+        // The MCP servers get SIGTERM, never waited for (M7 36b).
+        self.mcp.stop();
         let _ = self.store.append_ledger(&LedgerRow::new(
             LedgerKind::ServerStopping,
             None,

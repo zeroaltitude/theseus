@@ -17,6 +17,8 @@ theseus-sandbox.workspace = true
 theseus-aws = { path = "../theseus-aws" }
 # AWS (row 30, C2 = 14b): the guard list both enforcers read.
 theseus-aws-guard = { path = "../theseus-aws-guard" }
+# MCP servers' tools in turns (M7 36b): the client side alone.
+theseus-mcp = { path = "../theseus-mcp", default-features = false }
 anyhow.workspace = true
 base64.workspace = true
 thiserror.workspace = true

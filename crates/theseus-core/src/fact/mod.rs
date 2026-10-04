@@ -44,6 +44,7 @@ pub mod answer;
 pub mod cancel;
 pub mod driver;
 pub mod index;
+pub mod mcp;
 pub mod place;
 pub mod sandbox;
 pub mod start;
@@ -321,6 +322,11 @@ facts![
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,
     start::CrashFound<'static>,
+    mcp::McpStarted,
+    mcp::McpReady,
+    mcp::McpExited,
+    mcp::McpFailed,
+    mcp::McpToolsChanged,
 ];
 
 #[cfg(test)]

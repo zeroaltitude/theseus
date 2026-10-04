@@ -662,6 +662,19 @@ impl Lane {
                     extra: json!({"place": place}),
                 })
             }
+            // An MCP server's tools changed (M7 36b): the owner hears it.
+            "mcp_changed" => {
+                let t = format!(
+                    "MCP server {} changed its tools ({}). The new list is offered from the next turn.",
+                    body["server"].as_str().unwrap_or("?"),
+                    body["summary"].as_str().unwrap_or("")
+                );
+                let (channel, place) = self.operator_channel(&body).await?;
+                Ok(Plan {
+                    writes: vec![text(t, format!("note:{corr}"), channel, None)],
+                    extra: json!({"place": place}),
+                })
+            }
             other => Err(SendErr::refused(format!(
                 "a post of kind {other:?} is not one this binding knows"
             ))),
