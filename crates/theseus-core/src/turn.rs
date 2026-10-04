@@ -2811,7 +2811,8 @@ impl TurnRunner {
         let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;
         t.tool_calls += batch.ran.len() as u32;
         let aws = self.tools.aws.as_deref();
-        Self::trace_calls(&mut t.trace, &self.tools, aws, uses, &batch.ran);
+        let lsp = self.tools.lsp.as_deref();
+        Self::trace_calls(&mut t.trace, &self.tools, (aws, lsp), uses, &batch.ran);
         let mut answered = 0;
         for r in batch.ran {
             match r.outcome {
@@ -2836,7 +2837,7 @@ impl TurnRunner {
     fn trace_calls(
         trace: &mut Trace,
         tools: &crate::toolrun::ToolRuntime,
-        aws: Option<&crate::aws::Aws>,
+        (aws, lsp): (Option<&crate::aws::Aws>, Option<&crate::lsp::Board>),
         uses: &[ToolUse],
         ran: &[Ran],
     ) {
@@ -2858,7 +2859,10 @@ impl TurnRunner {
                 attrs,
                 children: aws
                     .map(|a| a.spans(&uses[r.index].id, |i| trace.at(i)))
-                    .unwrap_or_default(),
+                    .into_iter()
+                    .chain(lsp.map(|l| l.spans(&uses[r.index].id, |i| trace.at(i))))
+                    .flatten()
+                    .collect(),
             }
         };
         let mut groups: BTreeMap<usize, Vec<Span>> = BTreeMap::new();

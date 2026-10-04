@@ -536,8 +536,10 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
                 Ok(())
             }
         };
-        // The same end as the socket daemon's: the posts in flight settle
-        // (none, with no channel bound), and the index is checkpointed.
+        // The same end as the socket daemon's: the language servers get
+        // SIGTERM (L2), the posts in flight settle (none, with no channel
+        // bound), and the index is checkpointed.
+        core.stop_lsp();
         core.finish_stop().await;
         flush_telemetry(&core).await;
         served?;
@@ -552,6 +554,8 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     // The index tender gets SIGTERM and is never waited for (§9), unless this
     // is a restart in place, whose next image takes it over (roadmap row 51).
     core.stop_index_tender();
+    // So does each language server's group (L2), never waited for either.
+    core.stop_lsp();
     // The posts already sent settle within the stop's grace, and the index is
     // checkpointed after them (theseus-pfv).
     core.finish_stop().await;

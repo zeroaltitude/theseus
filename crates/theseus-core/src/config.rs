@@ -14,10 +14,12 @@ use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
 mod judge;
+pub(crate) mod lsp;
 pub(crate) mod memory;
 mod sparse;
 pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode};
+pub use lsp::{LspConfig, LspServerConfig};
 pub use memory::{MemoryConfig, MemoryMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
@@ -118,6 +120,10 @@ pub struct Config {
         skip_serializing_if = "mcp_server::McpServerConfig::is_default"
     )]
     pub mcp_server: mcp_server::McpServerConfig,
+    /// `[lsp]`: the language-server board and its tools (L2), off by
+    /// default, in `config/lsp.rs`.
+    #[serde(default, skip_serializing_if = "LspConfig::is_default")]
+    pub lsp: LspConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
@@ -1262,6 +1268,7 @@ impl Config {
         }
         self.validate_places()?;
         self.memory.validate()?;
+        self.lsp.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
         if let Some(name) = &self.context.default_persona {
@@ -1352,6 +1359,7 @@ impl Config {
                 .chain(crate::wake::NAMES)
                 .chain(crate::aws::NAMES)
                 .chain(crate::term::NAMES)
+                .chain(crate::lsp::NAMES)
         };
         for name in self.policy.tools.keys() {
             let known = match name.strip_prefix(crate::policy::MCP_PREFIX) {
@@ -1756,7 +1764,7 @@ mod tests {
         assert_eq!(cfg.policy.tools["wake.at"], Posture::Notify);
         assert_eq!(cfg.policy.tools["aws.call"], Posture::Approve);
         assert_eq!(cfg.policy.tools["aws.stack.apply"], Posture::Approve);
-        assert_eq!(cfg.policy.tools.len(), 35);
+        assert_eq!(cfg.policy.tools.len(), 42);
         // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
         let a = &cfg.aws.accounts["111122223333"];
         assert_eq!(a.credentials, AwsCredentialNames::default());
@@ -1792,6 +1800,7 @@ mod tests {
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
         memory::the_templates_memory_section(&cfg.memory);
         judge::the_templates_judge_section(&cfg);
+        lsp::the_templates_lsp_section(&cfg.lsp);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);
         mcp::the_templates_mcp_section(&cfg);
@@ -1851,6 +1860,7 @@ mod tests {
             .chain(crate::wake::NAMES.map(String::from))
             .chain(crate::aws::NAMES.map(String::from))
             .chain(crate::term::NAMES.map(String::from))
+            .chain(crate::lsp::NAMES.map(String::from))
             .collect();
         for t in &tools {
             assert!(

@@ -2416,3 +2416,58 @@ async fn the_wakes_a_turn_took_are_counted_by_repeat_with_their_lateness() {
         (&json!("2"), &json!(120.0), &json!(61000.0), &json!(61120.0))
     );
 }
+
+/// Each language-server request a tool call made (L2), its `lsp.request`
+/// span under the call's, is timed in `theseus.lsp.request.duration`, by its
+/// server, method, and outcome.
+#[tokio::test]
+async fn a_calls_lsp_requests_are_timed_by_server_method_and_outcome() {
+    let rx = Receiver::start(vec![]).await;
+    let tel = pipeline(&rx.endpoint(), None, tuning());
+    let req = |start: u64, end: u64, method: &str, outcome: &str| {
+        crate::fact::lsp::request_span("rust-analyzer", method, outcome, start, end)
+    };
+    let mut call = tool_span(
+        "lsp_definition",
+        100,
+        9_000,
+        ["lsp.definition", "lsp", "async", "ok"],
+    );
+    call.children = vec![
+        req(200, 2_200, "textDocument/definition", "ok"),
+        req(3_000, 4_000, "textDocument/definition", "ok"),
+        req(5_000, 8_000, "textDocument/references", "timeout"),
+    ];
+    let trace = s(
+        "turn",
+        "turn",
+        0,
+        10_000,
+        json!({"origin_unix_ms": 1_790_000_000_000u64}),
+        vec![call],
+    );
+    tel.record_turn(&result_with(trace));
+    flushed(&tel).await;
+    let metrics = last_metrics(&rx.got());
+    let name = "theseus.lsp.request.duration";
+    assert_eq!(
+        points_of(&metrics, name).len(),
+        2,
+        "one series a method and outcome"
+    );
+    let def = point_with(&metrics, name, &[("lsp.method", "textDocument/definition")]);
+    assert_eq!(
+        attrs_of(def),
+        BTreeMap::from([
+            (
+                "lsp.method".to_string(),
+                "textDocument/definition".to_string()
+            ),
+            ("lsp.server".to_string(), "rust-analyzer".to_string()),
+            ("theseus.outcome".to_string(), "ok".to_string()),
+        ])
+    );
+    assert_eq!((&def["count"], &def["sum"]), (&json!("2"), &json!(3.0)));
+    let refs = point_with(&metrics, name, &[("theseus.outcome", "timeout")]);
+    assert_eq!((&refs["count"], &refs["sum"]), (&json!("1"), &json!(3.0)));
+}

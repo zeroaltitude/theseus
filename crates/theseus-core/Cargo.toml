@@ -29,6 +29,8 @@ theseus-judge = { path = "../theseus-judge" }
 # builds (the gate's features phase, theseus-dr2x), and the workspace builds
 # theseus-mcp's own server for its tests.
 theseus-mcp = { path = "../theseus-mcp" }
+# The language-server client (L1), which the board and the lsp.* tools drive (L2).
+theseus-lsp = { path = "../theseus-lsp" }
 anyhow.workspace = true
 base64.workspace = true
 thiserror.workspace = true
@@ -45,6 +47,8 @@ sha2 = "0.10"
 hmac = "0.12"
 hkdf = "0.12"
 hex = "0.4"
+# A rename's diff (L2), as text.diff makes one.
+similar = "3.2.0"
 # A wake's time in the daemon's time zone (`localtime_r`; DD8).
 libc = "0.2"
 

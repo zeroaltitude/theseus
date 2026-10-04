@@ -47,6 +47,7 @@ pub mod driver;
 pub mod durability;
 pub mod index;
 pub mod judge;
+pub mod lsp;
 pub mod mcp;
 pub mod ontology;
 pub mod place;
@@ -331,6 +332,10 @@ facts![
     index::TenderExited<'static>,
     index::TenderStartFailed<'static>,
     durability::SegmentShipped<'static>,
+    lsp::LspStarted<'static>,
+    lsp::LspReady<'static>,
+    lsp::LspStopped<'static>,
+    lsp::LspFailed<'static>,
     sandbox::SandboxStarted<'static>,
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,

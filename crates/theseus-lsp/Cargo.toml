@@ -7,11 +7,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy). Lane L2 (theseus-n88g.8) wires it into theseus-core: the LSP board and tools. The
-# roadmap has no row for it yet, so `row 0` holds the place until the maintainer numbers it.
-[package.metadata.theseus]
-reserved_for = "row 0 (L2, theseus-n88g.8), M7: the LSP board and tools in theseus-core"
-
 [[bin]]
 name = "theseus-lsp-fake"
 path = "src/bin/theseus-lsp-fake.rs"

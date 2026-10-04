@@ -105,6 +105,7 @@ impl Core {
             judge: Some(self.runner.judge.health()),
             terminals: self.tools.terms.all().iter().map(|t| t.info()).collect(),
             mcp_server: self.mcp_server.health(self.cfg.mcp_server.enabled),
+            lsp: self.tools.lsp.as_ref().map(|b| b.health()),
         }
     }
 
@@ -177,6 +178,14 @@ impl Core {
     /// vault's changed note, whose next image takes the tender over.
     pub fn stop_index_tender(&self) {
         self.index.stop(self.restart_requested().is_some());
+    }
+
+    /// The daemon stops (L2): each language server's group gets SIGTERM,
+    /// never waited for.
+    pub fn stop_lsp(&self) {
+        if let Some(lsp) = &self.tools.lsp {
+            lsp.stop_all();
+        }
     }
 
     /// `index.query` (roadmap row 51): forwarded to the tender as it came,

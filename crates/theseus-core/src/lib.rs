@@ -34,6 +34,7 @@ pub mod graph;
 pub mod harness;
 pub mod judge;
 pub mod ledger;
+pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;
 pub mod narrative;
@@ -126,6 +127,8 @@ mod tests_jobs;
 mod tests_judge;
 #[cfg(test)]
 mod tests_layouts;
+#[cfg(test)]
+mod tests_lsp;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]

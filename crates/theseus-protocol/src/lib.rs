@@ -19,6 +19,7 @@ mod health;
 pub mod index;
 pub mod judge;
 mod ledger;
+pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
@@ -534,6 +535,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub mcp_server: Option<mcp_server::McpServerHealth>,
+    /// The language servers (L2): absent when `[lsp]` is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub lsp: Option<Vec<lsp::LspServerStatus>>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).
