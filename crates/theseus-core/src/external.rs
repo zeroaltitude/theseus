@@ -40,7 +40,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use theseus_protocol::ExternalText;
 use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
@@ -305,10 +305,12 @@ pub fn held(store: &crate::store::Store, session_id: &str) -> Result<Option<Exte
 }
 
 /// A call the hold leaves at its own posture, whose gate reads no record: a
-/// `Read`, and `wake.at`, whose turn runs in this same session, where the
-/// hold still covers what it does.
-pub fn exempt(class: ToolClass, tool: &str) -> bool {
-    class == ToolClass::Read || tool == crate::wake::AT
+/// `Read`, and a one-shot `wake.at`, whose turn runs in this same session,
+/// where the hold still covers what it does. A repeating one, whose `input`
+/// has `every`, is held (37a): set once under a page's influence, it would
+/// run every day.
+pub fn exempt(class: ToolClass, tool: &str, input: &Value) -> bool {
+    class == ToolClass::Read || (tool == crate::wake::AT && !crate::wake::repeats(input))
 }
 
 /// The gate's decision for a call of `class` in a session whose hold is
@@ -321,9 +323,10 @@ pub fn gate(
     held: &Result<Option<ExternalText>, String>,
     mode: Mode,
     tool: &str,
+    input: &Value,
     summary: &str,
 ) -> Decision {
-    if exempt(class, tool) {
+    if exempt(class, tool, input) {
         return d;
     }
     let setting = format!("[policy] external_text = {}", mode.as_str());
@@ -591,6 +594,7 @@ mod tests {
             &h,
             Mode::Ask,
             "proc.run",
+            &Value::Null,
             "run echo hi",
         );
         assert_eq!(d.posture, Posture::Approve);
@@ -612,6 +616,7 @@ mod tests {
             &h,
             Mode::Ask,
             "http.fetch",
+            &Value::Null,
             "fetch",
         );
         assert_eq!(read.posture, Posture::Notify);
@@ -625,6 +630,7 @@ mod tests {
                 held,
                 Mode::Ask,
                 "wake.at",
+                &Value::Null,
                 "wake in 2m",
             );
             assert_eq!(
@@ -639,18 +645,34 @@ mod tests {
             &h,
             Mode::Ask,
             "task.create",
+            &Value::Null,
             "start a task",
         );
         assert_eq!(task.posture, Posture::Approve);
         assert!(task.external.is_some());
-        assert!(exempt(ToolClass::Write, "wake.at") && exempt(ToolClass::Read, "fs.read"));
-        assert!(!exempt(ToolClass::Run, "task.create") && !exempt(ToolClass::Write, "fs.write"));
+        assert!(
+            exempt(ToolClass::Write, "wake.at", &Value::Null)
+                && exempt(ToolClass::Read, "fs.read", &Value::Null)
+        );
+        assert!(
+            !exempt(
+                ToolClass::Write,
+                "wake.at",
+                &json!({"every": "1d", "note": "n"})
+            ),
+            "a repeating wake is held (37a)"
+        );
+        assert!(
+            !exempt(ToolClass::Run, "task.create", &Value::Null)
+                && !exempt(ToolClass::Write, "fs.write", &Value::Null)
+        );
         let clean = gate(
             notify.clone(),
             ToolClass::Write,
             &Ok(None),
             Mode::Ask,
             "fs.write",
+            &Value::Null,
             "write",
         );
         assert_eq!(clean.posture, Posture::Notify);
@@ -669,6 +691,7 @@ mod tests {
             &h,
             Mode::Ask,
             "proc.run",
+            &Value::Null,
             "run sudo ls",
         );
         assert_eq!(kept.reason, waits.reason);
@@ -681,7 +704,15 @@ mod tests {
             granted: None,
             external: None,
         };
-        let n = gate(open, ToolClass::Run, &h, Mode::Notify, "proc.run", "run ls");
+        let n = gate(
+            open,
+            ToolClass::Run,
+            &h,
+            Mode::Notify,
+            "proc.run",
+            &Value::Null,
+            "run ls",
+        );
         assert_eq!(n.posture, Posture::Notify);
         assert_eq!(
             n.notify.as_ref().map(|x| x.setting.as_str()),
@@ -693,6 +724,7 @@ mod tests {
             &Err("disk".into()),
             Mode::Notify,
             "proc.run",
+            &Value::Null,
             "run echo hi",
         );
         assert_eq!(unread.posture, Posture::Approve, "fails closed");

@@ -31,4 +31,17 @@ target?: string,
 /**
  * Its session's execution state now: a wake waits for a busy session.
  */
-state: string, };
+state: string, 
+/**
+ * A repeating wake's span (`1d`, `30m`; 37a); none for a one-shot wake.
+ */
+every?: string, 
+/**
+ * Which occurrence of its series is due next, from 1.
+ */
+occurrence?: number, 
+/**
+ * When a series' next occurrence is due, as people read it on the
+ * daemon's clock (`21:00 Thu`).
+ */
+next?: string, };

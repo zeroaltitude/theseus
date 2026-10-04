@@ -206,7 +206,14 @@ fn a_stop_keeps_the_sessions_wakes() {
     let (_, e, g) = running(&w);
     let now = w.kernel.now_ms();
     w.kernel
-        .set_wake(&g, &new_id("act"), now + 60_000, "check the build", None)
+        .set_wake(
+            &g,
+            &new_id("act"),
+            now + 60_000,
+            "check the build",
+            None,
+            None,
+        )
         .unwrap();
     w.kernel
         .stop_execution(&e.id, "discord:eddie")
@@ -214,7 +221,7 @@ fn a_stop_keeps_the_sessions_wakes() {
         .unwrap();
     let err = w
         .kernel
-        .set_wake(&g, &new_id("act"), now + 60_000, "another", None)
+        .set_wake(&g, &new_id("act"), now + 60_000, "another", None, None)
         .unwrap_err();
     assert!(matches!(
         err.downcast_ref::<KernelError>(),

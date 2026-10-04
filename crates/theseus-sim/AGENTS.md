@@ -12,7 +12,8 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     every record the worker reported durable, byte for byte. `--tear` also tears the WAL's tail; `--restarts`
     restarts within an iteration.
   - `kernel-sim` (the M2 exit test): the kernel under a virtual clock with seeded faults (a crash between any two
-    frames or inside a startup step, lost, duplicate, and late completions, cancels) and invariants checked at every
+    frames or inside a startup step, lost, duplicate, and late completions, cancels; wakes, one-shot and repeating,
+    in `kernel_sim/wakes.rs`, and crashes that keep the daemon down for minutes) and invariants checked at every
     step. `--p-race` races a second thread against turns; 0 is fully deterministic.
   - `bench lifecycle` (`src/lifecycle.rs`): §9's budgets on a real `theseusd`: cold start, the same from a vault
     note's copy, clean shutdown with a job running, the same with a reply's post in flight to the in-process fake

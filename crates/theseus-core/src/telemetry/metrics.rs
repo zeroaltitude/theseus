@@ -83,6 +83,18 @@ const TOOL_DURATION: Instrument = Instrument {
     unit: "ms",
     kind: Kind::Histogram,
 };
+const WAKES_FIRED: Instrument = Instrument {
+    name: "theseus.wakes.fired",
+    description: "Wakes a turn took (DD8), by whether they repeat (37a)",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const WAKE_LATE: Instrument = Instrument {
+    name: "theseus.wakes.late_ms",
+    description: "How long after its due time a turn took each wake",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
 
 const PUSH_EVENTS: Instrument = Instrument {
     name: "theseus.push.events",
@@ -104,7 +116,7 @@ const PUSH_DELAY: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 12] = [
+const INSTRUMENTS: [&Instrument; 14] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -114,6 +126,8 @@ const INSTRUMENTS: [&Instrument; 12] = [
     &COST,
     &TOOL_CALLS,
     &TOOL_DURATION,
+    &WAKES_FIRED,
+    &WAKE_LATE,
     &PUSH_EVENTS,
     &PUSH_LOST,
     &PUSH_DELAY,
@@ -256,6 +270,7 @@ impl Metrics {
         if let Some(t) = &r.trace {
             self.tool_calls(t, &attrs);
             self.provider_calls(t);
+            self.wakes(t);
         }
     }
 
@@ -289,6 +304,7 @@ impl Metrics {
         );
         if let Some(t) = f.trace {
             self.provider_calls(t);
+            self.wakes(t);
         }
     }
 
@@ -337,6 +353,25 @@ impl Metrics {
             let attrs = sorted(attrs);
             self.add(&TOOL_CALLS, attrs.clone(), 1);
             self.record(&TOOL_DURATION, attrs, c.ms);
+        }
+    }
+
+    /// Each wake the turn took (37a), counted by whether it repeats, and
+    /// how late it was taken.
+    fn wakes(&mut self, trace: &Span) {
+        let mut out = Vec::new();
+        spans::wakes(trace, &mut out);
+        for (repeat, late_ms) in out {
+            self.add(
+                &WAKES_FIRED,
+                vec![("theseus.wake.repeat", Attr::B(repeat))],
+                1,
+            );
+            self.record(
+                &WAKE_LATE,
+                vec![("theseus.wake.repeat", Attr::B(repeat))],
+                late_ms,
+            );
         }
     }
 
