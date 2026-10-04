@@ -280,9 +280,11 @@ impl ToolCtx {
 }
 
 pub trait Tool: Send + Sync {
-    /// Canonical dotted name.
-    fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
+    /// Canonical dotted name. Borrowed from the tool, so a tool found at
+    /// runtime (an MCP server's) can name itself; a built-in one may still
+    /// return a `&'static str`.
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
     fn input_schema(&self) -> Value;
     fn class(&self) -> ToolClass;
     fn backend(&self) -> Backend {
@@ -316,8 +318,14 @@ pub trait Tool: Send + Sync {
     fn job(&self, _input: &Value, _ctx: &ToolCtx) -> Result<JobSpec, String> {
         Err("this tool runs in process, not as a job".into())
     }
-    fn family(&self) -> &'static str {
+    fn family(&self) -> &str {
         self.name().split('.').next().unwrap_or("")
+    }
+    /// The name the model sees: the canonical one with each dot an
+    /// underscore, unless the tool names itself otherwise (an MCP server's
+    /// tool is `mcp__<server>__<tool>`).
+    fn wire_name(&self) -> String {
+        wire_name(self.name())
     }
     /// How long an in-process or async call may run, when not the runtime's
     /// default: a stack's apply waits for the stack to settle (AWS design
@@ -365,7 +373,7 @@ impl Registry {
     }
 
     pub fn by_wire(&self, wire: &str) -> Option<&Arc<dyn Tool>> {
-        self.tools.values().find(|t| wire_name(t.name()) == wire)
+        self.tools.values().find(|t| t.wire_name() == wire)
     }
 
     pub fn all(&self) -> impl Iterator<Item = &Arc<dyn Tool>> {
@@ -395,14 +403,14 @@ impl Registry {
             .filter(|t| keep(t.name()))
             .map(|t| {
                 let mut d = json!({
-                    "name": wire_name(t.name()),
+                    "name": t.wire_name(),
                     "description": t.description(),
                     "input_schema": t.input_schema(),
                 });
                 if eager {
                     d["eager_input_streaming"] = Value::Bool(true);
                 }
-                (wire_name(t.name()), d)
+                (t.wire_name(), d)
             })
             .collect();
         v.sort_by(|a, b| a.0.cmp(&b.0));

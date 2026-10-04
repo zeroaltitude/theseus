@@ -45,6 +45,7 @@ pub mod cancel;
 pub mod driver;
 pub mod index;
 pub mod judge;
+pub mod mcp;
 pub mod ontology;
 pub mod place;
 pub mod recall;
@@ -333,6 +334,11 @@ facts![
     judge::JudgeBlockBooked<'static>,
     judge::JudgeCircuit<'static>,
     judge::JudgeShed,
+    mcp::McpStarted,
+    mcp::McpReady,
+    mcp::McpExited,
+    mcp::McpFailed,
+    mcp::McpToolsChanged,
 ];
 
 #[cfg(test)]

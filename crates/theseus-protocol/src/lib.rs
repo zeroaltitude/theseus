@@ -18,6 +18,7 @@ mod health;
 pub mod index;
 pub mod judge;
 mod ledger;
+pub mod mcp;
 pub mod memory;
 mod ontology;
 mod places;
@@ -179,6 +180,12 @@ pub mod method {
         /// The alerts subscription confirmed with the token from SNS's email,
         /// authenticated on unsubscribe (theseus-9p40). The operator's alone.
         AWS_CONFIRM_ALERTS = "aws.confirm_alerts",
+        /// The MCP servers the config attaches and their tools (M7 36b,
+        /// `mcp::McpListResult`). A read.
+        MCP_LIST = "mcp.list",
+        /// Restart one MCP server (`mcp::McpRestartParams`), a failed one
+        /// included.
+        MCP_RESTART = "mcp.restart",
     }
 }
 
@@ -483,6 +490,9 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub index: Option<index::IndexHealth>,
+    /// The MCP servers the config attaches (M7 36b). Empty without one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mcp: Vec<mcp::McpServerStatus>,
     /// The store's refused reads (R4, theseus-15g); zero from a daemon before it.
     #[serde(default)]
     pub store: StoreStatus,

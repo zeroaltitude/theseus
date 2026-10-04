@@ -23,6 +23,11 @@ theseus-memory = { path = "../theseus-memory" }
 theseus-ontology = { path = "../theseus-ontology" }
 # Jev's judgments (M5 23a): the client, packs, and builders; the core wires them in.
 theseus-judge = { path = "../theseus-judge" }
+# MCP servers' tools in turns (M7 36b). With the crate's default features, its
+# `server` too: the five shipped binaries build every feature the workspace
+# builds (the gate's features phase, theseus-dr2x), and the workspace builds
+# theseus-mcp's own server for its tests.
+theseus-mcp = { path = "../theseus-mcp" }
 anyhow.workspace = true
 base64.workspace = true
 thiserror.workspace = true

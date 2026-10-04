@@ -37,6 +37,7 @@ use rand::{Rng, RngCore, SeedableRng};
 use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
 
 mod discord_cli;
+mod fake_mcp;
 mod fake_model;
 mod history;
 mod jobs;
@@ -188,6 +189,9 @@ enum Cmd {
         #[arg(long)]
         rules: PathBuf,
     },
+    /// The fake MCP server (M7 36b), for a scratch daemon's `[mcp.servers]`:
+    /// stdio by default, as a daemon starts it, or `--http`.
+    FakeMcp(fake_mcp::FakeMcpArgs),
     /// Discord without a person (theseus-9kjv): the kl8m proof against a real
     /// daemon, and a typed message, a press, and a read for a live check
     /// against a running fake-discord.
@@ -339,6 +343,7 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
+        Cmd::FakeMcp(args) => fake_mcp::run(args),
         Cmd::Discord { cmd } => discord_cli::run(cmd),
         Cmd::SynthStore {
             dir,

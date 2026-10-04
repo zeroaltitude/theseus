@@ -112,6 +112,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `config/theseus.example.toml`, public, so it never carries a deployment's own values: a deployment's note holds
   only what differs from the defaults, and `config/sparse.rs` cuts a whole note to that (`theseusd config
   --sparse`, theseus-vwar).
+- **MCP servers** (M7 36b): `mcp/`. `McpBoard` tends each `[mcp.servers]` server (`config/mcp.rs`) after serving,
+  never before: a stdio server through `children::spawn(Kind::Owned)` in its own process group (stderr to
+  `<state>/mcp/<name>.log`, capped), with the job's environment and its `env` secrets; an HTTP one over reqwest.
+  States, the crash backoff (1 s, 5 s, 30 s; a third crash in 10 minutes is `failed` until `mcp.restart`), and a
+  stop that sends SIGTERM and never waits. Each server's last list is a META record, `mcp.tools.<server>`, read at
+  the start (one key each), so a start offers it at once and a call waits for its own server alone. `McpTool`
+  (`mcp/tool.rs`): canonical `mcp:<server>/<tool>` for the gate, wire `mcp__<server>__<tool>`, `Run` and
+  `NonRepeatable` unless the server's `read` lists it (a server's hints never loosen), results outside text
+  unless `external = false` (an error result too), `mcp_unavailable` and `outcome_unknown` in the failure's meta,
+  which `toolrun`'s async path reads. `ToolRuntime::mcp` is the catalog the board fills: offered after the
+  built-ins, in private places only, and a turn's request spec fixes its tools, so a `list_changed` applies at the
+  next turn (`mcp.tools_changed`, and an operator notice). Facts in `fact/mcp.rs`; tests in `mcp/tests.rs` (an
+  in-process fake through a `Connect` stand-in, the backoff on the paused clock) and theseusd's `tests/mcp.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

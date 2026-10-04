@@ -20,6 +20,9 @@ theseus-store.workspace = true
 theseus-kernel.workspace = true
 theseus-core.workspace = true
 theseus-protocol.workspace = true
+# `fake-mcp` (M7 36b): the fake MCP server, the client side's crate alone.
+theseus-mcp = { path = "../theseus-mcp", default-features = false }
+tokio.workspace = true
 toml.workspace = true
 anyhow.workspace = true
 clap.workspace = true

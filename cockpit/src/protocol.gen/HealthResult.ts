@@ -15,6 +15,7 @@ import type { HarnessOnly } from "./HarnessOnly";
 import type { IndexHealth } from "./IndexHealth";
 import type { JudgeHealth } from "./JudgeHealth";
 import type { KernelStatus } from "./KernelStatus";
+import type { McpServerStatus } from "./McpServerStatus";
 import type { PlacesHealth } from "./PlacesHealth";
 import type { PushStatus } from "./PushStatus";
 import type { SandboxHealth } from "./SandboxHealth";
@@ -151,6 +152,10 @@ aws?: AwsStatus,
  * daemon before it.
  */
 index?: IndexHealth, 
+/**
+ * The MCP servers the config attaches (M7 36b). Empty without one.
+ */
+mcp?: Array<McpServerStatus>, 
 /**
  * The store's refused reads (R4, theseus-15g); zero from a daemon before it.
  */

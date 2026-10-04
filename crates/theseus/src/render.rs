@@ -23,6 +23,7 @@ mod cancel;
 mod catalog;
 mod index;
 mod judge;
+mod mcp;
 mod memory;
 mod ontology;
 mod places;
@@ -33,6 +34,7 @@ pub use cancel::{cancels_line, verdict_lines};
 pub use catalog::catalog_config_lines;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use judge::{judge_line, judge_log_lines};
+pub use mcp::{mcp_line, mcp_lines};
 pub use memory::{recall_lines, recalls_lines};
 pub use ontology::{ontology_categories_lines, ontology_kinds_lines, ontology_memberships_lines};
 pub use places::{places_health_line, places_lines};
@@ -1627,8 +1629,15 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     if let Some(line) = children_line(&h.children) {
         push(o, Tag::Plain, &line);
     }
-    if let Some(i) = &h.index {
-        push(o, Tag::Plain, &index_line(i));
+    // The index tender's line, then the MCP servers' (M7 36b).
+    for line in h
+        .index
+        .as_ref()
+        .map(index_line)
+        .into_iter()
+        .chain(mcp_line(&h.mcp))
+    {
+        push(o, Tag::Plain, &line);
     }
     if let Some(s) = &h.sandbox {
         push(o, Tag::Plain, &sandbox_line(s));

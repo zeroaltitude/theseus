@@ -39,6 +39,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("events.rs"),
         include_str!("gate.rs"),
         include_str!("index.rs"),
+        include_str!("mcp.rs"),
         include_str!("memory.rs"),
         include_str!("ontology.rs"),
         include_str!("places.rs"),
@@ -127,6 +128,8 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,
         AwsBudgetStatus, AwsGuardDutyStatus, AwsBootstrapParams, AwsBootstrapStack,
         AwsBootstrapResult, AwsConfirmAlertsParams, AwsConfirmAlertsResult,
+        mcp::McpServerStatus, mcp::McpToolInfo, mcp::McpListResult,
+        mcp::McpRestartParams, mcp::McpRestartResult,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

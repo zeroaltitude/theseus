@@ -6038,7 +6038,7 @@ mod parallel {
         fn name(&self) -> &'static str {
             self.name
         }
-        fn description(&self) -> &'static str {
+        fn description(&self) -> &str {
             self.inner.description()
         }
         fn input_schema(&self) -> Value {

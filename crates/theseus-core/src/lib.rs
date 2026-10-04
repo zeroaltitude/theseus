@@ -33,6 +33,7 @@ pub mod graph;
 pub mod harness;
 pub mod judge;
 pub mod ledger;
+pub mod mcp;
 pub mod narrative;
 pub mod node;
 pub mod ontology;

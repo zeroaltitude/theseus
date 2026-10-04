@@ -928,6 +928,9 @@ async fn after_serving(
     if bindings.is_some() {
         tokio::spawn(core.index.clone().run());
     }
+    // The MCP servers `[mcp.servers]` attaches (M7 36b), each started now,
+    // never before serving: their stored lists were offered from the start.
+    core.mcp.start();
     // The harness loop (heartbeat reconciler, wrapper notify socket) and the
     // driver (continuation turns: job results, confirms, restarts). Both
     // write to the disk at once, and a write beside the socket's `bind` can
