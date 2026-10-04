@@ -387,6 +387,13 @@ impl Ladder {
         *lock(&self.loaded) = None;
     }
 
+    /// Read it again from the store, now (a row written in a caller's
+    /// frame), so health never falls back to the wired lines meanwhile.
+    pub fn reload(&self) {
+        self.forget();
+        self.with(|_, _| ());
+    }
+
     fn load(&self) -> Result<Loaded> {
         let mut l = Loaded {
             day: crate::judge::spend::local_day(self.now()),
@@ -532,11 +539,6 @@ impl Ladder {
             .push(row.clone());
         self.say(&row);
         Ok(row)
-    }
-
-    /// A row a caller wrote in its own frame (an answered card's), kept.
-    pub fn kept(&self, row: PackModeRow) {
-        self.with(|l, _| l.rows.entry(row.pack.clone()).or_default().push(row));
     }
 }
 

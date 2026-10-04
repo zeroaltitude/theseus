@@ -302,3 +302,79 @@ fn a_kill_mid_block_books_the_rest_at_the_next_starts_first_judgment() {
     assert!(spent > 0.01, "the block's rest, then the call: {spent}");
     rig.stop(d);
 }
+
+/// The ladder (M5 26a) on a real daemon, over its socket as the CLI sends:
+/// the owner's forced canary is a row and health's line; a security
+/// promotion is a card listed with every question, whose approval writes
+/// the mode; and after a restart with `max_mode = "shadow"`, health shows
+/// every pack in shadow and the restart wrote no row.
+#[test]
+fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
+    let rig = Rig::new(Some("http://127.0.0.1:9"));
+    let d = rig.spawn();
+    let r = rig
+        .call(
+            "pack.promote",
+            json!({"pack": "loop.v1", "to": "canary", "share": 1.0}),
+        )
+        .unwrap();
+    assert_eq!(r["row"]["forced"], true, "{r}");
+    let line = |rig: &Rig, pack: &str| -> String {
+        rig.judge()["packs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|l| l.starts_with(pack))
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        line(&rig, "loop.v1"),
+        "loop.v1: canary 1.0 (owner: forced by the owner)"
+    );
+    let card = rig
+        .call("pack.promote", json!({"pack": "security.v1", "to": "live"}))
+        .unwrap();
+    let q = card["question"].as_str().unwrap().to_string();
+    let listed = rig.call("confirm.list", Value::Null).unwrap();
+    assert!(listed.to_string().contains(&q), "{listed}");
+    assert_eq!(
+        line(&rig, "security.v1"),
+        "security.v1: shadow",
+        "no mode yet"
+    );
+    rig.call(
+        "action.confirm",
+        json!({"correlation_id": q, "approve": true}),
+    )
+    .unwrap();
+    assert!(line(&rig, "security.v1").starts_with("security.v1: live (owner: "));
+    let rows = rig.rows("pack.mode").len();
+    assert_eq!(rows, 2, "the canary and the approved card");
+    rig.stop(d);
+    let path = rig.path("config.toml");
+    let mut t: toml::Table = std::fs::read_to_string(&path).unwrap().parse().unwrap();
+    t["judge"]
+        .as_table_mut()
+        .unwrap()
+        .insert("max_mode".into(), "shadow".into());
+    std::fs::write(&path, toml::to_string(&t).unwrap()).unwrap();
+    let d = rig.spawn();
+    let lines = rig.wait("the ladder's first read", || {
+        let p = rig.judge()["packs"].clone();
+        p.to_string().contains("the config's ceiling").then_some(p)
+    });
+    for l in lines.as_array().unwrap().iter().filter_map(Value::as_str) {
+        assert!(
+            l.contains(": shadow") || l.contains(": off"),
+            "{l}: every pack capped"
+        );
+    }
+    assert!(
+        lines.to_string().contains("on the ladder: canary 1.0"),
+        "{lines}"
+    );
+    assert_eq!(rig.rows("pack.mode").len(), rows, "a restart writes none");
+    rig.stop(d);
+}

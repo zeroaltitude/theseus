@@ -483,8 +483,8 @@ impl Core {
             }
             k.stage(&rows)
         })?;
-        // Read again from the store: the row rode in the answer's frame.
-        l.forget();
+        // Read again from the store, now: the row rode in the answer's frame.
+        l.reload();
         l.say(&row);
         self.session_rec(&a.session_id).announce(&answered);
         let closed = match (approve, by) {
