@@ -33,6 +33,11 @@ pub struct RestoreReport {
     pub last_position: u64,
     /// Bytes of a torn final frame that recovery cut off.
     pub truncated_bytes: u64,
+    /// What recovery cut, when it cut: where, whether a whole frame followed
+    /// it, and how far the WAL was known synced (theseus-7nfj). A restore has
+    /// no index, so the marks of the frames after a bad one are its only
+    /// evidence: rot they prove synced is refused, and nothing is cut.
+    pub cut: Option<theseus_store::wal::Cut>,
     pub sessions: u64,
     pub nodes: u64,
     pub ledger_rows: u64,
@@ -157,6 +162,7 @@ fn restore_with(
         records: 0,
         last_position: 0,
         truncated_bytes: 0,
+        cut: None,
         sessions: 0,
         nodes: 0,
         ledger_rows: 0,
@@ -173,19 +179,19 @@ fn restore_with(
         report.records = rec.records;
         report.last_position = st.last_position;
         report.truncated_bytes = st.truncated_bytes;
+        report.cut = rec.cut;
         report.sessions = store.session_count()?;
         report.nodes = store.node_count()?;
         report.ledger_rows = store.ledger_len()?;
         phase("counts", &mut t);
-        store.append_ledger(&LedgerRow::new(
-            LedgerKind::StoreRestored,
-            None,
-            None,
-            json!({"from": report.from, "segments": report.segments, "frames": report.frames,
-                   "records": report.records, "last_position": report.last_position,
-                   "truncated_bytes": report.truncated_bytes, "sessions": report.sessions,
-                   "blobs": report.blobs}),
-        ))?;
+        let mut row = json!({"from": report.from, "segments": report.segments,
+               "frames": report.frames, "records": report.records,
+               "last_position": report.last_position, "truncated_bytes": report.truncated_bytes,
+               "sessions": report.sessions, "blobs": report.blobs});
+        if let Some(cut) = &report.cut {
+            row["cut"] = json!(cut);
+        }
+        store.append_ledger(&LedgerRow::new(LedgerKind::StoreRestored, None, None, row))?;
         store.checkpoint()?;
     }
     phase("record", &mut t);
@@ -452,6 +458,95 @@ mod tests {
         assert_eq!(r.sessions, 2);
     }
 
+    /// theseus-7nfj: a restore opens its copy with no index, so it cut a
+    /// synced frame gone bad, and every frame after it, as a torn tail. Now
+    /// the marks of the frames after it prove it was synced: the restore is
+    /// refused, names the frame, and cuts nothing, in the source or the copy.
+    #[test]
+    fn rot_in_a_synced_frame_is_refused_not_cut() {
+        let src = tempfile::tempdir().unwrap();
+        store_with_sessions(src.path(), 3);
+        let wal = src.path().join("store/wal");
+        corrupt_frame_of(&wal, 2);
+        let before = std::fs::read(wal.join("000000001.seg")).unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let e = format!("{:#}", restore(&wal, dst.path(), false).unwrap_err());
+        for says in [
+            "at position 2, which was synced",
+            "(its mark)",
+            "nothing was cut",
+        ] {
+            assert!(e.contains(says), "{says}: {e}");
+        }
+        assert_eq!(
+            std::fs::read(wal.join("000000001.seg")).unwrap(),
+            before,
+            "the source untouched"
+        );
+        let staged: Vec<PathBuf> = std::fs::read_dir(dst.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(staged.len(), 1, "only the staged copy: {staged:?}");
+        assert_eq!(
+            std::fs::read(staged[0].join("wal/000000001.seg")).unwrap(),
+            before,
+            "the copy, refused before anything was cut"
+        );
+    }
+
+    /// theseus-7nfj: the source's last batch, torn before its sync (frame
+    /// 4's last page lost, frame 5 whole), is still cut: frame 5's mark says
+    /// only position 3, and the bytes can't tell a torn batch from rot in it.
+    /// The report and the `store.restored` row say what was cut, the whole
+    /// frame after it, and how far the source was known synced.
+    #[test]
+    fn a_torn_last_batch_is_cut_and_the_report_says_how_far_it_was_synced() {
+        let src = tempfile::tempdir().unwrap();
+        store_with_sessions(src.path(), 2);
+        let wal_copy = tempfile::tempdir().unwrap();
+        let seg = wal_copy.path().join("000000001.seg");
+        std::fs::copy(src.path().join("store/wal/000000001.seg"), &seg).unwrap();
+        let (fourth, fifth) = {
+            let wal = theseus_store::Wal::open(wal_copy.path(), Default::default()).unwrap();
+            // This log's first sync covers the frames it found: the batch
+            // after it carries position 3 as its mark.
+            wal.sync().unwrap();
+            let row = || {
+                let r = LedgerRow::named("test.row", None, None, json!({}));
+                theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, &r).unwrap()
+            };
+            let fourth = wal.total_bytes();
+            wal.write(&[row()]).unwrap();
+            let fifth = wal.total_bytes();
+            wal.write(&[row()]).unwrap();
+            wal.sync().unwrap();
+            (fourth, fifth)
+        };
+        let mut bytes = std::fs::read(&seg).unwrap();
+        bytes[fifth as usize - 16..fifth as usize].fill(0);
+        std::fs::write(&seg, &bytes).unwrap();
+
+        let dst = tempfile::tempdir().unwrap();
+        let r = restore(wal_copy.path(), dst.path(), false).unwrap();
+        assert_eq!(r.last_position, 3);
+        assert_eq!(r.truncated_bytes, bytes.len() as u64 - fourth);
+        let cut = r.cut.expect("the cut is reported");
+        assert_eq!((cut.offset, cut.position, cut.synced_to), (fourth, 4, 3));
+        assert_eq!(
+            cut.whole_after.map(|w| (w.offset, w.first)),
+            Some((fifth, 5))
+        );
+        let restored = Store::open(&dst.path().join("store")).unwrap();
+        let rows: Vec<(u64, LedgerRow)> = restored.ledger_tail(1).unwrap();
+        assert_eq!(rows[0].1.kind, "store.restored");
+        assert_eq!(
+            rows[0].1.data["cut"]["whole_after"],
+            json!({"offset": fifth, "first": 5})
+        );
+        assert_eq!(rows[0].1.data["cut"]["synced_to"], 3);
+    }
+
     #[test]
     fn nothing_to_restore_is_an_error() {
         let empty = tempfile::tempdir().unwrap();
@@ -634,7 +729,7 @@ mod tests {
     /// Flip a byte of the body of the frame that holds `position`: its crc no
     /// longer checks.
     fn corrupt_frame_of(wal: &Path, position: u64) {
-        use theseus_store::wal::{decode_record, list_segments, segment_path, FRAME_HEADER};
+        use theseus_store::wal::{first_position, list_segments, segment_path, FRAME_HEADER};
         for seg in list_segments(wal).unwrap() {
             let path = segment_path(wal, seg);
             let mut b = std::fs::read(&path).unwrap();
@@ -642,8 +737,8 @@ mod tests {
             while off + FRAME_HEADER <= b.len() {
                 let len = u32::from_le_bytes(b[off + 4..off + 8].try_into().unwrap()) as usize;
                 let body = off + FRAME_HEADER;
-                let (first, _) = decode_record(&b[body..body + len], 4).unwrap();
-                if first.position == position {
+                let first = first_position(&b, off).unwrap();
+                if first == position {
                     b[body + len - 1] ^= 0x01;
                     std::fs::write(&path, &b).unwrap();
                     return;

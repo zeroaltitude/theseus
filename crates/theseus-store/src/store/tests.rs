@@ -60,6 +60,20 @@ fn the_writer_commits_every_queued_frame_with_one_sync() {
     );
     positions.sort_unstable();
     assert_eq!(positions, (2..=25).collect::<Vec<u64>>());
+    // One batch, one mark (theseus-7nfj): the twelve frames each carry
+    // position 1, the end of the batch synced before them.
+    let seg = std::fs::read(dir.path().join("wal").join("000000001.seg")).unwrap();
+    let (mut off, mut next, mut marks) = (0, 1, Vec::new());
+    while let crate::wal::FrameRead::Whole {
+        end, mark, records, ..
+    } = crate::wal::read_frame(&seg, off, 1, 0, next)
+    {
+        next = records.last().unwrap().0.position + 1;
+        marks.push(mark);
+        off = end;
+    }
+    assert_eq!(off, seg.len());
+    assert_eq!(marks, [vec![Some(0)], vec![Some(1); 12]].concat());
     for i in 0..12 {
         let r = s.latest_by_key(kinds::META, &format!("k{i}")).unwrap();
         assert_eq!(
@@ -626,7 +640,8 @@ fn a_newer_format_is_refused_and_nothing_is_written() {
             .append(true)
             .open(dir.path().join("wal").join("000000001.seg"))
             .unwrap();
-        f.write_all(&crate::wal::MAGIC.to_le_bytes()).unwrap();
+        f.write_all(&crate::wal::MAGIC_MARKED.to_le_bytes())
+            .unwrap();
     }
     let before = snapshot(dir.path());
     let e = format!(
@@ -668,14 +683,18 @@ fn the_manifest_alone_says_whether_this_build_may_open_a_store() {
     )
     .unwrap();
     check_manifest(dir.path()).unwrap();
+    let newer = MANIFEST_FORMAT + 1;
     for (manifest, says) in [
-        (r#"{"format": 6, "engine": "redb"}"#, "is format 6"),
-        ("{", "reading store manifest"),
+        (
+            format!(r#"{{"format": {newer}, "engine": "redb"}}"#),
+            format!("is format {newer}"),
+        ),
+        ("{".into(), "reading store manifest".into()),
     ] {
         std::fs::write(dir.path().join("MANIFEST.json"), manifest).unwrap();
         let before = snapshot(dir.path());
         let e = format!("{:#}", check_manifest(dir.path()).err().unwrap());
-        assert!(e.contains(says), "{says:?} missing from: {e}");
+        assert!(e.contains(&says), "{says:?} missing from: {e}");
         assert_eq!(snapshot(dir.path()), before, "the check wrote");
     }
 }
@@ -819,10 +838,10 @@ fn open_reads_only_the_tail_and_the_history_check_finds_an_old_corrupt_segment()
     drop(s);
     let seg = |n: u32| dir.path().join("wal").join(format!("{n:09}.seg"));
     // Segment 1: a byte of its first record's payload flipped (header
-    // 12, count 4, record header 28), so the record still decodes and
-    // only its frame's crc knows. Segment 2: unreadable.
+    // 12, mark 8, count 4, record header 28), so the record still decodes
+    // and only its frame's crc knows. Segment 2: unreadable.
     let mut b = std::fs::read(seg(1)).unwrap();
-    b[12 + 4 + 28 + 3] ^= 0x01;
+    b[12 + 8 + 4 + 28 + 3] ^= 0x01;
     std::fs::write(seg(1), &b).unwrap();
     std::fs::set_permissions(seg(2), std::fs::Permissions::from_mode(0o000)).unwrap();
     // A torn frame at the end of the last segment.
@@ -833,7 +852,8 @@ fn open_reads_only_the_tail_and_the_history_check_finds_an_old_corrupt_segment()
             .append(true)
             .open(seg(segments))
             .unwrap();
-        f.write_all(&crate::wal::MAGIC.to_le_bytes()).unwrap();
+        f.write_all(&crate::wal::MAGIC_MARKED.to_le_bytes())
+            .unwrap();
         f.write_all(&[9u8; 7]).unwrap();
     }
 
@@ -1426,7 +1446,7 @@ fn a_checkpointed_frame_gone_bad_is_refused_before_anything_is_cut() {
     let seg = dir.path().join("wal").join(format!("{:09}.seg", 1));
     let mut b = std::fs::read(&seg).unwrap();
     // The last frame's record: its position's low byte (frame header 12,
-    // count 4).
+    // mark 8, count 4).
     let mut last = 0usize;
     while let Some(next) = b
         .get(last + 4..last + 8)
@@ -1435,8 +1455,8 @@ fn a_checkpointed_frame_gone_bad_is_refused_before_anything_is_cut() {
     {
         last = next;
     }
-    assert_eq!(b[last..last + 4], crate::wal::MAGIC.to_le_bytes());
-    b[last + 12 + 4] ^= 0x40;
+    assert_eq!(b[last..last + 4], crate::wal::MAGIC_MARKED.to_le_bytes());
+    b[last + 12 + 8 + 4] ^= 0x40;
     std::fs::write(&seg, &b).unwrap();
 
     let e = WalStore::open(dir.path(), WalConfig::default())

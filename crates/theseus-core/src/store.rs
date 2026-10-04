@@ -1159,11 +1159,74 @@ pub(crate) mod tests {
         let m: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
-        assert_eq!(m["format"], 5, "the write moved it: {m}");
+        assert_eq!(m["format"], 6, "the write moved it: {m}");
         let store = Store::open(d.path()).unwrap();
         let into = store.scope_after("in:msg_first", 0).unwrap();
         assert_eq!(into.len(), 1);
         assert_eq!(into[0].decode::<Edge>().unwrap(), edge);
         assert_eq!(store.stats().unwrap().last_position, 122);
+    }
+
+    /// theseus-7nfj: an older binary's log is unmarked. Its torn tail is cut
+    /// as before; this build's first write goes on with marked frames, and
+    /// the mixed log opens whole. Once this build's writer has synced, its
+    /// marks cover the old frames too: rot in the last old frame is refused
+    /// with no index, where it was cut.
+    #[test]
+    fn an_older_stores_log_goes_on_marked_and_its_marks_cover_the_old_frames() {
+        use std::os::unix::fs::FileExt;
+        use theseus_store::wal::{Layout, WholeAfter};
+        let open = |d: &Path| WalStore::open(d, WalConfig::default());
+        // The old log alone, its last frame torn, with no index: cut as
+        // before, with nothing known synced.
+        let d = older_store();
+        let seg = d.path().join("wal/000000001.seg");
+        std::fs::remove_file(d.path().join("index.redb")).unwrap();
+        let len = std::fs::metadata(&seg).unwrap().len();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&seg)
+            .unwrap()
+            .set_len(len - 3)
+            .unwrap();
+        let st = open(d.path()).unwrap().stats().unwrap();
+        assert_eq!(st.last_position, 120);
+        let cut = st.cut.expect("the cut is reported");
+        assert_eq!(
+            (cut.offset, cut.position, cut.whole_after, cut.synced_to),
+            (59_770, 121, None::<WholeAfter>, 0)
+        );
+
+        // A mixed log: the old frames, then this build's.
+        let d = older_store();
+        let seg = d.path().join("wal/000000001.seg");
+        let s = open(d.path()).unwrap();
+        for i in 0..2 {
+            s.append(&[row(&format!("test.mixed{i}"))]).unwrap();
+        }
+        drop(s);
+        let bytes = std::fs::read(&seg).unwrap();
+        assert_eq!(Layout::at(&bytes, 59_770), Some(Layout::Unmarked));
+        assert_eq!(Layout::at(&bytes, 59_867), Some(Layout::Marked));
+        let s = open(d.path()).unwrap();
+        assert_eq!(s.last_position(), 123);
+        assert_eq!(s.scan(1, None, usize::MAX).unwrap().len(), 123);
+        drop(s);
+
+        // Rot in the last old frame's body (position 121), with no index.
+        std::fs::remove_file(d.path().join("index.redb")).unwrap();
+        let f = std::fs::OpenOptions::new().write(true).open(&seg).unwrap();
+        f.write_all_at(&[bytes[59_800] ^ 0x08], 59_800).unwrap();
+        let rotten = std::fs::read(&seg).unwrap();
+        let e = format!("{:#}", open(d.path()).err().expect("refused, not cut"));
+        for says in [
+            "at offset 59770",
+            "at position 121, which was synced",
+            "(its mark)",
+            "nothing was cut",
+        ] {
+            assert!(e.contains(says), "{says}: {e}");
+        }
+        assert_eq!(std::fs::read(&seg).unwrap(), rotten, "nothing was cut");
     }
 }

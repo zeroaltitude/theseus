@@ -81,7 +81,7 @@ async fn session(core: &Arc<Core>) -> (String, String) {
 /// last digit in it moves by one). A record read checks no crc, so until the
 /// history check finds the frame, the start reads the record as it is.
 fn corrupt_frame_of(dir: &Path, position: u64) {
-    use theseus_store::wal::{decode_record, list_segments, segment_path, FRAME_HEADER};
+    use theseus_store::wal::{first_position, list_segments, segment_path, FRAME_HEADER};
     let wal = dir.join("wal");
     for seg in list_segments(&wal).unwrap() {
         let path = segment_path(&wal, seg);
@@ -90,8 +90,8 @@ fn corrupt_frame_of(dir: &Path, position: u64) {
         while off + FRAME_HEADER <= b.len() {
             let len = u32::from_le_bytes(b[off + 4..off + 8].try_into().unwrap()) as usize;
             let body = off + FRAME_HEADER;
-            let (first, _) = decode_record(&b[body..body + len], 4).unwrap();
-            if first.position == position {
+            let first = first_position(&b, off).unwrap();
+            if first == position {
                 let digit = (body..body + len)
                     .rev()
                     .find(|&i| b[i].is_ascii_digit())

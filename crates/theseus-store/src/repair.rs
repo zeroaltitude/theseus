@@ -16,7 +16,7 @@
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
-use crate::wal::{decode_record, FRAME_HEADER, MAGIC};
+use crate::wal::{decode_record, Layout, FRAME_HEADER};
 
 /// One frame a repair took from the copy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -35,26 +35,29 @@ fn u32_le(b: &[u8], i: usize) -> u32 {
 }
 
 /// The length of the frame at `off` in `b`, its header included, when it
-/// checks: its magic, a length inside `b`, and its crc.
+/// checks: its magic (either layout, theseus-7nfj), a length inside `b`, and
+/// its crc.
 fn frame_at(b: &[u8], off: usize) -> Option<usize> {
-    if off.checked_add(FRAME_HEADER)? > b.len() || u32_le(b, off) != MAGIC {
+    if off.checked_add(FRAME_HEADER)? > b.len() {
         return None;
     }
+    let layout = Layout::at(b, off)?;
     let len = u32_le(b, off + 4) as usize;
     let end = off.checked_add(FRAME_HEADER)?.checked_add(len)?;
     if end > b.len() {
         return None;
     }
     let crc = u32_le(b, off + 8);
-    (crc32fast::hash(&b[off + FRAME_HEADER..end]) == crc).then_some(end - off)
+    (layout.crc(&b[off + FRAME_HEADER..end]) == crc).then_some(end - off)
 }
 
 /// The positions of the first and last records of the frame at `off`, `n`
 /// bytes long, which checks.
 fn positions(b: &[u8], off: usize, n: usize) -> Option<(u64, u64)> {
+    let layout = Layout::at(b, off)?;
     let body = &b[off + FRAME_HEADER..off + n];
-    let count = u32_le(body, 0) as usize;
-    let mut i = 4;
+    let count = u32_le(body.get(layout.count_at()..)?, 0) as usize;
+    let mut i = layout.count_at() + 4;
     let mut first = None;
     let mut last = None;
     for _ in 0..count {

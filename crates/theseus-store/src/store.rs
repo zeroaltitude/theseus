@@ -37,6 +37,11 @@ pub struct StoreStats {
     pub wal_segments: u32,
     pub recovered_records: u64,
     pub truncated_bytes: u64,
+    /// The torn tail the open cut, when it cut one (theseus-gt12): where,
+    /// whether a whole frame followed it, and how far the log was known
+    /// synced (theseus-7nfj).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cut: Option<crate::wal::Cut>,
     pub replayed_into_index: u64,
     /// Frames appended and fdatasync calls since open (group commit ratio).
     pub frames_appended: u64,
@@ -358,8 +363,10 @@ const BULK: usize = 4096;
 /// an older build refuses the newer store. 2 = scope field (M2). 3 = the
 /// newest schema written for each kind (F4a). 4 = one number for the whole
 /// store: the per-kind marks are gone (theseus-ptx1). 5 = a wake's repeat
-/// and occurrence in an execution's wakes (37a, theseus-d4pt).
-const MANIFEST_FORMAT: u32 = 5;
+/// and occurrence in an execution's wakes (37a, theseus-d4pt). 6 = every
+/// frame written carries its synced mark, and the reader reads both frame
+/// layouts (`wal::Layout`, theseus-7nfj).
+const MANIFEST_FORMAT: u32 = 6;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
@@ -744,7 +751,9 @@ impl Inner {
         // The checkpoint claims only synced positions (it takes `appending`
         // alone, and the writer indexes a batch only after its sync), so a
         // frame at or before it that does not check went bad after it was
-        // written: the open refuses it, not cuts it (theseus-gt12).
+        // written: the open refuses it, not cuts it (theseus-gt12). Past it,
+        // the marks of the whole frames after a bad one say how far the log
+        // was synced (theseus-7nfj).
         let wal_cfg = WalConfig {
             synced_to: wal_cfg.synced_to.max(cp),
             ..wal_cfg
@@ -1231,6 +1240,7 @@ impl Store for WalStore {
             wal_segments: s.wal.segment_count(),
             recovered_records: r.records,
             truncated_bytes: r.truncated_bytes,
+            cut: r.cut,
             replayed_into_index: s.replayed.load(Ordering::Relaxed),
             frames_appended: s.wal.frames_appended(),
             syncs: s.wal.syncs(),

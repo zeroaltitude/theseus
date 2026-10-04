@@ -196,7 +196,9 @@ impl WalFollower {
         let mut bytes = vec![0u8; (c.offset - mark.start) as usize];
         file.read_exact_at(&mut bytes, mark.start)?;
         match wal::read_frame(&bytes, 0, c.segment, mark.start, mark.first) {
-            FrameRead::Whole { end, crc, records }
+            FrameRead::Whole {
+                end, crc, records, ..
+            }
                 if end == bytes.len()
                     && crc == mark.crc
                     && records.last().map(|(r, _)| r.position) == Some(c.position) =>
@@ -277,7 +279,9 @@ impl WalFollower {
             let mut partial = None;
             while i < window.len() {
                 match wal::read_frame(&window, i, seg, off, self.cursor.position + 1) {
-                    FrameRead::Whole { end, crc, records } => {
+                    FrameRead::Whole {
+                        end, crc, records, ..
+                    } => {
                         let first = records.first().map_or(0, |(r, _)| r.position);
                         if let Some((r, _)) = records.last() {
                             self.cursor.position = r.position;
