@@ -929,7 +929,6 @@ async fn turn(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::TurnSub
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await

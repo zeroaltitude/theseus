@@ -17,6 +17,10 @@
 //! - A guild place the binding has not named (it has not started yet, or
 //!   Discord is off) is shared until it does. The class is fixed for a turn,
 //!   as its request's spec is.
+//! - **Approvals follow it** (theseus-zmgb): an answer to a waiting call, the
+//!   undo of a tightening, a trust, and a publish count only from a private
+//!   place, by the owner (`owner_in_private`). A shared place's cards go to
+//!   the owner's DM.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -36,7 +40,8 @@ pub use theseus_protocol::PlaceClass;
 #[serde(deny_unknown_fields)]
 pub struct PlacesConfig {
     /// The owner on Discord, as `discord:<user id>`, beside the local
-    /// surfaces (the CLI and the web UI). Absent: `[approval] trusted_users`.
+    /// surfaces (the CLI and the web UI). Absent: the person of each DM the
+    /// bindings file binds (theseus-zmgb).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<Vec<String>>,
     /// Trees anyone may read (a public repository), `~/` or absolute: a
@@ -53,37 +58,8 @@ impl PlacesConfig {
 }
 
 impl crate::config::Config {
-    /// The owner on Discord: `[places] owner`, else `[approval]
-    /// trusted_users`, as `discord:<user id>`. The local surfaces are the
-    /// owner's too, and need no entry.
-    pub fn owners(&self) -> BTreeSet<String> {
-        match &self.places.owner {
-            Some(o) => o.iter().cloned().collect(),
-            None => self
-                .approval
-                .as_ref()
-                .map(|a| a.trusted_users.iter().cloned().collect())
-                .unwrap_or_default(),
-        }
-    }
-
-    /// The owner, for a session posting to `place` (`outbox.target`): the
-    /// owners, and, with neither `[places] owner` nor `[approval]`, the
-    /// person of a DM the bindings file binds, whom approval takes for the
-    /// owner then too (review 2's consideration 2): the binding lets nobody
-    /// else reach it.
-    pub fn owners_for(&self, place: Option<&str>) -> BTreeSet<String> {
-        let mut owners = self.owners();
-        if self.places.owner.is_none() && self.approval.is_none() {
-            if let Some(u) = place.and_then(|p| p.strip_prefix("discord:dm:")) {
-                owners.insert(format!("discord:{u}"));
-            }
-        }
-        owners
-    }
-
-    /// `[places]`: the owner's ids as `[approval] trusted_users` writes them,
-    /// and the public trees as paths.
+    /// `[places]`: the owner's ids as `discord:<user id>`, and the public
+    /// trees as paths.
     pub(crate) fn validate_places(&self) -> anyhow::Result<()> {
         for o in self.places.owner.iter().flatten() {
             if crate::approval::parse_user(o).is_err() {
@@ -142,6 +118,33 @@ pub struct PlaceRule {
 }
 
 impl PlaceRule {
+    /// The owner on Discord, as `discord:<user id>` (theseus-zmgb): `[places]
+    /// owner`, else the person of each DM the bindings file binds, whom the
+    /// binding lets nobody else reach. The local surfaces are the owner's
+    /// too, and need no entry.
+    pub fn owners(&self, cfg: &crate::Config) -> BTreeSet<String> {
+        if let Some(o) = &cfg.places.owner {
+            return o.iter().cloned().collect();
+        }
+        self.bound
+            .read()
+            .unwrap()
+            .iter()
+            .filter_map(|b| b.place.target.strip_prefix("discord:dm:"))
+            .map(|u| format!("discord:{u}"))
+            .collect()
+    }
+
+    /// One more bound place, as the binding's start would name it: tests
+    /// that bind a session to a place by hand bind it here too.
+    #[cfg(test)]
+    pub(crate) fn bind_one(&self, place: BoundPlace) {
+        self.bound.write().unwrap().push(Bound {
+            place,
+            viewed: None,
+        });
+    }
+
     /// The binding's places, from its bindings file: they replace any told
     /// before.
     pub fn bind(&self, places: Vec<BoundPlace>) {
@@ -196,7 +199,7 @@ impl PlaceRule {
             return PlaceClass::Private;
         };
         if let Some(u) = t.strip_prefix("discord:dm:") {
-            return match cfg.owners_for(target).contains(&format!("discord:{u}")) {
+            return match self.owners(cfg).contains(&format!("discord:{u}")) {
                 true => PlaceClass::Private,
                 false => PlaceClass::Shared,
             };
@@ -246,39 +249,44 @@ impl PlaceRule {
     }
 }
 
-/// Whether `who` may publish into a place (the place rule's publish): the
-/// owner, from a private place. The CLI and the web UI are the owner's own
-/// surfaces; through Discord, an owner, in a DM or a channel bound private.
-/// A job's process never may: `judge_act` traces it first.
-pub fn may_publish(
+/// Whether `who` may make an owner's act (theseus-zmgb): answer a waiting
+/// call or a budget question, undo a tightening, trust a session again, or
+/// publish into a place. The owner, from a private place: the CLI and the
+/// web UI are the owner's own surfaces; through Discord, an owner, in a DM
+/// with them or a channel bound private. `Err` says why not.
+pub fn owner_in_private(
     who: &crate::approval::Answerer,
     rule: &PlaceRule,
     cfg: &crate::Config,
 ) -> Result<(), String> {
     use crate::approval::Surface;
-    match (who.surface, &who.discord) {
-        (Surface::Cli | Surface::Web, None) => Ok(()),
-        (Surface::Discord, Some(d)) => {
-            let user = format!("discord:{}", d.user_id);
-            let from = match &d.guild_id {
-                None => format!("discord:dm:{}", d.user_id),
-                Some(_) => format!("discord:channel:{}", d.channel_id),
-            };
-            if !cfg.owners_for(Some(&from)).contains(&user) {
-                return Err(format!("{user} is not an owner"));
-            }
-            match rule.class(cfg, Some(&from)) {
-                PlaceClass::Private => Ok(()),
-                PlaceClass::Shared => Err("it came from a shared place: publish from a private \
-                                           one (the CLI, the web UI, a DM with you, or a channel \
-                                           bound private)"
-                    .into()),
-            }
-        }
-        _ => Err(format!(
-            "it came through {}, which is not a private place",
-            who.via()
-        )),
+    if let Some(why) = who.unknown() {
+        return Err(why);
+    }
+    let Some(d) = who
+        .discord
+        .as_ref()
+        .filter(|_| who.surface == Surface::Discord)
+    else {
+        // The CLI and the web UI, which `unknown` has let through.
+        return Ok(());
+    };
+    let user = format!("discord:{}", d.user_id);
+    let from = match &d.guild_id {
+        None => format!("discord:dm:{}", d.user_id),
+        Some(_) => format!("discord:channel:{}", d.channel_id),
+    };
+    if !rule.owners(cfg).contains(&user) {
+        return Err(format!("{user} is not an owner"));
+    }
+    match rule.class(cfg, Some(&from)) {
+        PlaceClass::Private => Ok(()),
+        PlaceClass::Shared => Err(
+            "it came from a shared place, and only a private one counts \
+                                   (the CLI, the web UI, a DM with you, or a channel bound \
+                                   private)"
+                .into(),
+        ),
     }
 }
 
@@ -413,7 +421,10 @@ mod tests {
         );
         let (cfg, _) = Config::parse(&doc).unwrap();
         assert_eq!(
-            cfg.owners().into_iter().collect::<Vec<_>>(),
+            PlaceRule::default()
+                .owners(&cfg)
+                .into_iter()
+                .collect::<Vec<_>>(),
             ["discord:271828182845904523"]
         );
         assert_eq!(cfg.places.public_paths, ["~/projects/some-public-repo"]);
@@ -425,21 +436,27 @@ mod tests {
         assert_eq!(f[1].path(), "~/projects/some-public-repo/README.md");
     }
 
-    /// `[places]`: the owner is `[approval] trusted_users` unless the section
-    /// names one; `[labels]`, its name before, still reads; a context file
-    /// may be a table with its readers; and a malformed owner, a relative
-    /// public tree, or an unknown key in a file's table is refused with its
-    /// key.
+    /// `[places]`: the owner is the person of each DM the bindings file binds
+    /// unless the section names one (theseus-zmgb); `[labels]`, its name
+    /// before, still reads; a context file may be a table with its readers;
+    /// and a malformed owner, a relative public tree, or an unknown key in a
+    /// file's table is refused with its key.
     #[test]
     fn places_name_the_owner_and_the_public_trees() {
         let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
-                    [approval]\ntrusted_users = [\"discord:271828182845904523\"]\n\n\
                     [context]\nfiles = [\"~/w/USER.md\", { path = \"/w/open/README.md\", readers = \"public\" }]\n";
         let (cfg, _) = Config::parse(base).unwrap();
+        let rule = PlaceRule::default();
+        assert!(rule.owners(&cfg).is_empty(), "nobody, before a DM is bound");
+        rule.bind(vec![BoundPlace {
+            target: "discord:dm:271828182845904523".into(),
+            name: "DM @eddie".into(),
+            private: false,
+        }]);
         assert_eq!(
-            cfg.owners().into_iter().collect::<Vec<_>>(),
+            rule.owners(&cfg).into_iter().collect::<Vec<_>>(),
             ["discord:271828182845904523"],
-            "the trusted users by default"
+            "the bound DM's person by default"
         );
         let public: Vec<(String, bool)> = cfg
             .context_paths(None)
@@ -459,7 +476,7 @@ mod tests {
             );
             let (cfg, _) = Config::parse(&named).unwrap();
             assert_eq!(
-                cfg.owners().into_iter().collect::<Vec<_>>(),
+                rule.owners(&cfg).into_iter().collect::<Vec<_>>(),
                 ["discord:314159265358979323"],
                 "[{section}]"
             );

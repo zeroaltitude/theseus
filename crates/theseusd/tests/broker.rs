@@ -310,7 +310,6 @@ fn holding(at: &Path, needle: &[u8]) -> Vec<PathBuf> {
 
 #[test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-#[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 fn a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does() {
     let r = Rig::start();
     let ops = r.op_calls("github_token");
@@ -399,20 +398,6 @@ fn a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does() {
         reason.contains("ghx gets GHX_TOKEN: [broker.secrets.approve_token] posture = approve"),
         "{confirms}"
     );
-    // The operator's part needs a process outside every job. Run inside one
-    // (the gate from a task, DD7), this test's approval is refused, as
-    // theseus-6qy refuses any job's; the rest follows from the approval.
-    if let Some(job) = common::job_above_this_test() {
-        let refused = r
-            .call(
-                "action.confirm",
-                json!({"correlation_id": corr, "approve": true}),
-            )
-            .unwrap_err();
-        assert_eq!(refused["code"], -32005, "refused: {refused}");
-        eprintln!("skipped the operator's part: this test runs inside Theseus job {job}");
-        return;
-    }
     r.call(
         "action.confirm",
         json!({"correlation_id": corr, "approve": true}),

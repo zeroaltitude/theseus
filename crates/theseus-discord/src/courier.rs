@@ -21,7 +21,7 @@
 //! waits until the place has shown its call (`LaneMsg::Asked`), at most
 //! `CARD_WAIT`; what the place showed before that goes first.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use theseus_protocol::LedgerKind;
@@ -29,6 +29,7 @@ use theseus_protocol::LedgerKind;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use theseus_core::outbox::{body_of, kind_of, Closed};
+use theseus_core::places::PlaceClass;
 use theseus_kernel::{Action, ActionState, Outcome};
 use theseus_protocol::TurnSubmitResult;
 use tokio::sync::mpsc;
@@ -202,19 +203,14 @@ fn mentioning(users: &[u64], content: String) -> String {
 }
 
 /// Who can answer a card in a guild channel (theseus-9j9): the place's
-/// users, whom the binding lets press its buttons, and of them only those
-/// `[approval]` trusts, since the core refuses anyone else's answer
-/// (`Approval::judge`). Without the section, nobody: a guild channel never
-/// answers then, and its cards go to a DM.
-pub(crate) fn answerers(
-    place_users: &[u64],
-    approval: &theseus_core::approval::Approval,
-) -> Vec<u64> {
-    let trusted = approval.discord_users();
+/// users, whom the binding lets press its buttons, and of them only the
+/// owners, since the core refuses anyone else's answer (the place rule,
+/// `places::owner_in_private`). A shared channel's cards go to a DM.
+pub(crate) fn answerers(place_users: &[u64], owners: &BTreeSet<String>) -> Vec<u64> {
     place_users
         .iter()
         .copied()
-        .filter(|u| trusted.contains(u))
+        .filter(|u| owners.contains(&format!("discord:{u}")))
         .collect()
 }
 
@@ -649,18 +645,17 @@ impl Lane {
                     extra: json!({"task": body["task"]}),
                 })
             }
-            "refusal" | "restarted" => {
-                let t = if kind_of(a) == "refusal" {
-                    render::job_refusal(&body["params"])
-                } else {
-                    let tables: Vec<String> = body["tables"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|t| t.as_str().map(str::to_string))
-                        .collect();
-                    render::restarted(body["at_unix_ms"].as_u64().unwrap_or(0), &tables)
-                };
+            // A job's refusal notice, from a build before the trace was
+            // retired (theseus-zmgb): nothing to post.
+            "refusal" => Ok(Plan::nothing("a job's refusal notice, retired")),
+            "restarted" => {
+                let tables: Vec<String> = body["tables"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|t| t.as_str().map(str::to_string))
+                    .collect();
+                let t = render::restarted(body["at_unix_ms"].as_u64().unwrap_or(0), &tables);
                 let (channel, place) = self.operator_channel(&body).await?;
                 Ok(Plan {
                     writes: vec![text(t, format!("note:{corr}"), channel, None)],
@@ -735,9 +730,9 @@ impl Lane {
         };
         let channel = self.place_channel().await?;
         let route = self.route().await?;
-        let elsewhere = core.approval.elsewhere();
-        let card = render::card(&req, &route, &elsewhere);
-        let note = render::card_note(&route, &card.line, &elsewhere);
+        let elsewhere = theseus_core::approval::elsewhere(core.cfg.web.enabled);
+        let card = render::card(&req, &route, elsewhere);
+        let note = render::card_note(&route, &card.line, elsewhere);
         let key = format!("confirm:{q}");
         let note_key = format!("approval:{q}");
         // A call that waits because its session read external text gets the
@@ -756,7 +751,8 @@ impl Lane {
         let (how, dm) = match &route {
             Route::Here => {
                 if self.kind == "channel" {
-                    named = answerers(&self.shared.place_users(channel), &core.approval);
+                    let owners = core.runner.place_rule.owners(&core.cfg);
+                    named = answerers(&self.shared.place_users(channel), &owners);
                 }
                 writes.push(Write {
                     key,
@@ -848,31 +844,20 @@ impl Lane {
         }
     }
 
-    /// Where a card goes (theseus-sgh): here when the place is a trusted
-    /// channel; else a trusted user's DM, with a note here; else the note
-    /// alone. With no `[approval]`, a bound DM is trusted and a guild channel
-    /// is not (review 2's consideration 2).
+    /// Where a card goes (the place rule, theseus-zmgb): here when the place
+    /// is private (a DM with the owner, or a channel bound `private = true`),
+    /// where the owner's answer counts; else the owner's DM, with a note
+    /// here; else the note alone.
     async fn route(&mut self) -> Result<Route, SendErr> {
-        let ap = &self.shared.core.approval;
-        let channel = self.channel;
-        let why = match (self.kind, channel, self.dm_user) {
-            ("dm", _, Some(u)) if ap.trusts_dm(u, channel) => return Ok(Route::Here),
-            (_, _, None) if !ap.configured() => {
-                "there is no [approval] section, so only the CLI and a Discord DM answer"
-                    .to_string()
-            }
-            ("dm", _, Some(u)) if !ap.discord_users().contains(&u) => {
-                "its user is not in [approval] trusted_users".to_string()
-            }
-            ("dm", ..) => "[approval] channels does not list \"discord:dm\"".to_string(),
-            (_, Some(c), _) if ap.lists_discord_channel(c) => {
-                if self.shared.check_channel(c).await {
-                    return Ok(Route::Here);
-                }
-                ap.checked(c).map(|k| k.detail).unwrap_or_default()
-            }
-            _ => "it is not listed in [approval] channels".to_string(),
-        };
+        let core = &self.shared.core;
+        if core.runner.place_rule.class(&core.cfg, Some(&self.target)) == PlaceClass::Private {
+            return Ok(Route::Here);
+        }
+        let why = match self.kind {
+            "dm" => "this DM is not with an owner, and only an owner's answer counts",
+            _ => "this channel is shared, and an answer counts only from a private place",
+        }
+        .to_string();
         self.shared.open_dm_channels().await?;
         Ok(match self.shared.approval_dm(self.last_author) {
             Some((user, dm)) => Route::Dm {
@@ -1283,13 +1268,11 @@ mod tests {
         );
     }
 
-    /// A card's answerers (theseus-9j9): the place's users whom `[approval]`
-    /// trusts, whose answers alone count; without the section, nobody in a
-    /// guild channel (review 2's consideration 2).
+    /// A card's answerers (theseus-9j9): the place's users who are owners,
+    /// whose answers alone count (the place rule, theseus-zmgb); nobody when
+    /// none of them is.
     #[test]
-    fn a_cards_answerers_are_the_places_users_whom_approval_trusts() {
-        use theseus_core::approval::Approval;
-        use theseus_core::config::ApprovalConfig;
+    fn a_cards_answerers_are_the_places_users_who_are_owners() {
         // Invented ids, of a Discord id's length.
         let (a, b, c) = (
             100_000_000_000_000_101,
@@ -1297,13 +1280,11 @@ mod tests {
             300_000_000_000_000_303,
         );
         let place = [a, b, c];
-        assert!(answerers(&place, &Approval::new(None)).is_empty());
-        let cfg = ApprovalConfig {
-            trusted_users: vec![format!("discord:{b}"), "discord:400000000000000404".into()],
-            channels: vec!["discord:dm".into()],
-        };
-        assert_eq!(answerers(&place, &Approval::new(Some(&cfg))), [b]);
-        assert!(answerers(&[], &Approval::new(Some(&cfg))).is_empty());
+        assert!(answerers(&place, &BTreeSet::new()).is_empty());
+        let owners: BTreeSet<String> =
+            [format!("discord:{b}"), "discord:400000000000000404".into()].into();
+        assert_eq!(answerers(&place, &owners), [b]);
+        assert!(answerers(&[], &owners).is_empty());
         assert_eq!(
             mentioning(&[202, 101], "**Approve?** `fs.write` a.txt".into()),
             "<@202> <@101> **Approve?** `fs.write` a.txt"

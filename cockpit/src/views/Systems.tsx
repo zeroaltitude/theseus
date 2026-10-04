@@ -86,9 +86,8 @@ export default function Systems() {
         <Field label="started from" mono>{h.config?.started_from ?? '—'}</Field>
         {h.config?.confirmed_ms !== undefined && h.config?.confirmed_ms !== null && <Field label="confirmed" mono>{ms(h.config.confirmed_ms)} after start</Field>}
         {h.config?.detail && <Field label="detail">{h.config.detail}</Field>}
-        {h.config?.state === 'held' && h.config.retry_in_ms != null && <Field label="read again in" mono>{Math.ceil(h.config.retry_in_ms / 1000)} s</Field>}
         {h.config?.restarted && <Field label="restarted onto" mono>{new Date(h.config.restarted.at_unix_ms).toLocaleTimeString()} · {h.config.restarted.tables.join(', ')}</Field>}
-        {h.config && h.config.state !== 'confirmed' && h.config.source === 'vault' && <div className="mt-1 text-[11.5px] text-wait">Nothing acts until the vault confirms the copy: reads answer, and every method that acts waits.</div>}
+        {h.config?.state === 'held' && <div className="mt-1 text-[11.5px] text-wait">The copy this start served from keeps serving and acting; the next start reads the vault again.</div>}
         {h.config?.restarted && <div className="mt-1 text-[11.5px] text-wait">Restarted onto the vault&rsquo;s note, which had changed since the copy.</div>}
       </Card>
 
@@ -174,10 +173,7 @@ export default function Systems() {
       ))}
 
       <Card title="Approval" icon={<ShieldCheck size={13} />}>
-        {h.approval?.configured ? <>
-          <Field label="trusted users" mono>{h.approval.trusted_users.join(', ') || '—'}</Field>
-          {h.approval.channels.map((c) => <Field key={c.channel} label={c.channel}><StatePill state={c.state} /> <span className="text-[11px] text-ink-faint">{c.detail}</span></Field>)}
-        </> : <div className="text-[12px] text-ink-dim">No <span className="num">[approval]</span> rule: the CLI, the web UI, and each place's listed Discord users answer.</div>}
+        <div className="text-[12px] text-ink-dim">An answer counts only from a private place (the CLI, the web UI, a DM with the owner, or a channel bound <span className="num">private = true</span>), by the owner; a shared place&rsquo;s cards go to the owner&rsquo;s DM.</div>
         <div className="panel-title mb-0.5 mt-2">recent approval rows</div>
         <RecentRows rows={approvalRows} empty="no approval rows yet" toneOf={(r) => r.kind === 'approval.refused' ? 'wait' : 'idle'} />
         {(h.tightenings ?? []).length > 0 && (

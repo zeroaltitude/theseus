@@ -109,7 +109,6 @@ async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmi
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -2678,7 +2677,6 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
                 recompile: None,
                 attachments: vec![],
                 arrived: None,
-                config_wait_us: 0,
                 reply_to: None,
             })
             .await
@@ -2907,7 +2905,6 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -3412,7 +3409,6 @@ async fn failing_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Error
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -3718,7 +3714,6 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -3878,7 +3873,6 @@ async fn a_model_with_no_price_is_not_called() {
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -4916,7 +4910,6 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
             recompile: None,
             attachments: files,
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         };
         let core = core.clone();
@@ -5152,20 +5145,37 @@ async fn a_400_that_names_no_block_hides_the_new_image_and_keeps_the_answered_on
     assert!(ledgered(&r, "turn.failed").is_empty(), "the turn answered");
 }
 
-// ---------------------------------------------------------------- approval (theseus-sgh)
+// ---------------------------------------------------------------- approval: the owner, from a private place (theseus-zmgb)
 
 const EDDIE: &str = "271828182845904523";
 const MALLORY: &str = "222222222222222222";
+/// The guild channel `origin` names, and its guild.
+const CHANNEL: &str = "444444444444444444";
+const GUILD: &str = "314159265358979323";
 
-/// A rig whose `[approval]` trusts Eddie and lists these channels.
-fn approval_rig(script: Vec<Scripted>, channels: &[&str]) -> Rig {
-    let channels: Vec<String> = channels.iter().map(|c| c.to_string()).collect();
-    rig_with(script, move |c| {
-        c.approval = Some(crate::config::ApprovalConfig {
-            trusted_users: vec![format!("discord:{EDDIE}")],
-            channels,
-        })
-    })
+/// The binding's places, as its bindings file names them: Eddie's DM, so he
+/// is the owner when `[places] owner` names nobody, and the channel `origin`
+/// names, bound private or not.
+fn bind_places(r: &Rig, private_channel: bool) {
+    r.core.bind_places(vec![
+        crate::places::BoundPlace {
+            target: format!("discord:dm:{EDDIE}"),
+            name: "DM @eddie".into(),
+            private: false,
+        },
+        crate::places::BoundPlace {
+            target: format!("discord:channel:{CHANNEL}"),
+            name: "#lab".into(),
+            private: private_channel,
+        },
+    ]);
+}
+
+/// A rig whose places are `bind_places`'.
+fn owned_rig(script: Vec<Scripted>, private_channel: bool) -> Rig {
+    let r = rig(script);
+    bind_places(&r, private_channel);
+    r
 }
 
 /// One `action.confirm` over a real protocol connection, accepted as
@@ -5195,12 +5205,12 @@ async fn answer_as(
     .await
 }
 
-/// What the Discord binding names for a press: a user in channel
-/// 444444444444444444, in a guild or (None) a DM.
+/// What the Discord binding names for a press: a user in channel `CHANNEL`,
+/// in a guild or (None) a DM.
 fn origin(discord: Option<(&str, Option<&str>)>) -> Option<theseus_protocol::DiscordOrigin> {
     discord.map(|(user, guild)| theseus_protocol::DiscordOrigin {
         user_id: user.into(),
-        channel_id: "444444444444444444".into(),
+        channel_id: CHANNEL.into(),
         guild_id: guild.map(str::to_string),
     })
 }
@@ -5256,46 +5266,34 @@ fn write_script() -> Vec<Scripted> {
     ]
 }
 
-/// With `[approval]`, an answer counts only from a trusted user through a
-/// trusted channel. Each that does not is refused with the reason, ledgered
-/// as `approval.refused` (who, where, why), and narrated, and the call keeps
+/// An answer counts only from a private place, by the owner (theseus-zmgb).
+/// Each that does not is refused with the reason, ledgered as
+/// `approval.refused` (who, where, why), and narrated, and the call keeps
 /// waiting: the action is still planned, the execution still waits, nothing
 /// is resolved, and nothing is written. Then Eddie approves in his DM and the
 /// write runs.
 #[tokio::test]
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-async fn with_approval_only_a_trusted_user_in_a_trusted_channel_approves() {
-    use crate::approval::Surface::{Cli, Discord, Web};
-    let r = approval_rig(write_script(), &["discord:dm"]);
+async fn an_answer_counts_only_from_the_owner_in_a_private_place() {
+    use crate::approval::Surface::{Cli, Discord, Unnamed};
+    let r = owned_rig(write_script(), false);
     let (sid, mut rx) = watched_session(&r);
     let res = turn(&r.core, Some(&sid), "write out.txt").await;
     let corr = res.awaiting_confirm.clone().expect("the write waits");
     let exec = res.execution_id.clone().unwrap();
     let refusals = [
-        // A trusted user through an unlisted surface: the CLI, the web UI,
-        // and a guild channel the section does not list.
-        (
-            answer_as(&r.core, surface("sock#1", Cli), &corr, None).await,
-            "the CLI is not a trusted channel ([approval] channels = [\"discord:dm\"])",
-            "cli",
-        ),
-        (
-            answer_as(&r.core, surface("web#1", Web), &corr, None).await,
-            "the web UI is not a trusted channel",
-            "web",
-        ),
+        // The owner, in a shared channel.
         (
             answer_as(
                 &r.core,
                 surface("discord", Discord),
                 &corr,
-                Some((EDDIE, Some("314159265358979323"))),
+                Some((EDDIE, Some(GUILD))),
             )
             .await,
-            "Discord channel 444444444444444444 is not a trusted channel",
+            "it came from a shared place",
             "discord:444444444444444444",
         ),
-        // An untrusted user in a trusted channel.
+        // Someone who is not the owner, in their own DM.
         (
             answer_as(
                 &r.core,
@@ -5304,7 +5302,7 @@ async fn with_approval_only_a_trusted_user_in_a_trusted_channel_approves() {
                 Some((MALLORY, None)),
             )
             .await,
-            "discord:222222222222222222 is not a trusted user ([approval] trusted_users)",
+            "discord:222222222222222222 is not an owner",
             "discord:dm",
         ),
         // Eddie's ids, claimed by a connection that is not the binding.
@@ -5312,6 +5310,12 @@ async fn with_approval_only_a_trusted_user_in_a_trusted_channel_approves() {
             answer_as(&r.core, surface("sock#2", Cli), &corr, Some((EDDIE, None))).await,
             "only the Discord binding can name a Discord channel and user",
             "cli",
+        ),
+        // A connection no listener named.
+        (
+            answer_as(&r.core, surface("test", Unnamed), &corr, None).await,
+            "which is never a private place",
+            "unnamed",
         ),
     ];
     for (i, (got, why, via)) in refusals.iter().enumerate() {
@@ -5331,22 +5335,22 @@ async fn with_approval_only_a_trusted_user_in_a_trusted_channel_approves() {
     assert!(!r.root.join("out.txt").exists());
     let rows = ledgered(&r, "approval.refused");
     assert_eq!(rows.len(), refusals.len());
-    assert_eq!(rows[3]["who"], format!("discord:{MALLORY} (discord:eddie)"));
+    assert_eq!(rows[1]["who"], format!("discord:{MALLORY} (discord:eddie)"));
     assert_eq!(
-        (rows[3]["via"].as_str(), rows[3]["tool"].as_str()),
+        (rows[1]["via"].as_str(), rows[1]["tool"].as_str()),
         (Some("discord:dm"), Some("fs.write"))
     );
     assert!(rows[0]["why"]
         .as_str()
         .unwrap()
-        .starts_with("the CLI is not"));
+        .starts_with("it came from a shared place"));
     assert!(ledgered(&r, "action.confirm_answered").is_empty());
     let lines = narrated(&r, &sid);
     assert!(
         said(
             &lines,
             "approval",
-            "did not count: the CLI is not a trusted channel"
+            "did not count: it came from a shared place"
         ),
         "{}",
         dump(&lines)
@@ -5375,57 +5379,85 @@ async fn with_approval_only_a_trusted_user_in_a_trusted_channel_approves() {
     );
 }
 
-/// The CLI counts when `[approval]` lists it, and the web UI does not when
-/// it is left out; the bare label a test passes is never trusted.
+/// The CLI and the web UI are the owner's own surfaces, both private: each
+/// approves with no section and no binding, named by its surface, not the
+/// connection's label, as a cancel names it (theseus-qiy).
 #[tokio::test]
-async fn a_listed_cli_approves_and_an_unlisted_web_ui_is_refused() {
+async fn the_cli_and_the_web_ui_are_private_places() {
     use crate::approval::Surface::{Cli, Web};
-    let r = approval_rig(write_script(), &["cli"]);
+    for (client, by, via) in [
+        (surface("sock#1", Cli), "the CLI", "cli"),
+        (surface("web#1", Web), "the web UI", "web"),
+    ] {
+        let r = rig(write_script());
+        let res = turn(&r.core, None, "write out.txt").await;
+        let corr = res.awaiting_confirm.clone().unwrap();
+        answer_as(&r.core, client, &corr, None).await.unwrap();
+        let answered = ledgered(&r, "action.confirm_answered");
+        assert_eq!(
+            (answered[0]["by"].as_str(), answered[0]["via"].as_str()),
+            (Some(by), Some(via))
+        );
+        assert!(ledgered(&r, "approval.refused").is_empty());
+    }
+}
+
+/// A channel bound `private = true` is a private place: the owner's answer
+/// there counts, and anyone else's does not. `[places] owner`, when it names
+/// someone, is the owner, and a bound DM's person then is not.
+#[tokio::test]
+async fn a_channel_bound_private_answers_for_the_owner_alone() {
+    use crate::approval::Surface::Discord;
+    let r = owned_rig(write_script(), true);
     let res = turn(&r.core, None, "write out.txt").await;
     let corr = res.awaiting_confirm.clone().unwrap();
-    let e = answer_as(&r.core, surface("web#1", Web), &corr, None)
+    let in_lab = |user| Some((user, Some(GUILD)));
+    let e = answer_as(&r.core, surface("discord", Discord), &corr, in_lab(MALLORY))
         .await
         .unwrap_err();
-    assert!(
-        e.message
-            .contains("the web UI is not a trusted channel ([approval] channels = [\"cli\"])"),
-        "{}",
-        e.message
-    );
-    let unnamed = crate::approval::Answerer {
-        label: "test".into(),
-        surface: crate::approval::Surface::Unnamed,
-        discord: None,
-        peer: crate::approval::Peer::None,
-    };
-    let e = r
-        .core
-        .confirm_action(&corr, true, None, unnamed)
-        .unwrap_err();
-    assert!(e.to_string().contains("never a trusted channel"), "{e}");
-    answer_as(&r.core, surface("sock#1", Cli), &corr, None)
+    assert!(e.message.contains("is not an owner"), "{}", e.message);
+    answer_as(&r.core, surface("discord", Discord), &corr, in_lab(EDDIE))
         .await
         .unwrap();
     let answered = ledgered(&r, "action.confirm_answered");
-    assert_eq!(answered[0]["via"], "cli");
-    // The surface, not the connection's label, as a cancel names it
-    // (theseus-qiy).
-    assert_eq!(answered[0]["by"], "the CLI");
-    let h = r.core.health().approval;
-    assert!(h.configured);
-    assert_eq!(h.trusted_users, [format!("discord:{EDDIE}")]);
-    assert_eq!(
-        (h.channels[0].channel.as_str(), h.channels[0].state.as_str()),
-        ("cli", "trusted")
+    assert_eq!(answered[0]["via"], "discord:444444444444444444");
+
+    let r = rig_with(write_script(), |c| {
+        c.places.owner = Some(vec![format!("discord:{MALLORY}")]);
+    });
+    bind_places(&r, false);
+    let res = turn(&r.core, None, "write out.txt").await;
+    let corr = res.awaiting_confirm.clone().unwrap();
+    let e = answer_as(
+        &r.core,
+        surface("discord", Discord),
+        &corr,
+        Some((EDDIE, None)),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        e.message
+            .contains("discord:271828182845904523 is not an owner"),
+        "{}",
+        e.message
     );
+    answer_as(
+        &r.core,
+        surface("discord", Discord),
+        &corr,
+        Some((MALLORY, None)),
+    )
+    .await
+    .unwrap();
 }
 
-/// The budget question (theseus-0sg) follows the same rule: the web UI is
-/// refused when only the CLI is listed, the spend is not reset, and the
+/// The budget question (theseus-0sg) follows the same rule: the owner's
+/// answer from a shared channel is refused, the spend is not reset, and the
 /// session keeps waiting; the CLI's answer resets it.
 #[tokio::test]
 async fn the_budget_question_follows_the_same_rule() {
-    use crate::approval::Surface::{Cli, Web};
+    use crate::approval::Surface::{Cli, Discord};
     use theseus_kernel::ExecState;
     let script = vec![
         Scripted::tools(
@@ -5434,13 +5466,8 @@ async fn the_budget_question_follows_the_same_rule() {
         ),
         Scripted::text("The diff is one line."),
     ];
-    let r = rig_with(script, |c| {
-        c.kernel.spend_limit_usd = 1.40;
-        c.approval = Some(crate::config::ApprovalConfig {
-            trusted_users: vec![],
-            channels: vec!["cli".into()],
-        });
-    });
+    let r = rig_with(script, |c| c.kernel.spend_limit_usd = 1.40);
+    bind_places(&r, false);
     let res = turn(&r.core, None, "diff these").await;
     assert_eq!(res.stop_reason, "budget");
     let q = res.awaiting_confirm.clone().unwrap();
@@ -5453,12 +5480,17 @@ async fn the_budget_question_follows_the_same_rule() {
         .unwrap()
         .budget
         .spent_micros;
-    let e = answer_as(&r.core, surface("web#1", Web), &q, None)
-        .await
-        .unwrap_err();
+    let e = answer_as(
+        &r.core,
+        surface("discord", Discord),
+        &q,
+        Some((EDDIE, Some(GUILD))),
+    )
+    .await
+    .unwrap_err();
     assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
     assert!(
-        e.message.contains("the web UI is not a trusted channel"),
+        e.message.contains("it came from a shared place"),
         "{}",
         e.message
     );
@@ -5485,71 +5517,10 @@ async fn the_budget_question_follows_the_same_rule() {
     assert_eq!(ledgered(&r, "budget.reset")[0]["by"], "the CLI");
 }
 
-/// Review 2's consideration 2: without `[approval]` the rule fails closed.
-/// The CLI and a Discord DM (which the binding lets only its bound user
-/// reach) approve a waiting call; the web UI, a guild channel, and an
-/// unnamed connection are refused with the reason, ledgered, and the call
-/// keeps waiting. Health is not open.
-#[tokio::test]
-async fn without_approval_only_the_cli_and_a_dm_answer() {
-    use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
-    for (client, discord) in [
-        (surface("sock#1", Cli), None),
-        (surface("discord", Discord), Some((MALLORY, None))),
-    ] {
-        let r = rig(write_script());
-        let res = turn(&r.core, None, "write out.txt").await;
-        let corr = res.awaiting_confirm.clone().unwrap();
-        let label = client.label.clone();
-        let ok = answer_as(&r.core, client, &corr, discord).await;
-        assert_eq!(ok.unwrap()["approved"], true, "{label}");
-        assert!(ledgered(&r, "approval.refused").is_empty());
-    }
-    for (client, discord, why) in [
-        (
-            surface("web#1", Web),
-            None,
-            "the web UI is not a trusted channel",
-        ),
-        (
-            surface("discord", Discord),
-            Some((EDDIE, Some("314159265358979323"))),
-            "Discord channel 444444444444444444 is not a trusted channel",
-        ),
-        (surface("test", Unnamed), None, "never a trusted channel"),
-    ] {
-        let r = rig(write_script());
-        let h = r.core.health().approval;
-        assert!(!h.configured && h.open.is_empty(), "{h:?}");
-        let res = turn(&r.core, None, "write out.txt").await;
-        let corr = res.awaiting_confirm.clone().unwrap();
-        let e = answer_as(&r.core, client, &corr, discord)
-            .await
-            .unwrap_err();
-        assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
-        assert!(e.message.contains(why), "{}", e.message);
-        assert_eq!(ledgered(&r, "approval.refused").len(), 1);
-        assert_eq!(r.core.confirm_list().unwrap().len(), 1, "it keeps waiting");
-    }
-}
-
 // ---------------------------------------------------------------- should have asked (theseus-sgh)
 
 fn echo(id: &str, word: &str) -> Scripted {
     Scripted::tools("", &[(id, "proc_run", json!({"argv": ["echo", word]}))])
-}
-
-/// `policy.tighten` or `policy.untighten` of proc.run over a connection
-/// accepted as `client`, pressed by `discord` when the binding names one.
-async fn press_as(
-    core: &Arc<Core>,
-    method: &str,
-    client: crate::approval::Client,
-    discord: Option<(&'static str, Option<&'static str>)>,
-) -> Result<Value, theseus_protocol::RpcError> {
-    let p = json!({"tool": "proc.run", "author": discord.map(|_| "discord:eddie"),
-                   "discord": origin(discord)});
-    rpc_as(core, client, method, p).await
 }
 
 fn tool_row(tools: &Value, name: &str) -> Value {
@@ -5841,141 +5812,27 @@ async fn a_tightening_survives_a_restart() {
     );
 }
 
-/// With `[approval]`, a press only makes calls ask, so any surface that can
-/// answer an approval may make one. The undo loosens, so it takes the same
-/// trusted answer an approval does: refused through an untrusted surface,
-/// with the reason and an `approval.refused` row, and the tool keeps asking.
-/// A connection no listener named and a Discord claim from the CLI are
+/// A press only makes calls ask, so any known surface may make one, a
+/// shared channel's included; the undo loosens, so it takes the answer's
+/// rule: the owner, from a private place (theseus-zmgb). A refused undo
+/// leaves the tool asking, with the reason and an `approval.refused` row. A
+/// connection no listener named, and a Discord claim from the CLI, are
 /// refused either way.
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-async fn only_a_trusted_answer_undoes_a_tightening() {
-    use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
-    use theseus_protocol::method;
-    let r = approval_rig(vec![], &["discord:dm"]);
-    let tighten = |client, discord| press_as(&r.core, method::POLICY_TIGHTEN, client, discord);
-    let untighten = |client, discord| press_as(&r.core, method::POLICY_UNTIGHTEN, client, discord);
-    // A press counts from the CLI, which is not a trusted channel here, and
-    // from an untrusted user in a guild channel.
-    tighten(surface("sock#1", Cli), None).await.unwrap();
-    let again = tighten(
-        surface("discord", Discord),
-        Some((MALLORY, Some("314159265358979323"))),
-    )
-    .await
-    .unwrap();
-    assert_eq!(again["already"], true);
-    for (client, discord, why) in [
-        (surface("x", Unnamed), None, "never a trusted channel"),
-        (
-            surface("sock#2", Cli),
-            Some((EDDIE, None)),
-            "only the Discord binding can name",
-        ),
-    ] {
-        let e = tighten(client, discord).await.unwrap_err();
-        assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
-        assert!(e.message.contains(why), "{}", e.message);
-        assert!(
-            e.message.ends_with("proc.run keeps its posture"),
-            "{}",
-            e.message
-        );
-    }
-    // The undo takes the whole rule.
-    for (client, discord, why) in [
-        (
-            surface("sock#3", Cli),
-            None,
-            "the CLI is not a trusted channel",
-        ),
-        (
-            surface("web#1", Web),
-            None,
-            "the web UI is not a trusted channel",
-        ),
-        (
-            surface("discord", Discord),
-            Some((MALLORY, None)),
-            "is not a trusted user",
-        ),
-        (
-            surface("sock#4", Cli),
-            Some((EDDIE, None)),
-            "only the Discord binding can name",
-        ),
-    ] {
-        let e = untighten(client, discord).await.unwrap_err();
-        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
-        assert!(e.message.contains(why), "{}", e.message);
-        assert!(
-            e.message.ends_with("proc.run keeps asking first"),
-            "{}",
-            e.message
-        );
-    }
-    assert_eq!(r.core.health().tightenings.len(), 1, "still tightened");
-    assert!(ledgered(&r, "policy.untightened").is_empty());
-    let refused = ledgered(&r, "approval.refused");
-    let undos: Vec<&Value> = refused
-        .iter()
-        .filter(|x| x["act"] == "policy.untighten")
-        .collect();
-    assert_eq!(undos.len(), 4);
-    assert_eq!(
-        (undos[0]["tool"].as_str(), undos[0]["via"].as_str()),
-        (Some("proc.run"), Some("cli"))
-    );
-    assert_eq!(
-        refused
-            .iter()
-            .filter(|x| x["act"] == "policy.tighten")
-            .count(),
-        2
-    );
-    let lines = r.core.narrator.tail();
-    assert!(
-        said(
-            &lines,
-            "approval",
-            "An undo of proc.run's tightening from the CLI through cli did not count"
-        ),
-        "{}",
-        dump(&lines)
-    );
-    // Eddie, in his DM.
-    let ok = untighten(surface("discord", Discord), Some((EDDIE, None)))
-        .await
-        .unwrap();
-    assert_eq!(
-        ok["posture"], "approve",
-        "the rig's config asks for proc.run"
-    );
-    let undone = ledgered(&r, "policy.untightened");
-    assert_eq!(
-        (undone[0]["by"].as_str(), undone[0]["via"].as_str()),
-        (Some("discord:eddie"), Some("discord:dm"))
-    );
-    assert!(r.core.health().tightenings.is_empty());
-}
-
-/// Without `[approval]` a press and an undo behave as an answer does
-/// (review 2's consideration 2): any known surface may press, since a press
-/// only makes calls ask, but the undo loosens, so only the CLI and a Discord
-/// DM make it; a connection no listener named does neither.
-#[tokio::test]
-async fn without_approval_any_surface_tightens_and_only_the_owners_undo() {
+async fn any_known_surface_tightens_and_only_the_owner_in_a_private_place_undoes() {
     use crate::approval::Surface::{Cli, Discord, Unnamed, Web};
     use theseus_protocol::method;
     let r = rig_with(vec![], |cfg| cfg.policy.enforcement = Posture::Notify);
+    bind_places(&r, false);
     // Each names its surface, as a cancel does (theseus-qiy).
     for (label, s, discord, by, undoes) in [
         ("sock#1", Cli, None, "the CLI", true),
-        ("web#1", Web, None, "the web UI", false),
+        ("web#1", Web, None, "the web UI", true),
         (
             "discord",
             Discord,
-            Some((MALLORY, Some("314159265358979323"))),
+            Some((EDDIE, Some(GUILD))),
             "the Discord binding",
             false,
         ),
@@ -5983,6 +5840,13 @@ async fn without_approval_any_surface_tightens_and_only_the_owners_undo() {
             "discord",
             Discord,
             Some((MALLORY, None)),
+            "the Discord binding",
+            false,
+        ),
+        (
+            "discord",
+            Discord,
+            Some((EDDIE, None)),
             "the Discord binding",
             true,
         ),
@@ -6006,6 +5870,12 @@ async fn without_approval_any_surface_tightens_and_only_the_owners_undo() {
         } else {
             let e = u.unwrap_err();
             assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{label}");
+            assert!(
+                e.message.ends_with("proc.run keeps asking first"),
+                "{}",
+                e.message
+            );
+            assert_eq!(r.core.health().tightenings.len(), 1, "still tightened");
             // The refused undo leaves it tightened; the CLI's clears it.
             rpc_as(
                 &r.core,
@@ -6017,18 +5887,55 @@ async fn without_approval_any_surface_tightens_and_only_the_owners_undo() {
             .unwrap();
         }
     }
-    let p = json!({"tool": "proc.run"});
-    let e = rpc_as(&r.core, surface("test", Unnamed), method::POLICY_TIGHTEN, p)
-        .await
-        .unwrap_err();
-    assert!(
-        e.message.contains("never a trusted channel"),
-        "{}",
-        e.message
+    for (client, discord, why) in [
+        (
+            surface("test", Unnamed),
+            None,
+            "which is never a private place",
+        ),
+        (
+            surface("sock#3", Cli),
+            Some((EDDIE, None)),
+            "only the Discord binding can name",
+        ),
+    ] {
+        let p = json!({"tool": "proc.run", "discord": origin(discord)});
+        let e = rpc_as(&r.core, client, method::POLICY_TIGHTEN, p)
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
+        assert!(e.message.contains(why), "{}", e.message);
+        assert!(
+            e.message.ends_with("proc.run keeps its posture"),
+            "{}",
+            e.message
+        );
+    }
+    let refused = ledgered(&r, "approval.refused");
+    let undos: Vec<&Value> = refused
+        .iter()
+        .filter(|x| x["act"] == "policy.untighten")
+        .collect();
+    assert_eq!(undos.len(), 2);
+    assert_eq!(
+        (undos[0]["tool"].as_str(), undos[0]["via"].as_str()),
+        (Some("proc.run"), Some("discord:444444444444444444"))
     );
-    assert_eq!(ledgered(&r, "approval.refused").len(), 3);
-    assert_eq!(ledgered(&r, "policy.tightened").len(), 4);
-    assert_eq!(ledgered(&r, "policy.untightened").len(), 4);
+    assert_eq!(refused.len(), 4, "two undos and two presses");
+    assert_eq!(ledgered(&r, "policy.tightened").len(), 5);
+    assert_eq!(ledgered(&r, "policy.untightened").len(), 5);
+    let lines = r.core.narrator.tail();
+    assert!(
+        said(
+            &lines,
+            "approval",
+            "An undo of proc.run's tightening from discord:271828182845904523 (the Discord \
+             binding) through discord:444444444444444444 did not count: it came from a shared \
+             place"
+        ),
+        "{}",
+        dump(&lines)
+    );
 }
 
 // ---------------------------------------------------------------- parallel tool calls (theseus-a60)
@@ -6715,7 +6622,6 @@ mod parallel {
                 recompile: None,
                 attachments: vec![],
                 arrived: None,
-                config_wait_us: 0,
                 reply_to: None,
             })
             .await
@@ -6935,282 +6841,10 @@ mod parallel {
     }
 }
 
-/// A connection accepted as `surface`, whose peer is `pid`, as a listener
-/// reads it (theseus-6qy).
-fn surface_of(label: &str, s: crate::approval::Surface, pid: u32) -> crate::approval::Client {
-    surface(label, s).with_peer(crate::peer::Peer::process(pid))
-}
-
-/// An answer over a real protocol connection accepted as `client`.
-async fn answer(
-    core: &Arc<Core>,
-    client: crate::approval::Client,
-    corr: &str,
-    approve: bool,
-) -> Result<Value, theseus_protocol::RpcError> {
-    let params = theseus_protocol::ActionConfirmParams {
-        correlation_id: corr.into(),
-        approve,
-        note: None,
-        watch: false,
-        author: None,
-        discord: None,
-        trust: false,
-    };
-    rpc_as(
-        core,
-        client,
-        theseus_protocol::method::ACTION_CONFIRM,
-        serde_json::to_value(params).unwrap(),
-    )
-    .await
-}
-
-/// A Theseus job's process cannot answer an approval (theseus-6qy). With no
-/// `[approval]` section, so that the CLI and the web UI answer as before, an
-/// approval and a decline from a process under a live job wrapper, through
-/// the CLI and through the web UI, are each refused with the job, the pid,
-/// and the program. Each is ledgered as `approval.refused` with the asker,
-/// narrated as a security event, and announced to every connection, and
-/// nothing moves. Then the operator's own answer counts, recorded with its
-/// process, and the write runs.
-#[tokio::test]
-async fn a_jobs_process_cannot_answer_an_approval() {
-    use crate::approval::Surface::{Cli, Web};
-    let job = crate::peer::Standin::start("act_standin");
-    let r = rig(write_script());
-    let (sid, mut rx) = watched_session(&r);
-    let res = turn(&r.core, Some(&sid), "write out.txt").await;
-    let corr = res.awaiting_confirm.clone().expect("the write waits");
-    let exec = res.execution_id.clone().unwrap();
-    let reason = format!(
-        "from a Theseus job's process (job act_standin, pid {}, sleep)",
-        job.child
-    );
-    for (client, approve, via) in [
-        (surface_of("sock#7", Cli, job.child), true, "cli"),
-        (surface_of("sock#8", Cli, job.child), false, "cli"),
-        (surface_of("web#2", Web, job.child), true, "web"),
-    ] {
-        let e = answer(&r.core, client, &corr, approve)
-            .await
-            .expect_err("refused");
-        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
-        assert!(e.message.contains(&reason), "{}", e.message);
-        assert_eq!(
-            (e.data["why"].as_str(), e.data["via"].as_str()),
-            (Some(reason.as_str()), Some(via))
-        );
-    }
-    // Nothing moved.
-    let a = r.core.kernel.action(&corr).unwrap().unwrap();
-    assert_eq!(a.state, theseus_kernel::ActionState::Planned);
-    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
-    assert_eq!(e.state.as_str(), "waiting");
-    assert_eq!(r.core.pending_confirms(&sid).unwrap().len(), 1);
-    assert!(!r.root.join("out.txt").exists());
-    assert!(ledgered(&r, "action.confirm_answered").is_empty());
-    // Loud: the ledger, every connection, the narrative.
-    let rows = ledgered(&r, "approval.refused");
-    assert_eq!(rows.len(), 3);
-    for row in &rows {
-        assert_eq!(row["why"], reason.as_str());
-        assert_eq!(row["from_job"], true);
-        assert_eq!(
-            (row["asker"]["job"].as_str(), row["asker"]["pid"].as_u64()),
-            (Some("act_standin"), Some(job.child as u64))
-        );
-        assert_eq!(row["asker"]["wrapper_pid"], job.wrapper);
-    }
-    assert_eq!(rows[1]["approve"], false);
-    let told = sent(&mut rx, theseus_protocol::notify::APPROVAL_REFUSED);
-    assert_eq!(told.len(), 3);
-    assert_eq!(
-        (
-            told[0]["act"].as_str(),
-            told[0]["session_id"].as_str(),
-            told[0]["tool"].as_str()
-        ),
-        (Some("action.confirm"), Some(sid.as_str()), Some("fs.write"))
-    );
-    assert!(sent(&mut rx, theseus_protocol::notify::CONFIRM_RESOLVED).is_empty());
-    let lines = narrated(&r, &sid);
-    assert!(
-        said(
-            &lines,
-            "approval",
-            &format!("Refused an answer to fs.write {reason} through cli: a job's process cannot answer an approval")
-        ),
-        "{}",
-        dump(&lines)
-    );
-
-    // The operator, outside every job.
-    if crate::peer::tests_support::inside_a_job() {
-        return;
-    }
-    let ok = answer(
-        &r.core,
-        surface_of("sock#1", Cli, std::process::id()),
-        &corr,
-        true,
-    )
-    .await
-    .unwrap();
-    assert_eq!(ok["approved"], true);
-    let answered = ledgered(&r, "action.confirm_answered");
-    assert_eq!(answered[0]["asker"]["pid"], std::process::id());
-    assert!(answered[0]["asker"]["job"].is_null());
-    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
-    assert_eq!(cont.output, "Written.");
-    assert_eq!(
-        std::fs::read_to_string(r.root.join("out.txt")).unwrap(),
-        "approved\n"
-    );
-}
-
-/// The spend reset from a Theseus job's process is refused, and the session
-/// keeps waiting on its budget; the operator's reset counts (theseus-6qy).
-#[tokio::test]
-async fn a_jobs_process_cannot_reset_the_spend() {
-    use crate::approval::Surface::Cli;
-    use theseus_kernel::ExecState;
-    let job = crate::peer::Standin::start("act_spender");
-    let script = vec![
-        Scripted::tools(
-            &"word ".repeat(30_000),
-            &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))],
-        ),
-        Scripted::text("The diff is one line."),
-    ];
-    let r = rig_with(script, |c| c.kernel.spend_limit_usd = 1.40);
-    let res = turn(&r.core, None, "diff these").await;
-    assert_eq!(res.stop_reason, "budget");
-    let q = res.awaiting_confirm.clone().unwrap();
-    let exec = res.execution_id.clone().unwrap();
-    let spent = r
-        .core
-        .kernel
-        .execution(&exec)
-        .unwrap()
-        .unwrap()
-        .budget
-        .spent_micros;
-    let e = answer(&r.core, surface_of("sock#4", Cli, job.child), &q, true)
-        .await
-        .unwrap_err();
-    assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
-    assert!(
-        e.message
-            .contains("from a Theseus job's process (job act_spender"),
-        "{}",
-        e.message
-    );
-    let x = r.core.kernel.execution(&exec).unwrap().unwrap();
-    assert_eq!(
-        (x.state, x.budget.spent_micros, x.budget.resets),
-        (ExecState::Waiting, spent, 0),
-        "nothing was reset"
-    );
-    assert!(ledgered(&r, "budget.reset").is_empty());
-    let refused = ledgered(&r, "approval.refused");
-    assert_eq!(
-        (
-            refused[0]["tool"].as_str(),
-            refused[0]["asker"]["job"].as_str()
-        ),
-        (Some("budget.reset"), Some("act_spender"))
-    );
-    if crate::peer::tests_support::inside_a_job() {
-        return;
-    }
-    let ok = answer(
-        &r.core,
-        surface_of("sock#1", Cli, std::process::id()),
-        &q,
-        true,
-    )
-    .await
-    .unwrap();
-    assert_eq!(ok["resumes"], true);
-    let x = r.core.kernel.execution(&exec).unwrap().unwrap();
-    assert_eq!((x.budget.spent_micros, x.budget.resets), (0, 1));
-    assert_eq!(
-        ledgered(&r, "action.confirm_answered")[0]["asker"]["pid"],
-        std::process::id()
-    );
-}
-
-/// The undo of a tightening loosens, so it is refused from a Theseus job's
-/// process, and the tool keeps asking; a "should have asked" press only
-/// makes things stricter, so it is accepted from one (theseus-6qy).
-#[tokio::test]
-async fn a_jobs_process_can_tighten_but_not_undo_a_tightening() {
-    use crate::approval::Surface::Cli;
-    let job = crate::peer::Standin::start("act_policy");
-    let r = rig(vec![]);
-    let press = |tool: &str| json!({"tool": tool});
-    let pressed = rpc_as(
-        &r.core,
-        surface_of("sock#5", Cli, job.child),
-        theseus_protocol::method::POLICY_TIGHTEN,
-        press("fs.patch"),
-    )
-    .await
-    .expect("a press from a job's process counts");
-    assert_eq!(pressed["tool"], "fs.patch");
-    assert!(r.core.tools.tightened.get("fs.patch").is_some());
-    let e = rpc_as(
-        &r.core,
-        surface_of("sock#6", Cli, job.child),
-        theseus_protocol::method::POLICY_UNTIGHTEN,
-        press("fs.patch"),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
-    assert!(
-        e.message
-            .contains("from a Theseus job's process (job act_policy"),
-        "{}",
-        e.message
-    );
-    assert!(
-        e.message.contains("fs.patch keeps asking first"),
-        "{}",
-        e.message
-    );
-    assert!(
-        r.core.tools.tightened.get("fs.patch").is_some(),
-        "still tightened"
-    );
-    let refused = ledgered(&r, "approval.refused");
-    assert_eq!(
-        (refused[0]["act"].as_str(), refused[0]["from_job"].as_bool()),
-        (Some("policy.untighten"), Some(true))
-    );
-    if crate::peer::tests_support::inside_a_job() {
-        return;
-    }
-    rpc_as(
-        &r.core,
-        surface_of("sock#1", Cli, std::process::id()),
-        theseus_protocol::method::POLICY_UNTIGHTEN,
-        press("fs.patch"),
-    )
-    .await
-    .expect("the operator's undo counts");
-    assert!(r.core.tools.tightened.get("fs.patch").is_none());
-    assert_eq!(
-        ledgered(&r, "policy.untightened")[0]["asker"]["pid"],
-        std::process::id()
-    );
-}
-
 // ---------------------------------------------------------------- the limit follows the config (theseus-3pj)
 
 /// A lower `spend_limit_usd`, and a restart: the open session takes it in
-/// startup (a config that may act at once), with nothing else changed, and
+/// startup, with nothing else changed, and
 /// its next turn's first call no longer fits, so the turn asks, as usual.
 #[tokio::test]
 async fn a_lowered_limit_makes_the_next_turn_over_it_ask() {
@@ -7712,6 +7346,14 @@ fn bound(core: &Core, place: &str) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place(place, &rec.session_id).unwrap();
+    // A DM's person is its owner once the binding binds it (the place rule).
+    if place.starts_with("dm:") {
+        core.runner.place_rule.bind_one(crate::places::BoundPlace {
+            target: format!("discord:{place}"),
+            name: "DM".into(),
+            private: false,
+        });
+    }
     rec.session_id
 }
 
@@ -7933,7 +7575,6 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await;

@@ -1,10 +1,9 @@
-//! Who can view a guild channel (theseus-sgh, spec §3.9 "Approval"). A listed
-//! guild channel is a trusted channel only while nobody outside
-//! `[approval].trusted_users` can view it. Knowing who can view it takes the
-//! member list, which Discord gives only to a bot whose Server Members intent
-//! is on, a setting in the developer portal that the application's flags
-//! report. Without it a listed channel cannot be verified, and so it is not
-//! trusted.
+//! Who can view a guild channel: the place rule's one read, at the binding's
+//! start, of a channel bound `private = true` (theseus-nbsh), which health
+//! shows. Knowing who can view it takes the member list, which Discord gives
+//! only to a bot whose Server Members intent is on, a setting in the
+//! developer portal that the application's flags report. Without it health
+//! says the channel's viewers could not be read.
 
 use twilight_model::channel::permission_overwrite::PermissionOverwrite;
 use twilight_model::channel::ChannelType;
@@ -13,11 +12,6 @@ use twilight_model::id::marker::{GuildMarker, RoleMarker, UserMarker};
 use twilight_model::id::Id;
 use twilight_model::oauth::ApplicationFlags;
 use twilight_util::permission_calculator::PermissionCalculator;
-
-/// Why a listed guild channel is not trusted when the intent is off.
-pub const NO_INTENT: &str = "cannot be verified without the Server Members intent (Discord \
-                             developer portal: the bot's Privileged Gateway Intents), so it is \
-                             not trusted";
 
 /// The developer portal has the Server Members intent on for this
 /// application: a verified bot's flag, or the one for a bot in fewer than a
@@ -29,12 +23,6 @@ pub fn members_intent(flags: Option<ApplicationFlags>) -> bool {
                 | ApplicationFlags::GATEWAY_GUILD_MEMBERS_LIMITED,
         )
     })
-}
-
-/// The verdict on a listed guild channel when its members cannot be read:
-/// without the intent, not trusted. None when the check can go ahead.
-pub fn unverifiable(members_intent: bool) -> Option<(bool, String)> {
-    (!members_intent).then(|| (false, NO_INTENT.to_string()))
 }
 
 /// A guild member, as the check needs one.
@@ -56,23 +44,6 @@ pub struct Guild<'a> {
 /// Why a guild channel's audience cannot be read without the intent (M4
 /// 19a): it then counts as public, and owner-only material is withheld there.
 pub const NO_INTENT_AUDIENCE: &str = "the bot's Server Members intent is off";
-
-/// The members outside `trusted` who can view a channel of `kind` with
-/// these overwrites. The bot itself does not count; any other bot does, like
-/// anyone else.
-pub fn outsiders<'m>(
-    guild: &Guild<'_>,
-    kind: ChannelType,
-    overwrites: &[PermissionOverwrite],
-    members: &'m [Member],
-    trusted: &[u64],
-    bot: u64,
-) -> Vec<&'m Member> {
-    can_view(guild, kind, overwrites, members, bot)
-        .into_iter()
-        .filter(|m| !trusted.contains(&m.id))
-        .collect()
-}
 
 /// Every member who can view a channel of `kind` with these overwrites, the
 /// bot aside (M4 19a): the audience of the session there.
@@ -109,41 +80,6 @@ pub fn can_view<'m>(
                 .contains(Permissions::VIEW_CHANNEL)
         })
         .collect()
-}
-
-/// The verdict on a channel, in words: trusted when nobody outside the
-/// trusted users can view it.
-pub fn verdict(outside: &[&Member], checked: usize) -> (bool, String) {
-    if outside.is_empty() {
-        return (
-            true,
-            format!("only trusted users can view it ({checked} members checked)"),
-        );
-    }
-    let names: Vec<String> = outside
-        .iter()
-        .take(5)
-        .map(|m| format!("{} ({})", m.name, m.id))
-        .collect();
-    let more = outside.len().saturating_sub(names.len());
-    (
-        false,
-        format!(
-            "{} {} outside trusted_users can view it: {}{}",
-            outside.len(),
-            if outside.len() == 1 {
-                "member"
-            } else {
-                "members"
-            },
-            names.join(", "),
-            if more > 0 {
-                format!(", and {more} more")
-            } else {
-                String::new()
-            }
-        ),
-    )
 }
 
 #[cfg(test)]
@@ -194,26 +130,20 @@ mod tests {
             member(OWNER, "owner", &[]),
             member(BOT, "Theseus", &[]),
         ];
-        outsiders(
-            &guild,
-            ChannelType::GuildText,
-            overwrites,
-            &members,
-            &[EDDIE, OWNER],
-            BOT,
-        )
-        .into_iter()
-        .map(|m| m.id)
-        .collect()
+        can_view(&guild, ChannelType::GuildText, overwrites, &members, BOT)
+            .into_iter()
+            .map(|m| m.id)
+            .filter(|id| ![EDDIE, OWNER].contains(id))
+            .collect()
     }
 
-    /// A channel everyone can view is not trusted; one that hides from
-    /// `@everyone` and lets only Eddie in is; a role that lets someone
-    /// untrusted in, or an administrator, makes it untrusted again. The owner
-    /// can view everything, so the owner must be trusted, and the bot itself
-    /// never counts.
+    /// Who can view a channel, besides Eddie and the guild's owner: everyone,
+    /// for a channel everyone can view; nobody, for one that hides from
+    /// `@everyone` and lets only Eddie in; a role that lets someone in, or an
+    /// administrator, shows them again. The owner can view everything, and
+    /// the bot itself never counts.
     #[test]
-    fn a_channel_is_trusted_only_while_nobody_untrusted_can_view_it() {
+    fn who_can_view_a_channel_follows_its_roles_and_overwrites() {
         use PermissionOverwriteType::{Member as M, Role as R};
         let open = [(
             GUILD,
@@ -239,84 +169,7 @@ mod tests {
         assert!(check(&open, &named_out).is_empty());
     }
 
-    #[test]
-    fn the_verdict_names_who_can_view_it() {
-        let m = member(MALLORY, "mallory", &[]);
-        assert_eq!(
-            verdict(&[&m], 4),
-            (
-                false,
-                "1 member outside trusted_users can view it: mallory (222222222222222222)".into()
-            )
-        );
-        let many: Vec<Member> = (0..7)
-            .map(|i| member(100000000000000000 + i, &format!("m{i}"), &[]))
-            .collect();
-        let refs: Vec<&Member> = many.iter().collect();
-        let (trusted, why) = verdict(&refs, 9);
-        assert!(!trusted && why.starts_with("7 members") && why.ends_with(", and 2 more"));
-        assert_eq!(
-            verdict(&[], 3),
-            (
-                true,
-                "only trusted users can view it (3 members checked)".into()
-            )
-        );
-    }
-
-    /// A guild channel `[approval]` lists, checked by a bot without the
-    /// Server Members intent (the real bot's case, whose gateway intents
-    /// lack GUILD_MEMBERS and whose portal toggle is read from its flags):
-    /// not trusted, health says why, and an answer from there is refused.
-    #[test]
-    fn a_guild_channel_without_the_intent_is_not_trusted() {
-        use theseus_core::approval::{Answerer, Approval, Checked, Surface};
-        let channel = 333333333333333333u64;
-        let a = Approval::new(Some(&theseus_core::config::ApprovalConfig {
-            trusted_users: vec![format!("discord:{EDDIE}")],
-            channels: vec![format!("discord:{channel}")],
-        }));
-        let (trusted, detail) = unverifiable(members_intent(None)).expect("cannot check");
-        assert_eq!(
-            unverifiable(true),
-            None,
-            "with the intent the check goes ahead"
-        );
-        a.report(
-            channel,
-            Checked {
-                trusted,
-                detail,
-                at_ms: 1,
-            },
-        );
-        assert!(!a.trusts_guild_channel(channel));
-        let s = a.status(true, Some("ready"));
-        assert_eq!(s.channels[0].state, "not_trusted");
-        assert!(
-            s.channels[0]
-                .detail
-                .starts_with("cannot be verified without the Server Members intent"),
-            "{s:?}"
-        );
-        let from_there = Answerer {
-            label: "discord:eddie".into(),
-            surface: Surface::Discord,
-            discord: Some(theseus_protocol::DiscordOrigin {
-                user_id: EDDIE.to_string(),
-                channel_id: channel.to_string(),
-                guild_id: Some(GUILD.to_string()),
-            }),
-            peer: Default::default(),
-        };
-        let why = a.judge(&from_there).unwrap_err().why;
-        assert!(
-            why.contains("is not trusted: cannot be verified without the Server Members intent"),
-            "{why}"
-        );
-    }
-
-    /// Without the intent's flag, a listed guild channel cannot be verified.
+    /// Without the intent's flag, a channel's viewers cannot be read.
     #[test]
     fn the_intent_comes_from_the_application_flags() {
         assert!(!members_intent(None));
@@ -327,6 +180,5 @@ mod tests {
         assert!(members_intent(Some(
             ApplicationFlags::GATEWAY_GUILD_MEMBERS | ApplicationFlags::EMBEDDED
         )));
-        assert!(NO_INTENT.starts_with("cannot be verified without the Server Members intent"));
     }
 }

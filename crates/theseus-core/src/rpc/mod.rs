@@ -25,7 +25,6 @@ mod tests;
 mod trust;
 
 pub use bindings::BindingBoard;
-pub use server::ACTS;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicU64;
@@ -75,9 +74,8 @@ pub struct Core {
     pub secrets: Arc<SecretBoard>,
     /// The last start's phases, for health and the Observatory.
     pub startup_log: Arc<StartupLog>,
-    /// The export pipeline, once built after serving, when the config may act
-    /// and its headers secret resolves (`install_telemetry`). Until then
-    /// nothing is exported.
+    /// The export pipeline, once built after serving, when its headers
+    /// secret resolves (`install_telemetry`). Until then nothing is exported.
     telemetry: std::sync::OnceLock<Telemetry>,
     telemetry_off: Telemetry,
     /// The narrative (`narrative = true`): live lines and a bounded tail.
@@ -92,11 +90,8 @@ pub struct Core {
     /// What must reach a channel, written when it becomes true; a binding
     /// only delivers it (theseus-q4v).
     pub outbox: Arc<crate::outbox::Outbox>,
-    /// `[approval]`: who may answer a waiting call, and through which
-    /// channels, with the Discord binding's checks (theseus-sgh).
-    pub approval: crate::approval::Approval,
-    /// Whether the config may act: a start from the copy of the vault's note
-    /// answers reads until the vault confirms it (theseus-2fo).
+    /// Where the config came from, and what the vault said of the copy a
+    /// start served from (theseus-2fo, theseus-zmgb).
     pub config_gate: Arc<ConfigGate>,
     /// Set once the daemon is to restart onto the vault's changed note.
     restart: tokio::sync::watch::Sender<Option<ConfigRestart>>,
@@ -182,17 +177,12 @@ pub const HISTORY_WHOLE_EVERY_MS: u64 = 24 * 60 * 60 * 1000;
 /// (theseus-lv2): a few milliseconds of work, so a stop waits for little.
 const TERMS_STRETCH: usize = 512;
 
-/// A moment for the answers to the requests that waited at the gate to reach
-/// their clients before a restart closes their connections.
-const RESTART_GRACE: std::time::Duration = std::time::Duration::from_millis(100);
-
 impl Core {
     /// The daemon's core, from its config and the secret board, which may
     /// still be resolving: nothing here waits for a secret (theseus-qa0).
     /// Each provider and the scrubber read their values from the board. The
     /// telemetry pipeline is built after serving (`install_telemetry`), once
-    /// the vault confirms the config (theseus-2fo) and its headers secret
-    /// resolves, so its client stays off the start path.
+    /// its headers secret resolves, so its client stays off the start path.
     pub fn new(
         cfg: Config,
         secrets: Arc<SecretBoard>,
@@ -287,9 +277,6 @@ impl Core {
             return theseus_protocol::TelemetryStatus::off();
         };
         let detail = match Self::telemetry_headers(&self.cfg) {
-            _ if !self.config_gate.is_open() => {
-                "the vault has not confirmed the config yet".to_string()
-            }
             Some(name) => match self.secrets.states().get(&name) {
                 Some(SecretState::Failed(why)) => {
                     format!("its headers secret {name} did not resolve: {why}")
@@ -321,14 +308,10 @@ impl Core {
         out
     }
 
-    /// Build the telemetry pipeline after serving, once the vault confirms
-    /// the config (theseus-2fo) and its headers secret resolves. Fail
-    /// closed: nothing is exported without its headers, and a failure waits
-    /// for the secret's retry.
+    /// Build the telemetry pipeline after serving, once its headers secret
+    /// resolves. Fail closed: nothing is exported without its headers, and a
+    /// failure waits for the secret's retry.
     pub async fn install_telemetry(self: Arc<Self>) {
-        if !self.config_gate.opened().await {
-            return;
-        }
         let Some(name) = Self::telemetry_headers(&self.cfg) else {
             if self.telemetry.get().is_none() {
                 let _ = self.build_telemetry(None);
@@ -466,18 +449,11 @@ impl Core {
                 .flatten()
                 .map_or(0, |s| theseus_kernel::usd_to_micros(s.cost_usd))
         });
-        // Startup writes nothing a copy's word decides (theseus-2fo): with a
-        // config the vault has not confirmed, a store that still holds unit
-        // budgets refuses to start, since their dollar limit is the config's.
-        let kernel_cfg = theseus_kernel::KernelConfig {
-            unconfirmed_config: !config_gate.is_open(),
-            ..cfg.kernel.to_kernel_config()
-        };
         let kernel = Arc::new(
             Kernel::new(
                 store.shared(),
                 Arc::new(theseus_kernel::RealClock),
-                kernel_cfg,
+                cfg.kernel.to_kernel_config(),
             )
             .with_legacy_spend(legacy_spend),
         );
@@ -594,7 +570,6 @@ impl Core {
             None => (cfg.model.live.clone(), "config".to_string()),
         };
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
-        let approval = crate::approval::Approval::new(cfg.approval.as_ref());
         // Nothing starts, and nothing is looked for, until after serving.
         let index = Arc::new(crate::tender::IndexTender::new(
             cfg.index.clone(),
@@ -624,7 +599,6 @@ impl Core {
             shutdown: tokio::sync::Notify::new(),
             bindings: BindingBoard::default(),
             outbox,
-            approval,
             config_gate,
             restart: tokio::sync::watch::Sender::new(None),
             web_refusals: Arc::default(),
@@ -637,9 +611,8 @@ impl Core {
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);
-        // Under a config that may act, startup's step 2 gave the open
-        // sessions a changed spend limit (theseus-3pj); under a copy, the
-        // vault's confirmation does (`config_gate::confirm`).
+        // Startup's step 2 gave the open sessions a changed spend limit
+        // (theseus-3pj).
         core.said_limits_followed(&startup.limits_followed);
         Ok(core)
     }
@@ -933,11 +906,11 @@ impl Core {
         self.live.read().unwrap().clone()
     }
 
-    /// Restart onto the vault's changed config note (theseus-2fo). The
-    /// requests waiting at the gate are answered, then the clean shutdown
-    /// path runs, and `theseusd` execs its own image with its own arguments
-    /// once it sees `restart_requested`.
-    pub async fn restart_onto(&self, r: ConfigRestart) {
+    /// Restart onto the vault's changed config note (theseus-2fo): the clean
+    /// shutdown path runs, and `theseusd` execs its own image with its own
+    /// arguments once it sees `restart_requested`. A turn the stop interrupts
+    /// resumes after it, as after any stop (theseus-zmgb).
+    pub fn restart_onto(&self, r: ConfigRestart) {
         tracing::warn!(
             reference = %r.reference,
             tables = %r.tables.join(", "),
@@ -951,11 +924,10 @@ impl Core {
             None,
             None,
             "The vault's config note changed since the copy this daemon started from ({}). \
-             Nothing acted on the copy; the daemon restarts onto the vault's version.",
+             The daemon restarts onto the vault's version.",
             r.tables.join(", ")
         );
         self.config_gate.restarting(r.clone());
-        tokio::time::sleep(RESTART_GRACE).await;
         self.restart.send_replace(Some(r));
         self.stop();
     }

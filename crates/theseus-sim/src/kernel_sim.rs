@@ -28,8 +28,7 @@
 //! The limit moves (theseus-3pj). Half the executions open with the config's
 //! limit and follow it; the rest name their own, which never changes. Now and
 //! then the operator changes the config's limit and the process restarts onto
-//! it; a third of all starts serve from a copy the vault has not confirmed,
-//! and the vault's word then applies the limit (`follow_spend_limit`). Every
+//! it, whose startup applies it. Every
 //! open execution that follows the config has the config's limit after every
 //! step, and each change of an execution's limit is a `budget.limit_changed`
 //! row from the old limit to the new. A raise leaves none of them waiting on
@@ -162,13 +161,11 @@ pub struct SimReport {
     pub legacy_migrated: u64,
     /// Restarts onto a changed spend limit (theseus-3pj), and how many
     /// raised it; the open executions that took a new limit; the budget waits
-    /// a raise let proceed; and the starts from an unconfirmed copy, whose
-    /// limit the vault's word applied after startup.
+    /// a raise let proceed.
     pub limit_changes: u64,
     pub limit_raises: u64,
     pub limits_followed: u64,
     pub limit_proceeds: u64,
-    pub confirmed_after_startup: u64,
     /// Wakes a turn set (DD8), the repeating ones among them (37a), those
     /// a turn took, the series put back at their next occurrence, the
     /// occurrences passed over, the series `until` ended, and the cancels.
@@ -325,7 +322,6 @@ fn cfg(p: &SimParams, spend_limit_micros: Micros) -> KernelConfig {
         confirm_ttl_ms: 60_000,
         heartbeat_ms: 60_000,
         fault_after_startup_step: None,
-        unconfirmed_config: false,
         // A minute, so a run of a few virtual minutes puts series back,
         // and a crash passes occurrences over.
         min_repeat_ms: 60_000,
@@ -451,11 +447,7 @@ impl World {
     }
 
     /// The process is gone, and a new one starts under `self.limit`. A start
-    /// may die inside a startup step, and is tried again. A third of the
-    /// starts serve from a copy of the config the vault has not confirmed
-    /// (theseus-2fo): their startup leaves every limit as it was, and the
-    /// vault's word then gives the open executions the config's
-    /// (`follow_spend_limit`).
+    /// may die inside a startup step, and is tried again.
     fn restart(&mut self) -> Result<()> {
         // The process dies: guards vanish without ending turns.
         let guards: Vec<_> = self.guards.drain().map(|(_, g)| g).collect();
@@ -474,7 +466,6 @@ impl World {
         // Sometimes the restart itself dies inside a startup step; try again.
         loop {
             let mut c = cfg(&self.p, self.limit);
-            c.unconfirmed_config = self.chance(0.3);
             if self.chance(0.3) {
                 c.fault_after_startup_step = Some(self.rng.random_range(1..=4));
             }
@@ -498,18 +489,7 @@ impl World {
                     }
                     self.rep.unknowns += rep.reconcile.marked_unknown.len() as u64;
                     self.rep.resolved_unknowns += rep.reconcile.resolved_unknown.len() as u64;
-                    let followed = if c.unconfirmed_config {
-                        if !rep.limits_followed.is_empty() {
-                            bail!(
-                                "startup under an unconfirmed copy changed {} limits",
-                                rep.limits_followed.len()
-                            );
-                        }
-                        self.rep.confirmed_after_startup += 1;
-                        k.follow_spend_limit()?
-                    } else {
-                        rep.limits_followed
-                    };
+                    let followed = rep.limits_followed;
                     self.rep.limits_followed += followed.len() as u64;
                     self.rep.limit_proceeds +=
                         followed.iter().filter(|f| f.proceeds).count() as u64;

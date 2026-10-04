@@ -38,11 +38,9 @@ pub struct TurnStarted<'a> {
     pub attachments: usize,
     /// Who asked: a client (`web#3`), or `harness`.
     pub author: &'a str,
-    /// What it waited for, in microseconds from its arrival: the vault's
-    /// confirmation of the config (theseus-2fo), its secrets (theseus-qa0),
-    /// arrival to admission (the others included), and admission and the
-    /// turn lock alone.
-    pub config_us: u64,
+    /// What it waited for, in microseconds from its arrival: its secrets
+    /// (theseus-qa0), arrival to admission (the secrets included), and
+    /// admission and the turn lock alone.
     pub secrets_us: u64,
     pub lock_us: u64,
     pub admit_us: u64,
@@ -71,21 +69,12 @@ impl Fact for TurnStarted<'_> {
     }
 
     fn span(&self, trace: &mut Trace) {
-        if self.config_us > 0 {
-            trace.record(
-                "config.wait",
-                "lock",
-                0,
-                self.config_us,
-                json!({"note": "the vault's confirmation of the config this start served from (theseus-2fo)"}),
-            );
-        }
-        let secrets_end = self.config_us + self.secrets_us;
+        let secrets_end = self.secrets_us;
         if self.secrets_us > 0 {
             trace.record(
                 "secrets.wait",
                 "lock",
-                self.config_us,
+                0,
                 secrets_end,
                 json!({"provider": self.target.provider, "note": "the provider's key and the first round of secrets (theseus-qa0)"}),
             );
@@ -101,15 +90,6 @@ impl Fact for TurnStarted<'_> {
 
     fn narrate(&self, say: &mut Say<'_>) {
         let t = self.target;
-        if self.config_us > 0 {
-            say.line(
-                Turn,
-                format!(
-                    "Waited {} for the vault to confirm the config this daemon started from:                  nothing acts on its copy's word.",
-                    narrative::duration(self.config_us / 1000)
-                ),
-            );
-        }
         if self.secrets_us > 0 {
             say.line(
                 Turn,

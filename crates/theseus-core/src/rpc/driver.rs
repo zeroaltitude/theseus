@@ -456,7 +456,6 @@ impl Core {
                 recompile: None,
                 attachments: vec![],
                 arrived: None,
-                config_wait_us: 0,
                 reply_to: None,
             })
             .await
