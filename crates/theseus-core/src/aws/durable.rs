@@ -440,8 +440,14 @@ impl Shipper {
             let sealed = seg <= self.saved.sealed_to
                 || batch.sealed.contains(&seg)
                 || wal::segment_path(&self.paths.wal, seg + 1).exists();
-            let done = matches!(self.saved.tail, Some((s, t)) if s == seg && to <= t);
-            if !sealed && !done {
+            // A restart between a tail's save and the batch's reads that
+            // tail's bytes again: ship only what follows it, so the tails
+            // tile the segment with no overlap (their ends are frames' ends).
+            let from = match self.saved.tail {
+                Some((s, t)) if s == seg && t > from => t,
+                _ => from,
+            };
+            if !sealed && from < to {
                 self.ship_tail(seg, from, to, batch.ends[i]).await?;
             }
         }

@@ -738,6 +738,43 @@ async fn a_restart_mid_upload_resumes_without_a_duplicate_or_a_gap() {
     assert!(once.values().all(|n| *n == 1), "{once:?}");
 }
 
+/// A restart after a tail shipped but before its batch's rows and cursor
+/// were written, with more frames written meanwhile: the tail is not sent
+/// again, and the next starts where it ended, so the tails tile the open
+/// segment with no overlap and no gap.
+#[tokio::test]
+async fn a_tail_shipped_before_a_crash_is_not_shipped_again_in_part() {
+    let fake = Fake::start();
+    let rig = Rig::new(&fake);
+    rig.write(0, 2);
+    assert_eq!(rig.segments(), vec![1]);
+    fake.state.lock().unwrap().refuse = Some("BatchWriteItem".into());
+    let mut s = rig.shipper();
+    assert!(matches!(s.pass().await, Err(Halt::Retry(_))));
+    assert_eq!(
+        fake.keys(&format!("{PREFIX}wal/000000001.seg.tail/")).len(),
+        1
+    );
+    drop(s);
+    rig.write(2, 2);
+    assert_eq!(rig.segments(), vec![1], "still one open segment");
+    fake.state.lock().unwrap().refuse = None;
+    let mut s = rig.shipper();
+    s.pass().await.unwrap();
+    let tails = fake.keys(&format!("{PREFIX}wal/000000001.seg.tail/"));
+    assert_eq!(tails.len(), 2, "{tails:?}");
+    assert_eq!(shipped_segment(&fake, 1), Some(rig.segment(1)));
+    let once = sends(&fake);
+    assert!(once.values().all(|n| *n == 1), "{once:?}");
+    // The rows of both tails, and the cursor's pending rows written.
+    let items = fake.state.lock().unwrap().items.clone();
+    let wal_rows = items
+        .keys()
+        .filter(|(pk, _)| pk == "theseus-lab#wal")
+        .count();
+    assert_eq!(wal_rows, 2);
+}
+
 /// Each blob ships once, with its SHA-256 and its row; a new one ships
 /// alone; a restart ships none again; and a file whose bytes are not its
 /// name is left.
