@@ -114,7 +114,7 @@ enum Cmd {
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
     /// its parent, a task's brief from the reply that started it), each with theirs. NODE is a
-    /// node's id, as `theseus history --json` and the Observatory's Nodes panel show it.
+    /// node's id, as `theseus history --json` and the cockpit's Nodes list (Ledger) show it.
     Reach {
         #[arg(value_name = "NODE")]
         node: String,

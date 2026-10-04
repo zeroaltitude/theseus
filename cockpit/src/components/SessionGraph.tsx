@@ -149,7 +149,7 @@ export function SessionGraph({ nodes }: { nodes: NodeInfo[] }) {
 
 /** A node's reach (theseus-n4m, step 12a), as the Observatory's cell says it: read when clicked, and again on a
  * click; each generation in its tooltip. */
-function Reach({ id }: { id: string }) {
+export function Reach({ id }: { id: string }) {
   const [r, setR] = useState<NodeReachResult | string | null>(null)
   const ask = () => {
     setR('reading…')

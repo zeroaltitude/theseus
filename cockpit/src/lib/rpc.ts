@@ -54,8 +54,13 @@ export async function call<T = unknown>(method: string, params?: unknown): Promi
  * them again, so they are never polled. */
 export const PUSHED = new Set(['session.list', 'execution.list', 'confirm.list', 'task.list'])
 
+/** Paused (the Observatory's live/paused, theseus-vm3n.6): no read runs on a timer and the ledger's follow waits, so
+ * the views hold still to be read. The push still comes, as it did there. The heartbeat bar's refresh reads
+ * everything once, paused or not. */
+export const usePaused = create<{ paused: boolean }>(() => ({ paused: false }))
+
 /** A read. `interval` in ms; 0 reads once. A read the push keeps fresh (`PUSHED`) ignores its interval: the push
- * reads it again. Disabled while the link is down. */
+ * reads it again. Disabled while the link is down, and polled only while not paused. */
 export function useRpc<T>(
   method: string,
   params?: unknown,
@@ -63,6 +68,7 @@ export function useRpc<T>(
   opts?: Partial<UseQueryOptions<T>>,
 ) {
   const open = useConn((s) => s.status === 'open')
+  const paused = usePaused((s) => s.paused)
   const pushed = PUSHED.has(method)
   return useQuery<T>({
     queryKey: [method, params ?? null],
@@ -71,6 +77,8 @@ export function useRpc<T>(
     enabled: open && (opts?.enabled ?? true),
     staleTime: pushed ? Infinity : interval > 0 ? interval / 2 : 30_000,
     ...opts,
+    // A caller's own interval stops too.
+    ...(paused ? { refetchInterval: false as const } : {}),
   })
 }
 

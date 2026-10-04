@@ -1,10 +1,12 @@
 // Continue a session from the cockpit: one turn per send. The reply streams into the transcript above, through
 // the session's watch; this only submits. Enter sends, Shift+Enter is a new line. A send while a turn runs queues
 // behind it, as the Observatory's did (theseus-vm3n.6): the turn is never refused, and the daemon admits it in order.
+// Each send shows in the transcript as a draft until the session writes it (`lib/drafts.ts`).
 import { useState } from 'react'
 import { SendHorizontal } from 'lucide-react'
 import type { ProfileList, ProviderErrorData } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
+import { addDraft, dropDraft, failDraft } from '@/lib/drafts'
 import { cn } from '@/lib/format'
 
 export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean }) {
@@ -19,12 +21,18 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
     if (!input) return
     setPending((n) => n + 1)
     setError(null)
+    const draft = addDraft(sessionId, input)
     // The call resolves when the turn ends; the transcript follows it live meanwhile.
     call('turn.submit', { session_id: sessionId, input, profile: profile || undefined })
+      .then(() => dropDraft(draft))
       .catch((e: any) => {
-        // A turn the provider failed says its class, and whether it may be tried again.
         const data = e?.data as ProviderErrorData | undefined
-        setError(`${data?.class ? `turn failed · class ${data.class}${data.transient ? ' · transient' : ' · permanent'}${data.usage_unknown ? ' · usage unknown (reservation held)' : ''}: ` : ''}${e?.message ?? String(e)}`)
+        // Never admitted (no turn): the draft says why, where it was.
+        if (!data?.turn_id) { failDraft(draft, e?.message ?? String(e)); return }
+        // A turn the provider failed says its class, and whether it may be tried again; the transcript shows the
+        // turn's failure from its row.
+        dropDraft(draft)
+        setError(`${data.class ? `turn failed · class ${data.class}${data.transient ? ' · transient' : ' · permanent'}${data.usage_unknown ? ' · usage unknown (reservation held)' : ''}: ` : ''}${e?.message ?? String(e)}`)
       })
       .finally(() => setPending((n) => n - 1))
     setText('')

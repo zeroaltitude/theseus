@@ -17,7 +17,7 @@ for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
   the provider's own counts.
 - Approvals from Discord, the terminal, or the web, including "approve, and trust this session". Without an
   `[approval]` section only the owner answers, and a question nobody answers expires at the time its card gives.
-- What needs you, the same everywhere: one rule, shown as a pill in the terminal, the web UI, and the cockpit.
+- What needs you, the same everywhere: one rule, shown as a pill in the terminal and the cockpit.
   Changes are pushed live to every surface instead of polled. `theseus watch --all` follows every session, and
   `theseus wait` returns the moment a session needs you or settles.
 - A terminal UI, `theseus tui`: every session in one sidebar, the one that needs you a key away, its question
@@ -108,9 +108,10 @@ These are built and tested in their own crates, and each is wired into the core 
   environment, so it does nothing extraordinary or complex for trust, safety, or provenance, three reviewers ranked
   what could go. Decided and done: the housekeeping (Tier 0), an install that builds only what ships (5.2),
   credentials at launch (Tier 3), and on October 3 the place rule in place of labels (Tier 2), integrity's light
-  pieces (1.1), the sandbox's trims (Tier 4), one gate lock mode with a busy allowance (5.3), and the design document
-  in chapters (6.5). Decided and under way: the exam's trims (6.2), a bounded history in the cockpit with a time
-  index (6.3), and the cockpit replacing the Observatory after a parity check (6.4). Kept by his choice: the
+  pieces (1.1), the sandbox's trims (Tier 4), one gate lock mode with a busy allowance (5.3), the design document
+  in chapters (6.5), and the cockpit in place of the Observatory (6.4): after a parity check, the cockpit serves at
+  `/` and `web/` is gone. Decided and under way: the exam's trims (6.2) and a bounded history in the cockpit with a
+  time index (6.3). Kept by his choice: the
   ontology, Jev's security judgment and its ladder, isolation (the job host and the separate-user install), the
   memory compiler, and several vector spaces. At 14:20 on October 3 he answered the rest: every pick of the engine's
   tier (Tier 7) is approved, to be built once he has the explanations he asked for.
@@ -229,6 +230,5 @@ the next pass re-estimates them.
 - A sandboxed command with no network and no secret still waits in a session that read outside text.
 - Whether anyone else can view a Discord channel you bound private is checked when the binding starts, so a member
   added mid-run is seen at the next start.
-- The web UI doesn't show a cancel's verdict yet; the terminal, Discord, and the cockpit do.
 - On this machine a turn's harness overhead reads well over the README's 5 ms, mostly the disk's fsyncs under WSL,
   in debug builds. A measurement on a release build is still to come.

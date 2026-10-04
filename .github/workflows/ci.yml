@@ -3,8 +3,8 @@ on:
   push:
     branches: [main]
   pull_request:
-# Only what passes on a stock runner (theseus-o8nk): formatting, clippy as the gate runs it, the Observatory's
-# committed build, and cargo-deny's licences, bans, and sources. The suite needs this machine (user namespaces,
+# Only what passes on a stock runner (theseus-o8nk): formatting, clippy as the gate runs it, the cockpit's lint,
+# tests, and build, and cargo-deny's licences, bans, and sources. The suite needs this machine (user namespaces,
 # cgroups, a fake `op`), so it runs in the commit gate, scripts/gate.sh, and not here: 190 of the 200 runs before
 # this change failed at `cargo test`, and never reached a later step.
 jobs:
@@ -20,11 +20,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: web UI builds and the committed dist is current
-        run: |
-          cd web && npm ci && npm run build
-          cd .. && git diff --exit-code --stat crates/theseusd/web/dist
+          cache-dependency-path: cockpit/package-lock.json
+      # The web UI, the cockpit (theseus-vm3n.6): its build is not committed, so this checks that it builds.
+      - name: the cockpit lints, passes its tests, and builds
+        run: cd cockpit && npm ci && npm run lint && npm test && npm run build
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -q -- -D warnings
