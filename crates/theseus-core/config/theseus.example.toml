@@ -267,7 +267,9 @@ search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Bra
 # and durable infrastructure is made only through stacks: aws.stack.plan,
 # .apply, .status, and .delete. aws.describe looks AWS's API up in the local
 # catalog, aws.whoami asks AWS who Theseus is, aws.s3.list lists buckets and
-# prefixes, and aws.cost reads the month's spend. A call that returns a secret
+# prefixes, aws.s3.get and .put read and write objects, aws.logs.query and
+# .tail read CloudWatch Logs, aws.trail reads CloudTrail's event history, and
+# aws.cost reads the month's spend. A call that returns a secret
 # is invalid input until step 14c. `theseus aws bootstrap` makes the account's
 # foundation and posture stacks; then name its owner role here, and every call
 # signs in a role session named by its execution. With no table, no AWS tool
@@ -357,6 +359,11 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # "aws.stack.status" = "approve"
 # "aws.stack.delete" = "approve"
 # "aws.cost" = "approve"
+# "aws.s3.get" = "approve"
+# "aws.s3.put" = "approve"
+# "aws.logs.query" = "approve"
+# "aws.logs.tail" = "approve"
+# "aws.trail" = "approve"
 
 # Per-MCP postures, for when MCP servers land (M7): "server" covers every tool
 # from that server, "server/tool" one tool. An MCP tool's posture comes from

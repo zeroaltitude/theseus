@@ -45,26 +45,36 @@ use crate::secrets::{Secret, SecretBoard, SecretState};
 
 pub mod bootstrap;
 pub mod cost;
+pub mod logs;
+pub mod s3;
 pub mod session;
 pub mod stack;
 pub mod tend;
 pub mod tools;
+pub mod trail;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_c2;
+#[cfg(test)]
+mod tests_c3;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 9] = [
+pub const NAMES: [&str; 14] = [
     "aws.call",
     "aws.cost",
     "aws.describe",
+    "aws.logs.query",
+    "aws.logs.tail",
+    "aws.s3.get",
     "aws.s3.list",
+    "aws.s3.put",
     "aws.stack.apply",
     "aws.stack.delete",
     "aws.stack.plan",
     "aws.stack.status",
+    "aws.trail",
     "aws.whoami",
 ];
 
@@ -73,13 +83,13 @@ pub const NAMES: [&str; 9] = [
 pub const ALLOW_ALL: &str = "theseus-allow-all";
 
 /// An AWS tool's own `[policy.aws]` class, as the tool list and the system
-/// note show its posture: a stack's apply and delete write, and the rest
+/// note show its posture: a stack's apply and delete and an S3 put write, and the rest
 /// read (an `aws.call` that writes or runs takes its own class's line at the
 /// gate). None for `aws.describe`, which calls nothing.
 pub fn tool_class(name: &str) -> Option<&'static str> {
     match name {
         "aws.describe" => None,
-        "aws.stack.apply" | "aws.stack.delete" => Some("write"),
+        "aws.stack.apply" | "aws.stack.delete" | "aws.s3.put" => Some("write"),
         n if NAMES.contains(&n) => Some("read"),
         _ => None,
     }
@@ -129,6 +139,9 @@ impl Aws {
     /// Every AWS tool ([`NAMES`]).
     pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
         let mut all = tools::all(self);
+        all.extend(s3::all(self));
+        all.extend(logs::all(self));
+        all.extend(trail::all(self));
         all.extend(stack::all(self));
         all.push(Arc::new(cost::Cost::new(self.clone())));
         all

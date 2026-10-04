@@ -52,7 +52,10 @@ pub(super) fn all(aws: &Arc<Aws>) -> Vec<Arc<dyn Tool>> {
 pub(super) fn failure(what: &str, f: Failure) -> ToolFailure {
     let message = match &f {
         Failure::Unbound(why) => format!("{what} was not sent: {why}."),
-        Failure::Call(CallError::Aws(e)) => format!("{what}: AWS answered {e}."),
+        Failure::Call(CallError::Aws(e)) => match &e.denial {
+            Some(d) => format!("{what}: AWS answered {e}. {}", refused_by(d)),
+            None => format!("{what}: AWS answered {e}."),
+        },
         Failure::Call(e @ CallError::NotSent { .. }) => format!("{what} was not sent: {e}."),
         Failure::Call(CallError::Unsupported(m)) => {
             format!("{what} was not sent: {m}. The aws CLI can make it, through proc_run.")
@@ -62,8 +65,43 @@ pub(super) fn failure(what: &str, f: Failure) -> ToolFailure {
     ToolFailure::new(message)
 }
 
+/// Who refused a call, in words (§3.6): Theseus's own guard, a session's
+/// narrowing, IAM, or an Organization's policy.
+fn refused_by(d: &theseus_aws::Denial) -> String {
+    use theseus_aws::Enforcer;
+    let policy = d
+        .policy
+        .as_deref()
+        .map(|p| format!(" ({p})"))
+        .unwrap_or_default();
+    match d.enforcer {
+        Enforcer::Guard => format!(
+            "Theseus's own guard refused it: an explicit deny in a session policy{policy}, \
+             the theseus-guard-* policies every work session carries. An approved floor call \
+             runs without them."
+        ),
+        Enforcer::Iam if d.policy_type == "session policy" => format!(
+            "The session policy refused it: the narrowing this session was minted with \
+             allows too little{policy}."
+        ),
+        Enforcer::Iam => format!(
+            "IAM refused it: {} {}{policy}.",
+            if d.explicit {
+                "an explicit deny in an"
+            } else {
+                "no"
+            },
+            d.policy_type
+        ),
+        Enforcer::Scp | Enforcer::Rcp => format!(
+            "The Organization refused it: a {}{policy}, which Theseus cannot change.",
+            d.policy_type
+        ),
+    }
+}
+
 /// `1,234`.
-fn count(n: u64) -> String {
+pub(super) fn count(n: u64) -> String {
     crate::narrative::thousands(n)
 }
 
@@ -160,7 +198,7 @@ impl Planned {
 /// confirm line, whether AWS's guards would refuse it in a work session, and
 /// whether it deletes what holds state; or the invalid input a stack write or
 /// durable infrastructure is.
-fn guard(
+pub(super) fn guard(
     account: &str,
     region: &str,
     op: &str,
@@ -749,7 +787,7 @@ impl Listing {
 /// `s3://bucket/prefix`, `bucket/prefix`, or `bucket`: the bucket and the
 /// prefix. A bucket's name is 3 to 63 lowercase letters, digits, dots, and
 /// hyphens.
-fn split_path(path: &str) -> Result<(String, String), String> {
+pub(super) fn split_path(path: &str) -> Result<(String, String), String> {
     let rest = path.strip_prefix("s3://").unwrap_or(path);
     let (bucket, prefix) = rest.split_once('/').unwrap_or((rest, ""));
     let ok = (3..=63).contains(&bucket.len())
