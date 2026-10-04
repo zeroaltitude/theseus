@@ -61,7 +61,7 @@ All offline, on this VM.
 
 The other suite failures from my first runs are fixed: `store::tests::a_write_moves_an_older_store…` (format literal 7 to 8), `voice::tests::join_names_a_voice_channel…` (the command count, `/prompt` before `/join`), and my `clip`.
 
-After the suite, I ran the protocol-types phase's check by hand (`git add cockpit/src/protocol.gen`, nothing changed after). I did not run the lifecycle, jobs, and turn benches: `THESEUS_GATE_NO_BENCH=1`, and their budgets are the owner's machine's. `cargo deny fetch` ran in setup, but I did not run a deny phase beyond what the gate runs, and there are no new dependencies (Cargo.lock is unchanged).
+After the suite, I ran the protocol-types phase's check by hand (`git add cockpit/src/protocol.gen`, nothing changed after). I did not run the lifecycle, jobs, and turn benches: `THESEUS_GATE_NO_BENCH=1`, and their budgets are the owner's machine's. `cargo deny fetch` ran in setup (it printed nothing); I did not run `cargo deny check` separately. There are no new dependencies (Cargo.lock is unchanged).
 
 ## The live check (the maintainer's)
 
@@ -89,9 +89,9 @@ $T prompt fake/greet
 # exits nonzero: "prompt fake/greet needs its argument: name", with no session opened.
 
 $T history --session <id>
-# the input node: author `prompt:fake/greet`, text "Say hello to Ada." (origin mcp is in `node.list`).
+# the input node: author `prompt:fake/greet`, text "Say hello to Ada." (its origin, `mcp`, is in the node record)
 $T health
-# `external text held: <id> · mcp.prompt mcp:fake/greet`
+# the session shows as holding external text (source mcp.prompt, mcp:fake/greet); I did not run this live, so the exact wording is unchecked
 $T ask --session <id> "write hello into a.txt with fs.write"
 # the fs.write call ASKS (the hold): `theseus confirm` lists it.
 
