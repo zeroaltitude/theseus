@@ -174,6 +174,10 @@ pub struct ContextCompiled {
     /// place's that are not marked public.
     #[serde(default, skip_serializing_if = "crate::is_zero")]
     pub withheld: u64,
+    /// CONTINUE's candidate signals that fired (M5 25b): a compile that
+    /// fired one and no trigger asks `continue.v1` in shadow.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signals: Vec<crate::signals::CompileSignal>,
 }
 
 /// `tool.started`: a call runs. A job's says how, and what the broker gave

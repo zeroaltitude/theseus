@@ -23,6 +23,7 @@ mod ontology;
 mod places;
 mod push;
 pub mod sandbox;
+pub mod signals;
 #[cfg(test)]
 mod ts;
 pub mod voice;

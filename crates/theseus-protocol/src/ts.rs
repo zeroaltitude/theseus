@@ -122,7 +122,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         index::IndexEmbedStats, index::IndexRebuildResult, index::IndexHealth,
         memory::MemorySearchParams, memory::MemoryRecallsParams, memory::MemoryRecallsResult,
         memory::RecallManifest, memory::RecallItem, memory::RecallDrop, memory::RecallTimings,
-        sandbox::SandboxHealth, judge::JudgeHealth, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
+        sandbox::SandboxHealth, judge::JudgeHealth, signals::CompileSignal, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
         sandbox::SandboxUsage, sandbox::RunningJob, bench::BenchHistoryParams,
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,
         AwsBudgetStatus, AwsGuardDutyStatus, AwsBootstrapParams, AwsBootstrapStack,

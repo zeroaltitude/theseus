@@ -305,6 +305,10 @@ fn context_compiled() {
             // The place rule: a shared place's compile, and the file it withheld.
             summary["class"] = json!("shared");
             summary["withheld"] = json!(1);
+        } else {
+            // CONTINUE's candidate signals (M5 25b): an append that fired one.
+            summary["signals"] = json!([{"name": "dormancy", "value": 412,
+                "detail": "the new input came 6 hours 52 minutes after the node before it"}]);
         }
         summary["cache"] = json!({
             "breakpoints": if recompile { vec!["header", "conversation"] } else { vec![] },
@@ -814,6 +818,17 @@ fn summary(recompile: bool) -> ContextCompiled {
         // an append from a daemon before it has neither.
         class: recompile.then_some(PlaceClass::Shared),
         withheld: if recompile { 1 } else { 0 },
+        // CONTINUE's candidate signals (M5 25b): an append that fired one;
+        // a recompile from a daemon before them has none.
+        signals: if recompile {
+            vec![]
+        } else {
+            vec![theseus_protocol::signals::CompileSignal {
+                name: "dormancy".into(),
+                value: 412,
+                detail: "the new input came 6 hours 52 minutes after the node before it".into(),
+            }]
+        },
     }
 }
 

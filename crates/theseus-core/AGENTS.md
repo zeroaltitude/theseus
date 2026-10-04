@@ -13,6 +13,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and the cancel path).
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching).
+  - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the
+    clock passed in as `CompileInput.signals`, never read there): a dormancy gap, the tail crossing its soft band,
+    a task report or a wake arriving, and a provider cache miss, each against what was written since the model's
+    last answer, so an input's signals fire once, at its turn's first compile. Thresholds are `[judge.signals]`;
+    they are read whether or not the judge is on, and decide nothing: every one that fired rides on
+    `context.compiled` (`signals`). A compile that appended and fired one asks `continue.v1` in shadow
+    (`judge/compile.rs`: the dispatch is a spawn, and the turn's trace gets a zero-length `judge` mark naming the
+    judgment's id, minted at the dispatch). Tests: `tests_continue.rs`.
 - **Places** (the place rule, theseus-nbsh; it replaced 19a's labels on nodes): `places.rs`. Every place a session
   speaks in is private or shared. Private: the CLI and the web UI (no place), a DM with an owner (`Config::owners_for`),
   and a guild channel the binding bound private (its own `private = true`, or, saying nothing, in a guild the bindings

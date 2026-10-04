@@ -27,9 +27,9 @@ use crate::turn::TurnRequest;
 use crate::Config;
 use theseus_protocol::SessionKind;
 
-struct Rig {
-    core: Arc<Core>,
-    fake: Arc<FakeProvider>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) fake: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
@@ -59,7 +59,11 @@ fn config(state: &Path, jev: Option<&FakeJev>) -> Config {
     cfg
 }
 
-fn rig_with(script: Vec<Scripted>, jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig_with(
+    script: Vec<Scripted>,
+    jev: Option<&FakeJev>,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(dir.path(), jev);
     tweak(&mut cfg);
@@ -76,13 +80,13 @@ fn rig_with(script: Vec<Scripted>, jev: Option<&FakeJev>, tweak: impl FnOnce(&mu
     }
 }
 
-fn texts(n: usize) -> Vec<Scripted> {
+pub(crate) fn texts(n: usize) -> Vec<Scripted> {
     (0..n)
         .map(|i| Scripted::text(&format!("Done: answer {i}.")))
         .collect()
 }
 
-async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
     let rec = match session {
         Some(id) => core
             .store
@@ -216,7 +220,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
     assert_eq!(Some(session.cost_usd), res.cost_usd);
     let h = r.core.health().judge.unwrap();
     assert!(h.enabled);
-    assert_eq!(h.packs, ["loop.v1: shadow"]);
+    assert_eq!(h.packs, ["loop.v1: shadow", "continue.v1: shadow"]);
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(h.spend_today_usd, theseus_judge::price::micros_to_usd(cost));
     assert_eq!(h.breaker, "closed");
@@ -372,7 +376,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
     }
     assert_eq!(
         pack_off.core.health().judge.unwrap().packs,
-        ["loop.v1: off"]
+        ["loop.v1: off", "continue.v1: shadow"]
     );
 }
 
