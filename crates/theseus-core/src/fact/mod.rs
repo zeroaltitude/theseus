@@ -339,6 +339,9 @@ facts![
     mcp::McpExited,
     mcp::McpFailed,
     mcp::McpToolsChanged,
+    crate::aws::hands::group::Launched<'static>,
+    crate::aws::hands::group::Settled<'static>,
+    crate::aws::hands::poller::Quarantined<'static>,
 ];
 
 #[cfg(test)]

@@ -48,6 +48,7 @@ pub mod bootstrap;
 pub mod cost;
 pub mod crosscheck;
 pub mod external;
+pub mod hands;
 pub mod inventory;
 pub mod logs;
 pub mod s3;
@@ -74,10 +75,11 @@ mod tests_l1;
 mod tests_outside;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 15] = [
+pub const NAMES: [&str; 16] = [
     "aws.call",
     "aws.cost",
     "aws.describe",
+    "aws.hands.run",
     "aws.inventory",
     "aws.logs.query",
     "aws.logs.tail",
@@ -104,6 +106,7 @@ pub fn tool_class(name: &str) -> Option<&'static str> {
     match name {
         "aws.describe" => None,
         "aws.stack.apply" | "aws.stack.delete" | "aws.s3.put" => Some("write"),
+        hands::RUN => Some("run"),
         n if NAMES.contains(&n) => Some("read"),
         _ => None,
     }
@@ -129,6 +132,8 @@ pub struct Aws {
     traced: Mutex<VecDeque<(String, Arc<AwsBinding>)>>,
     /// The change sets plans showed, which `aws.stack.apply` names.
     shows: stack::Shows,
+    /// Where hands run, and the completion poller's wake (§3.3).
+    pub hands: hands::Hands,
 }
 
 impl Aws {
@@ -147,6 +152,7 @@ impl Aws {
             accounts,
             traced: Mutex::default(),
             shows: stack::Shows::default(),
+            hands: hands::Hands::default(),
         }))
     }
 
@@ -159,6 +165,7 @@ impl Aws {
         all.extend(inventory::all(self));
         all.extend(stack::all(self));
         all.push(Arc::new(cost::Cost::new(self.clone())));
+        all.push(Arc::new(hands::tool::HandsRun(self.clone())));
         all
     }
 

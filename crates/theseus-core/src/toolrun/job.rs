@@ -344,7 +344,7 @@ impl ToolRuntime {
         })
     }
 
-    fn settle_job_failure(
+    pub(super) fn settle_job_failure(
         &self,
         tc: &TurnCtx<'_>,
         correlation_id: &str,
@@ -568,6 +568,10 @@ impl ToolRuntime {
         tool: &'a str,
         input: Option<&Value>,
     ) -> ResultNode<'a> {
+        // A hands group's aggregate (AWS design §3.3): no raw output.
+        if a.tool == crate::aws::hands::RUN {
+            return Self::hands_result(store, a, tool_use_id, tool);
+        }
         let completion: Option<Completion> = store
             .inner()
             .as_ref()

@@ -22,6 +22,9 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   check's own process, `Sandbox::self_test`), and health reports the last real L1 launch (theseus-gyin). An L1 job
   has no cgroup, so the units ask for no `Delegate=` and have no stop hook. `tests/sandbox.rs` runs real L1 jobs,
   its state dir and socket inside the workspace so the view's hiding is what keeps them out.
+- `hand` (step 40, theseus-mgw.6): a hand, the job wrapper inside AWS, run in the hand image (`infra/aws/hand/`) as
+  Lambda's bootstrap or a Fargate task's command, never by hand. It reads no config, store, or secret: its spec (in
+  the Lambda event, or `THESEUS_HAND`) is its whole input. Its code is `theseus_core::aws::hands::hand`.
 - `job-wrapper` catches SIGTERM from its first moments (M4 18a): a cancel asks it alone, and it stops its job's
   whole tree (`theseus_kernel::tree`), an L1 job through its init, then answers in the spool.
   `tests/job_wrapper.rs` stops real trees, a `setsid` sleeper included; `tests/sandbox.rs` an L1 job's.

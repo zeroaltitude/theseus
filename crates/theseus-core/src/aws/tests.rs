@@ -991,6 +991,7 @@ async fn an_aws_call_through_the_core_is_a_row_a_span_and_a_result() {
             "aws_call",
             "aws_cost",
             "aws_describe",
+            "aws_hands_run",
             "aws_inventory",
             "aws_logs_query",
             "aws_logs_tail",

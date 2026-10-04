@@ -62,6 +62,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`bootstrap.rs`, `rpc/aws.rs`: a read-only plan, the apply on the operator's yes), and the tenders after serving
   (`tend.rs`: the budget's reconcile and line, GuardDuty's weekly usage). Its tests are `aws/tests.rs` (C1) and
   `aws/tests_c2.rs` (a fake CloudFormation with state); `config/aws.rs` holds `[aws]`'s types and checks.
+- **Hands** (step 40 part 1, theseus-mgw.6): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
+  backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
+  through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late
+  result (`job_result` hands it to `hands_result`). A group (`group.rs`) is the call's action, a META record
+  `aws.hands.group.<group>`, and one kernel action per hand (tool `aws.hand`, its `resource` the group's key), all
+  written in one frame before anything launches; a dispatch is a hand's claim. The poller (`poller.rs`,
+  `Core::poll_hands_after_serving`) long-polls the completion queue only while a group or a hand is open, checks each
+  envelope's HMAC (`envelope.rs`: HKDF of the account's secret and the correlation id, nothing stored), quarantines a
+  failure (`completion.quarantined` with its `why`), and settles through `Kernel::accept_completion`. The `hand` role
+  (`hand.rs`) is `theseusd hand`. Tests: `aws/hands/tests_hand.rs` (the role) and `tests_hands.rs` (through the core,
+  a fake AWS with a queue).
 - **L1** (M4 17b): `sandbox.rs`: `[sandbox]`, a job's class (toward L1 alone: the default, `l1_argv`, the model's
   `sandbox: true`), L1's posture (notify), the view an L1 job gets, and health's block: the last L1 launch, read from
   its job's completion (`Sandbox::launched`), and why L1 refuses every job of a root daemon (theseus-pv6i).

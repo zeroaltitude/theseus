@@ -132,6 +132,10 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Internal: a hand, the job wrapper inside AWS (AWS design §3.3): run in the hand image, as
+    /// Lambda's bootstrap or a Fargate task's command, never by hand.
+    #[command(hide = true)]
+    Hand,
 }
 
 /// In the environment of a start that must read the vault before serving,
@@ -192,6 +196,10 @@ fn main() -> Result<()> {
         // (theseus-l0d).
         let wa = theseus_kernel::job::parse_wrapper_args(args)?;
         return theseus_kernel::job::run_wrapper_process(&wa);
+    }
+    if let Some(Cmd::Hand) = cli.cmd {
+        // No config, no store, no secrets: its spec is its whole input.
+        std::process::exit(theseus_core::aws::hands::hand::main());
     }
     if let Some(Cmd::Install(args)) = &cli.cmd {
         // No config, no secrets, no runtime: never on the start path.
@@ -951,6 +959,9 @@ async fn after_serving(
         // The budget's reconcile and reads, and GuardDuty's usage (C2), each
         // once its account's check has passed.
         core.tend_aws_after_serving();
+        // The completion queue's poller (step 40): idle until a hands group
+        // is open, then a long poll while one is.
+        core.poll_hands_after_serving();
     }
     if let Some(path) = bindings {
         core.post_restart_notice();
