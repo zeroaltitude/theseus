@@ -202,7 +202,8 @@ fn token_file(
         notes.push(format!(
             "the unit names no token file, and the daemon will not start without its 1Password \
              token. Put the token in a file only you can read (mode 0600), then re-run: {}. A \
-             unit never holds the token itself.",
+             unit never holds the token itself. (--apply refuses until a file is named, or \
+             --token-from-drop-in says a drop-in supplies the token.)",
             env.rerun_with("--op-token-file <file>")
         ));
         return None;

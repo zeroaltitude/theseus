@@ -998,6 +998,51 @@ fn a_user_unit_without_a_token_file_says_how_to_give_it_one() {
     );
 }
 
+/// `--apply` with no token file named refuses before it writes anything, unless
+/// `--token-from-drop-in` says a drop-in supplies the token; a plan only notes it
+/// (theseus-4xyj).
+#[test]
+fn a_user_apply_without_a_token_file_refuses_unless_a_drop_in_supplies_it() {
+    let mut r = Rig::user();
+    r.g.op_token_file = None;
+    let before = tree(&r.env.root);
+    let e = r.err(&args(|a| {
+        a.user = true;
+        a.apply = true;
+    }));
+    assert!(e.contains("nothing was changed"), "{e}");
+    assert!(e.contains("--op-token-file"), "{e}");
+    assert!(e.contains("--token-from-drop-in"), "{e}");
+    assert_eq!(tree(&r.env.root), before, "a refused --apply wrote");
+    assert!(!r.at(UNIT).exists());
+    // A plan is not refused: it says the same as a note.
+    let plan = r.ok(&args(|a| a.user = true));
+    assert!(plan.contains("the unit names no token file"), "{plan}");
+    // A check is not either.
+    r.run(&args(|a| {
+        a.user = true;
+        a.check = true;
+    }))
+    .unwrap();
+    // The flag lets the apply through, and the unit names no token file.
+    let log = r.ok(&args(|a| {
+        a.user = true;
+        a.apply = true;
+        a.token_from_drop_in = true;
+    }));
+    assert!(log.contains(&format!("wrote {UNIT}")), "{log}");
+    let text = std::fs::read_to_string(r.at(UNIT)).unwrap();
+    assert!(!text.contains("--op-token-file"), "{text}");
+    // --remove needs no token.
+    r.g.op_token_file = None;
+    r.ok(&args(|a| {
+        a.user = true;
+        a.remove = true;
+        a.apply = true;
+    }));
+    assert!(!r.at(UNIT).exists());
+}
+
 /// Both daemon units restart after 1 s and stop a crash loop at 10 starts in 300 s, so the
 /// crash files it keeps are not buried by an endless restart (theseus-0v8s).
 #[test]
@@ -1040,7 +1085,8 @@ fn the_hint_repeats_the_command_as_it_was_typed() {
     .into();
     let out = r.ok(&args(|a| {
         a.user = true;
-        a.apply = true;
+        // A plan, whatever argv says: --apply with no token file refuses (theseus-4xyj).
+        a.apply = false;
     }));
     assert!(
         out.contains(
