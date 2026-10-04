@@ -75,6 +75,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   handle has finished; anything else is unsupported. Each verdict lands on its action, in health's `cancels`, and
   as a fact (`fact/cancel.rs`). An aborted call's result waits for the cancel's verdict (`after_abort`). Its test is
   `tests_cancel.rs`; the daemon's are `tests/job_wrapper.rs`, `tests/sandbox.rs` (L1), and `tests/tasks.rs`.
+- **Terminals** (theseus-n88g.4): `term/`. `term.open`, `term.send`, `term.read`, `term.close`: a program on a pty
+  (libc's `posix_openpt`; its child through `children::spawn`, `setsid`, the pty its controlling terminal), read as
+  a screen by `term/vt.rs`, a small VT model whose module doc says what it leaves out. Async tools whose run needs
+  its session, so `toolrun`'s async path runs a `term.*` call through `Terms::run`. `term.open` plans its argv and
+  `term.send` its terminal's, so the gate judges both as that program's run; `term.read` and `term.close` are reads.
+  A listed external program's screen (or a terminal sent keys naming one: `Listed::in_text`) is outside text. At
+  most 4 a session; closed at its execution's end (`turn.rs`), a cancel and a `/stop` (`rpc/driver.rs`), and the
+  daemon's stop (`finish_stop`), with a close that hangs up, waits its grace, and kills what lingers, including a
+  process that left the tree but holds the pty. In memory only: the rows `term.opened` and `term.closed`
+  (`fact/term.rs`) are the record. No broker grant reaches a terminal (`brokered`). Tests: `term/tests.rs` (goldens
+  and real `sh`, `python3`, `cat`), `tests_term.rs` (the gate, the hold, each close).
 - **The protocol server**: `rpc/` (`server.rs` routes each method by name; `methods.rs`; `confirms.rs`), with
   `bus.rs` and `outbound.rs` (one ordered, capped queue per connection).
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and

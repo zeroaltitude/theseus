@@ -1138,6 +1138,7 @@ impl TurnRunner {
         // unanswered, and wrote nothing into this turn's transcript: this turn
         // answers them now that it has ended (theseus-0o8).
         let cancelled = matches!(&ended, Ok(e) if e.state == ExecState::Cancelled);
+        let session_ended = matches!(&ended, Ok(e) if e.state.is_terminal());
         if let Err(e) = ended {
             tracing::warn!(error = %e, "end_turn failed");
         }
@@ -1182,6 +1183,13 @@ impl TurnRunner {
                 }
             };
         let rec = self.session_rec(&failure_sink.session_id, To::Sink(&failure_sink));
+        if session_ended {
+            let by = crate::term::BY_SESSION_END;
+            self.tools
+                .terms
+                .close_session_recorded(&failure_sink.session_id, by, &rec)
+                .await;
+        }
         if cancelled {
             match self.tools.answer_after_cancel(
                 &self.kernel,

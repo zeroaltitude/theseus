@@ -100,6 +100,7 @@ impl Core {
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
             cancels: self.tools.stops.counts(),
             places: Some(self.runner.place_rule.health(&self.cfg)),
+            terminals: self.tools.terms.all().iter().map(|t| t.info()).collect(),
         }
     }
 

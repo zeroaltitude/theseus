@@ -149,6 +149,8 @@ ledger_kinds! {
     TaskEnded = "task.ended",
     TaskReportWake = "task.report_wake",
     TaskReportsRead = "task.reports_read",
+    TermClosed = "term.closed",
+    TermOpened = "term.opened",
     ToolConfirmRequested = "tool.confirm_requested",
     ToolInvalidInput = "tool.invalid_input",
     ToolJobStarted = "tool.job_started",

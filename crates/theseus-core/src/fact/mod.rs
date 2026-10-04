@@ -47,6 +47,7 @@ pub mod index;
 pub mod place;
 pub mod sandbox;
 pub mod start;
+pub mod term;
 pub mod tool;
 pub mod turn;
 
@@ -321,6 +322,8 @@ facts![
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,
     start::CrashFound<'static>,
+    term::TermOpened<'static>,
+    term::TermClosed<'static>,
 ];
 
 #[cfg(test)]

@@ -172,6 +172,7 @@ export type * from './TaskListResult';
 export type * from './TaskRef';
 export type * from './TelemetryStatus';
 export type * from './TenderStatus';
+export type * from './TerminalInfo';
 export type * from './TightenResult';
 export type * from './Tightening';
 export type * from './ToolClass';

@@ -22,6 +22,7 @@ import type { SpoolStatus } from "./SpoolStatus";
 import type { StartupPhase } from "./StartupPhase";
 import type { StoreStatus } from "./StoreStatus";
 import type { TelemetryStatus } from "./TelemetryStatus";
+import type { TerminalInfo } from "./TerminalInfo";
 import type { Tightening } from "./Tightening";
 import type { Usage } from "./Usage";
 import type { WakeInfo } from "./WakeInfo";
@@ -172,4 +173,8 @@ cancels?: Array<CancelCount>,
 /**
  * The place rule (theseus-nbsh): each place and its class.
  */
-places?: PlacesHealth, };
+places?: PlacesHealth, 
+/**
+ * The open terminals (`term.*`, theseus-n88g.4), oldest first.
+ */
+terminals?: Array<TerminalInfo>, };

@@ -262,6 +262,8 @@ pub struct ToolRuntime {
     /// `[places] public_paths`, expanded and canonical: all a shared place's
     /// file tools reach (the place rule, theseus-nbsh).
     pub public_roots: Vec<PathBuf>,
+    /// The sessions' terminals (`term.*`, theseus-n88g.4).
+    pub terms: Arc<crate::term::Terms>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -379,6 +381,7 @@ impl ToolRuntime {
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
+            terms: Arc::new(crate::term::Terms::new(Vec::new(), Vec::new())),
         }
     }
 
@@ -394,6 +397,13 @@ impl ToolRuntime {
     /// (theseus-dcy): it names the grant, and holds the call to no looser a
     /// posture than each secret's.
     pub(crate) fn brokered(&self, tool: &str, plan: &Plan, input: &Value, d: Decision) -> Decision {
+        // A terminal's program is given no grant: its keys come from the
+        // model, and its screen is the model's to read (theseus-n88g.4).
+        if tool.starts_with(crate::term::FAMILY)
+            && tool[crate::term::FAMILY.len()..].starts_with('.')
+        {
+            return d;
+        }
         let cwd = plan
             .resources
             .iter()
@@ -1345,7 +1355,12 @@ impl ToolRuntime {
             ctx.approved = ran_at == Posture::Approve;
             let started = theseus_protocol::now_unix_ms();
             let t0 = Instant::now();
-            let mut task = tokio::spawn(t.run_async(&input, &ctx));
+            // A terminal's call needs its session (theseus-n88g.4).
+            let run = match tool.family() == crate::term::FAMILY {
+                true => self.terms.run(tool.name(), tc.session_id, &input, &ctx),
+                false => t.run_async(&input, &ctx),
+            };
+            let mut task = tokio::spawn(run);
             // A cancel or a stop aborts it (M4 18a).
             let _reachable = self.stops.track(correlation_id, task.abort_handle());
             let outcome = match tokio::time::timeout(deadline, &mut task).await {
@@ -1431,6 +1446,10 @@ impl ToolRuntime {
                 ..ResultNode::new(&call.id, tool.name(), status, text)
             },
         );
+        // A terminal's open and close (theseus-n88g.4).
+        if tool.family() == crate::term::FAMILY && by_cancel.is_none() {
+            fact::term::of_result(&tc.rec(), &meta);
+        }
         let c = Completion {
             correlation_id: correlation_id.into(),
             outcome: if status == ResultStatus::Ok {
@@ -1697,7 +1716,7 @@ pub fn build_runtime(
     // AWS (row 29, C1): its tools when the config binds an account. Nothing
     // runs until a call, or the daemon's check after serving.
     let aws = crate::aws::Aws::from_config(&cfg.aws, secrets.clone()).filter(|_| t.enabled);
-    let registry = if t.enabled {
+    let mut registry = if t.enabled {
         let mut r = theseus_tools::default_registry();
         // The web tools wait on the network, as async tools (DD5).
         let web = crate::web::Web::new(&t.web, t.result_max_chars, cpu.clone());
@@ -1720,6 +1739,16 @@ pub fn build_runtime(
         .filter(|k| !forbidden_env(k))
         .filter_map(|k| std::env::var(k).ok().map(|v| (k.clone(), v)))
         .collect();
+    // Terminals (theseus-n88g.4): each program gets the job environment.
+    let terms = Arc::new(crate::term::Terms::new(
+        proc_env.clone(),
+        cfg.policy.external_programs.clone(),
+    ));
+    if t.enabled {
+        for tool in crate::term::tools::all(&terms) {
+            registry.register(tool);
+        }
+    }
     let notify_socket = spool.as_ref().map(|s| s.dir().join("notify.sock"));
     // A program's name is resolved on the daemon's own PATH (theseus-dcy).
     let broker = Broker::new(&cfg.broker, secrets, std::env::var("PATH").ok());
@@ -1786,6 +1815,7 @@ pub fn build_runtime(
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
+        terms,
     })
 }
 

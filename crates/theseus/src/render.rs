@@ -156,6 +156,11 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                     &format!("  ☁ {} {}", p.tool, aws_call_line(a)),
                 );
             }
+            // A terminal's call (theseus-n88g.4): which terminal, and the
+            // keys it types, which its `→` line cannot say.
+            if let Some(line) = theseus_protocol::term::summary(&p.tool, &p.input) {
+                push(&mut out, Tag::Tool, &format!("  ⌨ {} {line}", p.tool));
+            }
         }
         Event::ConfirmRequested(c) if c.budget.is_some() => {
             push(&mut out, Tag::Ask, &format!("  $ {}", c.reason));
@@ -1705,6 +1710,12 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     if let Some(line) = external_line(&h.external_text) {
         push(o, Tag::Plain, &line);
     }
+    // A line per open terminal (theseus-n88g.4).
+    o.extend(
+        h.terminals
+            .iter()
+            .map(|t| Line::new(Tag::Plain, theseus_protocol::term::health_line(t, now_ms))),
+    );
     out
 }
 
