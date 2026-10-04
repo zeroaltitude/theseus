@@ -8,4 +8,15 @@ entry: Record<string, unknown>,
 /**
  * Profiles that use this model.
  */
-profiles: Array<string>, };
+profiles: Array<string>, 
+/**
+ * The config's `[catalog."<model>"]` table, as written, when it has one
+ * (theseus-vwar): `entry` holds what it changes, and one that copies the
+ * code's row changes nothing.
+ */
+config?: Record<string, unknown>, 
+/**
+ * The code's own row for the model, when the config's table is over a
+ * model the code has: what the table changes is where the two differ.
+ */
+code?: Record<string, unknown>, };

@@ -69,9 +69,11 @@ pub struct Config {
     pub telemetry: crate::telemetry::TelemetryConfig,
     #[serde(default)]
     pub kernel: KernelSection,
-    /// Every model's prices (the template lists each built-in model): a table
-    /// over a built-in model replaces the fields it names; a complete one adds
-    /// a model. A built-in model with no table keeps its built-in prices.
+    /// `[catalog."<model>"]`, changes to the code's model table on purpose: a
+    /// table over a built-in model replaces the fields it names, and a
+    /// complete one adds a model. The template holds none (theseus-vwar):
+    /// every other model keeps the code's figures, which `theseus catalog`
+    /// lists, and a table that copies them changes nothing.
     #[serde(default)]
     pub catalog: BTreeMap<String, crate::catalog::CatalogRow>,
     #[serde(default)]
@@ -2217,49 +2219,17 @@ mod tests {
         );
     }
 
-    /// The template's [catalog] is the built-in catalog, model for model and
-    /// price for price (theseus-0sg). Eddie pastes the template into the
-    /// vault, so the config is where he reads prices; were a built-in price to
-    /// change without the template, this fails and prints the tables to paste.
+    /// The template holds no copy of the prices (theseus-vwar): its one
+    /// [catalog] table is the commented new model, so a config from it runs
+    /// every model at the code's figures, which `theseus catalog` lists, and
+    /// the code's next fix of a price reaches it.
     #[test]
-    fn the_template_catalog_is_the_builtin_catalog() {
+    fn the_template_holds_no_price_table() {
         use crate::catalog::Catalog;
-        let text = Config::EXAMPLE_TOML;
-        let start = text
-            .find("[catalog.\"")
-            .expect("the template has catalog tables");
-        let end = start
-            + text[start..]
-                .find("# A model the built-in table lacks")
-                .expect("the template ends its tables with the new-model example");
-        let want = Catalog::template_tables();
-        assert!(
-            text[start..end] == want,
-            "the template's [catalog] tables are not the built-in catalog; replace them with:\n{want}"
-        );
         let cfg = Config::example();
-        let builtin = Catalog::builtin();
-        assert_eq!(
-            cfg.catalog.keys().collect::<Vec<_>>(),
-            builtin.entries.keys().collect::<Vec<_>>(),
-            "one table per built-in model"
-        );
-        assert!(Catalog::missing_from(&cfg.catalog).is_empty());
-        let loaded = Catalog::with_overrides(&cfg.catalog);
-        for (id, e) in &builtin.entries {
-            let got = loaded.get(id).unwrap();
-            assert_eq!(
-                got,
-                &crate::catalog::CatalogEntry {
-                    source: "config".into(),
-                    ..e.clone()
-                },
-                "{id}: the template changes nothing but where the price is read"
-            );
-        }
-        assert!(loaded
-            .version
-            .ends_with(&format!("+config:{}", builtin.entries.len())));
+        assert!(cfg.catalog.is_empty(), "{:?}", cfg.catalog.keys());
+        let (c, code) = (Catalog::with_overrides(&cfg.catalog), Catalog::builtin());
+        assert_eq!((c.version, c.entries), (code.version, code.entries));
     }
 
     /// A [catalog] table over a built-in model may name one price; a model
