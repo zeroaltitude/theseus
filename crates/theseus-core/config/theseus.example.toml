@@ -159,6 +159,7 @@ brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # w
 # ci_runner_key = "env:CI_RUNNER_KEY"                 # from outside the vault: the environment
 # ci_deploy_key = "file:~/.config/theseus/deploy-key"  # from outside the vault: a mode-600 file
 # docs_mcp_token = "op://<your vault>/<docs MCP key item>/notesPlain"   # an MCP server's key ([mcp.servers])
+# mcp_server_key = "op://<your vault>/<MCP server key item>/password"   # the MCP server's key ([mcp_server])
 
 # ---------------------------------------------------------------- broker
 # What a job can get, plainly: only a secret a program's grant in this
@@ -510,6 +511,25 @@ port = 7433
 # (web.dev_origin). Off by default. Unset it when you are done: the dev
 # server's port is open to every local user.
 # dev_origin = "http://127.0.0.1:5174"
+
+# ---------------------------------------------------------------- mcp_server
+# Theseus's own MCP server: an MCP client on this machine (Claude Code,
+# another agent) opens a Theseus conversation, sends it text, and reads the
+# reply, over streamable HTTP at http://127.0.0.1:<port>/mcp, with the key as
+# `Authorization: Bearer <key>`. Loopback only; it serves only processes of
+# the user that runs the daemon, refuses a page's Origin that is not on this
+# machine, and never takes an approval: an acting call in a session it opened
+# waits for you, from the CLI, the web UI, or your DM. Each session it opens
+# is labelled `mcp <client>`, has its own spend limit, and is a private place
+# (its words go to the client, a process of yours). Off unless enabled; the
+# key's line in the secrets section is commented out too.
+# [mcp_server]
+# enabled = true
+# port = 7434                           # on 127.0.0.1 only
+# key_secret = "mcp_server_key"         # the [secrets] entry holding the key (16 bytes or more); only Theseus reads it
+# posture_floor = "approve"             # an MCP-opened session's acting calls take at least this posture
+# spend_limit_usd = 5.0                 # each MCP-opened session's spend limit
+# requests_per_minute = 60              # over every client; past it, 429
 
 # ---------------------------------------------------------------- index
 # The index tender (M6): `theseus-index`, installed beside theseusd. It starts

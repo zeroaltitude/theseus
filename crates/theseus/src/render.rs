@@ -24,6 +24,7 @@ mod catalog;
 mod index;
 mod judge;
 mod mcp;
+mod mcp_server;
 mod memory;
 mod ontology;
 mod places;
@@ -35,6 +36,7 @@ pub use catalog::catalog_config_lines;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use judge::{judge_line, judge_log_lines};
 pub use mcp::{mcp_line, mcp_lines};
+pub use mcp_server::mcp_server_line;
 pub use memory::{recall_lines, recalls_lines};
 pub use ontology::{ontology_categories_lines, ontology_kinds_lines, ontology_memberships_lines};
 pub use places::{places_health_line, places_lines};
@@ -1652,6 +1654,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     }
     places::push_health(o, h.places.as_ref());
     judge::push_health(o, h.judge.as_ref());
+    mcp_server::push_health(o, h.mcp_server.as_ref());
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);
     }

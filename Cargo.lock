@@ -6759,6 +6759,7 @@ dependencies = [
  "theseus-discord",
  "theseus-judge",
  "theseus-kernel",
+ "theseus-mcp",
  "theseus-protocol",
  "theseus-sandbox",
  "theseus-sim",

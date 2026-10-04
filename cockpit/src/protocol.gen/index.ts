@@ -108,6 +108,8 @@ export type * from './LoopStarted';
 export type * from './McpListResult';
 export type * from './McpRestartParams';
 export type * from './McpRestartResult';
+export type * from './McpServerHealth';
+export type * from './McpServerRefusals';
 export type * from './McpServerStatus';
 export type * from './McpToolInfo';
 export type * from './MemoryRecallsParams';

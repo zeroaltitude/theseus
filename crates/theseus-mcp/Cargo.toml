@@ -8,12 +8,10 @@ repository.workspace = true
 rust-version.workspace = true
 
 # The reader rule (theseus-wjy): the client side's readers are theseus-core's
-# MCP board and theseus-sim's fake-mcp (36b), so the crate is no longer
-# reserved. The server side (feature `server`) waits for row 72 (41b), M7:
-# Theseus's own MCP server on loopback; nothing builds it outside this crate's
-# own tests and example until then. The core takes the crate with its default
-# features, so the shipped binaries build what the workspace builds (the gate's
-# features phase); the sim takes it with `default-features = false`.
+# MCP board (36b), which takes the crate with its default features so the
+# shipped binaries build what the workspace builds (the gate's features phase),
+# and theseus-sim's fake-mcp (`default-features = false`); the server side
+# (feature `server`) is theseusd's MCP server on loopback (41b).
 
 [features]
 default = ["server"]

@@ -127,6 +127,8 @@ ledger_kinds! {
     McpExited = "mcp.exited",
     McpFailed = "mcp.failed",
     McpReady = "mcp.ready",
+    McpServerCall = "mcp_server.call",
+    McpServerRefused = "mcp_server.refused",
     McpStarted = "mcp.started",
     McpToolsChanged = "mcp.tools_changed",
     OntologyCategory = "ontology.category",

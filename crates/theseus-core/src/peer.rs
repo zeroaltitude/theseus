@@ -151,6 +151,29 @@ fn client_uid_in(
     ClientUid::Unknown(why)
 }
 
+/// The inode of the client's end of a loopback TCP connection to this
+/// process, as `client_uid` finds its row: what a scan of a process's file
+/// descriptors names as `socket:[<inode>]`. The MCP server reads it to find
+/// a job's process among the daemon's own descendants (step 41b). None when
+/// no live row is found, or this platform keeps no table.
+pub fn client_inode(server: SocketAddr, client: SocketAddr) -> Option<u64> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    for _ in 0..2 {
+        for (table, local, remote) in forms(server, client) {
+            let Ok(text) = std::fs::read_to_string(table) else {
+                continue;
+            };
+            let live = socket_rows(&text, local, remote).find(|(i, _)| *i != 0);
+            if let Some((inode, _)) = live {
+                return Some(inode);
+            }
+        }
+    }
+    None
+}
+
 /// This process's effective uid: the owner its own sockets carry.
 pub fn own_uid() -> u32 {
     // SAFETY: geteuid takes nothing and cannot fail.

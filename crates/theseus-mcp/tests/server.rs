@@ -527,3 +527,38 @@ async fn loopback_only_and_a_real_key() {
         .unwrap();
     assert!(e.to_string().contains("16 bytes"), "{e}");
 }
+
+/// The wire-in's peer check (41b): a peer it refuses gets a 403 before its
+/// key is read, and one `Why::Peer` refusal that says why; a peer it admits
+/// is served.
+#[tokio::test]
+async fn a_peer_the_admit_check_refuses_is_turned_away_first() {
+    let core = Arc::new(FakeCore::default());
+    let refuse = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let r = refuse.clone();
+    let server = start(&core, |c| {
+        c.admit = Some(Arc::new(move |_ends| {
+            match r.load(std::sync::atomic::Ordering::Relaxed) {
+                true => Err("its socket belongs to uid 4242".into()),
+                false => Ok(()),
+            }
+        }));
+    })
+    .await;
+    let (status, _, body) = raw(&server, reqwest::Method::POST, &[], Some(ping())).await;
+    assert_eq!(status, 403, "{body}");
+    assert!(body.contains("serves only the user that runs it"), "{body}");
+    assert_eq!(server.stats().refused[&Why::Peer], 1);
+    assert!(!server.stats().refused.contains_key(&Why::Key));
+    let reported = core.refusals();
+    assert_eq!(reported.len(), 1);
+    assert_eq!(reported[0].why, Why::Peer);
+    assert_eq!(
+        reported[0].detail.as_deref(),
+        Some("its socket belongs to uid 4242")
+    );
+    refuse.store(false, std::sync::atomic::Ordering::Relaxed);
+    let client = client(&server).await;
+    let opened = tool(&client, "conversation_open", json!({})).await;
+    assert!(opened["session_id"].is_string());
+}

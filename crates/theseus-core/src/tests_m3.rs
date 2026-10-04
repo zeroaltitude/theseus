@@ -1646,6 +1646,9 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
 /// theseus-830).
 mod stops_and_expiry;
 
+/// The MCP server's surface (step 41b).
+mod mcp_surface;
+
 /// theseus-667d: a stopped job's raw output is kept while its wrapper still
 /// lives, and the sweep takes it once the wrapper has ended (theseus-ewev's
 /// guard in `remove_job_output`). The stop comes before the job's

@@ -1061,6 +1061,10 @@ impl ToolRuntime {
                 &call.input,
                 &plan.summary,
             );
+            // An MCP client's session (step 41b): its calls that act wait.
+            let floor = mcp_floor(tc);
+            let decision =
+                crate::mcp_server::floor(decision, class, floor, tool.name(), &plan.summary);
             (plan, decision, job_class)
         });
         let result = match &planned {
@@ -1962,6 +1966,17 @@ fn map_retry(r: Retry) -> RetryClass {
     match r {
         Retry::SafeToRepeat => RetryClass::SafeToRepeat,
         Retry::NonRepeatable => RetryClass::NonRepeatable,
+    }
+}
+
+/// The floor of the turn's execution, when an MCP client opened its session
+/// (step 41b, `mcp_server::floor_of`). An execution that cannot be read is
+/// floored at `approve`: the gate never guesses the looser way.
+fn mcp_floor(tc: &TurnCtx<'_>) -> Option<Posture> {
+    match tc.kernel.execution(tc.execution_id) {
+        Ok(Some(e)) => crate::mcp_server::floor_of(&e.authority),
+        Ok(None) => None,
+        Err(_) => Some(Posture::Approve),
     }
 }
 

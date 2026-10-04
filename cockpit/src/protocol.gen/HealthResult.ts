@@ -15,6 +15,7 @@ import type { HarnessOnly } from "./HarnessOnly";
 import type { IndexHealth } from "./IndexHealth";
 import type { JudgeHealth } from "./JudgeHealth";
 import type { KernelStatus } from "./KernelStatus";
+import type { McpServerHealth } from "./McpServerHealth";
 import type { McpServerStatus } from "./McpServerStatus";
 import type { PlacesHealth } from "./PlacesHealth";
 import type { PushStatus } from "./PushStatus";
@@ -187,4 +188,8 @@ places?: PlacesHealth,
 /**
  * The open terminals (`term.*`, theseus-n88g.4), oldest first.
  */
-terminals?: Array<TerminalInfo>, };
+terminals?: Array<TerminalInfo>, 
+/**
+ * The MCP server (step 41b): absent while `[mcp_server]` is off.
+ */
+mcp_server?: McpServerHealth, };

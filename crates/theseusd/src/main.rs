@@ -33,6 +33,7 @@ use theseus_core::{Config, Core};
 use tokio::net::UnixListener;
 
 mod install;
+mod mcp;
 mod web;
 
 const AFTER_HELP: &str = "\
@@ -976,6 +977,10 @@ async fn after_serving(
                     tracing::error!(error = %e, "web UI failed; protocol socket unaffected");
                 }
             });
+        }
+        // The MCP server (step 41b): bound once its key resolves.
+        if core.cfg.mcp_server.enabled {
+            mcp::start(core.clone());
         }
         tokio::spawn(theseus_discord::run(
             core.clone(),

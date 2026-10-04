@@ -809,6 +809,16 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
     for n in names {
         secrets.insert(n.clone(), format!("op://Bench/{n}/credential").into());
     }
+    // The MCP server listens, as it does for an operator who turns it on
+    // (step 41b): it binds after serving, once its key resolves, so no phase
+    // may wait for it.
+    secrets.insert(
+        "mcp_server_key".into(),
+        "op://Bench/mcp_server_key/credential".into(),
+    );
+    let mcp = table(&mut t, "mcp_server");
+    mcp.insert("enabled".into(), true.into());
+    mcp.insert("port".into(), 0.into());
     let server = table(&mut t, "server");
     server.insert("state_dir".into(), state.display().to_string().into());
     server.insert("socket".into(), sock.display().to_string().into());

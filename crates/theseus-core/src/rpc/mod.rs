@@ -123,6 +123,8 @@ pub struct Core {
     /// they settle) is dropped, since the next start would replay it. A write
     /// holds it to read, so the checkpoint waits for one in progress.
     closed: std::sync::RwLock<bool>,
+    /// The MCP server's health block, as its listener sets it (step 41b).
+    pub mcp_server: crate::mcp_server::Board,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -670,6 +672,7 @@ impl Core {
             mcp,
             crash: Default::default(),
             closed: Default::default(),
+            mcp_server: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));

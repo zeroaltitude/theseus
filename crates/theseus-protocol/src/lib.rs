@@ -19,6 +19,7 @@ pub mod index;
 pub mod judge;
 mod ledger;
 pub mod mcp;
+pub mod mcp_server;
 pub mod memory;
 mod ontology;
 mod places;
@@ -523,6 +524,10 @@ pub struct HealthResult {
     /// The open terminals (`term.*`, theseus-n88g.4), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub terminals: Vec<TerminalInfo>,
+    /// The MCP server (step 41b): absent while `[mcp_server]` is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub mcp_server: Option<mcp_server::McpServerHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

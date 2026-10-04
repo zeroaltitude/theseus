@@ -11,6 +11,9 @@
 //! one), and a DELETE ends it.
 //!
 //! **Security**, in order, before anything is read:
+//! - the connection's peer, when the wire-in gives an `admit` check (the
+//!   daemon's: the client socket's owner must be the daemon's own uid, as
+//!   the web UI's must, theseus-3qf), run off the runtime's workers;
 //! - the `Host`, and a target's authority when it has one, must name this
 //!   listener (its address or `localhost`, at its port), as the web UI's
 //!   must (theseus-70f): a DNS-rebinding page's requests carry its own name;
@@ -81,7 +84,14 @@ pub struct Config {
     pub session_idle: Duration,
     pub server_info: Implementation,
     pub instructions: Option<String>,
+    /// Whether a connection's peer may be served, asked of each request
+    /// before anything else, on the blocking pool: `Err` says why not (a
+    /// 403, and a `Why::Peer` refusal). None: every peer is.
+    pub admit: Option<Admit>,
 }
+
+/// A peer check: the connection's two ends, and why it may not be served.
+pub type Admit = Arc<dyn Fn(Ends) -> Result<(), String> + Send + Sync>;
 
 impl Config {
     pub fn new(bind: SocketAddr, key: impl Into<String>) -> Self {
@@ -95,6 +105,7 @@ impl Config {
             session_idle: Duration::from_secs(3600),
             server_info: Implementation::new("theseus", env!("CARGO_PKG_VERSION")),
             instructions: Some(INSTRUCTIONS.into()),
+            admit: None,
         }
     }
 }
@@ -220,6 +231,8 @@ pub enum Why {
     Key,
     /// Past `requests_per_minute`.
     Rate,
+    /// The `admit` check refused the connection's peer.
+    Peer,
 }
 
 /// A refusal, as reported to the core: at most once a minute per kind.
@@ -630,6 +643,18 @@ async fn mcp<C: CoreClient>(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if let Some(admit) = s.cfg.admit.clone() {
+        let verdict = tokio::task::spawn_blocking(move || admit(ends))
+            .await
+            .unwrap_or_else(|e| Err(format!("the peer check failed: {e}")));
+        if let Err(why) = verdict {
+            s.refuse(Why::Peer, ends, Some(why.as_bytes()));
+            return plain(
+                StatusCode::FORBIDDEN,
+                "refused: the MCP server serves only the user that runs it",
+            );
+        }
+    }
     // DNS rebinding: a page's requests carry its own site's name, in `Host`
     // or in the target's authority (HTTP/2, or an absolute-form target).
     // Whichever is there must name this listener, and one must be.
