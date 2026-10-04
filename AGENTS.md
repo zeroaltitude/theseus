@@ -114,7 +114,9 @@ Each is a requirement, with its spec section.
   their probabilities and outcomes, in shadow before they act. Jev is never the only guard on safety, and the
   deterministic controls (`/stop`, budgets) bypass it.
 - **The security posture** (§1, "Secrets"; §2, NOTIFY OVER BLOCK; §3.9; §3.19).
-  - Secrets live in 1Password and are named only by `op://` reference. Never print, log, or store a value.
+  - Secrets live in 1Password, named by `op://` reference: the recommended source. Where there is no vault (a
+    container, CI), a `[secrets]` entry may be `env:NAME` or `file:PATH` instead, and `theseusd check` and health
+    name each such secret (theseus-n88g.1). Never print, log, or store a value.
   - The gate never refuses, and never guesses what a command does: each tool has a posture (`open`, `notify`, or
     `approve`), and the floor always asks.
   - Approvals come from the operator; a job's own process cannot answer one.

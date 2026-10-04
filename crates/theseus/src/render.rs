@@ -835,7 +835,8 @@ pub fn human_secs(s: u64) -> String {
 
 /// `secrets: resolving | ready | failed <names>`, with the names ready, how
 /// the vault was read and how long it took, and each failure's reason
-/// (theseus-qa0). A daemon older than that reports only the ready names.
+/// (theseus-qa0), then the secrets from outside the vault with their sources
+/// (theseus-n88g.1). A daemon older than that reports only the ready names.
 pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> String {
     if s.state.is_empty() {
         return format!("secrets [{}]", ready.join(", "));
@@ -864,6 +865,9 @@ pub fn secrets_line(s: &theseus_protocol::SecretsStatus, ready: &[String]) -> St
     }
     if let Some(ms) = s.retry_in_ms.filter(|_| !s.failed.is_empty()) {
         line.push_str(&format!("\n  fetched again in {:.0} s", ms as f64 / 1000.0));
+    }
+    if let Some(words) = s.outside_vault_words() {
+        line.push_str(&format!("\n  {words}"));
     }
     line
 }
@@ -2644,6 +2648,29 @@ mod tests {
             secrets_line(&SecretsStatus::default(), &["a".into()]),
             "secrets [a]",
             "an older daemon"
+        );
+        // theseus-n88g.1: the secrets from outside the vault, with their sources.
+        let local = SecretsStatus {
+            state: "ready".into(),
+            ready: vec!["anthropic_api_key".into(), "db".into()],
+            method: Some("local".into()),
+            settled_ms: Some(2),
+            outside_vault: vec![
+                theseus_protocol::SecretSource {
+                    name: "anthropic_api_key".into(),
+                    kind: "env".into(),
+                },
+                theseus_protocol::SecretSource {
+                    name: "db".into(),
+                    kind: "file".into(),
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            secrets_line(&local, &[]),
+            "secrets: ready · 2 ready 2 ms after start (local) [anthropic_api_key, db]\n  outside \
+             the vault: anthropic_api_key (env), db (file)"
         );
         let phase = |name: &str, bg: bool, start: u64, end: Option<u64>| StartupPhase {
             name: name.into(),

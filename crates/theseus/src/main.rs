@@ -25,7 +25,7 @@ use theseus_client::Conn;
 
 const AFTER_HELP: &str = "\
 Quick start:
-  export OP_SERVICE_ACCOUNT_TOKEN=...        the one secret allowed outside 1Password
+  export OP_SERVICE_ACCOUNT_TOKEN=...        1Password, the recommended home of the config's secrets
   theseusd &                                 start the server (or run it in the foreground)
   theseus health                             is it up, which profile is live, token totals
   theseus ask \"Say hello.\"                  one turn, streamed

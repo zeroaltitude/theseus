@@ -16,9 +16,10 @@ Design document: [`the-ship-of-theseus.md`](the-ship-of-theseus.md) (Part I spec
 
 Two static binaries and one protocol:
 
-- **`theseusd`** — the server. Loads config, resolves every secret from 1Password through a
-  service account (or refuses to start), opens the embedded store, and speaks the protocol on a
-  Unix socket (daemon) or on stdin/stdout (spawned by a client).
+- **`theseusd`** — the server. Loads config, resolves its secrets in the background while it
+  serves (from 1Password through a service account, or an `env:` or `file:` entry where there is
+  no vault), opens the embedded store, and speaks the protocol on a Unix socket (daemon) or on
+  stdin/stdout (spawned by a client).
 - **`theseus`** — the CLI. A thin client that links only the protocol crate. Prompt from an
   argument or stdin, streamed reply on stdout, diagnostics on stderr, `--json` for machines.
 - **The protocol** — JSON-RPC 2.0, one JSON object per line. Types in `crates/theseus-protocol`.
@@ -49,7 +50,9 @@ the loop cap is reached. To follow turns live, a client watches the session (`se
 
 ## Run it
 
-Only one secret may reach the process outside 1Password: the service-account token.
+1Password is the recommended source of every secret, through its service-account token. Where
+there is no vault (a container, CI), a `[secrets]` entry may be `env:NAME` or `file:PATH` instead,
+and `theseusd check` names each one that comes from outside the vault.
 
 ```bash
 export OP_SERVICE_ACCOUNT_TOKEN=...           # or --op-token-file / THESEUS_OP_TOKEN_FILE

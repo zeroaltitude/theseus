@@ -81,7 +81,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         Id, Request, Notification, RpcError, Response, Message, HealthResult, Build, SpoolStatus,
         SpoolSweep, DiskStatus, BinaryStatus, StoreStatus, CrashStatus, WebStatus, SecretsStatus,
         ContextStatus, ConfigStatus,
-        ConfigRestart, SecretFailed, StartupPhase, Tightening, PolicyTightenParams,
+        ConfigRestart, SecretFailed, SecretSource, StartupPhase, Tightening, PolicyTightenParams,
         PolicyUntightenParams, TightenResult, ExternalText, ExternalTextInfo, PolicyTrustParams,
         TrustResult, ApprovalStatus, ApprovalChannel, DiscordOrigin, BindingStatus, OutboxStatus,
         PlaceStatus, TelemetryStatus, KernelStatus, ChildrenStatus, GrantStatus,

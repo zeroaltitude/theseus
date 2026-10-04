@@ -151,6 +151,7 @@ export type * from './SandboxHealth';
 export type * from './SandboxLaunch';
 export type * from './SandboxUsage';
 export type * from './SecretFailed';
+export type * from './SecretSource';
 export type * from './SecretsStatus';
 export type * from './SessionHistoryParams';
 export type * from './SessionHistoryResult';

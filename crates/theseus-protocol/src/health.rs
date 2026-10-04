@@ -1,6 +1,7 @@
-//! Health's sections for the store's refused reads (R4, theseus-15g) and the
-//! last crash (Review 2's consideration 1), and the binary's build
-//! (theseus-9o5n); `HealthResult` is in lib.rs.
+//! Health's sections for the store's refused reads (R4, theseus-15g), the
+//! last crash (Review 2's consideration 1), the binary's build
+//! (theseus-9o5n), and the secrets (theseus-qa0; their sources,
+//! theseus-n88g.1); `HealthResult` is in lib.rs.
 
 use serde::{Deserialize, Serialize};
 
@@ -59,4 +60,91 @@ pub struct Build {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub commit: Option<String>,
+}
+
+/// Where the vault's secrets stand (theseus-qa0, spec §2 FAST): the daemon
+/// answers its socket before they resolve, and each consumer waits for its own.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SecretsStatus {
+    /// `resolving` until every secret has settled, then `ready`, or `failed`
+    /// with `failed` naming each one that did not resolve.
+    pub state: String,
+    #[serde(default)]
+    pub ready: Vec<String>,
+    #[serde(default)]
+    pub resolving: Vec<String>,
+    #[serde(default)]
+    pub failed: Vec<SecretFailed>,
+    /// How the vault was read: `inject` (one `op inject` for every reference),
+    /// or `inject, then read` after a failed injection.
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Rounds run: the first, then one per retry of what failed.
+    #[serde(default)]
+    pub rounds: u32,
+    /// When resolution began, and when its first round settled, in ms after
+    /// the process started.
+    #[serde(default)]
+    pub started_ms: Option<u64>,
+    #[serde(default)]
+    pub settled_ms: Option<u64>,
+    /// Until the next fetch of what failed.
+    #[serde(default)]
+    pub retry_in_ms: Option<u64>,
+    /// The secrets whose values come from outside the vault, the recommended
+    /// source (theseus-n88g.1): an `env:` or `file:` entry, by name and
+    /// source. Empty when every secret is the vault's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outside_vault: Vec<SecretSource>,
+}
+
+impl SecretsStatus {
+    /// `resolving`, `ready`, or `failed a, b`: what health says in a word.
+    pub fn summary(&self) -> String {
+        match self.state.as_str() {
+            "failed" => format!(
+                "failed {}",
+                self.failed
+                    .iter()
+                    .map(|f| f.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            "" => "unknown".into(),
+            s => s.into(),
+        }
+    }
+
+    /// `outside the vault: a (env), b (file)`, naming each secret whose value
+    /// does not come from the vault, with its source; `None` when every one
+    /// does (theseus-n88g.1).
+    pub fn outside_vault_words(&self) -> Option<String> {
+        (!self.outside_vault.is_empty()).then(|| {
+            let each: Vec<String> = self
+                .outside_vault
+                .iter()
+                .map(|s| format!("{} ({})", s.name, s.kind))
+                .collect();
+            format!("outside the vault: {}", each.join(", "))
+        })
+    }
+}
+
+/// A secret that did not resolve, and why (never a value).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SecretFailed {
+    pub name: String,
+    pub error: String,
+}
+
+/// A secret that comes from outside the vault, and from where (theseus-n88g.1):
+/// `kind` is `env` (the daemon's environment) or `file` (a private file).
+/// Never the value, the variable, or the path.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SecretSource {
+    pub name: String,
+    pub kind: String,
 }

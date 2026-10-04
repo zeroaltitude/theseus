@@ -52,7 +52,11 @@ pub struct Config {
     /// The implicit `anthropic` provider comes from `[model]` unless overridden here.
     #[serde(default)]
     pub providers: BTreeMap<String, ProviderConfig>,
-    /// name → op:// reference. Every entry must resolve or the process refuses to start.
+    /// name → where its value comes from: an `op://` reference into the vault
+    /// (recommended), or `env:NAME` or `file:PATH` from outside it
+    /// (theseus-n88g.1). They resolve in the background while the daemon
+    /// serves; a consumer waits for its own secret and fails closed if it did
+    /// not resolve, and a failed one is fetched again (theseus-qa0).
     #[serde(default)]
     pub secrets: BTreeMap<String, String>,
     /// `[broker]`: which program gets which secret, in which variable, and
@@ -1150,6 +1154,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         for (name, r) in &self.secrets {
             if crate::secrets::is_local(r) {
+                crate::secrets::check_local(r).with_context(|| format!("secrets.{name}"))?;
                 continue;
             }
             SecretRef::parse(r).with_context(|| {
@@ -1653,6 +1658,35 @@ mod tests {
         assert_eq!(cfg.telemetry.otlp_endpoint, None);
     }
 
+    /// theseus-n88g.1 (D6): a secret may come from outside the vault, from
+    /// the daemon's environment or a private file, and a malformed entry is
+    /// refused by its name.
+    #[test]
+    fn a_secret_may_come_from_the_environment_or_a_file() {
+        let mut cfg = Config::example();
+        cfg.secrets
+            .insert("anthropic_api_key".into(), "env:ANTHROPIC_API_KEY".into());
+        cfg.secrets
+            .insert("zai_api_key".into(), "file:~/.config/invented/zai".into());
+        cfg.validate().unwrap();
+        for (bad, why) in [
+            ("file:zai.txt", "absolute path"),
+            ("env:", "variable's name"),
+            ("env:ZAI-KEY", "variable's name"),
+            (
+                "vault:zai",
+                "not a valid op:// reference, env:NAME, or file:PATH",
+            ),
+        ] {
+            cfg.secrets.insert("zai_api_key".into(), bad.into());
+            let e = format!("{:#}", cfg.validate().unwrap_err());
+            assert!(
+                e.contains("secrets.zai_api_key") && e.contains(why),
+                "{bad}: {e}"
+            );
+        }
+    }
+
     /// Every commented-out parameter must be a real parameter with a valid
     /// value: un-comment them all and the result must still parse under
     /// deny_unknown_fields. This is what stops the template from lying.
@@ -1697,6 +1731,12 @@ mod tests {
         );
         assert!(cfg.providers["zai"].timeouts.is_some());
         assert!(cfg.model.system.is_some());
+        // The secrets from outside the vault (theseus-n88g.1) are real entries.
+        assert_eq!(cfg.secrets["ci_runner_key"], "env:CI_RUNNER_KEY");
+        assert_eq!(
+            cfg.secrets["ci_deploy_key"],
+            "file:~/.config/theseus/deploy-key"
+        );
         // The 1-hour cache TTL (theseus-ev1), on the implicit profile and on
         // the Sonnet one; the GLM one keeps the default.
         assert_eq!(cfg.model.cache_ttl, CacheTtl::OneHour);

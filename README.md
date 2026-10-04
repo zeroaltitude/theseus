@@ -275,8 +275,9 @@ You'll need:
 - Rust 1.98 or later;
 - Node.js 22 or later (to build the web UIs);
 - an Anthropic API key, or a key for another provider that speaks the same API;
-- [1Password](https://1password.com/) with a service account. Theseus reads every secret from 1Password; the
-  service account's token is the only secret it accepts any other way.
+- [1Password](https://1password.com/) with a service account, the recommended home for every secret. Where there is
+  no vault, as in a container or CI, a secret can come from an environment variable or a private file instead
+  (`env:` and `file:` in the template's `[secrets]`).
 
 ```bash
 git clone https://github.com/zeroaltitude/theseus && cd theseus
