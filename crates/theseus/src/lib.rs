@@ -9,8 +9,11 @@
 //! - [`render`]: what a terminal shows of the daemon's answers and events, as
 //!   [`render::Line`]s, each a text with a style tag. The CLI prints the
 //!   text, and the TUI styles it by its tag.
+//! - [`outcome`]: how a turn ended, as `theseus ask`'s exit code
+//!   (theseus-n88g.2).
 
 pub mod client;
+pub mod outcome;
 pub mod render;
 
 pub use client::{CallError, Conn};

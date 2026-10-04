@@ -3,7 +3,8 @@
 //! Built for shells: prompt from an argument or stdin, streamed reply on
 //! stdout, diagnostics on stderr, `--json` for machines, meaningful exit codes.
 //!
-//! Exit codes: 0 ok · 1 server/provider error · 2 usage · 3 cannot connect.
+//! Exit codes: 0 ok · 1 server/provider error · 2 usage · 3 cannot connect;
+//! `ask` adds how its turn ended (`theseus_client::outcome`, theseus-n88g.2).
 //!
 //! `run` matches the subcommand; each one is a function in `cmd.rs`, and
 //! what it prints is `render.rs`'s (theseus-0g4, finding 11). Since
@@ -52,12 +53,28 @@ Quick start:
   theseus policy trust <session>             after a session read a web page, its calls that act wait; this trusts it again
   theseus catalog                            models, context windows, and prices
   theseus index search \"port 7433\"           find what was said, run, or read; `index status`: how far the index has read
-  theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn
+  theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn, then stop it cleanly
   theseus shutdown
 
 Web UI:      http://127.0.0.1:7433/  (while theseusd runs)
 Exit codes:  0 ok · 1 server or provider error · 2 usage · 3 cannot connect
+             ask: 5 spend limit · 6 waits for approval · 7 refused · 8 cut by a limit · 9 stopped
 More:        theseus <command> --help";
+
+/// `theseus ask --help`'s exit codes (theseus-n88g.2): how the turn ended,
+/// for a script or a benchmark's harness that runs it headless.
+const ASK_EXIT_CODES: &str = "\
+Exit codes, by how the turn ended (`--json` gives its stop_reason in full):
+  0  done: the model ended its turn
+  1  failed: a provider's or a tool's fault, or the daemon's error
+  2  usage · 3 cannot connect or spawn theseusd
+  5  the session reached its spend limit; the turn waits for the operator to reset it
+  6  a call waits for the operator's approval (`theseus confirm`), which a headless run cannot give
+  7  the model refused
+  8  a limit ended the turn before the model did: the loop cap, the output limit, or the context window
+  9  stopped: by an operator (/stop, `theseus stop`), or, under --spawn, by a SIGINT or SIGTERM, which
+     stops the turn as /stop does, with what it spent, before the spawned daemon's clean stop
+  130 or 143  under --spawn, a second SIGINT or SIGTERM ended the run before the turn stopped";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -99,6 +116,8 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Send one prompt as one turn and print the reply. Reads stdin when PROMPT is omitted or "-".
+    /// The exit code says how the turn ended.
+    #[command(after_help = ASK_EXIT_CODES)]
     Ask(AskArgs),
     /// A session's transcript: messages, tool calls with their gate decisions, results, and
     /// anything waiting for your confirmation. SESSION defaults to the most recently active.
@@ -476,13 +495,8 @@ async fn main() {
     let code = match run(cli).await {
         Ok(()) => 0,
         Err(e) => {
-            let msg = format!("{e:#}");
-            eprintln!("theseus: {msg}");
-            if msg.contains("connecting to theseusd") || msg.contains("spawning") {
-                3
-            } else {
-                1
-            }
+            eprintln!("theseus: {e:#}");
+            theseus_client::outcome::exit_code(&e)
         }
     };
     std::process::exit(code);
@@ -498,9 +512,9 @@ async fn run(cli: Cli) -> Result<()> {
         Some(bin) => Conn::spawn(bin)?,
         None => Conn::socket(&cli.socket).await?,
     };
-    let (c, json) = (&mut conn, cli.json);
-    match cli.cmd {
-        Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a).await,
+    let (c, json, spawned) = (&mut conn, cli.json, cli.spawn.is_some());
+    let result = match cli.cmd {
+        Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a, spawned).await,
         Cmd::History { session, n, full } => cmd::history(c, json, session, n, full).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Places => cmd::places(c, json).await,
@@ -548,5 +562,25 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),
+    };
+    // A spawned daemon stops cleanly, not by a kill, so the next open of its
+    // store replays nothing (theseus-n88g.2). A daemon that exits as its stop
+    // is written breaks the pipe: that write fails instead of ending this
+    // process, and the default comes back for what is printed after.
+    #[cfg(unix)]
+    // SAFETY: as in `main`: nothing else changes the disposition, and no
+    // other thread writes to a pipe meanwhile.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
+    let closed = conn.close().await;
+    #[cfg(unix)]
+    // SAFETY: as above.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+    if let Err(e) = closed {
+        eprintln!("theseus: {e:#}");
+    }
+    result
 }
