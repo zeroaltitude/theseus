@@ -325,8 +325,12 @@ impl Core {
         p: theseus_protocol::SessionListParams,
     ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
         let Some(ids) = p.ids else {
+            if let Some(n) = p.n {
+                return self.session_page(n.min(1000), p.before);
+            }
             return Ok(theseus_protocol::SessionListResult {
                 sessions: self.session_list()?,
+                older: None,
             });
         };
         let mut recs = Vec::new();
@@ -349,6 +353,45 @@ impl Core {
                 .iter()
                 .map(|r| self.session_info(r, &pending))
                 .collect(),
+            older: None,
+        })
+    }
+
+    /// `session.list { n, before }` (theseus-96w2): the newest `n` sessions
+    /// by when each was opened, through the index's births, each with its
+    /// execution and questions as `session.list` gives them. While the
+    /// index's shape is built after serving, every session is read, the
+    /// newest `n` by when each was opened kept, and no cursor is given.
+    fn session_page(
+        &self,
+        n: usize,
+        before: Option<u64>,
+    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
+        let (recs, older) = match self.sessions_paged(n, before)? {
+            Some(page) => page,
+            None => {
+                let mut all: Vec<SessionRecord> = self.store.list_sessions()?;
+                all.sort_by_key(|r| std::cmp::Reverse(r.created_at_unix_ms));
+                all.truncate(n);
+                (all, None)
+            }
+        };
+        let ids: Vec<&str> = recs.iter().map(|r| r.session_id.as_str()).collect();
+        let pending = self.pending_by_execution(
+            &self
+                .kernel
+                .pending_confirms()?
+                .into_iter()
+                .filter(|a| ids.contains(&a.session_id.as_str()))
+                .collect::<Vec<_>>(),
+            None,
+        );
+        Ok(theseus_protocol::SessionListResult {
+            sessions: recs
+                .iter()
+                .map(|r| self.session_info(r, &pending))
+                .collect(),
+            older,
         })
     }
 
@@ -857,14 +900,31 @@ impl Core {
         p: theseus_protocol::SessionHistoryParams,
     ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
         let rec = self.session(&p.session_id)?;
-        let nodes = self.store.session_nodes(&p.session_id)?;
-        let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
         let pending = self.kernel.pending_confirms()?;
         let mine: Vec<theseus_kernel::Action> = pending
             .iter()
             .filter(|a| a.session_id == p.session_id)
             .cloned()
             .collect();
+        // The newest `n` alone, through the session's tag (theseus-96w2),
+        // unless a question waits in it: its card reads the gate's record
+        // on its call's node, wherever that is, so the whole session is
+        // read, as it always was.
+        let newest = match p.n {
+            Some(n) if mine.is_empty() => {
+                self.nodes_paged(None, Some(&p.session_id), n)?
+                    .map(|mut v| {
+                        v.reverse();
+                        v
+                    })
+            }
+            _ => None,
+        };
+        let nodes = match newest {
+            Some(v) => v,
+            None => self.store.session_nodes(&p.session_id)?,
+        };
+        let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, &nodes)));
         Ok(theseus_protocol::SessionHistoryResult {
             session: self.session_info(&rec, &asks),
@@ -1015,20 +1075,36 @@ impl Core {
         p: theseus_protocol::NodeListParams,
     ) -> Result<theseus_protocol::NodeListResult, RpcFailure> {
         let n = p.n.unwrap_or(100).min(2000);
-        let mut nodes = match &p.session_id {
-            Some(sid) => self.store.session_nodes(sid)?,
-            None => self
-                .store
-                .recent_nodes(if p.kind.is_some() { n * 10 } else { n })?,
+        // A kind or a session reads its tag's newest `n` (theseus-96w2);
+        // while the index's shape is built, as before: the session's every
+        // node, or ten times `n` of every session's, filtered here.
+        let filtered = p.kind.is_some() || p.session_id.is_some();
+        let paged = if filtered {
+            self.nodes_paged(p.kind.as_deref(), p.session_id.as_deref(), n)?
+        } else {
+            None
         };
-        if let Some(k) = &p.kind {
-            nodes.retain(|(_, node)| node.kind_str() == k);
-        }
-        let skip = nodes.len().saturating_sub(n);
+        let nodes: Vec<(u64, crate::node::Node)> = match paged {
+            Some(newest_first) => newest_first,
+            None => {
+                let mut nodes = match &p.session_id {
+                    Some(sid) => self.store.session_nodes(sid)?,
+                    None => self
+                        .store
+                        .recent_nodes(if p.kind.is_some() { n * 10 } else { n })?,
+                };
+                if let Some(k) = &p.kind {
+                    nodes.retain(|(_, node)| node.kind_str() == k);
+                }
+                let skip = nodes.len().saturating_sub(n);
+                nodes.drain(..skip);
+                nodes.reverse();
+                nodes
+            }
+        };
         Ok(theseus_protocol::NodeListResult {
-            nodes: nodes[skip..]
+            nodes: nodes
                 .iter()
-                .rev()
                 .map(|(pos, node)| Self::node_info(*pos, node))
                 .collect(),
             total: self.store.node_count()?,
@@ -1155,13 +1231,22 @@ impl Core {
         p: theseus_protocol::ActionListParams,
     ) -> Result<theseus_protocol::ActionListResult, RpcFailure> {
         let n = p.n.unwrap_or(200).min(2000);
-        let mut actions = self.kernel.actions()?;
-        let total = actions.len() as u64;
-        if let Some(x) = &p.execution_id {
-            actions.retain(|a| &a.execution_id == x);
-        }
-        actions.sort_by_key(|a| std::cmp::Reverse(a.planned_at_ms));
-        actions.truncate(n);
+        // The newest `n` through the index's births, or an execution's
+        // through its tag (theseus-96w2); while the index's shape is built,
+        // every action, as before.
+        let (actions, total) = match self.actions_paged(p.execution_id.as_deref(), n)? {
+            Some(page) => page,
+            None => {
+                let mut actions = self.kernel.actions()?;
+                let total = actions.len() as u64;
+                if let Some(x) = &p.execution_id {
+                    actions.retain(|a| &a.execution_id == x);
+                }
+                actions.sort_by_key(|a| std::cmp::Reverse(a.planned_at_ms));
+                actions.truncate(n);
+                (actions, total)
+            }
+        };
         use theseus_store::Store as _;
         let info = |a: &theseus_kernel::Action| theseus_protocol::ActionInfo {
             // A job's egress, from its completion (18c).
@@ -1232,14 +1317,63 @@ impl Core {
     /// The newest `n` rows, or with `after` the first `n` after it (theseus-xo0m).
     /// A filter scans up to 50 rows for each one asked: the newest that many,
     /// or the next that many after `after`, whose last position is `next`.
+    /// `ledger.tail`: one page through the store's index (theseus-vm3n.5):
+    /// a kind or session filter reads its tag's postings, a window its time
+    /// index, and a cursor its bound, so the read costs about its answer,
+    /// never the history before it. The page and `total` are one snapshot
+    /// (theseus-tphr).
     pub(super) fn ledger_tail(&self, p: LedgerTailParams) -> Result<LedgerTailResult, RpcFailure> {
         let n = p.n.unwrap_or(20).min(1000);
-        let scan = if p.kind.is_some() || p.session_id.is_some() {
-            n * 50
-        } else {
-            n
+        let page = theseus_store::Page {
+            kind: theseus_store::kinds::LEDGER,
+            tags: ledger_tags(p.kind.as_deref(), p.session_id.as_deref()),
+            after: p.after,
+            before: p.before,
+            since_ms: p.since_ms,
+            until_ms: p.until_ms,
+            limit: n,
         };
-        let read: Vec<(u64, LedgerRow)> = match p.after {
+        let Some(out) = self.store.ledger_page(&page)? else {
+            return self.ledger_tail_scanned(&p, n);
+        };
+        let rows = out
+            .records
+            .iter()
+            .map(|r| {
+                let row: crate::ledger::LedgerRow = r.decode()?;
+                Ok(LedgerEntry {
+                    position: r.position,
+                    at_unix_ms: row.at_unix_ms,
+                    kind: row.kind,
+                    session_id: row.session_id,
+                    turn_id: row.turn_id,
+                    data: row.data,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(LedgerTailResult {
+            rows,
+            total: out.count,
+            next: p.after.and(out.more.then_some(out.last).flatten()),
+            older: p.before.and(out.more.then_some(out.first).flatten()),
+        })
+    }
+
+    /// `ledger.tail` while the index's shape is built after serving (an
+    /// older build wrote the index last, theseus-vm3n.5): today's read, a
+    /// window of `n × 50` rows filtered here, with `before` and the times
+    /// applied to it too. Its `total` is a second read.
+    fn ledger_tail_scanned(
+        &self,
+        p: &LedgerTailParams,
+        n: usize,
+    ) -> Result<LedgerTailResult, RpcFailure> {
+        let filtered = p.kind.is_some()
+            || p.session_id.is_some()
+            || p.since_ms.is_some()
+            || p.until_ms.is_some();
+        let scan = if filtered { n * 50 } else { n };
+        let read: Vec<(u64, crate::ledger::LedgerRow)> = match p.after {
             Some(after) => self.store.ledger_after(after, scan)?,
             None => self.store.ledger_tail(scan)?,
         };
@@ -1253,6 +1387,11 @@ impl Core {
                     .as_deref()
                     .is_none_or(|s| r.session_id.as_deref() == Some(s))
             })
+            .filter(|(position, r)| {
+                p.before.is_none_or(|b| *position < b)
+                    && p.since_ms.is_none_or(|t| r.at_unix_ms >= t)
+                    && p.until_ms.is_none_or(|t| r.at_unix_ms <= t)
+            })
             .map(|(position, r)| LedgerEntry {
                 position,
                 at_unix_ms: r.at_unix_ms,
@@ -1263,14 +1402,8 @@ impl Core {
             })
             .collect();
         let (rows, next) = match p.after {
-            // The first `n` kept: more may follow the last of them, or, short
-            // of `n`, the window's last row when the window was full.
-            Some(_) if rows.len() > n => {
+            Some(_) if rows.len() >= n && n > 0 => {
                 let rows = rows[..n].to_vec();
-                let next = rows.last().map(|r| r.position);
-                (rows, next)
-            }
-            Some(_) if rows.len() == n && n > 0 => {
                 let next = rows.last().map(|r| r.position);
                 (rows, next)
             }
@@ -1281,6 +1414,7 @@ impl Core {
             rows,
             total: self.store.ledger_len()?,
             next,
+            older: None,
         })
     }
 
@@ -1369,4 +1503,30 @@ impl Core {
         let _ = self.store.inner().checkpoint_for_close();
         crate::startup::stop_phase("row and checkpoint");
     }
+}
+
+/// The ledger's tags a `ledger.tail` filter reads (`theseus_store::pages`):
+/// its kind under each of its names (a renamed kind reads the rows stored
+/// under its old one too), in its session when it names one; the session's
+/// alone without a kind; none without either.
+fn ledger_tags(kind: Option<&str>, session: Option<&str>) -> Vec<String> {
+    use theseus_store::pages::{ledger_kind, ledger_kind_session, ledger_session};
+    let Some(kind) = kind else {
+        return session.map(ledger_session).into_iter().collect();
+    };
+    let mut names = vec![kind.to_string()];
+    for &(now, before) in theseus_protocol::LedgerKind::RENAMED {
+        if kind == now.as_str() {
+            names.push(before.to_string());
+        } else if kind == before {
+            names.push(now.as_str().to_string());
+        }
+    }
+    names
+        .iter()
+        .map(|k| match session {
+            Some(s) => ledger_kind_session(k, s),
+            None => ledger_kind(k),
+        })
+        .collect()
 }

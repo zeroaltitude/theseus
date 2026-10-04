@@ -17,11 +17,16 @@ pub(crate) use confirms::{expired_answer, Act};
 mod driver;
 mod info;
 mod methods;
+mod pages;
 mod policy;
 mod publish;
 mod server;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ledger;
+#[cfg(test)]
+mod tests_lists;
 mod trust;
 
 pub use bindings::BindingBoard;
@@ -176,6 +181,9 @@ pub const HISTORY_WHOLE_EVERY_MS: u64 = 24 * 60 * 60 * 1000;
 /// Keys a stretch of the index's terms build reads and writes at once
 /// (theseus-lv2): a few milliseconds of work, so a stop waits for little.
 const TERMS_STRETCH: usize = 512;
+
+/// Records a stretch of the index's shape build reads (theseus-vm3n.5).
+const SHAPE_STRETCH: usize = 2048;
 
 impl Core {
     /// The daemon's core, from its config and the secret board, which may
@@ -742,12 +750,65 @@ impl Core {
     /// blocking pool, so a stop waits for one stretch at most; until the
     /// last, the kernel's readers by state read every record, as before. The
     /// background startup phase `store.terms` says how many stretches, and
-    /// how long. Nothing when they are whole.
+    /// how long. Then the index's shape, the same way (`build_store_shape`).
+    /// Nothing when both are whole.
     pub fn build_store_terms(self: &Arc<Self>) {
-        if self.store.inner().terms_whole() {
+        let store = self.store.inner();
+        if store.terms_whole() && store.shaped() {
             return;
         }
-        let phase = self.startup_log.begin("store.terms", true, Instant::now());
+        let core = Arc::downgrade(self);
+        let log = self.startup_log.clone();
+        let terms = (!store.terms_whole())
+            .then(|| self.startup_log.begin("store.terms", true, Instant::now()));
+        tokio::spawn(async move {
+            if let Some(phase) = terms {
+                let outcome = Self::build_terms_stretches(&core).await;
+                log.end(phase, outcome);
+            }
+            let Some(c) = core.upgrade() else { return };
+            c.build_store_shape();
+        });
+    }
+
+    async fn build_terms_stretches(core: &std::sync::Weak<Self>) -> Value {
+        let t0 = Instant::now();
+        let (mut at, mut stretches) = (None, 0u64);
+        loop {
+            let Some(store) = core.upgrade().map(|c| c.store.inner().clone()) else {
+                break json!({"outcome": "stopped", "stretches": stretches});
+            };
+            let from = at.take();
+            match tokio::task::spawn_blocking(move || store.build_terms(from, TERMS_STRETCH)).await
+            {
+                Ok(Ok(Some(next))) => {
+                    at = Some(next);
+                    stretches += 1;
+                }
+                Ok(Ok(None)) => {
+                    break json!({"outcome": "whole", "stretches": stretches,
+                                 "ms": (t0.elapsed().as_secs_f64() * 1000.0).round()});
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %format!("{e:#}"), "store: building the index's terms failed; the kernel reads every record");
+                    break json!({"outcome": "failed", "error": format!("{e:#}")});
+                }
+                Err(e) => break json!({"outcome": "failed", "error": e.to_string()}),
+            }
+        }
+    }
+
+    /// The index's shape (its counts, clocks, and tags), built again after
+    /// serving when an older build wrote the index last (theseus-vm3n.5): a
+    /// stretch of `SHAPE_STRETCH` records at a time on the blocking pool, so
+    /// a stop waits for one stretch at most. Until the last, the counts walk
+    /// and `ledger.tail`'s filtered reads scan, as before. The background
+    /// startup phase `store.shape` says how many stretches, and how long.
+    pub fn build_store_shape(self: &Arc<Self>) {
+        if self.store.inner().shaped() {
+            return;
+        }
+        let phase = self.startup_log.begin("store.shape", true, Instant::now());
         let log = self.startup_log.clone();
         let core = Arc::downgrade(self);
         tokio::spawn(async move {
@@ -758,7 +819,7 @@ impl Core {
                     break json!({"outcome": "stopped", "stretches": stretches});
                 };
                 let from = at.take();
-                match tokio::task::spawn_blocking(move || store.build_terms(from, TERMS_STRETCH))
+                match tokio::task::spawn_blocking(move || store.build_shape(from, SHAPE_STRETCH))
                     .await
                 {
                     Ok(Ok(Some(next))) => {
@@ -770,7 +831,7 @@ impl Core {
                                      "ms": (t0.elapsed().as_secs_f64() * 1000.0).round()});
                     }
                     Ok(Err(e)) => {
-                        tracing::warn!(error = %format!("{e:#}"), "store: building the index's terms failed; the kernel reads every record");
+                        tracing::warn!(error = %format!("{e:#}"), "store: building the index's shape failed; its counts walk");
                         break json!({"outcome": "failed", "error": format!("{e:#}")});
                     }
                     Err(e) => break json!({"outcome": "failed", "error": e.to_string()}),

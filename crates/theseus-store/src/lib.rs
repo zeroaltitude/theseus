@@ -27,14 +27,17 @@
 //! replaces.
 
 pub mod index;
+pub mod pages;
 pub mod record;
 pub mod repair;
 pub mod store;
 pub mod wal;
 
 pub use index::{Engine, Location, MovedAside, Sums};
+pub use pages::{Page, PageOut};
 pub use record::{kinds, NewRecord, Record, RecordKind, FROZEN_SCHEMA};
 pub use store::{
-    blocking, frames_written_here, Projection, Store, StoreStats, VerifiedSlot, WalStore,
+    blocking, frames_written_here, Projection, ShapeCursor, Store, StoreStats, VerifiedSlot,
+    WalStore,
 };
 pub use wal::{History, HistoryCheck, Verified, Wal, WalConfig, WalError};

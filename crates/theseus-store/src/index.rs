@@ -12,11 +12,26 @@
 //! - `termsof`: kind u16 ‖ key bytes → that key's terms, each ended by 0x00, so the
 //!   key's next record replaces them
 //! - `meta`:   "checkpoint" → position u64; a projection's name → the checkpoint
-//!   its terms were whole at
+//!   its terms were whole at; `SHAPE` → the checkpoint the tables below were
+//!   whole at
+//! - `counts`: kind u16 → how many records it has; `keycounts`: kind u16 → how
+//!   many keys; `scopecounts`: scope bytes → how many records (theseus-vm3n.5:
+//!   a count reads one row, not a range that grows with history)
+//! - `termcounts`: kind u16 ‖ term → how many keys have it, kept with `terms`
+//! - `born`:   kind u16 ‖ key → the key's first position; `bybirth`: kind u16 ‖
+//!   that position → the key: the newest keys of a kind, by birth
+//! - `clock`:  kind u16 → the kind's clock: the newest frame time its records
+//!   have had, so it never steps back (see `pages.rs`)
+//! - `bytime`: kind u16 ‖ minute u64 → the first position of the kind whose
+//!   clock is in that minute: a time window's first position in O(log n)
+//! - `tagged`: kind u16 ‖ tag ‖ 0x00 ‖ position u64 → (): a record's tags
+//!   (`pages::tags_of`: a ledger row's kind and session), so a filtered read
+//!   costs its answer, not a scan
 //!
 //! Writes are non-durable by default; `flush_durable` + `set_checkpoint` make
 //! them durable together. Startup replays the WAL past the checkpoint.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -39,6 +54,8 @@ pub enum Engine {
 #[derive(Debug, Clone)]
 pub struct IndexEntry {
     pub position: u64,
+    /// The frame's time, as the WAL wrote it.
+    pub at_unix_ms: u64,
     pub kind: RecordKind,
     pub key: Option<String>,
     pub scope: Option<String>,
@@ -49,6 +66,8 @@ pub struct IndexEntry {
     /// The numbers a projection adds up for its kind (`Sums`), which replace
     /// its key's last ones in the totals; `None` leaves them as they are.
     pub sums: Option<Sums>,
+    /// The record's tags (`pages::tags_of`), each kept with its position.
+    pub tags: Vec<String>,
 }
 
 /// One key's projection, as a build after serving puts it: (kind, key,
@@ -164,11 +183,48 @@ const TERMS: TableDefinition<&[u8], u64> = TableDefinition::new("terms");
 const TERMSOF: TableDefinition<&[u8], &[u8]> = TableDefinition::new("termsof");
 const SUMS: TableDefinition<u16, &[u8]> = TableDefinition::new("sums");
 const SUMSOF: TableDefinition<&[u8], &[u8]> = TableDefinition::new("sumsof");
-const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
+pub(crate) const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
+pub(crate) const COUNTS: TableDefinition<u16, u64> = TableDefinition::new("counts");
+const KEYCOUNTS: TableDefinition<u16, u64> = TableDefinition::new("keycounts");
+const SCOPECOUNTS: TableDefinition<&[u8], u64> = TableDefinition::new("scopecounts");
+const CLOCK: TableDefinition<u16, u64> = TableDefinition::new("clock");
+const BYTIME: TableDefinition<&[u8], u64> = TableDefinition::new("bytime");
+pub(crate) const TAGGED: TableDefinition<&[u8], ()> = TableDefinition::new("tagged");
+const TERMCOUNTS: TableDefinition<&[u8], u64> = TableDefinition::new("termcounts");
+const BORN: TableDefinition<&[u8], u64> = TableDefinition::new("born");
+const BYBIRTH: TableDefinition<&[u8], &[u8]> = TableDefinition::new("bybirth");
+
+/// The index's shape (theseus-vm3n.5): `meta` keeps under this name the
+/// checkpoint at which the counts, the clock, `bytime`, `tagged`, and the
+/// births were whole. Every checkpoint of this build sets it; an older build,
+/// which keeps none of them, moves the checkpoint alone. An open that finds
+/// it anywhere but at the checkpoint drops only those tables and still reads
+/// only the WAL's tail; `WalStore::build_shape` builds them again after
+/// serving (`shape_or_empty`). A change to what those tables hold renames it.
+pub const SHAPE: &str = "index.shape.3";
+
+/// A minute, in ms: `bytime`'s grain.
+pub const MINUTE_MS: u64 = 60_000;
+
+fn bytime(kind: RecordKind, minute: u64) -> [u8; 10] {
+    bykind(kind, minute)
+}
+fn tagged(kind: RecordKind, tag: &str, pos: u64) -> Vec<u8> {
+    let mut v = Vec::with_capacity(11 + tag.len());
+    v.extend_from_slice(&kind.to_be_bytes());
+    v.extend_from_slice(tag.as_bytes());
+    v.push(0);
+    v.extend_from_slice(&pos.to_be_bytes());
+    v
+}
 
 pub struct RedbIndex {
     db: Db,
     repaired: bool,
+    /// Whether the counts, the clocks, `bytime`, `tagged`, and `termcounts`
+    /// are whole (`SHAPE`): false from an open that found another shape's
+    /// index until `recount` (theseus-vm3n.5); its readers walk until then.
+    shaped: std::sync::atomic::AtomicBool,
 }
 
 /// The database, open until its index drops, which times its close
@@ -228,6 +284,7 @@ impl RedbIndex {
         // the next durable commit (a checkpoint, or redb's close) keeps it.
         let mut txn = db.begin_write()?;
         txn.set_durability(Durability::None)?;
+        let shaped = shape_or_empty(&txn)?;
         {
             txn.open_table(LOC)?;
             txn.open_table(BYKEY)?;
@@ -238,11 +295,28 @@ impl RedbIndex {
             txn.open_table(SUMS)?;
             txn.open_table(SUMSOF)?;
             txn.open_table(META)?;
+            txn.open_table(COUNTS)?;
+            txn.open_table(KEYCOUNTS)?;
+            txn.open_table(SCOPECOUNTS)?;
+            txn.open_table(CLOCK)?;
+            txn.open_table(BYTIME)?;
+            txn.open_table(TAGGED)?;
+            txn.open_table(TERMCOUNTS)?;
+            txn.open_table(BORN)?;
+            txn.open_table(BYBIRTH)?;
         }
         txn.commit()?;
+        if !shaped {
+            tracing::info!(
+                shape = SHAPE,
+                "store: the index was written by a build that keeps another shape; its counts, \
+                 clocks, and tags are built again after serving"
+            );
+        }
         Ok(Self {
             db: Db(Some(db)),
             repaired,
+            shaped: std::sync::atomic::AtomicBool::new(shaped),
         })
     }
 
@@ -305,22 +379,33 @@ impl RedbIndex {
             let mut byk = txn.open_table(BYKEY)?;
             let mut bkd = txn.open_table(BYKIND)?;
             let mut bsc = txn.open_table(BYSCOPE)?;
+            let mut births = Vec::new();
+            let mut fresh = Vec::with_capacity(entries.len());
             for e in entries {
                 loc.insert(e.position, loc_bytes(e.loc).as_slice())?;
                 if let Some(k) = &e.key {
-                    byk.insert(bykey(e.kind, k).as_slice(), e.position)?;
+                    let kb = bykey(e.kind, k);
+                    if byk.insert(kb.as_slice(), e.position)?.is_none() {
+                        births.push((e.kind, e.position, kb));
+                    }
                 }
-                bkd.insert(bykind(e.kind, e.position).as_slice(), ())?;
+                fresh.push(
+                    bkd.insert(bykind(e.kind, e.position).as_slice(), ())?
+                        .is_none(),
+                );
                 if let Some(sc) = &e.scope {
                     bsc.insert(byscope(sc, e.position).as_slice(), ())?;
                 }
             }
+            put_shaped(&txn, entries, &fresh, &births, false)?;
             if entries.iter().any(|e| e.key.is_some() && e.terms.is_some()) {
                 let mut terms = txn.open_table(TERMS)?;
                 let mut termsof = txn.open_table(TERMSOF)?;
+                let mut counts = txn.open_table(TERMCOUNTS)?;
                 for e in entries {
                     if let (Some(k), Some(t)) = (&e.key, &e.terms) {
-                        put_terms(&mut terms, &mut termsof, e.kind, k, t, e.position)?;
+                        let tables = (&mut terms, &mut termsof, &mut counts);
+                        put_terms(tables, e.kind, k, t, e.position)?;
                     }
                 }
             }
@@ -364,17 +449,22 @@ impl RedbIndex {
             for e in entries {
                 loc.insert(e.position, loc_bytes(e.loc).as_slice())?;
             }
-            let mut by_kind: Vec<[u8; 10]> =
-                entries.iter().map(|e| bykind(e.kind, e.position)).collect();
+            let mut by_kind: Vec<([u8; 10], usize)> = entries
+                .iter()
+                .enumerate()
+                .map(|(i, e)| (bykind(e.kind, e.position), i))
+                .collect();
             by_kind.sort_unstable();
             let mut bkd = txn.open_table(BYKIND)?;
-            for k in &by_kind {
-                bkd.insert(k.as_slice(), ())?;
+            let mut fresh = vec![false; entries.len()];
+            for (k, i) in &by_kind {
+                fresh[*i] = bkd.insert(k.as_slice(), ())?.is_none();
             }
             // Each key's latest position: its last entry's.
-            let mut keys: Vec<(Vec<u8>, u64)> = entries
+            // (key, latest position, first position).
+            let mut keys: Vec<(Vec<u8>, u64, u64)> = entries
                 .iter()
-                .filter_map(|e| Some((bykey(e.kind, e.key.as_deref()?), e.position)))
+                .filter_map(|e| Some((bykey(e.kind, e.key.as_deref()?), e.position, e.position)))
                 .collect();
             keys.sort_unstable();
             keys.dedup_by(|later, earlier| {
@@ -386,9 +476,13 @@ impl RedbIndex {
                 }
             });
             let mut byk = txn.open_table(BYKEY)?;
-            for (k, p) in &keys {
-                byk.insert(k.as_slice(), *p)?;
+            let mut births = Vec::new();
+            for (k, p, first) in keys {
+                if byk.insert(k.as_slice(), p)?.is_none() {
+                    births.push((RecordKind::from_be_bytes([k[0], k[1]]), first, k));
+                }
             }
+            put_shaped(&txn, entries, &fresh, &births, true)?;
             let mut scopes: Vec<Vec<u8>> = entries
                 .iter()
                 .filter_map(|e| Some(byscope(e.scope.as_deref()?, e.position)))
@@ -415,12 +509,14 @@ impl RedbIndex {
         if !projected.is_empty() {
             let mut terms = txn.open_table(TERMS)?;
             let mut termsof = txn.open_table(TERMSOF)?;
+            let mut counts = txn.open_table(TERMCOUNTS)?;
             let mut sums = txn.open_table(SUMS)?;
             let mut sumsof = txn.open_table(SUMSOF)?;
             for e in projected {
                 let Some(k) = &e.key else { continue };
                 if let Some(t) = &e.terms {
-                    put_terms(&mut terms, &mut termsof, e.kind, k, t, e.position)?;
+                    let tables = (&mut terms, &mut termsof, &mut counts);
+                    put_terms(tables, e.kind, k, t, e.position)?;
                 }
                 if let Some(s) = &e.sums {
                     put_sums(&mut sums, &mut sumsof, e.kind, k, s)?;
@@ -483,12 +579,14 @@ impl RedbIndex {
             let byk = txn.open_table(BYKEY)?;
             let mut terms = txn.open_table(TERMS)?;
             let mut termsof = txn.open_table(TERMSOF)?;
+            let mut counts = txn.open_table(TERMCOUNTS)?;
             let mut sums = txn.open_table(SUMS)?;
             let mut sumsof = txn.open_table(SUMSOF)?;
             for (kind, key, position, t, s) in rows {
                 let latest = byk.get(bykey(*kind, key).as_slice())?.map(|v| v.value());
                 if latest == Some(*position) {
-                    put_terms(&mut terms, &mut termsof, *kind, key, t, *position)?;
+                    let tables = (&mut terms, &mut termsof, &mut counts);
+                    put_terms(tables, *kind, key, t, *position)?;
                     if let Some(s) = s {
                         put_sums(&mut sums, &mut sumsof, *kind, key, s)?;
                     }
@@ -522,8 +620,25 @@ impl RedbIndex {
     }
 
     /// How many (term, key) pairs of `kind` have a term in `lo..hi`: for a
-    /// range of one term, how many keys have it.
+    /// range of one term, how many keys have it. Read from `termcounts`, a
+    /// row per term (theseus-vm3n.5), so it costs the terms in the range,
+    /// not their keys.
     pub fn count_by_terms(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<u64> {
+        if !self.shaped() {
+            return self.count_by_terms_walked(kind, lo, hi);
+        }
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(TERMCOUNTS)?;
+        let (from, to) = term_bounds(kind, lo, hi);
+        let mut n = 0;
+        for row in t.range(from.as_slice()..to.as_slice())? {
+            n += row?.1.value();
+        }
+        Ok(n)
+    }
+
+    /// `count_by_terms`, walked from `terms`, for a test to hold it to.
+    pub fn count_by_terms_walked(&self, kind: RecordKind, lo: &str, hi: &str) -> Result<u64> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(TERMS)?;
         let (from, to) = term_bounds(kind, lo, hi);
@@ -557,8 +672,20 @@ impl RedbIndex {
         Ok(out)
     }
 
-    /// How many keys `kind` has, read from the key table alone.
+    /// How many keys `kind` has: one row, kept with every append
+    /// (theseus-vm3n.5).
     pub fn count_keys(&self, kind: RecordKind) -> Result<u64> {
+        if !self.shaped() {
+            return self.count_keys_walked(kind);
+        }
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(KEYCOUNTS)?;
+        Ok(t.get(kind)?.map_or(0, |v| v.value()))
+    }
+
+    /// How many keys `kind` has, walked from the key table: what
+    /// `count_keys` keeps, for a test to hold it to.
+    pub fn count_keys_walked(&self, kind: RecordKind) -> Result<u64> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKEY)?;
         let lo = kind.to_be_bytes().to_vec();
@@ -641,7 +768,19 @@ impl RedbIndex {
         Ok(out)
     }
 
+    /// How many records `kind` has: one row, kept with every append
+    /// (theseus-vm3n.5).
     pub fn count_of_kind(&self, kind: RecordKind) -> Result<u64> {
+        if !self.shaped() {
+            return self.count_of_kind_walked(kind);
+        }
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(COUNTS)?;
+        Ok(t.get(kind)?.map_or(0, |v| v.value()))
+    }
+
+    /// `count_of_kind`, walked from `bykind`, for a test to hold it to.
+    pub fn count_of_kind_walked(&self, kind: RecordKind) -> Result<u64> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKIND)?;
         let lo = bykind(kind, 0);
@@ -666,7 +805,19 @@ impl RedbIndex {
         Ok(out)
     }
 
+    /// How many records a scope has: one row, kept with every append
+    /// (theseus-vm3n.5).
     pub fn count_in_scope(&self, scope: &str) -> Result<u64> {
+        if !self.shaped() {
+            return self.count_in_scope_walked(scope);
+        }
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(SCOPECOUNTS)?;
+        Ok(t.get(scope.as_bytes())?.map_or(0, |v| v.value()))
+    }
+
+    /// `count_in_scope`, walked from `byscope`, for a test to hold it to.
+    pub fn count_in_scope_walked(&self, scope: &str) -> Result<u64> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYSCOPE)?;
         let lo = byscope(scope, 0);
@@ -708,6 +859,9 @@ impl RedbIndex {
         {
             let mut t = txn.open_table(META)?;
             t.insert("checkpoint", position)?;
+            if self.shaped() {
+                t.insert(SHAPE, position)?;
+            }
             if let Some(name) = terms {
                 t.insert(name, position)?;
             }
@@ -727,6 +881,441 @@ impl RedbIndex {
             .map(|k| Ok(t.get(*k)?.map(|v| v.value())))
             .collect()
     }
+}
+
+impl RedbIndex {
+    /// Whether the shape's tables are whole (`SHAPE`, theseus-vm3n.5).
+    pub fn shaped(&self) -> bool {
+        self.shaped.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// (position, location) of up to `limit` records with `after <
+    /// position <= upto`, in position order: one stretch of a build's walk.
+    pub fn locations_after(
+        &self,
+        after: u64,
+        upto: u64,
+        limit: usize,
+    ) -> Result<Vec<(u64, Location)>> {
+        let mut out = Vec::new();
+        if after >= upto {
+            return Ok(out);
+        }
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(LOC)?;
+        for row in t.range(after + 1..=upto)?.take(limit) {
+            let (k, v) = row?;
+            out.extend(loc_from(v.value()).map(|l| (k.value(), l)));
+        }
+        Ok(out)
+    }
+
+    /// One stretch of a build after serving (theseus-vm3n.5): each record's
+    /// tags, its key's birth where it has none yet, and its kind's clock into `bytime`, from `clocks`, the build's
+    /// own clock per kind, which it carries on. In one non-durable
+    /// transaction; what an append put meanwhile stays (`put_minute`).
+    pub fn put_built(
+        &self,
+        records: &[Built],
+        clocks: &mut BTreeMap<RecordKind, u64>,
+    ) -> Result<()> {
+        let mut txn = self.db.begin_write()?;
+        txn.set_durability(Durability::None)?;
+        {
+            let mut bt = txn.open_table(BYTIME)?;
+            let mut tg = txn.open_table(TAGGED)?;
+            let mut born = txn.open_table(BORN)?;
+            let mut bybirth = txn.open_table(BYBIRTH)?;
+            for (position, kind, at, tags, key) in records {
+                if let Some(k) = key {
+                    put_born(&mut born, &mut bybirth, *position, &bykey(*kind, k))?;
+                }
+                let was = clocks.get(kind).copied();
+                let at = was.map_or(*at, |c| c.max(*at));
+                if was.is_none_or(|c| at / MINUTE_MS > c / MINUTE_MS) {
+                    put_minute(&mut bt, *kind, at / MINUTE_MS, *position)?;
+                }
+                clocks.insert(*kind, at);
+                for tag in tags {
+                    tg.insert(tagged(*kind, tag, *position).as_slice(), ())?;
+                }
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// The build's last step (theseus-vm3n.5): every count, walked once from
+    /// the table it counts, all in one transaction, so no append lands
+    /// between a walk and its count; from then on each append keeps them,
+    /// and the index is whole. A kind's clock is put where an append has
+    /// not put one. It holds the writer for one walk of the index, once.
+    pub fn recount(&self, clocks: &BTreeMap<RecordKind, u64>) -> Result<()> {
+        fn kind_of(k: &[u8]) -> RecordKind {
+            RecordKind::from_be_bytes([k[0], k[1]])
+        }
+        let mut txn = self.db.begin_write()?;
+        txn.set_durability(Durability::None)?;
+        {
+            let mut by_kind: BTreeMap<RecordKind, u64> = BTreeMap::new();
+            for row in txn.open_table(BYKIND)?.iter()? {
+                *by_kind.entry(kind_of(row?.0.value())).or_default() += 1;
+            }
+            let mut keys: BTreeMap<RecordKind, u64> = BTreeMap::new();
+            for row in txn.open_table(BYKEY)?.iter()? {
+                *keys.entry(kind_of(row?.0.value())).or_default() += 1;
+            }
+            let mut scopes: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
+            for row in txn.open_table(BYSCOPE)?.iter()? {
+                let (k, _) = row?;
+                let kb = k.value();
+                *scopes.entry(kb[..kb.len() - 9].to_vec()).or_default() += 1;
+            }
+            let mut terms: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
+            for row in txn.open_table(TERMS)?.iter()? {
+                let (k, _) = row?;
+                let kb = k.value();
+                if let Some(nul) = kb[2..].iter().position(|c| *c == 0) {
+                    *terms.entry(kb[..2 + nul].to_vec()).or_default() += 1;
+                }
+            }
+            txn.delete_table(COUNTS)?;
+            txn.delete_table(KEYCOUNTS)?;
+            txn.delete_table(SCOPECOUNTS)?;
+            txn.delete_table(TERMCOUNTS)?;
+            let mut t = txn.open_table(COUNTS)?;
+            for (k, n) in &by_kind {
+                t.insert(*k, *n)?;
+            }
+            let mut t = txn.open_table(KEYCOUNTS)?;
+            for (k, n) in &keys {
+                t.insert(*k, *n)?;
+            }
+            let mut t = txn.open_table(SCOPECOUNTS)?;
+            for (k, n) in &scopes {
+                t.insert(k.as_slice(), *n)?;
+            }
+            let mut t = txn.open_table(TERMCOUNTS)?;
+            for (k, n) in &terms {
+                t.insert(k.as_slice(), *n)?;
+            }
+            let mut t = txn.open_table(CLOCK)?;
+            for (k, at) in clocks {
+                if t.get(*k)?.is_none() {
+                    t.insert(*k, *at)?;
+                }
+            }
+        }
+        txn.commit()?;
+        self.shaped
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    /// The newest `limit` keys of `kind` by birth, born before `before`
+    /// when given: (birth, key, latest position), newest first, and whether
+    /// older ones remain. One read transaction (theseus-vm3n.5).
+    pub fn keys_by_birth(
+        &self,
+        kind: RecordKind,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<Births> {
+        let txn = self.db.begin_read()?;
+        let bb = txn.open_table(BYBIRTH)?;
+        let byk = txn.open_table(BYKEY)?;
+        let (lo, hi) = (bykind(kind, 0), bykind(kind, before.unwrap_or(u64::MAX)));
+        let mut out = Vec::new();
+        let mut more = false;
+        for row in bb.range(lo.as_slice()..hi.as_slice())?.rev() {
+            if out.len() == limit {
+                more = true;
+                break;
+            }
+            let (k, v) = row?;
+            let key = String::from_utf8_lossy(v.value()).into_owned();
+            let Some(born) = u64_from(&k.value()[2..]) else {
+                continue;
+            };
+            if let Some(latest) = byk.get(bykey(kind, &key).as_slice())? {
+                out.push((born, key, latest.value()));
+            }
+        }
+        Ok((out, more))
+    }
+
+    /// The first `bytime` entry of `kind` at `minute` or after: (its minute,
+    /// the first position whose clock is in it). `None` when the kind's
+    /// clock has not reached `minute`.
+    pub fn first_from_minute(&self, kind: RecordKind, minute: u64) -> Result<Option<(u64, u64)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(BYTIME)?;
+        let lo = bytime(kind, minute);
+        let hi = bytime(kind, u64::MAX);
+        let Some(row) = t.range(lo.as_slice()..=hi.as_slice())?.next() else {
+            return Ok(None);
+        };
+        let (k, v) = row?;
+        Ok(u64_from(&k.value()[2..]).map(|m| (m, v.value())))
+    }
+
+    /// One page of `kind`'s positions in `lo..hi`, with any of `tags` (every
+    /// record of the kind when there are none): the newest `limit` of them
+    /// when `newest`, else the oldest, in position order; whether more lie
+    /// past the page in its direction; and the kind's count. One read
+    /// transaction, so the page and the count are one snapshot (theseus-tphr).
+    /// It costs about the page: each tag's postings are read from the bound
+    /// in, `limit + 1` at most.
+    pub fn page(
+        &self,
+        kind: RecordKind,
+        tags: &[String],
+        (lo, hi): (u64, u64),
+        newest: bool,
+        limit: usize,
+    ) -> Result<(Vec<u64>, bool, u64)> {
+        let txn = self.db.begin_read()?;
+        let count = if self.shaped() {
+            txn.open_table(COUNTS)?.get(kind)?.map_or(0, |v| v.value())
+        } else {
+            let t = txn.open_table(BYKIND)?;
+            let (a, b) = (bykind(kind, 0), bykind(kind, u64::MAX));
+            t.range(a.as_slice()..=b.as_slice())?.count() as u64
+        };
+        if hi <= lo || limit == 0 {
+            return Ok((Vec::new(), hi > lo && limit == 0, count));
+        }
+        let want = limit.saturating_add(1);
+        let mut found: Vec<u64> = Vec::new();
+        if tags.is_empty() {
+            let t = txn.open_table(BYKIND)?;
+            let (a, b) = (bykind(kind, lo), bykind(kind, hi));
+            let range = t.range(a.as_slice()..b.as_slice())?;
+            let keys: Vec<_> = if newest {
+                range.rev().take(want).collect()
+            } else {
+                range.take(want).collect()
+            };
+            for row in keys {
+                let (k, _) = row?;
+                found.extend(u64_from(&k.value()[2..]));
+            }
+        } else {
+            let t = txn.open_table(TAGGED)?;
+            for tag in tags {
+                let (a, b) = (tagged(kind, tag, lo), tagged(kind, tag, hi));
+                let range = t.range(a.as_slice()..b.as_slice())?;
+                let keys: Vec<_> = if newest {
+                    range.rev().take(want).collect()
+                } else {
+                    range.take(want).collect()
+                };
+                for row in keys {
+                    let (k, _) = row?;
+                    let kb = k.value();
+                    found.extend(u64_from(&kb[kb.len() - 8..]));
+                }
+            }
+            found.sort_unstable();
+            found.dedup();
+            if newest {
+                found.reverse();
+            }
+            found.truncate(want);
+        }
+        let more = found.len() > limit;
+        found.truncate(limit);
+        found.sort_unstable();
+        Ok((found, more, count))
+    }
+}
+
+/// The newest keys by birth: each one's (birth, key, latest position),
+/// newest first, and whether older ones remain.
+pub type Births = (Vec<(u64, String, u64)>, bool);
+
+/// A record as a build of the shape reads it: position, kind, frame time,
+/// tags, key.
+pub type Built = (u64, RecordKind, u64, Vec<String>, Option<String>);
+
+/// Whether the index's shape (`SHAPE`) is whole at its checkpoint, making it
+/// so where that is free (theseus-vm3n.5). An index with no checkpoint is
+/// emptied, all but `meta`'s history-check marks: the store's open replays
+/// the whole WAL into it, its rule for one, and what it held past no
+/// checkpoint may be partial. A checkpointed index whose mark is elsewhere
+/// (an older build wrote it last, which keeps none of these tables) keeps
+/// its own tables and loses only the shape's, which `WalStore::build_shape`
+/// builds again after serving: the open still reads only the WAL's tail.
+fn shape_or_empty(txn: &redb::WriteTransaction) -> Result<bool> {
+    let (cp, keys) = {
+        let meta = txn.open_table(META)?;
+        let cp = meta.get("checkpoint")?.map(|v| v.value());
+        if cp.is_some() && cp == meta.get(SHAPE)?.map(|v| v.value()) {
+            return Ok(true);
+        }
+        let mut keys = Vec::new();
+        for row in meta.iter()? {
+            let (k, _) = row?;
+            let k = k.value().to_string();
+            if !k.starts_with("verified.") {
+                keys.push(k);
+            }
+        }
+        (cp, keys)
+    };
+    txn.delete_table(COUNTS)?;
+    txn.delete_table(KEYCOUNTS)?;
+    txn.delete_table(SCOPECOUNTS)?;
+    txn.delete_table(CLOCK)?;
+    txn.delete_table(BYTIME)?;
+    txn.delete_table(TAGGED)?;
+    txn.delete_table(TERMCOUNTS)?;
+    txn.delete_table(BORN)?;
+    txn.delete_table(BYBIRTH)?;
+    if cp.is_some() {
+        return Ok(false);
+    }
+    txn.delete_table(LOC)?;
+    txn.delete_table(BYKEY)?;
+    txn.delete_table(BYKIND)?;
+    txn.delete_table(BYSCOPE)?;
+    txn.delete_table(TERMS)?;
+    txn.delete_table(TERMSOF)?;
+    txn.delete_table(SUMS)?;
+    txn.delete_table(SUMSOF)?;
+    let mut meta = txn.open_table(META)?;
+    for k in &keys {
+        meta.remove(k.as_str())?;
+    }
+    Ok(true)
+}
+
+/// Mark the key `kb` (its `bykey` bytes) born at `first`, unless it is
+/// already: a build after serving meets each key it walks at its first
+/// position, after appends born the new ones (theseus-vm3n.5).
+fn put_born(
+    born: &mut redb::Table<&'static [u8], u64>,
+    bybirth: &mut redb::Table<&'static [u8], &'static [u8]>,
+    first: u64,
+    kb: &[u8],
+) -> Result<()> {
+    if born.get(kb)?.is_some() {
+        return Ok(());
+    }
+    born.insert(kb, first)?;
+    let kind = RecordKind::from_be_bytes([kb[0], kb[1]]);
+    bybirth.insert(bykind(kind, first).as_slice(), &kb[2..])?;
+    Ok(())
+}
+
+/// Point `bytime`'s (kind, minute) at `position` unless it already points
+/// at an earlier one: a build after serving fills in older rows after an
+/// append put a newer one (theseus-vm3n.5).
+fn put_minute(
+    bt: &mut redb::Table<&'static [u8], u64>,
+    kind: RecordKind,
+    minute: u64,
+    position: u64,
+) -> Result<()> {
+    let k = bytime(kind, minute);
+    let was = bt.get(k.as_slice())?.map(|v| v.value());
+    if was.is_none_or(|w| w > position) {
+        bt.insert(k.as_slice(), position)?;
+    }
+    Ok(())
+}
+
+/// The counts, the clocks, `bytime`, and `tagged` for `entries`, in
+/// position order, in the transaction that indexes them (theseus-vm3n.5).
+/// Only the entries `fresh` marks count: those `bykind` did not hold yet. An
+/// open replays the WAL past the checkpoint, and an index closed cleanly
+/// already holds some of it, so a replayed record must not count twice.
+/// `births` are the keys new to `bykey`, each with its first position and
+/// its `bykey` bytes: they are counted, and born (`born`, `bybirth`). A kind's clock is the newest
+/// frame time its records have had: a frame whose time stepped back takes
+/// the clock's, so the clock, and `bytime` with it, only grows with
+/// position. `sort_tags` puts the postings in key order first, for a replay.
+fn put_shaped(
+    txn: &redb::WriteTransaction,
+    entries: &[IndexEntry],
+    fresh: &[bool],
+    births: &[(RecordKind, u64, Vec<u8>)],
+    sort_tags: bool,
+) -> Result<()> {
+    if !fresh.contains(&true) && births.is_empty() {
+        return Ok(());
+    }
+    let mut counts: BTreeMap<RecordKind, u64> = BTreeMap::new();
+    let mut scopes: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut clocks: BTreeMap<RecordKind, Option<u64>> = BTreeMap::new();
+    let mut posts: Vec<Vec<u8>> = Vec::new();
+    {
+        let clock = txn.open_table(CLOCK)?;
+        let mut bt = txn.open_table(BYTIME)?;
+        for e in entries
+            .iter()
+            .zip(fresh)
+            .filter(|(_, f)| **f)
+            .map(|(e, _)| e)
+        {
+            *counts.entry(e.kind).or_default() += 1;
+            if let Some(sc) = &e.scope {
+                *scopes.entry(sc.as_str()).or_default() += 1;
+            }
+            let was = match clocks.get(&e.kind) {
+                Some(c) => *c,
+                None => clock.get(e.kind)?.map(|v| v.value()),
+            };
+            let at = was.map_or(e.at_unix_ms, |c| c.max(e.at_unix_ms));
+            if was.is_none_or(|c| at / MINUTE_MS > c / MINUTE_MS) {
+                put_minute(&mut bt, e.kind, at / MINUTE_MS, e.position)?;
+            }
+            clocks.insert(e.kind, Some(at));
+            for tag in &e.tags {
+                posts.push(tagged(e.kind, tag, e.position));
+            }
+        }
+    }
+    let mut clock = txn.open_table(CLOCK)?;
+    for (kind, at) in &clocks {
+        if let Some(at) = at {
+            clock.insert(*kind, *at)?;
+        }
+    }
+    let mut ct = txn.open_table(COUNTS)?;
+    for (kind, n) in &counts {
+        let was = ct.get(*kind)?.map_or(0, |v| v.value());
+        ct.insert(*kind, was + n)?;
+    }
+    let mut kc = txn.open_table(KEYCOUNTS)?;
+    let mut new_keys: BTreeMap<RecordKind, u64> = BTreeMap::new();
+    {
+        let mut born = txn.open_table(BORN)?;
+        let mut bybirth = txn.open_table(BYBIRTH)?;
+        for (kind, first, kb) in births {
+            *new_keys.entry(*kind).or_default() += 1;
+            put_born(&mut born, &mut bybirth, *first, kb)?;
+        }
+    }
+    for (kind, n) in &new_keys {
+        let was = kc.get(*kind)?.map_or(0, |v| v.value());
+        kc.insert(*kind, was + n)?;
+    }
+    let mut sc = txn.open_table(SCOPECOUNTS)?;
+    for (scope, n) in &scopes {
+        let was = sc.get(scope.as_bytes())?.map_or(0, |v| v.value());
+        sc.insert(scope.as_bytes(), was + n)?;
+    }
+    if !posts.is_empty() {
+        if sort_tags {
+            posts.sort_unstable();
+        }
+        let mut t = txn.open_table(TAGGED)?;
+        for k in &posts {
+            t.insert(k.as_slice(), ())?;
+        }
+    }
+    Ok(())
 }
 
 /// Replace `key`'s numbers in its kind's totals with `new`: the totals lose
@@ -759,10 +1348,34 @@ fn put_sums(
     Ok(())
 }
 
+/// `terms`, `termsof`, and `termcounts`, open in one write transaction.
+type Tables<'a, 't> = (
+    &'a mut redb::Table<'t, &'static [u8], u64>,
+    &'a mut redb::Table<'t, &'static [u8], &'static [u8]>,
+    &'a mut redb::Table<'t, &'static [u8], u64>,
+);
+
+/// Add `by` to how many keys of `kind` have `term` (theseus-vm3n.5).
+fn bump(
+    counts: &mut redb::Table<&'static [u8], u64>,
+    kind: RecordKind,
+    term: &str,
+    by: i64,
+) -> Result<()> {
+    let k = term_bounds(kind, term, term).0;
+    let was = counts.get(k.as_slice())?.map_or(0, |v| v.value());
+    let now = was.saturating_add_signed(by);
+    if now == 0 {
+        counts.remove(k.as_slice())?;
+    } else {
+        counts.insert(k.as_slice(), now)?;
+    }
+    Ok(())
+}
+
 /// Replace `key`'s terms with `new`, each pointing at `position`.
 fn put_terms(
-    terms: &mut redb::Table<&[u8], u64>,
-    termsof: &mut redb::Table<&[u8], &[u8]>,
+    (terms, termsof, counts): Tables<'_, '_>,
     kind: RecordKind,
     key: &str,
     new: &[String],
@@ -774,11 +1387,18 @@ fn put_terms(
         .map(|v| terms_from(v.value()))
         .unwrap_or_default();
     for t in old.iter().filter(|t| !new.contains(t)) {
-        terms.remove(term_key(kind, t, key).as_slice())?;
+        if terms.remove(term_key(kind, t, key).as_slice())?.is_some() {
+            bump(counts, kind, t, -1)?;
+        }
     }
     for t in new {
         debug_assert!(!t.is_empty() && !t.contains('\0'), "a term: {t:?}");
-        terms.insert(term_key(kind, t, key).as_slice(), position)?;
+        if terms
+            .insert(term_key(kind, t, key).as_slice(), position)?
+            .is_none()
+        {
+            bump(counts, kind, t, 1)?;
+        }
     }
     if new.is_empty() {
         termsof.remove(k.as_slice())?;
@@ -906,6 +1526,8 @@ mod tests {
             },
             terms: None,
             sums: None,
+            at_unix_ms: 0,
+            tags: Vec::new(),
         };
         idx.apply(
             &[
@@ -973,6 +1595,8 @@ mod tests {
             },
             terms: Some(terms.iter().map(|t| t.to_string()).collect()),
             sums: None,
+            at_unix_ms: 0,
+            tags: Vec::new(),
         };
         let keys = |lo: &str, hi: &str| -> Vec<String> {
             idx.keys_by_terms(4, lo, hi)
@@ -1060,6 +1684,8 @@ mod tests {
             },
             terms: None,
             sums,
+            at_unix_ms: 0,
+            tags: Vec::new(),
         };
         let n = |a: u128, b: u128| Some([1, a, b, 0, 0, 0, 0, 0]);
         assert_eq!(idx.totals(1).unwrap(), [0; 8]);

@@ -212,6 +212,24 @@ pub struct LedgerTailParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub after: Option<u64>,
+    /// Only rows before this WAL position: a page back from the newest, the
+    /// newest `n` of them (theseus-vm3n.5). A walk back passes each answer's
+    /// `older`. Positions never move, so rows written meanwhile neither
+    /// repeat a row nor skip one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub before: Option<u64>,
+    /// Only rows written at this time or after (unix ms), and with
+    /// `until_ms` at it or before. A row counts at its kind's clock in the
+    /// store, the newest time a row had been written at, so a host clock
+    /// that steps back never splits a window; each row still says its own
+    /// `at_unix_ms`. Read through the store's index of time, not a scan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub since_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub until_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -237,6 +255,12 @@ pub struct LedgerTailResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub next: Option<u64>,
+    /// With `before`: the `before` for the next page back while older rows
+    /// match (the first row of this page); absent once none do, and
+    /// without `before`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub older: Option<u64>,
 }
 
 #[cfg(test)]

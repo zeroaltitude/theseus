@@ -17,7 +17,7 @@
 //! runtime worker (`blocking`). The periodic checkpoint runs on the writer
 //! too, after its answers (theseus-avvb).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
@@ -26,6 +26,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{Aside, Engine, IndexEntry, MovedAside, Projected, RedbIndex, Sums};
+use crate::pages::{tags_of, Page, PageOut};
 use crate::record::{NewRecord, Record, RecordKind};
 use crate::wal::{History, RecordLocation, Recovery, Verified, Wal, WalConfig, WalError};
 
@@ -62,6 +63,12 @@ pub struct StoreStats {
     /// read every record (theseus-lv2).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub terms_pending: bool,
+    /// The index's counts, clocks, and tags are being built after serving
+    /// (`WalStore::build_shape`, theseus-vm3n.5): an older build wrote the
+    /// index last. Until then the counts walk and the ledger's filtered
+    /// reads scan, as before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shape_pending: bool,
     /// Records a list read skipped since open because their reads are
     /// refused (a corrupt frame the history check found, R4): how many, and
     /// the first `REFUSED_SHOWN` of their positions, lowest first.
@@ -153,6 +160,26 @@ pub trait Store: Send + Sync {
     fn totals(&self, _kind: RecordKind) -> Result<Option<Sums>> {
         Ok(None)
     }
+    /// The newest `limit` keys of `kind` by birth (the position of each
+    /// key's first record), born before `before` when given, newest first:
+    /// each key's birth and latest record; and whether older keys remain
+    /// (theseus-vm3n.5). `None` when the store keeps no births whole, and
+    /// the caller reads every record of the kind instead.
+    fn newest_keys(
+        &self,
+        _kind: RecordKind,
+        _before: Option<u64>,
+        _limit: usize,
+    ) -> Result<Option<Newest>> {
+        Ok(None)
+    }
+    /// One page of a kind's records through the index's tags, time, and
+    /// cursors (`pages.rs`, theseus-vm3n.5), with the kind's count from the
+    /// same snapshot; `None` when the store keeps no such index, and the
+    /// caller reads as it did before.
+    fn page(&self, _q: &Page) -> Result<Option<PageOut>> {
+        Ok(None)
+    }
 }
 
 /// What a store's index keeps beside each keyed record of the kinds it names
@@ -217,6 +244,10 @@ struct Inner {
     /// The position the last durable checkpoint claims: a stop's checkpoint
     /// is made durable by redb's close, not by itself (theseus-02k).
     durable_to: AtomicU64,
+    /// A build after serving (`build_shape`) wrote index pages that no
+    /// durable checkpoint has written since: until one has, no checkpoint is
+    /// free (theseus-celu.16.1).
+    built: std::sync::atomic::AtomicBool,
     /// The manifest names a format older than this build's: the writer
     /// moves it before its first frame (theseus-ptx1). Only the writer
     /// reads it after the open.
@@ -258,12 +289,30 @@ struct Inner {
     refused: Mutex<(BTreeSet<u64>, u64)>,
 }
 
+/// Where a build of the index's shape is (`WalStore::build_shape`).
+#[derive(Debug, Clone)]
+pub struct ShapeCursor {
+    after: u64,
+    upto: u64,
+    clocks: BTreeMap<RecordKind, u64>,
+}
+
+/// The newest keys of a kind by birth (`Store::newest_keys`): each one's
+/// birth and latest record, newest first, and whether older ones remain.
+pub type Newest = (Vec<(u64, Record)>, bool);
+
+/// A frame as the log placed it: each record's position and location, and
+/// the frame's time.
+type Placed = (Vec<(u64, RecordLocation)>, u64);
+
 /// One append, as the writer takes it: its records, each one's terms and
 /// numbers in the store's projection (worked out by the caller, so the
 /// writer only writes), and where its answer goes.
 struct Job {
     records: Vec<NewRecord>,
     projected: Vec<(Option<Vec<String>>, Option<Sums>)>,
+    /// Each record's tags (`pages::tags_of`).
+    tags: Vec<Vec<String>>,
     answer: mpsc::SyncSender<Result<Vec<u64>>>,
 }
 
@@ -662,6 +711,68 @@ impl WalStore {
         Ok(None)
     }
 
+    /// Whether the index's shape is whole: its counts, clocks, and tags
+    /// (theseus-vm3n.5).
+    pub fn shaped(&self) -> bool {
+        self.inner.index.shaped()
+    }
+
+    /// Build the index's shape again, `n` records from `cursor`, after
+    /// serving (theseus-vm3n.5): an open that found an index another shape
+    /// wrote (an older build) keeps its tables, and leaves its counts, its
+    /// clocks, and its tags to this. Each stretch reads `n` records up to
+    /// the log's end at the first call (an append since keeps its own) and
+    /// puts their tags and times; the last counts every table once, in one
+    /// transaction, and the shape is whole from then on. The stretches and
+    /// the count go in with no sync, so the build ends with a durable
+    /// checkpoint of its own: it marks the shape, and redb writes the
+    /// build's pages now, after serving, and not in the next stop's close,
+    /// which took 230 ms more for them at 587,000 records
+    /// (theseus-celu.16.1). Until then, the counts walk, and a page by tag or
+    /// by time is `None`, so its reader reads as it did before. A record
+    /// whose read is refused (a corrupt frame) is passed over, uncounted
+    /// among the refused: the history check reports it. Returns the cursor
+    /// to go on from, or `None` once the shape is whole.
+    pub fn build_shape(
+        &self,
+        cursor: Option<ShapeCursor>,
+        n: usize,
+    ) -> Result<Option<ShapeCursor>> {
+        let s = &self.inner;
+        if s.index.shaped() {
+            return Ok(None);
+        }
+        let mut c = cursor.unwrap_or_else(|| ShapeCursor {
+            after: 0,
+            upto: s.wal.last_position(),
+            clocks: BTreeMap::new(),
+        });
+        let locs = s.index.locations_after(c.after, c.upto, n.max(1))?;
+        let Some(&(last, _)) = locs.last() else {
+            s.index.recount(&c.clocks)?;
+            s.built.store(true, Ordering::Relaxed);
+            let t = std::time::Instant::now();
+            s.checkpoint_as(true)?;
+            tracing::debug!(
+                ms = t.elapsed().as_secs_f64() * 1000.0,
+                "store: the shape's build made durable"
+            );
+            return Ok(None);
+        };
+        let built: Vec<crate::index::Built> = locs
+            .iter()
+            .filter_map(|(p, loc)| {
+                let r = s.wal.read_at(*loc).ok()?;
+                let r = checked(*p, r).ok()?;
+                let tags = tags_of(r.kind, &r.payload);
+                Some((r.position, r.kind, r.at_unix_ms, tags, r.key))
+            })
+            .collect();
+        s.index.put_built(&built, &mut c.clocks)?;
+        c.after = last;
+        Ok(Some(c))
+    }
+
     pub fn recovery(&self) -> &Recovery {
         self.inner.wal.recovery()
     }
@@ -783,6 +894,8 @@ impl Inner {
                 .iter()
                 .map(|(r, loc)| IndexEntry {
                     position: r.position,
+                    at_unix_ms: r.at_unix_ms,
+                    tags: tags_of(r.kind, &r.payload),
                     kind: r.kind,
                     key: r.key.clone(),
                     scope: r.scope.clone(),
@@ -819,6 +932,7 @@ impl Inner {
             since_checkpoint: AtomicU64::new(replayed),
             checkpointed: AtomicU64::new(cp),
             durable_to: AtomicU64::new(cp),
+            built: std::sync::atomic::AtomicBool::new(false),
             behind: std::sync::atomic::AtomicBool::new(behind),
             fsync,
             appending: RwLock::new(()),
@@ -908,13 +1022,18 @@ impl Inner {
         // already, and only an append writes it between checkpoints. So a
         // clean stop's last checkpoint, after its own, is free when nothing
         // came between them (theseus-pfv). A durable one is free only when
-        // the last durable one claimed `last` too.
+        // the last durable one claimed `last` too. A build after serving
+        // writes the index between checkpoints as well, so none is free
+        // while its pages wait for a durable one (`built`).
         let done = if durable {
             &self.durable_to
         } else {
             &self.checkpointed
         };
-        if done.load(Ordering::Relaxed) == last && verified.is_none() {
+        if done.load(Ordering::Relaxed) == last
+            && verified.is_none()
+            && !self.built.load(Ordering::Relaxed)
+        {
             return Ok(last);
         }
         let meta = verified.as_ref().map(verified_meta);
@@ -930,6 +1049,7 @@ impl Inner {
         self.checkpointed.store(last, Ordering::Relaxed);
         if durable {
             self.durable_to.store(last, Ordering::Relaxed);
+            self.built.store(false, Ordering::Relaxed);
         }
         self.since_checkpoint.store(0, Ordering::Relaxed);
         Ok(last)
@@ -993,13 +1113,17 @@ impl Inner {
             return;
         }
         // Each frame, unsynced: a frame the log refuses fails alone.
-        let written: Vec<Result<Vec<(u64, RecordLocation)>>> = batch
+        let written: Vec<Result<Placed>> = batch
             .iter()
-            .map(|j| self.wal.write(&j.records).map_err(anyhow::Error::from))
+            .map(|j| {
+                self.wal
+                    .write_timed(&j.records)
+                    .map_err(anyhow::Error::from)
+            })
             .collect();
         let wrote = written
             .iter()
-            .any(|w| w.as_ref().is_ok_and(|p| !p.is_empty()));
+            .any(|w| w.as_ref().is_ok_and(|(p, _)| !p.is_empty()));
         // One sync for every frame of the batch.
         let synced = if wrote && self.fsync {
             self.wal.sync().map_err(anyhow::Error::from)
@@ -1012,19 +1136,24 @@ impl Inner {
         let indexed = synced.and_then(|()| {
             let mut entries = Vec::new();
             for (job, placed) in batch.iter().zip(&written) {
-                let Ok(placed) = placed else { continue };
+                let Ok((placed, at)) = placed else { continue };
                 records += placed.len() as u64;
-                for (((pos, loc), r), (terms, sums)) in
-                    placed.iter().zip(&job.records).zip(&job.projected)
+                for ((((pos, loc), r), (terms, sums)), tags) in placed
+                    .iter()
+                    .zip(&job.records)
+                    .zip(&job.projected)
+                    .zip(&job.tags)
                 {
                     entries.push(IndexEntry {
                         position: *pos,
+                        at_unix_ms: *at,
                         kind: r.kind,
                         key: r.key.clone(),
                         scope: r.scope.clone(),
                         loc: *loc,
                         terms: terms.clone(),
                         sums: *sums,
+                        tags: tags.clone(),
                     });
                 }
             }
@@ -1040,7 +1169,7 @@ impl Inner {
         for (job, placed) in batch.into_iter().zip(written) {
             let answer = match (placed, &indexed) {
                 (Err(e), _) => Err(e),
-                (Ok(placed), Ok(())) => Ok(placed.into_iter().map(|(p, _)| p).collect()),
+                (Ok((placed, _)), Ok(())) => Ok(placed.into_iter().map(|(p, _)| p).collect()),
                 // A sync or an index write that failed fails every frame it
                 // covered, as a failed group sync failed each one it led.
                 (Ok(_), Err(e)) => Err(anyhow::anyhow!("{e:#}")),
@@ -1048,6 +1177,63 @@ impl Inner {
             self.queued.fetch_sub(1, Ordering::SeqCst);
             let _ = job.answer.send(answer);
         }
+    }
+
+    /// The first position of `kind` whose clock is at `ms` or after
+    /// (`pages.rs`): `bytime`'s first minute from `ms`'s, then, in that
+    /// minute alone, the kind's records from its first, their clock the
+    /// newest time read so far (the minute's first record set it). One past
+    /// the log's end when the clock has not reached `ms`.
+    fn first_at(&self, kind: RecordKind, ms: u64) -> Result<u64> {
+        let end = self.wal.last_position() + 1;
+        let minute = ms / crate::index::MINUTE_MS;
+        let Some((found, start)) = self.index.first_from_minute(kind, minute)? else {
+            return Ok(end);
+        };
+        if found > minute {
+            return Ok(start);
+        }
+        let (mut clock, mut after) = (0u64, start - 1);
+        loop {
+            let positions = self.index.positions_of_kind_after(kind, after, 64)?;
+            let Some(last) = positions.last().copied() else {
+                return Ok(end);
+            };
+            for r in self.read_many(&positions)? {
+                clock = clock.max(r.at_unix_ms);
+                if clock >= ms {
+                    return Ok(r.position);
+                }
+            }
+            after = last;
+        }
+    }
+
+    /// `Store::page`, for this store: `None` for a page by tag or by time
+    /// while the index's shape is being built (`WalStore::build_shape`).
+    fn page(&self, q: &Page) -> Result<Option<PageOut>> {
+        let by_index = !q.tags.is_empty() || q.since_ms.is_some() || q.until_ms.is_some();
+        if by_index && !self.index.shaped() {
+            return Ok(None);
+        }
+        let mut lo = q.after.map_or(0, |a| a.saturating_add(1));
+        let mut hi = q.before.unwrap_or(u64::MAX);
+        if let Some(since) = q.since_ms {
+            lo = lo.max(self.first_at(q.kind, since)?);
+        }
+        if let Some(until) = q.until_ms {
+            hi = hi.min(self.first_at(q.kind, until.saturating_add(1))?);
+        }
+        let (positions, more, count) =
+            self.index
+                .page(q.kind, &q.tags, (lo, hi), q.after.is_none(), q.limit)?;
+        Ok(Some(PageOut {
+            first: positions.first().copied(),
+            last: positions.last().copied(),
+            records: self.read_many(&positions)?,
+            more,
+            count,
+        }))
     }
 
     fn read(&self, position: u64) -> Result<Option<Record>> {
@@ -1142,9 +1328,11 @@ impl Store for WalStore {
                 .queue
                 .as_ref()
                 .expect("a store's queue lives as long as it");
+            let tags = batch.iter().map(|r| tags_of(r.kind, &r.payload)).collect();
             let job = Job {
                 records: batch.to_vec(),
                 projected,
+                tags,
                 answer,
             };
             if queue.send(job).is_err() {
@@ -1257,6 +1445,7 @@ impl Store for WalStore {
             lock_wait_us: s.lock_wait_us,
             index_moved_aside: s.moved_aside.clone(),
             terms_pending: !s.terms_whole(),
+            shape_pending: !s.index.shaped(),
             refused_records,
             refused_positions,
         })
@@ -1306,7 +1495,36 @@ impl Store for WalStore {
         }
         Ok(Some(s.index.totals(kind)?))
     }
+
+    fn page(&self, q: &Page) -> Result<Option<PageOut>> {
+        self.inner.page(q)
+    }
+
+    fn newest_keys(
+        &self,
+        kind: RecordKind,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<Option<Newest>> {
+        let s = &self.inner;
+        if !s.index.shaped() {
+            return Ok(None);
+        }
+        let (keys, more) = s.index.keys_by_birth(kind, before, limit)?;
+        let positions: Vec<u64> = keys.iter().map(|(_, _, p)| *p).collect();
+        let born: std::collections::HashMap<u64, u64> =
+            keys.iter().map(|(b, _, p)| (*p, *b)).collect();
+        let mut out: Vec<(u64, Record)> = s
+            .read_many(&positions)?
+            .into_iter()
+            .filter_map(|r| Some((*born.get(&r.position)?, r)))
+            .collect();
+        out.sort_by_key(|(b, _)| std::cmp::Reverse(*b));
+        Ok(Some((out, more)))
+    }
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_pages;

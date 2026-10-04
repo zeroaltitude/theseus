@@ -7,4 +7,10 @@ export type LedgerTailResult = { rows: Array<LedgerEntry>, total: number,
  * follow (the last row read, whether or not a filter kept it); absent
  * at the ledger's end, and without `after`.
  */
-next?: number, };
+next?: number, 
+/**
+ * With `before`: the `before` for the next page back while older rows
+ * match (the first row of this page); absent once none do, and
+ * without `before`.
+ */
+older?: number, };

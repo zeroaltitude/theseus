@@ -15,4 +15,19 @@ kind: string | null, session_id: string | null,
  * whole ledger passes 0, then each answer's `next`; a poll passes the
  * last position it has. A read, as the rest of `ledger.tail` is.
  */
-after?: number, };
+after?: number, 
+/**
+ * Only rows before this WAL position: a page back from the newest, the
+ * newest `n` of them (theseus-vm3n.5). A walk back passes each answer's
+ * `older`. Positions never move, so rows written meanwhile neither
+ * repeat a row nor skip one.
+ */
+before?: number, 
+/**
+ * Only rows written at this time or after (unix ms), and with
+ * `until_ms` at it or before. A row counts at its kind's clock in the
+ * store, the newest time a row had been written at, so a host clock
+ * that steps back never splits a window; each row still says its own
+ * `at_unix_ms`. Read through the store's index of time, not a scan.
+ */
+since_ms?: number, until_ms?: number, };

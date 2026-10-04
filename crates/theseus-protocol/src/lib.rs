@@ -1820,6 +1820,11 @@ pub struct SessionInfo {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SessionListResult {
     pub sessions: Vec<SessionInfo>,
+    /// With `n`: the `before` for the next page back while older sessions
+    /// remain; absent at the first one, and without `n`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub older: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -16,13 +16,6 @@ leak-timeout = "500ms"
 # a real race. A test goes on this list in the commit that files its issue, with
 # the issue's id in a comment; it comes off in the commit that fixes it.
 #
-# theseus-tphr: health's refused_records is compared with total - shown from an earlier ledger.tail,
-# two reads that are not one snapshot, so a row written after serving between them counts once more
-# (5 against 6; spine gh7s's fourth gate, 2026-10-03 00:53, load 3.6).
-[[profile.default.overrides]]
-filter = 'package(theseusd) & test(=the_history_check_after_serving_finds_a_corrupt_frame_and_says_so)'
-retries = 2
-#
 # theseus-xbtr: after a SIGINT stop of a `--stdio` daemon the next start must replay nothing, and one
 # niced run beside five lanes' gates replayed 10 records (the trusted-guild lane's gate, 2026-10-03
 # 19:45; 6 of 6 alone). Likely theseus-81kk's race: a write after the stop's last checkpoint.
