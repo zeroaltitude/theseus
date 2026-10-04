@@ -112,6 +112,36 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub budget: Option<BudgetReport>,
+    /// Jev's live rerank (M6 32d), when the turn waited on one: whether
+    /// its order was used, or why recall's own stood.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub rerank: Option<RecallRerank>,
+}
+
+/// What a live rerank did to a recall (M6 32d): the turn waited at most
+/// `[memory] rerank_wait_ms` from its start for `rerank.v1`'s answer.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RecallRerank {
+    /// `jdg_…`, the rerank's judgment; none when nothing was sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub judgment: Option<String>,
+    /// Jev's order is what the pack admitted from.
+    pub applied: bool,
+    /// Why recall's own order stood: `timeout` (the wait ended first; the
+    /// answer, when it comes, is recorded `late`), `breaker_open`,
+    /// `budget`, `nothing_eligible`, or the call's fallback (`model_drift`,
+    /// a failure's class, a skip's reason).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    /// How long the turn waited, from the rerank's start.
+    pub waited_ms: f64,
+    /// The wait's bound.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub wait_ms: u64,
 }
 
 /// What a compilation, or a recall's pack, fitted into its limit and what it

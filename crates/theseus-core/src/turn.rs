@@ -57,6 +57,7 @@ mod compile_step;
 mod inbound_step;
 mod prompt_input;
 mod recall_step;
+mod rerank_step;
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
 /// the start of the cached prefix, so it never interpolates anything.

@@ -270,24 +270,39 @@ pub struct JudgeCircuit<'a> {
     pub transition: &'a Transition,
     /// The judgment whose call moved it.
     pub judgment: &'a str,
+    /// A breaker of its own (`rerank`, 32d); none for the shared one.
+    pub breaker: Option<&'a str>,
 }
 
 impl Fact for JudgeCircuit<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeCircuit);
 
     fn row(&self) -> Value {
-        json!({"transition": self.transition, "judgment": self.judgment})
+        let mut row = json!({"transition": self.transition, "judgment": self.judgment});
+        if let Some(b) = self.breaker {
+            row["breaker"] = json!(b);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
-        let text = match self.transition {
-            Transition::Opened { failures, for_secs } => format!(
+        let text = match (self.breaker, self.transition) {
+            (None, Transition::Opened { failures, for_secs }) => format!(
                 "Jev's breaker opened after {failures} failures in a row: judgments skip for {for_secs} s, then one probe."
             ),
-            Transition::Reopened { for_secs } => {
+            (None, Transition::Reopened { for_secs }) => {
                 format!("Jev's probe failed: the breaker opens again for {for_secs} s.")
             }
-            Transition::Closed => "Jev answered the probe: the breaker closed.".into(),
+            (None, Transition::Closed) => "Jev answered the probe: the breaker closed.".into(),
+            (Some(b), Transition::Opened { failures, for_secs }) => format!(
+                "Jev's {b} breaker opened after {failures} failures in a row: {b} judgments skip for {for_secs} s, then one probe; the other packs keep the shared breaker."
+            ),
+            (Some(b), Transition::Reopened { for_secs }) => {
+                format!("Jev's {b} probe failed: the {b} breaker opens again for {for_secs} s.")
+            }
+            (Some(b), Transition::Closed) => {
+                format!("Jev answered the {b} probe: the {b} breaker closed.")
+            }
         };
         say.line(NarrativePart::Session, text);
     }

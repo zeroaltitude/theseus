@@ -400,6 +400,8 @@ function step(s: Snap, r: LedgerEntry): void {
       s.judge = { ...s.judge, paused: false }
       return
     case 'judge.circuit': {
+      // A breaker of its own (rerank's, 32d) is not the shared one.
+      if (d.breaker) return
       const c = String((d.transition as D | undefined)?.circuit ?? '')
       s.judge = { ...s.judge, breaker: c === 'closed' ? 'closed' : 'open' }
       return

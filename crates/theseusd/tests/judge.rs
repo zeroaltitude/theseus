@@ -208,7 +208,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "role.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
-            "rerank.v1: shadow"
+            "rerank.v1: live"
         ])
     );
     assert!(rig.rows("judge.call").is_empty());

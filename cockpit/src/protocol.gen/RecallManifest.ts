@@ -2,6 +2,7 @@
 import type { BudgetReport } from "./BudgetReport";
 import type { RecallDrop } from "./RecallDrop";
 import type { RecallItem } from "./RecallItem";
+import type { RecallRerank } from "./RecallRerank";
 import type { RecallTimings } from "./RecallTimings";
 
 /**
@@ -74,4 +75,9 @@ arm?: string,
  * The pack's budget: its limit, what it used, and each item it dropped
  * for the budget (§2.11: never silently thinner).
  */
-budget?: BudgetReport, };
+budget?: BudgetReport, 
+/**
+ * Jev's live rerank (M6 32d), when the turn waited on one: whether
+ * its order was used, or why recall's own stood.
+ */
+rerank?: RecallRerank, };

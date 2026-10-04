@@ -41,6 +41,13 @@ pub fn judge_line(h: &JudgeHealth) -> String {
         h.max_mode,
         h.breaker
     );
+    // A breaker of its own (32d), `rerank: closed`: `rerank breaker closed`.
+    for b in &h.breakers {
+        match b.split_once(": ") {
+            Some((name, state)) => s.push_str(&format!(" · {name} breaker {state}")),
+            None => s.push_str(&format!(" · {b}")),
+        }
+    }
     if h.in_flight > 0 {
         s.push_str(&format!(" · {} in flight", h.in_flight));
     }
@@ -383,6 +390,7 @@ mod tests {
             max_mode: "live".into(),
             packs: vec!["loop.v1: shadow".into()],
             breaker: "closed".into(),
+            breakers: vec!["rerank: open (42s left)".into()],
             calls_today: 3,
             failed_today: 1,
             skipped_today: 2,
@@ -392,7 +400,7 @@ mod tests {
         };
         assert_eq!(
             judge_line(&h),
-            "judge: loop.v1: shadow · max live · breaker closed · 3 calls today (1 failed, 2 skipped) · $0.000267 of $1.00 today"
+            "judge: loop.v1: shadow · max live · breaker closed · rerank breaker open (42s left) · 3 calls today (1 failed, 2 skipped) · $0.000267 of $1.00 today"
         );
     }
 

@@ -20,7 +20,12 @@ packs: Array<string>,
  * The circuit breaker: `closed`, `open (Ns left)`, `half_open`, or
  * `idle` before the first judgment builds the client.
  */
-breaker: string, in_flight: number, 
+breaker: string, 
+/**
+ * The breakers of their own (32d), each `<name>: <state>` as above:
+ * `rerank: closed`. Their packs' failures move only them.
+ */
+breakers: Array<string>, in_flight: number, 
 /**
  * The local day the counts below are of.
  */

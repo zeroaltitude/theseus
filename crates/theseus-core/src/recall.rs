@@ -297,10 +297,24 @@ impl Memory {
         &self,
         scene: &Scene<'_>,
         begun: &Begun,
-        (answer, index_took): (Answer, Duration),
+        answer: (Answer, Duration),
         place_of: impl Fn(&str) -> Place,
         texts: bool,
     ) -> (RecallManifest, Vec<Candidate>) {
+        let (m, candidates, _) = self.manifest_ranked(scene, begun, answer, place_of, texts);
+        (m, candidates)
+    }
+
+    /// The manifest, the candidates, and each candidate's ranks by source,
+    /// for a pack again in Jev's order (`refill`, 32d).
+    pub fn manifest_ranked(
+        &self,
+        scene: &Scene<'_>,
+        begun: &Begun,
+        (answer, index_took): (Answer, Duration),
+        place_of: impl Fn(&str) -> Place,
+        texts: bool,
+    ) -> (RecallManifest, Vec<Candidate>, Ranks) {
         let mut m = RecallManifest {
             recall_id: crate::new_id("rcl"),
             mode: scene.mode.into(),
@@ -325,13 +339,13 @@ impl Memory {
             Answer::Deadline => {
                 m.outcome = "deadline".into();
                 m.timings.total_ms = ms(begun.started.elapsed());
-                return (m, Vec::new());
+                return (m, Vec::new(), Ranks::new());
             }
             Answer::Unavailable(why) => {
                 m.outcome = "unavailable".into();
                 m.why = Some(why);
                 m.timings.total_ms = ms(begun.started.elapsed());
-                return (m, Vec::new());
+                return (m, Vec::new(), Ranks::new());
             }
         };
         let t0 = Instant::now();
@@ -383,20 +397,52 @@ impl Memory {
             ..self.cfg.params()
         };
         let pack = pipeline::recall(&self.science, &asker, candidates.clone(), &params);
+        let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
         m.timings.pack_ms = ms(t0.elapsed());
         m.timings.total_ms = ms(begun.started.elapsed());
-        (m, candidates)
+        (m, candidates, kept)
+    }
+
+    /// The pack again, ranked by `order` (Jev's, from a live rerank, 32d):
+    /// the same filters, the place rule first, and the same budget, into
+    /// `m`'s items, drops, and budget.
+    pub fn refill(
+        &self,
+        scene: &Scene<'_>,
+        m: &mut RecallManifest,
+        candidates: Vec<Candidate>,
+        mut ranks: Ranks,
+        order: Vec<String>,
+    ) {
+        let asker = Asker {
+            session_id: scene.session_id.unwrap_or_default(),
+            place: &scene.place,
+            in_context: &scene.in_context,
+            labeled: &scene.labeled,
+            now_ms: theseus_protocol::now_unix_ms(),
+        };
+        let params = self.params_of(m);
+        let pack =
+            theseus_memory::rerank::repack(&self.science, &asker, candidates, &params, order);
+        m.drops.clear();
+        fill(m, pack, &mut ranks, true);
+    }
+
+    /// The pack's limits for a manifest's budget.
+    pub fn params_of(&self, m: &RecallManifest) -> theseus_memory::Params {
+        theseus_memory::Params {
+            budget_tokens: m.budget_tokens,
+            ..self.cfg.params()
+        }
     }
 }
 
+/// Each candidate's ranks by source, by key (`<node>#<chunk>`).
+pub type Ranks = BTreeMap<String, BTreeMap<String, theseus_protocol::index::IndexSourceRank>>;
+
 /// The pack's items and drops, into the manifest.
-fn fill(
-    m: &mut RecallManifest,
-    pack: Pack,
-    ranks: &mut BTreeMap<String, BTreeMap<String, theseus_protocol::index::IndexSourceRank>>,
-    texts: bool,
-) {
+fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
     m.used_tokens = pack.tokens;
     m.budget = Some(BudgetReport {
         limit_tokens: m.budget_tokens,
