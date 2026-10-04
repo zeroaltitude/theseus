@@ -184,6 +184,8 @@ mod tests_registry;
 #[cfg(test)]
 mod tests_rerank;
 #[cfg(test)]
+mod tests_rerank_live;
+#[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
