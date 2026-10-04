@@ -627,10 +627,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # request_timeout_secs = 30               # a request unanswered this long is cancelled, and its server stopped
 # edit_diagnostics = true                 # an edit's result carries its files' errors
 # edit_wait_ms = 1500                     # how long an edit waits for them, 1 to 30000
-# [lsp.servers.ty]                        # start_on_edit: an edit starts this server too (off for every preset)
-# start_on_edit = true
+# [lsp.servers.rust-analyzer]             # start_on_edit: an edit starts this server too; on for ty, tsgo, and
+# start_on_edit = false                   #   rust-analyzer, off for the other presets and your own servers unless set
 # [lsp.servers.pyright]                   # change a preset: command, extensions, roots (its markers), settings, enabled
 # settings = { python = { analysis = { diagnosticMode = "openFilesOnly" } } }
+# start_on_edit = true
 # [lsp.servers.some-server]               # or add one: a command and its extensions
 # command = ["some-server", "--stdio"]
 # extensions = ["some"]

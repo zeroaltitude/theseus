@@ -689,7 +689,9 @@ impl Tool for Diagnostics {
             Ok((
                 ToolOutput {
                     text: out.join("\n"),
-                    meta: json!({"count": total}),
+                    // The files it lists, which the edit hook leaves out of
+                    // what arrived for the session's pending waits.
+                    meta: json!({"count": total, "files": files.iter().map(|(_, p)| p).collect::<Vec<_>>()}),
                 },
                 None,
             ))

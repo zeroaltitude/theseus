@@ -410,7 +410,7 @@ async fn an_edit_that_starts_its_server_is_judged_as_proc_run() {
     };
     let on = rig(vec![], FakeConfig::default(), |cfg, _| {
         approve(cfg);
-        cfg.lsp.servers.get_mut("fake").unwrap().start_on_edit = true;
+        cfg.lsp.servers.get_mut("fake").unwrap().start_on_edit = Some(true);
     });
     let d = decided(&on, PlaceClass::Private);
     assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
@@ -427,7 +427,7 @@ async fn start_on_edit_starts_the_server_and_health_counts_the_block() {
     let r = rig(
         edit("e1", "a.fake", "let y = 2\n", "ERROR 2\n"),
         FakeConfig::default(),
-        |cfg, _| cfg.lsp.servers.get_mut("fake").unwrap().start_on_edit = true,
+        |cfg, _| cfg.lsp.servers.get_mut("fake").unwrap().start_on_edit = Some(true),
     );
     let sid = session(&r.core, None);
     turn(&r.core, &sid, "edit").await;
@@ -480,4 +480,121 @@ async fn edit_wait_ms_is_the_bound() {
         "waited {waited:?}"
     );
     assert!(got.text.contains("within 300 ms"), "{}", got.text);
+}
+
+/// Unset, `start_on_edit` is on for rust-analyzer, ty, and tsgo
+/// (theseus-ext.12): an edit of each one's file starts it, and
+/// rust-analyzer's `initialize` carries `cargo.targetDir`, so its checks
+/// build apart from the agent's. Set false, an edit starts none.
+#[tokio::test]
+async fn the_three_presets_start_on_an_edit_and_false_stops_it() {
+    let files = |work: &Path| {
+        std::fs::write(work.join("Cargo.toml"), "[workspace]\n").unwrap();
+        std::fs::write(work.join("pyproject.toml"), "").unwrap();
+        std::fs::write(work.join("tsconfig.json"), "{}").unwrap();
+        ["m.rs", "m.py", "m.ts"].map(|f| {
+            std::fs::write(work.join(f), "ERROR here\n").unwrap();
+            work.join(f)
+        })
+    };
+    let quick = |cfg: &mut Config| {
+        cfg.lsp.edit_wait_ms = 200;
+        cfg.lsp.request_timeout_secs = 1;
+    };
+    let r = rig(vec![], FakeConfig::default(), |cfg, _| quick(cfg));
+    let board = r.core.tools.lsp.clone().unwrap();
+    for f in files(&r.work) {
+        board.after_edit("s1", "tu_1", &[f]).await;
+    }
+    for _ in 0..100 {
+        if board.up().len() >= 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let mut names: Vec<String> = board.up().iter().map(|l| l.server().to_string()).collect();
+    names.sort();
+    assert_eq!(names, ["rust-analyzer", "tsgo", "ty"]);
+    assert_eq!(r.spawner.count(), 3);
+    let ra = board
+        .up()
+        .into_iter()
+        .find(|l| l.server() == "rust-analyzer")
+        .unwrap();
+    let seen = ra.client.request("fake/seen", Value::Null).await.unwrap();
+    assert_eq!(
+        seen["initialization_options"],
+        json!({"cargo": {"targetDir": true}}),
+        "{seen}"
+    );
+
+    let off = rig(vec![], FakeConfig::default(), |cfg, _| {
+        quick(cfg);
+        cfg.lsp.servers.insert(
+            "rust-analyzer".into(),
+            crate::config::LspServerConfig {
+                start_on_edit: Some(false),
+                ..Default::default()
+            },
+        );
+    });
+    let board = off.core.tools.lsp.clone().unwrap();
+    let [rs, ..] = files(&off.work);
+    assert!(board.after_edit("s1", "tu_1", &[rs]).await.is_none());
+    assert_eq!(off.spawner.count(), 0, "start_on_edit = false");
+}
+
+/// An `lsp.diagnostics` right after a pending edit lists the file's errors
+/// once: what arrived for that file since is left out of its result, while
+/// another file's still rides (theseus-ext.12).
+#[tokio::test(start_paused = true)]
+async fn lsp_diagnostics_after_a_pending_edit_lists_each_error_once() {
+    let fake = FakeConfig {
+        diagnostics: Diagnostics::Pull,
+        slow_ms: 5_000,
+        ..FakeConfig::default()
+    };
+    let r = rig(vec![], fake, |_, _| {});
+    let board = r.core.tools.lsp.clone().unwrap();
+    let (a, b) = (r.work.join("a.fake"), r.work.join("b.fake"));
+    let (spec, root) = board.server_for(&a).unwrap();
+    board.live(&spec, &root).await.unwrap();
+    std::fs::write(&a, "def total\nERROR new\n").unwrap();
+    std::fs::write(&b, "use total\nERROR too\n").unwrap();
+    for f in [&a, &b] {
+        let got = board
+            .after_edit("s1", "tu_1", std::slice::from_ref(f))
+            .await
+            .unwrap();
+        assert_eq!(got.meta["freshness"], "pending");
+    }
+    // Both waits get their answers.
+    tokio::time::sleep(Duration::from_secs(12)).await;
+    let ctx = r.core.tools.ctx.clone();
+    let tool = r
+        .core
+        .tools
+        .registry
+        .get("lsp.diagnostics")
+        .unwrap()
+        .clone();
+    let (out, _) = tool.run_async(&json!({"path": a}), &ctx).await.unwrap();
+    assert_eq!(out.text.matches("planted error").count(), 1, "{}", out.text);
+    let extra = board
+        .attach("s1", "tu_3", "lsp.diagnostics", true, &out.meta, &ctx)
+        .await
+        .expect("b's arrival rides");
+    assert!(
+        extra
+            .text
+            .contains(&format!("{} (fake): 1 error", b.display())),
+        "{}",
+        extra.text
+    );
+    assert!(
+        !extra.text.contains(&a.display().to_string()),
+        "a is listed by the result itself: {}",
+        extra.text
+    );
+    assert_eq!(extra.meta["arrived"]["files"].as_array().unwrap().len(), 1);
 }

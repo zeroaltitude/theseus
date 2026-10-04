@@ -77,6 +77,11 @@ pub const PRESETS: [&str; 6] = [
     "typescript-language-server",
 ];
 
+/// The presets an edit starts when `[lsp.servers.<name>] start_on_edit` is
+/// unset (theseus-ext.12): the fast checkers, and rust-analyzer, whose
+/// checks build apart from the agent's (its preset's `cargo.targetDir`).
+pub const START_ON_EDIT: [&str; 3] = ["rust-analyzer", "ty", "tsgo"];
+
 const RUST: &[&str] = &["rs"];
 const PYTHON: &[&str] = &["py", "pyi"];
 const TS_JS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
@@ -139,7 +144,9 @@ impl Spec {
                         .roots
                         .or_else(|| p.as_ref().map(|p| strings(p.2)))
                         .unwrap_or_default(),
-                    start_on_edit: c.start_on_edit,
+                    start_on_edit: c
+                        .start_on_edit
+                        .unwrap_or_else(|| START_ON_EDIT.contains(&name)),
                     settings: c
                         .settings
                         .and_then(|s| serde_json::to_value(s).ok())
