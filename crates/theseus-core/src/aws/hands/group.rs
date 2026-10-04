@@ -14,13 +14,13 @@
 //!   in the next frame with an `aws.hands.launched` row. A dispatch is the
 //!   claim: two launchers of one hand cannot both dispatch it.
 //! - **A step** ([`step`]), after a hand settles: the group is done when
-//!   `until` is met (or can no longer be); then the hands never launched are
-//!   cancelled (verified: nothing ran), and the call settles with the
-//!   aggregate, which its continuation reads (`result_text`). Otherwise the
-//!   next hands launch while fewer than `concurrency` run and `max_usd`
-//!   allows them. A `first_success` group launches nothing after its first
-//!   success. Running hands are left to their TTL: cancellation per backend
-//!   is part 2's.
+//!   `until` is met (or can no longer be); then the hands still running are
+//!   stopped by their backend's means (`cancel::stop_hands`, part 2), the
+//!   hands never launched are cancelled (verified: nothing ran), and the
+//!   call settles with the aggregate, which its continuation reads
+//!   (`result_text`). Otherwise the next hands launch while fewer than
+//!   `concurrency` run and `max_usd` allows them. A `first_success` group
+//!   launches nothing after its first success.
 
 use std::sync::Arc;
 
@@ -108,9 +108,13 @@ impl GroupRecord {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Tally {
     pub succeeded: u32,
-    /// Failed, unknown, or cancelled after a launch.
+    /// Failed or unknown after a launch.
     pub failed: u32,
+    /// Stopped after a launch: its group was done, or its call cancelled.
+    pub cancelled: u32,
     pub running: u32,
+    /// Of `running`, those whose stop was asked and not yet seen.
+    pub stopping: u32,
     /// Not launched yet.
     pub waiting: Vec<u32>,
     /// Never launched, and cancelled when the group ended.
@@ -147,8 +151,12 @@ pub fn tally(store: &Store, rec: &GroupRecord, actions: &[Action]) -> Tally {
         match a.state {
             ActionState::Succeeded => t.succeeded += 1,
             ActionState::Planned | ActionState::Authorized => t.waiting.push(h.index),
-            ActionState::Dispatched => t.running += 1,
+            ActionState::Dispatched => {
+                t.running += 1;
+                t.stopping += u32::from(a.cancel.is_some());
+            }
             ActionState::Cancelled if a.dispatched_at_ms.is_none() => t.not_launched += 1,
+            ActionState::Cancelled => t.cancelled += 1,
             _ => t.failed += 1,
         }
         if a.state.is_settled() {
@@ -263,7 +271,8 @@ impl fact::Fact for Settled<'_> {
         json!({"group": self.rec.group, "execution_id": self.rec.execution_id,
             "backend": self.rec.backend.as_str(), "until": self.rec.request.until.words(),
             "met": self.met, "why": self.why, "succeeded": self.tally.succeeded,
-            "failed": self.tally.failed, "not_launched": self.tally.not_launched,
+            "failed": self.tally.failed, "cancelled": self.tally.cancelled,
+            "not_launched": self.tally.not_launched,
             "running": self.tally.running, "cost_usd": self.tally.spent_usd})
     }
 }
@@ -405,7 +414,8 @@ fn finish_wave(
                 finished_at_ms: now,
                 producer: "hands:launch".into(),
                 signature: None,
-                cost_micros: None,
+                // It never started: its reservation settles at nothing.
+                cost_micros: Some(0),
                 detail: Some(json!({"error": format!("did not start: {e}")})),
             })?;
         }
@@ -432,6 +442,23 @@ pub async fn step(ctx: &Ctx<'_>, group: &str) -> Result<bool> {
         match next(&rec, &t) {
             Next::Wait => return Ok(false),
             Next::Done { met, why } => {
+                // The hands still running are stopped first (part 2): their
+                // group no longer needs them.
+                let running: Vec<String> = actions
+                    .iter()
+                    .filter(|a| a.state == ActionState::Dispatched && a.cancel.is_none())
+                    .map(|a| a.correlation_id.clone())
+                    .collect();
+                if !running.is_empty() {
+                    let stopped = super::cancel::stop_hands(ctx, &rec, &running).await;
+                    let rows: Vec<_> = stopped
+                        .iter()
+                        .filter_map(|(a, _)| crate::cancel::verdict_row(a))
+                        .collect();
+                    if !rows.is_empty() {
+                        ctx.store.append(&rows)?;
+                    }
+                }
                 settle(ctx, rec, met, why.as_deref())?;
                 return Ok(true);
             }
@@ -504,6 +531,7 @@ fn settle(ctx: &Ctx<'_>, mut rec: GroupRecord, met: bool, why: Option<&str>) -> 
                 "tail": d.get("tail"),
                 "error": d.get("error"),
                 "note": d.get("note"),
+                "cancel": crate::cancel::words(a),
             })
         })
         .collect();
@@ -544,6 +572,7 @@ fn settle(ctx: &Ctx<'_>, mut rec: GroupRecord, met: bool, why: Option<&str>) -> 
             "why": why,
             "succeeded": t.succeeded,
             "failed": t.failed,
+            "cancelled": t.cancelled,
             "running": t.running,
             "not_launched": t.not_launched,
             "cost_usd": t.spent_usd,
@@ -558,17 +587,20 @@ fn settle(ctx: &Ctx<'_>, mut rec: GroupRecord, met: bool, why: Option<&str>) -> 
 /// hand.
 pub fn result_text(detail: &Value) -> String {
     let n = detail["hands"].as_array().map_or(0, Vec::len);
-    let mut out =
-        format!(
-        "Hands group {} on {}: {} of {n} succeeded, {} failed, {} not launched{}; until {} {}{}. \
+    let mut out = format!(
+        "Hands group {} on {}: {} of {n} succeeded, {} failed, {} not launched{}{}; until {} {}{}. \
          Cost about ${:.4}.\n",
         detail["group"].as_str().unwrap_or_default(),
         detail["backend"].as_str().unwrap_or_default(),
         detail["succeeded"],
         detail["failed"],
         detail["not_launched"],
+        match detail["cancelled"].as_u64() {
+            Some(c) if c > 0 => format!(", {c} cancelled"),
+            _ => String::new(),
+        },
         match detail["running"].as_u64() {
-            Some(r) if r > 0 => format!(", {r} still running (left to their TTL)"),
+            Some(r) if r > 0 => format!(", {r} still being stopped (StopTask sent)"),
             _ => String::new(),
         },
         detail["until"].as_str().unwrap_or_default(),
@@ -596,7 +628,7 @@ pub fn result_text(detail: &Value) -> String {
         if let Some(r) = h["result_ref"].as_str() {
             line.push_str(&format!(" {r}"));
         }
-        for k in ["error", "note"] {
+        for k in ["error", "note", "cancel"] {
             if let Some(e) = h[k].as_str() {
                 line.push_str(&format!(" ({e})"));
             }

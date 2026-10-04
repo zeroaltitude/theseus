@@ -18,6 +18,7 @@ export type * from './AwsConfirmAlertsParams';
 export type * from './AwsConfirmAlertsResult';
 export type * from './AwsDurabilityStatus';
 export type * from './AwsGuardDutyStatus';
+export type * from './AwsHandsStatus';
 export type * from './AwsPlan';
 export type * from './AwsStatus';
 export type * from './BenchHistoryParams';

@@ -76,7 +76,44 @@ impl ToolRuntime {
         let ttl_ms = r.ttl_secs * 1000;
         let hand_max_usd = launch::cost_usd(backend, &r, r.ttl_secs as f64, env.lambda_memory_mb);
         let n = r.inputs.len();
-        let mut rec = GroupRecord {
+        // Each hand reserves its worst case (its TTL at its size's rate)
+        // against the session's budget in the group's frame, and settles at
+        // its real cost (part 2). A group that does not fit is not run, and
+        // its turn asks the budget question, as a model call does.
+        let reserve = (hand_max_usd * 1e6).ceil() as u64;
+        let over = |need: u64| -> Result<Option<String>> {
+            let Some(e) = tc.kernel.execution(tc.execution_id)? else {
+                return Ok(None);
+            };
+            let b = &e.budget;
+            if need <= b.available() {
+                return Ok(None);
+            }
+            aws.hands.over_budget(
+                tc.execution_id,
+                crate::aws::hands::OverBudget {
+                    needed: need,
+                    available: b.available(),
+                    spent: b.spent_micros,
+                    limit: b.limit_micros,
+                },
+            );
+            Ok(Some(format!(
+                "Not run: over the session's budget. The group's worst case is {} ({n} hand{} at \
+                 {} each: its TTL at its size's rate), and {} of the session's {} limit is \
+                 available. The operator is asked whether its spend may go back to $0; call again \
+                 once they answer, or with fewer hands or a shorter ttl_secs.",
+                crate::narrative::dollars(need),
+                if n == 1 { "" } else { "s" },
+                crate::narrative::dollars(reserve),
+                crate::narrative::dollars(b.available()),
+                crate::narrative::dollars(b.limit_micros),
+            )))
+        };
+        if let Some(why) = over(reserve.saturating_mul(n as u64))? {
+            return fail(&why);
+        }
+        let rec = GroupRecord {
             v: 1,
             group: correlation_id.into(),
             execution_id: tc.execution_id.into(),
@@ -109,7 +146,7 @@ impl ToolRuntime {
         };
         // One frame: every hand's action, the first wave dispatched, and the
         // group's record.
-        rec = tc.kernel.frame(&[tc.execution_id], |k| {
+        let rec = tc.kernel.frame(&[tc.execution_id], |k| {
             let mut rec = rec;
             for i in 0..n as u32 {
                 let proposal = Proposal {
@@ -123,7 +160,7 @@ impl ToolRuntime {
                     &proposal,
                     RetryClass::NonRepeatable,
                     Some(ttl_ms + REPORT_GRACE_MS),
-                    0,
+                    reserve,
                 )?;
                 k.authorize(&a.correlation_id, &proposal, None)?;
                 if wave.contains(&i) {
@@ -137,7 +174,21 @@ impl ToolRuntime {
             }
             k.stage(&[rec.record()?])?;
             Ok(rec)
-        })?;
+        });
+        // Another call's reservation landed between the check and the frame.
+        let rec = match rec {
+            Err(e)
+                if matches!(
+                    e.downcast_ref::<theseus_kernel::KernelError>(),
+                    Some(theseus_kernel::KernelError::OverBudget { .. })
+                ) =>
+            {
+                let why = over(reserve.saturating_mul(n as u64))?
+                    .unwrap_or_else(|| "Not run: over the session's budget.".into());
+                return fail(&why);
+            }
+            r => r?,
+        };
         aws.hands.launched();
         let ctx = group::Ctx {
             kernel: tc.kernel,

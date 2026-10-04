@@ -1580,6 +1580,16 @@ impl TurnRunner {
                 Self::stopped(t, &by);
                 break;
             }
+            // A hands group over the session's budget asks as a model call does.
+            if let Some(o) = self
+                .tools
+                .aws
+                .as_ref()
+                .and_then(|a| a.hands.take_over_budget(t.tc.execution_id))
+            {
+                self.ask_budget(t, session, o.needed, o.available, o.spent, o.limit)?;
+                break;
+            }
             let i = t.loops;
             t.loops += 1;
             t.record(&fact::turn::LoopOpened {

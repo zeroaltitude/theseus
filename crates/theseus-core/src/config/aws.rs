@@ -56,6 +56,17 @@ pub struct AwsAccountConfig {
     /// the foundation stack's budget after serving when they differ.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monthly_budget_usd: Option<u32>,
+    /// The day's budget in USD (step 40 part 2): a second AWS Budget that
+    /// only alerts, reconciled into the foundation stack's
+    /// `DailyBudgetUsd` as the month's is. Unset: the stack's stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_budget_usd: Option<u32>,
+    /// The hour's line in USD (step 40 part 2): Theseus meters what its AWS
+    /// actions reserve and spend each hour, since AWS's billing lags by
+    /// hours, and past this line alerts once that hour (a row, a notice, and
+    /// health). It alerts only. Default $1.
+    #[serde(default = "default_hourly_alert_usd")]
+    pub hourly_alert_usd: f64,
     /// The durability tender (AWS step 15): after serving, ship the store's
     /// WAL segments and blobs to the foundation's bucket and its index rows
     /// to the durability table, under the deployment's prefix, in the
@@ -63,6 +74,11 @@ pub struct AwsAccountConfig {
     /// at most. Off by default.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub durability: bool,
+}
+
+/// The hour's line unless the config names one: $1.
+pub fn default_hourly_alert_usd() -> f64 {
+    1.0
 }
 
 impl AwsAccountConfig {
@@ -217,6 +233,16 @@ impl super::Config {
                 anyhow::bail!(
                     "aws.accounts.{id}.monthly_budget_usd is 0: the budget's stop would hold at \
                      once; name the month's dollars"
+                );
+            }
+            if a.daily_budget_usd == Some(0) {
+                anyhow::bail!("aws.accounts.{id}.daily_budget_usd is 0: name the day's dollars");
+            }
+            if !(a.hourly_alert_usd.is_finite() && a.hourly_alert_usd > 0.0) {
+                anyhow::bail!(
+                    "aws.accounts.{id}.hourly_alert_usd is {}: name the hour's line in dollars, \
+                     more than 0",
+                    a.hourly_alert_usd
                 );
             }
         }

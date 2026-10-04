@@ -460,6 +460,9 @@ pub enum VerifiedBy {
     Group,
     /// An async tool's task: aborted, and its handle finished.
     Task,
+    /// A hand's ECS task (AWS design §3.3, step 40 part 2): `StopTask`, then
+    /// `DescribeTasks` or ECS's own state change showing it STOPPED.
+    Ecs,
     /// Nothing verified it: the call cannot be stopped, or its end was not
     /// seen.
     None,
@@ -473,6 +476,7 @@ impl VerifiedBy {
             VerifiedBy::Tree => "tree",
             VerifiedBy::Group => "group",
             VerifiedBy::Task => "task",
+            VerifiedBy::Ecs => "ecs",
             VerifiedBy::None => "none",
         }
     }

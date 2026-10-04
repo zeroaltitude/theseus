@@ -22,6 +22,14 @@ Parameters:
     Description: >-
       The month's budget in USD. The budget's reconcile keeps it equal to monthly_budget_usd in the
       config (design section 3.7).
+  DailyBudgetUsd:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >-
+      The day's budget in USD, which only alerts (step 40 part 2); 0 makes none. The budget's
+      reconcile keeps it equal to daily_budget_usd in the config. AWS Budgets may charge for a
+      budget past an account's first two.
   AlertEmail:
     Type: String
     Default: ""
@@ -31,6 +39,7 @@ Parameters:
 
 Conditions:
   HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+  HasDailyBudget: !Not [!Equals [!Ref DailyBudgetUsd, "0"]]
 
 Resources:
   # ---------------------------------------------------------------------------------------------
@@ -602,6 +611,42 @@ Resources:
               Address: !Ref AlertsTopic
         - Notification:
             NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertsTopic
+      ResourceTags:
+        - Key: "theseus:owner"
+          Value: theseus
+        - Key: "theseus:stack"
+          Value: !Ref AWS::StackName
+
+  # The day's budget (step 40 part 2): the cascade's middle, between the month's stop and the
+  # hour Theseus meters itself. It only alerts, to the same topic as the month's; nothing stops.
+  DailyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: HasDailyBudget
+    Properties:
+      Budget:
+        BudgetName: theseus-daily
+        BudgetType: COST
+        TimeUnit: DAILY
+        BudgetLimit:
+          Amount: !Ref DailyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertsTopic
+        - Notification:
+            NotificationType: ACTUAL
             ComparisonOperator: GREATER_THAN
             Threshold: 100
             ThresholdType: PERCENTAGE

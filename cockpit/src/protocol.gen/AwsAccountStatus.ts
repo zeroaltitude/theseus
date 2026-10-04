@@ -2,6 +2,7 @@
 import type { AwsBudgetStatus } from "./AwsBudgetStatus";
 import type { AwsDurabilityStatus } from "./AwsDurabilityStatus";
 import type { AwsGuardDutyStatus } from "./AwsGuardDutyStatus";
+import type { AwsHandsStatus } from "./AwsHandsStatus";
 
 /**
  * One AWS account: whether its key is bound, and its calls. The key is
@@ -64,4 +65,8 @@ reconcile?: string,
 /**
  * The durability tender (step 15), on this account when it ships.
  */
-durability?: AwsDurabilityStatus, };
+durability?: AwsDurabilityStatus, 
+/**
+ * Its hands, the hour's meter, and the reaper (step 40 part 2).
+ */
+hands?: AwsHandsStatus, };

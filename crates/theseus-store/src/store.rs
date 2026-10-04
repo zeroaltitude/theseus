@@ -431,8 +431,10 @@ const BULK: usize = 4096;
 /// frame written carries its synced mark, and the reader reads both frame
 /// layouts (`wal::Layout`, theseus-7nfj). 7 = the ontology's `onto:*` META
 /// records, and a compilation manifest's `memberships` and `guidance` (21b,
-/// theseus-8kk.1).
-const MANIFEST_FORMAT: u32 = 7;
+/// theseus-8kk.1). 8 = a hand's cancel verified by ECS (`verified_by: ecs`),
+/// and the hour's alert mark, `aws.hour.alerted.<account>` (step 40 part 2,
+/// theseus-mgw.11).
+const MANIFEST_FORMAT: u32 = 8;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

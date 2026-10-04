@@ -427,6 +427,8 @@ fn layer(fake: &Fake) -> Arc<Aws> {
                 owner_role: Some("theseus-owner".into()),
                 deployment: Some("theseus-lab".into()),
                 monthly_budget_usd: None,
+                daily_budget_usd: None,
+                hourly_alert_usd: crate::config::default_hourly_alert_usd(),
                 durability: true,
             },
         )]),
@@ -926,6 +928,8 @@ fn the_tender_session_is_narrowed_to_its_prefix_and_its_rows() {
         owner_role: Some("theseus-owner".into()),
         deployment: Some("theseus-lab".into()),
         monthly_budget_usd: None,
+        daily_budget_usd: None,
+        hourly_alert_usd: crate::config::default_hourly_alert_usd(),
         durability: true,
     };
     assert!(durable::policy("tender", ACCOUNT, &fake_cfg).is_none());

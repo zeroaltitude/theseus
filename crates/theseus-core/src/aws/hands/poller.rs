@@ -17,9 +17,11 @@
 //! - **Settling uses the kernel's path** (`accept_completion`): idempotent
 //!   by correlation id, so a duplicate is a logged no-op and a late one after
 //!   a cancel is recorded as such; then the group takes its step.
-//! - A message is deleted once what it brought is in the store. Anything
-//!   else on the queue (a budget alert, another source) is left for its own
-//!   reader and, unread, for the dead-letter queue.
+//! - A message is deleted once what it brought is in the store. The TTL
+//!   reaper's failure records are read and surfaced (part 2,
+//!   `watch::reaper_failed`). Anything else on the queue (a budget alert,
+//!   another source) is left for its own reader and, unread, for the
+//!   dead-letter queue.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Weak};
@@ -27,8 +29,8 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
-use theseus_kernel::{terms, Accepted, ActionState, Completion, Outcome};
-use theseus_store::{kinds, NewRecord};
+use theseus_kernel::{terms, Accepted, ActionState, CancelState, Completion, Outcome};
+use theseus_store::{kinds, NewRecord, Store as _};
 
 use super::envelope::{derive_key, Envelope, HandSpec};
 use super::group::{self, GroupRecord};
@@ -93,13 +95,45 @@ pub fn open_groups(core: &Core) -> Result<Vec<GroupRecord>> {
         })
         .collect();
     let mut out = Vec::new();
-    for g in groups {
+    for g in &groups {
         if let Some(rec) = GroupRecord::load(&core.store, g)? {
+            out.push(rec);
+        }
+    }
+    // A hand whose cancel could not stop it (Lambda's, part 2) still runs
+    // until its TTL: its group stays open for its late envelope, which books
+    // its real cost, until one comes or its TTL and grace have passed.
+    let now = theseus_protocol::now_unix_ms();
+    for rec in core
+        .store
+        .inner()
+        .latest_with_prefix(kinds::META, group::PREFIX)?
+        .into_iter()
+        .filter_map(|r| r.decode::<GroupRecord>().ok())
+    {
+        let until = rec.created_at_ms + rec.request.ttl_secs * 1000 + LATE_GRACE_MS;
+        if now > until || groups.contains(rec.group.as_str()) {
+            continue;
+        }
+        let running_on = group::hands(&core.kernel, &rec)?.iter().any(|a| {
+            a.state == ActionState::Cancelled
+                && a.dispatched_at_ms.is_some()
+                && a.completions_seen == 0
+                && matches!(
+                    a.cancel,
+                    Some(CancelState::Unsupported | CancelState::OutcomeUncertain)
+                )
+        });
+        if running_on {
             out.push(rec);
         }
     }
     Ok(out)
 }
+
+/// How long past its TTL the poller listens for a cancelled hand's late
+/// envelope.
+const LATE_GRACE_MS: u64 = 5 * 60 * 1000;
 
 /// The poller's loop. It holds the core while it reads or writes the store
 /// and takes a batch, never across a poll's wait.
@@ -111,6 +145,10 @@ pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
             tracing::warn!(error = %format!("{e:#}"), "hands: reading the open groups failed");
             Vec::new()
         });
+        // Health's hands block and the hour's meter, at every pass (part 2).
+        if let Err(e) = super::watch::refresh(&c, &aws.hands.reaper) {
+            tracing::warn!(error = %format!("{e:#}"), "hands: reading the hands for health failed");
+        }
         if std::mem::take(&mut first) {
             recover(&c, &aws, &open).await;
         }
@@ -118,6 +156,11 @@ pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
         if open.is_empty() {
             aws.hands.wake.notified().await;
             continue;
+        }
+        // Each hand whose stop was asked and not yet seen: read by
+        // `DescribeTasks` (part 2).
+        if let Some(c) = core.upgrade() {
+            verify_stops(&c, &aws, &open).await;
         }
         let queues: BTreeSet<(String, String, String)> = open
             .iter()
@@ -127,6 +170,20 @@ pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
             if !poll_once(&core, &aws, &account, &region, &url).await {
                 return;
             }
+        }
+    }
+}
+
+/// The stops still to verify, in each open group (`cancel::verify`).
+async fn verify_stops(core: &Core, aws: &Arc<Aws>, open: &[GroupRecord]) {
+    let ctx = group::Ctx {
+        kernel: &core.kernel,
+        store: &core.store,
+        aws,
+    };
+    for g in open {
+        if let Err(e) = super::cancel::verify(&ctx, g).await {
+            tracing::warn!(group = %g.group, error = %format!("{e:#}"), "hands: verifying a stop");
         }
     }
 }
@@ -196,6 +253,7 @@ enum Sort {
     Envelope,
     LambdaFailure,
     EcsTask,
+    ReaperFailure,
     Other,
 }
 
@@ -208,6 +266,8 @@ fn sort_of(body: &Value) -> Sort {
         Sort::LambdaFailure
     } else if body["source"] == "aws.ecs" && body["detail-type"] == "ECS Task State Change" {
         Sort::EcsTask
+    } else if super::watch::is_reaper_failure(body) {
+        Sort::ReaperFailure
     } else {
         Sort::Other
     }
@@ -304,6 +364,10 @@ pub async fn handle(
         Sort::Envelope => envelope(core, aws, acct, body).await,
         Sort::LambdaFailure => lambda_failure(core, aws, acct, body).await,
         Sort::EcsTask => ecs_task(core, aws, body).await,
+        Sort::ReaperFailure => {
+            super::watch::reaper_failed(core, &acct.id, &aws.hands.reaper, body)?;
+            Ok(true)
+        }
         Sort::Other => Ok(false),
     }
 }
@@ -498,14 +562,29 @@ async fn ecs_task(core: &Core, aws: &Arc<Aws>, body: &Value) -> Result<bool> {
         .flatten()
         .find(|c| c["name"] == "hand")
         .and_then(|c| c["exitCode"].as_i64());
+    let ctx = group::Ctx {
+        kernel: &core.kernel,
+        store: &core.store,
+        aws,
+    };
+    let Some(a) = core.kernel.action(&hand.correlation_id)? else {
+        return Ok(true);
+    };
+    // A hand whose stop was asked: ECS's STOPPED verifies it (part 2).
+    let st = super::cancel::TaskState {
+        stopped: true,
+        reason: d["stoppedReason"].as_str().map(String::from),
+        exit_code: exit,
+        ran_secs: None,
+        missing: false,
+    };
+    if super::cancel::stopped_event(&ctx, &rec, &a, &st)? {
+        return Ok(true);
+    }
     if exit == Some(0) {
         return Ok(true);
     }
-    let still = core
-        .kernel
-        .action(&hand.correlation_id)?
-        .is_some_and(|a| a.state == ActionState::Dispatched);
-    if still {
+    if a.state == ActionState::Dispatched {
         let why = format!(
             "its task stopped before its hand reported ({})",
             d["stoppedReason"].as_str().unwrap_or("no reason given")

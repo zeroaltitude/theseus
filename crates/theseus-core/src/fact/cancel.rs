@@ -49,8 +49,10 @@ impl Fact for CancelVerified<'_> {
             VerifiedBy::Tree => "process tree",
             VerifiedBy::Group => "process group",
             VerifiedBy::Task | VerifiedBy::None => "task",
+            VerifiedBy::Ecs => "ECS task",
         };
         let gone = match v.killed {
+            None if v.verified_by == VerifiedBy::Ecs => "its ECS task shows STOPPED".to_string(),
             Some(n) => format!(
                 "its {means} ({}) is gone",
                 narrative::count(u64::from(n), "process", "processes")

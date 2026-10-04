@@ -344,6 +344,8 @@ facts![
     crate::aws::hands::group::Launched<'static>,
     crate::aws::hands::group::Settled<'static>,
     crate::aws::hands::poller::Quarantined<'static>,
+    crate::aws::hands::watch::HourAlert<'static>,
+    crate::aws::hands::watch::ReaperFailed<'static>,
 ];
 
 #[cfg(test)]

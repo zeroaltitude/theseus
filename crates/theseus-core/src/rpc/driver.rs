@@ -233,7 +233,10 @@ impl Core {
     /// record how each one ended: its fact, in its session. Each verdict, as
     /// the wire carries it.
     async fn terminate_all(&self, to_kill: &[String]) -> Vec<theseus_protocol::CancelVerdict> {
-        let ended = self.tools.terminate_all(&self.kernel, to_kill).await;
+        let ended = self
+            .tools
+            .terminate_all(&self.kernel, &self.store, to_kill)
+            .await;
         let written: Vec<_> = ended.iter().filter(|e| e.written).collect();
         for e in &written {
             e.record(&self.session_rec(&e.action.session_id));

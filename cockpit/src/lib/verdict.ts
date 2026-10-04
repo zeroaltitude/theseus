@@ -3,7 +3,7 @@
 import type { CancelVerdict } from '@protocol'
 
 const BY: Record<string, string> = {
-  pidns: 'pid namespace', cgroup: 'cgroup', tree: 'process tree', group: 'process group', task: 'task', none: 'nothing',
+  pidns: 'pid namespace', cgroup: 'cgroup', tree: 'process tree', group: 'process group', task: 'task', ecs: 'ECS task STOPPED', none: 'nothing',
 }
 
 export function verdictWords(v: CancelVerdict): string {

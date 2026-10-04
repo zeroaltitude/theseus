@@ -16,7 +16,7 @@ mod aws;
 mod judge;
 pub(crate) mod memory;
 mod sparse;
-pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
+pub use aws::{default_hourly_alert_usd, AwsAccountConfig, AwsConfig, AwsCredentialNames};
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode};
 pub use memory::{MemoryConfig, MemoryMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
