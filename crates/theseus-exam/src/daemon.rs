@@ -59,6 +59,17 @@ pub fn config_for(base: &toml::Table, arm: &str) -> toml::Table {
     t
 }
 
+/// The config of the replay's daemon, from `base`: an index tender, and
+/// memory off, so it writes no recall of its own.
+pub fn replay_config(base: &toml::Table) -> toml::Table {
+    let mut t = config_for(base, "none");
+    let m = table(&mut t, "memory");
+    m.insert("mode".into(), "off".into());
+    m.remove("arm");
+    table(&mut t, "index").insert("enabled".into(), true.into());
+    t
+}
+
 /// A running scratch daemon, stopped when dropped.
 pub struct Daemon {
     child: Option<Child>,

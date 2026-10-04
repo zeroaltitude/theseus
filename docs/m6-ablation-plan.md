@@ -81,7 +81,11 @@ A feature is `baseline` against `none` (recall itself), each later `+x` against 
 - **The order** is a seeded shuffle, run by run, with an item's arms next to each other, so every arm of an item
   meets the same provider weather. Each run starts fresh daemons from each arm's snapshot of the store, so no
   daemon recalls an item's answer from an earlier run.
+- **The replay** (`theseus-exam replay`, over a copy of a store) recomputes every arm over the recorded turns, each
+  with its `as_of`, and drops any hit written at or after it; it scores the packs against the silver labels
+  (re-supply as an 8-word run, reference, re-derivation, should-have). It reads no outbox, so it applies no place
+  rule, and it never decides alone.
 - **What could not be measured** is said, with why: the canary while it has no data, vectors where the tender had no
-  model, the replay until it is built.
+  model.
 - **The report** is a frozen file (`theseus-exam report --out`), never overwritten, naming this plan's digest, the
   exam's, each arm's science, and the data's window.

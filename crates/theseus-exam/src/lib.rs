@@ -21,6 +21,8 @@
 //! - `stats` and `report`: paired by item, clustered by item, with intervals,
 //!   and the decision per feature under the plan (`docs/m6-ablation-plan.md`,
 //!   whose digest every report names).
+//! - `replay`: instrument 2, every arm recomputed over a store's recorded
+//!   turns as of each turn, against silver labels from the record.
 //! - `words`: a text's content words, which the paraphrase and scale
 //!   families' definitions are checked with.
 //! - `probe`: where the gold ranked, per item, and recall per family.
@@ -51,6 +53,7 @@ pub mod generate;
 pub mod item;
 pub mod probe;
 pub mod render;
+pub mod replay;
 pub mod report;
 pub mod rng;
 pub mod stats;

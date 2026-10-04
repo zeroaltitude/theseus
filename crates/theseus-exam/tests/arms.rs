@@ -14,7 +14,9 @@
 //!   files, says so in `skipped`);
 //! - the oracle's note is, byte for byte, the `Recall` the `baseline` daemon
 //!   rendered for the same gold, and sits where it sits, after the task;
-//! - no daemon, and no tender, is left running.
+//! - no daemon, and no tender, is left running;
+//! - the replay rebuilds the baseline daemon's live turns from their rows,
+//!   and recomputes every arm over them as of each turn.
 //!
 //! The daemon is the `theseusd` beside this test's binary (a workspace test
 //! run builds it, and `theseus-index` beside it), or `THESEUS_EXAM_THESEUSD`.
@@ -301,6 +303,28 @@ fn the_exam_runs_each_arm_on_a_daemon_of_its_own() {
     assert_eq!(recs.len(), 2 * 4 * 2, "items × arms × runs");
     check_records(&recs);
     check_notes(&path("store"), &m, &exam, &model.seen.lock().unwrap());
+
+    // The replay over the first run's baseline daemon's store: its two live
+    // turns' queries are rebuilt to their rows' digests, every arm asks a
+    // tender of its own as of each turn, and no later node answers.
+    let r = theseus_exam::replay::run(
+        &bin,
+        &plan.base_config,
+        &path("work/run-1/baseline/state/store"),
+        &path("replay"),
+        &plan.env,
+        plan.settle,
+        &mut |l| said.push(l.to_string()),
+    )
+    .unwrap_or_else(|e| panic!("{e:#}\n{}", said.join("\n")));
+    assert_eq!((r.turns, r.skipped.len()), (2, 0), "{:?}", r.skipped);
+    assert_eq!(r.admitted["none"], 0);
+    assert!(
+        r.admitted["bm25"] > 0 && r.admitted["baseline"] > 0,
+        "{r:?}"
+    );
+    assert!(r.leaks.values().all(|n| *n == 0), "{r:?}");
+    assert!(theseus_exam::daemon::processes_naming(&path("replay")).is_empty());
 
     // The report reads the four arms from these records.
     let md = theseus_exam::report::render(&recs, &exam, "runs.jsonl");

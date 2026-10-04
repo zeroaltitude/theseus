@@ -7,6 +7,8 @@
 //! theseus-exam run --base-config F --store DIR --manifest F --work DIR --out F --limit-usd N
 //!                                                     items × arms × runs, one scratch daemon per arm
 //! theseus-exam report --runs F [--out F]              the report over the arms, as Markdown
+//! theseus-exam replay --base-config F --store DIR --work DIR [--out F]
+//!                                                     every arm over a store's recorded turns
 //! theseus-exam probe --tender S --manifest F [--arm A] the gold's recall, asked of a running index tender
 //! ```
 //!
@@ -129,6 +131,28 @@ enum Cmd {
         /// instead of printing it.
         #[arg(long)]
         out: Option<PathBuf>,
+    },
+    /// Every arm recomputed over the recorded turns of a copy of a store
+    /// (its `recall.shadow` and `recall.ran` rows), each as of its turn, and
+    /// scored against silver labels from the record. It reads a copy, and
+    /// serves another with a scratch daemon of its own for the index.
+    Replay {
+        /// The scratch config the replay's daemon's is written from.
+        #[arg(long)]
+        base_config: PathBuf,
+        /// A copy of a store (`<state dir>/store`), never a running one.
+        #[arg(long)]
+        store: PathBuf,
+        /// A directory of the replay's own (made).
+        #[arg(long)]
+        work: PathBuf,
+        /// Write the replay, frozen, to this file, instead of printing it.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long, default_value_t = 1800)]
+        settle_secs: u64,
+        #[arg(long)]
+        theseusd: Option<PathBuf>,
     },
     /// The exam's tasks asked of a running index tender (BM25 and entities,
     /// and vectors when its model is there): per family, how much of the
@@ -297,6 +321,33 @@ fn main() -> Result<()> {
                 report::rescore(&mut records, &exam);
             }
             let md = report::render(&records, &exam, &runs.display().to_string());
+            match out {
+                Some(path) => {
+                    report::freeze(&path, &md)?;
+                    println!("{}", path.display());
+                }
+                None => print!("{md}"),
+            }
+        }
+        Cmd::Replay {
+            base_config,
+            store,
+            work,
+            out,
+            settle_secs,
+            theseusd,
+        } => {
+            let base = std::fs::read_to_string(&base_config)?.parse()?;
+            let r = theseus_exam::replay::run(
+                &theseusd.unwrap_or_else(beside_me),
+                &base,
+                &store,
+                &work,
+                &[],
+                Duration::from_secs(settle_secs),
+                &mut |line| eprintln!("{line}"),
+            )?;
+            let md = theseus_exam::replay::render(&r);
             match out {
                 Some(path) => {
                     report::freeze(&path, &md)?;

@@ -564,7 +564,7 @@ fn unmeasured(o: &mut String, recs: &[Record], arms: &[&str]) {
             let _ = writeln!(o, "- **`{arm}`**: not run in these records.");
         }
     }
-    let _ = writeln!(o, "- **The replay** (`recall.shadow` rows recomputed per arm with `as_of`, the silver labels, recall and precision at k, MRR, the stale rate): not built in 34b.");
+    let _ = writeln!(o, "- **The replay** (recall and precision at k, MRR, and the stale rate against the silver labels): not in these records. It is instrument 2, run over a copy of a store's recorded turns (`theseus-exam replay`), and never decides alone.");
     let _ = writeln!(o, "- **Recall's own spend**: the arms here spend nothing of their own (no rerank, no syntheses), so cost per pass is the model's alone.");
     let _ = writeln!(o);
 }

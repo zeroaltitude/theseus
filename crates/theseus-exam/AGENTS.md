@@ -7,7 +7,7 @@ deterministically. A tool of its own (its manifest's `tool` marker): the `theseu
 
 Key modules: `item.rs` (the exam as data, `exam/exam-v2.toml`), `fixture.rs` (the store writer), `check.rs`,
 `render.rs` (the oracle's note), `drive.rs` (the cells), `daemon.rs` and `arms.rs` (a daemon per arm), `stats.rs`
-and `report.rs`, `tender.rs` (the retrieval probe). Read by: the maintainer, through its binary.
+and `report.rs`, `replay.rs`, `tender.rs` (the retrieval probe). Read by: the maintainer, through its binary.
 
 ## What's here
 
@@ -21,6 +21,10 @@ and `report.rs`, `tender.rs` (the retrieval probe). Read by: the maintainer, thr
 - `theseus-exam report --out F` writes the frozen report: each arm's rate with its interval and n, the paired
   differences, cost per pass, the halves, the decision per feature, and what could not be measured. It names the
   digest of `docs/m6-ablation-plan.md`, which it embeds.
+- `theseus-exam replay` (instrument 2) reads a copy of a store's recorded turns (their `recall.shadow` and
+  `recall.ran` rows, each query rebuilt to its row's digest), serves another copy with a scratch daemon for its
+  tender, recomputes `none`, `bm25` and `baseline` as of each turn through the real pipeline, and scores them against
+  the silver labels.
 - `theseus-exam probe` asks a running tender the exam's tasks directly, per arm of sources and weights.
 
 ## Invariants
@@ -34,13 +38,14 @@ and `report.rs`, `tender.rs` (the retrieval probe). Read by: the maintainer, thr
 - **Nothing is left running**: a `Daemon` stops when dropped, and `arms::run` fails when any process still names
   its work directory.
 - **The held-out half is run once**, after every choice is made (`--half out`).
+- **The replay never trusts the index with `as_of`**: a hit at or after the turn's is dropped and counted as a leak.
 - **A report is frozen**: `report --out` refuses a file that exists.
 
 ## Tests
 
 - `cargo nextest run -p theseus-exam`. `tests/daemon_reads.rs` serves the written store with this workspace's
   `theseusd`; `tests/arms.rs` runs a small exam end to end through three real daemons on a stand-in model that
-  answers from a recall note when its request has one. Both find `theseusd` beside the test binary (a workspace
+  answers from a recall note when its request has one, then replays the baseline daemon's store. Both find `theseusd` beside the test binary (a workspace
   build makes it), or `THESEUS_EXAM_THESEUSD`, and `tests/arms.rs` needs `theseus-index` beside it too.
 
 ## Traps
