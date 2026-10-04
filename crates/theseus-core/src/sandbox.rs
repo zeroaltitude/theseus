@@ -502,10 +502,18 @@ pub fn launch_of(detail: &Value, at_ms: u64) -> Option<SandboxLaunch> {
     })
 }
 
-/// Credential files an `ro_paths` entry could bind (`~/.cargo` holds
-/// crates.io's token after `cargo login`): covered in every view, as the
-/// floor is, since an L1 job reads at notify what L0 would ask for.
-const CREDENTIALS: [&str; 2] = ["~/.cargo/credentials", "~/.cargo/credentials.toml"];
+/// Credentials an `ro_paths` entry or a workspace root could bind: covered in
+/// every view, as the floor is, whatever the approve list says, since an L1
+/// job reads at notify what L0 would ask for. `~/.cargo` holds crates.io's
+/// token after `cargo login`; `~/.aws` the operator's AWS keys, profiles, and
+/// cached sessions, so the job session an `aws` grant gives an L1 job is the
+/// only AWS credential it holds (18e). Each at its real path, as the view
+/// binds what holds it.
+const CREDENTIALS: [&str; 3] = [
+    "~/.cargo/credentials",
+    "~/.cargo/credentials.toml",
+    "~/.aws",
+];
 
 /// L1's state in a daemon: its settings, the view a job gets, the last L1
 /// launch heard of, why L1 refuses every job here (a root daemon), and the
@@ -541,17 +549,23 @@ impl Sandbox {
     ) -> Self {
         let canon =
             |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
+        // The sandbox takes absolute paths alone, each once.
+        let mut hidden: Vec<PathBuf> = Vec::new();
+        for p in floor
+            .iter()
+            .chain(approve)
+            .filter_map(|p| std::path::absolute(p).ok())
+            .chain(CREDENTIALS.iter().map(|p| canon(p)))
+            .filter(|p| p.is_absolute())
+        {
+            if !hidden.contains(&p) {
+                hidden.push(p);
+            }
+        }
         let view = L1 {
             workspace: roots.to_vec(),
             ro_paths: cfg.ro_paths.iter().map(|p| canon(p)).collect(),
-            // The sandbox takes absolute paths alone.
-            hidden: floor
-                .iter()
-                .chain(approve)
-                .filter_map(|p| std::path::absolute(p).ok())
-                .chain(CREDENTIALS.iter().map(|p| crate::config::expand(p)))
-                .filter(|p| p.is_absolute())
-                .collect(),
+            hidden,
             limits: theseus_sandbox_limits(cfg),
             // Each job's own, from its proposal (`for_job`).
             egress: Vec::new(),
@@ -857,11 +871,33 @@ mod tests {
             .hidden
             .clone();
         for f in CREDENTIALS {
-            assert!(
-                hidden.contains(&crate::config::expand(f)),
-                "{f}: {hidden:?}"
-            );
+            let real = theseus_tools::paths::canonical_best_effort(&crate::config::expand(f));
+            assert!(hidden.contains(&real), "{f}: {hidden:?}");
         }
+    }
+
+    /// `~/.aws` never shows in a view (18e), whatever `ro_paths` binds and
+    /// whatever the approve list says: an L1 job's AWS session is the only AWS
+    /// credential it holds. Each path is hidden once, though the approve list
+    /// names it too.
+    #[test]
+    fn the_operators_aws_files_are_hidden_in_every_view_whatever_the_approve_list_says() {
+        let cfg = SandboxConfig {
+            ro_paths: vec!["~/.aws".into()],
+            ..Default::default()
+        };
+        let aws = theseus_tools::paths::canonical_best_effort(&crate::config::expand("~/.aws"));
+        let hidden = |approve: &[PathBuf]| {
+            Sandbox::new(&cfg, &[], &[], approve)
+                .view
+                .lock()
+                .unwrap()
+                .hidden
+                .clone()
+        };
+        assert!(hidden(&[]).contains(&aws), "{:?}", hidden(&[]));
+        let both = hidden(std::slice::from_ref(&aws));
+        assert_eq!(both.iter().filter(|p| **p == aws).count(), 1, "{both:?}");
     }
 
     #[test]

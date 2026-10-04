@@ -18,8 +18,8 @@ use super::{bootstrap, tend, Aws};
 use crate::config::{AwsAccountConfig, AwsConfig};
 use crate::policy::{Posture, ToolPolicy};
 
-const SESSION_KEY: &str = "ASIATESTSESSION0001";
-const SESSION_SECRET: &str = "test-session-secret-0001";
+pub(super) const SESSION_KEY: &str = "ASIATESTSESSION0001";
+pub(super) const SESSION_SECRET: &str = "test-session-secret-0001";
 
 // ------------------------------------------------------------------ the rig
 
@@ -75,7 +75,7 @@ fn plan(t: &Arc<dyn Tool>, service: &str, operation: &str, input: Value) -> Resu
 }
 
 /// `a=b&c=d`, decoded: a query protocol's request.
-fn form(body: &str) -> BTreeMap<String, String> {
+pub(super) fn form(body: &str) -> BTreeMap<String, String> {
     let dec = |s: &str| {
         let b = s.replace('+', " ");
         let bytes = b.as_bytes();
@@ -149,7 +149,7 @@ fn error(n: usize, status: u16, code: &str, message: &str) -> Reply {
     )
 }
 
-fn assumed(n: usize, name: &str) -> Reply {
+pub(super) fn assumed(n: usize, name: &str) -> Reply {
     xml(
         n,
         format!(
@@ -582,7 +582,7 @@ fn writes(fake: &Fake) -> Vec<String> {
 }
 
 /// The first `AssumeRole` among `seen`, decoded.
-fn first_mint(seen: &[Seen]) -> BTreeMap<String, String> {
+pub(super) fn first_mint(seen: &[Seen]) -> BTreeMap<String, String> {
     seen.iter()
         .map(|s| form(&s.body))
         .find(|f| f.get("Action").map(String::as_str) == Some("AssumeRole"))
@@ -590,7 +590,7 @@ fn first_mint(seen: &[Seen]) -> BTreeMap<String, String> {
 }
 
 /// A mint's managed session policies, in order.
-fn minted_arns(mint: &BTreeMap<String, String>) -> Vec<String> {
+pub(super) fn minted_arns(mint: &BTreeMap<String, String>) -> Vec<String> {
     (1..)
         .map_while(|i| mint.get(&format!("PolicyArns.member.{i}.arn")).cloned())
         .collect()

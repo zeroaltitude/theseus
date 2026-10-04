@@ -19,7 +19,12 @@
 //!   outside text, so its session holds it (theseus-gyin); an unlisted host,
 //!   and names that resolve to loopback or to the metadata service, are
 //!   refused with their reasons, and a job that reached nothing leaves its
-//!   session clear.
+//!   session clear;
+//! - the `aws` grant (18e): a program granted an AWS job session gets it in
+//!   L1 at its launch, and holds no other AWS credential: none of the
+//!   daemon's own AWS variables, whatever `proc_env` lists, no `~/.aws`,
+//!   whatever binds it, and no route to the metadata service; through its
+//!   proxy it reaches STS by name, and STS names the job's session.
 //!
 //! The rig's state directory and socket are inside its workspace root, so
 //! the view hides them only because 17b hides them.
@@ -69,6 +74,17 @@ echo "printed=$GH_TOKEN"
 
 impl Rig {
     fn start(tweak: impl FnOnce(&mut toml::Table)) -> Self {
+        Self::start_with(&[], |_| {}, tweak)
+    }
+
+    /// `start`, with `env` in the daemon's own environment too, set after the
+    /// rig's own variables, so it can replace one; and `prepare` run on the
+    /// rig's directory before the daemon starts.
+    fn start_with(
+        env: &[(&str, &str)],
+        prepare: impl FnOnce(&std::path::Path),
+        tweak: impl FnOnce(&mut toml::Table),
+    ) -> Self {
         let script = Script::default();
         let asks = script.clone();
         let model = FakeModel::start(move |prompt| {
@@ -86,6 +102,7 @@ impl Rig {
         }
         // A HOME of the rig's own, with something in it.
         std::fs::write(path("home/.planted"), "x").unwrap();
+        prepare(dir.path());
         use std::os::unix::fs::PermissionsExt;
         let exe = |p: PathBuf, body: &str| {
             std::fs::write(&p, body).unwrap();
@@ -157,6 +174,7 @@ impl Rig {
                 .env_remove("THESEUS_STATE_DIR")
                 .env_remove("THESEUS_SOCKET")
                 .env_remove("THESEUS_OPERATOR_UMASK")
+                .envs(env.iter().copied())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(log),
@@ -1126,4 +1144,297 @@ fn a_deadline_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
         "{text}"
     );
     assert_eq!(r.ledger("sandbox.egress").len(), 1);
+}
+
+/// The account the `aws` grant's test binds: AWS's documentation's example id.
+const ACCOUNT: &str = "111122223333";
+
+/// What the daemon's own environment holds in the `aws` grant's test, each
+/// value marked, and each name listed in `proc_env`: none may reach a job.
+const DAEMON_AWS: [(&str, &str); 4] = [
+    ("AWS_PROFILE", "daemon-PLANTED"),
+    ("AWS_ACCESS_KEY_ID", "AKIADAEMONPLANTED001"),
+    ("AWS_SECRET_ACCESS_KEY", "daemon-secret-PLANTED"),
+    (
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+        "http://169.254.170.2/PLANTED",
+    ),
+];
+
+/// A stand-in for STS on 127.0.0.1, bound before the daemon starts (18e).
+/// The daemon's `GetCallerIdentity`, signed with its key, is told the key is
+/// the account's. An `AssumeRole` for a job's session is answered with
+/// credentials whose token names the session, and its name is kept. A
+/// `GetCallerIdentity` that carries such a token, as a job's AWS CLI sends
+/// it, is answered as STS answers a role session: `assumed-role/<role>/<the
+/// session's name>`.
+fn fake_sts() -> (String, u16, Arc<Mutex<Vec<String>>>) {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let minted: Arc<Mutex<Vec<String>>> = Arc::default();
+    let kept = minted.clone();
+    std::thread::spawn(move || {
+        for s in l.incoming().flatten() {
+            let kept = kept.clone();
+            std::thread::spawn(move || {
+                let _ = sts_answer(s, &kept);
+            });
+        }
+    });
+    (format!("http://127.0.0.1:{port}"), port, minted)
+}
+
+fn sts_answer(s: std::net::TcpStream, minted: &Mutex<Vec<String>>) -> std::io::Result<()> {
+    use std::io::Read;
+    s.set_read_timeout(Some(Duration::from_secs(10)))?;
+    let mut r = BufReader::new(s.try_clone()?);
+    let mut line = String::new();
+    r.read_line(&mut line)?;
+    let (mut len, mut token) = (0, None);
+    loop {
+        line.clear();
+        if r.read_line(&mut line)? == 0 || line.trim().is_empty() {
+            break;
+        }
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        match k.trim().to_ascii_lowercase().as_str() {
+            "content-length" => len = v.trim().parse().unwrap_or(0),
+            "x-amz-security-token" => token = Some(v.trim().to_string()),
+            _ => {}
+        }
+    }
+    let mut body = vec![0; len];
+    r.read_exact(&mut body)?;
+    let body = String::from_utf8_lossy(&body).into_owned();
+    let field = |k: &str| {
+        body.split('&')
+            .find_map(|kv| kv.strip_prefix(&format!("{k}=")))
+            .map(str::to_string)
+    };
+    let xml = if field("Action").as_deref() == Some("AssumeRole") {
+        let name = field("RoleSessionName").unwrap_or_default();
+        minted.lock().unwrap().push(name.clone());
+        format!(
+            "<AssumeRoleResponse><AssumeRoleResult><Credentials>\
+             <AccessKeyId>ASIATESTJOBSESSION01</AccessKeyId>\
+             <SecretAccessKey>test-job-session-secret</SecretAccessKey>\
+             <SessionToken>test-job-token.{name}</SessionToken>\
+             <Expiration>2026-10-04T00:00:00Z</Expiration></Credentials><AssumedRoleUser>\
+             <Arn>arn:aws:sts::{ACCOUNT}:assumed-role/theseus-owner/{name}</Arn>\
+             <AssumedRoleId>AROATEST:{name}</AssumedRoleId></AssumedRoleUser></AssumeRoleResult>\
+             <ResponseMetadata><RequestId>req-1</RequestId></ResponseMetadata></AssumeRoleResponse>"
+        )
+    } else {
+        let arn = match token
+            .as_deref()
+            .and_then(|t| t.strip_prefix("test-job-token."))
+        {
+            Some(name) => format!("arn:aws:sts::{ACCOUNT}:assumed-role/theseus-owner/{name}"),
+            None => format!("arn:aws:iam::{ACCOUNT}:user/example"),
+        };
+        format!(
+            "<GetCallerIdentityResponse><GetCallerIdentityResult><Arn>{arn}</Arn>\
+             <UserId>AIDATESTEXAMPLE</UserId><Account>{ACCOUNT}</Account>\
+             </GetCallerIdentityResult><ResponseMetadata><RequestId>req-2</RequestId>\
+             </ResponseMetadata></GetCallerIdentityResponse>"
+        )
+    };
+    let mut w = s;
+    w.write_all(
+        format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/xml\r\ncontent-length: {}\r\n\
+             connection: close\r\n\r\n{xml}",
+            xml.len()
+        )
+        .as_bytes(),
+    )?;
+    w.flush()
+}
+
+/// A stand-in `aws` that the broker grants a job session (18e), one
+/// `key=value` a line: its AWS variables, by name; how many of its values the
+/// daemon's environment planted; what `~/.aws` shows, under HOME and at its
+/// real path (`$4`, which `ro_paths` binds); whether it can reach the
+/// metadata service directly; then two `CONNECT`s through its proxy, the
+/// metadata service's and STS's by name (`$3`), and STS asked
+/// `GetCallerIdentity` with its session's token, as the AWS CLI asks it.
+const AWS: &str = r#"#!/bin/bash
+echo "vars=$(env | sed -n 's/^\(AWS_[A-Z_]*\)=.*/\1/p' | sort | paste -sd' ' -)"
+echo "region=$AWS_REGION"
+echo "files=$AWS_CONFIG_FILE $AWS_SHARED_CREDENTIALS_FILE"
+echo "planted=$(env | grep -c PLANTED)"
+echo "homeaws=$(ls -A "$HOME/.aws" 2>/dev/null | wc -l)"
+if [ -d "$4" ]; then echo "realaws=$(ls -A "$4" | wc -l)"; else echo realaws=absent; fi
+if timeout 5 bash -c 'exec 3<>/dev/tcp/169.254.169.254/80' 2>/dev/null; then echo imds=yes; else echo imds=no; fi
+proxy=${HTTPS_PROXY#http://}
+connect() {
+  exec 3<>"/dev/tcp/${proxy%:*}/${proxy##*:}"
+  printf 'CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n' "$1" "$1" >&3
+  IFS= read -r -t 20 status <&3
+  echo "connect $1=${status%$'\r'}"
+  while IFS= read -r -t 20 line <&3; do [ -z "${line%$'\r'}" ] && break; done
+}
+connect 169.254.169.254:80
+exec 3<&- 3>&-
+connect "$3"
+body='Action=GetCallerIdentity&Version=2011-06-15'
+printf 'POST / HTTP/1.1\r\nHost: %s\r\nX-Amz-Security-Token: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' \
+  "${3%:*}" "$AWS_SESSION_TOKEN" "${#body}" "$body" >&3
+echo "arn=$(timeout 20 cat <&3 | sed -n 's:.*<Arn>\(.*\)</Arn>.*:\1:p')"
+"#;
+
+/// The `aws` grant's rig (18e): the account bound at the STS stand-in `url`,
+/// its owner role made, and `aws` granted a job session of it; STS's name
+/// with the stand-in's `port` on `[sandbox] egress` (returned), and `~/.aws`
+/// on `ro_paths`, which the approve list leaves out; each of `DAEMON_AWS` in
+/// the daemon's environment and named in `proc_env`; the operator's own AWS
+/// files behind a symlinked `~/.aws`, as on a machine that links it to
+/// another disk, so `ro_paths` binds their real path, `outside/aws`; and the
+/// stand-in `aws` in the workspace.
+fn aws_rig(url: &str, port: u16) -> (Rig, String) {
+    let sts = format!("sts.us-west-2.amazonaws.com:{port}");
+    let dns = format!("{EGRESS_DNS};sts.us-west-2.amazonaws.com=127.0.0.1");
+    let mut env = vec![("THESEUS_TEST_EGRESS_DNS", dns.as_str())];
+    env.extend(DAEMON_AWS);
+    let linked = |dir: &std::path::Path| {
+        let real = dir.join("outside/aws");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("credentials"), "[default]\n").unwrap();
+        std::fs::write(real.join("config"), "[default]\n").unwrap();
+        std::os::unix::fs::symlink(&real, dir.join("home/.aws")).unwrap();
+    };
+    let r = Rig::start_with(&env, linked, |t| {
+        let toml = |s: &str| -> toml::Value { toml::from_str::<toml::Table>(s).unwrap().into() };
+        t.insert(
+            "aws".into(),
+            toml(&format!(
+                "[accounts.\"{ACCOUNT}\"]\nregion = \"us-west-2\"\nendpoint = \"{url}\"\n\
+                 owner_role = \"theseus-owner\""
+            )),
+        );
+        let programs = t
+            .get_mut("broker")
+            .and_then(|b| b.get_mut("programs"))
+            .and_then(|p| p.as_table_mut())
+            .unwrap();
+        programs.insert("aws".into(), toml(&format!("aws_account = \"{ACCOUNT}\"")));
+        t.insert(
+            "sandbox".into(),
+            toml(&format!("egress = [\"{sts}\"]\nro_paths = [\"~/.aws\"]")),
+        );
+        let tools = t.get_mut("tools").and_then(|v| v.as_table_mut()).unwrap();
+        let mut proc_env = tools["proc_env"].as_array().unwrap().clone();
+        proc_env.extend(DAEMON_AWS.iter().map(|(k, _)| toml::Value::from(*k)));
+        tools.insert("proc_env".into(), proc_env.into());
+        if let Some(approve) = tools
+            .get_mut("approve_paths")
+            .and_then(|v| v.as_array_mut())
+        {
+            approve.retain(|p| p.as_str() != Some("~/.aws"));
+        }
+    });
+    use std::os::unix::fs::PermissionsExt;
+    let aws = r.path("projects/bin/aws");
+    std::fs::write(&aws, AWS).unwrap();
+    std::fs::set_permissions(&aws, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (r, sts)
+}
+
+/// 18e, the `aws` grant under L1 (AWS design, "Steps 17–18, L1"): a program
+/// granted an AWS job session runs in L1 with the session alone. Its
+/// environment has the session's three variables, its region, and no
+/// profile file, and none of the daemon's own AWS variables, though
+/// `proc_env` lists each; `~/.aws` shows nothing, under HOME or at the real
+/// path its link names, though `ro_paths` binds it and the approve list
+/// leaves it out; the metadata service has no route, and
+/// its proxy refuses it. Through its proxy the job reaches STS by name (the
+/// operator's list; a debug build's stand-in resolver points the name at the
+/// stand-in), and STS, asked with the session's token, names the session the
+/// daemon minted for this job: its correlation id. The result's head names
+/// what it was given, the grant's rows name the session, and the job's
+/// session holds nothing, since the operator listed the host.
+#[test]
+fn an_aws_granted_l1_job_holds_its_session_and_no_other_aws_credential() {
+    let (url, port, minted) = fake_sts();
+    let (r, sts) = aws_rig(&url, port);
+    let real = r.path("outside/aws").canonicalize().unwrap();
+    let call = json!({"argv": ["aws", "sts", "get-caller-identity", &sts, real], "sandbox": true});
+    let (sid, out) = r.turn_in("whoami in L1", vec![("proc_run", call)]);
+    let text = &out[0];
+    assert!(
+        text.starts_with(&format!(
+            "[ran in L1, the sandbox: egress: {sts}, given AWS_ACCESS_KEY_ID, \
+             AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN; "
+        )),
+        "{text}\n{}",
+        r.log()
+    );
+    assert_eq!(
+        said(text, "vars"),
+        "AWS_ACCESS_KEY_ID AWS_CONFIG_FILE AWS_DEFAULT_REGION AWS_REGION \
+         AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SHARED_CREDENTIALS_FILE",
+        "{text}"
+    );
+    assert_eq!(said(text, "region"), "us-west-2", "{text}");
+    assert_eq!(said(text, "files"), "/dev/null /dev/null", "{text}");
+    assert_eq!(
+        said(text, "planted"),
+        "0",
+        "a daemon variable reached the job: {text}"
+    );
+    assert_eq!(said(text, "homeaws"), "0", "~/.aws showed in L1: {text}");
+    assert_eq!(
+        said(text, "realaws"),
+        "0",
+        "~/.aws's real path showed in L1: {text}"
+    );
+    assert_eq!(said(text, "imds"), "no", "{text}");
+    assert!(
+        said(text, "connect 169.254.169.254:80").starts_with("HTTP/1.1 403"),
+        "{text}"
+    );
+    assert!(
+        said(text, &format!("connect {sts}")).starts_with("HTTP/1.1 200"),
+        "{text}"
+    );
+    let started = r.ledger("tool.job_started");
+    let corr = started[0]["correlation_id"].as_str().unwrap().to_string();
+    assert_eq!(
+        said(text, "arn"),
+        format!("arn:aws:sts::{ACCOUNT}:assumed-role/theseus-owner/{corr}"),
+        "{text}"
+    );
+    // Beside the tenders' own (`theseus-tender`, after serving), one session:
+    // the job's.
+    let jobs: Vec<String> = minted
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|n| !n.starts_with("theseus-"))
+        .cloned()
+        .collect();
+    assert_eq!(
+        jobs,
+        std::slice::from_ref(&corr),
+        "one job session, this job's"
+    );
+    let label = format!("an AWS job session ({ACCOUNT})");
+    let granted = r.ledger("secret.granted");
+    assert_eq!(granted.len(), 3, "{granted:?}");
+    assert!(
+        granted.iter().all(|g| g["program"] == "aws"
+            && g["secret"] == label.as_str()
+            && g["correlation_id"] == corr.as_str()),
+        "{granted:?}"
+    );
+    assert!(r.ledger("secret.withheld").is_empty());
+    let reached = r.ledger("sandbox.egress");
+    assert_eq!(
+        (reached.len(), reached[0]["host"].as_str()),
+        (1, Some("sts.us-west-2.amazonaws.com")),
+        "{reached:?}"
+    );
+    assert!(r.hold(&sid).is_none(), "the operator listed the host");
 }
