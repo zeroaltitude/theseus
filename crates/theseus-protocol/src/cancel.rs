@@ -76,6 +76,7 @@ pub fn words(
         "pidns" => "pid namespace",
         "tree" => "process tree",
         "group" => "process group",
+        "ecs" => "ECS task STOPPED",
         other => other,
     };
     match killed {

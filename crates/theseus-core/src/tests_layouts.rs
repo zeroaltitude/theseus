@@ -87,6 +87,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::ACTION,
+        layout: "a hand a cancel reached at format 7 (step 40 part 1; unchanged through 10): unsupported, as an in-process call, before a hand's own stop and ECS's verdict (11, theseus-mgw.11)",
+        bytes: r#"{"correlation_id":"act_00000000000000000000000000000081","schema":2,"execution_id":"exe_lighthouse","session_id":"ses_lighthouse","tool":"aws.hand","args_digest":"5d0b8e2a7c4f1936d8a2b5e0c3f6a9d2b5e8c1f4a7d0b3e6c9f2a5d8b1e4c7f0","resource":"aws.hands.group.act_00000000000000000000000000000080","retry_class":{"class":"non_repeatable"},"state":"cancelled","deadline_at_ms":1790000900081,"planned_at_ms":1790000000081,"authorized_at_ms":1790000000081,"dispatched_at_ms":1790000000081,"settled_at_ms":1790000001081,"cancel":"unsupported","verdict":{"verified_by":"none","ms":0,"why":"it runs in process to its end, within its deadline"},"reserved_micros":0,"resolution":"the execution was cancelled by the CLI","completions_seen":0}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::OUTBOX,
         layout: "1: a notice its channel took, before 18a's verdict (2); the build before b77ffe9 (08b595d) writes it back byte for byte",
         bytes: r#"{"correlation_id":"out_00000000000000000000000000000044","schema":2,"execution_id":"","session_id":"ses_lighthouse","tool":"outbox","args_digest":"9f2c7a1e4b8d3f6a0c5e9b2d7f1a4c8e3b6d9f0a2c5e8b1d4f7a0c3e6b9d2f5a","proposal":{"tool":"outbox","args":{"kind":"notice","text":"the harbour opens at six"},"resource":"discord:dm:42","policy_context":null},"resource":"discord:dm:42","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"succeeded","deadline_at_ms":0,"planned_at_ms":1790000000044,"authorized_at_ms":1790000000044,"dispatched_at_ms":1790000000045,"settled_at_ms":1790000000144,"reserved_micros":0,"completions_seen":1,"detail":{"messages":["m_44"]}}"#,

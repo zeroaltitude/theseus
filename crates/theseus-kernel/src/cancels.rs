@@ -28,6 +28,23 @@ impl Kernel {
             how.cloned(),
         )
     }
+    /// `cancel_verified` for a call that ran, and cost, until its stop: its
+    /// reservation settles at `cost_micros`, not at nothing (a hand's ECS
+    /// task, billed until it stopped; step 40 part 2).
+    pub fn cancel_verified_costing(
+        &self,
+        correlation_id: &str,
+        how: &Verdict,
+        cost_micros: Micros,
+    ) -> Result<Action> {
+        self.cancel_step_costing(
+            correlation_id,
+            CancelState::TerminationVerified,
+            true,
+            Some(how.clone()),
+            Some(cost_micros),
+        )
+    }
     /// The backend offers no external termination; the action settles
     /// `Cancelled` but the side effect may still complete (`LateAfterCancel`).
     /// `why`: what kept it from being reached (18a).
@@ -53,6 +70,19 @@ impl Kernel {
         settle: bool,
         verdict: Option<Verdict>,
     ) -> Result<Action> {
+        self.cancel_step_costing(correlation_id, st, settle, verdict, None)
+    }
+
+    /// `cancel_step`; `cost`: what a verified stop's call cost (nothing when
+    /// `None`).
+    fn cancel_step_costing(
+        &self,
+        correlation_id: &str,
+        st: CancelState,
+        settle: bool,
+        verdict: Option<Verdict>,
+        cost: Option<Micros>,
+    ) -> Result<Action> {
         let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if a.state.is_settled() {
             return Ok(a);
@@ -71,7 +101,7 @@ impl Kernel {
                 e.outstanding.retain(|x| x != &a.correlation_id);
                 if let Some(r) = &a.reservation_id {
                     if st == CancelState::TerminationVerified {
-                        settle_reservation_in(&mut e.budget, r, Some(0));
+                        settle_reservation_in(&mut e.budget, r, Some(cost.unwrap_or(0)));
                     } else {
                         hold_reservation_in(&mut e.budget, r);
                     }

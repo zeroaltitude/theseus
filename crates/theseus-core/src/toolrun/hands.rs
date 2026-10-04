@@ -10,7 +10,7 @@ use theseus_tools::Tool;
 
 use super::{CallOutcome, ResultNode, ToolRuntime, TurnCtx};
 use crate::aws::hands::group::{self, GroupRecord, HandEntry};
-use crate::aws::hands::{launch, HAND};
+use crate::aws::hands::{launch, OverBudget, HAND};
 use crate::fact;
 use crate::node::ResultStatus;
 use crate::provider::ToolUse;
@@ -20,6 +20,14 @@ use crate::provider::ToolUse;
 const REPORT_GRACE_MS: u64 = 5 * 60 * 1000;
 
 impl ToolRuntime {
+    /// The budget question a hands group of `execution_id`'s left its turn
+    /// to ask (step 40 part 2: the turn asks it as a model call's).
+    pub(crate) fn hands_over_budget(&self, execution_id: &str) -> Option<OverBudget> {
+        self.aws
+            .as_ref()
+            .and_then(|a| a.hands.take_over_budget(execution_id))
+    }
+
     /// Start a group: its record and every hand's action in one frame (the
     /// first wave dispatched), then that wave's launch. It answers
     /// `background`, unless the group is already done (every launch failed,
@@ -76,7 +84,44 @@ impl ToolRuntime {
         let ttl_ms = r.ttl_secs * 1000;
         let hand_max_usd = launch::cost_usd(backend, &r, r.ttl_secs as f64, env.lambda_memory_mb);
         let n = r.inputs.len();
-        let mut rec = GroupRecord {
+        // Each hand reserves its worst case (its TTL at its size's rate)
+        // against the session's budget in the group's frame, and settles at
+        // its real cost (part 2). A group that does not fit is not run, and
+        // its turn asks the budget question, as a model call does.
+        let reserve = (hand_max_usd * 1e6).ceil() as u64;
+        let over = |need: u64| -> Result<Option<String>> {
+            let Some(e) = tc.kernel.execution(tc.execution_id)? else {
+                return Ok(None);
+            };
+            let b = &e.budget;
+            if need <= b.available() {
+                return Ok(None);
+            }
+            aws.hands.over_budget(
+                tc.execution_id,
+                crate::aws::hands::OverBudget {
+                    needed: need,
+                    available: b.available(),
+                    spent: b.spent_micros,
+                    limit: b.limit_micros,
+                },
+            );
+            Ok(Some(format!(
+                "Not run: over the session's budget. The group's worst case is {} ({n} hand{} at \
+                 {} each: its TTL at its size's rate), and {} of the session's {} limit is \
+                 available. The operator is asked whether its spend may go back to $0; call again \
+                 once they answer, or with fewer hands or a shorter ttl_secs.",
+                crate::narrative::dollars(need),
+                if n == 1 { "" } else { "s" },
+                crate::narrative::dollars(reserve),
+                crate::narrative::dollars(b.available()),
+                crate::narrative::dollars(b.limit_micros),
+            )))
+        };
+        if let Some(why) = over(reserve.saturating_mul(n as u64))? {
+            return fail(&why);
+        }
+        let rec = GroupRecord {
             v: 1,
             group: correlation_id.into(),
             execution_id: tc.execution_id.into(),
@@ -100,7 +145,17 @@ impl ToolRuntime {
             waiting: (0..n as u32).collect(),
             ..Default::default()
         };
-        let wave = match group::next(&rec, &t) {
+        // The room the account's quota leaves (part 2): a bigger group
+        // launches in waves, and never fails for a quota.
+        let cap = crate::aws::hands::quota::cap(
+            &aws.hands.quotas,
+            &account,
+            &region,
+            backend,
+            &rec.request,
+        )
+        .await;
+        let wave = match group::next(&rec, &t, cap) {
             group::Next::Launch(w) => w,
             group::Next::Done { why, .. } => {
                 return fail(&format!("no hand can launch: {}", why.unwrap_or_default()))
@@ -109,7 +164,7 @@ impl ToolRuntime {
         };
         // One frame: every hand's action, the first wave dispatched, and the
         // group's record.
-        rec = tc.kernel.frame(&[tc.execution_id], |k| {
+        let rec = tc.kernel.frame(&[tc.execution_id], |k| {
             let mut rec = rec;
             for i in 0..n as u32 {
                 let proposal = Proposal {
@@ -123,7 +178,7 @@ impl ToolRuntime {
                     &proposal,
                     RetryClass::NonRepeatable,
                     Some(ttl_ms + REPORT_GRACE_MS),
-                    0,
+                    reserve,
                 )?;
                 k.authorize(&a.correlation_id, &proposal, None)?;
                 if wave.contains(&i) {
@@ -137,7 +192,21 @@ impl ToolRuntime {
             }
             k.stage(&[rec.record()?])?;
             Ok(rec)
-        })?;
+        });
+        // Another call's reservation landed between the check and the frame.
+        let rec = match rec {
+            Err(e)
+                if matches!(
+                    e.downcast_ref::<theseus_kernel::KernelError>(),
+                    Some(theseus_kernel::KernelError::OverBudget { .. })
+                ) =>
+            {
+                let why = over(reserve.saturating_mul(n as u64))?
+                    .unwrap_or_else(|| "Not run: over the session's budget.".into());
+                return fail(&why);
+            }
+            r => r?,
+        };
         aws.hands.launched();
         let ctx = group::Ctx {
             kernel: tc.kernel,

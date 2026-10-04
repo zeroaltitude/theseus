@@ -385,9 +385,16 @@ fn foundation_params(
         .clone()
         .or_else(|| had.get("AlertEmail").cloned())
         .unwrap_or_default();
+    let daily = account
+        .cfg
+        .daily_budget_usd
+        .map(|n| n.to_string())
+        .or_else(|| had.get("DailyBudgetUsd").cloned())
+        .unwrap_or_else(|| "0".into());
     BTreeMap::from([
         ("OwnerUserName".to_string(), owner_user.to_string()),
         ("MonthlyBudgetUsd".to_string(), budget),
+        ("DailyBudgetUsd".to_string(), daily),
         ("AlertEmail".to_string(), email),
     ])
 }

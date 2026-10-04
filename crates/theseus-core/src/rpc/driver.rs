@@ -25,6 +25,8 @@ impl Core {
         let ev = WrapperEvidence {
             spool: self.spool.clone(),
         };
+        // A hand is its own reconciler's, which asks AWS first (step 40).
+        let ev = crate::aws::hands::overdue::Evidence(&ev);
         match self.kernel.reconcile(&ev) {
             Ok(rep) => {
                 let changed = !rep.woke_due.is_empty()
@@ -242,7 +244,10 @@ impl Core {
     /// record how each one ended: its fact, in its session. Each verdict, as
     /// the wire carries it.
     async fn terminate_all(&self, to_kill: &[String]) -> Vec<theseus_protocol::CancelVerdict> {
-        let ended = self.tools.terminate_all(&self.kernel, to_kill).await;
+        let ended = self
+            .tools
+            .terminate_all(&self.kernel, &self.store, to_kill)
+            .await;
         let written: Vec<_> = ended.iter().filter(|e| e.written).collect();
         for e in &written {
             e.record(&self.session_rec(&e.action.session_id));

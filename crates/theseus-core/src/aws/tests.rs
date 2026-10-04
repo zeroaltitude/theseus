@@ -285,6 +285,8 @@ pub(super) fn account(endpoint: &str) -> AwsConfig {
                 owner_role: None,
                 deployment: None,
                 monthly_budget_usd: None,
+                daily_budget_usd: None,
+                hourly_alert_usd: crate::config::default_hourly_alert_usd(),
                 durability: false,
             },
         )]),

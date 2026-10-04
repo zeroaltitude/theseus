@@ -10,6 +10,10 @@
 //!   theseus-gyin), its process tree (L0), or its group.
 //! - **An async tool's task** (`http.fetch`, `web.search`): aborted, and
 //!   verified once its handle has finished (`task`).
+//! - **A hand, or a group of hands** (AWS design §3.3; step 40 part 2):
+//!   Fargate's `StopTask`, verified once ECS shows the task STOPPED (`ecs`);
+//!   Lambda's none (`unsupported`, its timeout the bound). A group's call
+//!   stops its whole group (`aws::hands::cancel`).
 //! - **Anything else** runs in process to its end, within its deadline:
 //!   unsupported, and its real outcome is recorded when it ends.
 //!
@@ -28,6 +32,10 @@ use theseus_protocol::{CancelCount, CancelVerdict};
 use crate::fact;
 use crate::node::ResultStatus;
 use crate::toolrun::ToolRuntime;
+
+/// The hands a stop reached, by group: whether the group's call is among
+/// them (so all its hands stop), and its hands named one by one.
+type HandGroups = BTreeMap<String, (bool, Vec<String>)>;
 
 /// Why a call with neither a job nor a task cannot be reached.
 const IN_PROCESS: &str = "it runs in process to its end, within its deadline";
@@ -145,6 +153,31 @@ impl Ended {
     }
 }
 
+/// The row of a stop's fact, for a frame a caller builds: the stops a
+/// hands group makes itself, when its `until` is met (step 40 part 2).
+pub(crate) fn verdict_row(a: &Action) -> Option<theseus_store::NewRecord> {
+    let verdict = a.verdict.as_ref()?;
+    let session = Some(a.session_id.as_str());
+    let r = match a.cancel? {
+        CancelState::TerminationVerified => fact::row(
+            &fact::cancel::CancelVerified { action: a, verdict },
+            session,
+            None,
+        ),
+        CancelState::Unsupported => fact::row(
+            &fact::cancel::CancelUnsupported { action: a, verdict },
+            session,
+            None,
+        ),
+        _ => fact::row(
+            &fact::cancel::CancelUncertain { action: a, verdict },
+            session,
+            None,
+        ),
+    };
+    r.ok()
+}
+
 /// An action's verdict as the wire carries it.
 pub fn wire(a: &Action, v: &Verdict) -> CancelVerdict {
     CancelVerdict {
@@ -198,11 +231,20 @@ impl ToolRuntime {
     /// worker is held meanwhile. A job whose wrapper still runs is stopped
     /// even when its action has settled; a call its own completion settled
     /// keeps that, and its stop writes nothing.
-    pub(crate) async fn terminate_all(&self, kernel: &Kernel, to_kill: &[String]) -> Vec<Ended> {
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    pub(crate) async fn terminate_all(
+        &self,
+        kernel: &Kernel,
+        store: &crate::store::Store,
+        to_kill: &[String],
+    ) -> Vec<Ended> {
         let mut ended = Vec::new();
         let (mut jobs, mut tasks) = (Vec::new(), Vec::new());
         let open = |corr: &str| matches!(kernel.action(corr), Ok(Some(a)) if !a.state.is_settled());
-        for corr in to_kill {
+        let to_kill = self
+            .stop_hands_first(kernel, store, to_kill, &mut ended)
+            .await;
+        for corr in &to_kill {
             let is_open = open(corr);
             if let Some(pid) = self.spool.as_ref().and_then(|s| s.read_pid(corr)) {
                 if is_open {
@@ -295,10 +337,85 @@ impl ToolRuntime {
             }
         }
         // A turn waiting on a job this stopped hears at once (W1, 7.1).
-        for corr in to_kill {
+        for corr in &to_kill {
             self.job_waits.wake(corr);
         }
         ended
+    }
+
+    /// Stop the hands among `to_kill` by their backends (step 40 part 2),
+    /// keeping each that settled in `ended`; the rest, for the other means.
+    async fn stop_hands_first(
+        &self,
+        kernel: &Kernel,
+        store: &crate::store::Store,
+        to_kill: &[String],
+        ended: &mut Vec<Ended>,
+    ) -> Vec<String> {
+        let (hands, rest) = self.hands_of(kernel, to_kill);
+        for (a, backend) in self.stop_hands(kernel, store, hands).await {
+            self.settled(ended, a, None, backend);
+        }
+        rest
+    }
+
+    /// The hands among `to_kill`, by group: each group whose call is there
+    /// (all its hands stop, `true`), and each other hand by its group; and
+    /// the rest.
+    fn hands_of(&self, kernel: &Kernel, to_kill: &[String]) -> (HandGroups, Vec<String>) {
+        use crate::aws::hands::{group::PREFIX, HAND, RUN};
+        let mut groups = HandGroups::new();
+        let mut rest = Vec::new();
+        for corr in to_kill {
+            let a = kernel.action(corr).ok().flatten();
+            match a.as_ref().map(|a| (a.tool.as_str(), a.resource.as_deref())) {
+                Some((RUN, _)) if self.aws.is_some() => {
+                    groups.entry(corr.clone()).or_default().0 = true
+                }
+                Some((HAND, Some(r))) if self.aws.is_some() && r.starts_with(PREFIX) => groups
+                    .entry(r[PREFIX.len()..].to_string())
+                    .or_default()
+                    .1
+                    .push(corr.clone()),
+                _ => rest.push(corr.clone()),
+            }
+        }
+        (groups, rest)
+    }
+
+    /// Stop these groups' hands by their backends' means
+    /// (`aws::hands::cancel`): what each step that settled one wrote, with its
+    /// backend.
+    async fn stop_hands(
+        &self,
+        kernel: &Kernel,
+        store: &crate::store::Store,
+        groups: HandGroups,
+    ) -> Vec<(Action, &'static str)> {
+        use crate::aws::hands::{cancel, group};
+        let Some(aws) = self.aws.as_ref() else {
+            return Vec::new();
+        };
+        let ctx = group::Ctx { kernel, store, aws };
+        let mut out = Vec::new();
+        for (g, (whole, hands)) in groups {
+            let r = if whole {
+                cancel::stop_group(&ctx, &g).await
+            } else {
+                match group::GroupRecord::load(store, &g) {
+                    Ok(Some(rec)) => Ok(cancel::stop_hands(&ctx, &rec, &hands).await),
+                    Ok(None) => Err(anyhow::anyhow!("no hands group {g}")),
+                    Err(e) => Err(e),
+                }
+            };
+            match r {
+                Ok(v) => out.extend(v),
+                Err(e) => {
+                    tracing::warn!(group = %g, error = %format!("{e:#}"), "hands: a stop");
+                }
+            }
+        }
+        out
     }
 
     /// Why a call with no wrapper and no task is out of a cancel's reach: a

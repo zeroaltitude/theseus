@@ -645,6 +645,17 @@ impl Lane {
                     extra: json!({"task": body["task"]}),
                 })
             }
+            // A hands group's one line (step 40 part 2): under its group's
+            // key, so each new state of it edits the one message.
+            "hands" => {
+                let channel = self.place_channel().await?;
+                let t = body["text"].as_str().unwrap_or("").to_string();
+                let key = format!("hands:{}", body["group"].as_str().unwrap_or(corr));
+                Ok(Plan {
+                    writes: vec![text(t, key, channel, None)],
+                    extra: json!({}),
+                })
+            }
             // A job's refusal notice, from a build before the trace was
             // retired (theseus-zmgb): nothing to post.
             "refusal" => Ok(Plan::nothing("a job's refusal notice, retired")),

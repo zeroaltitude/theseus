@@ -437,7 +437,9 @@ const BULK: usize = 4096;
 /// 27, theseus-vug.2).
 /// 10 = a node's origin `mcp`, an MCP server's prompt as a turn's input (36c,
 /// theseus-ext.4).
-const MANIFEST_FORMAT: u32 = 10;
+/// 11 = a hand's cancel verified by ECS (`verified_by: ecs`), and the hour's
+/// alert mark, `aws.hour.alerted.<account>` (step 40 part 2, theseus-mgw.11).
+const MANIFEST_FORMAT: u32 = 11;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

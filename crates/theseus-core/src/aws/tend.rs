@@ -2,7 +2,9 @@
 //! never on the start path, and only once the config names the owner role:
 //!
 //! - **The budget's reconcile**, once a start: `monthly_budget_usd` against
-//!   the foundation stack's `MonthlyBudgetUsd`. When they differ it makes a
+//!   the foundation stack's `MonthlyBudgetUsd`, then `daily_budget_usd`
+//!   against its `DailyBudgetUsd` (step 40 part 2: a budget that only
+//!   alerts, made or removed with its amount). When they differ it makes a
 //!   change set of the old template with the new amount, and applies it only
 //!   if it changes the budget and nothing else; any other change stops it,
 //!   and health says what. Ledgered as `aws.budget.reconciled`.
@@ -119,22 +121,75 @@ pub enum Reconciled {
 impl Reconciled {
     /// Health's words for it.
     pub fn line(&self) -> String {
+        self.line_for(Which::Monthly)
+    }
+
+    /// Health's words for one budget's reconcile.
+    pub fn line_for(&self, which: Which) -> String {
+        let (key, per) = match which {
+            Which::Monthly => ("monthly_budget_usd", "a month"),
+            Which::Daily => ("daily_budget_usd", "a day"),
+        };
         match self {
-            Reconciled::Unset => {
-                "the config names no monthly_budget_usd; the stack's stands".into()
-            }
-            Reconciled::Equal(n) => format!("the stack holds the config's ${n} a month"),
+            Reconciled::Unset => format!("the config names no {key}; the stack's stands"),
+            Reconciled::Equal(n) => format!("the stack holds the config's ${n} {per}"),
             Reconciled::Changed { from, to } => {
-                format!("changed the budget from ${from} to ${to} a month")
+                format!("changed the budget from ${from} to ${to} {per}")
             }
             Reconciled::Stopped(why) => format!("STOPPED: {why}"),
         }
     }
 }
 
+/// Which budget a reconcile keeps: the month's (its stop at 100%), or the
+/// day's (step 40 part 2: it only alerts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Which {
+    Monthly,
+    Daily,
+}
+
+impl Which {
+    /// The foundation stack's parameter, and the resource it sizes.
+    fn param(self) -> &'static str {
+        match self {
+            Which::Monthly => "MonthlyBudgetUsd",
+            Which::Daily => "DailyBudgetUsd",
+        }
+    }
+
+    fn resource(self) -> &'static str {
+        match self {
+            Which::Monthly => "MonthlyBudget",
+            Which::Daily => "DailyBudget",
+        }
+    }
+
+    /// The config's amount.
+    fn want(self, account: &Account) -> Option<u32> {
+        match self {
+            Which::Monthly => account.cfg.monthly_budget_usd,
+            Which::Daily => account.cfg.daily_budget_usd,
+        }
+    }
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Which::Monthly => "monthly",
+            Which::Daily => "daily",
+        }
+    }
+}
+
 /// The budget's reconcile: config to stack, idempotent.
 pub async fn reconcile(account: &Arc<Account>) -> Reconciled {
-    let Some(want) = account.cfg.monthly_budget_usd else {
+    reconcile_budget(account, Which::Monthly).await
+}
+
+/// One budget's reconcile, config to stack. A daily budget whose stack
+/// predates its parameter stops, saying the foundation's template comes first.
+pub async fn reconcile_budget(account: &Arc<Account>, which: Which) -> Reconciled {
+    let Some(want) = which.want(account) else {
         return Reconciled::Unset;
     };
     let cfn = cfn(account);
@@ -156,16 +211,25 @@ pub async fn reconcile(account: &Arc<Account>) -> Reconciled {
         .collect();
     let Some(had) = params
         .iter()
-        .find(|(k, _)| k == "MonthlyBudgetUsd")
+        .find(|(k, _)| k == which.param())
         .and_then(|(_, v)| v.trim().parse::<f64>().ok())
         .map(|v| v as u32)
     else {
-        return Reconciled::Stopped(format!("{FOUNDATION} has no MonthlyBudgetUsd parameter"));
+        return Reconciled::Stopped(format!(
+            "{FOUNDATION} has no {} parameter{}",
+            which.param(),
+            if which == Which::Daily {
+                ": its template predates the daily budget; apply the current one first \
+                 (theseus aws bootstrap)"
+            } else {
+                ""
+            }
+        ));
     };
     if had == want {
         return Reconciled::Equal(want);
     }
-    change_budget(&cfn, &params, had, want).await
+    change_budget(&cfn, &params, which, had, want).await
 }
 
 /// The change set of the old template with the new amount, applied only if
@@ -173,19 +237,24 @@ pub async fn reconcile(account: &Arc<Account>) -> Reconciled {
 async fn change_budget(
     cfn: &Cfn<'_>,
     params: &[(String, String)],
+    which: Which,
     had: u32,
     want: u32,
 ) -> Reconciled {
     let spec = ChangeSetSpec {
         stack: FOUNDATION,
-        name: format!("theseus-budget-{want}-{}", theseus_protocol::now_unix_ms()),
+        name: format!(
+            "theseus-budget-{}{want}-{}",
+            if which == Which::Daily { "daily-" } else { "" },
+            theseus_protocol::now_unix_ms()
+        ),
         kind: "UPDATE",
         body: None,
         url: None,
         parameters: params
             .iter()
             .map(|(k, _)| {
-                let v = if k == "MonthlyBudgetUsd" {
+                let v = if k == which.param() {
                     Param::Value(want.to_string())
                 } else {
                     Param::Previous
@@ -195,7 +264,10 @@ async fn change_budget(
             .collect(),
         role: Some(role_arn(&cfn.account.id, DEPLOYER)),
         tags: Vec::new(),
-        description: format!("theseus: the budget's reconcile, ${had} to ${want}"),
+        description: format!(
+            "theseus: the {} budget's reconcile, ${had} to ${want}",
+            which.word()
+        ),
     };
     let id = match cfn.create_change_set(&spec).await {
         Ok(id) => id,
@@ -217,10 +289,16 @@ async fn change_budget(
         .filter_map(|c| {
             let r = &c["ResourceChange"];
             let id = r["LogicalResourceId"].as_str().unwrap_or("?");
-            let only_budget = id == "MonthlyBudget"
-                && r["Action"].as_str() == Some("Modify")
-                && r["Replacement"].as_str() == Some("False");
-            (!only_budget).then(|| format!("{} {id}", r["Action"].as_str().unwrap_or("?")))
+            let action = r["Action"].as_str();
+            // The month's is modified in place; the day's may also be made
+            // or removed, since an amount of 0 makes none.
+            let only_budget = id == which.resource()
+                && match action {
+                    Some("Modify") => r["Replacement"].as_str() == Some("False"),
+                    Some("Add" | "Remove") => which == Which::Daily,
+                    _ => false,
+                };
+            (!only_budget).then(|| format!("{} {id}", action.unwrap_or("?")))
         })
         .collect();
     if !beyond.is_empty() || changes.is_empty() {
@@ -375,16 +453,31 @@ impl crate::Core {
                 if !account.settled().await {
                     return;
                 }
-                let r = reconcile(&account).await;
-                tracing::info!(account = %account.id, reconcile = %r.line(), "aws: the budget's reconcile");
-                if let (Reconciled::Changed { from, to }, Some(c)) = (&r, core.upgrade()) {
-                    let row = json!({"account": account.id, "from_usd": from, "to_usd": to});
-                    let ledger = LedgerRow::new(LedgerKind::AwsBudgetReconciled, None, None, row);
-                    if let Err(e) = c.store.append_ledger(&ledger) {
-                        tracing::warn!(error = %e, "ledger append failed");
+                let mut lines = Vec::new();
+                for which in [Which::Monthly, Which::Daily] {
+                    let r = reconcile_budget(&account, which).await;
+                    if which == Which::Daily && r == Reconciled::Unset {
+                        continue;
                     }
+                    tracing::info!(account = %account.id, budget = which.word(), reconcile = %r.line_for(which), "aws: the budget's reconcile");
+                    if let (Reconciled::Changed { from, to }, Some(c)) = (&r, core.upgrade()) {
+                        let mut row =
+                            json!({"account": account.id, "from_usd": from, "to_usd": to});
+                        if which == Which::Daily {
+                            row["budget"] = json!("daily");
+                        }
+                        let ledger =
+                            LedgerRow::new(LedgerKind::AwsBudgetReconciled, None, None, row);
+                        if let Err(e) = c.store.append_ledger(&ledger) {
+                            tracing::warn!(error = %e, "ledger append failed");
+                        }
+                    }
+                    lines.push(match which {
+                        Which::Monthly => r.line_for(which),
+                        Which::Daily => format!("the day's: {}", r.line_for(which)),
+                    });
                 }
-                account.tended.lock().unwrap().reconcile = Some(r.line());
+                account.tended.lock().unwrap().reconcile = Some(lines.join("; "));
                 let mut guardduty_due = std::time::Instant::now();
                 loop {
                     if core.upgrade().is_none() {

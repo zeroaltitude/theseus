@@ -391,6 +391,9 @@ pub struct Tended {
     pub reconcile: Option<String>,
     /// The durability tender's line (step 15), when it ships here.
     pub durability: Option<theseus_protocol::AwsDurabilityStatus>,
+    /// Its hands and the hour's meter (step 40 part 2), as their last event
+    /// left them (`hands::watch`).
+    pub hands: Option<theseus_protocol::AwsHandsStatus>,
 }
 
 /// One bound account: its key's check, its client, its sessions, and its
@@ -880,6 +883,7 @@ impl Account {
             guardduty: t.guardduty.clone(),
             reconcile: t.reconcile.clone(),
             durability: t.durability.clone().map(durable::with_lag),
+            hands: t.hands.clone(),
         }
     }
 

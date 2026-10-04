@@ -965,3 +965,57 @@ async fn an_operators_notice_falls_back_only_to_a_place_this_daemon_binds() {
     })
     .await;
 }
+
+/// A hands group's one line (step 40 part 2): each `hands` post of a group
+/// is under its group's key, so its later states edit the one message,
+/// never a line per hand; another group gets a message of its own.
+#[tokio::test]
+async fn a_hands_groups_line_is_one_message_edited_in_place() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let _rpc = bind(&core, d.path(), &dm_only()).await;
+    let sid = session(&core);
+    let target = format!("discord:dm:{USER}");
+    let post = |group: &str, text: &str| {
+        core.outbox
+            .post(
+                &sid,
+                "",
+                &target,
+                serde_json::json!({"kind": "hands", "group": group, "text": text}),
+            )
+            .unwrap();
+    };
+    post(
+        "act_example_a",
+        "🖐️ 0/3 done, 0 failed, 3 running, $0.00 of $5",
+    );
+    let c = core.clone();
+    until("the first line", 10, move || pending(&c) == 0).await;
+    post(
+        "act_example_a",
+        "🖐️ 2/3 done, 1 failed, 1 running, $0.02 of $5",
+    );
+    post(
+        "act_example_a",
+        "🖐️ 3/3 done, 1 failed, $0.03 of $5 · done, until met",
+    );
+    post(
+        "act_example_b",
+        "🖐️ 0/1 done, 0 failed, 1 running, $0.00 of $1",
+    );
+    let c = core.clone();
+    until("every line delivered", 10, move || pending(&c) == 0).await;
+    let lines: Vec<Msg> = replies(&fake)
+        .into_iter()
+        .filter(|m| m.content.starts_with("🖐️"))
+        .collect();
+    assert_eq!(lines.len(), 2, "one message a group: {lines:?}");
+    let a = lines.iter().find(|m| m.content.contains("of $5")).unwrap();
+    assert_eq!(
+        a.content,
+        "🖐️ 3/3 done, 1 failed, $0.03 of $5 · done, until met"
+    );
+    assert!(a.edits >= 1, "{a:?}");
+}

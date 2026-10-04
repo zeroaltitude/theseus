@@ -85,7 +85,50 @@ fn aws_tended_lines(a: &theseus_protocol::AwsAccountStatus, now_ms: u64) -> Vec<
     if let Some(r) = &a.reconcile {
         lines.push(format!("aws: {} the budget's reconcile: {r}", a.account));
     }
+    if let Some(h) = &a.hands {
+        lines.extend(hands_lines(&a.account, h, now_ms));
+    }
     lines
+}
+
+/// Health's hands block (step 40 part 2): the hands running by backend, the
+/// oldest, what they hold reserved, the hour's meter against its line, and
+/// the TTL reaper's failures.
+fn hands_lines(account: &str, h: &theseus_protocol::AwsHandsStatus, now_ms: u64) -> Vec<String> {
+    let usd = |m: u64| format!("${:.2}", m as f64 / 1e6);
+    let running = h.running_lambda + h.running_fargate;
+    let mut out = vec![format!(
+        "aws: {account} hands: {}{} · this hour {} of its {} line{}",
+        if running == 0 {
+            "none running".to_string()
+        } else {
+            format!(
+                "{running} running ({} Lambda, {} Fargate), {} reserved",
+                h.running_lambda,
+                h.running_fargate,
+                usd(h.reserved_micros)
+            )
+        },
+        h.oldest_unix_ms
+            .map(|t| format!(", the oldest {} min", now_ms.saturating_sub(t) / 60_000))
+            .unwrap_or_default(),
+        usd(h.hour_micros),
+        usd(h.hour_line_micros),
+        if h.alerted_hour_unix_ms.is_some() {
+            " (PAST IT: alerted)"
+        } else {
+            ""
+        }
+    )];
+    if h.reaper_failures > 0 {
+        out.push(format!(
+            "aws: {account} WARNING: the hands' TTL reaper failed {} time{} since the start; last: {}",
+            h.reaper_failures,
+            if h.reaper_failures == 1 { "" } else { "s" },
+            h.reaper_last_failure.as_deref().unwrap_or("no message")
+        ));
+    }
+    out
 }
 
 /// The bootstrap's plan (C2): each stack, its action, and what it makes or

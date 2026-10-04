@@ -35,6 +35,8 @@ fn config(endpoint: &str, owner: bool, budget: Option<u32>) -> AwsConfig {
                 owner_role: owner.then(|| "theseus-owner".into()),
                 deployment: None,
                 monthly_budget_usd: budget,
+                daily_budget_usd: None,
+                hourly_alert_usd: crate::config::default_hourly_alert_usd(),
                 durability: false,
             },
         )]),
@@ -43,6 +45,15 @@ fn config(endpoint: &str, owner: bool, budget: Option<u32>) -> AwsConfig {
 
 fn layer(fake: &Fake, owner: bool, budget: Option<u32>) -> Arc<Aws> {
     Aws::from_config(&config(&fake.url, owner, budget), board()).expect("an account")
+}
+
+/// An owner's account whose config names the day's budget.
+fn layer_daily(fake: &Fake, daily: u32) -> Arc<Aws> {
+    let mut c = config(&fake.url, true, None);
+    for a in c.accounts.values_mut() {
+        a.daily_budget_usd = Some(daily);
+    }
+    Aws::from_config(&c, board()).expect("an account")
 }
 
 fn tool(aws: &Arc<Aws>, name: &str) -> Arc<dyn Tool> {
@@ -479,6 +490,22 @@ impl Cloud {
                 .collect()
         } else {
             let mut c = Vec::new();
+            // The day's budget (step 40 part 2): made at its first amount,
+            // removed at 0, else modified.
+            let (was, now) = (previous.get("DailyBudgetUsd"), params.get("DailyBudgetUsd"));
+            if was != now {
+                let zero = |v: Option<&String>| v.is_none_or(|v| v == "0");
+                let action = match (zero(was), zero(now)) {
+                    (true, false) => "Add",
+                    (false, true) => "Remove",
+                    _ => "Modify",
+                };
+                c.push((
+                    action.to_string(),
+                    "DailyBudget".to_string(),
+                    "AWS::Budgets::Budget".to_string(),
+                ));
+            }
             if previous.get("MonthlyBudgetUsd") != params.get("MonthlyBudgetUsd") {
                 c.push((
                     "Modify".to_string(),
@@ -1123,6 +1150,66 @@ async fn the_reconcile_is_idempotent_and_touches_only_the_budget() {
     assert!(actions(&fake).is_empty());
 }
 
+/// The day's budget (step 40 part 2) reconciles as the month's does: config
+/// 5 against a stack at 0 is a change set of the old template with
+/// `DailyBudgetUsd` 5 that makes the daily budget and changes nothing else,
+/// applied; again, equal. A stack whose template predates the parameter
+/// stops, saying the template comes first; no amount in the config, nothing.
+#[tokio::test]
+async fn the_daily_budget_reconciles_as_the_months_does() {
+    let mut f = foundation("50");
+    f.params.insert("DailyBudgetUsd".into(), "0".into());
+    let state = Cloud {
+        stacks: BTreeMap::from([("theseus-foundation".to_string(), f)]),
+        owner_role: true,
+        ..Default::default()
+    };
+    let (fake, c) = cloud(state);
+    let aws = layer_daily(&fake, 5);
+    let account = aws.account(None).unwrap().clone();
+    let daily = tend::Which::Daily;
+    assert_eq!(
+        tend::reconcile_budget(&account, daily).await,
+        tend::Reconciled::Changed { from: 0, to: 5 }
+    );
+    {
+        let held = &c.lock().unwrap().stacks["theseus-foundation"].params;
+        assert_eq!(
+            (
+                held["DailyBudgetUsd"].as_str(),
+                held["MonthlyBudgetUsd"].as_str()
+            ),
+            ("5", "50")
+        );
+    }
+    assert_eq!(
+        tend::reconcile_budget(&account, daily).await,
+        tend::Reconciled::Equal(5)
+    );
+    assert_eq!(
+        tend::Reconciled::Equal(5).line_for(daily),
+        "the stack holds the config's $5 a day"
+    );
+    // The month's is not in this config: its reconcile asks nothing.
+    assert_eq!(tend::reconcile(&account).await, tend::Reconciled::Unset);
+
+    // A foundation from before the parameter.
+    let state = Cloud {
+        stacks: BTreeMap::from([("theseus-foundation".to_string(), foundation("50"))]),
+        owner_role: true,
+        ..Default::default()
+    };
+    let (fake, _) = cloud(state);
+    let aws = layer_daily(&fake, 5);
+    match tend::reconcile_budget(aws.account(None).unwrap(), daily).await {
+        tend::Reconciled::Stopped(why) => {
+            assert!(why.contains("predates the daily budget"), "{why}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(!actions(&fake).contains(&"CreateChangeSet".to_string()));
+}
+
 /// The budget's line, from `DescribeBudget`, in cents.
 #[tokio::test]
 async fn the_budgets_line_reads_in_cents() {
@@ -1325,6 +1412,7 @@ async fn a_stopped_bootstrap_resumes_and_sets_what_it_skipped() {
     let owner = [
         ("OwnerUserName", "example"),
         ("MonthlyBudgetUsd", "50"),
+        ("DailyBudgetUsd", "0"),
         ("AlertEmail", "alerts@example.com"),
     ];
     let (fake, c) = cloud(Cloud {
@@ -1419,6 +1507,7 @@ async fn a_stack_policy_set_by_hand_stays_and_is_a_warning() {
         &[
             ("OwnerUserName", "example"),
             ("MonthlyBudgetUsd", "50"),
+            ("DailyBudgetUsd", "0"),
             ("AlertEmail", ""),
         ],
     );

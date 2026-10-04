@@ -181,3 +181,39 @@ pub struct AwsConfirmAlertsResult {
     #[cfg_attr(test, ts(optional))]
     pub request_id: Option<String>,
 }
+
+/// An account's hands (AWS design §3.3, "Watching a hundred hands"; step 40
+/// part 2): the hands running by backend, the oldest, what they hold
+/// reserved, the hour's meter against its line, and the TTL reaper's
+/// failures read off the completion queue. Amounts in micro-dollars.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AwsHandsStatus {
+    /// The groups whose call has not settled.
+    pub groups_open: u32,
+    pub running_lambda: u32,
+    pub running_fargate: u32,
+    /// When the oldest running hand was launched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub oldest_unix_ms: Option<u64>,
+    /// What the running hands hold reserved against their sessions' budgets.
+    pub reserved_micros: u64,
+    /// The hour's meter: what the AWS actions dispatched this hour reserve
+    /// (those still running) and spent (those settled).
+    pub hour_micros: u64,
+    /// The hour's line (`hourly_alert_usd`): past it, one alert that hour.
+    pub hour_line_micros: u64,
+    /// The start of the hour whose alert fired, when this hour's has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub alerted_hour_unix_ms: Option<u64>,
+    /// The reaper's failure records taken off the queue since the start, and
+    /// the last one's words.
+    pub reaper_failures: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reaper_last_failure: Option<String>,
+    /// When this was read.
+    pub read_at_unix_ms: u64,
+}

@@ -66,7 +66,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   so a restart asks S3 instead of sending again). Its tests are `aws/tests.rs` (C1), `aws/tests_c2.rs` (a fake
   CloudFormation with state), and `aws/tests_durable.rs` (a fake S3 and DynamoDB with state, binary bodies, and
   checksums); `config/aws.rs` holds `[aws]`'s types and checks.
-- **Hands** (step 40 part 1, theseus-mgw.6): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
+- **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late
   result (`job_result` hands it to `hands_result`). A group (`group.rs`) is the call's action, a META record
@@ -75,8 +75,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Core::poll_hands_after_serving`) long-polls the completion queue only while a group or a hand is open, checks each
   envelope's HMAC (`envelope.rs`: HKDF of the account's secret and the correlation id, nothing stored), quarantines a
   failure (`completion.quarantined` with its `why`), and settles through `Kernel::accept_completion`. The `hand` role
-  (`hand.rs`) is `theseusd hand`. Tests: `aws/hands/tests_hand.rs` (the role) and `tests_hands.rs` (through the core,
-  a fake AWS with a queue).
+  (`hand.rs`) is `theseusd hand`. Part 2 (theseus-mgw.11): a running hand stops by its backend (`cancel.rs`:
+  Fargate's `StopTask`, verified `ecs` once `DescribeTasks` or ECS's own event shows STOPPED and booked at the time
+  it ran; Lambda's `unsupported`, its timeout the bound, its late envelope booking its cost), when `until` is met and
+  when a cancel or `/stop` reaches the group's call through `ToolRuntime::terminate_all`. Each hand reserves its
+  worst case in the group's frame, and a group over the session's budget asks its question as a model call does
+  (`Hands::take_over_budget`, read at the top of the turn's next loop). The heartbeat leaves hands to their own
+  reconciler (`overdue.rs`: asked about with `DescribeTasks` before unknown; one the TTL reaper stopped fails with
+  its reason). `quota.rs` caps a group's running hands by the account's quota, read once an hour, so a big group
+  launches in waves. `watch.rs` is health's hands block, the hour's meter (`hourly_alert_usd`, alert only, its mark
+  a META record), and the reaper's failures off the queue; `grid.rs` is `hands.list` and Discord's one line per
+  group (a `hands` post under the group's key). Tests: `aws/hands/tests_hand.rs` (the role), `tests_hands.rs`
+  (through the core, a fake AWS with a queue), `tests_part2.rs` (part 2 on the same fake), and theseusd's
+  `tests/hands.rs` (a real daemon `kill -9`'d mid-group).
 - **Language servers** (L2, theseus-n88g.8): `lsp/` over theseus-lsp's client. `Board` starts one server per
   (server, root) at the first call for a file of its language, never before (the root: the nearest marker inside the
   workspace roots; for Rust the nearest `Cargo.toml` with `[workspace]`, else the topmost), through

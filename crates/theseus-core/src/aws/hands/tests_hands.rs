@@ -5,6 +5,7 @@
 //! duplicated, and late; a restart with completions waiting; a forged one
 //! quarantined, never settled; `first_success` launching nothing after its
 //! first success; and a poller that sends nothing while no group is open.
+//! Part 2's scenarios are in `tests_part2.rs`, on this rig.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -28,34 +29,46 @@ use crate::provider::Scripted;
 
 /// AWS with state: the stacks' outputs, a queue, and what was launched.
 #[derive(Default)]
-struct State {
+pub(super) struct State {
     /// Visible messages: receipt, body.
-    queue: Mutex<Vec<(String, String)>>,
+    pub(super) queue: Mutex<Vec<(String, String)>>,
     /// Each Lambda hand's spec, as invoked.
-    invoked: Mutex<Vec<HandSpec>>,
+    pub(super) invoked: Mutex<Vec<HandSpec>>,
     /// Each RunTask's input.
-    ran: Mutex<Vec<Value>>,
-    registered: Mutex<Vec<Value>>,
-    deleted: Mutex<Vec<String>>,
-    receives: AtomicUsize,
-    sent: AtomicUsize,
+    pub(super) ran: Mutex<Vec<Value>>,
+    pub(super) registered: Mutex<Vec<Value>>,
+    pub(super) deleted: Mutex<Vec<String>>,
+    pub(super) receives: AtomicUsize,
+    pub(super) sent: AtomicUsize,
     /// The network stack's NAT.
-    nat: AtomicBool,
+    pub(super) nat: AtomicBool,
+    /// Each StopTask's input (part 2).
+    pub(super) stops: Mutex<Vec<Value>>,
+    /// A task's last status and stopped reason, by ARN, as DescribeTasks
+    /// reads them; a task not here is RUNNING.
+    pub(super) tasks: Mutex<BTreeMap<String, (String, Option<String>)>>,
+    /// StopTask stops its task at once (STOPPED at the next read).
+    pub(super) stop_at_once: AtomicBool,
+    pub(super) describes: AtomicUsize,
+    /// Fargate's vCPU quota and Lambda's unreserved concurrency, when set;
+    /// unset, the reads answer nothing, and no quota caps a group.
+    pub(super) quota: Mutex<Option<f64>>,
+    pub(super) quota_reads: AtomicUsize,
 }
 
 impl State {
-    fn push(&self, body: String) {
+    pub(super) fn push(&self, body: String) {
         let mut q = self.queue.lock().unwrap();
         let receipt = format!("rh-{}", self.sent.fetch_add(1, Ordering::SeqCst));
         q.push((receipt, body));
     }
 
-    fn invoked(&self) -> Vec<HandSpec> {
+    pub(super) fn invoked(&self) -> Vec<HandSpec> {
         self.invoked.lock().unwrap().clone()
     }
 }
 
-fn outputs(pairs: &[(&str, &str)], params: &[(&str, &str)]) -> String {
+pub(super) fn outputs(pairs: &[(&str, &str)], params: &[(&str, &str)]) -> String {
     let o: String = pairs
         .iter()
         .map(|(k, v)| {
@@ -78,7 +91,7 @@ fn outputs(pairs: &[(&str, &str)], params: &[(&str, &str)]) -> String {
 }
 
 #[expect(clippy::too_many_lines, reason = "one fake, every operation hands use")]
-fn answer(state: &State, s: &Seen, n: usize) -> Reply {
+pub(super) fn answer(state: &State, s: &Seen, n: usize) -> Reply {
     let id = format!("req-{n}");
     let json = |v: Value| -> Reply {
         (
@@ -213,6 +226,52 @@ fn answer(state: &State, s: &Seen, n: usize) -> Reply {
                 json!({"tasks": [{"taskArn": format!("arn:aws:ecs:us-west-2:{ACCOUNT}:task/theseus-hands/t{k}")}], "failures": []}),
             )
         }
+        "GetServiceQuota" => {
+            state.quota_reads.fetch_add(1, Ordering::SeqCst);
+            match *state.quota.lock().unwrap() {
+                Some(v) => json(json!({"Quota": {"QuotaCode": body["QuotaCode"], "Value": v}})),
+                None => json(json!({})),
+            }
+        }
+        "" if s.method == "GET" && s.target.contains("/account-settings") => {
+            state.quota_reads.fetch_add(1, Ordering::SeqCst);
+            match *state.quota.lock().unwrap() {
+                Some(v) => json(json!({"AccountLimit": {"ConcurrentExecutions": 1000,
+                    "UnreservedConcurrentExecutions": v}})),
+                None => json(json!({})),
+            }
+        }
+        "StopTask" => {
+            let arn = body["task"].as_str().unwrap_or_default().to_string();
+            state.stops.lock().unwrap().push(body.clone());
+            if state.stop_at_once.load(Ordering::SeqCst) {
+                state.tasks.lock().unwrap().insert(
+                    arn.clone(),
+                    ("STOPPED".into(), body["reason"].as_str().map(String::from)),
+                );
+            }
+            json(json!({"task": {"taskArn": arn, "desiredStatus": "STOPPED"}}))
+        }
+        "DescribeTasks" => {
+            state.describes.fetch_add(1, Ordering::SeqCst);
+            let known = state.tasks.lock().unwrap().clone();
+            let (mut tasks, mut failures) = (Vec::new(), Vec::new());
+            for arn in body["tasks"].as_array().into_iter().flatten() {
+                let arn = arn.as_str().unwrap_or_default();
+                match known.get(arn) {
+                    Some((st, _)) if st == "MISSING" => {
+                        failures.push(json!({"arn": arn, "reason": "MISSING"}));
+                    }
+                    Some((st, reason)) => tasks.push(json!({"taskArn": arn, "lastStatus": st,
+                        "stoppedReason": reason, "startedAt": 1_790_000_000.0,
+                        "stoppedAt": 1_790_000_060.0,
+                        "containers": [{"name": "hand", "exitCode": 143}]})),
+                    None => tasks.push(json!({"taskArn": arn, "lastStatus": "RUNNING",
+                        "startedAt": 1_790_000_000.0, "containers": [{"name": "hand"}]})),
+                }
+            }
+            json(json!({"tasks": tasks, "failures": failures}))
+        }
         "" if s.method == "POST" && s.target.contains("/invocations") => {
             let spec: HandSpec = serde_json::from_str(&s.body).expect("a hand's spec");
             assert_eq!(s.header("x-amz-invocation-type"), Some("Event"));
@@ -234,14 +293,14 @@ fn answer(state: &State, s: &Seen, n: usize) -> Reply {
 
 // ------------------------------------------------------------------ the rig
 
-struct Rig {
-    core: Arc<crate::Core>,
-    state: Arc<State>,
-    fake: Fake,
-    dir: tempfile::TempDir,
+pub(super) struct Rig {
+    pub(super) core: Arc<crate::Core>,
+    pub(super) state: Arc<State>,
+    pub(super) fake: Fake,
+    pub(super) dir: tempfile::TempDir,
 }
 
-fn account(endpoint: &str) -> AwsConfig {
+pub(super) fn account(endpoint: &str) -> AwsConfig {
     AwsConfig {
         accounts: BTreeMap::from([(
             ACCOUNT.to_string(),
@@ -253,13 +312,15 @@ fn account(endpoint: &str) -> AwsConfig {
                 owner_role: None,
                 deployment: Some("theseus-example".into()),
                 monthly_budget_usd: None,
+                daily_budget_usd: None,
+                hourly_alert_usd: crate::config::default_hourly_alert_usd(),
                 durability: false,
             },
         )]),
     }
 }
 
-fn config(dir: &Path, endpoint: &str) -> crate::Config {
+pub(super) fn config(dir: &Path, endpoint: &str) -> crate::Config {
     let root = dir.join("work");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = crate::Config::example();
@@ -270,7 +331,7 @@ fn config(dir: &Path, endpoint: &str) -> crate::Config {
     cfg
 }
 
-fn core_at(dir: &Path, endpoint: &str, script: Vec<Scripted>) -> Arc<crate::Core> {
+pub(super) fn core_at(dir: &Path, endpoint: &str, script: Vec<Scripted>) -> Arc<crate::Core> {
     let store = crate::store::Store::open(&dir.join("store")).unwrap();
     let model = Arc::new(crate::provider::FakeProvider::scripted(script));
     crate::Core::build(crate::rpc::Parts {
@@ -280,7 +341,7 @@ fn core_at(dir: &Path, endpoint: &str, script: Vec<Scripted>) -> Arc<crate::Core
     .unwrap()
 }
 
-fn rig(script: Vec<Scripted>) -> Rig {
+pub(super) fn rig(script: Vec<Scripted>) -> Rig {
     let state = Arc::new(State::default());
     let s = state.clone();
     let fake = Fake::start(move |seen, n| answer(&s, seen, n));
@@ -297,7 +358,7 @@ fn rig(script: Vec<Scripted>) -> Rig {
 
 /// A model that calls `aws_hands_run` with `input`, then says `then` (and
 /// `after` in the continuation).
-fn calls(input: Value) -> Vec<Scripted> {
+pub(super) fn calls(input: Value) -> Vec<Scripted> {
     vec![
         Scripted::tools("", &[("t_hands", "aws_hands_run", input)]),
         Scripted::text("The hands are running."),
@@ -305,11 +366,14 @@ fn calls(input: Value) -> Vec<Scripted> {
     ]
 }
 
-async fn turn(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::TurnSubmitResult {
+pub(super) async fn turn(
+    core: &Arc<crate::Core>,
+    input: &str,
+) -> theseus_protocol::TurnSubmitResult {
     try_turn(core, input).await.unwrap()
 }
 
-async fn try_turn(
+pub(super) async fn try_turn(
     core: &Arc<crate::Core>,
     input: &str,
 ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
@@ -335,7 +399,7 @@ async fn try_turn(
         .await
 }
 
-fn rows(core: &crate::Core, kind: &str) -> Vec<Value> {
+pub(super) fn rows(core: &crate::Core, kind: &str) -> Vec<Value> {
     core.store
         .ledger_tail::<crate::ledger::LedgerRow>(100_000)
         .unwrap()
@@ -346,25 +410,25 @@ fn rows(core: &crate::Core, kind: &str) -> Vec<Value> {
 }
 
 /// The group's id: the `aws.hands.run` call's correlation id.
-fn group_of(core: &crate::Core) -> String {
+pub(super) fn group_of(core: &crate::Core) -> String {
     rows(core, "aws.hands.launched")
         .first()
         .and_then(|r| r["group"].as_str().map(String::from))
         .expect("a launched group")
 }
 
-fn record(core: &crate::Core, group: &str) -> GroupRecord {
+pub(super) fn record(core: &crate::Core, group: &str) -> GroupRecord {
     GroupRecord::load(&core.store, group)
         .unwrap()
         .expect("its record")
 }
 
-fn state_of(core: &crate::Core, corr: &str) -> ActionState {
+pub(super) fn state_of(core: &crate::Core, corr: &str) -> ActionState {
     core.kernel.action(corr).unwrap().expect("an action").state
 }
 
 /// Wait, on the real clock, until `f` holds (at most 20 s).
-async fn until(what: &str, f: impl Fn() -> bool) {
+pub(super) async fn until(what: &str, f: impl Fn() -> bool) {
     let t0 = Instant::now();
     while !f() {
         assert!(
@@ -377,7 +441,7 @@ async fn until(what: &str, f: impl Fn() -> bool) {
 
 /// The hand role, run here against the fake, as the Lambda would run it:
 /// its envelope lands on the fake queue.
-async fn play(spec: &HandSpec) -> Envelope {
+pub(super) async fn play(spec: &HandSpec) -> Envelope {
     hand::run(
         spec,
         Some("inv-played".into()),
@@ -393,7 +457,7 @@ async fn play(spec: &HandSpec) -> Envelope {
 }
 
 /// An envelope as a hand would sign it, with its outcome.
-fn signed(spec: &HandSpec, outcome: &str, exit: i32) -> String {
+pub(super) fn signed(spec: &HandSpec, outcome: &str, exit: i32) -> String {
     let mut e = Envelope {
         v: VERSION,
         correlation_id: spec.correlation_id.clone(),
@@ -419,7 +483,10 @@ fn signed(spec: &HandSpec, outcome: &str, exit: i32) -> String {
 }
 
 /// The late result the continuation wrote for the group's call.
-fn late_result(core: &crate::Core, session: &str) -> (String, crate::node::ResultStatus) {
+pub(super) fn late_result(
+    core: &crate::Core,
+    session: &str,
+) -> (String, crate::node::ResultStatus) {
     core.store
         .session_nodes(session)
         .unwrap()
@@ -631,8 +698,9 @@ async fn a_bad_signature_is_quarantined_and_never_settled() {
 
 /// Duplicates and late arrivals settle once: a hand's envelope delivered
 /// twice is one settle and one `completion.duplicate` row; the group
-/// settles once; a hand's envelope after its group is done settles that
-/// hand and nothing else.
+/// settles once, and stops its other hand (part 2: Lambda's cancel is
+/// `unsupported`); that hand's envelope after its group is done is
+/// recorded as late, and settles nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_duplicate_settles_once_and_a_late_one_settles_only_its_hand() {
     let r = rig(calls(
@@ -659,12 +727,20 @@ async fn a_duplicate_settles_once_and_a_late_one_settles_only_its_hand() {
         .collect();
     assert_eq!(ok.len(), 1, "settled once: {ok:?}");
     assert_eq!(rows(&r.core, "completion.duplicate").len(), 1);
-    // The second hand comes home after its group is done.
+    // The second hand comes home after its group is done: late.
+    assert_eq!(
+        state_of(&r.core, &specs[1].correlation_id),
+        ActionState::Cancelled
+    );
     r.state.push(signed(&specs[1], "failed", 1));
     until("the late hand", || {
-        state_of(&r.core, &specs[1].correlation_id) == ActionState::Failed
+        !rows(&r.core, "completion.late_after_cancel").is_empty()
     })
     .await;
+    assert_eq!(
+        state_of(&r.core, &specs[1].correlation_id),
+        ActionState::Cancelled
+    );
     until("every message deleted", || {
         r.state.deleted.lock().unwrap().len() == 3
     })

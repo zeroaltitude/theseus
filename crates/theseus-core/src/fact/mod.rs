@@ -359,6 +359,8 @@ facts![
     term::TermOpened<'static>,
     term::TermClosed<'static>,
     mcp::McpPromptChanged,
+    crate::aws::hands::watch::HourAlert<'static>,
+    crate::aws::hands::watch::ReaperFailed<'static>,
 ];
 
 #[cfg(test)]
