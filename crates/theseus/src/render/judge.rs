@@ -3,8 +3,8 @@
 //! whose length the shape budget caps (`scripts/long-files.txt`).
 
 use serde_json::Value;
-use theseus_protocol::judge::JudgeHealth;
-use theseus_protocol::LedgerEntry;
+use theseus_protocol::judge::{JudgeGetResult, JudgeHealth};
+use theseus_protocol::{LedgerEntry, Span};
 
 use super::{fmt_time, push, Line, Tag};
 
@@ -50,7 +50,35 @@ pub fn judge_line(h: &JudgeHealth) -> String {
     if h.paused {
         s.push_str(" · shadow paused at the day's limit until midnight");
     }
+    if h.shed > 0 {
+        s.push_str(&format!(" · {} shed", h.shed));
+    }
+    if !h.key.is_empty() && h.key != "ready" {
+        s.push_str(&format!(" · key {}", h.key));
+    }
     s
+}
+
+/// A turn's span that marks a judgment's dispatch (M5 23b).
+pub(super) fn is_mark(s: &Span) -> bool {
+    s.name == "judge" && s.kind == "mark"
+}
+
+/// A judgment's mark, as `ask --trace` shows it: `  loop.v1 shadow at
+/// loop_end · reply · jdg_… (theseus judge show jdg_…)`, its id whole.
+pub(super) fn mark_note(s: &Span) -> String {
+    let a = |k: &str| s.attrs[k].as_str().unwrap_or("?");
+    let class = s.attrs["class"]
+        .as_str()
+        .map(|c| format!(" · {c}"))
+        .unwrap_or_default();
+    let id = a("judgment");
+    format!(
+        "  {} {} at {}{class} · {id} (theseus judge show {id})",
+        a("pack"),
+        a("mode"),
+        a("point")
+    )
 }
 
 /// One answer, short: `work_state=complete 0.95 act`, `announced_unfinished=no 0.04 act`.
@@ -123,6 +151,161 @@ pub fn judge_log_lines(rows: &[LedgerEntry]) -> Vec<String> {
         .collect()
 }
 
+/// A bar of `p`, ten cells wide.
+fn bar(p: f64) -> String {
+    let n = (p.clamp(0.0, 1.0) * 10.0).round() as usize;
+    format!("{}{}", "█".repeat(n), "·".repeat(10 - n))
+}
+
+/// An answer's probabilities, one line each: `    progressing  0.81 ████████··  ←`.
+fn answer_lines(a: &Value, out: &mut Vec<String>) {
+    let ans = &a["answer"];
+    let band = &a["band"];
+    out.push(format!(
+        "  {} ({}): {} band, {} {:.2}",
+        a["question"].as_str().unwrap_or("?"),
+        ans["type"].as_str().unwrap_or("?"),
+        band["band"].as_str().unwrap_or("?"),
+        match ans["type"].as_str() {
+            Some("noul") => "p",
+            _ => "confidence",
+        },
+        band["value"].as_f64().unwrap_or(0.0)
+    ));
+    let row = |label: &str, p: f64, chosen: bool| {
+        format!(
+            "    {label:<22} {p:.2} {}{}",
+            bar(p),
+            if chosen { "  ←" } else { "" }
+        )
+    };
+    match ans["type"].as_str() {
+        Some("choice") => {
+            let chosen = ans["choice"].as_str().unwrap_or_default();
+            for o in ans["probabilities"].as_array().into_iter().flatten() {
+                let name = o[0].as_str().unwrap_or("?");
+                out.push(row(name, o[1].as_f64().unwrap_or(0.0), name == chosen));
+            }
+        }
+        Some("score") => {
+            let top = band["top"]["value"].as_u64();
+            for (i, p) in ans["probabilities"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                let label = format!("level {i}");
+                out.push(row(
+                    &label,
+                    p.as_f64().unwrap_or(0.0),
+                    top == Some(i as u64),
+                ));
+            }
+        }
+        Some("noul") => {
+            let p = ans["noul"].as_f64().unwrap_or(0.0);
+            out.push(row("yes", p, p >= 0.5));
+            out.push(row("no", 1.0 - p, p < 0.5));
+        }
+        _ => {}
+    }
+}
+
+/// A state's field, on one line: its value as JSON, cut at 160 characters.
+fn field(k: &str, v: &Value) -> String {
+    let t = match v {
+        Value::String(s) => s.clone(),
+        v => serde_json::to_string(v).unwrap_or_default(),
+    };
+    let n = t.chars().count();
+    let mut t: String = t.chars().take(160).collect();
+    if n > 160 {
+        t.push_str(&format!("… ({n} chars; --json shows it whole)"));
+    }
+    format!("  {k}: {t}")
+}
+
+/// `theseus judge show <id>`: the judgment's header, its outcome, the
+/// state as fields, and each answer with its probabilities and band.
+pub fn judge_show_lines(r: &JudgeGetResult) -> Vec<String> {
+    let e = &r.judgment;
+    let d = &e.data;
+    let s = |v: &Value| v.as_str().unwrap_or("-").to_string();
+    let mut out = vec![
+        format!(
+            "{} · {} v{} ({}) at {} · {}",
+            s(&d["id"]),
+            s(&d["pack"]),
+            d["version"].as_u64().unwrap_or(0),
+            s(&d["mode"]),
+            s(&d["point"]),
+            fmt_time(e.at_unix_ms)
+        ),
+        format!(
+            "session {} · turn {} · class {} · baseline {}",
+            e.session_id.as_deref().unwrap_or("-"),
+            e.turn_id.as_deref().unwrap_or("-"),
+            s(&d["context"]["class"]),
+            s(&d["context"]["decision"])
+        ),
+    ];
+    let o = &d["outcome"];
+    let outcome = match o["outcome"].as_str() {
+        Some("answered") => "answered".to_string(),
+        Some("skipped") => format!("skipped: {}", s(&o["reason"])),
+        Some("failed") => format!("failed: {}", s(&o["class"])),
+        _ => "?".into(),
+    };
+    let t = &d["timing"];
+    out.push(format!(
+        "{outcome} · model {}{} · {} ms (queued {}, http {}) · {} · {}",
+        s(&d["model"]),
+        match d["answered_by"].as_str() {
+            Some(m) if d["model_drift"].as_bool() == Some(true) =>
+                format!(", answered by {m} (drift)"),
+            _ => String::new(),
+        },
+        t["total_ms"].as_u64().unwrap_or(0),
+        t["queued_ms"].as_u64().unwrap_or(0),
+        t["http_ms"].as_u64().unwrap_or(0),
+        match d["cost_micros"].as_u64() {
+            Some(m) => usd(m as f64 / 1_000_000.0),
+            None => "no cost".into(),
+        },
+        if d["disagrees"].as_bool() == Some(true) {
+            "disagrees with the baseline"
+        } else {
+            "agrees with the baseline"
+        }
+    ));
+    out.push(format!(
+        "state: {} bytes, ~{} tokens (cap {}), {} v{}, sha256 {}",
+        d["state"]["bytes"].as_u64().unwrap_or(0),
+        d["state"]["tokens"].as_u64().unwrap_or(0),
+        d["state"]["cap_tokens"].as_u64().unwrap_or(0),
+        s(&d["state"]["builder"]),
+        d["state"]["builder_version"].as_u64().unwrap_or(0),
+        s(&d["state"]["sha256"])
+    ));
+    match (&r.state, &r.state_missing) {
+        (Some(Value::Object(m)), _) => out.extend(m.iter().map(|(k, v)| field(k, v))),
+        (Some(v), _) => out.push(field("state", v)),
+        (None, why) => out.push(format!(
+            "  (the state is not shown: {})",
+            why.as_deref().unwrap_or("its blob was not read")
+        )),
+    }
+    let answers = d["answers"].as_array().cloned().unwrap_or_default();
+    if !answers.is_empty() {
+        out.push("answers:".into());
+        for a in &answers {
+            answer_lines(a, &mut out);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +360,70 @@ mod tests {
                 "01:02:03.000Z loop.v1 (shadow) ses_a · work_state=complete 0.95 act · announced_unfinished=no 0.04 act · $0.000089 · 412 ms",
                 "01:02:03.000Z loop.v1 (shadow) ses_a · failed: timeout · no cost · 1000 ms",
             ]
+        );
+    }
+
+    #[test]
+    fn a_judgment_shows_its_state_as_fields_and_its_answers_as_bars() {
+        let r = JudgeGetResult {
+            judgment: LedgerEntry {
+                position: 7,
+                at_unix_ms: 3_723_000,
+                kind: "judge.call".into(),
+                session_id: Some("ses_a".into()),
+                turn_id: Some("turn_a".into()),
+                data: json!({"id": "jdg_a", "pack": "loop.v1", "version": 1, "mode": "shadow",
+                "point": "loop_end", "model": "jev-1.13.0", "outcome": {"outcome": "answered"},
+                "timing": {"total_ms": 412, "queued_ms": 0, "http_ms": 400}, "cost_micros": 89,
+                "disagrees": false, "context": {"class": "reply", "decision": "no_tool_calls"},
+                "state": {"bytes": 120, "tokens": 30, "cap_tokens": 4000, "builder": "loop",
+                    "builder_version": 1, "sha256": "ab12"},
+                "answers": [
+                    {"question": "work_state", "answer": {"type": "choice", "choice": "complete",
+                        "confidence": 0.9, "probabilities": [["complete", 0.9], ["progressing", 0.1]]},
+                        "band": {"band": "act", "value": 0.9}},
+                    {"question": "announced_unfinished", "answer": {"type": "noul", "noul": 0.2},
+                        "band": {"band": "escalate", "value": 0.2}}
+                ]}),
+            },
+            state: Some(json!({"ask": "Say done.", "loops": 1})),
+            state_missing: None,
+        };
+        assert_eq!(
+            judge_show_lines(&r),
+            [
+                "jdg_a · loop.v1 v1 (shadow) at loop_end · 01:02:03.000Z",
+                "session ses_a · turn turn_a · class reply · baseline no_tool_calls",
+                "answered · model jev-1.13.0 · 412 ms (queued 0, http 400) · $0.000089 · agrees with the baseline",
+                "state: 120 bytes, ~30 tokens (cap 4000), loop v1, sha256 ab12",
+                "  ask: Say done.",
+                "  loops: 1",
+                "answers:",
+                "  work_state (choice): act band, confidence 0.90",
+                "    complete               0.90 █████████·  ←",
+                "    progressing            0.10 █·········",
+                "  announced_unfinished (noul): escalate band, p 0.20",
+                "    yes                    0.20 ██········",
+                "    no                     0.80 ████████··  ←",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_trace_names_a_judgments_mark_whole() {
+        let s = Span {
+            name: "judge".into(),
+            kind: "mark".into(),
+            start_us: 9,
+            end_us: Some(9),
+            attrs: json!({"pack": "loop.v1", "point": "loop_end", "mode": "shadow",
+                "judgment": "jdg_0123456789abcdef0123456789abcdef", "class": "reply", "loop": 0}),
+            children: vec![],
+        };
+        assert!(is_mark(&s));
+        assert_eq!(
+            mark_note(&s),
+            "  loop.v1 shadow at loop_end · reply · jdg_0123456789abcdef0123456789abcdef (theseus judge show jdg_0123456789abcdef0123456789abcdef)"
         );
     }
 }

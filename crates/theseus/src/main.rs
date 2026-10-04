@@ -327,7 +327,7 @@ enum Cmd {
         cmd: MemoryCmd,
     },
     /// Jev's judgments (M5): `judge log` lists the recent ones, each with its pack, session,
-    /// answers, and cost.
+    /// answers, and cost; `judge show <id>` shows one whole.
     Judge {
         #[command(subcommand)]
         cmd: JudgeCmd,
@@ -567,6 +567,15 @@ enum JudgeCmd {
         /// Only this session's.
         #[arg(long, value_name = "SESSION")]
         session: Option<String>,
+        /// Only this pack's (`loop.v1`, or `loop` for every version).
+        #[arg(long, value_name = "PACK")]
+        pack: Option<String>,
+    },
+    /// One judgment: its pack, mode, outcome, timing, and cost; the state Jev was sent, as
+    /// fields; and each answer with its probabilities and band.
+    Show {
+        /// The judgment's id (`jdg_…`), as `judge log --json` or a trace's `judge` mark names it.
+        id: String,
     },
 }
 
