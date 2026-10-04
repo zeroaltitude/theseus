@@ -829,6 +829,7 @@ fn summary(recompile: bool) -> ContextCompiled {
                 detail: "the new input came 6 hours 52 minutes after the node before it".into(),
             }]
         },
+        tasks: None,
     }
 }
 

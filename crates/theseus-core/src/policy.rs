@@ -424,6 +424,15 @@ impl ToolPolicy {
                 )
             };
         }
+        // The operator's authority (39a's layer 1): a task's objective,
+        // acceptance, or abandonment waits for the operator's yes at every
+        // posture, as the floor does.
+        if let Some(what) = &plan.authority {
+            return Decision::new(
+                Posture::Approve,
+                format!("{}: {name} — approve (layer 1: {what})", plan.summary),
+            );
+        }
         let access: Vec<Access> = plan.resources.iter().map(|r| r.access).collect();
         if let Some(why) = self.listed(
             &resources,

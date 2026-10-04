@@ -274,6 +274,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the node, which `task.list` reads; the rows are `task.arranged` and `task.arrangement_refused`
   (`fact/arrangement.rs`). A scripted `task.create` in a test needs an arrangement whose quote its parent's
   transcript holds once. Tests: `tests_arrangement.rs`, `arrangement::tests`.
+- **The task graph** (M7 step 39a, theseus-ext.6): `task_graph/`. A task is a record of the store's `TASK` kind
+  (`theseus_protocol::tasks::TaskRecord`, stored as shown; `tsk_…`, a task session's id sharing its session's tail).
+  `task.create` without `brief` records a plan item (no arrangement needed); with it, 27's rules hold and the record
+  rides `open_task`'s frame. `task.update`, `task.split`, `task.close` (`task_graph/tools.rs`) run in the harness under
+  `Store::lock_task` (the order: a session's lock, a task's, an execution's), compare the `version` the call names
+  (stale: refused with the record as it is now, `task.stale_refused`), and write the record in the frame that settles
+  the call. Layer 1 (objective, acceptance, abandoning) plans with `Plan::authority`, so the gate asks at every posture
+  as the floor does: its proposal is written on the record in the asking frame, the yes applies it, a no clears it in
+  the answer's frame (`confirms.rs`). A task session's running state is read from its execution (`state_now`), and its
+  report closes its record in the frame that ends it (`tools::Closing`, `turn.rs`). The view (`task_graph/view.rs`)
+  is the last block of a request's last message, the conversation's breakpoint on the block before it; a test's
+  stand-in that reads the last user text skips it (`view::is_view`, `view::HEAD`). Facts: `fact/task_graph.rs`.
+  Tests: `tests_task_graph.rs`, `task_graph::tests`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

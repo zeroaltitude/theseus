@@ -31,6 +31,7 @@ mod ontology;
 mod places;
 mod sandbox;
 mod store;
+mod task_graph;
 mod tasks;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
@@ -45,6 +46,7 @@ pub use ontology::{ontology_categories_lines, ontology_kinds_lines, ontology_mem
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
+pub use task_graph::{task_tree_lines, tree_line};
 pub use tasks::task_pieces;
 
 /// What a line is, as the CLI's marks have always told one from another. The

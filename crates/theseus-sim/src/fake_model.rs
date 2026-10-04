@@ -180,6 +180,8 @@ pub fn last_user_text(req: &Value) -> String {
         Value::Array(blocks) => blocks
             .iter()
             .filter_map(|b| b["text"].as_str())
+            // The task graph's view (39a) is the harness's, not the user's.
+            .filter(|t| !t.starts_with(theseus_core::task_graph::view::HEAD))
             .collect::<Vec<_>>()
             .join("\n"),
         _ => String::new(),

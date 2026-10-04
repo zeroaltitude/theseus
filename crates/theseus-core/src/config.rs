@@ -1356,6 +1356,7 @@ impl Config {
             crate::web::NAMES
                 .into_iter()
                 .chain(crate::task::NAMES)
+                .chain(crate::task_graph::tools::NAMES)
                 .chain(crate::wake::NAMES)
                 .chain(crate::extend::NAMES)
                 .chain(crate::aws::NAMES)
@@ -1766,7 +1767,7 @@ mod tests {
         assert_eq!(cfg.policy.tools["aws.call"], Posture::Approve);
         assert_eq!(cfg.policy.tools["aws.stack.apply"], Posture::Approve);
         assert_eq!(cfg.policy.tools["extend.propose"], Posture::Notify);
-        assert_eq!(cfg.policy.tools.len(), 43);
+        assert_eq!(cfg.policy.tools.len(), 46);
         // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
         let a = &cfg.aws.accounts["111122223333"];
         assert_eq!(a.credentials, AwsCredentialNames::default());
@@ -1859,6 +1860,7 @@ mod tests {
             .map(|t| t.name().to_string())
             .chain(crate::web::NAMES.map(String::from))
             .chain(crate::task::NAMES.map(String::from))
+            .chain(crate::task_graph::tools::NAMES.map(String::from))
             .chain(crate::wake::NAMES.map(String::from))
             .chain(crate::extend::NAMES.map(String::from))
             .chain(crate::aws::NAMES.map(String::from))
@@ -2680,6 +2682,7 @@ mod tests {
             .map(|t| t.name().to_string())
             .chain(crate::web::NAMES.map(String::from))
             .chain(crate::task::NAMES.map(String::from))
+            .chain(crate::task_graph::tools::NAMES.map(String::from))
             .chain(crate::wake::NAMES.map(String::from))
             .chain(crate::extend::NAMES.map(String::from))
             .chain(crate::aws::NAMES.map(String::from))

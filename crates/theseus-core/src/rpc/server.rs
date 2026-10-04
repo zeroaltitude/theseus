@@ -279,6 +279,7 @@ impl Core {
             // Its filters are optional: no params lists every task.
             method::TASK_LIST => route(or_empty(params), |p| self.task_list(p)),
             method::TASK_CANCEL => reply(self.task_cancel(parse(params)?, conn).await?),
+            method::TASK_GET => route(params, |p| self.task_get(p)),
             // Its filters are optional: no params lists every wake.
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),

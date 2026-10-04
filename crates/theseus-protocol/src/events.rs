@@ -178,6 +178,11 @@ pub struct ContextCompiled {
     /// fired one and no trigger asks `continue.v1` in shadow.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub signals: Vec<crate::signals::CompileSignal>,
+    /// The task graph the request showed (39a); absent when its scope has
+    /// no task, as in a plain turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tasks: Option<crate::tasks::TaskViewSummary>,
 }
 
 /// `tool.started`: a call runs. A job's says how, and what the broker gave
@@ -436,6 +441,8 @@ events! {
     EventsLost(EventsLost) = notify::EVENTS_LOST,
     /// A notified call's score landed (M5 step 24).
     JudgeScored(crate::judge::JudgeScored) = notify::JUDGE_SCORED,
+    /// A task record changed (39a).
+    TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
 }
 
 impl Event {
@@ -457,6 +464,7 @@ impl Event {
             Event::NarrativeLine(e) => e.session_id.as_deref(),
             Event::ExecutionChanged(e) => Some(&e.session_id),
             Event::JudgeScored(e) => Some(&e.session_id),
+            Event::TaskChanged(e) => Some(&e.session_id),
             Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
@@ -492,6 +500,7 @@ impl Event {
             | Event::PolicyUntightened(_)
             | Event::SessionTrusted(_)
             | Event::ExecutionChanged(_)
+            | Event::TaskChanged(_)
             | Event::EventsLost(_) => None,
         }
     }

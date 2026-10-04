@@ -32,6 +32,9 @@ pub mod kinds {
     /// What must reach a channel (theseus-q4v): the kernel's outbox actions,
     /// kept apart from `ACTION` so no reader of an execution's work sees them.
     pub const OUTBOX: RecordKind = 11;
+    /// A task record (M7 39a, theseus-ext.6): the task graph, by `tsk_…` id;
+    /// each version is a new record, the latest the task now.
+    pub const TASK: RecordKind = 12;
 
     pub fn name(k: RecordKind) -> &'static str {
         match k {
@@ -45,6 +48,7 @@ pub mod kinds {
             EDGE => "edge",
             COMPILATION => "compilation",
             OUTBOX => "outbox",
+            TASK => "task",
             _ => "unknown",
         }
     }

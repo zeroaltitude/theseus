@@ -78,7 +78,24 @@ pub fn short(task_id: &str) -> String {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Input {
-    brief: String,
+    /// The work a task session does; without it, the call records a plan
+    /// item (39a, M7 Q12).
+    #[serde(default)]
+    brief: Option<String>,
+    /// The task's title (39a): the brief's first line when not given.
+    #[serde(default)]
+    title: Option<String>,
+    /// The task's objective and acceptance (39a), when no arrangement's
+    /// pieces give them.
+    #[serde(default)]
+    objective: Option<String>,
+    #[serde(default)]
+    acceptance: Vec<String>,
+    /// The task it goes under, and the tasks it waits on (39a).
+    #[serde(default)]
+    parent: Option<String>,
+    #[serde(default)]
+    deps: Vec<String>,
     #[serde(default)]
     budget_usd: Option<f64>,
     /// Its report starts this conversation's next turn (W1).
@@ -94,10 +111,17 @@ struct Input {
 
 fn input_of(input: &Value) -> Result<Input, String> {
     let i: Input = parse(input)?;
-    if i.brief.trim().is_empty() {
+    let Some(brief) = &i.brief else {
+        if i.title.as_deref().is_none_or(|t| t.trim().is_empty()) {
+            return Err("give a `brief` to start a task session, or a `title` to record a plan                         item"
+                .into());
+        }
+        return Ok(i);
+    };
+    if brief.trim().is_empty() {
         return Err("the brief is empty: say what the task should do".into());
     }
-    let n = i.brief.chars().count();
+    let n = brief.chars().count();
     if n > MAX_BRIEF_CHARS {
         return Err(format!(
             "the brief is {n} characters, over the {MAX_BRIEF_CHARS} a task takes"
@@ -144,7 +168,11 @@ impl Tool for TaskCreate {
          older by reference only (indexes into `pieces`, from 0). A quote that matches no \
          message, or more than one, fails with the reason: quote again, longer or exactly. A \
          short brief drawn from a long discussion with a single piece fails too: attach the \
-         design, or say `fidelity_ack: true` if the one piece really is the whole work."
+         design, or say `fidelity_ack: true` if the one piece really is the whole work.\n\n\
+         Every task is a record in the task graph, which you see each turn. Without `brief`, \
+         the call records a plan item (a `title`, and `objective`, `acceptance`, `parent`, and \
+         `deps` if you have them): no session works on it, and it needs no arrangement. Edit \
+         the graph with task.update, task.split, and task.close."
     }
 
     fn input_schema(&self) -> Value {
@@ -209,9 +237,13 @@ impl Tool for TaskCreate {
                 "fidelity_ack": {
                     "type": "boolean",
                     "description": "Start it anyway when the fidelity check fails: a brief under 200 characters, from a long discussion, with a single piece (default: false)."
-                }
+                },
+                "title": {"type": "string", "description": "The task's title in the task graph (default: the brief's first line). Without `brief`, the plan item's title."},
+                "objective": {"type": "string", "description": "What the task is for, when no `objective` piece says it."},
+                "acceptance": {"type": "array", "items": {"type": "string"}, "description": "How to know it is done, one line each, beside any `acceptance` pieces."},
+                "parent": {"type": "string", "description": "The task it goes under (tsk_…)."},
+                "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."}
             },
-            "required": ["brief", "arrangement"],
             "additionalProperties": false
         })
     }
@@ -232,6 +264,12 @@ impl Tool for TaskCreate {
 
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let i = input_of(input)?;
+        let Some(brief) = &i.brief else {
+            return Ok(Plan {
+                summary: format!("record a plan item: {}", i.title.unwrap_or_default().trim()),
+                ..Default::default()
+            });
+        };
         // The notice says so when the task will start a turn by itself (W1).
         let how = if i.wake_parent {
             "start a task whose report starts this conversation's next turn"
@@ -239,7 +277,10 @@ impl Tool for TaskCreate {
             "start a task"
         };
         Ok(Plan {
-            summary: format!("{how}: {}", title_from(&i.brief)),
+            summary: format!(
+                "{how}: {}",
+                i.title.as_deref().unwrap_or(&title_from(brief))
+            ),
             ..Default::default()
         })
     }
@@ -286,7 +327,7 @@ fn brief_text(task_session: &str, parent_session: &str, brief: &str) -> String {
 /// node, written when the call was planned, names it. The reply, not the
 /// call node, is what the parent's contexts carry. None when no call node
 /// names it.
-fn holder_of(nodes: &crate::store::Transcript, correlation_id: &str) -> Option<String> {
+pub(crate) fn holder_of(nodes: &crate::store::Transcript, correlation_id: &str) -> Option<String> {
     nodes.iter().rev().find_map(|(_, n)| match &n.body {
         Body::ToolCall {
             correlation_id: Some(c),
@@ -301,12 +342,27 @@ fn holder_of(nodes: &crate::store::Transcript, correlation_id: &str) -> Option<S
 /// harness's side): open the child, and say what was opened. An error is the
 /// result the model reads.
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-pub fn create(
-    tc: &TurnCtx<'_>,
+pub fn create<'a>(
+    tc: &TurnCtx<'a>,
     input: &Value,
     correlation_id: &str,
-) -> Result<(String, Value), String> {
+) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
+    let Some(brief) = i.brief.as_deref() else {
+        // A plan item (39a): a record, and no session.
+        return crate::task_graph::tools::create_item(
+            tc,
+            &crate::task_graph::tools::Item {
+                title: i.title.as_deref(),
+                objective: i.objective.as_deref(),
+                acceptance: &i.acceptance,
+                parent: i.parent.as_deref(),
+                deps: &i.deps,
+                arrangement: i.arrangement.as_ref(),
+            },
+            correlation_id,
+        );
+    };
     let parent = tc
         .kernel
         .execution(tc.execution_id)
@@ -329,9 +385,16 @@ pub fn create(
         None => left / DEFAULT_SHARE.1 * DEFAULT_SHARE.0,
     };
     let target = tc.outbox.target(tc.session_id);
-    let title = title_from(&i.brief);
+    let title = i.title.clone().unwrap_or_else(|| title_from(brief));
     let (_, task_session) = task_ids(correlation_id);
-    let text = brief_text(&task_session, tc.session_id, &i.brief);
+    let text = brief_text(&task_session, tc.session_id, brief);
+    // Its record (39a), written with its session: its objective and
+    // acceptance are the arrangement's pieces when they say them.
+    let graph = graph_record(tc, &i, &pieces, &title, &task_session)?;
+    let created =
+        crate::task_graph::tools::change(tc, &graph, None, json!({"session": task_session}));
+    let created_row = crate::fact::task_graph::row_of(&tc.rec(), "created", &created)
+        .map_err(|e| format!("Not started: {e:#}"))?;
     // A task that a session holding external text starts holds it too, from
     // its brief on, since the brief may carry that text (theseus-9bp).
     let parent_hold = tc
@@ -415,6 +478,8 @@ pub fn create(
             if let Some(t) = &target {
                 records.push(tc.outbox.task_record(&task.session_id, t)?);
             }
+            records.push(crate::task_graph::record(&graph)?);
+            records.push(created_row.clone());
             Ok(records)
         },
     );
@@ -452,8 +517,9 @@ pub fn create(
             pieces: &pieces,
             fidelity_ack: i.fidelity_ack,
             humans,
-            brief_chars: i.brief.trim().chars().count(),
+            brief_chars: brief.trim().chars().count(),
         });
+        crate::fact::task_graph::announce(&tc.rec(), "created", &created);
         if parent_hold.is_some() {
             tc.record(&crate::fact::tool::TaskHoldsExternal { short: &s });
         }
@@ -512,8 +578,56 @@ pub fn create(
         "wake_parent": task.wake_parent,
         "arrangement": crate::arrangement::meta(&pieces),
         "fidelity_ack": i.fidelity_ack,
+        "record": graph.id,
     });
-    Ok((text, meta))
+    let text = format!(
+        "{text}\nIts record in the task graph: {}",
+        crate::task_graph::line(&graph)
+    );
+    Ok(crate::task_graph::tools::Done {
+        text,
+        meta,
+        ..Default::default()
+    })
+}
+
+/// A task session's record (39a): new at version 1, `in_progress`, with
+/// its session, under `parent` when the call names one.
+fn graph_record(
+    tc: &TurnCtx<'_>,
+    i: &Input,
+    pieces: &[crate::arrangement::Piece],
+    title: &str,
+    task_session: &str,
+) -> Result<crate::task_graph::TaskRecord, String> {
+    use crate::task_graph as g;
+    let all = g::all(tc.store).map_err(|e| format!("Not started: {e:#}"))?;
+    let parent = match i.parent.as_deref() {
+        Some(p) => Some(g::resolve(&all, p)?.id.clone()),
+        None => None,
+    };
+    for d in &i.deps {
+        if !all.iter().any(|t| &t.id == d) {
+            return Err(format!("no task is named `{d}` (deps name tasks by id)"));
+        }
+    }
+    let (objective, acceptance) =
+        g::tools::from_pieces(pieces, i.objective.as_deref(), &i.acceptance, title);
+    Ok(g::NewTask {
+        id: g::of_session(task_session),
+        title,
+        objective,
+        acceptance,
+        parent,
+        deps: i.deps.clone(),
+        session: Some(task_session.into()),
+        origin: g::TaskOrigin {
+            session: tc.session_id.into(),
+            principal: g::principal_of(tc.kernel, tc.execution_id),
+        },
+        state: g::TaskState::InProgress,
+    }
+    .build(theseus_protocol::now_unix_ms()))
 }
 
 /// The call's arrangement, resolved against the calling session's transcript
@@ -558,7 +672,8 @@ fn arranged(
     })?;
     let pieces = arr::resolve(a, nodes, holder).map_err(refuse)?;
     let humans = arr::human_messages_since_last_task(nodes);
-    arr::fidelity(&i.brief, humans, &pieces, i.fidelity_ack).map_err(refuse)?;
+    let brief = i.brief.as_deref().unwrap_or_default();
+    arr::fidelity(brief, humans, &pieces, i.fidelity_ack).map_err(refuse)?;
     Ok((pieces, humans))
 }
 

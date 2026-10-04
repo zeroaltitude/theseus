@@ -62,6 +62,7 @@ pub mod startup;
 pub mod store;
 pub mod sweep;
 pub mod task;
+pub mod task_graph;
 pub mod telemetry;
 pub mod tender;
 pub mod term;
@@ -170,6 +171,8 @@ mod tests_registry;
 mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
+#[cfg(test)]
+mod tests_task_graph;
 #[cfg(test)]
 mod tests_task_wakes;
 #[cfg(test)]

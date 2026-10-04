@@ -119,6 +119,9 @@ pub struct Store {
     /// The session records being written now (theseus-xeo), shared by every
     /// handle on this store.
     sessions: Arc<SessionLocks>,
+    /// The task records being written now (39a): the same lock, by `tsk_…`
+    /// id, taken after a session's and before an execution's.
+    tasks: Arc<SessionLocks>,
     /// Full transcript reads, by this store and its turn handles.
     #[cfg(test)]
     reads: Arc<std::sync::atomic::AtomicU64>,
@@ -477,6 +480,7 @@ impl Store {
             blobs: Arc::new(crate::blobs::Blobs::new(dir)),
             turn: None,
             sessions: Arc::default(),
+            tasks: Arc::default(),
             #[cfg(test)]
             reads: Default::default(),
             #[cfg(test)]
@@ -682,6 +686,13 @@ impl Store {
             return Ok(None);
         };
         f(rec).map(Some)
+    }
+
+    /// Hold a task record's lock (39a) while its edit reads it, checks the
+    /// version it names, and writes the frame that changes it. The order is
+    /// a session's lock, then a task's, then an execution's.
+    pub fn lock_task(&self, id: &str) -> SessionLock<'_> {
+        self.tasks.lock(id)
     }
 
     /// Hold a session record's lock, as a writer between its read and its
@@ -1089,6 +1100,7 @@ pub(crate) mod tests {
             blobs: Arc::new(crate::blobs::Blobs::new(full.path())),
             turn: None,
             sessions: Arc::default(),
+            tasks: Arc::default(),
             reads: Default::default(),
             faults: Default::default(),
         }
@@ -1197,7 +1209,7 @@ pub(crate) mod tests {
         let m: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
-        assert_eq!(m["format"], 11, "the write moved it: {m}");
+        assert_eq!(m["format"], 12, "the write moved it: {m}");
         let store = Store::open(d.path()).unwrap();
         let into = store.scope_after("in:msg_first", 0).unwrap();
         assert_eq!(into.len(), 1);

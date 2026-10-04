@@ -30,6 +30,7 @@ mod places;
 mod push;
 pub mod sandbox;
 pub mod signals;
+pub mod tasks;
 pub mod term;
 #[cfg(test)]
 mod ts;
@@ -147,6 +148,8 @@ pub mod method {
         TASK_LIST = "task.list",
         /// Stop a task and its jobs; the place hears it once.
         TASK_CANCEL = "task.cancel",
+        /// One task record (39a, `tasks::TaskGetParams`). A read.
+        TASK_GET = "task.get",
         /// Wakes (DD8): the turns conversations asked for at a time, with
         /// `wake.at`, that have not run yet.
         WAKE_LIST = "wake.list",
@@ -270,6 +273,8 @@ pub mod notify {
         EVENTS_LOST = "events.lost",
         /// A notified call's `security.v1` score, after its notice (M5 24).
         JUDGE_SCORED = "judge.scored",
+        /// A task record changed (39a): `tasks::TaskChanged`.
+        TASK_CHANGED = "task.changed",
     }
 }
 
@@ -1642,6 +1647,9 @@ pub struct TaskListParams {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TaskListResult {
     pub tasks: Vec<TaskInfo>,
+    /// The task records (39a), each task once: its graph, sessions' and plan items'.
+    #[serde(default)]
+    pub records: Vec<tasks::TaskRecord>,
 }
 
 /// `task.cancel`: stop a task and its jobs, as `execution.cancel` does; the

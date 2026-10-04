@@ -601,13 +601,47 @@ impl Core {
         Ok(out)
     }
 
-    pub(super) fn task_list(
+    pub fn task_list(
         &self,
         p: theseus_protocol::TaskListParams,
     ) -> Result<theseus_protocol::TaskListResult, RpcFailure> {
         Ok(theseus_protocol::TaskListResult {
             tasks: self.tasks(p.session_id.as_deref(), p.target.as_deref())?,
+            records: self.task_records(p.session_id.as_deref())?,
         })
+    }
+
+    /// The task records (39a), each as it reads now: every one, or the ones
+    /// a session's turns see.
+    pub fn task_records(
+        &self,
+        session: Option<&str>,
+    ) -> Result<Vec<crate::task_graph::TaskRecord>> {
+        let all = crate::task_graph::all_shown(&self.store, &self.kernel)?;
+        Ok(match session {
+            Some(s) => crate::task_graph::scope(&all, s)
+                .into_iter()
+                .cloned()
+                .collect(),
+            None => all,
+        })
+    }
+
+    /// One task record (39a), by its id or the end of it, with its
+    /// children.
+    pub fn task_get(
+        &self,
+        p: theseus_protocol::tasks::TaskGetParams,
+    ) -> Result<theseus_protocol::tasks::TaskGetResult, RpcFailure> {
+        let all = crate::task_graph::all_shown(&self.store, &self.kernel)?;
+        let task = crate::task_graph::resolve(&all, &p.id)
+            .map_err(|e| RpcFailure::new(error_code::NOT_FOUND, e))?
+            .clone();
+        let children = crate::task_graph::children(&all, &task.id)
+            .into_iter()
+            .cloned()
+            .collect();
+        Ok(theseus_protocol::tasks::TaskGetResult { task, children })
     }
 
     /// Stop a task and its jobs, as `execution.cancel` does; the place hears

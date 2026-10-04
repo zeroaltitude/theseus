@@ -257,6 +257,8 @@ fn reread(kind: RecordKind, bytes: &[u8]) -> anyhow::Result<String> {
         kinds::COMPLETION => again::<Completion>(bytes),
         kinds::NODE => again::<Node>(bytes),
         kinds::COMPILATION => again::<Compilation>(bytes),
+        // New at format 12 (39a): no older layout of it is on disk anywhere.
+        kinds::TASK => again::<crate::task_graph::TaskRecord>(bytes),
         k => anyhow::bail!("kind {k} has no reader here"),
     }
 }

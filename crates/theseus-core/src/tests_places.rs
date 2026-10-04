@@ -63,6 +63,7 @@ fn text_of(m: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Array(b) => b
             .iter()
+            .filter(|b| !crate::task_graph::view::is_view(b))
             .filter_map(|b| b["text"].as_str())
             .collect::<Vec<_>>()
             .join("\n"),
@@ -328,7 +329,10 @@ pub(crate) const SHARED_TOOLS: &[&str] = &[
     "git_diff",
     "git_log",
     "http_fetch",
+    "task_close",
     "task_create",
+    "task_split",
+    "task_update",
     "text_diff",
     "wake_at",
     "web_search",

@@ -4,6 +4,7 @@ import type { CompileSignal } from "./CompileSignal";
 import type { ContextFileRef } from "./ContextFileRef";
 import type { EstimateSummary } from "./EstimateSummary";
 import type { PlaceClass } from "./PlaceClass";
+import type { TaskViewSummary } from "./TaskViewSummary";
 
 /**
  * `context.compiled`: the context a loop's request was compiled from
@@ -55,4 +56,9 @@ withheld?: number,
  * CONTINUE's candidate signals that fired (M5 25b): a compile that
  * fired one and no trigger asks `continue.v1` in shadow.
  */
-signals?: Array<CompileSignal>, };
+signals?: Array<CompileSignal>, 
+/**
+ * The task graph the request showed (39a); absent when its scope has
+ * no task, as in a plain turn.
+ */
+tasks?: TaskViewSummary, };

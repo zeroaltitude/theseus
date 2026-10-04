@@ -47,6 +47,7 @@ use crate::secrets::{SecretBoard, Waited};
 use crate::session::{title_from, NotShown, SessionRecord, TargetRef, Then};
 use crate::startup::StartupLog;
 use crate::store::{SessionHold, Store};
+use crate::task_graph::tools::Closing;
 use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
@@ -1150,6 +1151,8 @@ impl TurnRunner {
         // frame that does: a turn that ends after a cancel landed writes
         // none, and the cancel reports (DD7).
         let reported = std::sync::Mutex::new(None);
+        // Its record closes in that frame too (39a), under its lock.
+        let (lock, closing) = Closing::new(&frames.store, task_of.as_ref(), &failure_sink);
         let ended = frames.kernel.end_turn_with(guard, end, |e| {
             let Some(task) = task_of.as_ref().filter(|_| e.state.is_terminal()) else {
                 return Ok(vec![]);
@@ -1161,15 +1164,19 @@ impl TurnRunner {
                 None
             };
             let report = crate::task::Report::new(e, task_title.clone(), last);
+            let mut records = closing.records(e, report.node.as_deref())?;
             let Some(target) = &task.target else {
-                return Ok(vec![]);
+                return Ok(records);
             };
-            let (post, records) =
+            let (post, more) =
                 self.outbox
                     .stage(&e.session_id, &e.id, target, report.post_body())?;
+            records.extend(more);
             *reported.lock().unwrap() = Some(post);
             Ok(records)
         });
+        drop(lock);
+        let closed = closing.end();
         // A cancel that landed while the turn ran left the calls it was making
         // unanswered, and wrote nothing into this turn's transcript: this turn
         // answers them now that it has ended (theseus-0o8).
@@ -1188,6 +1195,8 @@ impl TurnRunner {
                 if let Some(a) = reported.lock().unwrap().take() {
                     self.outbox.posted(&a);
                 }
+                let to = self.session_rec(&failure_sink.session_id, To::Sink(&failure_sink));
+                crate::task_graph::tools::announce_closed(&to, closed);
             }
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
@@ -2041,6 +2050,7 @@ impl TurnRunner {
             }),
         });
         Self::recall_compiled(t, &mut compiled);
+        let tasks = crate::task_graph::view::attach(&self.store, &self.kernel, sid, &mut compiled);
         if compiled.new_compilation {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
@@ -2081,6 +2091,7 @@ impl TurnRunner {
             class: Some(t.tc.class),
             withheld: compiled.withheld,
             signals: compiled.signals.fired.clone(),
+            tasks,
         };
         // Its span and its row carry the notification's params.
         t.record(&fact::turn::ContextCompiled {

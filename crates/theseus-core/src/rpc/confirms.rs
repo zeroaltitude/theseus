@@ -351,8 +351,24 @@ impl Core {
             true => Some(crate::toolrun::confirm_proposal(&self.store, &a, None)?),
             false => None,
         };
-        let answer = |hold: Option<SessionRecord>| {
+        // A declined layer-1 task change clears its proposal in the answer's
+        // frame, under the task's lock (39a): the session, the task, then the
+        // execution.
+        let task_lock = (!approve)
+            .then(|| crate::task_graph::tools::lock_for_answer(&self.store, &a))
+            .flatten();
+        let task_rec = self.session_rec(&a.session_id);
+        let mut declined = None;
+        let mut answer = |hold: Option<SessionRecord>| {
             self.kernel.frame(&[&a.execution_id], |k| {
+                if task_lock.is_some() {
+                    if let Some((records, c)) =
+                        crate::task_graph::tools::declined(&self.store, &task_rec, &a)?
+                    {
+                        k.stage(&records)?;
+                        declined = Some(c);
+                    }
+                }
                 match &proposal {
                     Some(p) => {
                         k.bind_confirm(correlation_id, OPERATOR, p)?;
@@ -398,6 +414,10 @@ impl Core {
             },
             false => answer(None)?,
         };
+        drop(task_lock);
+        if let Some(c) = &declined {
+            crate::fact::task_graph::announce(&task_rec, "change_declined", c);
+        }
         if let Some(r) = &trusted {
             self.announce_trust(&a.session_id, r);
         }
