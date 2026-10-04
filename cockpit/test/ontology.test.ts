@@ -73,10 +73,12 @@ test('a guidance version changed since the compile is pending, for the category 
   assert.equal(guidanceWords(gone.guidance[0]), 'topic:harbor guidance no longer applies (was v1)')
 })
 
-test('an intent_line kind takes no ancestors, and a manifest with neither field has nothing pending', () => {
+test('an intent_line kind takes no ancestors, and a manifest with neither field recorded none (the daemon leaves empty lists out)', () => {
   const play = guidanceInPlay([member('channel:123', 'transport')], [cat('channel:123', 'lab', undefined, [3, 'dddd'])], kinds)
   assert.deepEqual(play, [{ category: 'channel:123', version: 3, digest: 'dddd' }])
-  assert.deepEqual(pendingOf([member('topic:harbor')], cats, kinds, { model: 'x' }), { added: [], removed: [], guidance: [] })
-  assert.deepEqual(pendingOf([member('topic:harbor')], cats, kinds, undefined), { added: [], removed: [], guidance: [] })
+  const none = { added: ['topic:harbor'], removed: [], guidance: [{ category: 'topic:harbor', from: null, to: { category: 'topic:harbor', version: 1, digest: 'aaaa' } }] }
+  assert.deepEqual(pendingOf([member('topic:harbor')], cats, kinds, { model: 'x' }), none)
+  assert.deepEqual(pendingOf([member('topic:harbor')], cats, kinds, undefined), none)
+  assert.deepEqual(pendingOf([], cats, kinds, { model: 'x' }), { added: [], removed: [], guidance: [] })
   assert.equal(recordedOf({ memberships: 'no', guidance: [null, 3, { category: 'topic:a', version: 2 }] }).guidance.length, 1)
 })

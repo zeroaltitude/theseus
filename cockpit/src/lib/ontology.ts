@@ -40,8 +40,8 @@ export interface UsedGuidance { category: string; version: number; digest: strin
 
 export interface Recorded { memberships: UsedMembership[]; guidance: UsedGuidance[]; known: boolean }
 
-/** The `memberships` and `guidance` of a manifest, whatever it holds. `known` is false for a manifest that has
- *  neither (an older compilation, or none yet): nothing can be said to be pending against it. */
+/** The `memberships` and `guidance` of a manifest, whatever it holds. The daemon leaves an empty list out of the
+ *  manifest, so a field that is absent reads as none recorded; `known` says whether either was there at all. */
 export function recordedOf(manifest: unknown): Recorded {
   const m = (manifest && typeof manifest === 'object' ? manifest : {}) as Record<string, unknown>
   const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : [])
@@ -95,7 +95,7 @@ export function guidanceInPlay(
 /** What changed since the newest compilation, for one session: the memberships it holds now (the list) against the ones
  *  its manifest recorded, and the guidance those would admit now against the guidance it recorded. A membership is
  *  its category and its origin; its as-of time is not compared (a place's given ones are read afresh at each
- *  compile). Nothing is pending against a manifest that records neither, since it says nothing to compare. */
+ *  compile). A manifest that records neither field recorded none: the daemon leaves empty lists out. */
 export function pendingOf(
   memberships: readonly OntologyMembership[],
   categories: readonly OntologyCategory[],
@@ -103,7 +103,6 @@ export function pendingOf(
   manifest: unknown,
 ): Pending {
   const rec = recordedOf(manifest)
-  if (!rec.known) return { added: [], removed: [], guidance: [] }
   const key = (c: string, o: string) => `${c}\u0000${o}`
   const had = new Set(rec.memberships.map((m) => key(m.category, m.origin)))
   const has = new Set(memberships.map((m) => key(m.category, m.origin)))

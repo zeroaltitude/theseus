@@ -72,7 +72,7 @@ export function MembershipsPanel({ sessionId }: { sessionId: string }) {
                 <td className="num py-1 text-ink">{m.category}</td>
                 <td className="px-1 text-ink-faint">{m.origin}{m.confidence != null ? ` · ${m.confidence.toFixed(2)}` : ''}</td>
                 <td className="num px-1 text-ink-faint">{stamp(m.as_of_ms)}</td>
-                <td className={cn('px-1', compiled || !recorded.known ? 'text-ink-faint' : 'text-wait')}>{compiled ? 'yes' : recorded.known ? 'at the next recompile' : '—'}</td>
+                <td className={cn('px-1', compiled ? 'text-ink-faint' : 'text-wait')}>{compiled ? 'yes' : 'at the next recompile'}</td>
                 <td className="text-right">
                   {m.origin === 'operator' && (
                     <button type="button" disabled={busy || past} onClick={() => void remove(m.category)} title={past ? 'return to LIVE to change it' : `take the session out of ${m.category}`}
@@ -98,7 +98,7 @@ export function MembershipsPanel({ sessionId }: { sessionId: string }) {
       </div>
       <div className="mt-1.5"><Refused words={refused} /></div>
       <div className="num mt-2 text-[11px] text-ink-faint" title={newest ? `compilation ${newest.compilation_id}` : undefined}>
-        {!newest ? 'no compilation yet' : recorded.known ? `the newest compilation recorded ${recorded.memberships.length} membership${recorded.memberships.length === 1 ? '' : 's'} and ${recorded.guidance.length} guidance block${recorded.guidance.length === 1 ? '' : 's'}${recorded.guidance.length ? `: ${recorded.guidance.map((g) => `${g.category} v${g.version}`).join(', ')}` : ''}` : 'the newest compilation recorded no memberships or guidance (an older compilation, or one with none)'}
+        {!newest ? 'no compilation yet' : recorded.known ? `the newest compilation recorded ${recorded.memberships.length} membership${recorded.memberships.length === 1 ? '' : 's'} and ${recorded.guidance.length} guidance block${recorded.guidance.length === 1 ? '' : 's'}${recorded.guidance.length ? `: ${recorded.guidance.map((g) => `${g.category} v${g.version}`).join(', ')}` : ''}` : 'the newest compilation recorded no memberships or guidance'}
       </div>
       {!nothingPending(pending) && (
         <div className="mt-1 rounded-md bg-wait/10 px-2.5 py-1.5 text-[11.5px] text-wait ring-1 ring-wait/30">
