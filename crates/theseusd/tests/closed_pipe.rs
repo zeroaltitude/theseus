@@ -71,7 +71,7 @@ fn the_print_only_subcommands_end_quietly_when_their_reader_is_gone() {
     let state = dir.path().join("state");
     let state = state.to_str().unwrap();
     for args in [
-        vec!["example-config", "--plain"],
+        vec!["example-config"],
         vec!["example-bindings"],
         vec!["--config", cfg, "--state-dir", state, "config"],
     ] {

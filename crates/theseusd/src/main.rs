@@ -95,22 +95,17 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Print the annotated config template (every parameter, set or commented with its default) and exit.
-    ExampleConfig {
-        /// A private TOML file of your deployment's own values (its vault's references, its people's
-        /// ids, the sections it turns on): the template is printed with them in place, its comments kept,
-        /// and checked to load, so it can be copied whole into your config (theseus-dxgb). Default:
-        /// ~/.config/theseus/template-overlay.toml, when that file exists.
-        #[arg(long, value_name = "FILE", conflicts_with = "plain")]
-        overlay: Option<PathBuf>,
-        /// Print the template alone, without any overlay (what tests and tools that build on the
-        /// template want).
-        #[arg(long)]
-        plain: bool,
-    },
+    ExampleConfig,
     /// Load config, resolve every secret, report, and exit without serving.
     Check,
     /// Print the loaded config (TOML, secret references only, never values) and its source.
-    Config,
+    Config {
+        /// Print the config as a note of only what differs from the defaults: the secrets'
+        /// references, every value that differs, and nothing else. It loads to the same config
+        /// (theseus-vwar).
+        #[arg(long)]
+        sparse: bool,
+    },
     /// Print an annotated bindings file (the Discord guild, channel, and who may drive it) and exit.
     ExampleBindings,
     /// Rebuild the store from a local WAL directory (or another store's directory) and exit.
@@ -183,8 +178,8 @@ fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    if let Some(Cmd::ExampleConfig { overlay, plain }) = &cli.cmd {
-        return example_config(overlay.as_deref(), *plain);
+    if let Some(Cmd::ExampleConfig) = cli.cmd {
+        return out(Config::EXAMPLE_TOML);
     }
     if let Some(Cmd::ExampleBindings) = cli.cmd {
         return out(theseus_discord::EXAMPLE_BINDINGS);
@@ -245,7 +240,8 @@ fn main() -> Result<()> {
 
 /// How this start got its config.
 enum Start {
-    File,
+    /// A file's text.
+    File(String),
     /// The vault's note, read before serving: kept as the copy once serving.
     Vault(String),
     /// The last-known-good copy's text. The vault is read behind the
@@ -320,13 +316,13 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
                 if in_vault {
                     Start::Vault(text)
                 } else {
-                    Start::File
+                    Start::File(text)
                 },
             )
         }
     };
     let from = match &start {
-        Start::File => "file",
+        Start::File(_) => "file",
         Start::Vault(_) => "vault",
         Start::Copy { .. } => "copy",
     };
@@ -340,7 +336,17 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     // named it, and the config's copy.
     cfg.op_token_file = op.token_file().map(std::path::Path::to_path_buf);
     cfg.config_copy = copy_path.clone();
-    if let Some(Cmd::Config) = cli.cmd {
+    if let Some(Cmd::Config { sparse }) = &cli.cmd {
+        if *sparse {
+            // A note of only what differs (theseus-vwar), cut from the text
+            // this config was read from: `config` reads its source itself,
+            // never the copy (above).
+            let (Start::File(text) | Start::Vault(text)) = &start else {
+                anyhow::bail!("config --sparse reads the config's source, never its copy");
+            };
+            out(&theseus_core::config::sparse_note(text)?)?;
+            return Ok(Exit::Done);
+        }
         let mut text = format!("# source: {}\n", cli.config);
         if let (Some(p), Start::Vault(note)) = (&copy_path, &start) {
             text.push_str(&format!("# copy: {}\n", copy_line(p, &cli.config, note)));
@@ -428,7 +434,7 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
     // (a read before serving), and the vault's read of the copy (a start
     // from it).
     let (gate, keep, check) = match start {
-        Start::File => (ConfigGate::file(&cli.config), None, None),
+        Start::File(_) => (ConfigGate::file(&cli.config), None, None),
         Start::Vault(text) => {
             let before = why_vault
                 .clone()
@@ -546,36 +552,6 @@ async fn flush_telemetry(core: &Core) {
 /// head`) ends it quietly, as a closed pipe ends `cat`, instead of panicking
 /// (theseus-gi7). The signal stays ignored: the daemon must never die of a
 /// client that disconnects mid-write.
-/// `example-config` (theseus-dxgb): the template, with the operator's overlay
-/// in place when `--overlay` names one or one sits at the default path, so the
-/// output is the deployment, whole; `--plain`, or no overlay, the template
-/// alone, byte for byte. The first line says which overlay it used.
-fn example_config(overlay: Option<&Path>, plain: bool) -> Result<()> {
-    use theseus_core::config_overlay::{render, DEFAULT_PATH};
-    let (named, path) = match overlay {
-        _ if plain => return out(Config::EXAMPLE_TOML),
-        Some(file) => {
-            let named = file.to_string_lossy().into_owned();
-            let path = theseus_core::config::expand(&named);
-            (named, path)
-        }
-        None => {
-            let path = theseus_core::config::expand(DEFAULT_PATH);
-            if !path.exists() {
-                return out(Config::EXAMPLE_TOML);
-            }
-            (DEFAULT_PATH.to_string(), path)
-        }
-    };
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading the overlay {}", path.display()))?;
-    let rendered = render(Config::EXAMPLE_TOML, &text)
-        .with_context(|| format!("the overlay {named} (--plain prints the template alone)"))?;
-    out(&format!(
-        "# theseusd example-config, with the overlay {named} in place (--plain prints the template alone).\n{rendered}"
-    ))
-}
-
 fn out(text: &str) -> Result<()> {
     use std::io::Write;
     let mut stdout = std::io::stdout().lock();

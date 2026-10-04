@@ -13,7 +13,9 @@ use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
+mod sparse;
 pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
+pub use sparse::{sparse_note, SPARSE_HEADER};
 
 /// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
 /// names it: a local file, so nothing here names anyone's vault

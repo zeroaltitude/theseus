@@ -94,98 +94,64 @@ fn the_default_config_is_a_local_file_and_a_missing_one_says_where_one_comes_fro
     );
 }
 
-/// `example-config` with an overlay (theseus-dxgb): the template with an
-/// operator's own values in place, ready to copy whole, from `--overlay`
-/// (`~` read as home) or from `~/.config/theseus/template-overlay.toml` with
-/// no flag; with neither, or `--plain`, the template as it is; and an overlay
-/// that names a key no config has fails with the key named, printing nothing.
+/// `example-config` prints the public template, byte for byte, and takes no
+/// flags (theseus-vwar: the overlay, `--overlay`, and `--plain` are gone).
+/// `config --sparse` prints the loaded note cut to what differs from the
+/// defaults: the whole template as a note cuts to a fraction of its lines,
+/// and the cut note loads to the same config, which `config` prints the same.
 #[test]
-fn example_config_with_an_overlay_prints_the_template_with_its_values_in_place() {
+fn example_config_is_the_template_and_config_sparse_cuts_a_note_to_what_differs() {
     let home = tempfile::tempdir().unwrap();
-    let plain = command(home.path()).arg("example-config").output().unwrap();
-    assert!(plain.status.success());
-    let plain = String::from_utf8(plain.stdout).unwrap();
-    assert!(plain
-        .contains("anthropic_api_key = \"op://<your vault>/<Anthropic API key item>/notesPlain\""));
+    let state = home.path().join("state");
+    let state = state.to_str().unwrap();
+    let template = include_str!("../../theseus-core/config/theseus.example.toml");
+    let out = command(home.path()).arg("example-config").output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), template);
+    for gone in [&["--plain"][..], &["--overlay", "overlay.toml"]] {
+        let out = command(home.path())
+            .arg("example-config")
+            .args(gone)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{gone:?}");
+    }
 
-    let overlay = home.path().join("overlay.toml");
-    std::fs::write(
-        &overlay,
-        "[secrets]\nanthropic_api_key = \"op://Ops Vault/anthropic key/notesPlain\"\n\n\
-         [places]\nowner = [\"discord:314159265358979323\"]\n",
-    )
-    .unwrap();
-    let out = command(home.path())
-        .args(["example-config", "--overlay", "~/overlay.toml"])
-        .output()
-        .unwrap();
+    let run = |config: &Path, args: &[&str]| {
+        let out = command(home.path())
+            .arg("--config")
+            .arg(config)
+            .args(["--state-dir", state])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let whole = home.path().join("whole.toml");
+    std::fs::write(&whole, template).unwrap();
+    let sparse = run(&whole, &["config", "--sparse"]);
     assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let text = String::from_utf8(out.stdout).unwrap();
-    assert!(
-        text.contains("\nanthropic_api_key = \"op://Ops Vault/anthropic key/notesPlain\"\n"),
-        "{text}"
+        sparse.starts_with("# Theseus config: only what differs from the defaults"),
+        "{sparse}"
     );
     assert!(
-        text.contains("\n[places]\nowner = [\"discord:314159265358979323\"]"),
-        "{text}"
+        sparse.lines().count() * 2 < template.lines().count(),
+        "{sparse}"
     );
-    // One line more than the template, the first, which names the overlay;
-    // the rest only in place.
-    assert!(
-        text.starts_with(
-            "# theseusd example-config, with the overlay ~/overlay.toml in place (--plain prints the template alone).\n"
-        ),
-        "{text}"
-    );
-    assert_eq!(text.lines().count(), plain.lines().count() + 1);
-    let toml: toml::Table = text.parse().unwrap();
-    assert!(toml.contains_key("places"));
-
-    // At the default path, the overlay needs no flag, and --plain prints the
-    // template alone, as a missing overlay does.
-    let default = home.path().join(".config/theseus/template-overlay.toml");
-    std::fs::create_dir_all(default.parent().unwrap()).unwrap();
-    std::fs::copy(&overlay, &default).unwrap();
-    let auto = command(home.path()).arg("example-config").output().unwrap();
-    assert!(
-        auto.status.success(),
-        "{}",
-        String::from_utf8_lossy(&auto.stderr)
-    );
-    let auto = String::from_utf8(auto.stdout).unwrap();
-    assert!(
-        auto.starts_with("# theseusd example-config, with the overlay ~/.config/theseus/template-overlay.toml in place"),
-        "{auto}"
-    );
-    assert_eq!(
-        auto.lines().skip(1).collect::<Vec<_>>(),
-        text.lines().skip(1).collect::<Vec<_>>()
-    );
-    let bare = command(home.path())
-        .args(["example-config", "--plain"])
-        .output()
-        .unwrap();
-    assert_eq!(String::from_utf8(bare.stdout).unwrap(), plain);
-    let both = command(home.path())
-        .args(["example-config", "--plain", "--overlay", "~/overlay.toml"])
-        .output()
-        .unwrap();
-    assert!(!both.status.success(), "--plain and --overlay conflict");
-
-    std::fs::write(&overlay, "[places]\nowners = [\"discord:1\"]\n").unwrap();
-    let bad = command(home.path())
-        .args(["example-config", "--overlay", overlay.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(!bad.status.success());
-    assert!(bad.stdout.is_empty(), "nothing is printed");
-    let err = String::from_utf8_lossy(&bad.stderr);
-    assert!(
-        err.contains("owners") && err.contains("does not load as a config"),
-        "{err}"
-    );
+    let cut = home.path().join("sparse.toml");
+    std::fs::write(&cut, &sparse).unwrap();
+    // The same config, but for the line that names its source.
+    let printed = |config: &Path| -> Vec<String> {
+        run(config, &["config"])
+            .lines()
+            .skip(1)
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(printed(&cut), printed(&whole));
 }

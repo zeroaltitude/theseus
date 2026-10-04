@@ -11,12 +11,12 @@
 # 1Password instead, as a Secure Note, so a deployment is reconstructible from
 # the vault, and point --config or THESEUS_CONFIG at the note:
 #   export THESEUS_CONFIG='op://<your vault>/<config note>/notesPlain'
-# A deployment kept as a copy of this template keeps its own values (its
-# vault's references, its people's ids, the sections it switches on) in a
-# private overlay, ~/.config/theseus/template-overlay.toml; then
-# `theseusd example-config` prints the template with them in place, ready to
-# copy whole into its note (`--overlay FILE` names another overlay, and
-# `--plain` prints the template alone).
+# A config needs only what differs from the defaults: every key has one, so a
+# note of only [secrets] loads. Keep yours that way rather than as a copy of
+# this file, and a new key or a changed default reaches it with the next
+# build. `theseusd config --sparse` prints a config cut to what differs (its
+# secrets' references, every value that differs, and nothing else), which
+# loads to the same config; `theseusd config` prints a config whole.
 # Precedence for the few things that also have flags (socket, state dir):
 #   command-line flag > environment variable > this file > built-in default.
 #
