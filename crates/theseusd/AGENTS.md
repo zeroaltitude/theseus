@@ -25,15 +25,17 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 - `job-wrapper` catches SIGTERM from its first moments (M4 18a): a cancel asks it alone, and it stops its job's
   whole tree (`theseus_kernel::tree`), an L1 job through its init, then answers in the spool.
   `tests/job_wrapper.rs` stops real trees, a `setsid` sleeper included; `tests/sandbox.rs` an L1 job's.
-- `src/web.rs`: the web server for both apps. It embeds `web/dist` and `cockpit/dist` (with `allow_missing`), and
-  refuses a wrong `Host` or `Origin` and any uid but the daemon's own.
+- `src/web.rs`: the web server for the cockpit, at `/`. It embeds `cockpit/dist` (with `allow_missing`), redirects
+  the cockpit's old `/cockpit/…` to the same route at `/…`, and refuses a wrong `Host` or `Origin` and any uid but
+  the daemon's own.
 - `src/install/`: `theseusd install`, the daemon as a systemd service (`--user`, or `--separate` as root). It prints
   a plan and changes nothing; `--apply` performs it, `--check` compares, and `--remove` is the inverse. A `--user` unit's
   token file is checked by `stat` alone and never opened (`token.rs`): a regular file, the operator's, mode 0600 or
   stricter, not empty, else the plan refuses and says the fix, and so does `--apply`, before it writes anything.
   `--op-token-file` is a global flag, so it works before the subcommand and after it; the plan's hint is the command as
   typed with it added. `scripts/user-service.sh` wraps all of this (`docs/user-service.md`).
-- `web/dist/`: the Observatory's committed build. `cockpit/dist/`: the cockpit's build, ignored.
+- `cockpit/dist/`: the cockpit's build, ignored. In a debug build it is read as it is served, so the suite's tests of
+  `/` see the build the gate made before them.
 
 ## Invariants
 

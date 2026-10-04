@@ -1,12 +1,14 @@
 # cockpit
 
-The cockpit (spec §3.14; Part III Items 23 and 27): a second Vite app beside `web/`, served by `theseusd` at
-`/cockpit/`. React, Tailwind, ECharts, React Flow, and TanStack. Its build, `crates/theseusd/cockpit/dist`, is not
-committed: the gate builds it, and the install builds it before the release build.
+The cockpit (spec §3.14; Part III Items 23 and 27): the daemon's web UI, a Vite app served by `theseusd` at `/`.
+It took the place of the first one, the Observatory, on 2026-10-03 (theseus-vm3n.6), and its old address,
+`/cockpit/…`, redirects to the same route. React, Tailwind, ECharts, React Flow, and TanStack. Its build,
+`crates/theseusd/cockpit/dist`, is not committed: the gate builds it, and the install builds it before the release
+build.
 
 ## What's here
 
-- `src/views/`: the eleven views. The Ship (`Ship.tsx`, the landing view at `/cockpit/ship`), then `Bridge`, `Fleet`,
+- `src/views/`: the eleven views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
   `Speed` (the speed wall), `Systems`.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
@@ -21,9 +23,10 @@ committed: the gate builds it, and the install builds it before the release buil
   (the plank strip and the coin).
 - `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,
   `money.ts` (the catalog's rates and a call's split by token kind), `verdict.ts` (18a's verdicts in words), and
-  `calm.ts` (calm mode).
-- It imports the protocol client from `web/src/protocol.ts` through the `@protocol` alias, so the two apps never
-  drift apart.
+  `calm.ts` (calm mode), `sandboxwords.ts` (L1 in the CLI's words), and `drafts.ts` (what was sent and not yet
+  written).
+- `src/protocol.ts`: the protocol client, imported as `@protocol`. It re-exports the protocol's types,
+  `src/protocol.gen/`, which theseus-protocol's test writes from the Rust ones: never edit them by hand.
 - The look is in `index.css`'s tokens and the shared components (`.panel`, `.brass-card`, `.brass-button`,
   `.panel-title`): brass, ivory, and night navy, with colour carrying state. Restyle there, not view by view.
 
@@ -54,7 +57,7 @@ committed: the gate builds it, and the install builds it before the release buil
 - `npm test` is node's own runner over `test/*.test.ts`, with node stripping the types: no dependency. A module it
   tests is pure, imports nothing but the protocol's types (`import type`, which node erases), and names its own
   imports with their `.ts`; `src/lib/marks.ts` (the ship's log's marks) is the first.
-- A release built without the cockpit's build serves a page at `/cockpit/` that says how to build it.
+- A release built without the cockpit's build serves a page at `/` that says how to build it.
 - After a change, load every view from a scratch daemon of the build and check that each loads clean, with no
   console or page errors.
 

@@ -18,14 +18,15 @@ import { Btn, Pill } from './ui'
 /** The question of a reply the outbox held (M4 19c): theseus-protocol's `HELD_POST_TOOL`. */
 export const HELD_POST_TOOL = 'label.release'
 
-/** A protocol call that acts, with its own busy key, confirmed first when it says so, and the page's reads read again. */
+/** A protocol call that acts, with its own busy key, confirmed first when it says so, and the page's reads read again.
+ *  It answers true once the daemon has done it. */
 export function useAct() {
   const qc = useQueryClient()
   const [busy, setBusy] = useState<string | null>(null)
-  const run = async (key: string, method: string, params: unknown, ask?: string) => {
-    if (ask && !window.confirm(ask)) return
+  const run = async (key: string, method: string, params: unknown, ask?: string): Promise<boolean> => {
+    if (ask && !window.confirm(ask)) return false
     setBusy(key)
-    try { await call(method, params); await qc.invalidateQueries() } catch (e: any) { window.alert(e?.message ?? String(e)) } finally { setBusy(null) }
+    try { await call(method, params); await qc.invalidateQueries(); return true } catch (e: any) { window.alert(e?.message ?? String(e)); return false } finally { setBusy(null) }
   }
   return { busy, run }
 }

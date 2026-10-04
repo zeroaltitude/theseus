@@ -1,7 +1,7 @@
 // One short line for any ledger row: what happened, in the daemon's own terms. Used by the activity river, the
 // ledger explorer, and the session deck's rows. Unknown kinds fall back to their first few fields. Pure, with no
 // import but the protocol's types and the pure figures, so `node --test` runs its test (`test/summary.test.ts`).
-import type { LedgerEntry } from '@protocol'
+import type { LedgerEntry, NodeInfo } from '@protocol'
 import { ms, short, tokens, usd } from './figures.ts'
 
 type D = Record<string, any>
@@ -115,5 +115,22 @@ export function summarize(r: LedgerEntry): string {
       const keys = Object.entries(d).filter(([, v]) => typeof v !== 'object').slice(0, 3)
       return keys.map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(' · ')
     }
+  }
+}
+
+/** One line for a node, as the Observatory's Nodes list said it: a prompt by its text, a reply by its model, stop,
+ *  cost, and calls, a call by its tool, input, and posture, and a result by its tool and status. */
+export function nodeSummary(nd: NodeInfo): string {
+  const d = (nd.detail ?? {}) as D
+  const t = nd.text.replace(/\s+/g, ' ')
+  switch (nd.kind) {
+    case 'user_message': return t.slice(0, 160)
+    case 'assistant_message': {
+      const calls = count(d.tool_calls)
+      return `${n(d.model)} · ${n(d.stop_reason)} · ${usd(d.cost_usd)}${calls ? ` · ${calls} tool call${calls === 1 ? '' : 's'}` : ''} · ${t.slice(0, 100)}`
+    }
+    case 'tool_call': return `${n(d.tool)} ${JSON.stringify(d.input ?? {}).slice(0, 100)} · ${n(d.decision?.posture ?? d.decision?.mode ?? d.result?.gate)}`
+    case 'tool_result': return `${n(d.tool)} · ${n(d.status)}${d.late ? ' · late' : ''} · ${t.slice(0, 100)}`
+    default: return t.slice(0, 120)
   }
 }
