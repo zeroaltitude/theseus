@@ -456,7 +456,7 @@ fn main() -> Result<()> {
                 })
                 .map_err(|e| anyhow::anyhow!("seed {s}: {e}"))?;
                 println!(
-                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} of them transactions, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined; {} answers in one frame), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded) · {} unit budgets read in dollars · {} reconciles · {} invariant checks · {} positions · {} ms",
+                    "seed {s}: {} steps · {} crashes ({} startup faults) · {} sessions · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} of them transactions, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined; {} answers in one frame), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded) · {} unit budgets read in dollars · 37a: {} wakes set, {} repeating; {} taken, {} series put back, {} occurrences passed over ({} crashes down for minutes), {} ended by until; {} wakes cancelled · {} reconciles · {} invariant checks · {} positions · {} ms",
                     rep.steps, rep.crashes, rep.startup_faults, rep.sessions, rep.turns, rep.actions,
                     rep.one_frame_dispatches, rep.batches, rep.batch_actions, rep.batch_crashes,
                     rep.authorized_and_dispatched, rep.input_admits, rep.own_results, rep.faults,
@@ -468,6 +468,8 @@ fn main() -> Result<()> {
                     rep.asked, rep.asked_declined, rep.one_frame_answers, rep.ended_unsent,
                     rep.limit_changes, rep.limit_raises, rep.limits_followed, rep.limit_proceeds,
                     rep.legacy_migrated,
+                    rep.wakes_set, rep.repeats_set, rep.wakes_fired, rep.repeats_rearmed,
+                    rep.wakes_missed, rep.long_downs, rep.wakes_ended, rep.wakes_cancelled,
                     rep.reconciles, rep.invariant_checks, rep.final_positions, rep.wall_ms
                 );
                 totals.budget_questions += rep.budget_questions;
@@ -481,6 +483,14 @@ fn main() -> Result<()> {
                 totals.limit_raises += rep.limit_raises;
                 totals.limits_followed += rep.limits_followed;
                 totals.limit_proceeds += rep.limit_proceeds;
+                totals.wakes_set += rep.wakes_set;
+                totals.repeats_set += rep.repeats_set;
+                totals.wakes_fired += rep.wakes_fired;
+                totals.repeats_rearmed += rep.repeats_rearmed;
+                totals.wakes_missed += rep.wakes_missed;
+                totals.long_downs += rep.long_downs;
+                totals.wakes_ended += rep.wakes_ended;
+                totals.wakes_cancelled += rep.wakes_cancelled;
                 totals.crashes += rep.crashes;
                 totals.startup_faults += rep.startup_faults;
                 totals.turns += rep.turns;
@@ -511,7 +521,7 @@ fn main() -> Result<()> {
             }
             if seeds > 1 {
                 println!(
-                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} of them transactions, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined; {} answers in one frame), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded) · {} invariant checks · {} ms · all invariants held",
+                    "TOTAL {} seeds: {} crashes ({} startup faults) · {} turns · {} actions ({} in one frame; {} batches of {}, {} crashes inside one) · theseus-l6y: {} authorized and dispatched in one frame, {} input turns woken and admitted in one frame, {} results their turn read itself, {} faults after them ({} woken) · {} raced turns ({} ops on a second thread, {} of them transactions, {} crashes inside one) · {} completions ({} dup, {} notify lost, {} lost jobs, {} late-after-cancel) · {} cancels · {} unknown → {} resolved · {} budget questions ({} reset, {} declined) · theseus-w98: {} calls asked the operator ({} declined; {} answers in one frame), {} unsent actions a cancel ended · {} limit changes ({} raised; {} limits followed, {} budget waits proceeded) · 37a: {} wakes set, {} repeating; {} taken, {} series put back, {} occurrences passed over ({} crashes down for minutes), {} ended by until; {} wakes cancelled · {} invariant checks · {} ms · all invariants held",
                     seeds, totals.crashes, totals.startup_faults, totals.turns, totals.actions,
                     totals.one_frame_dispatches, totals.batches, totals.batch_actions,
                     totals.batch_crashes, totals.authorized_and_dispatched, totals.input_admits,
@@ -522,6 +532,8 @@ fn main() -> Result<()> {
                     totals.budget_declines, totals.asked, totals.asked_declined,
                     totals.one_frame_answers, totals.ended_unsent, totals.limit_changes, totals.limit_raises,
                     totals.limits_followed, totals.limit_proceeds,
+                    totals.wakes_set, totals.repeats_set, totals.wakes_fired, totals.repeats_rearmed,
+                    totals.wakes_missed, totals.long_downs, totals.wakes_ended, totals.wakes_cancelled,
                     totals.invariant_checks, totals.wall_ms
                 );
             }

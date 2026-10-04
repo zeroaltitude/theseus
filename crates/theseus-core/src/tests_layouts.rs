@@ -57,6 +57,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::EXECUTION,
+        layout: "2 (DD8, W1): an execution holding a one-shot wake and its target, before 37a's repeat and occurrence (format 5)",
+        bytes: r#"{"id":"exe_00000000000000000000000000000071","schema":2,"session_id":"ses_lantern","kind":"conversation","state":"waiting","authority":{"principal":"operator","ceilings":{}},"budget":{"limit_micros":100000,"spent_micros":0,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0,"pinned":true},"wake":{"on":"input"},"outstanding":[],"queued_results":[],"wakes":[{"id":"wak_00000000000000000000000000000072","due_at_ms":1790000060000,"note":"check the tide tables","set_at_ms":1790000000000,"by":"act_00000000000000000000000000000072","target":"discord:dm:7"}],"turns":1,"interrupted":0,"resume_pending":false,"created_at_ms":1790000000000,"updated_at_ms":1790000000000}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::ACTION,
         layout: "1, 460a35b's: a job's action, before a cancel's verdict (3) and a parent (4)",
         bytes: r#"{"correlation_id":"act_01a0f3f3cd97711e8a0b5fbbdc8b2bbc","schema":2,"execution_id":"exe_01a0f3f3c9b77474a7caa5d505b05b5e","session_id":"ses_01a0f3f3c9b77474a7caa5d4925bd678","tool":"proc.run","args_digest":"4533d5d67e5454984ee9e9dda4071126ee57335316dadaf778c88aace4ad066a","resource":"/tmp/theseus-f4a/fixgen/projects","retry_class":{"class":"non_repeatable"},"state":"planned","deadline_at_ms":1790802866503,"planned_at_ms":1790799236503,"reserved_micros":0,"completions_seen":0}"#,

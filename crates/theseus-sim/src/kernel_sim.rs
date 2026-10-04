@@ -65,6 +65,14 @@
 //! has no action planned or authorized. A cancel settles everything its
 //! execution planned and never sent, and so does a turn that ends it, so
 //! nothing of it counts as waiting, and nothing of it can still run.
+//!
+//! Turns set wakes (DD8), half of them repeating every 1 to 4 minutes, some
+//! with an `until` (37a), and take the due ones as the core's catch-up does;
+//! the operator cancels some. Each is taken at or after its time and no
+//! occurrence twice, across every crash; a series goes back on the list at
+//! the first occurrence after now, or ends by its `until`; and every check
+//! finds each execution's wakes capped, soonest first, each series due at
+//! one of its occurrences, its occurrence never going back.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -78,6 +86,8 @@ use serde_json::json;
 use theseus_kernel::job::WrapperEvidence;
 use theseus_kernel::*;
 use theseus_store::{Store, WalConfig, WalStore};
+
+mod wakes;
 
 #[derive(Debug, Clone)]
 pub struct SimParams {
@@ -156,6 +166,18 @@ pub struct SimReport {
     pub limit_raises: u64,
     pub limits_followed: u64,
     pub limit_proceeds: u64,
+    /// Wakes a turn set (DD8), the repeating ones among them (37a), those
+    /// a turn took, the series put back at their next occurrence, the
+    /// occurrences passed over, the series `until` ended, and the cancels.
+    pub wakes_set: u64,
+    /// Crashes after which the daemon stayed down for minutes.
+    pub long_downs: u64,
+    pub repeats_set: u64,
+    pub wakes_fired: u64,
+    pub repeats_rearmed: u64,
+    pub wakes_missed: u64,
+    pub wakes_ended: u64,
+    pub wakes_cancelled: u64,
     pub reconciles: u64,
     pub invariant_checks: u64,
     pub final_positions: u64,
@@ -217,6 +239,11 @@ struct World {
     /// Executions over their limit at the last check (a lower limit came
     /// after their spend), and the reservations they held then.
     over: HashMap<String, BTreeSet<String>>,
+    /// Every wake occurrence a turn took, by wake and occurrence (37a): none
+    /// runs twice, across every crash.
+    fired: HashSet<(String, u32)>,
+    /// Each pending wake's occurrence at the last check: it only grows.
+    occurrences: HashMap<String, u32>,
 }
 
 /// Executions stored with unit budgets before theseus-0sg, seeded into the
@@ -295,6 +322,11 @@ fn cfg(p: &SimParams, spend_limit_micros: Micros) -> KernelConfig {
         confirm_ttl_ms: 60_000,
         heartbeat_ms: 60_000,
         fault_after_startup_step: None,
+        // A minute, so a run of a few virtual minutes puts series back,
+        // and a crash passes occurrences over.
+        min_repeat_ms: 60_000,
+        // A zone of its own, so a run reproduces from its seed on any host.
+        zone: theseus_kernel::TimeZone::UTC,
     }
 }
 
@@ -348,6 +380,8 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         pinned: HashMap::new(),
         limits: HashMap::new(),
         over: HashMap::new(),
+        fired: HashSet::new(),
+        occurrences: HashMap::new(),
     };
     w.rep.legacy_migrated = w
         .kernel
@@ -402,6 +436,12 @@ impl World {
         self.rep.crashes += 1;
         if self.p.verbose {
             eprintln!("  crash {where_} at t={}", self.now());
+        }
+        // A fifth of the time the daemon stays down for minutes, across due
+        // times: a series' occurrences pass over (37a).
+        if self.chance(0.2) {
+            self.clock.advance(self.rng.random_range(60_000..600_000));
+            self.rep.long_downs += 1;
         }
         self.restart()
     }
@@ -553,6 +593,11 @@ impl World {
                 self.answer_confirm()
             };
         }
+        // Now and then the operator cancels a pending wake (DD8), which
+        // ends a series (37a).
+        if self.chance(0.15) {
+            return self.cancel_a_wake();
+        }
         // Wake a waiting conversation with input; on a budget wait, new
         // input is how its next call asks again.
         let waiting: Vec<_> = self
@@ -697,6 +742,18 @@ impl World {
         let _results = self.kernel.take_results(g)?;
         if self.maybe_crash("after take_results")? {
             return Ok(());
+        }
+        // Its due wakes, as the core's catch-up takes them, and now and then
+        // a wake it sets for itself (DD8, 37a).
+        self.take_wakes(&exec_id)?;
+        if self.maybe_crash("after take_wakes")? {
+            return Ok(());
+        }
+        if self.chance(0.5) {
+            self.set_a_wake(&exec_id)?;
+            if self.maybe_crash("after set_wake")? {
+                return Ok(());
+            }
         }
         if self.chance(0.25) {
             return self.take_a_batch(&exec_id);
@@ -1696,6 +1753,7 @@ impl World {
             bail!("{at}: {running} running > ceiling {}", self.p.ceiling);
         }
         self.check_terms(at, &execs, &actions, &stats)?;
+        self.check_wakes(at, &execs)?;
         // An execution that was cancelled never runs again (theseus-id9). Read
         // in WAL order, as far as the store has gone: after an execution's
         // `execution.cancelled` row, no turn of it starts and no action of it
