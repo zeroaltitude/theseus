@@ -115,8 +115,15 @@ const PUSH_DELAY: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const LSP_REQUEST: Instrument = Instrument {
+    name: "theseus.lsp.request.duration",
+    description: "Each language-server request a tool made (L2), by server, method, and outcome",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 14] = [
+const INSTRUMENTS: [&Instrument; 15] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -131,6 +138,7 @@ const INSTRUMENTS: [&Instrument; 14] = [
     &PUSH_EVENTS,
     &PUSH_LOST,
     &PUSH_DELAY,
+    &LSP_REQUEST,
 ];
 
 /// A tool call's attributes (§3.23). `theseus.tool.name` was `theseus.tool`
@@ -271,6 +279,7 @@ impl Metrics {
             self.tool_calls(t, &attrs);
             self.provider_calls(t);
             self.wakes(t);
+            self.lsp_requests(t);
         }
     }
 
@@ -288,6 +297,7 @@ impl Metrics {
         }
         if let Some(t) = f.trace {
             self.tool_calls(t, &attrs);
+            self.lsp_requests(t);
         }
         self.add(
             &PROVIDER_ERRORS,
@@ -353,6 +363,40 @@ impl Metrics {
             let attrs = sorted(attrs);
             self.add(&TOOL_CALLS, attrs.clone(), 1);
             self.record(&TOOL_DURATION, attrs, c.ms);
+        }
+    }
+
+    /// Each language-server request a tool call made (L2): its
+    /// `lsp.request` span's time, by its server, method, and outcome.
+    fn lsp_requests(&mut self, trace: &Span) {
+        fn walk(s: &Span, out: &mut Vec<(Attrs, f64)>) {
+            if s.name == "lsp.request" {
+                let a = |k: &str| {
+                    Attr::S(
+                        s.attrs
+                            .get(k)
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    )
+                };
+                out.push((
+                    sorted(vec![
+                        ("lsp.server", a("lsp.server")),
+                        ("lsp.method", a("lsp.method")),
+                        ("theseus.outcome", a("outcome")),
+                    ]),
+                    s.duration_us() as f64 / 1000.0,
+                ));
+            }
+            for c in &s.children {
+                walk(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(trace, &mut out);
+        for (attrs, ms) in out {
+            self.record(&LSP_REQUEST, attrs, ms);
         }
     }
 

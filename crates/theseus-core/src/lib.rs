@@ -32,6 +32,7 @@ pub mod github;
 pub mod graph;
 pub mod harness;
 pub mod ledger;
+pub mod lsp;
 pub mod narrative;
 pub mod node;
 pub mod ontology;
@@ -117,6 +118,8 @@ mod tests_grants;
 mod tests_jobs;
 #[cfg(test)]
 mod tests_layouts;
+#[cfg(test)]
+mod tests_lsp;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]

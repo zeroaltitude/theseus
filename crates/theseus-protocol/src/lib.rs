@@ -17,6 +17,7 @@ mod gate;
 mod health;
 pub mod index;
 mod ledger;
+pub mod lsp;
 pub mod memory;
 mod ontology;
 mod places;
@@ -503,6 +504,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub places: Option<PlacesHealth>,
+    /// The language servers (L2): absent when `[lsp]` is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub lsp: Option<Vec<lsp::LspServerStatus>>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

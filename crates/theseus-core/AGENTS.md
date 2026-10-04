@@ -62,6 +62,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`bootstrap.rs`, `rpc/aws.rs`: a read-only plan, the apply on the operator's yes), and the tenders after serving
   (`tend.rs`: the budget's reconcile and line, GuardDuty's weekly usage). Its tests are `aws/tests.rs` (C1) and
   `aws/tests_c2.rs` (a fake CloudFormation with state); `config/aws.rs` holds `[aws]`'s types and checks.
+- **Language servers** (L2, theseus-n88g.8): `lsp/` over theseus-lsp's client. `Board` starts one server per
+  (server, root) at the first call for a file of its language, never before (the root: the nearest marker inside the
+  workspace roots; for Rust the nearest `Cargo.toml` with `[workspace]`, else the topmost), through
+  `children::spawn(Kind::Owned)` in its own process group with the job environment, its stderr in a capped
+  `<state>/lsp/<server>-<hash>.log`. It stops one idle for `[lsp] idle_stop_mins`, one whose request timed out, and
+  all at the daemon's stop (SIGTERM, never waited for); a crash is `lsp.failed`; the next call starts it again. The
+  tools (`lsp/tools.rs`) are async reads addressed by path, 1-based line, and symbol text; the rename is two calls
+  (`lsp/rename.rs`, as the stack tools: `lsp.rename.plan` keeps the edit by digest, `lsp.rename` writes exactly
+  it, its files the plan's resources). `lsp::gate`, after the call's own order in `toolrun`'s gate, judges a call
+  that would start a server at `proc.run`'s posture for its argv (once per root in a daemon's life) and makes a
+  rename's write outside the roots wait. A cancel or `/stop` aborts the call's task, so the client sends
+  `$/cancelRequest`. Each request is an `lsp.request` span under its call (`Board::bind`, `spans`) and the metric
+  `theseus.lsp.request.duration`; the facts are `fact/lsp.rs`; health's `lsp` block is `Board::health`. Never
+  offered in a shared place (`places::offered`). Config: `config/lsp.rs`. Tests: `tests_lsp.rs` (the fake in
+  process), and the daemon's `tests/lsp.rs` (the real fake binary, and a `kill -9`).
 - **L1** (M4 17b): `sandbox.rs`: `[sandbox]`, a job's class (toward L1 alone: the default, `l1_argv`, the model's
   `sandbox: true`), L1's posture (notify), the view an L1 job gets, and health's block: the last L1 launch, read from
   its job's completion (`Sandbox::launched`), and why L1 refuses every job of a root daemon (theseus-pv6i).

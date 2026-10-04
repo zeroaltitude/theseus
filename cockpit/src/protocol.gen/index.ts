@@ -103,6 +103,7 @@ export type * from './LedgerTailResult';
 export type * from './Level';
 export type * from './LoopEnded';
 export type * from './LoopStarted';
+export type * from './LspServerStatus';
 export type * from './MemoryRecallsParams';
 export type * from './MemoryRecallsResult';
 export type * from './MemorySearchParams';

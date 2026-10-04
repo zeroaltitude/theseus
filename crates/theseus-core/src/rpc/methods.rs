@@ -100,6 +100,7 @@ impl Core {
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
             cancels: self.tools.stops.counts(),
             places: Some(self.runner.place_rule.health(&self.cfg)),
+            lsp: self.tools.lsp.as_ref().map(|b| b.health()),
         }
     }
 
@@ -172,6 +173,14 @@ impl Core {
     /// vault's changed note, whose next image takes the tender over.
     pub fn stop_index_tender(&self) {
         self.index.stop(self.restart_requested().is_some());
+    }
+
+    /// The daemon stops (L2): each language server's group gets SIGTERM,
+    /// never waited for.
+    pub fn stop_lsp(&self) {
+        if let Some(lsp) = &self.tools.lsp {
+            lsp.stop_all();
+        }
     }
 
     /// `index.query` (roadmap row 51): forwarded to the tender as it came,

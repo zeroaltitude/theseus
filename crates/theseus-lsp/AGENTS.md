@@ -1,9 +1,8 @@
 # theseus-lsp
 
 The Language Server Protocol, written by hand: a client for one language server over its stdin and stdout, with no
-core. Merged ahead of its reader: lane L2 (theseus-n88g.8) wires it into theseus-core (the LSP board beside the MCP
-board, the tools, the gate), and L3 hooks its diagnostics into `fs.write`, `fs.edit`, and `fs.patch`. Its manifest's
-`reserved_for` says so.
+core. Read by theseus-core's board (`crates/theseus-core/src/lsp/`, L2, theseus-n88g.8): the servers it starts, the
+`lsp.*` tools, and the gate's step for a start. L3 hooks its diagnostics into `fs.write`, `fs.edit`, and `fs.patch`.
 
 ## What is here
 

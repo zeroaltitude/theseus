@@ -271,6 +271,8 @@ pub struct ToolRuntime {
     /// The jobs turns wait on (Tier 7.1): the drain leaves each one's
     /// completion to its turn, and wakes it.
     pub job_waits: Arc<JobWaits>,
+    /// The language-server board (L2), when `[lsp]` is on.
+    pub lsp: Option<Arc<crate::lsp::Board>>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -389,6 +391,7 @@ impl ToolRuntime {
             stops: Default::default(),
             public_roots: Vec::new(),
             job_waits: Arc::default(),
+            lsp: None,
         }
     }
 
@@ -971,6 +974,8 @@ impl ToolRuntime {
         let planned = planned.map(|plan| {
             let t = tightened.as_ref().map(crate::tighten::as_tightened);
             let (decision, job_class) = sandbox::decide(self, tool, &plan, &call.input, t);
+            // A call that starts a language server is a run too (L2).
+            let decision = crate::lsp::gate(self, tool, &plan, decision);
             // A private address's card in a shared place says where the page
             // goes (theseus-94a6).
             let decision = crate::places::private_fetch(tc.class, &plan, decision);
@@ -1356,6 +1361,7 @@ impl ToolRuntime {
             let started = theseus_protocol::now_unix_ms();
             let t0 = Instant::now();
             let mut task = tokio::spawn(t.run_async(&input, &ctx));
+            let task_id = task.id();
             // A cancel or a stop aborts it (M4 18a).
             let _reachable = self.stops.track(correlation_id, task.abort_handle());
             let outcome = match tokio::time::timeout(deadline, &mut task).await {
@@ -1371,6 +1377,10 @@ impl ToolRuntime {
                     Err(timed_out())
                 }
             };
+            // Its language-server requests are its call's spans (L2).
+            if let Some(l) = &self.lsp {
+                l.bind(task_id, &call.id);
+            }
             (started, outcome, t0.elapsed())
         } else {
             // A free core first (theseus-a60): the deadline counts the run,
@@ -1707,6 +1717,16 @@ pub fn build_runtime(
     // AWS (row 29, C1): its tools when the config binds an account. Nothing
     // runs until a call, or the daemon's check after serving.
     let aws = crate::aws::Aws::from_config(&cfg.aws, secrets.clone()).filter(|_| t.enabled);
+    let proc_env: Vec<(String, String)> = t
+        .proc_env
+        .iter()
+        .filter(|k| !forbidden_env(k))
+        .filter_map(|k| std::env::var(k).ok().map(|v| (k.clone(), v)))
+        .collect();
+    // The language servers (L2): their tools when [lsp] is on. Nothing
+    // starts until a call for a file of a server's language.
+    let lsp = (t.enabled && cfg.lsp.enabled)
+        .then(|| crate::lsp::Board::new(&cfg.lsp, roots.clone(), proc_env.clone(), &state));
     let registry = if t.enabled {
         let mut r = theseus_tools::default_registry();
         // The web tools wait on the network, as async tools (DD5).
@@ -1717,6 +1737,9 @@ pub fn build_runtime(
         for tool in aws.iter().flat_map(|a| a.tools()) {
             r.register(tool);
         }
+        for tool in lsp.iter().flat_map(|b| b.tools()) {
+            r.register(tool);
+        }
         // Task sessions (DD7) and wakes (DD8): the harness runs them.
         r.register(Arc::new(crate::task::TaskCreate));
         r.register(Arc::new(crate::wake::WakeAt));
@@ -1724,12 +1747,6 @@ pub fn build_runtime(
     } else {
         Registry::new()
     };
-    let proc_env: Vec<(String, String)> = t
-        .proc_env
-        .iter()
-        .filter(|k| !forbidden_env(k))
-        .filter_map(|k| std::env::var(k).ok().map(|v| (k.clone(), v)))
-        .collect();
     let notify_socket = spool.as_ref().map(|s| s.dir().join("notify.sock"));
     // A program's name is resolved on the daemon's own PATH (theseus-dcy).
     let broker = Broker::new(&cfg.broker, secrets, std::env::var("PATH").ok());
@@ -1797,6 +1814,7 @@ pub fn build_runtime(
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
         job_waits: Arc::default(),
+        lsp,
     })
 }
 

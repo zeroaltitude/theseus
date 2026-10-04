@@ -44,6 +44,7 @@ pub mod answer;
 pub mod cancel;
 pub mod driver;
 pub mod index;
+pub mod lsp;
 pub mod ontology;
 pub mod place;
 pub mod recall;
@@ -320,6 +321,10 @@ facts![
     index::TenderSettingsChanged,
     index::TenderExited<'static>,
     index::TenderStartFailed<'static>,
+    lsp::LspStarted<'static>,
+    lsp::LspReady<'static>,
+    lsp::LspStopped<'static>,
+    lsp::LspFailed<'static>,
     sandbox::SandboxStarted<'static>,
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,

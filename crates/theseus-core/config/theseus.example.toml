@@ -392,6 +392,16 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # "aws.logs.tail" = "approve"
 # "aws.trail" = "approve"
 # "aws.inventory" = "approve"
+# The language servers' tools, when [lsp] is on: the reads inherit enforcement
+# (the first call for a project starts its server, judged as proc.run is);
+# a rename's plan writes nothing, and its apply is a write of every file it names
+# "lsp.definition" = "open"
+# "lsp.references" = "open"
+# "lsp.hover" = "open"
+# "lsp.symbols" = "open"
+# "lsp.diagnostics" = "open"
+# "lsp.rename.plan" = "open"
+# "lsp.rename" = "notify"
 
 # Per-MCP postures, for when MCP servers land (M7): "server" covers every tool
 # from that server, "server/tool" one tool. An MCP tool's posture comes from
@@ -528,6 +538,31 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # recall_max_items = 6                    # the pack's items, at most 40
 # recall_deadline_ms = 250                # how long recall waits for the index; the turn never waits past its model call and this
 # include_external = false                # whether fetched text may be recalled
+
+# ---------------------------------------------------------------- lsp
+# Language servers (L2): the lsp tools ask a project's language server where a
+# symbol is defined, who uses it, what it is, a file's outline, its errors, and
+# a rename's edit. Off by default. A server starts at the first call for a file
+# of its language in a project, never before: one per server and project root
+# (the nearest Cargo.toml with [workspace], else the topmost; tsconfig.json,
+# jsconfig.json, or package.json; pyproject.toml, setup.py, or requirements.txt),
+# with the job environment, its stderr in <state_dir>/lsp/. That first start is
+# a program run, judged at proc.run's posture for its command. A server stops
+# when idle, at the daemon's stop, or when a request goes unanswered, and the
+# next call starts it again. Health's lsp line shows each server, its time to
+# ready, and its memory (rust-analyzer can take gigabytes on a large workspace).
+# A file's server is the first installed of: rust-analyzer; ty, pyright,
+# basedpyright; tsgo (TypeScript 7's tsc --lsp), typescript-language-server.
+# An older binary refuses an [lsp] table: install first, then paste.
+# [lsp]
+# enabled = true                          # off by default
+# idle_stop_mins = 10.0                   # a server unused this long stops
+# request_timeout_secs = 30               # a request unanswered this long is cancelled, and its server stopped
+# [lsp.servers.pyright]                   # change a preset: command, extensions, roots (its markers), settings, enabled
+# settings = { python = { analysis = { diagnosticMode = "openFilesOnly" } } }
+# [lsp.servers.some-server]               # or add one: a command and its extensions
+# command = ["some-server", "--stdio"]
+# extensions = ["some"]
 
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own
