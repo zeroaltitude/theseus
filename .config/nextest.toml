@@ -16,18 +16,6 @@ leak-timeout = "500ms"
 # a real race. A test goes on this list in the commit that files its issue, with
 # the issue's id in a comment; it comes off in the commit that fixes it.
 #
-# theseus-a2ec: it asserts that a start from the config copy answers in under 500 ms, the fake
-# vault's delay, so a start slowed by a loaded machine (508 ms at load 25 to 34) fails it.
-[[profile.default.overrides]]
-filter = 'package(theseusd) & test(=the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_place)'
-retries = 2
-#
-# theseus-3dsz: while a stop waits out its grace, health must answer in under 500 ms, and one
-# scheduler stall on a loaded machine (880 ms at load 23 to 27) fails it.
-[[profile.default.overrides]]
-filter = 'package(theseusd) & test(=a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker)'
-retries = 2
-#
 # theseus-tphr: health's refused_records is compared with total - shown from an earlier ledger.tail,
 # two reads that are not one snapshot, so a row written after serving between them counts once more
 # (5 against 6; spine gh7s's fourth gate, 2026-10-03 00:53, load 3.6).

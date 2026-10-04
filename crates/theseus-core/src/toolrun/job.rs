@@ -751,6 +751,80 @@ mod tests {
         );
     }
 
+    /// A job whose completion the daemon's drain took, accepted and then
+    /// removed, before the turn's look reads as settled from the kernel
+    /// (theseus-46ya): the read finds no file, and the action the drain
+    /// settled answers the call. Before the drain, it is still running.
+    #[test]
+    fn a_job_the_drain_settled_reads_as_settled() {
+        use std::collections::BTreeMap;
+        use theseus_kernel::types::{new_id, Authority, RetryClass, SessionKind};
+        use theseus_kernel::{NoEvidence, Proposal};
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let kernel = Kernel::new(
+            store.shared(),
+            std::sync::Arc::new(theseus_kernel::RealClock),
+            Default::default(),
+        );
+        kernel.startup(None, &NoEvidence).unwrap();
+        let spool = Spool::open(&dir.path().join("spool")).unwrap();
+        let exec = kernel
+            .open_execution(
+                &new_id("ses"),
+                SessionKind::Conversation,
+                Authority {
+                    principal: "rig".into(),
+                    delegated_by: None,
+                    ceilings: BTreeMap::from([("tools".into(), "proc".into())]),
+                },
+                Some(1_000_000_000),
+                None,
+            )
+            .unwrap()
+            .id;
+        kernel.wake_input(&exec).unwrap();
+        let g = kernel.admit(&exec).unwrap();
+        let p = Proposal {
+            tool: "proc.run".into(),
+            args: json!({"argv": ["true"]}),
+            resource: None,
+            policy_context: json!({}),
+        };
+        let a = kernel
+            .plan_and_dispatch(&g, &p, RetryClass::SafeToRepeat, Some(60_000), 0, |_| {
+                Ok(vec![])
+            })
+            .unwrap();
+        let corr = a.correlation_id;
+        assert!(ToolRuntime::job_settled(&kernel, &spool, &corr)
+            .unwrap()
+            .is_none());
+        let path = spool
+            .write(&Completion {
+                correlation_id: corr.clone(),
+                outcome: Outcome::Succeeded,
+                result_ref: None,
+                external_op_id: None,
+                started_at_ms: 1,
+                finished_at_ms: 2,
+                producer: "rig".into(),
+                signature: None,
+                cost_micros: None,
+                detail: None,
+            })
+            .unwrap();
+        // The drain, as `Driver::drain_spool` does it: accept, then remove.
+        kernel
+            .accept_completion(&spool.drain().unwrap().completions[0].1)
+            .unwrap();
+        spool.remove(&path).unwrap();
+        let done = ToolRuntime::job_settled(&kernel, &spool, &corr)
+            .unwrap()
+            .expect("the drain settled it");
+        assert_eq!(done.state, ActionState::Succeeded);
+    }
+
     /// A cut through a UTF-8 character moves to the character's end, and the
     /// bytes it skips count as not read.
     #[test]
