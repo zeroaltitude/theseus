@@ -156,7 +156,8 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
         s.revision = Some(bindings.revision.clone());
     });
     // Each place's class follows from the file (the place rule): told now,
-    // before any message from them is read.
+    // before any message from them is read, with the guild's word.
+    core.trust_guild(bindings.private);
     core.bind_places(bound_places(&bindings));
     let Some(token) = bot_token(&core, &cfg.token_secret, &board).await else {
         return;
@@ -166,12 +167,13 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
     }
 }
 
-/// The places the file binds, as the place rule takes them.
+/// The places the file binds, as the place rule takes them: a channel is
+/// private by its own word, else by its guild's (theseus-rdqg).
 fn bound_places(b: &Bindings) -> Vec<theseus_core::places::BoundPlace> {
     let channels = b.channel.iter().map(|c| theseus_core::places::BoundPlace {
         target: format!("discord:channel:{}", c.id),
         name: c.label(),
-        private: c.private,
+        private: b.is_private(c),
     });
     let dms = b.dm.iter().map(|d| theseus_core::places::BoundPlace {
         target: format!("discord:dm:{}", d.user),
@@ -371,13 +373,11 @@ async fn start_places(
         Err(e) => tracing::warn!(error = %format!("{e:#}"), "discord: reconciling cards failed"),
     }
     shared.wake_lanes();
-    // Who can view each channel bound `private = true`, read once, for
-    // health (the place rule).
+    // Who can view each channel bound private, read once, for health (the
+    // place rule); none in a trusted guild (theseus-rdqg).
     let checks = shared.clone();
     let private: Vec<(u64, String)> = bindings
-        .channel
-        .iter()
-        .filter(|c| c.private)
+        .read_at_start()
         .filter_map(|c| Some((c.id.parse().ok()?, c.label())))
         .collect();
     tokio::spawn(async move {

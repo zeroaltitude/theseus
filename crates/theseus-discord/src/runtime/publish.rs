@@ -98,7 +98,7 @@ mod tests {
         let origin = Some(DiscordOrigin {
             user_id: EDDIE.to_string(),
             channel_id: LAB.to_string(),
-            guild_id: Some("712398310421561444".into()),
+            guild_id: Some("900000000000000001".into()),
         });
         let opt = |name: &str, value: CommandOptionValue| CommandDataOption {
             name: name.into(),

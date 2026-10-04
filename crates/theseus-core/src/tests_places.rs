@@ -3,7 +3,7 @@
 //! call; its system block carries only the public context files; a task
 //! takes its parent's class; a session whose place moved on answers its wake
 //! as that place; and a channel bound private, or a DM with the owner, gets
-//! everything.
+//! everything, as a channel in a trusted guild does (theseus-rdqg).
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -558,7 +558,7 @@ fn from_discord(user: u64, channel: Option<u64>) -> crate::approval::Answerer {
         discord: Some(theseus_protocol::DiscordOrigin {
             user_id: user.to_string(),
             channel_id: channel.unwrap_or(user + 1).to_string(),
-            guild_id: channel.map(|_| "712398310421561444".to_string()),
+            guild_id: channel.map(|_| "900000000000000001".to_string()),
         }),
     }
 }
@@ -713,4 +713,105 @@ async fn only_the_owner_from_a_private_place_publishes() {
     }
     let ok = r.core.publish(&p, from_discord(OWNER, None));
     assert!(ok.is_ok(), "the owner's DM is private: {ok:?}");
+}
+
+/// A guild channel bound `private = false` in a trusted guild.
+const HALL: u64 = 161_803_398_874_989_484;
+
+/// The places as the binding tells them for a trusted guild (theseus-rdqg):
+/// `#lab` says nothing of `private`, so its guild's word makes it private;
+/// `#hall` says `private = false`, so it is shared; and the owner's DM.
+fn bind_a_trusted_guild(core: &Core) {
+    core.trust_guild(true);
+    core.bind_places(vec![
+        BoundPlace {
+            target: format!("discord:channel:{LAB}"),
+            name: "#lab".into(),
+            private: true,
+        },
+        BoundPlace {
+            target: format!("discord:channel:{HALL}"),
+            name: "#hall".into(),
+            private: false,
+        },
+        BoundPlace {
+            target: format!("discord:dm:{OWNER}"),
+            name: "DM @owner".into(),
+            private: false,
+        },
+    ]);
+}
+
+/// theseus-rdqg: a channel in a trusted guild is private, so it is offered
+/// every tool and carries the owner's context files; one bound `private =
+/// false` there is still shared. Health names the private one as in a
+/// trusted guild, with no viewers and no warning, and no `place.viewed` row
+/// is written: nothing was read. Outside a trusted guild the same place has
+/// no such note.
+#[tokio::test]
+async fn a_channel_in_a_trusted_guild_gets_everything_and_one_bound_shared_does_not() {
+    let r = rig();
+    bind_a_trusted_guild(&r.core);
+    let lab = session(&r.core, Some(&format!("channel:{LAB}")));
+    assert_eq!(r.core.runner.class_of(&lab), PlaceClass::Private);
+    turn(&r.core, &lab, "hello").await;
+    let req = r.requests().last().unwrap().clone();
+    for tool in ["proc_run", "fs_write", "fs_read"] {
+        assert!(offered(&req).contains(&tool.to_string()), "{tool}");
+    }
+    let system = system_text(&req);
+    assert!(system.contains(SECRET) && system.contains(OPEN), "{system}");
+
+    let hall = session(&r.core, Some(&format!("channel:{HALL}")));
+    assert_eq!(r.core.runner.class_of(&hall), PlaceClass::Shared);
+    let before = r.requests().len();
+    turn(&r.core, &hall, "hello").await;
+    let req = &r.requests()[before];
+    assert_eq!(offered(req), SHARED_TOOLS);
+    assert!(!system_text(req).contains(SECRET));
+
+    let places = |r: &Rig| -> Vec<(String, PlaceClass, bool, bool)> {
+        let h = r.core.health().places.unwrap();
+        h.places
+            .into_iter()
+            .map(|p| {
+                let read = p.others.is_some() || p.unchecked.is_some();
+                (p.name, p.class, p.trusted_guild, read)
+            })
+            .collect()
+    };
+    let want = |trusted: bool| -> Vec<(String, PlaceClass, bool, bool)> {
+        [
+            ("CLI", PlaceClass::Private, false),
+            ("web", PlaceClass::Private, false),
+            ("#lab", PlaceClass::Private, trusted),
+            ("#hall", PlaceClass::Shared, false),
+            ("DM @owner", PlaceClass::Private, false),
+        ]
+        .into_iter()
+        .map(|(n, c, t)| (n.to_string(), c, t, false))
+        .collect()
+    };
+    assert_eq!(places(&r), want(true));
+    assert!(rows(&r.core, "place.viewed").is_empty(), "nothing read");
+    r.core.trust_guild(false);
+    assert_eq!(places(&r), want(false), "outside a trusted guild");
+}
+
+/// theseus-rdqg, with 7.6's rule unchanged: an answer from a channel in a
+/// trusted guild counts for the owner, as one from any private place does.
+/// From the channel bound `private = false` there it does not, and nobody
+/// else's counts, even in the trusted channel.
+#[tokio::test]
+async fn an_answer_from_a_trusted_guilds_channel_counts_for_the_owner() {
+    let r = rig();
+    bind_a_trusted_guild(&r.core);
+    let judge = |who: crate::approval::Answerer| {
+        crate::places::owner_in_private(&who, &r.core.runner.place_rule, &r.core.cfg)
+    };
+    assert_eq!(judge(from_discord(OWNER, Some(LAB))), Ok(()));
+    let e = judge(from_discord(OWNER, Some(HALL))).unwrap_err();
+    assert!(e.contains("shared place"), "{e}");
+    let e = judge(from_discord(ALICE, Some(LAB))).unwrap_err();
+    assert!(e.contains("is not an owner"), "{e}");
 }

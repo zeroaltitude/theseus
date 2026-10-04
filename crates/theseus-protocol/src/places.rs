@@ -11,7 +11,8 @@ use crate::DiscordOrigin;
 #[serde(rename_all = "snake_case")]
 pub enum PlaceClass {
     /// The CLI, the web UI, a DM with an owner, and a guild channel the
-    /// bindings file binds with `private = true`: everything.
+    /// bindings file binds with `private = true`, or in a guild it trusts
+    /// whole: everything.
     Private,
     /// Every other place: its own conversation, the public tools, files only
     /// under `public_paths`, and only the context files marked public.
@@ -60,6 +61,11 @@ pub struct PlaceInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub unchecked: Option<String>,
+    /// A private guild channel in a guild the operator trusts whole (the
+    /// bindings file's `private = true` beside `guild_id`, theseus-rdqg):
+    /// the operator's word covers the guild, so who can view it is not read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trusted_guild: bool,
 }
 
 /// `place.publish` (the place rule's publish, theseus-nbsh): the owner, from
