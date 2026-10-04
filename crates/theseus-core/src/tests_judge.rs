@@ -216,7 +216,12 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
     assert_eq!(Some(session.cost_usd), res.cost_usd);
     let h = r.core.health().judge.unwrap();
     assert!(h.enabled);
-    assert_eq!(h.packs, ["loop.v1: shadow"]);
+    // Every pack wired is listed (32c adds rerank.v1): loop.v1 among them.
+    assert!(
+        h.packs.contains(&"loop.v1: shadow".to_string()),
+        "{:?}",
+        h.packs
+    );
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(h.spend_today_usd, theseus_judge::price::micros_to_usd(cost));
     assert_eq!(h.breaker, "closed");
@@ -370,10 +375,13 @@ async fn an_off_judge_or_pack_calls_nothing() {
     for r in [&off, &pack_off, &capped] {
         assert!(judged(&r.core.store).is_empty());
     }
-    assert_eq!(
-        pack_off.core.health().judge.unwrap().packs,
-        ["loop.v1: off"]
-    );
+    assert!(pack_off
+        .core
+        .health()
+        .judge
+        .unwrap()
+        .packs
+        .contains(&"loop.v1: off".to_string()));
 }
 
 /// A Jev model with no price is never called: the judgment is recorded as

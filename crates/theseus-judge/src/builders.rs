@@ -1244,7 +1244,7 @@ mod tests {
             (
                 "categorize.v1",
                 Input::Categorize(CategorizeInput {
-                    session_title: big,
+                    session_title: big.clone(),
                     recent_human_messages: (0..2_000).map(|_| item.clone()).collect(),
                     memberships: (0..2_000)
                         .map(|i| MembershipInput {
@@ -1256,6 +1256,19 @@ mod tests {
                         .map(|i| TopicInput {
                             id: format!("c{i}"),
                             description: item.clone(),
+                        })
+                        .collect(),
+                }),
+            ),
+            (
+                "rerank.v1",
+                Input::Rerank(RerankInput {
+                    message: big.clone(),
+                    // Past the 20 a rerank reads, the rest only cost the test.
+                    notes: (0..100)
+                        .map(|i| RerankNote {
+                            key: format!("nod_{i}#0"),
+                            text: if i < 25 { big.clone() } else { item.clone() },
                         })
                         .collect(),
                 }),

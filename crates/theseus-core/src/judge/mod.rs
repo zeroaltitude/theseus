@@ -2,6 +2,7 @@
 //! asks Jev its typed questions, through `theseus-judge`, and records every
 //! answer. In 23a one pack judges, `loop.v1`, in shadow: at each turn the
 //! baseline ended with no tool calls, after the turn, and nothing acts on it.
+//! M6's 32c adds `rerank.v1` in shadow, after a turn's recall (`rerank`).
 //!
 //! - **Off the start path.** `JudgeService::new` reads nothing and sends
 //!   nothing. The client, its breaker, and its sink's task are built by the
@@ -21,6 +22,7 @@
 //!   and counted, never queued.
 
 pub mod loop_end;
+pub mod rerank;
 pub mod sink;
 pub mod spend;
 
@@ -47,7 +49,10 @@ use spend::{Reserve, ShadowBudget};
 
 /// The packs this build wires in, and the mode the ladder gives each (step
 /// 26a brings the ladder; until then every pack is in shadow).
-pub const WIRED: &[(&str, PackMode)] = &[(LOOP_PACK, PackMode::Shadow)];
+pub const WIRED: &[(&str, PackMode)] = &[
+    (LOOP_PACK, PackMode::Shadow),
+    (rerank::RERANK_PACK, PackMode::Shadow),
+];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.
 pub const LOOP_PACK: &str = "loop.v1";
@@ -95,6 +100,7 @@ pub struct JudgeService {
     built: OnceLock<Arc<Built>>,
     flush: Duration,
     prices: BTreeMap<String, JevPrice>,
+    rerank_deadline: rerank::RerankDeadline,
     me: Weak<JudgeService>,
 }
 
@@ -136,6 +142,7 @@ impl JudgeService {
             built: OnceLock::new(),
             flush,
             prices,
+            rerank_deadline: rerank::RerankDeadline::default(),
             me: me.clone(),
         })
     }

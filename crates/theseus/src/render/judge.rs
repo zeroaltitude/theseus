@@ -77,9 +77,37 @@ fn answer(a: &Value) -> String {
     }
 }
 
+/// A rerank's own words (M6 32c): its recall, and whether Jev's order
+/// changed what would be admitted (`+1 −1`), or why it fell back to the
+/// fused order.
+fn rerank(rr: &Value) -> String {
+    let recall = rr["recall"].as_str().unwrap_or("?");
+    let keys = |k: &str| -> Vec<&str> {
+        rr[k]
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default()
+    };
+    let (fused, reranked) = (keys("fused_admitted"), keys("reranked_admitted"));
+    let what = match rr["fallback"].as_str() {
+        Some(f) => format!("fell back to the fused order ({f})"),
+        None if rr["changed"].as_bool() == Some(true) => format!(
+            "changed what would be admitted (+{} −{})",
+            reranked.iter().filter(|k| !fused.contains(k)).count(),
+            fused.iter().filter(|k| !reranked.contains(k)).count()
+        ),
+        None => "kept what would be admitted".into(),
+    };
+    format!(
+        "recall {recall} · {} notes · {what}",
+        rr["eligible"].as_u64().unwrap_or(0).min(20)
+    )
+}
+
 /// `theseus judge log`: one line a judgment, oldest first: its time, pack
 /// and mode, session, what it answered (or why it did not), its cost, and
-/// how long Jev took.
+/// how long Jev took. A rerank says its recall and what its order changed
+/// instead of its answers, and its deadline beside its time.
 pub fn judge_log_lines(rows: &[LedgerEntry]) -> Vec<String> {
     if rows.is_empty() {
         return vec![
@@ -90,7 +118,9 @@ pub fn judge_log_lines(rows: &[LedgerEntry]) -> Vec<String> {
         .map(|r| {
             let d = &r.data;
             let o = &d["outcome"];
+            let rr = &d["context"]["rerank"];
             let what = match o["outcome"].as_str() {
+                _ if rr.is_object() => rerank(rr),
                 Some("answered") => d["answers"]
                     .as_array()
                     .map(|a| a.iter().map(answer).collect::<Vec<_>>().join(" · "))
@@ -111,8 +141,12 @@ pub fn judge_log_lines(rows: &[LedgerEntry]) -> Vec<String> {
             } else {
                 String::new()
             };
+            let deadline = match rr["deadline_ms"].as_u64() {
+                Some(ms) => format!(" of {ms}"),
+                None => String::new(),
+            };
             format!(
-                "{} {} ({}) {} · {what} · {cost} · {} ms{drift}",
+                "{} {} ({}) {} · {what} · {cost} · {} ms{deadline}{drift}",
                 fmt_time(r.at_unix_ms),
                 d["pack"].as_str().unwrap_or("?"),
                 d["mode"].as_str().unwrap_or("?"),
@@ -176,6 +210,48 @@ mod tests {
             [
                 "01:02:03.000Z loop.v1 (shadow) ses_a · work_state=complete 0.95 act · announced_unfinished=no 0.04 act · $0.000089 · 412 ms",
                 "01:02:03.000Z loop.v1 (shadow) ses_a · failed: timeout · no cost · 1000 ms",
+            ]
+        );
+    }
+
+    /// A rerank's line names its recall and says whether its order changed
+    /// what would be admitted, or why it fell back.
+    #[test]
+    fn a_reranks_line_names_its_recall_and_what_it_changed() {
+        let row = |rerank: Value, outcome: Value, ms: u64| LedgerEntry {
+            position: 1,
+            at_unix_ms: 3_723_000,
+            kind: "judge.call".into(),
+            session_id: Some("ses_b".into()),
+            turn_id: Some("turn_b".into()),
+            data: json!({"pack": "rerank.v1", "mode": "shadow", "outcome": outcome,
+                "cost_micros": 120, "timing": {"total_ms": ms}, "context": {"rerank": rerank}}),
+        };
+        let answered = json!({"outcome": "answered"});
+        let changed = row(
+            json!({"recall": "rcl_a1", "eligible": 3, "fused_admitted": ["n1#0", "n2#0"],
+                "reranked_admitted": ["n3#0", "n2#0"], "changed": true, "fallback": null, "deadline_ms": 600}),
+            answered.clone(),
+            341,
+        );
+        let kept = row(
+            json!({"recall": "rcl_a2", "eligible": 25, "fused_admitted": ["n1#0"],
+                "reranked_admitted": ["n1#0"], "changed": false, "fallback": null, "deadline_ms": 600}),
+            answered,
+            298,
+        );
+        let fell = row(
+            json!({"recall": "rcl_a3", "eligible": 2, "fused_admitted": ["n1#0"],
+                "reranked_admitted": ["n1#0"], "changed": false, "fallback": "timeout", "deadline_ms": 600}),
+            json!({"outcome": "failed", "class": "timeout"}),
+            601,
+        );
+        assert_eq!(
+            judge_log_lines(&[changed, kept, fell]),
+            [
+                "01:02:03.000Z rerank.v1 (shadow) ses_b · recall rcl_a1 · 3 notes · changed what would be admitted (+1 −1) · $0.000120 · 341 ms of 600",
+                "01:02:03.000Z rerank.v1 (shadow) ses_b · recall rcl_a2 · 20 notes · kept what would be admitted · $0.000120 · 298 ms of 600",
+                "01:02:03.000Z rerank.v1 (shadow) ses_b · recall rcl_a3 · 2 notes · fell back to the fused order (timeout) · $0.000120 · 601 ms of 600",
             ]
         );
     }

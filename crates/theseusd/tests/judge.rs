@@ -190,7 +190,8 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
     let j = rig.judge();
     assert_eq!(j["enabled"], true, "{j}");
     assert_eq!(j["breaker"], "idle", "{j}");
-    assert_eq!(j["packs"], json!(["loop.v1: shadow"]));
+    // Every pack wired is listed (32c adds rerank.v1), each in shadow.
+    assert_eq!(j["packs"], json!(["loop.v1: shadow", "rerank.v1: shadow"]));
     assert!(rig.rows("judge.call").is_empty());
     rig.stop(d);
 }

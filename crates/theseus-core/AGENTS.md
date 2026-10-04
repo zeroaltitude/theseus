@@ -126,6 +126,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   nothing, and `memory.recalls`), and `config/memory.rs`. In shadow the model's request is the one compiled without
   recall, and the row rides in the turn's next frame. The filters and pack are `theseus_memory::recall`. Tests:
   `tests_recall.rs`.
+  - **The `+rerank` arm in shadow** (step 32c): `judge/rerank.rs`. After the pipeline, the recall step's one call,
+    `JudgeService::at_recall`, picks the candidates that passed every filter (`theseus_memory::rerank::eligible`,
+    the place rule first: only they may reach Jev), marks the turn's trace (`judge`, kind `mark`, with the judgment's
+    id), and spawns `rerank.v1` under its own 600 ms deadline (a live-urgency call): the reorder, the repack, and a
+    `judge.call` row (scoped `judge:rerank`, context `purpose: "recall"`, and `rerank`: the recall's id, both orders'
+    admitted keys, `changed`, `fallback`, the latency against the deadline, the cost). The day's limit sends nothing
+    and writes no rerank row. Tests: `tests_rerank.rs` (the place test over generated stores reads what the fake Jev
+    was sent).
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

@@ -50,9 +50,9 @@ impl TurnRunner {
             place: self.place_of(t.tc.session_id),
             in_context,
         };
-        let m = self
-            .memory
-            .manifest(&scene, &begun, answer, |s| self.place_of(s), false);
+        let (m, candidates) =
+            self.memory
+                .manifest_with(&scene, &begun, answer, |s| self.place_of(s), false);
         let f = RecallShadow {
             manifest: &m,
             t0,
@@ -67,5 +67,26 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "recall: its row cannot be encoded"),
         }
         t.announce_fact(&f);
+        // The `+rerank` arm in shadow (32c): off the turn's path.
+        self.judge.at_recall(
+            &mut t.trace,
+            crate::judge::rerank::Recalled {
+                recall_id: m.recall_id.clone(),
+                session_id: t.tc.session_id.to_string(),
+                turn_id: t.tc.turn_id.to_string(),
+                message: begun.query.clone(),
+                place: scene.place,
+                in_context: scene.in_context,
+                candidates,
+                params: self.memory.cfg().params(),
+                science: self.memory.science_owned(),
+                admitted: m
+                    .admitted
+                    .iter()
+                    .map(|a| format!("{}#{}", a.node_id, a.chunk))
+                    .collect(),
+                now_ms: theseus_protocol::now_unix_ms(),
+            },
+        );
     }
 }
