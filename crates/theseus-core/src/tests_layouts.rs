@@ -43,7 +43,20 @@ struct Sample {
     kept: Kept,
 }
 
+/// A plan item as format 14 wrote it (39a, theseus-ext.6), before the
+/// model's mark on its origin (`origin.by_model`, format 15, theseus-ext.10):
+/// it reads as the owner's, so a change to its layer 1 waits
+/// (`tests_task_layers`). By hand, in the layout the build before
+/// theseus-ext.10 (1bb9b9b) writes.
+pub(crate) const TASK_BEFORE_MODEL_MARK: &str = r#"{"id":"tsk_00000000000000000000000000000091","version":1,"title":"Chart the harbour soundings","objective":"chart every buoy of the outer harbour","acceptance":["every buoy has a depth on the chart"],"state":"accepted","deps":[],"owner":"agent","origin":{"session":"ses_lighthouse","principal":"operator"},"evidence":[{"node":"msg_00000000000000000000000000000090","identity":"commit:0a1b2c3d","by":"ses_lighthouse","at_ms":1790000000090}],"created_at_ms":1790000000091,"updated_at_ms":1790000000091}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::TASK,
+        layout: "a plan item at format 14 (39a): before the model's mark on its origin (15, theseus-ext.10)",
+        bytes: TASK_BEFORE_MODEL_MARK,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::SESSION,
         layout: "1, 460a35b's: before T1's hold on external text (2), its run of failures (3), the images its provider refused (4), a search's query (5), and the 1-hour cache writes (6)",
@@ -275,7 +288,7 @@ fn reread(kind: RecordKind, bytes: &[u8]) -> anyhow::Result<String> {
         kinds::COMPLETION => again::<Completion>(bytes),
         kinds::NODE => again::<Node>(bytes),
         kinds::COMPILATION => again::<Compilation>(bytes),
-        // New at format 12 (39a): no older layout of it is on disk anywhere.
+        // New at format 12 (39a); its layout before 15 is a sample above.
         kinds::TASK => again::<crate::task_graph::TaskRecord>(bytes),
         k => anyhow::bail!("kind {k} has no reader here"),
     }

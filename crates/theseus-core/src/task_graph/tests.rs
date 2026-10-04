@@ -15,6 +15,7 @@ fn task(id: &str, origin: &str, parent: Option<&str>, state: TaskState) -> TaskR
         origin: TaskOrigin {
             session: origin.into(),
             principal: "operator".into(),
+            by_model: false,
         },
         state,
     }
@@ -161,8 +162,8 @@ fn the_view_shows_open_tasks_and_folds_closed_subtrees() {
     assert!(lines[0].starts_with("[The task graph in this conversation's scope: 1 open, 3 closed."));
     assert_eq!(
         lines[1],
-        "- tsk_aaaa01 \"chart the tsk_aaaa01 soundings\" [accepted] owner agent, deps tsk_bbbb01, \
-         accept: every buoy has a depth, v1"
+        "- tsk_aaaa01 \"chart the tsk_aaaa01 soundings\" [accepted] owner agent, the operator's \
+         objective, deps tsk_bbbb01, accept: every buoy has a depth, v1"
     );
     assert_eq!(
         lines[2],

@@ -4,7 +4,7 @@ import type { TaskRecord } from "./TaskRecord";
 /**
  * `task.changed`: a task's record after a change, with the verb that made
  * it (`created`, `updated`, `split`, `closed`, `change_proposed`,
- * `change_accepted`, `change_declined`).
+ * `change_accepted`, `change_declined`, `change_expired`).
  */
 export type TaskChanged = { 
 /**

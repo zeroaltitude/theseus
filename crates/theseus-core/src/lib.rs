@@ -193,6 +193,8 @@ mod tests_security;
 #[cfg(test)]
 mod tests_task_graph;
 #[cfg(test)]
+mod tests_task_layers;
+#[cfg(test)]
 mod tests_task_wakes;
 #[cfg(test)]
 mod tests_tasks;

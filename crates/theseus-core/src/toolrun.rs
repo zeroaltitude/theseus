@@ -1121,6 +1121,10 @@ impl ToolRuntime {
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
         let mut proposal = self.proposal_for(tool, &call.input);
         let planned = tool.plan(&call.input, &self.ctx);
+        // Layer 1 guards only the owner's tasks (theseus-ext.10).
+        let planned = planned.map(|p| {
+            crate::task_graph::tools::authority_for(tc.store, tool.name(), &call.input, p)
+        });
         // The order is `order.rs`, which `policy.explain` runs too (42a).
         let held = || crate::external::held(tc.store, tc.session_id);
         let mcp = || mcp_floor(tc);

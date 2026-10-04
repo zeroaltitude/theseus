@@ -524,7 +524,18 @@ impl Core {
         };
         let row = fact::row(&fact, Some(&a.session_id), None)?;
         let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+        // An expired layer-1 change clears its proposal in this frame, as a
+        // decline does, under the task's lock (theseus-ext.10).
+        let task_lock = crate::task_graph::tools::lock_for_answer(&self.store, a);
+        let task_rec = self.session_rec(&a.session_id);
+        let mut cleared = None;
         self.kernel.frame(&[&a.execution_id], |k| {
+            if task_lock.is_some() {
+                cleared = crate::task_graph::tools::expired(&self.store, &task_rec, a)?;
+            }
+            if let Some((records, _)) = &cleared {
+                k.stage(records)?;
+            }
             k.decline_action(&a.correlation_id, EXPIRY, &why)?;
             k.stage(std::slice::from_ref(&row))?;
             // The wake is its own part, as an answer's: one that cannot
@@ -532,6 +543,10 @@ impl Core {
             let _ = k.frame(&[&a.execution_id], |k| k.wake(&a.execution_id, "expired"));
             Ok(())
         })?;
+        drop(task_lock);
+        if let Some((_, c)) = &cleared {
+            crate::fact::task_graph::announce(&task_rec, "change_expired", c);
+        }
         self.session_rec(&a.session_id).announce(&fact);
         self.card_closed(
             &a.correlation_id,

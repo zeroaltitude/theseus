@@ -320,6 +320,7 @@ facts![
     task_graph::TaskChangeProposed<'static>,
     task_graph::TaskChangeAccepted<'static>,
     task_graph::TaskChangeDeclined<'static>,
+    task_graph::TaskChangeExpired<'static>,
     task_graph::TaskStaleRefused<'static>,
     tool::WakeSet<'static>,
     answer::CallAnswered<'static>,

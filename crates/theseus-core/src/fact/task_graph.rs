@@ -85,6 +85,10 @@ impl Change {
                 "the operator declined the change to task {}; it stays as it was",
                 t.id
             ),
+            "change_expired" => format!(
+                "the change to task {} expired unanswered; it stays as it was",
+                t.id
+            ),
             "stale_refused" => format!(
                 "an edit of task {} named v{}, and it is at v{}: refused, to be read again",
                 t.id,
@@ -159,5 +163,6 @@ changes! {
     TaskChangeProposed = LedgerKind::TaskChangeProposed, "change_proposed";
     TaskChangeAccepted = LedgerKind::TaskChangeAccepted, "change_accepted";
     TaskChangeDeclined = LedgerKind::TaskChangeDeclined, "change_declined";
+    TaskChangeExpired = LedgerKind::TaskChangeExpired, "change_expired";
     TaskStaleRefused = LedgerKind::TaskStaleRefused, "stale_refused";
 }

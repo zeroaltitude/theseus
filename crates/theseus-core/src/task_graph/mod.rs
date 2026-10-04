@@ -257,8 +257,12 @@ pub fn depth(tasks: &[&TaskRecord], t: &TaskRecord) -> usize {
     d
 }
 
-/// One task on one line: id, title, state, owner, deps, a line of
-/// acceptance, and version.
+/// How the view marks the owner's tasks, whose layer-1 changes wait
+/// (theseus-ext.10).
+pub const OWNERS_MARK: &str = "the operator's objective";
+
+/// One task on one line: id, title, state, owner, the owner's mark, deps, a
+/// line of acceptance, and version.
 pub fn line(t: &TaskRecord) -> String {
     let mut out = format!(
         "{} \"{}\" [{}] owner {}",
@@ -267,6 +271,9 @@ pub fn line(t: &TaskRecord) -> String {
         t.state.as_str(),
         t.owner
     );
+    if t.is_owners() {
+        out.push_str(&format!(", {OWNERS_MARK}"));
+    }
     if !t.deps.is_empty() {
         out.push_str(&format!(", deps {}", t.deps.join(" ")));
     }

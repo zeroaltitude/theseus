@@ -4,4 +4,12 @@
  * Who asked for a task: the session its creating call ran in, and that
  * session's principal (the requester a layer-1 change waits for).
  */
-export type TaskOrigin = { session: string, principal: string, };
+export type TaskOrigin = { session: string, principal: string, 
+/**
+ * The model wrote its objective and acceptance (theseus-ext.10): a plan
+ * item (`task.create` without a brief) or a split's child, so a change
+ * to its layer 1 applies at once. Absent, it is the owner's and a change
+ * waits: a task session `task.create` opened with a brief and its
+ * arrangement, and every record written before this field.
+ */
+by_model?: boolean, };

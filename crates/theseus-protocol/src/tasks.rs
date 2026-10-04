@@ -71,6 +71,13 @@ impl TaskState {
 pub struct TaskOrigin {
     pub session: String,
     pub principal: String,
+    /// The model wrote its objective and acceptance (theseus-ext.10): a plan
+    /// item (`task.create` without a brief) or a split's child, so a change
+    /// to its layer 1 applies at once. Absent, it is the owner's and a change
+    /// waits: a task session `task.create` opened with a brief and its
+    /// arrangement, and every record written before this field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_model: bool,
 }
 
 /// One entry of a task's evidence (layer 3): a node and its identity (a
@@ -156,6 +163,12 @@ pub struct TaskRecord {
 }
 
 impl TaskRecord {
+    /// Whether its objective, acceptance, and abandoning are the owner's
+    /// (layer 1, theseus-ext.10): a change waits for the operator's yes.
+    pub fn is_owners(&self) -> bool {
+        !self.origin.by_model
+    }
+
     /// How people name it: the last six characters of its id.
     pub fn short(&self) -> &str {
         let n = self.id.len();
@@ -181,7 +194,7 @@ pub struct TaskGetResult {
 
 /// `task.changed`: a task's record after a change, with the verb that made
 /// it (`created`, `updated`, `split`, `closed`, `change_proposed`,
-/// `change_accepted`, `change_declined`).
+/// `change_accepted`, `change_declined`, `change_expired`).
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskChanged {

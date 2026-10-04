@@ -16,7 +16,7 @@
 use serde_json::{json, Value};
 use theseus_protocol::tasks::TaskViewSummary;
 
-use super::{depth, line, scope, TaskRecord};
+use super::{depth, line, scope, TaskRecord, OWNERS_MARK};
 
 /// The view's bound, in tokens (estimated at `BYTES_PER_TOKEN`).
 pub const MAX_TOKENS: u64 = 1500;
@@ -87,8 +87,9 @@ pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
     }
     let head = format!(
         "{HEAD} {open} open, {closed} closed. Edit it with \
-         task.update, task.split, and task.close, naming the version you read; an objective or \
-         acceptance change, or abandoning, waits for the operator.]"
+         task.update, task.split, and task.close, naming the version you read. On a task marked \
+         \"{OWNERS_MARK}\", an objective or acceptance change, or abandoning, waits for the \
+         operator; on any other, it applies at once.]"
     );
     let mut lines: Vec<&str> = full.iter().map(|(_, l)| l.as_str()).collect();
     let mut left_out = 0u32;
