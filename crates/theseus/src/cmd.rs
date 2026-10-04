@@ -62,6 +62,7 @@ pub async fn ask(
         Some(p) => p.to_string(),
     };
     let params = serde_json::to_value(TurnSubmitParams {
+        carried: false,
         prompt: None,
         session_id: a.session,
         input: prompt,

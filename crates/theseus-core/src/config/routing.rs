@@ -1,0 +1,288 @@
+//! `[routing]` (M5 step 25e): Jev's model per interaction mode. `route.v1`
+//! asks, at `inbound`, which mode a person's message needs, and the turn runs
+//! on that mode's first usable profile. It acts only while `[judge]` is on,
+//! and `mode = "shadow"` (or `[judge.packs."route.v1"] mode = "shadow"`)
+//! records the verdict and routes nothing. Every key has a default, so a
+//! sparse note holds only what differs.
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+use super::PackMode;
+
+/// The profile name that means the usable profile cheapest for a short
+/// turn at catalog prices (reserved: no profile may take it).
+pub const CHEAPEST: &str = "cheapest";
+
+/// `[routing]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoutingConfig {
+    /// On by default: acts only while `[judge]` is on.
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// `live` routes; `shadow` records the verdict and routes nothing.
+    #[serde(default = "live")]
+    pub mode: RoutingMode,
+    /// How long the turn waits for the verdict after its first compile ends.
+    #[serde(default = "max_wait_ms")]
+    pub max_wait_ms: u64,
+    /// The exchanges a trivial detour's request carries before the message.
+    #[serde(default = "trivial_context_turns")]
+    pub trivial_context_turns: u32,
+    /// A switch of the session's profile at a compile of this many estimated
+    /// tokens or more waits for a second turn in a row that agrees: above
+    /// it, the cache a switch leaves cold costs more.
+    #[serde(default = "cold_switch_tokens")]
+    pub cold_switch_tokens: u64,
+    /// A verdict routes only at this confidence or more (detours included).
+    #[serde(default = "switch_confidence")]
+    pub switch_confidence: f64,
+    /// Each mode's profiles, in order: the first usable wins.
+    #[serde(default)]
+    pub modes: RoutingModes,
+}
+
+/// `[routing] mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingMode {
+    Live,
+    Shadow,
+}
+
+/// `[routing.modes.<mode>]`, one per mode `route.v1` answers (`other` is
+/// routed as `chat`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoutingModes {
+    #[serde(default = "trivial")]
+    pub trivial: ModeProfiles,
+    #[serde(default)]
+    pub chat: ModeProfiles,
+    #[serde(default = "sophisticated")]
+    pub sophisticated: ModeProfiles,
+    #[serde(default = "deep_coding")]
+    pub deep_coding: ModeProfiles,
+    #[serde(default = "routine_coding")]
+    pub routine_coding: ModeProfiles,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModeProfiles {
+    /// Profile names (or `cheapest`), in order; empty: the session's own.
+    #[serde(default)]
+    pub profiles: Vec<String>,
+}
+
+/// The modes, in the pack's order.
+pub const MODES: [&str; 5] = [
+    "trivial",
+    "chat",
+    "sophisticated",
+    "deep_coding",
+    "routine_coding",
+];
+
+fn yes() -> bool {
+    true
+}
+fn live() -> RoutingMode {
+    RoutingMode::Live
+}
+fn max_wait_ms() -> u64 {
+    200
+}
+fn trivial_context_turns() -> u32 {
+    2
+}
+fn cold_switch_tokens() -> u64 {
+    30_000
+}
+fn switch_confidence() -> f64 {
+    0.6
+}
+fn list(names: &[&str]) -> ModeProfiles {
+    ModeProfiles {
+        profiles: names.iter().map(|s| (*s).to_string()).collect(),
+    }
+}
+fn trivial() -> ModeProfiles {
+    list(&[CHEAPEST])
+}
+fn sophisticated() -> ModeProfiles {
+    list(&["opus", "fable"])
+}
+fn deep_coding() -> ModeProfiles {
+    list(&["opus", "sonnet"])
+}
+fn routine_coding() -> ModeProfiles {
+    list(&["glm53", "glm"])
+}
+
+impl Default for RoutingModes {
+    fn default() -> Self {
+        Self {
+            trivial: trivial(),
+            chat: ModeProfiles::default(),
+            sophisticated: sophisticated(),
+            deep_coding: deep_coding(),
+            routine_coding: routine_coding(),
+        }
+    }
+}
+
+impl RoutingModes {
+    /// A mode's profiles; `other` and any unknown mode are `chat`'s.
+    pub fn of(&self, mode: &str) -> &[String] {
+        match mode {
+            "trivial" => &self.trivial.profiles,
+            "sophisticated" => &self.sophisticated.profiles,
+            "deep_coding" => &self.deep_coding.profiles,
+            "routine_coding" => &self.routine_coding.profiles,
+            _ => &self.chat.profiles,
+        }
+    }
+}
+
+impl Default for RoutingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            mode: live(),
+            max_wait_ms: max_wait_ms(),
+            trivial_context_turns: trivial_context_turns(),
+            cold_switch_tokens: cold_switch_tokens(),
+            switch_confidence: switch_confidence(),
+            modes: RoutingModes::default(),
+        }
+    }
+}
+
+impl RoutingConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The checks as the config loads. A profile a mode names need not be
+    /// configured (the defaults name `opus`, `fable` and `glm53`, which a
+    /// sparse note may lack): one that is not is skipped as unusable.
+    pub fn validate(&self, profiles: impl Fn(&str) -> bool) -> Result<()> {
+        let c = self.switch_confidence;
+        if !(c > 0.0 && c <= 1.0) {
+            anyhow::bail!("routing.switch_confidence must be above 0 and at most 1");
+        }
+        if self.max_wait_ms > 5_000 {
+            anyhow::bail!(
+                "routing.max_wait_ms must be at most 5000: the turn waits that long for its verdict"
+            );
+        }
+        if profiles(CHEAPEST) {
+            anyhow::bail!(
+                "[profiles.{CHEAPEST}] takes a reserved name: [routing] uses it for the cheapest usable profile"
+            );
+        }
+        for m in MODES {
+            if let Some(p) = self.modes.of(m).iter().find(|p| p.trim().is_empty()) {
+                anyhow::bail!("routing.modes.{m}.profiles has an empty name {p:?}");
+            }
+        }
+        Ok(())
+    }
+
+    /// What `route.v1` may do: the judge's mode for it, lowered by this
+    /// section (off when disabled, shadow when `mode = "shadow"`).
+    pub fn pack_mode(&self, judge: PackMode) -> PackMode {
+        if !self.enabled {
+            return PackMode::Off;
+        }
+        match self.mode {
+            RoutingMode::Live => judge,
+            RoutingMode::Shadow => judge.min(PackMode::Shadow),
+        }
+    }
+}
+
+/// The template's `[routing]`, un-commented: its defaults, and its three
+/// profiles configured.
+#[cfg(test)]
+pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
+    let r = &cfg.routing;
+    assert!(r.enabled);
+    assert_eq!(r.mode, RoutingMode::Live);
+    assert_eq!(
+        (r.max_wait_ms, r.trivial_context_turns, r.cold_switch_tokens),
+        (200, 2, 30_000)
+    );
+    assert_eq!(r.switch_confidence, 0.6);
+    assert_eq!(r.modes, RoutingModes::default());
+    for (p, model) in [
+        ("opus", "claude-opus-5-5"),
+        ("fable", "claude-fable-5-1"),
+        ("glm53", "glm-5.3"),
+    ] {
+        assert_eq!(cfg.all_profiles()[p].model, model, "[profiles.{p}]");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(text: &str) -> Result<RoutingConfig> {
+        Ok(toml::from_str::<RoutingConfig>(text)?)
+    }
+
+    #[test]
+    fn the_defaults_are_the_steps_table() {
+        let d = cfg("").unwrap();
+        assert_eq!(d, RoutingConfig::default());
+        assert_eq!(d.modes.of("trivial"), ["cheapest"]);
+        assert!(d.modes.of("chat").is_empty());
+        assert_eq!(d.modes.of("other"), d.modes.of("chat"));
+        assert_eq!(d.modes.of("sophisticated"), ["opus", "fable"]);
+        assert_eq!(d.modes.of("deep_coding"), ["opus", "sonnet"]);
+        assert_eq!(d.modes.of("routine_coding"), ["glm53", "glm"]);
+        d.validate(|_| false).unwrap();
+    }
+
+    #[test]
+    fn one_mode_set_keeps_the_others_defaults() {
+        let c = cfg("[modes.chat]\nprofiles = [\"sonnet\"]").unwrap();
+        assert_eq!(c.modes.of("chat"), ["sonnet"]);
+        assert_eq!(c.modes.of("sophisticated"), ["opus", "fable"]);
+        assert!(
+            cfg("[modes.poetry]\nprofiles = []").is_err(),
+            "no such mode"
+        );
+        assert!(cfg("wait_ms = 1").is_err(), "an unknown key");
+    }
+
+    #[test]
+    fn the_checks_refuse_what_cannot_hold() {
+        for bad in [
+            "switch_confidence = 0.0",
+            "switch_confidence = 1.5",
+            "max_wait_ms = 9000",
+        ] {
+            assert!(cfg(bad).unwrap().validate(|_| false).is_err(), "{bad}");
+        }
+        let empty = cfg("[modes.trivial]\nprofiles = [\" \"]").unwrap();
+        assert!(empty.validate(|_| false).is_err());
+        let e = cfg("").unwrap().validate(|p| p == CHEAPEST).unwrap_err();
+        assert!(format!("{e:#}").contains("reserved"));
+    }
+
+    #[test]
+    fn the_section_lowers_the_packs_mode_and_never_raises_it() {
+        let on = RoutingConfig::default();
+        assert_eq!(on.pack_mode(PackMode::Live), PackMode::Live);
+        assert_eq!(on.pack_mode(PackMode::Shadow), PackMode::Shadow);
+        assert_eq!(on.pack_mode(PackMode::Off), PackMode::Off);
+        let shadow = cfg("mode = \"shadow\"").unwrap();
+        assert_eq!(shadow.pack_mode(PackMode::Live), PackMode::Shadow);
+        let off = cfg("enabled = false").unwrap();
+        assert_eq!(off.pack_mode(PackMode::Live), PackMode::Off);
+    }
+}

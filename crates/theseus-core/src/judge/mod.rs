@@ -67,6 +67,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (gate::SECURITY_CANDIDATE, PackMode::Shadow),
     (inbound::CLASSIFY_PACK, PackMode::Shadow),
     (inbound::ROLE_PACK, PackMode::Shadow),
+    (inbound::ROUTE_PACK, PackMode::Live),
     (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Shadow),
@@ -124,6 +125,9 @@ pub struct JudgeService {
     /// `categorize.v1`'s point (28b): the core it reads, and its decisions.
     categorize: categorize::Point,
     rerank_deadline: rerank::RerankDeadline,
+    /// `route.v1` verdicts that came after their turn's wait, by session:
+    /// each applies from the session's next message (25e).
+    late: Mutex<std::collections::HashMap<String, crate::routing::Verdict>>,
     me: Weak<JudgeService>,
     /// Where the judge's facts say their sentences, and their metrics go
     /// (23b): set by the core as it builds, and as its telemetry is built.
@@ -172,6 +176,7 @@ impl JudgeService {
             pending: Mutex::new(HashSet::new()),
             categorize: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
+            late: Mutex::default(),
             me: me.clone(),
             narrator: OnceLock::new(),
             telemetry: OnceLock::new(),

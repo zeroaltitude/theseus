@@ -135,6 +135,7 @@ ledger_kinds! {
     JudgeShed = "judge.shed",
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",
+    RouteDecided = "route.decided",
     LspFailed = "lsp.failed",
     LspReady = "lsp.ready",
     LspStarted = "lsp.started",

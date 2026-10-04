@@ -65,8 +65,12 @@ fn marks(trace: &Option<Span>) -> Vec<Value> {
 
 /// `loop.v1`, the gate's packs (step 24), `continue.v1` (25b),
 /// `categorize.v1` (28b) and `rerank.v1` (32c) off, so the inbound point's
-/// call is the only one.
-fn inbound_only(c: &mut crate::Config) {
+/// call is the only one; and `route.v1` (25e) off, so these are 25a's two
+/// packs alone (`tests_route` asks all three).
+pub(crate) fn inbound_only(c: &mut crate::Config) {
+    c.judge
+        .packs
+        .insert(crate::judge::inbound::ROUTE_PACK.into(), off());
     c.judge.packs.insert("loop.v1".into(), off());
     for p in crate::judge::gate::GATE_PACKS {
         c.judge.packs.insert(p.into(), off());
@@ -83,12 +87,13 @@ fn inbound_only(c: &mut crate::Config) {
 }
 
 /// Health's pack list under `inbound_only`.
-const INBOUND_ALONE: [&str; 8] = [
+const INBOUND_ALONE: [&str; 9] = [
     "loop.v1: off",
     "security.v1: off",
     "security.v3: off",
     "classify.v1: shadow",
     "role.v1: shadow",
+    "route.v1: off",
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off",
@@ -314,8 +319,8 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(res.loops, 1);
     assert_eq!(
         marks(&res.trace).len(),
-        3,
-        "judged: the inbound point's two marks, and loop.v1's at the turn's end (23b)"
+        4,
+        "judged: the inbound point's three marks (route.v1's, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
     assert_eq!(own, Some(5), "the turn's own frames");

@@ -69,6 +69,7 @@ pub fn parse_args(args: &[String]) -> Result<BTreeMap<String, String>> {
 pub fn params(a: &PromptArgs) -> Result<TurnSubmitParams> {
     let (server, name) = parse_name(&a.name)?;
     Ok(TurnSubmitParams {
+        carried: false,
         prompt: Some(McpPromptRef {
             server,
             name,

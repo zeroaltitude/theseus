@@ -57,6 +57,7 @@ mod compile_step;
 mod inbound_step;
 mod prompt_input;
 mod recall_step;
+mod route_step;
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
 /// the start of the cached prefix, so it never interpolates anything.
@@ -79,6 +80,9 @@ pub struct Target {
     pub refusal_fallbacks: bool,
     /// The profile's prompt-cache TTL (theseus-ev1).
     pub cache_ttl: CacheTtl,
+    /// The owner chose this turn's profile, provider, or model: routing
+    /// never moves it (M5 25e). What was chosen, for the record.
+    pub chosen: Option<String>,
 }
 
 impl From<&Target> for TargetRef {
@@ -332,6 +336,8 @@ struct Turn<'a> {
     /// What recall put in front of the model this turn (M6 30b), until its
     /// node rides the provider call's plan frame.
     recall: recall_step::Recalled,
+    /// Routing's verdict and what it moved (M5 25e).
+    route: route_step::RouteState,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -444,6 +450,7 @@ impl<'a> Turn<'a> {
             deferred: false,
             ended: false,
             recall: recall_step::Recalled::default(),
+            route: route_step::RouteState::default(),
         }
     }
 
@@ -643,6 +650,7 @@ impl TurnRunner {
             max_loops: prof.max_loops,
             refusal_fallbacks: prof.refusal_fallbacks,
             cache_ttl: prof.cache_ttl,
+            chosen: None,
         })
     }
 
@@ -1402,7 +1410,7 @@ impl TurnRunner {
         let TurnRequest {
             mut session,
             input,
-            target,
+            mut target,
             sink,
             author,
             recompile,
@@ -1411,11 +1419,6 @@ impl TurnRunner {
             prompt,
             ..
         } = req;
-        let provider = self
-            .providers
-            .get(&target.provider)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
         // The caller's copy may be stale: re-read under the lock.
         if let Some(fresh) = self
             .store
@@ -1423,6 +1426,14 @@ impl TurnRunner {
         {
             session = fresh;
         }
+        target = self.route_base(&session, target, input.is_some());
+        let provider = self
+            .providers
+            .get(&target.provider)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
+        // Where routing moves the turn (25e), for the turn's life.
+        let routed = std::sync::OnceLock::new();
         // What this turn runs on is the session's target from the turn's
         // start (theseus-kol): its copy carries it into every session write
         // the turn makes (a recompile's, a failure's, its end's), and an
@@ -1484,7 +1495,7 @@ impl TurnRunner {
         // books the same way before it is returned. The body's `?`s all
         // land here, so no step after a paid loop can skip its spend.
         match self
-            .turn_body(&mut t, &mut session, provider.as_ref(), asked)
+            .turn_body(&mut t, &mut session, provider.as_ref(), asked, &routed)
             .await
         {
             Ok(Next::Finish(force)) => self.finish(t, &mut session, force),
@@ -1499,12 +1510,13 @@ impl TurnRunner {
     /// budget's marks came with its code, from `run_inner`.
     #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-    async fn turn_body(
+    async fn turn_body<'a>(
         &self,
-        t: &mut Turn<'_>,
+        t: &mut Turn<'a>,
         session: &mut SessionRecord,
         provider: &dyn Provider,
         asked: Asked,
+        routed: &'a std::sync::OnceLock<Target>,
     ) -> Result<Next> {
         let Asked {
             input,
@@ -1602,6 +1614,7 @@ impl TurnRunner {
         let mut overflow: Option<Overflowing> = None;
         let mut retrying: Option<Overflowing> = None;
         let window = self.catalog.get(&target.model).map(|e| e.context_window);
+        let mut routed_to: Option<Arc<dyn Provider>> = None;
         while run_model {
             // A `/stop` that landed (W1): the turn plans nothing more.
             if let Some(by) = stopped_by(&t.tc)? {
@@ -1627,10 +1640,12 @@ impl TurnRunner {
                 _ => None,
             };
             let compiled = match self
-                .compile_step(
+                .compile_routed(
                     t,
                     session,
-                    &spec,
+                    &mut spec,
+                    &mut routed_to,
+                    routed,
                     force.take(),
                     strip.take(),
                     overflow.as_ref().map(|o| &o.hint),
@@ -1650,7 +1665,8 @@ impl TurnRunner {
                 retrying = Some(o);
             }
             let said_before = (t.output.len(), t.said.len());
-            let called = self.call_model(t, provider, &compiled, i).await;
+            let on = routed_to.as_deref().unwrap_or(provider);
+            let called = self.call_model(t, on, &compiled, i).await;
             if let Some(r) = recall {
                 self.recall_end(t, r).await;
             }
@@ -2976,7 +2992,7 @@ impl TurnRunner {
         };
         t.close_books(session);
         let target = t.target;
-        session.last_target = Some(TargetRef::from(target));
+        session.last_target = Some(Self::ran_on(&t));
         let w0 = t.trace.now_us();
         // Only the turn's own fields: a recompile asked meanwhile stays
         // (theseus-xeo). The record rides in the turn's last frame, where
@@ -3020,6 +3036,7 @@ impl TurnRunner {
             stop_details: last.and_then(|r| r.stop_details.clone()),
             continuation: t.continuation,
             recalled: t.recall.count,
+            route: t.route.result.take(),
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,

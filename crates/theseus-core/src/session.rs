@@ -69,6 +69,10 @@ pub struct SessionRecord {
     /// Absent in records written before it (session schema 3).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub not_shown: Vec<NotShown>,
+    /// Where routing moved the session, and a switch the cache holds back
+    /// (M5 25e). Absent in records written before it (store format 14).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routed: Option<crate::routing::Routed>,
 }
 
 /// An image the provider refused (theseus-0s4).
@@ -236,6 +240,7 @@ impl SessionRecord {
             external: None,
             failing: None,
             not_shown: Vec::new(),
+            routed: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it
@@ -256,6 +261,7 @@ impl SessionRecord {
         self.compilation_id.clone_from(&turn.compilation_id);
         self.execution_id.clone_from(&turn.execution_id);
         self.failing.clone_from(&turn.failing);
+        self.routed.clone_from(&turn.routed);
         for n in &turn.not_shown {
             if !self.not_shown.iter().any(|m| m.digest == n.digest) {
                 self.not_shown.push(n.clone());

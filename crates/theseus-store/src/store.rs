@@ -442,7 +442,9 @@ const BULK: usize = 4096;
 /// 12 = the `TASK` record kind, a task's record (M7 39a, theseus-ext.6).
 /// 13 = M6's `Summary` node (a NODE body), and a compilation's `recall_id` (30c,
 /// theseus-6fn.4).
-const MANIFEST_FORMAT: u32 = 13;
+/// 14 = a session's `routed` (M5 25e, theseus-0j2.11): where routing moved it,
+/// and a switch the cache holds back.
+const MANIFEST_FORMAT: u32 = 14;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

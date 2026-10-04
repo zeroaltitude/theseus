@@ -31,6 +31,7 @@ pub mod memory;
 mod ontology;
 mod places;
 mod push;
+pub mod route;
 pub mod sandbox;
 pub mod signals;
 pub mod tasks;
@@ -1926,6 +1927,10 @@ pub struct TurnSubmitParams {
     /// Raw override of the profile's model for this turn.
     #[serde(default)]
     pub model: Option<String>,
+    /// `profile` is carried from the session's last turn (the CLI's pane),
+    /// not the owner's choice: routing may still move the turn (M5 25e).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub carried: bool,
     /// Who wrote the input, as a label on the message node (e.g. `discord:eddie`).
     /// Default: the connection's own label. A label, not an authority: every
     /// local protocol client acts as the operator.
@@ -2110,6 +2115,10 @@ pub struct TurnSubmitResult {
     /// The notes recall put in front of the model this turn (M6 30b: canary and live; never shadow).
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub recalled: u32,
+    /// How routing placed the turn (M5 25e); absent when it was not asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub route: Option<route::TurnRoute>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

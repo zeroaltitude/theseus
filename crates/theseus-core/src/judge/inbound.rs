@@ -4,7 +4,11 @@
 //! (theseus-judge's batching), and the call's cost is split between their
 //! two judgments by question count. Nothing acts on either in M5: routing a
 //! message to a task is M7's, and the roles table and role switches are
-//! 26c's.
+//! 26c's. `route.v1` (25e) rides the same request, live: its verdict goes
+//! back to the turn over a channel ([`RouteWait`]), and the call then waits
+//! for an in-flight permit (`Urgency::Live`, under the client's whole-call
+//! limit) instead of being shed. The turn waits for it beside its first
+//! compile, never before (`turn::route_step`).
 //!
 //! - **Which turns.** A turn whose input is a person's message (the CLI, the
 //!   web UI, a Discord message, a spoken one), once its input node is
@@ -21,7 +25,7 @@
 //!   so `role.v1` (asked only when there are roles) asks in shadow now.
 
 use std::sync::{Arc, Weak};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::builders::{InboundInput, RoleInput, TaskInput};
@@ -38,8 +42,15 @@ use crate::trace::Trace;
 pub const CLASSIFY_PACK: &str = "classify.v1";
 /// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v1`.
 pub const ROLE_PACK: &str = "role.v1";
+/// ROUTE (25e), at `inbound`, batched with `classify.v1`: live.
+pub const ROUTE_PACK: &str = "route.v1";
 /// The packs asked at `inbound`, in the order they are asked.
-pub const PACKS: [&str; 2] = [CLASSIFY_PACK, ROLE_PACK];
+pub const PACKS: [&str; 3] = [CLASSIFY_PACK, ROLE_PACK, ROUTE_PACK];
+
+/// What a turn waits on for `route.v1`'s verdict: `None` when Jev gave none
+/// (a failure, a skip, model drift); a dropped sender (nothing sent, the
+/// day's limit among it) reads the same, at once.
+pub type RouteWait = tokio::sync::oneshot::Receiver<Option<crate::routing::Verdict>>;
 
 /// The spec's twelve seed roles (§3.4), each with its stance and hints in
 /// a sentence, as `role.v1`'s options: compiled-in data until step 26c's
@@ -75,6 +86,11 @@ pub struct Inbound {
     pub author: String,
     /// The live tasks are the kernel's.
     pub kernel: Arc<Kernel>,
+    /// `route.v1`'s mode for this turn, as the turn decides it (`[routing]`,
+    /// the judge's ladder, a pin): off, shadow, or live.
+    pub route: PackMode,
+    /// The profile the owner chose for this turn (a pin), for the record.
+    pub chosen: Option<String>,
 }
 
 /// The state's `place_kind`: the surface (the session's place, or, with
@@ -122,41 +138,84 @@ pub fn slash_command(text: &str) -> bool {
 
 impl JudgeService {
     /// A person's message, its node written: `classify.v1` and `role.v1`
-    /// judge it in shadow, as one decision point in a task of its own. Each
-    /// judgment's id is minted here and marked on the turn's trace. Returns
-    /// at once, whatever Jev does.
-    pub fn at_inbound(&self, trace: &mut Trace, msg: Inbound) {
+    /// judge it in shadow, and `route.v1` in the mode the turn gives it, as
+    /// one decision point in a task of its own. Each judgment's id is minted
+    /// here and marked on the turn's trace. Returns at once, whatever Jev
+    /// does, with the channel `route.v1`'s verdict comes back on when it is
+    /// asked (in any mode): the turn decides whether to wait for it.
+    pub fn at_inbound(&self, trace: &mut Trace, msg: Inbound) -> Option<RouteWait> {
         if slash_command(&msg.text) {
-            return;
+            return None;
         }
-        let packs: Vec<(Arc<Pack>, String)> = PACKS
+        let mode_of = |p: &str| match p {
+            ROUTE_PACK => msg.route,
+            _ => self.cfg.mode_of(p, PackMode::Shadow),
+        };
+        let packs: Vec<(Arc<Pack>, String, PackMode)> = PACKS
             .iter()
-            .filter(|p| self.cfg.mode_of(p, PackMode::Shadow) != PackMode::Off)
-            .filter_map(|p| theseus_judge::pack::by_name(p))
-            .filter(|p| sampled(&msg.turn_id, self.cfg.sample_of(&p.name(), p.sample)))
-            .map(|p| (p, theseus_judge::judge::new_id()))
+            .map(|p| (p, mode_of(p)))
+            .filter(|(_, m)| *m != PackMode::Off)
+            .filter_map(|(p, m)| Some((theseus_judge::pack::by_name(p)?, m)))
+            .filter(|(p, _)| sampled(&msg.turn_id, self.cfg.sample_of(&p.name(), p.sample)))
+            .map(|(p, m)| (p, theseus_judge::judge::new_id(), m))
             .collect();
         if packs.is_empty() {
-            return;
+            return None;
         }
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
-            return;
+            return None;
         };
-        for (pack, id) in &packs {
+        for (pack, id, mode) in &packs {
             trace.mark(
                 "judge",
                 "mark",
-                json!({"pack": pack.name(), "point": "inbound", "mode": "shadow", "judgment": id}),
+                json!({"pack": pack.name(), "point": "inbound", "mode": mode.as_str(), "judgment": id}),
             );
         }
-        rt.spawn(judge_inbound(self.me.clone(), packs, msg));
+        let (tx, rx) = match packs.iter().any(|(p, _, _)| p.name() == ROUTE_PACK) {
+            true => {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                (Some(tx), Some(rx))
+            }
+            false => (None, None),
+        };
+        rt.spawn(judge_inbound(self.me.clone(), packs, msg, tx));
+        rx
+    }
+
+    /// A verdict that came after its turn's wait: it applies from the
+    /// session's next message.
+    pub fn set_late(&self, session: &str, v: crate::routing::Verdict) {
+        self.late
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(session.to_string(), v);
+    }
+
+    /// The session's late verdict, taken.
+    pub fn take_late(&self, session: &str) -> Option<crate::routing::Verdict> {
+        self.late
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session)
+    }
+
+    /// Whether Jev's breaker is open now: a live verdict would not come, so
+    /// the turn does not wait for one.
+    pub fn breaker_open(&self) -> bool {
+        self.built.get().is_some_and(|b| {
+            matches!(
+                b.judge.inner().breaker_status(),
+                theseus_judge::breaker::Status::Open { .. }
+            )
+        })
     }
 
     /// The blocking half before the call: the state's build and blob, one
     /// ask per pack, and the reservation. `None`: nothing to send.
     fn prepare_inbound(
         &self,
-        packs: Vec<(Arc<Pack>, String)>,
+        packs: Vec<(Arc<Pack>, String, PackMode)>,
         msg: &Inbound,
         today: &str,
     ) -> Option<Ready> {
@@ -168,7 +227,7 @@ impl JudgeService {
         let scrub = ScrubWith(self.scrubber.clone());
         let input = Input::Inbound(input);
         let mut asks = Vec::with_capacity(packs.len());
-        for (pack, id) in packs {
+        for (pack, id, mode) in packs {
             let state = theseus_judge::prepare(&pack, &input, &scrub).ok()?;
             // The packs share the state, so this is one blob.
             let blob = self
@@ -179,14 +238,26 @@ impl JudgeService {
                 .ok()?;
             let baseline = match pack.name().as_str() {
                 CLASSIFY_PACK => "conversation",
+                ROUTE_PACK => "session_profile",
                 _ => "current_role",
             };
-            let context = json!({
+            let mut context = json!({
                 "session": msg.session_id, "execution": msg.execution_id, "turn": msg.turn_id,
                 "node": msg.node_id, "baseline": baseline, "place_kind": msg.place_kind,
                 "blob": blob, "on_path_ms": 0,
             });
-            let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+            if pack.name() == ROUTE_PACK {
+                context["pinned"] = json!(msg.chosen.is_some());
+                if let Some(c) = &msg.chosen {
+                    context["chosen"] = json!(c);
+                }
+            }
+            let jmode = match mode {
+                PackMode::Live => Mode::Live,
+                PackMode::Canary => Mode::Canary,
+                _ => Mode::Shadow,
+            };
+            let mut ask = Ask::new(pack, &state, jmode, context);
             ask.id = Some(id);
             asks.push(ask);
         }
@@ -307,12 +378,42 @@ struct Ready {
     need: theseus_judge::price::Micros,
 }
 
-/// One inbound decision point, in its own task: both packs' asks in one
+/// `route.v1`'s verdict from its judgment: its `mode` answer, when it was
+/// answered by the model the pack pins.
+pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing::Verdict> {
+    if !j.actionable() {
+        return None;
+    }
+    match &j.answer("mode")?.answer {
+        theseus_judge::Answer::Choice {
+            choice, confidence, ..
+        } => Some(crate::routing::Verdict {
+            mode: choice.clone(),
+            confidence: *confidence,
+            judgment: j.id.clone(),
+            turn: turn.to_string(),
+        }),
+        _ => None,
+    }
+}
+
+/// One inbound decision point, in its own task: every pack's ask in one
 /// `judge` call, which batches them into one request. The service is held
-/// only around the blocking half, never across the call.
-async fn judge_inbound(me: Weak<JudgeService>, packs: Vec<(Arc<Pack>, String)>, msg: Inbound) {
+/// only around the blocking half, never across the call. A live `route.v1`
+/// waits for a permit rather than being shed, under the whole-call limit.
+async fn judge_inbound(
+    me: Weak<JudgeService>,
+    packs: Vec<(Arc<Pack>, String, PackMode)>,
+    msg: Inbound,
+    route: Option<tokio::sync::oneshot::Sender<Option<crate::routing::Verdict>>>,
+) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
+    let urgency = match packs.iter().any(|(_, _, m)| *m >= PackMode::Canary) {
+        true => Urgency::live(Duration::from_secs(svc.cfg.total_secs)),
+        false => Urgency::Shadow,
+    };
+    let turn = msg.turn_id.clone();
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
         .await
@@ -322,17 +423,18 @@ async fn judge_inbound(me: Weak<JudgeService>, packs: Vec<(Arc<Pack>, String)>, 
         return;
     };
     let t0 = Instant::now();
-    let judgments = built
-        .judge
-        .judge(DecisionPoint {
-            asks,
-            urgency: Urgency::Shadow,
-        })
-        .await;
+    let judgments = built.judge.judge(DecisionPoint { asks, urgency }).await;
     tracing::debug!(
         ms = t0.elapsed().as_millis() as u64,
-        "judge: classify.v1 and role.v1 judged"
+        "judge: the inbound packs judged"
     );
+    if let Some(tx) = route {
+        let v = judgments
+            .iter()
+            .find(|j| j.pack == ROUTE_PACK)
+            .and_then(|j| verdict(j, &turn));
+        let _ = tx.send(v);
+    }
     let Some(svc) = me.upgrade() else { return };
     // The point settles as one: its reservation, what its judgments cost
     // together (a call whose usage is unknown at its reservation), and one

@@ -69,10 +69,10 @@ impl Rig {
             j.insert("api_base".into(), base.into());
             j.insert("connect_secs".into(), 1.into());
             j.insert("total_secs".into(), 5.into());
-            // loop.v1 alone: the inbound point's packs (25a) are judged in
-            // theseus-core's tests_inbound.
+            // loop.v1 alone: the inbound point's packs (25a, 25e's route.v1)
+            // are judged in theseus-core's tests_inbound and tests_route.
             let packs = table(j, "packs");
-            for p in ["classify.v1", "role.v1"] {
+            for p in ["classify.v1", "role.v1", "route.v1"] {
                 let mut off = toml::Table::new();
                 off.insert("mode".into(), "off".into());
                 packs.insert(p.into(), off.into());
@@ -206,6 +206,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "security.v3: shadow",
             "classify.v1: off",
             "role.v1: off",
+            "route.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: shadow"

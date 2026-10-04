@@ -20,6 +20,11 @@ provider: string | null,
  */
 model: string | null, 
 /**
+ * `profile` is carried from the session's last turn (the CLI's pane),
+ * not the owner's choice: routing may still move the turn (M5 25e).
+ */
+carried?: boolean, 
+/**
  * Who wrote the input, as a label on the message node (e.g. `discord:eddie`).
  * Default: the connection's own label. A label, not an authority: every
  * local protocol client acts as the operator.

@@ -54,6 +54,7 @@ pub mod mcp;
 pub mod ontology;
 pub mod place;
 pub mod recall;
+pub mod route;
 pub mod sandbox;
 pub mod start;
 pub mod task_graph;
@@ -249,6 +250,7 @@ facts![
     place::PlaceViewed<'static>,
     place::Published<'static>,
     turn::LoopStarted<'static>,
+    route::RouteDecided<'static>,
     turn::LoopCut<'static>,
     turn::LoopEnded<'static>,
     turn::ModelUnpriced<'static>,

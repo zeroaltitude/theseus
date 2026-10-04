@@ -256,6 +256,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning` thread at nice 19 and about 5% of a core). `judge.label` (`judge_act(Act::JudgeLabel)`) and
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
     in one frame, then `<state>/learning/<date>.json`. Tests: `tests_learning.rs`, `learning::*::tests`.
+  - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
+    is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
+    the call waits for a permit rather than being shed. The turn waits for it beside its first compile, at most
+    `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies from the next message), and
+    `routing.rs` decides, purely: the mode's first usable profile under a place's cap, a `trivial` detour (that
+    turn alone, compiled outside the session's compilation, which it never writes), or a switch of the session's
+    `routed` profile (stored: format 14), held above `cold_switch_tokens` until a second turn agrees. A turn whose
+    profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
+    compilation the call uses is persisted (`RouteState.defer_persist`). The row is `route.decided`
+    (`fact/route.rs`); thinking goes back only to the model that wrote it. Tests: `tests_route.rs`,
+    `routing::tests`, `turn::route_step::tests`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it

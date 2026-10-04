@@ -475,6 +475,7 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "security.v3: shadow",
             "classify.v1: off",
             "role.v1: off",
+            "route.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: shadow"
