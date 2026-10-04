@@ -2,14 +2,16 @@
 //! labels (`memory.labeled`) and the gate's decision with the neighbours it
 //! saw (`memory.gated`), each keyed by the node and scoped
 //! `memory:<session>`, so a session's next pass reads what is done with one
-//! scan of its own. Rows only: the pass runs after the turn, and a surface
-//! reads them.
+//! scan of its own; and a recalled item's attribution and outcome
+//! (`memory.used`), scoped `recall:<session>` with the session's recalls.
+//! Rows only: the pass runs after the turn, and a surface reads them.
 
 use serde::Serialize;
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
 
 use super::Fact;
+use crate::memory_pass::attribution::{Outcome, Use};
 use crate::memory_pass::labels::Labels;
 
 /// The scope of a session's labels and gate decisions.
@@ -80,6 +82,32 @@ impl Fact for MemoryGated<'_> {
             "correction": self.correction, "neighbours": self.neighbours,
             "science": self.science, "merge_cosine": self.merge_cosine,
             "supersede_cosine": self.supersede_cosine, "why": self.why,
+        })
+    }
+}
+
+/// A recalled item's attribution: whether the turn used it, why, and, for
+/// one used, how it turned out.
+pub struct MemoryUsed<'a> {
+    pub recall_id: &'a str,
+    pub arm: &'a str,
+    /// The recalled node, and its session.
+    pub node_id: &'a str,
+    pub source_session: &'a str,
+    pub used: &'a Use,
+    /// `None` for an item not used: exposure is no review.
+    pub outcome: Option<Outcome>,
+    pub entities_unavailable: Option<&'a str>,
+}
+
+impl Fact for MemoryUsed<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::MemoryUsed);
+
+    fn row(&self) -> Value {
+        json!({
+            "recall_id": self.recall_id, "arm": self.arm, "node_id": self.node_id,
+            "source_session": self.source_session, "used": self.used.used, "by": self.used.by,
+            "outcome": self.outcome, "entities_unavailable": self.entities_unavailable,
         })
     }
 }

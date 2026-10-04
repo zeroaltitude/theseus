@@ -1,6 +1,6 @@
 //! The memory pass (M6 step 31a; design §2.6): after a turn ends, off its
-//! path, it labels the session's new nodes and gates each against its
-//! nearest neighbours.
+//! path, it labels the session's new nodes, gates each against its nearest
+//! neighbours, and attributes the items its recalls admitted.
 //!
 //! - **When.** One call beside the judge's `after_turn` hands the session to
 //!   the pass's task and returns ([`MemoryPass::after_turn`]); everything
@@ -23,6 +23,9 @@
 //!   left whole for the session's next pass. An index that has no vectors
 //!   at all (no model files: `bm25_only`), or no tender, is said in the
 //!   `memory.gated` row, with no edge.
+//! - **Attribution** (`attribution`), of each item a `Recall` node admitted
+//!   (canary and live): an item not used is written at once; a used one
+//!   when the session's next input has come, with its outcome.
 //! - **Frames.** The rows and edges go in the pass's own frames: one per
 //!   [`MAX_NODES`] nodes, or [`WINDOW`] after the first waiting, whichever
 //!   comes first; a node's records never split across frames. A frame waits
@@ -30,12 +33,14 @@
 //!   pass yields to turns, and none lands inside one being measured
 //!   (theseus-0j2.3's lesson).
 //! - **Crash.** What is done is read from the record: a session's
-//!   `memory.labeled` rows (scoped `memory:<session>`), read once a session
-//!   by this daemon. A node a
+//!   `memory.labeled` rows (scoped `memory:<session>`) and its `memory.used`
+//!   rows (with its recalls), read once a session by this daemon. A node a
 //!   crash left unlabeled waits for its session's next pass; nothing scans
 //!   on the start path.
 
+pub mod attribution;
 pub mod labels;
+mod recalls;
 #[cfg(test)]
 mod tests;
 
@@ -127,14 +132,17 @@ struct Job {
 struct Done {
     /// Nodes labeled, or waiting in a batch.
     labeled: BTreeSet<String>,
+    /// `(recall, node)` items attributed, or waiting in a batch.
+    used: BTreeSet<(String, String)>,
 }
 
-/// One node's records: written together, in one frame.
+/// One node's records, or one item's: written together, in one frame.
 struct Unit {
     session_id: String,
     records: Vec<NewRecord>,
     /// What the session's `Done` holds for it, released if its frame fails.
-    labeled: String,
+    labeled: Option<String>,
+    used: Option<(String, String)>,
 }
 
 pub struct MemoryPass {
@@ -295,7 +303,12 @@ impl MemoryPass {
                 let mut done = self.done.lock().unwrap_or_else(PoisonError::into_inner);
                 for u in units {
                     if let Some(d) = done.get_mut(&u.session_id) {
-                        d.labeled.remove(&u.labeled);
+                        if let Some(n) = &u.labeled {
+                            d.labeled.remove(n);
+                        }
+                        if let Some(k) = &u.used {
+                            d.used.remove(k);
+                        }
                     }
                 }
             }
@@ -325,18 +338,35 @@ impl MemoryPass {
             return;
         }
         let mut d = Done::default();
-        let r = theseus_store::blocking(|| -> anyhow::Result<()> {
-            for r in self.store.scope_after(&scope(session_id), 0)? {
+        let read = |scope: &str, kind: LedgerKind, d: &mut Done| -> anyhow::Result<()> {
+            for r in self.store.scope_after(scope, 0)? {
                 if r.kind != kinds::LEDGER {
                     continue;
                 }
                 let row: LedgerRow = r.decode()?;
-                if row.kind == LedgerKind::MemoryLabeled.as_str() {
-                    let node = row.data["node_id"].as_str().unwrap_or_default();
-                    d.labeled.insert(node.to_string());
+                if row.kind != kind.as_str() {
+                    continue;
+                }
+                let node = row.data["node_id"].as_str().unwrap_or_default().to_string();
+                match kind {
+                    LedgerKind::MemoryLabeled => {
+                        d.labeled.insert(node);
+                    }
+                    _ => {
+                        let recall = row.data["recall_id"].as_str().unwrap_or_default();
+                        d.used.insert((recall.to_string(), node));
+                    }
                 }
             }
             Ok(())
+        };
+        let r = theseus_store::blocking(|| {
+            read(&scope(session_id), LedgerKind::MemoryLabeled, &mut d)?;
+            read(
+                &crate::fact::recall::scope(session_id),
+                LedgerKind::MemoryUsed,
+                &mut d,
+            )
         });
         if let Err(e) = r {
             tracing::warn!(session_id, error = %format!("{e:#}"), "memory: what the pass did cannot be read; it waits for the next turn");
@@ -349,7 +379,8 @@ impl MemoryPass {
             .or_insert(d);
     }
 
-    /// One session's pass: its unlabeled eligible nodes, labeled and gated.
+    /// One session's pass: its unlabeled eligible nodes, labeled and gated,
+    /// and its recalls' items attributed.
     async fn session(&self, job: &Job) -> Vec<Unit> {
         let sid = job.session_id.as_str();
         self.load_done(sid);
@@ -360,24 +391,30 @@ impl MemoryPass {
                 return Vec::new();
             }
         };
-        let todo: Vec<(u64, Arc<Node>)> = {
+        let (todo, waiting) = {
             let done = self.done.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(d) = done.get(sid) else {
                 return Vec::new();
             };
-            nodes
+            let todo: Vec<(u64, Arc<Node>)> = nodes
                 .iter()
                 .filter(|(_, n)| eligible(n) && !d.labeled.contains(&n.id))
                 .cloned()
-                .collect()
+                .collect();
+            (todo, recalls::waiting(&nodes, &job.turn_id, d))
         };
-        if todo.is_empty() {
+        let recalls = self.resolve(&nodes, waiting);
+        if todo.is_empty() && recalls.is_empty() {
             return Vec::new();
         }
         tracing::debug!(session_id = sid, turn_id = %job.turn_id, nodes = todo.len(), "memory: a pass");
         let index = self.index();
-        // Every node's entities, asked of the tender at once.
-        let texts: Vec<String> = todo.iter().map(|(_, n)| text_of(n)).collect();
+        // Every text whose entities the pass needs, asked of the tender at
+        // once: the nodes', then each recall's.
+        let mut texts: Vec<String> = todo.iter().map(|(_, n)| text_of(n)).collect();
+        for r in &recalls {
+            r.texts(&mut texts);
+        }
         let (entities, unavailable) = entities(index.as_deref(), texts).await;
         let mut units = Vec::new();
         let mut gate = Gate::new(self, index.clone());
@@ -390,13 +427,31 @@ impl MemoryPass {
                 units.push(u);
             }
         }
+        let mut at = todo.len();
+        for r in &recalls {
+            units.extend(recalls::units(
+                r,
+                &entities,
+                &mut at,
+                unavailable.as_deref(),
+            ));
+        }
+        self.mark(sid, &units);
+        units
+    }
+
+    /// The session's `Done` holds `units` from now: a later pass leaves them.
+    fn mark(&self, sid: &str, units: &[Unit]) {
         let mut done = self.done.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(d) = done.get_mut(sid) {
-            for u in &units {
-                d.labeled.insert(u.labeled.clone());
+        let Some(d) = done.get_mut(sid) else { return };
+        for u in units {
+            if let Some(n) = &u.labeled {
+                d.labeled.insert(n.clone());
+            }
+            if let Some(k) = &u.used {
+                d.used.insert(k.clone());
             }
         }
-        units
     }
 
     /// A node's labels, its gate's decision, and its edge: its unit. `None`:
@@ -488,7 +543,8 @@ impl MemoryPass {
         Some(Unit {
             session_id: sid.to_string(),
             records,
-            labeled: n.id.clone(),
+            labeled: Some(n.id.clone()),
+            used: None,
         })
     }
 }

@@ -135,6 +135,7 @@ ledger_kinds! {
     MemoryGated = "memory.gated",
     MemoryLabel = "memory.label",
     MemoryLabeled = "memory.labeled",
+    MemoryUsed = "memory.used",
     OntologyCategory = "ontology.category",
     OntologyGuidance = "ontology.guidance",
     OntologyMembership = "ontology.membership",

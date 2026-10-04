@@ -2,8 +2,8 @@
 //! recursion exclusion, the labels' rows, the gate's thresholds making the
 //! right edges over a stand-in index with fixed neighbours, a node not yet
 //! embedded waiting for the next pass, an index without vectors said and
-//! no edge written, the frame rule on tokio's paused clock, and nothing at
-//! all with memory off.
+//! no edge written, attribution and its outcome, the frame rule on tokio's
+//! paused clock, and nothing at all with memory off.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -191,6 +191,13 @@ impl Rig {
         self.rows(&crate::fact::memory::scope(sid), "memory.gated")
             .into_iter()
             .map(|r| (r.data["node_id"].as_str().unwrap().to_string(), r.data))
+            .collect()
+    }
+
+    pub fn used(&self, sid: &str) -> Vec<Value> {
+        self.rows(&crate::fact::recall::scope(sid), "memory.used")
+            .into_iter()
+            .map(|r| r.data)
             .collect()
     }
 
@@ -597,4 +604,93 @@ async fn with_memory_off_the_pass_does_nothing() {
     r.pass(sid, "trn_1").await;
     assert_eq!(r.frames(), before);
     assert!(r.index.asked.lock().unwrap().is_empty());
+}
+
+/// Attribution through a session's `Recall` node: an item the reply used
+/// (an 8-word run of its excerpt) waits for the session's next input, and
+/// is `ok` after a plain message; an item a tool call named (its path) is
+/// used; an item nothing used is written at once, with no outcome. A
+/// correction that overlaps a used item makes it `corrected`.
+#[tokio::test(start_paused = true)]
+async fn recalled_items_are_attributed_and_their_outcome_follows() {
+    let r = rig(MemoryMode::Live);
+    let src = "ses_source";
+    let a = user(
+        src,
+        "trn_0",
+        "The staging port of the Larkspur service is 8082 since the move.",
+    );
+    let b = user(
+        src,
+        "trn_0",
+        "The heron notes are in docs/heron/notes.md for everyone.",
+    );
+    let c = user(src, "trn_0", "Lunch is at noon on Fridays in the big room.");
+    r.put(&[&a, &b, &c]);
+    let item = |store: &Store, n: &Node| RecalledRef {
+        node_id: n.id.clone(),
+        session_id: src.into(),
+        position: store.get_node(&n.id).unwrap().unwrap().0,
+        chunk: (0, crate::recall::text_of(n).len() as u32),
+        header: "a note".into(),
+        tokens: 10,
+    };
+    let sid = "ses_asker";
+    let q = user(sid, "trn_1", "What is Larkspur's staging port?");
+    let rc = Node::recall(
+        sid,
+        "trn_1",
+        "rcl_1",
+        "baseline",
+        vec![item(&r.store, &a), item(&r.store, &b), item(&r.store, &c)],
+    );
+    let read = call(sid, "trn_1", json!({"path": "docs/heron/notes.md"}));
+    let ans = reply(
+        sid,
+        "trn_1",
+        "The staging port of the Larkspur service is 8082 since the move.",
+    );
+    r.put(&[&q, &rc, &read, &ans]);
+    r.pass(sid, "trn_1").await;
+    let used = r.used(sid);
+    assert_eq!(used.len(), 1, "only the unused item is known yet: {used:?}");
+    assert_eq!(used[0]["node_id"], c.id.as_str());
+    assert_eq!(used[0]["used"], false);
+    assert_eq!(used[0]["outcome"], Value::Null);
+    // The next message goes on: both used items are `ok`.
+    let next = user(sid, "trn_2", "Thanks. And who owns the dashboards?");
+    r.put(&[&next]);
+    r.pass(sid, "trn_2").await;
+    let used = r.used(sid);
+    assert_eq!(used.len(), 3, "{used:?}");
+    let of = |id: &str| used.iter().find(|u| u["node_id"] == id).unwrap().clone();
+    assert_eq!(of(&a.id)["used"], true);
+    assert_eq!(of(&a.id)["by"], json!(["run"]));
+    assert_eq!(of(&a.id)["outcome"], "ok");
+    assert_eq!(
+        of(&b.id)["by"],
+        json!(["entity:path:docs/heron/notes.md in a call"])
+    );
+    assert_eq!(of(&b.id)["outcome"], "ok");
+    assert_eq!(of(&a.id)["recall_id"], "rcl_1");
+
+    // A correction that overlaps the used item: `corrected`.
+    let r = rig(MemoryMode::Live);
+    r.put(&[&a]);
+    let rc = Node::recall(sid, "trn_1", "rcl_2", "baseline", vec![item(&r.store, &a)]);
+    let ans = reply(
+        sid,
+        "trn_1",
+        "The staging port of the Larkspur service is 8082 since the move.",
+    );
+    let fix = user(
+        sid,
+        "trn_2",
+        "Correction: the Larkspur staging port is 8083 now.",
+    );
+    r.put(&[&q, &rc, &ans, &fix]);
+    r.pass(sid, "trn_2").await;
+    let used = r.used(sid);
+    assert_eq!(used.len(), 1);
+    assert_eq!(used[0]["outcome"], "corrected");
 }

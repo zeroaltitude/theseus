@@ -242,6 +242,7 @@ facts![
     recall::Labeled<'static>,
     memory::MemoryLabeled<'static>,
     memory::MemoryGated<'static>,
+    memory::MemoryUsed<'static>,
     place::PlaceViewed<'static>,
     place::Published<'static>,
     turn::LoopStarted<'static>,
