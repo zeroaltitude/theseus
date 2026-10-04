@@ -54,6 +54,8 @@ pub mod tools;
 mod tests;
 #[cfg(test)]
 mod tests_c2;
+#[cfg(test)]
+mod tests_l1;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 9] = [

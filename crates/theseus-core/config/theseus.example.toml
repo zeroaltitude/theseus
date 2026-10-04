@@ -185,6 +185,12 @@ brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # w
 # profile read. The session carries the guards, so AWS itself refuses what the
 # floor would ask about, and any write to a stack. Before the account's
 # owner_role is named, the program gets nothing, and the result says why.
+# In L1 it gets the same session at its start, and that is the only AWS
+# credential the job holds: ~/.aws is in no L1 view, and the metadata service
+# is out of its reach. It reaches AWS only through its egress list, as an L1
+# job reaches any host: list the endpoints its commands use under the sandbox
+# section's egress ("sts.us-west-2.amazonaws.com:443", or "*.amazonaws.com:443"
+# for all of AWS), or let a call name its own, which then waits for you.
 # [broker.programs.aws]
 # aws_account = "111122223333"          # an [aws.accounts] id
 # A secret's posture, notify by default: a call given the secret runs at no

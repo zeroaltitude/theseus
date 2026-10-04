@@ -63,6 +63,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   job was given (`given GH_TOKEN`, names only, from the wrapper's `detail.sandbox.granted`). Tests:
   `tests_grants.rs`, and the daemon's `tests/sandbox.rs` with a real L1 job. 18d's run-time socket
   (`theseus-cred get`) is gone; a stored `cred.request` action and its ledger rows still read.
+  An `aws` grant (18e) is the same: an L1 job gets its job session at launch, named by its correlation id,
+  and it is the only AWS credential it holds (`~/.aws` is in `sandbox::CREDENTIALS`, hidden in every
+  view whatever the approve list says; no daemon `AWS_*` variable passes `forbidden_env`; L1 has no route
+  to the metadata service). It reaches AWS through its egress list, as any host: `[sandbox] egress`, or
+  the hosts its call names. Tests: `aws/tests_l1.rs`, and the daemon's `tests/sandbox.rs`.
 - **Egress** (M4 18c): `egress.rs`. `[sandbox] egress` and a call's `sandbox: { egress }`; the gate's step for
   hosts beyond the list (the call waits, and its approval reaches those hosts alone, since the list is in its
   proposal); and what a completion's `detail.egress` makes of a result: its `sandbox.egress` and
