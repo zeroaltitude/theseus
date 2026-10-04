@@ -431,18 +431,95 @@ npm_step() {
 # new with each edit); the install builds it before the release build, and a binary without it says so at /. It runs
 # before the compiles, so the suite's tests of / read this build: a debug theseusd reads it as it serves.
 cockpit() {
-  if [ -d cockpit/node_modules ]; then
-    npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build
-  else
-    echo "gate: cockpit/node_modules is missing, so the cockpit is neither checked nor built (npm ci --offline in cockpit/)"
+  cockpit_modules && npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build && cockpit_built
+}
+# The cockpit's modules (theseus-i5xo). Without them the phase used to skip, and the daemon's tests of / then took
+# their not-built branch and passed, so a gate could pass never having served the real shell. Now a missing
+# cockpit/node_modules is installed from package-lock.json: `npm ci --offline` from npm's cache, then `npm ci` over
+# the network when the cache lacks a package. When neither can, or npm is missing, the gate fails saying so.
+cockpit_modules() {
+  local log="$gate_tmp/cockpit-ci.log"
+  [ -d cockpit/node_modules ] && return 0
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "gate: cockpit/node_modules is missing, and there is no npm to install it: install Node.js and npm, then"
+    echo "gate: rerun the gate (the cockpit is built before the suite, whose tests of / read its build)"
+    return 1
   fi
+  echo "gate: cockpit/node_modules is missing; installing it from npm's cache (npm ci --offline)"
+  (cd cockpit && npm ci --offline --no-audit --no-fund) >"$log" 2>&1 && return 0
+  echo "gate: npm's cache lacks a package; installing over the network (npm ci)"
+  (cd cockpit && npm ci --no-audit --no-fund) >>"$log" 2>&1 && return 0
+  # A half-installed tree would be taken for an installed one next time.
+  rm -rf cockpit/node_modules
+  echo "gate: \`npm ci\` failed in cockpit/, so the cockpit is neither checked nor built; the last 40 lines of its output:"
+  tail -n 40 "$log" | sed 's/^/  /'
+  return 1
+}
+# The build the suite's tests of / read, where theseusd embeds it (rust-embed, `cockpit/dist/`).
+cockpit_built() {
+  [ -f crates/theseusd/cockpit/dist/index.html ] && return 0
+  echo "gate: \`npm run build\` passed in cockpit/, but crates/theseusd/cockpit/dist/index.html, the shell the tests of /"
+  echo "gate: read, is not there: vite.config.ts's outDir and theseusd's web.rs must name the same directory"
+  return 1
 }
 
-# The binaries the benches run, built before the lock (`bench build`). It is the five an install ships,
-# scripts/build.sh's list (theseus-o8nk), so the benches run binaries with an install's features; a tool
-# the benches start that an install does not ship is added here too.
-bench_build() {
-  cargo build -q -p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index
+# The shipped features (theseus-dr2x). scripts/build.sh builds only the five binaries an install ships, and the
+# gate tests the whole workspace; cargo unifies a dependency's features over the packages it builds, so a crate
+# outside the five that turns on a feature of a dependency the five link would give the tests a feature the install
+# lacks, and the install would be a build the gate never compiled. This compares cargo's tree (it compiles nothing:
+# about a second) of the five alone with the whole workspace's, and fails naming each package the five link that the
+# workspace builds with other features, and the features it adds. scripts/AGENTS.md ("Features") says what to do.
+features_of() {
+  cargo tree -q -e normal,build --prefix none -f '{p} {f}' "$@" | sed -E 's/ \([^)]*\)//g' | sort -u
+}
+features() {
+  local five=() p alone whole widened
+  while read -r p; do five+=(-p "$p"); done < <(scripts/build.sh --shipped)
+  alone="$(features_of "${five[@]}")"
+  whole="$(features_of --workspace)"
+  # A line is `name version features`. A package can be built twice, with two feature sets (a build dependency's
+  # and a normal one's), so a line of the workspace's that the five lack is a widening, and the features named are
+  # those no build of the package among the five has.
+  widened="$(awk '
+    NR == FNR { seen[$0] = 1; alone[$1 " " $2] = alone[$1 " " $2] "," $3; next }
+    !($0 in seen) && (($1 " " $2) in alone) {
+      split(alone[$1 " " $2], a, ","); split("", has); for (i in a) has[a[i]] = 1
+      n = split($3, w, ","); add = ""
+      for (i = 1; i <= n; i++) if (!(w[i] in has)) add = add (add == "" ? "" : ", ") w[i]
+      print "  " $1 " " $2 ": the workspace builds it with " (add == "" ? "another set of its features (" $3 ")" : add)
+    }' <(echo "$alone") <(echo "$whole"))"
+  [ -z "$widened" ] && return 0
+  echo "gate: the whole workspace widens the features of a package the five shipped binaries link, so an install"
+  echo "gate: (scripts/build.sh, the five alone) builds it without them, and the gate tests a build no install has:"
+  echo "$widened"
+  echo "gate: name the feature in the shipped crate that links the package, as theseus-discord's manifest names"
+  echo "gate: twilight-gateway's, or drop it from the crate outside the five (scripts/AGENTS.md, \"Features\")"
+  return 1
+}
+
+# The test build, the last compile before the lock: every test binary the suite runs, and the debug binaries the
+# benches run, `target/debug/theseusd`, `theseus-sim`, and the `theseus-index` the daemon starts beside itself,
+# which cargo builds for the integration tests that run them. Until theseus-7ykr a `bench build` (`cargo build -p`
+# of the five shipped binaries) ran before it, a second feature set of the shared crates (6 minutes cold here,
+# seconds to a minute warm), and cargo links `target/debug/<bin>` from the build it ran last, so this one replaced
+# them before any bench ran: the benches only ever ran this build's binaries. They have the workspace's features,
+# and the features phase holds the five's to the same. Cargo's messages name every binary the build produced,
+# fresh or relinked, and this fails naming a bench binary it did not, where the benches would run a stale one.
+bench_bins=(theseusd theseus-sim theseus-index)
+test_build() {
+  local json="$gate_tmp/test-build.json" b exe
+  # (`env -u`: nextest warns that --no-run ignores the lane's NEXTEST_TEST_THREADS.)
+  env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run \
+    --cargo-message-format json-render-diagnostics >"$json"
+  for b in "${bench_bins[@]}"; do
+    exe="$(grep -o "\"executable\":\"[^\"]*/debug/$b\"" "$json" | head -1 | cut -d'"' -f4 || true)"
+    if [ -z "$exe" ] || ! [ "target/debug/$b" -ef "$exe" ]; then
+      echo "gate: the test build did not build target/debug/$b${exe:+ (it built $exe)}, which the benches run,"
+      echo "gate: so they would run a stale one. Cargo builds a package's binaries for its integration tests, and"
+      echo "gate: none needs $b now: build it in test_build, after the tests' build"
+      return 1
+    fi
+  done
 }
 
 # Nothing compiles under the lock: the compile phases built what the locked part runs. When
@@ -457,11 +534,9 @@ compiled_under_lock() {
 }
 
 # The checks that need the machine to themselves, in order: the locked part, which holds the
-# lock across them, and whose binaries the compile phases built beforehand. Cargo links the
-# binaries of the build it last ran, so the benches run the test build's `theseusd` and
-# `theseus-sim` (the workspace's features, which the install has too; the suite's cargo links
-# them over the `-p` build's, and the compile phases run the test build last, so they leave
-# what the benches will find).
+# lock across them, and whose binaries the compile phases built beforehand. The benches run
+# the test build's `theseusd`, `theseus-sim`, and `theseus-index` (the workspace's features,
+# which the features phase holds an install's to; see test_build).
 machine_checks() {
   phase "reader rule" registry
   phase suite suite
@@ -534,15 +609,14 @@ phase fmt cargo fmt --all -- --check
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
+phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
 # The cockpit before the suite, which reads its build at / (theseus-vm3n.6).
 phase cockpit cockpit
-# Every compile first, without the lock: the bench binaries, then the test binaries (what the suite runs).
-# Cargo links the binaries of the build it ran last, and the suite's cargo (in the locked part) links the
-# test build's, so this order leaves target/debug as the benches will find it.
-# (`env -u`: nextest warns that --no-run ignores the lane's NEXTEST_TEST_THREADS.)
-phase "bench build" bench_build
-phase "test build" env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run
+# Every compile first, without the lock: the test binaries (what the suite runs), and with them the binaries
+# the benches run (theseus-7ykr).
+phase "test build" test_build
 locked_checks
 phase deny deny_check
 gate_done=1

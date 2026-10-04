@@ -23,13 +23,21 @@ scripts/gate.sh && git commit -S -F <message file>
 It runs, in order:
 
 1. *Without the lock*, every compile: `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500
-   lines unless listed), then `cargo clippy --workspace --all-targets -- -D warnings`, which also holds the shape
-   budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and `npm run build`,
-   when `cockpit/node_modules` exists (else the gate says it skipped them), before the suite, whose tests of `/` read
-   that build; a failing npm step prints its name and the last 40 lines of its output above the table. Then
-   `bench build` (`cargo build` of the five binaries an install
-   ships, `scripts/build.sh`'s list, among them those the benches run: the gate's `bench_build` function lists them)
-   and `test build` (`cargo nextest run --workspace --no-run`, which builds what the suite runs).
+   lines unless listed), then `features` (the five shipped binaries get no fewer features built alone than in the
+   workspace; see "Releases", "Features"), then `cargo clippy --workspace --all-targets -- -D warnings`, which also
+   holds the shape budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and
+   `npm run build`, before the suite, whose tests of `/` read that build. When `cockpit/node_modules` is missing, the
+   gate installs it first (`npm ci --offline` from npm's cache, then `npm ci` over the network), and fails, saying
+   why, when it can't or there is no npm (theseus-i5xo: it used to skip, and the tests of `/` then passed on their
+   not-built branch); it also fails when the build leaves no `crates/theseusd/cockpit/dist/index.html`. A failing
+   npm step prints its name and the last 40 lines of its output above the table. Then
+   `test build` (`cargo nextest run --workspace --no-run`), which builds what the suite runs, and with it the debug
+   `theseusd`, `theseus-sim`, and `theseus-index` the benches run (cargo builds a package's binaries for its
+   integration tests). It fails naming a bench binary that cargo's messages say it did not build, which the benches
+   would otherwise run stale (the gate's `bench_bins`). The `bench build` before it (`cargo build -p` of the five
+   shipped binaries) is gone (theseus-7ykr): cargo links `target/debug/<bin>` from the build it ran last, so the test
+   build replaced its binaries before any bench ran, and it cost a second feature set of the shared crates (384 s of
+   a cold 1,121 s gate on a 4-core VM, 9 s after a touch of theseus-core).
 2. *With the lock*, the locked part. Nothing compiles here: step 1 built everything it runs (a `gate: NOTE` says so
    when something does, which means the tree changed after step 1).
    - The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
@@ -52,8 +60,8 @@ It runs, in order:
      gets the allowance, so it runs in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the
      join it runs ten runs and a burst of 30 turns and records the row (about 11 s). A miss reruns once.
 
-   Cargo links the binaries of the build it ran last, and the suite's cargo links the test build's `theseusd` and
-   `theseus-sim`, so the benches run those: the workspace's features, which an install has too.
+   The benches run the test build's `theseusd`, `theseus-sim`, and `theseus-index`: the workspace's features, which
+   the `features` phase holds an install's to.
 3. *Without it again*:
    - `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database
      as its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was
@@ -257,7 +265,7 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   release. It builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the
   target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the five binaries an
   install ships**, `theseusd`, `theseus`, `theseus-tui`, `theseus-sim`, and `theseus-index`, and what they link, and not
-  the crates still waiting for their rows (theseus-o8nk; the gate's bench build uses the same five). A `-p`, `--package`,
+  the crates still waiting for their rows (theseus-o8nk; the gate's `features` phase reads the list). A `-p`, `--package`,
   `--workspace`, or `--all` of your own replaces the five. Measured on 2026-10-03 (cold, no compile cache, `-j 4`,
   `release-thin`): 1,139 CPU-seconds, about 4 min 50 s, against 1,395 and 5 min 55 s for the whole workspace with the
   voice crate, the install's build until then (18 % less; the voice crate's exit alone was 10 %). Built alone or with the
@@ -266,18 +274,20 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
     can give a crate they share fewer features than the whole workspace, which the gate tests, gives it. For the five it
     gives none fewer: on 2026-10-03 cargo's unit graph (`RUSTC_BOOTSTRAP=1 cargo build --unit-graph -Z unstable-options`,
     which prints and builds nothing) held the same units, features included, for everything the five link, whether the
-    five were built alone or the workspace whole. Recheck it after a change that gives a crate outside the five a new
-    dependency or feature: this prints each package the five link whose features the whole workspace widens, and
-    nothing when there is none.
+    five were built alone or the workspace whole. The gate's `features` phase holds it on every run (theseus-dr2x):
+    it compares `cargo tree -e normal,build -f '{p} {f}'` of the five (`build.sh --shipped` prints the list) with the
+    whole workspace's, which compiles nothing and takes about a second, and fails naming each package the five link
+    that the workspace builds with more features, and the features it adds:
 
-    ```bash
-    t() { cargo tree -e normal,build --prefix none -f '{p} {f}' "$@" | sed 's/ (\*)$//' | sort -u; }
-    five="-p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index"
-    comm -13 <(t $five) <(t --workspace) | awk '{print $1, $2}' | grep -Fx -f <(t $five | awk '{print $1, $2}')
+    ```text
+    gate: the whole workspace widens the features of a package the five shipped binaries link, …
+      serde_json v1.0.151: the workspace builds it with indexmap, preserve_order
     ```
 
-    Name a feature it finds in the shipped crate that links the dependency, as theseus-discord's manifest names
-    twilight-gateway's `rustls-native-roots`, which only the voice crate had turned on until it left the workspace.
+    Name the feature it finds in the shipped crate that links the dependency, as theseus-discord's manifest names
+    twilight-gateway's `rustls-native-roots`, which only the voice crate had turned on until it left the workspace; or
+    drop it from the crate outside the five. `cargo tree` resolves the normal and build edges only, as an install
+    builds: a feature a dev-dependency adds reaches the tests alone, and the check does not see it.
   - rust-embed's `deterministic-timestamps` (theseusd's manifest) gives the embedded web files no modification time. A
     plain `cargo build --release` still works, and embeds the directory it was built in.
 - **The profiles.** `release` is fat LTO with one codegen unit: a tagged release. `release-thin` (cargo reserves the name

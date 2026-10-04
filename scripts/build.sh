@@ -5,6 +5,7 @@
 # it was built in or the minute it was built.
 #
 #   scripts/build.sh [--profile release|release-thin] [cargo build arguments…]
+#   scripts/build.sh --shipped   (prints the five packages below, and builds nothing)
 #
 #   release       fat LTO and one codegen unit: a tagged release (the default).
 #   release-thin  thin LTO and 16 codegen units: the install profile, for a chain's
@@ -14,14 +15,14 @@
 # What it builds: the five binaries an install ships, theseusd, theseus, theseus-tui,
 # theseus-sim, and theseus-index, and what they link (theseus-o8nk). The crates still
 # waiting for their roadmap rows (judge, exam, mcp, ontology, memory, aws-guard) are
-# not compiled. scripts/gate.sh's bench build uses the same five.
+# not compiled. scripts/gate.sh's features phase reads the list (`--shipped`).
 #
 # Cargo unifies a dependency's features over the packages it builds, so building some
 # packages can give a shared crate fewer features than the whole workspace, which the
 # gate tests, gives it. For these five it gives none fewer: no waiting crate adds a
-# feature to anything they link (checked 2026-10-03 with cargo's unit graph; the
-# one-line recheck is in scripts/AGENTS.md). A crate that does is caught by that
-# recheck, and the feature is named in the shipped crate that links it, as
+# feature to anything they link (checked 2026-10-03 with cargo's unit graph). The
+# gate's features phase holds it (theseus-dr2x): it fails naming a crate that does,
+# and the feature is then named in the shipped crate that links it, as
 # theseus-discord names twilight-gateway's TLS roots.
 #
 # A `-p`, `--package`, `--workspace`, or `--all` of your own replaces the five.
@@ -40,6 +41,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
+
+# The five, one list: `build.sh --shipped` prints it, one package a line, and builds nothing (the gate's features
+# phase reads it, theseus-dr2x).
+shipped=(theseusd theseus theseus-tui theseus-sim theseus-index)
+if [ "${1:-}" = --shipped ]; then
+  printf '%s\n' "${shipped[@]}"
+  exit 0
+fi
 
 profile=release
 while [ $# -gt 0 ]; do
@@ -67,7 +76,8 @@ export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$flags"
 : "${SOURCE_DATE_EPOCH:=$(git log -1 --format=%ct 2>/dev/null || echo 0)}"
 export SOURCE_DATE_EPOCH
 
-pkgs=(-p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index)
+pkgs=()
+for p in "${shipped[@]}"; do pkgs+=(-p "$p"); done
 for arg in "$@"; do
   case "$arg" in -p | -p?* | --package | --package=* | --workspace | --all) pkgs=() ;; esac
 done
