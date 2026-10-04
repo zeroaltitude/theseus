@@ -3,12 +3,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { Command } from 'cmdk'
+import { useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, ArrowUpRight, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Landmark, Layers, Navigation, OctagonX, Pause, Radio,
-  Sailboat, ScrollText, ShieldCheck, ShieldHalf, Zap,
+  Activity, ArrowUpRight, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
+  RefreshCw, Sailboat, ScrollText, ShieldCheck, ShieldHalf, Zap,
 } from 'lucide-react'
-import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, SessionInfo } from '@protocol'
-import { call, useConn, useRpc, usePush } from '@/lib/rpc'
+import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, ProfileList, SessionInfo } from '@protocol'
+import { call, client, useConn, usePaused, useRpc, usePush } from '@/lib/rpc'
+import { readNow } from '@/lib/history'
 import { useLedger } from '@/lib/derive'
 import { summarize } from '@/lib/summary'
 import { cn, ms, short, tokens, uptime, usd, clock, stamp } from '@/lib/format'
@@ -209,7 +211,7 @@ function HeartbeatBar() {
         <div className="w-20"><Spark data={flow.length > 1 ? flow : [0, 0]} tone="live" height={22} /></div>
         <span className="num w-11 text-[12px] text-ink">{(flow[flow.length - 1] ?? 0).toFixed(1)}/s</span>
       </div>
-      <Indicator label="model" tone="model" value={h ? h.model : '—'} title={h ? `${h.provider} · ${h.model} · profile ${h.profile}` : undefined} />
+      <LiveProfile />
       <div className="ml-auto flex shrink-0 items-center gap-3">
         {firstWaiting && (
           <button type="button" onClick={() => nav(`/session/${firstWaiting.session_id}`)}
@@ -231,9 +233,75 @@ function HeartbeatBar() {
         </div>
         <Indicator label="cache" tone="think" value={usage ? `${(cacheHit * 100).toFixed(0)}%` : '—'} title={usage ? `${tokens(usage.cache_read_input_tokens)} input tokens read from cache` : undefined} />
         <Indicator label="spent" tone="money" value={h?.cost_usd_total !== undefined ? usd(h.cost_usd_total) : '—'} />
+        <PauseRefresh />
         <span className="num text-[12px] text-ink-dim">{clock(now)}</span>
       </div>
     </header>
+  )
+}
+
+/** The live profile, picked in the bar (the Observatory's header picker, theseus-vm3n.6): what new turns run on
+ *  unless they name their own. Confirmed first, as Systems' "make live" is; off while the time machine shows the past. */
+function LiveProfile() {
+  const qc = useQueryClient()
+  const past = useAsOf((s) => s.t !== null)
+  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 10_000)
+  const [busy, setBusy] = useState(false)
+  // Another surface's change shows at once.
+  useEffect(() => {
+    const off = client.onNotify((m) => { if (m === 'profile.changed') void qc.invalidateQueries({ queryKey: ['profile.list'] }) })
+    return () => { off() }
+  }, [qc])
+  if (!pl) return <Indicator label="live" tone="model" value="—" />
+  const use = async (name: string) => {
+    const p = pl.profiles.find((x) => x.name === name)
+    if (!p || p.live) return
+    if (!window.confirm(`Make "${name}" (${p.provider} · ${p.model}) the live profile? New turns run on it unless they name their own.`)) return
+    setBusy(true)
+    try { await call('profile.use', { name }); await qc.invalidateQueries() } catch (e: any) { window.alert(e?.message ?? String(e)) } finally { setBusy(false) }
+  }
+  return (
+    // The one item in the bar that gives way when it is narrow, so the clock stays in view.
+    <label className="flex min-w-0 shrink items-center gap-1.5"
+      title={`the live profile, from ${pl.live_source}: new turns run on it unless they name their own, and it persists across restarts${past ? ' · return to LIVE in the ship’s log to change it' : ''}`}>
+      <LiveDot tone="model" pulse={false} size={5} />
+      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">live</span>
+      <select value={pl.live} disabled={busy || past} onChange={(e) => void use(e.target.value)}
+        className="num min-w-0 max-w-48 shrink cursor-pointer truncate rounded bg-transparent px-0.5 py-0.5 text-[12px] text-ink outline-none ring-1 ring-transparent hover:ring-line focus:ring-live/40 disabled:cursor-default disabled:opacity-60">
+        {pl.profiles.map((p) => <option key={p.name} value={p.name} className="bg-deck text-ink">{p.name} · {p.provider}/{p.model}</option>)}
+      </select>
+    </label>
+  )
+}
+
+/** Pause and refresh (the Observatory's live checkbox and its refresh, theseus-vm3n.6). Paused, no read runs on a
+ *  timer and the ledger's follow waits, so the views hold still to be read; the push still comes, as it did there.
+ *  Refresh reads everything on screen once, paused or not. */
+function PauseRefresh() {
+  const qc = useQueryClient()
+  const paused = usePaused((s) => s.paused)
+  const [reading, setReading] = useState(false)
+  const refresh = () => {
+    setReading(true)
+    readNow()
+    void qc.invalidateQueries().finally(() => setReading(false))
+  }
+  const toggle = () => {
+    usePaused.setState({ paused: !paused })
+    if (paused) refresh()
+  }
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <button onClick={toggle}
+        title={paused ? 'Paused: no read runs on a timer and the ledger’s follow waits; the push still comes. Press to go on.' : 'Pause: the views hold still to be read. No read runs on a timer and the ledger’s follow waits; the push still comes.'}
+        className={cn('flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider ring-1 transition-colors',
+          paused ? 'bg-wait/15 text-wait ring-wait/50 shadow-[0_0_10px_-2px_#fbbf24]' : 'text-ink-faint ring-line hover:text-ink')}>
+        {paused ? <><Play size={12} /> paused</> : <Pause size={12} />}
+      </button>
+      <button onClick={refresh} title="Refresh: read everything on screen again now" className="rounded-md p-1 text-ink-faint ring-1 ring-line hover:text-ink">
+        <RefreshCw size={12} className={cn(reading && 'animate-spin')} />
+      </button>
+    </div>
   )
 }
 

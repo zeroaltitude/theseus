@@ -16,7 +16,7 @@ import { stateTone, toneHex } from '@/lib/taxonomy'
 import { AttentionPill, Empty, LiveDot, Meter, Panel, Pill, Segmented } from '@/components/ui'
 import { ExecutionTable } from '@/components/ExecutionTable'
 
-type Key = 'state' | 'title' | 'turns' | 'tools' | 'tokens' | 'cache' | 'cost' | 'active'
+type Key = 'state' | 'title' | 'turns' | 'tools' | 'tokens' | 'out' | 'cache' | 'cost' | 'active'
 type Sort = { k: Key; desc: boolean }
 
 const NO_SESSIONS: SessionInfo[] = []
@@ -99,6 +99,7 @@ export default function Fleet() {
         case 'turns': return s.turns
         case 'tools': return s.tool_calls ?? 0
         case 'tokens': return tokIn(s)
+        case 'out': return s.usage.output_tokens
         case 'cache': return s.usage.cache_read_input_tokens / Math.max(1, tokIn(s))
         case 'cost': return s.cost_usd ?? 0
         case 'active': return s.last_active_ms ?? 0
@@ -143,7 +144,7 @@ export default function Fleet() {
               <thead className="sticky top-0 z-10 bg-hull/95 text-[10px] uppercase tracking-wider text-ink-faint backdrop-blur">
                 <tr>
                   <Th k="state" sort={sort} setSort={setSort}>state</Th><Th k="title" sort={sort} setSort={setSort}>session</Th><Th k="turns" sort={sort} setSort={setSort} right>turns</Th><Th k="tools" sort={sort} setSort={setSort} right>tools</Th>
-                  <Th k="tokens" sort={sort} setSort={setSort} right>tokens in</Th><Th k="cache" sort={sort} setSort={setSort} right>cache</Th><Th k="cost" sort={sort} setSort={setSort} right>cost</Th>
+                  <Th k="tokens" sort={sort} setSort={setSort} right>tokens in</Th><Th k="out" sort={sort} setSort={setSort} right>tokens out</Th><Th k="cache" sort={sort} setSort={setSort} right>cache</Th><Th k="cost" sort={sort} setSort={setSort} right>cost</Th>
                   <th className="w-36 px-2 py-1.5 text-left font-semibold">budget</th><Th k="active" sort={sort} setSort={setSort} right>active</Th>
                 </tr>
               </thead>
@@ -154,13 +155,14 @@ export default function Fleet() {
                   return (
                     <tr key={s.session_id} onClick={() => nav(`/session/${s.session_id}`)} className="cursor-pointer border-t border-line/60 hover:bg-live/[0.04]">
                       <td className="px-2 py-1.5"><AttentionPill a={s.attention} state={s.execution_state} /></td>
-                      <td className="max-w-[340px] px-2 py-1.5">
+                      <td className="max-w-[280px] px-2 py-1.5">
                         <div className="truncate text-ink">{s.title || s.label || 'untitled'}</div>
                         <div className="num truncate text-[10.5px] text-ink-faint">{short(s.session_id)} · {s.kind}{s.label && s.title ? ` · ${s.label}` : ''}{s.model ? ` · ${s.model}` : ''}</div>
                       </td>
                       <td className="num px-2 py-1.5 text-right text-ink">{s.turns}</td>
                       <td className="num px-2 py-1.5 text-right text-tool">{s.tool_calls ?? 0}</td>
                       <td className="num px-2 py-1.5 text-right text-ink-dim">{tokens(tokIn(s))}</td>
+                      <td className="num px-2 py-1.5 text-right text-ink-dim">{tokens(s.usage.output_tokens)}</td>
                       <td className="num px-2 py-1.5 text-right text-think">{tokIn(s) ? pct(s.usage.cache_read_input_tokens / tokIn(s)) : '—'}</td>
                       <td className="num px-2 py-1.5 text-right text-money">{usd(s.cost_usd)}</td>
                       <td className="px-2 py-1.5">{b ? <><Meter value={b.spent_usd + b.reserved_usd} max={b.limit_usd} tone={b.available_usd > b.limit_usd * 0.2 ? 'ok' : b.available_usd > 0 ? 'wait' : 'fault'} /><div className="num mt-0.5 text-[10px] text-ink-faint">{usd(b.available_usd)} left</div></> : <span className="text-ink-faint">—</span>}</td>

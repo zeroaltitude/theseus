@@ -189,6 +189,14 @@ export default function Systems() {
       </Card>
 
       <Card title="Context files" icon={<FileText size={13} />}>
+        {h.context && (h.context.system_files.length > 0 || h.context.persona || h.context.personas.length > 0) && (
+          <div className="mb-1 text-[12px] text-ink-dim" title="the config's context files: the system level, which every session gets, then the persona in play's; until Jev chooses one, the persona is [context] default_persona">
+            <span className="num text-ink">{h.context.system_files.length}</span> at the system level ·{' '}
+            {h.context.persona
+              ? <>persona <span className="num text-ink">{h.context.persona}</span> in play, with <span className="num text-ink">{h.context.persona_files.length}</span></>
+              : <span className={h.context.personas.length ? 'text-wait' : 'text-ink-faint'}>no persona in play{h.context.personas.length ? ` (defined: ${h.context.personas.join(', ')})` : ''}</span>}
+          </div>
+        )}
         <Field label="persona" mono>{h.context?.persona ?? '—'}</Field>
         <Field label="personas" mono>{h.context?.personas.join(', ') || '—'}</Field>
         {(h.context?.system_files ?? []).map((f) => <Field key={f} label="system" mono>{f}</Field>)}
