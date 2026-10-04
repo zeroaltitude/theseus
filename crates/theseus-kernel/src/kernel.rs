@@ -902,8 +902,16 @@ impl Kernel {
     }
 
     /// Append a frame, then hand it to the observer, if one is installed
-    /// (theseus-in3). Every EXECUTION and ACTION record is written here.
+    /// (theseus-in3). Every EXECUTION and ACTION record is written here, and
+    /// each once a frame (Tier 7.3, `tx::once_each`): a transaction stages a
+    /// copy at each of its transitions, and only the last can be read.
     pub(crate) fn commit(&self, frame: &[NewRecord]) -> Result<Vec<u64>> {
+        let once = match self.tx() {
+            // A transaction's view stages, and reads the newest copy it staged.
+            Some(_) => None,
+            None => crate::tx::once_each(frame),
+        };
+        let frame = once.as_deref().unwrap_or(frame);
         let positions = self.store.append(frame).context("kernel frame")?;
         if let Some(observe) = self.observer.get() {
             observe(Committed {
@@ -1499,7 +1507,8 @@ impl Kernel {
         self.frame(&[&guard.execution_id], |k| {
             let a = k.plan_action(guard, proposal, retry_class, deadline_ms, reserve_micros)?;
             k.stage(&extra(&a)?)?;
-            k.authorize(&a.correlation_id, proposal, None)?;
+            // The digest the plan took of the same proposal (Tier 7.3).
+            k.authorize_or_invalid(&a.correlation_id, &a.args_digest, None)??;
             k.dispatch(&a.correlation_id, None)
         })
     }
@@ -2010,24 +2019,26 @@ impl Kernel {
         proposal: &Proposal,
         confirm_required_from: Option<&str>,
     ) -> Result<Action> {
-        self.authorize_or_invalid(correlation_id, proposal, confirm_required_from)?
+        let digest = digest_proposal(proposal);
+        self.authorize_or_invalid(correlation_id, &digest, confirm_required_from)?
     }
 
     /// `authorize`, with its two refusals apart, and nothing written by
     /// either: `Err` when the action's execution ended it (a cancel or a
     /// stop settled it) or it cannot be read; `Ok(Err(why))` when the
     /// proposal or its confirm no longer holds (`authorize_frame`'s checks).
+    /// `digest` is the proposal's (`digest_proposal`).
     fn authorize_or_invalid(
         &self,
         correlation_id: &str,
-        proposal: &Proposal,
+        digest: &str,
         confirm_required_from: Option<&str>,
     ) -> Result<Result<Action>> {
         let (_w, mut a) = self.locked_known_action(correlation_id)?;
         if let Some(end) = self.ended_with_execution(&a)? {
             return Err(end);
         }
-        let frame = match self.authorize_frame(&mut a, proposal, confirm_required_from) {
+        let frame = match self.authorize_frame(&mut a, digest, confirm_required_from) {
             Ok(frame) => frame,
             Err(why) => return Ok(Err(why)),
         };
@@ -2067,7 +2078,7 @@ impl Kernel {
     fn authorize_frame(
         &self,
         a: &mut Action,
-        proposal: &Proposal,
+        d: &str,
         confirm_required_from: Option<&str>,
     ) -> Result<Vec<NewRecord>> {
         if a.state != ActionState::Planned {
@@ -2078,7 +2089,6 @@ impl Kernel {
             }
             .into());
         }
-        let d = digest_proposal(proposal);
         if d != a.args_digest {
             return Err(KernelError::ConfirmInvalidated {
                 reason: format!("planned digest {} != final digest {}", a.args_digest, d),
@@ -2156,9 +2166,10 @@ impl Kernel {
             .action(correlation_id)?
             .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?
             .execution_id;
+        let digest = digest_proposal(proposal);
         let answered = self.frame(&[&execution_id], |k| {
             Ok(
-                match k.authorize_or_invalid(correlation_id, proposal, confirm_required_from)? {
+                match k.authorize_or_invalid(correlation_id, &digest, confirm_required_from)? {
                     Err(why) => Answered::Invalid(why),
                     Ok(_) => match k.dispatch_or_refuse(correlation_id, external_op_id)? {
                         Ok(a) => Answered::Dispatched(Box::new(a)),

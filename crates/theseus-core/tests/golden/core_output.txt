@@ -9,14 +9,14 @@ result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "Hello."
 frame: execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.opened","session_id":"ses_#1","data":{"execution_id":"exe_#2","kind":"conversation","limit_usd":#}}
 frame: session ses_#1
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#3 · session ses_#1
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#4","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
 frame: compilation cmp_#5 · ledger · session ses_#1
   ledger {"at_unix_ms":#,"kind":"context.recompiled","session_id":"ses_#1","turn_id":"turn_#4","data":{"as_of":#,"compilation_id":"cmp_#5","derived_from":null,"includes":#,"model":"claude-sonnet-#-#","strategy":"transcript","strip_thinking":false,"trigger":"new_session"}}
-frame: ledger · ledger · execution exe_#2 · action act_#6 · ledger · action act_#6 · ledger · action act_#6 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#6 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#4","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#4"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#4","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#6","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -67,12 +67,12 @@ narrate session session=ses_#1 turn=turn_#4 Parked until the next input.
 
 -- a turn with two tool calls
 result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "Reading.\n\nDiffing.\n\nThe notes say alpha and beta."
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#9
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#10","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-frame: ledger · ledger · execution exe_#2 · action act_#11 · ledger · action act_#11 · ledger · action act_#11 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#11 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#10","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#10"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#10","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#11","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -81,13 +81,13 @@ frame: ledger · ledger · execution exe_#2 · action act_#11 · ledger · actio
 frame: completion act_#11 · action act_#11 · execution exe_#2 · ledger · node msg_#12 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#11","cost_usd":#,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"provider:anthropic"}}
   ledger {"at_unix_ms":#,"kind":"provider.call","session_id":"ses_#1","turn_id":"turn_#10","data":{"blocks":#,"catalog_version":"#-#-#.#+config:#","cost_usd":#,"input_transformations":null,"loop":#,"model":"claude-sonnet-#-#","node_id":"msg_#12","provider":"anthropic","rate_limit":{"input_tokens_remaining":null,"output_tokens_remaining":null,"requests_limit":null,"requests_remaining":null,"requests_reset":null,"retry_after_secs":null,"tokens_limit":null,"tokens_remaining":null,"tokens_reset":null},"request_id":"req_fake","stop_details":null,"stop_reason":"tool_use","timing":{"first_byte_ms":#,"first_token_ms":#,"total_ms":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-frame: action act_#13 · ledger · node tcl_#14 · action act_#13 · ledger · action act_#13 · execution exe_#2 · ledger
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#13","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"fs.read"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":false,"correlation_id":"act_#13"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#13","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"fs.read"}}
-frame: completion act_#13 · action act_#13 · execution exe_#2 · ledger · node trs_#15
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#13","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"inproc:fs.read"}}
-frame: ledger · ledger · ledger · execution exe_#2 · action act_#16 · ledger · action act_#16 · ledger · action act_#16 · execution exe_#2 · ledger
+frame: ledger · node tcl_#13 · ledger · action act_#14 · execution exe_#2 · ledger
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#14","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"fs.read"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":false,"correlation_id":"act_#14"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#14","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"fs.read"}}
+frame: completion act_#14 · action act_#14 · execution exe_#2 · ledger · node trs_#15
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#14","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"inproc:fs.read"}}
+frame: ledger · ledger · ledger · ledger · ledger · action act_#16 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#1","turn_id":"turn_#10","data":{"advancer":"until_no_tool_calls","decision":{"decision":"continue"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"tool_use","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#10","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#10"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#10","data":{"loop":#}}
@@ -97,13 +97,13 @@ frame: ledger · ledger · ledger · execution exe_#2 · action act_#16 · ledge
 frame: completion act_#16 · action act_#16 · execution exe_#2 · ledger · node msg_#17 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#16","cost_usd":#,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"provider:anthropic"}}
   ledger {"at_unix_ms":#,"kind":"provider.call","session_id":"ses_#1","turn_id":"turn_#10","data":{"blocks":#,"catalog_version":"#-#-#.#+config:#","cost_usd":#,"input_transformations":null,"loop":#,"model":"claude-sonnet-#-#","node_id":"msg_#17","provider":"anthropic","rate_limit":{"input_tokens_remaining":null,"output_tokens_remaining":null,"requests_limit":null,"requests_remaining":null,"requests_reset":null,"retry_after_secs":null,"tokens_limit":null,"tokens_remaining":null,"tokens_reset":null},"request_id":"req_fake","stop_details":null,"stop_reason":"tool_use","timing":{"first_byte_ms":#,"first_token_ms":#,"total_ms":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-frame: action act_#18 · ledger · node tcl_#19 · action act_#18 · ledger · action act_#18 · execution exe_#2 · ledger
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#18","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"text.diff"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":false,"correlation_id":"act_#18"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#18","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"text.diff"}}
-frame: completion act_#18 · action act_#18 · execution exe_#2 · ledger · node trs_#20
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#18","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"inproc:text.diff"}}
-frame: ledger · ledger · ledger · execution exe_#2 · action act_#21 · ledger · action act_#21 · ledger · action act_#21 · execution exe_#2 · ledger
+frame: ledger · node tcl_#18 · ledger · action act_#19 · execution exe_#2 · ledger
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#19","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"text.diff"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":false,"correlation_id":"act_#19"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#19","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"text.diff"}}
+frame: completion act_#19 · action act_#19 · execution exe_#2 · ledger · node trs_#20
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#19","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"inproc:text.diff"}}
+frame: ledger · ledger · ledger · ledger · ledger · action act_#21 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#1","turn_id":"turn_#10","data":{"advancer":"until_no_tool_calls","decision":{"decision":"continue"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"tool_use","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#10","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#10"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#10","data":{"loop":#}}
@@ -158,8 +158,8 @@ notify model.delta {"loop_index":#,"text":"Read","turn_id":"turn_#10"}
 notify model.delta {"loop_index":#,"text":"ing.","turn_id":"turn_#10"}
 notify node.written {"kind":"assistant_message","node_id":"msg_#12","session_id":"ses_#1"}
 notify tool.proposed {"gate":{"decision":{"posture":"open","reason":"fs.read — open ([policy.tools] \"fs.read\" = open)"},"plan":{"resources":[{"access":"read","path":"<dir>/notes.txt"}],"summary":"read <dir>/notes.txt"},"proposal":{"args":{"path":"notes.txt"},"policy_context":{"cwd":"<dir>","roots":["<dir>"]},"resource":"<dir>/notes.txt","tool":"fs.read"},"result":{"gate":"allow"},"validated":true},"input":{"path":"notes.txt"},"session_id":"ses_#1","tool":"fs.read","tool_use_id":"r#","turn_id":"turn_#10"}
-notify tool.started {"backend":"inproc","correlation_id":"act_#13","session_id":"ses_#1","tool":"fs.read","tool_use_id":"r#","turn_id":"turn_#10"}
-notify tool.ended {"bytes":#,"correlation_id":"act_#13","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#15","preview":"     #\talpha\n     #\tbeta\n","session_id":"ses_#1","status":"ok","stopped_by":null,"tool":"fs.read","tool_use_id":"r#","truncated":false,"turn_id":"turn_#10"}
+notify tool.started {"backend":"inproc","correlation_id":"act_#14","session_id":"ses_#1","tool":"fs.read","tool_use_id":"r#","turn_id":"turn_#10"}
+notify tool.ended {"bytes":#,"correlation_id":"act_#14","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#15","preview":"     #\talpha\n     #\tbeta\n","session_id":"ses_#1","status":"ok","stopped_by":null,"tool":"fs.read","tool_use_id":"r#","truncated":false,"turn_id":"turn_#10"}
 notify node.written {"kind":"tool_result","node_id":"trs_#15","session_id":"ses_#1"}
 notify loop.ended {"advancer":"until_no_tool_calls","decision":"continue","loop_index":#,"provider_stop_reason":"tool_use","tool_calls":#,"turn_id":"turn_#10"}
 notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#10"}
@@ -168,8 +168,8 @@ notify model.delta {"loop_index":#,"text":"Diff","turn_id":"turn_#10"}
 notify model.delta {"loop_index":#,"text":"ing.","turn_id":"turn_#10"}
 notify node.written {"kind":"assistant_message","node_id":"msg_#17","session_id":"ses_#1"}
 notify tool.proposed {"gate":{"decision":{"posture":"open","reason":"text.diff — open ([policy.tools] \"text.diff\" = open)"},"plan":{"resources":[],"summary":"diff two texts"},"proposal":{"args":{"a":"x\n","b":"y\n"},"policy_context":{"cwd":"<dir>","roots":["<dir>"]},"tool":"text.diff"},"result":{"gate":"allow"},"validated":true},"input":{"a":"x\n","b":"y\n"},"session_id":"ses_#1","tool":"text.diff","tool_use_id":"d#","turn_id":"turn_#10"}
-notify tool.started {"backend":"inproc","correlation_id":"act_#18","session_id":"ses_#1","tool":"text.diff","tool_use_id":"d#","turn_id":"turn_#10"}
-notify tool.ended {"bytes":#,"correlation_id":"act_#18","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#20","preview":"--- a\n+++ b\n@@ -# +# @@\n-x\n+y\n","session_id":"ses_#1","status":"ok","stopped_by":null,"tool":"text.diff","tool_use_id":"d#","truncated":false,"turn_id":"turn_#10"}
+notify tool.started {"backend":"inproc","correlation_id":"act_#19","session_id":"ses_#1","tool":"text.diff","tool_use_id":"d#","turn_id":"turn_#10"}
+notify tool.ended {"bytes":#,"correlation_id":"act_#19","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#20","preview":"--- a\n+++ b\n@@ -# +# @@\n-x\n+y\n","session_id":"ses_#1","status":"ok","stopped_by":null,"tool":"text.diff","tool_use_id":"d#","truncated":false,"turn_id":"turn_#10"}
 notify node.written {"kind":"tool_result","node_id":"trs_#20","session_id":"ses_#1"}
 notify loop.ended {"advancer":"until_no_tool_calls","decision":"continue","loop_index":#,"provider_stop_reason":"tool_use","tool_calls":#,"turn_id":"turn_#10"}
 notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#10"}
@@ -212,12 +212,12 @@ narrate session session=ses_#1 turn=turn_#10 Parked until the next input.
 
 -- a job that goes on in the background
 result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "Started; I'll report back."
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#24
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#25","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-frame: ledger · ledger · execution exe_#2 · action act_#26 · ledger · action act_#26 · ledger · action act_#26 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#26 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#25","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#25"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#25","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#26","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -226,14 +226,14 @@ frame: ledger · ledger · execution exe_#2 · action act_#26 · ledger · actio
 frame: completion act_#26 · action act_#26 · execution exe_#2 · ledger · node msg_#27 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#26","cost_usd":#,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"provider:anthropic"}}
   ledger {"at_unix_ms":#,"kind":"provider.call","session_id":"ses_#1","turn_id":"turn_#25","data":{"blocks":#,"catalog_version":"#-#-#.#+config:#","cost_usd":#,"input_transformations":null,"loop":#,"model":"claude-sonnet-#-#","node_id":"msg_#27","provider":"anthropic","rate_limit":{"input_tokens_remaining":null,"output_tokens_remaining":null,"requests_limit":null,"requests_remaining":null,"requests_reset":null,"retry_after_secs":null,"tokens_limit":null,"tokens_remaining":null,"tokens_reset":null},"request_id":"req_fake","stop_details":null,"stop_reason":"tool_use","timing":{"first_byte_ms":#,"first_token_ms":#,"total_ms":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-frame: action act_#28 · ledger · node tcl_#29 · ledger · action act_#28 · ledger · action act_#28 · execution exe_#2 · ledger
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#28","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"non_repeatable"},"tool":"proc.run"}}
-  ledger {"at_unix_ms":#,"kind":"tool.notified","session_id":"ses_#1","turn_id":"turn_#25","data":{"correlation_id":"act_#28","granted":null,"input":{"argv":["bash","-c","sleep #.#; echo slow done"]},"kind":"notify","rule":"proc.run — notify (enforcement = notify)","session_id":"ses_#1","setting":"enforcement = notify","summary":"run `bash -c sleep #.#; echo slow done` in <dir>","tool":"proc.run","tool_use_id":"j#","turn_id":"turn_#25"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":false,"correlation_id":"act_#28"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#28","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"proc.run"}}
+frame: ledger · node tcl_#28 · ledger · ledger · action act_#29 · execution exe_#2 · ledger
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#29","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"non_repeatable"},"tool":"proc.run"}}
+  ledger {"at_unix_ms":#,"kind":"tool.notified","session_id":"ses_#1","turn_id":"turn_#25","data":{"correlation_id":"act_#29","granted":null,"input":{"argv":["bash","-c","sleep #.#; echo slow done"]},"kind":"notify","rule":"proc.run — notify (enforcement = notify)","session_id":"ses_#1","setting":"enforcement = notify","summary":"run `bash -c sleep #.#; echo slow done` in <dir>","tool":"proc.run","tool_use_id":"j#","turn_id":"turn_#25"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":false,"correlation_id":"act_#29"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#29","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"proc.run"}}
 frame: ledger · node trs_#30
-  ledger {"at_unix_ms":#,"kind":"tool.job_started","session_id":"ses_#1","turn_id":"turn_#25","data":{"argv":["bash","-c","sleep #.#; echo slow done"],"correlation_id":"act_#28","cwd":"<dir>","pid":#,"timeout_secs":#}}
-frame: ledger · ledger · ledger · execution exe_#2 · action act_#31 · ledger · action act_#31 · ledger · action act_#31 · execution exe_#2 · ledger
+  ledger {"at_unix_ms":#,"kind":"tool.job_started","session_id":"ses_#1","turn_id":"turn_#25","data":{"argv":["bash","-c","sleep #.#; echo slow done"],"correlation_id":"act_#29","cwd":"<dir>","pid":#,"timeout_secs":#}}
+frame: ledger · ledger · ledger · ledger · ledger · action act_#31 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#1","turn_id":"turn_#25","data":{"advancer":"until_no_tool_calls","decision":{"decision":"continue"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"tool_use","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#25","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#25"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#25","data":{"loop":#}}
@@ -259,7 +259,7 @@ frame: ledger · session ses_#1 · ledger · outbox out_#33 · ledger · ledger 
           first_byte [mark] null
           first_token [mark] null
         action.settle [store] {"correlation_id":"act_#26","cost_usd":#,"node_id":"msg_#27","outcome":"succeeded"}
-        tool proc_run [tool] {"backend":"job","family":"proc","outcome":"Background { correlation_id: \"act_#28\" }","result":"background","tool":"proc.run","tool_use_id":"j#"}
+        tool proc_run [tool] {"backend":"job","family":"proc","outcome":"Background { correlation_id: \"act_#29\" }","result":"background","tool":"proc.run","tool_use_id":"j#"}
         advancer [advancer] {"advancer":"until_no_tool_calls","decision":"continue"}
       loop # [loop] {"decision":"end_turn:no_tool_calls","loop":#,"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}
         compile [compile] {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#25"}
@@ -270,16 +270,16 @@ frame: ledger · session ses_#1 · ledger · outbox out_#33 · ledger · ledger 
         action.settle [store] {"correlation_id":"act_#31","cost_usd":#,"node_id":"msg_#32","outcome":"succeeded"}
         advancer [advancer] {"advancer":"until_no_tool_calls","decision":"end_turn:no_tool_calls"}
       session.write [store] null
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.waiting","session_id":"ses_#1","data":{"execution_id":"exe_#2","reason":null,"turn":#,"turn_ms":#,"wake":{"correlation_ids":["act_#28"],"on":"actions"}}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.waiting","session_id":"ses_#1","data":{"execution_id":"exe_#2","reason":null,"turn":#,"turn_ms":#,"wake":{"correlation_ids":["act_#29"],"on":"actions"}}}
 notify turn.started {"continuation":false,"execution_id":"exe_#2","session_id":"ses_#1","turn_id":"turn_#25"}
 notify node.written {"kind":"user_message","node_id":"msg_#24","session_id":"ses_#1"}
 notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#25"}
 notify loop.started {"loop_index":#,"model":"claude-sonnet-#-#","tools_offered":#,"turn_id":"turn_#25"}
 notify node.written {"kind":"assistant_message","node_id":"msg_#27","session_id":"ses_#1"}
 notify tool.proposed {"gate":{"decision":{"notify":{"kind":"notify","rule":"proc.run — notify (enforcement = notify)","setting":"enforcement = notify"},"posture":"notify","reason":"proc.run — notify (enforcement = notify)"},"plan":{"argv":["bash","-c","sleep #.#; echo slow done"],"resources":[{"access":"exec","path":"<dir>"}],"summary":"run `bash -c sleep #.#; echo slow done` in <dir>"},"proposal":{"args":{"argv":["bash","-c","sleep #.#; echo slow done"]},"policy_context":{"cwd":"<dir>","roots":["<dir>"]},"resource":"<dir>","tool":"proc.run"},"result":{"gate":"allow"},"validated":true},"input":{"argv":["bash","-c","sleep #.#; echo slow done"]},"session_id":"ses_#1","tool":"proc.run","tool_use_id":"j#","turn_id":"turn_#25"}
-notify policy.notified {"correlation_id":"act_#28","granted":null,"input":{"argv":["bash","-c","sleep #.#; echo slow done"]},"kind":"notify","rule":"proc.run — notify (enforcement = notify)","session_id":"ses_#1","setting":"enforcement = notify","summary":"run `bash -c sleep #.#; echo slow done` in <dir>","tool":"proc.run","tool_use_id":"j#","turn_id":"turn_#25"}
-notify tool.started {"argv":["bash","-c","sleep #.#; echo slow done"],"backend":"job","correlation_id":"act_#28","cwd":"<dir>","granted":null,"pid":#,"session_id":"ses_#1","tool":"proc.run","tool_use_id":"j#","turn_id":"turn_#25","withheld":[]}
-notify tool.ended {"bytes":#,"correlation_id":"act_#28","duration_ms":null,"exit_code":null,"late":false,"node_id":"trs_#30","preview":"Still running as background job act_#28 after # seconds (timeout # seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.","session_id":"ses_#1","status":"background","stopped_by":null,"tool":"proc.run","tool_use_id":"j#","truncated":false,"turn_id":"turn_#25"}
+notify policy.notified {"correlation_id":"act_#29","granted":null,"input":{"argv":["bash","-c","sleep #.#; echo slow done"]},"kind":"notify","rule":"proc.run — notify (enforcement = notify)","session_id":"ses_#1","setting":"enforcement = notify","summary":"run `bash -c sleep #.#; echo slow done` in <dir>","tool":"proc.run","tool_use_id":"j#","turn_id":"turn_#25"}
+notify tool.started {"argv":["bash","-c","sleep #.#; echo slow done"],"backend":"job","correlation_id":"act_#29","cwd":"<dir>","granted":null,"pid":#,"session_id":"ses_#1","tool":"proc.run","tool_use_id":"j#","turn_id":"turn_#25","withheld":[]}
+notify tool.ended {"bytes":#,"correlation_id":"act_#29","duration_ms":null,"exit_code":null,"late":false,"node_id":"trs_#30","preview":"Still running as background job act_#29 after # seconds (timeout # seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.","session_id":"ses_#1","status":"background","stopped_by":null,"tool":"proc.run","tool_use_id":"j#","truncated":false,"turn_id":"turn_#25"}
 notify node.written {"kind":"tool_result","node_id":"trs_#30","session_id":"ses_#1"}
 notify loop.ended {"advancer":"until_no_tool_calls","decision":"continue","loop_index":#,"provider_stop_reason":"tool_use","tool_calls":#,"turn_id":"turn_#25"}
 notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#25"}
@@ -302,8 +302,8 @@ narrate context session=ses_#1 turn=turn_#25 Context: appending to compilation �
 narrate model session=ses_#1 turn=turn_#25 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
 narrate model session=ses_#1 turn=turn_#25 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#25 proc.run bash: posture notify (enforcement = notify), running and telling the operator.
-narrate tool session=ses_#1 turn=turn_#25 proc.run bash started as job …#28 (pid #); the turn waits up to <n> for it.
-narrate job session=ses_#1 turn=turn_#25 proc.run continues in the background as job …#28; its result comes in a later message.
+narrate tool session=ses_#1 turn=turn_#25 proc.run bash started as job …#29 (pid #); the turn waits up to <n> for it.
+narrate job session=ses_#1 turn=turn_#25 proc.run continues in the background as job …#29; its result comes in a later message.
 narrate loop session=ses_#1 turn=turn_#25 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#1 turn=turn_#25 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#25 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
@@ -314,9 +314,9 @@ narrate turn session=ses_#1 turn=turn_#25 Turn …#25 ended after # loops in <n>
 narrate session session=ses_#1 turn=turn_#25 Parked until # background job finishes.
 
 -- the heartbeat takes the job's completion
-frame: completion act_#28 · action act_#28 · execution exe_#2 · ledger
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#28","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"queued","outcome":"succeeded","producer":"wrapper:#"}}
-narrate job session=ses_#1 turn=- Job …#28 (proc.run) finished: succeeded, exit code #; its completion came from the spool.
+frame: completion act_#29 · action act_#29 · execution exe_#2 · ledger
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#29","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"queued","outcome":"succeeded","producer":"wrapper:#"}}
+narrate job session=ses_#1 turn=- Job …#29 (proc.run) finished: succeeded, exit code #; its completion came from the spool.
 
 -- the driver: the late result's turn
 continued exe_#2: result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "The slow job finished."
@@ -325,8 +325,8 @@ frame: execution exe_#2 · ledger
 frame: ledger · execution exe_#2 · ledger · node trs_#34 · ledger
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#35","data":{"author":"harness","continuation":true,"execution_id":"exe_#2","input_chars":null,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.results_consumed","session_id":"ses_#1","data":{"count":#,"execution_id":"exe_#2"}}
-  ledger {"at_unix_ms":#,"kind":"tool.late_result","session_id":"ses_#1","turn_id":"turn_#35","data":{"correlation_id":"act_#28","state":"succeeded","tool":"proc.run"}}
-frame: ledger · ledger · execution exe_#2 · action act_#36 · ledger · action act_#36 · ledger · action act_#36 · execution exe_#2 · ledger
+  ledger {"at_unix_ms":#,"kind":"tool.late_result","session_id":"ses_#1","turn_id":"turn_#35","data":{"correlation_id":"act_#29","state":"succeeded","tool":"proc.run"}}
+frame: ledger · ledger · ledger · ledger · action act_#36 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#35","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#35"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#35","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#36","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -355,7 +355,7 @@ frame: ledger · session ses_#1 · ledger · outbox out_#38 · ledger · ledger 
       session.write [store] null
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.waiting","session_id":"ses_#1","data":{"execution_id":"exe_#2","reason":null,"turn":#,"turn_ms":#,"wake":{"on":"input"}}}
 notify turn.started {"continuation":true,"execution_id":"exe_#2","session_id":"ses_#1","turn_id":"turn_#35"}
-notify tool.ended {"bytes":#,"correlation_id":"act_#28","duration_ms":#,"exit_code":#,"late":true,"node_id":"trs_#34","preview":"[exit code #]\nslow done\n","session_id":"ses_#1","status":"ok","stopped_by":null,"tool":"proc.run","tool_use_id":"j#","truncated":false,"turn_id":"turn_#35"}
+notify tool.ended {"bytes":#,"correlation_id":"act_#29","duration_ms":#,"exit_code":#,"late":true,"node_id":"trs_#34","preview":"[exit code #]\nslow done\n","session_id":"ses_#1","status":"ok","stopped_by":null,"tool":"proc.run","tool_use_id":"j#","truncated":false,"turn_id":"turn_#35"}
 notify node.written {"kind":"tool_result","node_id":"trs_#34","session_id":"ses_#1"}
 notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#35"}
 notify loop.started {"loop_index":#,"model":"claude-sonnet-#-#","tools_offered":#,"turn_id":"turn_#35"}
@@ -371,7 +371,7 @@ notify turn.ended {"awaiting_confirm":null,"continuation":true,"cost_usd":#,"ela
   its trace: the span tree drawn above
 narrate session session=ses_#1 turn=- The driver resumes execution …#2: # result arrived.
 narrate turn session=ses_#1 turn=turn_#35 Continuation turn …#35 started by the harness on sonnet (claude-sonnet-#-#): no new input; up to # loops.
-narrate job session=ses_#1 turn=turn_#35 A late result for proc.run (job …#28) arrived: ok, exit code #, # lines (# bytes); the model reads it next.
+narrate job session=ses_#1 turn=turn_#35 A late result for proc.run (job …#29) arrived: ok, exit code #, # lines (# bytes); the model reads it next.
 narrate turn session=ses_#1 turn=turn_#35 Caught up on the time between turns: # action settled, # late result written.
 narrate loop session=ses_#1 turn=turn_#35 Loop # of up to #.
 narrate context session=ses_#1 turn=turn_#35 Context: appending to compilation …#5: prefix # node + tail #, # messages, about #,# tokens.
@@ -383,12 +383,12 @@ narrate session session=ses_#1 turn=turn_#35 Parked until the next input.
 
 -- a write that waits for approval
 result: # loops, # tool calls, stop awaiting_confirm, awaiting act_#39, output ""
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#40
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#41","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-frame: ledger · ledger · execution exe_#2 · action act_#42 · ledger · action act_#42 · ledger · action act_#42 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#42 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#41","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#41"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#41","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#42","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -460,13 +460,13 @@ narrate session session=ses_#1 turn=- Woken by the approval; the driver resumes 
 continued exe_#2: result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "Written."
 frame: execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":true,"turn":#}}
-frame: ledger · action act_#39 · ledger · action act_#39 · execution exe_#2 · ledger
+frame: ledger · ledger · action act_#39 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#49","data":{"author":"harness","continuation":true,"execution_id":"exe_#2","input_chars":null,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":true,"correlation_id":"act_#39"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#39","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"fs.write"}}
 frame: completion act_#39 · action act_#39 · execution exe_#2 · ledger · node trs_#50
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#39","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"inproc:fs.write"}}
-frame: ledger · ledger · execution exe_#2 · action act_#51 · ledger · action act_#51 · ledger · action act_#51 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#51 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#49","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#49"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#49","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#51","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -521,12 +521,12 @@ narrate session session=ses_#1 turn=turn_#49 Parked until the next input.
 
 -- a second write that waits
 result: # loops, # tool calls, stop awaiting_confirm, awaiting act_#54, output ""
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#55
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#56","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-frame: ledger · ledger · execution exe_#2 · action act_#57 · ledger · action act_#57 · ledger · action act_#57 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#57 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#56","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#56"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#56","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#57","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -583,7 +583,7 @@ narrate session session=ses_#1 turn=turn_#56 Parked until the operator answers t
 
 -- the operator declines it
 {"approved":false,"correlation_id":"act_#54","execution_id":"exe_#2","resumes":true,"session_id":"ses_#1"}
-frame: action act_#54 · execution exe_#2 · ledger · ledger · execution exe_#2 · ledger
+frame: action act_#54 · ledger · ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.declined","session_id":"ses_#1","data":{"by":"operator","correlation_id":"act_#54","reason":"not that one","tool":"fs.write"}}
   ledger {"at_unix_ms":#,"kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":false,"asker":null,"by":"test","correlation_id":"act_#54","note":"not that one","trust":false,"via":"cli"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"declined"}}
@@ -600,7 +600,7 @@ frame: execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":true,"turn":#}}
 frame: ledger · node trs_#63
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#64","data":{"author":"harness","continuation":true,"execution_id":"exe_#2","input_chars":null,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-frame: ledger · ledger · execution exe_#2 · action act_#65 · ledger · action act_#65 · ledger · action act_#65 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#65 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#64","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#64"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#64","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#65","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -657,12 +657,12 @@ narrate session session=ses_#1 turn=turn_#64 Parked until the next input.
 
 -- a third write that waits
 result: # loops, # tool calls, stop awaiting_confirm, awaiting act_#68, output ""
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#69
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#70","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-frame: ledger · ledger · execution exe_#2 · action act_#71 · ledger · action act_#71 · ledger · action act_#71 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#71 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#70","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#70"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#70","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#71","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -730,13 +730,13 @@ narrate session session=ses_#1 turn=- Stopped by discord:operator: # actions tol
 
 -- the turn after the stop
 result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "Stopped, then."
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node trs_#77
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#78","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
 frame: node msg_#79
-frame: ledger · ledger · execution exe_#2 · action act_#80 · ledger · action act_#80 · ledger · action act_#80 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#80 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#78","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#78"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#78","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#80","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -792,12 +792,12 @@ narrate session session=ses_#1 turn=turn_#78 Parked until the next input.
 
 -- a turn the provider refuses
 error: class invalid_request, transient false: turn turn_#83 failed (invalid_request): invalid request (#): invalid_request_error: model: the model claude-lighthouse-# is not served
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#84
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#83","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-frame: ledger · ledger · execution exe_#2 · action act_#85 · ledger · action act_#85 · ledger · action act_#85 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#85 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#83","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#83"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#83","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#85","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -833,7 +833,7 @@ narrate session session=ses_#1 turn=- Woken for one retry: invalid_request will 
 continued exe_#2: error: class invalid_request, transient false: turn turn_#86 failed (invalid_request): invalid request (#): invalid_request_error: model: the model claude-lighthouse-# is not served
 frame: execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":true,"turn":#}}
-frame: ledger · ledger · ledger · execution exe_#2 · action act_#87 · ledger · action act_#87 · ledger · action act_#87 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · ledger · action act_#87 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#86","data":{"author":"harness","continuation":true,"execution_id":"exe_#2","input_chars":null,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#86","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#86"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#86","data":{"loop":#}}
@@ -868,12 +868,12 @@ narrate session session=ses_#1 turn=- Not retried: invalid_request (it failed ag
 
 -- a turn that starts a task
 result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "Starting it.\n\nStarted."
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#89
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#90","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-frame: ledger · ledger · execution exe_#2 · action act_#91 · ledger · action act_#91 · ledger · action act_#91 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#91 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#90","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#90"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#90","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#91","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -882,18 +882,18 @@ frame: ledger · ledger · execution exe_#2 · action act_#91 · ledger · actio
 frame: completion act_#91 · action act_#91 · execution exe_#2 · ledger · node msg_#92 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#91","cost_usd":#,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"provider:anthropic"}}
   ledger {"at_unix_ms":#,"kind":"provider.call","session_id":"ses_#1","turn_id":"turn_#90","data":{"blocks":#,"catalog_version":"#-#-#.#+config:#","cost_usd":#,"input_transformations":null,"loop":#,"model":"claude-sonnet-#-#","node_id":"msg_#92","provider":"anthropic","rate_limit":{"input_tokens_remaining":null,"output_tokens_remaining":null,"requests_limit":null,"requests_remaining":null,"requests_reset":null,"retry_after_secs":null,"tokens_limit":null,"tokens_remaining":null,"tokens_reset":null},"request_id":"req_fake","stop_details":null,"stop_reason":"tool_use","timing":{"first_byte_ms":#,"first_token_ms":#,"total_ms":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-frame: action act_#93 · ledger · node tcl_#94 · ledger · action act_#93 · ledger · action act_#93 · execution exe_#2 · ledger
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#93","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"non_repeatable"},"tool":"task.create"}}
-  ledger {"at_unix_ms":#,"kind":"tool.notified","session_id":"ses_#1","turn_id":"turn_#90","data":{"correlation_id":"act_#93","granted":null,"input":{"brief":"Count to three.","budget_usd":#},"kind":"notify","rule":"task.create — notify (enforcement = notify)","session_id":"ses_#1","setting":"enforcement = notify","summary":"start a task: Count to three.","tool":"task.create","tool_use_id":"t#","turn_id":"turn_#90"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":false,"correlation_id":"act_#93"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#93","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"task.create"}}
-frame: execution exe_#2 · execution exe_#93 · session ses_#93 · node msg_#95 · edge derived_from|msg_#95|msg_#92 · meta task.place.ses_#93 · ledger · ledger · ledger
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"execution.opened","session_id":"ses_#93","data":{"by":"act_#93","execution_id":"exe_#93","kind":"task","limit_usd":#,"parent":"exe_#2","reports_to":"discord:dm:#","wake_parent":false}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"budget.carved","session_id":"ses_#1","data":{"asked_usd":#,"available_after_usd":#,"available_before_usd":#,"carved_usd":#,"execution_id":"exe_#2","task":"exe_#93"}}
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#93","data":{"execution_id":"exe_#93","why":"task"}}
-frame: completion act_#93 · action act_#93 · execution exe_#2 · ledger · node trs_#96
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#93","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"harness:task.create"}}
-frame: ledger · ledger · ledger · execution exe_#2 · action act_#97 · ledger · action act_#97 · ledger · action act_#97 · execution exe_#2 · ledger
+frame: ledger · node tcl_#93 · ledger · ledger · action act_#94 · execution exe_#2 · ledger
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#94","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"non_repeatable"},"tool":"task.create"}}
+  ledger {"at_unix_ms":#,"kind":"tool.notified","session_id":"ses_#1","turn_id":"turn_#90","data":{"correlation_id":"act_#94","granted":null,"input":{"brief":"Count to three.","budget_usd":#},"kind":"notify","rule":"task.create — notify (enforcement = notify)","session_id":"ses_#1","setting":"enforcement = notify","summary":"start a task: Count to three.","tool":"task.create","tool_use_id":"t#","turn_id":"turn_#90"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#1","data":{"confirmed":false,"correlation_id":"act_#94"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#1","data":{"correlation_id":"act_#94","deadline_at_ms":#,"execution_id":"exe_#2","external_op_id":null,"tool":"task.create"}}
+frame: execution exe_#2 · execution exe_#94 · session ses_#94 · node msg_#95 · edge derived_from|msg_#95|msg_#92 · meta task.place.ses_#94 · ledger · ledger · ledger
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"execution.opened","session_id":"ses_#94","data":{"by":"act_#94","execution_id":"exe_#94","kind":"task","limit_usd":#,"parent":"exe_#2","reports_to":"discord:dm:#","wake_parent":false}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"budget.carved","session_id":"ses_#1","data":{"asked_usd":#,"available_after_usd":#,"available_before_usd":#,"carved_usd":#,"execution_id":"exe_#2","task":"exe_#94"}}
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#94","data":{"execution_id":"exe_#94","why":"task"}}
+frame: completion act_#94 · action act_#94 · execution exe_#2 · ledger · node trs_#96
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#94","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"running","outcome":"succeeded","producer":"harness:task.create"}}
+frame: ledger · ledger · ledger · ledger · ledger · action act_#97 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#1","turn_id":"turn_#90","data":{"advancer":"until_no_tool_calls","decision":{"decision":"continue"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"tool_use","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#90","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#90"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#90","data":{"loop":#}}
@@ -940,9 +940,9 @@ notify model.delta {"loop_index":#,"text":"ting","turn_id":"turn_#90"}
 notify model.delta {"loop_index":#,"text":" it.","turn_id":"turn_#90"}
 notify node.written {"kind":"assistant_message","node_id":"msg_#92","session_id":"ses_#1"}
 notify tool.proposed {"gate":{"decision":{"notify":{"kind":"notify","rule":"task.create — notify (enforcement = notify)","setting":"enforcement = notify"},"posture":"notify","reason":"task.create — notify (enforcement = notify)"},"plan":{"resources":[],"summary":"start a task: Count to three."},"proposal":{"args":{"brief":"Count to three.","budget_usd":#},"policy_context":{"cwd":"<dir>","roots":["<dir>"]},"tool":"task.create"},"result":{"gate":"allow"},"validated":true},"input":{"brief":"Count to three.","budget_usd":#},"session_id":"ses_#1","tool":"task.create","tool_use_id":"t#","turn_id":"turn_#90"}
-notify policy.notified {"correlation_id":"act_#93","granted":null,"input":{"brief":"Count to three.","budget_usd":#},"kind":"notify","rule":"task.create — notify (enforcement = notify)","session_id":"ses_#1","setting":"enforcement = notify","summary":"start a task: Count to three.","tool":"task.create","tool_use_id":"t#","turn_id":"turn_#90"}
-notify tool.started {"backend":"harness","correlation_id":"act_#93","session_id":"ses_#1","tool":"task.create","tool_use_id":"t#","turn_id":"turn_#90"}
-notify tool.ended {"bytes":#,"correlation_id":"act_#93","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#96","preview":"Started task #93 (\"Count to three.\") with a budget of $#. It works on its own and reports here when it finishes; its report reaches a later turn of this conversation. Its id is ses_#93.","session_id":"ses_#1","status":"ok","stopped_by":null,"tool":"task.create","tool_use_id":"t#","truncated":false,"turn_id":"turn_#90"}
+notify policy.notified {"correlation_id":"act_#94","granted":null,"input":{"brief":"Count to three.","budget_usd":#},"kind":"notify","rule":"task.create — notify (enforcement = notify)","session_id":"ses_#1","setting":"enforcement = notify","summary":"start a task: Count to three.","tool":"task.create","tool_use_id":"t#","turn_id":"turn_#90"}
+notify tool.started {"backend":"harness","correlation_id":"act_#94","session_id":"ses_#1","tool":"task.create","tool_use_id":"t#","turn_id":"turn_#90"}
+notify tool.ended {"bytes":#,"correlation_id":"act_#94","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#96","preview":"Started task #94 (\"Count to three.\") with a budget of $#. It works on its own and reports here when it finishes; its report reaches a later turn of this conversation. Its id is ses_#94.","session_id":"ses_#1","status":"ok","stopped_by":null,"tool":"task.create","tool_use_id":"t#","truncated":false,"turn_id":"turn_#90"}
 notify node.written {"kind":"tool_result","node_id":"trs_#96","session_id":"ses_#1"}
 notify loop.ended {"advancer":"until_no_tool_calls","decision":"continue","loop_index":#,"provider_stop_reason":"tool_use","tool_calls":#,"turn_id":"turn_#90"}
 notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#90"}
@@ -960,7 +960,7 @@ narrate context session=ses_#1 turn=turn_#90 Context: appending to compilation �
 narrate model session=ses_#1 turn=turn_#90 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
 narrate model session=ses_#1 turn=turn_#90 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#1 turn=turn_#90 task.create: posture notify (enforcement = notify), running and telling the operator.
-narrate session session=ses_#1 turn=turn_#90 Task #93 started ("Count to three."): its session …#93 runs on its own with $# carved from the $#.# this session had left, and reports to discord:dm:#.
+narrate session session=ses_#1 turn=turn_#90 Task #94 started ("Count to three."): its session …#94 runs on its own with $# carved from the $#.# this session had left, and reports to discord:dm:#.
 narrate tool session=ses_#1 turn=turn_#90 task.create done in <n>: # line (# bytes).
 narrate loop session=ses_#1 turn=turn_#90 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#1 turn=turn_#90 Loop # of up to #.
@@ -972,30 +972,30 @@ narrate turn session=ses_#1 turn=turn_#90 Turn …#90 ended after # loops in <n>
 narrate session session=ses_#1 turn=turn_#90 Parked until the next input.
 
 -- the driver: the task's turn and its report
-continued exe_#93: result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "One, two, three."
-frame: execution exe_#93 · ledger
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#93","data":{"execution_id":"exe_#93","queued_results":#,"resumed":true,"turn":#}}
-frame: ledger · compilation cmp_#100 · ledger · session ses_#93
-  ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#93","turn_id":"turn_#101","data":{"author":"harness","continuation":true,"execution_id":"exe_#93","input_chars":null,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-  ledger {"at_unix_ms":#,"kind":"context.recompiled","session_id":"ses_#93","turn_id":"turn_#101","data":{"as_of":#,"compilation_id":"cmp_#100","derived_from":null,"includes":#,"model":"claude-sonnet-#-#","strategy":"transcript","strip_thinking":false,"trigger":"new_session"}}
-frame: ledger · ledger · execution exe_#93 · action act_#102 · ledger · action act_#102 · ledger · action act_#102 · execution exe_#93 · ledger
-  ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#93","turn_id":"turn_#101","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#100","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#93","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#101"}}
-  ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#93","turn_id":"turn_#101","data":{"loop":#}}
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#93","data":{"args_digest":"<sha#>","correlation_id":"act_#102","deadline_at_ms":#,"execution_id":"exe_#93","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#93","data":{"confirmed":false,"correlation_id":"act_#102"}}
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#93","data":{"correlation_id":"act_#102","deadline_at_ms":#,"execution_id":"exe_#93","external_op_id":null,"tool":"provider.messages"}}
-frame: completion act_#102 · action act_#102 · execution exe_#93 · execution exe_#2 · ledger · node msg_#103 · ledger
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#93","data":{"correlation_id":"act_#102","cost_usd":#,"duration_ms":#,"execution_id":"exe_#93","execution_state":"running","outcome":"succeeded","producer":"provider:anthropic"}}
-  ledger {"at_unix_ms":#,"kind":"provider.call","session_id":"ses_#93","turn_id":"turn_#101","data":{"blocks":#,"catalog_version":"#-#-#.#+config:#","cost_usd":#,"input_transformations":null,"loop":#,"model":"claude-sonnet-#-#","node_id":"msg_#103","provider":"anthropic","rate_limit":{"input_tokens_remaining":null,"output_tokens_remaining":null,"requests_limit":null,"requests_remaining":null,"requests_reset":null,"retry_after_secs":null,"tokens_limit":null,"tokens_remaining":null,"tokens_reset":null},"request_id":"req_fake","stop_details":null,"stop_reason":"end_turn","timing":{"first_byte_ms":#,"first_token_ms":#,"total_ms":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-frame: ledger · session ses_#93 · ledger · ledger · execution exe_#93 · ledger · execution exe_#2 · ledger · outbox out_#104 · ledger
-  ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#93","turn_id":"turn_#101","data":{"advancer":"until_no_tool_calls","decision":{"decision":"end_turn","reason":"no_tool_calls"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"end_turn","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-  ledger {"at_unix_ms":#,"kind":"turn.ended","session_id":"ses_#93","turn_id":"turn_#101","data":{"awaiting_confirm":null,"continuation":true,"cost_usd":#,"elapsed_ms":#,"first_token_ms":#,"late_results":#,"loops":#,"model":"claude-sonnet-#-#","provider":"anthropic","session_usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#},"stop_reason":"no_tool_calls","tool_calls":#,"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-  ledger turn.trace session=ses_#93 turn=turn_#101, the span tree:
-    turn [turn] {"continuation":true,"loops":#,"model":"claude-sonnet-#-#","origin_unix_ms":#,"outcome":"complete","profile":"sonnet","provider":"anthropic","session_id":"ses_#93","started_unix_ms":#,"stop_reason":"no_tool_calls","turn_id":"turn_#101","usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}
-      admission.wait [lock] {"execution_id":"exe_#93","note":"kernel admission + per-execution turn lock","turn":#}
+continued exe_#94: result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "One, two, three."
+frame: execution exe_#94 · ledger
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#94","data":{"execution_id":"exe_#94","queued_results":#,"resumed":true,"turn":#}}
+frame: ledger · compilation cmp_#100 · ledger · session ses_#94
+  ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#94","turn_id":"turn_#101","data":{"author":"harness","continuation":true,"execution_id":"exe_#94","input_chars":null,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
+  ledger {"at_unix_ms":#,"kind":"context.recompiled","session_id":"ses_#94","turn_id":"turn_#101","data":{"as_of":#,"compilation_id":"cmp_#100","derived_from":null,"includes":#,"model":"claude-sonnet-#-#","strategy":"transcript","strip_thinking":false,"trigger":"new_session"}}
+frame: ledger · ledger · ledger · ledger · action act_#102 · execution exe_#94 · ledger
+  ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#94","turn_id":"turn_#101","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#100","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#94","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#101"}}
+  ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#94","turn_id":"turn_#101","data":{"loop":#}}
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#94","data":{"args_digest":"<sha#>","correlation_id":"act_#102","deadline_at_ms":#,"execution_id":"exe_#94","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#94","data":{"confirmed":false,"correlation_id":"act_#102"}}
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#94","data":{"correlation_id":"act_#102","deadline_at_ms":#,"execution_id":"exe_#94","external_op_id":null,"tool":"provider.messages"}}
+frame: completion act_#102 · action act_#102 · execution exe_#94 · execution exe_#2 · ledger · node msg_#103 · ledger
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#94","data":{"correlation_id":"act_#102","cost_usd":#,"duration_ms":#,"execution_id":"exe_#94","execution_state":"running","outcome":"succeeded","producer":"provider:anthropic"}}
+  ledger {"at_unix_ms":#,"kind":"provider.call","session_id":"ses_#94","turn_id":"turn_#101","data":{"blocks":#,"catalog_version":"#-#-#.#+config:#","cost_usd":#,"input_transformations":null,"loop":#,"model":"claude-sonnet-#-#","node_id":"msg_#103","provider":"anthropic","rate_limit":{"input_tokens_remaining":null,"output_tokens_remaining":null,"requests_limit":null,"requests_remaining":null,"requests_reset":null,"retry_after_secs":null,"tokens_limit":null,"tokens_remaining":null,"tokens_reset":null},"request_id":"req_fake","stop_details":null,"stop_reason":"end_turn","timing":{"first_byte_ms":#,"first_token_ms":#,"total_ms":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
+frame: ledger · session ses_#94 · ledger · ledger · execution exe_#94 · ledger · execution exe_#2 · ledger · outbox out_#104 · ledger
+  ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#94","turn_id":"turn_#101","data":{"advancer":"until_no_tool_calls","decision":{"decision":"end_turn","reason":"no_tool_calls"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"end_turn","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
+  ledger {"at_unix_ms":#,"kind":"turn.ended","session_id":"ses_#94","turn_id":"turn_#101","data":{"awaiting_confirm":null,"continuation":true,"cost_usd":#,"elapsed_ms":#,"first_token_ms":#,"late_results":#,"loops":#,"model":"claude-sonnet-#-#","provider":"anthropic","session_usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#},"stop_reason":"no_tool_calls","tool_calls":#,"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
+  ledger turn.trace session=ses_#94 turn=turn_#101, the span tree:
+    turn [turn] {"continuation":true,"loops":#,"model":"claude-sonnet-#-#","origin_unix_ms":#,"outcome":"complete","profile":"sonnet","provider":"anthropic","session_id":"ses_#94","started_unix_ms":#,"stop_reason":"no_tool_calls","turn_id":"turn_#101","usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}
+      admission.wait [lock] {"execution_id":"exe_#94","note":"kernel admission + per-execution turn lock","turn":#}
       continuation [tool] {"awaiting":null,"background":[],"budget_reset":false,"late_results":#,"limit_raised":false,"resumed":#,"settled":#,"task_reports":#,"wakes":#}
       loop # [loop] {"decision":"end_turn:no_tool_calls","loop":#,"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}
-        compile [compile] {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#100","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#93","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#101"}
+        compile [compile] {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#100","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#94","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#101"}
         action.outbox [store] {"correlation_id":"act_#102","reserved_usd":#,"tool":"provider.messages"}
         provider.call [provider] {"blocks":#,"digest":"<sha#>","max_tokens":#,"model":"claude-sonnet-#-#","output_chars":#,"provider":"anthropic","rate_limit_tokens_remaining":null,"request_id":"req_fake","served_model":"claude-sonnet-#-#","stop_reason":"end_turn","usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}
           first_byte [mark] null
@@ -1003,41 +1003,41 @@ frame: ledger · session ses_#93 · ledger · ledger · execution exe_#93 · led
         action.settle [store] {"correlation_id":"act_#102","cost_usd":#,"node_id":"msg_#103","outcome":"succeeded"}
         advancer [advancer] {"advancer":"until_no_tool_calls","decision":"end_turn:no_tool_calls"}
       session.write [store] null
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"execution.complete","session_id":"ses_#93","data":{"execution_id":"exe_#93","reason":"reported","turn":#,"turn_ms":#,"wake":null}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"task.ended","session_id":"ses_#1","data":{"execution_id":"exe_#2","limit_usd":#,"reason":"reported","released_usd":#,"spent_usd":#,"state":"complete","still_reserved_usd":#,"task":"exe_#93"}}
-  outbox scope=ses_#93 {"correlation_id":"out_#104","schema":#,"execution_id":"exe_#93","session_id":"ses_#93","tool":"outbox","args_digest":"<sha#>","proposal":{"tool":"outbox","args":{"elapsed_ms":#,"execution_id":"exe_#93","kind":"report","limit_usd":#,"node":"msg_#103","outcome":"complete","reason":null,"short":"#93","spent_usd":#,"task":"ses_#93","title":"Count to three.","turns":#},"resource":"discord:dm:#","policy_context":null},"resource":"discord:dm:#","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"authorized","deadline_at_ms":#,"planned_at_ms":#,"authorized_at_ms":#,"reserved_micros":#,"completions_seen":#}
-  ledger scope=ses_#93 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#93","data":{"correlation_id":"out_#104","execution_id":"exe_#93","kind":"report","outbox":"discord:dm:#","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"tool":"outbox"}}
-notify turn.started {"continuation":true,"execution_id":"exe_#93","session_id":"ses_#93","turn_id":"turn_#101"}
-notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#100","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#93","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#101"}
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"execution.complete","session_id":"ses_#94","data":{"execution_id":"exe_#94","reason":"reported","turn":#,"turn_ms":#,"wake":null}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"task.ended","session_id":"ses_#1","data":{"execution_id":"exe_#2","limit_usd":#,"reason":"reported","released_usd":#,"spent_usd":#,"state":"complete","still_reserved_usd":#,"task":"exe_#94"}}
+  outbox scope=ses_#94 {"correlation_id":"out_#104","schema":#,"execution_id":"exe_#94","session_id":"ses_#94","tool":"outbox","args_digest":"<sha#>","proposal":{"tool":"outbox","args":{"elapsed_ms":#,"execution_id":"exe_#94","kind":"report","limit_usd":#,"node":"msg_#103","outcome":"complete","reason":null,"short":"#94","spent_usd":#,"task":"ses_#94","title":"Count to three.","turns":#},"resource":"discord:dm:#","policy_context":null},"resource":"discord:dm:#","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"authorized","deadline_at_ms":#,"planned_at_ms":#,"authorized_at_ms":#,"reserved_micros":#,"completions_seen":#}
+  ledger scope=ses_#94 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#94","data":{"correlation_id":"out_#104","execution_id":"exe_#94","kind":"report","outbox":"discord:dm:#","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"tool":"outbox"}}
+notify turn.started {"continuation":true,"execution_id":"exe_#94","session_id":"ses_#94","turn_id":"turn_#101"}
+notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#100","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#94","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#101"}
 notify loop.started {"loop_index":#,"model":"claude-sonnet-#-#","tools_offered":#,"turn_id":"turn_#101"}
 notify model.delta {"loop_index":#,"text":"One,","turn_id":"turn_#101"}
 notify model.delta {"loop_index":#,"text":" two","turn_id":"turn_#101"}
 notify model.delta {"loop_index":#,"text":", th","turn_id":"turn_#101"}
 notify model.delta {"loop_index":#,"text":"ree.","turn_id":"turn_#101"}
-notify node.written {"kind":"assistant_message","node_id":"msg_#103","session_id":"ses_#93"}
+notify node.written {"kind":"assistant_message","node_id":"msg_#103","session_id":"ses_#94"}
 notify loop.ended {"advancer":"until_no_tool_calls","decision":"end_turn:no_tool_calls","loop_index":#,"provider_stop_reason":"end_turn","tool_calls":#,"turn_id":"turn_#101"}
-notify turn.ended {"awaiting_confirm":null,"continuation":true,"cost_usd":#,"elapsed_ms":#,"execution_id":"exe_#93","first_token_ms":#,"loops":#,"model":"claude-sonnet-#-#","output":"One, two, three.","profile":"sonnet","provider":"anthropic","provider_stop_reason":"end_turn","request_id":"req_fake","session_id":"ses_#93","stop_details":null,"stop_reason":"no_tool_calls","tool_calls":#,"turn_id":"turn_#101","usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}
+notify turn.ended {"awaiting_confirm":null,"continuation":true,"cost_usd":#,"elapsed_ms":#,"execution_id":"exe_#94","first_token_ms":#,"loops":#,"model":"claude-sonnet-#-#","output":"One, two, three.","profile":"sonnet","provider":"anthropic","provider_stop_reason":"end_turn","request_id":"req_fake","session_id":"ses_#94","stop_details":null,"stop_reason":"no_tool_calls","tool_calls":#,"turn_id":"turn_#101","usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}
   its trace: the span tree drawn above
-narrate session session=ses_#93 turn=- The driver resumes execution …#93: it was woken.
-narrate turn session=ses_#93 turn=turn_#101 Continuation turn …#101 started by the harness on sonnet (claude-sonnet-#-#): no new input; up to # loops.
-narrate loop session=ses_#93 turn=turn_#101 Loop # of up to #.
-narrate context session=ses_#93 turn=turn_#101 Context: new compilation …#100 (transcript) because the session is new: prefix # node + tail #, # message, about #,# tokens.
-narrate model session=ses_#93 turn=turn_#101 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
-narrate model session=ses_#93 turn=turn_#101 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
-narrate loop session=ses_#93 turn=turn_#101 Stopping: the model ended its turn.
-narrate turn session=ses_#93 turn=turn_#101 Turn …#101 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
-narrate session session=ses_#93 turn=turn_#101 The turn ends the execution's wait: Complete { reason: "reported" }.
+narrate session session=ses_#94 turn=- The driver resumes execution …#94: it was woken.
+narrate turn session=ses_#94 turn=turn_#101 Continuation turn …#101 started by the harness on sonnet (claude-sonnet-#-#): no new input; up to # loops.
+narrate loop session=ses_#94 turn=turn_#101 Loop # of up to #.
+narrate context session=ses_#94 turn=turn_#101 Context: new compilation …#100 (transcript) because the session is new: prefix # node + tail #, # message, about #,# tokens.
+narrate model session=ses_#94 turn=turn_#101 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
+narrate model session=ses_#94 turn=turn_#101 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it ended its turn.
+narrate loop session=ses_#94 turn=turn_#101 Stopping: the model ended its turn.
+narrate turn session=ses_#94 turn=turn_#101 Turn …#101 ended after # loop in <n>: # tool calls, # tokens out, $#.#; the model ended its turn.
+narrate session session=ses_#94 turn=turn_#101 The turn ends the execution's wait: Complete { reason: "reported" }.
 
 -- the parent's turn reads the report
 result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "It counted to three."
-frame: execution exe_#2 · ledger · execution exe_#2 · ledger
+frame: ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"input"}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#1","data":{"execution_id":"exe_#2","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · execution exe_#2 · node msg_#105 · edge derived_from|msg_#105|msg_#103 · meta wake.target.ses_#1 · ledger
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#1","turn_id":"turn_#106","data":{"author":"test","continuation":false,"execution_id":"exe_#2","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"task.reports_read","session_id":"ses_#1","data":{"execution_id":"exe_#2","tasks":["exe_#93"],"turn":#,"woke":[]}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"task.reports_read","session_id":"ses_#1","data":{"execution_id":"exe_#2","tasks":["exe_#94"],"turn":#,"woke":[]}}
 frame: node msg_#107
-frame: ledger · ledger · execution exe_#2 · action act_#108 · ledger · action act_#108 · ledger · action act_#108 · execution exe_#2 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#108 · execution exe_#2 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#1","turn_id":"turn_#106","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#5","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#1","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#106"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#1","turn_id":"turn_#106","data":{"loop":#}}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"args_digest":"<sha#>","correlation_id":"act_#108","deadline_at_ms":#,"execution_id":"exe_#2","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -1097,14 +1097,14 @@ frame: meta discord.session.dm:#
 frame: execution exe_#112 · ledger
   ledger scope=ses_#111 {"at_unix_ms":#,"kind":"execution.opened","session_id":"ses_#111","data":{"execution_id":"exe_#112","kind":"conversation","limit_usd":#}}
 frame: session ses_#111
-frame: execution exe_#112 · ledger · execution exe_#112 · ledger
+frame: ledger · execution exe_#112 · ledger
   ledger scope=ses_#111 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#111","data":{"execution_id":"exe_#112","why":"input"}}
   ledger scope=ses_#111 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#111","data":{"execution_id":"exe_#112","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#113 · session ses_#111
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#111","turn_id":"turn_#114","data":{"author":"test","continuation":false,"execution_id":"exe_#112","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
 frame: compilation cmp_#115 · ledger · session ses_#111
   ledger {"at_unix_ms":#,"kind":"context.recompiled","session_id":"ses_#111","turn_id":"turn_#114","data":{"as_of":#,"compilation_id":"cmp_#115","derived_from":null,"includes":#,"model":"claude-sonnet-#-#","strategy":"transcript","strip_thinking":false,"trigger":"new_session"}}
-frame: ledger · ledger · execution exe_#112 · action act_#116 · ledger · action act_#116 · ledger · action act_#116 · execution exe_#112 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#116 · execution exe_#112 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#111","turn_id":"turn_#114","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#115","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#111","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#114"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#111","turn_id":"turn_#114","data":{"loop":#}}
   ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#111","data":{"args_digest":"<sha#>","correlation_id":"act_#116","deadline_at_ms":#,"execution_id":"exe_#112","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -1113,16 +1113,16 @@ frame: ledger · ledger · execution exe_#112 · action act_#116 · ledger · ac
 frame: completion act_#116 · action act_#116 · execution exe_#112 · ledger · node msg_#117 · ledger
   ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#111","data":{"correlation_id":"act_#116","cost_usd":#,"duration_ms":#,"execution_id":"exe_#112","execution_state":"running","outcome":"succeeded","producer":"provider:anthropic"}}
   ledger {"at_unix_ms":#,"kind":"provider.call","session_id":"ses_#111","turn_id":"turn_#114","data":{"blocks":#,"catalog_version":"#-#-#.#+config:#","cost_usd":#,"input_transformations":null,"loop":#,"model":"claude-sonnet-#-#","node_id":"msg_#117","provider":"anthropic","rate_limit":{"input_tokens_remaining":null,"output_tokens_remaining":null,"requests_limit":null,"requests_remaining":null,"requests_reset":null,"retry_after_secs":null,"tokens_limit":null,"tokens_remaining":null,"tokens_reset":null},"request_id":"req_fake","stop_details":null,"stop_reason":"tool_use","timing":{"first_byte_ms":#,"first_token_ms":#,"total_ms":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-frame: action act_#118 · ledger · node tcl_#119 · ledger · action act_#118 · ledger · action act_#118 · execution exe_#112 · ledger
-  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#111","data":{"args_digest":"<sha#>","correlation_id":"act_#118","deadline_at_ms":#,"execution_id":"exe_#112","reserved_usd":#,"retry_class":{"class":"non_repeatable"},"tool":"wake.at"}}
-  ledger {"at_unix_ms":#,"kind":"tool.notified","session_id":"ses_#111","turn_id":"turn_#114","data":{"correlation_id":"act_#118","granted":null,"input":{"after":"#s","note":"check the build"},"kind":"notify","rule":"wake.at — notify (enforcement = notify)","session_id":"ses_#111","setting":"enforcement = notify","summary":"wake in #s: check the build","tool":"wake.at","tool_use_id":"k#","turn_id":"turn_#114"}}
-  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#111","data":{"confirmed":false,"correlation_id":"act_#118"}}
-  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#111","data":{"correlation_id":"act_#118","deadline_at_ms":#,"execution_id":"exe_#112","external_op_id":null,"tool":"wake.at"}}
+frame: ledger · node tcl_#118 · ledger · ledger · action act_#119 · execution exe_#112 · ledger
+  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#111","data":{"args_digest":"<sha#>","correlation_id":"act_#119","deadline_at_ms":#,"execution_id":"exe_#112","reserved_usd":#,"retry_class":{"class":"non_repeatable"},"tool":"wake.at"}}
+  ledger {"at_unix_ms":#,"kind":"tool.notified","session_id":"ses_#111","turn_id":"turn_#114","data":{"correlation_id":"act_#119","granted":null,"input":{"after":"#s","note":"check the build"},"kind":"notify","rule":"wake.at — notify (enforcement = notify)","session_id":"ses_#111","setting":"enforcement = notify","summary":"wake in #s: check the build","tool":"wake.at","tool_use_id":"k#","turn_id":"turn_#114"}}
+  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#111","data":{"confirmed":false,"correlation_id":"act_#119"}}
+  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#111","data":{"correlation_id":"act_#119","deadline_at_ms":#,"execution_id":"exe_#112","external_op_id":null,"tool":"wake.at"}}
 frame: execution exe_#112 · ledger
-  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"wake.set","session_id":"ses_#111","data":{"by":"act_#118","due_at_ms":#,"execution_id":"exe_#112","in_ms":#,"note":"check the build","pending":#,"wake_id":"wak_#118"}}
-frame: completion act_#118 · action act_#118 · execution exe_#112 · ledger · node trs_#120
-  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#111","data":{"correlation_id":"act_#118","cost_usd":null,"duration_ms":#,"execution_id":"exe_#112","execution_state":"running","outcome":"succeeded","producer":"harness:wake.at"}}
-frame: ledger · ledger · ledger · execution exe_#112 · action act_#121 · ledger · action act_#121 · ledger · action act_#121 · execution exe_#112 · ledger
+  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"wake.set","session_id":"ses_#111","data":{"by":"act_#119","due_at_ms":#,"execution_id":"exe_#112","in_ms":#,"note":"check the build","pending":#,"wake_id":"wak_#119"}}
+frame: completion act_#119 · action act_#119 · execution exe_#112 · ledger · node trs_#120
+  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#111","data":{"correlation_id":"act_#119","cost_usd":null,"duration_ms":#,"execution_id":"exe_#112","execution_state":"running","outcome":"succeeded","producer":"harness:wake.at"}}
+frame: ledger · ledger · ledger · ledger · ledger · action act_#121 · execution exe_#112 · ledger
   ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#111","turn_id":"turn_#114","data":{"advancer":"until_no_tool_calls","decision":{"decision":"continue"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"tool_use","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#111","turn_id":"turn_#114","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#115","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#111","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#114"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#111","turn_id":"turn_#114","data":{"loop":#}}
@@ -1169,9 +1169,9 @@ notify model.delta {"loop_index":#,"text":"ing ","turn_id":"turn_#114"}
 notify model.delta {"loop_index":#,"text":"it.","turn_id":"turn_#114"}
 notify node.written {"kind":"assistant_message","node_id":"msg_#117","session_id":"ses_#111"}
 notify tool.proposed {"gate":{"decision":{"notify":{"kind":"notify","rule":"wake.at — notify (enforcement = notify)","setting":"enforcement = notify"},"posture":"notify","reason":"wake.at — notify (enforcement = notify)"},"plan":{"resources":[],"summary":"wake in #s: check the build"},"proposal":{"args":{"after":"#s","note":"check the build"},"policy_context":{"cwd":"<dir>","roots":["<dir>"]},"tool":"wake.at"},"result":{"gate":"allow"},"validated":true},"input":{"after":"#s","note":"check the build"},"session_id":"ses_#111","tool":"wake.at","tool_use_id":"k#","turn_id":"turn_#114"}
-notify policy.notified {"correlation_id":"act_#118","granted":null,"input":{"after":"#s","note":"check the build"},"kind":"notify","rule":"wake.at — notify (enforcement = notify)","session_id":"ses_#111","setting":"enforcement = notify","summary":"wake in #s: check the build","tool":"wake.at","tool_use_id":"k#","turn_id":"turn_#114"}
-notify tool.started {"backend":"harness","correlation_id":"act_#118","session_id":"ses_#111","tool":"wake.at","tool_use_id":"k#","turn_id":"turn_#114"}
-notify tool.ended {"bytes":#,"correlation_id":"act_#118","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#120","preview":"Set wake #118 for #-#-# #:#:# -#:# (in <n>); # of # wakes are pending, and its id is wak_#118. This conversation gets a turn then, whose input is this line:\n⏰ wake (set #:#): check the build","session_id":"ses_#111","status":"ok","stopped_by":null,"tool":"wake.at","tool_use_id":"k#","truncated":false,"turn_id":"turn_#114"}
+notify policy.notified {"correlation_id":"act_#119","granted":null,"input":{"after":"#s","note":"check the build"},"kind":"notify","rule":"wake.at — notify (enforcement = notify)","session_id":"ses_#111","setting":"enforcement = notify","summary":"wake in #s: check the build","tool":"wake.at","tool_use_id":"k#","turn_id":"turn_#114"}
+notify tool.started {"backend":"harness","correlation_id":"act_#119","session_id":"ses_#111","tool":"wake.at","tool_use_id":"k#","turn_id":"turn_#114"}
+notify tool.ended {"bytes":#,"correlation_id":"act_#119","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#120","preview":"Set wake #119 for #-#-# #:#:# -#:# (in <n>); # of # wakes are pending, and its id is wak_#119. This conversation gets a turn then, whose input is this line:\n⏰ wake (set #:#): check the build","session_id":"ses_#111","status":"ok","stopped_by":null,"tool":"wake.at","tool_use_id":"k#","truncated":false,"turn_id":"turn_#114"}
 notify node.written {"kind":"tool_result","node_id":"trs_#120","session_id":"ses_#111"}
 notify loop.ended {"advancer":"until_no_tool_calls","decision":"continue","loop_index":#,"provider_stop_reason":"tool_use","tool_calls":#,"turn_id":"turn_#114"}
 notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#115","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#111","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#114"}
@@ -1191,7 +1191,7 @@ narrate context session=ses_#111 turn=turn_#114 Context: new compilation …#115
 narrate model session=ses_#111 turn=turn_#114 Calling claude-sonnet-#-# on anthropic: reserving $#.# ($#.# for #,# output tokens, $#.# for about #,# input tokens).
 narrate model session=ses_#111 turn=turn_#114 claude-sonnet-#-# answered in <n> (first token <n>): #,# tokens in, # out, $#.#; it stopped to call # tool.
 narrate tool session=ses_#111 turn=turn_#114 wake.at: posture notify (enforcement = notify), running and telling the operator.
-narrate session session=ses_#111 turn=turn_#114 Wake #118 set for #-#-# #:#:# -#:# (in <n>): "check the build"; # of # pending.
+narrate session session=ses_#111 turn=turn_#114 Wake #119 set for #-#-# #:#:# -#:# (in <n>): "check the build"; # of # pending.
 narrate tool session=ses_#111 turn=turn_#114 wake.at done in <n>: # lines (# bytes).
 narrate loop session=ses_#111 turn=turn_#114 Loop #: continuing, because the model asked for # tool and it has an answer.
 narrate loop session=ses_#111 turn=turn_#114 Loop # of up to #.
@@ -1205,13 +1205,13 @@ narrate session session=ses_#111 turn=turn_#114 Parked until the next input.
 -- the driver: the wake fires and its turn runs
 continued exe_#112: result: # loops, # tool calls, stop no_tool_calls, awaiting -, output "Checked: the build is green."
 frame: execution exe_#112 · ledger
-  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#111","data":{"execution_id":"exe_#112","wakes":["wak_#118"],"why":"wake"}}
+  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#111","data":{"execution_id":"exe_#112","wakes":["wak_#119"],"why":"wake"}}
 frame: execution exe_#112 · ledger
   ledger scope=ses_#111 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#111","data":{"execution_id":"exe_#112","queued_results":#,"resumed":true,"turn":#}}
 frame: ledger · execution exe_#112 · node msg_#124 · meta wake.target.ses_#111 · ledger
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#111","turn_id":"turn_#125","data":{"author":"harness","continuation":true,"execution_id":"exe_#112","input_chars":null,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
-  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"wake.fired","session_id":"ses_#111","data":{"due_at_ms":#,"execution_id":"exe_#112","late_ms":#,"set_at_ms":#,"turn":#,"wake_id":"wak_#118","while_down":false}}
-frame: ledger · ledger · execution exe_#112 · action act_#126 · ledger · action act_#126 · ledger · action act_#126 · execution exe_#112 · ledger
+  ledger scope=ses_#111 {"at_unix_ms":#,"kind":"wake.fired","session_id":"ses_#111","data":{"due_at_ms":#,"execution_id":"exe_#112","late_ms":#,"set_at_ms":#,"turn":#,"wake_id":"wak_#119","while_down":false}}
+frame: ledger · ledger · ledger · ledger · action act_#126 · execution exe_#112 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#111","turn_id":"turn_#125","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#115","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#111","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#125"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#111","turn_id":"turn_#125","data":{"loop":#}}
   ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#111","data":{"args_digest":"<sha#>","correlation_id":"act_#126","deadline_at_ms":#,"execution_id":"exe_#112","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -1223,7 +1223,7 @@ frame: completion act_#126 · action act_#126 · execution exe_#112 · ledger ·
 frame: ledger · session ses_#111 · ledger · outbox out_#128 · ledger · ledger · execution exe_#112 · ledger
   ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#111","turn_id":"turn_#125","data":{"advancer":"until_no_tool_calls","decision":{"decision":"end_turn","reason":"no_tool_calls"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"end_turn","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
   ledger {"at_unix_ms":#,"kind":"turn.ended","session_id":"ses_#111","turn_id":"turn_#125","data":{"awaiting_confirm":null,"continuation":true,"cost_usd":#,"elapsed_ms":#,"first_token_ms":#,"late_results":#,"loops":#,"model":"claude-sonnet-#-#","provider":"anthropic","session_usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#},"stop_reason":"no_tool_calls","tool_calls":#,"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-  outbox scope=ses_#111 {"correlation_id":"out_#128","schema":#,"execution_id":"exe_#112","session_id":"ses_#111","tool":"outbox","args_digest":"<sha#>","proposal":{"tool":"outbox","args":{"kind":"reply","loops":[[#,"msg_#127"]],"reply_to":null,"result":{"awaiting_confirm":null,"continuation":true,"cost_usd":#,"elapsed_ms":#,"execution_id":"exe_#112","first_token_ms":#,"loops":#,"model":"claude-sonnet-#-#","output":"","profile":"sonnet","provider":"anthropic","provider_stop_reason":"end_turn","request_id":"req_fake","session_id":"ses_#111","stop_details":null,"stop_reason":"no_tool_calls","tool_calls":#,"trace":null,"turn_id":"turn_#125","usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}},"turn_id":"turn_#125","wakes":[{"late_ms":#,"text":"⏰ wake (set #:#): check the build","wake_id":"wak_#118"}]},"resource":"discord:dm:#","policy_context":null},"resource":"discord:dm:#","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"authorized","deadline_at_ms":#,"planned_at_ms":#,"authorized_at_ms":#,"reserved_micros":#,"completions_seen":#}
+  outbox scope=ses_#111 {"correlation_id":"out_#128","schema":#,"execution_id":"exe_#112","session_id":"ses_#111","tool":"outbox","args_digest":"<sha#>","proposal":{"tool":"outbox","args":{"kind":"reply","loops":[[#,"msg_#127"]],"reply_to":null,"result":{"awaiting_confirm":null,"continuation":true,"cost_usd":#,"elapsed_ms":#,"execution_id":"exe_#112","first_token_ms":#,"loops":#,"model":"claude-sonnet-#-#","output":"","profile":"sonnet","provider":"anthropic","provider_stop_reason":"end_turn","request_id":"req_fake","session_id":"ses_#111","stop_details":null,"stop_reason":"no_tool_calls","tool_calls":#,"trace":null,"turn_id":"turn_#125","usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}},"turn_id":"turn_#125","wakes":[{"late_ms":#,"text":"⏰ wake (set #:#): check the build","wake_id":"wak_#119"}]},"resource":"discord:dm:#","policy_context":null},"resource":"discord:dm:#","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"state":"authorized","deadline_at_ms":#,"planned_at_ms":#,"authorized_at_ms":#,"reserved_micros":#,"completions_seen":#}
   ledger scope=ses_#111 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#111","data":{"correlation_id":"out_#128","execution_id":"exe_#112","kind":"reply","outbox":"discord:dm:#","retry_class":{"class":"idempotent_with_key","key":"discord.nonce"},"tool":"outbox"}}
   ledger turn.trace session=ses_#111 turn=turn_#125, the span tree:
     turn [turn] {"continuation":true,"loops":#,"model":"claude-sonnet-#-#","origin_unix_ms":#,"outcome":"complete","profile":"sonnet","provider":"anthropic","session_id":"ses_#111","started_unix_ms":#,"stop_reason":"no_tool_calls","turn_id":"turn_#125","usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}
@@ -1256,7 +1256,7 @@ notify turn.ended {"awaiting_confirm":null,"continuation":true,"cost_usd":#,"ela
   its trace: the span tree drawn above
 narrate session session=ses_#111 turn=- The driver resumes execution …#112: it was woken.
 narrate turn session=ses_#111 turn=turn_#125 Continuation turn …#125 started by the harness on sonnet (claude-sonnet-#-#): no new input; up to # loops.
-narrate session session=ses_#111 turn=turn_#125 Wake #118 came due: "check the build" is this turn's input.
+narrate session session=ses_#111 turn=turn_#125 Wake #119 came due: "check the build" is this turn's input.
 narrate turn session=ses_#111 turn=turn_#125 Caught up on the time between turns: # wake came due.
 narrate loop session=ses_#111 turn=turn_#125 Loop # of up to #.
 narrate context session=ses_#111 turn=turn_#125 Context: appending to compilation …#115: prefix # node + tail #, # messages, about #,# tokens.
@@ -1277,14 +1277,14 @@ result: # loops, # tool calls, stop budget, awaiting act_#130, output "Diffing."
 frame: execution exe_#131 · ledger
   ledger scope=ses_#129 {"at_unix_ms":#,"kind":"execution.opened","session_id":"ses_#129","data":{"execution_id":"exe_#131","kind":"conversation","limit_usd":#}}
 frame: session ses_#129
-frame: execution exe_#131 · ledger · execution exe_#131 · ledger
+frame: ledger · execution exe_#131 · ledger
   ledger scope=ses_#129 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#129","data":{"execution_id":"exe_#131","why":"input"}}
   ledger scope=ses_#129 {"at_unix_ms":#,"kind":"execution.running","session_id":"ses_#129","data":{"execution_id":"exe_#131","queued_results":#,"resumed":false,"turn":#}}
 frame: ledger · node msg_#132 · session ses_#129
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#129","turn_id":"turn_#133","data":{"author":"test","continuation":false,"execution_id":"exe_#131","input_chars":#,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
 frame: compilation cmp_#134 · ledger · session ses_#129
   ledger {"at_unix_ms":#,"kind":"context.recompiled","session_id":"ses_#129","turn_id":"turn_#133","data":{"as_of":#,"compilation_id":"cmp_#134","derived_from":null,"includes":#,"model":"claude-sonnet-#-#","strategy":"transcript","strip_thinking":false,"trigger":"new_session"}}
-frame: ledger · ledger · execution exe_#131 · action act_#135 · ledger · action act_#135 · ledger · action act_#135 · execution exe_#131 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#135 · execution exe_#131 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#129","turn_id":"turn_#133","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#134","decision":"recompile","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"bytes","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#129","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":"new_session","turn_id":"turn_#133"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#129","turn_id":"turn_#133","data":{"loop":#}}
   ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#129","data":{"args_digest":"<sha#>","correlation_id":"act_#135","deadline_at_ms":#,"execution_id":"exe_#131","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}
@@ -1293,12 +1293,12 @@ frame: ledger · ledger · execution exe_#131 · action act_#135 · ledger · ac
 frame: completion act_#135 · action act_#135 · execution exe_#131 · ledger · node msg_#136 · ledger
   ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#129","data":{"correlation_id":"act_#135","cost_usd":#,"duration_ms":#,"execution_id":"exe_#131","execution_state":"running","outcome":"succeeded","producer":"provider:anthropic"}}
   ledger {"at_unix_ms":#,"kind":"provider.call","session_id":"ses_#129","turn_id":"turn_#133","data":{"blocks":#,"catalog_version":"#-#-#.#+config:#","cost_usd":#,"input_transformations":null,"loop":#,"model":"claude-sonnet-#-#","node_id":"msg_#136","provider":"anthropic","rate_limit":{"input_tokens_remaining":null,"output_tokens_remaining":null,"requests_limit":null,"requests_remaining":null,"requests_reset":null,"retry_after_secs":null,"tokens_limit":null,"tokens_remaining":null,"tokens_reset":null},"request_id":"req_fake","stop_details":null,"stop_reason":"tool_use","timing":{"first_byte_ms":#,"first_token_ms":#,"total_ms":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
-frame: action act_#137 · ledger · node tcl_#138 · action act_#137 · ledger · action act_#137 · execution exe_#131 · ledger
-  ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#129","data":{"args_digest":"<sha#>","correlation_id":"act_#137","deadline_at_ms":#,"execution_id":"exe_#131","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"text.diff"}}
-  ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#129","data":{"confirmed":false,"correlation_id":"act_#137"}}
-  ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#129","data":{"correlation_id":"act_#137","deadline_at_ms":#,"execution_id":"exe_#131","external_op_id":null,"tool":"text.diff"}}
-frame: completion act_#137 · action act_#137 · execution exe_#131 · ledger · node trs_#139
-  ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#129","data":{"correlation_id":"act_#137","cost_usd":null,"duration_ms":#,"execution_id":"exe_#131","execution_state":"running","outcome":"succeeded","producer":"inproc:text.diff"}}
+frame: ledger · node tcl_#137 · ledger · action act_#138 · execution exe_#131 · ledger
+  ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#129","data":{"args_digest":"<sha#>","correlation_id":"act_#138","deadline_at_ms":#,"execution_id":"exe_#131","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"text.diff"}}
+  ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.authorized","session_id":"ses_#129","data":{"confirmed":false,"correlation_id":"act_#138"}}
+  ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.dispatched","session_id":"ses_#129","data":{"correlation_id":"act_#138","deadline_at_ms":#,"execution_id":"exe_#131","external_op_id":null,"tool":"text.diff"}}
+frame: completion act_#138 · action act_#138 · execution exe_#131 · ledger · node trs_#139
+  ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#129","data":{"correlation_id":"act_#138","cost_usd":null,"duration_ms":#,"execution_id":"exe_#131","execution_state":"running","outcome":"succeeded","producer":"inproc:text.diff"}}
 frame: ledger · ledger · ledger · execution exe_#131 · action act_#130 · ledger · ledger
   ledger {"at_unix_ms":#,"kind":"loop.ended","session_id":"ses_#129","turn_id":"turn_#133","data":{"advancer":"until_no_tool_calls","decision":{"decision":"continue"},"loop":#,"outcome":{"loop_index":#,"output_chars":#,"provider_stop_reason":"tool_use","tool_calls":#},"usage":{"cache_creation_input_tokens":#,"cache_read_input_tokens":#,"input_tokens":#,"output_tokens":#}}}
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#129","turn_id":"turn_#133","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#134","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#129","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#133"}}
@@ -1336,8 +1336,8 @@ notify model.delta {"loop_index":#,"text":"Diff","turn_id":"turn_#133"}
 notify model.delta {"loop_index":#,"text":"ing.","turn_id":"turn_#133"}
 notify node.written {"kind":"assistant_message","node_id":"msg_#136","session_id":"ses_#129"}
 notify tool.proposed {"gate":{"decision":{"posture":"open","reason":"text.diff — open ([policy.tools] \"text.diff\" = open)"},"plan":{"resources":[],"summary":"diff two texts"},"proposal":{"args":{"a":"x\n","b":"y\n"},"policy_context":{"cwd":"<dir>","roots":["<dir>"]},"tool":"text.diff"},"result":{"gate":"allow"},"validated":true},"input":{"a":"x\n","b":"y\n"},"session_id":"ses_#129","tool":"text.diff","tool_use_id":"d#","turn_id":"turn_#133"}
-notify tool.started {"backend":"inproc","correlation_id":"act_#137","session_id":"ses_#129","tool":"text.diff","tool_use_id":"d#","turn_id":"turn_#133"}
-notify tool.ended {"bytes":#,"correlation_id":"act_#137","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#139","preview":"--- a\n+++ b\n@@ -# +# @@\n-x\n+y\n","session_id":"ses_#129","status":"ok","stopped_by":null,"tool":"text.diff","tool_use_id":"d#","truncated":false,"turn_id":"turn_#133"}
+notify tool.started {"backend":"inproc","correlation_id":"act_#138","session_id":"ses_#129","tool":"text.diff","tool_use_id":"d#","turn_id":"turn_#133"}
+notify tool.ended {"bytes":#,"correlation_id":"act_#138","duration_ms":#,"exit_code":null,"late":false,"node_id":"trs_#139","preview":"--- a\n+++ b\n@@ -# +# @@\n-x\n+y\n","session_id":"ses_#129","status":"ok","stopped_by":null,"tool":"text.diff","tool_use_id":"d#","truncated":false,"turn_id":"turn_#133"}
 notify node.written {"kind":"tool_result","node_id":"trs_#139","session_id":"ses_#129"}
 notify loop.ended {"advancer":"until_no_tool_calls","decision":"continue","loop_index":#,"provider_stop_reason":"tool_use","tool_calls":#,"turn_id":"turn_#133"}
 notify context.compiled {"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#134","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#129","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#133"}
@@ -1381,7 +1381,7 @@ frame: execution exe_#131 · ledger
 frame: ledger · execution exe_#131 · ledger
   ledger {"at_unix_ms":#,"kind":"turn.started","session_id":"ses_#129","turn_id":"turn_#143","data":{"author":"harness","continuation":true,"execution_id":"exe_#131","input_chars":null,"kernel_turn":#,"model":"claude-sonnet-#-#","profile":"sonnet","provider":"anthropic"}}
   ledger scope=ses_#129 {"at_unix_ms":#,"kind":"execution.results_consumed","session_id":"ses_#129","data":{"count":#,"execution_id":"exe_#131"}}
-frame: ledger · ledger · execution exe_#131 · action act_#144 · ledger · action act_#144 · ledger · action act_#144 · execution exe_#131 · ledger
+frame: ledger · ledger · ledger · ledger · action act_#144 · execution exe_#131 · ledger
   ledger {"at_unix_ms":#,"kind":"context.compiled","session_id":"ses_#129","turn_id":"turn_#143","data":{"cache":{"breakpoints":["header","conversation"],"conversation_ttl":"#m","ttl":"#m"},"class":"private","compilation_id":"cmp_#134","decision":"append","digest":"<sha#>","est_tokens":#,"estimate":{"bytes":#,"census":{"blocks":#,"ids":#,"json":#,"messages":#,"opaque":#,"text":#},"counted":#,"estimated":#,"method":"counted","tokens":#,"upper":#},"loop":#,"messages":#,"nodes_scanned":#,"prefix_nodes":#,"repairs":[],"session_id":"ses_#129","strategy":"transcript","tail_nodes":#,"tools":#,"trigger":null,"turn_id":"turn_#143"}}
   ledger {"at_unix_ms":#,"kind":"loop.started","session_id":"ses_#129","turn_id":"turn_#143","data":{"loop":#}}
   ledger scope=ses_#129 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#129","data":{"args_digest":"<sha#>","correlation_id":"act_#144","deadline_at_ms":#,"execution_id":"exe_#131","reserved_usd":#,"retry_class":{"class":"safe_to_repeat"},"tool":"provider.messages"}}

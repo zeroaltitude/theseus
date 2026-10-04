@@ -227,10 +227,11 @@ fn full_lifecycle_one_action_one_turn() {
 }
 
 /// `plan_and_dispatch` (theseus-qa0): planned, authorized, and dispatched in
-/// one frame, each transition with its record and row, in that order, and the
-/// caller's records after the plan's; the end state `dispatched` leaves; over
-/// budget, nothing written. A view commits through its own handle and shares
-/// the turn locks.
+/// one frame, each transition with its row, in that order, and the caller's
+/// records after the plan's; the action and the execution once each, their
+/// last copies, where they stand (Tier 7.3); the end state `dispatched`
+/// leaves; over budget, nothing written. A view commits through its own
+/// handle and shares the turn locks.
 #[test]
 fn plan_and_dispatch_is_three_transitions_in_one_frame() {
     let w = world();
@@ -263,11 +264,8 @@ fn plan_and_dispatch_is_three_transitions_in_one_frame() {
     assert_eq!(
         labels,
         [
-            "execution",
-            "action",
             "action.planned",
             "meta",
-            "action",
             "action.authorized",
             "action",
             "execution",
