@@ -438,6 +438,40 @@ cockpit() {
   fi
 }
 
+# The shipped features (theseus-dr2x). scripts/build.sh builds only the five binaries an install ships, and the
+# gate tests the whole workspace; cargo unifies a dependency's features over the packages it builds, so a crate
+# outside the five that turns on a feature of a dependency the five link would give the tests a feature the install
+# lacks, and the install would be a build the gate never compiled. This compares cargo's tree (it compiles nothing:
+# about a second) of the five alone with the whole workspace's, and fails naming each package the five link that the
+# workspace builds with other features, and the features it adds. scripts/AGENTS.md ("Features") says what to do.
+features_of() {
+  cargo tree -q -e normal,build --prefix none -f '{p} {f}' "$@" | sed -E 's/ \([^)]*\)//g' | sort -u
+}
+features() {
+  local five=() p alone whole widened
+  while read -r p; do five+=(-p "$p"); done < <(scripts/build.sh --shipped)
+  alone="$(features_of "${five[@]}")"
+  whole="$(features_of --workspace)"
+  # A line is `name version features`. A package can be built twice, with two feature sets (a build dependency's
+  # and a normal one's), so a line of the workspace's that the five lack is a widening, and the features named are
+  # those no build of the package among the five has.
+  widened="$(awk '
+    NR == FNR { seen[$0] = 1; alone[$1 " " $2] = alone[$1 " " $2] "," $3; next }
+    !($0 in seen) && (($1 " " $2) in alone) {
+      split(alone[$1 " " $2], a, ","); split("", has); for (i in a) has[a[i]] = 1
+      n = split($3, w, ","); add = ""
+      for (i = 1; i <= n; i++) if (!(w[i] in has)) add = add (add == "" ? "" : ", ") w[i]
+      print "  " $1 " " $2 ": the workspace builds it with " (add == "" ? "another set of its features (" $3 ")" : add)
+    }' <(echo "$alone") <(echo "$whole"))"
+  [ -z "$widened" ] && return 0
+  echo "gate: the whole workspace widens the features of a package the five shipped binaries link, so an install"
+  echo "gate: (scripts/build.sh, the five alone) builds it without them, and the gate tests a build no install has:"
+  echo "$widened"
+  echo "gate: name the feature in the shipped crate that links the package, as theseus-discord's manifest names"
+  echo "gate: twilight-gateway's, or drop it from the crate outside the five (scripts/AGENTS.md, \"Features\")"
+  return 1
+}
+
 # The binaries the benches run, built before the lock (`bench build`). It is the five an install ships,
 # scripts/build.sh's list (theseus-o8nk), so the benches run binaries with an install's features; a tool
 # the benches start that an install does not ship is added here too.
@@ -534,6 +568,8 @@ phase fmt cargo fmt --all -- --check
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
+phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
 # The cockpit before the suite, which reads its build at / (theseus-vm3n.6).
 phase cockpit cockpit

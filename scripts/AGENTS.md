@@ -23,8 +23,9 @@ scripts/gate.sh && git commit -S -F <message file>
 It runs, in order:
 
 1. *Without the lock*, every compile: `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500
-   lines unless listed), then `cargo clippy --workspace --all-targets -- -D warnings`, which also holds the shape
-   budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and `npm run build`,
+   lines unless listed), then `features` (the five shipped binaries get no fewer features built alone than in the
+   workspace; see "Releases", "Features"), then `cargo clippy --workspace --all-targets -- -D warnings`, which also
+   holds the shape budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and `npm run build`,
    when `cockpit/node_modules` exists (else the gate says it skipped them), before the suite, whose tests of `/` read
    that build; a failing npm step prints its name and the last 40 lines of its output above the table. Then
    `bench build` (`cargo build` of the five binaries an install
@@ -266,18 +267,20 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
     can give a crate they share fewer features than the whole workspace, which the gate tests, gives it. For the five it
     gives none fewer: on 2026-10-03 cargo's unit graph (`RUSTC_BOOTSTRAP=1 cargo build --unit-graph -Z unstable-options`,
     which prints and builds nothing) held the same units, features included, for everything the five link, whether the
-    five were built alone or the workspace whole. Recheck it after a change that gives a crate outside the five a new
-    dependency or feature: this prints each package the five link whose features the whole workspace widens, and
-    nothing when there is none.
+    five were built alone or the workspace whole. The gate's `features` phase holds it on every run (theseus-dr2x):
+    it compares `cargo tree -e normal,build -f '{p} {f}'` of the five (`build.sh --shipped` prints the list) with the
+    whole workspace's, which compiles nothing and takes about a second, and fails naming each package the five link
+    that the workspace builds with more features, and the features it adds:
 
-    ```bash
-    t() { cargo tree -e normal,build --prefix none -f '{p} {f}' "$@" | sed 's/ (\*)$//' | sort -u; }
-    five="-p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index"
-    comm -13 <(t $five) <(t --workspace) | awk '{print $1, $2}' | grep -Fx -f <(t $five | awk '{print $1, $2}')
+    ```text
+    gate: the whole workspace widens the features of a package the five shipped binaries link, …
+      serde_json v1.0.151: the workspace builds it with indexmap, preserve_order
     ```
 
-    Name a feature it finds in the shipped crate that links the dependency, as theseus-discord's manifest names
-    twilight-gateway's `rustls-native-roots`, which only the voice crate had turned on until it left the workspace.
+    Name the feature it finds in the shipped crate that links the dependency, as theseus-discord's manifest names
+    twilight-gateway's `rustls-native-roots`, which only the voice crate had turned on until it left the workspace; or
+    drop it from the crate outside the five. `cargo tree` resolves the normal and build edges only, as an install
+    builds: a feature a dev-dependency adds reaches the tests alone, and the check does not see it.
   - rust-embed's `deterministic-timestamps` (theseusd's manifest) gives the embedded web files no modification time. A
     plain `cargo build --release` still works, and embeds the directory it was built in.
 - **The profiles.** `release` is fat LTO with one codegen unit: a tagged release. `release-thin` (cargo reserves the name
