@@ -939,7 +939,16 @@ const SERVICE_COMMON: &str = "\
 KillSignal=SIGINT
 KillMode=process
 Restart=on-failure
-RestartSec=5
+RestartSec=1
+";
+
+/// The start limit both daemon units share (theseus-0v8s): a start takes about 20 ms, so a
+/// panic at every start would otherwise restart the daemon every few seconds for as long as it
+/// lasts, one more file in `crashes/` each time, and systemd's default (5 starts in 10 s)
+/// never trips at that pace. Ten starts in 300 s stops the loop and keeps its files.
+const START_LIMIT: &str = "\
+StartLimitIntervalSec=300
+StartLimitBurst=10
 ";
 
 /// `--user`'s unit.
@@ -949,7 +958,7 @@ pub(crate) fn user_unit(exec: &[String], env: &[(String, String)]) -> Result<Str
          # put your own changes in a drop-in (`systemctl --user edit theseusd`).\n\
          [Unit]\n\
          Description=Theseus daemon\n\
-         \n\
+         {START_LIMIT}\n\
          [Service]\n\
          Type=exec\n\
          ExecStart={}\n",
@@ -976,7 +985,7 @@ pub(crate) fn system_unit(exec: &[String]) -> Result<String> {
          Description=Theseus daemon, as its own user\n\
          Wants=network-online.target\n\
          After=network-online.target\n\
-         \n\
+         {START_LIMIT}\n\
          [Service]\n\
          Type=exec\n\
          User={DAEMON_USER}\n\

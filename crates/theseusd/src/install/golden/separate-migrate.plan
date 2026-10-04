@@ -30,6 +30,8 @@ theseusd install --separate: the plan. Nothing is changed: --apply performs it, 
                  | Description=Theseus daemon, as its own user
                  | Wants=network-online.target
                  | After=network-online.target
+                 | StartLimitIntervalSec=300
+                 | StartLimitBurst=10
                  |
                  | [Service]
                  | Type=exec
@@ -46,7 +48,7 @@ theseusd install --separate: the plan. Nothing is changed: --apply performs it, 
                  | KillSignal=SIGINT
                  | KillMode=process
                  | Restart=on-failure
-                 | RestartSec=5
+                 | RestartSec=1
                  |
                  | [Install]
                  | WantedBy=multi-user.target

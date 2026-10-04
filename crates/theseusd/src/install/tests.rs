@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use theseus_store::Store as _;
 
 use super::host::{self, Fake, Host, User};
-use super::layout::{real, unit_arg, unit_env};
+use super::layout::{real, system_unit, unit_arg, unit_env, user_unit};
 use super::*;
 
 const OPERATOR: &str = "ada";
@@ -968,7 +968,7 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
         }))
         .unwrap();
     assert_eq!(code, 1);
-    assert!(out.contains("content: line 8 is `ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain"), "{out}");
+    assert!(out.contains("content: line 10 is `ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain"), "{out}");
     let log = r.ok(&args(|a| {
         a.user = true;
         a.remove = true;
@@ -996,6 +996,30 @@ fn a_user_unit_without_a_token_file_says_how_to_give_it_one() {
         !out.contains("token  "),
         "no token file, no token item:\n{out}"
     );
+}
+
+/// Both daemon units restart after 1 s and stop a crash loop at 10 starts in 300 s, so the
+/// crash files it keeps are not buried by an endless restart (theseus-0v8s).
+#[test]
+fn the_daemon_units_bound_a_crash_loop() {
+    let exec = vec!["/opt/theseus/bin/theseusd".to_string()];
+    let user = user_unit(&exec, &[]).unwrap();
+    let system = system_unit(&exec).unwrap();
+    for (name, unit) in [("user", &user), ("system", &system)] {
+        let (unit_sect, service) = unit.split_once("[Service]").unwrap();
+        assert!(
+            unit_sect.contains("StartLimitIntervalSec=300\n"),
+            "{name}:\n{unit}"
+        );
+        assert!(
+            unit_sect.contains("StartLimitBurst=10\n"),
+            "{name}:\n{unit}"
+        );
+        assert!(
+            service.contains("Restart=on-failure\nRestartSec=1\n"),
+            "{name}:\n{unit}"
+        );
+    }
 }
 
 /// The hint is the command as it was typed, with the flag added after it
