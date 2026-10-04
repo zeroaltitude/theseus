@@ -248,7 +248,7 @@ async fn a_failing_jev_is_recorded_by_its_class_and_changes_no_turn() {
     assert!(off.core.health().judge.is_some_and(|h| !h.enabled));
     for (mode, class) in [
         (FakeMode::Down, "network"),
-        (FakeMode::Slow(Duration::from_secs(3)), "timeout"),
+        (FakeMode::Slow(Duration::from_secs(10)), "timeout"),
         (
             FakeMode::RateLimited {
                 retry_after_secs: 7,
@@ -259,12 +259,15 @@ async fn a_failing_jev_is_recorded_by_its_class_and_changes_no_turn() {
     ] {
         let jev = FakeJev::start().unwrap();
         jev.set_mode(mode.clone());
-        let r = rig_with(texts(1), Some(&jev), |_| {});
+        // A turn that waited on a slow Jev would wait out the whole call, 5 s;
+        // one that does not takes its own time, which load can stretch past a
+        // second, never to 3 s.
+        let r = rig_with(texts(1), Some(&jev), |c| c.judge.total_secs = 5);
         let t0 = Instant::now();
         let res = turn(&r.core, None, "Say done.").await;
         let took = t0.elapsed();
         assert!(
-            took < Duration::from_millis(900),
+            took < Duration::from_secs(3),
             "{mode:?}: the turn took {took:?}"
         );
         assert_eq!(

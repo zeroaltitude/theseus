@@ -281,7 +281,14 @@ impl JudgeService {
     /// today's counts. A read at most; nothing is built or written.
     pub fn health(&self) -> JudgeHealth {
         let today = spend::local_day(theseus_protocol::now_unix_ms());
-        let t = self.budget.today(&self.store, &today);
+        // Off, nothing is counted and the store is not read.
+        let t = match self.cfg.enabled {
+            true => self.budget.today(&self.store, &today),
+            false => spend::Today {
+                day: today,
+                ..spend::Today::default()
+            },
+        };
         let (breaker, in_flight) = match self.built.get() {
             Some(b) => {
                 let j = b.judge.inner();
