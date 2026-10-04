@@ -54,6 +54,8 @@ mod tests_hand;
 #[cfg(test)]
 mod tests_hands;
 #[cfg(test)]
+mod tests_network;
+#[cfg(test)]
 mod tests_part2;
 
 /// The hands' state in the daemon: where each account's hands run, read
@@ -99,7 +101,11 @@ impl Hands {
             return Ok(e.clone());
         }
         let e = launch::discover(account, binding, region).await?;
-        self.envs.lock().unwrap().insert(k, e.clone());
+        // An existing VPC whose routes refused Fargate is read again at the
+        // next call: its owner may route it since.
+        if !matches!(e.existing, Some(Err(_))) {
+            self.envs.lock().unwrap().insert(k, e.clone());
+        }
         Ok(e)
     }
 

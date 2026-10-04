@@ -15,7 +15,10 @@
 //!   `NatGateway` reads `enabled`; otherwise the call fails with the reason
 //!   and the stack update that turns it on (about $36 a month while on).
 //!   Nothing here turns it on: that is the operator's, through the stack
-//!   path. Lambda hands need no VPC, and are the default.
+//!   path. Lambda hands need no VPC, and are the default. In an existing
+//!   VPC (`NatGateway` reads `existing`), its own NAT is the way out:
+//!   [`super::network::egress`] reads its routes, and the refusal names the
+//!   subnet that has none, never a NAT to turn on.
 //! - **Tags** on every task and task definition: `theseus:owner`,
 //!   `theseus:execution`, `theseus:session`, `theseus:group`,
 //!   `theseus:correlation`, `theseus:ttl`, and `theseus:deployment`;
@@ -314,8 +317,14 @@ pub struct HandsEnv {
     pub log_group: String,
     pub subnets: Vec<String>,
     pub security_group: String,
-    /// The network stack's NAT, as its parameter last set it.
+    /// A way out through a NAT: the network stack's own, as its parameter
+    /// last set it, or an existing VPC's, its routes read at discovery.
     pub nat: bool,
+    /// An existing VPC's routes, as discovery read them (theseus-mgw.9):
+    /// `None` in the stack's own VPC; else every subnet routes out through a
+    /// NAT, or why not. Never stored: a group's record keeps `nat`.
+    #[serde(skip)]
+    pub existing: Option<Result<(), String>>,
     /// The Lambda hand, once the hand image exists.
     pub lambda_function: Option<String>,
     /// The hand image the stack names (`HandImageUri`).
@@ -351,10 +360,13 @@ async fn stack(
         .await
         .map_err(|e| format!("the {name} stack: {e}"))?;
     let s = &out.body["Stacks"][0];
+    // Parameters, then outputs, so an output wins where a key is both: the
+    // network stack's `NatGateway` output reads `existing` in an existing
+    // VPC while its parameter stays `disabled` (theseus-mgw.9).
     let mut m = BTreeMap::new();
     for (list, k, v) in [
-        ("Outputs", "OutputKey", "OutputValue"),
         ("Parameters", "ParameterKey", "ParameterValue"),
+        ("Outputs", "OutputKey", "OutputValue"),
     ] {
         for o in s[list].as_array().into_iter().flatten() {
             if let (Some(k), Some(v)) = (o[k].as_str(), o[v].as_str()) {
@@ -396,6 +408,19 @@ pub async fn discover(
     }
     // The network stack is Fargate's alone: without it, Lambda hands run.
     let n = n.unwrap_or_default();
+    let subnets: Vec<String> = n
+        .get("PrivateSubnetIds")
+        .map(|s| s.split(',').map(String::from).collect())
+        .unwrap_or_default();
+    // An existing VPC's subnets route out through its own NAT, or Fargate
+    // hands do not run there (theseus-mgw.9).
+    let existing = match n.get("NatGateway").map(String::as_str) {
+        Some("existing") => {
+            let vpc = n.get("VpcId").map_or("?", String::as_str);
+            Some(super::network::egress(account, binding, region, vpc, &subnets).await)
+        }
+        _ => None,
+    };
     Ok(HandsEnv {
         bucket: need(&f, "theseus-foundation", "BucketName")?,
         queue_url: need(&f, "theseus-foundation", "CompletionQueueUrl")?,
@@ -404,12 +429,11 @@ pub async fn discover(
             .get("HandsLogGroupName")
             .cloned()
             .unwrap_or_else(|| "/theseus/hands".into()),
-        subnets: n
-            .get("PrivateSubnetIds")
-            .map(|s| s.split(',').map(String::from).collect())
-            .unwrap_or_default(),
+        subnets,
         security_group: n.get("HandsSecurityGroupId").cloned().unwrap_or_default(),
-        nat: n.get("NatGateway").is_some_and(|v| v == "enabled"),
+        nat: n.get("NatGateway").is_some_and(|v| v == "enabled")
+            || matches!(existing, Some(Ok(()))),
+        existing,
         lambda_function: h.get("LambdaHandArn").cloned(),
         hand_image: h.get("HandImageUri").filter(|s| !s.is_empty()).cloned(),
         execution_role_arn: h.get("HandExecutionRoleArn").cloned().unwrap_or_default(),
@@ -433,6 +457,9 @@ pub fn unready(env: &HandsEnv, backend: Backend, r: &HandsRequest) -> Option<Str
             "Fargate hands need the theseus-hands-network and theseus-hands stacks, deployed"
                 .into(),
         ),
+        Backend::Fargate if matches!(env.existing, Some(Err(_))) => {
+            env.existing.clone().and_then(Result::err)
+        }
         Backend::Fargate if !env.nat => Some(
             "Fargate hands need the hands VPC's NAT, which is off (it costs about $36 a month \
              while on): the operator turns it on with aws.stack.plan and aws.stack.apply of \
