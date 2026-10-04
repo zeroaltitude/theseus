@@ -197,6 +197,9 @@ pub struct Ran {
     /// answered at the gate, a write, a program, and a question are each a
     /// group of one.
     pub group: usize,
+    /// The judgments dispatched at its gate (M5 step 24): the turn's trace
+    /// marks each under the call's span.
+    pub judged: Vec<crate::judge::gate::Mark>,
 }
 
 /// A call through the gate.
@@ -271,6 +274,9 @@ pub struct ToolRuntime {
     /// The jobs turns wait on (Tier 7.1): the drain leaves each one's
     /// completion to its turn, and wakes it.
     pub job_waits: Arc<JobWaits>,
+    /// The judge (M5 step 24): every call that acts goes to `gate` once it
+    /// is planned. Set as the core is built; unset, nothing is judged.
+    pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -389,6 +395,7 @@ impl ToolRuntime {
             stops: Default::default(),
             public_roots: Vec::new(),
             job_waits: Arc::default(),
+            judge: Default::default(),
         }
     }
 
@@ -754,6 +761,7 @@ impl ToolRuntime {
                     started,
                     ended: Instant::now(),
                     group: ran.len(),
+                    judged: Vec::new(),
                 }),
                 Admitted::Asks(tool, g) => {
                     ask = Some((i, tool, g));
@@ -779,7 +787,7 @@ impl ToolRuntime {
         let mut awaiting = None;
         if let Some((i, tool, g)) = ask {
             let started = Instant::now();
-            let outcome = self
+            let (outcome, judged) = self
                 .start(tc, assistant_node, calls[i].call, tool, g)
                 .await?;
             if let CallOutcome::AwaitingConfirm { correlation_id } = &outcome {
@@ -791,6 +799,7 @@ impl ToolRuntime {
                 started,
                 ended: Instant::now(),
                 group: next,
+                judged,
             });
         }
         ran.sort_by_key(|r| r.index);
@@ -843,12 +852,13 @@ impl ToolRuntime {
         let mut failed = None;
         for (index, started, ended, r) in futures_util::future::join_all(runs).await {
             match r {
-                Ok(outcome) => ran.push(Ran {
+                Ok((outcome, judged)) => ran.push(Ran {
                     index,
                     outcome,
                     started,
                     ended,
                     group: id,
+                    judged,
                 }),
                 Err(e) => {
                     failed.get_or_insert(e);
@@ -858,7 +868,9 @@ impl ToolRuntime {
         failed.map_or(Ok(()), Err)
     }
 
-    /// A gated call: planned (with its `ToolCall` node), then asked, or run.
+    /// A gated call: planned (with its `ToolCall` node), its notice sent,
+    /// handed to the judge (which never delays it), then asked, or run.
+    /// Returns its outcome and the judgments its gate dispatched.
     async fn start(
         &self,
         tc: &TurnCtx<'_>,
@@ -866,24 +878,69 @@ impl ToolRuntime {
         call: &ToolUse,
         tool: Arc<dyn Tool>,
         g: Gated,
-    ) -> Result<CallOutcome> {
+    ) -> Result<(CallOutcome, Vec<crate::judge::gate::Mark>)> {
         let a = self.plan_call(tc, assistant_node, call, tool.as_ref(), &g)?;
-        if let Some(notice) = Self::notified(tc, call, tool.name(), &a.correlation_id, &g) {
+        let notice = Self::notified(tc, call, tool.name(), &a.correlation_id, &g);
+        if let Some(notice) = &notice {
             // Its row rode in the frame that planned the call.
-            tc.rec()
-                .announce(&fact::tool::ToolNotified { notice: &notice });
+            tc.rec().announce(&fact::tool::ToolNotified { notice });
         }
         tc.record(&fact::tool::GateDecided {
             runtime: self,
             tool: tool.name(),
             gated: &g,
         });
+        let judged = self.judge_at_gate(tc, &a, call, tool.as_ref(), &g, notice.is_some());
         if g.decision.posture == Posture::Approve {
-            return self.ask(tc, a, call, tool.name(), g);
+            return Ok((self.ask(tc, a, call, tool.name(), g)?, judged));
         }
         let (posture, class) = (g.decision.posture, g.class);
-        self.execute(tc, &a.correlation_id, tool, call, posture, class)
-            .await
+        let outcome = self
+            .execute(tc, &a.correlation_id, tool, call, posture, class)
+            .await?;
+        Ok((outcome, judged))
+    }
+
+    /// `security.v1` and `security.v3` at `gate` (M5 step 24): the choice
+    /// to judge the call, and the marks. Everything else is the judge's own
+    /// task: the gate's decision stands as it was made.
+    fn judge_at_gate(
+        &self,
+        tc: &TurnCtx<'_>,
+        a: &Action,
+        call: &ToolUse,
+        tool: &dyn Tool,
+        g: &Gated,
+        notified: bool,
+    ) -> Vec<crate::judge::gate::Mark> {
+        let Some(judge) = self.judge.get().filter(|j| j.gate_on()) else {
+            return Vec::new();
+        };
+        let class = g.plan.class.unwrap_or(tool.class());
+        let holds = || matches!(crate::external::held(tc.store, tc.session_id), Ok(Some(_)));
+        if !crate::judge::gate::judged(class, tool.name(), holds) {
+            return Vec::new();
+        }
+        let d = &g.decision;
+        let gc = crate::judge::gate::GateCall {
+            session_id: tc.session_id.into(),
+            execution_id: tc.execution_id.into(),
+            turn_id: tc.turn_id.into(),
+            loop_index: tc.loop_index,
+            task: tc.task.is_some(),
+            correlation_id: a.correlation_id.clone(),
+            tool_use_id: call.id.clone(),
+            tool: tool.name().into(),
+            class,
+            posture: d.posture.as_str().into(),
+            reason: d.reason.clone(),
+            floor: d.floor,
+            notified,
+            hold_raised: d.external.is_some(),
+            input: call.input.clone(),
+            plan: g.plan.clone(),
+        };
+        judge.at_gate(gc, notified.then(|| tc.sink.clone()))
     }
 
     /// A notify posture runs the call and says so where the operator looks,
@@ -1797,6 +1854,7 @@ pub fn build_runtime(
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
         job_waits: Arc::default(),
+        judge: Default::default(),
     })
 }
 

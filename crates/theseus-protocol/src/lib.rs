@@ -232,6 +232,8 @@ pub mod notify {
         /// queue drained. Re-read each stream named. Transport, like
         /// `narrative.line`: counted in health, never a ledger row.
         EVENTS_LOST = "events.lost",
+        /// A notified call's `security.v1` score, after its notice (M5 24).
+        JUDGE_SCORED = "judge.scored",
     }
 }
 

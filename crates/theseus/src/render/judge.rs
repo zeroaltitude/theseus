@@ -1,9 +1,10 @@
 //! The judge's lines (M5 23a): health's `judge:` line, and `theseus judge
-//! log`, each judgment from its `judge.call` row. Apart from `render.rs`,
-//! whose length the shape budget caps (`scripts/long-files.txt`).
+//! log`, each judgment from its `judge.call` row; and (step 24) a notified
+//! call's score, the line under its notice. Apart from `render.rs`, whose
+//! length the shape budget caps (`scripts/long-files.txt`).
 
 use serde_json::Value;
-use theseus_protocol::judge::JudgeHealth;
+use theseus_protocol::judge::{JudgeHealth, JudgeScored};
 use theseus_protocol::LedgerEntry;
 
 use super::{fmt_time, push, Line, Tag};
@@ -13,6 +14,13 @@ pub(super) fn push_health(o: &mut Vec<Line>, h: Option<&JudgeHealth>) {
     if let Some(h) = h {
         push(o, Tag::Plain, &judge_line(h));
     }
+}
+
+/// A notified call's score, after its notice's two lines: `  ! notified:
+/// proc.run · risk 12% (shadow)`. The notice's line gains it as the
+/// judgment lands; a stream can only follow it.
+pub fn scored_line(j: &JudgeScored) -> String {
+    format!("  ! notified: {} · {}", j.tool, j.line())
 }
 
 /// Dollars as a judgment's are: micro-dollars show, so six places.
@@ -127,6 +135,25 @@ pub fn judge_log_lines(rows: &[LedgerEntry]) -> Vec<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A notified call's score follows its notice on the CLI's stream, as
+    /// `ask` and `watch` render it (M5 step 24).
+    #[test]
+    fn a_notices_score_follows_it_as_risk_n_percent_in_shadow() {
+        let j = JudgeScored {
+            tool: "proc.run".into(),
+            mode: "shadow".into(),
+            risky: 0.123,
+            percent: theseus_protocol::judge::percent(0.123),
+            ..Default::default()
+        };
+        let lines = crate::render::event(
+            &theseus_protocol::Event::JudgeScored(j),
+            crate::render::Show::default(),
+        );
+        let text: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(text, ["  ! notified: proc.run · risk 12% (shadow)"]);
+    }
 
     #[test]
     fn the_judge_line_says_off_or_its_counts() {

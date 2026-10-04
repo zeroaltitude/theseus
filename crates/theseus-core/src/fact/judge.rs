@@ -1,13 +1,16 @@
 //! The judge's facts (M5 23a; design §2.5): what `crate::judge` records of
 //! the judgments it makes. Each is a ledger row and nothing else in 23a: the
 //! judge runs after the turn it judges, outside every turn, and its
-//! notifications, sentences, and spans are step 23b's. Its rows ride in the
-//! judge's own batched frames (`judge::sink`), never in a turn's.
+//! sentences and spans are step 23b's. Its rows ride in the judge's own
+//! batched frames (`judge::sink`), never in a turn's. Step 24 adds a
+//! notified call's score (`judge.scored`, a notification and nothing else:
+//! its `judge.call` row is the record), and the operator's labels
+//! (`judge.label`), which ride in the press's frame.
 
 use serde_json::{json, Value};
 use theseus_judge::breaker::Transition;
 use theseus_judge::Judgment;
-use theseus_protocol::LedgerKind;
+use theseus_protocol::{Event, LedgerKind};
 
 use super::Fact;
 
@@ -96,5 +99,55 @@ impl Fact for JudgeShed {
 
     fn row(&self) -> Value {
         json!({"shed": self.shed})
+    }
+}
+
+/// A notified call's `security.v1` score landed, after its notice
+/// (`judge.scored`; step 24, design §2.8b): told to the turn's clients, who
+/// add `risk N% (shadow)` to the notice's line. No row: the judgment's
+/// `judge.call` row is the record.
+pub struct JudgeScored<'a> {
+    pub scored: &'a theseus_protocol::judge::JudgeScored,
+}
+
+impl Fact for JudgeScored<'_> {
+    const METHOD: Option<&'static str> = Some(theseus_protocol::notify::JUDGE_SCORED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::JudgeScored(self.scored.clone()))
+    }
+}
+
+/// A label on a judgment (`judge.label`, design §2.5): keyed `lbl_<id>` and
+/// scoped `judge:<pack id>` by its writer. In step 24 the operator's "should
+/// have asked" press on a call labels each of that call's `gate` judgments
+/// `risky`, at weight 1.0, in the press's frame. Declines and approvals are
+/// system labels the learning ledger derives nightly (§2.9, step 25c).
+pub struct JudgeLabel<'a> {
+    pub id: &'a str,
+    pub judgment: &'a str,
+    pub pack: &'a str,
+    /// The question it labels, or `None` for all of them.
+    pub question: Option<&'a str>,
+    pub label: Value,
+    /// `operator`, `system`, or `audit`.
+    pub source: &'a str,
+    pub who: &'a str,
+    /// Through what: `cli`, `discord`, `web`.
+    pub via: &'a str,
+    pub weight: f64,
+    pub note: &'a str,
+    /// The call it was of, when it was a call's.
+    pub correlation_id: Option<&'a str>,
+}
+
+impl Fact for JudgeLabel<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeLabel);
+
+    fn row(&self) -> Value {
+        json!({"id": self.id, "judgment": self.judgment, "pack": self.pack,
+            "question": self.question, "label": self.label, "source": self.source,
+            "who": self.who, "via": self.via, "weight": self.weight, "note": self.note,
+            "correlation_id": self.correlation_id})
     }
 }

@@ -606,6 +606,8 @@ impl Core {
                 tools.scrubber.clone(),
             ),
         };
+        // Every call that acts goes to the judge at its gate (M5 step 24).
+        let _ = runner.tools.judge.set(runner.judge.clone());
         let telemetry_cell = std::sync::OnceLock::new();
         if let Some(t) = telemetry {
             let _ = telemetry_cell.set(t);

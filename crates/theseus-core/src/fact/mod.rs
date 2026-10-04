@@ -333,6 +333,8 @@ facts![
     judge::JudgeBlockBooked<'static>,
     judge::JudgeCircuit<'static>,
     judge::JudgeShed,
+    judge::JudgeScored<'static>,
+    judge::JudgeLabel<'static>,
 ];
 
 #[cfg(test)]

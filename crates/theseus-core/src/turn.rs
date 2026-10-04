@@ -2833,7 +2833,10 @@ impl TurnRunner {
                     "result": call_result(&r.outcome)}),
                 children: aws
                     .map(|a| a.spans(&uses[r.index].id, |i| trace.at(i)))
-                    .unwrap_or_default(),
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(crate::judge::gate::marks(&r.judged, |i| trace.at(i)))
+                    .collect(),
             }
         };
         let mut groups: BTreeMap<usize, Vec<Span>> = BTreeMap::new();

@@ -126,6 +126,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   nothing, and `memory.recalls`), and `config/memory.rs`. In shadow the model's request is the one compiled without
   recall, and the row rides in the turn's next frame. The filters and pack are `theseus_memory::recall`. Tests:
   `tests_recall.rs`.
+- **Jev's judgments** (M5; `judge/`): `JudgeService` (23a: the client built at the first judgment, the sink's
+  batched frames, the shadow day budget), `loop_end.rs` (`loop.v1` after a turn), and `gate.rs` (step 24:
+  `security.v1` and `security.v3` in shadow at every call that acts, and at a fetch or a search in a holding
+  session, Q12). `ToolRuntime::start` plans the call and sends its notice, then `judge_at_gate` makes the choice and
+  the marks, nothing else; the gate's decision never waits on Jev or changes with it. A gate judgment's id is its
+  pack and the call's correlation id hashed (`gate::judgment_id`), so the turn's trace marks it (a zero-length
+  `judge` span of kind `mark` under the call's span) and a "should have asked" press labels it (`judge.label`, in
+  the press's frame) before its row is written. A notified call's score follows its notice as `judge.scored`.
+  Tests: `tests_judge.rs`, `tests_security.rs`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

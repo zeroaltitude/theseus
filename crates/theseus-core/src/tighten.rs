@@ -62,13 +62,25 @@ impl Tightenings {
     /// Record a tightening and its ledger row in one frame. False, with
     /// nothing written, when the tool is tightened already.
     pub fn insert(&self, store: &Store, t: Tightening, row: &LedgerRow) -> Result<bool> {
+        self.insert_with(store, t, row, Vec::new())
+    }
+
+    /// The same, with `more` records in its frame: the press's labels on the
+    /// call's judgments (M5 step 24). Tightened already, nothing is written.
+    pub fn insert_with(
+        &self,
+        store: &Store,
+        t: Tightening,
+        row: &LedgerRow,
+        more: Vec<NewRecord>,
+    ) -> Result<bool> {
         let mut map = self.map.write().unwrap();
         if map.contains_key(&t.tool) {
             return Ok(false);
         }
         let mut next = map.clone();
         next.insert(t.tool.clone(), t);
-        write(store, &next, row)?;
+        write(store, &next, row, more)?;
         *map = next;
         Ok(true)
     }
@@ -82,22 +94,29 @@ impl Tightenings {
         }
         let mut next = map.clone();
         next.remove(tool);
-        write(store, &next, row)?;
+        write(store, &next, row, Vec::new())?;
         *map = next;
         Ok(true)
     }
 }
 
-/// The whole set and the row that changed it, as one WAL frame.
-fn write(store: &Store, tools: &BTreeMap<String, Tightening>, row: &LedgerRow) -> Result<()> {
+/// The whole set, the row that changed it, and `more`, as one WAL frame.
+fn write(
+    store: &Store,
+    tools: &BTreeMap<String, Tightening>,
+    row: &LedgerRow,
+    more: Vec<NewRecord>,
+) -> Result<()> {
     let stored = Stored {
         schema: 1,
         tools: tools.clone(),
     };
-    store.append(&[
+    let mut records = vec![
         NewRecord::json(kinds::META, Some(META_KEY), &stored)?,
         NewRecord::json(kinds::LEDGER, None, row)?,
-    ])?;
+    ];
+    records.extend(more);
+    store.append(&records)?;
     Ok(())
 }
 

@@ -216,7 +216,14 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
     assert_eq!(Some(session.cost_usd), res.cost_usd);
     let h = r.core.health().judge.unwrap();
     assert!(h.enabled);
-    assert_eq!(h.packs, ["loop.v1: shadow"]);
+    assert_eq!(
+        h.packs,
+        [
+            "loop.v1: shadow",
+            "security.v1: shadow",
+            "security.v3: shadow"
+        ]
+    );
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(h.spend_today_usd, theseus_judge::price::micros_to_usd(cost));
     assert_eq!(h.breaker, "closed");
@@ -372,7 +379,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
     }
     assert_eq!(
         pack_off.core.health().judge.unwrap().packs,
-        ["loop.v1: off"]
+        ["loop.v1: off", "security.v1: shadow", "security.v3: shadow"]
     );
 }
 

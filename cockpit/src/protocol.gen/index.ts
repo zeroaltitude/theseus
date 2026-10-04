@@ -97,6 +97,7 @@ export type * from './IndexVectorStatus';
 export type * from './IndexWarmResult';
 export type * from './IndexWeights';
 export type * from './JudgeHealth';
+export type * from './JudgeScored';
 export type * from './KernelStatus';
 export type * from './LedgerEntry';
 export type * from './LedgerTailParams';

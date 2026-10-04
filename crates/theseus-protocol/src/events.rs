@@ -430,6 +430,8 @@ events! {
     ExecutionChanged(ExecutionView) = notify::EXECUTION_CHANGED,
     /// The connection fell behind and dropped notifications (theseus-in3).
     EventsLost(EventsLost) = notify::EVENTS_LOST,
+    /// A notified call's score landed (M5 step 24).
+    JudgeScored(crate::judge::JudgeScored) = notify::JUDGE_SCORED,
 }
 
 impl Event {
@@ -450,6 +452,7 @@ impl Event {
             Event::SessionTrusted(e) => Some(&e.session_id),
             Event::NarrativeLine(e) => e.session_id.as_deref(),
             Event::ExecutionChanged(e) => Some(&e.session_id),
+            Event::JudgeScored(e) => Some(&e.session_id),
             Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
@@ -476,6 +479,7 @@ impl Event {
             Event::PolicyNotified(e) => Some(&e.turn_id),
             Event::TurnFailed(e) => e.turn_id.as_deref(),
             Event::NarrativeLine(e) => e.turn_id.as_deref(),
+            Event::JudgeScored(e) => Some(&e.turn_id),
             Event::ProfileChanged(_)
             | Event::ConfirmRequested(_)
             | Event::ConfirmResolved(_)

@@ -19,13 +19,17 @@
 //! - **Priced, inside the shadow budget** (`spend`): an unpriced model is
 //!   never called, and a judgment that would pass the day's limit is skipped
 //!   and counted, never queued.
+//! - **At the gate** (step 24, `gate`): `security.v1` and `security.v3` in
+//!   shadow, asked of every call that acts once the gate has decided; the
+//!   call never waits on them.
 
+pub mod gate;
 pub mod loop_end;
 pub mod sink;
 pub mod spend;
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, OnceLock, Weak};
+use std::collections::{BTreeMap, HashSet};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
@@ -47,7 +51,11 @@ use spend::{Reserve, ShadowBudget};
 
 /// The packs this build wires in, and the mode the ladder gives each (step
 /// 26a brings the ladder; until then every pack is in shadow).
-pub const WIRED: &[(&str, PackMode)] = &[(LOOP_PACK, PackMode::Shadow)];
+pub const WIRED: &[(&str, PackMode)] = &[
+    (LOOP_PACK, PackMode::Shadow),
+    (gate::SECURITY_PACK, PackMode::Shadow),
+    (gate::SECURITY_CANDIDATE, PackMode::Shadow),
+];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.
 pub const LOOP_PACK: &str = "loop.v1";
@@ -95,6 +103,9 @@ pub struct JudgeService {
     built: OnceLock<Arc<Built>>,
     flush: Duration,
     prices: BTreeMap<String, JevPrice>,
+    /// Judgments minted at their dispatch whose rows the sink has not yet
+    /// written (or that never went out): a press finds them here first.
+    pending: Mutex<HashSet<String>>,
     me: Weak<JudgeService>,
 }
 
@@ -136,6 +147,7 @@ impl JudgeService {
             built: OnceLock::new(),
             flush,
             prices,
+            pending: Mutex::new(HashSet::new()),
             me: me.clone(),
         })
     }
@@ -206,6 +218,25 @@ impl JudgeService {
             return;
         };
         rt.spawn(judge_loop(self.me.clone(), pack, end));
+    }
+
+    fn pending(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
+        self.pending.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn pending_insert(&self, ids: impl IntoIterator<Item = String>) {
+        self.pending().extend(ids);
+    }
+
+    fn pending_has(&self, id: &str) -> bool {
+        self.pending().contains(id)
+    }
+
+    fn pending_remove(&self, ids: &[String]) {
+        let mut p = self.pending();
+        for id in ids {
+            p.remove(id);
+        }
     }
 
     /// The blocking half before the call: the transcript's read, the state's

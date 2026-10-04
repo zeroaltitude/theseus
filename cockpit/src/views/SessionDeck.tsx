@@ -12,6 +12,7 @@ import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
 import { admitted, dropDraft, useDrafts } from '@/lib/drafts'
 import { summarize } from '@/lib/summary'
+import { scoresOf } from '@/lib/scores'
 import { ago, cn, ms, pct, short, stamp, tokens, usd, clock } from '@/lib/format'
 import { cacheBy, pricing } from '@/lib/money'
 import { ledgerKind, toneHex } from '@/lib/taxonomy'
@@ -79,6 +80,8 @@ export default function SessionDeck() {
   const asks = useMemo(() => (hist?.pending_confirms ?? []).filter((c) => c.tool !== HELD_POST_TOOL), [hist])
   const asking = useMemo(() => new Set(asks.map((c) => c.correlation_id)), [asks])
   const tightened = useMemo(() => new Map<string, Tightening>((health?.tightenings ?? []).map((t) => [t.tool, t])), [health])
+  // Each notified call's score (M5 step 24): its push as it lands, its judgment's row once written.
+  const scores = useMemo(() => scoresOf(rows, events), [rows, events])
 
   const s = hist?.session
   const exec = el?.executions.find((e) => e.execution_id === s?.execution_id) ?? el?.executions.find((e) => e.session_id === id)
@@ -97,7 +100,7 @@ export default function SessionDeck() {
             <div className="flex h-full min-h-0 flex-col">
               <div className="relative min-h-0 flex-1">
                 <Follow deps={[nodes.length, live?.text, drafts.length]}>
-                  <Transcript nodes={nodes} turns={turnMap} live={live} asking={asking} tightened={tightened} drafts={asOf === null ? drafts : undefined} />
+                  <Transcript nodes={nodes} turns={turnMap} live={live} asking={asking} tightened={tightened} scores={scores} drafts={asOf === null ? drafts : undefined} />
                   {!nodes.length && !live && !drafts.length && <Empty>{s.turns > 0 ? `This session's ${s.turns} turn${s.turns === 1 ? '' : 's'} ran before Theseus kept what was said (conversation content is stored from M3 on). Only their numbers survive: timings, tokens, and any error are in its ledger rows.` : 'This session has no messages yet.'}</Empty>}
                 </Follow>
               </div>

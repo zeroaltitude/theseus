@@ -173,6 +173,9 @@ struct ToolLine {
     /// `egress: github.com:443`; its summary gains what it wrote to scratch,
     /// and the hosts it reached.
     l1: Option<String>,
+    /// Its notice's score once its judgment lands (M5 step 24): `risk 12%
+    /// (shadow)`.
+    risk: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -306,6 +309,7 @@ impl Renderer {
                             &p.gate.proposal.policy_context,
                         ))
                     }),
+                    risk: None,
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
@@ -391,6 +395,23 @@ impl Renderer {
                     };
                 });
                 ops
+            }
+            // A notified call's score (M5 step 24): its tool line gains it,
+            // and its notice card, when it posted one.
+            Event::JudgeScored(j) => {
+                let line = j.line();
+                self.update_tool(turn_id, &j.tool_use_id, |l| l.risk = Some(line.clone()));
+                let Some((card, _)) = self.notices.get_mut(&j.tool_use_id) else {
+                    return vec![];
+                };
+                match card.fields.iter_mut().find(|(n, _)| n == "Risk") {
+                    Some(f) => f.1 = line,
+                    None => card.fields.push(("Risk".into(), line)),
+                }
+                vec![Op::Notice {
+                    key: format!("notice:{}", j.tool_use_id),
+                    card: card.clone(),
+                }]
             }
             Event::PolicyNotified(_) if !self.notice_embeds => vec![],
             Event::PolicyNotified(n) => {
@@ -1103,9 +1124,10 @@ fn tool_lines(tools: &[ToolLine], reserve: usize) -> String {
     let lines: Vec<String> = tools
         .iter()
         .map(|l| {
+            let risk = l.risk.as_ref().map_or(String::new(), |r| format!(" · {r}"));
             let mark = match l.notice.as_deref() {
-                Some("") => " · 🔔 notified".to_string(),
-                Some(setting) => format!(" · 🔔 notified ({setting})"),
+                Some("") => format!(" · 🔔 notified{risk}"),
+                Some(setting) => format!(" · 🔔 notified ({setting}){risk}"),
                 None => String::new(),
             };
             let key = l
@@ -1562,6 +1584,40 @@ mod tests {
             "input": {"argv": argv}, "summary": format!("run `{cmd}` in /w"), "kind": "notify",
             "setting": "enforcement = notify", "rule": rule});
         (proposed, notice)
+    }
+
+    /// A notified call's score (M5 step 24) lands after its notice: its tool
+    /// line gains `risk N% (shadow)`, and its card, with embeds on, a field.
+    #[test]
+    fn a_notified_calls_score_rides_on_its_tool_line_and_card() {
+        let scored = json!({"session_id": "s", "turn_id": "t1", "tool_use_id": "u1",
+            "tool": "proc.run", "pack": "security.v1", "judgment": "jdg_1", "mode": "shadow",
+            "risky": 0.12, "percent": 12});
+        for embeds in [false, true] {
+            let mut r = Renderer::new(embeds);
+            r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+            let (proposed, notice) = notified("u1", "cargo test");
+            r.on_notification("tool.proposed", &proposed);
+            r.on_notification("policy.notified", &notice);
+            let ops = r.on_notification("judge.scored", &scored);
+            if embeds {
+                let Op::Notice { card, .. } = &ops[0] else {
+                    panic!("{ops:?}")
+                };
+                assert!(card
+                    .fields
+                    .contains(&("Risk".into(), "risk 12% (shadow)".into())));
+            } else {
+                assert_eq!(ops, vec![]);
+            }
+            let lines = upserts(&r.tick());
+            assert!(
+                lines[0]
+                    .1
+                    .contains("🔔 notified (enforcement = notify) · risk 12% (shadow)"),
+                "{lines:?}"
+            );
+        }
     }
 
     #[test]
