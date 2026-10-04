@@ -1,0 +1,32 @@
+[package]
+name = "theseus-lsp"
+description = "The Language Server Protocol, written by hand: a client over a server's stdin and stdout (framing, routing, document sync, diagnostics pushed and pulled, navigation, rename's edit, the stop), the position helper the tools address by, and a scripted fake server for tests. The protocol alone, with no core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# The reader rule (theseus-wjy). Lane L2 (theseus-n88g.8) wires it into theseus-core: the LSP board and tools. The
+# roadmap has no row for it yet, so `row 0` holds the place until the maintainer numbers it.
+[package.metadata.theseus]
+reserved_for = "row 0 (L2, theseus-n88g.8), M7: the LSP board and tools in theseus-core"
+
+[[bin]]
+name = "theseus-lsp-fake"
+path = "src/bin/theseus-lsp-fake.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+libc = "0.2"
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
