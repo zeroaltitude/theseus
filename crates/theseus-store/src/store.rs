@@ -435,7 +435,9 @@ const BULK: usize = 4096;
 /// compilation's `budget` (30b, theseus-6fn.2). 9 = a task's arrangement:
 /// the `arrangement` node body, and a task session's `task.arrangement` (M5
 /// 27, theseus-vug.2).
-const MANIFEST_FORMAT: u32 = 9;
+/// 10 = a node's origin `mcp`, an MCP server's prompt as a turn's input (36c,
+/// theseus-ext.4).
+const MANIFEST_FORMAT: u32 = 10;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

@@ -232,11 +232,8 @@ impl Core {
         match req.method.as_str() {
             method::HEALTH => reply(self.health_now().await),
             method::SESSION_OPEN => route(params, |p| self.session_open_on(surface, p)),
-            method::SESSION_LIST => {
-                // Its filter is optional: no params lists every session.
-                let params = if params.is_null() { json!({}) } else { params };
-                route(params, |p| self.session_list_of(p))
-            }
+            // Its filter is optional: no params lists every session.
+            method::SESSION_LIST => route(or_empty(params), |p| self.session_list_of(p)),
             method::TURN_SUBMIT => reply(self.turn_submit(parse(params)?, conn).await?),
             method::PROFILE_LIST => reply(self.profile_list()),
             method::PROFILE_USE => route(params, |p| self.profile_use(p, conn)),
@@ -278,17 +275,11 @@ impl Core {
             // timer, never holding a worker (theseus-bzq).
             method::EXECUTION_CANCEL => reply(self.execution_cancel(parse(params)?, conn).await?),
             method::EXECUTION_STOP => reply(self.execution_stop(parse(params)?, conn).await?),
-            method::TASK_LIST => {
-                // Its filters are optional: no params lists every task.
-                let params = if params.is_null() { json!({}) } else { params };
-                route(params, |p| self.task_list(p))
-            }
+            // Its filters are optional: no params lists every task.
+            method::TASK_LIST => route(or_empty(params), |p| self.task_list(p)),
             method::TASK_CANCEL => reply(self.task_cancel(parse(params)?, conn).await?),
-            method::WAKE_LIST => {
-                // Its filters are optional: no params lists every wake.
-                let params = if params.is_null() { json!({}) } else { params };
-                route(params, |p| self.wake_list(p))
-            }
+            // Its filters are optional: no params lists every wake.
+            method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),
             method::LEDGER_TAIL => route(params, |p| self.ledger_tail(p)),
             method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
@@ -319,6 +310,7 @@ impl Core {
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),
             method::MCP_RESTART => reply(self.mcp_restart(parse(params)?)?),
+            method::MCP_PROMPT_LIST => reply(self.mcp_prompt_list(params)?),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.
             method::AWS_BOOTSTRAP => reply(self.aws_bootstrap(parse(params)?, conn).await?),
             method::AWS_CONFIRM_ALERTS => {
@@ -417,6 +409,16 @@ impl From<anyhow::Error> for RpcFailure {
 pub(super) fn parse<T: DeserializeOwned>(v: Value) -> Result<T, RpcFailure> {
     serde_json::from_value(v)
         .map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, format!("invalid params: {e}")))
+}
+
+/// Params a method may leave out: none reads as `{}`, so its filters take
+/// their defaults.
+fn or_empty(v: Value) -> Value {
+    if v.is_null() {
+        json!({})
+    } else {
+        v
+    }
 }
 
 /// Parse a method's params, run it, and serialize its result.

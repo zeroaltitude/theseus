@@ -175,3 +175,32 @@ impl Fact for McpToolsChanged {
         );
     }
 }
+
+/// A prompt whose definition changed since its last use (36c): a
+/// description or an argument. The use goes ahead; the operator is told.
+pub struct McpPromptChanged {
+    pub server: String,
+    pub prompt: String,
+    pub before: String,
+    pub after: String,
+    pub summary: String,
+}
+
+impl Fact for McpPromptChanged {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::McpPromptChanged);
+
+    fn row(&self) -> Value {
+        json!({"server": self.server, "prompt": self.prompt, "before": self.before,
+            "after": self.after, "summary": self.summary})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Tool,
+            format!(
+                "MCP server {}'s prompt {} changed since its last use ({}); this use goes ahead.",
+                self.server, self.prompt, self.summary
+            ),
+        );
+    }
+}

@@ -343,6 +343,28 @@ fn rig(mode: Mode) -> Rig {
 /// `rig`, with this server's table, and this list stored before the core
 /// is built.
 fn rig_with(mode: Mode, server: McpServerConfig, stored: Option<StoredList>) -> Rig {
+    rig_build(
+        InProcess::with(&[("fake", mode)]),
+        server,
+        Box::new(script),
+        |store| {
+            if let Some(list) = stored {
+                store
+                    .put_meta(&format!("{}fake", super::STORED_PREFIX), &list)
+                    .unwrap();
+            }
+        },
+    )
+}
+
+/// `rig`, on this connector (a test keeps its fakes), with `setup` run on
+/// the store before the core is built.
+fn rig_build(
+    connect: Arc<InProcess>,
+    server: McpServerConfig,
+    script: Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>,
+    setup: impl FnOnce(&Store),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -353,17 +375,13 @@ fn rig_with(mode: Mode, server: McpServerConfig, stored: Option<StoredList>) -> 
     cfg.policy.enforcement = Posture::Notify;
     cfg.mcp.servers.insert("fake".into(), server);
     let store = Store::open(&dir.path().join("store")).unwrap();
-    if let Some(list) = stored {
-        store
-            .put_meta(&format!("{}fake", super::STORED_PREFIX), &list)
-            .unwrap();
-    }
+    setup(&store);
     let model = Arc::new(Model {
-        script: Box::new(script),
+        script,
         requests: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
-    core.mcp.set_connect(InProcess::with(&[("fake", mode)]));
+    core.mcp.set_connect(connect);
     Rig {
         core,
         model,
@@ -386,6 +404,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
     core.runner
         .run(TurnRequest {
+            prompt: None,
             session: rec,
             input: Some(input.into()),
             target,
@@ -658,4 +677,508 @@ async fn a_call_to_a_server_that_never_comes_up_is_unavailable() {
     assert!(text.contains("Nothing was sent"), "{text}");
     assert!(!external, "the server said nothing");
     r.core.mcp.stop();
+}
+
+// ---- prompts (36c) ----
+
+/// One protocol call over a connection to the core: its result, or its error
+/// as `{"error": {code, message}}`.
+async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Value {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (client, server) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(server);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "test".into()));
+    let (cr, mut cw) = tokio::io::split(client);
+    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), method, params);
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = BufReader::new(cr).lines();
+    let out = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break match (r.result, r.error) {
+                (Some(v), _) => v,
+                (None, e) => json!({"error": e}),
+            };
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    out
+}
+
+fn prompt_params(session: Option<&str>, server: &str, name: &str, args: &[(&str, &str)]) -> Value {
+    json!({
+        "session_id": session,
+        "input": "",
+        "prompt": {"server": server, "name": name,
+            "arguments": args.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>()},
+    })
+}
+
+/// The user-role nodes of a session, with their origin and author.
+fn inputs(core: &Core, sid: &str) -> Vec<(crate::node::Origin, Option<String>, String)> {
+    core.store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .filter_map(|(_, n)| match n.body {
+            Body::UserMessage { text, .. } => Some((n.origin, n.author, text)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn prompt_script(_: &ProviderRequest) -> Scripted {
+    Scripted::text("Hello, Ada.")
+}
+
+fn prompt_rig(external: bool) -> Rig {
+    rig_build(
+        InProcess::with(&[("fake", Mode::Ok)]),
+        McpServerConfig {
+            external,
+            ..server_cfg(&[])
+        },
+        Box::new(prompt_script),
+        |_| {},
+    )
+}
+
+/// The brief's core test: a prompt's message is the turn's input node (user
+/// role, origin `mcp`, author `prompt:<server>/<name>`), the model reads its
+/// text, and the session holds external text from the very frame that wrote
+/// it, since the server is outside text by default.
+#[tokio::test]
+async fn a_prompt_is_the_turns_input_with_its_origin_its_author_and_the_hold() {
+    let r = prompt_rig(true);
+    r.core.mcp.start();
+    r.core
+        .mcp
+        .server("fake")
+        .unwrap()
+        .client(Duration::from_secs(10))
+        .await
+        .map(|_| ())
+        .unwrap();
+    let sid = session(&r.core, None);
+    let out = rpc(
+        &r.core,
+        theseus_protocol::method::TURN_SUBMIT,
+        prompt_params(Some(&sid), "fake", "greet", &[("name", "Ada")]),
+    )
+    .await;
+    assert!(out.get("error").is_none(), "{out}");
+    let nodes = inputs(&r.core, &sid);
+    assert_eq!(nodes.len(), 1, "{nodes:?}");
+    let (origin, author, text) = &nodes[0];
+    assert_eq!(*origin, crate::node::Origin::Mcp);
+    assert_eq!(author.as_deref(), Some("prompt:fake/greet"));
+    assert_eq!(text, "Say hello to Ada.");
+    // The model read it.
+    let reqs = r.model.requests.lock().unwrap().clone();
+    assert!(
+        reqs[0]
+            .messages
+            .iter()
+            .any(|m| m.to_string().contains("Say hello to Ada.")),
+        "{:?}",
+        reqs[0].messages
+    );
+    // T1's hold, begun by that node, in its own frame's row.
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    let held = rec.external.expect("the session holds the server's words");
+    let node_id = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .find(|(_, n)| n.origin == crate::node::Origin::Mcp)
+        .map(|(_, n)| n.id)
+        .unwrap();
+    assert_eq!(
+        (held.tool.as_str(), held.url.as_str(), held.node_id.as_str()),
+        ("mcp.prompt", "mcp:fake/greet", node_id.as_str())
+    );
+    assert_eq!(ledgered(&r.core, "session.external_read").len(), 1);
+    r.core.mcp.stop();
+}
+
+/// `external = false` is the operator's word that a server's text is theirs:
+/// the prompt gives no hold.
+#[tokio::test]
+async fn a_prompt_of_a_server_that_is_not_external_gives_no_hold() {
+    let r = prompt_rig(false);
+    r.core.mcp.start();
+    r.core
+        .mcp
+        .server("fake")
+        .unwrap()
+        .client(Duration::from_secs(10))
+        .await
+        .map(|_| ())
+        .unwrap();
+    let sid = session(&r.core, None);
+    let out = rpc(
+        &r.core,
+        theseus_protocol::method::TURN_SUBMIT,
+        prompt_params(Some(&sid), "fake", "brief", &[("topic", "tides")]),
+    )
+    .await;
+    assert!(out.get("error").is_none(), "{out}");
+    assert_eq!(inputs(&r.core, &sid)[0].2, "Write a brief on tides.");
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert!(rec.external.is_none(), "{:?}", rec.external);
+    assert!(ledgered(&r.core, "session.external_read").is_empty());
+    r.core.mcp.stop();
+}
+
+/// A prompt that cannot run is an error before any node is written, and
+/// before any session is opened: a missing required argument, an argument
+/// the prompt does not take, an unknown prompt, an unknown server, and a
+/// server that is down.
+#[tokio::test]
+async fn a_prompt_that_cannot_run_is_an_error_before_any_node() {
+    let r = prompt_rig(true);
+    r.core.mcp.start();
+    r.core
+        .mcp
+        .server("fake")
+        .unwrap()
+        .client(Duration::from_secs(10))
+        .await
+        .map(|_| ())
+        .unwrap();
+    let sid = session(&r.core, None);
+    let sessions_before = r.core.store.list_sessions::<SessionRecord>().unwrap().len();
+    for (server, name, args, says) in [
+        ("fake", "greet", vec![], "needs its argument: name"),
+        (
+            "fake",
+            "greet",
+            vec![("name", "  ")],
+            "needs its argument: name",
+        ),
+        (
+            "fake",
+            "greet",
+            vec![("name", "Ada"), ("shout", "1")],
+            "takes no argument shout",
+        ),
+        ("fake", "nope", vec![], "lists no prompt \"nope\""),
+        ("nobody", "greet", vec![], "no MCP server \"nobody\""),
+    ] {
+        for session in [Some(sid.as_str()), None] {
+            let out = rpc(
+                &r.core,
+                theseus_protocol::method::TURN_SUBMIT,
+                prompt_params(session, server, name, &args),
+            )
+            .await;
+            let e = &out["error"];
+            assert_eq!(
+                e["code"],
+                theseus_protocol::error_code::INVALID_PARAMS,
+                "{out}"
+            );
+            assert!(e["message"].as_str().unwrap().contains(says), "{out}");
+        }
+    }
+    assert!(inputs(&r.core, &sid).is_empty(), "no node was written");
+    assert_eq!(
+        r.core.store.list_sessions::<SessionRecord>().unwrap().len(),
+        sessions_before,
+        "no session was opened for a prompt that did not run"
+    );
+    // A server that is down: the error says so, and nothing was sent.
+    r.core.mcp.stop();
+    let r = rig_build(
+        {
+            let c = InProcess::with(&[("fake", Mode::Ok)]);
+            c.set_down("fake", true);
+            c
+        },
+        McpServerConfig {
+            start_timeout_secs: 1,
+            ..server_cfg(&[])
+        },
+        Box::new(prompt_script),
+        |_| {},
+    );
+    r.core.mcp.start();
+    let sid = session(&r.core, None);
+    let out = rpc(
+        &r.core,
+        theseus_protocol::method::TURN_SUBMIT,
+        prompt_params(Some(&sid), "fake", "brief", &[]),
+    )
+    .await;
+    let msg = out["error"]["message"].as_str().unwrap_or_default();
+    assert!(msg.starts_with("mcp_unavailable: MCP server fake"), "{out}");
+    assert!(msg.contains("Nothing was sent"), "{out}");
+    assert!(inputs(&r.core, &sid).is_empty());
+    r.core.mcp.stop();
+}
+
+/// The place rule: MCP is not public, so a prompt runs only for a session in
+/// a private place. A shared place's `turn.submit { prompt }` is refused,
+/// saying why, and never reaches the server.
+#[tokio::test]
+async fn a_shared_places_prompt_is_refused_and_never_reaches_the_server() {
+    let r = prompt_rig(true);
+    r.core.mcp.start();
+    let s = r.core.mcp.server("fake").unwrap().clone();
+    assert!(s.client(Duration::from_secs(10)).await.is_ok());
+    let shared = session(&r.core, Some("channel:4242"));
+    let out = rpc(
+        &r.core,
+        theseus_protocol::method::TURN_SUBMIT,
+        prompt_params(Some(&shared), "fake", "brief", &[]),
+    )
+    .await;
+    let e = &out["error"];
+    assert_eq!(e["code"], theseus_protocol::error_code::REFUSED, "{out}");
+    let why = e["message"].as_str().unwrap();
+    assert!(why.contains("only in a private place"), "{why}");
+    assert!(inputs(&r.core, &shared).is_empty());
+    assert_eq!(s.status().calls, 0, "nothing reached the server");
+    // A private place, on the same core, runs it.
+    let private = session(&r.core, None);
+    let out = rpc(
+        &r.core,
+        theseus_protocol::method::TURN_SUBMIT,
+        prompt_params(Some(&private), "fake", "brief", &[]),
+    )
+    .await;
+    assert!(out.get("error").is_none(), "{out}");
+    r.core.mcp.stop();
+}
+
+/// A prompt and an input are two inputs: refused as such.
+#[tokio::test]
+async fn a_prompt_with_an_input_is_refused() {
+    let r = prompt_rig(true);
+    let sid = session(&r.core, None);
+    let mut p = prompt_params(Some(&sid), "fake", "brief", &[]);
+    p["input"] = json!("and also this");
+    let out = rpc(&r.core, theseus_protocol::method::TURN_SUBMIT, p).await;
+    assert!(
+        out["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("the turn's whole input"),
+        "{out}"
+    );
+}
+
+/// A prompt whose definition changed since its last use is `mcp.prompt_changed`
+/// and an operator notice, once; the use goes ahead.
+#[tokio::test]
+async fn a_changed_definition_gives_its_row_and_notice_once() {
+    let connect = InProcess::with(&[("fake", Mode::ChangePrompts)]);
+    let fake = connect.fakes.lock().unwrap()["fake"].clone();
+    let r = rig_build(connect, server_cfg(&[]), Box::new(prompt_script), |_| {});
+    r.core.mcp.start();
+    r.core
+        .mcp
+        .server("fake")
+        .unwrap()
+        .client(Duration::from_secs(10))
+        .await
+        .map(|_| ())
+        .unwrap();
+    let sid = session(&r.core, None);
+    let run = |name: &'static str| {
+        let core = r.core.clone();
+        let sid = sid.clone();
+        async move {
+            let out = rpc(
+                &core,
+                theseus_protocol::method::TURN_SUBMIT,
+                prompt_params(Some(&sid), "fake", "greet", &[("name", name)]),
+            )
+            .await;
+            assert!(out.get("error").is_none(), "{out}");
+        }
+    };
+    let greet_says = |core: &Core| -> String {
+        core.mcp
+            .prompt_infos(Some("fake"))
+            .into_iter()
+            .find(|p| p.prompt == "greet")
+            .and_then(|p| p.description)
+            .unwrap_or_default()
+    };
+    // The first use has no earlier use to differ from; the server changes
+    // `greet` as it answers, and says so.
+    run("Ada").await;
+    assert!(ledgered(&r.core, "mcp.prompt_changed").is_empty());
+    fake.set_mode(Mode::Ok);
+    until("the changed list", || {
+        greet_says(&r.core).contains("list 1")
+    })
+    .await;
+    // The second use is of a definition that is not the one last used.
+    run("Bo").await;
+    until("the row", || {
+        !ledgered(&r.core, "mcp.prompt_changed").is_empty()
+    })
+    .await;
+    let rows = ledgered(&r.core, "mcp.prompt_changed");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0]["server"].as_str(), rows[0]["prompt"].as_str()),
+        (Some("fake"), Some("greet"))
+    );
+    let summary = rows[0]["summary"].as_str().unwrap();
+    assert!(
+        summary.contains("description changed") && summary.contains("added tone"),
+        "{summary}"
+    );
+    until("the notice", || {
+        r.core
+            .outbox
+            .open_for(crate::outbox::OPERATOR_TARGET)
+            .iter()
+            .any(|a| crate::outbox::kind_of(a) == "mcp_prompt_changed")
+    })
+    .await;
+    // The use went ahead.
+    assert_eq!(inputs(&r.core, &sid).last().unwrap().2, "Say hello to Bo.");
+    // A third use of the same definition says nothing more.
+    run("Cy").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(ledgered(&r.core, "mcp.prompt_changed").len(), 1);
+    let notices = r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "mcp_prompt_changed")
+        .count();
+    assert_eq!(notices, 1);
+    r.core.mcp.stop();
+}
+
+/// A restart lists the stored prompts before the server is up (FAST, as the
+/// stored tools are), `mcp.prompt.list` and `mcp.list` read them, and the
+/// live list replaces them once the server answers.
+#[tokio::test]
+async fn a_restart_lists_the_stored_prompts_before_the_server_is_up() {
+    let stored = super::prompts::StoredPrompts {
+        digest: "stored".into(),
+        prompts: vec![serde_json::from_value(json!({
+            "name": "greet", "description": "Greets someone, from the store.",
+            "arguments": [{"name": "name", "required": true}]
+        }))
+        .unwrap()],
+    };
+    let connect = InProcess::with(&[("fake", Mode::Ok)]);
+    connect.set_down("fake", true);
+    let r = rig_build(
+        connect.clone(),
+        server_cfg(&[]),
+        Box::new(prompt_script),
+        |store| {
+            store
+                .put_meta(&format!("{}fake", super::prompts::STORED_PREFIX), &stored)
+                .unwrap();
+        },
+    );
+    assert_eq!(
+        connect.connects.load(Ordering::SeqCst),
+        0,
+        "nothing started"
+    );
+    let listed = rpc(
+        &r.core,
+        theseus_protocol::method::MCP_PROMPT_LIST,
+        Value::Null,
+    )
+    .await;
+    let prompts = listed["prompts"].as_array().unwrap();
+    assert_eq!(prompts.len(), 1, "{listed}");
+    assert_eq!(prompts[0]["name"], "fake/greet");
+    assert_eq!(prompts[0]["stored"], true);
+    assert_eq!(prompts[0]["arguments"][0]["required"], true);
+    let one = rpc(
+        &r.core,
+        theseus_protocol::method::MCP_PROMPT_LIST,
+        json!({"server": "fake"}),
+    )
+    .await;
+    assert_eq!(one["prompts"].as_array().unwrap().len(), 1);
+    let none = rpc(
+        &r.core,
+        theseus_protocol::method::MCP_PROMPT_LIST,
+        json!({"server": "nobody"}),
+    )
+    .await;
+    assert!(
+        none["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no MCP server"),
+        "{none}"
+    );
+    let all = rpc(&r.core, theseus_protocol::method::MCP_LIST, Value::Null).await;
+    assert_eq!(
+        all["prompts"].as_array().unwrap().len(),
+        1,
+        "mcp.list gives the prompts too"
+    );
+    assert_eq!(
+        all["servers"][0]["prompts"], 1,
+        "and health's count is the stored list's"
+    );
+    // The server comes up: the live list replaces the stored one, and is stored.
+    connect.set_down("fake", false);
+    r.core.mcp.start();
+    until("the live list", || {
+        r.core.mcp.prompt_infos(None).len() == 3 && !r.core.mcp.prompt_infos(None)[0].stored
+    })
+    .await;
+    until("the stored prompts", || {
+        super::prompts::read_stored(&r.core.store, "fake").is_some_and(|s| s.prompts.len() == 3)
+    })
+    .await;
+    r.core.mcp.stop();
+}
+
+/// An image in a prompt is an attachment, text stays text, and an embedded
+/// resource is text with its URI.
+#[test]
+fn a_prompts_messages_become_text_attachments_and_uris() {
+    use theseus_mcp::types::Content;
+    let (text, files) = super::prompts::convert_for_tests(
+        "user",
+        &Content(json!({"type": "text", "text": "hello"})),
+    );
+    assert_eq!((text.as_str(), files.len()), ("hello", 0));
+    let (text, files) = super::prompts::convert_for_tests(
+        "user",
+        &Content(json!({"type": "image", "data": "aGk=", "mimeType": "image/png"})),
+    );
+    assert!(text.is_empty());
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        (files[0].media_type.as_str(), files[0].data.as_deref()),
+        ("image/png", Some("aGk="))
+    );
+    let (text, _) = super::prompts::convert_for_tests(
+        "user",
+        &Content(
+            json!({"type": "resource", "resource": {"uri": "file:///a.txt", "text": "contents"}}),
+        ),
+    );
+    assert_eq!(text, "[resource <file:///a.txt>]\ncontents");
+    // An assistant message is the server's, said so.
+    let (text, _) = super::prompts::convert_for_tests(
+        "assistant",
+        &Content(json!({"type": "text", "text": "sure"})),
+    );
+    assert_eq!(text, "[the prompt's assistant message]\nsure");
 }

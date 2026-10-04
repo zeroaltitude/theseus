@@ -20,6 +20,8 @@ build.
   (three.js, drawn directly), `shaders.ts`, `post.ts` (the glow), `labels.ts` (nameplates and tags, HTML over the
   canvas), `instruments.tsx` (the brass gauges), `Minimap.tsx`, `useShipData.ts` (the reads and pushes it composes),
   and `synth.ts` (a seeded 10,000-node fleet for measuring).
+- `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
+  prompt as the next turn, a field per argument, through `turn.submit { prompt }`.
 - `src/components/`: the call and model-call inspectors, the transcript, the flame chart, the shell, and `brass.tsx`
   (the plank strip and the coin).
 - `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,

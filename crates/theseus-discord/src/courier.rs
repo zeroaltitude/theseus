@@ -662,13 +662,10 @@ impl Lane {
                     extra: json!({"place": place}),
                 })
             }
-            // An MCP server's tools changed (M7 36b): the owner hears it.
-            "mcp_changed" => {
-                let t = format!(
-                    "MCP server {} changed its tools ({}). The new list is offered from the next turn.",
-                    body["server"].as_str().unwrap_or("?"),
-                    body["summary"].as_str().unwrap_or("")
-                );
+            // An MCP server's tools, or a prompt's definition, changed (M7
+            // 36b, 36c): the owner hears it.
+            "mcp_changed" | "mcp_prompt_changed" => {
+                let t = mcp_note(&body);
                 let (channel, place) = self.operator_channel(&body).await?;
                 Ok(Plan {
                     writes: vec![text(t, format!("note:{corr}"), channel, None)],
@@ -1220,6 +1217,23 @@ pub(crate) async fn courier(shared: Arc<Shared>) {
         }
         shared.refuse_unbound();
         shared.wake_lanes();
+    }
+}
+
+/// What the owner is told when an MCP server's tools (`mcp_changed`) or a
+/// prompt's definition (`mcp_prompt_changed`) changed.
+fn mcp_note(body: &Value) -> String {
+    let server = body["server"].as_str().unwrap_or("?");
+    let summary = body["summary"].as_str().unwrap_or("");
+    match body["prompt"].as_str() {
+        Some(prompt) => format!(
+            "MCP server {server}'s prompt {prompt} changed since you last used it ({summary}). \
+             This use went ahead."
+        ),
+        None => format!(
+            "MCP server {server} changed its tools ({summary}). The new list is offered from \
+             the next turn."
+        ),
     }
 }
 

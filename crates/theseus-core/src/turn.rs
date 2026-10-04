@@ -51,6 +51,7 @@ use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
+mod prompt_input;
 mod recall_step;
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
@@ -240,6 +241,9 @@ pub struct TurnRequest {
     /// The surface's message it answers (a Discord message id), which the
     /// reply's post names (theseus-q4v).
     pub reply_to: Option<String>,
+    /// An MCP server's prompt as the input (M7 36c): its messages are the
+    /// input's nodes, and `input` is their text. `None` for any other turn.
+    pub prompt: Option<crate::mcp::prompts::PromptInput>,
 }
 
 /// How long a turn may wait for admission before the client gets an error.
@@ -345,6 +349,7 @@ struct Asked {
     attachments: Vec<theseus_protocol::Attachment>,
     author: String,
     recompile: Option<Recompile>,
+    prompt: Option<crate::mcp::prompts::PromptInput>,
     /// The session's target, when the turn runs elsewhere than its last
     /// turn did: the input's frame writes it.
     moved: Option<TargetRef>,
@@ -1401,6 +1406,7 @@ impl TurnRunner {
             recompile,
             attachments,
             reply_to,
+            prompt,
             ..
         } = req;
         let provider = self
@@ -1466,6 +1472,7 @@ impl TurnRunner {
             attachments,
             author,
             recompile,
+            prompt,
             moved: moved.then_some(runs_on),
         };
         // Every exit from here closes the turn's books (R1): a failure the
@@ -1500,6 +1507,7 @@ impl TurnRunner {
             attachments,
             author,
             recompile,
+            prompt,
             moved,
         } = asked;
         let (sid, turn_id, target) = (t.tc.session_id, t.tc.turn_id, t.target);
@@ -1511,7 +1519,9 @@ impl TurnRunner {
         t.tc.class = self.class_of(sid);
 
         // 2. The new input, with its files in the same node and frame.
-        if let Some(text) = &input {
+        if let Some(p) = prompt {
+            self.write_prompt_input(t, session, p, moved.as_ref())?;
+        } else if let Some(text) = &input {
             let files = crate::attach::from_wire(
                 attachments,
                 self.cfg.tools.max_read_bytes,

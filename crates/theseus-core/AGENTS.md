@@ -166,6 +166,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   built-ins, in private places only, and a turn's request spec fixes its tools, so a `list_changed` applies at the
   next turn (`mcp.tools_changed`, and an operator notice). Facts in `fact/mcp.rs`; tests in `mcp/tests.rs` (an
   in-process fake through a `Connect` stand-in, the backoff on the paused clock) and theseusd's `tests/mcp.rs`.
+  **Prompts** (36c, `mcp/prompts.rs`): each server's `prompts/list` is kept with a digest per definition and stored
+  as META `mcp.prompts.<server>` (no format bump: a new key), listed again on `prompts/list_changed`; `mcp.prompt.list`
+  reads it, and `mcp.list` carries it. `turn.submit { prompt }` resolves the prompt first (`McpBoard::resolve_prompt`:
+  arguments checked against the definition, that server waited for alone, `prompts/get`), so a refusal leaves no
+  session or node; a shared place's session is refused (`REFUSED`). The messages are user-role nodes of origin `mcp`
+  (store format 8), author `prompt:<server>/<name>`, written with T1's hold (`mcp.prompt`, from `external = true`) in
+  one frame (`turn/prompt_input.rs`). A use of a prompt whose definition differs from its last use (`mcp.prompt_used.<server>`)
+  is `mcp.prompt_changed` and an operator notice (`mcp_prompt_changed`), once; the use goes ahead.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

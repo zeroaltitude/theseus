@@ -321,6 +321,7 @@ async fn try_turn(
     let sink = crate::bus::EventSink::new(core.bus.clone(), &rec.session_id, None);
     core.runner
         .run(crate::turn::TurnRequest {
+            prompt: None,
             session: rec,
             input: Some(input.into()),
             target,

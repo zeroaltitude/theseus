@@ -137,6 +137,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let sink = EventSink::new(core.bus.clone(), sid, None);
     core.runner
         .run(TurnRequest {
+            prompt: None,
             session: rec,
             input: Some(input.into()),
             target,

@@ -130,6 +130,7 @@ ledger_kinds! {
     LspStopped = "lsp.stopped",
     McpExited = "mcp.exited",
     McpFailed = "mcp.failed",
+    McpPromptChanged = "mcp.prompt_changed",
     McpReady = "mcp.ready",
     McpServerCall = "mcp_server.call",
     McpServerRefused = "mcp_server.refused",

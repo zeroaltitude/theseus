@@ -358,6 +358,7 @@ facts![
     crate::aws::hands::poller::Quarantined<'static>,
     term::TermOpened<'static>,
     term::TermClosed<'static>,
+    mcp::McpPromptChanged,
 ];
 
 #[cfg(test)]

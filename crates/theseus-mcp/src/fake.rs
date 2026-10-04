@@ -50,6 +50,9 @@ pub enum Mode {
     Slow,
     CrashAfter(u64),
     ChangeTools,
+    /// Each `prompts/get` changes `greet`'s definition afterward, and says so
+    /// (`notifications/prompts/list_changed`).
+    ChangePrompts,
     Error,
 }
 
@@ -70,6 +73,7 @@ impl Mode {
             "ok" => Some(Mode::Ok),
             "slow" => Some(Mode::Slow),
             "change-tools" => Some(Mode::ChangeTools),
+            "change-prompts" => Some(Mode::ChangePrompts),
             "error" => Some(Mode::Error),
             _ => None,
         }
@@ -151,6 +155,7 @@ pub struct Fake {
     seen: Mutex<Seen>,
     changed: Notify,
     tools_version: AtomicU64,
+    prompts_version: AtomicU64,
     next: AtomicU64,
     /// Requests being answered, by connection or session, then id: a cancel
     /// stops one.
@@ -200,6 +205,7 @@ impl Fake {
             seen: Mutex::new(Seen::default()),
             changed: Notify::new(),
             tools_version: AtomicU64::new(0),
+            prompts_version: AtomicU64::new(0),
             next: AtomicU64::new(1),
             in_flight: Mutex::new(HashMap::new()),
             http: Mutex::new(HttpState::default()),
@@ -315,12 +321,21 @@ impl Fake {
                 Ok(r) => ok(r),
                 Err(e) => err(code::INVALID_PARAMS, &e),
             },
-            "prompts/list" => match self.page(&params, "prompts", prompts()) {
+            "prompts/list" => match self.page(&params, "prompts", self.prompts()) {
                 Ok(r) => ok(r),
                 Err(e) => err(code::INVALID_PARAMS, &e),
             },
             "prompts/get" => match get_prompt(&params) {
-                Ok(r) => ok(r),
+                Ok(r) => {
+                    if self.config().mode == Mode::ChangePrompts {
+                        self.prompts_version.fetch_add(1, Ordering::SeqCst);
+                        aside.send(jsonrpc::notification(
+                            "notifications/prompts/list_changed",
+                            Value::Null,
+                        ));
+                    }
+                    ok(r)
+                }
                 Err(e) => err(code::INVALID_PARAMS, &e),
             },
             "tools/call" => self.call(id.clone(), &params, &reply, &aside).await,
@@ -421,6 +436,10 @@ impl Fake {
             ));
         }
         Outcome::Answer(jsonrpc::response(id, result))
+    }
+
+    fn prompts(&self) -> Vec<Value> {
+        prompts_at(self.prompts_version.load(Ordering::SeqCst))
     }
 
     /// The tool list: five tools, then one more, and a changed `echo`, per
@@ -864,6 +883,23 @@ impl Fake {
             }
         }
     }
+}
+
+/// The prompt list: `greet` gains a description note and an optional `tone`
+/// argument per change (`change-prompts`).
+fn prompts_at(version: u64) -> Vec<Value> {
+    let mut list = prompts();
+    if version > 0 {
+        list[0] = json!({
+            "name": "greet",
+            "description": format!("Greets someone (list {version})."),
+            "arguments": [
+                { "name": "name", "description": "Who to greet.", "required": true },
+                { "name": "tone", "required": false }
+            ]
+        });
+    }
+    list
 }
 
 fn prompts() -> Vec<Value> {

@@ -20,6 +20,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   viewers before a turn or a post, and loops stream everywhere. One walk of a channel's viewers (`runtime/audience.rs`,
   `view`) serves that read and the approval check (theseus-sgh). `/publish` (`runtime/publish.rs`) goes to the core's
   `place.publish` as the presser, which the core judges: only the owner, from a private place.
+  `/prompt` (`runtime/prompt.rs`, M7 36c): `name:<server/prompt>` with autocomplete from `mcp.prompt.list` (25 choices
+  at most), then a modal with an input per argument (up to 5; more is one `args` input of `name=value` lines), whose
+  submit is `turn.submit { prompt }` through the place's line of turns. The core refuses a shared place's prompt.
 
 ## Invariants
 

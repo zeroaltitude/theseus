@@ -1,6 +1,8 @@
 //! The MCP client's surfaces (M7 §2.1, step 36b): health's `mcp[]`, and
-//! `mcp.list` and `mcp.restart` (`theseus mcp`, `theseus mcp restart`). Each
-//! name carries `Mcp`, since the web apps' types share one namespace.
+//! `mcp.list` and `mcp.restart` (`theseus mcp`, `theseus mcp restart`), and
+//! the prompts of 36c: `mcp.prompt.list` and the `prompt` that
+//! `turn.submit` takes. Each name carries `Mcp`, since the web apps' types
+//! share one namespace.
 
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +84,72 @@ pub struct McpToolInfo {
 pub struct McpListResult {
     pub servers: Vec<McpServerStatus>,
     pub tools: Vec<McpToolInfo>,
+    /// Every server's prompts (36c), the stored lists included.
+    #[serde(default)]
+    pub prompts: Vec<McpPromptInfo>,
+}
+
+/// One argument a prompt takes.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpPromptArgument {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+}
+
+/// One prompt a server lists (36c), as the operator picks it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpPromptInfo {
+    pub server: String,
+    /// The prompt's own name, at its server.
+    pub prompt: String,
+    /// `<server>/<prompt>`: what `/prompt` and `theseus prompt` name.
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub arguments: Vec<McpPromptArgument>,
+    /// The digest of its definition: its name, description, and arguments.
+    pub digest: String,
+    /// Whether the list is the stored one, the server not having listed
+    /// prompts since the start.
+    #[serde(default)]
+    pub stored: bool,
+}
+
+/// `mcp.prompt.list`: the prompts of one server, or of every server.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpPromptListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub server: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpPromptListResult {
+    pub prompts: Vec<McpPromptInfo>,
+}
+
+/// The prompt a `turn.submit` runs as its input (36c): the core asks the
+/// server for it, and its messages become the turn's input nodes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct McpPromptRef {
+    pub server: String,
+    pub name: String,
+    #[serde(default)]
+    pub arguments: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

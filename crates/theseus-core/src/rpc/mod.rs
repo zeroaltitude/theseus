@@ -568,6 +568,12 @@ impl Core {
             }),
             |name| crate::mcp::read_stored(&store, name),
         );
+        // The prompts' stored lists, and each prompt's definition as last
+        // used (36c): the same, one key each.
+        mcp.seed_prompts(
+            |name| crate::mcp::prompts::read_stored(&store, name),
+            |name| crate::mcp::prompts::read_used(&store, name),
+        );
         // "Should have asked" presses are the store's, not the config's.
         tools
             .tightened

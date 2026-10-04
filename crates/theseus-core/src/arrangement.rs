@@ -254,6 +254,8 @@ fn who(origin: Origin, author: Option<&str>) -> String {
         (Origin::Tool, _) => "a tool's result".into(),
         (Origin::Harness, Some(a)) => format!("the harness ({a})"),
         (Origin::Harness, None) => "the harness".into(),
+        (Origin::Mcp, Some(a)) => format!("an MCP prompt ({a})"),
+        (Origin::Mcp, None) => "an MCP prompt".into(),
     }
 }
 
@@ -263,6 +265,7 @@ fn origin_str(o: Origin) -> &'static str {
         Origin::Agent => "agent",
         Origin::Tool => "tool",
         Origin::Harness => "harness",
+        Origin::Mcp => "mcp",
     }
 }
 

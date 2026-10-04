@@ -140,18 +140,9 @@ fn a_server_starts_after_serving_and_none_outlives_the_daemons_kill_9() {
     }
 }
 
-/// A clean stop, then a start whose server never answers its handshake:
-/// the tools the server listed last time are offered at once (health's
-/// `stored`, and `mcp.list`), and the server is `starting`.
-#[test]
-fn a_start_offers_the_stored_list_before_its_server_is_up() {
-    sim_bin();
-    let s = Served::start(|_| {}, fake_mcp);
-    let h = until(&s, "the server ready", |h| h["mcp"][0]["state"] == "ready");
-    let pid = h["mcp"][0]["pid"].as_u64().unwrap() as u32;
-    let _seen = Reap(vec![pid]);
-    // The stored list is written off the runtime's workers, a moment after.
-    std::thread::sleep(Duration::from_millis(300));
+/// A clean stop, then the same state started again with a server that never
+/// answers its handshake.
+fn restarted_with_a_silent_server(s: Served) -> Served {
     let _ = s.call("shutdown", Value::Null);
     let Served { dir, mut daemon } = s;
     let t0 = Instant::now();
@@ -193,10 +184,25 @@ fn a_start_offers_the_stored_list_before_its_server_is_up() {
             .stdout(std::process::Stdio::null())
             .stderr(log),
     );
-    let s = Served {
+    Served {
         dir,
         daemon: _again,
-    };
+    }
+}
+
+/// A clean stop, then a start whose server never answers its handshake:
+/// the tools the server listed last time are offered at once (health's
+/// `stored`, and `mcp.list`), and the server is `starting`.
+#[test]
+fn a_start_offers_the_stored_list_before_its_server_is_up() {
+    sim_bin();
+    let s = Served::start(|_| {}, fake_mcp);
+    let h = until(&s, "the server ready", |h| h["mcp"][0]["state"] == "ready");
+    let pid = h["mcp"][0]["pid"].as_u64().unwrap() as u32;
+    let _seen = Reap(vec![pid]);
+    // The stored list is written off the runtime's workers, a moment after.
+    std::thread::sleep(Duration::from_millis(300));
+    let s = restarted_with_a_silent_server(s);
     let h = until(&s, "health", |h| h["mcp"][0]["name"] == "fake");
     let m = &h["mcp"][0];
     assert_ne!(m["state"], "ready", "{m}");
@@ -207,5 +213,52 @@ fn a_start_offers_the_stored_list_before_its_server_is_up() {
     );
     let list = s.call("mcp.list", Value::Null).unwrap();
     assert_eq!(list["tools"].as_array().unwrap().len(), 5, "{list}");
+    let _ = s.call("shutdown", Value::Null);
+}
+
+/// The prompts (36c): `mcp.prompt.list` gives the fake's three, with their
+/// arguments; and a start whose server never answers lists the stored ones
+/// at once, before it is up, as `mcp.list` does too.
+#[test]
+fn a_start_lists_the_stored_prompts_before_its_server_is_up() {
+    sim_bin();
+    let s = Served::start(|_| {}, fake_mcp);
+    let h = until(&s, "the server ready", |h| h["mcp"][0]["state"] == "ready");
+    let pid = h["mcp"][0]["pid"].as_u64().unwrap() as u32;
+    let _seen = Reap(vec![pid]);
+    let live = s.call("mcp.prompt.list", Value::Null).unwrap();
+    let names: Vec<&str> = live["prompts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p["name"].as_str())
+        .collect();
+    assert_eq!(names, ["fake/greet", "fake/brief", "fake/review"], "{live}");
+    assert_eq!(live["prompts"][0]["arguments"][0]["name"], "name");
+    assert_eq!(live["prompts"][0]["arguments"][0]["required"], true);
+    assert_eq!(live["prompts"][0]["stored"], false);
+    // A prompt that cannot run is an error before any turn.
+    let e = s
+        .call(
+            "turn.submit",
+            json!({"input": "", "prompt": {"server": "fake", "name": "greet", "arguments": {}}}),
+        )
+        .unwrap_err();
+    assert!(e.contains("needs its argument: name"), "{e}");
+    // The stored list is written off the runtime's workers, a moment after.
+    std::thread::sleep(Duration::from_millis(300));
+    let s = restarted_with_a_silent_server(s);
+    let h = until(&s, "health", |h| h["mcp"][0]["name"] == "fake");
+    assert_ne!(h["mcp"][0]["state"], "ready", "{}", h["mcp"]);
+    assert_eq!(h["mcp"][0]["prompts"], 3, "{}", h["mcp"]);
+    let stored = s.call("mcp.prompt.list", Value::Null).unwrap();
+    assert_eq!(stored["prompts"].as_array().unwrap().len(), 3, "{stored}");
+    assert!(stored["prompts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["stored"] == true));
+    let list = s.call("mcp.list", Value::Null).unwrap();
+    assert_eq!(list["prompts"].as_array().unwrap().len(), 3, "{list}");
     let _ = s.call("shutdown", Value::Null);
 }

@@ -8,6 +8,7 @@ import type { ProfileList, ProviderErrorData } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { addDraft, dropDraft, failDraft } from '@/lib/drafts'
 import { cn } from '@/lib/format'
+import { PromptPicker } from '@/components/PromptPicker'
 
 export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean }) {
   const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
@@ -54,6 +55,7 @@ export function Composer({ sessionId, busy }: { sessionId: string; busy: boolean
           <option value="">{pl ? `${pl.live} (live)` : 'live'}</option>
           {(pl?.profiles ?? []).filter((p) => !p.live).map((p) => <option key={p.name} value={p.name}>{p.name} · {p.model}</option>)}
         </select>
+        <PromptPicker sessionId={sessionId} profile={profile} onError={setError} />
         <button onClick={send} disabled={!text.trim()} title={busy || pending > 0 ? 'Send (queues behind the running turn)' : 'Send'}
           className={cn('grid h-9 w-9 place-items-center rounded-lg ring-1 transition-colors',
             text.trim() ? 'bg-live/15 text-live ring-live/40 hover:bg-live/25' : 'text-ink-faint ring-line')}>

@@ -133,7 +133,8 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         AwsBootstrapResult, AwsConfirmAlertsParams, AwsConfirmAlertsResult, TaskArrangement,
         ArrangementPiece,
         mcp::McpServerStatus, mcp::McpToolInfo, mcp::McpListResult,
-        mcp::McpRestartParams, mcp::McpRestartResult,
+        mcp::McpRestartParams, mcp::McpRestartResult, mcp::McpPromptArgument,
+        mcp::McpPromptInfo, mcp::McpPromptListParams, mcp::McpPromptListResult, mcp::McpPromptRef,
         mcp_server::McpServerHealth, mcp_server::McpServerRefusals,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
