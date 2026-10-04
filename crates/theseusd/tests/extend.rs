@@ -317,6 +317,8 @@ fn a_proposed_extension_is_tried_in_l1_and_acked_from_the_operators_shell_alone(
         "{}",
         h["mcp"]
     );
+    // Its role is reaped: no zombie is left of it.
+    r.until("no zombie", |h| h["children"]["zombies"] == 0);
     // The question, as `theseus confirm` lists it.
     let asks = r.call("confirm.list", Value::Null).unwrap();
     let q = &asks["confirms"][0];

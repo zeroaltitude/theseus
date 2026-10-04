@@ -87,7 +87,16 @@ impl Connect for FromDir {
             .and_then(|d| std::fs::read_to_string(d.join("mode")).ok())
             .and_then(|m| Mode::parse(&m));
         let name = server.to_string();
+        let hangs = cfg
+            .frozen
+            .as_ref()
+            .and_then(|d| std::fs::read_to_string(d.join("mode")).ok())
+            .is_some_and(|m| m == "hang");
         Box::pin(async move {
+            if hangs {
+                // A server that never answers its handshake.
+                std::future::pending::<()>().await;
+            }
             let mode = mode.ok_or("the server exited with status 2")?;
             let fake = Fake::new(fake::Config {
                 mode,
@@ -579,4 +588,35 @@ async fn what_cannot_be_tried_is_said_and_nothing_is_asked() {
     assert!(m.tests.iter().all(|t| !t.passed));
     assert!(r.core.confirm_list().unwrap().is_empty());
     assert!(r.rows("extend.tested")[0]["error"].is_string());
+}
+
+/// A `/stop` that lands while the server is tried ends the trial: the call
+/// answers stopped, nothing is asked, and nothing of it runs on.
+#[tokio::test]
+async fn a_stop_during_the_trial_ends_it_and_asks_nothing() {
+    let r = Arc::new(rig());
+    let src = r.server("wc", "hang");
+    let sid = r.session();
+    let turn = {
+        let (r, sid, p) = (r.clone(), sid.clone(), proposal(&src));
+        tokio::spawn(async move { r.turn(&sid, "propose", Some(p)).await })
+    };
+    let t0 = std::time::Instant::now();
+    while r.core.mcp.status().iter().all(|s| s.state != "proposed") {
+        assert!(t0.elapsed() < Duration::from_secs(10), "no trial");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    let exec = rec.execution_id.unwrap();
+    r.core.stop_execution(&exec, "cli").await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), turn)
+        .await
+        .expect("the turn ended")
+        .unwrap();
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Cancelled, "{text}");
+    assert!(text.contains("stopped by cli"), "{text}");
+    assert!(r.core.mcp.status().is_empty(), "{:?}", r.core.mcp.status());
+    assert!(r.core.confirm_list().unwrap().is_empty());
+    assert!(r.rows("extend.tested").is_empty());
 }

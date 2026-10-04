@@ -77,6 +77,9 @@ pub const MAX_DESCRIPTION_CHARS: usize = 1_000;
 pub const START_TIMEOUT_SECS: u64 = 30;
 pub const CALL_TIMEOUT_SECS: u64 = 20;
 pub const TRIAL_LIMIT: Duration = Duration::from_secs(100);
+/// What a proposal whose trial a cancel or a stop aborted returns: the
+/// runtime then answers the call as the cancel settled it.
+pub const STOPPED: &str = "stopped while it was tried";
 /// The most of a test's answer the manifest keeps.
 const GOT_CHARS: usize = 500;
 
@@ -568,7 +571,7 @@ pub async fn propose(
     let _stoppable = rt.stops.track(correlation_id, task.abort_handle());
     let tried = match tokio::time::timeout(TRIAL_LIMIT, &mut task).await {
         Ok(Ok(t)) => t,
-        Ok(Err(e)) if e.is_cancelled() => return Err("stopped while it was tried".into()),
+        Ok(Err(e)) if e.is_cancelled() => return Err(STOPPED.into()),
         Ok(Err(e)) => return Err(format!("the trial failed: {e}")),
         Err(_) => {
             task.abort();

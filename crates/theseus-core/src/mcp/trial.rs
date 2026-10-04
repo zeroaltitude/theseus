@@ -37,6 +37,25 @@ impl Drop for Trial {
     }
 }
 
+/// A server on the board's trial list, taken off it when dropped armed.
+struct OnTrial<'a> {
+    board: &'a McpBoard,
+    name: &'a str,
+    armed: bool,
+}
+
+impl Drop for OnTrial<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.board
+                .trials
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(self.name);
+        }
+    }
+}
+
 impl McpBoard {
     /// Start `cfg`'s server on trial as `name`, in state `proposed`, and
     /// read its tools, within its `start_timeout_secs`. Its environment is
@@ -53,11 +72,12 @@ impl McpBoard {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(name.to_string(), s.clone());
-        let forget = || {
-            self.trials
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .remove(name);
+        // Until it is a `Trial`, a failed start, or a cancel's abort of this
+        // future, takes it off the board.
+        let mut listed = OnTrial {
+            board: self,
+            name,
+            armed: true,
         };
         let connect = self
             .connect
@@ -78,15 +98,10 @@ impl McpBoard {
         .await;
         let (c, tools) = match opened {
             Ok(Ok(v)) => v,
-            Ok(Err(e)) => {
-                forget();
-                return Err(e);
-            }
-            Err(_) => {
-                forget();
-                return Err(format!("no handshake and list within {} s", wait.as_secs()));
-            }
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err(format!("no handshake and list within {} s", wait.as_secs())),
         };
+        listed.armed = false;
         let Connected { client, events } = c;
         s.set(|l| {
             l.client = Some(client.clone());
