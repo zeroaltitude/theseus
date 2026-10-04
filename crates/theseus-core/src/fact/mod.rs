@@ -339,6 +339,7 @@ facts![
     mcp::McpExited,
     mcp::McpFailed,
     mcp::McpToolsChanged,
+    mcp::McpPromptChanged,
 ];
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! The MCP servers (M7 36b): health's `mcp:` line, and `theseus mcp`'s
-//! servers and tools.
+//! servers, tools, and prompts (36c).
 
-use theseus_protocol::mcp::{McpListResult, McpServerStatus};
+use theseus_protocol::mcp::{McpListResult, McpPromptInfo, McpServerStatus};
 
 /// `mcp: github ready (23 tools, 41 calls) · docs failed (crashed 3 times: …)`,
 /// or None without a server.
@@ -71,14 +71,41 @@ pub fn mcp_lines(l: &McpListResult) -> Vec<String> {
                 t.wire_name, t.class, t.posture, t.calls
             ));
         }
+        for p in l.prompts.iter().filter(|p| p.server == s.name) {
+            out.push(prompt_line(p));
+        }
     }
     out
+}
+
+/// One prompt: `  prompt fake/greet (name*, topic) · Greets someone.`, a
+/// required argument starred, and what `theseus prompt` takes.
+fn prompt_line(p: &McpPromptInfo) -> String {
+    let args: Vec<String> = p
+        .arguments
+        .iter()
+        .map(|a| match a.required {
+            true => format!("{}*", a.name),
+            false => a.name.clone(),
+        })
+        .collect();
+    let args = match args.is_empty() {
+        true => String::new(),
+        false => format!(" ({})", args.join(", ")),
+    };
+    let what = p
+        .description
+        .as_deref()
+        .or(p.title.as_deref())
+        .map(|d| format!(" · {}", d.lines().next().unwrap_or("")))
+        .unwrap_or_default();
+    format!("  prompt {}{args}{what}", p.name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use theseus_protocol::mcp::McpToolInfo;
+    use theseus_protocol::mcp::{McpPromptArgument, McpToolInfo};
 
     #[test]
     fn health_names_each_server_and_why_a_failed_one_is_down() {
@@ -116,6 +143,24 @@ mod tests {
                 calls: 2,
                 ..Default::default()
             }],
+            prompts: vec![McpPromptInfo {
+                server: "fake".into(),
+                prompt: "greet".into(),
+                name: "fake/greet".into(),
+                description: Some("Greets someone.".into()),
+                arguments: vec![
+                    McpPromptArgument {
+                        name: "name".into(),
+                        required: true,
+                        ..Default::default()
+                    },
+                    McpPromptArgument {
+                        name: "tone".into(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
         });
         assert_eq!(
             lines[0],
@@ -124,6 +169,10 @@ mod tests {
         assert_eq!(
             lines[1],
             "  mcp__fake__echo                  run   notify       2 calls · server says read-only"
+        );
+        assert_eq!(
+            lines[2],
+            "  prompt fake/greet (name*, tone) · Greets someone."
         );
     }
 }

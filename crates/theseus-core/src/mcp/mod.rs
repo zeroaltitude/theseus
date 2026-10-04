@@ -27,6 +27,7 @@
 //!
 //! Each start, ready, exit, failure, and change is a fact (`fact::mcp`).
 
+pub mod prompts;
 #[cfg(test)]
 mod tests;
 pub mod tool;
@@ -257,6 +258,8 @@ struct Live {
     stored: bool,
     digest: String,
     prompts: u64,
+    /// The prompts listed, or the stored ones (36c, `prompts.rs`).
+    prompt_state: prompts::PromptState,
     /// When each crash in the window came.
     crashes: VecDeque<Instant>,
     /// Crashes since the last start that stayed up, or the last restart.
@@ -687,7 +690,10 @@ impl McpBoard {
 
     /// Start or reach the server, and read its tools and how many prompts
     /// it has.
-    async fn open(&self, s: &Server) -> Result<(Connected, Vec<Listed>, usize), String> {
+    async fn open(
+        &self,
+        s: &Server,
+    ) -> Result<(Connected, Vec<Listed>, Vec<theseus_mcp::types::Prompt>), String> {
         let (env, bearer) = self.secret_env(s).await;
         let connect = self
             .connect
@@ -697,8 +703,8 @@ impl McpBoard {
         let c = connect.connect(&s.name, &s.cfg, env, bearer).await?;
         let tools = c.client.list_tools().await.map_err(|e| e.to_string())?;
         let prompts = match c.client.server_info().capabilities.prompts.is_some() {
-            true => c.client.list_prompts().await.map_or(0, |p| p.len()),
-            false => 0,
+            true => c.client.list_prompts().await.unwrap_or_default(),
+            false => Vec::new(),
         };
         Ok((c, tools, prompts))
     }
@@ -709,7 +715,7 @@ impl McpBoard {
         s: &Server,
         c: &Connected,
         tools: Vec<Listed>,
-        prompts: usize,
+        prompts: Vec<theseus_mcp::types::Prompt>,
         attempt: u64,
         t0: Instant,
     ) {
@@ -722,21 +728,22 @@ impl McpBoard {
         });
         let protocol = c.client.server_info().protocol_version.clone();
         let count = tools.len();
+        let prompts_listed = prompts.len();
         self.apply(s, tools);
+        self.apply_prompts(s, prompts);
         s.set(|l| {
             l.state = Some(State::Ready);
             l.client = Some(c.client.clone());
             l.pid = pid;
             l.started_at_ms = Some(theseus_protocol::now_unix_ms());
             l.protocol = Some(protocol.clone());
-            l.prompts = prompts as u64;
         });
         let digest = s.live().digest.clone();
         self.record(McpReady {
             server: s.name.clone(),
             ms: t0.elapsed().as_millis() as u64,
             tools: count,
-            prompts,
+            prompts: prompts_listed,
             protocol,
             digest,
         });
@@ -804,7 +811,11 @@ impl McpBoard {
         loop {
             tokio::select! {
                 ev = events.recv() => match ev {
-                    Some(Event::ToolListChanged | Event::Reinitialized) => {
+                    Some(Event::PromptListChanged) => self.relist_prompts(s, &client).await,
+                    Some(ref e @ (Event::ToolListChanged | Event::Reinitialized)) => {
+                        if matches!(e, Event::Reinitialized) {
+                            self.relist_prompts(s, &client).await;
+                        }
                         match client.list_tools().await {
                             Ok(tools) => self.apply(s, tools),
                             Err(e) => tracing::warn!(server = %s.name, error = %e,
@@ -903,6 +914,7 @@ impl McpBoard {
         theseus_protocol::mcp::McpListResult {
             servers: self.status(),
             tools,
+            prompts: self.prompt_infos(None),
         }
     }
 }

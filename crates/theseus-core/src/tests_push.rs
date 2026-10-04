@@ -82,6 +82,7 @@ async fn turn_result(core: &Arc<Core>, session: Option<&str>) -> TurnSubmitResul
     let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
     core.runner
         .run(TurnRequest {
+            prompt: None,
             session: rec,
             input: Some("go".into()),
             target,

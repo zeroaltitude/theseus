@@ -51,6 +51,7 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod audience;
+mod prompt;
 mod publish;
 mod voice;
 use publish::PublishAsk;
@@ -556,6 +557,7 @@ fn commands() -> Vec<twilight_model::application::command::Command> {
         .option(text("note", "Your words above it"))
         .build(),
     );
+    cmds.push(prompt::command());
     cmds.extend(voice::commands());
     cmds
 }
@@ -715,6 +717,8 @@ enum Control {
     /// Join a voice channel (44b): the one named, as the presser.
     Join(Option<u64>, Option<DiscordOrigin>),
     Leave,
+    /// Run an MCP server's prompt as the next turn (36c, `runtime/prompt.rs`).
+    Prompt(Box<theseus_protocol::mcp::McpPromptRef>),
 }
 
 /// What a place says when it is bound to a fresh session: how to talk, and
@@ -1241,6 +1245,11 @@ impl Shared {
                 true,
             )
             .await;
+            return;
+        }
+        // `/prompt`: its autocomplete, its modal, and the modal's submit, which
+        // answer in their own ways (`runtime/prompt.rs`).
+        if self.prompt_interaction(&i, &tx, &who).await {
             return;
         }
         // Who pressed, and where: the ids the core judges an answer by, which
@@ -2060,6 +2069,7 @@ impl Place {
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
                     TurnSubmitParams {
+                        prompt: None,
                         session_id: Some(sid),
                         input,
                         profile: None,
@@ -2080,6 +2090,7 @@ impl Place {
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn control(&mut self, cmd: Control, by: &str) -> String {
         match cmd {
+            Control::Prompt(r) => self.run_prompt(*r, by),
             Control::Status => {
                 let Some(s) = self.shared.session_info(&self.session_id).await else {
                     return format!("Session `{}` is not in the store.", self.session_id);
@@ -2936,6 +2947,7 @@ mod tests {
             .call(
                 theseus_protocol::method::TURN_SUBMIT,
                 TurnSubmitParams {
+                    prompt: None,
                     session_id: Some(sid.clone()),
                     input: "FIRST write a file".into(),
                     profile: None,

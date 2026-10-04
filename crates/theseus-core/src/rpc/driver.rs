@@ -448,6 +448,7 @@ impl Core {
         let res = self
             .runner
             .run(TurnRequest {
+                prompt: None,
                 session,
                 input: None,
                 target,

@@ -123,6 +123,7 @@ ledger_kinds! {
     LoopStarted = "loop.started",
     McpExited = "mcp.exited",
     McpFailed = "mcp.failed",
+    McpPromptChanged = "mcp.prompt_changed",
     McpReady = "mcp.ready",
     McpStarted = "mcp.started",
     McpToolsChanged = "mcp.tools_changed",

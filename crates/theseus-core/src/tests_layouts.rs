@@ -147,6 +147,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::AllBut(&["/label"]),
     },
     Sample {
+        kind: kinds::NODE,
+        layout: "7 (theseus-8kk.1): a user message of origin `operator`, as every input was written before an MCP prompt's `mcp` origin (8, theseus-ext.4); the build before it writes it back byte for byte",
+        bytes: r#"{"id":"msg_00000000000000000000000000000071","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t7","loop_index":null,"origin":"operator","author":"cli","created_at_ms":1790000000071,"body":{"kind":"user_message","text":"say hello to Ada"}}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::COMPILATION,
         layout: "1, 460a35b's: a new session's compilation, before its cache layout (3)",
         bytes: r#"{"id":"cmp_01a0f3f3cd57766c8225231563419be3","schema":1,"session_id":"ses_01a0f3f3c9b77474a7caa5d4925bd678","created_at_ms":1790799236439,"trigger":"new_session","strategy":"transcript","as_of":49,"includes":["msg_01a0f3f3cd4f72d28cedea2e393aa42d"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":1,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"27aaef021b7a8f84","tools_digest":"57a95134045b2d98","tools":["fs_edit","fs_glob","fs_grep","fs_list","fs_patch","fs_read","fs_write","git_diff","git_log","proc_run","text_diff"],"catalog_version":"2026-09-29.1+config:12","context_window":1000000,"strip_thinking":false}}"#,

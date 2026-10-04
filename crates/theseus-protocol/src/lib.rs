@@ -186,6 +186,9 @@ pub mod method {
         /// Restart one MCP server (`mcp::McpRestartParams`), a failed one
         /// included.
         MCP_RESTART = "mcp.restart",
+        /// The prompts the MCP servers list (M7 36c,
+        /// `mcp::McpPromptListParams`). A read.
+        MCP_PROMPT_LIST = "mcp.prompt.list",
     }
 }
 
@@ -1845,6 +1848,12 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub opened_from: Option<String>,
+    /// An MCP server's prompt as the turn's input (M7 36c): the core asks
+    /// the server for it, and `input` stays empty. Only a private place's
+    /// session may run one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub prompt: Option<crate::mcp::McpPromptRef>,
 }
 
 /// A file sent with a turn's input (theseus-9g2): a Discord attachment, or

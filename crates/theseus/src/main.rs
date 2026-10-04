@@ -19,6 +19,7 @@ mod interactive;
 mod mcp;
 mod ontology;
 mod print;
+mod prompt;
 
 use std::path::PathBuf;
 
@@ -122,6 +123,10 @@ enum Cmd {
     /// The exit code says how the turn ended.
     #[command(after_help = ASK_EXIT_CODES)]
     Ask(AskArgs),
+    /// Run an MCP server's prompt as a turn's input and print the reply, as `ask` does.
+    /// `theseus mcp` lists the prompts. The exit code says how the turn ended.
+    #[command(after_help = ASK_EXIT_CODES)]
+    Prompt(prompt::PromptArgs),
     /// A session's transcript: messages, tool calls with their gate decisions, results, and
     /// anything waiting for your confirmation. SESSION defaults to the most recently active.
     History {
@@ -637,6 +642,7 @@ async fn run(cli: Cli) -> Result<()> {
     let (c, json, spawned) = (&mut conn, cli.json, cli.spawn.is_some());
     let result = match cli.cmd {
         Cmd::Ask(a) => cmd::ask(c, json, cli.no_stream, a, spawned).await,
+        Cmd::Prompt(a) => prompt::run(c, json, cli.no_stream, a, spawned).await,
         Cmd::History { session, n, full } => cmd::history(c, json, session, n, full).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         Cmd::Places => cmd::places(c, json).await,

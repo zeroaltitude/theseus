@@ -28,6 +28,9 @@ pub enum Origin {
     Tool,
     /// Something the harness itself said (a repair, a notice).
     Harness,
+    /// A message an MCP server's prompt gave (M7 36c): the operator chose
+    /// the prompt, the server wrote its words.
+    Mcp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +248,21 @@ impl Node {
             },
         );
         n.author = Some(author.into());
+        n
+    }
+
+    /// One message of an MCP server's prompt (M7 36c), user-role: the words
+    /// are the server's, so its origin is `mcp` and its author names the
+    /// prompt, `prompt:<server>/<name>`.
+    pub fn prompt_message(
+        session_id: &str,
+        turn_id: Option<&str>,
+        author: &str,
+        text: &str,
+        attachments: Vec<Attachment>,
+    ) -> Self {
+        let mut n = Self::user_with(session_id, turn_id, author, text, attachments);
+        n.origin = Origin::Mcp;
         n
     }
 

@@ -209,6 +209,7 @@ async fn turn(core: &Arc<Core>, input: &str) -> theseus_protocol::TurnSubmitResu
     let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
     core.runner
         .run(TurnRequest {
+            prompt: None,
             session: rec,
             input: Some(input.into()),
             target,

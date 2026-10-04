@@ -579,6 +579,7 @@ impl Place {
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
                     TurnSubmitParams {
+                        prompt: None,
                         session_id: Some(sid),
                         input,
                         profile: None,
@@ -1444,10 +1445,10 @@ mod tests {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["join", "leave"]);
-        // The binding registers them after its own eight.
+        // The binding registers them after its own nine (`/prompt` is the ninth).
         let all = super::super::commands();
-        let last: Vec<&str> = all[8..].iter().map(|c| c.name.as_str()).collect();
-        assert_eq!((all.len(), last), (10, vec!["join", "leave"]));
+        let last: Vec<&str> = all[9..].iter().map(|c| c.name.as_str()).collect();
+        assert_eq!((all.len(), last), (11, vec!["join", "leave"]));
         let join = &cmds[0];
         assert_eq!(join.options.len(), 1);
         assert_eq!(join.options[0].name, "channel");

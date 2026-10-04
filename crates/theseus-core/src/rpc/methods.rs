@@ -713,12 +713,25 @@ impl Core {
         p: TurnSubmitParams,
         conn: Conn<'_>,
     ) -> Result<theseus_protocol::TurnSubmitResult, RpcFailure> {
-        if p.input.trim().is_empty() && p.attachments.is_empty() {
+        if p.prompt.is_some() && !(p.input.trim().is_empty() && p.attachments.is_empty()) {
+            return Err(RpcFailure::new(
+                error_code::INVALID_PARAMS,
+                "a prompt is the turn's whole input: send no input or attachments with it",
+            ));
+        }
+        if p.prompt.is_none() && p.input.trim().is_empty() && p.attachments.is_empty() {
             return Err(RpcFailure::new(
                 error_code::INVALID_PARAMS,
                 "input is empty",
             ));
         }
+        // An MCP server's prompt (36c): asked first, so a refusal (a shared
+        // place, a missing argument, a server that is down) leaves no
+        // session and no node behind.
+        let prompt = match &p.prompt {
+            Some(r) => Some(self.resolve_prompt(r, p.session_id.as_deref()).await?),
+            None => None,
+        };
         // A turn from a holding session's job holds what that one holds, in
         // the session it opens or the one it names (theseus-b5cl).
         let session = match &p.session_id {
@@ -755,14 +768,18 @@ impl Core {
             .runner
             .run(TurnRequest {
                 session,
-                input: Some(p.input),
+                input: Some(prompt.as_ref().map_or(p.input, |pi| pi.text())),
                 target,
                 sink,
-                author: p.author.clone().unwrap_or_else(|| conn.client.to_string()),
+                author: prompt.as_ref().map_or_else(
+                    || p.author.clone().unwrap_or_else(|| conn.client.to_string()),
+                    |pi| pi.author.clone(),
+                ),
                 recompile: None,
                 attachments: p.attachments,
                 arrived: Some(conn.arrived),
                 reply_to: p.reply_to,
+                prompt,
             })
             .await;
         match result {

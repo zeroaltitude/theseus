@@ -121,6 +121,7 @@ impl Rig {
         self.core
             .runner
             .run(TurnRequest {
+                prompt: None,
                 session: rec,
                 input: Some(input.into()),
                 target,

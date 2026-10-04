@@ -115,6 +115,7 @@ async fn a_cancel_aborts_an_async_tools_task_and_verifies_it() {
             let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
             core.runner
                 .run(TurnRequest {
+                    prompt: None,
                     session: rec,
                     input: Some("fetch the page".into()),
                     target,

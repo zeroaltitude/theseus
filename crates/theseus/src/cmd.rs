@@ -60,14 +60,8 @@ pub async fn ask(
         None | Some("-") => read_stdin_prompt()?,
         Some(p) => p.to_string(),
     };
-    let stream = !no_stream && !json;
-    let mode = match (json, stream) {
-        (true, _) => Mode::Json,
-        (false, true) => Mode::Text,
-        (false, false) => Mode::Quiet,
-    };
-    let mut printer = Printer::new(mode, a.thinking);
     let params = serde_json::to_value(TurnSubmitParams {
+        prompt: None,
         session_id: a.session,
         input: prompt,
         profile: a.profile,
@@ -79,6 +73,28 @@ pub async fn ask(
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
     })?;
+    stream_turn(conn, json, no_stream, params, a.thinking, a.trace, spawned).await
+}
+
+/// One `turn.submit`, streamed as `ask` prints it: the reply as it comes (or
+/// as JSON, or quiet), the status line, the trace, and the exit code that
+/// says how the turn ended. `theseus prompt` shares it.
+pub(crate) async fn stream_turn(
+    conn: &mut Conn,
+    json: bool,
+    no_stream: bool,
+    params: Value,
+    thinking: bool,
+    trace: bool,
+    spawned: bool,
+) -> Result<()> {
+    let stream = !no_stream && !json;
+    let mode = match (json, stream) {
+        (true, _) => Mode::Json,
+        (false, true) => Mode::Text,
+        (false, false) => Mode::Quiet,
+    };
+    let mut printer = Printer::new(mode, thinking);
     let call = if spawned {
         submit_stoppable(conn, params, &mut printer).await
     } else {
@@ -89,7 +105,7 @@ pub async fn ask(
     let result = match call {
         Ok(v) => v,
         Err(err) => {
-            if a.trace {
+            if trace {
                 failure_trace(&err);
             }
             return Err(err);
@@ -109,7 +125,7 @@ pub async fn ask(
             "[parked: waiting for your answer on {corr} · `theseus confirm {corr}` or `--decline`; the turn resumes on its own]"
         );
     }
-    if a.trace && !json {
+    if trace && !json {
         if let Some(t) = &r.trace {
             eprintln!("--- trace ({} total)", render::fmt_us(t.duration_us()));
             print::lines(
