@@ -172,6 +172,18 @@ enum Cmd {
         #[arg(long)]
         guild: Option<PathBuf>,
     },
+    /// A scripted stand-in for the Messages API (37b), for a scratch daemon's
+    /// `[model] api_base` and its providers': `--rules` is a JSON array of
+    /// `{when, calls: [{name, input}], text}`, and each turn's last user text
+    /// takes the first rule it holds; a call that answers a tool call gets
+    /// `Done.`. Serves until killed.
+    FakeModel {
+        /// Where to listen.
+        #[arg(long, default_value = "127.0.0.1:9448")]
+        addr: String,
+        #[arg(long)]
+        rules: PathBuf,
+    },
     /// Discord without a person (theseus-9kjv): the kl8m proof against a real
     /// daemon, and a typed message, a press, and a read for a live check
     /// against a running fake-discord.
@@ -308,6 +320,17 @@ fn main() -> Result<()> {
                     .with_context(|| format!("listening on {gw}"))?;
                 println!("fake discord gateway on {url}");
             }
+            loop {
+                std::thread::park();
+            }
+        }
+        Cmd::FakeModel { addr, rules } => {
+            let text = std::fs::read_to_string(&rules)
+                .with_context(|| format!("reading {}", rules.display()))?;
+            let rules: Vec<fake_model::Rule> = serde_json::from_str(&text)
+                .with_context(|| format!("parsing the rules in {}", rules.display()))?;
+            let fake = fake_model::FakeModel::start_rules_on(&addr, rules)?;
+            println!("fake model on {}", fake.base());
             loop {
                 std::thread::park();
             }
