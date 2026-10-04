@@ -129,7 +129,7 @@ fn path_of(uri: &str) -> PathBuf {
 }
 
 /// `path:line:column`, 1-based.
-fn place(path: &Path, r: &Range, lines: &[String]) -> String {
+pub(super) fn place(path: &Path, r: &Range, lines: &[String]) -> String {
     let row = lines.get(r.start.line as usize).map_or("", String::as_str);
     let col = theseus_lsp::position::byte_column(row, r.start.character);
     let col = row[..col.min(row.len())].chars().count() + 1;

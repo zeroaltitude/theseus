@@ -27,6 +27,7 @@
 //!   `theseus.lsp.request.duration` reads. The count of servers up is
 //!   health's, not a metric: the encoder has no gauge.
 
+pub(crate) mod edits;
 mod rename;
 mod tools;
 
@@ -51,6 +52,7 @@ use crate::ledger::LedgerRow;
 use crate::policy::Decision;
 use crate::toolrun::ToolRuntime;
 
+pub use edits::{Attached, EDITS};
 pub use rename::RenameShown;
 
 /// Every `lsp.*` tool, for the config's `[policy.tools]` check.
@@ -105,6 +107,8 @@ pub struct Spec {
     pub argv: Vec<String>,
     pub extensions: Vec<String>,
     pub markers: Vec<String>,
+    /// An edit of one of its files starts it (L3).
+    pub start_on_edit: bool,
     settings: Value,
     preset: Option<Preset>,
 }
@@ -135,6 +139,7 @@ impl Spec {
                         .roots
                         .or_else(|| p.as_ref().map(|p| strings(p.2)))
                         .unwrap_or_default(),
+                    start_on_edit: c.start_on_edit,
                     settings: c
                         .settings
                         .and_then(|s| serde_json::to_value(s).ok())
@@ -343,6 +348,8 @@ pub struct Live {
     ended: AtomicBool,
     /// The files the tools opened in it, for `lsp.diagnostics` with no path.
     opened: Mutex<BTreeSet<PathBuf>>,
+    /// The edit results that carried its diagnostics (L3).
+    edit_blocks: AtomicU64,
 }
 
 impl Live {
@@ -389,6 +396,9 @@ pub struct Board {
     log_dir: PathBuf,
     idle: Duration,
     timeout: Duration,
+    /// L3: whether an edit's result carries diagnostics, and its wait.
+    edit_diagnostics: bool,
+    edit_wait: Duration,
     spawner: Mutex<Arc<dyn Spawn>>,
     ledger: OnceLock<Ledger>,
     /// One start at a time per key.
@@ -404,6 +414,8 @@ pub struct Board {
     traced: Mutex<VecDeque<Traced>>,
     /// The renames plans showed, by digest.
     renames: rename::Shows,
+    /// Each session's edit diagnostics the bound beat (L3).
+    pending: edits::Pendings,
     /// The daemon is stopping: nothing starts.
     stopping: AtomicBool,
     /// What the daemon's stop signalled, kept until the process ends, so no
@@ -446,6 +458,8 @@ impl Board {
             log_dir: state_dir.join("lsp"),
             idle: Duration::from_secs_f64(cfg.idle_stop_mins * 60.0),
             timeout: Duration::from_secs(cfg.request_timeout_secs),
+            edit_diagnostics: cfg.edit_diagnostics,
+            edit_wait: Duration::from_millis(cfg.edit_wait_ms),
             spawner: Mutex::new(Arc::new(ChildrenSpawn)),
             ledger: OnceLock::new(),
             cells: Mutex::default(),
@@ -455,6 +469,7 @@ impl Board {
             started: Mutex::default(),
             traced: Mutex::default(),
             renames: rename::Shows::default(),
+            pending: edits::Pendings::default(),
             stopping: AtomicBool::new(false),
             stopped: Mutex::default(),
         })
@@ -681,6 +696,7 @@ impl Board {
             busy: AtomicU64::new(0),
             ended: AtomicBool::new(false),
             opened: Mutex::default(),
+            edit_blocks: AtomicU64::new(0),
         });
         lock(&self.starting).remove(&key);
         lock(&self.failed).remove(&key);
@@ -899,6 +915,7 @@ impl Board {
                         .filter(|k| *k > 0),
                     idle_secs: Some(now.saturating_duration_since(*lock(&l.last_used)).as_secs()),
                     requests: l.requests.load(Ordering::SeqCst),
+                    edit_blocks: l.edit_blocks.load(Ordering::SeqCst),
                     why: None,
                 }
             })
@@ -1025,12 +1042,25 @@ pub(crate) fn gate(rt: &ToolRuntime, tool: &dyn Tool, plan: &Plan, d: Decision) 
     if board.started_before(&spec.name, &root) {
         return d;
     }
+    judge_start(rt, &spec, &root, plan, d)
+}
+
+/// A call that starts `spec` on `root`, judged at `proc.run`'s posture for
+/// its argv as well as its own, the stricter winning (L2's `gate`, and L3's
+/// for an edit whose server starts on edit).
+pub(crate) fn judge_start(
+    rt: &ToolRuntime,
+    spec: &Spec,
+    root: &Path,
+    plan: &Plan,
+    d: Decision,
+) -> Decision {
     let Some(proc) = rt.registry.get("proc.run") else {
         return d;
     };
     let start = Plan {
         resources: vec![Resource {
-            path: root.clone(),
+            path: root.to_path_buf(),
             access: Access::Exec,
         }],
         argv: Some(spec.argv.clone()),

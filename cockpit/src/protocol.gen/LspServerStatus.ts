@@ -39,6 +39,10 @@ idle_secs?: number,
  */
 requests: number, 
 /**
+ * The edit results that carried its diagnostics (L3).
+ */
+edit_blocks: number, 
+/**
  * Why its last start failed, or why it ended unasked.
  */
 why?: string, };

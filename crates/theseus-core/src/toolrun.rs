@@ -1132,6 +1132,8 @@ impl ToolRuntime {
             let (decision, job_class) = sandbox::decide(self, tool, &plan, &call.input, t);
             // A call that starts a language server is a run too (L2).
             let decision = crate::lsp::gate(self, tool, &plan, decision);
+            // And an edit that starts one (L3).
+            let decision = crate::lsp::edits::gate(self, tc.class, tool, &plan, decision);
             // A private address's card in a shared place says where the page
             // goes (theseus-94a6).
             let decision = crate::places::private_fetch(tc.class, &plan, decision);
@@ -1691,7 +1693,7 @@ impl ToolRuntime {
             true => crate::cancel::after_abort(tc.kernel, correlation_id).await,
             false => None,
         };
-        let (status, mut text, meta, img, external) = match (outcome, &by_cancel) {
+        let (status, mut text, mut meta, img, external) = match (outcome, &by_cancel) {
             (_, Some(a)) => {
                 let (status, text, meta) = crate::cancel::aborted_result(a);
                 (status, text, meta, None, None)
@@ -1699,6 +1701,12 @@ impl ToolRuntime {
             (Ok((o, img, external)), None) => (ResultStatus::Ok, o.text, o.meta, img, external),
             (Err(m), None) => failure(m, failed),
         };
+        // An edit's diagnostics, and what arrived since for the session's
+        // pending files, in a private place only (L3); none for a call a
+        // cancel settled.
+        let settled = by_cancel.is_none().then_some(status);
+        self.lsp_onto(tc, &call.id, tool.name(), settled, &mut text, &mut meta)
+            .await;
         // An image the tool read goes to the blobs once; the node holds the
         // reference (theseus-9g2).
         let image =
