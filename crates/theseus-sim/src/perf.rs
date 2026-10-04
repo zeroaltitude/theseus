@@ -6,10 +6,11 @@
 //!   run N times on one warm session: wall time by this clock and by the
 //!   daemon's, and **frames per turn**, counted from the WAL (`walcount`). A
 //!   frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit
-//!   that does not depend on the disk: each kind's count is a gated budget
-//!   (the plain turn's 5, with a floor of 2, review 2's S5; the tool-call
-//!   turn's 9 since Tier 7.1), the way the cold start is. The rest is
-//!   measured with no budget: the disk's own `fdatasync`
+//!   that does not depend on the disk (each turn's own count, on its trace,
+//!   must agree, theseus-wz4y): each kind's count is a gated budget (the
+//!   plain turn's 5, with a floor of 2, review 2's S5; the tool-call turn's
+//!   9 since Tier 7.1), the way the cold start is. The rest is measured with
+//!   no budget: the disk's own `fdatasync`
 //!   (so the harness's share of a turn can be read off), and the daemon's
 //!   resident memory after the start and after a burst of turns.
 //! - **`idle`**: a daemon with nothing to do, over a window (30 s by
@@ -394,6 +395,16 @@ impl Driver<'_> {
                     shape.0,
                     shape.1,
                     r["output"]
+                );
+            }
+            // The daemon's own count of the turn, on its trace (theseus-wz4y),
+            // is the WAL's: a count that differs is a bug in one of them.
+            let counted = r["trace"]["attrs"]["frames"].as_u64();
+            if counted != Some(frames.len() as u64) {
+                bail!(
+                    "a {name} turn's trace counts {counted:?} frames, and the WAL holds {}: {}",
+                    frames.len(),
+                    labels(&frames).join(" ")
                 );
             }
             wall.push(w);

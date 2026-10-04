@@ -34,5 +34,7 @@ pub mod wal;
 
 pub use index::{Engine, Location, MovedAside, Sums};
 pub use record::{kinds, NewRecord, Record, RecordKind, FROZEN_SCHEMA};
-pub use store::{blocking, Projection, Store, StoreStats, VerifiedSlot, WalStore};
+pub use store::{
+    blocking, frames_written_here, Projection, Store, StoreStats, VerifiedSlot, WalStore,
+};
 pub use wal::{History, HistoryCheck, Verified, Wal, WalConfig, WalError};

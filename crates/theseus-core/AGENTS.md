@@ -129,6 +129,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The frame budget.** A plain one-loop turn writes 5 frames, and each loop with one in-process tool adds 4.
   Observability rows ride in the turn's next frame; the session's write rides in `end_turn`'s
   (`Store::defer_session`). `tests_m3::a_plain_turn_stays_within_its_frame_budget` fails a sixth frame.
+  Each turn counts its own (theseus-wz4y), as `frames` on its trace's root span: its admission's frames, read from
+  this thread's count around calls with no `.await` (`theseus_store::frames_written_here`, since the store's writer
+  thread writes them), its handle's (`Store::turn_frames`), and its last, which carries the trace. A frame written for
+  the turn by another path is counted to it (`Store::count_frames`): a job's completion the spool's drain accepted.
+  `tests_m3::frames_counted` and the turn bench (`theseus-sim bench turn`, against the WAL) hold it.
 - **A turn has one exit after it begins** (R1). `run_inner`'s body is `turn_body`, and its error goes to `fault`,
   which closes the books as `fail` does (class `internal`). A new `?` in the body or in `finish` lands there; never
   return an error from a turn by another path.

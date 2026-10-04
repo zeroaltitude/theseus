@@ -2257,6 +2257,7 @@ async fn a_cancel_ends_a_call_waiting_for_approval_and_nothing_counts_it_waiting
 
 /// The calls a cancel or a turn's end must answer (theseus-0o8, theseus-ni5).
 mod every_call_answered;
+mod frames_counted;
 
 #[tokio::test]
 async fn under_notify_a_command_runs_with_a_notice_and_a_read_stays_quiet() {

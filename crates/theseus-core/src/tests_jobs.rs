@@ -107,7 +107,8 @@ impl Rig {
 /// completion with its result, which the turn takes itself (five before: the
 /// completion, then the result on a frame of its own). The turn looks at its
 /// job at the launch and when the job's end wakes it, not every 50 ms, and
-/// nothing writes `completion.duplicate`.
+/// nothing writes `completion.duplicate`. The turn's own count on its trace
+/// (theseus-wz4y) is the store's: no frame of the job's is written by another.
 #[tokio::test]
 async fn a_loop_with_one_job_costs_four_frames_and_two_looks() {
     let job = json!({"argv": ["sleep", "0.4"]});
@@ -127,6 +128,8 @@ async fn a_loop_with_one_job_costs_four_frames_and_two_looks() {
     assert_eq!((res.loops, res.tool_calls), (2, 1));
     let job_loop = r.frames() - f1 - plain;
     assert!(job_loop <= 4, "the job's loop wrote {job_loop} frames");
+    let traced = res.trace.as_ref().expect("a trace").attrs["frames"].as_u64();
+    assert_eq!(traced, Some(r.frames() - f1), "the turn's trace counts");
     let looks = r.core.tools.job_waits.looks() - looks;
     assert!(
         (1..=3).contains(&looks),
