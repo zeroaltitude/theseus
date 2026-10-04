@@ -101,7 +101,9 @@ impl Scratch {
 /// end against a Jev nothing serves, and its sink's frame of failed calls
 /// would land inside a measured turn, which the frame check counts
 /// (theseus-0j2.3). The judge's own tests cover the judge, and the lifecycle
-/// bench keeps it on.
+/// bench keeps it on. The memory pass stays on (`[memory]` in shadow): its
+/// frames are written only between turns, so the frame check proves that no
+/// pass frame lands inside a measured turn (theseus-ms5m).
 fn quiet_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> Result<String> {
     let mut t: toml::Table = lifecycle::bench_config(model, state, sock, projects)?.parse()?;
     for section in ["discord", "judge"] {

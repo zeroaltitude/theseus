@@ -37,10 +37,15 @@
 //!   the deterministic half stands alone.
 //! - **Frames.** The rows and edges go in the pass's own frames: one per
 //!   [`MAX_NODES`] nodes, or [`WINDOW`] after the first waiting, whichever
-//!   comes first; a node's records never split across frames. A frame waits
-//!   for the WAL to be still for [`QUIET`] (at most [`QUIET_BOUND`]), so the
-//!   pass yields to turns, and none lands inside one being measured
-//!   (theseus-0j2.3's lesson).
+//!   comes first; a node's records never split across frames. A frame is
+//!   written only between turns (`turns`; theseus-ms5m, Eddie's decision
+//!   10): when no turn runs in the daemon, any session's, and none has for
+//!   [`QUIET`]; a turn that begins meanwhile waits for that frame at its
+//!   start. So none lands inside a turn (theseus-0j2.3's lesson), however
+//!   long a turn's own pauses: a still WAL inside a turn is not between
+//!   turns. The bounds: after [`QUIET_BOUND`] a frame takes any moment no
+//!   turn runs; after [`BUSY_BOUND`], a daemon with a turn running all that
+//!   while, it is written beside them.
 //! - **Crash.** What is done is read from the record: a session's
 //!   `memory.labeled` rows (scoped `memory:<session>`) and its `memory.used`
 //!   rows (with its recalls), read once a session by this daemon. A node a
@@ -54,6 +59,7 @@ mod recalls;
 pub(crate) mod tests;
 #[cfg(test)]
 mod tests_jev;
+pub mod turns;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
@@ -82,12 +88,19 @@ use labels::Shape;
 
 /// A frame holds at most this many nodes' records.
 pub const MAX_NODES: usize = 32;
-/// A frame is written at most this long after its first node waits.
+/// A frame is due at most this long after its first node waits.
 pub const WINDOW: Duration = Duration::from_secs(2);
-/// How long the WAL must be still before the pass writes.
+/// A frame waits until no turn has run for this long.
 pub const QUIET: Duration = Duration::from_millis(500);
-/// The pass writes anyway after waiting this long for a still WAL.
-pub const QUIET_BOUND: Duration = Duration::from_secs(60);
+/// After waiting this long for a quiet stretch, a frame takes any moment
+/// with no turn running. Longer than a turn bench's measured turns take
+/// on a loaded machine (about 25 s at a load of 25), whose gaps it would
+/// otherwise take.
+pub const QUIET_BOUND: Duration = Duration::from_secs(120);
+/// After waiting this long with a turn always running, a frame is written
+/// beside the running turns: a daemon never between turns cannot starve the
+/// pass, and its labels are at most this late.
+pub const BUSY_BOUND: Duration = Duration::from_secs(600);
 /// The neighbours a gate asks for.
 pub const K: usize = 10;
 /// The first wait for a node the tender has not embedded yet.
@@ -169,6 +182,8 @@ pub struct MemoryPass {
     judge: Option<Arc<JudgeService>>,
     tx: OnceLock<mpsc::UnboundedSender<Job>>,
     done: Mutex<BTreeMap<String, Done>>,
+    /// The daemon's running turns, which the pass's frames wait out.
+    turns: Arc<turns::Turns>,
     timing: Timing,
     me: Weak<MemoryPass>,
 }
@@ -179,6 +194,7 @@ pub struct Timing {
     pub window: Duration,
     pub quiet: Duration,
     pub quiet_bound: Duration,
+    pub busy_bound: Duration,
     pub wait_first: Duration,
     pub wait: Duration,
 }
@@ -189,6 +205,7 @@ impl Default for Timing {
             window: WINDOW,
             quiet: QUIET,
             quiet_bound: QUIET_BOUND,
+            busy_bound: BUSY_BOUND,
             wait_first: NEIGHBOUR_WAIT_FIRST,
             wait: NEIGHBOUR_WAIT,
         }
@@ -222,9 +239,16 @@ impl MemoryPass {
             judge,
             tx: OnceLock::new(),
             done: Mutex::new(BTreeMap::new()),
+            turns: Arc::default(),
             timing,
             me: me.clone(),
         })
+    }
+
+    /// The daemon's running turns: every turn counts itself here
+    /// (`TurnRunner::run`), so that the pass writes only between them.
+    pub fn turns(&self) -> &Arc<turns::Turns> {
+        &self.turns
     }
 
     /// Ask `index` instead of the tender (tests: a stand-in).
@@ -314,14 +338,17 @@ async fn run(mut rx: mpsc::UnboundedReceiver<Job>, me: Weak<MemoryPass>) {
 
 impl MemoryPass {
     /// Write the batch: full frames of [`MAX_NODES`], and, when `all`, the
-    /// rest. Each frame waits for a still WAL first.
+    /// rest. Each frame is written between turns (`turns`), the bounds
+    /// counted from the first frame's wait.
     async fn flush(&self, batch: &mut Vec<Unit>, all: bool) {
+        let since = tokio::time::Instant::now();
         while batch.len() >= MAX_NODES || (all && !batch.is_empty()) {
             let n = batch.len().min(MAX_NODES);
             let units: Vec<Unit> = batch.drain(..n).collect();
-            self.quiet().await;
             let records: Vec<NewRecord> = units.iter().flat_map(|u| u.records.clone()).collect();
+            let between = self.turns.between(since, &self.timing).await;
             let written = theseus_store::blocking(|| self.store.append(&records));
+            drop(between);
             if let Err(e) = written {
                 tracing::warn!(error = %format!("{e:#}"), nodes = units.len(),
                     "memory: the pass's frame was not written; its nodes wait for their sessions' next pass");
@@ -336,18 +363,6 @@ impl MemoryPass {
                         }
                     }
                 }
-            }
-        }
-    }
-
-    /// Wait for the WAL to be still for `quiet`, at most `quiet_bound`.
-    async fn quiet(&self) {
-        let t0 = tokio::time::Instant::now();
-        loop {
-            let at = self.store.last_position();
-            tokio::time::sleep(self.timing.quiet).await;
-            if self.store.last_position() == at || t0.elapsed() >= self.timing.quiet_bound {
-                return;
             }
         }
     }

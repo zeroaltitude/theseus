@@ -1019,6 +1019,9 @@ impl TurnRunner {
     pub async fn run(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
         let arrived = req.arrived.unwrap_or_else(Instant::now);
         let continuation = req.input.is_none();
+        // Running until this returns, after the turn's last frame: the memory
+        // pass writes only between turns (theseus-ms5m).
+        let _running = self.pass.turns().begin().await;
         let secret_wait_us = match self.await_secrets(&req.target).await {
             Ok(us) => us,
             Err(r) => return Err(self.refuse(&req, r)),

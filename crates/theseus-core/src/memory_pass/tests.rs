@@ -151,6 +151,7 @@ pub(crate) fn timing() -> Timing {
         window: Duration::from_secs(2),
         quiet: Duration::from_millis(20),
         quiet_bound: Duration::from_secs(1),
+        busy_bound: Duration::from_secs(3),
         wait_first: Duration::from_millis(10),
         wait: Duration::from_millis(100),
     }
@@ -946,5 +947,64 @@ async fn a_correction_supersedes_the_fact_and_recall_prefers_it() {
     assert_eq!(
         (other["used"].clone(), other["outcome"].clone()),
         (json!(false), Value::Null)
+    );
+}
+
+/// A whole core with memory in shadow and the stand-in index, whose model
+/// answers each call after `delay_ms`.
+fn slow_core(delay_ms: u64) -> (Arc<crate::Core>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.tools.roots = vec![];
+    cfg.memory.mode = MemoryMode::Shadow;
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let model = Arc::new(crate::provider::FakeProvider {
+        delay_ms,
+        ..Default::default()
+    });
+    let core = crate::Core::build(crate::rpc::Parts::for_tests(cfg, model, store)).unwrap();
+    core.runner.pass.set_index(Arc::new(Fixed {
+        mode: Mutex::new("hybrid".into()),
+        ..Fixed::default()
+    }));
+    (core, dir)
+}
+
+/// theseus-ms5m (Eddie's decision 10): the pass writes only between turns.
+/// A's turn ends and hands A to the pass; B's begins at once, and its model
+/// answers after 3 s, a still WAL far longer than the quiet stretch, as a
+/// loaded machine stretches a turn's pauses. A's frame, due 2 s after A's
+/// turn, waits for B's turn to end: no pass row lies inside it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_pass_writes_only_between_turns() {
+    use crate::tests_recall::{session, turn};
+    let (c, _dir) = slow_core(3000);
+    let a = session(&c, None, &[]);
+    let b = session(&c, None, &[]);
+    turn(&c, &a, "The heron nests by the old weir at Millbrook.").await;
+    let from = c.store.last_position();
+    let t0 = std::time::Instant::now();
+    turn(&c, &b, "The tern colony moved to the north spit.").await;
+    let to = c.store.last_position();
+    assert!(
+        t0.elapsed() >= Duration::from_secs(3),
+        "B's model took its time"
+    );
+    until("A's nodes labeled", || {
+        core_rows(&c, &mscope(&a), "memory.labeled").len() == 2
+    })
+    .await;
+    let inside: Vec<u64> = c
+        .store
+        .scope_after(&mscope(&a), 0)
+        .unwrap()
+        .iter()
+        .map(|r| r.position)
+        .filter(|p| (from + 1..=to).contains(p))
+        .collect();
+    assert!(
+        inside.is_empty(),
+        "a pass frame inside B's turn ({from}..={to}): {inside:?}"
     );
 }
