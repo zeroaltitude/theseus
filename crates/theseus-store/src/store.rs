@@ -434,8 +434,9 @@ const BULK: usize = 4096;
 /// theseus-8kk.1). 8 = M6's `Recall` node (a NODE body), and a
 /// compilation's `budget` (30b, theseus-6fn.2). 9 = a task's arrangement:
 /// the `arrangement` node body, and a task session's `task.arrangement` (M5
-/// 27, theseus-vug.2).
-const MANIFEST_FORMAT: u32 = 9;
+/// 27, theseus-vug.2). 10 = the `TASK` record kind, a task's record (M7
+/// 39a, theseus-ext.6).
+const MANIFEST_FORMAT: u32 = 10;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

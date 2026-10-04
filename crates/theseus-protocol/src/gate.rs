@@ -110,6 +110,12 @@ pub struct Plan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub aws: Option<AwsPlan>,
+    /// A change to what only the operator decides (a task's objective or
+    /// acceptance, or abandoning it: 39a's layer 1), as the card names it:
+    /// the gate asks at every posture, as the floor does. Held in memory, as
+    /// `AwsPlan::guardrail`: the record keeps the verdict in its reason.
+    #[serde(skip)]
+    pub authority: Option<String>,
 }
 
 /// A proposed tool call as the model (or a test) states it: what a

@@ -814,6 +814,7 @@ fn summary(recompile: bool) -> ContextCompiled {
         // an append from a daemon before it has neither.
         class: recompile.then_some(PlaceClass::Shared),
         withheld: if recompile { 1 } else { 0 },
+        tasks: None,
     }
 }
 

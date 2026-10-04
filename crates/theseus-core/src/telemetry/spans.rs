@@ -348,3 +348,22 @@ pub(super) fn wakes(node: &Span, out: &mut Vec<(bool, f64)>) {
         wakes(c, out);
     }
 }
+
+/// The open tasks the turn's last compile showed (39a's view, on the
+/// `compile` span's `tasks`): None when no compile showed the graph.
+pub(super) fn tasks_open(node: &Span) -> Option<u64> {
+    let mut last = None;
+    if node.kind == "compile" {
+        last = node
+            .attrs
+            .get("tasks")
+            .and_then(|t| t.get("open"))
+            .and_then(Value::as_u64);
+    }
+    for c in &node.children {
+        if let Some(n) = tasks_open(c) {
+            last = Some(n);
+        }
+    }
+    last
+}

@@ -1189,6 +1189,10 @@ impl ToolRuntime {
             // the session posts somewhere (theseus-q4v).
             let target = tc.outbox.target(tc.session_id);
             let mut card = None;
+            // A layer-1 task change's proposal is written on its task in this
+            // frame, under the task's lock (39a).
+            let task_lock = crate::task_graph::tools::lock_for_call(tc, tool.name(), &call.input);
+            let mut proposed = None;
             let a = tc
                 .kernel
                 .plan_confirm_with(tc.guard, &g.proposal, retry, deadline, |a| {
@@ -1211,8 +1215,21 @@ impl ToolRuntime {
                         records.extend(more);
                         card = Some(post);
                     }
+                    if let Some((more, c)) = crate::task_graph::tools::proposed(
+                        tc,
+                        tool.name(),
+                        &call.input,
+                        &a.correlation_id,
+                    )? {
+                        records.extend(more);
+                        proposed = Some(c);
+                    }
                     Ok(records)
                 })?;
+            drop(task_lock);
+            if let Some(c) = proposed {
+                crate::task_graph::tools::announce(tc, &[("change_proposed", c)]);
+            }
             if let Some(post) = card {
                 tc.outbox.posted(&post);
             }
@@ -1314,7 +1331,7 @@ impl ToolRuntime {
                 self.run_job(tc, correlation_id, tool.as_ref(), call, ran_at, &class)
                     .await
             }
-            Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call),
+            Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call, ran_at),
         }
     }
 
@@ -1328,6 +1345,7 @@ impl ToolRuntime {
         correlation_id: &str,
         tool: &dyn Tool,
         call: &ToolUse,
+        ran_at: Posture,
     ) -> Result<CallOutcome> {
         tc.record(&fact::tool::ToolStarted {
             session_id: tc.session_id,
@@ -1339,9 +1357,19 @@ impl ToolRuntime {
         });
         let started = theseus_protocol::now_unix_ms();
         let t0 = Instant::now();
+        // A task edit's records ride in the frame that settles it, under its
+        // task's lock (39a).
+        let mut edit = crate::task_graph::tools::Done::default();
         let done = match tool.name() {
-            crate::task::CREATE => crate::task::create(tc, &call.input, correlation_id),
+            crate::task::CREATE => {
+                crate::task::create(tc, &call.input, correlation_id).map(|c| edit.take(c))
+            }
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
+            name if crate::task_graph::tools::is_edit(name) => {
+                let approved = ran_at == Posture::Approve;
+                crate::task_graph::tools::run(tc, name, &call.input, correlation_id, approved)
+                    .map(|d| edit.take(d))
+            }
             other => Err(format!("{other} is not a tool the harness runs")),
         };
         let dur = t0.elapsed().as_millis() as u64;
@@ -1374,7 +1402,11 @@ impl ToolRuntime {
             cost_micros: None,
             detail: Some(json!({"duration_ms": dur, "meta": meta})),
         };
-        tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
+        let mut records = vec![node.record()?];
+        records.append(&mut edit.records);
+        tc.kernel.accept_completion_with(&c, records)?;
+        drop(edit.locks);
+        crate::task_graph::tools::announce(tc, &edit.changes);
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })
     }
@@ -1836,6 +1868,9 @@ pub fn build_runtime(
         }
         // Task sessions (DD7) and wakes (DD8): the harness runs them.
         r.register(Arc::new(crate::task::TaskCreate));
+        r.register(Arc::new(crate::task_graph::tools::TaskUpdate));
+        r.register(Arc::new(crate::task_graph::tools::TaskSplit));
+        r.register(Arc::new(crate::task_graph::tools::TaskClose));
         r.register(Arc::new(crate::wake::WakeAt));
         r
     } else {

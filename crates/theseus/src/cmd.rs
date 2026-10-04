@@ -1176,7 +1176,7 @@ pub async fn tasks(conn: &mut Conn, json: bool, session: Option<String>) -> Resu
         )
         .await?;
     output(json, v, |l: theseus_protocol::TaskListResult| {
-        if l.tasks.is_empty() {
+        if l.tasks.is_empty() && l.records.is_empty() {
             println!("no tasks");
         }
         let now = theseus_protocol::now_unix_ms();
@@ -1185,6 +1185,10 @@ pub async fn tasks(conn: &mut Conn, json: bool, session: Option<String>) -> Resu
             for p in render::task_pieces(&t) {
                 println!("{p}");
             }
+        }
+        // The task graph (39a): every record, as a tree.
+        for line in render::task_tree_lines(&l.records) {
+            println!("{line}");
         }
         Ok(())
     })

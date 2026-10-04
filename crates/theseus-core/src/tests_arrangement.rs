@@ -58,6 +58,7 @@ fn blocks(m: &Value) -> Vec<String> {
         Value::String(s) => vec![s.clone()],
         Value::Array(b) => b
             .iter()
+            .filter(|b| !crate::task_graph::view::is_view(b))
             .filter_map(|b| b["text"].as_str().map(str::to_string))
             .collect(),
         _ => vec![],
@@ -538,10 +539,23 @@ async fn the_childs_compilation_renders_each_piece_verbatim_after_the_brief() {
     );
     // The prefix is the same on the task's later loop and its later turn.
     for later in &reqs[1..] {
-        assert_eq!(&later.messages[0], opening, "the prefix moved");
+        assert_eq!(bare(&later.messages[0]), bare(opening), "the prefix moved");
     }
 
     arranged_as_shown(&r.core, &sid, &task, [&red, &coats, &white]);
+}
+
+/// A request's message without the task graph's view and the breakpoint
+/// before it, which ride last in a request's last message (39a).
+fn bare(m: &Value) -> Value {
+    let mut m = m.clone();
+    if let Some(b) = m["content"].as_array_mut() {
+        b.retain(|b| !crate::task_graph::view::is_view(b));
+        for b in b.iter_mut() {
+            b.as_object_mut().map(|o| o.remove("cache_control"));
+        }
+    }
+    m
 }
 
 /// The child's arrangement node and its edges, one into each piece's node,

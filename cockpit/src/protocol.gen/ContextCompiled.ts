@@ -3,6 +3,7 @@ import type { CacheSummary } from "./CacheSummary";
 import type { ContextFileRef } from "./ContextFileRef";
 import type { EstimateSummary } from "./EstimateSummary";
 import type { PlaceClass } from "./PlaceClass";
+import type { TaskViewSummary } from "./TaskViewSummary";
 
 /**
  * `context.compiled`: the context a loop's request was compiled from
@@ -49,4 +50,9 @@ class?: PlaceClass,
  * Context files the request carries as their headers alone: a shared
  * place's that are not marked public.
  */
-withheld?: number, };
+withheld?: number, 
+/**
+ * The task graph the request showed (39a); absent when its scope has
+ * no task, as in a plain turn.
+ */
+tasks?: TaskViewSummary, };

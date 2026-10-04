@@ -174,6 +174,11 @@ pub struct ContextCompiled {
     /// place's that are not marked public.
     #[serde(default, skip_serializing_if = "crate::is_zero")]
     pub withheld: u64,
+    /// The task graph the request showed (39a); absent when its scope has
+    /// no task, as in a plain turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tasks: Option<crate::tasks::TaskViewSummary>,
 }
 
 /// `tool.started`: a call runs. A job's says how, and what the broker gave
@@ -430,6 +435,8 @@ events! {
     ExecutionChanged(ExecutionView) = notify::EXECUTION_CHANGED,
     /// The connection fell behind and dropped notifications (theseus-in3).
     EventsLost(EventsLost) = notify::EVENTS_LOST,
+    /// A task record changed (39a).
+    TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
 }
 
 impl Event {
@@ -450,6 +457,7 @@ impl Event {
             Event::SessionTrusted(e) => Some(&e.session_id),
             Event::NarrativeLine(e) => e.session_id.as_deref(),
             Event::ExecutionChanged(e) => Some(&e.session_id),
+            Event::TaskChanged(e) => Some(&e.session_id),
             Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
@@ -484,6 +492,7 @@ impl Event {
             | Event::PolicyUntightened(_)
             | Event::SessionTrusted(_)
             | Event::ExecutionChanged(_)
+            | Event::TaskChanged(_)
             | Event::EventsLost(_) => None,
         }
     }

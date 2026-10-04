@@ -53,6 +53,7 @@ pub mod place;
 pub mod recall;
 pub mod sandbox;
 pub mod start;
+pub mod task_graph;
 pub mod term;
 pub mod tool;
 pub mod turn;
@@ -304,6 +305,14 @@ facts![
     tool::TaskHoldsExternal<'static>,
     arrangement::TaskArranged<'static>,
     arrangement::TaskArrangementRefused<'static>,
+    task_graph::TaskCreated<'static>,
+    task_graph::TaskUpdated<'static>,
+    task_graph::TaskSplit<'static>,
+    task_graph::TaskClosed<'static>,
+    task_graph::TaskChangeProposed<'static>,
+    task_graph::TaskChangeAccepted<'static>,
+    task_graph::TaskChangeDeclined<'static>,
+    task_graph::TaskStaleRefused<'static>,
     tool::WakeSet<'static>,
     answer::CallAnswered<'static>,
     answer::WokenByAnswer,

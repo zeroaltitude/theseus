@@ -61,7 +61,7 @@ fn asked(req: &ProviderRequest) -> (String, usize) {
             Value::String(s) => s.clone(),
             Value::Array(b) => b
                 .iter()
-                .filter(|b| b["type"] == "text")
+                .filter(|b| b["type"] == "text" && !crate::task_graph::view::is_view(b))
                 .filter_map(|b| b["text"].as_str())
                 .collect::<Vec<_>>()
                 .join("\n"),

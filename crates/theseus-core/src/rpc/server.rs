@@ -209,6 +209,7 @@ impl Core {
 
     /// Every method, by name: each parses its params, runs, and serializes
     /// its result (`route`, `reply`).
+    #[expect(clippy::too_many_lines, reason = "one arm per method: split it")]
     async fn dispatch(
         self: Arc<Self>,
         req: Request,
@@ -284,6 +285,7 @@ impl Core {
                 route(params, |p| self.task_list(p))
             }
             method::TASK_CANCEL => reply(self.task_cancel(parse(params)?, conn).await?),
+            method::TASK_GET => route(params, |p| self.task_get(p)),
             method::WAKE_LIST => {
                 // Its filters are optional: no params lists every wake.
                 let params = if params.is_null() { json!({}) } else { params };

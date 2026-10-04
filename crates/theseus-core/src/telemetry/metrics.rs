@@ -20,6 +20,8 @@ enum Kind {
     IntSum,
     DoubleSum,
     Histogram,
+    /// The last value set, exported as a non-monotonic sum: a gauge.
+    IntLast,
 }
 
 struct Instrument {
@@ -128,8 +130,21 @@ const DURABILITY_LAG: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const TASK_CHANGES: Instrument = Instrument {
+    name: "theseus.tasks.changes",
+    description: "Task graph edits that applied (39a), by verb (task.create, task.update, task.split, task.close)",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const TASKS_OPEN: Instrument = Instrument {
+    name: "theseus.tasks.open",
+    description: "Open tasks in the scope of the last turn that saw the task graph (39a)",
+    unit: "",
+    kind: Kind::IntLast,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 16] = [
+const INSTRUMENTS: [&Instrument; 18] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -146,6 +161,8 @@ const INSTRUMENTS: [&Instrument; 16] = [
     &PUSH_DELAY,
     &DURABILITY_SHIPPED,
     &DURABILITY_LAG,
+    &TASK_CHANGES,
+    &TASKS_OPEN,
 ];
 
 /// A tool call's attributes (§3.23). `theseus.tool.name` was `theseus.tool`
@@ -286,6 +303,7 @@ impl Metrics {
             self.tool_calls(t, &attrs);
             self.provider_calls(t);
             self.wakes(t);
+            self.tasks(t);
         }
     }
 
@@ -320,6 +338,27 @@ impl Metrics {
         if let Some(t) = f.trace {
             self.provider_calls(t);
             self.wakes(t);
+            self.tasks(t);
+        }
+    }
+
+    /// The task graph (39a): each task tool call that applied, by verb, and
+    /// the open tasks the turn's last view showed.
+    fn tasks(&mut self, trace: &Span) {
+        let mut calls = Vec::new();
+        spans::tool_calls(trace, &mut calls);
+        for c in calls
+            .iter()
+            .filter(|c| c.name.starts_with("task.") && c.outcome == "ok")
+        {
+            self.add(
+                &TASK_CHANGES,
+                vec![("theseus.task.verb", Attr::S(c.name.clone()))],
+                1,
+            );
+        }
+        if let Some(open) = spans::tasks_open(trace) {
+            self.point(&TASKS_OPEN, Vec::new()).int = open;
         }
     }
 
@@ -479,6 +518,19 @@ impl Metrics {
                     .collect(),
                 aggregation_temporality: otlp::CUMULATIVE,
                 is_monotonic: true,
+            }),
+            Kind::IntLast => otlp::Data::Sum(otlp::Sum {
+                data_points: points
+                    .into_iter()
+                    .map(|(a, p)| otlp::NumberDataPoint {
+                        attributes: key_values(a),
+                        start_time_unix_nano: start,
+                        time_unix_nano: time,
+                        value: otlp::Number::AsInt(p.int.to_string()),
+                    })
+                    .collect(),
+                aggregation_temporality: otlp::CUMULATIVE,
+                is_monotonic: false,
             }),
             Kind::Histogram => otlp::Data::Histogram(otlp::Histogram {
                 data_points: points

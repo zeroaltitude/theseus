@@ -374,6 +374,11 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # a background task (DD7): inherits enforcement, so each start is a notice; the
 # task's own calls are gated as usual, and it spends from this session's limit
 # "task.create" = "notify"
+# the task graph (39a): edits of its plan inherit enforcement; a change to a
+# task's objective or acceptance, or abandoning one, always waits for your yes
+# "task.update" = "notify"
+# "task.split" = "notify"
+# "task.close" = "notify"
 # a wake into this conversation later (DD8): inherits enforcement, so each one
 # set is a notice with its time; its turn spends from this session's limit
 # "wake.at" = "notify"

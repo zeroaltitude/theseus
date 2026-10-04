@@ -346,7 +346,7 @@ impl ToolRuntime {
         let corr = &a.correlation_id;
         // A harness tool run again finds what it did (DD7's task ids).
         if let Some(t) = tool.as_ref().filter(|t| t.backend() == Backend::Harness) {
-            self.run_harness(tc, corr, t.as_ref(), u)?;
+            self.run_harness(tc, corr, t.as_ref(), u, approved_at(a))?;
             return Ok(None);
         }
         let is_job = tool.as_ref().is_some_and(|t| t.backend() == Backend::Job);
@@ -388,7 +388,7 @@ impl ToolRuntime {
             .filter(|t| t.backend() == Backend::Harness)
             .filter(|_| a.state == ActionState::OutcomeUnknown)
         {
-            self.run_harness(tc, &a.correlation_id, t.as_ref(), u)?;
+            self.run_harness(tc, &a.correlation_id, t.as_ref(), u, approved_at(a))?;
             return Ok(());
         }
         if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
@@ -449,4 +449,14 @@ enum Pending {
     Settled(Action),
     /// Declined or cancelled before it ran.
     Cancelled(Action),
+}
+
+/// The posture a harness call run again runs at: `approve` when the
+/// operator approved it (its confirm is bound), which a layer-1 task change
+/// needs (39a).
+fn approved_at(a: &Action) -> crate::policy::Posture {
+    match a.confirm {
+        Some(_) => crate::policy::Posture::Approve,
+        None => crate::policy::Posture::Open,
+    }
 }
