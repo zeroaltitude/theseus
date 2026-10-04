@@ -1,0 +1,10 @@
+{"task":"canary-s1","arm":"canary","success":true,"spend_micros":400000,"turns":6}
+{"task":"canary-s2","arm":"canary","success":true,"spend_micros":400000,"turns":6}
+{"task":"canary-s3","arm":"canary","success":true,"spend_micros":400000,"turns":6}
+{"task":"canary-s4","arm":"canary","success":false,"spend_micros":400000,"turns":6}
+{"task":"canary-s5","arm":"canary","success":null,"spend_micros":400000,"turns":6}
+{"task":"control-s1","arm":"control","success":true,"spend_micros":400000,"turns":6}
+{"task":"control-s2","arm":"control","success":true,"spend_micros":400000,"turns":6}
+{"task":"control-s3","arm":"control","success":true,"spend_micros":400000,"turns":6}
+{"task":"control-s4","arm":"control","success":false,"spend_micros":400000,"turns":6}
+{"task":"control-s5","arm":"control","success":null,"spend_micros":400000,"turns":6}

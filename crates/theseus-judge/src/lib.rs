@@ -19,6 +19,8 @@
 //! - [`price`]: the catalog-shaped price of the pinned model;
 //! - [`learn`]: the learning math (calibration, holdouts, canary arms,
 //!   rollback rules), pure functions;
+//! - [`prove`]: the exit report, a pure generator over plain task records
+//!   (`theseus-judge prove`);
 //! - [`fake`] (feature `fake`): a fake Jev on 127.0.0.1.
 //!
 //! `jev-probe` (feature `probe`) makes real calls on synthetic states.
@@ -34,6 +36,7 @@ pub mod judge;
 pub mod learn;
 pub mod pack;
 pub mod price;
+pub mod prove;
 pub mod state;
 
 #[cfg(any(test, feature = "fake"))]
@@ -44,6 +47,8 @@ pub mod probe;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_prove;
 
 pub use band::{Band, Banded, Thresholds};
 pub use builders::{prepare, Input, Prepared};

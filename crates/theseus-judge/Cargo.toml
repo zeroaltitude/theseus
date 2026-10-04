@@ -23,6 +23,10 @@ name = "jev-probe"
 path = "src/bin/jev-probe.rs"
 required-features = ["probe"]
 
+[[bin]]
+name = "theseus-judge"
+path = "src/bin/theseus-judge.rs"
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true
