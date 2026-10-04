@@ -15,7 +15,7 @@
 # What it builds: the five binaries an install ships, theseusd, theseus, theseus-tui,
 # theseus-sim, and theseus-index, and what they link (theseus-o8nk). The crates still
 # waiting for their roadmap rows (judge, exam, mcp, ontology, memory, aws-guard) are
-# not compiled. scripts/gate.sh's bench build uses the same five.
+# not compiled. scripts/gate.sh's features phase reads the list (`--shipped`).
 #
 # Cargo unifies a dependency's features over the packages it builds, so building some
 # packages can give a shared crate fewer features than the whole workspace, which the

@@ -28,9 +28,13 @@ It runs, in order:
    holds the shape budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and `npm run build`,
    when `cockpit/node_modules` exists (else the gate says it skipped them), before the suite, whose tests of `/` read
    that build; a failing npm step prints its name and the last 40 lines of its output above the table. Then
-   `bench build` (`cargo build` of the five binaries an install
-   ships, `scripts/build.sh`'s list, among them those the benches run: the gate's `bench_build` function lists them)
-   and `test build` (`cargo nextest run --workspace --no-run`, which builds what the suite runs).
+   `test build` (`cargo nextest run --workspace --no-run`), which builds what the suite runs, and with it the debug
+   `theseusd`, `theseus-sim`, and `theseus-index` the benches run (cargo builds a package's binaries for its
+   integration tests). It fails naming a bench binary that cargo's messages say it did not build, which the benches
+   would otherwise run stale (the gate's `bench_bins`). The `bench build` before it (`cargo build -p` of the five
+   shipped binaries) is gone (theseus-7ykr): cargo links `target/debug/<bin>` from the build it ran last, so the test
+   build replaced its binaries before any bench ran, and it cost a second feature set of the shared crates (384 s of
+   a cold 1,121 s gate on a 4-core VM, 9 s after a touch of theseus-core).
 2. *With the lock*, the locked part. Nothing compiles here: step 1 built everything it runs (a `gate: NOTE` says so
    when something does, which means the tree changed after step 1).
    - The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
@@ -53,8 +57,8 @@ It runs, in order:
      gets the allowance, so it runs in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the
      join it runs ten runs and a burst of 30 turns and records the row (about 11 s). A miss reruns once.
 
-   Cargo links the binaries of the build it ran last, and the suite's cargo links the test build's `theseusd` and
-   `theseus-sim`, so the benches run those: the workspace's features, which an install has too.
+   The benches run the test build's `theseusd`, `theseus-sim`, and `theseus-index`: the workspace's features, which
+   the `features` phase holds an install's to.
 3. *Without it again*:
    - `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database
      as its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was
@@ -258,7 +262,7 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   release. It builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the
   target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the five binaries an
   install ships**, `theseusd`, `theseus`, `theseus-tui`, `theseus-sim`, and `theseus-index`, and what they link, and not
-  the crates still waiting for their rows (theseus-o8nk; the gate's bench build uses the same five). A `-p`, `--package`,
+  the crates still waiting for their rows (theseus-o8nk; the gate's `features` phase reads the list). A `-p`, `--package`,
   `--workspace`, or `--all` of your own replaces the five. Measured on 2026-10-03 (cold, no compile cache, `-j 4`,
   `release-thin`): 1,139 CPU-seconds, about 4 min 50 s, against 1,395 and 5 min 55 s for the whole workspace with the
   voice crate, the install's build until then (18 % less; the voice crate's exit alone was 10 %). Built alone or with the

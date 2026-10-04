@@ -472,11 +472,29 @@ features() {
   return 1
 }
 
-# The binaries the benches run, built before the lock (`bench build`). It is the five an install ships,
-# scripts/build.sh's list (theseus-o8nk), so the benches run binaries with an install's features; a tool
-# the benches start that an install does not ship is added here too.
-bench_build() {
-  cargo build -q -p theseusd -p theseus -p theseus-tui -p theseus-sim -p theseus-index
+# The test build, the last compile before the lock: every test binary the suite runs, and the debug binaries the
+# benches run, `target/debug/theseusd`, `theseus-sim`, and the `theseus-index` the daemon starts beside itself,
+# which cargo builds for the integration tests that run them. Until theseus-7ykr a `bench build` (`cargo build -p`
+# of the five shipped binaries) ran before it, a second feature set of the shared crates (6 minutes cold here,
+# seconds to a minute warm), and cargo links `target/debug/<bin>` from the build it ran last, so this one replaced
+# them before any bench ran: the benches only ever ran this build's binaries. They have the workspace's features,
+# and the features phase holds the five's to the same. Cargo's messages name every binary the build produced,
+# fresh or relinked, and this fails naming a bench binary it did not, where the benches would run a stale one.
+bench_bins=(theseusd theseus-sim theseus-index)
+test_build() {
+  local json="$gate_tmp/test-build.json" b exe
+  # (`env -u`: nextest warns that --no-run ignores the lane's NEXTEST_TEST_THREADS.)
+  env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run \
+    --cargo-message-format json-render-diagnostics >"$json"
+  for b in "${bench_bins[@]}"; do
+    exe="$(grep -o "\"executable\":\"[^\"]*/debug/$b\"" "$json" | head -1 | cut -d'"' -f4 || true)"
+    if [ -z "$exe" ] || ! [ "target/debug/$b" -ef "$exe" ]; then
+      echo "gate: the test build did not build target/debug/$b${exe:+ (it built $exe)}, which the benches run,"
+      echo "gate: so they would run a stale one. Cargo builds a package's binaries for its integration tests, and"
+      echo "gate: none needs $b now: build it in test_build, after the tests' build"
+      return 1
+    fi
+  done
 }
 
 # Nothing compiles under the lock: the compile phases built what the locked part runs. When
@@ -491,11 +509,9 @@ compiled_under_lock() {
 }
 
 # The checks that need the machine to themselves, in order: the locked part, which holds the
-# lock across them, and whose binaries the compile phases built beforehand. Cargo links the
-# binaries of the build it last ran, so the benches run the test build's `theseusd` and
-# `theseus-sim` (the workspace's features, which the install has too; the suite's cargo links
-# them over the `-p` build's, and the compile phases run the test build last, so they leave
-# what the benches will find).
+# lock across them, and whose binaries the compile phases built beforehand. The benches run
+# the test build's `theseusd`, `theseus-sim`, and `theseus-index` (the workspace's features,
+# which the features phase holds an install's to; see test_build).
 machine_checks() {
   phase "reader rule" registry
   phase suite suite
@@ -573,12 +589,9 @@ phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
 # The cockpit before the suite, which reads its build at / (theseus-vm3n.6).
 phase cockpit cockpit
-# Every compile first, without the lock: the bench binaries, then the test binaries (what the suite runs).
-# Cargo links the binaries of the build it ran last, and the suite's cargo (in the locked part) links the
-# test build's, so this order leaves target/debug as the benches will find it.
-# (`env -u`: nextest warns that --no-run ignores the lane's NEXTEST_TEST_THREADS.)
-phase "bench build" bench_build
-phase "test build" env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run
+# Every compile first, without the lock: the test binaries (what the suite runs), and with them the binaries
+# the benches run (theseus-7ykr).
+phase "test build" test_build
 locked_checks
 phase deny deny_check
 gate_done=1
