@@ -22,6 +22,8 @@ pub(super) struct Pending {
     pub session_id: String,
     pub turn_id: Option<String>,
     pub items: Vec<(RecalledRef, String)>,
+    /// The operator's message the turn answered.
+    pub ask: String,
     /// The turn's reply, and its calls' inputs.
     pub reply: String,
     pub calls: String,
@@ -105,6 +107,7 @@ impl MemoryPass {
                 items.push((r, excerpt));
             }
             let in_turn = |m: &Node| turn.is_some() && m.turn_id == turn;
+            let mut ask = String::new();
             let mut reply = Vec::new();
             let mut calls = Vec::new();
             for (_, m) in nodes {
@@ -116,6 +119,7 @@ impl MemoryPass {
                         reply.push(crate::provider::text_of(blocks))
                     }
                     Body::ToolCall { input, .. } => calls.push(input.to_string()),
+                    Body::UserMessage { text, .. } if ask.is_empty() => ask.clone_from(text),
                     _ => {}
                 }
             }
@@ -133,6 +137,7 @@ impl MemoryPass {
                 session_id: n.session_id.clone(),
                 turn_id: turn,
                 items,
+                ask,
                 reply: reply.join("\n"),
                 calls: calls.join("\n"),
                 next,

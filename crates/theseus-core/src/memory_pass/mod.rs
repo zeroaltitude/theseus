@@ -26,6 +26,11 @@
 //! - **Attribution** (`attribution`), of each item a `Recall` node admitted
 //!   (canary and live): an item not used is written at once; a used one
 //!   when the session's next input has come, with its outcome.
+//! - **Jev, in shadow** (`judge::memory`): each node labeled goes to
+//!   `memory.v1`, and each recall, once its turn has its reply, to
+//!   `attribution.v1`, through `JudgeService` (its sampling, its shadow
+//!   budget, its sink's frames); with `[judge]` off, nothing is asked and
+//!   the deterministic half stands alone.
 //! - **Frames.** The rows and edges go in the pass's own frames: one per
 //!   [`MAX_NODES`] nodes, or [`WINDOW`] after the first waiting, whichever
 //!   comes first; a node's records never split across frames. A frame waits
@@ -42,7 +47,9 @@ pub mod attribution;
 pub mod labels;
 mod recalls;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+#[cfg(test)]
+mod tests_jev;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
@@ -60,6 +67,8 @@ use tokio::sync::mpsc;
 
 use crate::fact::memory::{scope, MemoryGated, MemoryLabeled, Seen};
 use crate::graph::{Edge, EdgeKind, VIA_MEMORY};
+use crate::judge::memory::MemoryAsk;
+use crate::judge::JudgeService;
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node, Origin};
 use crate::recall::Memory;
@@ -149,6 +158,8 @@ pub struct MemoryPass {
     memory: Arc<Memory>,
     store: Store,
     index: RwLock<Option<Arc<dyn PassIndex>>>,
+    /// `memory.v1` and `attribution.v1`, in shadow.
+    judge: Option<Arc<JudgeService>>,
     tx: OnceLock<mpsc::UnboundedSender<Job>>,
     done: Mutex<BTreeMap<String, Done>>,
     timing: Timing,
@@ -180,21 +191,28 @@ impl Default for Timing {
 impl MemoryPass {
     /// The pass, built with the core: nothing read or started until a turn
     /// ends with memory on.
-    pub fn new(memory: Arc<Memory>, store: Store, tender: Option<Arc<IndexTender>>) -> Arc<Self> {
+    pub fn new(
+        memory: Arc<Memory>,
+        store: Store,
+        tender: Option<Arc<IndexTender>>,
+        judge: Option<Arc<JudgeService>>,
+    ) -> Arc<Self> {
         let index = tender.map(|t| Arc::new(Tender(t)) as Arc<dyn PassIndex>);
-        Self::with_timing(memory, store, index, Timing::default())
+        Self::with_timing(memory, store, index, judge, Timing::default())
     }
 
     pub fn with_timing(
         memory: Arc<Memory>,
         store: Store,
         index: Option<Arc<dyn PassIndex>>,
+        judge: Option<Arc<JudgeService>>,
         timing: Timing,
     ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             memory,
             store,
             index: RwLock::new(index),
+            judge,
             tx: OnceLock::new(),
             done: Mutex::new(BTreeMap::new()),
             timing,
@@ -429,6 +447,9 @@ impl MemoryPass {
         }
         let mut at = todo.len();
         for r in &recalls {
+            if r.turn_id.as_deref() == Some(job.turn_id.as_str()) {
+                self.ask_attribution(r);
+            }
             units.extend(recalls::units(
                 r,
                 &entities,
@@ -474,6 +495,7 @@ impl MemoryPass {
             .map(|(_, m)| m.id.as_str())
             .collect();
         let gated = gate.of(n, position, l.correction, &same_turn).await?;
+        self.ask_memory(nodes, n, &text);
         let sid = n.session_id.as_str();
         let turn = n.turn_id.as_deref();
         let body = n.kind_str();
@@ -546,6 +568,68 @@ impl MemoryPass {
             labeled: Some(n.id.clone()),
             used: None,
         })
+    }
+}
+
+impl MemoryPass {
+    /// `memory.v1`, in shadow, of a node the pass labels: its text as the
+    /// model saw it, who wrote it, and the message before it.
+    fn ask_memory(&self, nodes: &Transcript, n: &Node, text: &str) {
+        let Some(judge) = &self.judge else { return };
+        let role = match (&n.body, n.origin) {
+            (Body::UserMessage { .. }, Origin::Operator) => "operator",
+            (Body::UserMessage { .. }, _) => "relay",
+            (Body::AssistantMessage { .. }, _) => "assistant",
+            _ => "tool",
+        };
+        let tool = match &n.body {
+            Body::ToolResult { tool, .. } => Some(tool.clone()),
+            _ => None,
+        };
+        let at = nodes.iter().position(|(_, m)| m.id == n.id).unwrap_or(0);
+        let previous = nodes[..at].iter().rev().find_map(|(_, m)| match &m.body {
+            Body::UserMessage { .. } | Body::AssistantMessage { .. } if eligible(m) => {
+                Some(text_of(m))
+            }
+            _ => None,
+        });
+        judge.at_memory_pass(MemoryAsk::Node {
+            session_id: n.session_id.clone(),
+            turn_id: n.turn_id.clone(),
+            node_id: n.id.clone(),
+            input: theseus_judge::builders::MemoryInput {
+                role: role.into(),
+                tool,
+                text: text.to_string(),
+                previous,
+            },
+        });
+    }
+
+    /// `attribution.v1`, in shadow, of a recall whose turn has its reply:
+    /// the operator's message, the reply, and each note's excerpt.
+    fn ask_attribution(&self, r: &recalls::Pending) {
+        let Some(judge) = &self.judge else { return };
+        if r.reply.trim().is_empty() {
+            return;
+        }
+        judge.at_memory_pass(MemoryAsk::Recall {
+            session_id: r.session_id.clone(),
+            turn_id: r.turn_id.clone(),
+            recall_id: r.recall_id.clone(),
+            input: theseus_judge::builders::AttributionInput {
+                ask: r.ask.clone(),
+                reply: r.reply.clone(),
+                notes: r
+                    .items
+                    .iter()
+                    .map(|(item, excerpt)| theseus_judge::builders::NoteInput {
+                        id: item.node_id.clone(),
+                        excerpt: excerpt.clone(),
+                    })
+                    .collect(),
+            },
+        });
     }
 }
 

@@ -597,12 +597,20 @@ impl Core {
             cfg.memory.clone(),
             Some(index.clone()),
         ));
+        // Builds nothing until its first judgment (FAST).
+        let judge = crate::judge::JudgeService::new(
+            cfg.judge.clone(),
+            store.clone(),
+            secrets.clone(),
+            tools.scrubber.clone(),
+        );
         let runner = TurnRunner {
             // Reads nothing and starts nothing until a turn ends (FAST).
             pass: crate::memory_pass::MemoryPass::new(
                 memory.clone(),
                 store.clone(),
                 Some(index.clone()),
+                Some(judge.clone()),
             ),
             memory,
             outbox: outbox.clone(),
@@ -625,13 +633,7 @@ impl Core {
             place_rule: Default::default(),
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
-            // Builds nothing until its first judgment (FAST).
-            judge: crate::judge::JudgeService::new(
-                cfg.judge.clone(),
-                store.clone(),
-                secrets.clone(),
-                tools.scrubber.clone(),
-            ),
+            judge,
         };
         let telemetry_cell = std::sync::OnceLock::new();
         if let Some(t) = telemetry {

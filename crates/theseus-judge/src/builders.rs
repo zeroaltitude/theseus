@@ -32,6 +32,8 @@ pub const SECURITY2_VERSION: u32 = 1;
 pub const INBOUND_VERSION: u32 = 1;
 pub const CONTINUE_VERSION: u32 = 1;
 pub const CATEGORIZE_VERSION: u32 = 1;
+pub const MEMORY_VERSION: u32 = 1;
+pub const ATTRIBUTION_VERSION: u32 = 1;
 
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
@@ -280,6 +282,8 @@ pub enum Input {
     Inbound(InboundInput),
     Continue(ContinueInput),
     Categorize(CategorizeInput),
+    Memory(MemoryInput),
+    Attribution(AttributionInput),
 }
 
 impl Input {
@@ -292,6 +296,8 @@ impl Input {
             Input::Inbound(_) => Builder::Inbound,
             Input::Continue(_) => Builder::Continue,
             Input::Categorize(_) => Builder::Categorize,
+            Input::Memory(_) => Builder::Memory,
+            Input::Attribution(_) => Builder::Attribution,
         }
     }
 
@@ -305,6 +311,8 @@ impl Input {
             Builder::Inbound => Input::Inbound(serde_json::from_str(json)?),
             Builder::Continue => Input::Continue(serde_json::from_str(json)?),
             Builder::Categorize => Input::Categorize(serde_json::from_str(json)?),
+            Builder::Memory => Input::Memory(serde_json::from_str(json)?),
+            Builder::Attribution => Input::Attribution(serde_json::from_str(json)?),
         })
     }
 }
@@ -335,6 +343,8 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Inbound(i) => inbound(i, cap, scrub),
         Input::Continue(i) => continue_state(i, cap, scrub),
         Input::Categorize(i) => categorize(i, cap, scrub),
+        Input::Memory(i) => memory::memory(i, cap, scrub),
+        Input::Attribution(i) => memory::attribution(i, cap, scrub),
     })
 }
 
@@ -531,7 +541,10 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     }
 }
 
+mod memory;
 mod security2;
+
+pub use memory::{AttributionInput, MemoryInput, NoteInput, NOTES};
 
 /// `security.v1`: the call (tool, class, posture and why), its arguments
 /// (argv, paths, and a URL as host, path, and query, each clipped), the
@@ -924,6 +937,8 @@ mod tests {
             "classify.v1",
             "continue.v1",
             "categorize.v1",
+            "memory.v1",
+            "attribution.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(

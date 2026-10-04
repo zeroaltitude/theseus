@@ -1,0 +1,27 @@
+# attribution.v1 (M6 step 31a, design m6 §2.6; M5 hands `relies_on` to M6):
+# whether the assistant's reply relied on each note recall put in front of
+# the model. At `memory_pass`: after a canary or live turn whose `Recall` node
+# admitted notes, off its path, beside the deterministic attribution (its
+# baseline, `rules`: an entity in common, or an 8-word run), in shadow. One
+# Noul per note, at most six. The state is the operator's message and the
+# reply; each note's text is the excerpt the model saw. No live action.
+id = "attribution"
+version = 1
+jev_model = "jev-1.13.0"
+point = "memory_pass"
+state = "attribution"
+state_cap_tokens = 2500
+sample = 1.0
+baseline = "rules"
+action = "none"
+description = "Whether the assistant's reply relied on each note that recall put in front of the model."
+
+[questions.relied_on]
+type = "noul"
+per = "notes"
+max = 6
+instructions = "Did the assistant's reply rely on this note: {item}?"
+act = 0.90
+confirm = 0.60
+when_true = "The reply uses information that the note gives, such as a fact, a name, a number, a path, or a step taken from it."
+when_false = "The reply does not use what the note says, even when it touches the same subject or repeats words the message already had."

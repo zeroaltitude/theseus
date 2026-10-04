@@ -1,0 +1,8 @@
+{
+  "ask": "What is Larkspur's staging port?",
+  "reply": "Larkspur listens on 8082 in staging; the old 8081 was corrected last week.",
+  "notes": [
+    { "id": "msg_heron01", "excerpt": "Correction: Larkspur's staging port is 8082, not 8081." },
+    { "id": "msg_heron02", "excerpt": "Lunch is at noon on Fridays in the big room." }
+  ]
+}

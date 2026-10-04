@@ -44,6 +44,23 @@ pub(crate) fn rig(mode: MemoryMode) -> Rig {
 }
 
 pub(crate) fn rig_with(mode: MemoryMode, tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_built(mode, tweak, |_| {})
+}
+
+/// The same, with `board` as the core's secrets (the judge's key).
+pub(crate) fn rig_with_secrets(
+    mode: MemoryMode,
+    board: Arc<crate::secrets::SecretBoard>,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
+    rig_built(mode, tweak, |p| p.secrets = board)
+}
+
+fn rig_built(
+    mode: MemoryMode,
+    tweak: impl FnOnce(&mut Config),
+    parts: impl FnOnce(&mut crate::rpc::Parts),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -53,7 +70,9 @@ pub(crate) fn rig_with(mode: MemoryMode, tweak: impl FnOnce(&mut Config)) -> Rig
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(FakeProvider::default());
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let mut p = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    parts(&mut p);
+    let core = Core::build(p).unwrap();
     core.bind_places(vec![BoundPlace {
         target: format!("discord:channel:{DEN}"),
         name: "#den".into(),

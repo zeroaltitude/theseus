@@ -21,6 +21,7 @@
 //!   and counted, never queued.
 
 pub mod loop_end;
+pub mod memory;
 pub mod sink;
 pub mod spend;
 
@@ -47,7 +48,11 @@ use spend::{Reserve, ShadowBudget};
 
 /// The packs this build wires in, and the mode the ladder gives each (step
 /// 26a brings the ladder; until then every pack is in shadow).
-pub const WIRED: &[(&str, PackMode)] = &[(LOOP_PACK, PackMode::Shadow)];
+pub const WIRED: &[(&str, PackMode)] = &[
+    (LOOP_PACK, PackMode::Shadow),
+    (memory::MEMORY_PACK, PackMode::Shadow),
+    (memory::ATTRIBUTION_PACK, PackMode::Shadow),
+];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.
 pub const LOOP_PACK: &str = "loop.v1";

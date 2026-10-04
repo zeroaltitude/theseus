@@ -34,6 +34,9 @@ pub(crate) struct Fixed {
     pub state: Mutex<String>,
     pub down: Mutex<Option<String>>,
     pub asked: Mutex<Vec<String>>,
+    /// A node with no `near` entry has no vector yet, as before the
+    /// tender embeds it (else it has no neighbours).
+    pub unknown_not_yet: Mutex<bool>,
 }
 
 impl Fixed {
@@ -78,6 +81,14 @@ impl PassIndex for Fixed {
             match left.get_mut(&p.node_id) {
                 Some(n) if *n > 0 => {
                     *n -= 1;
+                    Err(TenderMiss::Refused(format!(
+                        "node {} has no vector yet",
+                        p.node_id
+                    )))
+                }
+                _ if *self.unknown_not_yet.lock().unwrap()
+                    && !self.near.lock().unwrap().contains_key(&p.node_id) =>
+                {
                     Err(TenderMiss::Refused(format!(
                         "node {} has no vector yet",
                         p.node_id
@@ -156,7 +167,7 @@ pub(crate) fn rig(mode: MemoryMode) -> Rig {
         state: Mutex::new("ready".into()),
         ..Fixed::default()
     });
-    let pass = MemoryPass::with_timing(memory, store.clone(), Some(index.clone()), timing());
+    let pass = MemoryPass::with_timing(memory, store.clone(), Some(index.clone()), None, timing());
     Rig {
         store,
         pass,
@@ -765,8 +776,15 @@ async fn a_correction_supersedes_the_fact_and_recall_prefers_it() {
         .lock()
         .unwrap()
         .push_back(Scripted::text("Noted: 8082."));
+    // B's nodes have no vectors until the test gives them: the gate waits.
+    *index.unknown_not_yet.lock().unwrap() = true;
     let res = turn(c, &b, said).await;
     let fix = said_in(c, &b, said);
+    for (_, n) in c.store.session_nodes(&b).unwrap() {
+        if n.id != fix.id {
+            index.near(&n.id, &[]);
+        }
+    }
     index.near(&fix.id, &[(&fact.id, 0.84)]);
     // The turn's end handed B to the pass; the pass wrote its rows.
     until("B's nodes gated", || {
