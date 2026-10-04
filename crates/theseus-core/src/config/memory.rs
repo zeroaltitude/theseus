@@ -104,6 +104,15 @@ pub struct MemoryConfig {
     /// be recalled.
     #[serde(default)]
     pub include_external: bool,
+    /// The profile that summarizes what the ring would drop (step 30c):
+    /// compaction. `off` keeps the ring. The dropped range goes to that
+    /// profile's provider, which may not be the session's.
+    #[serde(default = "default_summary_profile")]
+    pub summary_profile: String,
+    /// The tokens of the recall section an assembled prefix carries (30c):
+    /// a task's first compile, and a compaction.
+    #[serde(default = "default_assembled_budget")]
+    pub assembled_budget_tokens: u64,
 }
 
 fn default_budget() -> u64 {
@@ -124,6 +133,15 @@ fn default_experiment() -> String {
 fn default_session_cap() -> u64 {
     12_000
 }
+fn default_summary_profile() -> String {
+    "glm".into()
+}
+fn default_assembled_budget() -> u64 {
+    4_000
+}
+
+/// `summary_profile`'s word for no compaction: the ring drops leading turns.
+pub const SUMMARY_OFF: &str = "off";
 
 /// The longest a recall may wait for the index.
 pub const MAX_RECALL_DEADLINE_MS: u64 = 5_000;
@@ -142,6 +160,8 @@ impl Default for MemoryConfig {
             recall_max_items: default_max_items(),
             recall_deadline_ms: default_deadline_ms(),
             include_external: false,
+            summary_profile: default_summary_profile(),
+            assembled_budget_tokens: default_assembled_budget(),
         }
     }
 }
@@ -153,6 +173,11 @@ impl MemoryConfig {
 
     pub fn on(&self) -> bool {
         self.mode != MemoryMode::Off
+    }
+
+    /// The profile compaction summarizes with, unless it is `off`.
+    pub fn summary_profile(&self) -> Option<&str> {
+        Some(self.summary_profile.as_str()).filter(|p| *p != SUMMARY_OFF)
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
@@ -181,6 +206,12 @@ impl MemoryConfig {
                 "memory.recall_max_items = {} is outside 1 to {MAX_RECALL_ITEMS}",
                 self.recall_max_items
             );
+        }
+        if self.summary_profile.trim().is_empty() {
+            bail!("memory.summary_profile is empty: name a profile, or \"off\" to keep the ring");
+        }
+        if self.assembled_budget_tokens == 0 {
+            bail!("memory.assembled_budget_tokens = 0: an assembled recall section with no tokens admits nothing");
         }
         if !(1..=MAX_RECALL_DEADLINE_MS).contains(&self.recall_deadline_ms) {
             bail!(
@@ -305,6 +336,8 @@ mod tests {
             "canary_fraction = -0.1",
             "experiment = \" \"",
             "session_recall_cap_tokens = 100",
+            "summary_profile = \"\"",
+            "assembled_budget_tokens = 0",
         ] {
             let cfg = parse(&format!("[memory]\nmode = \"shadow\"\n{bad}\n")).unwrap();
             assert!(cfg.validate().is_err(), "{bad}");

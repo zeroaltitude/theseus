@@ -7,7 +7,8 @@
 //! | `AssistantMessage` | text blocks | thinking blocks, and the `tool_use` blocks (their `ToolCall` nodes say what is indexed of them) |
 //! | `ToolResult` | the content the model saw (already scrubbed and capped), with its `external` flag | the spool's full output, an image |
 //! | `ToolCall` | `proc.run`'s argv, and the paths and queries of reads and searches | other inputs |
-//! | `Summary`, `Synthesis`, `Lesson` | text (once they exist) | |
+//! | `Summary` | its text | its testimony header |
+//! | `Synthesis`, `Lesson` | text (once they exist) | |
 //! | `Recall` | | always: recalled text is never indexed again (§5.2) |
 //!
 //! It reads a node's record as a JSON value, so the tender never depends on

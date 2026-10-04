@@ -131,6 +131,7 @@ fn run(
         strip: None,
         overflowed: None,
         sources: &Default::default(),
+        assembled: None,
         signals: Some(SignalsAt {
             config: cfg,
             now_ms: now,
@@ -325,6 +326,7 @@ fn the_signals_change_no_request_and_read_the_clock_they_are_given() {
         strip: None,
         overflowed: None,
         sources: &sources,
+        assembled: None,
         signals,
     };
     let none = compile(input(None));

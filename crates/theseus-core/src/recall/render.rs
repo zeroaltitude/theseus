@@ -81,6 +81,7 @@ pub fn header(n: &Node, position: u64) -> String {
         Body::ToolResult { tool, .. } => format!("a {tool} result"),
         Body::Recall { .. } => "a recall".to_string(),
         Body::Arrangement { .. } => "a task's arrangement".to_string(),
+        Body::Summary { .. } => "a summary".to_string(),
     };
     format!(
         "{what} in {}, {} (as of @{position})",

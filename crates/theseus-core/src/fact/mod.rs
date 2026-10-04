@@ -43,6 +43,7 @@ use crate::trace::Trace;
 pub mod answer;
 pub mod arrangement;
 pub mod cancel;
+pub mod compaction;
 pub mod driver;
 pub mod durability;
 pub mod extend;
@@ -239,6 +240,8 @@ facts![
     turn::ContextFileMissing<'static>,
     turn::LoopOpened,
     turn::ContextCompiled<'static>,
+    compaction::Compacted<'static>,
+    compaction::Overage<'static>,
     recall::RecallShadow<'static>,
     recall::RecallRan<'static>,
     recall::ArmAssigned<'static>,

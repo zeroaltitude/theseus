@@ -189,7 +189,7 @@ pub enum Body {
     /// in the same user turn, as testimony: each item's frozen header, then
     /// its source's text over the frozen range, read by position
     /// (`recall::render`), so every later request repeats the same bytes.
-    /// (`Summary`, `Synthesis`, and `Lesson` come with 30c, 31b, and 35b.)
+    /// (`Synthesis` and `Lesson` come with 31b and 35b.)
     Recall {
         recall_id: String,
         /// The session's arm (`baseline`).
@@ -206,6 +206,29 @@ pub enum Body {
         /// The call acknowledged the fidelity check.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fidelity_ack: bool,
+    },
+    /// A compaction's summary (M6 step 30c, §2.5): what a cheap profile
+    /// wrote of a run of the session's leading nodes that the ring would
+    /// have dropped. Its range is its lineage (no edge per node). A
+    /// compilation that includes it renders it first in its prefix, whatever
+    /// its position, as testimony under its frozen `header`; the nodes of
+    /// its range never render again. A later compaction folds it into the
+    /// next summary, whose range starts where its did.
+    Summary {
+        /// The WAL positions of the first and last node it summarizes.
+        first: u64,
+        last: u64,
+        /// How many messages it summarizes (a folded summary's included).
+        nodes: u32,
+        text: String,
+        /// The profile and the model that wrote it.
+        profile: String,
+        model: String,
+        #[serde(default)]
+        cost_usd: Option<f64>,
+        /// `[Summary of 212 earlier messages, 2026-09-20 to 2026-09-27,
+        /// written by glm]`, frozen when it was written (§2.11's testimony).
+        header: String,
     },
 }
 
@@ -399,6 +422,13 @@ impl Node {
         n
     }
 
+    /// A compaction's summary (30c), written by the harness.
+    pub fn summary(session_id: &str, turn_id: &str, body: Body) -> Self {
+        let mut n = Self::new("sum", session_id, Some(turn_id), Origin::Harness, body);
+        n.author = Some("harness".into());
+        n
+    }
+
     pub fn record(&self) -> Result<NewRecord> {
         Ok(NewRecord::json(kinds::NODE, Some(&self.id), self)?.scoped(&self.session_id))
     }
@@ -411,6 +441,7 @@ impl Node {
             Body::ToolResult { .. } => "tool_result",
             Body::Recall { .. } => "recall",
             Body::Arrangement { .. } => "arrangement",
+            Body::Summary { .. } => "summary",
         }
     }
 
@@ -454,6 +485,7 @@ impl Node {
                     .collect::<Vec<_>>()
                     .join("; ")
             ),
+            Body::Summary { header, text, .. } => format!("{header} {text}"),
         };
         let s = s.replace('\n', " ");
         if s.chars().count() > max {

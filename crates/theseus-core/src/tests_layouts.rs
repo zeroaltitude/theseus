@@ -195,6 +195,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::COMPILATION,
+        layout: "8 (30b, theseus-6fn.2): a ring's compilation with M6's budget, before an assembled prefix's recall_id (13, theseus-6fn.4); by hand, in the layout the build before 30c (760553f) writes",
+        bytes: r#"{"id":"cmp_00000000000000000000000000000081","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000081,"trigger":"overflow","strategy":"ring","as_of":31,"includes":["msg_00000000000000000000000000000083","asm_00000000000000000000000000000084"],"derived_from":"cmp_00000000000000000000000000000071","manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":40000,"strip_thinking":true,"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true}]}},"budget":{"limit_tokens":33904,"used_tokens":12010,"dropped":[{"range":{"first":"msg_00000000000000000000000000000081","last":"asm_00000000000000000000000000000082","nodes":2},"reason":"overflow","tokens":9400,"tier":"ring"},{"node_id":"msg_00000000000000000000000000000085","reason":"budget","tokens":410,"tier":"recall"}]}}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::LEDGER,
         layout: "a row of a kind no build writes now (theseus-w5op): 18d's secret.requested",
         bytes: r#"{"at_unix_ms":1790000000047,"kind":"secret.requested","session_id":"ses_lighthouse","data":{"command":"sh","correlation_id":"act_00000000000000000000000000000047","job":"act_00000000000000000000000000000043","kind":"secret","outcome":"granted","posture":"notify","secret":"github_token","setting":"proc.run ran at notify","why":null}}"#,

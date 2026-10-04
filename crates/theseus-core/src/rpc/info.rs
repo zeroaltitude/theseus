@@ -224,6 +224,8 @@ impl Core {
             // References, never copies (M6 30b): the sources, each with its
             // header and range.
             Body::Recall { .. } => (n.preview(80), String::new(), recall_detail(n), 0),
+            // A compaction's summary (30c): its testimony, and its range.
+            Body::Summary { .. } => summary_info(n),
         };
         theseus_protocol::NodeInfo {
             node_id: n.id.clone(),
@@ -245,6 +247,31 @@ impl Core {
 /// Context files' paths, as health names them.
 fn paths(files: &[crate::context_files::ContextEntry]) -> Vec<String> {
     files.iter().map(|f| f.path().to_string()).collect()
+}
+
+/// A compaction's summary (M6 30c): its testimony as its text, and its
+/// range as its detail.
+fn summary_info(n: &Node) -> (String, String, Value, u64) {
+    let Body::Summary {
+        first,
+        last,
+        nodes,
+        text,
+        profile,
+        model,
+        cost_usd,
+        header,
+    } = &n.body
+    else {
+        return (String::new(), String::new(), Value::Null, 0);
+    };
+    (
+        format!("{header}\n{text}"),
+        String::new(),
+        json!({"first": first, "last": last, "nodes": nodes, "profile": profile,
+            "model": model, "cost_usd": cost_usd}),
+        text.len() as u64,
+    )
 }
 
 /// A `Recall` node's detail (M6 30b): its references, never copies: each

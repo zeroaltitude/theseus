@@ -122,6 +122,8 @@ mod tests_categorize;
 #[cfg(test)]
 mod tests_ceilings;
 #[cfg(test)]
+mod tests_compaction;
+#[cfg(test)]
 mod tests_config;
 #[cfg(test)]
 mod tests_continuations;

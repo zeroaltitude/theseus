@@ -440,7 +440,9 @@ const BULK: usize = 4096;
 /// 11 = a hand's cancel verified by ECS (`verified_by: ecs`), and the hour's
 /// alert mark, `aws.hour.alerted.<account>` (step 40 part 2, theseus-mgw.11).
 /// 12 = the `TASK` record kind, a task's record (M7 39a, theseus-ext.6).
-const MANIFEST_FORMAT: u32 = 12;
+/// 13 = M6's `Summary` node (a NODE body), and a compilation's `recall_id` (30c,
+/// theseus-6fn.4).
+const MANIFEST_FORMAT: u32 = 13;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

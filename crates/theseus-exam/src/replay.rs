@@ -106,6 +106,7 @@ fn kind_of(b: &Body) -> &'static str {
         Body::ToolResult { .. } => "tool_result",
         Body::Recall { .. } => "recall",
         Body::Arrangement { .. } => "arrangement",
+        Body::Summary { .. } => "summary",
     }
 }
 

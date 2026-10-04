@@ -33,6 +33,8 @@ use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_TOKENS};
 use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetRange, BudgetReport};
 
+pub mod compaction;
+
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block
 /// whose prefix could never reach the model's caching minimum gets no marker.
@@ -163,7 +165,8 @@ pub struct Compilation {
     /// Why it was made: `new_session`, `model_changed`, `system_changed`,
     /// `tools_changed` (joined with `+`), `overflow`, `manual_fresh`, `manual_transcript`.
     pub trigger: String,
-    /// `transcript` (everything so far), `fresh` (nothing), `ring` (leading turns dropped).
+    /// `transcript` (everything so far), `fresh` (nothing), `ring` (leading
+    /// turns dropped), `compaction` (a summary of them in their place, 30c).
     pub strategy: String,
     /// WAL position the selection was made at: later nodes are the tail.
     pub as_of: u64,
@@ -177,6 +180,11 @@ pub struct Compilation {
     /// Absent in a compilation from before it (COMPILATION's layout 7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<BudgetReport>,
+    /// An assembled prefix's recall section (M6 30c): the `Recall` node it
+    /// renders first, whatever its position. Absent in a compilation from
+    /// before it (COMPILATION's layout 8), and in one not assembled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recall_id: Option<String>,
 }
 
 /// An operator's request to recompile.
@@ -263,6 +271,9 @@ pub struct CompileInput<'a> {
     /// CONTINUE's candidate signals' thresholds and the clock (M5 25b);
     /// `None` reads none.
     pub signals: Option<crate::signals::SignalsAt>,
+    /// The assembled strategy's recall section (M6 30c): a new compilation
+    /// renders this `Recall` node first in its prefix (`recall_id`).
+    pub assembled: Option<&'a str>,
 }
 
 /// A request that passed the model's window, as the provider said it
@@ -707,8 +718,8 @@ fn compile_with(
         appended
     };
 
-    let all_renderable: Vec<&(u64, Arc<Node>)> =
-        input.nodes.iter().filter(|(_, n)| renderable(n)).collect();
+    // Past a compaction, its summary stands for its range (30c).
+    let all_renderable = compaction::visible(input.nodes);
     let make =
         |trigger: String, strategy: &str, strip: bool, includes: Vec<String>, base: &Manifest| {
             Compilation {
@@ -726,6 +737,7 @@ fn compile_with(
                     ..base.clone()
                 },
                 budget: None,
+                recall_id: input.assembled.map(str::to_string),
             }
         };
 
@@ -789,14 +801,21 @@ fn compile_with(
                 true => now_manifest,
                 false => manifest_for(recompiled, input.catalog, window, false),
             };
-            let seq: Vec<&Node> = all_renderable.iter().map(|(_, n)| &**n).collect();
+            // The ring leaves a summary out with its range (30c): from its
+            // first kept message on, it may keep every later one.
+            let seq: Vec<&Node> = all_renderable
+                .iter()
+                .map(|(_, n)| &**n)
+                .filter(|n| !compaction::is_summary(n))
+                .collect();
+            let floored = seq.len() < all_renderable.len();
             let starts: Vec<usize> = seq
                 .iter()
                 .enumerate()
                 .filter(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
                 .map(|(i, _)| i)
                 .collect();
-            for &cut in starts.iter().skip(1) {
+            for &cut in starts.iter().skip(usize::from(!floored)) {
                 let includes: Vec<String> = seq[cut..].iter().map(|n| n.id.clone()).collect();
                 let candidate = make("overflow".into(), "ring", true, includes, &ring_base);
                 let r = render_request(recompiled, input.catalog, &candidate, input.nodes, media);
@@ -928,14 +947,19 @@ pub fn render_request(
     ),
 ) -> Rendered {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
+    // An assembled prefix's recall section is its, wherever it was written.
+    let section = |n: &Node| c.recall_id.as_deref() == Some(n.id.as_str());
     let prefix: Vec<&Node> = nodes
         .iter()
-        .filter(|(pos, n)| *pos <= c.as_of && included.contains(n.id.as_str()) && renderable(n))
+        .filter(|(pos, n)| {
+            (*pos <= c.as_of && included.contains(n.id.as_str()) && renderable(n)) || section(n)
+        })
         .map(|(_, n)| &**n)
         .collect();
+    let prefix = compaction::summaries_first(prefix, c.recall_id.as_deref());
     let tail: Vec<&Node> = nodes
         .iter()
-        .filter(|(pos, n)| *pos > c.as_of && renderable(n))
+        .filter(|(pos, n)| *pos > c.as_of && renderable(n) && !section(n))
         .map(|(_, n)| &**n)
         .collect();
     let entry = catalog.get(&spec.model);
@@ -1094,6 +1118,7 @@ fn late_result_text(r: &Node) -> String {
 /// left out, with its calls (theseus-9p88): the one `retrying` names, and
 /// any that a later answer of its turn followed. Also returns the repaired
 /// calls and the tokens the images are estimated at.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn render_messages(
     prefix: &[&Node],
     tail: &[&Node],
@@ -1185,6 +1210,16 @@ pub fn render_messages(
             // (M6 30b), read from its sources over their frozen ranges.
             Body::Recall { items, .. } => {
                 let text = crate::recall::render::render(items, sources);
+                push(
+                    &mut out,
+                    "user",
+                    vec![json!({"type": "text", "text": text})],
+                )
+            }
+            // A compaction's summary (30c), first in its prefix; in a tail
+            // its range is still in the prefix, so it renders nothing.
+            Body::Summary { header, text, .. } if in_prefix => {
+                let text = compaction::rendered(header, text);
                 push(
                     &mut out,
                     "user",
@@ -1407,6 +1442,7 @@ mod tests {
             overflowed: None,
             sources: &Default::default(),
             signals: None,
+            assembled: None,
         })
     }
 
@@ -1657,6 +1693,7 @@ mod tests {
             overflowed: None,
             sources: &Default::default(),
             signals: None,
+            assembled: None,
         });
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
@@ -1690,6 +1727,7 @@ mod tests {
             overflowed: None,
             sources: &Default::default(),
             signals: None,
+            assembled: None,
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");
@@ -1947,6 +1985,7 @@ mod tests {
             overflowed: None,
             sources: &Default::default(),
             signals: None,
+            assembled: None,
         });
         assert_eq!(c.request.system.len(), 2);
         assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
@@ -2005,6 +2044,7 @@ mod tests {
             overflowed,
             sources: &Default::default(),
             signals: None,
+            assembled: None,
         })
     }
 
@@ -2255,6 +2295,7 @@ mod tests {
             overflowed: None,
             sources: &Default::default(),
             signals: None,
+            assembled: None,
         })
     }
 

@@ -216,13 +216,16 @@ pub fn normalize(s: &str) -> String {
 /// A node's text, as a quote matches it and the child reads it: an
 /// operator's or relayed message's text, a reply's text blocks, a tool
 /// result's content. None for a node with none (a call, an arrangement, a
-/// recall, whose text is its sources').
+/// recall, whose text is its sources', a summary, which stands for its range).
 pub fn text_of(n: &Node) -> Option<String> {
     let t = match &n.body {
         Body::UserMessage { text, .. } => text.clone(),
         Body::AssistantMessage { blocks, .. } => crate::provider::text_of(blocks),
         Body::ToolResult { content, .. } => content.clone(),
-        Body::ToolCall { .. } | Body::Arrangement { .. } | Body::Recall { .. } => return None,
+        Body::ToolCall { .. }
+        | Body::Arrangement { .. }
+        | Body::Recall { .. }
+        | Body::Summary { .. } => return None,
     };
     (!t.trim().is_empty()).then_some(t)
 }
