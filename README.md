@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="docs/assets/theseus-logo.svg" alt="Theseus: a Greek ship on an old coin, sailing at night. Most of its planks are worn ivory; a few are new gold ones." width="200">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/theseus-logo.svg">
+    <source srcset="docs/assets/theseus-logo-animated.svg" type="image/svg+xml">
+    <img src="docs/assets/theseus-logo-animated.gif" alt="Theseus: a Greek ship on an old coin, sailing at night. Most of its planks are worn ivory; a few are new gold ones." width="200">
+  </picture>
 </p>
 
 <h1 align="center">Theseus</h1>
