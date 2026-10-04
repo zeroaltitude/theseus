@@ -447,6 +447,7 @@ function Places({ health, log }: { health?: Health; log: LedgerEntry[] }) {
           <span className="num min-w-0 flex-1 truncate text-tool" title={p.place}>{p.name}</span>
           {p.class === 'private' ? <Pill tone="ok">private: everything</Pill> : <Pill tone="wait">shared: public tools</Pill>}
           {(p.others?.length ?? 0) > 0 && <Pill tone="fault">{`⚠ ${p.others?.join(', ')} can view it`}</Pill>}
+          {p.trusted_guild && <span className="text-[11px] text-ink-faint" title="the bindings file trusts the whole guild (private = true beside guild_id), so who can view it is not read">in a trusted guild</span>}
           {p.unchecked && <span className="text-[11px] text-ink-faint" title={p.unchecked}>unchecked</span>}
         </div>
       ))}

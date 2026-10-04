@@ -41,10 +41,18 @@ impl Core {
         self.runner.place_rule.bind(places);
     }
 
-    /// Who can view a guild channel bound `private = true`, as the binding
-    /// read it at its start (the place rule's one check): everyone who can,
-    /// the bot aside, by id and name, or why that cannot be read. Health
-    /// warns while anyone besides the owner can; recorded once a start.
+    /// Whether the bindings file trusts its guild whole (theseus-rdqg): told
+    /// with its places, so health names each private channel there as in a
+    /// trusted guild, which is never read.
+    pub fn trust_guild(&self, trusted: bool) {
+        self.runner.place_rule.trust_guild(trusted);
+    }
+
+    /// Who can view a guild channel bound `private = true`, outside a trusted
+    /// guild, as the binding read it at its start (the place rule's one
+    /// check): everyone who can, the bot aside, by id and name, or why that
+    /// cannot be read. Health warns while anyone besides the owner can;
+    /// recorded once a start.
     pub fn private_place_viewed(
         &self,
         channel: u64,

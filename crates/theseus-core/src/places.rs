@@ -6,6 +6,12 @@
 //!   an owner, and a guild channel the bindings file binds with
 //!   `private = true` (the operator's word, trusted by default). It gets
 //!   everything.
+//! - **A trusted guild** (theseus-rdqg): `private = true` beside the
+//!   bindings file's `guild_id` is the operator's word that the whole guild
+//!   is theirs. Every channel bound in it is private unless it says
+//!   `private = false` (the binding resolves each place's class before it
+//!   tells them), none has its viewers read, and health says "in a trusted
+//!   guild" where it would warn.
 //! - **Shared**: every other place. It gets its own conversation; the tools
 //!   whose results are public by nature (`web.search`, `http.fetch`,
 //!   `wake.*`, `task.*`); `fs.*`, `git.*`, and `text.*` only under
@@ -24,6 +30,7 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
@@ -89,14 +96,15 @@ pub struct BoundPlace {
     pub target: String,
     /// `#openclaw`, `DM @eddie`.
     pub name: String,
-    /// A guild channel bound `private = true`. A DM's class is its person's:
-    /// private with an owner.
+    /// A guild channel bound private: by its own `private = true`, or by its
+    /// trusted guild's when it says nothing (theseus-rdqg). A DM's class is
+    /// its person's: private with an owner.
     pub private: bool,
 }
 
-/// What a read of who can view a guild channel bound `private = true` found,
-/// at the binding's start: the people besides the owner, by name, or why it
-/// could not be read.
+/// What a read of who can view a guild channel bound `private = true`, outside
+/// a trusted guild, found at the binding's start: the people besides the
+/// owner, by name, or why it could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Viewed {
     Others(Vec<String>),
@@ -115,6 +123,8 @@ struct Bound {
 #[derive(Default)]
 pub struct PlaceRule {
     bound: RwLock<Vec<Bound>>,
+    /// The bindings file trusts its guild whole (theseus-rdqg).
+    trusted_guild: AtomicBool,
 }
 
 impl PlaceRule {
@@ -143,6 +153,13 @@ impl PlaceRule {
             place,
             viewed: None,
         });
+    }
+
+    /// Whether the bindings file trusts its guild whole (`private = true`
+    /// beside `guild_id`, theseus-rdqg). Its channels' classes come resolved
+    /// in their places; this says why the private ones are never read.
+    pub fn trust_guild(&self, trusted: bool) {
+        self.trusted_guild.store(trusted, Ordering::Relaxed);
     }
 
     /// The binding's places, from its bindings file: they replace any told
@@ -192,8 +209,8 @@ impl PlaceRule {
 
     /// The class of the place `target` (`outbox.target`): none is the CLI or
     /// the web UI, private; a DM is private with an owner; a guild channel
-    /// is private only when the binding bound it `private = true`; anything
-    /// else is shared.
+    /// is private only when the binding bound it private (its own word, or
+    /// its trusted guild's); anything else is shared.
     pub fn class(&self, cfg: &crate::Config, target: Option<&str>) -> PlaceClass {
         let Some(t) = target else {
             return PlaceClass::Private;
@@ -218,7 +235,8 @@ impl PlaceRule {
     }
 
     /// Health's `places` block: the CLI and the web UI, then each bound
-    /// place with its class, and a private channel's viewers as read.
+    /// place with its class, and a private channel's viewers as read, or
+    /// that its guild is trusted.
     pub fn health(&self, cfg: &crate::Config) -> PlacesHealth {
         let local = |place: &str, name: &str| PlaceInfo {
             place: place.into(),
@@ -226,20 +244,26 @@ impl PlaceRule {
             class: PlaceClass::Private,
             others: None,
             unchecked: None,
+            trusted_guild: false,
         };
         let mut places = vec![local("cli", "CLI"), local("web", "web")];
+        let trusted = self.trusted_guild.load(Ordering::Relaxed);
         for b in self.bound.read().unwrap().iter() {
             let (others, unchecked) = match &b.viewed {
                 Some(Viewed::Others(o)) => (Some(o.clone()), None),
                 Some(Viewed::Unread(why)) => (None, Some(why.clone())),
                 None => (None, None),
             };
+            let class = self.class(cfg, Some(&b.place.target));
             places.push(PlaceInfo {
                 place: b.place.target.clone(),
                 name: b.place.name.clone(),
-                class: self.class(cfg, Some(&b.place.target)),
+                class,
                 others,
                 unchecked,
+                trusted_guild: trusted
+                    && class == PlaceClass::Private
+                    && b.place.target.starts_with("discord:channel:"),
             });
         }
         PlacesHealth {

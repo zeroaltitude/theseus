@@ -15,9 +15,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `catalog.rs` (each model's window, prices, and caching).
 - **Places** (the place rule, theseus-nbsh; it replaced 19a's labels on nodes): `places.rs`. Every place a session
   speaks in is private or shared. Private: the CLI and the web UI (no place), a DM with an owner (`Config::owners_for`),
-  and a guild channel the binding bound `private = true`; it gets everything. Shared: every other place; it gets the
-  public tools (`places::public_tool`), the file tools only under `[places] public_paths` (canonical roots, so a link
-  out of a tree is outside it), and only the context files marked `readers = "public"`
+  and a guild channel the binding bound private (its own `private = true`, or, saying nothing, in a guild the bindings
+  file trusts whole with `private = true` beside `guild_id`, theseus-rdqg); it gets everything. Shared: every other
+  place; it gets the public tools (`places::public_tool`), the file tools only under `[places] public_paths`
+  (canonical roots, so a link out of a tree is outside it), and only the context files marked `readers = "public"`
   (`context_files::withhold_shared`). A turn's class is `TurnRunner::class_of`: where its words go, which is its
   session's place (a task's is its parent's, `outbox.target`), or, for a session whose place moved on, where its wakes
   and reports answer (`outbox.wake_target`); shared when that cannot be read. It is fixed in `TurnCtx.class` once the
@@ -25,8 +26,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`system_note_for`) are per class, and the gate refuses a shared place's other calls (`places::refusal`, answered
   `Not run: …`, reason `place: …`). The binding tells the core its places as it starts (`Core::bind_places`, in
   memory: an unnamed guild place is shared), and reads each private channel's viewers once (`private_place_viewed`,
-  `place.viewed`), for health's `places:` line. M6's recall and the books, when built, draw in a shared place only on
-  that place's own sessions. Tests: `tests_places.rs`, `places::tests`.
+  `place.viewed`), for health's `places:` line. In a trusted guild it reads none, and health names each private
+  channel there `(in a trusted guild)` (`Core::trust_guild`, `PlaceInfo.trusted_guild`). M6's recall and the books,
+  when built, draw in a shared place only on that place's own sessions. Tests: `tests_places.rs`, `places::tests`.
   - **Publish** (`rpc/publish.rs`; graduation's light form): `place.publish` puts one item (a node, a file the owner
     can read, or a message) into a bound place's session as the owner's message, with a `derived_from` edge for a
     node (`publish`), its `place.published` row, and a notice post in the place, in one frame under the place's

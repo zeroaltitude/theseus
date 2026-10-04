@@ -23,4 +23,10 @@ others?: Array<string>,
  * Why who can view it could not be read: the Server Members intent is
  * off, or Discord refused the read.
  */
-unchecked?: string, };
+unchecked?: string, 
+/**
+ * A private guild channel in a guild the operator trusts whole (the
+ * bindings file's `private = true` beside `guild_id`, theseus-rdqg):
+ * the operator's word covers the guild, so who can view it is not read.
+ */
+trusted_guild?: boolean, };
