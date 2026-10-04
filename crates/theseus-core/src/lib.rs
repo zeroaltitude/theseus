@@ -43,6 +43,7 @@ pub mod policy;
 pub mod provider;
 pub mod push;
 pub mod reach;
+pub mod recall;
 pub mod restore;
 pub mod rpc;
 pub mod sandbox;
@@ -128,6 +129,8 @@ mod tests_places;
 mod tests_push;
 #[cfg(test)]
 mod tests_reach;
+#[cfg(test)]
+mod tests_recall;
 #[cfg(test)]
 mod tests_refused;
 #[cfg(test)]

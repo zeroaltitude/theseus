@@ -560,6 +560,22 @@ weights_dir = "~/.cache/theseus/models"   # the embedding model's files; nothing
 threads = 1                               # the embedding model's threads
 idle_unload_mins = 10.0                   # the model unloads after this long unused (about 500 MB), and loads again on the next use
 
+# ---------------------------------------------------------------- memory
+# Recall (M6 step 30a): on a turn's first loop, ask the index what past nodes
+# bear on what the turn brings, filter them (the place rule first: a shared
+# place draws only on its own sessions, a private place only on private ones),
+# and pack what would be admitted. Off by default. In shadow, each recall is a
+# recall.shadow row, a span, and a narrative line, and nothing reaches the
+# model: its request is the same byte for byte. See it with
+# `theseus memory recalled <session>` and `theseus memory search "<query>"`.
+# An older binary refuses a [memory] table: install first, then paste.
+# [memory]
+# mode = "shadow"                         # off (the default) | shadow; canary and live come with step 30b
+# recall_budget_tokens = 1500             # the pack's tokens
+# recall_max_items = 6                    # the pack's items, at most 40
+# recall_deadline_ms = 250                # how long recall waits for the index; the turn never waits past its model call and this
+# include_external = false                # whether fetched text may be recalled
+
 # ---------------------------------------------------------------- sandbox
 # L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own
 # uid with no capabilities, over a view built from an empty root: the system's

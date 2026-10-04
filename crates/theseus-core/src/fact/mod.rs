@@ -45,6 +45,7 @@ pub mod cancel;
 pub mod driver;
 pub mod index;
 pub mod place;
+pub mod recall;
 pub mod sandbox;
 pub mod start;
 pub mod tool;
@@ -229,6 +230,7 @@ facts![
     turn::ContextFileMissing<'static>,
     turn::LoopOpened,
     turn::ContextCompiled<'static>,
+    recall::RecallShadow<'static>,
     place::PlaceViewed<'static>,
     place::Published<'static>,
     turn::LoopStarted<'static>,

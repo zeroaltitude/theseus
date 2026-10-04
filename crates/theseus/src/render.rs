@@ -21,12 +21,14 @@ use theseus_protocol::{
 mod aws;
 mod cancel;
 mod index;
+mod memory;
 mod places;
 mod sandbox;
 mod store;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
+pub use memory::{recall_lines, recalls_lines};
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};

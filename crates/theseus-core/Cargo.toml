@@ -17,6 +17,8 @@ theseus-sandbox.workspace = true
 theseus-aws = { path = "../theseus-aws" }
 # AWS (row 30, C2 = 14b): the guard list both enforcers read.
 theseus-aws-guard = { path = "../theseus-aws-guard" }
+# Recall's science: the filters, the rank, and the pack (M6 step 30a).
+theseus-memory = { path = "../theseus-memory" }
 anyhow.workspace = true
 base64.workspace = true
 thiserror.workspace = true
