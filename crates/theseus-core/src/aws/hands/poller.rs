@@ -174,16 +174,26 @@ pub async fn run(core: Weak<Core>, aws: Arc<Aws>) {
     }
 }
 
-/// The stops still to verify, in each open group (`cancel::verify`).
+/// The stops still to verify, in each open group (`cancel::verify`), and
+/// the hands past their deadline (`overdue::pass`), which the heartbeat
+/// leaves to this pass.
 async fn verify_stops(core: &Core, aws: &Arc<Aws>, open: &[GroupRecord]) {
     let ctx = group::Ctx {
         kernel: &core.kernel,
         store: &core.store,
         aws,
     };
+    let now = theseus_protocol::now_unix_ms();
     for g in open {
         if let Err(e) = super::cancel::verify(&ctx, g).await {
             tracing::warn!(group = %g.group, error = %format!("{e:#}"), "hands: verifying a stop");
+        }
+        match super::overdue::pass(&ctx, g, now).await {
+            Ok(true) => step(core, aws, &g.group).await,
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(group = %g.group, error = %format!("{e:#}"), "hands: the overdue hands");
+            }
         }
     }
 }
@@ -536,7 +546,8 @@ async fn lambda_failure(
 /// ECS's task state change: a hand's task that stopped with its hand's
 /// container failing (it never sent its envelope, or could not start) makes
 /// the hand unknown. One whose hand exited 0 sent its envelope: nothing to
-/// do.
+/// do. A stop Theseus asked for is verified by it, and one the TTL reaper
+/// made settles the hand failed with the reaper's reason (part 2).
 async fn ecs_task(core: &Core, aws: &Arc<Aws>, body: &Value) -> Result<bool> {
     let d = &body["detail"];
     let Some(group) = d["startedBy"].as_str() else {
@@ -579,6 +590,13 @@ async fn ecs_task(core: &Core, aws: &Arc<Aws>, body: &Value) -> Result<bool> {
         missing: false,
     };
     if super::cancel::stopped_event(&ctx, &rec, &a, &st)? {
+        return Ok(true);
+    }
+    // The TTL reaper stopped it: failed, with the reaper's reason.
+    if super::overdue::by_reaper(st.reason.as_deref()) {
+        if super::overdue::reaped(&ctx, &rec, &a, &st)? {
+            step(core, aws, group).await;
+        }
         return Ok(true);
     }
     if exit == Some(0) {

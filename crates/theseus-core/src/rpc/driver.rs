@@ -25,6 +25,8 @@ impl Core {
         let ev = WrapperEvidence {
             spool: self.spool.clone(),
         };
+        // A hand is its own reconciler's, which asks AWS first (step 40).
+        let ev = crate::aws::hands::overdue::Evidence(&ev);
         match self.kernel.reconcile(&ev) {
             Ok(rep) => {
                 let changed = !rep.woke_due.is_empty()

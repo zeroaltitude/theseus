@@ -503,9 +503,9 @@ impl Core {
         let startup = kernel
             .startup(
                 Some(&spool),
-                &WrapperEvidence {
+                &crate::aws::hands::overdue::Evidence(&WrapperEvidence {
                     spool: spool.clone(),
-                },
+                }),
             )
             .context("kernel startup")?;
         startup_log.record(

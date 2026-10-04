@@ -12,6 +12,8 @@
 //!   settle.
 //! - [`cancel`]: a running hand's stop, by its backend (Fargate's
 //!   `StopTask`, verified STOPPED; Lambda's none), and a group's.
+//! - [`overdue`]: a hand past its deadline, asked about before it is
+//!   called unknown, and a hand the TTL reaper stopped.
 //! - [`watch`]: health's hands block, the hour's meter and its alert, and
 //!   the TTL reaper's failures.
 //! - [`poller`]: the completion queue's long poll, after serving and only
@@ -31,6 +33,7 @@ pub mod envelope;
 pub mod group;
 pub mod hand;
 pub mod launch;
+pub mod overdue;
 pub mod poller;
 pub mod tool;
 pub mod watch;

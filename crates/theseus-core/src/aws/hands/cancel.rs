@@ -75,7 +75,7 @@ async fn ecs(
 }
 
 /// The `aws.called` rows of what `binding` sent, in one frame.
-fn called(ctx: &Ctx<'_>, rec: &GroupRecord, binding: &AwsBinding) {
+pub(super) fn called(ctx: &Ctx<'_>, rec: &GroupRecord, binding: &AwsBinding) {
     let session = Some(rec.session_id.as_str());
     let rows: Vec<_> = binding
         .requests()

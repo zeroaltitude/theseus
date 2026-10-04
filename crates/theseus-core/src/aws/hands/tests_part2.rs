@@ -523,3 +523,182 @@ async fn the_hours_alert_fires_once_an_hour() {
         assert_eq!(rows(&r.core, "aws.hour.alert").len(), 1);
     }
 }
+
+// ------------------------------------------------------------ overdue and reaped
+
+/// The heartbeat's reconciler leaves a hand to its own, which asks AWS
+/// first: its evidence says a hand still runs, and anything else as before.
+#[test]
+fn the_heartbeat_leaves_hands_to_their_own_reconciler() {
+    use theseus_kernel::{Evidence as _, NoEvidence, Probe};
+    let mut a: theseus_kernel::Action = serde_json::from_value(json!({
+        "correlation_id": "act_0e", "schema": 2, "execution_id": "exe_0e",
+        "session_id": "ses_0e", "tool": "aws.hand", "args_digest": "00",
+        "retry_class": {"class": "non_repeatable"}, "state": "dispatched",
+        "deadline_at_ms": 1, "planned_at_ms": 0, "reserved_micros": 0,
+        "completions_seen": 0}))
+    .unwrap();
+    let ev = super::overdue::Evidence(&NoEvidence);
+    assert_eq!(ev.probe(&a), Probe::StillRunning);
+    a.tool = "proc.run".into();
+    assert_eq!(ev.probe(&a), NoEvidence.probe(&a));
+}
+
+/// Fargate hands past their deadline are asked about with `DescribeTasks`
+/// before any is called unknown: one still RUNNING is left (the reaper stops
+/// it); one the TTL reaper stopped settles failed with the reaper's reason;
+/// one STOPPED otherwise, or one ECS no longer knows, is unknown, saying
+/// what ECS said.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_overdue_fargate_hand_is_asked_about_before_it_is_unknown() {
+    let r = fargate_rig(json!({"argv": ["true"], "count": 4, "backend": "fargate",
+        "ttl_secs": 3600}));
+    turn(&r.core, "run four").await;
+    let g = group_of(&r.core);
+    let rec = record(&r.core, &g);
+    let corr = |i: usize| rec.hands[i].correlation_id.clone();
+    let task = |i: usize| rec.hands[i].external_op_id.clone().unwrap();
+    {
+        let mut t = r.state.tasks.lock().unwrap();
+        t.insert(
+            task(1),
+            (
+                "STOPPED".into(),
+                Some("theseus ttl reaper: theseus:ttl 2026-10-04T10:00:00+00:00 passed".into()),
+            ),
+        );
+        t.insert(
+            task(2),
+            (
+                "STOPPED".into(),
+                Some("Essential container in task exited".into()),
+            ),
+        );
+        t.insert(task(3), ("MISSING".into(), None));
+    }
+    let aws = r.core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        aws: &aws,
+    };
+    // Not overdue yet: nothing is asked.
+    let now = theseus_protocol::now_unix_ms();
+    assert!(!super::overdue::pass(&ctx, &rec, now).await.unwrap());
+    assert_eq!(r.state.describes.load(Ordering::SeqCst), 0);
+    // Two hours on: past every deadline.
+    let later = now + 2 * 3_600_000;
+    assert!(super::overdue::pass(&ctx, &rec, later).await.unwrap());
+    assert_eq!(r.state.describes.load(Ordering::SeqCst), 1);
+    assert_eq!(state_of(&r.core, &corr(0)), ActionState::Dispatched);
+    assert_eq!(state_of(&r.core, &corr(1)), ActionState::Failed);
+    let c = super::group::completion(&r.core.store, &corr(1)).unwrap();
+    let why = c.detail.as_ref().unwrap()["error"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        why.starts_with("stopped by the TTL reaper: theseus ttl reaper"),
+        "{why}"
+    );
+    assert_eq!(c.producer, "hands:reaper");
+    for (i, says) in [(2, "Essential container"), (3, "no longer knows")] {
+        let a = action(&r, &corr(i));
+        assert_eq!(a.state, ActionState::OutcomeUnknown, "{a:?}");
+        let c = super::group::completion(&r.core.store, &corr(i)).unwrap();
+        assert!(c.producer.contains(says), "{}", c.producer);
+    }
+}
+
+/// A Lambda hand past its deadline has nothing to ask (its timeout has
+/// passed): unknown, saying no envelope and no failure record came. Its
+/// envelope, if it comes, resolves it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_overdue_lambda_hand_is_unknown_until_its_envelope() {
+    let r = rig(calls(json!({"argv": ["true"]})));
+    turn(&r.core, "run one").await;
+    let g = group_of(&r.core);
+    let rec = record(&r.core, &g);
+    let aws = r.core.tools.aws.clone().unwrap();
+    let ctx = super::group::Ctx {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        aws: &aws,
+    };
+    let later = theseus_protocol::now_unix_ms() + 3_600_000;
+    assert!(super::overdue::pass(&ctx, &rec, later).await.unwrap());
+    let corr = rec.hands[0].correlation_id.clone();
+    assert_eq!(state_of(&r.core, &corr), ActionState::OutcomeUnknown);
+    let c = super::group::completion(&r.core.store, &corr).unwrap();
+    assert!(c.producer.contains("no envelope"), "{}", c.producer);
+    r.state.push(signed(&r.state.invoked()[0], "succeeded", 0));
+    r.core.poll_hands_after_serving();
+    until("the hand resolved", || {
+        state_of(&r.core, &corr) == ActionState::Succeeded
+    })
+    .await;
+    assert_eq!(rows(&r.core, "action.resolved").len(), 1);
+}
+
+/// ECS's state change for a task the TTL reaper stopped settles its hand
+/// failed with the reaper's reason, never unknown; and the reaper's own
+/// failure record on the queue is read: an `aws.reaper.failed` row, its
+/// message deleted, and health's count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reaped_hand_fails_with_the_reapers_reason_and_its_failures_are_read() {
+    let r = fargate_rig(json!({"argv": ["true"], "count": 2, "backend": "fargate"}));
+    turn(&r.core, "run two").await;
+    let g = group_of(&r.core);
+    let rec = record(&r.core, &g);
+    let corr = rec.hands[0].correlation_id.clone();
+    r.state.push(
+        json!({"source": "aws.ecs", "detail-type": "ECS Task State Change",
+            "detail": {"lastStatus": "STOPPED", "startedBy": g,
+                "taskArn": rec.hands[0].external_op_id,
+                "stoppedReason": "theseus ttl reaper: theseus:ttl 2026-10-04T10:00:00+00:00 passed",
+                "containers": [{"name": "hand", "exitCode": 143}]}})
+        .to_string(),
+    );
+    r.state.push(
+        json!({"version": "1.0",
+            "requestContext": {"requestId": "inv-reaper", "condition": "RetriesExhausted",
+                "functionArn": "arn:aws:lambda:us-west-2:111122223333:function:theseus-reaper:$LATEST"},
+            "requestPayload": {"source": "aws.events"},
+            "responseContext": {"statusCode": 200, "functionError": "Unhandled"},
+            "responsePayload": {"errorMessage": "AccessDenied on ecs:StopTask", "errorType": "ClientError"}})
+        .to_string(),
+    );
+    r.core.poll_hands_after_serving();
+    until("the reaped hand", || {
+        state_of(&r.core, &corr) == ActionState::Failed
+    })
+    .await;
+    let c = super::group::completion(&r.core.store, &corr).unwrap();
+    assert!(
+        c.detail.as_ref().unwrap()["error"]
+            .as_str()
+            .unwrap()
+            .contains("TTL reaper"),
+        "{c:?}"
+    );
+    until("the reaper's failure read", || {
+        !rows(&r.core, "aws.reaper.failed").is_empty()
+    })
+    .await;
+    let f = &rows(&r.core, "aws.reaper.failed")[0];
+    assert_eq!(f["condition"], "RetriesExhausted");
+    assert!(f["error"].as_str().unwrap().contains("AccessDenied"));
+    until("both messages deleted", || {
+        r.state.deleted.lock().unwrap().len() == 2
+    })
+    .await;
+    let aws = r.core.tools.aws.clone().unwrap();
+    until("health's count", || {
+        aws.account(None)
+            .unwrap()
+            .status()
+            .hands
+            .is_some_and(|h| h.reaper_failures == 1)
+    })
+    .await;
+}
