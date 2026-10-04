@@ -4,6 +4,7 @@
 //! baseline ended with no tool calls, after the turn, and nothing acts on it.
 //! In 25a two more, `classify.v1` and `role.v1`, judge each message a person
 //! sends, in one request (`inbound`).
+//! M6's 32c adds `rerank.v1` in shadow, after a turn's recall (`rerank`).
 //!
 //! - **Off the start path.** `JudgeService::new` reads nothing and sends
 //!   nothing. The client, its breaker, and its sink's task are built by the
@@ -31,6 +32,7 @@ pub mod gate;
 pub mod inbound;
 pub mod loop_end;
 pub mod mark;
+pub mod rerank;
 pub mod sink;
 pub mod spend;
 
@@ -67,6 +69,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (inbound::ROLE_PACK, PackMode::Shadow),
     (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
+    (rerank::RERANK_PACK, PackMode::Shadow),
 ];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.
@@ -120,6 +123,7 @@ pub struct JudgeService {
     pending: Mutex<HashSet<String>>,
     /// `categorize.v1`'s point (28b): the core it reads, and its decisions.
     categorize: categorize::Point,
+    rerank_deadline: rerank::RerankDeadline,
     me: Weak<JudgeService>,
     /// Where the judge's facts say their sentences, and their metrics go
     /// (23b): set by the core as it builds, and as its telemetry is built.
@@ -167,6 +171,7 @@ impl JudgeService {
             prices,
             pending: Mutex::new(HashSet::new()),
             categorize: Default::default(),
+            rerank_deadline: rerank::RerankDeadline::default(),
             me: me.clone(),
             narrator: OnceLock::new(),
             telemetry: OnceLock::new(),

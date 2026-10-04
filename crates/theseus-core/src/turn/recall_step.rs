@@ -168,9 +168,17 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let scene = self.scene(t, "shadow");
-        let mut m = self
-            .memory
-            .manifest(&scene, &begun, answer, |s| self.place_of(s), false);
+        let (mut m, candidates) =
+            self.memory
+                .manifest_with(&scene, &begun, answer, |s| self.place_of(s), false);
+        // What the rerank reads of the scene (32c), taken now: the rest of
+        // the scene borrows the turn, which the row and the mark need.
+        let Scene {
+            place,
+            in_context,
+            labeled,
+            ..
+        } = scene;
         m.arm = self
             .memory
             .cfg()
@@ -183,6 +191,28 @@ impl TurnRunner {
         };
         defer_row(t, &f);
         t.announce_fact(&f);
+        // The `+rerank` arm in shadow (32c): off the turn's path.
+        self.judge.at_recall(
+            &mut t.trace,
+            crate::judge::rerank::Recalled {
+                recall_id: m.recall_id.clone(),
+                session_id: t.tc.session_id.to_string(),
+                turn_id: t.tc.turn_id.to_string(),
+                message: begun.query.clone(),
+                place,
+                in_context,
+                labeled,
+                candidates,
+                params: self.memory.cfg().params(),
+                science: self.memory.science_owned(),
+                admitted: m
+                    .admitted
+                    .iter()
+                    .map(|a| format!("{}#{}", a.node_id, a.chunk))
+                    .collect(),
+                now_ms: theseus_protocol::now_unix_ms(),
+            },
+        );
     }
 
     /// Recall in front of the model: the answer now, the pack, and its

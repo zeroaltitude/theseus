@@ -809,6 +809,26 @@ async fn a_pack_with_nothing_to_ask_is_skipped_without_a_call() {
     assert_eq!(fake.connections(), 0);
 }
 
+/// An id the core minted at the dispatch is the judgment's; without one,
+/// the judge mints its own.
+#[tokio::test]
+async fn a_minted_id_is_the_judgments_own() {
+    let fake = FakeJev::start().unwrap();
+    let judge = judge_for(&fake);
+    let mut minted = ask_with(probe_pack(), probe_input());
+    minted.id = Some("jdg_minted0001".into());
+    let plain = ask_with(probe_pack(), probe_input());
+    assert_eq!(plain.id, None, "Ask::new mints nothing");
+    let js = judge
+        .judge(DecisionPoint {
+            asks: vec![minted, plain],
+            urgency: Urgency::Shadow,
+        })
+        .await;
+    assert_eq!(js[0].id, "jdg_minted0001");
+    assert!(js[1].id.starts_with("jdg_") && js[1].id != js[0].id);
+}
+
 /// Every L2 live call of 2026-09-30 (`jev-probe --pack`), rebuilt from its
 /// fixture and batched as the judge batches it, fits inside its
 /// reservation: the packs, the input, and what Jev billed.

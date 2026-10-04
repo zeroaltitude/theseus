@@ -1,0 +1,39 @@
+# rerank.v1 (M6 step 32c, the `+rerank` arm): which of recall's top
+# candidates would help answer the message. At `recall`: after a recall's
+# pipeline, one request per recall, over the candidates that passed every
+# filter (the place rule first), at most twenty, in the fused order. The
+# state is the new message, trimmed, and the notes, numbered; one Noul a
+# note, the first ten under `helps` and the next ten under `helps_more`
+# (a per-item Noul asks at most ten). The arm re-sorts the twenty by the
+# answers' probabilities. No live action in 32c: the arm goes live with
+# step 30b.
+id = "rerank"
+version = 1
+jev_model = "jev-1.13.0"
+point = "recall"
+state = "rerank"
+state_cap_tokens = 8000
+sample = 1.0
+baseline = "fused"
+action = "none"
+description = "Recall's +rerank arm: which of the top twenty recalled notes hold information that would help answer the new message."
+
+[questions.helps]
+type = "noul"
+per = "notes"
+max = 10
+instructions = "Does the note numbered {item} hold information that would help answer the message?"
+act = 0.90
+confirm = 0.60
+when_true = "The note states facts, decisions, preferences, or steps that the message asks about, or that a good answer to the message would use."
+when_false = "The note is about something else, or only shares a few words with the message without saying anything an answer would use."
+
+[questions.helps_more]
+type = "noul"
+per = "more_notes"
+max = 10
+instructions = "Does the note numbered {item} hold information that would help answer the message?"
+act = 0.90
+confirm = 0.60
+when_true = "The note states facts, decisions, preferences, or steps that the message asks about, or that a good answer to the message would use."
+when_false = "The note is about something else, or only shares a few words with the message without saying anything an answer would use."

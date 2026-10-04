@@ -3,8 +3,8 @@
 Theseus's memory science (M6), as pure logic with no I/O: every input is explicit, so each result replays from the
 record. It has no dependencies.
 
-Key modules: `science.rs`, `recall.rs`, `fsrs.rs`, `activation.rs`, `access.rs`. Read by: theseus-core (`recall.rs`,
-the turn's recall step, and `memory.search`).
+Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `fsrs.rs`, `activation.rs`, `access.rs`. Read by: theseus-core
+(`recall.rs`, the turn's recall step, `memory.search`, and the judge's rerank).
 
 ## What's here
 
@@ -19,13 +19,18 @@ the turn's recall step, and `memory.search`).
   labeled it wrong or stale; 30b), `recursion` (a harness line or a recall), `threshold`; then the science's rank,
   and a greedy pack under the tokens and items (`budget`). A second chunk of an admitted node is `in_context`. The
   core reads each candidate's place (`TurnRunner::place_of`).
+- `rerank.rs` (step 32c): the `+rerank` arm's pure half. `eligible` is what passed every filter, in the science's
+  order (only it may reach Jev); `reorder` re-sorts the top 20 by Jev's probabilities (an unanswered item keeps its
+  fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order
+  (a `Reranked` science). The core's shadow rerank (`judge/rerank.rs`) calls all three; 30b's live arm would too.
 - `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is), `activation.rs` (32b's math).
 
 ## Invariants
 
 - **No I/O, no clock.** A time is an argument (`now_ms`).
 - **The place filter is first, and total.** Every candidate a turn may not draw on is dropped for `place`, whatever
-  else would drop it: the property tests in `recall.rs` and theseus-core's `tests_recall.rs` hold it.
+  else would drop it: the property tests in `recall.rs` and `rerank.rs`, and theseus-core's `tests_recall.rs` and
+  `tests_rerank.rs`, hold it.
 
 ## Tests
 

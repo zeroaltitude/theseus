@@ -167,6 +167,12 @@ impl Memory {
         &self.science
     }
 
+    /// The science, owned: for work after the turn's pipeline (the judge's
+    /// rerank, step 32c).
+    pub fn science_owned(&self) -> Arc<dyn MemoryScience> {
+        Arc::new(self.science.clone())
+    }
+
     /// Ask the index's `sources` (an arm's, `MemoryArm::sources`) for
     /// `query`'s hits as of `as_of`, in a task of its own, bounded by
     /// `deadline`.
@@ -274,10 +280,24 @@ impl Memory {
         &self,
         scene: &Scene<'_>,
         begun: &Begun,
-        (answer, index_took): (Answer, Duration),
+        answer: (Answer, Duration),
         place_of: impl Fn(&str) -> Place,
         texts: bool,
     ) -> RecallManifest {
+        self.manifest_with(scene, begun, answer, place_of, texts).0
+    }
+
+    /// The manifest, and the candidates its pipeline read (with their
+    /// places), for the judge's rerank after it (step 32c); none when the
+    /// index gave no hits.
+    pub fn manifest_with(
+        &self,
+        scene: &Scene<'_>,
+        begun: &Begun,
+        (answer, index_took): (Answer, Duration),
+        place_of: impl Fn(&str) -> Place,
+        texts: bool,
+    ) -> (RecallManifest, Vec<Candidate>) {
         let mut m = RecallManifest {
             recall_id: crate::new_id("rcl"),
             mode: scene.mode.into(),
@@ -302,13 +322,13 @@ impl Memory {
             Answer::Deadline => {
                 m.outcome = "deadline".into();
                 m.timings.total_ms = ms(begun.started.elapsed());
-                return m;
+                return (m, Vec::new());
             }
             Answer::Unavailable(why) => {
                 m.outcome = "unavailable".into();
                 m.why = Some(why);
                 m.timings.total_ms = ms(begun.started.elapsed());
-                return m;
+                return (m, Vec::new());
             }
         };
         let t0 = Instant::now();
@@ -355,11 +375,16 @@ impl Memory {
             labeled: &scene.labeled,
             now_ms: theseus_protocol::now_unix_ms(),
         };
-        let pack = pipeline::recall(&self.science, &asker, candidates, &self.cfg.params());
+        let pack = pipeline::recall(
+            &self.science,
+            &asker,
+            candidates.clone(),
+            &self.cfg.params(),
+        );
         fill(&mut m, pack, &mut ranks, texts);
         m.timings.pack_ms = ms(t0.elapsed());
         m.timings.total_ms = ms(begun.started.elapsed());
-        m
+        (m, candidates)
     }
 }
 

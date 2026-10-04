@@ -32,6 +32,8 @@ pub const SECURITY2_VERSION: u32 = 1;
 pub const INBOUND_VERSION: u32 = 1;
 pub const CONTINUE_VERSION: u32 = 1;
 pub const CATEGORIZE_VERSION: u32 = 1;
+/// `rerank.v1`'s builder (module `rerank`, M6 step 32c).
+pub const RERANK_VERSION: u32 = 1;
 
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
@@ -280,6 +282,7 @@ pub enum Input {
     Inbound(InboundInput),
     Continue(ContinueInput),
     Categorize(CategorizeInput),
+    Rerank(RerankInput),
 }
 
 impl Input {
@@ -292,6 +295,7 @@ impl Input {
             Input::Inbound(_) => Builder::Inbound,
             Input::Continue(_) => Builder::Continue,
             Input::Categorize(_) => Builder::Categorize,
+            Input::Rerank(_) => Builder::Rerank,
         }
     }
 
@@ -305,6 +309,7 @@ impl Input {
             Builder::Inbound => Input::Inbound(serde_json::from_str(json)?),
             Builder::Continue => Input::Continue(serde_json::from_str(json)?),
             Builder::Categorize => Input::Categorize(serde_json::from_str(json)?),
+            Builder::Rerank => Input::Rerank(serde_json::from_str(json)?),
         })
     }
 }
@@ -335,6 +340,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Inbound(i) => inbound(i, cap, scrub),
         Input::Continue(i) => continue_state(i, cap, scrub),
         Input::Categorize(i) => categorize(i, cap, scrub),
+        Input::Rerank(i) => rerank::rerank(i, cap, scrub),
     })
 }
 
@@ -531,7 +537,10 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     }
 }
 
+mod rerank;
 mod security2;
+
+pub use rerank::{RerankInput, RerankNote, RERANK_NOTES};
 
 /// `security.v1`: the call (tool, class, posture and why), its arguments
 /// (argv, paths, and a URL as host, path, and query, each clipped), the
@@ -924,6 +933,7 @@ mod tests {
             "classify.v1",
             "continue.v1",
             "categorize.v1",
+            "rerank.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(
@@ -1234,7 +1244,7 @@ mod tests {
             (
                 "categorize.v1",
                 Input::Categorize(CategorizeInput {
-                    session_title: big,
+                    session_title: big.clone(),
                     recent_human_messages: (0..2_000).map(|_| item.clone()).collect(),
                     memberships: (0..2_000)
                         .map(|i| MembershipInput {
@@ -1246,6 +1256,19 @@ mod tests {
                         .map(|i| TopicInput {
                             id: format!("c{i}"),
                             description: item.clone(),
+                        })
+                        .collect(),
+                }),
+            ),
+            (
+                "rerank.v1",
+                Input::Rerank(RerankInput {
+                    message: big.clone(),
+                    // Past the 20 a rerank reads, the rest only cost the test.
+                    notes: (0..100)
+                        .map(|i| RerankNote {
+                            key: format!("nod_{i}#0"),
+                            text: if i < 25 { big.clone() } else { item.clone() },
                         })
                         .collect(),
                 }),

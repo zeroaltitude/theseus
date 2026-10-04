@@ -273,6 +273,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Every compilation carries a `BudgetReport` (`Compiled.budget`, stored on a new `Compilation`; the ring's cut as a
     range, a recall's budget drops, an overage); the reply's `TurnSubmitResult.recalled` feeds Discord's
     `🧠 N recalled` footer. Tests: `tests_recall_node.rs`, `recall::render::tests`.
+  - **The `+rerank` arm in shadow** (step 32c): `judge/rerank.rs`. After the shadow recall's pipeline
+    (`recall_end`: `[memory] mode = "shadow"`, or a canary's control), the recall step's one call,
+    `JudgeService::at_recall`, picks the candidates that passed every filter (`theseus_memory::rerank::eligible`,
+    the place rule first, and the operator's labels: only they may reach Jev), marks the turn's trace (`judge`,
+    kind `mark`, with the judgment's id), and spawns `rerank.v1` under its own 600 ms deadline (a live-urgency
+    call): the reorder, the repack, and a `judge.call` row (scoped `judge:rerank`, context `purpose: "recall"`,
+    and `rerank`: the recall's id, both orders' admitted keys, `changed`, `fallback`, the latency against the
+    deadline, the cost). The day's limit sends nothing and writes no rerank row. Tests: `tests_rerank.rs` (the
+    place test over generated stores reads what the fake Jev was sent).
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

@@ -236,6 +236,7 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     assert_eq!(j.packs["loop.v1"].mode, Some(PackMode::Off));
     assert_eq!(j.packs["loop.v1"].sample, Some(0.5));
     assert_eq!(j.signals, SignalsConfig::default());
+    assert_eq!(j.packs["rerank.v1"].mode, Some(PackMode::Off));
     j.validate(&cfg.secrets).unwrap();
 }
 

@@ -36,7 +36,8 @@ use crate::client::{
 use crate::learn::RollbackRule;
 
 /// Every pack version this build knows, by file name: the test pack,
-/// §2.4's six, and `security.v2` and `security.v3`, candidates beside `security.v1`.
+/// §2.4's six, `security.v2` and `security.v3`, candidates beside `security.v1`,
+/// and `rerank.v1`, recall's `+rerank` arm (M6 step 32c).
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
@@ -47,6 +48,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("role.v1", include_str!("../packs/role.v1.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
+    ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -59,6 +61,8 @@ pub enum Point {
     Gate,
     LoopEnd,
     ExchangeEnd,
+    /// After a recall's pipeline (M6 step 32c), off the turn's path.
+    Recall,
     Probe,
 }
 
@@ -75,6 +79,8 @@ pub enum Builder {
     Inbound,
     Continue,
     Categorize,
+    /// `rerank.v1`'s: the message and recall's top notes (M6 step 32c).
+    Rerank,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -88,6 +94,8 @@ pub enum Baseline {
     CurrentRole,
     Append,
     NoMembership,
+    /// Recall's fused order, which `+rerank` re-sorts.
+    Fused,
 }
 
 /// The live action in code (closed set), or none.
@@ -108,6 +116,10 @@ pub enum Source {
     Roles,
     Topics,
     Memberships,
+    /// Recall's notes: the first ten, and the next ten (a per-item Noul asks
+    /// at most ten).
+    Notes,
+    MoreNotes,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1139,6 +1151,15 @@ mod tests {
                     "rollback []",
                 ],
             ),
+            (
+                "rerank.v1",
+                &[
+                    "Recall Rerank Fused None",
+                    "helps Noul per Notes max 10",
+                    "helps_more Noul per MoreNotes max 10",
+                    "rollback []",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1196,7 +1217,11 @@ mod tests {
     #[test]
     fn the_loaders_rules_hold_on_all_the_packs() {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
-        assert_eq!(six.len(), 8, "§2.4's six, and security.v2 and v3");
+        assert_eq!(
+            six.len(),
+            9,
+            "§2.4's six, security.v2 and v3, and rerank.v1 (M6 32c)"
+        );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
             let edit = |from: &str, to: &str| {
