@@ -29,6 +29,18 @@ pub enum FrameError {
     TooLarge { len: usize, max: usize },
 }
 
+impl FrameError {
+    /// The stream ended inside a message: the peer closed it mid-write (a
+    /// crash), not a broken frame.
+    pub fn is_cut_short(&self) -> bool {
+        match self {
+            FrameError::Io(e) => e.kind() == std::io::ErrorKind::UnexpectedEof,
+            FrameError::Header(h) => h.contains("ended inside a header"),
+            FrameError::TooLarge { .. } => false,
+        }
+    }
+}
+
 /// Read one message's body. `Ok(None)` is a clean end of the stream before
 /// any byte of a message; an end inside one is an error.
 pub async fn read_message<R>(r: &mut R, max: usize) -> Result<Option<Vec<u8>>, FrameError>
@@ -206,8 +218,14 @@ mod tests {
         // A body cut short is an error, not a message.
         let mut cut = framed(r#"{"a":1}"#);
         cut.truncate(cut.len() - 2);
-        let got = read_all(vec![cut]).await;
-        assert!(got[0].is_err());
+        let mut r = BufReader::new(Pieces(vec![cut].into()));
+        let e = read_message(&mut r, 1 << 20).await.unwrap_err();
+        assert!(e.is_cut_short(), "{e}");
+        let mut r = BufReader::new(Pieces(vec![b"Content-Length: 2\r\n".to_vec()].into()));
+        assert!(read_message(&mut r, 1 << 20)
+            .await
+            .unwrap_err()
+            .is_cut_short());
     }
 
     #[tokio::test]

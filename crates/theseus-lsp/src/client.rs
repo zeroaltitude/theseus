@@ -980,6 +980,10 @@ async fn read_loop(shared: Arc<Shared>, r: Box<dyn AsyncRead + Send + Unpin>) {
                 shared.lock().eof = true;
                 break "the server closed its stdout".to_string();
             }
+            Err(e) if e.is_cut_short() => {
+                shared.lock().eof = true;
+                break "the server closed its stdout in the middle of a message".to_string();
+            }
             Err(e) => break format!("reading the server's stdout failed: {e}"),
         }
     };

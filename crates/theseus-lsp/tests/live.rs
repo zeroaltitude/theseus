@@ -370,6 +370,9 @@ async fn live_rust_analyzer_on_a_workspace() {
     let (server, proc) = spawn::spawn(&command(&preset), &root, &[], Stdio::null()).unwrap();
     let mut opts = preset.options(&root);
     opts.initialize_timeout = Duration::from_secs(120);
+    // A long grace, to measure how long it takes to exit on its own with a
+    // whole workspace loaded (it took more than the default 1 s here).
+    opts.exit_grace = Duration::from_secs(10);
     let (c, _e) = Client::start(server, opts).await.unwrap();
     let initialize = started.elapsed();
     let mut peak = 0u64;

@@ -392,10 +392,11 @@ async fn a_crash_fails_the_waiting_request_and_says_so() {
             break;
         }
     }
-    // Its stdout's end, or a write to its closed stdin, whichever comes first.
+    // Its stdout's end (between messages, or inside one it was writing when
+    // it exited), or a write to its closed stdin, whichever comes first.
     let closed = closed.expect("the end is an event");
     assert!(
-        closed == "the server closed its stdout"
+        closed.starts_with("the server closed its stdout")
             || closed.starts_with("writing to the server failed"),
         "{closed}"
     );
