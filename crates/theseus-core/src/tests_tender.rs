@@ -719,3 +719,18 @@ async fn health_asks_no_tender_before_one_runs() {
     assert_eq!(h.status.map(|s| s.pid), Some(7));
     task.abort();
 }
+
+/// The memory pass reads the index's mode, not its state (31a): a ready
+/// tender without model files answers `bm25_only`, so the gate says there
+/// are no vectors instead of waiting for them, which the scratch daemon's
+/// check found when this read `state` (`ready`).
+#[tokio::test]
+async fn the_memory_pass_reads_the_tenders_mode() {
+    use crate::memory_pass::PassIndex;
+    let dir = tempfile::tempdir().unwrap();
+    stand_in(dir.path(), Arc::default());
+    let os = Arc::new(FakeOs::default());
+    let (t, _) = supervisor(IndexConfig::default(), dir.path(), os);
+    let pass = crate::memory_pass::Tender(t);
+    assert_eq!(pass.mode().await.unwrap(), "bm25_only");
+}

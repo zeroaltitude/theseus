@@ -99,9 +99,9 @@ pub trait PassIndex: Send + Sync {
     fn neighbours(&self, p: IndexNeighboursParams) -> IndexFuture<IndexNeighboursResult>;
     /// `index.entities`.
     fn entities(&self, texts: Vec<String>) -> IndexFuture<Vec<Vec<String>>>;
-    /// The index's state (`ready`, `bm25_only`, …), read when a neighbour
-    /// is refused.
-    fn state(&self) -> IndexFuture<String>;
+    /// What the index answers with (`hybrid`, or `bm25_only`: no vectors,
+    /// ever), read when a neighbour is refused.
+    fn mode(&self) -> IndexFuture<String>;
 }
 
 /// The index tender, as the pass asks it.
@@ -123,9 +123,12 @@ impl PassIndex for Tender {
         })
     }
 
-    fn state(&self) -> IndexFuture<String> {
+    fn mode(&self) -> IndexFuture<String> {
         let t = self.0.clone();
-        Box::pin(async move { Ok(t.health(crate::tender::STATUS_DEADLINE).await.state) })
+        Box::pin(async move {
+            let h = t.health(crate::tender::STATUS_DEADLINE).await;
+            Ok(h.status.map(|s| s.mode).unwrap_or_default())
+        })
     }
 }
 
@@ -647,8 +650,8 @@ struct Gate<'a> {
     index: Option<Arc<dyn PassIndex>>,
     /// The pass's remaining wait for vectors.
     left: Duration,
-    /// The index's state, once read.
-    state: Option<String>,
+    /// The index's mode, once read.
+    mode: Option<String>,
 }
 
 impl<'a> Gate<'a> {
@@ -657,7 +660,7 @@ impl<'a> Gate<'a> {
             pass,
             index,
             left: pass.timing.wait,
-            state: None,
+            mode: None,
         }
     }
 
@@ -712,10 +715,10 @@ impl<'a> Gate<'a> {
                     return Some(Gated::Unavailable(format!("no index answered: {why}")))
                 }
                 Err(TenderMiss::Refused(why)) => {
-                    if self.state.is_none() {
-                        self.state = Some(index.state().await.unwrap_or_default());
+                    if self.mode.is_none() {
+                        self.mode = Some(index.mode().await.unwrap_or_default());
                     }
-                    if self.state.as_deref() == Some("bm25_only") {
+                    if self.mode.as_deref() == Some("bm25_only") {
                         return Some(Gated::Unavailable(
                             "the index answers BM25 alone: it has no model files ([index] weights_dir), so no vectors"
                                 .into(),

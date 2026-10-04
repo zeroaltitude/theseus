@@ -86,7 +86,7 @@ async fn the_pass_asks_memory_v1_and_attribution_v1_in_shadow() {
     let r = rig(&jev, |_| {});
     let c = &r.core;
     c.runner.pass.set_index(Arc::new(Fixed {
-        state: Mutex::new("ready".into()),
+        mode: Mutex::new("hybrid".into()),
         ..Fixed::default()
     }));
     let a = session(c, None, &["The kestrel survey runs every second Thursday."]);

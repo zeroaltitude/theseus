@@ -24,14 +24,15 @@ use crate::tender::TenderMiss;
 use theseus_protocol::Usage;
 
 /// A stand-in index: fixed neighbours by node, refusals until a node's
-/// vector "lands", a state, and entities by a toy rule (a token with a
+/// vector "lands", a mode, and entities by a toy rule (a token with a
 /// slash is a path, seven or more hex digits a commit).
 #[derive(Default)]
 pub(crate) struct Fixed {
     pub near: Mutex<BTreeMap<String, Vec<(String, f64)>>>,
     /// Refusals left before a node's neighbours answer.
     pub not_yet: Mutex<BTreeMap<String, u32>>,
-    pub state: Mutex<String>,
+    /// `hybrid`, or `bm25_only`.
+    pub mode: Mutex<String>,
     pub down: Mutex<Option<String>>,
     pub asked: Mutex<Vec<String>>,
     /// A node with no `near` entry has no vector yet, as before the
@@ -131,8 +132,8 @@ impl PassIndex for Fixed {
         Box::pin(async move { r })
     }
 
-    fn state(&self) -> IndexFuture<String> {
-        let s = self.state.lock().unwrap().clone();
+    fn mode(&self) -> IndexFuture<String> {
+        let s = self.mode.lock().unwrap().clone();
         Box::pin(async move { Ok(s) })
     }
 }
@@ -164,7 +165,7 @@ pub(crate) fn rig(mode: MemoryMode) -> Rig {
     };
     let memory = Arc::new(Memory::new(cfg, None));
     let index = Arc::new(Fixed {
-        state: Mutex::new("ready".into()),
+        mode: Mutex::new("hybrid".into()),
         ..Fixed::default()
     });
     let pass = MemoryPass::with_timing(memory, store.clone(), Some(index.clone()), None, timing());
@@ -526,7 +527,7 @@ async fn a_node_not_yet_embedded_waits_and_an_index_without_vectors_is_said() {
 
     // No model files: the gate says so, and writes no edge.
     let r = rig(MemoryMode::Shadow);
-    *r.index.state.lock().unwrap() = "bm25_only".into();
+    *r.index.mode.lock().unwrap() = "bm25_only".into();
     let n = user(
         sid,
         "trn_1",
@@ -758,7 +759,7 @@ async fn a_correction_supersedes_the_fact_and_recall_prefers_it() {
     let r = rig_with(MemoryMode::Live, |c| c.memory.recall_deadline_ms = 2000);
     let c = &r.core;
     let index = Arc::new(Fixed {
-        state: Mutex::new("ready".into()),
+        mode: Mutex::new("hybrid".into()),
         ..Fixed::default()
     });
     c.runner.pass.set_index(index.clone());
