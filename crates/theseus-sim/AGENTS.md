@@ -39,6 +39,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
   - `synth-store` (`src/synth.rs`): a store of parked sessions, for `bench lifecycle --sessions N`.
   - `fake-discord`: a stand-in for Discord's REST API, and with `--gateway` its gateway (theseus-6g62); `--guild`
     gives it a guild for the viewer check (theseus-ck0k).
+  - `fake-model --rules <file>` (`src/fake_model.rs`, 37b): a scripted stand-in for the Messages API, for a scratch
+    daemon's `api_base`: each turn's last user text takes the first rule (`{when, calls: [{name, input}], text}`) it
+    holds, so a live check can script any tool's calls (`task_create`, `wake_at`, …); a tool's result gets `Done.`.
   - `discord` (`src/discord_cli.rs`): `proof`, kl8m's steps against a real daemon (`src/discord_proof.rs`); and
     for a live check across processes, `rig` (a scratch daemon's config, fake `op`, and bindings), `model` (the
     proof's scripted model), and `say`, `press`, `read` against a running `fake-discord`.

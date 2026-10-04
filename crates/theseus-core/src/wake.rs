@@ -12,8 +12,13 @@
 //!   13:05): check the build`, with how late it ran when it ran late. It is
 //!   an ordinary turn: it spends from the session's limit, under its
 //!   authority, and its reply posts where the session posts.
-//! - **Few.** At most `MAX_PENDING` per session. A task cannot set one: it
-//!   reports when it is done.
+//! - **Few.** At most `MAX_PENDING` per session.
+//! - **In a task** (37b, theseus-7kg). A task may set one-shot wakes: a turn
+//!   of it that would wait on input with a wake pending parks on the wake,
+//!   and the wake's turn continues the task (`task::parks_on_wake`). It ends
+//!   and reports once a turn would wait with none left. A repeating wake is
+//!   refused there (`TASK_REFUSAL`): a task must end. Its cancel, or its end,
+//!   drops its wakes, as any execution's end does.
 //! - **Repeating** (37a, theseus-d4pt). `every` (`30m`, `1d`, `1w`; `[kernel]
 //!   min_repeat_minutes` at the shortest), with `days` for a daily one and
 //!   `until`, makes the wake a series: one pending wake, counted once, that
@@ -50,10 +55,13 @@ pub const LATE_AFTER_MS: u64 = 5_000;
 /// The longest span a repeating wake may take.
 pub const MAX_EVERY_MS: u64 = 365 * 86_400_000;
 
-/// What a task says to a model that asks it to set a wake.
-pub const TASK_REFUSAL: &str = "Refused: this session is a task, and a task cannot set wakes; it \
-    reports when it finishes. Wait on the work itself, or say in your report when it should be \
-    checked again; the conversation that started you can set the wake.";
+/// What a task says to a model that asks it for a repeating wake (37b): a
+/// task must end, and a series would keep it alive with no one reading it.
+pub const TASK_REFUSAL: &str = "Refused: this session is a task, and a task must end, so it \
+    cannot set a repeating wake. Set a one-shot wake instead (`after` or `at`, without `every`): \
+    you park on it, its turn continues this task, and you report when you have nothing left to \
+    wait on. If the work needs checking on a schedule, say so in your report; the conversation \
+    that started you can set a repeating wake.";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -239,7 +247,9 @@ impl Tool for WakeAt {
          runs at each occurrence, from `at` or `after` (or one `every` from now), in the \
          daemon's time zone, so a daily wake keeps its clock time; `days` limits a daily one \
          to weekdays (`[\"mon\", \"fri\"]`), and `until` (RFC 3339) ends it. A series counts \
-         as one wake, and a cancel ends it."
+         as one wake, and a cancel ends it. In a task, a one-shot wake keeps the task waiting \
+         for it instead of reporting, its turn continues the task, and the task reports once \
+         it has no wake left; a task cannot set a repeating one."
     }
 
     fn input_schema(&self) -> Value {
@@ -320,7 +330,7 @@ pub fn set(
     correlation_id: &str,
 ) -> Result<(String, Value), String> {
     let i = input_of(input)?;
-    if tc.task.is_some() {
+    if tc.task.is_some() && i.every.is_some() {
         return Err(TASK_REFUSAL.into());
     }
     let now = tc.kernel.now_ms();
@@ -525,6 +535,10 @@ pub fn info(e: &Execution, w: &PendingWake, title: Option<String>) -> theseus_pr
         session_id: e.session_id.clone(),
         execution_id: e.id.clone(),
         session_title: title,
+        task: e
+            .parent
+            .is_some()
+            .then(|| crate::task::short(&e.session_id)),
         due_at_ms: w.due_at_ms,
         due_local: local(w.due_at_ms).full(),
         note: w.note.clone(),

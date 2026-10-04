@@ -80,6 +80,11 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
 - **`stop_call` stops one running call** and leaves its execution as it is (theseus-ht82): the daemon stopping a
   job below the disk's floor. A job the spool says runs is `Spool::running` (its pid file) or `wrapper_lives` (the
   pid file, or the lingering marker of a wrapper whose command has exited and whose child holds the output open).
+- **A task never waits on input with nothing to wake it** (37b, theseus-7kg). No one gives a task input: it waits on
+  input only beside a wake of its own (the core parks it so, `task::parks_on_wake`), and a frame that would leave it
+  waiting with none queues it instead (`wakes::task_unparked`, in `cancel_wake` and `end_turn`), so its next turn
+  finds nothing new, ends it, and it reports. A `/stop` still leaves a task waiting on input, as it leaves a
+  conversation.
 - **An attempt that may have run is `OutcomeUnknown`**, never "not sent".
 - **Read by state, never every record** (theseus-lv2). The store's index keeps `terms.rs`'s terms for each
   execution and action (`s:<state>`, `due`, `x:<execution>`, …). A reader on a path that runs often (the start,

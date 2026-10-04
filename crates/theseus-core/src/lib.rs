@@ -136,6 +136,8 @@ mod tests_registry;
 #[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]
+mod tests_task_wakes;
+#[cfg(test)]
 mod tests_tasks;
 #[cfg(test)]
 mod tests_tender;

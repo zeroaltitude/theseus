@@ -29,6 +29,10 @@
 //!   leaves one wake. Occurrences that fell due while it waited are counted
 //!   (`missed`) and never run; past `until` it is not put back, and a
 //!   `wake.ended` row says so. A cancel removes it, and ends the series.
+//! - **A task's wakes** (37b, theseus-7kg). A task parks on its own wakes,
+//!   waiting on input beside them. One left waiting with none (its last
+//!   cancelled) is queued in that frame (`task_unparked`), so it goes on to
+//!   end and report; its end or cancel drops what is left.
 
 use std::sync::atomic::Ordering;
 use theseus_protocol::LedgerKind;
@@ -64,6 +68,18 @@ pub fn free(e: &Execution) -> bool {
                 | Some(Wake::Actions { .. })
                 | Some(Wake::Execution { .. })
         )
+}
+
+/// Whether `e` is a task left waiting on input with no wake of its own (37b,
+/// theseus-7kg): no one gives a task input, so nothing would ever wake it.
+/// It is queued instead, in the frame that left it so (`end_turn`, when a
+/// cancel took its last wake while its turn ended; `cancel_wake`), and its
+/// next turn, finding nothing new, ends it, and it reports.
+pub fn task_unparked(e: &Execution) -> bool {
+    e.parent.is_some()
+        && e.state == ExecState::Waiting
+        && matches!(e.wake, Some(Wake::Input))
+        && e.wakes.is_empty()
 }
 
 /// Whether `e`'s soonest wake is due at `now_ms`.
@@ -295,14 +311,25 @@ impl Kernel {
         };
         let wake = e.wakes.remove(i);
         e.updated_at_ms = self.now_ms();
-        self.commit(&[
-            exec_record(&e)?,
-            self.ledger(
-                LedgerKind::WakeCancelled,
+        let mut rows = vec![self.ledger(
+            LedgerKind::WakeCancelled,
+            Some(&e.session_id),
+            json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": wake.due_at_ms, "by": by}),
+        )?];
+        // A task parked on its last wake goes on, to end and report (37b).
+        if task_unparked(&e) {
+            e.state = ExecState::Queued;
+            e.wake = None;
+            e.resume_pending = true;
+            rows.push(self.ledger(
+                LedgerKind::ExecutionQueued,
                 Some(&e.session_id),
-                json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": wake.due_at_ms, "by": by}),
-            )?,
-        ])?;
+                json!({"execution_id": e.id, "why": "wake_cancelled", "wakes": [wake.id]}),
+            )?);
+        }
+        let mut frame = vec![exec_record(&e)?];
+        frame.extend(rows);
+        self.commit(&frame)?;
         Ok(Some((e, wake)))
     }
 

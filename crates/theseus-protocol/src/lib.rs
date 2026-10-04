@@ -1585,6 +1585,10 @@ pub struct WakeInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub session_title: Option<String>,
+    /// The task that set it, by its short id (`a1b2c3`), when its session is a task (37b).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub task: Option<String>,
     pub due_at_ms: u64,
     /// The due time on the daemon's clock, as people read it
     /// (`2026-09-30 13:15:00 -07:00`).

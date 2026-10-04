@@ -782,8 +782,13 @@ pub fn wakes(wakes: &[theseus_protocol::WakeInfo]) -> String {
             .every
             .as_deref()
             .map_or(String::new(), |e| format!("🔁 every {e} · next "));
+        // A task's wake names the task (37b).
+        let task = w
+            .task
+            .as_deref()
+            .map_or(String::new(), |t| format!(" · task `{t}`"));
         lines.push(format!(
-            "• `{}` {series}<t:{at}:t> (<t:{at}:R>){busy} · {}",
+            "• `{}` {series}<t:{at}:t> (<t:{at}:R>){task}{busy} · {}",
             w.short,
             clip(note, 120)
         ));
@@ -2595,6 +2600,16 @@ mod tests {
             wakes(&[daily]),
             "**Wakes here** (1)\n\
              • `c5d6e7` 🔁 every 1d · next <t:1790798700:t> (<t:1790798700:R>) · check the build\n\
+             -# `/cancel <id>` cancels one."
+        );
+        let tasks = theseus_protocol::WakeInfo {
+            task: Some("a1b2c3".into()),
+            ..w("d7e8f9", "waiting")
+        };
+        assert_eq!(
+            wakes(&[tasks]),
+            "**Wakes here** (1)\n\
+             • `d7e8f9` <t:1790798700:t> (<t:1790798700:R>) · task `a1b2c3` · check the build\n\
              -# `/cancel <id>` cancels one."
         );
     }
