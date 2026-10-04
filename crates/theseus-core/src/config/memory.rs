@@ -37,12 +37,14 @@ impl MemoryMode {
     }
 }
 
-/// The arms this build has (§2.9): `none`, today's compiler, and
-/// `baseline`, the fused pipeline. Later steps add theirs.
+/// The arms this build has (§2.9): `none`, today's compiler; `bm25`, the
+/// index's BM25 and entities alone (34b); and `baseline`, the fused
+/// pipeline. Later steps add theirs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryArm {
     None,
+    Bm25,
     #[default]
     Baseline,
 }
@@ -51,7 +53,20 @@ impl MemoryArm {
     pub fn as_str(self) -> &'static str {
         match self {
             MemoryArm::None => "none",
+            MemoryArm::Bm25 => "bm25",
             MemoryArm::Baseline => "baseline",
+        }
+    }
+
+    /// The index's sources the arm asks for (`index.query`'s `sources`):
+    /// none for `none`, which asks nothing; BM25 and entities for `bm25`;
+    /// and all three, fused, for `baseline`. A tender without its model
+    /// answers `baseline` without vectors, and says so in `skipped`.
+    pub fn sources(self) -> &'static [&'static str] {
+        match self {
+            MemoryArm::None => &[],
+            MemoryArm::Bm25 => &["bm25", "entity"],
+            MemoryArm::Baseline => &["bm25", "entity", "vector"],
         }
     }
 }
@@ -271,6 +286,15 @@ mod tests {
         }
         assert!(parse("[memory]\nrecall_after = 1\n").is_err());
         assert!(parse("[memory]\narm = \"+rerank\"\n").is_err());
+        for (arm, want) in [
+            ("none", MemoryArm::None),
+            ("bm25", MemoryArm::Bm25),
+            ("baseline", MemoryArm::Baseline),
+        ] {
+            let cfg = parse(&format!("[memory]\nmode = \"live\"\narm = \"{arm}\"\n")).unwrap();
+            assert_eq!(cfg.memory.arm, want);
+            assert_eq!(want.as_str(), arm);
+        }
         for bad in [
             "recall_budget_tokens = 0",
             "recall_max_items = 0",

@@ -5,6 +5,10 @@
 //!   goes out, and read once it has answered, so the index's wait overlaps
 //!   the model's. Its row rides in the turn's next frame, and the request
 //!   the model got is the one compiled without it.
+//! - **The arm's sources** (34b): a live arm asks the index for its own
+//!   (`MemoryArm::sources`: `bm25` BM25 and entities, `baseline` all three);
+//!   shadow, and a canary's control, ask for `baseline`'s; and `live` with
+//!   arm `none` asks nothing.
 //! - **Canary and live** (30b): read before the compile, never past
 //!   `[memory] recall_deadline_ms`. What it admits is a `Recall` node, built
 //!   here and held in the turn (`Recalled`) until it rides the provider
@@ -22,7 +26,8 @@ use theseus_store::NewRecord;
 
 use super::{Turn, TurnRunner};
 use crate::compiler::Compiled;
-use crate::config::memory::Assigned;
+use crate::config::memory::{Assigned, MemoryArm};
+use crate::config::MemoryMode;
 use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow};
 use crate::graph::{Edge, EdgeKind, VIA_RECALL};
 use crate::node::{Body, Node, RecalledRef};
@@ -66,18 +71,22 @@ impl TurnRunner {
         if let Some(a) = assigned {
             self.record_arm(t, a);
         }
-        let begun = self.recall_begin(t)?;
         match assigned {
             Some(a) if a.live => {
+                let begun = self.recall_begin(t, a.arm.sources())?;
                 self.recall_live(t, session, begun, a).await;
                 None
             }
-            _ => Some(begun),
+            // `live` with arm `none` (the exam's `none` daemon, 34b): today's
+            // compiler, and the index is asked nothing. A canary's control
+            // still runs `baseline` in shadow.
+            Some(_) if self.memory.cfg().mode == MemoryMode::Live => None,
+            _ => self.recall_begin(t, MemoryArm::Baseline.sources()),
         }
     }
 
-    /// Ask the index, when the turn brings something new.
-    fn recall_begin(&self, t: &Turn<'_>) -> Option<Begun> {
+    /// Ask the index's `sources`, when the turn brings something new.
+    fn recall_begin(&self, t: &Turn<'_>, sources: &[&str]) -> Option<Begun> {
         let nodes = match t.tc.store.transcript(t.tc.session_id) {
             Ok(n) => n,
             Err(e) => {
@@ -89,7 +98,7 @@ impl TurnRunner {
         let deadline = std::time::Duration::from_millis(self.memory.cfg().recall_deadline_ms);
         Some(
             self.memory
-                .begin(query, Some(as_of), crate::recall::K, deadline),
+                .begin(query, Some(as_of), crate::recall::K, sources, deadline),
         )
     }
 

@@ -167,9 +167,17 @@ impl Memory {
         &self.science
     }
 
-    /// Ask the index for `query`'s hits as of `as_of`, in a task of its own,
-    /// bounded by `deadline`.
-    pub fn begin(&self, query: String, as_of: Option<u64>, k: usize, deadline: Duration) -> Begun {
+    /// Ask the index's `sources` (an arm's, `MemoryArm::sources`) for
+    /// `query`'s hits as of `as_of`, in a task of its own, bounded by
+    /// `deadline`.
+    pub fn begin(
+        &self,
+        query: String,
+        as_of: Option<u64>,
+        k: usize,
+        sources: &[&str],
+        deadline: Duration,
+    ) -> Begun {
         let ask = self
             .ask
             .read()
@@ -178,6 +186,7 @@ impl Memory {
         let mut p = IndexQueryParams::new(&query);
         p.k = k.clamp(1, 100);
         p.as_of = as_of;
+        p.sources = sources.iter().map(|s| s.to_string()).collect();
         let started = Instant::now();
         let task = tokio::spawn(async move {
             let answer = match ask {

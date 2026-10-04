@@ -18,6 +18,7 @@ use super::confirms::Act;
 use super::server::{Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
+use crate::config::memory::MemoryArm;
 use crate::fact;
 use crate::fact::recall::scope;
 use crate::ledger::LedgerRow;
@@ -33,7 +34,7 @@ const RECALLS: usize = 10;
 const MAX_RECALLS: usize = 200;
 
 impl Core {
-    /// `memory.search`: the pipeline over `p.query`, as a turn in
+    /// `memory.search`: the pipeline over `p.query` (`baseline`'s sources), as a turn in
     /// `p.session_id`'s place would run it (its nodes in context), or, with
     /// no session, as the CLI's: a private place. It writes nothing, whatever
     /// `[memory] mode` says.
@@ -55,7 +56,13 @@ impl Core {
         };
         let memory = &self.runner.memory;
         let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(SEARCH_DEADLINE);
-        let mut begun = memory.begin(p.query.clone(), None, p.k.unwrap_or(K), deadline);
+        let mut begun = memory.begin(
+            p.query.clone(),
+            None,
+            p.k.unwrap_or(K),
+            MemoryArm::Baseline.sources(),
+            deadline,
+        );
         let answer = begun.answer().await;
         let scene = Scene {
             mode: "search",

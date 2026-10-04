@@ -126,6 +126,8 @@ mod tests_layouts;
 #[cfg(test)]
 mod tests_m3;
 #[cfg(test)]
+mod tests_memory_arm;
+#[cfg(test)]
 mod tests_ontology;
 #[cfg(test)]
 mod tests_output;
