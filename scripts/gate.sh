@@ -235,12 +235,12 @@ registry() {
     -E 'package(theseus-core) & kind(lib) & test(/^tests_registry::/)' 2>&1 | tee "$gate_tmp/registry.log"
 }
 
-# The web apps' protocol types, which a theseus-protocol test writes from the
+# The cockpit's protocol types, which a theseus-protocol test writes from the
 # Rust ones (theseus-0g4): a type changed without its TypeScript fails here.
 protocol_types() {
-  if ! git diff --quiet -- web/src/protocol.gen ||
-    [ -n "$(git ls-files --others --exclude-standard -- web/src/protocol.gen)" ]; then
-    echo "web/src/protocol.gen changed: the protocol's Rust types changed without their TypeScript; git add it"
+  if ! git diff --quiet -- cockpit/src/protocol.gen ||
+    [ -n "$(git ls-files --others --exclude-standard -- cockpit/src/protocol.gen)" ]; then
+    echo "cockpit/src/protocol.gen changed: the protocol's Rust types changed without their TypeScript; git add it"
     exit 1
   fi
 }
@@ -417,7 +417,7 @@ deny_check() {
   cargo deny --offline --log-level error check
 }
 
-# One npm script of a web app, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
+# One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
 # the log's last 40 lines, where the phase table alone said only "cockpit <- failed here".
 npm_step() {
   local app=$1 script=$2 log="$gate_tmp/$1-$2.log"
@@ -426,17 +426,16 @@ npm_step() {
   tail -n 40 "$log" | sed 's/^/  /'
   return 1
 }
-web_apps() {
-  if [ -d web/node_modules ]; then npm_step web lint && npm_step web build; fi
-}
-# The cockpit (theseus-45n5): lint, its pure modules' tests (node's own runner, theseus-9o5n), type-check, and build.
-# Its build is not committed (several MB, new with each edit); the install builds it before the release build, and a
-# binary without it says so at /cockpit/.
+# The cockpit (theseus-45n5), the web UI at / since the Observatory retired (theseus-vm3n.6): lint, its pure
+# modules' tests (node's own runner, theseus-9o5n), type-check, and build. Its build is not committed (several MB,
+# new with each edit); the install builds it before the release build, and a binary without it says so at /. It runs
+# before the compiles, so the suite's tests of / read this build: a debug theseusd reads it as it serves.
 cockpit() {
-  if [ -d cockpit/node_modules ]; then npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build; fi
-}
-web_dist() {
-  git diff --quiet -- crates/theseusd/web/dist || { echo "web dist changed by the build: commit it"; exit 1; }
+  if [ -d cockpit/node_modules ]; then
+    npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build
+  else
+    echo "gate: cockpit/node_modules is missing, so the cockpit is neither checked nor built (npm ci --offline in cockpit/)"
+  fi
 }
 
 # The binaries the benches run, built before the lock (`bench build`). It is the five an install ships,
@@ -536,6 +535,8 @@ phase fmt cargo fmt --all -- --check
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
+# The cockpit before the suite, which reads its build at / (theseus-vm3n.6).
+phase cockpit cockpit
 # Every compile first, without the lock: the bench binaries, then the test binaries (what the suite runs).
 # Cargo links the binaries of the build it ran last, and the suite's cargo (in the locked part) links the
 # test build's, so this order leaves target/debug as the benches will find it.
@@ -544,9 +545,6 @@ phase "bench build" bench_build
 phase "test build" env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run
 locked_checks
 phase deny deny_check
-phase web web_apps
-phase cockpit cockpit
-phase "web dist" web_dist
 gate_done=1
 summary ok
 echo "gate: ok"

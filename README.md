@@ -67,7 +67,7 @@ flowchart LR
   subgraph where["Where you are"]
     dc["Discord"]
     cl["theseus: the CLI and the TUI"]
-    wb["The web UI and the cockpit"]
+    wb["The cockpit: the web UI"]
   end
   subgraph dmn["theseusd: one daemon"]
     proto["The protocol server"]
@@ -273,7 +273,7 @@ and the copy of its config note it wrote last acts while the vault is read.
 You'll need:
 - Linux;
 - Rust 1.98 or later;
-- Node.js 22 or later (to build the web UIs);
+- Node.js 22 or later (to build the cockpit, the web UI);
 - an Anthropic API key, or a key for another provider that speaks the same API;
 - [1Password](https://1password.com/) with a service account. Theseus reads every secret from 1Password; the
   service account's token is the only secret it accepts any other way.
@@ -281,8 +281,7 @@ You'll need:
 ```bash
 git clone https://github.com/zeroaltitude/theseus && cd theseus
 
-# Build: the two web UIs first, since they're embedded in the binary.
-(cd web && npm ci && npm run build)
+# Build: the cockpit (the web UI) first, since it's embedded in the binary.
 (cd cockpit && npm ci && npm run build)
 cargo build --release
 install -m 755 target/release/theseus target/release/theseusd target/release/theseus-tui target/release/theseus-index ~/.local/bin/
@@ -299,7 +298,7 @@ theseusd &
 theseus ask "Hello! What can you do?"
 ```
 
-Then open the web UI at <http://127.0.0.1:7433/>, or the cockpit at <http://127.0.0.1:7433/cockpit/>.
+Then open the cockpit, the web UI, at <http://127.0.0.1:7433/>.
 
 From there:
 - **Run it as a service:** `scripts/user-service.sh install` checks the machine, writes a systemd user unit, and

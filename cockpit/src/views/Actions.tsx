@@ -6,7 +6,7 @@ import { memo, useDeferredValue, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence } from 'motion/react'
 import { CircleCheck, GitFork, History, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, X } from 'lucide-react'
-import type { ActionInfo, ConfirmRequest, ExternalTextInfo, Health, TaskInfo, TaskListResult, Tightening, ToolList } from '@protocol'
+import type { ActionInfo, ConfirmRequest, ExternalTextInfo, Health, SessionInfo, TaskInfo, TaskListResult, Tightening, ToolList } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
@@ -235,10 +235,25 @@ function Wakes({ h }: { h?: Health }) {
 }
 
 function Postures({ tl, tightenings, past }: { tl?: ToolList; tightenings: Tightening[]; past?: number }) {
+  const nav = useNavigate()
   const { busy, run } = useAct()
+  // What the last press here did, as the Observatory's policy note said it.
+  const [note, setNote] = useState<string | null>(null)
+  const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
+  const titleOf = useMemo(() => new Map((sl?.sessions ?? []).map((s) => [s.session_id, s.title || s.label || short(s.session_id)])), [sl])
   const tightened = new Map(tightenings.map((t) => [t.tool, t]))
   if (!tl) return <Empty>reading the tools…</Empty>
+  const press = async (tool: string, method: 'policy.tighten' | 'policy.untighten', ask: string) => {
+    if (await run(tool, method, { tool }, ask)) setNote(method === 'policy.tighten' ? `${tool} asks first from now on` : `${tool} is back to what the config says`)
+  }
   return (
+    <>
+    {note && !past && (
+      <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-live/30 bg-hull/95 px-3 py-1.5 text-[11.5px] text-live backdrop-blur">
+        <CircleCheck size={12} /> {note}
+        <button onClick={() => setNote(null)} title="dismiss" className="ml-auto text-ink-faint hover:text-ink"><X size={11} /></button>
+      </div>
+    )}
     <table className="w-full whitespace-nowrap text-[12px]">
       <thead className="sticky top-0 bg-hull/95 text-[10px] uppercase tracking-wider text-ink-faint backdrop-blur">
         <tr><th className="px-3 py-1.5 text-left">tool</th><th className="px-2 py-1.5 text-left">class</th><th className="px-2 py-1.5 text-left">posture</th><th className="px-2 py-1.5 text-right">calls</th><th className="px-3 py-1.5" /></tr>
@@ -254,18 +269,21 @@ function Postures({ tl, tightenings, past }: { tl?: ToolList; tightenings: Tight
                 <Pill tone={t.policy === 'deny' ? 'fault' : t.policy === 'confirm' || t.policy === 'ask' || t.policy === 'approve' ? 'wait' : t.policy === 'notify' ? 'live' : 'ok'}>{t.policy}</Pill>
                 {tight && <span className="ml-1 text-[10.5px] text-wait" title={tight.digest ? `proposal digest ${tight.digest}` : 'pressed without naming a call'}>
                   tightened by {tight.by}{tight.via ? ` via ${tight.via}` : ''} · {ago(tight.at_ms)}{tight.correlation_id ? ` · call ${short(tight.correlation_id)}` : ''}
+                  {tight.session_id && <> · in <button onClick={() => nav(`/session/${tight.session_id}${tight.correlation_id ? `?call=${tight.correlation_id}` : ''}`)}
+                    title={`open the session it was pressed in (${tight.session_id})`} className="text-wait underline decoration-dotted underline-offset-2 hover:text-live">{titleOf.get(tight.session_id) ?? short(tight.session_id)}</button></>}
                 </span>}
               </td>
               <td className="num px-2 py-1 text-right text-ink-dim">{t.calls}</td>
               <td className="px-3 py-1 text-right">
                 {past ? null : tight
-                  ? <button className="text-[11px] text-ok hover:underline" disabled={busy === t.name} onClick={() => run(t.name, 'policy.untighten', { tool: t.name }, `Let ${t.name} go back to its configured posture (${t.config_posture})?`)}>untighten</button>
-                  : <button className="text-[11px] text-wait hover:underline" disabled={busy === t.name} onClick={() => run(t.name, 'policy.tighten', { tool: t.name }, `Make ${t.name} ask first?`)}>tighten</button>}
+                  ? <button className="text-[11px] text-ok hover:underline" disabled={busy === t.name} onClick={() => press(t.name, 'policy.untighten', `Let ${t.name} go back to its configured posture (${t.config_posture})?`)}>untighten</button>
+                  : <button className="text-[11px] text-wait hover:underline" disabled={busy === t.name} onClick={() => press(t.name, 'policy.tighten', `Make ${t.name} ask first?`)}>tighten</button>}
               </td>
             </tr>
           )
         })}
       </tbody>
     </table>
+    </>
   )
 }

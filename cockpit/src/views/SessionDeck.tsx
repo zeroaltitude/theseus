@@ -10,6 +10,7 @@ import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, Layers, OctagonX, 
 import type { CatalogList, CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, SessionHistory, Span, Tightening } from '@protocol'
 import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
+import { admitted, dropDraft, useDrafts } from '@/lib/drafts'
 import { summarize } from '@/lib/summary'
 import { ago, cn, ms, pct, short, stamp, tokens, usd, clock } from '@/lib/format'
 import { cacheBy, pricing } from '@/lib/money'
@@ -57,6 +58,12 @@ export default function SessionDeck() {
   const calls = useMemo(() => providerCalls(rows), [rows])
   const liveNow = useLive(id)
   const live = asOf === null ? liveNow : null
+  // What was sent from here and is not written yet; a draft goes once its user node is in the history.
+  const allDrafts = useDrafts((x) => x.drafts)
+  const drafts = useMemo(() => allDrafts.filter((d) => d.session === id), [allDrafts, id])
+  useEffect(() => {
+    for (const d of admitted(drafts, hist?.nodes ?? [])) dropDraft(d.id)
+  }, [drafts, hist])
 
   // A written node or an ended turn means the transcript changed: read it again now, not at the next poll.
   const events = usePush((s) => s.events)
@@ -89,9 +96,9 @@ export default function SessionDeck() {
             actions={live ? <span className="flex items-center gap-1.5 text-[11px] text-live"><LiveDot size={5} /> {live.text ? 'streaming' : live.thinking ? 'thinking' : 'turn running'}</span> : null}>
             <div className="flex h-full min-h-0 flex-col">
               <div className="relative min-h-0 flex-1">
-                <Follow deps={[nodes.length, live?.text]}>
-                  <Transcript nodes={nodes} turns={turnMap} live={live} asking={asking} tightened={tightened} />
-                  {!nodes.length && !live && <Empty>{s.turns > 0 ? `This session's ${s.turns} turn${s.turns === 1 ? '' : 's'} ran before Theseus kept what was said (conversation content is stored from M3 on). Only their numbers survive: timings, tokens, and any error are in its ledger rows.` : 'This session has no messages yet.'}</Empty>}
+                <Follow deps={[nodes.length, live?.text, drafts.length]}>
+                  <Transcript nodes={nodes} turns={turnMap} live={live} asking={asking} tightened={tightened} drafts={asOf === null ? drafts : undefined} />
+                  {!nodes.length && !live && !drafts.length && <Empty>{s.turns > 0 ? `This session's ${s.turns} turn${s.turns === 1 ? '' : 's'} ran before Theseus kept what was said (conversation content is stored from M3 on). Only their numbers survive: timings, tokens, and any error are in its ledger rows.` : 'This session has no messages yet.'}</Empty>}
                 </Follow>
               </div>
               {asOf === null && asks.length > 0 && (

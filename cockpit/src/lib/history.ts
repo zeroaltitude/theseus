@@ -9,7 +9,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { LedgerEntry, LedgerTailResult } from '@protocol'
-import { call, client, useConn } from './rpc'
+import { call, client, useConn, usePaused } from './rpc'
 
 export interface LedgerHistory {
   /** Every row read, oldest first (by WAL position). */
@@ -77,18 +77,23 @@ async function readOn(): Promise<void> {
 }
 
 /** One follower for the page: a read in flight schedules the next itself, so two views mounting at once never start
- *  two loops. */
+ *  two loops. While paused it reads once, and schedules nothing. */
 function follow() {
   if (timer) { clearTimeout(timer); timer = null }
   if (users <= 0 || busy) return
   void readOn().finally(() => {
-    if (users > 0 && !timer) timer = setTimeout(() => { timer = null; follow() }, FOLLOW_MS)
+    if (users > 0 && !timer && !usePaused.getState().paused) timer = setTimeout(() => { timer = null; follow() }, FOLLOW_MS)
   })
 }
+
+/** Read the rows after the last one now: the heartbeat bar's refresh, paused or not. */
+export const readNow = (): void => follow()
 
 // A reconnect may follow a restart, whose rows came while the link was down: read on from the last position. The
 // first connection is not one: the views' own first reads come first, and `useHistoryRows` starts the walk.
 client.onOpen(() => { if (users > 0 && useLedgerHistory.getState().rows.length) follow() })
+// Going on after a pause: follow again.
+usePaused.subscribe((s, prev) => { if (prev.paused && !s.paused) follow() })
 
 /** How long the ship's log lets a page land before its first walk: the landing view's own reads and first frame (the
  *  Ship's) come first. */
