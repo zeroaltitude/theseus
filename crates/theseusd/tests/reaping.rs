@@ -244,6 +244,21 @@ impl Rig {
     }
 }
 
+/// Each line of `log` that holds `what`, with the three before it: the
+/// evidence a failed assertion needs, which the log's tail can miss
+/// (theseus-1m3s).
+fn matching(log: &str, what: &str) -> String {
+    let lines: Vec<&str> = log.lines().collect();
+    let mut out = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if l.contains(what) {
+            out.push(format!("--- line {}:", i + 1));
+            out.extend(lines[i.saturating_sub(3)..=i].iter().map(|l| l.to_string()));
+        }
+    }
+    out.join("\n")
+}
+
 /// `/proc/<pid>/stat`: the state letter and the parent's pid.
 fn stat(pid: u32) -> Option<(char, u32)> {
     let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -398,7 +413,12 @@ fn an_op_run_through_a_burst_of_jobs_keeps_its_exit_status() {
         r.log_tail()
     );
     for bad in ["No child processes", "running op inject", "running op read"] {
-        assert!(!log.contains(bad), "{bad}:\n{}", r.log_tail());
+        assert!(
+            !log.contains(bad),
+            "{bad}:\n{}\nthe log ends:\n{}",
+            matching(&log, bad),
+            r.log_tail()
+        );
     }
     let h = r.until("every wrapper reaped", |h| {
         h["children"]["reaped_wrappers"] == 50 && h["children"]["zombies"] == 0

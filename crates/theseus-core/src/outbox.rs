@@ -907,6 +907,9 @@ impl crate::Core {
             }
         }
         crate::startup::stop_phase("posts settled");
+        // Nothing written on its own time after serving lands after this
+        // checkpoint, where the next start would replay it (theseus-81kk).
+        self.close_late_rows();
         // Made durable by redb's close, as the stop's own is (theseus-02k).
         if let Err(e) = self.store.inner().checkpoint_for_close() {
             tracing::warn!(error = %format!("{e:#}"), "stopping: the last checkpoint failed; the next start replays the tail");

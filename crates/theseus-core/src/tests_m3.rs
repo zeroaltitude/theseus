@@ -5967,6 +5967,8 @@ mod parallel {
         /// the `n` have begun. A dispatch that serializes the calls never gets there,
         /// and the wait gives up after `RENDEZVOUS_WAIT`.
         target: Mutex<usize>,
+        /// The runs up to this arrival go on alone (`rendezvous_after`).
+        from: Mutex<usize>,
         arrivals: Mutex<usize>,
         arrived: std::sync::Condvar,
     }
@@ -5977,15 +5979,26 @@ mod parallel {
     impl Timing {
         /// The next `n` runs to start wait for each other. Zero turns it off.
         fn rendezvous(&self, n: usize) {
+            self.rendezvous_after(0, n);
+        }
+
+        /// The next `skip` runs go on alone, and the `n` after them wait for each
+        /// other (theseus-qh0u: the calls after a barrier).
+        fn rendezvous_after(&self, skip: usize, n: usize) {
             let at = *self.arrivals.lock().unwrap();
-            *self.target.lock().unwrap() = at + n;
+            *self.from.lock().unwrap() = at + skip;
+            *self.target.lock().unwrap() = at + skip + n;
         }
 
         fn arrive(&self) {
+            let from = *self.from.lock().unwrap();
             let target = *self.target.lock().unwrap();
             let mut at = self.arrivals.lock().unwrap();
             *at += 1;
             self.arrived.notify_all();
+            if *at <= from {
+                return;
+            }
             let _ = self
                 .arrived
                 .wait_timeout_while(at, RENDEZVOUS_WAIT, |a| *a < target)
@@ -6354,6 +6367,12 @@ mod parallel {
         let (read_at, _) = timing.of("fs.read:a.txt");
         assert!(read_at >= wrote);
 
+        // x and the program run alone, one after the other; y and z wait for each
+        // other once started, so neither ends before both have begun. That is the
+        // overlap, a fact of the test and not a race with a loaded scheduler: a
+        // dispatch that ran them one at a time never gets the second one there, and
+        // the first gives up its wait and ends before the second starts.
+        timing.rendezvous_after(2, 2);
         turn(
             &r.core,
             Some(&res.session_id),

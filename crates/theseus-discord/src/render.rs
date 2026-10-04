@@ -1296,7 +1296,20 @@ pub fn split_text(text: &str, limit: usize) -> Vec<String> {
     let mut parts = Vec::new();
     let mut rest = text;
     let mut carry: Option<String> = None;
+    // Under test, a split that stops moving panics at once, where it would push
+    // empty parts until memory ran out (theseus-dsmp): each turn of the loop
+    // moves the text on by at least a byte, or ends it.
+    #[cfg(test)]
+    let mut turns = 0usize;
     while !rest.is_empty() {
+        #[cfg(test)]
+        {
+            turns += 1;
+            assert!(
+                turns <= text.len(),
+                "split_text stopped moving through its text"
+            );
+        }
         let prefix = carry.as_ref().map(|f| format!("{f}\n")).unwrap_or_default();
         let budget = limit.saturating_sub(prefix.len() + 4).max(1);
         if rest.len() <= budget {
