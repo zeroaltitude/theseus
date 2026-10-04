@@ -14,6 +14,8 @@ use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
 pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
+pub mod mcp;
+pub use mcp::{McpConfig, McpServerConfig};
 
 /// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
 /// names it: a local file, so nothing here names anyone's vault
@@ -90,6 +92,10 @@ pub struct Config {
     /// `[index]`: the index tender (roadmap row 51).
     #[serde(default)]
     pub index: IndexConfig,
+    /// `[mcp.servers.<name>]`: the MCP servers whose tools turns are offered
+    /// (M7 36b), in `config::mcp`.
+    #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
+    pub mcp: McpConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
@@ -1384,7 +1390,8 @@ impl Config {
                 );
             }
         }
-        self.validate_aws()
+        self.validate_aws()?;
+        self.validate_mcp()
     }
 
     /// Deserialize a document and resolve its implicit profile and provider.
@@ -1712,6 +1719,7 @@ mod tests {
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);
+        mcp::the_templates_mcp_section(&cfg);
     }
 
     /// theseus-8d1b: the template and the default config name no one's
@@ -1809,6 +1817,7 @@ mod tests {
         assert_eq!(cfg.policy.approve_argv, default_approve_argv());
         assert_eq!(cfg.tools.approve_paths, default_approve_paths());
         assert!(cfg.policy.mcp.is_empty(), "[policy.mcp] stays commented");
+        assert!(cfg.mcp.is_empty(), "[mcp.servers] stays commented");
         let section: Vec<&str> = Config::EXAMPLE_TOML
             .lines()
             .skip_while(|l| !l.contains("------ policy"))

@@ -139,6 +139,7 @@ aws_secret_access_key = "op://<your vault>/<AWS key item>/notesPlain#AWS_SECRET_
 discord_bot_token = "op://<your vault>/<Discord bot item>/notesPlain"
 brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # web.search's key
 # deepgram_api_key = "op://<your vault>/<Deepgram API key item>/notesPlain"   # voice's key ([voice])
+# docs_mcp_token = "op://<your vault>/<docs MCP key item>/notesPlain"   # an MCP server's key ([mcp.servers])
 
 # ---------------------------------------------------------------- broker
 # What a job can get, plainly: only a secret a program's grant in this
@@ -607,6 +608,34 @@ output_mb = 64                          # the largest file an L1 job may write; 
 #     workspace, ro_paths, and what the call gives it.
 # Rust's registry and GitHub, for builds that fetch their dependencies:
 # egress = ["crates.io:443", "index.crates.io:443", "static.crates.io:443", "github.com:443", "api.github.com:443", "codeload.github.com:443", "objects.githubusercontent.com:443"]
+
+# ---------------------------------------------------------------- mcp
+# MCP servers (M7 36b): only a server named here is started or reached, and
+# its tools are offered to the model as mcp__<server>__<tool>, after the
+# built-in tools, in private places only (a shared place never sees one).
+# The gate names each tool mcp:<server>/<tool>, and its posture comes from
+# the policy.mcp lines, then enforcement. A tool is run-class and never
+# repeated unless you list it in read; a server's own hints are shown, and
+# never loosen anything. Results are outside text: a session that reads one
+# holds, as after a fetched page, until you trust it again (external = false
+# only for a server whose output is your own). A server starts after the
+# daemon serves, never before; a restart offers the tools it listed last time
+# at once, and a call waits for its own server alone. A crash restarts after
+# 1 s, 5 s, then 30 s; a third crash within 10 minutes leaves it failed until
+# `theseus mcp restart <name>`. `theseus mcp` lists the servers and tools.
+# A changed tool (its name, schema, or description) is ledgered and noticed.
+# [mcp.servers.github]                  # a server Theseus starts, over stdio
+# command = ["github-mcp-server", "stdio"]   # its argv, run with no shell, in its own process group; stderr to <state>/mcp/github.log
+# env = { GITHUB_PERSONAL_ACCESS_TOKEN = "github_token" }   # variable = [secrets] name; each call then runs at no looser a posture than the secret's
+# read = ["get_issue", "list_pull_requests"]   # the tools you call read-class (default none)
+# sandbox = "l0"                        # where it runs: l0 (L1 for servers is a follow-up)
+# external = true                       # its results hold the session (default true)
+# enabled = true                        # false keeps it configured and unstarted
+# start_timeout_secs = 30               # the longest a start, and a call waiting for one, waits
+# call_timeout_secs = 110               # the longest one call waits (at most 115, under the 120 s in-process deadline)
+# [mcp.servers.docs]                    # a remote server, over streamable HTTP
+# url = "https://mcp.docs.invalid/mcp"
+# auth_secret = "docs_mcp_token"        # a [secrets] name, sent as a bearer token
 
 # ---------------------------------------------------------------- places
 # Confidentiality: every place a session speaks in is private or shared (the place rule).
