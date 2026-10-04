@@ -16,6 +16,7 @@ mod budgets;
 mod confirms;
 pub(crate) use confirms::{expired_answer, Act};
 mod driver;
+mod explain;
 mod info;
 mod mcp;
 mod memory;

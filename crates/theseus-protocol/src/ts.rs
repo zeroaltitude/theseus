@@ -113,6 +113,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         AwsAccountStatus, TenderStatus, PlaceClass, PlacesHealth, PlaceInfo, PlacePublishParams, PublishResult,
         HandsListParams, HandsGroupInfo, HandsListResult,
         BudgetListResult, BudgetRow, BudgetResetInfo, BudgetQuestionInfo, BudgetTotals, JudgeDayBudget,
+        PolicyExplainParams, PolicyExplainResult, PlaceExplain, ToolExplain, ExplainLayer, ExplainCondition,
         OntologyListParams, OntologyListResult, OntologyKind, OntologyCategory, OntologyGuidance,
         OntologyMembership, OntologyCategoryAddParams, OntologyGuidanceSetParams,
         OntologyMembershipSetParams, OntologyMembershipResult,

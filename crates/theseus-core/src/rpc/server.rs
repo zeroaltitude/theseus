@@ -263,6 +263,7 @@ impl Core {
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
             method::HANDS_LIST => route(params, |p| self.rpc_hands_list(&p)),
             method::BUDGET_LIST => reply(self.budget_list()?),
+            method::POLICY_EXPLAIN => route(or_empty(params), |p| self.policy_explain(p)),
             method::ONTOLOGY_LIST
             | method::ONTOLOGY_CATEGORY_ADD
             | method::ONTOLOGY_GUIDANCE_SET

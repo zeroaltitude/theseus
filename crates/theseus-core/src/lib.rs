@@ -121,6 +121,8 @@ mod tests_continuations;
 #[cfg(test)]
 mod tests_egress;
 #[cfg(test)]
+mod tests_explain;
+#[cfg(test)]
 mod tests_external;
 #[cfg(test)]
 mod tests_failures;

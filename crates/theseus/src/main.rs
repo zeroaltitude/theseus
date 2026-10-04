@@ -19,6 +19,7 @@ mod herdr_sync;
 mod interactive;
 mod mcp;
 mod ontology;
+mod policy_explain;
 mod print;
 mod prompt;
 
@@ -55,6 +56,7 @@ Quick start:
   theseus executions explain <id>            one execution in full: what it waits on, its questions, budget, last rows
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
+  theseus policy explain --tool proc.run     why a call waits: every layer of the gate, for each place (--session: one)
   theseus policy trust <session>             after a session read a web page, its calls that act wait; this trusts it again
   theseus catalog                            models, context windows, and prices
   theseus index search \"port 7433\"           find what was said, run, or read; `index status`: how far the index has read
@@ -424,6 +426,17 @@ enum PolicyCmd {
     /// Undo a tightening: TOOL goes back to what the config says. It loosens, so it counts only
     /// where an approval would.
     Untighten { tool: String },
+    /// Why a call waits: each tool's result, layer by layer in the gate's order (the place and
+    /// its ceiling, the class, the config's posture, a tightening, a granted secret, the
+    /// place's floor, T1's hold), and the conditions that depend on the call. For SESSION's
+    /// place, or for the CLI and every bound place; with --tool, that tool in full.
+    Explain {
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+        /// A tool's canonical name (`proc.run`, `mcp:<server>/<tool>`).
+        #[arg(long)]
+        tool: Option<String>,
+    },
     /// Trust SESSION again: it no longer holds the external text it read (a web page, a
     /// search), so its calls that act run at their postures again. It loosens, so it counts
     /// only where an approval would. SESSION is its id, or at least its last four characters.

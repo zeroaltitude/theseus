@@ -1,0 +1,20 @@
+$ theseus policy explain --session ses_q7f3k2 --tool proc.run
+--- requests
+policy.explain
+--- stdout
+#lab (private, session ses_q7f3k2) · ceiling: floor approve
+  proc.run (run) → approve
+    place       offered  a private place: every tool is offered
+    ceiling     offered  #lab's ceiling narrows no tools
+    class       l0       L0: it runs on the host, under the floor, the lists, and its posture ([sandbox] default and l1_argv)
+    posture     notify   the config's posture for the tool (enforcement = notify)
+    tightening  approve  ↑ tightened by cli ("should have asked"): it asks first until undone (tightened by cli)
+    grant       approve  no secret is granted to a call like this
+    floor       approve  #lab's ceiling sets a floor of approve (#lab's posture_floor)
+    hold        approve  this session holds no external text ([policy] external_text = ask)
+    if floor: it touches Theseus's own binary or state, or the 1Password CLI or its token: at every posture → approve: /w/state/store, theseusd, op
+    if allow_argv: its argv starts with an entry of the allow list, and every path argument is inside the roots → open: ls, pwd
+    reason: a call of proc.run: proc.run — approve (tightened by cli; the config says enforcement = notify)
+each result is for a call inside the roots (/w) that no condition matches
+--- stderr
+--- exit 0

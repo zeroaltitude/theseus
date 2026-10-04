@@ -195,7 +195,7 @@ fn script(req: &ProviderRequest) -> Scripted {
 pub(crate) struct Rig {
     pub(crate) core: Arc<Core>,
     model: Arc<Model>,
-    root: std::path::PathBuf,
+    pub(crate) root: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -208,6 +208,11 @@ pub(crate) fn rig() -> Rig {
 
 /// `rig`, its config changed by `tweak` first.
 pub(crate) fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_setup(tweak, |_| {})
+}
+
+/// `rig_with`, with `setup` run on the store before the core is built.
+pub(crate) fn rig_setup(tweak: impl FnOnce(&mut Config), setup: impl FnOnce(&Store)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("open")).unwrap();
@@ -217,6 +222,7 @@ pub(crate) fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
     let mut cfg = config(&root, dir.path());
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
+    setup(&store);
     let model = Arc::new(Model {
         script: Box::new(script),
         requests: Mutex::default(),

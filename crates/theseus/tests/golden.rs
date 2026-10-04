@@ -2039,3 +2039,93 @@ fn budgets_prints_each_task_under_its_parent_and_the_totals() {
         &run(&["budgets"], vec![step("budget.list", none)]),
     );
 }
+
+/// `theseus policy explain` (step 42a): each place's tools on a line, what
+/// raised each, a refused one's words; with `--tool`, every layer, the
+/// conditions, and the gate's reason.
+#[test]
+fn policy_explain_prints_each_place_and_a_tool_in_full() {
+    let layer = |layer: &str, says: &str, setting: Option<&str>, result: &str, raised: bool| {
+        let mut l = json!({"layer": layer, "says": says, "result": result});
+        if let Some(s) = setting {
+            l["setting"] = json!(s);
+        }
+        if raised {
+            l["raised"] = json!(true);
+        }
+        l
+    };
+    let proc_lab = json!({"tool": "proc.run", "class": "run", "offered": true,
+        "layers": [
+            layer("place", "a private place: every tool is offered", None, "offered", false),
+            layer("ceiling", "#lab's ceiling narrows no tools", None, "offered", false),
+            layer("class", "L0: it runs on the host, under the floor, the lists, and its posture",
+                  Some("[sandbox] default and l1_argv"), "l0", false),
+            layer("posture", "the config's posture for the tool", Some("enforcement = notify"),
+                  "notify", false),
+            layer("tightening", "tightened by cli (\"should have asked\"): it asks first until undone",
+                  Some("tightened by cli"), "approve", true),
+            layer("grant", "no secret is granted to a call like this", None, "approve", false),
+            layer("floor", "#lab's ceiling sets a floor of approve", Some("#lab's posture_floor"),
+                  "approve", false),
+            layer("hold", "this session holds no external text",
+                  Some("[policy] external_text = ask"), "approve", false)],
+        "conditions": [
+            {"layer": "floor", "when": "it touches Theseus's own binary or state, or the 1Password CLI or its token: at every posture",
+             "entries": ["/w/state/store", "theseusd", "op"], "then": "approve"},
+            {"layer": "allow_argv", "when": "its argv starts with an entry of the allow list, and every path argument is inside the roots",
+             "entries": ["ls", "pwd"], "then": "open"}],
+        "result": "approve",
+        "reason": "a call of proc.run: proc.run — approve (tightened by cli; the config says enforcement = notify)"});
+    let read = json!({"tool": "fs.read", "class": "read", "offered": true,
+        "layers": [
+            layer("place", "a private place: every tool is offered", None, "offered", false),
+            layer("posture", "the config's posture for the tool",
+                  Some("[policy.tools] \"fs.read\" = open"), "open", false),
+            layer("hold", "a read (or a one-shot wake) keeps its posture after external text",
+                  Some("[policy] external_text = ask"), "open", false)],
+        "result": "open", "reason": "fs.read — open ([policy.tools] \"fs.read\" = open)"});
+    let proc_held = json!({"tool": "proc.run", "class": "run", "offered": true,
+        "layers": [
+            layer("posture", "the config's posture for the tool", Some("enforcement = notify"),
+                  "notify", false),
+            layer("hold", "this session read external text (http.fetch tides.example/today), and a call that acts waits for approval after that (§3.9)",
+                  Some("[policy] external_text = ask"), "approve", true)],
+        "result": "approve",
+        "reason": "a call of proc.run: proc.run — approve (this session read external text)"});
+    let refused = json!({"tool": "proc.run", "class": "run", "offered": false,
+        "refused": "proc.run is not offered in a shared place: one others can read gets only the public tools",
+        "layers": [layer("place", "a shared place: only the public tools, and the file tools under the public paths",
+                         Some("the bindings file's class, and [places] public_paths"), "refused", false)],
+        "result": "refused",
+        "reason": "place: proc.run is not offered in a shared place: one others can read gets only the public tools"});
+    let every = json!({"places": [
+        {"place": "cli", "name": "CLI", "class": "private", "tools": [read, proc_held]},
+        {"place": "discord:channel:314159", "name": "#lab", "class": "private",
+         "ceiling": {"posture_floor": "approve"}, "session_id": S, "tools": [proc_lab]},
+        {"place": "discord:channel:141421", "name": "#pier", "class": "shared",
+         "tools": [refused]}],
+        "roots": ["/w"]});
+    golden(
+        "policy_explain",
+        &run(&["policy", "explain"], vec![step("policy.explain", every)]),
+    );
+    let one = json!({"places": [
+        {"place": "discord:channel:314159", "name": "#lab", "class": "private",
+         "ceiling": {"posture_floor": "approve"}, "session_id": S, "tools": [proc_lab]}],
+        "roots": ["/w"]});
+    golden(
+        "policy_explain_tool",
+        &run(
+            &["policy", "explain", "--session", S, "--tool", "proc.run"],
+            vec![step("policy.explain", one.clone())],
+        ),
+    );
+    golden(
+        "policy_explain_json",
+        &run(
+            &["--json", "policy", "explain", "--tool", "proc.run"],
+            vec![step("policy.explain", one)],
+        ),
+    );
+}

@@ -15,6 +15,7 @@ mod budgets;
 pub mod cancel;
 pub mod cred;
 mod events;
+mod explain;
 mod gate;
 mod hands;
 mod health;
@@ -39,6 +40,7 @@ pub use aws::*;
 pub use budgets::*;
 pub use cancel::{CancelCount, CancelVerdict};
 pub use events::*;
+pub use explain::*;
 pub use gate::*;
 pub use hands::*;
 pub use health::*;
@@ -142,6 +144,9 @@ pub mod method {
         /// Each open execution's money and where its limit comes from, its
         /// tasks under it, and the totals (step 42a, `BudgetListResult`). A read.
         BUDGET_LIST = "budget.list",
+        /// Each tool's posture layer by layer in the gate's order, for a
+        /// session or every place (step 42a, `PolicyExplainParams`). A read.
+        POLICY_EXPLAIN = "policy.explain",
         ONTOLOGY_CATEGORY_ADD = "ontology.category.add",
         ONTOLOGY_GUIDANCE_SET = "ontology.guidance.set",
         ONTOLOGY_MEMBERSHIP_SET = "ontology.membership.set",

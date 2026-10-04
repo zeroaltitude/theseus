@@ -264,11 +264,16 @@ async fn the_last_reset_is_read_by_one_page_however_much_history_follows() {
     core.kernel
         .reset_budget(&q.correlation_id, "discord:271828")
         .unwrap();
-    for i in 0..5_000u64 {
-        core.store
-            .append_ledger(&json!({"at_unix_ms": i, "kind": "turn.started",
-                                   "session_id": format!("ses_other{}", i % 7), "data": {"i": i}}))
-            .unwrap();
+    // In a few frames: a frame each would cost a sync each.
+    for chunk in 0..10u64 {
+        let frame: Vec<theseus_store::NewRecord> = (chunk * 500..(chunk + 1) * 500)
+            .map(|i| {
+                let row = json!({"at_unix_ms": i, "kind": "turn.started",
+                                 "session_id": format!("ses_other{}", i % 7), "data": {"i": i}});
+                theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, &row).unwrap()
+            })
+            .collect();
+        core.store.append(&frame).unwrap();
     }
     let r = core.budget_list().unwrap();
     let p = &r.executions[0];

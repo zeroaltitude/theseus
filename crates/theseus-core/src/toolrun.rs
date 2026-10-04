@@ -41,6 +41,7 @@ use crate::store::Store;
 mod hands;
 mod job;
 mod late;
+pub(crate) mod order;
 mod resume;
 mod waits;
 
@@ -1051,54 +1052,27 @@ impl ToolRuntime {
     /// and `tool.proposed` shows it to the session's clients.
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
         let mut proposal = self.proposal_for(tool, &call.input);
-        let tightened = self.tightened.get(tool.name());
         let planned = tool.plan(&call.input, &self.ctx);
+        // The order is `order.rs`, which `policy.explain` runs too (42a).
+        let held = || crate::external::held(tc.store, tc.session_id);
+        let mcp = || mcp_floor(tc);
+        let at = order::At {
+            place: tc.place(),
+            held: &held,
+            mcp: &mcp,
+        };
         // A shared place's call reaches only what the place may (the place
         // rule): the catalog offers nothing else, and this refuses it, in case.
-        let refused = planned.as_ref().ok().and_then(|plan| {
-            crate::places::refusal(tc.class, tool.name(), plan, &self.public_roots)
-                .or_else(|| tc.ceiling.and_then(|c| c.refusal(tool.name())))
-        });
+        let refused = planned
+            .as_ref()
+            .ok()
+            .and_then(|plan| self.refusal(at.place, tool.name(), plan));
         let planned = match &refused {
             Some(why) => Err(why.clone()),
             None => planned,
         };
         let planned = planned.map(|plan| {
-            let t = tightened.as_ref().map(crate::tighten::as_tightened);
-            let (decision, job_class) = sandbox::decide(self, tool, &plan, &call.input, t);
-            // A call that starts a language server is a run too (L2).
-            let decision = crate::lsp::gate(self, tool, &plan, decision);
-            // A private address's card in a shared place says where the page
-            // goes (theseus-94a6).
-            let decision = crate::places::private_fetch(tc.class, &plan, decision);
-            // No looser than the place's floor (step 38a), before T1's hold.
-            let decision = match tc.ceiling {
-                Some(c) => c.floor(decision, tool.name(), &plan.summary),
-                None => decision,
-            };
-            // After the whole order (theseus-9bp): a call that acts in a
-            // session that read external text waits. A read and a one-shot
-            // `wake.at` keep their postures (T1b), and cost no record read;
-            // a repeating wake is persistence, and is held (37a).
-            let class = plan.class.unwrap_or(tool.class());
-            let held = if crate::external::exempt(class, tool.name(), &call.input) {
-                Ok(None)
-            } else {
-                crate::external::held(tc.store, tc.session_id)
-            };
-            let decision = crate::external::gate(
-                decision,
-                class,
-                &held,
-                self.external_text,
-                tool.name(),
-                &call.input,
-                &plan.summary,
-            );
-            // An MCP client's session (step 41b): its calls that act wait.
-            let floor = mcp_floor(tc);
-            let decision =
-                crate::mcp_server::floor(decision, class, floor, tool.name(), &plan.summary);
+            let (decision, job_class) = self.order(&at, tool, &plan, &call.input, &mut |_, _| {});
             (plan, decision, job_class)
         });
         let result = match &planned {
@@ -2020,7 +1994,13 @@ fn map_retry(r: Retry) -> RetryClass {
 /// (step 41b, `mcp_server::floor_of`). An execution that cannot be read is
 /// floored at `approve`: the gate never guesses the looser way.
 fn mcp_floor(tc: &TurnCtx<'_>) -> Option<Posture> {
-    match tc.kernel.execution(tc.execution_id) {
+    mcp_floor_of(tc.kernel, tc.execution_id)
+}
+
+/// An MCP client's floor for the calls of `execution_id` (step 41b): one
+/// that cannot be read is the strictest.
+pub(crate) fn mcp_floor_of(kernel: &Kernel, execution_id: &str) -> Option<Posture> {
+    match kernel.execution(execution_id) {
         Ok(Some(e)) => crate::mcp_server::floor_of(&e.authority),
         Ok(None) => None,
         Err(_) => Some(Posture::Approve),
