@@ -921,6 +921,9 @@ async fn after_serving(
     // its): a `--stdio` daemon serves `store-stdio` for one client.
     if bindings.is_some() {
         tokio::spawn(core.index.clone().run());
+        // The durability tender (AWS step 15), for the account that ships
+        // the store: 2 s after serving, once its account's check passes.
+        core.tend_durability_after_serving();
     }
     // The harness loop (heartbeat reconciler, wrapper notify socket) and the
     // driver (continuation turns: job results, confirms, restarts). Both

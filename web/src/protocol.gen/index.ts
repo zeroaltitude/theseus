@@ -14,6 +14,7 @@ export type * from './AwsBootstrapParams';
 export type * from './AwsBootstrapResult';
 export type * from './AwsBootstrapStack';
 export type * from './AwsBudgetStatus';
+export type * from './AwsDurabilityStatus';
 export type * from './AwsGuardDutyStatus';
 export type * from './AwsPlan';
 export type * from './AwsStatus';

@@ -763,9 +763,12 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
     table(&mut t, "policy").insert("enforcement".into(), "open".into());
     // An AWS account bound, its endpoint on a port nothing listens on (row
     // 29, C1): every phase meets its budget with an account to check and AWS
-    // out of reach, so nothing on the start path waits for AWS (§3.10).
+    // out of reach, so nothing on the start path waits for AWS (§3.10). Its
+    // owner role is named and the durability tender (step 15) is on, so the
+    // start's shape has the tender in it, after serving.
     let account: toml::Table = toml::from_str(&format!(
-        "region = \"us-west-2\"\nendpoint = \"http://{NOWHERE}\""
+        "region = \"us-west-2\"\nendpoint = \"http://{NOWHERE}\"\n\
+         owner_role = \"theseus-owner\"\ndurability = true"
     ))?;
     let mut accounts = toml::Table::new();
     accounts.insert(BENCH_AWS_ACCOUNT.into(), account.into());
@@ -1822,6 +1825,7 @@ mod tests {
         // (row 29, C1): its key's secrets are the fake vault's.
         let a = &cfg.aws.accounts[BENCH_AWS_ACCOUNT];
         assert_eq!(a.endpoint.as_deref(), Some("http://127.0.0.1:9"));
+        assert!(a.durability && a.owner_role.is_some());
         assert!(cfg.secrets.contains_key(&a.credentials.access_key_id));
         assert!(cfg.secrets.contains_key(&a.credentials.secret_access_key));
         // The index tender runs, and finds no model's files.

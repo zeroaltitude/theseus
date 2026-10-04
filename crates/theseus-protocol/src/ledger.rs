@@ -95,6 +95,7 @@ ledger_kinds! {
     DiscordReady = "discord.ready",
     DiscordTighten = "discord.tighten",
     DriverStarted = "driver.started",
+    DurabilityShipped = "durability.shipped",
     ExecutionBlocked = "execution.blocked",
     ExecutionCancelled = "execution.cancelled",
     ExecutionComplete = "execution.complete",

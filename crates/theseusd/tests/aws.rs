@@ -3,7 +3,9 @@
 //! account's check is a background startup phase, `aws.check`, that begins
 //! only after the socket's phase has ended, by the daemon's own clock; it
 //! sends AWS one request, STS's `GetCallerIdentity`; and while AWS has not
-//! answered, health answers and says the account is checking.
+//! answered, health answers and says the account is checking. The
+//! durability tender (step 15), switched on, sends nothing before the
+//! socket answers either: it waits there, and asks AWS only after.
 
 mod common;
 
@@ -20,8 +22,8 @@ use serde_json::Value;
 /// The account the tests bind: AWS's documentation's example id.
 const ACCOUNT: &str = "111122223333";
 
-/// What the fake saw: each request's first line and body.
-type Seen = Arc<Mutex<Vec<(String, String)>>>;
+/// What the fake saw: each request's first line and body, and when.
+type Seen = Arc<Mutex<Vec<(String, String, Instant)>>>;
 
 /// A stand-in for AWS on 127.0.0.1, bound before the daemon starts (a
 /// connect to a port nothing listens on hangs here): it keeps each request,
@@ -53,6 +55,7 @@ fn fake_aws(hold: Duration) -> (String, Seen) {
                 kept.lock().unwrap().push((
                     first.trim().to_string(),
                     String::from_utf8_lossy(&body).into_owned(),
+                    Instant::now(),
                 ));
                 std::thread::sleep(hold);
                 let xml = format!(
@@ -81,6 +84,11 @@ fn fake_aws(hold: Duration) -> (String, Seen) {
 /// a stand-in `op` that answers every reference at once. Health answers when
 /// this returns.
 fn start(endpoint: &str) -> Served {
+    start_with(endpoint, "")
+}
+
+/// [`start`], with more of the account's keys.
+fn start_with(endpoint: &str, more: &str) -> Served {
     use std::os::unix::fs::PermissionsExt;
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let dir = tempfile::tempdir().unwrap();
@@ -98,7 +106,7 @@ fn start(endpoint: &str) -> Served {
         .parse()
         .unwrap();
     let account: toml::Table = toml::from_str(&format!(
-        "region = \"us-west-2\"\nendpoint = \"{endpoint}\""
+        "region = \"us-west-2\"\nendpoint = \"{endpoint}\"\n{more}"
     ))
     .unwrap();
     let mut accounts = toml::Table::new();
@@ -233,4 +241,54 @@ fn health_answers_while_aws_does_not() {
         s.call("health", Value::Null).unwrap();
     }
     assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+}
+
+#[test]
+fn the_durability_tender_waits_for_serving_and_says_so() {
+    let (url, seen) = fake_aws(Duration::ZERO);
+    let s = start_with(&url, "owner_role = \"theseus-owner\"\ndurability = true");
+    let served = Instant::now();
+    // Health answers, and once the tender has started its line says it
+    // waits; nothing of the tender's has reached AWS by then (the budget's
+    // tender, C2's, may have asked for its own session).
+    let h = until(&s, "the tender's line", |h| {
+        h["aws"]["accounts"][0]["durability"]["state"] == "waiting"
+    });
+    let early: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, b, _)| b.contains("theseus-durability"))
+        .map(|(l, b, _)| format!("{l} {b}"))
+        .collect();
+    assert!(
+        early.is_empty(),
+        "the tender asked AWS before serving: {early:?}"
+    );
+    let d = &h["aws"]["accounts"][0]["durability"];
+    assert_eq!(d["state"], "waiting", "{d}");
+    assert_eq!(d["prefix"], "durability/theseus/");
+    // Then it asks for its session (this fake answers no AssumeRole, so the
+    // tender says it is failing, and retries).
+    let h = until(&s, "the tender's first request", |h| {
+        h["aws"]["accounts"][0]["durability"]["state"] == "failing"
+    });
+    let first = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(_, b, _)| b.contains("RoleSessionName=theseus-durability"))
+        .map(|(_, b, at)| (b.clone(), *at))
+        .expect("an AssumeRole");
+    assert!(
+        first.1 > served,
+        "the tender's first request came before serving"
+    );
+    assert!(first.0.contains("ShipToItsPrefix"), "{}", first.0);
+    assert!(
+        h["aws"]["accounts"][0]["durability"]["error"]
+            .as_str()
+            .is_some(),
+        "{h}"
+    );
 }

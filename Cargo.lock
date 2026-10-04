@@ -6423,6 +6423,7 @@ dependencies = [
  "tempfile",
  "theseus-aws",
  "theseus-aws-guard",
+ "theseus-follow",
  "theseus-kernel",
  "theseus-protocol",
  "theseus-sandbox",

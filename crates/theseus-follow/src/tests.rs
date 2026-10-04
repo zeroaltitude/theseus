@@ -55,6 +55,8 @@ fn it_reads_every_frame_in_order_from_the_start() {
     assert_eq!(f.cursor().offset, len);
     // The bytes read, as a shipper would copy them: the whole segment so far.
     assert_eq!(b.spans, vec![(1, 0, len)]);
+    // And each span's last position, which says where a record lives.
+    assert_eq!(b.ends, vec![10]);
     assert_eq!(b.bytes, len);
     // Caught up: an empty read, and the cursor stays.
     let c = f.cursor().clone();
@@ -65,6 +67,7 @@ fn it_reads_every_frame_in_order_from_the_start() {
     let b = f.read(1 << 20).unwrap();
     let now = fs::metadata(seg(dir.path(), 1)).unwrap().len();
     assert_eq!(b.spans, vec![(1, len, now)]);
+    assert_eq!(b.ends, vec![11]);
 }
 
 #[test]
@@ -185,6 +188,10 @@ fn it_crosses_segment_rotations() {
     let mut spans = Vec::new();
     loop {
         let b = f.read(90).unwrap();
+        // One last position per span, rising, the batch's last its last.
+        assert_eq!(b.ends.len(), b.spans.len());
+        assert!(b.ends.windows(2).all(|w| w[0] < w[1]), "{:?}", b.ends);
+        assert_eq!(b.ends.last().copied(), b.records.last().map(|r| r.position));
         seen.extend(b.records.iter().map(|r| r.position));
         sealed.extend(b.sealed);
         spans.extend(b.spans);

@@ -17,9 +17,10 @@
 //!   (the catalog, local), `aws.whoami`, `aws.s3.list`, `aws.stack.plan`,
 //!   `.apply`, `.status`, and `.delete`, and `aws.cost`. A call that returns
 //!   a secret is invalid input until 14c.
-//! - **The bootstrap** ([`bootstrap`]) and **the tenders** ([`tend`]): the
-//!   account's first stacks, on the operator's yes; after serving, the
-//!   budget's reconcile and reads, and GuardDuty's weekly usage.
+//! - **The bootstrap** ([`bootstrap`]) and **the tenders** ([`tend`],
+//!   [`durable`]): the account's first stacks, on the operator's yes; after
+//!   serving, the budget's reconcile and reads, GuardDuty's weekly usage,
+//!   and the store shipped to the foundation's bucket and table.
 //! - **FAST** (§3.10). Building this does nothing: the catalog decodes on the
 //!   first call, the HTTP client builds on the first send, and the check runs
 //!   after serving (`theseusd`'s `aws.check` phase) or at the first call.
@@ -45,6 +46,7 @@ use crate::secrets::{Secret, SecretBoard, SecretState};
 
 pub mod bootstrap;
 pub mod cost;
+pub mod durable;
 pub mod session;
 pub mod stack;
 pub mod tend;
@@ -54,6 +56,8 @@ pub mod tools;
 mod tests;
 #[cfg(test)]
 mod tests_c2;
+#[cfg(test)]
+mod tests_durable;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 9] = [
@@ -350,6 +354,8 @@ pub struct Tended {
     pub budget: Option<theseus_protocol::AwsBudgetStatus>,
     pub guardduty: Option<theseus_protocol::AwsGuardDutyStatus>,
     pub reconcile: Option<String>,
+    /// The durability tender's line (step 15), when it ships here.
+    pub durability: Option<theseus_protocol::AwsDurabilityStatus>,
 }
 
 /// One bound account: its key's check, its client, its sessions, and its
@@ -494,7 +500,9 @@ impl Account {
             ),
         };
         let inline = match kind {
-            session::Kind::Tender(t) => tend::policy(t, &self.id),
+            session::Kind::Tender(t) => {
+                tend::policy(t, &self.id).or_else(|| durable::policy(t, &self.id, &self.cfg))
+            }
             _ => None,
         };
         let want = session::Want {
@@ -836,6 +844,7 @@ impl Account {
             budget: t.budget.clone(),
             guardduty: t.guardduty.clone(),
             reconcile: t.reconcile.clone(),
+            durability: t.durability.clone().map(durable::with_lag),
         }
     }
 

@@ -203,6 +203,16 @@ impl Telemetry {
             .push_lost(n);
     }
 
+    /// The durability tender (AWS step 15): bytes shipped, or the lag a
+    /// catch-up closed.
+    pub fn record_durability(&self, m: crate::aws::durable::Measure) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .durability(m);
+    }
+
     /// Send what waits, and the metrics, now: true once done (or nothing to
     /// do), false when `within` passed first. The daemon's clean shutdown
     /// waits here, bounded.

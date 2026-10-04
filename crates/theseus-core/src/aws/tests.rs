@@ -285,6 +285,7 @@ fn account(endpoint: &str) -> AwsConfig {
                 owner_role: None,
                 deployment: None,
                 monthly_budget_usd: None,
+                durability: false,
             },
         )]),
     }
