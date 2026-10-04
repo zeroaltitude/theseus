@@ -1,0 +1,8 @@
+[package]
+name = "ledger-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Not a member of the repository's workspace: a project of its own.
+[workspace]

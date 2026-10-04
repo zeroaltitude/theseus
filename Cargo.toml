@@ -16,6 +16,7 @@ members = [
     "crates/theseus",
     "crates/theseus-exam",
     "crates/theseus-mcp",
+    "crates/theseus-lsp",
     "crates/theseus-follow",
     "crates/theseus-index",
     "crates/theseus-aws-guard",
