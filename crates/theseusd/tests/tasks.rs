@@ -4,6 +4,8 @@
 //! and its model to a stand-in for the Messages API. Nothing reaches Discord.
 //! - `kill -9` while a task's job runs, then a restart: the job's result
 //!   arrives, the task finishes, and its report posts once;
+//! - `kill -9` while a task is parked on its own wake, then a restart: the
+//!   wake fires once, and the task reports once (37b, theseus-7kg);
 //! - a cancel stops the task and kills its job's wrapper, and reports once;
 //! - a task with `wake_parent` starts its parent's turn, whose reply posts
 //!   under the report's line (W1, theseus-lji);
@@ -42,7 +44,7 @@ const FAKE_OP: &str = "#!/bin/sh\n\
 struct Rig {
     dir: tempfile::TempDir,
     fake: Arc<FakeDiscord>,
-    _model: FakeModel,
+    model: FakeModel,
 }
 
 impl Rig {
@@ -112,11 +114,7 @@ impl Rig {
             ),
         )
         .unwrap();
-        Self {
-            dir,
-            fake,
-            _model: model,
-        }
+        Self { dir, fake, model }
     }
 
     fn path(&self, p: &str) -> PathBuf {
@@ -317,6 +315,77 @@ fn a_kill_mid_task_then_a_restart_finishes_it_and_reports_once() {
     assert_eq!(r.report_nodes(&sid).len(), 1);
     r.ask(&sid, "Anything else?");
     assert_eq!(r.report_nodes(&sid).len(), 1, "read once");
+}
+
+/// `kill -9` while a task is parked on its own one-shot wake (37b,
+/// theseus-7kg): the restarted daemon fires the wake once, its turn continues
+/// the task, and the task reports once, after the wake's turn. While it was
+/// parked, `wake.list` named the task, and `task.list` said it waits on a
+/// wake.
+#[test]
+fn a_kill_while_a_task_is_parked_on_its_wake_then_a_restart_reports_once() {
+    let r = Rig::new(vec![
+        (
+            "Watch the build",
+            vec![(
+                "task_create",
+                json!({"brief": "Check the build now and again shortly, then report."}),
+            )],
+        ),
+        (
+            "Check the build now and again",
+            vec![(
+                "wake_at",
+                json!({"after": "4s", "note": "Look at the build once more, then report."}),
+            )],
+        ),
+    ]);
+    let daemon = r.spawn();
+    let sid = r.session();
+    r.ask(&sid, "Watch the build");
+    let task = r.wait("the task parked on its wake", || {
+        r.tasks().into_iter().find(|t| t["waiting_on"] == "a wake")
+    });
+    let short = task["short"].as_str().unwrap().to_string();
+    let wakes = r.call("wake.list", json!({})).unwrap()["wakes"].clone();
+    assert_eq!(wakes.as_array().unwrap().len(), 1, "{wakes}");
+    assert_eq!(wakes[0]["task"], short.as_str(), "{wakes}");
+    assert!(r.reports().is_empty(), "a parked task has not reported");
+    // SIGKILL, with the wake pending.
+    drop(daemon);
+    let _daemon = r.spawn();
+    r.wait("the task complete", || {
+        r.tasks()
+            .into_iter()
+            .find(|t| t["task_id"] == task["task_id"] && t["state"] == "complete")
+    });
+    let got = r.wait("the report delivered", || {
+        let got = r.reports();
+        (!got.is_empty()).then_some(got)
+    });
+    std::thread::sleep(Duration::from_millis(1_000));
+    assert_eq!(r.reports().len(), 1, "one report: {:?}", r.reports());
+    assert!(
+        got[0]
+            .content
+            .starts_with(&format!("📋 **Task `{short}` finished**")),
+        "{}",
+        got[0].content
+    );
+    assert!(got[0].content.contains("-# 2 turns"), "{}", got[0].content);
+    let wakes = r.call("wake.list", json!({})).unwrap()["wakes"].clone();
+    assert!(wakes.as_array().unwrap().is_empty(), "{wakes}");
+    // The wake's turn ran once: one request ended on its line (the set
+    // call's result quotes the line too, as a tool result).
+    let fired = r
+        .model
+        .requests()
+        .iter()
+        .filter_map(|q| q["messages"].as_array().and_then(|m| m.last()).cloned())
+        .map(|m| m.to_string())
+        .filter(|m| m.contains("⏰ wake") && !m.contains("tool_result"))
+        .count();
+    assert_eq!(fired, 1, "the wake's turn ran once");
 }
 
 /// A cancel stops the task and its job: the job's wrapper is terminated, its

@@ -4,7 +4,7 @@
 //! leaves it pending; a restart keeps it, and it fires once; one due while
 //! the daemon was down runs after startup, marked late; a cancel clears it;
 //! the cap refuses a sixth, readably; the turn's reply posts through the
-//! outbox; a task cannot set one.
+//! outbox. A task's own wakes are `tests_task_wakes.rs`'s (37b).
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};

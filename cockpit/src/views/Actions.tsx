@@ -225,7 +225,7 @@ function Wakes({ h }: { h?: Health }) {
           <Hourglass size={14} className="text-live" />
           <div className="min-w-0 flex-1" title={`${w.wake_id}\nset ${clock(w.set_at_ms)}${w.target ? `\nits reply goes to ${w.target}` : ''}`}>
             <div className="truncate text-[12.5px] text-ink">{w.note}</div>
-            <div className="num text-[11px] text-ink-faint">{w.short} · <button onClick={() => nav(`/session/${w.session_id}`)} className="hover:text-live">{w.session_title ?? short(w.session_id)}</button> <StatePill state={w.state} /> · {w.due_local} · <span className={w.due_at_ms > now ? 'text-live' : 'text-wait'}>{w.due_at_ms > now ? `in ${ms(w.due_at_ms - now)}` : `due ${ms(now - w.due_at_ms)} ago`}</span></div>
+            <div className="num text-[11px] text-ink-faint">{w.short} · <button onClick={() => nav(`/session/${w.session_id}`)} className="hover:text-live">{w.task ? `task ${w.task}` : (w.session_title ?? short(w.session_id))}</button> <StatePill state={w.state} /> · {w.due_local} · <span className={w.due_at_ms > now ? 'text-live' : 'text-wait'}>{w.due_at_ms > now ? `in ${ms(w.due_at_ms - now)}` : `due ${ms(now - w.due_at_ms)} ago`}</span></div>
           </div>
           <Btn tone="fault" busy={busy === w.wake_id} onClick={() => run(w.wake_id, 'wake.cancel', { wake: w.wake_id }, `Cancel the wake “${w.note}”?`)}><OctagonX size={13} /> Cancel</Btn>
         </div>

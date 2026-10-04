@@ -3043,10 +3043,13 @@ impl TurnRunner {
         // message is its report, which the frame that ends it carries. One
         // with results its model has not read (late ones, or a turn stopped at
         // its loop cap) takes another turn instead: no one else will wake it.
+        // One with a wake pending parks on it, and the wake's turn goes on (37b).
         let end = match end {
             TurnEnd::Wait { wake: Wake::Input } if is_task => {
                 if again || stop == "max_loops" {
                     again = true;
+                    TurnEnd::Wait { wake: Wake::Input }
+                } else if crate::task::parks_on_wake(t.tc.kernel, t.tc.execution_id) {
                     TurnEnd::Wait { wake: Wake::Input }
                 } else {
                     TurnEnd::Complete {

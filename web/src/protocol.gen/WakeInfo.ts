@@ -17,7 +17,11 @@ short: string, session_id: string, execution_id: string,
 /**
  * The session's title, when it has one.
  */
-session_title?: string, due_at_ms: number, 
+session_title?: string, 
+/**
+ * The task that set it, by its short id (`a1b2c3`), when its session is a task (37b).
+ */
+task?: string, due_at_ms: number, 
 /**
  * The due time on the daemon's clock, as people read it
  * (`2026-09-30 13:15:00 -07:00`).

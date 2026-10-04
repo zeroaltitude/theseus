@@ -20,6 +20,12 @@
 //!   outbox post naming it; a failed turn or a cancel reports so, once. The
 //!   parent's next turn writes the report into the parent's session as a
 //!   node, before its new input.
+//! - **A task's own wakes** (37b, theseus-7kg). A task may set one-shot
+//!   wakes (`wake.at`). A turn of it that has nothing left to wait on but a
+//!   pending wake parks on input instead of ending (`parks_on_wake`), and the
+//!   wake's turn continues it; the turn that would wait with no wake left
+//!   ends it, and it reports then, once. Its cancel drops its wakes in the
+//!   cancel's frame, so none fires after.
 //! - **The report's wake** (W1, theseus-lji). With `wake_parent: true`, the
 //!   report also starts that turn: the frame that ends the task queues the
 //!   parent, as a due wake does, unless the task was cancelled. The turn runs
@@ -443,6 +449,20 @@ pub struct Report {
     pub external: Option<theseus_protocol::ExternalText>,
 }
 
+/// Whether a task's turn that would end it parks instead (37b): its
+/// execution still holds a pending wake, whose turn continues the task. Only
+/// the task's own turns set its wakes; a cancel that takes the last one as
+/// the turn ends leaves the kernel to queue it (`wakes::task_unparked`), so
+/// it is never left waiting with nothing to wake it. Unreadable, and it ends
+/// as before 37b, its wakes dropped by the end's frame.
+pub fn parks_on_wake(kernel: &theseus_kernel::Kernel, execution_id: &str) -> bool {
+    kernel
+        .execution(execution_id)
+        .ok()
+        .flatten()
+        .is_some_and(|e| !e.wakes.is_empty())
+}
+
 /// The line a turn that a report started shows above its reply (W1), as a
 /// wake's turn shows its wake's line.
 pub fn woke_line(short: &str) -> String {
@@ -613,8 +633,12 @@ pub fn info(
         parent_execution_id: e.parent.clone().unwrap_or_default(),
         title: rec.and_then(|r| r.title.clone()),
         state: e.state.as_str().into(),
+        // A task parked on its own wake waits on that, not on input (37b).
         waiting_on: (e.state == ExecState::Waiting)
-            .then(|| e.wake.as_ref().map(wake_word))
+            .then(|| match &e.wake {
+                Some(theseus_kernel::Wake::Input) if !e.wakes.is_empty() => Some("a wake".into()),
+                w => w.as_ref().map(wake_word),
+            })
             .flatten(),
         spent_usd: micros_to_usd(e.budget.spent_micros),
         limit_usd: micros_to_usd(e.budget.limit_micros),

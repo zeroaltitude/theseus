@@ -1328,14 +1328,20 @@ impl Kernel {
                     e.state = ExecState::Waiting;
                     e.wake = Some(wake);
                     let reported = !e.report_wakes.is_empty();
-                    if crate::wakes::free(&e) && (crate::wakes::wake_due(&e, now) || reported) {
+                    // A task with no wake left to park on goes on (37b).
+                    let unparked = crate::wakes::task_unparked(&e);
+                    if crate::wakes::free(&e)
+                        && (crate::wakes::wake_due(&e, now) || reported || unparked)
+                    {
                         e.state = ExecState::Queued;
                         e.wake = None;
                         e.resume_pending = true;
                         why = Some(if crate::wakes::wake_due(&e, now) {
                             "wake"
-                        } else {
+                        } else if reported {
                             "report"
+                        } else {
+                            "task_unparked"
                         });
                         kind = LedgerKind::ExecutionQueued;
                     } else {

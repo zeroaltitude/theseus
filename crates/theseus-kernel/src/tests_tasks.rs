@@ -721,3 +721,67 @@ fn opening_a_task_and_the_parents_reservation_never_lose_each_other() {
     assert_eq!(x.budget.reserved_micros, 37_000);
     drop(g);
 }
+
+/// A task parks on its own wake (37b, theseus-7kg), waiting on input beside
+/// it. Nothing gives a task input, so one left waiting with no wake is queued
+/// in the frame that leaves it so, and its next turn ends it: a cancel of its
+/// last wake, and a turn that ends as it parks after that cancel landed.
+#[test]
+fn a_task_left_waiting_with_no_wake_is_queued_in_that_frame() {
+    let w = world();
+    let (_, g, t, _) = with_task(&w, 500_000);
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    // Its first turn sets a wake, and parks on it.
+    let g = w.kernel.admit(&t.id).unwrap();
+    let due = w.kernel.now_ms() + 60_000;
+    let set = w
+        .kernel
+        .set_wake(&g, &new_id("act"), due, "look again", None, None)
+        .unwrap();
+    let parked = w
+        .kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    assert_eq!(
+        (parked.state, parked.wake.clone(), parked.wakes.len()),
+        (ExecState::Waiting, Some(Wake::Input), 1)
+    );
+    // The operator cancels it: the same frame queues the task.
+    let (e, _) = w
+        .kernel
+        .cancel_wake(&t.id, &set.wake.id, "the CLI")
+        .unwrap()
+        .unwrap();
+    assert_eq!((e.state, e.resume_pending), (ExecState::Queued, true));
+    assert_eq!(exec(&w, &t.id).state, ExecState::Queued);
+    let queued = rows(&w, &t.session_id, "execution.queued");
+    assert_eq!(queued.last().unwrap()["why"], "wake_cancelled");
+    assert_eq!(queued.last().unwrap()["wakes"][0], set.wake.id);
+    // A turn that would park it with no wake left is queued instead.
+    let g = w.kernel.admit(&t.id).unwrap();
+    let e = w
+        .kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    assert_eq!(e.state, ExecState::Queued);
+    let queued = rows(&w, &t.session_id, "execution.queued");
+    assert_eq!(queued.last().unwrap()["why"], "task_unparked");
+    // A conversation is not: it waits on its input.
+    let (_, c, g) = running(&w);
+    let call = new_id("act");
+    let set = w
+        .kernel
+        .set_wake(&g, &call, due, "look", None, None)
+        .unwrap();
+    w.kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    let (e, _) = w
+        .kernel
+        .cancel_wake(&c.id, &set.wake.id, "the CLI")
+        .unwrap()
+        .unwrap();
+    assert_eq!(e.state, ExecState::Waiting);
+}
