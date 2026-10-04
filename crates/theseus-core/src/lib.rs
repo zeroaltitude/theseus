@@ -33,6 +33,7 @@ pub mod extend;
 pub mod external;
 pub mod fact;
 pub mod github;
+pub mod glide;
 pub mod graph;
 pub mod harness;
 pub mod judge;
@@ -142,6 +143,8 @@ mod tests_explain;
 mod tests_external;
 #[cfg(test)]
 mod tests_failures;
+#[cfg(test)]
+mod tests_glide;
 #[cfg(test)]
 mod tests_grants;
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! The place rule's facts (theseus-nbsh): who can view a guild channel bound
-//! `private = true`, as the binding read it at its start.
+//! `private = true`, as the binding read it at its start; the owner's
+//! publish; and a glide's post and read (38b).
 
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
@@ -82,5 +83,104 @@ impl Fact for Published<'_> {
                 self.who, self.what, self.name, self.bytes, self.digest
             ),
         );
+    }
+}
+
+/// Where a glide's words went (38b): its place, `discord:<place>` or none
+/// for the CLI or the web UI, and the place's name.
+#[derive(Clone, Copy)]
+pub struct Where<'a> {
+    pub place: Option<&'a str>,
+    pub name: &'a str,
+}
+
+/// A glide's post (38b, `glide.posted`), in the frame that stages it: from
+/// where to where, its characters, and how the place rule allowed it.
+pub struct GlidePosted<'a> {
+    pub session_id: &'a str,
+    pub correlation_id: &'a str,
+    pub from: Where<'a>,
+    pub to: Where<'a>,
+    pub chars: u64,
+    /// `allowed`, or `approved` when the rule asked first.
+    pub allowed: &'a str,
+    /// The rule's words, when it asked.
+    pub why: Option<&'a str>,
+    /// The outbox post that carries it.
+    pub post: &'a str,
+}
+
+impl Fact for GlidePosted<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::GlidePosted);
+
+    fn row(&self) -> Value {
+        json!({"correlation_id": self.correlation_id, "from": self.from.place,
+               "from_name": self.from.name, "to": self.to.place, "to_name": self.to.name,
+               "chars": self.chars, "allowed": self.allowed, "why": self.why, "post": self.post})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "session {} posted to {} ({} chars, {}).",
+                crate::task::short(self.session_id),
+                self.to.name,
+                crate::narrative::thousands(self.chars),
+                how(self.allowed)
+            ),
+        );
+    }
+}
+
+/// A glide's read (38b, `glide.read`), in the frame that writes the
+/// borrowed node: from where into where, its messages and characters, how
+/// the place rule allowed it, and whether it is outside text.
+pub struct GlideRead<'a> {
+    pub session_id: &'a str,
+    pub correlation_id: &'a str,
+    pub from: Where<'a>,
+    pub to: Where<'a>,
+    pub messages: usize,
+    pub chars: u64,
+    pub allowed: &'a str,
+    pub why: Option<&'a str>,
+    /// A shared place's: its people wrote it.
+    pub outside: bool,
+    /// The borrowed node, the call's result.
+    pub node_id: &'a str,
+}
+
+impl Fact for GlideRead<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::GlideRead);
+
+    fn row(&self) -> Value {
+        json!({"correlation_id": self.correlation_id, "from": self.from.place,
+               "from_name": self.from.name, "to": self.to.place, "to_name": self.to.name,
+               "messages": self.messages, "chars": self.chars, "allowed": self.allowed,
+               "why": self.why, "outside": self.outside, "node_id": self.node_id})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "session {} borrowed {} from {} ({} chars, {}{}).",
+                crate::task::short(self.session_id),
+                crate::narrative::count(self.messages as u64, "message", "messages"),
+                self.from.name,
+                crate::narrative::thousands(self.chars),
+                how(self.allowed),
+                if self.outside { "; outside text" } else { "" }
+            ),
+        );
+    }
+}
+
+/// How the place rule allowed a glide, as its narrative line says it.
+fn how(allowed: &str) -> &'static str {
+    match allowed {
+        "approved" => "asked first and approved",
+        _ => "allowed",
     }
 }

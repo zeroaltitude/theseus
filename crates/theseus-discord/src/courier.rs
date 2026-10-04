@@ -656,6 +656,8 @@ impl Lane {
                     extra: json!({}),
                 })
             }
+            // A glide's post (38b): another session's words, once, here.
+            "glide" => Ok(glide(&body, corr, self.place_channel().await?)),
             // A job's refusal notice, from a build before the trace was
             // retired (theseus-zmgb): nothing to post.
             "refusal" => Ok(Plan::nothing("a job's refusal notice, retired")),
@@ -1228,6 +1230,33 @@ pub(crate) async fn courier(shared: Arc<Shared>) {
         }
         shared.refuse_unbound();
         shared.wake_lanes();
+    }
+}
+
+/// A glide's post (38b): another session's words, posted in `channel` once,
+/// under its call's keys (`glide:<call>`, then `glide:<call>:<part>`), in
+/// this place's order.
+fn glide(body: &Value, corr: &str, channel: u64) -> Plan {
+    let call = body["call"].as_str().unwrap_or(corr);
+    let writes = render::glide(body)
+        .into_iter()
+        .enumerate()
+        .map(|(i, content)| Write {
+            key: match i {
+                0 => format!("glide:{call}"),
+                i => format!("glide:{call}:{i}"),
+            },
+            channel,
+            content,
+            buttons: Buttons::Keep,
+            reply_to: None,
+            message: None,
+            mentions: vec![],
+        })
+        .collect();
+    Plan {
+        writes,
+        extra: json!({"glide": call}),
     }
 }
 

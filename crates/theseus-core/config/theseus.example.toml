@@ -409,6 +409,13 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # a wake into this conversation later (DD8): inherits enforcement, so each one
 # set is a notice with its time; its turn spends from this session's limit
 # "wake.at" = "notify"
+# gliding (38b): a post into another bound place, and a read of one's recent
+# conversation. Both inherit enforcement; the place rule decides the rest:
+# into a private place a glide keeps its posture, and what a read brings from
+# a shared place is outside text; out of a private place, or between two
+# shared places, it waits for your approval, as /publish does
+# "channel.post" = "notify"
+# "channel.read" = "notify"
 # terminals (a program on a pty: a REPL, an editor, a pager): term.open is
 # judged as proc.run is, by its program and arguments, and term.send as a run
 # of its terminal's program, so the floor and the approve and allow lists

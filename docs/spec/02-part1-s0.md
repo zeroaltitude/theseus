@@ -125,7 +125,11 @@ _As built (2026-10-03, C2; Part III Item 78): Eddie gave the go-ahead for the fi
     build; §3.25); `security.v3`'s bar waits for shadow data through the soak, and file provenance (option B) is decided
     at v1 with real numbers (theseus-sh05, deferred); `[sandbox] egress` for his L1 `aws` jobs (Item 94); the hands
     reuse the account's existing NAT gateway (§3.25); and joins may be batched.
-  - **Still open, so nothing changes for them:** whether a trusted guild answers in every channel, unbound
-    (theseus-yzhv, the question to be put more clearly); and gliding (38b), whose design was built on the labels the
-    place rule replaced, waits for his call on a redesign.
+  - **Still open, so nothing changes for it:** whether a trusted guild answers in every channel, unbound
+    (theseus-yzhv, the question to be put more clearly).
+- **Decided on October 4:**
+  - **15:09, gliding (38b) on the place rule**, "Gliding with the place rule: yes!". Its first design rested on the
+    labels the place rule replaced. Into a private place a glide always may, and what a read brings from a shared
+    place is outside text; out of a private place, or between two shared places, it asks the owner first, as
+    `/publish` does, and an approved post out of a private place is recorded as a publish (§3.24; M7's design, §2.3).
 

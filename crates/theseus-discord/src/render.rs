@@ -1096,6 +1096,17 @@ pub fn restarted(at_unix_ms: u64, tables: &[String]) -> String {
     )
 }
 
+/// A glide's post (38b): another session's words, in parts under Discord's
+/// limit, the last ending with the line that names the session.
+pub fn glide(body: &Value) -> Vec<String> {
+    let text = body["text"].as_str().unwrap_or("").trim_end();
+    let session = body["session"].as_str().unwrap_or("?");
+    split_text(
+        &format!("{text}\n-# ↪ posted from Theseus session `{session}`"),
+        PART_LIMIT,
+    )
+}
+
 /// A post created again after an outage longer than Discord keeps a nonce
 /// (theseus-q4v): the channel may already hold it, so it says so.
 pub const RESENT: &str =
@@ -2550,6 +2561,21 @@ mod tests {
             ),
             "{content}"
         );
+    }
+
+    /// A glide's post (38b) is its text with the line naming its session; a
+    /// long one is parts under the limit, the line on the last.
+    #[test]
+    fn a_glides_post_names_its_session_on_its_last_part() {
+        let post = |text: &str| glide(&json!({"kind": "glide", "text": text, "session": "a1b2c3"}));
+        assert_eq!(
+            post("Deployed v2.\n"),
+            ["Deployed v2.\n-# ↪ posted from Theseus session `a1b2c3`"]
+        );
+        let parts = post(&"word ".repeat(700));
+        assert_eq!(parts.len(), 2, "{parts:?}");
+        assert!(parts.iter().all(|p| p.chars().count() <= DISCORD_LIMIT));
+        assert!(parts[1].ends_with("-# ↪ posted from Theseus session `a1b2c3`"));
     }
 
     /// A task's report (DD7) is one message that names the task: a long last

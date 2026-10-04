@@ -442,6 +442,84 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     assert!(create < edit, "the edit went after its create, to its id");
 }
 
+/// A glide (38b) out of the owner's DM into a channel bound shared asks
+/// first, and nothing reaches the channel until the owner answers. Approved
+/// from the CLI, its post rides the channel's lane: one message there, made
+/// by one create under its call's key, ending with the line that names its
+/// session.
+#[tokio::test]
+async fn an_approved_glide_posts_once_in_the_other_places_lane() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let post = serde_json::json!({"to": "#harbor", "text": "The tide turns at six."});
+    let script = vec![
+        Scripted::tools("", &[("g1", "channel_post", post)]),
+        Scripted::text("Posted it."),
+    ];
+    // The rule alone makes it ask: the tool's own posture runs it.
+    let core = core_at(d.path(), &fake, script, |c| {
+        c.policy
+            .tools
+            .insert("channel.post".into(), Posture::Notify);
+    });
+    tokio::spawn(theseus_core::harness::drive(core.clone()));
+    let bindings = format!(
+        "{}[[channel]]\nid = \"{CHANNEL}\"\nname = \"harbor\"\nusers = [\"{USER}\"]\nmention_only = false\n",
+        dm_only()
+    );
+    let rpc = bind(&core, d.path(), &bindings).await;
+    let c = core.clone();
+    until("the channel is bound", 10, move || {
+        c.outbox
+            .place_session(&format!("channel:{CHANNEL}"))
+            .unwrap()
+            .is_some()
+    })
+    .await;
+    let sid = session(&core);
+    let q = ask(&rpc, &sid, "post the tide to #harbor")
+        .await
+        .awaiting_confirm
+        .expect("a post out of the DM into a shared channel asks first");
+    let said = |f: &FakeDiscord| -> Vec<Msg> {
+        f.messages(CHANNEL)
+            .into_iter()
+            .filter(|m| m.content.contains("The tide turns"))
+            .collect()
+    };
+    let c = core.clone();
+    until("the card delivered", 10, move || pending(&c) == 0).await;
+    assert!(said(&fake).is_empty(), "nothing before the answer");
+    let cli = theseus_core::approval::Answerer {
+        label: "cli#1".into(),
+        surface: Surface::Cli,
+        discord: None,
+    };
+    core.confirm_action(&q, true, None, cli).unwrap();
+    let f = fake.clone();
+    until("the glide reached the channel", 20, move || {
+        !said(&f).is_empty()
+    })
+    .await;
+    let c = core.clone();
+    until("everything delivered", 20, move || pending(&c) == 0).await;
+    let got = said(&fake);
+    assert_eq!(got.len(), 1, "{got:?}");
+    let short: String = sid.chars().skip(sid.chars().count() - 6).collect();
+    assert_eq!(
+        got[0].content,
+        format!("The tide turns at six.\n-# ↪ posted from Theseus session `{short}`")
+    );
+    let nonce = crate::nonce(&format!("glide:{q}"));
+    let creates: Vec<String> = fake
+        .seen()
+        .into_iter()
+        .filter(|s| s.nonce.as_deref() == Some(nonce.as_str()))
+        .map(|s| s.outcome)
+        .collect();
+    assert_eq!(creates, ["created"]);
+}
+
 /// A call that asks, as a shared place may make one: a wake (public by
 /// nature), set to ask first.
 fn wake_call(text: &str) -> Scripted {

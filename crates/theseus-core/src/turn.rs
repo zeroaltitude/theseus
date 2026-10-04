@@ -1477,6 +1477,10 @@ impl TurnRunner {
             // Taken again once the turn has read its wakes and reports.
             class: place.class,
             ceiling: place.ceiling,
+            places: crate::places::Places {
+                rule: &self.place_rule,
+                cfg: &self.cfg,
+            },
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {

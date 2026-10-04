@@ -8,9 +8,9 @@
 //! (`refusal`); then the call's own policy (`sandbox::unbrokered`: L1's, or
 //! L0's floor, lists, and posture with its tightening), a granted secret's
 //! posture, a language server's start (by a call, L2, or an edit, L3), a
-//! shared place's word on a private address, the place's floor, T1's hold,
-//! and an MCP client's floor (`order`). Each after the first only raises
-//! the posture.
+//! shared place's word on a private address, the place's floor, a glide's
+//! place rule (38b), T1's hold, and an MCP client's floor (`order`). Each
+//! after the first only raises the posture.
 
 use serde_json::Value;
 use theseus_protocol::ExternalText;
@@ -23,11 +23,13 @@ use crate::sandbox::Bound;
 
 /// What the gate reads of where a call runs, besides the call: its place,
 /// its session's hold (read only for a call that acts, so a read costs no
-/// record), and an MCP client's floor (step 41b).
+/// record), an MCP client's floor (step 41b), and a glide's places (38b),
+/// resolved from its input; none for any other call.
 pub(crate) struct At<'a> {
     pub place: PlaceView,
     pub held: &'a dyn Fn() -> Result<Option<ExternalText>, String>,
     pub mcp: &'a dyn Fn() -> Option<Posture>,
+    pub glide: Option<&'a crate::glide::Resolved>,
 }
 
 /// A layer of the order after the place's refusal, as `order` hands each
@@ -45,6 +47,8 @@ pub(crate) enum Layer {
     SharedFetch,
     /// The place's floor (step 38a), and an extension's load's (43b).
     Floor,
+    /// A glide's place rule, and a post's destination's floor (38b).
+    Glide,
     /// T1's hold after external text (theseus-9bp).
     Hold,
     /// An MCP client's floor (step 41b).
@@ -96,6 +100,13 @@ impl ToolRuntime {
             .floors
             .floor(tool.name(), decision, &plan.summary);
         seen(Layer::Floor, &decision);
+        // A glide (38b): out of a private place, or between two shared
+        // ones, it asks first; a post is no looser than where it goes.
+        let decision = match at.glide {
+            Some(g) => g.gate(decision, tool.name(), &plan.summary),
+            None => decision,
+        };
+        seen(Layer::Glide, &decision);
         // After the whole order (theseus-9bp): a call that acts in a
         // session that read external text waits. A read and a one-shot
         // `wake.at` keep their postures (T1b), and cost no record read; a

@@ -59,9 +59,10 @@ vocabulary! {
         /// the parent's reply that started it, each into another session; and
         /// a node the owner published into a place (the place rule); and a
         /// `Recall` node to each source it renders (M6 30b, `recall`); and a
-        /// task's arrangement, from each message it quotes (M5 27). (M4 19c's
-        /// graduations wrote one in the source's own session, via `graduate`:
-        /// they still read.)
+        /// task's arrangement, from each message it quotes (M5 27); and a
+        /// glide's borrowed node, from each message it read (38b, `glide`).
+        /// (M4 19c's graduations wrote one in the source's own session, via
+        /// `graduate`: they still read.)
         DerivedFrom = "derived_from",
         /// `from` says what `to`, written before it, says (M6 31a, the memory
         /// pass's gate: cosine at or above the science's merge threshold).
@@ -86,9 +87,9 @@ pub struct Edge {
     pub kind: String,
     pub from: String,
     pub to: String,
-    /// The route that wrote it: `report`, `brief`, `publish`, `recall`, or
-    /// `arrangement` (`graduate`
-    /// in a store from 19c to the place rule).
+    /// The route that wrote it: `report`, `brief`, `publish`, `recall`,
+    /// `arrangement`, or `glide` (`graduate` in a store from 19c to the place
+    /// rule).
     #[serde(default)]
     pub via: String,
     pub at_ms: u64,
@@ -109,6 +110,8 @@ pub const VIA_ARRANGEMENT: &str = "arrangement";
 pub const VIA_CLAIM: &str = "claim";
 /// The memory pass's gate (M6 31a): `same_entity` and `supersedes`.
 pub const VIA_MEMORY: &str = "memory";
+/// A glide's read (38b): the borrowed node, from each message it took.
+pub const VIA_GLIDE: &str = "glide";
 
 impl Edge {
     pub fn new(kind: EdgeKind, from: &str, to: &str, via: &str) -> Self {

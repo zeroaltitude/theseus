@@ -254,6 +254,8 @@ facts![
     memory::MemoryUsed<'static>,
     place::PlaceViewed<'static>,
     place::Published<'static>,
+    place::GlidePosted<'static>,
+    place::GlideRead<'static>,
     turn::LoopStarted<'static>,
     route::RouteDecided<'static>,
     turn::LoopCut<'static>,

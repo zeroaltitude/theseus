@@ -166,10 +166,13 @@ fn gated(core: &Core, sid: &str, tool: &dyn Tool, input: &Value) -> Option<(Stri
         return Some(("refused".into(), why));
     }
     let held = || crate::external::held(&core.store, sid);
+    // A glide's other place is its call's (38b), which neither a probe nor
+    // this input names: `policy.explain` gives the rule as a condition.
     let at = At {
         place: view,
         held: &held,
         mcp: &|| None,
+        glide: None,
     };
     let (d, _) = rt.order(&at, tool, &plan, input, &mut |_, _| {});
     Some((d.posture.as_str().into(), d.reason))

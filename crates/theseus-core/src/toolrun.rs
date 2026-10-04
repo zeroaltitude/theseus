@@ -38,6 +38,7 @@ use crate::sandbox::{self, Sandbox};
 use crate::scrub::Scrubber;
 use crate::store::Store;
 
+mod glide;
 mod hands;
 mod job;
 mod late;
@@ -115,6 +116,8 @@ pub struct TurnCtx<'a> {
     /// That place's ceiling (step 38a), taken with its class: a floor, and
     /// the tools it offers (`ceiling.rs`).
     pub ceiling: Option<&'static crate::ceiling::Ceiling>,
+    /// The bound places, as a glide names them (38b).
+    pub places: crate::places::Places<'a>,
 }
 
 impl TurnCtx<'_> {
@@ -1121,6 +1124,9 @@ impl ToolRuntime {
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
         let mut proposal = self.proposal_for(tool, &call.input);
         let planned = tool.plan(&call.input, &self.ctx);
+        // A glide's places (38b): the one it names must be bound here.
+        let glide = (planned.is_ok() && crate::glide::is_glide(tool.name()))
+            .then(|| crate::glide::resolve(tc, tool.name(), &call.input));
         // The order is `order.rs`, which `policy.explain` runs too (42a).
         let held = || crate::external::held(tc.store, tc.session_id);
         let mcp = || mcp_floor(tc);
@@ -1128,13 +1134,15 @@ impl ToolRuntime {
             place: tc.place(),
             held: &held,
             mcp: &mcp,
+            glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
         };
         // A shared place's call reaches only what the place may (the place
         // rule): the catalog offers nothing else, and this refuses it, in case.
         let refused = planned
             .as_ref()
             .ok()
-            .and_then(|plan| self.refusal(at.place, tool.name(), plan));
+            .and_then(|plan| self.refusal(at.place, tool.name(), plan))
+            .or_else(|| glide.as_ref().and_then(|g| g.as_ref().err().cloned()));
         let planned = match &refused {
             Some(why) => Err(why.clone()),
             None => planned,
@@ -1466,6 +1474,11 @@ impl ToolRuntime {
         call: &ToolUse,
         ran_at: Posture,
     ) -> Result<CallOutcome> {
+        // A glide's post rides in its completion's frame, and a read from a
+        // shared place brings its hold there (38b).
+        if crate::glide::is_glide(tool.name()) {
+            return self.run_glide(tc, correlation_id, tool, call, ran_at);
+        }
         Self::harness_started(tc, correlation_id, tool, call);
         let started = theseus_protocol::now_unix_ms();
         let t0 = Instant::now();
@@ -2039,14 +2052,16 @@ pub fn build_runtime(
         for tool in lsp.iter().flat_map(|b| b.tools()) {
             r.register(tool);
         }
-        // Task sessions (DD7), wakes (DD8), and proposed extensions (M7
-        // 43a): the harness runs them.
+        // Task sessions (DD7), wakes (DD8), proposed extensions (M7 43a),
+        // and glides (38b): the harness runs them.
         r.register(Arc::new(crate::task::TaskCreate));
         r.register(Arc::new(crate::task_graph::tools::TaskUpdate));
         r.register(Arc::new(crate::task_graph::tools::TaskSplit));
         r.register(Arc::new(crate::task_graph::tools::TaskClose));
         r.register(Arc::new(crate::wake::WakeAt));
         r.register(Arc::new(crate::extend::Propose));
+        r.register(Arc::new(crate::glide::ChannelPost));
+        r.register(Arc::new(crate::glide::ChannelRead));
         r
     } else {
         Registry::new()
