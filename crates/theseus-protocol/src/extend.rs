@@ -23,6 +23,11 @@ pub struct ExtendInfo {
     pub frozen: String,
     /// The tools it listed in L1.
     pub tools: Vec<String>,
+    /// The frozen tree's files and bytes (43b's cockpit card).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub files: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub bytes: u64,
     pub passed: u64,
     pub tests: u64,
     /// The hosts it asked to reach; empty: no network.

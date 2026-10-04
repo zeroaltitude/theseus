@@ -19,6 +19,8 @@ impl From<&Manifest> for ExtendInfo {
             source: m.source.clone(),
             frozen: m.frozen.clone(),
             tools: m.tools.iter().map(|t| t.name.clone()).collect(),
+            files: m.files as u64,
+            bytes: m.bytes,
             passed: m.passed() as u64,
             tests: m.tests.len() as u64,
             network: m.capabilities.network.clone(),

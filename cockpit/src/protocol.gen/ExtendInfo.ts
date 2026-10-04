@@ -21,7 +21,11 @@ source: string, frozen: string,
 /**
  * The tools it listed in L1.
  */
-tools: Array<string>, passed: number, tests: number, 
+tools: Array<string>, 
+/**
+ * The frozen tree's files and bytes (43b's cockpit card).
+ */
+files?: number, bytes?: number, passed: number, tests: number, 
 /**
  * The hosts it asked to reach; empty: no network.
  */

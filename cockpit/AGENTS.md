@@ -22,6 +22,9 @@ build.
   and `synth.ts` (a seeded 10,000-node fleet for measuring).
 - `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
   prompt as the next turn, a field per argument, through `turn.submit { prompt }`.
+- `src/components/Extensions.tsx` (in Systems; its pure parts are `src/lib/extensions.ts`): the loaded extensions
+  (M7 43b) from `extend.list`, each with its manifest, digest, files, tests, who acked it, calls, errors, and Revoke
+  (`extension.revoke`, confirmed first), then the proposals not loaded.
 - `src/components/`: the call and model-call inspectors, the transcript, the flame chart, the shell, and `brass.tsx`
   (the plank strip and the coin).
 - `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,
