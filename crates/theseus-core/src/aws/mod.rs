@@ -76,6 +76,8 @@ mod tests_inventory;
 #[cfg(test)]
 mod tests_l1;
 #[cfg(test)]
+mod tests_network;
+#[cfg(test)]
 mod tests_outside;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.

@@ -35,6 +35,11 @@ The rules, each named in its violations:
                foundation's first create must use: the bucket a larger one would go through is
                one of the things it makes
   stack-policy every logical id a stack policy in stack-policies/ names exists in its template
+  network-modes  the hands network in both of its modes, its parameters' conditions and Rules
+               evaluated: its own VPC makes the VPC and its parts, and the NAT only when
+               enabled; an existing VPC makes the hands' security group alone (nothing when one
+               is named), no VPC, subnet, route, endpoint, NAT, or flow log, and its NatGateway
+               output reads `existing`; and the Rules refuse NatGateway=enabled beside it
 """
 import fnmatch
 import glob
@@ -605,6 +610,135 @@ def rule_stack_policy(path, template):
 
 
 # ------------------------------------------------------------------------------------------------
+# The hands network's two modes: its conditions and Rules evaluated under chosen parameters
+# ------------------------------------------------------------------------------------------------
+
+
+class Modes:
+    """A template's conditions, Rules, resources, and outputs under one set of parameters."""
+
+    def __init__(self, template, given):
+        self.template = template
+        self.params = {}
+        for name, spec in (template.get("Parameters") or {}).items():
+            value = given.get(name, spec.get("Default", ""))
+            value = "" if value is None else str(value)
+            if spec.get("Type") == "CommaDelimitedList":
+                value = [v.strip() for v in value.split(",")]
+            self.params[name] = value
+        self.memo = {}
+
+    def value(self, node):
+        if isinstance(node, dict) and len(node) == 1:
+            (key, arg), = node.items()
+            if key == "Ref":
+                return self.params[arg] if arg in self.params else ("resource", arg)
+            if key == "Fn::If":
+                return self.value(arg[1] if self.condition(arg[0]) else arg[2])
+            if key == "Fn::Join":
+                parts = self.value(arg[1])
+                return arg[0].join(p if isinstance(p, str) else repr(p) for p in parts)
+            if key == "Fn::GetAtt":
+                return ("resource", arg[0])
+            if key in ("Fn::Equals", "Fn::Not", "Fn::And", "Fn::Or", "Condition", "Fn::EachMemberEquals"):
+                return self.truth(node)
+        if isinstance(node, list):
+            return [self.value(v) for v in node]
+        return node
+
+    def truth(self, node):
+        (key, arg), = node.items()
+        if key == "Fn::Equals":
+            return self.value(arg[0]) == self.value(arg[1])
+        if key == "Fn::Not":
+            return not self.truth(arg[0])
+        if key == "Fn::And":
+            return all(self.truth(c) for c in arg)
+        if key == "Fn::Or":
+            return any(self.truth(c) for c in arg)
+        if key == "Condition":
+            return self.condition(arg)
+        if key == "Fn::EachMemberEquals":
+            return all(v == self.value(arg[1]) for v in self.value(arg[0]))
+        raise ValueError(f"{key} is not a condition function this reading knows")
+
+    def condition(self, name):
+        if name not in self.memo:
+            self.memo[name] = self.truth(self.template["Conditions"][name])
+        return self.memo[name]
+
+    def refused(self):
+        """The Rules whose assertions fail: CloudFormation refuses such a change set."""
+        out = []
+        for name, rule in (self.template.get("Rules") or {}).items():
+            if "RuleCondition" in rule and not self.truth(rule["RuleCondition"]):
+                continue
+            if not all(self.truth(a["Assert"]) for a in rule.get("Assertions") or []):
+                out.append(name)
+        return out
+
+    def resources(self):
+        return {
+            name: res["Type"]
+            for name, res in resources(self.template)
+            if "Condition" not in res or self.condition(res["Condition"])
+        }
+
+    def outputs(self):
+        return {name: self.value(o.get("Value")) for name, o in (self.template.get("Outputs") or {}).items()}
+
+
+# The resources of a VPC itself: the hands network makes them only in its own VPC.
+VPC_PARTS = (
+    "AWS::EC2::VPC", "AWS::EC2::Subnet", "AWS::EC2::RouteTable", "AWS::EC2::SubnetRouteTableAssociation",
+    "AWS::EC2::Route", "AWS::EC2::VPCEndpoint", "AWS::EC2::InternetGateway", "AWS::EC2::VPCGatewayAttachment",
+    "AWS::EC2::NatGateway", "AWS::EC2::EIP", "AWS::EC2::FlowLog", "AWS::Logs::LogGroup", "AWS::IAM::Role",
+)
+EXISTING = {"ExistingVpcId": "vpc-0a1b2c3d4e5f60718", "ExistingSubnetIds": "subnet-0a1b2c3d4e5f60711,subnet-0a1b2c3d4e5f60722"}
+
+
+def rule_network_modes(path, template):
+    if stack_name(path) != "theseus-hands-network":
+        return
+    try:
+        own = Modes(template, {})
+        nat = Modes(template, {"NatGateway": "enabled"})
+        existing = Modes(template, EXISTING)
+        named = Modes(template, {**EXISTING, "ExistingSecurityGroupId": "sg-0a1b2c3d4e5f60733"})
+        both = Modes(template, {**EXISTING, "NatGateway": "enabled"})
+        cases = (own, nat, existing, named, both)
+        [m.resources() for m in cases]
+    except (KeyError, ValueError, TypeError) as e:
+        yield "network-modes", "Conditions", f"cannot be read in both modes: {e!r}"
+        return
+    for m, label in ((own, "its own VPC"), (nat, "its own VPC with the NAT"), (existing, "an existing VPC"), (named, "an existing VPC and group")):
+        if m.refused():
+            yield "network-modes", "Rules", f"refuse {label}: {', '.join(m.refused())}"
+    if "Vpc" not in own.resources() or "Nat" in own.resources():
+        yield "network-modes", "Vpc", "its own VPC, NAT off, must make the VPC and no NAT"
+    if "Nat" not in nat.resources():
+        yield "network-modes", "Nat", "its own VPC with NatGateway=enabled must make the NAT"
+    made = existing.resources()
+    if set(made.values()) != {"AWS::EC2::SecurityGroup"}:
+        yield "network-modes", "Resources", f"an existing VPC must make the hands' security group alone, not {sorted(made)}"
+    for name, kind in {**made, **both.resources()}.items():
+        if kind in VPC_PARTS:
+            yield "network-modes", name, f"{kind} is made beside an existing VPC"
+    if named.resources():
+        yield "network-modes", "Resources", f"an existing VPC and group must make nothing, not {sorted(named.resources())}"
+    if not both.refused():
+        yield "network-modes", "Rules", "do not refuse NatGateway=enabled beside an existing VPC"
+    if existing.outputs().get("NatGateway") != "existing":
+        yield "network-modes", "NatGateway", "the output must read `existing` in an existing VPC"
+    if existing.outputs().get("PrivateSubnetIds") != EXISTING["ExistingSubnetIds"]:
+        yield "network-modes", "PrivateSubnetIds", "the output must name the existing subnets"
+    if named.outputs().get("HandsSecurityGroupId") != "sg-0a1b2c3d4e5f60733":
+        yield "network-modes", "HandsSecurityGroupId", "the output must name the existing group"
+    if set(own.outputs()) != set(existing.outputs()):
+        yield "network-modes", "Outputs", "the two modes must keep the same output keys"
+
+
+# ------------------------------------------------------------------------------------------------
 # cfn-lint's schemas, when available, as a cross-check on the tag table
 # ------------------------------------------------------------------------------------------------
 
@@ -676,6 +810,7 @@ RULES = (
     rule_inline_code,
     rule_template_size,
     rule_stack_policy,
+    rule_network_modes,
 )
 
 

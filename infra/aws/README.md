@@ -9,7 +9,7 @@ posture (theseus-nyzn). Each file is one stack, named after the file. The bootst
 | `theseus-foundation` | the owner and deployer roles; the guards (`theseus-guard-limits`, `theseus-guard-iac` and its parts, `theseus-guard-stacks`), `theseus-allow-all`, and `theseus-boundary`; the Theseus bucket (SSE-S3) and durability table; the completion queue and its dead-letter queue; the alerts topic; and the monthly budget, with `theseus-deny-spend` as its stop |
 | `theseus-posture` | the trail, with its own bucket (SSE-S3, or its own KMS key when `TrailKey` is `customer`); the CIS checks, as EventBridge rules on CloudTrail's management events into the alerts topic; IAM Access Analyzer; GuardDuty; and the EBS snapshot public-sharing block |
 | `theseus-posture-relay` | in us-east-1 when the home region is another: one rule that forwards us-east-1's CloudTrail events (IAM, Organizations, Budgets, the console's sign-in) to the home region's default bus, where the posture's checks see them |
-| `theseus-hands-network` | the hands' VPC: two private subnets, an S3 gateway endpoint, flow logs, and the NAT as a parameter |
+| `theseus-hands-network` | the hands' VPC: two private subnets, an S3 gateway endpoint, flow logs, and the NAT as a parameter; or, with `ExistingVpcId` and `ExistingSubnetIds`, an existing VPC's subnets that route out through its own NAT, where it makes the hands' security group alone, or nothing when `ExistingSecurityGroupId` names one |
 | `theseus-hands` | the ECS cluster; the hand role profiles; the hand image's repository; the hands' logs; the rules that bring state changes home to the completion queue; the TTL reaper; and the Lambda hand |
 
 Posture and the hands import the foundation's exports. The foundation imports nothing.
@@ -45,7 +45,10 @@ It runs these, and makes no AWS call:
     `guardrails.toml`'s `[boundary] compact` patterns;
   - no deny pattern catches a read operation in the AWS CLI's models;
   - the hands' roles are bounded;
-  - nothing admits ingress.
+  - nothing admits ingress;
+  - the hands network in both modes: its own VPC makes the VPC and its parts (the NAT only when enabled),
+    an existing VPC makes the hands' security group alone and no VPC part, its `NatGateway` output reads
+    `existing`, and its Rules refuse `NatGateway=enabled` beside an existing VPC.
 - **The rules' own tests,** and the TTL reaper's code run against a fake ECS.
 
 cfn-lint comes from `THESEUS_CFN_LINT_VENV` (default `~/.cache/theseus-cfn-lint`), or from `PATH`. The models

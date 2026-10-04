@@ -466,6 +466,35 @@ class RuleTests(unittest.TestCase):
         self.assertIn("inline-code", self.rules_hit(function.replace("BODY", body)))
         self.assertNotIn("inline-code", self.rules_hit(function.replace("BODY", "x = 1")))
 
+    # network-modes ------------------------------------------------------------------------------
+
+    def network_violations(self, edit=lambda text: text):
+        text = edit((rules.INFRA / "theseus-hands-network.yaml").read_text())
+        path = Path(self.dir.name) / "theseus-hands-network.yaml"
+        path.write_text(text)
+        return [(res, msg) for _, rule, res, msg in rules.check([str(path)]) if rule == "network-modes"]
+
+    def test_network_modes_hold_for_the_template(self):
+        self.assertEqual(self.network_violations(), [])
+
+    def test_network_modes_hit_a_nat_beside_an_existing_vpc(self):
+        # The NAT's condition without OwnVpc: beside an existing VPC with NatGateway=enabled it is made.
+        found = self.network_violations(
+            lambda t: t.replace("NatEnabled: !And [!Condition OwnVpc, !Equals [!Ref NatGateway, enabled]]",
+                                "NatEnabled: !Equals [!Ref NatGateway, enabled]")
+        )
+        self.assertIn(("Nat", "AWS::EC2::NatGateway is made beside an existing VPC"), found)
+
+    def test_network_modes_hit_a_missing_rule(self):
+        found = self.network_violations(lambda t: t.replace("Assert: !Equals [!Ref NatGateway, disabled]",
+                                                            "Assert: !Equals [!Ref NatGateway, !Ref NatGateway]"))
+        self.assertIn(("Rules", "do not refuse NatGateway=enabled beside an existing VPC"), found)
+
+    def test_network_modes_hit_a_vpc_part_beside_an_existing_vpc(self):
+        found = self.network_violations(lambda t: t.replace("  FlowLog:\n    Type: AWS::EC2::FlowLog\n    Condition: OwnVpc\n",
+                                                            "  FlowLog:\n    Type: AWS::EC2::FlowLog\n"))
+        self.assertIn(("FlowLog", "AWS::EC2::FlowLog is made beside an existing VPC"), found)
+
 
 if __name__ == "__main__":
     unittest.main()
