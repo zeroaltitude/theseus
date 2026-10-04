@@ -375,6 +375,87 @@ async fn only_the_eligible_are_labeled_and_a_recall_never_is() {
     assert_eq!(r.labeled(sid).len(), 3);
 }
 
+/// Decision 10: a compaction's summary (30c) is labeled as the other bodies
+/// are, though the harness writes it. Its row's body is `summary`, it is
+/// gated, and its trust is `external` when its range held external text
+/// (DD5), which it may restate. An empty one is not labeled.
+#[tokio::test(start_paused = true)]
+async fn a_summary_is_labeled_with_its_ranges_trust() {
+    let r = rig(MemoryMode::Shadow);
+    let sid = "ses_curlew";
+    let u = user(sid, "trn_1", "The curlew survey starts at the east marsh.");
+    let mut fetched = result(sid, "trn_1", "Curlew counts: 41 at the east marsh.");
+    if let Body::ToolResult { external, .. } = &mut fetched.body {
+        *external = Some(theseus_tools::External {
+            url: "curlews.example".into(),
+        });
+    }
+    let a = reply(
+        sid,
+        "trn_1",
+        "The survey counted 41 curlews at the east marsh.",
+    );
+    r.put(&[&u, &fetched, &a]);
+    let plover = user(sid, "trn_2", "The plover survey starts at the west marsh.");
+    r.put(&[&plover]);
+    let nodes = r.store.transcript(sid).unwrap();
+    let at = |id: &str| nodes.iter().find(|(_, n)| n.id == id).unwrap().0;
+    let summary = |first: &Node, last: &Node, n: u32, text: &str| {
+        Node::summary(
+            sid,
+            "trn_3",
+            Body::Summary {
+                first: at(&first.id),
+                last: at(&last.id),
+                nodes: n,
+                text: text.into(),
+                profile: "glm".into(),
+                model: "glm-4.6".into(),
+                cost_usd: None,
+                header: format!("[Summary of {n} earlier messages, written by glm]"),
+            },
+        )
+    };
+    let fetched_too = summary(&u, &a, 3, "The east marsh survey counted 41 curlews.");
+    let own = summary(
+        &plover,
+        &plover,
+        1,
+        "The plover survey starts at the west marsh.",
+    );
+    let empty = summary(&u, &a, 3, " ");
+    assert!(
+        eligible(&fetched_too) && eligible(&own),
+        "a summary is labeled, though the harness wrote it"
+    );
+    assert!(!eligible(&empty));
+    r.put(&[&fetched_too, &own, &empty]);
+    r.pass(sid, "trn_3").await;
+    let rows = r.labeled(sid);
+    let of = |n: &Node| {
+        rows.iter()
+            .find(|l| l.data["node_id"] == n.id.as_str())
+            .map(|l| l.data.clone())
+    };
+    let s = of(&fetched_too).expect("the summary's row");
+    assert_eq!(
+        (&s["body"], &s["kind"], &s["trust"]),
+        (&json!("summary"), &json!("fact"), &json!("external")),
+        "{s}"
+    );
+    assert_eq!(
+        of(&own).unwrap()["trust"],
+        "own",
+        "no external text in its range"
+    );
+    assert!(of(&empty).is_none());
+    let g = r.gated(sid);
+    assert!(
+        g.contains_key(&fetched_too.id) && g.contains_key(&own.id),
+        "and gated"
+    );
+}
+
 /// A node's row: its labels, its entities (from the index), and its trust.
 #[tokio::test(start_paused = true)]
 async fn a_labeled_row_carries_the_tables_labels_and_the_indexs_entities() {
@@ -456,7 +537,10 @@ async fn the_gates_thresholds_make_the_right_edges() {
     r.put(&[&dup, &fix, &far, &plain, &close]);
     r.pass(sid, "trn_5").await;
     let g = r.gated(sid);
-    assert_eq!(g[&close.id]["decision"], "supersedes", "past the merge line");
+    assert_eq!(
+        g[&close.id]["decision"], "supersedes",
+        "past the merge line"
+    );
     assert_eq!(g[&close.id]["to"], "msg_old_d");
     assert_eq!(g[&dup.id]["decision"], "same_entity");
     assert_eq!(g[&dup.id]["to"], "msg_old_a");

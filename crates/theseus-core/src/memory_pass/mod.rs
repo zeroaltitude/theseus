@@ -6,9 +6,12 @@
 //!   the pass's task and returns ([`MemoryPass::after_turn`]); everything
 //!   else is the task's. With `[memory] mode = "off"` it does nothing.
 //! - **Who is eligible** ([`eligible`]): the operator's and the agent's
-//!   messages, and tool results. Never a `Recall` node (§5.2's recursion
-//!   exclusion), a harness line, a tool call; judgments, manifests, and
-//!   ledger rows are not nodes. (30c's `Summary` joins at its merge.)
+//!   messages, tool results, and compaction's summaries (30c; Eddie's
+//!   decision 10), though the harness writes them: a summary stands for its
+//!   range's messages, and is labeled as they are, its trust its range's.
+//!   Never a `Recall` node (§5.2's recursion exclusion), a task's
+//!   arrangement, another harness line, a tool call; judgments, manifests,
+//!   and ledger rows are not nodes.
 //! - **Labels** (`labels`): §2.6's table, deterministic; `about` is the
 //!   index's entity field, asked of the tender (`index.entities`), the one
 //!   extractor.
@@ -490,7 +493,7 @@ impl MemoryPass {
         about: Vec<String>,
         unavailable: Option<&str>,
     ) -> Option<Unit> {
-        let (shape, external) = shape_of(n)?;
+        let (shape, external) = shape_of(n, nodes)?;
         let text = text_of(n);
         let l = labels::label(shape, n.origin, &text, about, external);
         let same_turn: BTreeSet<&str> = nodes
@@ -584,6 +587,7 @@ impl MemoryPass {
             (Body::UserMessage { .. }, Origin::Operator) => "operator",
             (Body::UserMessage { .. }, _) => "relay",
             (Body::AssistantMessage { .. }, _) => "assistant",
+            (Body::Summary { .. }, _) => "summary",
             _ => "tool",
         };
         let tool = match &n.body {
@@ -739,7 +743,12 @@ impl<'a> Gate<'a> {
 }
 
 /// The kinds the gate weighs as neighbours: those the pass labels.
-const GATED_KINDS: &[&str] = &["user_message", "assistant_message", "tool_result"];
+const GATED_KINDS: &[&str] = &[
+    "user_message",
+    "assistant_message",
+    "tool_result",
+    "summary",
+];
 
 /// Each text's entities from the tender, in order, in requests of at most
 /// its limit; with why there are none, if the tender could not name them.
@@ -763,31 +772,41 @@ async fn entities(
 }
 
 /// Whether the pass labels `n` (§2.6, §5.2): the operator's and the
-/// agent's messages, and tool results. Never a recall (the recursion
-/// exclusion, whoever wrote it), a harness line, or a tool call.
+/// agent's messages, tool results, and compaction's summaries, which the
+/// harness writes (decision 10). Never a recall (the recursion exclusion,
+/// whoever wrote it), a task's arrangement (its sources' text), another
+/// harness line, or a tool call.
 pub fn eligible(n: &Node) -> bool {
     match &n.body {
-        Body::ToolCall { .. }
-        | Body::Recall { .. }
-        | Body::Arrangement { .. }
-        | Body::Summary { .. } => false,
+        Body::ToolCall { .. } | Body::Recall { .. } | Body::Arrangement { .. } => false,
+        Body::Summary { .. } => !text_of(n).trim().is_empty(),
         Body::UserMessage { .. } | Body::AssistantMessage { .. } | Body::ToolResult { .. } => {
             n.origin != Origin::Harness && !text_of(n).trim().is_empty()
         }
     }
 }
 
-/// The labeler's shape of an eligible node, and DD5's flag.
-fn shape_of(n: &Node) -> Option<(Shape, bool)> {
+/// The labeler's shape of an eligible node, and DD5's flag: a summary's is
+/// its range's, whose external text it may restate.
+fn shape_of(n: &Node, nodes: &Transcript) -> Option<(Shape, bool)> {
     match &n.body {
         Body::UserMessage { .. } => Some((Shape::Message, false)),
         Body::AssistantMessage { .. } => Some((Shape::Reply, false)),
         Body::ToolResult { external, .. } => Some((Shape::Result, external.is_some())),
-        Body::ToolCall { .. }
-        | Body::Recall { .. }
-        | Body::Arrangement { .. }
-        | Body::Summary { .. } => None,
+        Body::Summary { first, last, .. } => {
+            Some((Shape::Summary, external_in(nodes, *first, *last)))
+        }
+        Body::ToolCall { .. } | Body::Recall { .. } | Body::Arrangement { .. } => None,
     }
+}
+
+/// Whether a tool result at a WAL position from `first` to `last` came from
+/// outside (DD5). A folded summary's range holds its own range too.
+fn external_in(nodes: &Transcript, first: u64, last: u64) -> bool {
+    nodes.iter().any(|(p, m)| match &m.body {
+        Body::ToolResult { external, .. } => (first..=last).contains(p) && external.is_some(),
+        _ => false,
+    })
 }
 
 fn text_of(n: &Node) -> String {

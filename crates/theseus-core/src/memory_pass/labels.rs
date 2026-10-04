@@ -42,6 +42,9 @@ pub enum Shape {
     Reply,
     /// A tool's result.
     Result,
+    /// A compaction's summary (30c): the model's account of a run of the
+    /// session's messages, labeled as a reply is (decision 10).
+    Summary,
 }
 
 /// Who a rule hears.
@@ -335,8 +338,8 @@ mod tests {
     fn the_labelers_rules_follow_the_table() {
         use Durability as D;
         use Kind as K;
-        use Origin::{Agent, Operator, Tool};
-        use Shape::{Message, Reply, Result};
+        use Origin::{Agent, Harness, Operator, Tool};
+        use Shape::{Message, Reply, Result, Summary};
         #[rustfmt::skip]
         let table: &[(Shape, Origin, &str, K, D, bool, bool)] = &[
             (Message, Operator, "Always run the tests before you commit.", K::Preference, D::High, false, false),
@@ -356,6 +359,8 @@ mod tests {
             (Message, Operator, "what next", K::Other, D::Low, false, false),
             (Message, Operator, "The release is v2.4 currently", K::Fact, D::Medium, true, false),
             (Reply, Agent, "Correction: I misread it, the port is 8082.", K::Fact, D::Medium, false, false),
+            (Summary, Harness, "The operator chose the flat scan; we agreed to ship v2.4 on Friday.", K::Fact, D::Medium, true, false),
+            (Summary, Harness, "We decided nothing yet.", K::Fact, D::Medium, false, false),
         ];
         for (shape, origin, text, k, d, vol, corr) in table {
             let l = label(*shape, *origin, text, vec![], false);
