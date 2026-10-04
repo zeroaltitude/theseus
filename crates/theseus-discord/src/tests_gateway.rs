@@ -83,12 +83,23 @@ impl Rig {
         open_lab: bool,
         lab_private: bool,
     ) -> Self {
+        Self::start_on(model, guild(open_lab), &bindings(lab_private), &[]).await
+    }
+
+    /// The same, on `guild` and the bindings file `bindings`, waiting for
+    /// `#lab`, ana's DM, and each place of `more` (`channel:<id>`) to bind.
+    async fn start_on(
+        model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
+        guild: Guild,
+        bindings: &str,
+        more: &[String],
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let fake = FakeDiscord::start_with_gateway();
-        fake.set_guild(guild(open_lab));
+        fake.set_guild(guild);
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()));
         let path = dir.path().join("bindings.toml");
-        std::fs::write(&path, bindings(lab_private)).unwrap();
+        std::fs::write(&path, bindings).unwrap();
         // The continuation driver, as the daemon starts it: an answered
         // card's call runs in the turn it resumes.
         tokio::spawn(theseus_core::harness::drive(core.clone()));
@@ -104,9 +115,10 @@ impl Rig {
             fake.gateway_state()
         );
         let r = Self { dir, fake, core };
-        r.until("both places bound", || {
+        r.until("every place bound", || {
             [format!("channel:{LAB}"), format!("dm:{ANA}")]
                 .iter()
+                .chain(more)
                 .all(|k| r.core.outbox.place_session(k).unwrap().is_some())
         })
         .await;
@@ -509,4 +521,177 @@ async fn a_channel_bound_private_is_read_at_the_start_and_an_outsider_named() {
             "{class:?}"
         );
     }
+}
+
+/// A channel bound `private = false` in the trusted guild (theseus-rdqg).
+const HALL: u64 = 900_000_000_000_000_020;
+
+/// theseus-rdqg: the guild trusted whole (`private = true` beside
+/// `guild_id`), with `#lab`, which says nothing of `private`, `#hall`, which
+/// says `private = false`, and ana's DM.
+fn trusted_bindings() -> String {
+    format!(
+        "guild_id = \"{DEFAULT_GUILD}\"\nprivate = true\n\
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\n\
+         [[channel]]\nid = \"{HALL}\"\nname = \"hall\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = false\n\
+         [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
+    )
+}
+
+/// The guild with `#lab` and `#hall` both open to everyone, cy included.
+fn open_guild() -> Guild {
+    guild(true).channel(HALL, "hall")
+}
+
+/// The writes of the trusted guild's test: one in `#lab` (`t1`), approved
+/// there, then one in `#hall` (`t2`), which the gate refuses.
+fn two_writes(dir: &Path) -> Vec<Scripted> {
+    let write = |id: &str, file: &str| {
+        Scripted::tools(
+            "Writing it.",
+            &[(
+                id,
+                "fs_write",
+                serde_json::json!({"path": dir.join("outside").join(file).to_string_lossy(), "content": "written"}),
+            )],
+        )
+    };
+    vec![
+        write("t1", "lab.txt"),
+        Scripted::text("Done: written in lab."),
+        write("t2", "hall.txt"),
+        Scripted::text("Done in hall."),
+    ]
+}
+
+/// The tools a request offered, by their wire names.
+fn offered(req: &theseus_core::provider::ProviderRequest) -> Vec<String> {
+    let names = req.tools.iter().filter_map(|t| t["name"].as_str());
+    names.map(str::to_string).collect()
+}
+
+/// theseus-rdqg, end to end from the bindings file. In a guild trusted whole,
+/// `#lab`, which says nothing of `private`, is private though cy can view it:
+/// the binding reads nobody's view of it (no members read), health names it
+/// as in a trusted guild with no warning, its model is offered every tool,
+/// and ana's Approve on its write, pressed in `#lab`, counts and runs it.
+/// `#hall`, bound `private = false` there, is shared: its write is not
+/// offered, and the gate refuses it. Without the guild's word the same file's
+/// `#lab` is shared, and bound private it is read and cy named (the old
+/// meaning).
+#[tokio::test]
+async fn a_trusted_guilds_channel_is_private_and_unread_and_one_bound_shared_is_not() {
+    let slot = Arc::new(std::sync::Mutex::new(None));
+    let kept = slot.clone();
+    let model = move |dir: &Path, _: Arc<FakeDiscord>| -> Arc<dyn Provider> {
+        let m = Arc::new(FakeProvider::scripted(two_writes(dir)));
+        *kept.lock().unwrap() = Some(m.clone());
+        m
+    };
+    let hall = [format!("channel:{HALL}")];
+    let r = Rig::start_on(model, open_guild(), &trusted_bindings(), &hall).await;
+    let model = slot.lock().unwrap().clone().unwrap();
+    use theseus_core::places::PlaceClass;
+    let lab = place_in(&r, LAB);
+    assert_eq!((lab.class, lab.trusted_guild), (PlaceClass::Private, true));
+    let shared = place_in(&r, HALL);
+    assert_eq!(
+        (shared.class, shared.trusted_guild),
+        (PlaceClass::Shared, false)
+    );
+
+    r.say((ANA, "ana"), Some(LAB), "Write the lab file.");
+    r.until("the card in #lab", || r.card(LAB).is_some()).await;
+    for tool in ["fs_write", "proc_run"] {
+        assert!(
+            offered(&model.requests()[0]).contains(&tool.to_string()),
+            "{tool}"
+        );
+    }
+    let card = r.card(LAB).unwrap();
+    r.press(&card.id, "Approve", (ANA, "ana"));
+    let written = r.dir.path().join("outside").join("lab.txt");
+    r.until("the lab file written", || written.exists()).await;
+    r.until("the reply in #lab", || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.content.contains("written in lab"))
+    })
+    .await;
+    assert!(r.card(ANA_DM).is_none(), "the card stayed in #lab");
+
+    r.say((ANA, "ana"), Some(HALL), "Write the hall file.");
+    r.until("the reply in #hall", || {
+        r.fake
+            .messages(HALL)
+            .iter()
+            .any(|m| m.content.contains("Done in hall."))
+    })
+    .await;
+    let asked = model.requests();
+    let hall_req = asked
+        .iter()
+        .find(|q| !offered(q).contains(&"proc_run".to_string()));
+    assert!(hall_req.is_some_and(|q| !offered(q).contains(&"fs_write".to_string())));
+    let refused = r.ledger("tool.invalid_input");
+    assert!(
+        refused.iter().any(|row| row["tool_use_id"] == "t2"
+            && row["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("place: fs.write is not offered")),
+        "{refused:?}"
+    );
+    assert!(!r.dir.path().join("outside").join("hall.txt").exists());
+
+    // Nothing was read: no member list read, and health names no viewer.
+    let lab = place_in(&r, LAB);
+    assert!(lab.others.is_none() && lab.unchecked.is_none(), "{lab:?}");
+    assert!(!read_the_members(&r), "{:?}", r.fake.seen());
+    assert!(r.ledger("place.viewed").is_empty());
+    drop(r);
+
+    // An old file: the same guild, without the guild's word.
+    let quiet = |_: &Path, _: Arc<FakeDiscord>| -> Arc<dyn Provider> {
+        Arc::new(FakeProvider::scripted(vec![]))
+    };
+    let old = trusted_bindings().replacen("private = true\n", "", 1);
+    let r = Rig::start_on(quiet, open_guild(), &old, &hall).await;
+    assert_eq!(
+        place_in(&r, LAB).class,
+        PlaceClass::Shared,
+        "the old meaning"
+    );
+    drop(r);
+    let bound = old.replacen(
+        "mention_only = false\n",
+        "mention_only = false\nprivate = true\n",
+        1,
+    );
+    let r = Rig::start_on(quiet, open_guild(), &bound, &hall).await;
+    r.until("#lab's viewers read", || place_in(&r, LAB).others.is_some())
+        .await;
+    let lab = place_in(&r, LAB);
+    assert_eq!(
+        (lab.others, lab.trusted_guild),
+        (Some(vec!["cy".to_string()]), false)
+    );
+    assert!(read_the_members(&r), "{:?}", r.fake.seen());
+}
+
+/// Whether the binding read the guild's member list, which only the viewer
+/// read does (`check_private`); the bot's read of its own member, for its
+/// roles, is another route.
+fn read_the_members(r: &Rig) -> bool {
+    r.fake
+        .seen()
+        .iter()
+        .any(|s| s.method == "GET" && s.path.ends_with("/members"))
+}
+
+/// Health's entry for the channel `id`.
+fn place_in(r: &Rig, id: u64) -> theseus_protocol::PlaceInfo {
+    let target = format!("discord:channel:{id}");
+    let h = r.core.health().places.unwrap();
+    h.places.into_iter().find(|p| p.place == target).unwrap()
 }

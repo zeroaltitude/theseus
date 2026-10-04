@@ -20,6 +20,7 @@ impl Shared {
     /// Who can view a channel bound `private = true`, read once at the
     /// binding's start (the place rule, theseus-nbsh), for health. Never
     /// before a turn: the operator's word is trusted, and this checks it.
+    /// Never in a trusted guild, whose word covers it (theseus-rdqg).
     pub(crate) async fn check_private(&self, channel: u64, name: &str) {
         let viewers = match self.members_intent().await {
             false => Err(viewers::NO_INTENT_AUDIENCE.to_string()),

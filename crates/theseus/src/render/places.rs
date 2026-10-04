@@ -5,7 +5,7 @@ use theseus_protocol::{PlaceClass, PlaceInfo, PlacesHealth};
 
 /// A place's name, with what its start-time check found when it is a
 /// channel bound private: anyone besides the owner who can view it, or why
-/// that could not be read.
+/// that could not be read; or, in a trusted guild, that it is (theseus-rdqg).
 fn named(p: &PlaceInfo) -> String {
     match (&p.others, &p.unchecked) {
         (Some(o), _) if !o.is_empty() => format!(
@@ -18,6 +18,7 @@ fn named(p: &PlaceInfo) -> String {
             o.join(", ")
         ),
         (_, Some(why)) => format!("{} (who can view it is unchecked: {why})", p.name),
+        _ if p.trusted_guild => format!("{} (in a trusted guild)", p.name),
         _ => p.name.clone(),
     }
 }
@@ -107,7 +108,39 @@ mod tests {
             class,
             others: None,
             unchecked: None,
+            trusted_guild: false,
         }
+    }
+
+    /// theseus-rdqg: in a trusted guild a private channel is named as in
+    /// one, never warned of, and a channel there bound `private = false` is
+    /// shared as any other; `theseus places` says the same.
+    #[test]
+    fn a_trusted_guilds_channels_are_named_so() {
+        let h = PlacesHealth {
+            places: vec![
+                place("CLI", PlaceClass::Private),
+                place("web", PlaceClass::Private),
+                PlaceInfo {
+                    trusted_guild: true,
+                    ..place("#openclaw", PlaceClass::Private)
+                },
+                place("DM @eddie", PlaceClass::Private),
+                place("#hall", PlaceClass::Shared),
+            ],
+            public_paths: vec![],
+        };
+        assert_eq!(
+            places_health_line(&h),
+            "places: private: CLI, web, #openclaw (in a trusted guild), DM @eddie · shared: #hall \
+             (public tools only)"
+        );
+        let mut o = Vec::new();
+        push_health(&mut o, Some(&h));
+        assert_eq!(o[0].tag, super::super::Tag::Plain, "no warning");
+        assert!(places_lines(&h)
+            .iter()
+            .any(|l| l.starts_with("private  #openclaw (in a trusted guild)  discord:")));
     }
 
     #[test]

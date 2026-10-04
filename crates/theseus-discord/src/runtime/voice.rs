@@ -6,7 +6,7 @@
 //!   with its own session, whose text chat is the place's text: the
 //!   transcript, the replies, and the cards. Its class is the place rule's,
 //!   as any channel's is: bound `private = true`, its viewers are read at the
-//!   start (`check_private`).
+//!   start (`check_private`), except in a trusted guild (theseus-rdqg).
 //! - **Joining**: `/join` and `/leave`, from a private place, by one of its
 //!   users, for a voice channel the bindings file binds whose users list
 //!   them. Theseus never joins on its own. songbird's manager is the voice
@@ -121,6 +121,7 @@ impl Voice {
     pub(crate) fn none() -> Self {
         let none = Bindings {
             guild_id: String::new(),
+            private: false,
             channel: Vec::new(),
             dm: Vec::new(),
             revision: String::new(),
