@@ -6,7 +6,7 @@ import { Command } from 'cmdk'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Activity, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
-  RefreshCw, Sailboat, ScrollText, ShieldCheck, ShieldHalf, Zap,
+  RefreshCw, Sailboat, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, ProfileList, SessionInfo } from '@protocol'
 import { call, client, useConn, usePaused, useRpc, usePush } from '@/lib/rpc'
@@ -35,6 +35,7 @@ const NAV = [
   { to: '/economics', label: 'Economics', icon: Coins },
   { to: '/speed', label: 'Speed', icon: Zap },
   { to: '/systems', label: 'Systems', icon: Cpu },
+  { to: '/ontology', label: 'Ontology', icon: Shapes },
 ] as const
 
 const GO: Record<string, string> = {

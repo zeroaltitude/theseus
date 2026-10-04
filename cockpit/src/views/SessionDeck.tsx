@@ -28,6 +28,7 @@ import { ModelInspector } from '@/components/ModelInspector'
 import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
 import { ContextGrowth, TokenMix } from '@/components/instruments'
+import { MembershipsPanel, PendingNote } from '@/components/Memberships'
 import { AttentionPill, Btn, Empty, Field, LiveDot, Meter, Panel, Pill } from '@/components/ui'
 
 type Rows = LedgerEntry[] | undefined
@@ -221,7 +222,8 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
           <div className="num mt-1 text-[10px] text-ink-faint">reserved {usd(b.reserved_usd)} · held {usd(b.held_unknown_usd)} · {usd(b.available_usd)} left</div>
         </div>
       )}
-      <div className="ml-auto flex gap-2">
+      <div className="ml-auto flex items-center gap-2">
+        <PendingNote sessionId={s.session_id} />
         <Recompile busy={!!busy?.startsWith('Recompile')} onPick={(strategy) => act(`Recompile (${strategy})`, 'session.recompile', { session_id: s.session_id, strategy }).then(() => undefined)} />
         {s.external_text && <Btn tone="wait" onClick={() => act('Trust', 'policy.trust', { session_id: s.session_id })} busy={busy === 'Trust'}><ShieldCheck size={13} /> Trust</Btn>}
         {exec && ['running', 'queued'].includes(exec.state) &&
@@ -429,6 +431,7 @@ function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: 
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="h-48"><ContextGrowth rows={rows} sessions={[session]} /></div>
+      <MembershipsPanel sessionId={session.session_id} />
       <CompileLog rows={rows} />
       <ContextFiles files={((comps.find((c) => c.current)?.manifest as { context_files?: ContextFileRef[] } | undefined)?.context_files) ?? []} />
       <div className="panel-title flex items-center gap-1.5"><GitBranch size={12} /> compilation lineage</div>
