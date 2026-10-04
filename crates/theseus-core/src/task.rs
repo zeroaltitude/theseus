@@ -14,6 +14,10 @@
 //! - **Its budget** is carved from what the parent has left: `budget_usd`, or
 //!   a quarter of what is left, capped at all of it. Its spend counts against
 //!   the parent (the kernel's carve and carry).
+//! - **Its arrangement** (M5 27, theseus-vug.2; `arrangement.rs`). A task
+//!   starts only from quoted pieces of this session: the messages that define
+//!   the work, resolved to nodes and written into the child after the brief,
+//!   with the fidelity check for a one-line brief from a long discussion.
 //! - **Depth one.** A task cannot start tasks.
 //! - **The report.** A task whose turn has nothing left to wait on is done,
 //!   and its last message is its report. The frame that ends it carries one
@@ -80,6 +84,12 @@ struct Input {
     /// Its report starts this conversation's next turn (W1).
     #[serde(default)]
     wake_parent: bool,
+    /// The messages that define the work (M5 27).
+    #[serde(default)]
+    arrangement: Option<crate::arrangement::Input>,
+    /// A one-line brief from a long discussion, with one piece, on purpose.
+    #[serde(default)]
+    fidelity_ack: bool,
 }
 
 fn input_of(input: &Value) -> Result<Input, String> {
@@ -121,7 +131,20 @@ impl Tool for TaskCreate {
          `wake_parent: true`, the report starts that turn by itself, so you can review the result \
          and act on it without waiting for the person: use it for a chain, where you review each \
          task's result and start the next. Leave it off for work the person will ask about. A \
-         task cannot start tasks."
+         task cannot start tasks.\n\n\
+         Every task needs an `arrangement`: quote the messages of this conversation that define \
+         the work, rather than paraphrasing them into the brief. Each piece is an exact quote \
+         (copied character for character, at least 20 characters, from one message: the \
+         person's, your own earlier replies, or a tool result) with its role: `objective` (what \
+         to do), `acceptance` (how to know it is done), `design` (how it was decided it should \
+         be done), or `context`. At least one piece is an `objective` or a `design`. The task \
+         reads each quoted message whole and verbatim, after the brief, with who said it and \
+         when. `trust` lists pieces to read as trusted testimony, and `supersedes` pairs \
+         [older, newer] where a later message replaced an earlier one, so the task sees the \
+         older by reference only (indexes into `pieces`, from 0). A quote that matches no \
+         message, or more than one, fails with the reason: quote again, longer or exactly. A \
+         short brief drawn from a long discussion with a single piece fails too: attach the \
+         design, or say `fidelity_ack: true` if the one piece really is the whole work."
     }
 
     fn input_schema(&self) -> Value {
@@ -140,9 +163,55 @@ impl Tool for TaskCreate {
                 "wake_parent": {
                     "type": "boolean",
                     "description": "When the task finishes or fails, its report starts this conversation's next turn, so you review it and start the next step of a chain (default: false; a cancelled task wakes nothing)."
+                },
+                "arrangement": {
+                    "type": "object",
+                    "description": "The messages of this conversation that define the work, quoted exactly; the task reads each whole, verbatim, after the brief.",
+                    "properties": {
+                        "pieces": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": crate::arrangement::MAX_PIECES,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "quote": {
+                                        "type": "string",
+                                        "description": "An exact span of one message of this conversation, at least 20 characters, copied character for character (whitespace runs count as one space)."
+                                    },
+                                    "node": {
+                                        "type": "string",
+                                        "description": "Instead of a quote: the message's node id, when a failed call named it."
+                                    },
+                                    "role": {
+                                        "type": "string",
+                                        "enum": ["objective", "acceptance", "design", "context"]
+                                    }
+                                },
+                                "required": ["role"],
+                                "additionalProperties": false
+                            }
+                        },
+                        "trust": {
+                            "type": "array",
+                            "items": {"type": "integer", "minimum": 0},
+                            "description": "Pieces (indexes from 0) the task reads as trusted testimony."
+                        },
+                        "supersedes": {
+                            "type": "array",
+                            "items": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 2, "maxItems": 2},
+                            "description": "[older, newer] pairs of piece indexes: the older is shown by reference only."
+                        }
+                    },
+                    "required": ["pieces"],
+                    "additionalProperties": false
+                },
+                "fidelity_ack": {
+                    "type": "boolean",
+                    "description": "Start it anyway when the fidelity check fails: a brief under 200 characters, from a long discussion, with a single piece (default: false)."
                 }
             },
-            "required": ["brief"],
+            "required": ["brief", "arrangement"],
             "additionalProperties": false
         })
     }
@@ -217,8 +286,7 @@ fn brief_text(task_session: &str, parent_session: &str, brief: &str) -> String {
 /// node, written when the call was planned, names it. The reply, not the
 /// call node, is what the parent's contexts carry. None when no call node
 /// names it.
-fn holder_of(tc: &TurnCtx<'_>, correlation_id: &str) -> Option<String> {
-    let nodes = tc.store.transcript(tc.session_id).ok()?;
+fn holder_of(nodes: &crate::store::Transcript, correlation_id: &str) -> Option<String> {
     nodes.iter().rev().find_map(|(_, n)| match &n.body {
         Body::ToolCall {
             correlation_id: Some(c),
@@ -247,6 +315,14 @@ pub fn create(
     if parent.parent.is_some() || parent.kind == SessionKind::Task {
         return Err(DEPTH_REFUSAL.into());
     }
+    let nodes = tc
+        .store
+        .transcript(tc.session_id)
+        .map_err(|e| format!("Not started: {e:#}"))?;
+    // The brief copies the call's input, which the parent's reply holds
+    // (12a): the brief is `derived_from` that reply.
+    let holder = holder_of(&nodes, correlation_id);
+    let (pieces, humans) = arranged(tc, &i, &nodes, holder.as_deref())?;
     let left = parent.budget.available();
     let want = match i.budget_usd {
         Some(b) => usd_to_micros(b),
@@ -263,9 +339,6 @@ pub fn create(
         .get_session::<SessionRecord>(tc.session_id)
         .map_err(|e| format!("Not started: {e:#}"))?
         .and_then(|r| r.external);
-    // The brief copies the call's input, which the parent's reply holds
-    // (12a): the brief is `derived_from` that reply.
-    let holder = holder_of(tc, correlation_id);
     let opened = tc.kernel.open_task(
         tc.guard,
         correlation_id,
@@ -285,19 +358,17 @@ pub fn create(
                 provider: t.provider.clone(),
                 model: t.model.clone(),
             });
+            let author = format!("session:{}", tc.session_id);
+            let arrangement =
+                Node::arrangement(&task.session_id, &author, pieces.clone(), i.fidelity_ack);
             rec.task = Some(TaskOf {
                 parent_session: tc.session_id.into(),
                 parent_execution: tc.execution_id.into(),
                 by: correlation_id.into(),
                 target: target.clone(),
+                arrangement: Some(arrangement.id.clone()),
             });
-            let brief = Node::relayed(
-                &task.session_id,
-                None,
-                Origin::Agent,
-                &format!("session:{}", tc.session_id),
-                &text,
-            );
+            let brief = Node::relayed(&task.session_id, None, Origin::Agent, &author, &text);
             let mut records = match &parent_hold {
                 Some(h) => {
                     let taken = crate::external::taken(
@@ -323,6 +394,20 @@ pub fn create(
                         &brief.id,
                         reply,
                         crate::graph::VIA_BRIEF,
+                    )
+                    .record()?,
+                );
+            }
+            // The arrangement reads after the brief, and copies each piece's
+            // node (M5 27).
+            records.push(arrangement.record()?);
+            for p in &pieces {
+                records.push(
+                    crate::graph::Edge::new(
+                        crate::graph::EdgeKind::DerivedFrom,
+                        &arrangement.id,
+                        &p.node,
+                        crate::graph::VIA_ARRANGEMENT,
                     )
                     .record()?,
                 );
@@ -359,6 +444,15 @@ pub fn create(
             limit,
             available_before: opened.available_before,
             target: target.as_deref(),
+            pieces: pieces.len(),
+        });
+        tc.record(&crate::fact::arrangement::TaskArranged {
+            short: &s,
+            session_id: &task.session_id,
+            pieces: &pieces,
+            fidelity_ack: i.fidelity_ack,
+            humans,
+            brief_chars: i.brief.trim().chars().count(),
         });
         if parent_hold.is_some() {
             tc.record(&crate::fact::tool::TaskHoldsExternal { short: &s });
@@ -396,6 +490,16 @@ pub fn create(
             task.session_id
         )
     };
+    let text = format!(
+        "{text}\n\nIts arrangement, {}, which it reads whole after the brief:\n{}{}",
+        crate::narrative::count(pieces.len() as u64, "piece", "pieces"),
+        crate::arrangement::resolved_lines(&pieces),
+        if i.fidelity_ack {
+            "\nThe fidelity check was acknowledged (`fidelity_ack`), and the task's lines say so."
+        } else {
+            ""
+        }
+    );
     let meta = json!({
         "task_id": task.session_id,
         "short": s,
@@ -406,8 +510,56 @@ pub fn create(
         "capped": capped,
         "opened": opened.opened,
         "wake_parent": task.wake_parent,
+        "arrangement": crate::arrangement::meta(&pieces),
+        "fidelity_ack": i.fidelity_ack,
     });
     Ok((text, meta))
+}
+
+/// The call's arrangement, resolved against the calling session's transcript
+/// `nodes`, and the fidelity check passed (M5 27): its pieces, and the
+/// operator's messages since the session's last task. A refusal is ledgered
+/// (`task.arrangement_refused`), and the model reads why.
+fn arranged(
+    tc: &TurnCtx<'_>,
+    i: &Input,
+    nodes: &crate::store::Transcript,
+    holder: Option<&str>,
+) -> Result<(Vec<crate::arrangement::Piece>, usize), String> {
+    use crate::arrangement::{self as arr, Refused};
+    let given = i.arrangement.as_ref().map_or(0, |a| a.pieces.len());
+    let refuse = |r: Refused| {
+        tc.record(&crate::fact::arrangement::TaskArrangementRefused {
+            class: r.class,
+            pieces: given,
+            reason: &r.message,
+        });
+        r.message
+    };
+    let Some(a) = &i.arrangement else {
+        return Err(refuse(Refused {
+            class: "missing",
+            message: format!(
+                "{} Add `arrangement.pieces`: at least one exact quote, with the role \
+                 `objective` or `design`, of the message that asked for it.",
+                arr::REFUSAL
+            ),
+        }));
+    };
+    a.check().map_err(|message| {
+        refuse(Refused {
+            class: if message.starts_with(arr::REFUSAL) {
+                "no_objective"
+            } else {
+                "invalid"
+            },
+            message,
+        })
+    })?;
+    let pieces = arr::resolve(a, nodes, holder).map_err(refuse)?;
+    let humans = arr::human_messages_since_last_task(nodes);
+    arr::fidelity(&i.brief, humans, &pieces, i.fidelity_ack).map_err(refuse)?;
+    Ok((pieces, humans))
 }
 
 /// The last thing a session's model said: the id and text of its last
@@ -651,7 +803,19 @@ pub fn info(
         updated_at_ms: e.updated_at_ms,
         wake_parent: e.wake_parent,
         attention: None,
+        arrangement: None,
     }
+}
+
+/// A task's arrangement, as its surfaces show it: read from its node, which
+/// its session record names (M5 27). None for a task from before it.
+pub fn arrangement_of(
+    store: &crate::store::Store,
+    rec: Option<&SessionRecord>,
+) -> Option<theseus_protocol::TaskArrangement> {
+    let id = rec?.task.as_ref()?.arrangement.as_deref()?;
+    let (_, node) = store.get_node(id).ok()??;
+    crate::arrangement::info(&node)
 }
 
 fn wake_word(w: &theseus_kernel::Wake) -> String {

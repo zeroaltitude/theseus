@@ -174,6 +174,7 @@ impl Core {
                         .unwrap_or(0),
                 )
             }
+            Body::Arrangement { .. } => arrangement_info(n),
             Body::ToolCall {
                 tool_use_id,
                 tool,
@@ -278,4 +279,20 @@ fn with_egress(
         d["egress"] = json!(e);
     }
     d
+}
+
+/// A task's arrangement node, as `node_info` shows it (M5 27): its render,
+/// and its pieces by reference.
+fn arrangement_info(n: &Node) -> (String, String, Value, u64) {
+    let Body::Arrangement {
+        pieces,
+        fidelity_ack,
+    } = &n.body
+    else {
+        return (String::new(), String::new(), Value::Null, 0);
+    };
+    let text = crate::arrangement::render(pieces);
+    let bytes = text.len() as u64;
+    let detail = json!({"pieces": crate::arrangement::meta(pieces), "fidelity_ack": fidelity_ack});
+    (text, String::new(), detail, bytes)
 }

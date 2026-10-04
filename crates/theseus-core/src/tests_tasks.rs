@@ -75,11 +75,19 @@ fn text_of(m: &Value) -> String {
     }
 }
 
+/// The first user message's first text block: a task's brief, without the
+/// arrangement that follows it (M5 27).
 fn first_user(req: &ProviderRequest) -> String {
     req.messages
         .iter()
         .find(|m| m["role"] == "user")
-        .map(text_of)
+        .and_then(|m| match &m["content"] {
+            Value::String(s) => Some(s.clone()),
+            Value::Array(b) => b
+                .iter()
+                .find_map(|b| b["text"].as_str().map(str::to_string)),
+            _ => None,
+        })
         .unwrap_or_default()
 }
 
@@ -180,8 +188,18 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
         .unwrap()
 }
 
+/// What the operator says to start a task, and the quote of it every
+/// scripted `task.create` makes (M5 27).
+const ASK: &str = "START: run this as a background task, please";
+const QUOTE: &str = "run this as a background task, please";
+
+/// An arrangement of one piece: `QUOTE`, the objective.
+fn arranged() -> Value {
+    json!({"pieces": [{"quote": QUOTE, "role": "objective"}]})
+}
+
 fn start(brief: &str, budget_usd: Option<f64>) -> Scripted {
-    let mut input = json!({ "brief": brief });
+    let mut input = json!({ "brief": brief, "arrangement": arranged() });
     if let Some(b) = budget_usd {
         input["budget_usd"] = json!(b);
     }
@@ -197,7 +215,8 @@ fn start_waking(briefs: &[&str], budget_usd: f64) -> Scripted {
             (
                 format!("t_task{i}"),
                 "task_create",
-                json!({"brief": b, "budget_usd": budget_usd, "wake_parent": true}),
+                json!({"brief": b, "budget_usd": budget_usd, "wake_parent": true,
+                       "arrangement": arranged()}),
             )
         })
         .collect();
@@ -281,7 +300,7 @@ async fn a_task_runs_on_its_own_and_reports_once_to_the_place_and_the_parent() {
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
     let t0 = Instant::now();
-    let first = turn(&r.core, &parent, "START a task").await;
+    let first = turn(&r.core, &parent, ASK).await;
     assert!(first.output.contains("Started it"), "{}", first.output);
     let task = only_task(&r.core, &parent);
     assert_eq!(task.budget.limit_micros, 1_500_000);
@@ -380,7 +399,7 @@ async fn a_tasks_spend_counts_against_its_parent_and_it_asks_at_its_carve() {
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
-    turn(&r.core, &parent, "START").await;
+    turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
     let pid = task.parent.clone().unwrap();
     r.entered.recv().await.unwrap();
@@ -448,7 +467,7 @@ async fn a_request_for_more_than_the_parent_has_left_is_capped() {
         |c| c.kernel.spend_limit_usd = 20.0,
     );
     let parent = parent_session(&r.core);
-    turn(&r.core, &parent, "START").await;
+    turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
     let result = r
         .core
@@ -498,7 +517,7 @@ async fn a_task_cannot_start_tasks() {
         |_| {},
     );
     let parent = parent_session(&r.core);
-    turn(&r.core, &parent, "START").await;
+    turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
     until("task complete", || {
         exec(&r.core, &task.id).state == ExecState::Complete
@@ -549,7 +568,7 @@ async fn a_cancel_stops_the_task_and_reports_once() {
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
-    turn(&r.core, &parent, "START").await;
+    turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
     r.entered.recv().await.unwrap();
     let res = r
@@ -630,7 +649,7 @@ async fn a_task_with_wake_parent_starts_one_parent_turn_that_reads_its_report() 
         |_| {},
     );
     let parent = parent_session(&r.core);
-    turn(&r.core, &parent, "START a chain").await;
+    turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
     assert!(task.wake_parent);
     let pid = task.parent.clone().unwrap();
@@ -704,7 +723,7 @@ async fn two_reports_that_land_together_start_one_parent_turn() {
     let parent = parent_session(&r.core);
     r.model.gate.add_permits(1);
     let (core, sid) = (r.core.clone(), parent.clone());
-    let first = tokio::spawn(async move { turn(&core, &sid, "PARENT start two tasks").await });
+    let first = tokio::spawn(async move { turn(&core, &sid, &format!("PARENT {ASK}")).await });
     // Its first call passes; its second, which reads the two ids, waits.
     r.entered.recv().await.unwrap();
     r.entered.recv().await.unwrap();
@@ -768,7 +787,7 @@ async fn a_report_that_starts_a_turn_at_the_parents_limit_asks() {
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
-    turn(&r.core, &parent, "START").await;
+    turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
     let pid = task.parent.clone().unwrap();
     r.entered.recv().await.unwrap();
@@ -817,7 +836,7 @@ async fn a_cancelled_task_with_wake_parent_wakes_nothing() {
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
-    turn(&r.core, &parent, "START").await;
+    turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
     r.entered.recv().await.unwrap();
     r.core

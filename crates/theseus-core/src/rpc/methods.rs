@@ -581,6 +581,7 @@ impl Core {
             if target.is_some_and(|t| info.target.as_deref() != Some(t)) {
                 continue;
             }
+            info.arrangement = crate::task::arrangement_of(&self.store, rec.as_ref());
             let parent = Some(info.parent_session_id.clone()).filter(|p| !p.is_empty());
             info.attention =
                 Some(crate::push::view(&e, asks, parent, 0, e.updated_at_ms).attention);
@@ -711,7 +712,10 @@ impl Core {
         let (e, cancelled, verdicts) = self.cancel_execution_judged(&id, by).await?;
         let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
         Ok(theseus_protocol::TaskCancelResult {
-            task: crate::task::info(&e, rec.as_ref(), 0),
+            task: theseus_protocol::TaskInfo {
+                arrangement: crate::task::arrangement_of(&self.store, rec.as_ref()),
+                ..crate::task::info(&e, rec.as_ref(), 0)
+            },
             cancelled_actions: cancelled,
             verdicts,
         })

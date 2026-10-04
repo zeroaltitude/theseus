@@ -244,6 +244,7 @@ fn the_extractor_covers_every_body_variant() {
             }
             // Below: a recall is never indexed again.
             Body::Recall { .. } => unreachable!("a recall is skipped"),
+            Body::Arrangement { .. } => unreachable!("an arrangement is skipped, below"),
         }
     }
     // A `Recall` node (M6 30b), through the core's own serialization: its
@@ -251,6 +252,12 @@ fn the_extractor_covers_every_body_variant() {
     let recalled = Node::recall("ses_1", "turn_1", "rcl_1", "baseline", Vec::new());
     assert!(matches!(
         extract(&recalled.record().unwrap().payload).unwrap(),
+        Extract::Skip { .. }
+    ));
+    // A task's arrangement (M5 27) copies nodes the index already holds.
+    let arrangement = Node::arrangement("ses_1", "session:ses_0", vec![], false);
+    assert!(matches!(
+        extract(&arrangement.record().unwrap().payload).unwrap(),
         Extract::Skip { .. }
     ));
     // A call whose input is never indexed: a write's content.

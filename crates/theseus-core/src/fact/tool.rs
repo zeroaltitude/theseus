@@ -781,6 +781,8 @@ pub struct TaskStarted<'a> {
     pub available_before: theseus_kernel::Micros,
     /// Where it reports; `None`, in this session.
     pub target: Option<&'a str>,
+    /// Its arrangement's pieces (M5 27).
+    pub pieces: usize,
 }
 
 impl Fact for TaskStarted<'_> {
@@ -788,10 +790,11 @@ impl Fact for TaskStarted<'_> {
         say.line(
             theseus_protocol::NarrativePart::Session,
             format!(
-                "Task {} started (\"{}\"): its session {} runs on its own with {} carved from \
-                 the {} this session had left, and reports {}.",
+                "Task {} started (\"{}\", {}): its session {} runs on its own with {} carved \
+                 from the {} this session had left, and reports {}.",
                 self.short,
                 self.title,
+                crate::arrangement::clip(self.pieces),
                 narrative::short(self.session_id),
                 narrative::dollars(self.limit),
                 narrative::dollars(self.available_before),

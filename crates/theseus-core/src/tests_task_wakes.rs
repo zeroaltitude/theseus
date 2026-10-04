@@ -63,11 +63,19 @@ fn text_of(m: &Value) -> String {
     }
 }
 
+/// The first user message's first text block: a task's brief, without the
+/// arrangement that follows it (M5 27).
 fn first_user(req: &ProviderRequest) -> String {
     req.messages
         .iter()
         .find(|m| m["role"] == "user")
-        .map(text_of)
+        .and_then(|m| match &m["content"] {
+            Value::String(s) => Some(s.clone()),
+            Value::Array(b) => b
+                .iter()
+                .find_map(|b| b["text"].as_str().map(str::to_string)),
+            _ => None,
+        })
         .unwrap_or_default()
 }
 
@@ -168,7 +176,8 @@ fn script(req: &ProviderRequest) -> Scripted {
             &[(
                 "t_task",
                 "task_create",
-                json!({"brief": brief, "budget_usd": 2.0, "wake_parent": true}),
+                json!({"brief": brief, "budget_usd": 2.0, "wake_parent": true,
+                       "arrangement": {"pieces": [{"quote": last, "role": "objective"}]}}),
             )],
         );
     }
@@ -464,7 +473,7 @@ async fn a_task_sets_a_wake_parks_wakes_and_then_reports_once() {
 async fn a_cancelled_tasks_wakes_never_fire_and_the_cancel_frees_their_slots() {
     let dir = tempfile::tempdir().unwrap();
     let l = life(dir.path());
-    let (_, task) = parked(&l.core, "CHILD SIX").await;
+    let (_, task) = parked(&l.core, "CHILD SIX: set six wakes").await;
     assert_eq!(task.wakes.len(), 5, "the cap");
     let refused = results(&l.core, &task)
         .into_iter()
@@ -569,7 +578,7 @@ async fn a_cancel_of_a_parked_tasks_last_wake_ends_it_and_it_reports_once() {
 async fn a_repeating_wake_in_a_task_is_refused_and_a_one_shot_one_is_not() {
     let dir = tempfile::tempdir().unwrap();
     let l = life(dir.path());
-    let (_, task) = parked(&l.core, "CHILD REPEAT").await;
+    let (_, task) = parked(&l.core, "CHILD REPEAT: set a series").await;
     let rs = results(&l.core, &task);
     assert_eq!(rs.len(), 2, "{rs:?}");
     let series = rs.iter().find(|r| r.contains("repeating")).expect("{rs:?}");
@@ -597,7 +606,7 @@ async fn a_task_with_no_wake_reports_at_once() {
     let dir = tempfile::tempdir().unwrap();
     let l = life(dir.path());
     let parent = parent_session(&l.core);
-    turn(&l.core, &parent, "START CHILD PLAIN").await;
+    turn(&l.core, &parent, "START CHILD PLAIN: report at once").await;
     let task = only_task(&l.core, &parent);
     until("the task's report", 10, || {
         exec(&l.core, &task.id).state == ExecState::Complete

@@ -41,6 +41,7 @@ use crate::store::Store;
 use crate::trace::Trace;
 
 pub mod answer;
+pub mod arrangement;
 pub mod cancel;
 pub mod driver;
 pub mod durability;
@@ -301,6 +302,8 @@ facts![
     tool::LateResult<'static>,
     tool::TaskStarted<'static>,
     tool::TaskHoldsExternal<'static>,
+    arrangement::TaskArranged<'static>,
+    arrangement::TaskArrangementRefused<'static>,
     tool::WakeSet<'static>,
     answer::CallAnswered<'static>,
     answer::WokenByAnswer,

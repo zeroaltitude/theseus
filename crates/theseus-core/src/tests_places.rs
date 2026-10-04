@@ -165,7 +165,12 @@ fn script(req: &ProviderRequest) -> Scripted {
     if last.contains("start a task") {
         return Scripted::tools(
             "Starting it.",
-            &[("t1", "task_create", json!({"brief": "count the files"}))],
+            &[(
+                "t1",
+                "task_create",
+                json!({"brief": "count the files", "arrangement":
+                       {"pieces": [{"quote": last, "role": "objective"}]}}),
+            )],
         );
     }
     if let Some(url) = last.strip_prefix("FETCH ") {
@@ -451,7 +456,7 @@ async fn a_private_address_fetch_asks_and_a_shared_places_card_says_where_the_pa
 async fn a_task_takes_its_parents_class() {
     let r = rig();
     let shared = session(&r.core, Some(&format!("channel:{LAB}")));
-    turn(&r.core, &shared, "start a task").await;
+    turn(&r.core, &shared, "start a task in the background, please").await;
     r.until("the task's answer", 15, |r| {
         r.asked("count the files").iter().any(answers_a_call)
     })

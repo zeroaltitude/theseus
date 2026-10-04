@@ -41,7 +41,11 @@ fn script(prompt: &str) -> Vec<(&'static str, Value)> {
         ),
         (
             "start a small task",
-            vec![("task_create", json!({"brief": "Count to three."}))],
+            vec![(
+                "task_create",
+                json!({"brief": "Count to three.", "arrangement":
+                       {"pieces": [{"quote": "Please start a small task.", "role": "objective"}]}}),
+            )],
         ),
         (
             "set a timer",
@@ -53,11 +57,20 @@ fn script(prompt: &str) -> Vec<(&'static str, Value)> {
         ),
         (
             "start a slow task",
-            vec![("task_create", json!({"brief": "Run the slow job."}))],
+            vec![(
+                "task_create",
+                json!({"brief": "Run the slow job.", "arrangement":
+                       {"pieces": [{"quote": "Please start a slow task.", "role": "objective"}]}}),
+            )],
         ),
     ];
     if prompt.contains("Run the slow job.") {
         return vec![("proc_run", json!({"argv": ["sleep", "30"]}))];
+    }
+    // A task's prompt quotes the message that started it (M5 27): its
+    // brief answers with text.
+    if prompt.starts_with("[Task ") && prompt.contains("Count to three.") {
+        return vec![];
     }
     calls
         .into_iter()

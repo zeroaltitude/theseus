@@ -428,6 +428,8 @@ async fn the_daemons_stop_closes_every_terminal() {
 /// with it, though nothing asked to close it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tasks_terminal_closes_at_its_sessions_end() {
+    // The ask the task's arrangement quotes (M5 27: a task needs one).
+    const START: &str = "START a task that opens a terminal, please";
     let r = rig(&[], true, |req| {
         let (first, last, n) = asked(req);
         if first.contains("CHILD") {
@@ -441,10 +443,13 @@ async fn a_tasks_terminal_closes_at_its_sessions_end() {
             };
         }
         match (last.as_str(), n) {
-            ("START", 0) => call(
+            (START, 0) => call(
                 "t1",
                 crate::task::CREATE,
-                json!({"brief": "CHILD open a terminal"}),
+                json!({
+                    "brief": "CHILD open a terminal",
+                    "arrangement": {"pieces": [{"quote": START, "role": "objective"}]}
+                }),
             ),
             _ => Scripted::text("Started."),
         }
@@ -460,7 +465,7 @@ async fn a_tasks_terminal_closes_at_its_sessions_end() {
             name: "a private channel".into(),
             private: true,
         });
-    turn(&r.core, &sid, "START").await;
+    turn(&r.core, &sid, START).await;
     until("the task's terminal closed", || {
         !rows(&r.core, "term.closed").is_empty()
     })

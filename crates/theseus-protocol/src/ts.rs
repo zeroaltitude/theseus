@@ -36,6 +36,7 @@ fn declared() -> Vec<(String, bool)> {
     let mut out = Vec::new();
     for src in [
         include_str!("lib.rs"),
+        include_str!("arrangement.rs"),
         include_str!("events.rs"),
         include_str!("gate.rs"),
         include_str!("index.rs"),
@@ -129,7 +130,8 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         sandbox::SandboxUsage, sandbox::RunningJob, bench::BenchHistoryParams,
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,
         AwsBudgetStatus, AwsGuardDutyStatus, AwsBootstrapParams, AwsBootstrapStack,
-        AwsBootstrapResult, AwsConfirmAlertsParams, AwsConfirmAlertsResult,
+        AwsBootstrapResult, AwsConfirmAlertsParams, AwsConfirmAlertsResult, TaskArrangement,
+        ArrangementPiece,
         mcp::McpServerStatus, mcp::McpToolInfo, mcp::McpListResult,
         mcp::McpRestartParams, mcp::McpRestartResult,
         mcp_server::McpServerHealth, mcp_server::McpServerRefusals,

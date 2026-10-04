@@ -40,7 +40,8 @@ function items(nodes: NodeInfo[]): Item[] {
   const flush = () => { out.push(...queued); queued = [] }
   for (const n of nodes) {
     const d = (n.detail ?? {}) as D
-    if (n.kind === 'user_message') { flush(); out.push({ kind: 'user', node: n }) }
+    // A task's arrangement reads as its brief's next part (M5 27).
+    if (n.kind === 'user_message' || n.kind === 'arrangement') { flush(); out.push({ kind: 'user', node: n }) }
     else if (n.kind === 'assistant_message') {
       flush()
       out.push({ kind: 'assistant', node: n })

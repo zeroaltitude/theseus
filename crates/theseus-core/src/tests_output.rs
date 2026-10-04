@@ -335,7 +335,8 @@ async fn conversation(out: &mut String) {
                 &[(
                     "t1",
                     "task_create",
-                    json!({"brief": "Count to three.", "budget_usd": 5.0}),
+                    json!({"brief": "Count to three.", "budget_usd": 5.0, "arrangement":
+                           {"pieces": [{"quote": "a task that counts to three", "role": "objective"}]}}),
                 )],
             ),
             Scripted::text("Started."),
@@ -415,7 +416,7 @@ async fn conversation(out: &mut String) {
     let d = drive(&core).await;
     w.take(out, "the driver: its one retry, refused too", &d);
 
-    let r = turn(&core, &a, "Start a task.").await;
+    let r = turn(&core, &a, "Start a task that counts to three.").await;
     w.take(out, "a turn that starts a task", &told(&r));
     let d = drive(&core).await;
     w.take(out, "the driver: the task's turn and its report", &d);

@@ -256,23 +256,24 @@ fn tail(s: &str, n: usize) -> String {
 fn a_kill_mid_task_then_a_restart_finishes_it_and_reports_once() {
     let r = Rig::new(vec![
         (
-            "Start the probe",
-            vec![(
-                "task_create",
-                json!({"brief": "Run the probe job and report."}),
-            )],
-        ),
-        (
             "Run the probe job",
             vec![(
                 "proc_run",
                 json!({"argv": ["sh", "-c", "sleep 3; echo probe-done"], "timeout_secs": 30}),
             )],
         ),
+        (
+            "Start the probe",
+            vec![(
+                "task_create",
+                json!({"brief": "Run the probe job and report.", "arrangement":
+                       {"pieces": [{"quote": "Start the probe as a task", "role": "objective"}]}}),
+            )],
+        ),
     ]);
     let daemon = r.spawn();
     let sid = r.session();
-    let first = r.ask(&sid, "Start the probe");
+    let first = r.ask(&sid, "Start the probe as a task");
     assert_eq!(first["output"], "Done.", "{first}");
     let task = r.wait("the task waiting on its job", || {
         r.tasks().into_iter().find(|t| t["waiting_on"] == "a job")
@@ -326,23 +327,24 @@ fn a_kill_mid_task_then_a_restart_finishes_it_and_reports_once() {
 fn a_kill_while_a_task_is_parked_on_its_wake_then_a_restart_reports_once() {
     let r = Rig::new(vec![
         (
-            "Watch the build",
-            vec![(
-                "task_create",
-                json!({"brief": "Check the build now and again shortly, then report."}),
-            )],
-        ),
-        (
             "Check the build now and again",
             vec![(
                 "wake_at",
                 json!({"after": "4s", "note": "Look at the build once more, then report."}),
             )],
         ),
+        (
+            "Watch the build",
+            vec![(
+                "task_create",
+                json!({"brief": "Check the build now and again shortly, then report.", "arrangement":
+                       {"pieces": [{"quote": "Watch the build as a task", "role": "objective"}]}}),
+            )],
+        ),
     ]);
     let daemon = r.spawn();
     let sid = r.session();
-    r.ask(&sid, "Watch the build");
+    r.ask(&sid, "Watch the build as a task");
     let task = r.wait("the task parked on its wake", || {
         r.tasks().into_iter().find(|t| t["waiting_on"] == "a wake")
     });
@@ -395,20 +397,24 @@ fn a_kill_while_a_task_is_parked_on_its_wake_then_a_restart_reports_once() {
 fn a_cancel_stops_the_task_and_its_job_and_reports_once() {
     let r = Rig::new(vec![
         (
-            "Start the long job",
-            vec![("task_create", json!({"brief": "Run the long job."}))],
-        ),
-        (
             "Run the long job",
             vec![(
                 "proc_run",
                 json!({"argv": ["sleep", "30"], "timeout_secs": 60}),
             )],
         ),
+        (
+            "Start the long job",
+            vec![(
+                "task_create",
+                json!({"brief": "Run the long job.", "arrangement":
+                       {"pieces": [{"quote": "Start the long job as a task", "role": "objective"}]}}),
+            )],
+        ),
     ]);
     let _daemon = r.spawn();
     let sid = r.session();
-    r.ask(&sid, "Start the long job");
+    r.ask(&sid, "Start the long job as a task");
     let task = r.wait("the task waiting on its job", || {
         r.tasks().into_iter().find(|t| t["waiting_on"] == "a job")
     });
@@ -475,16 +481,21 @@ fn execution_of(r: &Rig, sid: &str) -> Value {
 /// line, after the report.
 #[test]
 fn a_task_with_wake_parent_starts_its_parents_turn_and_the_reply_posts_under_its_line() {
-    let r = Rig::new(vec![(
-        "Start the chain",
-        vec![(
-            "task_create",
-            json!({"brief": "Say one word.", "wake_parent": true}),
-        )],
-    )]);
+    let r = Rig::new(vec![
+        // The task's own prompt quotes its parent's: its phrase comes first.
+        ("Say one word", vec![]),
+        (
+            "Start the chain",
+            vec![(
+                "task_create",
+                json!({"brief": "Say one word.", "wake_parent": true, "arrangement":
+                       {"pieces": [{"quote": "Start the chain of tasks", "role": "objective"}]}}),
+            )],
+        ),
+    ]);
     let _daemon = r.spawn();
     let sid = r.session();
-    r.ask(&sid, "Start the chain");
+    r.ask(&sid, "Start the chain of tasks");
     let task = r.wait("the task complete", || {
         r.tasks().into_iter().find(|t| t["state"] == "complete")
     });

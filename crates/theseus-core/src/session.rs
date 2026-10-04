@@ -197,6 +197,10 @@ pub struct TaskOf {
     /// when it started, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// Its arrangement's node, in its own session (M5 27); none for a task
+    /// started before the arrangement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrangement: Option<String>,
 }
 
 impl SessionRecord {

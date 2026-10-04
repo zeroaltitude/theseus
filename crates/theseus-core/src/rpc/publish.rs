@@ -133,6 +133,9 @@ impl Core {
                     Body::Recall { .. } => bail!(
                         "{id} is a recall, which copies nothing of its own: publish its sources"
                     ),
+                    Body::Arrangement { .. } => bail!(
+                        "{id} is a task's arrangement, which copies other messages: publish the messages it quotes"
+                    ),
                 };
                 Ok(Item {
                     what,

@@ -51,6 +51,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::SESSION,
+        layout: "a task's session (DD7, W1): its origin and where it reports, before its arrangement's node (format 9, M5 27; unchanged through 8); the build before theseus-vug.2 (f1fccec) writes it back byte for byte",
+        bytes: r#"{"session_id":"ses_00000000000000000000000000000081","kind":"task","label":"task","created_at_unix_ms":1790000000081,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000081","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":0,"cost_usd":0.0,"tool_calls":0,"title":"Chart the harbour soundings","task":{"parent_session":"ses_lighthouse","parent_execution":"exe_lighthouse","by":"act_00000000000000000000000000000081","target":"discord:dm:42"}}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::EXECUTION,
         layout: "1, 460a35b's: before an execution's wakes, report wakes, and stop (2)",
         bytes: r#"{"id":"exe_01a0f3f3c9b77474a7caa5d505b05b5e","schema":2,"session_id":"ses_01a0f3f3c9b77474a7caa5d4925bd678","kind":"conversation","state":"cancelled","authority":{"principal":"operator","ceilings":{}},"budget":{"limit_micros":100000000,"spent_micros":440,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0},"outstanding":["act_01a0f3f3cd97711e8a0b5fbbdc8b2bbc"],"queued_results":[],"turns":1,"interrupted":0,"resume_pending":false,"cancel":"requested","ended_reason":"cancelled by sock#4","created_at_ms":1790799235511,"updated_at_ms":1790799237745}"#,
@@ -145,6 +151,12 @@ const SAMPLES: &[Sample] = &[
         layout: "6 (19c): a graduated node, its label naming a place's readers and the operator's warrant, which the place rule dropped (7)",
         bytes: r#"{"id":"msg_00000000000000000000000000000061","schema":1,"session_id":"ses_lighthouse","turn_id":null,"loop_index":null,"origin":"operator","author":"cli","created_at_ms":1790000000061,"body":{"kind":"user_message","text":"the vault code is 4417"},"label":{"integrity":"trusted","readers":{"place":"discord:7"},"warrant":{"graduated_from":"trs_00000000000000000000000000000051","who":"cli","how":"cli","why":"the code is for the whole lab","at_ms":1790000000062}}}"#,
         kept: Kept::AllBut(&["/label"]),
+    },
+    Sample {
+        kind: kinds::NODE,
+        layout: "7 (DD7, 12a): a task's brief, relayed from its parent, before the arrangement node that follows it (format 9, M5 27; unchanged through 8); the build before theseus-vug.2 (f1fccec) writes it back byte for byte",
+        bytes: r#"{"id":"msg_00000000000000000000000000000082","schema":1,"session_id":"ses_00000000000000000000000000000081","turn_id":null,"loop_index":null,"origin":"agent","author":"session:ses_lighthouse","created_at_ms":1790000000081,"body":{"kind":"user_message","text":"[Task 000081: a background task started by session …thouse.]\n\nChart the harbour soundings."}}"#,
+        kept: Kept::All,
     },
     Sample {
         kind: kinds::COMPILATION,
