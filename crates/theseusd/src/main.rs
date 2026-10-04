@@ -922,6 +922,9 @@ async fn after_serving(
     // The ontology's snapshot, by one META prefix scan (theseus-8kk.1): a
     // compile reads it from memory.
     core.warm_ontology();
+    // Recall's labels (M6 30b), by one scan of their scope, so a turn's
+    // recall reads them from memory.
+    core.warm_labels();
     // The index tender (roadmap row 51; M6 §2.2), started once the socket
     // answers, never before, and by the socket daemon alone (`bindings` is
     // its): a `--stdio` daemon serves `store-stdio` for one client.

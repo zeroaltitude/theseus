@@ -27,23 +27,23 @@ use crate::{Config, Core};
 
 /// The owner on Discord, someone else, and three guild channels: one bound
 /// private, two shared.
-const OWNER: u64 = 161_803_398_874_989_484;
-const ALICE: u64 = 333_333_333_333_333_333;
-const DEN: u64 = 271_000_000_000_000_001;
-const PIER: u64 = 271_000_000_000_000_002;
-const QUAY: u64 = 271_000_000_000_000_003;
+pub(crate) const OWNER: u64 = 161_803_398_874_989_484;
+pub(crate) const ALICE: u64 = 333_333_333_333_333_333;
+pub(crate) const DEN: u64 = 271_000_000_000_000_001;
+pub(crate) const PIER: u64 = 271_000_000_000_000_002;
+pub(crate) const QUAY: u64 = 271_000_000_000_000_003;
 
-struct Rig {
-    core: Arc<Core>,
-    model: Arc<FakeProvider>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) model: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
-fn rig(mode: MemoryMode) -> Rig {
+pub(crate) fn rig(mode: MemoryMode) -> Rig {
     rig_with(mode, |_| {})
 }
 
-fn rig_with(mode: MemoryMode, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig_with(mode: MemoryMode, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -68,7 +68,7 @@ fn rig_with(mode: MemoryMode, tweak: impl FnOnce(&mut Config)) -> Rig {
 
 /// A session, posting to `place` (`channel:<id>`, `dm:<user>`) when given,
 /// saying `said`.
-fn session(core: &Core, place: Option<&str>, said: &[&str]) -> String {
+pub(crate) fn session(core: &Core, place: Option<&str>, said: &[&str]) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     if let Some(p) = place {
@@ -83,7 +83,7 @@ fn session(core: &Core, place: Option<&str>, said: &[&str]) -> String {
 
 /// A stand-in index over `sessions`: every node of theirs written before
 /// the query's `as_of`, the newest first, as BM25's hits.
-fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
+pub(crate) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     let store = core.store.clone();
     Arc::new(move |p| -> AskFuture {
         let mut hits = Vec::new();
@@ -137,7 +137,7 @@ fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     })
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -163,7 +163,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
 }
 
 /// The session's recall rows, as `memory.recalls` reads them.
-fn recalls(core: &Core, sid: &str) -> Vec<RecallManifest> {
+pub(crate) fn recalls(core: &Core, sid: &str) -> Vec<RecallManifest> {
     core.memory_recalls(MemoryRecallsParams {
         session_id: sid.into(),
         limit: Some(200),
@@ -172,11 +172,11 @@ fn recalls(core: &Core, sid: &str) -> Vec<RecallManifest> {
     .recalls
 }
 
-fn admitted(m: &RecallManifest) -> Vec<&str> {
+pub(crate) fn admitted(m: &RecallManifest) -> Vec<&str> {
     m.admitted.iter().map(|a| a.session_id.as_str()).collect()
 }
 
-fn dropped_for<'a>(m: &'a RecallManifest, reason: &str) -> Vec<&'a str> {
+pub(crate) fn dropped_for<'a>(m: &'a RecallManifest, reason: &str) -> Vec<&'a str> {
     m.dropped
         .iter()
         .filter(|d| d.reason == reason)
@@ -329,7 +329,7 @@ async fn memory_off_recalls_nothing() {
 }
 
 /// The requests a core's model got, as bytes.
-fn sent(model: &FakeProvider) -> Vec<String> {
+pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
     let reqs: Vec<ProviderRequest> = model.requests.lock().unwrap().clone();
     reqs.iter()
         .map(|q| serde_json::to_string(&(&q.system, &q.messages, &q.tools)).unwrap())
@@ -480,19 +480,24 @@ proptest! {
     /// a candidate in a shared place, nothing from one shared place is one in
     /// another, and nothing of a shared place is one in a private place: each
     /// such hit is dropped for its place, and every other survives that
-    /// filter.
+    /// filter. In shadow, and through canary (30b), where the request the
+    /// model gets carries no word of a session the place may not draw on.
     #[test]
     fn the_place_rule_holds_over_generated_stores(
         asker in spot(),
         spots in proptest::collection::vec(spot(), 1..12),
+        canary in proptest::bool::ANY,
     ) {
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
         rt.block_on(async {
-            let r = rig(MemoryMode::Shadow);
+            let r = match canary {
+                true => rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0),
+                false => rig(MemoryMode::Shadow),
+            };
             let c = &r.core;
             let mut made = Vec::new();
             for (i, s) in spots.iter().enumerate() {
-                let sid = session(c, None, &[&format!("note {i}")]);
+                let sid = session(c, None, &[&format!("note {i}.")]);
                 // Only a place's latest session speaks there.
                 if let Some(p) = s.place() {
                     c.outbox.bind_place(&p, &sid).unwrap();
@@ -536,6 +541,18 @@ proptest! {
                 if !may {
                     prop_assert!(!m.admitted.iter().any(|a| &a.session_id == sid));
                 }
+            }
+            // What the model got: no note of a session this place may not
+            // draw on (in shadow, none at all).
+            let sent = sent(&r.model).concat();
+            for (i, (_, s)) in spoken.iter().enumerate() {
+                let may = match (&here, s.class()) {
+                    (Ok(()), Ok(())) => true,
+                    (Err(a), Err(b)) => *a == b,
+                    _ => false,
+                };
+                let shown = sent.contains(&format!("note {i}."));
+                prop_assert!(!shown || (canary && may), "{:?} saw {:?}'s note {} (canary {})", asker, s, i, canary);
             }
             Ok(())
         })?;

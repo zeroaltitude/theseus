@@ -1,23 +1,83 @@
-//! The recall step on a turn's first loop (M6 step 30a; `crate::recall`):
-//! begun as the loop's model call goes out, and read once it has answered,
-//! so the index's wait overlaps the model's. In shadow its row rides in the
-//! turn's next frame, and the request the model got is the one compiled
-//! without it.
+//! The recall step on a turn's first loop (M6 steps 30a, 30b;
+//! `crate::recall`).
+//!
+//! - **Shadow** (30a, and a canary's control): begun as the loop's model call
+//!   goes out, and read once it has answered, so the index's wait overlaps
+//!   the model's. Its row rides in the turn's next frame, and the request
+//!   the model got is the one compiled without it.
+//! - **Canary and live** (30b): read before the compile, never past
+//!   `[memory] recall_deadline_ms`. What it admits is a `Recall` node, built
+//!   here and held in the turn (`Recalled`) until it rides the provider
+//!   call's plan frame with its `derived_from` edges; the compile renders it
+//!   after the new message as though it were written (`recall_view`), and
+//!   the new compilation leaves it out of its prefix, since its position
+//!   comes after the compilation's `as_of`. The `recall.ran` row rides in
+//!   the turn's next frame.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
+
+use theseus_protocol::memory::{BudgetDrop, RecallManifest};
+use theseus_store::NewRecord;
 
 use super::{Turn, TurnRunner};
-use crate::fact::recall::{scope, RecallShadow};
-use crate::recall::{query_of, Begun, Scene};
+use crate::compiler::Compiled;
+use crate::config::memory::Assigned;
+use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow};
+use crate::graph::{Edge, EdgeKind, VIA_RECALL};
+use crate::node::{Body, Node, RecalledRef};
+use crate::recall::render::{self, Sources};
+use crate::recall::{query_of, text_of, Begun, Scene};
+use crate::session::SessionRecord;
+use crate::store::Transcript;
+
+/// What recall put in front of the model this turn.
+#[derive(Default)]
+pub(crate) struct Recalled {
+    /// The `Recall` node, until the plan frame writes it.
+    pub pending: Option<Node>,
+    /// Its record and its edges, for the plan frame.
+    pub rides: Vec<NewRecord>,
+    /// What its pack left out for the budget: the compilation's report
+    /// carries them.
+    pub drops: Vec<BudgetDrop>,
+    /// The notes it admitted: the reply's footer says them.
+    pub count: u32,
+}
+
+/// The position a pending `Recall` node renders at: after every node, as
+/// the plan frame will write it.
+const PENDING: u64 = u64::MAX;
 
 impl TurnRunner {
-    /// Ask the index, when memory is on and the turn brings something new.
-    /// Nothing here fails the turn: a transcript that cannot be read is no
-    /// recall.
-    pub(super) fn recall_begin(&self, t: &Turn<'_>) -> Option<Begun> {
+    /// The first loop's recall. In front of the model, it is read now and
+    /// its node held for the compile; in shadow, its query goes out and the
+    /// caller reads it once the call has answered (`recall_end`). Nothing
+    /// here fails the turn.
+    pub(super) async fn recall_first(
+        &self,
+        t: &mut Turn<'_>,
+        session: &SessionRecord,
+    ) -> Option<Begun> {
         if !self.memory.on() {
             return None;
         }
+        let assigned = self.memory.cfg().assign(t.tc.session_id);
+        if let Some(a) = assigned {
+            self.record_arm(t, a);
+        }
+        let begun = self.recall_begin(t)?;
+        match assigned {
+            Some(a) if a.live => {
+                self.recall_live(t, session, begun, a).await;
+                None
+            }
+            _ => Some(begun),
+        }
+    }
+
+    /// Ask the index, when the turn brings something new.
+    fn recall_begin(&self, t: &Turn<'_>) -> Option<Begun> {
         let nodes = match t.tc.store.transcript(t.tc.session_id) {
             Ok(n) => n,
             Err(e) => {
@@ -33,39 +93,265 @@ impl TurnRunner {
         )
     }
 
-    /// Read the index's answer (never past its deadline), run the pipeline,
-    /// and record the recall: its row, scoped to the session's recalls, its
-    /// span, and its line.
-    pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
-        let t0 = t.trace.at(begun.started);
-        let answer = begun.answer().await;
-        let in_context: BTreeSet<String> = match t.tc.store.transcript(t.tc.session_id) {
-            Ok(nodes) => nodes.iter().map(|(_, n)| n.id.clone()).collect(),
-            Err(_) => BTreeSet::new(),
+    /// The session's `memory.arm` row, once: its first turn under canary or
+    /// live writes it, in the turn's next frame.
+    fn record_arm(&self, t: &mut Turn<'_>, a: Assigned) {
+        let sid = t.tc.session_id;
+        match self.memory.arm_recorded(t.tc.store, sid) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "recall: the session's arm row cannot be read");
+                return;
+            }
+        }
+        let cfg = self.memory.cfg();
+        let f = ArmAssigned {
+            mode: cfg.mode.as_str(),
+            arm: a.arm.as_str(),
+            live: a.live,
+            experiment: &cfg.experiment,
+            science: &self.memory.science().id().to_string(),
         };
-        let scene = Scene {
-            mode: "shadow",
+        match t.tc.rec().row(&f) {
+            Ok(r) => match t.tc.store.defer(r.scoped(&scope(sid))) {
+                Ok(()) => self.memory.armed(sid),
+                Err(e) => tracing::warn!(error = %e, "ledger append failed"),
+            },
+            Err(e) => tracing::warn!(error = %e, "recall: the arm's row cannot be encoded"),
+        }
+        t.announce_fact(&f);
+    }
+
+    /// The scene of the turn's recall: its place, the nodes its request
+    /// carries (and the sources of the recalls among them), and the labels.
+    fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str) -> Scene<'a> {
+        let mut in_context = BTreeSet::new();
+        if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
+            for (_, n) in nodes.iter() {
+                in_context.insert(n.id.clone());
+                if let Body::Recall { items, .. } = &n.body {
+                    in_context.extend(items.iter().map(|r| r.node_id.clone()));
+                }
+            }
+        }
+        let labeled = self
+            .memory
+            .labeled(&self.store)
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %format!("{e:#}"), "recall: the labels cannot be read; none is applied");
+                BTreeSet::new()
+            });
+        Scene {
+            mode,
             session_id: Some(t.tc.session_id),
             turn_id: Some(t.tc.turn_id),
             place: self.place_of(t.tc.session_id),
             in_context,
-        };
-        let m = self
+            labeled,
+        }
+    }
+
+    /// Read the index's answer (never past its deadline), run the pipeline,
+    /// and record the shadow recall: its row, scoped to the session's
+    /// recalls, its span, and its line.
+    pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
+        let t0 = t.trace.at(begun.started);
+        let answer = begun.answer().await;
+        let scene = self.scene(t, "shadow");
+        let mut m = self
             .memory
             .manifest(&scene, &begun, answer, |s| self.place_of(s), false);
+        m.arm = self
+            .memory
+            .cfg()
+            .assign(t.tc.session_id)
+            .map(|a| a.arm.as_str().to_string());
         let f = RecallShadow {
             manifest: &m,
             t0,
             t1: t.trace.now_us(),
         };
-        match t.tc.rec().row(&f) {
-            Ok(r) => {
-                if let Err(e) = t.tc.store.defer(r.scoped(&scope(t.tc.session_id))) {
-                    tracing::warn!(error = %e, "ledger append failed");
-                }
-            }
-            Err(e) => tracing::warn!(error = %e, "recall: its row cannot be encoded"),
-        }
+        defer_row(t, &f);
         t.announce_fact(&f);
+    }
+
+    /// Recall in front of the model: the answer now, the pack, and its
+    /// `Recall` node with its edges, held for the compile and the plan
+    /// frame. Past the session's cap it pauses, and writes no node.
+    async fn recall_live(
+        &self,
+        t: &mut Turn<'_>,
+        session: &SessionRecord,
+        mut begun: Begun,
+        a: Assigned,
+    ) {
+        let t0 = t.trace.at(begun.started);
+        let answer = begun.answer().await;
+        let mode = self.memory.cfg().mode.as_str();
+        let scene = self.scene(t, mode);
+        let mut m = self
+            .memory
+            .manifest(&scene, &begun, answer, |s| self.place_of(s), true);
+        m.arm = Some(a.arm.as_str().into());
+        let cap = self.memory.cfg().session_recall_cap_tokens;
+        let in_tail = self.recall_tokens_in_tail(t, session);
+        if !m.admitted.is_empty() && in_tail + m.used_tokens > cap {
+            m.outcome = "paused".into();
+            m.why = Some(format!(
+                "the session's tail holds {in_tail} tokens of recall notes, and {} more would \
+                 pass session_recall_cap_tokens = {cap}",
+                m.used_tokens
+            ));
+        } else if !m.admitted.is_empty() {
+            self.hold_node(t, &m, a);
+        }
+        // The row keeps references, never copies.
+        for item in &mut m.admitted {
+            item.text = None;
+        }
+        let f = RecallRan {
+            manifest: &m,
+            t0,
+            t1: t.trace.now_us(),
+        };
+        defer_row(t, &f);
+        t.announce_fact(&f);
+    }
+
+    /// The tokens of the recall notes in the session's tail: those after
+    /// its current compilation's `as_of`.
+    fn recall_tokens_in_tail(&self, t: &Turn<'_>, session: &SessionRecord) -> u64 {
+        let as_of = session
+            .compilation_id
+            .as_deref()
+            .and_then(|id| self.store.get_compilation(id).ok().flatten())
+            .map_or(0, |c| c.as_of);
+        let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) else {
+            return 0;
+        };
+        nodes
+            .iter()
+            .filter(|(p, _)| *p > as_of)
+            .map(|(_, n)| match &n.body {
+                Body::Recall { items, .. } => items.iter().map(|r| r.tokens).sum(),
+                _ => 0,
+            })
+            .sum()
+    }
+
+    /// The `Recall` node of `m`'s admitted items, each read from its source
+    /// by position for its frozen range and header, with an edge to each
+    /// source; held in the turn for the compile and the plan frame.
+    fn hold_node(&self, t: &mut Turn<'_>, m: &RecallManifest, a: Assigned) {
+        let mut items = Vec::new();
+        for item in &m.admitted {
+            let probe = RecalledRef {
+                node_id: item.node_id.clone(),
+                session_id: item.session_id.clone(),
+                position: item.position,
+                chunk: (0, 0),
+                header: String::new(),
+                tokens: item.tokens,
+            };
+            let Some(source) = self.memory.read_source(&self.store, &probe) else {
+                tracing::warn!(node_id = %item.node_id, "recall: an admitted source cannot be read; it is left out");
+                continue;
+            };
+            let excerpt = item.text.as_deref().unwrap_or_default();
+            items.push(RecalledRef {
+                chunk: render::frozen_range(&text_of(&source), excerpt),
+                header: render::header(&source, item.position),
+                ..probe
+            });
+        }
+        if items.is_empty() {
+            return;
+        }
+        let node = Node::recall(
+            t.tc.session_id,
+            t.tc.turn_id,
+            &m.recall_id,
+            a.arm.as_str(),
+            items,
+        );
+        let mut rides = Vec::new();
+        let records = node.record().and_then(|r| {
+            rides.push(r);
+            let Body::Recall { items, .. } = &node.body else {
+                return Ok(());
+            };
+            for r in items {
+                let e = Edge::new(EdgeKind::DerivedFrom, &node.id, &r.node_id, VIA_RECALL);
+                rides.push(e.record()?);
+            }
+            Ok(())
+        });
+        if let Err(e) = records {
+            tracing::warn!(error = %format!("{e:#}"), "recall: its node cannot be encoded; no recall this turn");
+            return;
+        }
+        let Body::Recall { items, .. } = &node.body else {
+            return;
+        };
+        t.recall.count = items.len() as u32;
+        t.recall.drops = m
+            .budget
+            .as_ref()
+            .map(|b| b.dropped.clone())
+            .unwrap_or_default();
+        t.recall.rides = rides;
+        t.recall.pending = Some(node);
+    }
+
+    /// The transcript a loop compiles, with the turn's pending `Recall` node
+    /// after every node, and the sources its recalls render.
+    pub(super) fn recall_view(&self, t: &Turn<'_>, nodes: Transcript) -> (Transcript, Sources) {
+        let mut nodes = nodes;
+        if let Some(n) = &t.recall.pending {
+            // Once the plan frame wrote it, the transcript holds it.
+            if !nodes.iter().any(|(_, m)| m.id == n.id) {
+                nodes.push((PENDING, Arc::new(n.clone())));
+            }
+        }
+        let recalls = nodes
+            .iter()
+            .filter(|(_, n)| matches!(n.body, Body::Recall { .. }));
+        let sources = match recalls.clone().next() {
+            Some(_) => self
+                .memory
+                .read_sources(&self.store, recalls.map(|(_, n)| &**n)),
+            None => Sources::new(),
+        };
+        (nodes, sources)
+    }
+
+    /// After the compile: a new compilation's prefix leaves out the pending
+    /// node (its position will come after the compilation's `as_of`, so it
+    /// renders in the tail, as it did here), and the report carries what the
+    /// recall's pack left out.
+    pub(super) fn recall_compiled(t: &mut Turn<'_>, compiled: &mut Compiled) {
+        let Some(n) = &t.recall.pending else {
+            return;
+        };
+        compiled.compilation.includes.retain(|id| *id != n.id);
+        let drops = std::mem::take(&mut t.recall.drops);
+        compiled.budget.dropped.extend(drops);
+        if compiled.new_compilation {
+            compiled.compilation.budget = Some(compiled.budget.clone());
+        }
+    }
+}
+
+/// A recall's row, scoped to the session's recalls, for the turn's next
+/// frame.
+fn defer_row<F: crate::fact::Fact>(t: &mut Turn<'_>, f: &F) {
+    match t.tc.rec().row(f) {
+        Ok(r) => {
+            if let Err(e) = t.tc.store.defer(r.scoped(&scope(t.tc.session_id))) {
+                tracing::warn!(error = %e, "ledger append failed");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "recall: its row cannot be encoded"),
     }
 }

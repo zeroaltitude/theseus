@@ -311,6 +311,7 @@ impl Core {
             // Recall (M6 30a): the pipeline for a query, and a session's recalls.
             method::MEMORY_SEARCH => reply(self.memory_search(parse(params)?).await?),
             method::MEMORY_RECALLS => reply(self.memory_recalls(parse(params)?)?),
+            method::MEMORY_LABEL => route(params, |p| self.rpc_memory_label(p, conn)),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.

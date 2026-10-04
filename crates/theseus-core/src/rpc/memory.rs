@@ -1,6 +1,8 @@
 //! `memory.search` and `memory.recalls` (M6 step 30a, §2.14): recall's
 //! pipeline for a query, writing nothing, and a session's recalls as its
-//! turns recorded them.
+//! turns recorded them. `memory.label` (30b): an operator's label on a node,
+//! judged as an approval is (`judge_act(Act::Label)`: the owner, from a
+//! private place), so a job's process cannot grade its own memory.
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -8,13 +10,18 @@ use std::time::Duration;
 use theseus_memory::recall::{excerpt, Place};
 use theseus_protocol::error_code;
 use theseus_protocol::memory::{
-    MemoryRecallsParams, MemoryRecallsResult, MemorySearchParams, RecallManifest,
+    MemoryLabelParams, MemoryLabelResult, MemoryRecallsParams, MemoryRecallsResult,
+    MemorySearchParams, RecallManifest, MEMORY_LABELS,
 };
 
-use super::server::RpcFailure;
+use super::confirms::Act;
+use super::server::{Conn, RpcFailure};
 use super::Core;
+use crate::approval::{Answerer, Refusal};
+use crate::fact;
 use crate::fact::recall::scope;
 use crate::ledger::LedgerRow;
+use crate::recall::labels;
 use crate::recall::{text_of, Scene, K};
 use crate::session::SessionRecord;
 
@@ -56,6 +63,7 @@ impl Core {
             turn_id: None,
             place,
             in_context,
+            labeled: memory.labeled(&self.store)?,
         };
         Ok(memory.manifest(&scene, &begun, answer, |s| self.runner.place_of(s), true))
     }
@@ -74,6 +82,10 @@ impl Core {
         let mut recalls = Vec::new();
         for r in &records[records.len().saturating_sub(limit)..] {
             let row: LedgerRow = r.decode()?;
+            // The session's arm row shares the scope: only recalls here.
+            if row.kind == theseus_protocol::LedgerKind::MemoryArm.as_str() {
+                continue;
+            }
             let Ok(mut m) = serde_json::from_value::<RecallManifest>(row.data) else {
                 continue;
             };
@@ -89,6 +101,91 @@ impl Core {
             total,
             recalls,
         })
+    }
+
+    /// `memory.label`: the operator's label on a node, as a `memory.label`
+    /// row scoped `memory`; `wrong` and `stale` keep the node out of recall
+    /// from the next turn on (`labeled_wrong`), and `useful` lets it back.
+    pub fn memory_label(
+        &self,
+        p: &MemoryLabelParams,
+        who: impl Into<Answerer>,
+    ) -> anyhow::Result<MemoryLabelResult> {
+        let who = who.into();
+        let label = p.label.trim();
+        if !MEMORY_LABELS.contains(&label) {
+            anyhow::bail!(
+                "{label:?} is not a label: one of {}",
+                MEMORY_LABELS.join(", ")
+            );
+        }
+        if self.store.get_node(&p.node_id)?.is_none() {
+            anyhow::bail!("no node is named {}", p.node_id);
+        }
+        let what = format!("{label} on {}", p.node_id);
+        self.judge_act(&who, Act::Label { what: &what })?;
+        let memory = &self.runner.memory;
+        let mut set = memory.labeled(&self.store)?;
+        match labels::excludes(label) {
+            Some(true) => {
+                set.insert(p.node_id.clone());
+            }
+            Some(false) => {
+                set.remove(&p.node_id);
+            }
+            None => {}
+        }
+        let (who_s, via) = (who.who(), who.via());
+        let f = fact::recall::Labeled {
+            node_id: &p.node_id,
+            label,
+            recall_id: p.recall_id.as_deref(),
+            note: p.note.as_deref(),
+            who: &who_s,
+            via: &via,
+            excluded: set.contains(&p.node_id),
+        };
+        self.store
+            .append(&[fact::row(&f, None, None)?.scoped(labels::SCOPE)])?;
+        memory.labeled_now(&p.node_id, label);
+        self.rec(None).announce(&f);
+        Ok(MemoryLabelResult {
+            node_id: p.node_id.clone(),
+            label: label.into(),
+            excluded: f.excluded,
+        })
+    }
+
+    pub(super) fn rpc_memory_label(
+        &self,
+        p: MemoryLabelParams,
+        conn: Conn<'_>,
+    ) -> Result<MemoryLabelResult, RpcFailure> {
+        let who = conn.answerer(None, None);
+        self.memory_label(&p, who)
+            .map_err(|e| match e.downcast::<Refusal>() {
+                Ok(r) => RpcFailure {
+                    code: error_code::REFUSED,
+                    message: format!(
+                        "a label from {} does not count: {}. Nothing was written.",
+                        r.who, r.why
+                    ),
+                    data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+                },
+                Err(e) => RpcFailure::invalid(e),
+            })
+    }
+
+    /// The label set, built now, off the start path: after serving, on the
+    /// blocking pool. A recall that comes sooner builds it itself, once.
+    pub fn warm_labels(self: &std::sync::Arc<Self>) {
+        let core = std::sync::Arc::downgrade(self);
+        tokio::task::spawn_blocking(move || {
+            let Some(core) = core.upgrade() else { return };
+            if let Err(e) = core.runner.memory.labeled(&core.store) {
+                tracing::warn!(error = %format!("{e:#}"), "memory: the labels cannot be read");
+            }
+        });
     }
 
     fn session_exists(&self, sid: &str) -> Result<(), RpcFailure> {

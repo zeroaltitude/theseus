@@ -136,6 +136,8 @@ mod tests_reach;
 #[cfg(test)]
 mod tests_recall;
 #[cfg(test)]
+mod tests_recall_node;
+#[cfg(test)]
 mod tests_refused;
 #[cfg(test)]
 mod tests_registry;

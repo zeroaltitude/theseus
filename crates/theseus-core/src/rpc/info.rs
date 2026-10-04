@@ -220,6 +220,9 @@ impl Core {
                 json!({"tool_use_id": tool_use_id, "tool": tool, "status": status.as_str(), "is_error": is_error, "correlation_id": correlation_id, "truncated": truncated, "duration_ms": duration_ms, "late": late, "meta": meta, "external": external}),
                 *bytes_total,
             ),
+            // References, never copies (M6 30b): the sources, each with its
+            // header and range.
+            Body::Recall { .. } => (n.preview(80), String::new(), recall_detail(n), 0),
         };
         theseus_protocol::NodeInfo {
             node_id: n.id.clone(),
@@ -241,6 +244,27 @@ impl Core {
 /// Context files' paths, as health names them.
 fn paths(files: &[crate::context_files::ContextEntry]) -> Vec<String> {
     files.iter().map(|f| f.path().to_string()).collect()
+}
+
+/// A `Recall` node's detail (M6 30b): its references, never copies: each
+/// source with its header and range.
+fn recall_detail(n: &Node) -> Value {
+    let Body::Recall {
+        recall_id,
+        arm,
+        items,
+    } = &n.body
+    else {
+        return Value::Null;
+    };
+    let items: Vec<Value> = items
+        .iter()
+        .map(|r| {
+            json!({"node_id": r.node_id, "session_id": r.session_id, "position": r.position,
+                   "chunk": [r.chunk.0, r.chunk.1], "header": r.header, "tokens": r.tokens})
+        })
+        .collect();
+    json!({"recall_id": recall_id, "arm": arm, "items": items})
 }
 
 /// A tool call's detail with an L1 call's egress list, as its proposal binds

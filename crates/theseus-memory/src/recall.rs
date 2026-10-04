@@ -3,6 +3,8 @@
 //! the budget. Pure: the core reads the index and each candidate's place,
 //! and this decides what would be admitted.
 //!
+//! 30b adds `labeled_wrong`: a node the operator labeled wrong or stale.
+//!
 //! The place rule (theseus-nbsh) is the first filter: a turn in a shared
 //! place draws only on that place's own sessions, and a turn in a private
 //! place only on private places' sessions. A candidate whose place cannot be
@@ -44,6 +46,8 @@ pub enum Reason {
     InContext,
     /// External text, and the config admits none.
     Untrusted,
+    /// The operator labeled it `wrong` or `stale` (30b's `memory.label`).
+    LabeledWrong,
     /// A recall, or a line the harness wrote.
     Recursion,
     /// Below the science's least fused score.
@@ -53,10 +57,11 @@ pub enum Reason {
 }
 
 impl Reason {
-    pub const ALL: [Reason; 6] = [
+    pub const ALL: [Reason; 7] = [
         Reason::Place,
         Reason::InContext,
         Reason::Untrusted,
+        Reason::LabeledWrong,
         Reason::Recursion,
         Reason::Threshold,
         Reason::Budget,
@@ -67,6 +72,7 @@ impl Reason {
             Reason::Place => "place",
             Reason::InContext => "in_context",
             Reason::Untrusted => "untrusted",
+            Reason::LabeledWrong => "labeled_wrong",
             Reason::Recursion => "recursion",
             Reason::Threshold => "threshold",
             Reason::Budget => "budget",
@@ -108,6 +114,8 @@ pub struct Asker<'a> {
     pub place: &'a Place,
     /// The nodes the turn's request already carries.
     pub in_context: &'a BTreeSet<String>,
+    /// The nodes the operator labeled wrong or stale.
+    pub labeled: &'a BTreeSet<String>,
     pub now_ms: u64,
 }
 
@@ -205,6 +213,9 @@ fn filter(c: &Candidate, asker: &Asker<'_>, p: &Params, min_score: f64) -> Optio
     }
     if c.external && !p.include_external {
         return Some(Reason::Untrusted);
+    }
+    if asker.labeled.contains(&c.node_id) {
+        return Some(Reason::LabeledWrong);
     }
     if c.origin == "harness" || c.kind == "recall" {
         return Some(Reason::Recursion);
@@ -316,10 +327,12 @@ mod tests {
 
     fn run(place: &Place, in_context: &[&str], cands: Vec<Candidate>, p: &Params) -> Pack {
         let in_context = in_context.iter().map(|s| s.to_string()).collect();
+        let labeled = BTreeSet::from(["wrong".to_string()]);
         let asker = Asker {
             session_id: "ses_here",
             place,
             in_context: &in_context,
+            labeled: &labeled,
             now_ms: 0,
         };
         recall(
@@ -366,6 +379,7 @@ mod tests {
             cand("faint", "ses_b", Place::Private, 0.001),
             big,
             second_chunk,
+            cand("wrong", "ses_b", Place::Private, 0.95),
         ];
         let p = Params {
             budget_tokens: 300,
@@ -387,6 +401,7 @@ mod tests {
             ("recalled", Reason::Recursion),
             ("faint", Reason::Threshold),
             ("big", Reason::Budget),
+            ("wrong", Reason::LabeledWrong),
         ] {
             assert_eq!(reason_of(&pack, node), Some(reason), "{node}");
         }
@@ -395,7 +410,7 @@ mod tests {
             .dropped
             .iter()
             .any(|d| d.candidate.key() == "ok#1" && d.reason == Reason::InContext));
-        assert_eq!(pack.admitted.len() + pack.dropped.len(), 10);
+        assert_eq!(pack.admitted.len() + pack.dropped.len(), 11);
         // Every reason this step builds is met above.
         for r in Reason::ALL {
             assert!(pack.dropped_for(r) > 0, "{}", r.as_str());

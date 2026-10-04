@@ -31,6 +31,7 @@ use crate::catalog::{Catalog, ThinkingMode, TokenRates};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::node::{Body, Node};
 use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_TOKENS};
+use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetRange, BudgetReport};
 
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block
@@ -171,6 +172,11 @@ pub struct Compilation {
     #[serde(default)]
     pub derived_from: Option<String>,
     pub manifest: Manifest,
+    /// What it fitted into the model's window and what it left out (M6 30b,
+    /// §2.11): the ring's cut as a range, a recall's drops, an overage.
+    /// Absent in a compilation from before it (COMPILATION's layout 7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<BudgetReport>,
 }
 
 /// An operator's request to recompile.
@@ -252,6 +258,8 @@ pub struct CompileInput<'a> {
     /// The provider said this turn's last request passed the window
     /// (theseus-9p88): the compilation rings, whatever the estimate says.
     pub overflowed: Option<&'a Overflowed>,
+    /// The sources the session's `Recall` nodes render (M6 30b).
+    pub sources: &'a crate::recall::render::Sources,
 }
 
 /// A request that passed the model's window, as the provider said it
@@ -467,6 +475,9 @@ fn image_cap(model: &str) -> u64 {
 
 #[derive(Debug, Clone)]
 pub struct Compiled {
+    /// What it fitted and left out (M6 30b): every compilation's, append or
+    /// not; a new one's is stored with it.
+    pub budget: BudgetReport,
     pub request: ProviderRequest,
     pub compilation: Compilation,
     /// `compilation` was made by this call and must be persisted.
@@ -706,6 +717,7 @@ fn compile_with(
                     strip_thinking: strip,
                     ..base.clone()
                 },
+                budget: None,
             }
         };
 
@@ -742,11 +754,13 @@ fn compile_with(
         input.blobs,
         input.hidden,
         input.overflowed.and_then(|o| o.retrying.as_deref()),
+        input.sources,
     );
     let mut rendered = render_request(spec, input.catalog, &compilation, input.nodes, media);
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
     let counted = counted_part(input.nodes, &compilation, &rendered.request);
     let mut est = estimate(&rendered.request, rates, counted);
+    let mut ring_drop: Option<BudgetDrop> = None;
 
     // 2. Overflow: drop leading turns (ring), cutting only before a user
     // message. It rings on the estimate's upper bound, so a request whose
@@ -758,9 +772,7 @@ fn compile_with(
     // each estimate is raised by how far the overflowing request's count ran
     // over its estimate (theseus-9p88).
     if let Some(w) = window {
-        let budget = w
-            .saturating_sub(spec.max_tokens as u64)
-            .saturating_sub(4_096);
+        let budget = request_budget(w, spec);
         if est.upper > budget || input.overflowed.is_some() {
             let target = budget * 6 / 10;
             // A ring is a new compilation: it takes the walk's current
@@ -784,6 +796,7 @@ fn compile_with(
                 let last = cut == *starts.last().unwrap();
                 let tokens = input.overflowed.map_or(e.tokens, |o| o.scale(e.tokens));
                 if tokens <= target || last {
+                    ring_drop = Some(ring_cut(&seq[..cut], est.tokens.saturating_sub(e.tokens)));
                     compilation = candidate;
                     rendered = r;
                     spec = recompiled;
@@ -810,7 +823,12 @@ fn compile_with(
     let messages = request.messages.len();
     let digest = request.digest();
     est.bytes = request.json_bytes();
+    let budget = budget_report(window.map(|w| request_budget(w, spec)), &est, ring_drop);
+    if new_compilation {
+        compilation.budget = Some(budget.clone());
+    }
     Compiled {
+        budget,
         request,
         compilation,
         new_compilation,
@@ -827,6 +845,49 @@ fn compile_with(
     }
 }
 
+/// The tokens a request may hold in window `w`: the window less the output
+/// cap and a margin.
+fn request_budget(w: u64, spec: &RequestSpec) -> u64 {
+    w.saturating_sub(spec.max_tokens as u64)
+        .saturating_sub(4_096)
+}
+
+/// The ring's cut (M6 30b, §2.11): the leading nodes it left out, as a range,
+/// and the tokens the estimate says that saved.
+fn ring_cut(dropped: &[&Node], tokens: u64) -> BudgetDrop {
+    BudgetDrop {
+        node_id: None,
+        range: dropped
+            .first()
+            .zip(dropped.last())
+            .map(|(a, b)| BudgetRange {
+                first: a.id.clone(),
+                last: b.id.clone(),
+                nodes: dropped.len() as u64,
+            }),
+        reason: "overflow".into(),
+        tokens,
+        tier: "ring".into(),
+    }
+}
+
+/// A compilation's report: its limit (0 with no window known), what the
+/// request is estimated at, the ring's cut, and an overage when the
+/// estimate's upper bound still passes the limit.
+fn budget_report(limit: Option<u64>, est: &Estimate, cut: Option<BudgetDrop>) -> BudgetReport {
+    let overage = limit.filter(|l| est.upper > *l).map(|l| BudgetOverage {
+        tokens: est.upper - l,
+        why: "the request's estimate passes the window with every turn the ring may drop gone"
+            .into(),
+    });
+    BudgetReport {
+        limit_tokens: limit.unwrap_or(0),
+        used_tokens: est.tokens,
+        dropped: cut.into_iter().collect(),
+        overage,
+    }
+}
+
 /// Render a compilation plus its tail into a provider request. `media` is
 /// where image blocks get their bytes, the images the provider refused in
 /// the session, which render as their line (theseus-0s4), and the answer cut
@@ -837,10 +898,11 @@ pub fn render_request(
     catalog: &Catalog,
     c: &Compilation,
     nodes: &[(u64, Arc<Node>)],
-    (blobs, hidden, retrying): (
+    (blobs, hidden, retrying, sources): (
         Option<&crate::blobs::Blobs>,
         &[crate::session::NotShown],
         Option<&str>,
+        &crate::recall::render::Sources,
     ),
 ) -> Rendered {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
@@ -869,6 +931,7 @@ pub fn render_request(
         &spec.provider,
         &media,
         retrying,
+        sources,
     );
     let (messages, repairs, image_tokens) =
         (rendered.messages, rendered.repairs, rendered.image_tokens);
@@ -1011,6 +1074,7 @@ pub fn render_messages(
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
+    sources: &crate::recall::render::Sources,
 ) -> Messages {
     let mut image_tokens = 0u64;
     // Each call's result.
@@ -1077,6 +1141,16 @@ pub fn render_messages(
                     &mut out,
                     "user",
                     vec![json!({"type": "text", "text": line})],
+                )
+            }
+            // Recall's testimony, after the new message in its user turn
+            // (M6 30b), read from its sources over their frozen ranges.
+            Body::Recall { items, .. } => {
+                let text = crate::recall::render::render(items, sources);
+                push(
+                    &mut out,
+                    "user",
+                    vec![json!({"type": "text", "text": text})],
                 )
             }
             _ => {}
@@ -1287,6 +1361,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            sources: &Default::default(),
         })
     }
 
@@ -1535,6 +1610,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            sources: &Default::default(),
         });
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
@@ -1566,6 +1642,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            sources: &Default::default(),
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");
@@ -1580,6 +1657,27 @@ mod tests {
             .unwrap()
             .iter()
             .all(|b| !is_thinking(b))));
+        // The ring's cut, in the report (M6 30b): the leading nodes it left
+        // out as a range, first to last, under a limit the request fits.
+        let b = &c.budget;
+        assert_eq!(c.compilation.budget.as_ref(), Some(b), "stored with it");
+        assert_eq!(b.limit_tokens, 13_000 - sp.max_tokens as u64 - 4_096);
+        assert!(
+            b.used_tokens <= b.limit_tokens && b.overage.is_none(),
+            "{b:?}"
+        );
+        let cut = &b.dropped[0];
+        assert_eq!(
+            (cut.tier.as_str(), cut.reason.as_str()),
+            ("ring", "overflow")
+        );
+        let range = cut.range.as_ref().unwrap();
+        let kept = &c.compilation.includes[0];
+        let first_kept = nodes.iter().position(|(_, n)| &n.id == kept).unwrap();
+        assert_eq!(range.first, nodes[0].1.id);
+        assert_eq!(range.last, nodes[first_kept - 1].1.id);
+        assert_eq!(range.nodes, first_kept as u64);
+        assert!(cut.tokens > 0);
     }
 
     /// A spec whose header and context blocks have these many characters.
@@ -1800,6 +1898,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            sources: &Default::default(),
         });
         assert_eq!(c.request.system.len(), 2);
         assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
@@ -1856,6 +1955,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed,
+            sources: &Default::default(),
         })
     }
 
@@ -2104,6 +2204,7 @@ mod tests {
             hidden: &[],
             strip: None,
             overflowed: None,
+            sources: &Default::default(),
         })
     }
 

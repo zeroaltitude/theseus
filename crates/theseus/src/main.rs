@@ -541,12 +541,26 @@ enum MemoryCmd {
         #[arg(short, long, default_value_t = 40)]
         k: usize,
     },
-    /// What each of SESSION's turns would have recalled in shadow, newest last.
+    /// What each of SESSION's turns recalled (canary, live) or would have (shadow), newest last.
     Recalled {
         session: String,
         /// The newest this many (at most 200).
         #[arg(short = 'n', long, default_value_t = 10)]
         limit: usize,
+    },
+    /// Label NODE for recall: `wrong` or `stale` keeps it out of every session's recall from the
+    /// next turn on, `useful` lets it back, `should_have` says recall missed it. The operator's,
+    /// refused inside a job.
+    Label {
+        node: String,
+        #[arg(value_parser = ["useful", "wrong", "stale", "should_have"])]
+        label: String,
+        /// The recall that offered it.
+        #[arg(long, value_name = "RECALL")]
+        recall: Option<String>,
+        /// Why, in a few words.
+        #[arg(long)]
+        note: Option<String>,
     },
 }
 

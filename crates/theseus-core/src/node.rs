@@ -180,6 +180,34 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         external: Option<theseus_tools::External>,
     },
+    /// What recall put in front of the model (M6 step 30b, §2.8): references
+    /// to its sources, never copies. It renders after the turn's new message,
+    /// in the same user turn, as testimony: each item's frozen header, then
+    /// its source's text over the frozen range, read by position
+    /// (`recall::render`), so every later request repeats the same bytes.
+    /// (`Summary`, `Synthesis`, and `Lesson` come with 30c, 31b, and 35b.)
+    Recall {
+        recall_id: String,
+        /// The session's arm (`baseline`).
+        arm: String,
+        items: Vec<RecalledRef>,
+    },
+}
+
+/// One source a `Recall` node renders: where it is, the byte range of its
+/// text shown, and the header frozen when it was recalled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecalledRef {
+    pub node_id: String,
+    pub session_id: String,
+    /// Its WAL position: the render reads it there.
+    pub position: u64,
+    /// The bytes of its text (`recall::text_of`) shown, `[start, end)`.
+    pub chunk: (u32, u32),
+    /// `ses_…'s message from cli, 2026-09-30 14:34 UTC (as of @18231)`.
+    pub header: String,
+    /// The pack's estimate of its tokens: the session's cap counts them.
+    pub tokens: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -300,6 +328,26 @@ impl Node {
         n
     }
 
+    /// The notes recall put in front of the model (M6 30b), written by the
+    /// harness in the turn's provider call's plan frame.
+    pub fn recall(
+        session_id: &str,
+        turn_id: &str,
+        recall_id: &str,
+        arm: &str,
+        items: Vec<RecalledRef>,
+    ) -> Self {
+        let body = Body::Recall {
+            recall_id: recall_id.into(),
+            arm: arm.into(),
+            items,
+        };
+        let mut n = Self::new("rcn", session_id, Some(turn_id), Origin::Harness, body);
+        n.loop_index = Some(0);
+        n.author = Some("harness".into());
+        n
+    }
+
     pub fn record(&self) -> Result<NewRecord> {
         Ok(NewRecord::json(kinds::NODE, Some(&self.id), self)?.scoped(&self.session_id))
     }
@@ -310,6 +358,7 @@ impl Node {
             Body::AssistantMessage { .. } => "assistant_message",
             Body::ToolCall { .. } => "tool_call",
             Body::ToolResult { .. } => "tool_result",
+            Body::Recall { .. } => "recall",
         }
     }
 
@@ -340,6 +389,10 @@ impl Node {
                 content,
                 ..
             } => format!("{tool} [{}] {content}", status.as_str()),
+            Body::Recall { items, .. } => format!(
+                "recalled {}",
+                crate::narrative::count(items.len() as u64, "note", "notes")
+            ),
         };
         let s = s.replace('\n', " ");
         if s.chars().count() > max {

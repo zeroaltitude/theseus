@@ -57,7 +57,8 @@ vocabulary! {
         /// `from` copies `to` (row 12, 12a): a task's report, relayed into
         /// its parent from the task's last message, and a task's brief, from
         /// the parent's reply that started it, each into another session; and
-        /// a node the owner published into a place (the place rule). (M4 19c's
+        /// a node the owner published into a place (the place rule); and a
+        /// `Recall` node to each source it renders (M6 30b, `recall`). (M4 19c's
         /// graduations wrote one in the source's own session, via `graduate`:
         /// they still read.)
         DerivedFrom = "derived_from",
@@ -76,7 +77,7 @@ pub struct Edge {
     pub kind: String,
     pub from: String,
     pub to: String,
-    /// The route that wrote it: `report`, `brief`, or `publish` (`graduate`
+    /// The route that wrote it: `report`, `brief`, `publish`, or `recall` (`graduate`
     /// in a store from 19c to the place rule).
     #[serde(default)]
     pub via: String,
@@ -88,6 +89,9 @@ pub struct Edge {
 pub const VIA_REPORT: &str = "report";
 pub const VIA_BRIEF: &str = "brief";
 pub const VIA_PUBLISH: &str = "publish";
+/// A `Recall` node to each source it renders (M6 30b): the copy `node.reach`
+/// counts as it counts a report's.
+pub const VIA_RECALL: &str = "recall";
 
 impl Edge {
     pub fn new(kind: EdgeKind, from: &str, to: &str, via: &str) -> Self {

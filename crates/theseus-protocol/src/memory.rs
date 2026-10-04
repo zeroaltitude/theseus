@@ -1,7 +1,8 @@
 //! Recall's wire types (M6 §2.14, step 30a): a recall's manifest, which a
 //! turn's `recall.shadow` row holds and `memory.search` answers, and
-//! `memory.recalls`, a session's manifests. Each name carries `Recall` or
-//! `Memory`, since the web apps' types share one namespace.
+//! `memory.recalls`, a session's manifests; and (30b) the `BudgetReport`
+//! and `memory.label`. Each name carries `Recall`, `Memory`, or (the
+//! design's name) `Budget`, since the web apps' types share one namespace.
 
 use std::collections::BTreeMap;
 
@@ -101,6 +102,105 @@ pub struct RecallManifest {
     pub budget_tokens: u64,
     pub used_tokens: u64,
     pub timings: RecallTimings,
+    /// The session's arm (M6 30b): `baseline` for recall in front of the
+    /// model, or the control's `none` with `baseline` in shadow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub arm: Option<String>,
+    /// The pack's budget: its limit, what it used, and each item it dropped
+    /// for the budget (§2.11: never silently thinner).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub budget: Option<BudgetReport>,
+}
+
+/// What a compilation, or a recall's pack, fitted into its limit and what it
+/// left out (M6 30b; §2.8, §2.11): every drop with its reason, tokens, and
+/// tier, the ring's cut as a range, and an overage when even the kept part
+/// did not fit. A compilation's is stored with it (`budget`); a recall's
+/// rides in its manifest.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct BudgetReport {
+    /// The tokens it had: a request's, the model's window less the output
+    /// cap and a margin; a pack's, `[memory] recall_budget_tokens`. 0: no
+    /// window is known.
+    pub limit_tokens: u64,
+    /// The tokens it used, as estimated.
+    pub used_tokens: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<BudgetDrop>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub overage: Option<BudgetOverage>,
+}
+
+/// One thing a budget left out.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct BudgetDrop {
+    /// A node left out alone (a recall's item).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub node_id: Option<String>,
+    /// A run of nodes left out (the ring's cut).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub range: Option<BudgetRange>,
+    /// `budget` (a recall's), `overflow` (the ring's).
+    pub reason: String,
+    pub tokens: u64,
+    /// `recall`, `ring`, or (30c) `compaction`.
+    pub tier: String,
+}
+
+/// A run of a session's nodes, first to last in order.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct BudgetRange {
+    pub first: String,
+    pub last: String,
+    pub nodes: u64,
+}
+
+/// What did not fit even after every drop: a named outcome, never a
+/// thinner prompt.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct BudgetOverage {
+    /// The tokens over the limit.
+    pub tokens: u64,
+    pub why: String,
+}
+
+/// `memory.label` (M6 30b, §2.14): an operator's label on a node. `wrong`
+/// and `stale` keep the node out of recall (`labeled_wrong`), and `useful`
+/// lets it back; `should_have` says recall missed it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryLabelParams {
+    pub node_id: String,
+    /// `useful`, `wrong`, `stale`, or `should_have`.
+    pub label: String,
+    /// The recall that offered it, when one did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub recall_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+}
+
+/// The labels `memory.label` takes.
+pub const MEMORY_LABELS: [&str; 4] = ["useful", "wrong", "stale", "should_have"];
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryLabelResult {
+    pub node_id: String,
+    pub label: String,
+    /// Whether recall now leaves the node out.
+    pub excluded: bool,
 }
 
 /// An item the pack would admit: a reference, never a copy.
