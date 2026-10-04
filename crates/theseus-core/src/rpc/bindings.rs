@@ -42,14 +42,23 @@ impl Core {
         if let Err(e) = self.bind_categories(&places) {
             tracing::warn!(error = %format!("{e:#}"), "the places' categories were not made");
         }
+        // A ceiling's family that names no tool here offers nothing (step
+        // 38a): said, since the file stays valid as tools come and go.
+        for (place, family) in self.unknown_families(&places) {
+            tracing::warn!(
+                place,
+                family,
+                "a place's ceiling names a tool family this daemon has none of"
+            );
+        }
         self.runner.place_rule.bind(places);
     }
 
-    /// Whether the bindings file trusts its guild whole (theseus-rdqg): told
-    /// with its places, so health names each private channel there as in a
-    /// trusted guild, which is never read.
-    pub fn trust_guild(&self, trusted: bool) {
-        self.runner.place_rule.trust_guild(trusted);
+    /// The guilds the bindings file trusts whole (theseus-rdqg; each has its
+    /// own word, step 38a), by id: told with its places, so health names each
+    /// private channel there as in a trusted guild, which is never read.
+    pub fn trust_guilds(&self, trusted: std::collections::BTreeSet<String>) {
+        self.runner.place_rule.trust_guilds(trusted);
     }
 
     /// Who can view a guild channel bound `private = true`, outside a trusted

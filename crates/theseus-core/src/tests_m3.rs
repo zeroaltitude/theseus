@@ -3835,7 +3835,7 @@ async fn a_task_caches_its_own_conversation_for_five_minutes() {
     let (spec, _) = r.core.runner.request_spec(
         &target,
         SessionKind::Conversation,
-        crate::places::PlaceClass::Private,
+        crate::places::PlaceClass::Private.into(),
     );
     assert_eq!(
         (spec.cache_ttl, spec.conversation_ttl),
@@ -3847,7 +3847,7 @@ async fn a_task_caches_its_own_conversation_for_five_minutes() {
     let (task, _) = r.core.runner.request_spec(
         &target,
         SessionKind::Task,
-        crate::places::PlaceClass::Private,
+        crate::places::PlaceClass::Private.into(),
     );
     assert_eq!(task.conversation_ttl, crate::config::CacheTtl::FiveMinutes);
     assert_eq!(task.cache_ttl, crate::config::CacheTtl::OneHour);
@@ -5178,11 +5178,13 @@ fn bind_places(r: &Rig, private_channel: bool) {
             target: format!("discord:dm:{EDDIE}"),
             name: "DM @eddie".into(),
             private: false,
+            ..Default::default()
         },
         crate::places::BoundPlace {
             target: format!("discord:channel:{CHANNEL}"),
             name: "#lab".into(),
             private: private_channel,
+            ..Default::default()
         },
     ]);
 }
@@ -7388,6 +7390,7 @@ fn bound(core: &Core, place: &str) -> String {
             target: format!("discord:{place}"),
             name: "DM".into(),
             private: false,
+            ..Default::default()
         });
     }
     rec.session_id
@@ -7457,6 +7460,7 @@ async fn a_card_is_written_with_its_question_and_settled_by_its_answer() {
         target: "discord:channel:7".into(),
         name: "#7".into(),
         private: true,
+        ..Default::default()
     }]);
     let res = turn(&r.core, Some(&sid), "write a").await;
     let q = res.awaiting_confirm.expect("the write waits");

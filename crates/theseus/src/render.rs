@@ -1789,7 +1789,9 @@ fn binding_line(b: &theseus_protocol::BindingStatus) -> String {
         } else {
             format!(" · {}", places.join(", "))
         }
-    )
+    ) + &places::places_by_guild(b)
+        .map(|g| format!(" · {g}"))
+        .unwrap_or_default()
 }
 
 /// The push (theseus-in3), as `theseus health` says it: `push: 2 watchers ·

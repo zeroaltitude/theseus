@@ -58,6 +58,7 @@ pub(crate) fn rig_with(mode: MemoryMode, tweak: impl FnOnce(&mut Config)) -> Rig
         target: format!("discord:channel:{DEN}"),
         name: "#den".into(),
         private: true,
+        ..Default::default()
     }]);
     Rig {
         core,

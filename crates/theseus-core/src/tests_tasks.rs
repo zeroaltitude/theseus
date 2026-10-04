@@ -163,6 +163,7 @@ fn parent_session(core: &Arc<Core>) -> String {
         target: format!("discord:{PLACE}"),
         name: "DM".into(),
         private: false,
+        ..Default::default()
     });
     rec.session_id
 }

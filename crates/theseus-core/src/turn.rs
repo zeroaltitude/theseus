@@ -685,10 +685,10 @@ impl TurnRunner {
         &self,
         target: &Target,
         files: &[ContextFile],
-        class: crate::places::PlaceClass,
+        place: crate::ceiling::PlaceView,
     ) -> (String, String) {
         let mut parts = vec![PERSONA.to_string()];
-        let note = self.tools.system_note_for(class);
+        let note = self.tools.system_note_for(place);
         if !note.is_empty() {
             parts.push(note);
         }
@@ -709,8 +709,9 @@ impl TurnRunner {
         &self,
         target: &Target,
         kind: SessionKind,
-        class: crate::places::PlaceClass,
+        place: crate::ceiling::PlaceView,
     ) -> (RequestSpec, Vec<Unreadable>) {
+        let class = place.class;
         let paths = self.cfg.context_paths(target.persona.as_deref());
         let (mut files, unreadable) = self.context_files.load(&paths);
         // A shared place carries only the files marked public (the place
@@ -718,7 +719,7 @@ impl TurnRunner {
         if class == crate::places::PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
-        let (system_text, context_text) = self.system_blocks(target, &files, class);
+        let (system_text, context_text) = self.system_blocks(target, &files, place);
         let spec = RequestSpec {
             profile: target.profile.clone(),
             provider: target.provider.clone(),
@@ -728,7 +729,7 @@ impl TurnRunner {
             context_text,
             context_files: files.iter().map(|f| f.file.clone()).collect(),
             persona: target.persona.clone(),
-            tools: self.tools.definitions_for(class),
+            tools: self.tools.definitions_for(place),
             effort: target.effort,
             thinking_display: target.thinking_display,
             refusal_fallbacks: target.refusal_fallbacks,
@@ -752,18 +753,7 @@ impl TurnRunner {
     /// (theseus-4lx), the latest its takes kept. With neither, the CLI's or
     /// the web UI's: private. Shared when where it goes cannot be read.
     pub fn class_of(&self, session_id: &str) -> crate::places::PlaceClass {
-        let place = self.outbox.try_target(session_id).and_then(|t| match t {
-            Some(t) => Ok(Some(t)),
-            None => self.outbox.try_wake_target(session_id),
-        });
-        match place {
-            Ok(p) => self.place_rule.class(&self.cfg, p.as_deref()),
-            Err(e) => {
-                tracing::warn!(session_id, error = %format!("{e:#}"),
-                    "where a session speaks cannot be read: its turn is a shared place's");
-                crate::places::PlaceClass::Shared
-            }
-        }
+        self.view_of(session_id).class
     }
 
     /// Make sure the session has a kernel execution (sessions written before
@@ -1439,6 +1429,7 @@ impl TurnRunner {
         let sid = session.session_id.clone();
         let turn_id = crate::new_id("turn");
         let task_of = session.task.clone();
+        let place = self.view_of(&sid);
         let tc = TurnCtx {
             kernel: &frames.kernel,
             store: &frames.store,
@@ -1455,7 +1446,8 @@ impl TurnRunner {
             target: Some(&target),
             task: task_of.as_ref(),
             // Taken again once the turn has read its wakes and reports.
-            class: self.class_of(&sid),
+            class: place.class,
+            ceiling: place.ceiling,
         };
         if self.narrator.on() && self.narrator.first_sight(&sid) && session.turns > 0 {
             tc.rec().in_turn(None).record(&fact::turn::SessionResumed {
@@ -1516,7 +1508,8 @@ impl TurnRunner {
         let caught_up = self.catch_up(t, input.is_some()).await?;
         // Where the turn's words go, now that it has taken its wakes and
         // reports: their place, when the session's own has moved on.
-        t.tc.class = self.class_of(sid);
+        let here = self.view_of(sid);
+        (t.tc.class, t.tc.ceiling) = (here.class, here.ceiling);
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(p) = prompt {
@@ -1557,7 +1550,7 @@ impl TurnRunner {
         // recompiles the next turn, never between a tool call and its result.
         // So is the place's class (the place rule): a class that changes
         // mid-turn applies at the next turn's first loop.
-        let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.class);
+        let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
         spec.walk = self.walk(sid, t.tc.class);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,

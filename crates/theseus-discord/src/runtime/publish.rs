@@ -138,6 +138,7 @@ mod tests {
             target: format!("discord:channel:{LAB}"),
             name: "#lab".into(),
             private: false,
+            ..Default::default()
         }]);
         let rec = theseus_core::session::SessionRecord::new(
             theseus_protocol::SessionKind::Conversation,

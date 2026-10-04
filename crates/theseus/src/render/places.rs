@@ -1,7 +1,53 @@
 //! The place rule's lines (theseus-nbsh): health's `places:` line, and
 //! `theseus places`.
 
-use theseus_protocol::{PlaceClass, PlaceInfo, PlacesHealth};
+use theseus_protocol::{BindingStatus, PlaceCeiling, PlaceClass, PlaceInfo, PlacesHealth};
+
+/// A place's ceiling, in words (step 38a): `floor approve · tools web ·
+/// spend ≤ $1.00 · profile glm`, each part it sets.
+pub fn ceiling_words(c: &PlaceCeiling) -> String {
+    let mut parts = Vec::new();
+    if let Some(f) = &c.posture_floor {
+        parts.push(format!("floor {f}"));
+    }
+    if let Some(t) = &c.tools {
+        parts.push(match t.is_empty() {
+            true => "no tools".to_string(),
+            false => format!("tools {}", t.join(",")),
+        });
+    }
+    if let Some(usd) = c.spend_limit_usd {
+        parts.push(format!("spend ≤ ${usd:.2}"));
+    }
+    if let Some(p) = &c.profile {
+        parts.push(format!("profile {p}"));
+    }
+    parts.join(" · ")
+}
+
+/// A binding's places counted by guild, as `theseus health` says them (step
+/// 38a): `by guild: home 2 (trusted), 314159265358979323 1 · DMs 1`. None
+/// when the binding names no guild.
+pub fn places_by_guild(b: &BindingStatus) -> Option<String> {
+    if b.guilds.is_empty() {
+        return None;
+    }
+    let guilds: Vec<String> = b
+        .guilds
+        .iter()
+        .map(|g| {
+            let n = b
+                .places
+                .iter()
+                .filter(|p| p.guild.as_ref() == Some(&g.id))
+                .count();
+            let trusted = if g.trusted { " (trusted)" } else { "" };
+            format!("{} {n}{trusted}", g.name.as_deref().unwrap_or(&g.id))
+        })
+        .collect();
+    let dms = b.places.iter().filter(|p| p.kind == "dm").count();
+    Some(format!("by guild: {} · DMs {dms}", guilds.join(", ")))
+}
 
 /// A place's name, with what its start-time check found when it is a
 /// channel bound private: anyone besides the owner who can view it, or why
@@ -23,6 +69,14 @@ fn named(p: &PlaceInfo) -> String {
     }
 }
 
+/// `named`, with the place's ceiling when it has one: `#pier [tools web]`.
+fn named_ceiling(p: &PlaceInfo) -> String {
+    match &p.ceiling {
+        Some(c) => format!("{} [{}]", named(p), ceiling_words(c)),
+        None => named(p),
+    }
+}
+
 /// What a shared place gets, in words.
 fn shared_gets(h: &PlacesHealth) -> String {
     match h.public_paths.is_empty() {
@@ -38,7 +92,7 @@ fn of(h: &PlacesHealth, class: PlaceClass) -> Vec<String> {
     h.places
         .iter()
         .filter(|p| p.class == class)
-        .map(named)
+        .map(named_ceiling)
         .collect()
 }
 
@@ -84,7 +138,21 @@ pub fn places_lines(h: &PlacesHealth) -> Vec<String> {
     let mut lines: Vec<String> = h
         .places
         .iter()
-        .map(|p| format!("{:<8} {}  {}", p.class.as_str(), named(p), p.place))
+        .map(|p| {
+            let guild = p.guild.as_ref().map(|g| format!("  guild {g}"));
+            let ceiling = p
+                .ceiling
+                .as_ref()
+                .map(|c| format!("  ceiling: {}", ceiling_words(c)));
+            format!(
+                "{:<8} {}  {}{}{}",
+                p.class.as_str(),
+                named(p),
+                p.place,
+                guild.unwrap_or_default(),
+                ceiling.unwrap_or_default()
+            )
+        })
         .collect();
     lines.push(String::new());
     lines.push("private: everything, as the CLI has it.".into());
@@ -109,6 +177,8 @@ mod tests {
             others: None,
             unchecked: None,
             trusted_guild: false,
+            guild: None,
+            ceiling: None,
         }
     }
 

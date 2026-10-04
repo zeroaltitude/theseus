@@ -1,32 +1,45 @@
 # Theseus bindings (spec P5, "bindings as a file"): the Discord places Theseus
-# lives in, and who may drive it there. One guild; text channels (M3 plans one)
-# and direct messages. Ids are Discord snowflakes written as strings (Discord:
-# User Settings > Advanced > Developer Mode, then right-click > Copy ID).
+# lives in, and who may drive it there. Guilds, each a [[guild]]; text and
+# voice channels in them, each naming its guild; and direct messages. Ids are
+# Discord snowflakes written as strings (Discord: User Settings > Advanced >
+# Developer Mode, then right-click > Copy ID).
 #
 # Everyone listed acts as the operator: this says who may start turns and press
 # Approve, not a separate permission model (that arrives with roles). Messages
 # from anyone else are ignored and counted in health. Read at startup; restart
 # theseusd after editing. The file's digest is the binding revision.
+#
+# This is format 2. A format-1 file (one guild, as guild_id = "…" at the top,
+# its private beside it, and channels that name no guild) still loads with its
+# meaning; a file that mixes the two is refused.
 
-guild_id = "000000000000000000"
-# private = true                   # the whole guild is yours: every [[channel]] below is private unless it
-                                   # says private = false, and who can view one is not read. Keep this line
-                                   # here, above the first [[channel]]: written below one, it is that one's
-                                   # own private, and the guild stays untrusted
+[[guild]]
+id = "000000000000000000"          # a server the bot is in; one [[guild]] each
+name = "home"                      # a label for health and the web UI
+# private = true                   # the whole guild is yours: every [[channel]] in it is private unless it
+                                   # says private = false, and who can view one is not read. Each guild has
+                                   # its own word, and none is trusted unless it says so
 
 [[channel]]
+guild = "000000000000000000"       # the [[guild]] it is in
 id = "000000000000000000"          # a text channel in that guild
 name = "theseus"                   # a label for health, the web UI, and the session
 users = ["000000000000000000"]     # who may drive turns and press Approve here
 mention_only = true                # answer only when @mentioned or replied to; false for a channel of its own
 # private = false                  # true: only you can view it, so it gets everything, as your DM does.
                                    # false (shared): its own conversation, the public tools, files only
-                                   # under [places] public_paths, no proc_run or AWS. Absent: the guild's
+                                   # under [places] public_paths, no proc_run or AWS. Absent: its guild's
                                    # word above, so shared unless the guild is private
 voice = false                      # true for a voice channel: /join from a private place brings Theseus
                                    # into it ([voice] in the config); only its users are heard, and its
                                    # text chat is this place's text
+# [channel.ceiling]                # what this place gets beneath the place rule: it narrows, never widens
+# posture_floor = "approve"        # no call here runs looser than this (open, notify, approve)
+# tools = ["fs", "git", "web"]     # the tool families offered here, and MCP servers as "mcp:<server>"
+# spend_limit_usd = 5              # the lower of this and [kernel] spend_limit_usd
+# profile = "default"              # this place's model, unless a turn names one
 
 [[dm]]
 user = "000000000000000000"        # who may talk to Theseus in direct messages
 name = "eddie"
+# [dm.ceiling]                     # a DM's ceiling, as a channel's

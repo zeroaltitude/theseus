@@ -465,6 +465,7 @@ async fn a_tasks_terminal_closes_at_its_sessions_end() {
             target: format!("discord:{PLACE}"),
             name: "a private channel".into(),
             private: true,
+            ..Default::default()
         });
     turn(&r.core, &sid, START).await;
     until("the task's terminal closed", || {

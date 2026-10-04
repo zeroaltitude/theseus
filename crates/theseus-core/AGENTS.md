@@ -16,7 +16,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Places** (the place rule, theseus-nbsh; it replaced 19a's labels on nodes): `places.rs`. Every place a session
   speaks in is private or shared. Private: the CLI and the web UI (no place), a DM with an owner (`Config::owners_for`),
   and a guild channel the binding bound private (its own `private = true`, or, saying nothing, in a guild the bindings
-  file trusts whole with `private = true` beside `guild_id`, theseus-rdqg); it gets everything. Shared: every other
+  file trusts whole with its guild's `private = true`, theseus-rdqg); it gets everything. Shared: every other
   place; it gets the public tools (`places::public_tool`), the file tools only under `[places] public_paths`
   (canonical roots, so a link out of a tree is outside it), and only the context files marked `readers = "public"`
   (`context_files::withhold_shared`). A turn's class is `TurnRunner::class_of`: where its words go, which is its
@@ -27,9 +27,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Not run: …`, reason `place: …`). The binding tells the core its places as it starts (`Core::bind_places`, in
   memory: an unnamed guild place is shared), and reads each private channel's viewers once (`private_place_viewed`,
   `place.viewed`), for health's `places:` line. In a trusted guild it reads none, and health names each private
-  channel there `(in a trusted guild)` (`Core::trust_guild`, `PlaceInfo.trusted_guild`). M6's recall draws in a
+  channel there `(in a trusted guild)` (`Core::trust_guilds`, `PlaceInfo.trusted_guild`). M6's recall draws in a
   shared place only on that place's own sessions (and the books, when built, will too). Tests: `tests_places.rs`,
   `places::tests`.
+  - **Ceilings** (step 38a, theseus-ext.3; `ceiling.rs`): the bindings file may give a place a ceiling, which
+    narrows what its class allows and never widens it. It is read with the class (`TurnRunner::view_of`, so a task
+    has its parent's), and rides in `TurnCtx.ceiling`: its `tools` filter the catalog (`PlaceView::offered`) and the
+    gate refuses the rest (`Ceiling::refusal`, reason `place: …`), its floor is applied after the policy's decision
+    and before T1's hold (`Ceiling::floor`), its spend limit is the kernel's `place_limit` (the lower of it and the
+    config's, pinned while a place caps it, told at each binding start), and its profile is a `turn.submit`'s when
+    the turn names none (`Core::place_profile`). Each guild has its own trust word (`PlaceRule::trust_guilds`).
+    Tests: `tests_ceilings.rs`, `ceiling::tests`, and the kernel's `tests_place_limit.rs`.
   - **Publish** (`rpc/publish.rs`; graduation's light form): `place.publish` puts one item (a node, a file the owner
     can read, or a message) into a bound place's session as the owner's message, with a `derived_from` edge for a
     node (`publish`), its `place.published` row, and a notice post in the place, in one frame under the place's

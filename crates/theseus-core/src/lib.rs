@@ -18,6 +18,7 @@ pub mod broker;
 pub mod bus;
 pub mod cancel;
 pub mod catalog;
+pub mod ceiling;
 pub mod compiler;
 pub mod config;
 pub mod config_copy;
@@ -109,6 +110,8 @@ mod tests_arrangement;
 mod tests_books;
 #[cfg(test)]
 mod tests_cancel;
+#[cfg(test)]
+mod tests_ceilings;
 #[cfg(test)]
 mod tests_config;
 #[cfg(test)]

@@ -214,6 +214,7 @@ fn life(dir: &Path) -> Life {
         target: TARGET.into(),
         name: "DM".into(),
         private: false,
+        ..Default::default()
     });
     let driver = tokio::spawn(crate::harness::drive(core.clone()));
     Life {

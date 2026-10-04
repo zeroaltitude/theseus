@@ -502,7 +502,7 @@ async fn a_shared_place_is_offered_no_lsp_tool() {
     use crate::places::PlaceClass;
     let names = |c: PlaceClass| -> Vec<String> {
         core.tools
-            .definitions_for(c)
+            .definitions_for(c.into())
             .iter()
             .map(|d| d["name"].as_str().unwrap().to_string())
             .collect()
@@ -536,7 +536,7 @@ async fn a_shared_place_is_offered_no_lsp_tool() {
     assert!(why.is_some_and(|w| w.contains("not offered in a shared place")));
     assert!(!core
         .tools
-        .system_note_for(PlaceClass::Shared)
+        .system_note_for(PlaceClass::Shared.into())
         .contains("lsp"));
 }
 

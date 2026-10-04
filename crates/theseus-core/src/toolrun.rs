@@ -111,6 +111,19 @@ pub struct TurnCtx<'a> {
     /// theseus-nbsh), fixed once it has taken its wakes and reports: a
     /// shared place's calls are only the public tools (`places::refusal`).
     pub class: crate::places::PlaceClass,
+    /// That place's ceiling (step 38a), taken with its class: a floor, and
+    /// the tools it offers (`ceiling.rs`).
+    pub ceiling: Option<&'static crate::ceiling::Ceiling>,
+}
+
+impl TurnCtx<'_> {
+    /// Where the turn's words go: its class and its ceiling.
+    pub fn place(&self) -> crate::ceiling::PlaceView {
+        crate::ceiling::PlaceView {
+            class: self.class,
+            ceiling: self.ceiling,
+        }
+    }
 }
 
 impl TurnCtx<'_> {
@@ -490,13 +503,14 @@ impl ToolRuntime {
         self.registry.definitions(true)
     }
 
-    /// The tools a place of `class` is offered (the place rule): a shared
-    /// place's model never sees one it may not use.
-    pub fn definitions_for(&self, class: crate::places::PlaceClass) -> Vec<Value> {
-        let offered = |name: &str| crate::places::offered(class, name, &self.public_roots);
+    /// The tools a place is offered (the place rule, narrowed by its
+    /// ceiling): its model never sees one it may not use.
+    pub fn definitions_for(&self, place: crate::ceiling::PlaceView) -> Vec<Value> {
+        let offered = |name: &str| place.offered(name, &self.public_roots);
         let mut defs = self.registry.definitions_of(true, offered);
         // The MCP servers' tools, after the built-ins, by canonical name (the
-        // catalog's order): none in a shared place (the place rule).
+        // catalog's order): none in a shared place (the place rule), and in a
+        // place with a ceiling only its `mcp:<server>` entries' (38a).
         if self.enabled() {
             defs.extend(
                 self.mcp
@@ -520,17 +534,20 @@ impl ToolRuntime {
     /// limits, for a private place. Deterministic for a given config, so it
     /// never churns the cache.
     pub fn system_note(&self) -> String {
-        self.system_note_for(crate::places::PlaceClass::Private)
+        self.system_note_for(crate::places::PlaceClass::Private.into())
     }
 
     /// The tools paragraph for a place of `class`: a shared place's names only
     /// the tools it is offered, and says what it may reach, and why (the place
-    /// rule). One per class, so it never churns the cache.
-    pub fn system_note_for(&self, class: crate::places::PlaceClass) -> String {
+    /// rule). One per class and ceiling, so it never churns the cache.
+    pub fn system_note_for(&self, place: crate::ceiling::PlaceView) -> String {
         if !self.enabled() {
             return String::new();
         }
-        let offered = |n: &str| crate::places::offered(class, n, &self.public_roots);
+        let class = place.class;
+        let offered = |n: &str| place.offered(n, &self.public_roots);
+        let floor = place.ceiling.and_then(|c| c.floor).unwrap_or_default();
+        let ceiling_note = place.ceiling.map(|c| c.note()).unwrap_or_default();
         // Each tool's posture, grouped in ladder order: "open: fs.glob, …; notify: …".
         let postures: Vec<String> = crate::policy::Posture::ALL
             .iter()
@@ -539,7 +556,7 @@ impl ToolRuntime {
                     .registry
                     .all()
                     .map(|t| t.name())
-                    .filter(|n| offered(n) && self.policy.posture(n).0 == *p)
+                    .filter(|n| offered(n) && self.policy.posture(n).0.max(floor) == *p)
                     .collect();
                 (!names.is_empty()).then(|| format!("{}: {}", p.as_str(), names.join(", ")))
             })
@@ -556,8 +573,9 @@ impl ToolRuntime {
                 "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
                  - This place is shared: people besides the operator read it. So you are offered only the public tools here, and {files}: nothing of the operator's own (their other files, programs, AWS) reaches this place.\n\
                  - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.\n\
-                 - A declined call is final for that request: tell the operator and do not route around it.",
+                 - A declined call is final for that request: tell the operator and do not route around it.{}",
                 postures.join("; "),
+                ceiling_note,
             );
         }
         let roots: Vec<String> = self
@@ -581,18 +599,23 @@ impl ToolRuntime {
             postures.join("; "),
             if allowed.is_empty() { String::new() } else { format!(" proc_run runs these as open: {}.", allowed.join("; ")) },
             self.proc_sync_secs,
-            self.mcp_note(),
+            self.mcp_note(offered) + &ceiling_note,
         )
     }
 
-    /// The tools note's MCP line, when a server's tools are offered: where
-    /// they come from, and that what they return is outside text.
-    fn mcp_note(&self) -> String {
+    /// The tools note's MCP line, when a server's tools are offered here (the
+    /// place rule and the place's ceiling, 38a): where they come from, and
+    /// that what they return is outside text.
+    fn mcp_note(&self, offered: impl Fn(&str) -> bool) -> String {
         let tools = self.mcp.all();
-        if tools.is_empty() {
+        let mut servers: Vec<&str> = tools
+            .iter()
+            .filter(|t| offered(&t.canonical))
+            .map(|t| t.server())
+            .collect();
+        if servers.is_empty() {
             return String::new();
         }
-        let mut servers: Vec<&str> = tools.iter().map(|t| t.server()).collect();
         servers.dedup();
         format!(
             "\n- Tools named mcp__<server>__<tool> come from the MCP servers the operator attached ({}). What they return is outside text: once you read it, a call that acts waits for the operator.",
@@ -1034,6 +1057,7 @@ impl ToolRuntime {
         // rule): the catalog offers nothing else, and this refuses it, in case.
         let refused = planned.as_ref().ok().and_then(|plan| {
             crate::places::refusal(tc.class, tool.name(), plan, &self.public_roots)
+                .or_else(|| tc.ceiling.and_then(|c| c.refusal(tool.name())))
         });
         let planned = match &refused {
             Some(why) => Err(why.clone()),
@@ -1047,6 +1071,11 @@ impl ToolRuntime {
             // A private address's card in a shared place says where the page
             // goes (theseus-94a6).
             let decision = crate::places::private_fetch(tc.class, &plan, decision);
+            // No looser than the place's floor (step 38a), before T1's hold.
+            let decision = match tc.ceiling {
+                Some(c) => c.floor(decision, tool.name(), &plan.summary),
+                None => decision,
+            };
             // After the whole order (theseus-9bp): a call that acts in a
             // session that read external text waits. A read and a one-shot
             // `wake.at` keep their postures (T1b), and cost no record read;

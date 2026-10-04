@@ -114,6 +114,7 @@ fn rig(script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static) ->
         target: TARGET.into(),
         name: "DM".into(),
         private: false,
+        ..Default::default()
     });
     tokio::spawn(crate::harness::drive(core.clone()));
     Rig {

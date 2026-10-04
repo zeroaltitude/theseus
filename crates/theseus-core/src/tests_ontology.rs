@@ -92,11 +92,13 @@ fn rig() -> Rig {
             target: format!("discord:dm:{OWNER}"),
             name: "DM @wren".into(),
             private: false,
+            ..Default::default()
         },
         BoundPlace {
             target: format!("discord:channel:{LAB}"),
             name: "#lab".into(),
             private: false,
+            ..Default::default()
         },
     ]);
     Rig {
@@ -399,6 +401,7 @@ async fn given_memberships_refuse_writes() {
         target: format!("discord:channel:{LAB}"),
         name: "#lab".into(),
         private: false,
+        ..Default::default()
     }]);
     assert_eq!(rows_of(&r.core, "ontology.category", None).len(), 2);
     // And its session's given membership is read from the place.

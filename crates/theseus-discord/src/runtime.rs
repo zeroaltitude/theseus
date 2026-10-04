@@ -51,6 +51,7 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod audience;
+mod guilds;
 mod prompt;
 mod publish;
 mod voice;
@@ -153,35 +154,24 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
         }
     };
     board.update(|s| {
-        s.guild_id = Some(bindings.guild_id.clone());
+        s.guild_id = (bindings.guilds.len() == 1).then(|| bindings.guilds[0].id.clone());
+        s.guilds = bindings.guild_infos();
         s.revision = Some(bindings.revision.clone());
     });
+    if let Err(e) = guilds::check_profiles(&core, &bindings) {
+        board.state("failed", Some(format!("{e:#}")));
+        return;
+    }
     // Each place's class follows from the file (the place rule): told now,
-    // before any message from them is read, with the guild's word.
-    core.trust_guild(bindings.private);
-    core.bind_places(bound_places(&bindings));
+    // before any message from them is read, with each guild's word.
+    core.trust_guilds(bindings.trusted());
+    core.bind_places(guilds::bound_places(&bindings));
     let Some(token) = bot_token(&core, &cfg.token_secret, &board).await else {
         return;
     };
     if let Err(e) = serve(core, cfg, token, bindings, board.clone()).await {
         board.state("failed", Some(format!("{e:#}")));
     }
-}
-
-/// The places the file binds, as the place rule takes them: a channel is
-/// private by its own word, else by its guild's (theseus-rdqg).
-fn bound_places(b: &Bindings) -> Vec<theseus_core::places::BoundPlace> {
-    let channels = b.channel.iter().map(|c| theseus_core::places::BoundPlace {
-        target: format!("discord:channel:{}", c.id),
-        name: c.label(),
-        private: b.is_private(c),
-    });
-    let dms = b.dm.iter().map(|d| theseus_core::places::BoundPlace {
-        target: format!("discord:dm:{}", d.user),
-        name: d.label(),
-        private: false,
-    });
-    channels.chain(dms).collect()
 }
 
 /// The bot token, once the vault gives it. Fail closed: the binding never
@@ -255,9 +245,9 @@ async fn serve(
     bindings: Bindings,
     board: Board,
 ) -> anyhow::Result<()> {
-    let (shared, notes, guild, me) = connect(&core, &cfg, &token, &bindings, &board).await?;
+    let (shared, notes, guilds, me) = connect(&core, &cfg, &token, &bindings, &board).await?;
     start_places(&shared, &bindings, &board, notes).await?;
-    event_loop(&shared, &cfg, token, guild, &me, &bindings, &board).await;
+    event_loop(&shared, &cfg, token, &guilds, &me, &bindings, &board).await;
     Ok(())
 }
 
@@ -272,14 +262,14 @@ async fn connect(
 ) -> anyhow::Result<(
     Arc<Shared>,
     mpsc::UnboundedReceiver<Notification>,
-    Id<GuildMarker>,
+    Vec<Id<GuildMarker>>,
     twilight_model::user::CurrentUser,
 )> {
     // Both rustls providers are compiled into this workspace; pick one for the process.
     let _ = rustls::crypto::ring::default_provider().install_default();
     board.state("connecting", None);
     let http = Arc::new(http_client(token, cfg));
-    let guild: Id<GuildMarker> = Id::new(snowflake("guild_id", &bindings.guild_id)?);
+    let guilds = guilds::guild_ids(bindings)?;
     let (rpc, notes) = RpcClient::connect(core.clone(), Client::new(CLIENT, Surface::Discord));
     let shared = Arc::new(Shared {
         core: core.clone(),
@@ -295,6 +285,7 @@ async fn connect(
         members_intent: OnceLock::new(),
         lanes: Mutex::new(HashMap::new()),
         voice: voice::Voice::new(&core.cfg.voice, bindings),
+        place_bits: guilds::PlaceBits::new(bindings),
     });
     // The lanes first: what the outbox holds for these places needs only
     // REST, so it goes out while the rest connects, or while the gateway is
@@ -307,8 +298,8 @@ async fn connect(
     shared.wake_lanes();
 
     // Who the bot is and what it may do, asked until Discord answers.
-    let me = shared.connect(guild).await;
-    Ok((shared, notes, guild, me))
+    let me = shared.connect(&guilds).await;
+    Ok((shared, notes, guilds, me))
 }
 
 /// Every place, each with its session, and the routing of the core's events
@@ -397,7 +388,7 @@ async fn event_loop(
     shared: &Arc<Shared>,
     cfg: &DiscordConfig,
     token: String,
-    guild: Id<GuildMarker>,
+    guilds: &[Id<GuildMarker>],
     me: &twilight_model::user::CurrentUser,
     bindings: &Bindings,
     board: &Board,
@@ -434,7 +425,7 @@ async fn event_loop(
                 board.update(|s| {
                     s.state = "ready".into();
                     s.connected_at_ms = theseus_protocol::now_unix_ms();
-                    if r.guilds.iter().any(|g| g.id == guild) {
+                    if guilds.iter().all(|g| r.guilds.iter().any(|x| x.id == *g)) {
                         s.detail = None;
                     }
                 });
@@ -451,9 +442,9 @@ async fn event_loop(
                 board.state("ready", None);
                 shared.wake_lanes();
             }
-            Event::GuildCreate(g) if g.id() == guild => {
+            Event::GuildCreate(g) if guilds.contains(&g.id()) => {
                 board.update(|s| s.detail = None);
-                shared.refresh_bot_roles(guild).await;
+                shared.refresh_bot_roles(guilds).await;
             }
             Event::GatewayClose(frame) => {
                 let why = frame
@@ -583,6 +574,8 @@ pub(crate) struct Shared {
     /// Each place's lane, and the operator's, by target (theseus-q4v).
     lanes: Mutex<HashMap<String, mpsc::UnboundedSender<LaneMsg>>>,
     voice: voice::Voice,
+    /// Each place's guild and ceiling (step 38a).
+    place_bits: guilds::PlaceBits,
 }
 
 /// One message for a turn: who wrote it, what it says, its files (still
@@ -644,7 +637,7 @@ struct Routes {
     users: HashMap<u64, Vec<u64>>,
     /// channel ids where only an @mention or a reply to the bot starts a turn
     mention_only: std::collections::HashSet<u64>,
-    /// the bot's roles in the guild (an @Theseus can arrive as its managed role)
+    /// the bot's roles in the bound guilds (an @Theseus can arrive as its managed role)
     bot_roles: Vec<u64>,
     /// turn id → session id (deltas name only the turn)
     turns: HashMap<String, String>,
@@ -885,10 +878,10 @@ impl Shared {
     /// Who the bot is, what its application allows, the slash commands, and
     /// the bot's roles: asked until Discord answers, while the lanes deliver
     /// on their own.
-    async fn connect(&self, guild: Id<GuildMarker>) -> twilight_model::user::CurrentUser {
+    async fn connect(&self, guilds: &[Id<GuildMarker>]) -> twilight_model::user::CurrentUser {
         let mut attempt = 0u32;
         loop {
-            match self.preamble(guild).await {
+            match self.preamble(guilds).await {
                 Ok(me) => return me,
                 Err(e) => {
                     attempt += 1;
@@ -910,7 +903,7 @@ impl Shared {
 
     async fn preamble(
         &self,
-        guild: Id<GuildMarker>,
+        guilds: &[Id<GuildMarker>],
     ) -> anyhow::Result<twilight_model::user::CurrentUser> {
         let me = self.http.current_user().await?.model().await?;
         self.board
@@ -927,23 +920,17 @@ impl Shared {
         let _ = self.members_intent.set(members_intent);
         self.board
             .update(|s| s.members_intent = Some(members_intent));
-        let in_guild = self
-            .http
-            .current_user_guilds()
-            .await?
-            .models()
-            .await?
+        let mine = self.http.current_user_guilds().await?.models().await?;
+        let missing: Vec<_> = guilds
             .iter()
-            .any(|g| g.id == guild);
-        if !in_guild {
-            self.board.update(|s| {
-                s.detail = Some(format!(
-                    "the bot is not in guild {guild} yet; invite it: https://discord.com/oauth2/authorize?client_id={app_id}&scope=bot+applications.commands&permissions=117824"
-                ))
-            });
+            .filter(|g| !mine.iter().any(|m| m.id == **g))
+            .copied()
+            .collect();
+        if let Some(detail) = Self::not_in(&missing, app_id) {
+            self.board.update(|s| s.detail = Some(detail));
         }
         register_commands(&self.http, app_id, &self.board).await;
-        self.refresh_bot_roles(guild).await;
+        self.refresh_bot_roles(guilds).await;
         Ok(me)
     }
 
@@ -1066,6 +1053,7 @@ impl Shared {
             if let Some(info) = self.session_info(&sid).await {
                 if !terminal(info.execution_state.as_deref()) {
                     self.watch(&sid).await;
+                    self.place_limit(key, label, &sid);
                     return Ok((sid, false));
                 }
             }
@@ -1090,8 +1078,9 @@ impl Shared {
         self.core.binding_ledger(
             LedgerKind::DiscordBound,
             Some(&info.session_id),
-            json!({"place": key, "label": label}),
+            self.bound_row(key, label),
         );
+        self.place_limit(key, label, &info.session_id);
         self.watch(&info.session_id).await;
         Ok(info.session_id)
     }
@@ -1118,19 +1107,6 @@ impl Shared {
             .await
             .ok()?;
         list.sessions.into_iter().find(|s| s.session_id == sid)
-    }
-
-    /// The bot's roles in the guild, so an @Theseus that resolves to its
-    /// managed role still counts as a mention.
-    async fn refresh_bot_roles(&self, guild: Id<twilight_model::id::marker::GuildMarker>) {
-        let roles = match self.http.guild_member(guild, Id::new(self.bot_id())).await {
-            Ok(r) => match r.model().await {
-                Ok(m) => m.roles.iter().map(|r| r.get()).collect(),
-                Err(_) => vec![],
-            },
-            Err(_) => vec![], // not in the guild yet
-        };
-        self.routes.lock().unwrap().bot_roles = roles;
     }
 
     fn on_message(self: Arc<Self>, m: &twilight_model::channel::Message) {
@@ -2343,6 +2319,8 @@ impl Place {
             users: self.users.iter().map(u64::to_string).collect(),
             mention_only: self.mention_only,
             last_activity_ms: self.last_activity_ms,
+            guild: self.shared.place_bits.get(&self.key).guild,
+            ceiling: self.shared.place_bits.get(&self.key).ceiling,
         });
     }
 }
@@ -2366,6 +2344,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         members_intent: OnceLock::new(),
         lanes: Mutex::new(HashMap::new()),
         voice: voice::Voice::none(),
+        place_bits: Default::default(),
     })
 }
 
@@ -2941,6 +2920,7 @@ mod tests {
             target: "discord:dm:42".into(),
             name: "DM".into(),
             private: false,
+            ..Default::default()
         }]);
         let (rpc, _notes) = RpcClient::connect(core.clone(), Client::new("test", Surface::Cli));
         let first: TurnSubmitResult = rpc
@@ -3107,7 +3087,7 @@ mod tests {
 
     /// Eddie's user id, and a user of a place who is not the owner.
     pub(super) const EDDIE: u64 = 271_828_182_845_904_523;
-    const MALLORY: u64 = 222_222_222_222_222_222;
+    pub(super) const MALLORY: u64 = 222_222_222_222_222_222;
 
     /// Give `sid` a hold on web text, as a fetch leaves one (theseus-9bp);
     /// the core's own tests bring it in through a real fetch.
@@ -3274,7 +3254,12 @@ mod tests {
 
     /// A slash command as the gateway delivers one, from `user`, in
     /// `channel`, in `guild` (None: a DM).
-    fn slash(guild: Option<&str>, channel: u64, user: u64, command: &str) -> Interaction {
+    pub(super) fn slash(
+        guild: Option<&str>,
+        channel: u64,
+        user: u64,
+        command: &str,
+    ) -> Interaction {
         let mut v = json!({
             "id": "1000000000000000001",
             "application_id": "1000000000000000002",

@@ -767,7 +767,8 @@ impl Core {
                 ..SessionOpenParams::default()
             })?,
         };
-        let (live, _) = self.live_profile();
+        // A place's profile, unless the turn names one (step 38a).
+        let live = self.place_profile(&session.session_id, self.live_profile().0);
         let target = self
             .runner
             .resolve_target(

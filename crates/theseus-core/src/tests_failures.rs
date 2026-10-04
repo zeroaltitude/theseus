@@ -63,6 +63,7 @@ fn bound_session(core: &Core) -> String {
         target: "discord:dm:7".into(),
         name: "DM".into(),
         private: false,
+        ..Default::default()
     });
     rec.session_id
 }

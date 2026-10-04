@@ -25,13 +25,13 @@ use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
 /// The owner on Discord, and someone else.
-const OWNER: u64 = 271_828_182_845_904_523;
-const ALICE: u64 = 222_222_222_222_222_222;
+pub(crate) const OWNER: u64 = 271_828_182_845_904_523;
+pub(crate) const ALICE: u64 = 222_222_222_222_222_222;
 /// A guild channel the bindings file binds.
-const LAB: u64 = 314_159_265_358_979_323;
+pub(crate) const LAB: u64 = 314_159_265_358_979_323;
 
 /// What the owner's notes say; no shared place's request may carry it.
-const SECRET: &str = "the vault code is 4417";
+pub(crate) const SECRET: &str = "the vault code is 4417";
 /// What the public tree's README says.
 const OPEN: &str = "the open tide table";
 
@@ -87,7 +87,7 @@ fn last_user(req: &ProviderRequest) -> String {
         .unwrap_or_default()
 }
 
-fn answers_a_call(req: &ProviderRequest) -> bool {
+pub(crate) fn answers_a_call(req: &ProviderRequest) -> bool {
     req.messages
         .last()
         .and_then(|m| m["content"].as_array())
@@ -95,14 +95,14 @@ fn answers_a_call(req: &ProviderRequest) -> bool {
 }
 
 /// The wire names of the tools a request offered.
-fn offered(req: &ProviderRequest) -> Vec<String> {
+pub(crate) fn offered(req: &ProviderRequest) -> Vec<String> {
     req.tools
         .iter()
         .filter_map(|t| t["name"].as_str().map(str::to_string))
         .collect()
 }
 
-fn system_text(req: &ProviderRequest) -> String {
+pub(crate) fn system_text(req: &ProviderRequest) -> String {
     req.system
         .iter()
         .filter_map(|b| b["text"].as_str())
@@ -111,7 +111,7 @@ fn system_text(req: &ProviderRequest) -> String {
 }
 
 /// A call's result, as its session stores it.
-fn result_of(core: &Core, sid: &str, id: &str) -> String {
+pub(crate) fn result_of(core: &Core, sid: &str, id: &str) -> String {
     core.store
         .session_nodes(sid)
         .unwrap()
@@ -128,7 +128,7 @@ fn result_of(core: &Core, sid: &str, id: &str) -> String {
 }
 
 /// Why the gate refused each call it refused, by call.
-fn refused(core: &Core) -> Vec<(String, String)> {
+pub(crate) fn refused(core: &Core) -> Vec<(String, String)> {
     rows(core, "tool.invalid_input")
         .iter()
         .map(|row| {
@@ -192,8 +192,8 @@ fn script(req: &ProviderRequest) -> Scripted {
     Scripted::text("Hello.")
 }
 
-struct Rig {
-    core: Arc<Core>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
     model: Arc<Model>,
     root: std::path::PathBuf,
     _dir: tempfile::TempDir,
@@ -202,12 +202,12 @@ struct Rig {
 /// A core over a work tree with the owner's notes, a public tree, and both
 /// as context files (the README marked public); the driver runs, as the
 /// daemon's does, so tasks and wakes take their turns.
-fn rig() -> Rig {
+pub(crate) fn rig() -> Rig {
     rig_with(|_| {})
 }
 
 /// `rig`, its config changed by `tweak` first.
-fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("open")).unwrap();
@@ -255,7 +255,7 @@ fn path(p: &Path) -> String {
 }
 
 /// A session, posting to `place` (`channel:<id>`, `dm:<user>`) when given.
-fn session(core: &Core, place: Option<&str>) -> String {
+pub(crate) fn session(core: &Core, place: Option<&str>) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     if let Some(p) = place {
@@ -264,7 +264,7 @@ fn session(core: &Core, place: Option<&str>) -> String {
     r.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -291,19 +291,19 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
 }
 
 impl Rig {
-    fn requests(&self) -> Vec<ProviderRequest> {
+    pub(crate) fn requests(&self) -> Vec<ProviderRequest> {
         self.model.requests.lock().unwrap().clone()
     }
 
     /// The requests whose first user message says `what`.
-    fn asked(&self, what: &str) -> Vec<ProviderRequest> {
+    pub(crate) fn asked(&self, what: &str) -> Vec<ProviderRequest> {
         self.requests()
             .into_iter()
             .filter(|r| first_user(r).contains(what) || last_user(r).contains(what))
             .collect()
     }
 
-    async fn until(&self, what: &str, secs: u64, f: impl Fn(&Rig) -> bool) {
+    pub(crate) async fn until(&self, what: &str, secs: u64, f: impl Fn(&Rig) -> bool) {
         let t0 = Instant::now();
         while !f(self) {
             assert!(
@@ -317,7 +317,7 @@ impl Rig {
 
 /// What a shared place is offered: the public tools, and the file tools
 /// for the public tree.
-const SHARED_TOOLS: &[&str] = &[
+pub(crate) const SHARED_TOOLS: &[&str] = &[
     "fs_edit",
     "fs_glob",
     "fs_grep",
@@ -393,6 +393,7 @@ async fn a_private_place_gets_everything_and_anyone_elses_dm_is_shared() {
         target: format!("discord:channel:{LAB}"),
         name: "#lab".into(),
         private: true,
+        ..Default::default()
     }]);
     for place in [
         Some(format!("dm:{OWNER}")),
@@ -513,11 +514,13 @@ async fn health_names_each_place_and_a_private_channel_others_can_view() {
             target: format!("discord:channel:{LAB}"),
             name: "#lab".into(),
             private: true,
+            ..Default::default()
         },
         BoundPlace {
             target: format!("discord:dm:{OWNER}"),
             name: "DM @owner".into(),
             private: false,
+            ..Default::default()
         },
     ]);
     r.core.private_place_viewed(
@@ -545,7 +548,7 @@ async fn health_names_each_place_and_a_private_channel_others_can_view() {
     assert_eq!(row["others"], json!(["alice"]), "{row}");
 }
 
-fn rows(core: &Core, kind: &str) -> Vec<Value> {
+pub(crate) fn rows(core: &Core, kind: &str) -> Vec<Value> {
     core.store
         .ledger_tail::<crate::ledger::LedgerRow>(10_000)
         .unwrap()
@@ -581,6 +584,7 @@ async fn the_owner_publishes_into_a_shared_place() {
         target: format!("discord:channel:{LAB}"),
         name: "#lab".into(),
         private: false,
+        ..Default::default()
     }]);
     let shared = session(&r.core, Some(&format!("channel:{LAB}")));
     turn(&r.core, &shared, "hello").await;
@@ -671,6 +675,7 @@ async fn only_the_owner_from_a_private_place_publishes() {
         target: format!("discord:channel:{LAB}"),
         name: "#lab".into(),
         private: false,
+        ..Default::default()
     }]);
     let shared = session(&r.core, Some(&format!("channel:{LAB}")));
     turn(&r.core, &shared, "hello").await;
@@ -723,27 +728,34 @@ async fn only_the_owner_from_a_private_place_publishes() {
 
 /// A guild channel bound `private = false` in a trusted guild.
 const HALL: u64 = 161_803_398_874_989_484;
+/// The guild `#lab` and `#hall` are in.
+const GUILD: &str = "141421356237309504";
 
 /// The places as the binding tells them for a trusted guild (theseus-rdqg):
 /// `#lab` says nothing of `private`, so its guild's word makes it private;
 /// `#hall` says `private = false`, so it is shared; and the owner's DM.
 fn bind_a_trusted_guild(core: &Core) {
-    core.trust_guild(true);
+    core.trust_guilds([GUILD.to_string()].into());
     core.bind_places(vec![
         BoundPlace {
             target: format!("discord:channel:{LAB}"),
             name: "#lab".into(),
             private: true,
+            guild: Some(GUILD.into()),
+            ..Default::default()
         },
         BoundPlace {
             target: format!("discord:channel:{HALL}"),
             name: "#hall".into(),
             private: false,
+            guild: Some(GUILD.into()),
+            ..Default::default()
         },
         BoundPlace {
             target: format!("discord:dm:{OWNER}"),
             name: "DM @owner".into(),
             private: false,
+            ..Default::default()
         },
     ]);
 }
@@ -800,7 +812,7 @@ async fn a_channel_in_a_trusted_guild_gets_everything_and_one_bound_shared_does_
     };
     assert_eq!(places(&r), want(true));
     assert!(rows(&r.core, "place.viewed").is_empty(), "nothing read");
-    r.core.trust_guild(false);
+    r.core.trust_guilds(Default::default());
     assert_eq!(places(&r), want(false), "outside a trusted guild");
 }
 

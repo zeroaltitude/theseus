@@ -20,6 +20,7 @@ import { verdictWords } from '@/lib/verdict'
 import { decimalBytes, givenWords, jobsWords, l1Head, sandboxLine } from '@/lib/sandboxwords'
 import { ago, bytes, clock, cn, ms, short, stamp } from '@/lib/format'
 import { Btn, Empty, Panel, Pill } from '@/components/ui'
+import { ceilingWords } from '@/lib/ceiling'
 
 type D = Record<string, any>
 
@@ -447,7 +448,9 @@ function Places({ health, log }: { health?: Health; log: LedgerEntry[] }) {
           <span className="num min-w-0 flex-1 truncate text-tool" title={p.place}>{p.name}</span>
           {p.class === 'private' ? <Pill tone="ok">private: everything</Pill> : <Pill tone="wait">shared: public tools</Pill>}
           {(p.others?.length ?? 0) > 0 && <Pill tone="fault">{`⚠ ${p.others?.join(', ')} can view it`}</Pill>}
-          {p.trusted_guild && <span className="text-[11px] text-ink-faint" title="the bindings file trusts the whole guild (private = true beside guild_id), so who can view it is not read">in a trusted guild</span>}
+          {p.trusted_guild && <span className="text-[11px] text-ink-faint" title="the bindings file trusts the whole guild (its private = true), so who can view it is not read">in a trusted guild</span>}
+          {p.guild && <span className="num text-[11px] text-ink-faint" title="its guild">guild {p.guild}</span>}
+          {p.ceiling && <Pill tone="idle" title="its ceiling in the bindings file: it narrows what the place rule allows">{ceilingWords(p.ceiling)}</Pill>}
           {p.unchecked && <span className="text-[11px] text-ink-faint" title={p.unchecked}>unchecked</span>}
         </div>
       ))}
