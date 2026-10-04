@@ -224,6 +224,8 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                 ),
             );
         }
+        // A notified call's score, after its notice (M5 step 24).
+        Event::JudgeScored(j) => push(&mut out, Tag::Warn, &judge::scored_line(j)),
         Event::PolicyTightened(r) | Event::PolicyUntightened(r) => {
             let tightened = matches!(e, Event::PolicyTightened(_));
             push(

@@ -126,6 +126,7 @@ ledger_kinds! {
     JudgeBlockBooked = "judge.block_booked",
     JudgeCall = "judge.call",
     JudgeCircuit = "judge.circuit",
+    JudgeLabel = "judge.label",
     JudgePaused = "judge.paused",
     JudgeResumed = "judge.resumed",
     JudgeShed = "judge.shed",

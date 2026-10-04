@@ -115,6 +115,7 @@ export type * from './JudgeGetResult';
 export type * from './JudgeHealth';
 export type * from './JudgeListParams';
 export type * from './JudgeListResult';
+export type * from './JudgeScored';
 export type * from './KernelStatus';
 export type * from './LedgerEntry';
 export type * from './LedgerTailParams';

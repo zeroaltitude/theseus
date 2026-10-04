@@ -86,8 +86,7 @@ impl Core {
                    "config_posture": after.config.as_str(), "config_setting": after.config_setting,
                    "changed": changed}),
         );
-        if !self.tools.tightened.insert(&self.store, t.clone(), &row)? {
-            // Tightened already, perhaps a moment ago from another surface.
+        if !self.press(&t, &row)? {
             let t = self.tools.tightened.get(tool).unwrap_or(t);
             return Ok(result(
                 tool,
@@ -122,6 +121,32 @@ impl Core {
         let r = result(tool, &who.label, t, after, changed, false);
         self.announce(Event::PolicyTightened(r.clone()));
         Ok(r)
+    }
+
+    /// The press's frame: the tightening, its row, and its labels on the
+    /// call's judgments (M5 step 24). False when the tool was tightened
+    /// already, perhaps a moment ago from another surface: the press still
+    /// labels this call's judgments, in a frame of their own.
+    fn press(&self, t: &Tightening, row: &LedgerRow) -> Result<bool> {
+        let labels = match &t.correlation_id {
+            Some(c) => {
+                self.runner
+                    .judge
+                    .press_labels(c, t.session_id.as_deref(), &t.who, &t.via)?
+            }
+            None => Vec::new(),
+        };
+        if self
+            .tools
+            .tightened
+            .insert_with(&self.store, t.clone(), row, labels.clone())?
+        {
+            return Ok(true);
+        }
+        if !labels.is_empty() {
+            self.store.append(&labels)?;
+        }
+        Ok(false)
     }
 
     /// Undo a tightening: `tool` goes back to what the config says. It

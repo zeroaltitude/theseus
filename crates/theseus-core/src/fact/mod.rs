@@ -350,6 +350,8 @@ facts![
     judge::JudgeBlockBooked<'static>,
     judge::JudgeCircuit<'static>,
     judge::JudgeShed,
+    judge::JudgeScored<'static>,
+    judge::JudgeLabel<'static>,
     mcp::McpStarted,
     mcp::McpReady,
     mcp::McpExited,

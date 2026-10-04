@@ -2870,6 +2870,7 @@ impl TurnRunner {
                     .into_iter()
                     .chain(lsp.map(|l| l.spans(&uses[r.index].id, |i| trace.at(i))))
                     .flatten()
+                    .chain(crate::judge::gate::marks(&r.judged, |i| trace.at(i)))
                     .collect(),
             }
         };

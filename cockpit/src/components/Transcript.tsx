@@ -16,6 +16,7 @@ import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords,
 import { JsonView } from './JsonView'
 import { LiveDot, Pill } from './ui'
 import { ShouldHaveAsked } from './ShouldHaveAsked'
+import { scoreWords, type Score } from '@/lib/scores'
 
 type D = Record<string, any>
 
@@ -58,10 +59,12 @@ function items(nodes: NodeInfo[]): Item[] {
 /** What a session's current turn is doing that no node holds yet: the streamed text and thinking, and the tools running. */
 export interface LiveTurn { turn_id: string; text: string; thinking?: string; running?: { id: string; tool: string; startedAt: number }[] }
 
-export function Transcript({ nodes, turns, live, asking, tightened, drafts }: {
+export function Transcript({ nodes, turns, live, asking, tightened, scores, drafts }: {
   nodes: NodeInfo[]; turns: Map<string, TurnRow>; live?: LiveTurn | null
   /** The correlation ids of the calls waiting for the operator, and the tools "should have asked" tightened. */
   asking?: Set<string>; tightened?: Map<string, Tightening>
+  /** Each notified call's score, by its correlation id (M5 step 24). */
+  scores?: Map<string, Score>
   /** What was sent from here that the session has not written yet (`lib/drafts.ts`). */
   drafts?: Draft[]
 }) {
@@ -113,7 +116,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, drafts }: {
               {g.items.map((it) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} />
                 : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} />
                 : it.kind === 'queued' ? (waits && it.use ? <QueuedItem key={`${it.node.node_id}:${it.use.id}`} at={it.node.at_unix_ms} use={it.use} /> : null)
-                : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} />)}
+                : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} scores={scores} />)}
               {running && live && <LiveItem live={live} />}
               {t?.failed && <TurnFailed t={t} />}
             </div>
@@ -314,7 +317,7 @@ function ResultText({ text }: { text: string }) {
   )
 }
 
-function ToolItem({ call, result, asking, tightened }: { call: NodeInfo; result?: NodeInfo; asking?: Set<string>; tightened?: Map<string, Tightening> }) {
+function ToolItem({ call, result, asking, tightened, scores }: { call: NodeInfo; result?: NodeInfo; asking?: Set<string>; tightened?: Map<string, Tightening>; scores?: Map<string, Score> }) {
   const d = (call.detail ?? {}) as D
   const r = (result?.detail ?? (call.kind === 'tool_result' ? call.detail : null) ?? {}) as D
   const [open, setOpen] = useState(false)
@@ -331,6 +334,7 @@ function ToolItem({ call, result, asking, tightened }: { call: NodeInfo; result?
   const corr: string | undefined = d.correlation_id ?? r.correlation_id
   const waiting = !result && !!corr && !!asking?.has(corr)
   const notice = decision?.notify as { setting?: string; rule?: string } | undefined
+  const score = notice && corr ? scores?.get(corr) : undefined
   const denied = gate === 'deny' || r.status === 'declined'
   const failed = r.is_error && !denied
   const tone = denied ? 'fault' : failed ? 'fault' : result ? 'ok' : 'wait'
@@ -361,7 +365,7 @@ function ToolItem({ call, result, asking, tightened }: { call: NodeInfo; result?
             ? <Pill tone="idle" title="a /stop ended this call">stopped by {words.stoppedBy}</Pill>
             : <Pill tone={waiting ? 'wait' : tone}>{denied ? <OctagonX size={11} /> : failed ? <OctagonX size={11} /> : result ? <CircleCheck size={11} /> : null}{waiting ? 'waits for you' : denied ? 'not run' : failed ? 'error' : result ? (r.status ?? 'ok') : 'pending'}</Pill>}
         </button>
-        {notice && <div className="flex items-center gap-2 px-3 pb-1 pl-9"><ShouldHaveAsked tool={tool} corr={corr} tightened={tightened?.get(tool)} /></div>}
+        {notice && <div className="flex items-center gap-2 px-3 pb-1 pl-9">{score && <Pill tone="wait" title={`security.v1, in shadow: uncalibrated, and nothing acts on it\n${score.judgment}`}>{scoreWords(score)}</Pill>}<ShouldHaveAsked tool={tool} corr={corr} tightened={tightened?.get(tool)} /></div>}
         {!open && result?.text && <div className="truncate border-t border-tool/10 px-3 py-1 font-mono text-[11.5px] text-ink-faint">{result.text.split('\n')[0]}</div>}
         {open && (
           <div className="flex flex-col gap-2 border-t border-tool/10 p-3">

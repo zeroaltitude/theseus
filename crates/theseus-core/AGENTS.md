@@ -222,6 +222,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark.
   `judge.list` and `judge.get` are `rpc/judge.rs`. Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
   `telemetry/tests_judge.rs`.
+  - **At the gate** (step 24, `gate.rs`): `security.v1` and `security.v3` in shadow at every call that acts, and at
+    a fetch or a search in a holding session (Q12). `ToolRuntime::start` plans the call and sends its notice, then
+    `judge_at_gate` makes the choice and the marks, nothing else; the gate's decision never waits on Jev or changes
+    with it. A gate judgment's id is its pack and the call's correlation id hashed (`gate::judgment_id`), so the
+    turn's trace marks it (under the call's span) and a "should have asked" press labels it (`judge.label`, in the
+    press's frame) before its row is written. A notified call's score follows its notice as `judge.scored`.
+    Tests: `tests_security.rs`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it

@@ -1,19 +1,22 @@
-//! The judge's facts (M5 23a, 23b; design §2.5, §2.13): what `crate::judge`
-//! records of the judgments it makes. Each is a ledger row and its sentences
-//! (23b). The judge runs after the turn it judges, outside every turn, so no
-//! fact here draws a span: the turn's trace carries the dispatch's mark
-//! (`judge::mark`), and a live judgment's span comes with the first live
-//! pack (26b). Judgments stream on `ledger.tail`, so none sends a
-//! notification. Their rows ride in the judge's own batched frames
+//! The judge's facts (M5 23a, 23b, 24; design §2.5, §2.13): what
+//! `crate::judge` records of the judgments it makes. Each is a ledger row and
+//! its sentences (23b). The judge runs after the turn it judges, outside every
+//! turn, so no fact here draws a span: the turn's trace carries the
+//! dispatch's mark (`judge::mark`; the gate's under its call's span), and a
+//! live judgment's span comes with the first live pack (26b). Judgments
+//! stream on `ledger.tail`; the one notification is a notified call's score
+//! (`judge.scored`, step 24: a notification and nothing else, its `judge.call`
+//! row the record). Their rows ride in the judge's own batched frames
 //! (`judge::sink`), never in a turn's; their sentences are said once the
 //! frame is written, and their metrics recorded there
-//! (`Telemetry::record_judgment`).
+//! (`Telemetry::record_judgment`). The operator's labels (`judge.label`, 24)
+//! ride in the press's frame.
 
 use serde_json::{json, Value};
 use theseus_judge::band::Top;
 use theseus_judge::breaker::Transition;
 use theseus_judge::{Judgment, Outcome, Verdict};
-use theseus_protocol::{LedgerKind, NarrativePart};
+use theseus_protocol::{Event, LedgerKind, NarrativePart};
 
 use super::{Fact, Say};
 use crate::judge::mark::mode_str;
@@ -312,5 +315,55 @@ impl Fact for JudgeShed {
             NarrativePart::Session,
             format!("Jev shed {n}: every in-flight permit was taken."),
         );
+    }
+}
+
+/// A notified call's `security.v1` score landed, after its notice
+/// (`judge.scored`; step 24, design §2.8b): told to the turn's clients, who
+/// add `risk N% (shadow)` to the notice's line. No row: the judgment's
+/// `judge.call` row is the record.
+pub struct JudgeScored<'a> {
+    pub scored: &'a theseus_protocol::judge::JudgeScored,
+}
+
+impl Fact for JudgeScored<'_> {
+    const METHOD: Option<&'static str> = Some(theseus_protocol::notify::JUDGE_SCORED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::JudgeScored(self.scored.clone()))
+    }
+}
+
+/// A label on a judgment (`judge.label`, design §2.5): keyed `lbl_<id>` and
+/// scoped `judge:<pack id>` by its writer. In step 24 the operator's "should
+/// have asked" press on a call labels each of that call's `gate` judgments
+/// `risky`, at weight 1.0, in the press's frame. Declines and approvals are
+/// system labels the learning ledger derives nightly (§2.9, step 25c).
+pub struct JudgeLabel<'a> {
+    pub id: &'a str,
+    pub judgment: &'a str,
+    pub pack: &'a str,
+    /// The question it labels, or `None` for all of them.
+    pub question: Option<&'a str>,
+    pub label: Value,
+    /// `operator`, `system`, or `audit`.
+    pub source: &'a str,
+    pub who: &'a str,
+    /// Through what: `cli`, `discord`, `web`.
+    pub via: &'a str,
+    pub weight: f64,
+    pub note: &'a str,
+    /// The call it was of, when it was a call's.
+    pub correlation_id: Option<&'a str>,
+}
+
+impl Fact for JudgeLabel<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeLabel);
+
+    fn row(&self) -> Value {
+        json!({"id": self.id, "judgment": self.judgment, "pack": self.pack,
+            "question": self.question, "label": self.label, "source": self.source,
+            "who": self.who, "via": self.via, "weight": self.weight, "note": self.note,
+            "correlation_id": self.correlation_id})
     }
 }

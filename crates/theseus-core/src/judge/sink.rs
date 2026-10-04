@@ -92,7 +92,11 @@ impl JudgeService {
             records.extend(crate::fact::row(&JudgeShed { shed }, None, None).ok());
         }
         records.extend(self.budget.record());
-        if let Err(e) = self.store.append(&records) {
+        let written = self.store.append(&records);
+        // Written (or lost with their frame): a press reads them from the
+        // store from now on.
+        self.pending_remove(&batch.iter().map(|j| j.id.clone()).collect::<Vec<_>>());
+        if let Err(e) = written {
             tracing::warn!(error = %format!("{e:#}"), rows = batch.len(), "judge: the judgments' frame was not written");
             return;
         }
