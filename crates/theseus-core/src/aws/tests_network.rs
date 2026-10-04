@@ -118,3 +118,31 @@ fn the_network_template_scans_clean_in_both_modes() {
     // Its own NAT is the floor, as at bootstrap.
     assert!(!hits(NETWORK_TEMPLATE, &[("NatGateway", "enabled")]).is_empty());
 }
+
+/// A stack that adds a route to a table it does not own asks at the floor
+/// (theseus-mgw.9), by a literal id, a parameter, or an import; a route in
+/// its own table does not.
+#[test]
+fn a_route_into_a_table_the_stack_does_not_own_asks() {
+    let template = |table: &str| {
+        format!(
+            "Parameters:\n  Table:\n    Type: String\n    Default: rtb-0a1b2c3d4e5f6074a\n\
+             Resources:\n  Own:\n    Type: AWS::EC2::RouteTable\n    Properties:\n      VpcId: !Ref Vpc\n\
+             \x20 Vpc:\n    Type: AWS::EC2::VPC\n    Properties:\n      CidrBlock: 10.42.0.0/16\n\
+             \x20 Out:\n    Type: AWS::EC2::Route\n    Properties:\n      RouteTableId: {table}\n\
+             \x20     DestinationCidrBlock: 0.0.0.0/0\n      NatGatewayId: nat-0a1b2c3d4e5f6075a\n"
+        )
+    };
+    for table in [
+        "rtb-0a1b2c3d4e5f6074b",
+        "!Ref Table",
+        "!ImportValue another-stack-RouteTableId",
+    ] {
+        let h = hits(&template(table), &[]);
+        assert!(
+            h.len() == 1 && h[0].starts_with("another project's resources: Out (AWS::EC2::Route)"),
+            "{table}: {h:?}"
+        );
+    }
+    assert_eq!(hits(&template("!Ref Own"), &[]), Vec::<String>::new());
+}

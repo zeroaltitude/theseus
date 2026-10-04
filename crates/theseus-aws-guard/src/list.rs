@@ -17,6 +17,9 @@ pub enum Limit {
     Budget,
     /// The guards' own integrity: what would undo the others.
     Guard,
+    /// Another project's resources in the account, which Theseus may use and never changes (the
+    /// design's §2, its first principle; theseus-mgw.9).
+    OthersResources,
 }
 
 impl Limit {
@@ -28,6 +31,7 @@ impl Limit {
             Limit::Credentials => "long-lived credentials",
             Limit::Budget => "the budget",
             Limit::Guard => "the guards",
+            Limit::OthersResources => "another project's resources",
         }
     }
 
@@ -39,6 +43,7 @@ impl Limit {
             }
             Limit::Budget => "budget",
             Limit::Guard => "SOC2 and budget",
+            Limit::OthersResources => "the owner model",
         }
     }
 }

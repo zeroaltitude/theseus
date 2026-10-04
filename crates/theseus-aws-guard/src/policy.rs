@@ -4,6 +4,9 @@
 //! - `theseus-guard-iac` (with `-2` and on, when one policy cannot hold it): the IaC-only list's denies,
 //!   on the same sessions.
 //! - `theseus-guard-stacks`: the stack path's writes, and passing the deployer, on job sessions only.
+//! - `theseus-guard-deployer`: the entries AWS refuses to everyone (`scp = "deny"`), attached to the
+//!   deployer role itself, which carries no session guard: what an SCP would hold, until there is an
+//!   Organization (theseus-mgw.9).
 //! - `theseus-boundary`: allow-all less every guard, every hand role's permissions boundary (a boundary
 //!   has to allow, so it cannot be the deny-only guard itself). A role has one boundary, so it is one
 //!   policy, compacted to fit.
@@ -188,6 +191,7 @@ impl GuardList {
         let mut out = self.guard_limits();
         out.extend(self.guard_iac());
         out.extend(self.guard_stacks());
+        out.extend(self.guard_deployer());
         out.push(self.boundary());
         out.extend(self.scps());
         out
@@ -284,6 +288,32 @@ impl GuardList {
         }
         out.extend(own);
         out
+    }
+
+    /// `theseus-guard-deployer`: the denies of the entries that hold for everyone, the deployer too
+    /// (`scp = "deny"`), as an identity policy of the deployer role. CloudFormation acts as the
+    /// deployer with no session policy, so this is what binds it inside the account.
+    pub fn guard_deployer(&self) -> Vec<Policy> {
+        let mut everyone: Vec<String> = Vec::new();
+        let mut own = Vec::new();
+        for g in self.guardrails.iter().filter(|g| g.scp == Scp::Deny) {
+            if g.iam_condition.is_none() && g.resources.is_none() {
+                push_unique(&mut everyone, g.iam_actions());
+                continue;
+            }
+            own.push(deny(
+                sid(&g.name),
+                g.iam_actions().to_vec(),
+                g.resources.clone().unwrap_or_else(|| vec!["*".into()]),
+                g.iam_condition.as_ref().map(condition_json),
+            ));
+        }
+        let mut statements = Vec::new();
+        if !everyone.is_empty() {
+            statements.push(deny("Guardrails".into(), everyone, vec!["*".into()], None));
+        }
+        statements.extend(own);
+        pack("theseus-guard-deployer", PolicyKind::Guard, statements)
     }
 
     pub fn guard_limits(&self) -> Vec<Policy> {

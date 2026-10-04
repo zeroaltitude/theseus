@@ -93,9 +93,10 @@ impl GuardList {
                 .filter_map(|g| g.hit(&node, ctx))
                 .collect()
         };
-        let direct = hits(true);
-        if !direct.is_empty() {
-            return Verdict::Floor(direct);
+        // A direct hit is the floor, and the confirm names every entry that hits beside it (a subnet
+        // change that is also public ingress says both).
+        if !hits(true).is_empty() {
+            return Verdict::Floor(hits(false));
         }
         if self.stack_only(op) {
             return Verdict::StackOnly;
@@ -138,6 +139,61 @@ mod tests {
             account: "111122223333".into(),
             region: "us-west-2".into(),
         }
+    }
+
+    /// Another project's network (theseus-mgw.9): a direct change to plumbing that exists asks at
+    /// the floor, even an IaC-only one, and names every entry that hits; making something new stays
+    /// IaC-only, and a read is clear.
+    #[test]
+    fn a_change_to_network_plumbing_asks_and_a_create_stays_iac_only() {
+        let l = crate::embedded();
+        let names = |v: Verdict<'_>| match v {
+            Verdict::Floor(h) => h
+                .iter()
+                .map(|h| h.guardrail.name.clone())
+                .collect::<Vec<_>>(),
+            v => panic!("{v:?}"),
+        };
+        for (op, input) in [
+            (
+                "ec2:DeleteRoute",
+                json!({"RouteTableId": "rtb-0a1b2c3d4e5f6074a", "DestinationCidrBlock": "0.0.0.0/0"}),
+            ),
+            (
+                "ec2:ReplaceRoute",
+                json!({"RouteTableId": "rtb-0a1b2c3d4e5f6074a", "DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-0a1b2c3d4e5f6076a"}),
+            ),
+            (
+                "ec2:DeleteNatGateway",
+                json!({"NatGatewayId": "nat-0a1b2c3d4e5f6075a"}),
+            ),
+            (
+                "ec2:ModifySubnetAttribute",
+                json!({"SubnetId": "subnet-0a1b2c3d4e5f60711", "EnableDns64": {"Value": true}}),
+            ),
+        ] {
+            assert_eq!(
+                names(l.check_call(&ctx(), op, &input)),
+                ["network-not-ours"],
+                "{op}"
+            );
+        }
+        let public =
+            json!({"SubnetId": "subnet-0a1b2c3d4e5f60711", "MapPublicIpOnLaunch": {"Value": true}});
+        assert_eq!(
+            names(l.check_call(&ctx(), "ec2:ModifySubnetAttribute", &public)),
+            ["subnet-public-ip", "network-not-ours"]
+        );
+        let create = json!({"RouteTableId": "rtb-0a1b2c3d4e5f6074a", "DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": "nat-0a1b2c3d4e5f6075a"});
+        assert!(matches!(
+            l.check_call(&ctx(), "ec2:CreateRoute", &create),
+            Verdict::IacOnly
+        ));
+        let read = json!({"Filters": [{"Name": "vpc-id", "Values": ["vpc-0a1b2c3d4e5f60718"]}]});
+        assert!(matches!(
+            l.check_call(&ctx(), "ec2:DescribeRouteTables", &read),
+            Verdict::Clear
+        ));
     }
 
     #[test]

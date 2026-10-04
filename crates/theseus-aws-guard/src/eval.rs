@@ -268,6 +268,10 @@ pub struct When {
     pub foreign_account: Vec<Path>,
     #[serde(default)]
     pub own_account: Vec<Path>,
+    /// A template's reference to a resource it does not make: a literal id, a parameter's value, an
+    /// import (a maybe). A `Ref` or `Fn::GetAtt` of its own resource is not.
+    #[serde(default)]
+    pub not_own: Vec<Path>,
     #[serde(default, rename = "true")]
     pub is_true: Vec<Path>,
     #[serde(default, rename = "false")]
@@ -301,27 +305,41 @@ impl Best {
 }
 
 impl When {
-    pub fn eval(&self, input: &Node, ctx: &Context) -> Fired {
-        let mut best = Best(Fired::no());
+    /// The tests of where a value points: an address, a principal, an account, a resource. True once
+    /// one holds for certain.
+    fn eval_reach(&self, input: &Node, ctx: &Context, best: &mut Best) -> bool {
         for p in &self.public_cidr {
             if best.take(over(&select(input, p), cidr_truth)) {
-                return best.0;
+                return true;
             }
         }
         for p in &self.external_principal {
             if best.take(external_principal(&select(input, p), ctx)) {
-                return best.0;
+                return true;
             }
         }
         for p in &self.foreign_account {
             if best.take(over(&select(input, p), |n| foreign(n, ctx))) {
-                return best.0;
+                return true;
             }
         }
         for p in &self.own_account {
             if best.take(over(&select(input, p), |n| own(n, ctx))) {
-                return best.0;
+                return true;
             }
+        }
+        for p in &self.not_own {
+            if best.take(over(&select(input, p), not_own)) {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn eval(&self, input: &Node, ctx: &Context) -> Fired {
+        let mut best = Best(Fired::no());
+        if self.eval_reach(input, ctx, &mut best) {
+            return best.0;
         }
         for p in &self.is_true {
             if best.take(over(&select(input, p), |n| boolean(n, true))) {
@@ -407,6 +425,7 @@ impl When {
             &self.external_principal,
             &self.foreign_account,
             &self.own_account,
+            &self.not_own,
             &self.is_true,
             &self.is_false,
             &self.present,
@@ -442,6 +461,18 @@ fn cidr_truth(n: &Node) -> Truth {
         Some(false) => Truth::No,
         // Not an address: AWS refuses it anyway, so asking costs nothing.
         None => Truth::Maybe,
+    }
+}
+
+/// A resource the template does not make: anything but its own (`OwnRef`). An unknown value may be one.
+fn not_own(n: &Node) -> Truth {
+    match n {
+        Node::OwnRef(_) => Truth::No,
+        Node::Unresolved(_) => Truth::Maybe,
+        Node::Str(s) if has_mark(s) => Truth::Maybe,
+        Node::Str(s) if s.is_empty() => Truth::No,
+        Node::Str(_) | Node::Num(_) => Truth::Yes,
+        _ => Truth::No,
     }
 }
 

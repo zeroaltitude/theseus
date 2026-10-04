@@ -46,6 +46,39 @@
           "aws:PrincipalArn": "arn:aws:iam::*:role/theseus-cfn-deployer"
         }
       }
+    },
+    {
+      "Sid": "NetworkNotOurs",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:Delete*",
+        "ec2:Disassociate*",
+        "ec2:Detach*",
+        "ec2:Replace*",
+        "ec2:Modify*",
+        "ec2:Associate*",
+        "ec2:Attach*",
+        "ec2:Authorize*",
+        "ec2:Revoke*",
+        "ec2:CreateRoute",
+        "ec2:CreateNetworkAclEntry",
+        "ec2:CreateTags"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*:*:vpc*",
+        "arn:aws:ec2:*:*:subnet/*",
+        "arn:aws:ec2:*:*:route-table/*",
+        "arn:aws:ec2:*:*:natgateway/*",
+        "arn:aws:ec2:*:*:internet-gateway/*",
+        "arn:aws:ec2:*:*:network-acl/*",
+        "arn:aws:ec2:*:*:security-group/*"
+      ],
+      "Condition": {
+        "Null": {
+          "aws:ResourceTag/theseus:owner": "true",
+          "ec2:CreateAction": "true"
+        }
+      }
     }
   ]
 }
