@@ -16,18 +16,35 @@
 //!   or where its wakes answer; a place that cannot be read is no place's.
 //! - `memory.search` runs the same pipeline for a query, writing nothing, and
 //!   `memory.recalls` reads a session's rows (`rpc/memory.rs`).
+//!
+//! **In front of the model (step 30b).** In `canary` (a sticky share of
+//! sessions, `[memory] canary_fraction`) and `live`, the read finishes before
+//! the first loop's compile, under the same deadline, and what it admits is
+//! a `Recall` node (`node::Body::Recall`, references and never copies) with
+//! a `derived_from` edge to each source (`via = "recall"`), which ride the
+//! provider call's plan frame with the `recall.ran` row: no frame of their
+//! own. It renders after the new message, read from each source by position
+//! (`render`). A session's recall notes in its tail are capped
+//! (`session_recall_cap_tokens`): past it recall pauses until the next
+//! recompile. A control session runs `none` live with `baseline` in shadow.
+//! The operator's labels (`labels`) keep a node out as `labeled_wrong`.
+
+pub mod labels;
+pub mod render;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use theseus_memory::recall::{self as pipeline, Asker, Candidate, Pack, Place};
 use theseus_memory::{Baseline, MemoryScience};
 use theseus_protocol::index::{IndexQueryParams, IndexQueryResult};
-use theseus_protocol::memory::{RecallDrop, RecallItem, RecallManifest, RecallTimings};
+use theseus_protocol::memory::{
+    BudgetDrop, BudgetReport, RecallDrop, RecallItem, RecallManifest, RecallTimings,
+};
 
 use crate::config::MemoryConfig;
 use crate::node::{AttachmentContent, Body, Node};
@@ -51,6 +68,12 @@ pub struct Memory {
     cfg: MemoryConfig,
     science: Baseline,
     ask: RwLock<Option<Ask>>,
+    /// The nodes the operator labeled wrong or stale, once read (`labels`).
+    labels: RwLock<Option<BTreeSet<String>>>,
+    /// The sessions whose `memory.arm` row this daemon has seen or written.
+    armed: Mutex<BTreeSet<String>>,
+    /// Sources a `Recall` node rendered, by id: they never change.
+    sources: Mutex<render::Sources>,
 }
 
 impl Memory {
@@ -66,6 +89,9 @@ impl Memory {
             cfg,
             science: Baseline::default(),
             ask: RwLock::new(ask),
+            labels: RwLock::new(None),
+            armed: Mutex::new(BTreeSet::new()),
+            sources: Mutex::new(render::Sources::new()),
         }
     }
 
@@ -76,6 +102,60 @@ impl Memory {
 
     pub fn cfg(&self) -> &MemoryConfig {
         &self.cfg
+    }
+
+    /// The sources of the `Recall` nodes in `nodes`, read by position
+    /// (`render::read_sources`).
+    pub fn read_sources<'a>(
+        &self,
+        store: &crate::store::Store,
+        nodes: impl Iterator<Item = &'a Node>,
+    ) -> render::Sources {
+        render::read_sources(store, nodes, &self.sources)
+    }
+
+    /// One recalled item's source, read by position.
+    pub fn read_source(
+        &self,
+        store: &crate::store::Store,
+        r: &crate::node::RecalledRef,
+    ) -> Option<Arc<Node>> {
+        render::source(store, r, &self.sources)
+    }
+
+    /// Whether `session_id`'s `memory.arm` row is written: known to this
+    /// daemon, or found among the session's recall rows.
+    pub fn arm_recorded(
+        &self,
+        store: &crate::store::Store,
+        session_id: &str,
+    ) -> anyhow::Result<bool> {
+        if self
+            .armed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(session_id)
+        {
+            return Ok(true);
+        }
+        let kind = theseus_protocol::LedgerKind::MemoryArm.as_str();
+        for r in store.scope_after(&crate::fact::recall::scope(session_id), 0)? {
+            if r.kind == theseus_store::kinds::LEDGER
+                && r.decode::<crate::ledger::LedgerRow>()?.kind == kind
+            {
+                self.armed(session_id);
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// `session_id`'s `memory.arm` row is written.
+    pub fn armed(&self, session_id: &str) {
+        self.armed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session_id.to_string());
     }
 
     /// Whether a turn recalls: `[memory] mode` is not `off`.
@@ -172,6 +252,8 @@ pub struct Scene<'a> {
     pub turn_id: Option<&'a str>,
     pub place: Place,
     pub in_context: BTreeSet<String>,
+    /// The nodes the operator labeled wrong or stale.
+    pub labeled: BTreeSet<String>,
 }
 
 impl Memory {
@@ -261,6 +343,7 @@ impl Memory {
             session_id: scene.session_id.unwrap_or_default(),
             place: &scene.place,
             in_context: &scene.in_context,
+            labeled: &scene.labeled,
             now_ms: theseus_protocol::now_unix_ms(),
         };
         let pack = pipeline::recall(&self.science, &asker, candidates, &self.cfg.params());
@@ -279,6 +362,23 @@ fn fill(
     texts: bool,
 ) {
     m.used_tokens = pack.tokens;
+    m.budget = Some(BudgetReport {
+        limit_tokens: m.budget_tokens,
+        used_tokens: pack.tokens,
+        dropped: pack
+            .dropped
+            .iter()
+            .filter(|d| d.reason == pipeline::Reason::Budget)
+            .map(|d| BudgetDrop {
+                node_id: Some(d.candidate.node_id.clone()),
+                range: None,
+                reason: d.reason.as_str().into(),
+                tokens: d.tokens,
+                tier: "recall".into(),
+            })
+            .collect(),
+        overage: None,
+    });
     for d in &pack.dropped {
         *m.drops.entry(d.reason.as_str().into()).or_default() += 1;
     }
@@ -376,6 +476,8 @@ pub fn text_of(n: &Node) -> String {
         Body::AssistantMessage { blocks, .. } => crate::provider::text_of(blocks),
         Body::ToolCall { tool, input, .. } => format!("{tool} {input}"),
         Body::ToolResult { content, .. } => content.clone(),
+        // A recall's text is its sources': it is never recalled again.
+        Body::Recall { .. } => String::new(),
     }
 }
 

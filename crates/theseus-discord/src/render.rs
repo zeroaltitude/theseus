@@ -1201,6 +1201,10 @@ fn footer(r: &TurnSubmitResult) -> String {
     if r.continuation {
         bits.push("continued".into());
     }
+    // A reply recall fed (M6 30b: canary and live; nothing in shadow).
+    if r.recalled > 0 {
+        bits.push(format!("🧠 {} recalled", r.recalled));
+    }
     if r.awaiting_confirm.is_some() {
         bits.push("waiting for your approval".into());
     } else if !matches!(r.stop_reason.as_str(), "" | "no_tool_calls" | "end_turn") {
@@ -1466,6 +1470,16 @@ mod tests {
         let alone = reply_parts("t2", &[], Some(&result_of(ended("t2", None))));
         assert_eq!(alone.len(), 1);
         assert_eq!(alone[0].0, "t2:footer");
+        // A reply recall fed says how many notes (M6 30b); shadow says none.
+        let mut fed = ended("t3", None);
+        fed["recalled"] = json!(2);
+        let fed = reply_parts("t3", &[], Some(&result_of(fed)));
+        assert!(
+            fed[0].1.ends_with(" · 4.2 s · 🧠 2 recalled"),
+            "{}",
+            fed[0].1
+        );
+        assert!(!alone[0].1.contains("recalled"), "{}", alone[0].1);
     }
 
     /// A session at its spend limit asks with its own message and buttons

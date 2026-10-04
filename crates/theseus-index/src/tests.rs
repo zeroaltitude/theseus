@@ -242,8 +242,17 @@ fn the_extractor_covers_every_body_variant() {
                 assert!(e.external);
                 assert_eq!(e.origin, "tool");
             }
+            // Below: a recall is never indexed again.
+            Body::Recall { .. } => unreachable!("a recall is skipped"),
         }
     }
+    // A `Recall` node (M6 30b), through the core's own serialization: its
+    // text is its sources', so it is skipped.
+    let recalled = Node::recall("ses_1", "turn_1", "rcl_1", "baseline", Vec::new());
+    assert!(matches!(
+        extract(&recalled.record().unwrap().payload).unwrap(),
+        Extract::Skip { .. }
+    ));
     // A call whose input is never indexed: a write's content.
     let w = call(
         "ses_1",

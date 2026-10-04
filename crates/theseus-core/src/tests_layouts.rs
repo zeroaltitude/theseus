@@ -165,6 +165,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::AllBut(&["/manifest/audience", "/manifest/readers", "/manifest/integrity", "/manifest/withheld", "/manifest/context_files/1/readers"]),
     },
     Sample {
+        kind: kinds::COMPILATION,
+        layout: "7 (21b, theseus-8kk.1): the ontology's memberships and guidance, before M6's budget (8, theseus-6fn.2); the build before 30b (175318e) writes it back byte for byte",
+        bytes: r#"{"id":"cmp_00000000000000000000000000000071","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000071,"trigger":"new_session","strategy":"transcript","as_of":19,"includes":["msg_00000000000000000000000000000071"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true}]},"memberships":[{"kind":"channel","category":"channel:314159265358979323","origin":"transport","as_of_ms":1790000000071},{"kind":"topic","category":"topic:tides","origin":"operator","as_of_ms":1790000000070}],"guidance":[{"category":"topic:tides","version":2,"digest":"a1b2c3d4e5f60718"}]}}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::LEDGER,
         layout: "a row of a kind no build writes now (theseus-w5op): 18d's secret.requested",
         bytes: r#"{"at_unix_ms":1790000000047,"kind":"secret.requested","session_id":"ses_lighthouse","data":{"command":"sh","correlation_id":"act_00000000000000000000000000000047","job":"act_00000000000000000000000000000043","kind":"secret","outcome":"granted","posture":"notify","secret":"github_token","setting":"proc.run ran at notify","why":null}}"#,

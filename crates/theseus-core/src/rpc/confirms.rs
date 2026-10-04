@@ -683,6 +683,10 @@ pub(crate) enum Act<'a> {
     /// its category, so a job's process that wrote it would be an injection
     /// path. `what` names the write: `guidance of topic:theseus`.
     Ontology { method: &'static str, what: &'a str },
+    /// A label on a recalled node (M6 30b, `memory.label`): `wrong` keeps
+    /// it out of every session's recall, so a job's process that wrote it
+    /// would grade its own memory. `what` names it: `wrong on msg_…`.
+    Label { what: &'a str },
 }
 
 impl Act<'_> {
@@ -695,6 +699,7 @@ impl Act<'_> {
             Act::Trust { .. } => theseus_protocol::method::POLICY_TRUST,
             Act::Publish { .. } => theseus_protocol::method::PLACE_PUBLISH,
             Act::Ontology { method, .. } => method,
+            Act::Label { .. } => theseus_protocol::method::MEMORY_LABEL,
         }
     }
 }

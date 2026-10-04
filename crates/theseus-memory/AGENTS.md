@@ -15,9 +15,10 @@ the turn's recall step, and `memory.search`).
 - `recall.rs` (step 30a): the pipeline after the index. Each candidate is dropped by the first filter that takes it,
   in this order, with its reason: `place` (the place rule: a turn in a shared place draws only on that place's own
   sessions, a private place's only on private places' sessions, and a session whose place cannot be read on
-  neither), `in_context`, `untrusted` (external text, unless `include_external`), `recursion` (a harness line or a
-  recall), `threshold`; then the science's rank, and a greedy pack under the tokens and items (`budget`). A second
-  chunk of an admitted node is `in_context`. The core reads each candidate's place (`TurnRunner::place_of`).
+  neither), `in_context`, `untrusted` (external text, unless `include_external`), `labeled_wrong` (the operator
+  labeled it wrong or stale; 30b), `recursion` (a harness line or a recall), `threshold`; then the science's rank,
+  and a greedy pack under the tokens and items (`budget`). A second chunk of an admitted node is `in_context`. The
+  core reads each candidate's place (`TurnRunner::place_of`).
 - `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is), `activation.rs` (32b's math).
 
 ## Invariants

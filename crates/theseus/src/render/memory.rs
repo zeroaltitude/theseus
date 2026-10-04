@@ -18,6 +18,9 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
         "{} · {} · {} · {} · {}",
         m.recall_id, m.mode, m.science, m.place, m.outcome
     );
+    if let Some(arm) = &m.arm {
+        head.push_str(&format!(" · arm {arm}"));
+    }
     if let Some(turn) = &m.turn_id {
         head.push_str(&format!(" · turn {turn}"));
     }
@@ -33,6 +36,16 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
                 ),
             );
             return out;
+        }
+        "paused" => {
+            push(
+                o,
+                Tag::Warn,
+                &format!(
+                    "  paused until the next recompile: {}",
+                    m.why.as_deref().unwrap_or("the session's recall cap")
+                ),
+            );
         }
         "unavailable" => {
             push(
@@ -73,7 +86,11 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
         o,
         Tag::Plain,
         &format!(
-            "  would admit {} · {} of {} tokens",
+            "  {} {} · {} of {} tokens",
+            match m.mode.as_str() {
+                "canary" | "live" => "admitted",
+                _ => "would admit",
+            },
             m.admitted.len(),
             m.used_tokens,
             m.budget_tokens

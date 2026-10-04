@@ -820,7 +820,8 @@ pub async fn index(conn: &mut Conn, json: bool, cmd: IndexCmd) -> Result<()> {
 /// recall's pipeline for a query, and a session's recalls in shadow.
 pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
     use theseus_protocol::memory::{
-        MemoryRecallsParams, MemoryRecallsResult, MemorySearchParams, RecallManifest,
+        MemoryLabelParams, MemoryLabelResult, MemoryRecallsParams, MemoryRecallsResult,
+        MemorySearchParams, RecallManifest,
     };
     match cmd {
         MemoryCmd::Search { query, session, k } => {
@@ -847,6 +848,31 @@ pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
                 .await?;
             output(json, v, |r: MemoryRecallsResult| {
                 print::lines(&mut io::stdout().lock(), &render::recalls_lines(&r))?;
+                Ok(())
+            })
+        }
+        MemoryCmd::Label {
+            node,
+            label,
+            recall,
+            note,
+        } => {
+            let p = MemoryLabelParams {
+                node_id: node,
+                label,
+                recall_id: recall,
+                note,
+            };
+            let v = conn
+                .request(method::MEMORY_LABEL, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: MemoryLabelResult| {
+                let then = if r.excluded {
+                    "recall leaves it out from the next turn on"
+                } else {
+                    "recall may offer it"
+                };
+                println!("{} labeled {}: {then}", r.node_id, r.label);
                 Ok(())
             })
         }

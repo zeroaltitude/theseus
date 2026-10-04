@@ -167,6 +167,10 @@ pub mod method {
         /// A session's recalls (`memory::MemoryRecallsParams`): each turn's
         /// `recall.shadow` manifest, newest last. A read.
         MEMORY_RECALLS = "memory.recalls",
+        /// An operator's label on a node recall offered or should have
+        /// (`memory::MemoryLabelParams`; M6 step 30b): `wrong` and `stale`
+        /// keep it out of recall. Acting: the owner, from a private place.
+        MEMORY_LABEL = "memory.label",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.
@@ -2014,6 +2018,13 @@ pub struct TurnSubmitResult {
     /// The turn ran without new input (a continuation: late results, a confirm answer, a restart).
     #[serde(default)]
     pub continuation: bool,
+    /// The notes recall put in front of the model this turn (M6 30b: canary and live; never shadow).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub recalled: u32,
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
 }
 
 // ---------------------------------------------------------------- M3: content

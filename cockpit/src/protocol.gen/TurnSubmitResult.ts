@@ -42,4 +42,8 @@ stop_details: unknown,
 /**
  * The turn ran without new input (a continuation: late results, a confirm answer, a restart).
  */
-continuation: boolean, };
+continuation: boolean, 
+/**
+ * The notes recall put in front of the model this turn (M6 30b: canary and live; never shadow).
+ */
+recalled?: number, };

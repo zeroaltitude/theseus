@@ -165,6 +165,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   nothing, and `memory.recalls`), and `config/memory.rs`. In shadow the model's request is the one compiled without
   recall, and the row rides in the turn's next frame. The filters and pack are `theseus_memory::recall`. Tests:
   `tests_recall.rs`.
+  - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "canary"` (a sticky share,
+    `canary_fraction`, by a hash of session and `experiment`: `MemoryConfig::assign`, recorded once as a `memory.arm`
+    row; the control runs `none` live with `baseline` in shadow) or `"live"`. The read finishes before the first
+    loop's compile, under the same deadline (`recall_first`), and what it admits is a `Recall` node
+    (`node::Body::Recall`: references, never copies) held in the turn (`Turn.recall`) and rendered by the compile as
+    though written (`recall_view`, at the position after every node); the new compilation's prefix leaves it out
+    (`recall_compiled`), so it renders in the tail as it will once written. It rides the provider call's plan frame
+    with a `derived_from` edge to each source (`via = "recall"`, so `node.reach` counts the copy), and its
+    `recall.ran` row the turn's next frame: no frame of its own. Its render (`recall/render.rs`) is §2.4's testimony,
+    each item's frozen header and its source's text over the frozen byte range, read by position (cached: sources
+    never change), so the next request begins with the previous one's bytes. Past `session_recall_cap_tokens` of
+    notes in the tail, recall pauses (`paused`) until the next recompile. `memory.label` (`rpc/memory.rs`,
+    `judge_act(Act::Label)`, refused by the CLI inside a job) writes a `memory.label` row scoped `memory`; `wrong`
+    and `stale` drop a node as `labeled_wrong` from a set built after serving (`Core::warm_labels`, `recall/labels.rs`).
+    Every compilation carries a `BudgetReport` (`Compiled.budget`, stored on a new `Compilation`; the ring's cut as a
+    range, a recall's budget drops, an overage); the reply's `TurnSubmitResult.recalled` feeds Discord's
+    `🧠 N recalled` footer. Tests: `tests_recall_node.rs`, `recall::render::tests`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

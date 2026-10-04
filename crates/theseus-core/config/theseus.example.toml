@@ -554,8 +554,17 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # model: its request is the same byte for byte. See it with
 # `theseus memory recalled <session>` and `theseus memory search "<query>"`.
 # An older binary refuses a [memory] table: install first, then paste.
+# Canary and live (step 30b) put recall in front of the model: a note after
+# the turn's new message, testimony with each source's date, a Recall node
+# that references its sources (`theseus reach` counts each copy), a
+# recall.ran row, and a "🧠 N recalled" footer on Discord. Label a node
+# with `theseus memory label <node> wrong` to keep it out.
 # [memory]
-# mode = "shadow"                         # off (the default) | shadow; canary and live come with step 30b
+# mode = "shadow"                         # off (the default) | shadow | canary | live
+# arm = "baseline"                        # the arm canary and live sessions get: none | baseline
+# canary_fraction = 0.5                   # canary: the share of sessions on the arm, sticky by a hash of session and experiment; the rest run none, with baseline in shadow
+# experiment = "m6-1"                     # names the plan; seeds each session's arm
+# session_recall_cap_tokens = 12000       # the recall notes a session's tail may hold; past it, recall pauses until the next recompile
 # recall_budget_tokens = 1500             # the pack's tokens
 # recall_max_items = 6                    # the pack's items, at most 40
 # recall_deadline_ms = 250                # how long recall waits for the index; the turn never waits past its model call and this

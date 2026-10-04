@@ -321,6 +321,9 @@ struct Turn<'a> {
     booked: bool,
     deferred: bool,
     ended: bool,
+    /// What recall put in front of the model this turn (M6 30b), until its
+    /// node rides the provider call's plan frame.
+    recall: recall_step::Recalled,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -431,6 +434,7 @@ impl<'a> Turn<'a> {
             booked: false,
             deferred: false,
             ended: false,
+            recall: recall_step::Recalled::default(),
         }
     }
 
@@ -1594,6 +1598,13 @@ impl TurnRunner {
                 index: i,
                 max_loops: t.target.max_loops,
             });
+            // Recall asks the index on the first loop (M6): in front of the
+            // model (canary, live) it is read before the compile, under its
+            // deadline; in shadow, once the call has answered.
+            let recall = match i {
+                0 => self.recall_first(t, session).await,
+                _ => None,
+            };
             let compiled = self.compile_step(
                 t,
                 session,
@@ -1612,10 +1623,6 @@ impl TurnRunner {
                 retrying = Some(o);
             }
             let said_before = (t.output.len(), t.said.len());
-            // Recall asks the index as the first loop's call goes out, and
-            // is read once it answers (M6 30a: in shadow, the request is
-            // the one compiled without it).
-            let recall = (i == 0).then(|| self.recall_begin(t)).flatten();
             let called = self.call_model(t, provider, &compiled, i).await;
             if let Some(r) = recall {
                 self.recall_end(t, r).await;
@@ -2002,7 +2009,8 @@ impl TurnRunner {
             Some(id) => self.store.get_compilation(id)?,
             None => None,
         };
-        let compiled = compile(CompileInput {
+        let (nodes, sources) = self.recall_view(t, nodes);
+        let mut compiled = compile(CompileInput {
             session_id: sid,
             current: current.as_ref(),
             nodes: &nodes,
@@ -2015,7 +2023,9 @@ impl TurnRunner {
             hidden: &session.not_shown,
             strip,
             overflowed,
+            sources: &sources,
         });
+        Self::recall_compiled(t, &mut compiled);
         if compiled.new_compilation {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
@@ -2113,14 +2123,17 @@ impl TurnRunner {
         let reserve = price.reserve_micros(target.max_tokens, compiled.est_tokens);
         let o0 = t.trace.now_us();
         // It never needs a confirm, so its plan, authorization, and dispatch
-        // are one frame, with the loop's rows in front (theseus-qa0).
+        // are one frame, with the loop's rows in front (theseus-qa0), and
+        // a recall's node and edges (M6 30b).
+        let rides = std::mem::take(&mut t.recall.rides);
+        t.recall.pending = None;
         let action = match t.tc.kernel.plan_and_dispatch(
             t.tc.guard,
             &proposal,
             RetryClass::SafeToRepeat,
             Some(self.cfg.model.timeouts.total_secs * 1000),
             reserve,
-            |_| Ok(vec![]),
+            |_| Ok(rides),
         ) {
             Ok(a) => a,
             Err(e) => {
@@ -3069,6 +3082,7 @@ impl TurnRunner {
             awaiting_confirm: t.awaiting.clone().or_else(|| t.budget_question.clone()),
             stop_details: last.and_then(|r| r.stop_details.clone()),
             continuation: t.continuation,
+            recalled: t.recall.count,
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,
