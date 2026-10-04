@@ -12,6 +12,7 @@
 //! (`render`) are this package's library, which the TUI shares, and
 //! `print.rs` writes the lines they return.
 
+mod budgets;
 mod cmd;
 mod extend;
 mod herdr;
@@ -19,6 +20,7 @@ mod herdr_sync;
 mod interactive;
 mod mcp;
 mod ontology;
+mod policy_explain;
 mod print;
 mod prompt;
 
@@ -45,6 +47,7 @@ Quick start:
   theseus watch --all                        every session's executions as they change, with what needs you
   theseus tui                                every session in one terminal: what needs you, answered inline
   theseus confirm [id] [--decline]           answer a tool call or a budget question waiting for you (no id: list them)
+  theseus budgets                            where the money is: each session's limit and its source, spend, tasks' carves
   theseus tasks                              background tasks (task.create): state, spend, what each waits on
   theseus wakes                              pending wakes (wake.at): session, due time, and note
   theseus reach <node>                       where a node went: the contexts that held it, and its copies in other sessions
@@ -54,6 +57,7 @@ Quick start:
   theseus executions explain <id>            one execution in full: what it waits on, its questions, budget, last rows
   theseus tools                              the toollets, their policy, and calls so far
   theseus policy tighten proc.run            should have asked: proc.run asks first from now on (untighten: undo)
+  theseus policy explain --tool proc.run     why a call waits: every layer of the gate, for each place (--session: one)
   theseus policy trust <session>             after a session read a web page, its calls that act wait; this trusts it again
   theseus catalog                            models, context windows, and prices
   theseus index search \"port 7433\"           find what was said, run, or read; `index status`: how far the index has read
@@ -245,6 +249,10 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<SessionsCmd>,
     },
+    /// Where the money is: each open session's limit and where it comes from, spent, reserved,
+    /// held, available, and lifetime cost, its resets and any budget question, each task under
+    /// its parent with its carve, and the totals.
+    Budgets,
     /// Executions (one per session): state, turns, outstanding actions, budget; `executions cancel <id>`.
     Executions {
         #[command(subcommand)]
@@ -425,6 +433,17 @@ enum PolicyCmd {
     /// Undo a tightening: TOOL goes back to what the config says. It loosens, so it counts only
     /// where an approval would.
     Untighten { tool: String },
+    /// Why a call waits: each tool's result, layer by layer in the gate's order (the place and
+    /// its ceiling, the class, the config's posture, a tightening, a granted secret, the
+    /// place's floor, T1's hold), and the conditions that depend on the call. For SESSION's
+    /// place, or for the CLI and every bound place; with --tool, that tool in full.
+    Explain {
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+        /// A tool's canonical name (`proc.run`, `mcp:<server>/<tool>`).
+        #[arg(long)]
+        tool: Option<String>,
+    },
     /// Trust SESSION again: it no longer holds the external text it read (a web page, a
     /// search), so its calls that act run at their postures again. It loosens, so it counts
     /// only where an approval would. SESSION is its id, or at least its last four characters.
@@ -752,6 +771,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { cmd } => cmd::sessions(c, json, cmd.unwrap_or(SessionsCmd::List)).await,
+        Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Executions { cmd } => {
             cmd::executions(c, json, cmd.unwrap_or(ExecutionsCmd::List)).await
         }

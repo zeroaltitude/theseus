@@ -127,9 +127,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs. What a call's proposal binds about
   its job is `sandbox::Bound`: its class, and (18c) its egress list.
 - **Grants in L1** (theseus-w5op; decided by Eddie 2026-10-03, superseding theseus-7y9y): an L1 job takes its
-  program's broker grants at its launch, exactly as an L0 job does. `sandbox::decide` runs the L1 decision through
-  `ToolRuntime::brokered` (decision 15: the stricter of the call's posture and the secret's, so any approval comes
-  before the launch), and `sandbox::for_job` asks `Broker::for_job`. The value rides in the job's environment over
+  program's broker grants at its launch, exactly as an L0 job does. The gate's order (`toolrun/order.rs`) runs
+  the L1 decision (`sandbox::unbrokered`) through `ToolRuntime::brokered` (decision 15: the stricter of the call's
+  posture and the secret's, so any approval comes before the launch), and `sandbox::for_job` asks
+  `Broker::for_job`. The value rides in the job's environment over
   the spec's pipe, the wrapper withholds it from the job's output (`redact`), and the result's head names what the
   job was given (`given GH_TOKEN`, names only, from the wrapper's `detail.sandbox.granted`). Tests:
   `tests_grants.rs`, and the daemon's `tests/sandbox.rs` with a real L1 job. 18d's run-time socket
@@ -316,6 +317,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   Tests: `tests_task_graph.rs`, `task_graph::tests`.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
+- **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's
+  money from its record (`Kernel::open_executions`), where its limit comes from (`config`, `place`, `carve`, or
+  `pinned`), its session's lifetime cost, and its last reset from one small ledger page by kind and session tag,
+  never a scan (`last_reset_unread` while the index's shape is built); tasks under their parents, and totals of the
+  top rows, since a task's spend is its parent's too. Tests: `tests_budgets.rs`. `rpc/explain.rs` is
+  `policy.explain`: for a session's place (or the CLI and every bound place), each tool's layers in the gate's
+  order, built by running the gate's own order (`toolrun/order.rs`: `ToolRuntime::refusal`, then
+  `ToolRuntime::order`, which hands its watcher the decision after each layer) on a call inside the roots; the
+  call-dependent layers (the floor, the lists, the roots, a private address, AWS, L1, grants) are conditions with
+  their entries. Never copy the order into it: change `order.rs`, and both follow. Tests: `tests_explain.rs` (every
+  tool against the order on a real plan, and against whole turns' recorded gates).
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live
@@ -372,7 +384,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Backend::Harness`. Never block a runtime worker on a sleep or a blocking wait.
 - **The gate never refuses** and never parses what a command does. The order is the floor, the approve lists, the
   allow list, then the posture; a granted secret's posture and the external-text hold apply after it, and the
-  stricter wins.
+  stricter wins. The whole order after the place's refusal is written once, in `toolrun/order.rs`, which the gate
+  and `policy.explain` both run.
 - **An L1 call runs at notify** (Eddie's decision, 2026-10-02): none of the L0 order applies, since the view hides
   the floor, the approve list's paths, and the socket; the external-text hold still does, and so does the
   operator's own word about the tool: a `[policy.tools]` line or a tightening that asks makes it wait

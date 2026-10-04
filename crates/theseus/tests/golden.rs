@@ -1986,3 +1986,146 @@ fn reach_prints_each_generation_and_what_held_it() {
     };
     golden("reach_unknown", &run(&["reach", "msg_gone"], vec![unknown]));
 }
+
+/// `theseus budgets` (step 42a): a conversation at its limit's question,
+/// reset once, with two tasks under it and their carves; a place's limit;
+/// the totals; and the judge's day.
+#[test]
+fn budgets_prints_each_task_under_its_parent_and_the_totals() {
+    let task = |id: &str, limit: f64, spent: f64, held: f64| {
+        json!({"execution_id": format!("exe_{id}"), "session_id": format!("ses_{id}"),
+               "kind": "task", "state": "running", "limit_usd": limit, "limit_from": "carve",
+               "limit_by": S, "spent_usd": spent, "reserved_usd": 0.0, "held_unknown_usd": 0.0,
+               "available_usd": limit - spent, "lifetime_usd": spent, "resets": 0,
+               "parent": X, "carve_held_usd": held})
+    };
+    let result = json!({
+        "executions": [
+            {"execution_id": X, "session_id": S, "kind": "conversation", "state": "waiting",
+             "title": "the lighthouse", "limit_usd": 100.0, "limit_from": "config",
+             "spent_usd": 3.25, "reserved_usd": 4.5, "held_unknown_usd": 0.0,
+             "available_usd": 92.25, "lifetime_usd": 7.5, "resets": 1,
+             "last_reset": {"at_ms": 1_759_300_300_000u64, "by": "cli", "spent_before_usd": 100.0},
+             "question": {"correlation_id": "act_q7f3k2", "needs_usd": 0.25},
+             "tasks": [task("lamp01", 3.0, 0.5, 2.5), task("lens02", 2.0, 0.0, 2.0)]},
+            {"execution_id": "exe_pier01", "session_id": "ses_pier01", "kind": "conversation",
+             "state": "waiting", "limit_usd": 40.0, "limit_from": "place", "limit_by": "#pier",
+             "spent_usd": 1.0, "reserved_usd": 0.0, "held_unknown_usd": 0.0,
+             "available_usd": 39.0, "lifetime_usd": 1.0, "resets": 2,
+             "last_reset_unread": "the ledger's index is being built after the start; ask again in a moment"}
+        ],
+        "totals": {"executions": 2, "tasks": 2, "limit_usd": 140.0, "spent_usd": 4.25,
+                   "reserved_usd": 4.5, "held_unknown_usd": 0.0, "available_usd": 131.25,
+                   "lifetime_usd": 9.0, "questions": 1},
+        "config_limit_usd": 100.0,
+        "judge": {"enabled": true, "day": "2026-10-04", "limit_usd": 1.0, "spent_usd": 0.0125,
+                  "paused": false}
+    });
+    golden(
+        "budgets",
+        &run(&["budgets"], vec![step("budget.list", result.clone())]),
+    );
+    golden(
+        "budgets_json",
+        &run(&["--json", "budgets"], vec![step("budget.list", result)]),
+    );
+    let none = json!({"executions": [], "totals": {"executions": 0, "tasks": 0, "limit_usd": 0.0,
+        "spent_usd": 0.0, "reserved_usd": 0.0, "held_unknown_usd": 0.0, "available_usd": 0.0,
+        "lifetime_usd": 0.0, "questions": 0}, "config_limit_usd": 100.0,
+        "judge": {"enabled": false, "day": "2026-10-04", "limit_usd": 1.0, "spent_usd": 0.0,
+                  "paused": false}});
+    golden(
+        "budgets_none",
+        &run(&["budgets"], vec![step("budget.list", none)]),
+    );
+}
+
+/// `theseus policy explain` (step 42a): each place's tools on a line, what
+/// raised each, a refused one's words; with `--tool`, every layer, the
+/// conditions, and the gate's reason.
+#[test]
+fn policy_explain_prints_each_place_and_a_tool_in_full() {
+    let layer = |layer: &str, says: &str, setting: Option<&str>, result: &str, raised: bool| {
+        let mut l = json!({"layer": layer, "says": says, "result": result});
+        if let Some(s) = setting {
+            l["setting"] = json!(s);
+        }
+        if raised {
+            l["raised"] = json!(true);
+        }
+        l
+    };
+    let proc_lab = json!({"tool": "proc.run", "class": "run", "offered": true,
+        "layers": [
+            layer("place", "a private place: every tool is offered", None, "offered", false),
+            layer("ceiling", "#lab's ceiling narrows no tools", None, "offered", false),
+            layer("class", "L0: it runs on the host, under the floor, the lists, and its posture",
+                  Some("[sandbox] default and l1_argv"), "l0", false),
+            layer("posture", "the config's posture for the tool", Some("enforcement = notify"),
+                  "notify", false),
+            layer("tightening", "tightened by cli (\"should have asked\"): it asks first until undone",
+                  Some("tightened by cli"), "approve", true),
+            layer("grant", "no secret is granted to a call like this", None, "approve", false),
+            layer("floor", "#lab's ceiling sets a floor of approve", Some("#lab's posture_floor"),
+                  "approve", false),
+            layer("hold", "this session holds no external text",
+                  Some("[policy] external_text = ask"), "approve", false)],
+        "conditions": [
+            {"layer": "floor", "when": "it touches Theseus's own binary or state, or the 1Password CLI or its token: at every posture",
+             "entries": ["/w/state/store", "theseusd", "op"], "then": "approve"},
+            {"layer": "allow_argv", "when": "its argv starts with an entry of the allow list, and every path argument is inside the roots",
+             "entries": ["ls", "pwd"], "then": "open"}],
+        "result": "approve",
+        "reason": "a call of proc.run: proc.run — approve (tightened by cli; the config says enforcement = notify)"});
+    let read = json!({"tool": "fs.read", "class": "read", "offered": true,
+        "layers": [
+            layer("place", "a private place: every tool is offered", None, "offered", false),
+            layer("posture", "the config's posture for the tool",
+                  Some("[policy.tools] \"fs.read\" = open"), "open", false),
+            layer("hold", "a read (or a one-shot wake) keeps its posture after external text",
+                  Some("[policy] external_text = ask"), "open", false)],
+        "result": "open", "reason": "fs.read — open ([policy.tools] \"fs.read\" = open)"});
+    let proc_held = json!({"tool": "proc.run", "class": "run", "offered": true,
+        "layers": [
+            layer("posture", "the config's posture for the tool", Some("enforcement = notify"),
+                  "notify", false),
+            layer("hold", "this session read external text (http.fetch tides.example/today), and a call that acts waits for approval after that (§3.9)",
+                  Some("[policy] external_text = ask"), "approve", true)],
+        "result": "approve",
+        "reason": "a call of proc.run: proc.run — approve (this session read external text)"});
+    let refused = json!({"tool": "proc.run", "class": "run", "offered": false,
+        "refused": "proc.run is not offered in a shared place: one others can read gets only the public tools",
+        "layers": [layer("place", "a shared place: only the public tools, and the file tools under the public paths",
+                         Some("the bindings file's class, and [places] public_paths"), "refused", false)],
+        "result": "refused",
+        "reason": "place: proc.run is not offered in a shared place: one others can read gets only the public tools"});
+    let every = json!({"places": [
+        {"place": "cli", "name": "CLI", "class": "private", "tools": [read, proc_held]},
+        {"place": "discord:channel:314159", "name": "#lab", "class": "private",
+         "ceiling": {"posture_floor": "approve"}, "session_id": S, "tools": [proc_lab]},
+        {"place": "discord:channel:141421", "name": "#pier", "class": "shared",
+         "tools": [refused]}],
+        "roots": ["/w"]});
+    golden(
+        "policy_explain",
+        &run(&["policy", "explain"], vec![step("policy.explain", every)]),
+    );
+    let one = json!({"places": [
+        {"place": "discord:channel:314159", "name": "#lab", "class": "private",
+         "ceiling": {"posture_floor": "approve"}, "session_id": S, "tools": [proc_lab]}],
+        "roots": ["/w"]});
+    golden(
+        "policy_explain_tool",
+        &run(
+            &["policy", "explain", "--session", S, "--tool", "proc.run"],
+            vec![step("policy.explain", one.clone())],
+        ),
+    );
+    golden(
+        "policy_explain_json",
+        &run(
+            &["--json", "policy", "explain", "--tool", "proc.run"],
+            vec![step("policy.explain", one)],
+        ),
+    );
+}

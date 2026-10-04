@@ -681,6 +681,9 @@ async fn confirm_alerts(
 pub async fn policy(conn: &mut Conn, json: bool, cmd: PolicyCmd) -> Result<()> {
     match cmd {
         PolicyCmd::List => policy_list(conn, json).await,
+        PolicyCmd::Explain { session, tool } => {
+            crate::policy_explain::explain(conn, json, session, tool).await
+        }
         PolicyCmd::Tighten { tool, call } => {
             let v = conn
                 .request(

@@ -1,0 +1,14 @@
+$ theseus policy explain
+--- requests
+policy.explain
+--- stdout
+CLI (private)
+  fs.read                open     posture: [policy.tools] "fs.read" = open
+  proc.run               approve  posture: enforcement = notify · hold: [policy] external_text = ask
+#lab (private, session ses_q7f3k2) · ceiling: floor approve
+  proc.run               approve  posture: enforcement = notify · tightening: tightened by cli
+#pier (shared)
+  proc.run               refused  proc.run is not offered in a shared place: one others can read gets only the public tools
+each result is for a call inside the roots (/w) that no condition matches · every layer and condition of one tool: theseus policy explain --tool <name>
+--- stderr
+--- exit 0

@@ -227,10 +227,11 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
 /// tool still is (Eddie, 2026-10-02, theseus-jfs6): a `[policy.tools]` line
 /// for it, or a tightening, that asks makes an L1 call wait too, so the model
 /// cannot step around it with `sandbox: true`. The inherited
-/// `[policy].enforcement` is not that word, and never makes L1 wait. Then
-/// the broker's grant, in both classes: a call given a secret runs at no
-/// looser a posture than the secret's (decision 15, theseus-w5op).
-pub(crate) fn decide(
+/// `[policy].enforcement` is not that word, and never makes L1 wait. The
+/// broker's grant comes next in the gate's order (`toolrun::order`), in both
+/// classes: a call given a secret runs at no looser a posture than the
+/// secret's (decision 15, theseus-w5op).
+pub(crate) fn unbrokered(
     rt: &ToolRuntime,
     tool: &dyn Tool,
     plan: &Plan,
@@ -253,12 +254,12 @@ pub(crate) fn decide(
                 class: Class::L1,
                 egress,
             };
-            (rt.brokered(tool.name(), plan, input, d), bound)
+            (d, bound)
         }
-        None => {
-            let d = rt.policy.decide_with(tool, plan, tightened);
-            (rt.brokered(tool.name(), plan, input, d), Bound::default())
-        }
+        None => (
+            rt.policy.decide_with(tool, plan, tightened),
+            Bound::default(),
+        ),
     }
 }
 

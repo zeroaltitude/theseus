@@ -11,9 +11,11 @@
 pub mod arrangement;
 mod aws;
 pub mod bench;
+mod budgets;
 pub mod cancel;
 pub mod cred;
 mod events;
+mod explain;
 pub mod extend;
 mod gate;
 mod hands;
@@ -39,8 +41,10 @@ pub mod voice;
 
 pub use arrangement::{ArrangementPiece, TaskArrangement};
 pub use aws::*;
+pub use budgets::*;
 pub use cancel::{CancelCount, CancelVerdict};
 pub use events::*;
+pub use explain::*;
 pub use gate::*;
 pub use hands::*;
 pub use health::*;
@@ -141,6 +145,12 @@ pub mod method {
         /// Each hands group, its cells by state, and its cost against its
         /// cap (step 40 part 2): the cockpit's grid.
         HANDS_LIST = "hands.list",
+        /// Each open execution's money and where its limit comes from, its
+        /// tasks under it, and the totals (step 42a, `BudgetListResult`). A read.
+        BUDGET_LIST = "budget.list",
+        /// Each tool's posture layer by layer in the gate's order, for a
+        /// session or every place (step 42a, `PolicyExplainParams`). A read.
+        POLICY_EXPLAIN = "policy.explain",
         ONTOLOGY_CATEGORY_ADD = "ontology.category.add",
         ONTOLOGY_GUIDANCE_SET = "ontology.guidance.set",
         ONTOLOGY_MEMBERSHIP_SET = "ontology.membership.set",
