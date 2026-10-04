@@ -74,6 +74,77 @@ pub struct AwsAccountConfig {
     /// at most. Off by default.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub durability: bool,
+    /// An existing network the hands run in (theseus-mgw.9): a VPC Theseus
+    /// did not make, whose private subnets route out through its own NAT.
+    /// `aws.stack.plan` of `theseus-hands-network` takes its parameters from
+    /// here, and the stack then makes the hands' security group alone (or
+    /// nothing, when one is named), never a NAT. Unset: the stack makes its
+    /// own VPC, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hands_network: Option<HandsNetwork>,
+}
+
+/// `[aws.accounts.<id>.hands_network]`: an existing VPC, its subnets, and
+/// optionally a security group of its, by id. Theseus uses them and never
+/// changes them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HandsNetwork {
+    /// The VPC (`vpc-…`).
+    pub vpc: String,
+    /// Its private subnets the hands run in (`subnet-…`), one at least.
+    pub subnets: Vec<String>,
+    /// A security group in it for the hands (`sg-…`). Unset: the stack
+    /// makes one, tagged as Theseus's, with no ingress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security_group: Option<String>,
+}
+
+impl HandsNetwork {
+    /// The network stack's parameters this names, as its template takes
+    /// them. With no `HandsNetwork`, each is empty: the stack's own VPC.
+    pub fn parameters(n: Option<&HandsNetwork>) -> [(&'static str, String); 3] {
+        [
+            (
+                "ExistingVpcId",
+                n.map(|n| n.vpc.clone()).unwrap_or_default(),
+            ),
+            (
+                "ExistingSubnetIds",
+                n.map(|n| n.subnets.join(",")).unwrap_or_default(),
+            ),
+            (
+                "ExistingSecurityGroupId",
+                n.and_then(|n| n.security_group.clone()).unwrap_or_default(),
+            ),
+        ]
+    }
+
+    /// What is wrong with it, if anything: each id's form.
+    fn check(&self) -> Result<(), String> {
+        let id = |prefix: &str, v: &str| {
+            v.strip_prefix(prefix).is_some_and(|h| {
+                (8..=17).contains(&h.len())
+                    && h.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+        };
+        if !id("vpc-", &self.vpc) {
+            return Err(format!("vpc = {:?} is not a VPC's id (vpc-…)", self.vpc));
+        }
+        if self.subnets.is_empty() {
+            return Err("subnets is empty: name the private subnets the hands run in".into());
+        }
+        if let Some(s) = self.subnets.iter().find(|s| !id("subnet-", s)) {
+            return Err(format!("subnets: {s:?} is not a subnet's id (subnet-…)"));
+        }
+        match &self.security_group {
+            Some(g) if !id("sg-", g) => Err(format!(
+                "security_group = {g:?} is not a security group's id (sg-…)"
+            )),
+            _ => Ok(()),
+        }
+    }
 }
 
 /// The hour's line unless the config names one: $1.
@@ -94,6 +165,16 @@ impl AwsAccountConfig {
     /// Every session's source identity.
     pub fn deployment(&self) -> &str {
         self.deployment.as_deref().unwrap_or("theseus")
+    }
+}
+
+/// `[aws.accounts.<id>.hands_network]`'s ids, named by their key.
+fn hands_network_ok(id: &str, a: &AwsAccountConfig) -> Result<()> {
+    match &a.hands_network {
+        Some(n) => n
+            .check()
+            .map_err(|e| anyhow::anyhow!("aws.accounts.{id}.hands_network.{e}")),
+        None => Ok(()),
     }
 }
 
@@ -238,6 +319,7 @@ impl super::Config {
             if a.daily_budget_usd == Some(0) {
                 anyhow::bail!("aws.accounts.{id}.daily_budget_usd is 0: name the day's dollars");
             }
+            hands_network_ok(id, a)?;
             if !(a.hourly_alert_usd.is_finite() && a.hourly_alert_usd > 0.0) {
                 anyhow::bail!(
                     "aws.accounts.{id}.hourly_alert_usd is {}: name the hour's line in dollars, \
@@ -321,6 +403,30 @@ mod tests {
             with("").unwrap().aws.accounts["111122223333"].deployment(),
             "theseus"
         );
+        // An existing network for the hands (theseus-mgw.9): none by
+        // default; a VPC and its subnets, and optionally a group.
+        assert_eq!(a.hands_network, None);
+        let net = with(
+            "\n[aws.accounts.111122223333.hands_network]\nvpc = \"vpc-0a1b2c3d4e5f60718\"\n\
+             subnets = [\"subnet-0a1b2c3d4e5f60711\", \"subnet-0a1b2c3d4e5f60722\"]",
+        )
+        .unwrap();
+        let n = net.aws.accounts["111122223333"]
+            .hands_network
+            .clone()
+            .unwrap();
+        assert_eq!(
+            super::HandsNetwork::parameters(Some(&n)).map(|(_, v)| v),
+            [
+                "vpc-0a1b2c3d4e5f60718".to_string(),
+                "subnet-0a1b2c3d4e5f60711,subnet-0a1b2c3d4e5f60722".into(),
+                String::new()
+            ]
+        );
+        assert_eq!(
+            super::HandsNetwork::parameters(None).map(|(_, v)| v),
+            [String::new(), String::new(), String::new()]
+        );
         for (bad, says) in [
             ("owner_role = \"theseus owner\"", "owner_role = \"theseus owner\" is not an IAM name"),
             ("deployment = \"x\"", "is not an IAM name: 2 to 64"),
@@ -331,6 +437,19 @@ mod tests {
                 "broker.programs.aws.aws_account = \"444455556666\" is not an account under [aws.accounts]",
             ),
             ("\n[broker.programs.aws]", "broker.programs.aws grants nothing"),
+            (
+                "\n[aws.accounts.111122223333.hands_network]\nvpc = \"vpc-0a1b2c3d4e5f60718\"\nsubnets = []",
+                "hands_network.subnets is empty",
+            ),
+            (
+                "\n[aws.accounts.111122223333.hands_network]\nvpc = \"vpc-x\"\nsubnets = [\"subnet-0a1b2c3d4e5f60711\"]",
+                "hands_network.vpc = \"vpc-x\" is not a VPC's id",
+            ),
+            (
+                "\n[aws.accounts.111122223333.hands_network]\nvpc = \"vpc-0a1b2c3d4e5f60718\"\n\
+                 subnets = [\"subnet-0a1b2c3d4e5f60711\"]\nsecurity_group = \"group\"",
+                "hands_network.security_group = \"group\" is not a security group's id",
+            ),
         ] {
             let e = format!("{:#}", with(bad).unwrap_err());
             assert!(e.contains(says), "{bad}: {e}");
