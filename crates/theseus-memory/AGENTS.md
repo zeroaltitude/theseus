@@ -1,0 +1,32 @@
+# theseus-memory
+
+Theseus's memory science (M6), as pure logic with no I/O: every input is explicit, so each result replays from the
+record. It has no dependencies.
+
+Key modules: `science.rs`, `recall.rs`, `fsrs.rs`, `activation.rs`, `access.rs`. Read by: theseus-core (`recall.rs`,
+the turn's recall step, and `memory.search`).
+
+## What's here
+
+- `science.rs` (step 30a): the `MemoryScience` trait (design §2.3: `gate`, `schedule`, `activate`, `decay_sweep`,
+  `rank`, with `id` and `min_score`) and `Baseline`, its answers by §2.3's table. A science names its parameter set
+  by digest (`baseline@<16 hex>`), and a recall's row says it. 30a reads `id`, `min_score`, and `rank`; the memory
+  pass (31a), the retention and adjacency projections (32a, 32b), and tiering (33) read the rest.
+- `recall.rs` (step 30a): the pipeline after the index. Each candidate is dropped by the first filter that takes it,
+  in this order, with its reason: `place` (the place rule: a turn in a shared place draws only on that place's own
+  sessions, a private place's only on private places' sessions, and a session whose place cannot be read on
+  neither), `in_context`, `untrusted` (external text, unless `include_external`), `recursion` (a harness line or a
+  recall), `threshold`; then the science's rank, and a greedy pack under the tokens and items (`budget`). A second
+  chunk of an admitted node is `in_context`. The core reads each candidate's place (`TurnRunner::place_of`).
+- `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is), `activation.rs` (32b's math).
+
+## Invariants
+
+- **No I/O, no clock.** A time is an argument (`now_ms`).
+- **The place filter is first, and total.** Every candidate a turn may not draw on is dropped for `place`, whatever
+  else would drop it: the property tests in `recall.rs` and theseus-core's `tests_recall.rs` hold it.
+
+## Tests
+
+- In each module. `recall::tests::the_place_rule_holds_for_every_pack` is the place property test over generated
+  candidates; the core's `tests_recall::the_place_rule_holds_over_generated_stores` runs it through a whole core.

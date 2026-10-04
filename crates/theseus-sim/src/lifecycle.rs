@@ -826,6 +826,9 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
         "weights_dir".into(),
         projects.join("no-models").display().to_string().into(),
     );
+    // Recall runs in shadow (M6 step 30a), as it will on the operator's daemon: no
+    // phase may move with it, and the turn bench counts its frames with it.
+    table(&mut t, "memory").insert("mode".into(), "shadow".into());
     let tools = table(&mut t, "tools");
     tools.insert("projects_dir".into(), projects.display().to_string().into());
     tools.insert("proc_sync_secs".into(), 1.into());
@@ -1922,6 +1925,8 @@ mod tests {
         // The index tender runs, and finds no model's files.
         assert!(cfg.index.enabled);
         assert!(!theseus_core::config::expand(&cfg.index.weights_dir).exists());
+        // Recall runs in shadow.
+        assert!(cfg.memory.on());
     }
 
     /// The bench's binding is one the binding takes, and its Discord is the

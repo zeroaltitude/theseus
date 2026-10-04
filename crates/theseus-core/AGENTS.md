@@ -27,8 +27,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Not run: …`, reason `place: …`). The binding tells the core its places as it starts (`Core::bind_places`, in
   memory: an unnamed guild place is shared), and reads each private channel's viewers once (`private_place_viewed`,
   `place.viewed`), for health's `places:` line. In a trusted guild it reads none, and health names each private
-  channel there `(in a trusted guild)` (`Core::trust_guild`, `PlaceInfo.trusted_guild`). M6's recall and the books,
-  when built, draw in a shared place only on that place's own sessions. Tests: `tests_places.rs`, `places::tests`.
+  channel there `(in a trusted guild)` (`Core::trust_guild`, `PlaceInfo.trusted_guild`). M6's recall draws in a
+  shared place only on that place's own sessions (and the books, when built, will too). Tests: `tests_places.rs`,
+  `places::tests`.
   - **Publish** (`rpc/publish.rs`; graduation's light form): `place.publish` puts one item (a node, a file the owner
     can read, or a message) into a bound place's session as the owner's message, with a `derived_from` edge for a
     node (`publish`), its `place.published` row, and a notice post in the place, in one frame under the place's
@@ -105,6 +106,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
   never past 100 ms). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
   clock with a stand-in `Os`.
+- **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
+  query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
+  read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it
+  answers, never past `[memory] recall_deadline_ms`: a stalled index costs a turn at most the deadline past its
+  call), `fact/recall.rs` (the `recall.shadow` row, scoped `recall:<session>`, with references and the query's
+  digest, never copies; the `recall` span; the narrative line), `rpc/memory.rs` (`memory.search`, which writes
+  nothing, and `memory.recalls`), and `config/memory.rs`. In shadow the model's request is the one compiled without
+  recall, and the row rides in the turn's next frame. The filters and pack are `theseus_memory::recall`. Tests:
+  `tests_recall.rs`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

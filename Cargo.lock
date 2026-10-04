@@ -6424,6 +6424,7 @@ dependencies = [
  "theseus-aws",
  "theseus-aws-guard",
  "theseus-kernel",
+ "theseus-memory",
  "theseus-protocol",
  "theseus-sandbox",
  "theseus-store",

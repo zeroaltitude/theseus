@@ -51,6 +51,8 @@ use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
+mod recall_step;
+
 /// The persona at the front of every system prompt. Frozen text: it sits at
 /// the start of the cached prefix, so it never interpolates anything.
 pub const PERSONA: &str = "You are Theseus, a coding and operations agent working for your operator through a harness that records everything you do. Be direct and concise; lead with what you found or did. When you are unsure, say so plainly.";
@@ -116,6 +118,8 @@ pub struct TurnRunner {
     /// Each place's class (the place rule, theseus-nbsh): the places the
     /// binding binds, as it told the core at its start.
     pub place_rule: crate::places::PlaceRule,
+    /// Recall (M6 step 30a): `[memory]`, and the index it asks.
+    pub memory: Arc<crate::recall::Memory>,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -1588,7 +1592,15 @@ impl TurnRunner {
                 retrying = Some(o);
             }
             let said_before = (t.output.len(), t.said.len());
-            let (resp, node) = match self.call_model(t, provider, &compiled, i).await? {
+            // Recall asks the index as the first loop's call goes out, and
+            // is read once it answers (M6 30a: in shadow, the request is
+            // the one compiled without it).
+            let recall = (i == 0).then(|| self.recall_begin(t)).flatten();
+            let called = self.call_model(t, provider, &compiled, i).await;
+            if let Some(r) = recall {
+                self.recall_end(t, r).await;
+            }
+            let (resp, node) = match called? {
                 Called::Answered(called) => *called,
                 Called::Failed(failure) => {
                     if !image_retried {

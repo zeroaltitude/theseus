@@ -1,15 +1,11 @@
 [package]
 name = "theseus-memory"
-description = "Theseus's memory science, as pure logic with no I/O: FSRS-6 retention and spreading activation."
+description = "Theseus's memory science, as pure logic with no I/O: the MemoryScience trait, recall's filters and pack, FSRS-6 retention, and spreading activation."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
-[package.metadata.theseus]
-reserved_for = "row 52 (30a), M6: the recall step in shadow, and memory.search; FSRS-6 and activation at rows 58 and 59 (32a, 32b)"
 
 [dependencies]
 

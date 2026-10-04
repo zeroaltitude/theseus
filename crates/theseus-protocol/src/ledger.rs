@@ -125,6 +125,7 @@ ledger_kinds! {
     ProviderCut = "provider.cut",
     ProviderError = "provider.error",
     ProviderRefusal = "provider.refusal",
+    RecallShadow = "recall.shadow",
     Reconcile = "reconcile",
     SandboxEgress = "sandbox.egress",
     SandboxEgressRefused = "sandbox.egress_refused",

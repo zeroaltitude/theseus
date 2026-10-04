@@ -304,6 +304,9 @@ impl Core {
             // The index tender (roadmap row 51), asked on its socket, bounded.
             method::INDEX_STATUS => reply(self.index.health(crate::tender::STATUS_DEADLINE).await),
             method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
+            // Recall (M6 30a): the pipeline for a query, and a session's recalls.
+            method::MEMORY_SEARCH => reply(self.memory_search(parse(params)?).await?),
+            method::MEMORY_RECALLS => reply(self.memory_recalls(parse(params)?)?),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.

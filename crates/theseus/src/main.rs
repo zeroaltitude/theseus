@@ -53,6 +53,7 @@ Quick start:
   theseus policy trust <session>             after a session read a web page, its calls that act wait; this trusts it again
   theseus catalog                            models, context windows, and prices
   theseus index search \"port 7433\"           find what was said, run, or read; `index status`: how far the index has read
+  theseus memory recalled <session>          what recall would have admitted on each turn, and why it dropped the rest
   theseus --spawn ask \"...\"                 no daemon: spawn theseusd on stdio for one turn, then stop it cleanly
   theseus shutdown
 
@@ -311,6 +312,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: IndexCmd,
     },
+    /// Recall (M6): `memory search <QUERY>` runs recall's pipeline for a query, writing nothing;
+    /// `memory recalled <SESSION>` shows what each of its turns would have recalled, in shadow.
+    Memory {
+        #[command(subcommand)]
+        cmd: MemoryCmd,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -470,6 +477,30 @@ enum IndexCmd {
 }
 
 #[derive(Subcommand, Debug)]
+enum MemoryCmd {
+    /// Recall's pipeline for QUERY, writing nothing: what the index offers, what the pack would
+    /// admit with each source's rank, and why each other hit is dropped (its place first).
+    Search {
+        #[arg(required = true, value_name = "QUERY")]
+        query: Vec<String>,
+        /// As a turn in this session's place would recall (default: a private place's, as the
+        /// CLI is).
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+        /// How many hits to ask the index for (at most 100).
+        #[arg(short, long, default_value_t = 40)]
+        k: usize,
+    },
+    /// What each of SESSION's turns would have recalled in shadow, newest last.
+    Recalled {
+        session: String,
+        /// The newest this many (at most 200).
+        #[arg(short = 'n', long, default_value_t = 10)]
+        limit: usize,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum ProfileCmd {
     /// List profiles; `*` marks the live one and where the choice came from (default).
     List,
@@ -573,6 +604,7 @@ async fn run(cli: Cli) -> Result<()> {
             herdr_sync::run(c, json, cmd, socket).await
         }
         Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
+        Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

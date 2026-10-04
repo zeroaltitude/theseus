@@ -39,6 +39,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("events.rs"),
         include_str!("gate.rs"),
         include_str!("index.rs"),
+        include_str!("memory.rs"),
         include_str!("places.rs"),
         include_str!("push.rs"),
     ] {
@@ -115,6 +116,8 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         index::IndexForgetResult, index::IndexWarmResult, index::IndexBackfill, index::IndexStatus,
         index::IndexVectorStatus, index::IndexCompactions, index::IndexReembed,
         index::IndexEmbedStats, index::IndexRebuildResult, index::IndexHealth,
+        memory::MemorySearchParams, memory::MemoryRecallsParams, memory::MemoryRecallsResult,
+        memory::RecallManifest, memory::RecallItem, memory::RecallDrop, memory::RecallTimings,
         sandbox::SandboxHealth, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
         sandbox::SandboxUsage, sandbox::RunningJob, bench::BenchHistoryParams,
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,

@@ -21,7 +21,8 @@ use theseus_protocol::{
 
 use crate::print::{self, Mode, Printer};
 use crate::{
-    AskArgs, AwsCmd, ConfirmArgs, ExecutionsCmd, IndexCmd, PolicyCmd, ProfileCmd, SessionsCmd,
+    AskArgs, AwsCmd, ConfirmArgs, ExecutionsCmd, IndexCmd, MemoryCmd, PolicyCmd, ProfileCmd,
+    SessionsCmd,
 };
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it
@@ -809,6 +810,43 @@ pub async fn index(conn: &mut Conn, json: bool, cmd: IndexCmd) -> Result<()> {
                     &mut io::stdout().lock(),
                     &render::index_hits_lines(&text, &r),
                 )?;
+                Ok(())
+            })
+        }
+    }
+}
+
+/// `theseus memory search` and `theseus memory recalled` (M6 step 30a):
+/// recall's pipeline for a query, and a session's recalls in shadow.
+pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
+    use theseus_protocol::memory::{
+        MemoryRecallsParams, MemoryRecallsResult, MemorySearchParams, RecallManifest,
+    };
+    match cmd {
+        MemoryCmd::Search { query, session, k } => {
+            let p = MemorySearchParams {
+                query: query.join(" "),
+                session_id: session,
+                k: Some(k),
+            };
+            let v = conn
+                .request(method::MEMORY_SEARCH, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |m: RecallManifest| {
+                print::lines(&mut io::stdout().lock(), &render::recall_lines(&m))?;
+                Ok(())
+            })
+        }
+        MemoryCmd::Recalled { session, limit } => {
+            let p = MemoryRecallsParams {
+                session_id: session,
+                limit: Some(limit),
+            };
+            let v = conn
+                .request(method::MEMORY_RECALLS, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: MemoryRecallsResult| {
+                print::lines(&mut io::stdout().lock(), &render::recalls_lines(&r))?;
                 Ok(())
             })
         }

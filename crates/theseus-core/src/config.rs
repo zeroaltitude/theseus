@@ -13,8 +13,10 @@ use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
+pub(crate) mod memory;
 mod sparse;
 pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
+pub use memory::{MemoryConfig, MemoryMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
 
 /// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
@@ -98,6 +100,9 @@ pub struct Config {
     /// `[index]`: the index tender (roadmap row 51).
     #[serde(default)]
     pub index: IndexConfig,
+    /// `[memory]`: recall (M6 step 30a), off by default, in `config/memory.rs`.
+    #[serde(default, skip_serializing_if = "MemoryConfig::is_default")]
+    pub memory: MemoryConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
@@ -1237,6 +1242,7 @@ impl Config {
             }
         }
         self.validate_places()?;
+        self.memory.validate()?;
         self.validate_voice()?;
         if let Some(name) = &self.context.default_persona {
             if !self.personas.contains_key(name) {
@@ -1759,6 +1765,7 @@ mod tests {
         // [voice] and its key's line are real too (rows 77 and 78).
         assert!(cfg.voice.enabled && cfg.secrets.contains_key(&cfg.voice.key_secret));
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
+        memory::the_templates_memory_section(&cfg.memory);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);
     }

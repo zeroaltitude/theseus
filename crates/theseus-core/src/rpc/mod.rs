@@ -16,6 +16,7 @@ mod confirms;
 pub(crate) use confirms::{expired_answer, Act};
 mod driver;
 mod info;
+mod memory;
 mod methods;
 mod pages;
 mod policy;
@@ -535,7 +536,18 @@ impl Core {
         );
         // Read from the store on its first use, never on the start path.
         let outbox = Arc::new(crate::outbox::Outbox::new(store.clone(), kernel.clone()));
+        // Nothing starts, and nothing is looked for, until after serving.
+        let index = Arc::new(crate::tender::IndexTender::new(
+            cfg.index.clone(),
+            store.dir(),
+            None,
+            Arc::new(crate::tender::ChildrenOs),
+        ));
         let runner = TurnRunner {
+            memory: Arc::new(crate::recall::Memory::new(
+                cfg.memory.clone(),
+                Some(index.clone()),
+            )),
             outbox: outbox.clone(),
             cfg: cfg.clone(),
             providers,
@@ -570,13 +582,6 @@ impl Core {
             None => (cfg.model.live.clone(), "config".to_string()),
         };
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
-        // Nothing starts, and nothing is looked for, until after serving.
-        let index = Arc::new(crate::tender::IndexTender::new(
-            cfg.index.clone(),
-            store.dir(),
-            None,
-            Arc::new(crate::tender::ChildrenOs),
-        ));
         let core = Arc::new(Self {
             cfg,
             store,
