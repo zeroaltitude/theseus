@@ -22,6 +22,7 @@ mod aws;
 mod cancel;
 mod catalog;
 mod index;
+mod judge;
 mod memory;
 mod ontology;
 mod places;
@@ -31,6 +32,7 @@ pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use catalog::catalog_config_lines;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
+pub use judge::{judge_line, judge_log_lines};
 pub use memory::{recall_lines, recalls_lines};
 pub use ontology::{ontology_categories_lines, ontology_kinds_lines, ontology_memberships_lines};
 pub use places::{places_health_line, places_lines};
@@ -1635,6 +1637,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         push(o, Tag::Plain, &line);
     }
     places::push_health(o, h.places.as_ref());
+    judge::push_health(o, h.judge.as_ref());
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);
     }

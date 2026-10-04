@@ -13,9 +13,11 @@ use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
+mod judge;
 pub(crate) mod memory;
 mod sparse;
 pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
+pub use judge::{JudgeConfig, JudgePackConfig, PackMode};
 pub use memory::{MemoryConfig, MemoryMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
 
@@ -106,6 +108,9 @@ pub struct Config {
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
+    /// `[judge]`: Jev's judgments, in shadow (M5 23a), in `config/judge.rs`.
+    #[serde(default)]
+    pub judge: JudgeConfig,
     /// `[approval]`, retired (theseus-zmgb): an answer counts only from a
     /// private place, by the owner (the place rule). A config that still has
     /// the section loads, with one warning a load; nothing reads it.
@@ -1191,6 +1196,7 @@ impl Config {
             );
         }
         self.sandbox.validate()?;
+        self.judge.validate(&self.secrets)?;
         let providers = self.all_providers();
         for (name, prof) in &self.profiles {
             if !providers.contains_key(&prof.provider) {
@@ -1766,6 +1772,7 @@ mod tests {
         assert!(cfg.voice.enabled && cfg.secrets.contains_key(&cfg.voice.key_secret));
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
         memory::the_templates_memory_section(&cfg.memory);
+        judge::the_templates_judge_section(&cfg);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);
     }

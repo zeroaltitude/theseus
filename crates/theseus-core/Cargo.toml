@@ -21,6 +21,8 @@ theseus-aws-guard = { path = "../theseus-aws-guard" }
 theseus-memory = { path = "../theseus-memory" }
 # The ontology (row 26, 21b): its records, the snapshot, and the compile walk.
 theseus-ontology = { path = "../theseus-ontology" }
+# Jev's judgments (M5 23a): the client, packs, and builders; the core wires them in.
+theseus-judge = { path = "../theseus-judge" }
 anyhow.workspace = true
 base64.workspace = true
 thiserror.workspace = true
@@ -40,6 +42,8 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+# The fake Jev, for the judge's tests.
+theseus-judge = { path = "../theseus-judge", features = ["fake"] }
 # The paused clock for tests that prove a wait never happens (theseus-ksfu);
 # theseus-aws and theseus-voice enable it already, so the workspace's test
 # build is unchanged.

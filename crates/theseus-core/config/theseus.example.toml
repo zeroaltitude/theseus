@@ -577,6 +577,30 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # Rust's registry and GitHub, for builds that fetch their dependencies:
 # egress = ["crates.io:443", "index.crates.io:443", "static.crates.io:443", "github.com:443", "api.github.com:443", "codeload.github.com:443", "objects.githubusercontent.com:443"]
 
+# ---------------------------------------------------------------- judge
+# Jev's judgments (M5): typed questions about the session's work, asked of
+# TypeSafe's Jev. Off by default. On, every pack this build wires in judges in
+# shadow: each judgment is made, priced, and recorded in the ledger, and nothing
+# acts on one. A judgment sends its state (your messages, the assistant's final
+# text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
+# runs after the turn and the turn never waits for it: a slow or failing Jev
+# changes no turn. Today one pack judges: loop.v1, at each turn that ends with
+# no tool calls (where does the work on the ask stand?). `theseus judge log`
+# lists the judgments, and health's judge: line counts them and their spend.
+[judge]
+enabled = false                         # true sends judgments to Jev; needs the key_secret entry under [secrets]
+key_secret = "jev_api_key"              # the [secrets] entry holding the Jev key, read after serving
+max_mode = "live"                       # a ceiling on every pack: "shadow" acts on nothing, "off" calls nothing
+shadow_limit_usd_per_day = 1.0          # what shadow judgments may spend in a local day; at it, shadow pauses until midnight
+max_in_flight = 8                       # Jev calls at once; a shadow judgment with none free is skipped and counted
+connect_secs = 2
+total_secs = 5                          # a whole call, connect included
+# api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
+# A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
+# [judge.packs."loop.v1"]
+# mode = "off"                          # off | shadow: "off" stops this pack alone
+# sample = 0.5                          # the share of its events judged in shadow (default the pack's own, 1.0)
+
 # ---------------------------------------------------------------- places
 # Confidentiality: every place a session speaks in is private or shared (the place rule).
 # Private: the CLI, the web UI, a DM with you, and a guild channel the bindings file binds

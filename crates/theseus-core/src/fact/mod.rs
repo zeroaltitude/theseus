@@ -44,6 +44,7 @@ pub mod answer;
 pub mod cancel;
 pub mod driver;
 pub mod index;
+pub mod judge;
 pub mod ontology;
 pub mod place;
 pub mod recall;
@@ -327,6 +328,11 @@ facts![
     ontology::CategorySet<'static>,
     ontology::GuidanceSet<'static>,
     ontology::MembershipSet<'static>,
+    judge::JudgeCall<'static>,
+    judge::JudgePaused<'static>,
+    judge::JudgeBlockBooked<'static>,
+    judge::JudgeCircuit<'static>,
+    judge::JudgeShed,
 ];
 
 #[cfg(test)]

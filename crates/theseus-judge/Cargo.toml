@@ -7,10 +7,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
-[package.metadata.theseus]
-reserved_for = "row 37 (23a), M5: JudgeService under [judge] in theseus-core, with loop.v1 in shadow"
-
 [features]
 # A fake Jev on 127.0.0.1 for other crates' tests and the simulator. The
 # crate's own unit tests always have it.

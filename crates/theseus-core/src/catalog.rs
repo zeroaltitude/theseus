@@ -643,9 +643,49 @@ impl SpeechPrice {
     }
 }
 
+/// What a Jev judgment costs (M5 23a; design §2.6), beside the models' and
+/// speech's prices: each pinned Jev model's row, built in only. A pack whose
+/// model has no row here is never called (`unpriced`). Jev is billed by the
+/// token, input and output, with no cache prices.
+pub fn judge_prices() -> BTreeMap<String, theseus_judge::JevPrice> {
+    let row = theseus_judge::JevPrice::jev_1_13_0();
+    [(theseus_judge::price::JEV_MODEL.to_string(), row)].into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Jev's pinned model is priced (M5 23a): every pack's model has a row,
+    /// a call's cost is its usage at that row's prices, rounded up, and the
+    /// models' table is unchanged by it.
+    #[test]
+    fn every_packs_jev_model_is_priced() {
+        let prices = judge_prices();
+        let packs = theseus_judge::pack::embedded().as_ref().unwrap();
+        for p in packs
+            .iter()
+            .filter(|p| p.jev_model != theseus_judge::judge::UNPINNED)
+        {
+            assert!(
+                prices.contains_key(&p.jev_model),
+                "{} is unpriced",
+                p.name()
+            );
+        }
+        let row = &prices["jev-1.13.0"];
+        assert_eq!(
+            (row.kind.as_str(), row.provider.as_str()),
+            ("judge", "typesafe")
+        );
+        let u = theseus_judge::Usage {
+            input_tokens: 2_000,
+            output_tokens: 100,
+        };
+        // 2,100 tokens at $0.042 a million: 88.2 micro-dollars, rounded up.
+        assert_eq!(row.cost_micros(&u), 89);
+        assert!(Catalog::builtin().get("jev-1.13.0").is_none());
+    }
 
     #[test]
     fn builtin_rows_are_sane_and_priced() {

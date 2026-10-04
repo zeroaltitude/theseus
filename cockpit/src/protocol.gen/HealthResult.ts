@@ -13,6 +13,7 @@ import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
 import type { HarnessOnly } from "./HarnessOnly";
 import type { IndexHealth } from "./IndexHealth";
+import type { JudgeHealth } from "./JudgeHealth";
 import type { KernelStatus } from "./KernelStatus";
 import type { PlacesHealth } from "./PlacesHealth";
 import type { PushStatus } from "./PushStatus";
@@ -164,6 +165,10 @@ crash?: CrashStatus,
  * launch since the start, and the jobs by class. Absent without tools.
  */
 sandbox?: SandboxHealth, 
+/**
+ * The judge (M5 23a): `[judge]`, the breaker, and today's calls and spend.
+ */
+judge?: JudgeHealth, 
 /**
  * Each backend's cancels since the daemon started, by how they ended
  * (M4 18a). Empty until the first.
