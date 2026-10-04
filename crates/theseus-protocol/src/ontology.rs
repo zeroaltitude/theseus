@@ -181,3 +181,120 @@ pub struct OntologyMembershipResult {
     /// The lists it wrote: none when nothing changed.
     pub changed: Vec<String>,
 }
+
+/// `ontology.proposals` (M5 28b): what `categorize.v1`, in shadow, proposed
+/// and the operator has not answered: each answered judgment whose `topic`
+/// names a topic its session is not in, or `new_topic`, newest first. Jev
+/// writes no membership; the operator accepts or rejects each.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalsParams {
+    /// Only this session's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session_id: Option<String>,
+    /// At most this many (default 50).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalsResult {
+    pub proposals: Vec<OntologyProposal>,
+    /// Unanswered proposals past `limit`, left out.
+    #[serde(default)]
+    pub more: u32,
+}
+
+/// One proposal: a `categorize.v1` judgment's `topic` answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposal {
+    /// The judgment (`jdg_…`), which `ontology.proposal.accept` and
+    /// `ontology.proposal.reject` name.
+    pub judgment: String,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session_title: Option<String>,
+    /// The topic it proposes (`topic:harbor`); absent for `new_topic`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub topic: Option<String>,
+    /// The topic's name, as the ontology holds it now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub topic_name: Option<String>,
+    /// Jev's answer was `new_topic`: the messages share a subject no topic
+    /// covers, and the operator names it at accept.
+    pub new_topic: bool,
+    /// The top choice's probability.
+    pub confidence: f64,
+    /// `act`, `confirm`, or `escalate`, by the pack's thresholds.
+    pub band: String,
+    /// When it was judged.
+    pub at_ms: u64,
+}
+
+/// `ontology.proposal.accept`: the operator's yes to a proposal. The
+/// session joins the topic (an `operator`-origin membership, through the
+/// ontology's write path) and the judgment gets its `judge.label` row, in
+/// one frame. For `new_topic`, `topic` names the topic: an existing one, or
+/// a new one made in the same frame, with `description`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalAcceptParams {
+    pub judgment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub topic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// `ontology.proposal.reject`: the operator's no; the judgment gets its
+/// `judge.label` row, and nothing else changes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalRejectParams {
+    pub judgment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// What an accept or a reject wrote.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalAnswered {
+    pub judgment: String,
+    pub session_id: String,
+    /// The label row's key (`lbl_…`).
+    pub label_id: String,
+    /// `accepted` or `rejected`.
+    pub label: String,
+    /// The topic the session joined (accept).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub topic: Option<String>,
+    /// The session's interpreted memberships after it.
+    pub memberships: Vec<OntologyMembership>,
+}

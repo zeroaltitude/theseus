@@ -460,6 +460,31 @@ enum OntologyCmd {
         #[arg(allow_hyphen_values = true, value_name = "+CATEGORY|-CATEGORY")]
         changes: Vec<String>,
     },
+    /// Jev's unanswered proposals (categorize.v1, in shadow), newest first: a topic a session
+    /// is not in, or a new topic, with Jev's confidence and band.
+    Proposals {
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+        #[arg(long)]
+        limit: Option<u32>,
+    },
+    /// Accept a proposal: the session joins the topic (yours, `operator`), and the judgment is
+    /// labelled. For a new topic, --topic names it: an existing topic, or a new one (--desc).
+    Accept {
+        judgment: String,
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(long)]
+        desc: Option<String>,
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Reject a proposal: the judgment is labelled, and nothing else changes.
+    Reject {
+        judgment: String,
+        #[arg(long)]
+        note: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

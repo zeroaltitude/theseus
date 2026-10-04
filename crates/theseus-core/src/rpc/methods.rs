@@ -107,6 +107,7 @@ impl Core {
             terminals: self.tools.terms.all().iter().map(|t| t.info()).collect(),
             mcp_server: self.mcp_server.health(self.cfg.mcp_server.enabled),
             lsp: self.tools.lsp.as_ref().map(|b| b.health()),
+            tasks: Some(self.tasks_health()),
         }
     }
 

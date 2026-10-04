@@ -237,6 +237,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     turn's trace marks it (under the call's span) and a "should have asked" press labels it (`judge.label`, in the
     press's frame) before its row is written. A notified call's score follows its notice as `judge.scored`.
     Tests: `tests_security.rs`.
+  - **At an exchange's end** (step 28b, `categorize.rs`): at a private conversation's exchange end (never a shared
+    place's, never a task's), `categorize.v1` judges in shadow when 10 human messages arrived since the session's
+    last judgment, or the exchange began after 30 minutes' quiet; the decision, off the turn's path, reads the
+    session's records after its mark (META `judge.categorize.<session>`, moved as a judgment is dispatched). It
+    runs outside every turn, so it marks no trace. The service reaches the core by `Weak`
+    (`JudgeService::attach`). Jev writes no membership: `rpc/proposals.rs` lists its proposals
+    (`ontology.proposals`, one scan of `judge:categorize`) and takes the operator's answer
+    (`ontology.proposal.accept`/`reject`, through `judge_act`): an accept's membership, its topic for
+    `new_topic`, and its `judge.label` row (`fact::judge::ProposalLabel`) in one frame. Tests:
+    `tests_categorize.rs`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it
@@ -287,6 +297,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   is the last block of a request's last message, the conversation's breakpoint on the block before it; a test's
   stand-in that reads the last user text skips it (`view::is_view`, `view::HEAD`). Facts: `fact/task_graph.rs`.
   Tests: `tests_task_graph.rs`, `task_graph::tests`.
+- **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
+  with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

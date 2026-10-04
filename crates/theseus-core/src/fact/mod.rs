@@ -361,6 +361,7 @@ facts![
     judge::JudgeShed,
     judge::JudgeScored<'static>,
     judge::JudgeLabel<'static>,
+    judge::ProposalLabel<'static>,
     mcp::McpStarted,
     mcp::McpReady,
     mcp::McpExited,

@@ -63,8 +63,8 @@ fn marks(trace: &Option<Span>) -> Vec<Value> {
         .collect()
 }
 
-/// `loop.v1`, the gate's packs (step 24) and `continue.v1` (25b) off, so the
-/// inbound point's call is the only one.
+/// `loop.v1`, the gate's packs (step 24), `continue.v1` (25b) and
+/// `categorize.v1` (28b) off, so the inbound point's call is the only one.
 fn inbound_only(c: &mut crate::Config) {
     c.judge.packs.insert("loop.v1".into(), off());
     for p in crate::judge::gate::GATE_PACKS {
@@ -73,16 +73,20 @@ fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::compile::CONTINUE_PACK.into(), off());
+    c.judge
+        .packs
+        .insert(crate::judge::categorize::PACK.into(), off());
 }
 
 /// Health's pack list under `inbound_only`.
-const INBOUND_ALONE: [&str; 6] = [
+const INBOUND_ALONE: [&str; 7] = [
     "loop.v1: off",
     "security.v1: off",
     "security.v3: off",
     "classify.v1: shadow",
     "role.v1: shadow",
     "continue.v1: off",
+    "categorize.v1: off",
 ];
 
 /// A person's message is judged by both packs in one request: the fake

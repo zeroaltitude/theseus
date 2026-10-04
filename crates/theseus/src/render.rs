@@ -28,6 +28,7 @@ mod mcp;
 mod mcp_server;
 mod memory;
 mod ontology;
+mod parked;
 mod places;
 mod sandbox;
 mod store;
@@ -42,7 +43,11 @@ pub use lsp::lsp_line;
 pub use mcp::{mcp_line, mcp_lines};
 pub use mcp_server::mcp_server_line;
 pub use memory::{recall_lines, recalls_lines};
-pub use ontology::{ontology_categories_lines, ontology_kinds_lines, ontology_memberships_lines};
+pub use ontology::{
+    ontology_categories_lines, ontology_kinds_lines, ontology_memberships_lines,
+    ontology_proposals_lines,
+};
+pub use parked::parked_lines;
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
@@ -1670,6 +1675,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     places::push_health(o, h.places.as_ref());
     judge::push_health(o, h.judge.as_ref());
     mcp_server::push_health(o, h.mcp_server.as_ref());
+    parked::push_health(o, h.tasks.as_ref());
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);
     }

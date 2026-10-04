@@ -265,7 +265,10 @@ impl Core {
             method::ONTOLOGY_LIST
             | method::ONTOLOGY_CATEGORY_ADD
             | method::ONTOLOGY_GUIDANCE_SET
-            | method::ONTOLOGY_MEMBERSHIP_SET => self.rpc_ontology(&req.method, params, conn),
+            | method::ONTOLOGY_MEMBERSHIP_SET
+            | method::ONTOLOGY_PROPOSALS
+            | method::ONTOLOGY_PROPOSAL_ACCEPT
+            | method::ONTOLOGY_PROPOSAL_REJECT => self.rpc_ontology(&req.method, params, conn),
             method::CONFIRM_LIST => reply(theseus_protocol::ConfirmListResult {
                 confirms: self.confirm_list()?,
             }),

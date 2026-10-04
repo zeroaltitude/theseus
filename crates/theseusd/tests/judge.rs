@@ -206,7 +206,8 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "security.v3: shadow",
             "classify.v1: off",
             "role.v1: off",
-            "continue.v1: shadow"
+            "continue.v1: shadow",
+            "categorize.v1: shadow"
         ])
     );
     assert!(rig.rows("judge.call").is_empty());

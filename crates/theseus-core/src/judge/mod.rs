@@ -25,6 +25,7 @@
 //!   shadow, asked of every call that acts once the gate has decided; the
 //!   call never waits on them.
 
+pub mod categorize;
 pub mod compile;
 pub mod gate;
 pub mod inbound;
@@ -65,6 +66,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (inbound::CLASSIFY_PACK, PackMode::Shadow),
     (inbound::ROLE_PACK, PackMode::Shadow),
     (compile::CONTINUE_PACK, PackMode::Shadow),
+    (categorize::PACK, PackMode::Shadow),
 ];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.
@@ -116,6 +118,8 @@ pub struct JudgeService {
     /// Judgments minted at their dispatch whose rows the sink has not yet
     /// written (or that never went out): a press finds them here first.
     pending: Mutex<HashSet<String>>,
+    /// `categorize.v1`'s point (28b): the core it reads, and its decisions.
+    categorize: categorize::Point,
     me: Weak<JudgeService>,
     /// Where the judge's facts say their sentences, and their metrics go
     /// (23b): set by the core as it builds, and as its telemetry is built.
@@ -162,6 +166,7 @@ impl JudgeService {
             flush,
             prices,
             pending: Mutex::new(HashSet::new()),
+            categorize: Default::default(),
             me: me.clone(),
             narrator: OnceLock::new(),
             telemetry: OnceLock::new(),
@@ -271,12 +276,21 @@ impl JudgeService {
     }
 
     /// A turn that ended: one the baseline ended with no tool calls goes to
-    /// `loop.v1` (`at_loop_end`), with the id its trace's mark names; any
-    /// other is not judged in 23a.
+    /// `loop.v1` (`at_loop_end`), with the id its trace's mark names, and a
+    /// conversation's to `categorize.v1`'s decision (`at_exchange_end`, 28b);
+    /// any other is not judged.
     pub fn after_turn(&self, res: &theseus_protocol::TurnSubmitResult, task: bool) {
         if res.stop_reason != "no_tool_calls" {
             return;
         }
+        self.at_exchange_end(
+            categorize::ExchangeEnd {
+                session_id: res.session_id.clone(),
+                execution_id: res.execution_id.clone().unwrap_or_default(),
+                turn_id: res.turn_id.clone(),
+            },
+            task,
+        );
         let marked = res
             .trace
             .as_ref()

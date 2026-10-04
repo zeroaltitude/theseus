@@ -20,6 +20,7 @@ use theseus_protocol::{
     error_code, method, OntologyCategory, OntologyCategoryAddParams, OntologyGuidance,
     OntologyGuidanceSetParams, OntologyKind, OntologyListParams, OntologyListResult,
     OntologyMembership, OntologyMembershipResult, OntologyMembershipSetParams,
+    OntologyProposalAcceptParams, OntologyProposalRejectParams,
 };
 
 use super::confirms::Act;
@@ -302,7 +303,7 @@ impl Core {
         Ok(())
     }
 
-    /// The ontology's four methods, from one arm of `dispatch`, which stays
+    /// The ontology's methods (its proposals' too, 28b), from one arm of `dispatch`, which stays
     /// within clippy's length that way (the shape budget).
     pub(super) fn rpc_ontology(
         &self,
@@ -318,6 +319,17 @@ impl Core {
             method::ONTOLOGY_GUIDANCE_SET => {
                 route(params, |p| self.rpc_ontology_guidance_set(p, conn))
             }
+            method::ONTOLOGY_PROPOSALS => route(params, |p| {
+                self.ontology_proposals(&p).map_err(RpcFailure::invalid)
+            }),
+            method::ONTOLOGY_PROPOSAL_ACCEPT => route(params, |p: OntologyProposalAcceptParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.ontology_proposal_accept(&p, who).map_err(failure)
+            }),
+            method::ONTOLOGY_PROPOSAL_REJECT => route(params, |p: OntologyProposalRejectParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.ontology_proposal_reject(&p, who).map_err(failure)
+            }),
             _ => route(params, |p| self.rpc_ontology_membership_set(p, conn)),
         }
     }
@@ -380,7 +392,7 @@ fn now() -> u64 {
 
 /// Who wrote a record, as its `added_by` holds it: one line of at most 100
 /// characters.
-fn added_by(who: &Answerer) -> String {
+pub(super) fn added_by(who: &Answerer) -> String {
     let w: String = who
         .who()
         .chars()
@@ -395,7 +407,7 @@ fn added_by(who: &Answerer) -> String {
 
 /// A category named by its id (`topic:theseus`), or by its name, or its id's
 /// last part, among the categories of `kind`.
-fn resolve(o: &Ontology, kind: &str, s: &str) -> Result<CategoryId> {
+pub(super) fn resolve(o: &Ontology, kind: &str, s: &str) -> Result<CategoryId> {
     let s = s.trim();
     if s.contains(':') {
         return Ok(CategoryId::parse(s)?);
@@ -478,7 +490,7 @@ fn guidance_info(g: &Guidance) -> OntologyGuidance {
     }
 }
 
-fn membership_info(session: &str, m: &Membership) -> OntologyMembership {
+pub(super) fn membership_info(session: &str, m: &Membership) -> OntologyMembership {
     OntologyMembership {
         session_id: session.to_string(),
         kind: m.kind().to_string(),

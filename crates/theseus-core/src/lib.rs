@@ -44,6 +44,7 @@ pub mod node;
 pub mod ontology;
 pub mod outbound;
 pub mod outbox;
+pub mod parked;
 pub mod peer;
 pub mod places;
 pub mod policy;
@@ -113,6 +114,8 @@ mod tests_arrangement;
 mod tests_books;
 #[cfg(test)]
 mod tests_cancel;
+#[cfg(test)]
+mod tests_categorize;
 #[cfg(test)]
 mod tests_ceilings;
 #[cfg(test)]

@@ -671,15 +671,19 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # acts on one. A judgment sends its state (your messages, the assistant's final
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
-# changes no turn. Today six packs judge: loop.v1, at each turn that ends with
-# no tool calls (where does the work on the ask stand?); security.v1 and
+# changes no turn. Today seven packs judge: loop.v1, at each turn that ends
+# with no tool calls (where does the work on the ask stand?); security.v1 and
 # security.v3, at each call that acts once the gate has decided (how risky is
 # it?); classify.v1 and role.v1, in one request, at each message a person sends
 # (what kind of message is it, and which working role does its reply need?),
 # but not at a slash command, a wake's turn, a report's turn, or a task's first
-# turn; and continue.v1, at a compile that appends although one of CONTINUE's
-# candidate signals fired (append, or recompile, and how?). `theseus judge log`
-# lists the judgments, and health's judge: line counts them and their spend.
+# turn; continue.v1, at a compile that appends although one of CONTINUE's
+# candidate signals fired (append, or recompile, and how?); and categorize.v1,
+# at the end of an exchange in a private conversation, once ten of your
+# messages came since its last judgment or after 30 minutes' quiet (which of
+# your topics is it about? Jev only proposes: `theseus ontology proposals`
+# lists them, and you accept or reject each). `theseus judge log` lists the
+# judgments, and health's judge: line counts them and their spend.
 [judge]
 enabled = false                         # true sends judgments to Jev; needs the key_secret entry under [secrets]
 key_secret = "jev_api_key"              # the [secrets] entry holding the Jev key, read after serving
