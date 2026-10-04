@@ -30,6 +30,8 @@ tracing.workspace = true
 zeroize.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 sha2 = "0.10"
+hmac = "0.12"
+hkdf = "0.12"
 hex = "0.4"
 # A wake's time in the daemon's time zone (`localtime_r`; DD8).
 libc = "0.2"

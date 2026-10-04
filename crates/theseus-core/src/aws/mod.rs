@@ -45,6 +45,7 @@ use crate::secrets::{Secret, SecretBoard, SecretState};
 
 pub mod bootstrap;
 pub mod cost;
+pub mod hands;
 pub mod session;
 pub mod stack;
 pub mod tend;

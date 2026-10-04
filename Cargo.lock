@@ -6412,6 +6412,8 @@ dependencies = [
  "base64 0.22.1",
  "futures-util",
  "hex",
+ "hkdf",
+ "hmac 0.12.1",
  "libc",
  "opentelemetry-proto",
  "proc-macro2",
