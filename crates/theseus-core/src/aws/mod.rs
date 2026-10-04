@@ -46,6 +46,7 @@ use crate::secrets::{Secret, SecretBoard, SecretState};
 pub mod bootstrap;
 pub mod cost;
 pub mod external;
+pub mod inventory;
 pub mod logs;
 pub mod s3;
 pub mod secret;
@@ -64,13 +65,16 @@ mod tests_c3;
 #[cfg(test)]
 mod tests_handles;
 #[cfg(test)]
+mod tests_inventory;
+#[cfg(test)]
 mod tests_outside;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 14] = [
+pub const NAMES: [&str; 15] = [
     "aws.call",
     "aws.cost",
     "aws.describe",
+    "aws.inventory",
     "aws.logs.query",
     "aws.logs.tail",
     "aws.s3.get",
@@ -148,6 +152,7 @@ impl Aws {
         all.extend(s3::all(self));
         all.extend(logs::all(self));
         all.extend(trail::all(self));
+        all.extend(inventory::all(self));
         all.extend(stack::all(self));
         all.push(Arc::new(cost::Cost::new(self.clone())));
         all
