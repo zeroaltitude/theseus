@@ -406,6 +406,8 @@ pub struct Board {
     traced: Mutex<VecDeque<Traced>>,
     /// The renames plans showed, by digest.
     renames: rename::Shows,
+    /// Each session's edit diagnostics the bound beat (L3).
+    pending: edits::Pendings,
     /// The daemon is stopping: nothing starts.
     stopping: AtomicBool,
     /// What the daemon's stop signalled, kept until the process ends, so no
@@ -457,6 +459,7 @@ impl Board {
             started: Mutex::default(),
             traced: Mutex::default(),
             renames: rename::Shows::default(),
+            pending: edits::Pendings::default(),
             stopping: AtomicBool::new(false),
             stopped: Mutex::default(),
         })

@@ -262,7 +262,7 @@ async fn a_server_that_never_answers_costs_the_bound_and_is_pending() {
     std::fs::write(&a, "def total\nERROR new\n").unwrap();
     let t0 = tokio::time::Instant::now();
     let got = board
-        .after_edit("tu_1", std::slice::from_ref(&a))
+        .after_edit("s1", "tu_1", std::slice::from_ref(&a))
         .await
         .expect("a block");
     let waited = t0.elapsed();
@@ -278,6 +278,75 @@ async fn a_server_that_never_answers_costs_the_bound_and_is_pending() {
         got.text
     );
     assert_eq!(got.meta["freshness"], "pending");
+    // Another session's next result carries nothing of it.
+    let ctx = r.core.tools.ctx.clone();
+    let read = |s: &'static str| {
+        let (board, ctx) = (board.clone(), ctx.clone());
+        async move {
+            board
+                .attach(s, "tu_2", "lsp.hover", true, &json!({}), &ctx)
+                .await
+        }
+    };
+    assert!(read("s2").await.is_none());
+    // Nothing yet: the wait goes on.
+    assert!(read("s1").await.is_none());
+    // The answer arrives (the fake's 5 s), and the session's next lsp
+    // result carries it, once.
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let next = read("s1").await.expect("what arrived");
+    assert!(
+        next.text
+            .contains("Diagnostics that arrived since an earlier edit:"),
+        "{}",
+        next.text
+    );
+    assert!(
+        next.text
+            .contains(&format!("{} (fake): 1 error", a.display())),
+        "{}",
+        next.text
+    );
+    assert_eq!(next.meta["arrived"]["freshness"], "pulled");
+    assert!(read("s1").await.is_none(), "taken once");
+}
+
+/// A later edit of a pending file supersedes its wait: the next result
+/// carries the new edit's own diagnostics, not the old wait's.
+#[tokio::test(start_paused = true)]
+async fn a_later_edit_supersedes_a_pending_wait() {
+    let fake = FakeConfig {
+        diagnostics: Diagnostics::Pull,
+        slow_ms: 5_000,
+        ..FakeConfig::default()
+    };
+    let r = rig(vec![], fake, |_, _| {});
+    let board = r.core.tools.lsp.clone().unwrap();
+    let a = r.work.join("a.fake");
+    let (spec, root) = board.server_for(&a).unwrap();
+    board.live(&spec, &root).await.unwrap();
+    std::fs::write(&a, "def total\nERROR new\n").unwrap();
+    let ctx = r.core.tools.ctx.clone();
+    let meta = json!({"path": a});
+    let first = board
+        .attach("s1", "tu_1", "fs.write", true, &meta, &ctx)
+        .await
+        .unwrap();
+    assert_eq!(first.meta["freshness"], "pending");
+    std::fs::write(&a, "def total\n").unwrap();
+    let second = board
+        .attach("s1", "tu_2", "fs.write", true, &meta, &ctx)
+        .await
+        .unwrap();
+    assert_eq!(second.meta["freshness"], "pending");
+    assert!(second.meta.get("arrived").is_none(), "{}", second.meta);
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let next = board
+        .attach("s1", "tu_3", "lsp.symbols", true, &json!({}), &ctx)
+        .await
+        .unwrap();
+    assert!(next.text.contains("(fake): no errors"), "{}", next.text);
+    assert_eq!(next.meta["arrived"]["files"].as_array().unwrap().len(), 1);
 }
 
 /// The frames: a tool loop whose edit carries the block writes no more

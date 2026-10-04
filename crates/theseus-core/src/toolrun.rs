@@ -1507,8 +1507,9 @@ impl ToolRuntime {
             (Ok((o, img, external)), None) => (ResultStatus::Ok, o.text, o.meta, img, external),
             (Err(m), None) => failure(m, failed),
         };
-        // An edit's diagnostics, in a private place only (L3); none for a
-        // call a cancel settled.
+        // An edit's diagnostics, and what arrived since for the session's
+        // pending files, in a private place only (L3); none for a call a
+        // cancel settled.
         let settled = by_cancel.is_none().then_some(status);
         self.lsp_onto(tc, &call.id, tool.name(), settled, &mut text, &mut meta)
             .await;

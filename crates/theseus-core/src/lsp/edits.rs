@@ -14,16 +14,19 @@
 //!   each file's errors first, then its warnings, at most [`MAX_LINES`]
 //!   lines with a count of the rest, and the count of new errors the server
 //!   pushed for other files during the wait. A file the bound beat is said
-//!   to be pending.
+//!   to be pending: its wait goes on, and what it gets rides on the
+//!   session's next edit or `lsp.*` result ("Diagnostics that arrived since
+//!   an earlier edit:"). Pending waits live in memory, best effort: a
+//!   restart loses them, and a later edit of the file supersedes its own.
 //! - **The record**: the block rides in the result node, in its
 //!   completion's frame, so no frame is added; the result's `meta.lsp` says
 //!   what was attached, for L5 to count from the record.
 //! - **The place rule**: a server reads the whole project, so a shared
 //!   place's edit gets no block (`toolrun` asks only in a private place).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -40,11 +43,30 @@ pub const EDITS: [&str; 4] = ["fs.write", "fs.edit", "fs.patch", "lsp.rename"];
 /// The longest the block is, in diagnostic lines.
 pub const MAX_LINES: usize = 20;
 
+/// The most waits a session keeps pending; past it the oldest is dropped.
+pub const MAX_PENDING: usize = 32;
+
+/// A file's wait, as its task returns it: `None` for a file that is gone.
+type Wait = tokio::task::JoinHandle<Option<Result<FileDiagnostics, String>>>;
+
+/// An edit's file the bound beat, its wait still going. In memory only,
+/// and best effort: a restart loses it (the record has the edit's result,
+/// which said it was pending).
+pub(super) struct Pending {
+    path: PathBuf,
+    server: String,
+    wait: Wait,
+}
+
+/// Each session's pending waits, oldest first.
+pub(super) type Pendings = Mutex<HashMap<String, Vec<Pending>>>;
+
 /// How long an edit waits for its files' diagnostics.
 pub const EDIT_WAIT: Duration = Duration::from_millis(1500);
 
 impl crate::toolrun::ToolRuntime {
-    /// `run_inproc`'s hook: the block onto a result's text and `meta.lsp`,
+    /// `run_inproc`'s hook: the block (and what arrived since for the
+    /// session's pending files) onto a result's text and `meta.lsp`,
     /// in a private place only (the place rule). `status` is `None` for a
     /// call a cancel settled, which gets none.
     pub(crate) async fn lsp_onto(
@@ -63,7 +85,10 @@ impl crate::toolrun::ToolRuntime {
             return;
         }
         let ok = status == crate::node::ResultStatus::Ok;
-        if let Some(a) = board.attach(tool_use_id, tool, ok, meta, &self.ctx).await {
+        if let Some(a) = board
+            .attach(tc.session_id, tool_use_id, tool, ok, meta, &self.ctx)
+            .await
+        {
             text.push_str(&a.text);
             meta["lsp"] = a.meta;
         }
@@ -124,20 +149,94 @@ struct File {
 
 impl Board {
     /// The block for a call's result, when there is one: for a successful
-    /// edit, its files' diagnostics. `toolrun` asks only in a private place.
+    /// edit, its files' diagnostics; for an edit or an `lsp.*` call, what
+    /// arrived since for the session's pending files. `toolrun` asks only
+    /// in a private place.
     pub async fn attach(
         self: &Arc<Self>,
+        session: &str,
         tool_use_id: &str,
         tool: &str,
         ok: bool,
         meta: &Value,
         ctx: &ToolCtx,
     ) -> Option<Attached> {
-        if !ok || !EDITS.contains(&tool) {
+        let edit = ok && EDITS.contains(&tool);
+        if !edit && !tool.starts_with("lsp.") {
             return None;
         }
-        let paths = written(tool, meta, ctx);
-        self.after_edit(tool_use_id, &paths).await
+        let paths = match edit {
+            true => written(tool, meta, ctx),
+            false => Vec::new(),
+        };
+        let arrived = self.arrived(session, &paths).await;
+        let now = match edit {
+            true => self.after_edit(session, tool_use_id, &paths).await,
+            false => None,
+        };
+        match (now, arrived) {
+            (now, None) => now,
+            (None, Some(a)) => Some(Attached {
+                text: a.text,
+                meta: json!({ "arrived": a.meta }),
+            }),
+            (Some(mut n), Some(a)) => {
+                n.text.push_str(&a.text);
+                n.meta["arrived"] = a.meta;
+                Some(n)
+            }
+        }
+    }
+
+    /// What the session's pending waits got since, each taken once; a wait
+    /// for one of `superseded` (files written again now) is dropped.
+    async fn arrived(&self, session: &str, superseded: &[PathBuf]) -> Option<Attached> {
+        let done: Vec<Pending> = {
+            let mut all = lock(&self.pending);
+            let list = all.get_mut(session)?;
+            let (gone, kept): (Vec<Pending>, Vec<Pending>) = std::mem::take(list)
+                .into_iter()
+                .partition(|p| superseded.contains(&p.path));
+            for p in gone {
+                p.wait.abort();
+            }
+            let (done, running): (Vec<Pending>, Vec<Pending>) =
+                kept.into_iter().partition(|p| p.wait.is_finished());
+            *list = running;
+            if list.is_empty() {
+                all.remove(session);
+            }
+            done
+        };
+        let mut files = Vec::new();
+        for p in done {
+            let got = match p.wait.await {
+                Ok(None) => continue,
+                Ok(Some(Ok(d))) => Got::Diagnostics(d),
+                Ok(Some(Err(why))) => Got::Failed(why),
+                Err(join) => Got::Failed(join.to_string()),
+            };
+            files.push(File {
+                path: p.path,
+                server: p.server,
+                got,
+            });
+        }
+        if files.is_empty() {
+            return None;
+        }
+        let heading = "Diagnostics that arrived since an earlier edit:";
+        Some(render(heading, &files, 0, Duration::ZERO).await)
+    }
+
+    /// Keep a wait the bound beat for the session's next result.
+    fn keep_pending(&self, session: &str, p: Pending) {
+        let mut all = lock(&self.pending);
+        let list = all.entry(session.to_string()).or_default();
+        if list.len() >= MAX_PENDING {
+            list.remove(0).wait.abort();
+        }
+        list.push(p);
     }
 
     /// The server up for `key`, if one is.
@@ -152,6 +251,7 @@ impl Board {
     /// for its diagnostics, and render them.
     pub async fn after_edit(
         self: &Arc<Self>,
+        session: &str,
         tool_use_id: &str,
         paths: &[PathBuf],
     ) -> Option<Attached> {
@@ -213,8 +313,21 @@ impl Board {
                 Ok(Ok(Some(Err(why)))) => Got::Failed(why),
                 Ok(Err(join)) => Got::Failed(join.to_string()),
                 Err(_) => {
-                    task.abort();
-                    Got::Pending
+                    self.bind(task.id(), tool_use_id);
+                    self.keep_pending(
+                        session,
+                        Pending {
+                            path: path.clone(),
+                            server: server.clone(),
+                            wait: task,
+                        },
+                    );
+                    files.push(File {
+                        path,
+                        server,
+                        got: Got::Pending,
+                    });
+                    continue;
                 }
             };
             self.bind(task.id(), tool_use_id);
@@ -227,7 +340,7 @@ impl Board {
         if files.is_empty() {
             return None;
         }
-        Some(render(&files, others, start.elapsed()).await)
+        Some(render("Errors after this edit:", &files, others, start.elapsed()).await)
     }
 }
 
@@ -271,8 +384,8 @@ fn shown(items: &[Diagnostic]) -> Vec<&Diagnostic> {
 }
 
 /// The block, and `meta.lsp`.
-async fn render(files: &[File], others: usize, waited: Duration) -> Attached {
-    let mut out = vec![String::new(), "Errors after this edit:".to_string()];
+async fn render(heading: &str, files: &[File], others: usize, waited: Duration) -> Attached {
+    let mut out = vec![String::new(), heading.to_string()];
     let (mut lines, mut errors_all, mut errors_shown, mut warnings_all) = (0, 0, 0, 0);
     let mut hidden = 0;
     let mut each = Vec::new();
@@ -294,7 +407,8 @@ async fn render(files: &[File], others: usize, waited: Duration) -> Attached {
         let name = f.path.display();
         match &f.got {
             Got::Pending => out.push(format!(
-                "{name}: pending: {} had not answered for it within {} ms",
+                "{name}: pending: {} had not answered for it within {} ms; what it reports \
+                 rides on this session's next edit or lsp result",
                 f.server,
                 EDIT_WAIT.as_millis()
             )),
@@ -407,7 +521,13 @@ mod tests {
             server: "ty".into(),
             got: Got::Diagnostics(d),
         }];
-        let a = render(&files, 2, Duration::from_millis(3)).await;
+        let a = render(
+            "Errors after this edit:",
+            &files,
+            2,
+            Duration::from_millis(3),
+        )
+        .await;
         let lines: Vec<&str> = a.text.lines().collect();
         assert_eq!(lines[1], "Errors after this edit:");
         assert_eq!(lines[2], "/w/a.py (ty): 25 errors, 1 warning");
