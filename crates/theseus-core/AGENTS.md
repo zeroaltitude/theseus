@@ -256,6 +256,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning` thread at nice 19 and about 5% of a core). `judge.label` (`judge_act(Act::JudgeLabel)`) and
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
     in one frame, then `<state>/learning/<date>.json`. Tests: `tests_learning.rs`, `learning::*::tests`.
+  - **The ladder** (step 26a, `judge/ladder/`): each pack version's mode as `pack.mode` rows scoped per pack id
+    (`pack:<id>`, a few rows), read once after serving (`Core::warm_ladder`) or by the first judgment, then kept
+    (`Ladder`; with no row, `WIRED`'s line). Every point asks `JudgeService::mode_for(pack, session)` (or
+    `ask_mode`, which records `pack_arm` in the judgment's context): the ladder's rung under `JudgeConfig::mode_of`'s
+    ceiling, a canary acting in its `learn::arm` and the control in shadow, `rolled_back` as shadow. A ceiling at
+    shadow needs no read. Rollback (`rules.rs`): each event a rule counts is a `pack.event` row scoped
+    `pack.event:<id>:<day>`, so a restart reads the day back; `learn::check_all` runs as each lands
+    (`JudgeService::land`; `judge.label` lands a label's) and again after the nightly report; a rule from the
+    adoption table (`adopt.rs`: `route.v1`, `rerank.v1`, `security.v3`, live before the ladder, adopted once as the
+    owner's) is a day's brake (`until` the next local midnight, folded away after it), any other stands until a
+    promotion. `rpc/packs.rs` is `pack.list`, `pack.promote` and `pack.rollback` (`judge_act(Act::Ladder)`; short
+    of `promote::bar` the owner's row is `forced`, the system's refused); a `security.*` promotion is a card, its
+    question planned on the ladder's own session (META `ladder.session`) and answered by `action.confirm` like an
+    extension's ack (`answer_promotion`: the bind or decline and the row in one frame, nothing wakes). Tests:
+    `tests_ladder.rs`, `judge::ladder::tests`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it

@@ -29,6 +29,7 @@ pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
 mod ontology;
+pub mod packs;
 mod places;
 mod push;
 pub mod sandbox;
@@ -211,6 +212,8 @@ pub mod method {
         /// the owner, from a private place), and the report, stored by date or run now.
         JUDGE_LABEL = "judge.label",
         LEARNING_REPORT = "learning.report",
+        /// The ladder (M5 26a; `packs`): each pack's mode, a read; the owner's promote and rollback.
+        PACK_LIST = "pack.list", PACK_PROMOTE = "pack.promote", PACK_ROLLBACK = "pack.rollback",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

@@ -34,12 +34,11 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use theseus_judge::builders::{CategorizeInput, MembershipInput, TopicInput};
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
+use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Pack, Urgency};
 use theseus_ontology::{Category, Ontology};
 use theseus_store::kinds;
 
 use super::{spend, JudgeService, Prepared, ScrubWith};
-use crate::config::PackMode;
 use crate::node::{Body, Node, Origin};
 use crate::places::PlaceClass;
 use crate::rpc::Core;
@@ -243,7 +242,7 @@ impl JudgeService {
     /// whether `categorize.v1` judges it is decided in a task of its own.
     /// Returns at once, whatever Jev does.
     pub fn at_exchange_end(&self, end: ExchangeEnd, task: bool) {
-        if task || self.cfg.mode_of(PACK, PackMode::Shadow) == PackMode::Off {
+        if task || !self.pack_on(PACK) {
             return;
         }
         let Some(pack) = theseus_judge::pack::by_name(PACK) else {
@@ -324,13 +323,14 @@ impl JudgeService {
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
             .ok()?;
         let id = format!("jdg_{}", uuid::Uuid::now_v7().simple());
-        let context = json!({
+        let mut context = json!({
             "session": sid, "execution": end.execution_id, "turn": end.turn_id,
             "baseline": "no_membership", "decision": "no_membership", "trigger": trigger.as_str(),
             "class": "reply", "blob": blob, "on_path_ms": 0, "through": newest,
             "candidates": candidates, "candidates_left_out": left_out,
         });
-        let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+        let mode = self.ask_mode(&pack.name(), &mut context);
+        let mut ask = Ask::new(pack, &state, mode, context);
         ask.id = Some(id.clone());
         let need = built
             .judge

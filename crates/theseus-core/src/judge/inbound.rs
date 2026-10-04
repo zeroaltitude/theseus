@@ -25,11 +25,10 @@ use std::time::Instant;
 
 use serde_json::json;
 use theseus_judge::builders::{InboundInput, RoleInput, TaskInput};
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
+use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
 
 use super::{sampled, spend, Built, JudgeService, ScrubWith};
-use crate::config::PackMode;
 use crate::node::{Body, Node, Origin};
 use crate::places::PlaceClass;
 use crate::trace::Trace;
@@ -131,7 +130,7 @@ impl JudgeService {
         }
         let packs: Vec<(Arc<Pack>, String)> = PACKS
             .iter()
-            .filter(|p| self.cfg.mode_of(p, PackMode::Shadow) != PackMode::Off)
+            .filter(|p| self.mode_for(p, &msg.session_id).on())
             .filter_map(|p| theseus_judge::pack::by_name(p))
             .filter(|p| sampled(&msg.turn_id, self.cfg.sample_of(&p.name(), p.sample)))
             .map(|p| (p, theseus_judge::judge::new_id()))
@@ -181,12 +180,13 @@ impl JudgeService {
                 CLASSIFY_PACK => "conversation",
                 _ => "current_role",
             };
-            let context = json!({
+            let mut context = json!({
                 "session": msg.session_id, "execution": msg.execution_id, "turn": msg.turn_id,
                 "node": msg.node_id, "baseline": baseline, "place_kind": msg.place_kind,
                 "blob": blob, "on_path_ms": 0,
             });
-            let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+            let mode = self.ask_mode(&pack.name(), &mut context);
+            let mut ask = Ask::new(pack, &state, mode, context);
             ask.id = Some(id);
             asks.push(ask);
         }

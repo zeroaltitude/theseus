@@ -33,13 +33,12 @@ use std::time::Instant;
 use serde_json::{json, Value};
 use sha2::Digest;
 use theseus_judge::builders::{CallOutcome, HoldInput, ReadInput, SecurityInput, ToolCallInput};
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
+use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Pack, Urgency};
 use theseus_protocol::{ExternalText, Plan, ToolClass};
 use theseus_store::Store as _;
 
 use super::{spend, JudgeService, ScrubWith};
 use crate::bus::EventSink;
-use crate::config::PackMode;
 use crate::node::{Body, Node, Origin, ResultStatus};
 
 /// The incumbent: Eddie's `risky`, whose score the notice shows.
@@ -141,9 +140,7 @@ impl JudgeService {
     /// Any pack at `gate` is on: false with the judge off, so the call's
     /// path reads nothing more.
     pub fn gate_on(&self) -> bool {
-        GATE_PACKS
-            .iter()
-            .any(|p| self.cfg.mode_of(p, PackMode::Shadow) != PackMode::Off)
+        GATE_PACKS.iter().any(|p| self.pack_on(p))
     }
 
     /// A gated call, planned and its notice sent: each gate pack that is on
@@ -156,8 +153,8 @@ impl JudgeService {
         let mut asks = Vec::new();
         let mut marks = Vec::new();
         for name in GATE_PACKS {
-            let mode = self.cfg.mode_of(name, PackMode::Shadow);
-            if mode == PackMode::Off {
+            let given = self.mode_for(name, &call.session_id);
+            if !given.on() {
                 continue;
             }
             let Some(pack) = theseus_judge::pack::by_name(name) else {
@@ -169,7 +166,7 @@ impl JudgeService {
             let id = judgment_id(name, &call.correlation_id);
             marks.push(Mark {
                 at: Instant::now(),
-                attrs: json!({"pack": name, "point": "gate", "mode": mode.as_str(),
+                attrs: json!({"pack": name, "point": "gate", "mode": super::mark::mode_str(given.judge_mode()),
                     "judgment": id, "call": call.correlation_id}),
             });
             asks.push((pack, id));
@@ -278,7 +275,7 @@ impl JudgeService {
                 tracing::warn!("judge: the state's blob was not written; not judged");
                 continue;
             };
-            let context = json!({
+            let mut context = json!({
                 "session": call.session_id, "execution": call.execution_id, "turn": call.turn_id,
                 "loop": call.loop_index, "call": call.correlation_id, "tool_use_id": call.tool_use_id,
                 "tool": call.tool, "tool_class": call.class.as_str(), "posture": call.posture,
@@ -289,7 +286,8 @@ impl JudgeService {
                 "class": if call.task { "task" } else { "tools" },
                 "blob": blob, "on_path_ms": 0,
             });
-            let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+            let mode = self.ask_mode(&pack.name(), &mut context);
+            let mut ask = Ask::new(pack, &state, mode, context);
             ask.id = Some(id);
             out.push(ask);
         }

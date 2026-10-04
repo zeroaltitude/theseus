@@ -255,7 +255,7 @@ pub fn job_session() -> Option<String> {
 /// memory label (M6 30b: `wrong` keeps a node out of every session's
 /// recall), and a judgment's label (M5 25c: the learning ledger grades Jev
 /// by it).
-pub const OPERATORS: [(&str, &str); 13] = [
+pub const OPERATORS: [(&str, &str); 15] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -269,6 +269,8 @@ pub const OPERATORS: [(&str, &str); 13] = [
     (method::ONTOLOGY_PROPOSAL_REJECT, "theseus ontology reject"),
     (method::MEMORY_LABEL, "theseus memory label"),
     (method::JUDGE_LABEL, "theseus judge label"),
+    (method::PACK_PROMOTE, "theseus packs promote"),
+    (method::PACK_ROLLBACK, "theseus packs rollback"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
@@ -357,6 +359,22 @@ mod tests {
         );
         assert!(refuse_in_a_job(method::LEARNING_REPORT, Some("ses_0000aa1b2c3")).is_ok());
         assert!(refuse_in_a_job(method::JUDGE_LIST, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// A job's process cannot move a pack on the ladder (M5 26a): one that
+    /// rolled back security's notices could silence them. The list is a
+    /// read, and goes.
+    #[test]
+    fn a_jobs_process_cannot_promote_or_roll_back_a_pack() {
+        for (m, cmd) in [
+            (method::PACK_PROMOTE, "theseus packs promote"),
+            (method::PACK_ROLLBACK, "theseus packs rollback"),
+        ] {
+            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
+            assert!(e.to_string().starts_with(&format!("{cmd} refused:")), "{e}");
+            assert!(refuse_in_a_job(m, None).is_ok());
+        }
+        assert!(refuse_in_a_job(method::PACK_LIST, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     #[test]

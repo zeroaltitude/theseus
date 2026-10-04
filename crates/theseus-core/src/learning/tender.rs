@@ -131,7 +131,10 @@ impl Core {
                     let rx = on_low_thread(move || {
                         let c = core.upgrade()?;
                         let paced = |took: Duration| std::thread::sleep(took * 19);
-                        Some(c.run_learning(theseus_protocol::now_unix_ms(), trigger, paced))
+                        let r = c.run_learning(theseus_protocol::now_unix_ms(), trigger, paced);
+                        // The ladder's rules again, as the backstop (26a).
+                        c.runner.judge.ladder().recheck();
+                        Some(r)
                     });
                     match rx {
                         Ok(rx) => match rx.await {

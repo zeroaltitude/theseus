@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use theseus_judge::builders::{RerankInput, RerankNote, RERANK_NOTES};
 use theseus_judge::{
-    Ask, DecisionPoint, Input, Judge, Judgment, JudgmentSink, Mode, Outcome, Pack, Urgency,
+    Ask, DecisionPoint, Input, Judge, Judgment, JudgmentSink, Outcome, Pack, Urgency,
 };
 use theseus_memory::recall::{Asker, Candidate, Params, Place};
 use theseus_memory::rerank::{eligible, reorder, repack};
@@ -121,7 +121,7 @@ impl JudgeService {
     /// id. Returns at once, whatever Jev does; nothing when the pack is off,
     /// the recall is out of its sample, or no candidate passed the filters.
     pub fn at_recall(&self, trace: &mut Trace, recalled: Recalled) {
-        let mode = self.cfg.mode_of(RERANK_PACK, PackMode::Shadow);
+        let mode = self.mode_for(RERANK_PACK, &recalled.session_id).mode;
         if mode == PackMode::Off {
             return;
         }
@@ -196,12 +196,13 @@ impl JudgeService {
             .built()
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
             .ok()?;
-        let context = json!({
+        let mut context = json!({
             "session": r.session_id, "turn": r.turn_id, "recall": r.recall_id,
             "purpose": "recall", "arm": "+rerank", "baseline": "fused", "blob": blob,
             "deadline_ms": self.rerank_deadline().as_millis() as u64, "on_path_ms": 0,
         });
-        let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+        let mode = self.ask_mode(&pack.name(), &mut context);
+        let mut ask = Ask::new(pack, &state, mode, context);
         ask.id = Some(d.id.clone());
         let need = built
             .judge

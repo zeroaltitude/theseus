@@ -85,6 +85,8 @@ impl Core {
         self.store
             .append(&[rec.scoped(&super::judge::scope_of(&pack_name))])?;
         self.rec(row.session_id.as_deref()).announce(&f);
+        // The ladder's rules count a day's labels (26a: `noise`, `wrong role`).
+        self.runner.judge.land_label(&pack_name, &label);
         Ok(JudgeLabelResult {
             id,
             judgment: p.judgment.clone(),

@@ -49,6 +49,7 @@ pub mod durability;
 pub mod extend;
 pub mod index;
 pub mod judge;
+pub mod ladder;
 pub mod lsp;
 pub mod mcp;
 pub mod ontology;
@@ -366,6 +367,8 @@ facts![
     judge::JudgeLabel<'static>,
     judge::ProposalLabel<'static>,
     judge::JudgeReport<'static>,
+    ladder::PackModeSet<'static>,
+    ladder::PackEventLanded<'static>,
     mcp::McpStarted,
     mcp::McpReady,
     mcp::McpExited,
