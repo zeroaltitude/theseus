@@ -142,6 +142,7 @@ impl World {
                     target: format!("discord:{p}"),
                     name: "DM".into(),
                     private: false,
+                    ..Default::default()
                 });
         }
         rec.session_id

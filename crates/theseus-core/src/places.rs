@@ -6,9 +6,10 @@
 //!   an owner, and a guild channel the bindings file binds with
 //!   `private = true` (the operator's word, trusted by default). It gets
 //!   everything.
-//! - **A trusted guild** (theseus-rdqg): `private = true` beside the
-//!   bindings file's `guild_id` is the operator's word that the whole guild
-//!   is theirs. Every channel bound in it is private unless it says
+//! - **A trusted guild** (theseus-rdqg): `private = true` in a guild's
+//!   `[[guild]]` (beside `guild_id` in a format-1 bindings file) is the
+//!   operator's word that the whole guild is theirs; each guild has its own
+//!   (step 38a). Every channel bound in it is private unless it says
 //!   `private = false` (the binding resolves each place's class before it
 //!   tells them), none has its viewers read, and health says "in a trusted
 //!   guild" where it would warn.
@@ -30,13 +31,13 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 use theseus_protocol::{PlaceInfo, PlacesHealth, Plan};
 use theseus_tools::paths;
 
+use crate::ceiling::{Ceiling, PlaceView};
 use crate::policy::{Decision, Posture};
 
 pub use theseus_protocol::PlaceClass;
@@ -90,7 +91,7 @@ impl crate::config::Config {
 }
 
 /// A place the Discord binding binds, as its bindings file names it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BoundPlace {
     /// `discord:channel:<id>` or `discord:dm:<user id>` (`outbox.target`).
     pub target: String,
@@ -100,6 +101,11 @@ pub struct BoundPlace {
     /// trusted guild's when it says nothing (theseus-rdqg). A DM's class is
     /// its person's: private with an owner.
     pub private: bool,
+    /// A guild channel's guild id (step 38a); none for a DM.
+    pub guild: Option<String>,
+    /// What the bindings file narrows here (step 38a): it narrows what the
+    /// class allows, never widens it (`ceiling.rs`).
+    pub ceiling: Option<theseus_protocol::PlaceCeiling>,
 }
 
 /// What a read of who can view a guild channel bound `private = true`, outside
@@ -115,6 +121,25 @@ pub enum Viewed {
 struct Bound {
     place: BoundPlace,
     viewed: Option<Viewed>,
+    /// The place's ceiling as the gate reads it. Made once a bind and never
+    /// freed, so a turn's context can hold it by reference: a bind is once a
+    /// binding start, so this is a few small records a run.
+    ceiling: Option<&'static Ceiling>,
+}
+
+impl Bound {
+    fn new(place: BoundPlace) -> Self {
+        let ceiling = place
+            .ceiling
+            .as_ref()
+            .and_then(|c| Ceiling::new(&place.name, c))
+            .map(|c| &*Box::leak(Box::new(c)));
+        Self {
+            place,
+            viewed: None,
+            ceiling,
+        }
+    }
 }
 
 /// The places the binding binds, in memory: what it told the core when it
@@ -123,8 +148,8 @@ struct Bound {
 #[derive(Default)]
 pub struct PlaceRule {
     bound: RwLock<Vec<Bound>>,
-    /// The bindings file trusts its guild whole (theseus-rdqg).
-    trusted_guild: AtomicBool,
+    /// The guilds the bindings file trusts whole (theseus-rdqg), by id.
+    trusted_guilds: RwLock<BTreeSet<String>>,
 }
 
 impl PlaceRule {
@@ -149,29 +174,21 @@ impl PlaceRule {
     /// that bind a session to a place by hand bind it here too.
     #[cfg(test)]
     pub(crate) fn bind_one(&self, place: BoundPlace) {
-        self.bound.write().unwrap().push(Bound {
-            place,
-            viewed: None,
-        });
+        self.bound.write().unwrap().push(Bound::new(place));
     }
 
-    /// Whether the bindings file trusts its guild whole (`private = true`
-    /// beside `guild_id`, theseus-rdqg). Its channels' classes come resolved
-    /// in their places; this says why the private ones are never read.
-    pub fn trust_guild(&self, trusted: bool) {
-        self.trusted_guild.store(trusted, Ordering::Relaxed);
+    /// The guilds the bindings file trusts whole (`private = true` in a
+    /// guild's word, theseus-rdqg; one each, step 38a), by id. Their
+    /// channels' classes come resolved in their places; this says why the
+    /// private ones are never read.
+    pub fn trust_guilds(&self, trusted: BTreeSet<String>) {
+        *self.trusted_guilds.write().unwrap() = trusted;
     }
 
     /// The binding's places, from its bindings file: they replace any told
     /// before.
     pub fn bind(&self, places: Vec<BoundPlace>) {
-        *self.bound.write().unwrap() = places
-            .into_iter()
-            .map(|place| Bound {
-                place,
-                viewed: None,
-            })
-            .collect();
+        *self.bound.write().unwrap() = places.into_iter().map(Bound::new).collect();
     }
 
     /// The bound place `to` names: its name (`#openclaw`, `openclaw`, `DM
@@ -212,6 +229,23 @@ impl PlaceRule {
     /// is private only when the binding bound it private (its own word, or
     /// its trusted guild's); anything else is shared.
     pub fn class(&self, cfg: &crate::Config, target: Option<&str>) -> PlaceClass {
+        self.class_alone(cfg, target)
+    }
+
+    /// The class of the place `target`, as `class` says, and its ceiling
+    /// (step 38a), which a place the binding has not named has none of.
+    pub fn place(&self, cfg: &crate::Config, target: Option<&str>) -> PlaceView {
+        let ceiling = target.and_then(|t| {
+            let bound = self.bound.read().unwrap();
+            bound.iter().find(|b| b.place.target == t)?.ceiling
+        });
+        PlaceView {
+            class: self.class_alone(cfg, target),
+            ceiling,
+        }
+    }
+
+    fn class_alone(&self, cfg: &crate::Config, target: Option<&str>) -> PlaceClass {
         let Some(t) = target else {
             return PlaceClass::Private;
         };
@@ -245,9 +279,11 @@ impl PlaceRule {
             others: None,
             unchecked: None,
             trusted_guild: false,
+            guild: None,
+            ceiling: None,
         };
         let mut places = vec![local("cli", "CLI"), local("web", "web")];
-        let trusted = self.trusted_guild.load(Ordering::Relaxed);
+        let trusted = self.trusted_guilds.read().unwrap().clone();
         for b in self.bound.read().unwrap().iter() {
             let (others, unchecked) = match &b.viewed {
                 Some(Viewed::Others(o)) => (Some(o.clone()), None),
@@ -261,9 +297,11 @@ impl PlaceRule {
                 class,
                 others,
                 unchecked,
-                trusted_guild: trusted
+                trusted_guild: b.place.guild.as_ref().is_some_and(|g| trusted.contains(g))
                     && class == PlaceClass::Private
                     && b.place.target.starts_with("discord:channel:"),
+                guild: b.place.guild.clone(),
+                ceiling: b.place.ceiling.clone().filter(|c| !c.is_empty()),
             });
         }
         PlacesHealth {
@@ -476,6 +514,7 @@ mod tests {
             target: "discord:dm:271828182845904523".into(),
             name: "DM @eddie".into(),
             private: false,
+            ..Default::default()
         }]);
         assert_eq!(
             rule.owners(&cfg).into_iter().collect::<Vec<_>>(),
@@ -553,11 +592,13 @@ mod tests {
                 target: lab.into(),
                 name: "#lab".into(),
                 private: true,
+                ..Default::default()
             },
             BoundPlace {
                 target: open.into(),
                 name: "#open".into(),
                 private: false,
+                ..Default::default()
             },
         ]);
         assert_eq!(class(Some(lab)), PlaceClass::Private);

@@ -1,7 +1,7 @@
 # theseus-discord
 
-The Discord binding (spec P5, M3): one guild's text channels and direct messages, in the daemon's process. Read by
-theseusd.
+The Discord binding (spec P5, M3): text and voice channels in one or more guilds, and direct messages, in the
+daemon's process. Read by theseusd.
 
 Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 
@@ -20,6 +20,13 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   viewers before a turn or a post, and loops stream everywhere. One walk of a channel's viewers (`runtime/audience.rs`,
   `view`) serves that read and the approval check (theseus-sgh). `/publish` (`runtime/publish.rs`) goes to the core's
   `place.publish` as the presser, which the core judges: only the owner, from a private place.
+- **Guilds and ceilings** (step 38a, theseus-ext.3): `bindings.rs` reads format 1 (a top-level `guild_id`, its
+  `private` beside it) and format 2 (a `[[guild]]` each, with its own `private`, and each `[[channel]]` naming its
+  `guild`); a file that mixes them is refused, naming the line. `runtime/guilds.rs` tells the core each guild's word
+  (`Core::trust_guilds`) and each place's guild and ceiling (`BoundPlace`), keeps them for health and the
+  `discord.bound` row (`PlaceBits`), reads the bot's roles in every guild, and gives each place's session its spend
+  limit at each start (`Core::place_spend`). Routing needs no guild: a channel id is unique across guilds. Slash
+  commands stay global. A voice channel may be in any bound guild; its call joins in that guild.
 
 ## Invariants
 

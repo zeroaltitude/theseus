@@ -620,6 +620,12 @@ impl Core {
     /// line per session, and `confirm.resolved` to the clients of each
     /// session whose question a raise withdrew.
     pub(crate) fn said_limits_followed(&self, followed: &[LimitFollowed]) {
+        self.said_limits_followed_for(followed, None);
+    }
+
+    /// The same, for the limit `place`'s ceiling chose (step 38a), or the
+    /// config's with none.
+    pub(crate) fn said_limits_followed_for(&self, followed: &[LimitFollowed], place: Option<&str>) {
         let Some(first) = followed.first() else {
             return;
         };
@@ -632,11 +638,12 @@ impl Core {
                 .filter(|f| f.to_micros > f.from_micros)
                 .count(),
             proceed,
-            "open sessions follow the configured spend limit"
+            place,
+            "open sessions follow the spend limit"
         );
         for f in followed {
             let rec = self.session_rec(&f.session_id);
-            rec.record(&fact::answer::LimitChanged { followed: f });
+            rec.record(&fact::answer::LimitChanged { followed: f, place });
             if let Some(q) = &f.withdrew {
                 rec.record(&fact::answer::QuestionWithdrawn {
                     session_id: &f.session_id,

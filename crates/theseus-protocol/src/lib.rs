@@ -1029,9 +1029,13 @@ pub struct BindingStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub bot_user: Option<String>,
+    /// The one guild, when the bindings file binds places in one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub guild_id: Option<String>,
+    /// Every guild the bindings file binds, with its word (step 38a).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guilds: Vec<GuildInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub bindings_file: Option<String>,
@@ -1122,6 +1126,13 @@ pub struct PlaceStatus {
     pub mention_only: bool,
     #[serde(default)]
     pub last_activity_ms: u64,
+    /// A channel's guild id (step 38a).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub guild: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub ceiling: Option<PlaceCeiling>,
 }
 
 /// The OTLP exporter (theseus-hee, spec §3.20): what it sent and dropped.

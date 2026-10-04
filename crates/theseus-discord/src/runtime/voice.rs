@@ -68,14 +68,15 @@ struct VoicePlace {
     key: String,
     label: String,
     users: Vec<u64>,
+    /// Its guild: a voice channel may be in any bound guild (step 38a).
+    guild: u64,
 }
 
 /// The binding's voice: the places, songbird once the shard exists, who is
-/// in which voice channel, and the one call while joined (songbird keeps
-/// one call per guild, and the bindings file names one guild).
+/// in which voice channel, and the one call while joined, in its place's
+/// guild (songbird keeps one call per guild; the binding joins one at a time).
 pub(crate) struct Voice {
     cfg: VoiceConfig,
-    guild: u64,
     places: HashMap<u64, VoicePlace>,
     songbird: OnceLock<Arc<Songbird>>,
     /// From the gateway's voice states: who is in which voice channel now.
@@ -92,6 +93,7 @@ pub(crate) struct Voice {
 struct Call {
     serial: u64,
     channel: u64,
+    guild: u64,
     key: String,
     label: String,
     commands: mpsc::UnboundedSender<Command>,
@@ -120,8 +122,8 @@ impl Voice {
     #[cfg(test)]
     pub(crate) fn none() -> Self {
         let none = Bindings {
-            guild_id: String::new(),
-            private: false,
+            format: 2,
+            guilds: Vec::new(),
             channel: Vec::new(),
             dm: Vec::new(),
             revision: String::new(),
@@ -143,6 +145,7 @@ impl Voice {
                         key: format!("channel:{}", c.id),
                         label: c.label(),
                         users,
+                        guild: c.guild.parse().unwrap_or(0),
                     },
                 ))
             })
@@ -153,7 +156,6 @@ impl Voice {
         };
         Self {
             cfg: cfg.clone(),
-            guild: bindings.guild_id.parse().unwrap_or(0),
             places,
             songbird: OnceLock::new(),
             states: Mutex::default(),
@@ -354,7 +356,7 @@ impl Place {
         let speech = DeepgramSpeech::new(&key, settings(&voice.cfg)).map_err(|e| e.to_string())?;
         drop(key);
         let (guild, chan) = (
-            NonZeroU64::new(voice.guild).ok_or("no guild")?,
+            NonZeroU64::new(place.guild).ok_or("no guild")?,
             NonZeroU64::new(channel).ok_or("no channel")?,
         );
         let call = match tokio::time::timeout(JOIN_WAIT, songbird.join(guild, chan)).await {
@@ -397,7 +399,7 @@ impl Place {
 
     async fn join_failed(&self, songbird: &Songbird, place: &VoicePlace, why: String) -> String {
         let _ = songbird
-            .remove(NonZeroU64::new(self.shared.voice.guild).unwrap_or(NonZeroU64::MIN))
+            .remove(NonZeroU64::new(place.guild).unwrap_or(NonZeroU64::MIN))
             .await;
         self.shared.core.binding_ledger(
             LedgerKind::VoiceFailed,
@@ -423,7 +425,7 @@ impl Place {
             if known {
                 continue;
             }
-            let asked = shared.http.guild_member(Id::new(voice.guild), Id::new(u));
+            let asked = shared.http.guild_member(Id::new(place.guild), Id::new(u));
             if let Ok(r) = asked.await {
                 if let Ok(m) = r.model().await {
                     voice.names.lock().unwrap().insert(u, m.user.name);
@@ -445,6 +447,7 @@ impl Place {
         *voice.call.lock().unwrap() = Some(Call {
             serial,
             channel,
+            guild: place.guild,
             key: place.key.clone(),
             label: place.label.clone(),
             commands: handle.commands.clone(),
@@ -493,7 +496,7 @@ impl Place {
         };
         let _ = call.commands.send(Command::Leave);
         if let Some(songbird) = shared.voice.songbird.get() {
-            if let Some(guild) = NonZeroU64::new(shared.voice.guild) {
+            if let Some(guild) = NonZeroU64::new(call.guild) {
                 if let Err(e) = songbird.leave(guild).await {
                     shared.board.error("voice leave", None, e);
                 }
@@ -773,10 +776,9 @@ async fn pump(
         }
     };
     if let Some(call) = call {
-        if let (Some(songbird), Some(guild)) = (
-            shared.voice.songbird.get(),
-            NonZeroU64::new(shared.voice.guild),
-        ) {
+        if let (Some(songbird), Some(guild)) =
+            (shared.voice.songbird.get(), NonZeroU64::new(call.guild))
+        {
             let _ = songbird.remove(guild).await;
         }
         let why = call.dropped.clone().unwrap_or_else(|| "ended".into());
@@ -1009,6 +1011,7 @@ mod tests {
             target: format!("discord:dm:{EDDIE}"),
             name: "DM".into(),
             private: false,
+            ..Default::default()
         }]);
         p.target = format!("discord:dm:{EDDIE}");
     }
@@ -1081,6 +1084,7 @@ mod tests {
         *p.shared.voice.call.lock().unwrap() = Some(Call {
             serial: 1,
             channel: LOUNGE,
+            guild: 100_000_000_000_000_001,
             key: p.key.clone(),
             label: "#lounge".into(),
             commands,
@@ -1264,6 +1268,7 @@ mod tests {
             key,
             label: "#lounge".into(),
             users: vec![EDDIE],
+            guild: 100_000_000_000_000_001,
         };
         failed(
             &p.shared,
@@ -1337,6 +1342,7 @@ mod tests {
             key: p.key.clone(),
             label: "#lounge".into(),
             users: vec![EDDIE],
+            guild: 100_000_000_000_000_001,
         };
         let (tx, events) = mpsc::unbounded_channel();
         let said = Usage {

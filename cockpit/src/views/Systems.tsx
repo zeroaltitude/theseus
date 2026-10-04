@@ -17,6 +17,7 @@ import { AwsCard, PhasesCard, PushFields, RecentRows, StoreCard } from '@/compon
 import { DiskSpoolCard } from '@/components/DiskSpool'
 import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
+import { ceilingWords } from '@/lib/ceiling'
 
 export default function Systems() {
   const { data: h, dataUpdatedAt } = useRpc<Health>('health', undefined, 2000)
@@ -136,7 +137,7 @@ export default function Systems() {
         <Card key={b.kind} title={`${b.kind} binding`} icon={<Radio size={13} />}>
           <Field label="state"><StatePill state={b.state} /></Field>
           {b.detail && <Field label="detail">{b.detail}</Field>}
-          {b.bot_user && <Field label="bot · guild" mono>{b.bot_user} · {b.guild_id ?? '—'}</Field>}
+          {b.bot_user && <Field label="bot · guilds" mono>{b.bot_user} · {b.guilds?.length ? b.guilds.map((g) => `${g.name ?? g.id}${g.trusted ? ' (trusted)' : ''}`).join(', ') : (b.guild_id ?? '—')}</Field>}
           {b.bindings_file && <Field label="bindings" mono>{b.bindings_file}{b.revision ? ` · revision ${b.revision}` : ''}</Field>}
           {b.members_intent != null && (
             <Field label="Server Members intent"><Pill tone={b.members_intent ? 'ok' : 'wait'}>{b.members_intent ? 'on' : 'off'}</Pill>
@@ -162,6 +163,8 @@ export default function Systems() {
                     <span>{p.channel_id ? `channel ${p.channel_id}` : 'opens on first DM'}</span>
                     {p.session_id && <button onClick={() => nav(`/session/${p.session_id}`)} className="text-live hover:underline" title="open this place's session">session {short(p.session_id)}</button>}
                     <span title="who may drive it">{p.users.join(', ')}</span>
+                    {p.guild && <span title="its guild">guild {b.guilds?.find((g) => g.id === p.guild)?.name ?? p.guild}</span>}
+                    {p.ceiling && <span title="its ceiling in the bindings file">ceiling: {ceilingWords(p.ceiling)}</span>}
                   </div>
                 </div>
               ))}

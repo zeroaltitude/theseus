@@ -729,6 +729,8 @@ impl Core {
             })?,
         };
         let (live, _) = self.live_profile();
+        // A place's profile, unless the turn names one (step 38a).
+        let live = self.place_profile(&session.session_id, live);
         let target = self
             .runner
             .resolve_target(

@@ -28,9 +28,59 @@ impl PlaceClass {
     }
 }
 
-/// Health's `places` block: each place Theseus speaks in, and its class.
+/// A place's ceiling (step 38a, theseus-ext.3): what the operator's bindings
+/// file lets the place have, beneath what the place rule allows. It narrows
+/// and never widens: a shared place's ceiling never offers it a private tool.
+/// Each field absent is no narrowing.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlaceCeiling {
+    /// No call here runs looser than this: `open`, `notify`, or `approve`.
+    /// A call's posture is the strictest of the config's, a tightening, this,
+    /// and an external-text hold; never a refusal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub posture_floor: Option<String>,
+    /// The tool families offered here (`fs`, `git`, `web`, `proc`, …), and
+    /// MCP servers as `mcp:<server>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tools: Option<Vec<String>>,
+    /// The place's session's spend limit is the lower of this and `[kernel]
+    /// spend_limit_usd`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub spend_limit_usd: Option<f64>,
+    /// The place's model, as a profile name, unless a turn names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub profile: Option<String>,
+}
+
+impl PlaceCeiling {
+    /// Nothing narrowed.
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// A guild the bindings file binds places in, and the operator's word on it
+/// (step 38a): a trusted guild's channels are private unless one says not.
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuildInfo {
+    pub id: String,
+    /// Its label in the bindings file, if it gives one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trusted: bool,
+}
+
+/// Health's `places` block: each place Theseus speaks in, and its class.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlacesHealth {
     /// The local surfaces first (the CLI and the web UI), then each place
     /// the bindings file binds, in its order.
@@ -43,7 +93,7 @@ pub struct PlacesHealth {
 
 /// One place and its class.
 #[cfg_attr(test, derive(ts_rs::TS))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlaceInfo {
     /// `cli`, `web`, `discord:dm:<user id>`, or `discord:channel:<id>`.
     pub place: String,
@@ -66,6 +116,14 @@ pub struct PlaceInfo {
     /// the operator's word covers the guild, so who can view it is not read.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trusted_guild: bool,
+    /// A guild channel's guild id (step 38a).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub guild: Option<String>,
+    /// What the bindings file narrows here, when it narrows anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub ceiling: Option<PlaceCeiling>,
 }
 
 /// `place.publish` (the place rule's publish, theseus-nbsh): the owner, from

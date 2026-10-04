@@ -247,6 +247,8 @@ impl Fact for ActRefused<'_> {
 /// An open session follows the config's spend limit (theseus-3pj).
 pub struct LimitChanged<'a> {
     pub followed: &'a LimitFollowed,
+    /// The place whose ceiling chose the limit (step 38a); none: the config.
+    pub place: Option<&'a str>,
 }
 
 impl Fact for LimitChanged<'_> {
@@ -262,8 +264,13 @@ impl Fact for LimitChanged<'_> {
         say.line(
             Session,
             format!(
-                "Session {} follows the config's spend limit: {} before, {} now{then}.",
+                "Session {} follows {}: {} before, {} now{then}.",
                 narrative::short(&f.session_id),
+                match self.place {
+                    Some(p) =>
+                        format!("{p}'s spend limit, the lower of its ceiling and the config's"),
+                    None => "the config's spend limit".into(),
+                },
                 narrative::dollars(f.from_micros),
                 narrative::dollars(f.to_micros)
             ),
