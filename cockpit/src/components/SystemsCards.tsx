@@ -49,6 +49,9 @@ export function AwsCard({ aws, now }: { aws?: AwsStatus; now: number }) {
             {a.error && <Field label="error"><span className={a.state === 'failed' ? 'text-fault' : 'text-wait'}>{a.error}</span></Field>}
             <Field label="region" mono>{a.region}{more.length > 0 ? ` (a call may name ${more.join(', ')})` : ''}</Field>
             <Field label="requests" mono>{a.calls.toLocaleString()}{a.failed > 0 && <span className="text-wait"> ({a.failed.toLocaleString()} failed)</span>}</Field>
+            {a.hands && <Field label="hands" mono>{a.hands.running_lambda + a.hands.running_fargate} running ({a.hands.running_lambda} Lambda, {a.hands.running_fargate} Fargate), ${(a.hands.reserved_micros / 1e6).toFixed(2)} reserved</Field>}
+            {a.hands && <Field label="this hour" mono><span className={a.hands.alerted_hour_unix_ms !== undefined ? 'text-wait' : ''}>${(a.hands.hour_micros / 1e6).toFixed(2)} of its ${(a.hands.hour_line_micros / 1e6).toFixed(2)} line{a.hands.alerted_hour_unix_ms !== undefined ? ': past it, alerted' : ''}</span></Field>}
+            {a.hands && a.hands.reaper_failures > 0 && <Field label="TTL reaper"><span className="text-fault">failed {a.hands.reaper_failures}×: {a.hands.reaper_last_failure}</span></Field>}
           </div>
         )
       })}

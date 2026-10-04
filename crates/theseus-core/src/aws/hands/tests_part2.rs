@@ -768,3 +768,87 @@ async fn lambdas_concurrency_caps_a_group_and_a_tiny_quota_runs_one() {
         1
     );
 }
+
+// ------------------------------------------------------------ watching
+
+/// `hands.list` reads each group as its surfaces show it: a cell per hand
+/// by state, its money against its cap, and its one line. The line goes
+/// to the group's place as a `hands` post under the group's key each time
+/// it changes, never a line per hand: one while it runs, one per hand that
+/// settles, and its last as the group settles.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_group_is_read_as_cells_and_one_line_that_changes_in_place() {
+    let r = rig(calls(
+        json!({"argv": ["true"], "count": 3, "concurrency": 2, "max_usd": 5}),
+    ));
+    let res = turn(&r.core, "run three").await;
+    let g = group_of(&r.core);
+    let list = r
+        .core
+        .hands_list(&theseus_protocol::HandsListParams::default())
+        .unwrap();
+    assert_eq!(list.groups.len(), 1);
+    let info = &list.groups[0];
+    assert_eq!(info.group, g);
+    assert_eq!(info.cells, ["running", "running", "waiting"]);
+    assert_eq!(info.cap_micros, Some(5_000_000));
+    assert!(
+        info.reserved_micros > 0 && info.spent_micros == 0,
+        "{info:?}"
+    );
+    assert!(
+        info.line
+            .starts_with("🖐️ 0/3 done, 0 failed, 2 running, $0.00 of $5"),
+        "{}",
+        info.line
+    );
+    // Its place: the line is posted there, and then each change.
+    r.core.outbox.bind_place("dm:7", &res.session_id).unwrap();
+    let posts = |core: &crate::Core| -> Vec<String> {
+        core.outbox
+            .open_for("discord:dm:7")
+            .iter()
+            .filter(|a| crate::outbox::kind_of(a) == "hands")
+            .map(|a| {
+                let b = crate::outbox::body_of(a);
+                assert_eq!(b["group"], g.as_str());
+                b["text"].as_str().unwrap().to_string()
+            })
+            .collect()
+    };
+    r.core.poll_hands_after_serving();
+    until("the first line", || !posts(&r.core).is_empty()).await;
+    let mut specs = r.state.invoked();
+    specs.sort_by_key(|s| s.index);
+    r.state.push(signed(&specs[0], "succeeded", 0));
+    until("the third hand's launch", || r.state.invoked().len() == 3).await;
+    for s in r.state.invoked().iter().filter(|s| s.index > 0) {
+        r.state.push(signed(s, "succeeded", 0));
+    }
+    until("the group to settle", || {
+        state_of(&r.core, &g) == ActionState::Succeeded
+    })
+    .await;
+    until("the last line", || {
+        posts(&r.core)
+            .last()
+            .is_some_and(|l| l.contains("3/3 done") && l.contains("until met"))
+    })
+    .await;
+    let lines = posts(&r.core);
+    assert!(
+        lines.len() <= 4,
+        "a line per change, not per hand: {lines:?}"
+    );
+    let mut deduped = lines.clone();
+    deduped.dedup();
+    assert_eq!(deduped, lines, "a line is posted only when it changed");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(posts(&r.core), lines, "nothing more once it has settled");
+    let done = r
+        .core
+        .hands_list(&theseus_protocol::HandsListParams::default())
+        .unwrap();
+    assert_eq!(done.groups[0].cells, ["succeeded"; 3]);
+    assert_eq!(done.groups[0].settled.as_deref(), Some("met"));
+}

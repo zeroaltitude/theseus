@@ -261,6 +261,7 @@ impl Core {
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
             method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
+            method::HANDS_LIST => route(params, |p| self.rpc_hands_list(&p)),
             method::ONTOLOGY_LIST
             | method::ONTOLOGY_CATEGORY_ADD
             | method::ONTOLOGY_GUIDANCE_SET
@@ -416,6 +417,17 @@ pub(super) fn parse<T: DeserializeOwned>(v: Value) -> Result<T, RpcFailure> {
 }
 
 /// Parse a method's params, run it, and serialize its result.
+impl Core {
+    /// `hands.list` (step 40 part 2), as the server answers it.
+    fn rpc_hands_list(
+        &self,
+        p: &theseus_protocol::HandsListParams,
+    ) -> Result<theseus_protocol::HandsListResult, RpcFailure> {
+        self.hands_list(p)
+            .map_err(|e| RpcFailure::new(error_code::INTERNAL, format!("{e:#}")))
+    }
+}
+
 pub(super) fn route<P: DeserializeOwned, R: Serialize>(
     params: Value,
     method: impl FnOnce(P) -> Result<R, RpcFailure>,

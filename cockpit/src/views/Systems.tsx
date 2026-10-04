@@ -14,6 +14,7 @@ import { stateTone } from '@/lib/taxonomy'
 import { useHistoryRows } from '@/lib/history'
 import { Startup } from '@/components/instruments'
 import { AwsCard, PhasesCard, PushFields, RecentRows, StoreCard } from '@/components/SystemsCards'
+import { HandsGrid } from '@/components/HandsGrid'
 import { DiskSpoolCard } from '@/components/DiskSpool'
 import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
@@ -54,6 +55,8 @@ export default function Systems() {
       <StoreCard health={h} />
 
       <AwsCard aws={h.aws} now={now} />
+
+      {(h.aws?.accounts.length ?? 0) > 0 && <HandsGrid now={now} />}
 
       <Card title="Kernel" icon={<Cpu size={13} />}>
         <Field label="accepting">{k.accepting ? <Pill tone="ok">accepting</Pill> : <Pill tone="wait">held</Pill>}</Field>

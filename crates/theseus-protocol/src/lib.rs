@@ -14,6 +14,7 @@ pub mod cancel;
 pub mod cred;
 mod events;
 mod gate;
+mod hands;
 mod health;
 pub mod index;
 pub mod judge;
@@ -32,6 +33,7 @@ pub use aws::*;
 pub use cancel::{CancelCount, CancelVerdict};
 pub use events::*;
 pub use gate::*;
+pub use hands::*;
 pub use health::*;
 pub use index::TenderStatus;
 pub use ledger::*;
@@ -126,6 +128,9 @@ pub mod method {
         /// and their guidance, and memberships; then the operator's writes,
         /// judged as an approval is (the owner, from a private place).
         ONTOLOGY_LIST = "ontology.list",
+        /// Each hands group, its cells by state, and its cost against its
+        /// cap (step 40 part 2): the cockpit's grid.
+        HANDS_LIST = "hands.list",
         ONTOLOGY_CATEGORY_ADD = "ontology.category.add",
         ONTOLOGY_GUIDANCE_SET = "ontology.guidance.set",
         ONTOLOGY_MEMBERSHIP_SET = "ontology.membership.set",

@@ -8,6 +8,8 @@
 //!   wrapper inside the hand image.
 //! - [`launch`] and [`tool`]: `aws.hands.run`, its backend, and each hand's
 //!   launch on Lambda or Fargate.
+//! - [`grid`]: a group as its surfaces show it: `hands.list`'s cells and
+//!   money, and Discord's one line per group, edited in place.
 //! - [`group`]: a group's record, its hands' actions, and its steps as they
 //!   settle.
 //! - [`cancel`]: a running hand's stop, by its backend (Fargate's
@@ -32,6 +34,7 @@ use crate::aws::Account;
 
 pub mod cancel;
 pub mod envelope;
+pub mod grid;
 pub mod group;
 pub mod hand;
 pub mod launch;
@@ -66,6 +69,8 @@ pub struct Hands {
     pub reaper: watch::Reaper,
     /// Each account's quotas, read before a wave and kept an hour.
     pub quotas: quota::Quotas,
+    /// The line each group last posted to its place.
+    pub lines: grid::Lines,
 }
 
 /// What a group needed of its session's budget, and what it had.

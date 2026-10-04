@@ -134,7 +134,12 @@ pub fn refresh(core: &Core, reaper: &Reaper) -> Result<()> {
     let now = theseus_protocol::now_unix_ms();
     let hour = hour_of(now);
     let mut by: BTreeMap<String, Sums> = BTreeMap::new();
-    for g in groups(core, now)? {
+    let seen = groups(core, now)?;
+    // Each group's one line in its place, when it has changed (`grid`).
+    if let Err(e) = aws.hands.lines.post(core, &seen) {
+        tracing::warn!(error = %format!("{e:#}"), "hands: a group's line was not posted");
+    }
+    for g in seen {
         let sums = by.entry(g.account.clone()).or_default();
         let open = core
             .kernel
