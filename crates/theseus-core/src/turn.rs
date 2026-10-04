@@ -2035,6 +2035,10 @@ impl TurnRunner {
             strip,
             overflowed,
             sources: &sources,
+            signals: Some(crate::signals::SignalsAt {
+                config: self.judge.config().signals,
+                now_ms: theseus_protocol::now_unix_ms(),
+            }),
         });
         Self::recall_compiled(t, &mut compiled);
         if compiled.new_compilation {
@@ -2076,6 +2080,7 @@ impl TurnRunner {
             // that class left out (the place rule).
             class: Some(t.tc.class),
             withheld: compiled.withheld,
+            signals: compiled.signals.fired.clone(),
         };
         // Its span and its row carry the notification's params.
         t.record(&fact::turn::ContextCompiled {
@@ -2085,6 +2090,17 @@ impl TurnRunner {
             c0,
             c1,
         });
+        // A signal and no trigger: `continue.v1` in shadow, spawned (M5 25b).
+        let at = crate::judge::AtCompile {
+            session_id: sid,
+            execution_id: t.tc.execution_id,
+            turn_id: t.tc.turn_id,
+            loop_index: i,
+            kernel: &self.kernel,
+        };
+        if let Some(mark) = self.judge.at_compile(&compiled, at) {
+            t.trace.mark("judge", "mark", mark);
+        }
         t.record(&fact::turn::LoopStarted {
             turn_id: t.tc.turn_id,
             index: i,

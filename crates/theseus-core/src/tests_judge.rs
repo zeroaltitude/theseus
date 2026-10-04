@@ -262,7 +262,8 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "security.v1: shadow",
             "security.v3: shadow",
             "classify.v1: off",
-            "role.v1: off"
+            "role.v1: off",
+            "continue.v1: shadow"
         ]
     );
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
@@ -419,7 +420,8 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "security.v1: shadow",
             "security.v3: shadow",
             "classify.v1: off",
-            "role.v1: off"
+            "role.v1: off",
+            "continue.v1: shadow"
         ]
     );
 }

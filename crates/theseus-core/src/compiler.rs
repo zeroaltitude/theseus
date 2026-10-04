@@ -260,6 +260,9 @@ pub struct CompileInput<'a> {
     pub overflowed: Option<&'a Overflowed>,
     /// The sources the session's `Recall` nodes render (M6 30b).
     pub sources: &'a crate::recall::render::Sources,
+    /// CONTINUE's candidate signals' thresholds and the clock (M5 25b);
+    /// `None` reads none.
+    pub signals: Option<crate::signals::SignalsAt>,
 }
 
 /// A request that passed the model's window, as the provider said it
@@ -498,6 +501,9 @@ pub struct Compiled {
     /// The context files the request carries as their headers alone: a
     /// shared place's that are not marked public (the place rule).
     pub withheld: u64,
+    /// CONTINUE's candidate signals that fired, and the sizes beside them
+    /// (M5 25b). They decide nothing here.
+    pub signals: crate::signals::Signals,
 }
 
 /// A rendered request.
@@ -506,6 +512,8 @@ pub struct Rendered {
     pub prefix_nodes: usize,
     pub tail_nodes: usize,
     pub repairs: Vec<String>,
+    /// The first message that carries the tail.
+    pub tail_from: usize,
 }
 
 impl Compiled {
@@ -819,6 +827,7 @@ fn compile_with(
         prefix_nodes,
         tail_nodes,
         repairs,
+        tail_from,
     } = rendered;
     let messages = request.messages.len();
     let digest = request.digest();
@@ -827,6 +836,18 @@ fn compile_with(
     if new_compilation {
         compilation.budget = Some(budget.clone());
     }
+    let signals = input.signals.map_or_else(Default::default, |at| {
+        let seen = crate::signals::Seen {
+            nodes: input.nodes,
+            compilation: &compilation,
+            request: &request,
+            tail_from,
+            tokens: est.tokens,
+            window,
+            rates,
+        };
+        crate::signals::read(&at, &seen)
+    });
     Compiled {
         budget,
         request,
@@ -842,6 +863,7 @@ fn compile_with(
         repairs,
         cache: cache_layout(spec, input.catalog),
         withheld: withheld as u64,
+        signals,
     }
 }
 
@@ -933,8 +955,12 @@ pub fn render_request(
         retrying,
         sources,
     );
-    let (messages, repairs, image_tokens) =
-        (rendered.messages, rendered.repairs, rendered.image_tokens);
+    let (messages, repairs, image_tokens, tail_from) = (
+        rendered.messages,
+        rendered.repairs,
+        rendered.image_tokens,
+        rendered.tail_from,
+    );
 
     let mut betas = Vec::new();
     let mut extra = std::collections::BTreeMap::new();
@@ -999,6 +1025,7 @@ pub fn render_request(
         prefix_nodes: prefix.len(),
         tail_nodes: tail.len(),
         repairs,
+        tail_from,
     }
 }
 
@@ -1092,11 +1119,15 @@ pub fn render_messages(
     let replaced = replaced_answers(prefix.iter().chain(tail.iter()).copied(), retrying);
     let mut out: Vec<(String, Vec<Value>)> = Vec::new();
     let mut repairs = Vec::new();
+    let mut tail_from = None;
     let items = prefix
         .iter()
         .map(|n| (*n, true))
         .chain(tail.iter().map(|n| (*n, false)));
     for (n, in_prefix) in items {
+        if !in_prefix && tail_from.is_none() {
+            tail_from = Some(out.len());
+        }
         match &n.body {
             Body::UserMessage { text, attachments } => {
                 // A message of attachments alone has no text block; one
@@ -1163,14 +1194,17 @@ pub fn render_messages(
             _ => {}
         }
     }
+    let out_len = out.len();
     let msgs = out
         .into_iter()
         .map(|(role, content)| json!({"role": role, "content": content}))
         .collect();
+    let tail_from = tail_from.unwrap_or(out_len);
     Messages {
         messages: msgs,
         repairs,
         image_tokens,
+        tail_from,
     }
 }
 
@@ -1201,6 +1235,9 @@ pub struct Messages {
     pub messages: Vec<Value>,
     pub repairs: Vec<String>,
     pub image_tokens: u64,
+    /// The first message that carries a tail node (`messages.len()` when
+    /// none does).
+    pub tail_from: usize,
 }
 
 /// An operator's message's blocks: each attachment its own (an image, two),
@@ -1369,6 +1406,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            signals: None,
         })
     }
 
@@ -1618,6 +1656,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            signals: None,
         });
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
@@ -1650,6 +1689,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            signals: None,
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");
@@ -1906,6 +1946,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            signals: None,
         });
         assert_eq!(c.request.system.len(), 2);
         assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
@@ -1963,6 +2004,7 @@ mod tests {
             strip: None,
             overflowed,
             sources: &Default::default(),
+            signals: None,
         })
     }
 
@@ -2212,6 +2254,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            signals: None,
         })
     }
 

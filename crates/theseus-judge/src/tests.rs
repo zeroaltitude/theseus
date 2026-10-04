@@ -566,6 +566,27 @@ fn versioned(v: u32, model: &str) -> Arc<Pack> {
     Arc::new(p)
 }
 
+/// A judgment carries the id the core minted at its dispatch (the id the
+/// turn's trace marks), and mints its own when the ask names none.
+#[tokio::test]
+async fn a_judgment_carries_the_id_minted_at_its_dispatch() {
+    let fake = FakeJev::start().unwrap();
+    let judge = judge_for(&fake);
+    let minted = crate::new_id();
+    let mut named = ask_with(probe_pack(), probe_input());
+    named.id = Some(minted.clone());
+    let unnamed = ask_with(versioned(2, "jev-1.13.0"), probe_input());
+    assert_eq!(unnamed.id, None, "Ask::new names none");
+    let js = judge
+        .judge(DecisionPoint {
+            asks: vec![named, unnamed],
+            urgency: Urgency::Shadow,
+        })
+        .await;
+    assert_eq!(js[0].id, minted);
+    assert!(js[1].id.starts_with("jdg_") && js[1].id != minted);
+}
+
 #[tokio::test]
 async fn shared_states_ride_one_call_and_split_its_cost_by_question_count() {
     let fake = FakeJev::start().unwrap();

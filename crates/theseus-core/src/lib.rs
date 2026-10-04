@@ -57,6 +57,7 @@ pub mod sandbox;
 pub mod scrub;
 pub mod secrets;
 pub mod session;
+pub mod signals;
 pub mod startup;
 pub mod store;
 pub mod sweep;
@@ -117,6 +118,8 @@ mod tests_ceilings;
 mod tests_config;
 #[cfg(test)]
 mod tests_continuations;
+#[cfg(test)]
+mod tests_continue;
 #[cfg(test)]
 mod tests_egress;
 #[cfg(test)]

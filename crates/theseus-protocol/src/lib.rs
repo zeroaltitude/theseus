@@ -29,6 +29,7 @@ mod ontology;
 mod places;
 mod push;
 pub mod sandbox;
+pub mod signals;
 pub mod term;
 #[cfg(test)]
 mod ts;

@@ -25,6 +25,7 @@
 //!   shadow, asked of every call that acts once the gate has decided; the
 //!   call never waits on them.
 
+pub mod compile;
 pub mod gate;
 pub mod inbound;
 pub mod loop_end;
@@ -50,6 +51,7 @@ use crate::scrub::Scrubber;
 use crate::secrets::SecretBoard;
 use crate::store::Store;
 
+pub use compile::AtCompile;
 pub use loop_end::LoopEnd;
 pub use mark::Dispatch;
 use spend::{Reserve, ShadowBudget};
@@ -62,6 +64,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (gate::SECURITY_CANDIDATE, PackMode::Shadow),
     (inbound::CLASSIFY_PACK, PackMode::Shadow),
     (inbound::ROLE_PACK, PackMode::Shadow),
+    (compile::CONTINUE_PACK, PackMode::Shadow),
 ];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.

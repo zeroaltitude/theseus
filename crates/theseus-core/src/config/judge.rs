@@ -68,6 +68,41 @@ pub struct JudgeConfig {
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
+    /// `[judge.signals]`: CONTINUE's candidate signals (M5 25b), computed at
+    /// every compile whether or not the judge is on.
+    #[serde(default)]
+    pub signals: SignalsConfig,
+}
+
+/// `[judge.signals]` (design §2.15): where CONTINUE's candidate signals fire.
+/// Tests and live checks shorten them.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignalsConfig {
+    /// A new input more than this many minutes after the node before it is
+    /// a dormancy gap. 0 fires at any gap.
+    #[serde(default = "dormancy_minutes")]
+    pub dormancy_minutes: u64,
+    /// The tail passing this share of the window fires, and then each
+    /// further quarter of it.
+    #[serde(default = "tail_band")]
+    pub tail_band: f64,
+}
+
+impl Default for SignalsConfig {
+    fn default() -> Self {
+        Self {
+            dormancy_minutes: dormancy_minutes(),
+            tail_band: tail_band(),
+        }
+    }
+}
+
+fn dormancy_minutes() -> u64 {
+    360
+}
+fn tail_band() -> f64 {
+    0.5
 }
 
 /// One pack's lines: a lower mode, and its shadow sampling share.
@@ -117,6 +152,7 @@ impl Default for JudgeConfig {
             total_secs: total_secs(),
             shadow_limit_usd_per_day: shadow_limit(),
             packs: BTreeMap::new(),
+            signals: SignalsConfig::default(),
         }
     }
 }
@@ -142,6 +178,12 @@ impl JudgeConfig {
         let limit = self.shadow_limit_usd_per_day;
         if !limit.is_finite() || limit < 0.0 {
             anyhow::bail!("judge.shadow_limit_usd_per_day must be zero or more, in dollars");
+        }
+        let band = self.signals.tail_band;
+        if band.is_nan() || band <= 0.0 || band > 1.0 {
+            anyhow::bail!(
+                "judge.signals.tail_band must be above 0 and at most 1, a share of the window"
+            );
         }
         for (name, p) in &self.packs {
             if theseus_judge::pack::by_name(name).is_none() {
@@ -193,6 +235,7 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     assert!(cfg.secrets.contains_key(&j.key_secret));
     assert_eq!(j.packs["loop.v1"].mode, Some(PackMode::Off));
     assert_eq!(j.packs["loop.v1"].sample, Some(0.5));
+    assert_eq!(j.signals, SignalsConfig::default());
     j.validate(&cfg.secrets).unwrap();
 }
 
@@ -214,6 +257,10 @@ mod tests {
         assert!(!example.enabled);
         assert_eq!(example.shadow_limit_usd_per_day, 1.0);
         assert_eq!(example.key_secret, "jev_api_key");
+        assert_eq!(
+            (example.signals.dormancy_minutes, example.signals.tail_band),
+            (360, 0.5)
+        );
         let t = crate::Config::EXAMPLE_TOML;
         assert!(t.contains("[judge]") && t.contains("[judge.packs."));
     }
@@ -262,6 +309,14 @@ mod tests {
             .unwrap()
             .validate(&secrets)
             .is_err());
+        let short = cfg("[signals]\ndormancy_minutes = 1\ntail_band = 0.25").unwrap();
+        short.validate(&secrets).unwrap();
+        assert_eq!(short.signals.dormancy_minutes, 1);
+        assert!(cfg("[signals]\ndormancy = 1").is_err(), "an unknown key");
+        for band in ["0.0", "1.5", "-0.5"] {
+            let bad = cfg(&format!("[signals]\ntail_band = {band}")).unwrap();
+            assert!(bad.validate(&secrets).is_err(), "{band}");
+        }
         let s = cfg("[packs.\"loop.v1\"]\nsample = 0.25").unwrap();
         assert_eq!(s.sample_of("loop.v1", 1.0), 0.25);
         assert_eq!(s.sample_of("security.v1", 1.0), 1.0);
