@@ -130,6 +130,7 @@ export type * from './JudgeLabelParams';
 export type * from './JudgeLabelResult';
 export type * from './JudgeListParams';
 export type * from './JudgeListResult';
+export type * from './JudgeNoticed';
 export type * from './JudgeScored';
 export type * from './KernelStatus';
 export type * from './LabelCounts';

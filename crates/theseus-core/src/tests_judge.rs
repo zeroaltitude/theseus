@@ -51,6 +51,7 @@ pub(crate) fn off() -> crate::config::JudgePackConfig {
     crate::config::JudgePackConfig {
         mode: Some(PackMode::Off),
         sample: None,
+        notices: None,
     }
 }
 
@@ -260,7 +261,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
         [
             "loop.v1: shadow",
             "security.v1: shadow",
-            "security.v3: shadow",
+            "security.v3: live",
             "classify.v1: off",
             "role.v1: off",
             "continue.v1: shadow",
@@ -420,7 +421,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
         [
             "loop.v1: off",
             "security.v1: shadow",
-            "security.v3: shadow",
+            "security.v3: live",
             "classify.v1: off",
             "role.v1: off",
             "continue.v1: shadow",

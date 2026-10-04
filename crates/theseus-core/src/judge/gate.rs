@@ -26,6 +26,9 @@
 //! - **The score** of a notified call follows its notice: `security.v1`'s
 //!   `risky`, as `judge.scored`, to the turn's clients (best effort, as live
 //!   progress is; the `judge.call` row is the record).
+//! - **A notice** follows an open call `security.v3`, live, answered
+//!   `risky` in its act band (`notice`): posted once the judgments land,
+//!   beside the running call, never on its path.
 
 use std::sync::{Arc, Weak};
 use std::time::Instant;
@@ -141,9 +144,13 @@ impl JudgeService {
     /// Any pack at `gate` is on: false with the judge off, so the call's
     /// path reads nothing more.
     pub fn gate_on(&self) -> bool {
-        GATE_PACKS
-            .iter()
-            .any(|p| self.cfg.mode_of(p, PackMode::Shadow) != PackMode::Off)
+        GATE_PACKS.iter().any(|p| self.mode(p) != PackMode::Off)
+    }
+
+    /// `security.v3` is live as notices: its judgments are marked and
+    /// recorded `live`, and the gate hands it the turn's clients.
+    pub fn notices_live(&self) -> bool {
+        self.mode(SECURITY_CANDIDATE) == PackMode::Live
     }
 
     /// A gated call, planned and its notice sent: each gate pack that is on
@@ -156,7 +163,7 @@ impl JudgeService {
         let mut asks = Vec::new();
         let mut marks = Vec::new();
         for name in GATE_PACKS {
-            let mode = self.cfg.mode_of(name, PackMode::Shadow);
+            let mode = self.mode(name);
             if mode == PackMode::Off {
                 continue;
             }
@@ -172,12 +179,12 @@ impl JudgeService {
                 attrs: json!({"pack": name, "point": "gate", "mode": mode.as_str(),
                     "judgment": id, "call": call.correlation_id}),
             });
-            asks.push((pack, id));
+            asks.push((pack, id, mode));
         }
         if asks.is_empty() {
             return marks;
         }
-        self.pending_insert(asks.iter().map(|(_, id)| id.clone()));
+        self.pending_insert(asks.iter().map(|(_, id, _)| id.clone()));
         rt.spawn(judge_gate(self.me.clone(), call, asks, sink));
         marks
     }
@@ -241,7 +248,7 @@ impl JudgeService {
     fn prepare_gate(
         &self,
         call: &GateCall,
-        asks: Vec<(Arc<Pack>, String)>,
+        asks: Vec<(Arc<Pack>, String, PackMode)>,
         today: &str,
     ) -> Option<GatePrepared> {
         let nodes: Vec<Node> = self
@@ -263,7 +270,7 @@ impl JudgeService {
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
             .ok()?;
         let mut out = Vec::new();
-        for (pack, id) in asks {
+        for (pack, id, mode) in asks {
             let i = match pack.name().as_str() {
                 SECURITY_PACK => Input::Security(v1.clone()),
                 _ => Input::Security2(SecurityInput {
@@ -289,7 +296,7 @@ impl JudgeService {
                 "class": if call.task { "task" } else { "tools" },
                 "blob": blob, "on_path_ms": 0,
             });
-            let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+            let mut ask = Ask::new(pack, &state, judged_as(mode), context);
             ask.id = Some(id);
             out.push(ask);
         }
@@ -305,6 +312,15 @@ impl JudgeService {
     }
 }
 
+/// A pack's mode as its judgment records it: live, canary, else shadow.
+fn judged_as(mode: PackMode) -> Mode {
+    match mode {
+        PackMode::Live => Mode::Live,
+        PackMode::Canary => Mode::Canary,
+        PackMode::Off | PackMode::Shadow => Mode::Shadow,
+    }
+}
+
 struct GatePrepared {
     built: Arc<super::Built>,
     asks: Vec<Ask>,
@@ -316,12 +332,12 @@ struct GatePrepared {
 async fn judge_gate(
     me: Weak<JudgeService>,
     call: GateCall,
-    asks: Vec<(Arc<Pack>, String)>,
+    asks: Vec<(Arc<Pack>, String, PackMode)>,
     sink: Option<EventSink>,
 ) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
-    let ids: Vec<String> = asks.iter().map(|(_, id)| id.clone()).collect();
+    let ids: Vec<String> = asks.iter().map(|(_, id, _)| id.clone()).collect();
     let (day, c) = (today.clone(), call.clone());
     let s = svc.clone();
     let prepared = tokio::task::spawn_blocking(move || s.prepare_gate(&c, asks, &day))
@@ -372,6 +388,11 @@ async fn judge_gate(
         };
         let spent = j.cost_micros.unwrap_or(if unknown { reserved } else { 0 });
         svc.budget.settle(&today, reserved, spent, called, failed);
+    }
+    if let Some(n) = super::notice::flagged(&call, &judgments) {
+        // Its frame and post are the blocking half; the call ran already.
+        let (s, c, k) = (svc.clone(), call.clone(), sink.clone());
+        let _ = tokio::task::spawn_blocking(move || s.post_notice(&c, &n, k.as_ref())).await;
     }
     if !call.notified {
         return;

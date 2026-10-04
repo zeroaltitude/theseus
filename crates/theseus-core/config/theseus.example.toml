@@ -687,7 +687,7 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # Jev's judgments (M5): typed questions about the session's work, asked of
 # TypeSafe's Jev. Off by default. On, every pack this build wires in judges in
 # shadow: each judgment is made, priced, and recorded in the ledger, and nothing
-# acts on one. A judgment sends its state (your messages, the assistant's final
+# acts on one but security.v3's notices (below). A judgment sends its state (your messages, the assistant's final
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
 # changes no turn. Today eight packs judge: loop.v1, at each turn that ends
@@ -723,6 +723,12 @@ learning_hour = 3                       # the local hour of the nightly learning
 # sample = 0.5                          # the share of its events judged in shadow (default the pack's own, 1.0)
 # [judge.packs."rerank.v1"]            # recall's +rerank arm (M6 32c), with its own 600 ms deadline
 # mode = "off"
+# security.v3 is live as notices: when it is at least 90% sure an open call
+# (one that ran without asking) was risky, your DM gets a notice after the call,
+# which never waits, with right / wrong / noise buttons. More than 30 in a day,
+# or 3 labeled noise, pauses them until tomorrow; v3 still judges in shadow.
+# [judge.packs."security.v3"]
+# notices = true                        # false keeps security.v3 in shadow (only this pack takes the key)
 # CONTINUE's candidate signals, which every compile computes, judge on or off, and
 # context.compiled carries. One that fires at a compile that appends asks continue.v1.
 # [judge.signals]

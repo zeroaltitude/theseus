@@ -30,3 +30,24 @@ export function scoresOf(rows: LedgerEntry[] | undefined, pushes: { method: stri
   }
   return out
 }
+
+/** Jev's live notice on an open call (step 24's notices): `security.v3` sure it was risky, after it ran. */
+export interface Noticed { percent: number; line: string; judgment: string; reasons: string[] }
+
+/** Jev's notice words, as the CLI and Discord say them: `Jev: 95% risky (sends data out 92%)`. */
+export const noticeWords = (n: { percent: number; reasons: string[] }) =>
+  n.reasons.length ? `Jev: ${n.percent}% risky (${n.reasons.join(', ')})` : `Jev: ${n.percent}% risky`
+
+/** Each noticed call, by its correlation id: its `judge.noticed` push as it lands, else its `tool.notified` row (`by: judge`). */
+export function noticesOf(rows: LedgerEntry[] | undefined, pushes: { method: string; params: unknown }[]): Map<string, Noticed> {
+  const out = new Map<string, Noticed>()
+  const add = (d: D | undefined) => {
+    if (typeof d?.correlation_id !== 'string' || typeof d?.judgment !== 'string') return
+    const reasons = Array.isArray(d.reasons) ? d.reasons.map(String) : []
+    const percent = Number(d.percent ?? 0)
+    out.set(d.correlation_id, { percent, reasons, judgment: d.judgment, line: noticeWords({ percent, reasons }) })
+  }
+  for (const p of pushes) if (p.method === 'judge.noticed') add(p.params as D)
+  for (const r of rows ?? []) if (r.kind === 'tool.notified' && (r.data as D)?.by === 'judge') add(r.data as D)
+  return out
+}

@@ -35,6 +35,7 @@ theseus-voice = { path = "../theseus-voice" }
 [dev-dependencies]
 tempfile = "3"
 theseus-sim = { path = "../theseus-sim" }
+theseus-judge = { path = "../theseus-judge", features = ["fake"] }
 proptest.workspace = true
 
 [lints]

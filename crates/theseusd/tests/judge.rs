@@ -203,7 +203,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
         json!([
             "loop.v1: shadow",
             "security.v1: shadow",
-            "security.v3: shadow",
+            "security.v3: live",
             "classify.v1: off",
             "role.v1: off",
             "continue.v1: shadow",

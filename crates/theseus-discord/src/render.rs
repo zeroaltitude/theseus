@@ -40,6 +40,8 @@ pub enum Buttons {
     /// One "Should I have asked?" select menu (theseus-sgh): an option per
     /// distinct notified tool on the message, at most `MAX_ASKED`.
     ShouldHaveAsked(Vec<Asked>),
+    /// A Jev notice's right / wrong / noise, for this judgment.
+    JevLabel(String),
     /// Remove every component.
     Clear,
 }
@@ -1639,6 +1641,22 @@ mod tests {
                     .contains("🔔 notified (enforcement = notify) · risk 12% (shadow)"),
                 "{lines:?}"
             );
+        }
+    }
+
+    /// Jev's live notice (step 24's notices) goes to the owner's DM as its
+    /// own post; its `judge.noticed` draws nothing in the place.
+    #[test]
+    fn jevs_notice_draws_nothing_in_the_place() {
+        for embeds in [false, true] {
+            let mut r = Renderer::new(embeds);
+            r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+            let ops = r.on_notification(
+                "judge.noticed",
+                &json!({"session_id": "s", "turn_id": "t1",
+                "tool_use_id": "u1", "tool": "proc.run", "judgment": "jdg_1", "percent": 95}),
+            );
+            assert!(ops.is_empty(), "{ops:?}");
         }
     }
 

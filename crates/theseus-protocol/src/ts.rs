@@ -134,7 +134,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         memory::RecallManifest, memory::RecallItem, memory::RecallDrop, memory::RecallTimings,
         memory::BudgetReport, memory::BudgetDrop, memory::BudgetRange, memory::BudgetOverage,
         memory::MemoryLabelParams, memory::MemoryLabelResult,
-        sandbox::SandboxHealth, judge::JudgeHealth, judge::JudgeScored, judge::JudgeListParams, judge::JudgeListResult,
+        sandbox::SandboxHealth, judge::JudgeHealth, judge::JudgeScored, judge::JudgeNoticed, judge::JudgeListParams, judge::JudgeListResult,
         judge::JudgeGetParams, judge::JudgeGetResult, learning::JudgeLabelParams, learning::JudgeLabelResult,
         learning::LearningReportParams, learning::LearningReport, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
         signals::CompileSignal, sandbox::SandboxUsage, sandbox::RunningJob, lsp::LspServerStatus,

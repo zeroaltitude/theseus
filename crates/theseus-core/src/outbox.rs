@@ -595,6 +595,21 @@ impl Outbox {
         self.post(session_id.unwrap_or(""), "", OPERATOR_TARGET, body)
     }
 
+    /// `to_operator`'s post staged for the caller's frame (Jev's notices
+    /// write their row beside it); `posted` once the frame is written. The
+    /// fallback rides as `to_operator`'s does: a kind that must never reach
+    /// a shared place is one whose courier reads none (`jev_notice`).
+    pub fn stage_to_operator(
+        &self,
+        session_id: Option<&str>,
+        mut body: Value,
+    ) -> Result<(Action, Vec<NewRecord>)> {
+        if let Some(t) = session_id.and_then(|s| self.target(s)) {
+            body["fallback"] = json!(t);
+        }
+        self.stage(session_id.unwrap_or(""), "", OPERATOR_TARGET, body)
+    }
+
     /// The question a card asks closed: write the card's settle, once. Nothing
     /// when the question has no card (its session posts nowhere, or its card
     /// was posted before this outbox existed).

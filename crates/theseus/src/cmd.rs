@@ -1389,6 +1389,7 @@ pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
                 question,
                 label: Value::String(label),
                 note,
+                discord: None,
             };
             let v = conn
                 .request(method::JUDGE_LABEL, serde_json::to_value(&p)?)

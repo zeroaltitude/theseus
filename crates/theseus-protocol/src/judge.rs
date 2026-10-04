@@ -2,8 +2,8 @@
 //! judge, `judge.list` and `judge.get`, and a notified call's score. Every
 //! judgment is a `judge.call` ledger row (keyed by its id, scoped
 //! `judge:<pack id>`); they stream on `ledger.tail`. A notified call's score
-//! follows its notice as `judge.scored` (step 24), a judgment's one
-//! notification.
+//! follows its notice as `judge.scored` (step 24); `security.v3`'s live
+//! notice on an open call is `judge.noticed`.
 
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +43,10 @@ pub struct JudgeHealth {
     /// Never a value.
     #[serde(default)]
     pub key: String,
+    /// `security.v3`'s live notices (step 24's notices): `on`, `paused
+    /// until <day>: <rule>`, or `off`. Empty from a daemon before them.
+    #[serde(default)]
+    pub notices: String,
 }
 
 /// `judge.list` (M5 23b): the newest judgments, as their `judge.call` rows,
@@ -136,6 +140,47 @@ impl JudgeScored {
     }
 }
 
+/// `judge.noticed` (step 24's notices, design §2.8b with `security.v3` in
+/// `security.v1`'s place): Jev answered `risky` in its act band for a call
+/// the gate let run without asking, so the owner hears of it after the
+/// call, which never waited. Told to the turn's clients, best effort; the
+/// `tool.notified` row (`by: judge`) is the record, and the owner's DM has
+/// the notice with its right / wrong / noise buttons.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct JudgeNoticed {
+    pub session_id: String,
+    pub turn_id: String,
+    pub tool_use_id: String,
+    pub correlation_id: String,
+    pub tool: String,
+    /// The plan's summary of the call.
+    pub summary: String,
+    /// `security.v3`.
+    pub pack: String,
+    /// The judgment's id, its `judge.call` row's key: what a label names.
+    pub judgment: String,
+    /// `live`.
+    pub mode: String,
+    /// `risky`'s probability, 0 to 1, and as a whole percent.
+    pub risky: f64,
+    pub percent: u8,
+    /// The pack's other yes-or-no answers at or above their confirm line,
+    /// in short words with their percents (`sends data out 92%`).
+    pub reasons: Vec<String>,
+}
+
+impl JudgeNoticed {
+    /// The notice's line: `Jev: 95% risky (sends data out 92%)`.
+    pub fn line(&self) -> String {
+        match self.reasons.is_empty() {
+            true => format!("Jev: {}% risky", self.percent),
+            false => format!("Jev: {}% risky ({})", self.percent, self.reasons.join(", ")),
+        }
+    }
+}
+
 /// A probability as a whole percent, 0 to 100.
 pub fn percent(p: f64) -> u8 {
     (p.clamp(0.0, 1.0) * 100.0).round() as u8
@@ -157,5 +202,15 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(s.line(), "risk 12% (shadow)");
+        let mut n = JudgeNoticed {
+            percent: 95,
+            ..Default::default()
+        };
+        assert_eq!(n.line(), "Jev: 95% risky");
+        n.reasons = vec!["sends data out 92%".into(), "beyond the ask 71%".into()];
+        assert_eq!(
+            n.line(),
+            "Jev: 95% risky (sends data out 92%, beyond the ask 71%)"
+        );
     }
 }

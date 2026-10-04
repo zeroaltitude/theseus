@@ -6459,6 +6459,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "theseus-core",
+ "theseus-judge",
  "theseus-kernel",
  "theseus-protocol",
  "theseus-sim",

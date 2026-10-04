@@ -47,6 +47,8 @@ export function summarize(r: LedgerEntry): string {
     case 'tool.denied': return `${d.tool ?? ''} denied${d.reason ? `: ${d.reason}` : ''}`
     case 'tool.confirm_requested': return `${d.tool ?? ''} asks for approval${d.reason ? `: ${s('reason')}` : ''}`
     case 'tool.notified':
+      // Jev's live notice after an open call (step 24's notices) says what Jev said.
+      if (d.by === 'judge') return `Jev noticed · ${s('tool')} · ${s('summary')} · ${s('rule')}`
       return `notified · ${s('tool')} · ${s('summary')} · ${s('setting')}${d.granted ? ` · 🔑 ${s('granted')}` : ''}`
     case 'secret.granted': return `${d.program ? `${s('program')} got ${s('variable')}` : `${s('tool')} got`} (${s('secret')}) · ${s('correlation_id')}`
     case 'secret.withheld': return `${s('program')} got no ${s('variable')} (${s('secret')}): ${s('why')}`

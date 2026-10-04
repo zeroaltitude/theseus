@@ -52,4 +52,9 @@ shed: number,
  * `not configured` (`[judge] key_secret` names no `[secrets]` entry).
  * Never a value.
  */
-key: string, };
+key: string, 
+/**
+ * `security.v3`'s live notices (step 24's notices): `on`, `paused
+ * until <day>: <rule>`, or `off`. Empty from a daemon before them.
+ */
+notices: string, };

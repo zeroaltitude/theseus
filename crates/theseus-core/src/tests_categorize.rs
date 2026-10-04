@@ -276,6 +276,7 @@ fn rig(jev: Option<&FakeJev>, turns: usize, tweak: impl FnOnce(&mut Config)) -> 
                 JudgePackConfig {
                     mode: Some(PackMode::Off),
                     sample: None,
+                    notices: None,
                 },
             );
         }
@@ -766,6 +767,7 @@ async fn a_shared_place_and_a_task_are_never_judged() {
             JudgePackConfig {
                 mode: Some(PackMode::Off),
                 sample: None,
+                notices: None,
             },
         );
     });

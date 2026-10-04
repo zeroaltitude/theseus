@@ -993,6 +993,8 @@ fn typed_policy_notified_and_resolved() {
                 },
                 granted: granted.map(Into::into),
                 task: task.map(Into::into),
+                by: None,
+                judgment: None,
             }),
         );
     }

@@ -478,3 +478,91 @@ impl Fact for ProposalLabel<'_> {
         );
     }
 }
+
+/// `security.v3`'s live notice after an open call it was sure was risky
+/// (step 24's notices; design §2.8b with v3 in v1's place): a `tool.notified`
+/// row with `by: judge` and the judgment, keyed `notice_<judgment>` and
+/// scoped `judge:security` by its writer, in the frame of the notice's
+/// post to the owner (never a turn's), and `judge.noticed` to the turn's
+/// clients. The row reads as a `PolicyNotified` with the judge's fields.
+pub struct JudgeNotified<'a> {
+    pub notice: &'a theseus_protocol::PolicyNotified,
+    pub noticed: &'a theseus_protocol::judge::JudgeNoticed,
+    /// The owner's post's correlation id: a label edits it.
+    pub post: &'a str,
+}
+
+impl Fact for JudgeNotified<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolNotified);
+    const METHOD: Option<&'static str> = Some(theseus_protocol::notify::JUDGE_NOTICED);
+
+    fn row(&self) -> Value {
+        let mut v = serde_json::to_value(self.notice).unwrap_or(Value::Null);
+        if let Some(o) = v.as_object_mut() {
+            let n = self.noticed;
+            o.insert("pack".into(), json!(n.pack));
+            o.insert("mode".into(), json!(n.mode));
+            o.insert("risky".into(), json!(n.risky));
+            o.insert("percent".into(), json!(n.percent));
+            o.insert("reasons".into(), json!(n.reasons));
+            o.insert("post".into(), json!(self.post));
+            o.insert(
+                "id".into(),
+                json!(crate::judge::notice::notice_key(&n.judgment)),
+            );
+        }
+        v
+    }
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::JudgeNoticed(self.noticed.clone()))
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let n = self.noticed;
+        say.line(
+            NarrativePart::Tool,
+            format!(
+                "Jev, live, noticed `{}` after it ran: {}. The owner was told; the call never waited.",
+                n.tool,
+                n.line()
+            ),
+        );
+    }
+}
+
+/// `security.v3`'s notices paused for the rest of the local day: a rule of
+/// `security.v1`'s `[[rollback]]` fired (design §2.7's brake). A
+/// `judge.paused` row with `pack` and `what: "notices"`, unlike the shadow
+/// budget's, scoped `judge:security` by its writer; the pack still judges,
+/// in shadow. Step 26a's ladder reads it as the mode it sets.
+pub struct JudgeNoticesPaused<'a> {
+    pub pack: &'a str,
+    /// The local day it pauses, and the day notices come back.
+    pub day: &'a str,
+    pub until: &'a str,
+    /// The rule that fired, and why, in its words and in short.
+    pub rule: &'a str,
+    pub why: &'a str,
+    pub short: &'a str,
+}
+
+impl Fact for JudgeNoticesPaused<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgePaused);
+
+    fn row(&self) -> Value {
+        json!({"id": crate::judge::notice::paused_key(self.day), "pack": self.pack,
+            "what": "notices", "day": self.day, "until": self.until,
+            "rule": self.rule, "why": self.why, "short": self.short, "mode": "shadow"})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            NarrativePart::Session,
+            format!(
+                "Jev's notices ({}) paused until tomorrow, {}: {}. It still judges in shadow.",
+                self.pack, self.until, self.short
+            ),
+        );
+    }
+}

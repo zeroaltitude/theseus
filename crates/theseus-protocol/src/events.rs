@@ -361,6 +361,15 @@ pub struct PolicyNotified {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub task: Option<String>,
+    /// Who notified: `judge` for Jev's live notice after an open call
+    /// (step 24's notices); none, the gate's `notify` posture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub by: Option<String>,
+    /// The judgment a `by: judge` notice is of (`jdg_…`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub judgment: Option<String>,
 }
 
 /// Every notification as `(variant, its params, method)`: `Event` and its
@@ -441,6 +450,8 @@ events! {
     EventsLost(EventsLost) = notify::EVENTS_LOST,
     /// A notified call's score landed (M5 step 24).
     JudgeScored(crate::judge::JudgeScored) = notify::JUDGE_SCORED,
+    /// Jev's live notice after an open call it is sure was risky.
+    JudgeNoticed(crate::judge::JudgeNoticed) = notify::JUDGE_NOTICED,
     /// A task record changed (39a).
     TaskChanged(crate::tasks::TaskChanged) = notify::TASK_CHANGED,
 }
@@ -464,6 +475,7 @@ impl Event {
             Event::NarrativeLine(e) => e.session_id.as_deref(),
             Event::ExecutionChanged(e) => Some(&e.session_id),
             Event::JudgeScored(e) => Some(&e.session_id),
+            Event::JudgeNoticed(e) => Some(&e.session_id),
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::LoopStarted(_)
             | Event::ModelDelta(_)
@@ -492,6 +504,7 @@ impl Event {
             Event::TurnFailed(e) => e.turn_id.as_deref(),
             Event::NarrativeLine(e) => e.turn_id.as_deref(),
             Event::JudgeScored(e) => Some(&e.turn_id),
+            Event::JudgeNoticed(e) => Some(&e.turn_id),
             Event::ProfileChanged(_)
             | Event::ConfirmRequested(_)
             | Event::ConfirmResolved(_)
