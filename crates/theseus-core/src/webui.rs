@@ -397,7 +397,10 @@ mod tests {
     /// theseus-sqpx: what a span holds is written by `flush`, every kind's
     /// in one frame, each row with its count and its latest detail; nothing
     /// held, and no frame. The span's timer then finds nothing to write.
-    #[tokio::test]
+    // On the paused clock (theseus-lgtj, as theseus-56r7): the six refusals land within
+    // one span because the clock stands still while they are written, not because a
+    // loaded machine writes them in under 300 ms; the sleep moves it, not the scheduler.
+    #[tokio::test(start_paused = true)]
     async fn a_flush_writes_every_held_row_in_one_frame() {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open(&d.path().join("store")).unwrap();
