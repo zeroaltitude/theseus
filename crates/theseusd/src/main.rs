@@ -47,6 +47,7 @@ Running it:
   theseusd check                        prove the vault wiring, then exit
   theseusd config                       show the config actually loaded, and from where
   theseusd restore --from <wal dir>     rebuild the store from a WAL copy (daemon stopped)
+  theseusd restore --from s3://<bucket>/durability/<deployment>/   ...or from what it shipped
   theseusd example-bindings             the Discord bindings file format
   theseusd                              serve (foreground); add & to background it
   THESEUS_LOG=debug theseusd            more detail (tracing filter syntax)
@@ -111,7 +112,8 @@ enum Cmd {
     /// Rebuild the store from a local WAL directory (or another store's directory) and exit.
     /// The source is only read; a store already in place is moved aside with --force, never deleted.
     Restore {
-        /// A WAL directory (holding *.seg files) or a store directory (holding wal/).
+        /// A WAL directory (holding *.seg files), a store directory (holding wal/), or
+        /// s3://<bucket>/durability/<deployment>/: what the durability tender shipped there.
         #[arg(long)]
         from: PathBuf,
         /// Move the existing store aside instead of refusing.
@@ -384,7 +386,8 @@ async fn daemon(cli: Cli, origin: Instant) -> Result<Exit> {
         repair,
     }) = &cli.cmd
     {
-        restore(&cli, &cfg, from, *force, *repair).await?;
+        let fetch: Arc<dyn theseus_core::secrets::Fetch> = op.clone();
+        restore(&cli, &cfg, from, *force, *repair, (fetch, origin)).await?;
         return Ok(Exit::Done);
     }
     tracing::info!(source = %cli.config, from, model = %cfg.model.model, "config loaded");
@@ -1097,13 +1100,15 @@ async fn serve_socket(
 }
 
 /// `theseusd restore`: refuse while a daemon serves this store, then rebuild
-/// it, or repair it from a copy (`--repair`, theseus-15g).
+/// it, or repair it from a copy (`--repair`, theseus-15g), or rebuild it
+/// from what the durability tender shipped (`--from s3://…`, step 16).
 async fn restore(
     cli: &Cli,
     cfg: &Config,
     from: &std::path::Path,
     force: bool,
     repair: bool,
+    vault: (Arc<dyn theseus_core::secrets::Fetch>, Instant),
 ) -> Result<()> {
     let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     let socket = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
@@ -1114,6 +1119,12 @@ async fn restore(
         );
     }
     private_dir(&state_dir)?;
+    if let Some(url) = from.to_str().filter(|f| f.starts_with("s3://")) {
+        if repair {
+            anyhow::bail!("--repair takes a local copy of the store, not an s3:// URL");
+        }
+        return restore_s3(cfg, url, &state_dir, &socket, force, vault).await;
+    }
     if repair {
         let r = theseus_core::restore::repair(from, &state_dir)?;
         let mut text = format!("repaired {} frame(s) from {}:\n", r.patched.len(), r.from);
@@ -1131,6 +1142,49 @@ async fn restore(
         return out(&text);
     }
     let r = theseus_core::restore::restore(from, &state_dir, force)?;
+    let mut text = restore_lines(&r);
+    text.push_str("start theseusd to serve it; the ledger's last row is store.restored\n");
+    out(&text)
+}
+
+/// `theseusd restore --from s3://<bucket>/durability/<deployment>/` (step
+/// 16): the account's key from the vault, then the fetch and the local
+/// restore, in the account's restore session.
+async fn restore_s3(
+    cfg: &Config,
+    url: &str,
+    state_dir: &std::path::Path,
+    socket: &std::path::Path,
+    force: bool,
+    (fetch, origin): (Arc<dyn theseus_core::secrets::Fetch>, Instant),
+) -> Result<()> {
+    let secrets = SecretBoard::for_config(&cfg.secrets, origin);
+    tokio::spawn(theseus_core::secrets::resolve_into(
+        secrets.clone(),
+        cfg.secrets.clone(),
+        fetch,
+    ));
+    let Some(aws) = theseus_core::aws::Aws::from_config(&cfg.aws, secrets) else {
+        anyhow::bail!("the config binds no AWS account, so there is no bucket to restore from");
+    };
+    let r = theseus_core::aws::durable::restore::from_s3(
+        &aws,
+        url,
+        state_dir,
+        socket,
+        force,
+        &Default::default(),
+    )
+    .await?;
+    let mut text = theseus_core::aws::durable::restore::lines(&r);
+    text.push_str(&restore_lines(&r.restore));
+    text.push_str(&theseus_core::aws::durable::restore::after_lines(&r));
+    text.push_str("start theseusd to serve it; the ledger's last row is store.restored\n");
+    out(&text)
+}
+
+/// A local restore's lines: what it restored, what it cut, and where.
+fn restore_lines(r: &theseus_core::restore::RestoreReport) -> String {
     let mut text = format!(
         "restored {} segment(s): {} frames, {} records, last position {}\n",
         r.segments, r.frames, r.records, r.last_position
@@ -1172,8 +1226,7 @@ async fn restore(
         .map(|(name, ms)| format!("{name} {ms:.1}"))
         .collect();
     text.push_str(&format!("phases, ms: {}\n", phases.join(" · ")));
-    text.push_str("start theseusd to serve it; the ledger's last row is store.restored\n");
-    out(&text)
+    text
 }
 
 /// Log when the GitHub token expires; warn loudly when close. Never fatal.

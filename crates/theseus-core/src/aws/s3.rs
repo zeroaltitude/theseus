@@ -71,7 +71,7 @@ fn check(account: &Account, operation: &str, input: &Value, region: &str) -> Res
 }
 
 /// A body as the client gives it (a string, or `{"base64": …}`), as bytes.
-fn bytes_of(body: &Value) -> Vec<u8> {
+pub(crate) fn bytes_of(body: &Value) -> Vec<u8> {
     match body {
         Value::String(s) => s.as_bytes().to_vec(),
         Value::Object(o) => o

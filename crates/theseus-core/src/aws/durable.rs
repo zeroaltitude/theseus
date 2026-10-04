@@ -56,6 +56,9 @@ use crate::ledger::LedgerRow;
 use super::Account;
 
 pub mod cursor;
+pub mod fetch;
+pub mod read;
+pub mod restore;
 pub mod rows;
 pub mod s3;
 
