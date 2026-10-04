@@ -62,6 +62,18 @@ pub struct KernelConfig {
     /// confirms it (`Kernel::follow_spend_limit`), not in startup.
     #[serde(skip)]
     pub unconfirmed_config: bool,
+    /// The shortest span a repeating wake may take (37a, `[kernel]
+    /// min_repeat_minutes`).
+    #[serde(default = "default_min_repeat_ms")]
+    pub min_repeat_ms: u64,
+    /// The daemon's zone, in which a repeating wake's calendar spans run
+    /// (37a): the system's, or a test's own.
+    #[serde(skip, default = "jiff::tz::TimeZone::system")]
+    pub zone: jiff::tz::TimeZone,
+}
+
+fn default_min_repeat_ms() -> u64 {
+    5 * 60_000
 }
 
 impl Default for KernelConfig {
@@ -74,6 +86,8 @@ impl Default for KernelConfig {
             heartbeat_ms: 60_000,
             fault_after_startup_step: None,
             unconfirmed_config: false,
+            min_repeat_ms: default_min_repeat_ms(),
+            zone: jiff::tz::TimeZone::system(),
         }
     }
 }

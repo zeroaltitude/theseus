@@ -168,6 +168,7 @@ ledger_kinds! {
     VoiceLeft = "voice.left",
     VoiceUnlisted = "voice.unlisted",
     WakeCancelled = "wake.cancelled",
+    WakeEnded = "wake.ended",
     WakeFired = "wake.fired",
     WakeSet = "wake.set",
     WebDevOrigin = "web.dev_origin",

@@ -219,6 +219,7 @@ spend_limit_usd = 100.0                 # each session's spend limit in US dolla
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none
 confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid
+min_repeat_minutes = 5                  # the shortest span a repeating wake (wake.at with `every`) may take; at least 1
 
 # ---------------------------------------------------------------- tools
 # Toollets (fs.*, text.diff, git.diff/log, proc.run). The workspace is
