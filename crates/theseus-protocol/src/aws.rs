@@ -1,6 +1,7 @@
 //! AWS's wire types beyond an account's health line (AWS design §3.7, §5's
 //! C2): the budget and GuardDuty as their reads after serving found them,
-//! `aws.bootstrap`'s plan, and `aws.confirm_alerts`.
+//! the durability tender's line (step 15), `aws.bootstrap`'s plan, and
+//! `aws.confirm_alerts`.
 
 use std::collections::BTreeMap;
 
@@ -17,6 +18,43 @@ pub struct AwsBudgetStatus {
     #[cfg_attr(test, ts(optional))]
     pub forecast_cents: Option<u64>,
     pub read_at_unix_ms: u64,
+}
+
+/// The durability tender (AWS step 15): the store shipped off the machine,
+/// WAL segments and blobs to the foundation's bucket and index rows to its
+/// table. `oldest_unshipped_unix_ms` is the recovery point's exposure (spec
+/// §6, the 5 to 60 s target): the commit time of the oldest record not yet
+/// shipped, none when everything is; `lag_ms` is its age as health was asked.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AwsDurabilityStatus {
+    /// `waiting` (for serving, or the account's check), `shipping`,
+    /// `caught_up`, `failing` (it retries; `error` says why), or `stopped`
+    /// (it cannot go on; `error` says why).
+    pub state: String,
+    /// Where it ships: `s3://<bucket>/<prefix>`, and the table.
+    pub bucket: String,
+    pub prefix: String,
+    pub table: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub oldest_unshipped_unix_ms: Option<u64>,
+    pub lag_ms: u64,
+    /// The last position shipped, and when.
+    pub shipped_to_position: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub last_shipped_unix_ms: Option<u64>,
+    /// Since the daemon started: sealed segments, tails of the open one,
+    /// blobs, index rows, and the bytes of them all.
+    pub segments: u64,
+    pub tails: u64,
+    pub blobs: u64,
+    pub rows: u64,
+    pub bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub error: Option<String>,
 }
 
 /// GuardDuty's usage over its last 30 days (`GetUsageStatistics`, free),

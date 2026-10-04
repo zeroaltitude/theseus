@@ -60,8 +60,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   input, deletions of what holds state wait), `aws.describe`, `aws.whoami`, `aws.s3.list`, the stack tools
   (`stack.rs`: plan, apply bound to the change set's digest, status, delete), `aws.cost` (`cost.rs`), the bootstrap
   (`bootstrap.rs`, `rpc/aws.rs`: a read-only plan, the apply on the operator's yes), and the tenders after serving
-  (`tend.rs`: the budget's reconcile and line, GuardDuty's weekly usage). Its tests are `aws/tests.rs` (C1) and
-  `aws/tests_c2.rs` (a fake CloudFormation with state); `config/aws.rs` holds `[aws]`'s types and checks.
+  (`tend.rs`: the budget's reconcile and line, GuardDuty's weekly usage), and the durability tender (`durable.rs`,
+  step 15: with `durability = true`, the WAL's sealed segments, the open one's tails, and blobs to S3, and index rows
+  to DynamoDB, in the session `theseus-durability`, from a cursor in `<state>/durability/` saved after every object,
+  so a restart asks S3 instead of sending again). Its tests are `aws/tests.rs` (C1), `aws/tests_c2.rs` (a fake
+  CloudFormation with state), and `aws/tests_durable.rs` (a fake S3 and DynamoDB with state, binary bodies, and
+  checksums); `config/aws.rs` holds `[aws]`'s types and checks.
 - **Hands** (step 40 part 1, theseus-mgw.6): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late

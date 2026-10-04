@@ -117,6 +117,9 @@ pub struct Batch {
     /// The bytes read, as (segment, from, to): whole frames only, so a
     /// follower that ships segments ships these ranges.
     pub spans: Vec<(u32, u64, u64)>,
+    /// Each span's last position, in step with `spans`: which segment holds
+    /// a record (the durability tender's index rows).
+    pub ends: Vec<u64>,
     /// Segments this read finished: a later segment exists, so nothing more
     /// is ever written to them.
     pub sealed: Vec<u32>,
@@ -312,6 +315,7 @@ impl WalFollower {
             }
             if i > 0 {
                 batch.spans.push((seg, span_from, off + i as u64));
+                batch.ends.push(self.cursor.position);
             }
             off += i as u64;
             if let Some(reason) = partial {

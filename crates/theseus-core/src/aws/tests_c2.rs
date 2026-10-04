@@ -35,6 +35,7 @@ fn config(endpoint: &str, owner: bool, budget: Option<u32>) -> AwsConfig {
                 owner_role: owner.then(|| "theseus-owner".into()),
                 deployment: None,
                 monthly_budget_usd: budget,
+                durability: false,
             },
         )]),
     }

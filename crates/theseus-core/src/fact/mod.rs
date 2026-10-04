@@ -43,6 +43,7 @@ use crate::trace::Trace;
 pub mod answer;
 pub mod cancel;
 pub mod driver;
+pub mod durability;
 pub mod index;
 pub mod judge;
 pub mod mcp;
@@ -322,6 +323,7 @@ facts![
     index::TenderSettingsChanged,
     index::TenderExited<'static>,
     index::TenderStartFailed<'static>,
+    durability::SegmentShipped<'static>,
     sandbox::SandboxStarted<'static>,
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,

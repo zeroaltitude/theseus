@@ -253,6 +253,7 @@ fn account(endpoint: &str) -> AwsConfig {
                 owner_role: None,
                 deployment: Some("theseus-example".into()),
                 monthly_budget_usd: None,
+                durability: false,
             },
         )]),
     }

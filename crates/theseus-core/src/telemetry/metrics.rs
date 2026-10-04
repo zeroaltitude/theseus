@@ -115,8 +115,21 @@ const PUSH_DELAY: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const DURABILITY_SHIPPED: Instrument = Instrument {
+    name: "theseus.durability.shipped",
+    description: "What the durability tender shipped (AWS step 15): bytes of WAL segments, tails, and blobs, and index rows, by object",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const DURABILITY_LAG: Instrument = Instrument {
+    name: "theseus.durability.lag_ms",
+    description: "The oldest unshipped record's age when the durability tender caught up: the recovery point's exposure",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 14] = [
+const INSTRUMENTS: [&Instrument; 16] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -131,6 +144,8 @@ const INSTRUMENTS: [&Instrument; 14] = [
     &PUSH_EVENTS,
     &PUSH_LOST,
     &PUSH_DELAY,
+    &DURABILITY_SHIPPED,
+    &DURABILITY_LAG,
 ];
 
 /// A tool call's attributes (§3.23). `theseus.tool.name` was `theseus.tool`
@@ -322,6 +337,22 @@ impl Metrics {
     /// The push (theseus-in3): `n` notifications dropped at a backlog cap.
     pub(super) fn push_lost(&mut self, n: u64) {
         self.add(&PUSH_LOST, Vec::new(), n);
+    }
+
+    /// The durability tender (AWS step 15): what it shipped, or the lag it
+    /// closed as it caught up.
+    pub(super) fn durability(&mut self, m: crate::aws::durable::Measure) {
+        use crate::aws::durable::Measure;
+        match m {
+            Measure::Shipped { object, bytes } => self.add(
+                &DURABILITY_SHIPPED,
+                vec![("theseus.durability.object", Attr::S(object.to_string()))],
+                bytes,
+            ),
+            Measure::CaughtUp { lag_ms } => {
+                self.record(&DURABILITY_LAG, Vec::new(), lag_ms as f64);
+            }
+        }
     }
 
     fn tokens(&mut self, u: &Usage, base: &Attrs) {

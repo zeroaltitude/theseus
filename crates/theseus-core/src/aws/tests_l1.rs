@@ -98,6 +98,7 @@ fn rig(script: Vec<Scripted>, egress: &[&str]) -> Rig {
             owner_role: Some("theseus-owner".into()),
             deployment: None,
             monthly_budget_usd: None,
+            durability: false,
         },
     )]);
     cfg.broker.programs = BTreeMap::from([(

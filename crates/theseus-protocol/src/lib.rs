@@ -576,6 +576,10 @@ pub struct AwsAccountStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub reconcile: Option<String>,
+    /// The durability tender (step 15), on this account when it ships.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub durability: Option<AwsDurabilityStatus>,
 }
 
 /// The spool's sweeps (theseus-2ij): a job's raw output, what it printed

@@ -56,6 +56,13 @@ pub struct AwsAccountConfig {
     /// the foundation stack's budget after serving when they differ.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monthly_budget_usd: Option<u32>,
+    /// The durability tender (AWS step 15): after serving, ship the store's
+    /// WAL segments and blobs to the foundation's bucket and its index rows
+    /// to the durability table, under the deployment's prefix, in the
+    /// tender session `theseus-durability`. Needs `owner_role`; one account
+    /// at most. Off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub durability: bool,
 }
 
 impl AwsAccountConfig {
@@ -213,6 +220,33 @@ impl super::Config {
                 );
             }
         }
+        let shipping: Vec<&String> = self
+            .aws
+            .accounts
+            .iter()
+            .filter(|(_, a)| a.durability)
+            .map(|(id, _)| id)
+            .collect();
+        if let Some(id) = shipping
+            .iter()
+            .find(|id| self.aws.accounts[**id].owner_role.is_none())
+        {
+            anyhow::bail!(
+                "aws.accounts.{id}.durability needs owner_role: the tender signs in a role session \
+                 narrowed to the foundation's bucket and table, never with the key"
+            );
+        }
+        if shipping.len() > 1 {
+            anyhow::bail!(
+                "durability is on for {} accounts ({}): the store ships to one",
+                shipping.len(),
+                shipping
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         for key in self.policy.aws.keys() {
             aws_policy_key(key).map_err(anyhow::Error::msg)?;
         }
@@ -253,6 +287,10 @@ mod tests {
             (Some("theseus-owner"), "theseus-lab", Some(50))
         );
         assert!(ok.broker.programs["aws"].env.is_empty());
+        // The durability tender: off by default, on with the owner role.
+        assert!(!a.durability);
+        let on = with("owner_role = \"theseus-owner\"\ndurability = true").unwrap();
+        assert!(on.aws.accounts["111122223333"].durability);
         assert_eq!(
             with("").unwrap().aws.accounts["111122223333"].deployment(),
             "theseus"
@@ -261,6 +299,7 @@ mod tests {
             ("owner_role = \"theseus owner\"", "owner_role = \"theseus owner\" is not an IAM name"),
             ("deployment = \"x\"", "is not an IAM name: 2 to 64"),
             ("monthly_budget_usd = 0", "monthly_budget_usd is 0"),
+            ("durability = true", "aws.accounts.111122223333.durability needs owner_role"),
             (
                 "\n[broker.programs.aws]\naws_account = \"444455556666\"",
                 "broker.programs.aws.aws_account = \"444455556666\" is not an account under [aws.accounts]",
