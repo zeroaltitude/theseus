@@ -7,7 +7,8 @@ page sets it up as a systemd **user service** instead, and shows how to live wit
 scripts/user-service.sh install
 ```
 
-Everything below is what that command does, why, and what to do afterwards.
+Everything below is what that command does, why, and what to do afterwards. On a new machine,
+[`scripts/setup.sh`](setup.md) runs it as its last step, after building, installing, and writing the config.
 
 ## Why
 
@@ -29,22 +30,22 @@ daemon that runs as root.
 The unit has no shell, so two things it needs are named for it, in the shell you run the script from: your config
 (step 0) and a token file.
 
-### Step 0: name your config
+### Step 0: your config
 
 The plan writes a config into the unit (`--config`) from the shell you run the script in: `THESEUS_CONFIG`, and when
-that is not set, the built-in default of the `theseusd` on your `PATH`. A build's default can be a local file
-(`~/.theseus/theseus.toml`) that you do not have, and a unit that names a file that is not there cannot start. So, once,
-in the profile of the shell you start the daemon in, name the config your daemon reads today, by the reference of its
-vault note:
+that is not set, the default of the `theseusd` on your `PATH`, which looks for `~/.theseus/theseus.toml`, then
+`/etc/theseus/theseus.toml` (theseus-5aqz; [setup.md](setup.md#where-the-config-lives) has the order). A config in
+either place needs nothing more: the unit names the one the lookup found. A unit that names a file that is not there
+cannot start, so if your config is a vault note instead, name it once, in the profile of the shell you start the
+daemon in, by its reference:
 
 ```
 export THESEUS_CONFIG=op://<vault>/<item>/notesPlain
 ```
 
-Open a new shell (or run the line in this one) before `check`. If you keep your config in a local file instead, leave the
-variable out and make sure the file is where the plan says. `check` tells you which case you are in: it reads the config
-the unit would get from the plan's own `config:` line, not from the variable alone, so it holds for any build of
-`theseusd` (see "The one command" for what it prints).
+Open a new shell (or run the line in this one) before `check`. `check` tells you which case you are in: it reads the
+config the unit would get from the plan's own `config:` line, not from the variable alone, so it holds for any build
+of `theseusd` (see "The one command" for what it prints).
 
 ### A token file
 
@@ -133,13 +134,14 @@ result: ready (0 warning(s))
 ```
 
 The `config:` line is the one to look at before you answer a question. In a shell that has not exported
-`THESEUS_CONFIG`, on a build whose default is a local file you do not have, it reads:
+`THESEUS_CONFIG`, on a machine with neither default file, it reads:
 
 ```
   FAIL  config: /home/ada/.theseus/theseus.toml is not a readable file (THESEUS_CONFIG is not set here, so this is theseusd's built-in default)
         the unit would be written to read it, and the daemon would not start. Name your config's vault note instead,
         in the shell that runs this script (your profile keeps it):  export THESEUS_CONFIG=op://<vault>/<item>/notesPlain
-        or write the file.
+        or write the file. scripts/setup.sh writes /etc/theseus/theseus.toml from the template, which theseusd reads
+        when there is no ~/.theseus/theseus.toml.
 ```
 
 `install` stops there: nothing has been asked, written, or stopped. With the variable exported, or the file written, the
@@ -180,6 +182,13 @@ and the next daemon reads their results from the spool. A crash recovers the sam
 drop-in (`systemctl --user edit theseusd`), which is never touched. To change what the plan writes (the config
 reference, the state directory, the socket, the token file, or `PATH`), run `scripts/user-service.sh install`
 again from a shell that has the new values. `theseusd install --user --check` lists what differs.
+
+**A second daemon.** `--unit NAME` acts on a unit of its own, `NAME.service`, for a daemon beside yours: a scratch
+build, or the proof of [`scripts/setup.sh`](setup.md#a-second-daemon-beside-yours). `install` needs a socket and a
+state dir of its own in the shell (`THESEUS_SOCKET` and `THESEUS_STATE_DIR`, which the plan writes into its unit), and
+refuses without them: on your daemon's socket it would take your daemon for one started by hand, and stop it, and on
+your state dir the two would share one store. Every other command takes `--unit NAME` the same way, and `theseusd
+install --user --unit NAME` is the plan under it.
 
 **If the unit won't stay up.** `scripts/user-service.sh check` first, then `logs`. The usual causes:
 - *The token file.* The daemon refuses a token file that group or others can read, or an empty one, and says so in

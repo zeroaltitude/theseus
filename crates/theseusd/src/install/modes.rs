@@ -85,40 +85,27 @@ fn own_group(host: &dyn Host, user: &User) -> Result<String> {
         .map_or_else(|| user.gid.to_string(), |g| g.name))
 }
 
-/// `--user`: the operator's own daemon as a systemd user service.
-pub(crate) fn user(env: &Env, g: &Globals, remove: bool, host: &dyn Host) -> Result<Layout> {
+/// `--user`: the operator's own daemon as a systemd user service, the unit
+/// `name` (`theseusd`, unless `--unit` names a second daemon's).
+pub(crate) fn user(
+    env: &Env,
+    g: &Globals,
+    name: &str,
+    remove: bool,
+    host: &dyn Host,
+) -> Result<Layout> {
     let op = operator(env, host, None)?;
     let owner = Owner::new(&op.name, &own_group(host, &op)?);
-    let home = env
-        .var("HOME")
-        .filter(|h| Path::new(h).is_absolute())
-        .map(PathBuf::from)
-        .context("HOME is not set to an absolute path: the unit's place is under it")?;
-    let config_home = env
-        .var("XDG_CONFIG_HOME")
-        .filter(|h| Path::new(h).is_absolute())
-        .map_or_else(|| home.join(".config"), PathBuf::from);
-    let unit = config_home.join("systemd/user/theseusd.service");
+    let unit = user_unit_path(env, name)?;
     let who = format!("operator:  {} (uid {})", op.name, op.uid);
+    // The command as the plan names it: `--unit` only for a second daemon's.
+    let command = if name == super::USER_UNIT {
+        "theseusd install --user".to_string()
+    } else {
+        format!("theseusd install --user --unit {name}")
+    };
     if remove {
-        return Ok(Layout {
-            command: "theseusd install --user --remove".into(),
-            context: vec![who],
-            entries: vec![Entry {
-                item: Item::NoFile {
-                    path: unit,
-                    rule: FileRule::Generated,
-                },
-                why: "the daemon's user unit".into(),
-            }],
-            parents: owner,
-            notes: vec![
-                "before --apply: systemctl --user disable --now theseusd.service".into(),
-                "after it: systemctl --user daemon-reload".into(),
-                "your state dir is not touched: the daemon you start by hand serves it as before"
-                    .into(),
-            ],
-        });
+        return Ok(user_remove(&command, who, unit, owner, name));
     }
     let source = Source::of(&g.config, env);
     let mut exec = vec![
@@ -162,30 +149,67 @@ pub(crate) fn user(env: &Env, g: &Globals, remove: bool, host: &dyn Host) -> Res
         "stop the daemon you started by hand (`theseus shutdown`), so the unit's can take its \
          socket"
             .into(),
-        "systemctl --user enable --now theseusd.service".into(),
+        format!("systemctl --user enable --now {name}.service"),
         format!(
             "loginctl enable-linger {}: your user manager, and the daemon, keep running when you \
              log out",
             op.name
         ),
-        "journalctl --user -u theseusd: its log".into(),
+        format!("journalctl --user -u {name}: its log"),
     ]);
     entries.push(Entry {
         item: Item::File {
             path: unit,
             owner: owner.clone(),
             mode: 0o644,
-            body: Body::Text(user_unit(&exec, &vars)?),
+            body: Body::Text(user_unit(name, &exec, &vars)?),
         },
         why: "the daemon as your systemd user service".into(),
     });
     Ok(Layout {
-        command: "theseusd install --user".into(),
+        command,
         context,
         entries,
         parents: owner,
         notes,
     })
+}
+
+/// Where `--user` writes the unit `name`: under `$XDG_CONFIG_HOME`, else
+/// `~/.config`.
+fn user_unit_path(env: &Env, name: &str) -> Result<PathBuf> {
+    let home = env
+        .var("HOME")
+        .filter(|h| Path::new(h).is_absolute())
+        .map(PathBuf::from)
+        .context("HOME is not set to an absolute path: the unit's place is under it")?;
+    let config_home = env
+        .var("XDG_CONFIG_HOME")
+        .filter(|h| Path::new(h).is_absolute())
+        .map_or_else(|| home.join(".config"), PathBuf::from);
+    Ok(config_home.join(format!("systemd/user/{name}.service")))
+}
+
+/// `--user --remove`: the unit `name` taken away, if theseusd wrote it.
+fn user_remove(command: &str, who: String, unit: PathBuf, owner: Owner, name: &str) -> Layout {
+    Layout {
+        command: format!("{command} --remove"),
+        context: vec![who],
+        entries: vec![Entry {
+            item: Item::NoFile {
+                path: unit,
+                rule: FileRule::Generated,
+            },
+            why: "the daemon's user unit".into(),
+        }],
+        parents: owner,
+        notes: vec![
+            format!("before --apply: systemctl --user disable --now {name}.service"),
+            "after it: systemctl --user daemon-reload".into(),
+            "your state dir is not touched: the daemon you start by hand serves it as before"
+                .into(),
+        ],
+    }
 }
 
 /// The token file the unit names, as an item the plan checks and `--apply`

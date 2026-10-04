@@ -200,14 +200,15 @@ Each traces to the Part III item that taught it.
   `theseusd`, `theseus-sim`, `theseus-tui`, and `theseus-index` into `~/.local/bin` (`cp target/release-thin/$b
   ~/.local/bin/.$b.new && mv -f ~/.local/bin/.$b.new ~/.local/bin/$b`). A running daemon survives the swap. The daemon
   runs the `theseus-index` beside its own binary as its index tender, and only that one; a running tender keeps its old
-  image until it restarts.
+  image until it restarts. `scripts/setup.sh` does all of it, from a checkout to a running service (`docs/setup.md`).
 - **The README stays stable.** It says what Theseus is and why. What changes with each step goes in
   `docs/status.md`.
 - **Reviews are appendices.** A review of the design is answered in an appendix of the spec (Appendices A, C to F),
   and a review of the code is a design document (`docs/design/review-2.md`) whose accepted findings become steps.
-- **The config is the operator's.** It is a note in a vault that agents can't write, and it holds only what differs
-  from the defaults (theseus-vwar), so a new key or default reaches it with the build, and only a value of the
-  operator's own needs a paste. Every key has a default, documented in the template
+- **The config is the operator's.** It is a file, `/etc/theseus/theseus.toml` (theseusd's default when there is no
+  `~/.theseus/theseus.toml`, theseus-5aqz), or a note in a vault, and it holds only what differs from the defaults
+  (theseus-vwar), so a new key or default reaches it with the build, and only a value of the operator's own needs an
+  edit. Its secrets are `op://` references, never values. Every key has a default, documented in the template
   (`crates/theseus-core/config/theseus.example.toml`). The loader rejects unknown keys, and
   `example_template_uncommented_still_parses` holds the template to it.
 

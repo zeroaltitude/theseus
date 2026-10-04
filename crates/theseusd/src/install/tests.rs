@@ -978,6 +978,76 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
     assert!(!r.at(unit).exists());
 }
 
+/// `--unit` gives a second daemon, a scratch one beside the operator's, a unit of its own: its file,
+/// its name in the plan's command and notes and in the unit, and the operator's unit untouched by its
+/// apply and its remove. The operator's own unit reads as it always has (the golden plan).
+#[test]
+fn a_second_daemons_unit_has_its_own_name_and_leaves_the_first_alone() {
+    let mut r = Rig::user();
+    r.ok(&args(|a| {
+        a.user = true;
+        a.apply = true;
+    }));
+    let first = std::fs::read(r.at(UNIT)).unwrap();
+    r.g.state_dir = Some("/tmp/scratch/state".into());
+    r.g.socket = Some("/tmp/scratch/sock".into());
+    let scratch = "/home/ada/.config/systemd/user/theseus-scratch.service";
+    let named = |a: &mut InstallArgs| {
+        a.user = true;
+        a.unit = Some("theseus-scratch".into());
+    };
+    let plan = r.ok(&args(named));
+    assert!(
+        plan.starts_with("theseusd install --user --unit theseus-scratch: the plan."),
+        "{plan}"
+    );
+    for want in [
+        "systemctl --user enable --now theseus-scratch.service",
+        "journalctl --user -u theseus-scratch: its log",
+    ] {
+        assert!(plan.contains(want), "{want:?} missing from:\n{plan}");
+    }
+    let log = r.ok(&args(|a| {
+        named(a);
+        a.apply = true;
+    }));
+    assert!(log.contains(&format!("wrote {scratch}")), "{log}");
+    let text = std::fs::read_to_string(r.at(scratch)).unwrap();
+    for want in [
+        "\nDescription=Theseus daemon (theseus-scratch)\n",
+        "(`systemctl --user edit theseus-scratch`)",
+        " --state-dir /tmp/scratch/state --socket /tmp/scratch/sock ",
+    ] {
+        assert!(text.contains(want), "{want:?} missing from:\n{text}");
+    }
+    // A name with `.service` after it is the same unit.
+    assert_eq!(
+        r.ok(&args(|a| {
+            a.user = true;
+            a.unit = Some("theseus-scratch.service".into());
+            a.check = true;
+        })),
+        "theseusd install --user --unit theseus-scratch: the machine matches the layout.\n"
+    );
+    // Its remove takes its own unit, and the operator's stays as it was.
+    let log = r.ok(&args(|a| {
+        named(a);
+        a.remove = true;
+        a.apply = true;
+    }));
+    assert!(log.contains(&format!("removed {scratch}")), "{log}");
+    assert!(!r.at(scratch).exists());
+    assert_eq!(std::fs::read(r.at(UNIT)).unwrap(), first);
+    // A name systemd would not take is refused, and nothing is read or written.
+    for bad in ["", ".service", "../x", "a b", "x/y"] {
+        let e = r.err(&args(|a| {
+            a.user = true;
+            a.unit = Some(bad.into());
+        }));
+        assert!(e.contains("a unit's name is letters"), "{bad:?}: {e}");
+    }
+}
+
 #[test]
 fn a_user_unit_without_a_token_file_says_how_to_give_it_one() {
     let mut r = Rig::user();
@@ -1048,7 +1118,7 @@ fn a_user_apply_without_a_token_file_refuses_unless_a_drop_in_supplies_it() {
 #[test]
 fn the_daemon_units_bound_a_crash_loop() {
     let exec = vec!["/opt/theseus/bin/theseusd".to_string()];
-    let user = user_unit(&exec, &[]).unwrap();
+    let user = user_unit(USER_UNIT, &exec, &[]).unwrap();
     let system = system_unit(&exec).unwrap();
     for (name, unit) in [("user", &user), ("system", &system)] {
         let (unit_sect, service) = unit.split_once("[Service]").unwrap();

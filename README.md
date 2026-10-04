@@ -20,7 +20,7 @@
   <a href="docs/status.md">Status and roadmap</a> ·
   <a href="docs/the-ship-of-theseus.md">The design document</a> ·
   <a href="docs/technical-overview.md">Technical overview</a> ·
-  <a href="#quick-start">Quick start</a>
+  <a href="#set-it-up">Set it up</a>
 </p>
 
 > *The ship wherein Theseus and the youth of Athens returned from Crete had thirty oars, and was preserved by the
@@ -37,7 +37,9 @@ starts background tasks, and sets itself reminders. It keeps a complete, durable
 what it did, why, what it was shown, what it cost, and who approved it.
 
 It is written in Rust: a daemon that does the work, and a small command-line client. It talks to Anthropic's Claude
-models directly, and to any model served through the same API (GLM from Z.ai is supported today).
+models directly, and to any model served through the same API (GLM from Z.ai is supported today). **It runs on
+Linux only, by design:** it is built straight on the kernel's own machinery (cgroups, namespaces, seccomp, pidfds,
+and inotify), with no layer in between to make it portable.
 
 **About the name.** Theseus is built the way Plutarch's ship was kept: one small, reviewed, tested plank at a time.
 Its design document is also the record of every plank that was replaced.
@@ -268,44 +270,30 @@ and the copy of its config note it wrote last acts while the vault is read.
 
 </details>
 
-## Quick start
+## Set it up
 
-You'll need:
-- Linux;
-- Rust 1.98 or later;
-- Node.js 22 or later (to build the cockpit, the web UI);
-- an Anthropic API key, or a key for another provider that speaks the same API;
-- [1Password](https://1password.com/) with a service account, the recommended home for every secret. Where there is
-  no vault, as in a container or CI, a secret can come from an environment variable or a private file instead
-  (`env:` and `file:` in the template's `[secrets]`).
+One command, on Linux with systemd, from a checkout. You'll need rustup, Node.js 22 or later (for the cockpit, the
+web UI), an Anthropic API key (or a key for another provider that speaks the same API), and
+[1Password](https://1password.com/) with a service account, the recommended home for every secret.
 
 ```bash
 git clone https://github.com/zeroaltitude/theseus && cd theseus
-
-# Build: the cockpit (the web UI) first, since it's embedded in the binary.
-(cd cockpit && npm ci && npm run build)
-cargo build --release
-install -m 755 target/release/theseus target/release/theseusd target/release/theseus-tui target/release/theseus-index ~/.local/bin/
-
-# Configure: the annotated template, at the path theseusd reads by default.
-mkdir -p ~/.theseus
-theseusd example-config > ~/.theseus/theseus.toml
-#   then edit it: point each op:// reference in [secrets] at an item in your own vault.
-#   Every key has a default: `theseusd config --sparse` prints it cut to what differs.
-export OP_SERVICE_ACCOUNT_TOKEN=...      # or keep it in a file: --op-token-file
-theseusd check                           # proves every secret resolves, then exits
-
-# Run it, and talk to it.
-theseusd &
-theseus ask "Hello! What can you do?"
+scripts/setup.sh --dry-run                                     # what it would do; it changes nothing
+scripts/setup.sh --op-token-file ~/.config/theseus/op-token    # your service account's token, in a mode-600 file
 ```
 
-Then open the cockpit, the web UI, at <http://127.0.0.1:7433/>.
+It checks the machine, builds the cockpit and the binaries, and installs them into `~/.local/bin`. It writes
+`/etc/theseus/theseus.toml` from the template, asking for sudo once for the directory, with every secret an `op://`
+reference for you to fill in, never a value. Then it checks that every secret resolves, runs the daemon as a systemd
+user service, and shows its health. The first run stops once the config is written, for your references: run it
+again, and it finishes. It is safe to run at any time, and after a `git pull` it installs what changed.
+[docs/setup.md](docs/setup.md) walks through each step and its options, and the same steps by hand.
+
+Then talk to it: `theseus ask "Hello! What can you do?"`, `theseus tui`, or the cockpit at <http://127.0.0.1:7433/>.
 
 From there:
-- **Run it as a service:** `scripts/user-service.sh install` checks the machine, writes a systemd user unit, and
-  starts it; [docs/user-service.md](docs/user-service.md) walks through it. (`theseusd install --user` prints the
-  same unit's plan, and `--apply` writes it.)
+- **The service, day to day:** `scripts/user-service.sh status`, `logs`, and `restart`
+  ([docs/user-service.md](docs/user-service.md)).
 - **Connect Discord:** `theseusd example-bindings` prints the bindings file's format.
 - **Learn the command line:** `theseus --help`. A good first look at a session is `theseus watch`.
 
@@ -316,6 +304,7 @@ From there:
   the record of what was built.
 - **[Technical overview](docs/technical-overview.md)**: the core in depth (the store, the kernel, the tool loop,
   the protocol, and the command line).
+- **[Setting it up](docs/setup.md)**: one command from a checkout to a running daemon, step by step.
 - **[Running it as a service](docs/user-service.md)**: the systemd user unit, step by step.
 - **[Design documents](docs/design/)**, **[research](docs/research/)**, and **[notes](docs/notes/)**: how each
   part was designed, and what it was measured against.

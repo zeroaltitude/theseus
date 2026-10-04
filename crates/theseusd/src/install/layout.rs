@@ -951,13 +951,20 @@ StartLimitIntervalSec=300
 StartLimitBurst=10
 ";
 
-/// `--user`'s unit.
-pub(crate) fn user_unit(exec: &[String], env: &[(String, String)]) -> Result<String> {
+/// `--user`'s unit, `name` (`theseusd`, or a second daemon's `--unit`).
+pub(crate) fn user_unit(name: &str, exec: &[String], env: &[(String, String)]) -> Result<String> {
+    // The operator's own unit says only "Theseus daemon", as it always has, so
+    // an installed unit still matches its plan; a second daemon's names itself.
+    let description = if name == super::USER_UNIT {
+        "Theseus daemon".to_string()
+    } else {
+        format!("Theseus daemon ({name})")
+    };
     let mut s = format!(
         "{HEADER} --user`. A later --apply rewrites it:\n\
-         # put your own changes in a drop-in (`systemctl --user edit theseusd`).\n\
+         # put your own changes in a drop-in (`systemctl --user edit {name}`).\n\
          [Unit]\n\
-         Description=Theseus daemon\n\
+         Description={description}\n\
          {START_LIMIT}\n\
          [Service]\n\
          Type=exec\n\
