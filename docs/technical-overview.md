@@ -23,24 +23,21 @@ Two static binaries and one protocol:
 - **`theseus`** — the CLI. A thin client that links only the protocol crate. Prompt from an
   argument or stdin, streamed reply on stdout, diagnostics on stderr, `--json` for machines.
 - **The protocol** — JSON-RPC 2.0, one JSON object per line. Types in `crates/theseus-protocol`.
-- **The web UI** — `http://127.0.0.1:7433/`, served from the binary (Vite + React, source in `web/`).
-  The browser is a protocol client over a WebSocket. A sessions sidebar resumes any session (the
-  open one survives a reload); the transcript is rebuilt from the store with tool cards, diffs,
-  thinking summaries, dollars, and inline **Approve / Decline** for anything that needs you. The
-  **Observatory** panel beside the chat is live windows onto the store: context compilations and
-  every loop's append-or-recompile decision, the tools with their policy and call counts, kernel
-  state and the timed startup steps, every execution with its budget and a cancel button, every
-  action with its planned → dispatched → settled timing, the ledger with family filters and
-  per-row JSON, the session graph's nodes, the model catalog, and sessions. Every panel is a
-  protocol query re-run on a timer and after each turn, so what you see is what a restarted daemon
-  would also see.
-- **The cockpit** — `http://127.0.0.1:7433/cockpit/`, the second web app (React, ECharts, React Flow;
-  source in `cockpit/`), linked from the Observatory as "see the new experience". It covers:
-  - live instruments over the whole daemon, and a drill-down for every session;
+- **The web UI** — the cockpit, `http://127.0.0.1:7433/`, served from the binary (React, ECharts,
+  React Flow; source in `cockpit/`). The browser is a protocol client over a WebSocket, with no
+  privileged path (spec §3.14). It covers:
+  - live instruments over the whole daemon, and a drill-down for every session: the transcript
+    rebuilt from the store with tool cards, diffs, thinking, dollars, and inline **Approve /
+    Decline** for anything that needs you, and the live turn as it streams;
   - an inspector for each tool call and each model call;
-  - the actions, the ledger, the economics, and the systems.
+  - the actions, the ledger (its rows in words, by family or by kind, and the graph's nodes), the
+    economics, and the systems: context compilations and every loop's append-or-recompile
+    decision, the tools with their postures, kernel state and the timed startup steps, every
+    execution with its budget, and the model catalog.
 
-  It speaks the same protocol, with no privileged path (spec §3.14).
+  It follows the push, so what you see is what a restarted daemon would also see. An old
+  `/cockpit/…` address redirects to the same page. It replaced the Observatory, the first web app,
+  on 2026-10-03.
 
 A turn is a tool loop: the session's history (compiled once, then appended to) goes to the
 Anthropic Messages API with the toollets offered, tool calls go through the policy gate, and the
@@ -167,7 +164,8 @@ A session is a graph of **nodes** in the store (your messages, the model's messa
 thinking blocks byte for byte, tool calls with the gate's decision, tool results). The model's
 context is a **compilation** of those nodes plus the tail written since: appended to every loop,
 recompiled only on a new session, a model/system/tool change, overflow of the context window, or
-your request (`theseus sessions recompile <id> --strategy fresh|transcript`, or the Observatory).
+your request (`theseus sessions recompile <id> --strategy fresh|transcript`, or the cockpit's
+session deck).
 Every loop records its decision (`context.compiled`).
 
 Native **toollets**, no shell unless asked for: `fs.read`, `fs.write`, `fs.edit`,
@@ -204,9 +202,8 @@ theseus catalog                        # windows, output limits, prices
 
 ```bash
 cargo build                                           # dev
-scripts/gate.sh                                       # the whole gate: fmt, clippy, nextest, the lifecycle bench, cargo deny, both web apps
-(cd web && npm ci && npm run build)                   # web UI → crates/theseusd/web/dist (committed)
-(cd cockpit && npm ci && npm run build)               # the cockpit → crates/theseusd/cockpit/dist (not committed; build it before a release)
+scripts/gate.sh                                       # the whole gate: fmt, clippy, the cockpit, nextest, the benches, cargo deny
+(cd cockpit && npm ci && npm run build)               # the web UI → crates/theseusd/cockpit/dist (not committed; build it before a release)
 scripts/build.sh --profile release-thin               # an install: the five shipped binaries, locked, reproducible (scripts/AGENTS.md)
 scripts/build.sh --target x86_64-unknown-linux-musl   # the portable build: static binaries
 scripts/smoke.sh                                      # end to end against the real API

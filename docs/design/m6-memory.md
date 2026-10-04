@@ -673,7 +673,7 @@ with the tender configured, and a turn on a 2,000-node session (33).
 | `index.status`, `index.rebuild` | read, acting | The tender, through the core |
 | `ablation.report { id? }` | read | The latest report, or a named one |
 | `lesson.add`, `lesson.list`, `lesson.stage` | acting, read, acting | Lessons (35b) |
-| `turn.submit { …, memory_arm? }` | unchanged | An arm override, honoured only with `allow_arm_override` (scratch daemons and the exam) |
+| ~~`turn.submit { …, memory_arm? }`~~ | unchanged | ~~An arm override, honoured only with `allow_arm_override` (scratch daemons and the exam)~~ _Since 2026-10-03 (the cut-list's 6.2, Part III Item 80) the arm is the exam's scratch daemon's `[memory] arm`, one daemon per arm, and `turn.submit` carries no arm._ |
 
 - `context.compiled` gains a `recall` summary (arm, admitted, tokens, drops by reason), so the web UI's live
   view needs no new notification.
@@ -700,7 +700,7 @@ synth_profile = "glm"           # consolidation (31b)
 synth_limit_usd_per_day = 0.50
 consolidate_hour = 4
 node_cache_mb = 64              # tiering (33)
-allow_arm_override = false      # scratch daemons and the exam only
+# allow_arm_override = false    # retired before it was built (Item 80): the exam's daemons set `arm` instead
 
 [index]
 enabled = true
@@ -746,7 +746,7 @@ the agents' operating notes for this repo), and join `main` by a small wire-in.
 | **30a** | 30 | SPINE | `theseus-memory`'s trait and baseline; the recall step on a turn's first loop; the filters and their reasons; packing; the deadline; `recall.shadow`; the span, the narrative line; `[memory]` config; `memory.search` and `memory.recalls` | 29b (29c optional: without it, this is the `bm25` arm). M4 step 19, or recall confined to owner-only audiences |
 | **30b** | 30, and 35's first part | SPINE | The `Recall` node (NODE schema 3, all four M6 variants declared); its render; `derived_from` EDGE records; the `BudgetReport` (the ring's cut included; COMPILATION schema 3); canary and live modes with sticky arms; `memory.label`; the Discord footer; the Observatory's per-turn view | 30a. Stage2 step 12's EDGE convention (or 30b writes the first EDGE). M5 step 26's ladder (or a minimal sticky assignment) |
 | **30c** | none named (see §1.5) | SPINE | Compaction roots (`Summary`, the ring as fallback); `context_overage`; the assembled strategy for a task's first compile and for a recompile | 30b |
-| **34b** | 34 | LANE, plus a small SPINE wire-in | The harness over the real pipeline: arms `none`, `bm25`, `baseline`, `oracle`; `theseus-sim ablate replay` with the silver labels; `docs/m6-ablation-plan.md`; **the first honest report**. Wire-in: `turn.submit`'s `memory_arm`, behind `allow_arm_override` | 30b, 34a |
+| **34b** | 34 | LANE, plus a small SPINE wire-in | The harness over the real pipeline: arms `none`, `bm25`, `baseline`, `oracle`; `theseus-sim ablate replay` with the silver labels; `docs/m6-ablation-plan.md`; **the first honest report**. Wire-in: ~~`turn.submit`'s `memory_arm`, behind `allow_arm_override`~~ the exam's daemon's `[memory] arm` (Item 80) | 30b, 34a |
 | **31a** | 31 | SPINE | The memory pass: eligibility and recursion exclusion, the deterministic labeler, the gate's edges, attribution (`memory.used`), batching; `memory.v1` and `attribution.v1` in shadow | 30b, 29c. M5 step 23 for the shadow judgments (their absence leaves the deterministic half) |
 | **31b** | 31 | SPINE | Consolidation: co-recall clusters, the cheap model's proposal, the citation check, `Synthesis` nodes in `sys:memory`, shadow scores; the `+synthesis` arm | 31a. M5 step 23 (without Jev, syntheses stay unchecked and unpromoted) |
 | **32a** | 32 | LANE math, then a SPINE wire-in | FSRS-6 in `theseus-memory` (the math can be built early, in parallel); the retention projection from the rows; the `+retention` arm | 31a |
@@ -775,7 +775,7 @@ and `[web]` disabled), or on the exam's own scratch store, per the agents' opera
 | 30a | Each filter's reason; **the audience property test**; a stalled tender (the turn goes on, the row says `deadline`); shadow writes no frame and changes no request byte (the digest with memory off equals the digest in shadow) | Ask about a fact from another session; `theseus memory recalled` shows what would have been admitted, and the request's digest is unchanged |
 | 30b | The render's golden bytes; the next request begins with the previous request's bytes; the `Recall` node rides the provider call's plan frame (the frame test unchanged); EDGE scoped `in:<source>`; `node.reach` counts it; NODE 3 reads NODE 2 (a reader test); an older binary refuses the store (F4a's pattern); a `wrong` label excludes; the arm is sticky and recorded; the ring's cut in the `BudgetReport` | Canary at fraction 1: the model answers from a recalled note, the fake Discord shows the footer, and `memory label … wrong` keeps the note out next time |
 | 30c | Compaction replaces the ring on overflow; the summary's range; the ring as fallback when the summary fails; `context_overage`; the assembled prefix of a task's first compile; a compaction rebuilt byte for byte from its manifest | A session driven past a small window: a summary is written, the next turn appends to it, and its cost is in the ledger |
-| 34b | The arm override is refused without the flag; replay's leakage test (a node written after a turn never appears in its recall); the silver-label extractors on fixtures | The exam over four arms; the replay over Eddie's shadow rows; **the first report**, honest about n |
+| 34b | ~~The arm override is refused without the flag;~~ A daemon runs the arm its config names; replay's leakage test (a node written after a turn never appears in its recall); the silver-label extractors on fixtures | The exam over four arms; the replay over Eddie's shadow rows; **the first report**, honest about n |
 | 31a | Eligibility and recursion exclusion; the labeler's rules, table-driven; the gate's thresholds make the right edges; attribution on fixtures; at most one frame per 32 nodes or 2 s; shadow judgments with a fake Jev | The operator corrects an earlier fact: a `supersedes` edge; after a recall is used, its `memory.used` rows |
 | 31b | Clusters from co-recall rows; the checker (a fake Jev) rejects an unsupported sentence; a synthesis's label is the meet of its sources'; nothing shown in shadow (digests unchanged); spend capped | On the exam's store, where co-recall is dense: `theseus memory consolidate` proposes, checks, and scores; the Observatory lists the results |
 | 32a | R(S, S) = 0.9; R falls with time; Good raises stability and Again lowers it; difficulty stays in [1, 10]; a hand-computed golden table; the rebuilt projection equals the incremental one; exposure without use changes nothing | The exam under `+retention` against `baseline`; retention per node in the Observatory |

@@ -193,7 +193,7 @@ counts half. The blocks:
 | 25 | ~~20b: file hashes and fomites (`via: file`)~~ **Dropped** (theseus-b5cl; Eddie, 2026-10-03), with the Advisory (theseus-3vu's quarantine levels). Laundering through files is Jev's: `security.v1` (row 39) | — | 0 | — |
 | 26 | 21b: the ontology wired in: records, the snapshot, the compile walk, the CLI, the ~~Observatory~~ cockpit (the cut-list's 6.4). **Joins 21a** | 8kk | 1 | the ontology lane; ~~19a~~ (its labels were removed, theseus-nbsh) |
 | 27 | 21c's join: the ~~web UI's~~ cockpit's Ontology view (the cut-list's 6.4: the cockpit replaces the Observatory) | 8kk | 0.5 | 21c (lane) |
-| 28 | 22b: the job host, `RemoteLauncher`, `[control_plane]`. **Joins 22a** | 7ve | 1 | the installer lane; 18a |
+| 28 | 22b: the job host, `RemoteLauncher`, `[control_plane]`. **Joins 22a**. _Moves after v1 (Eddie, 2026-10-03 15:26, taking the recommendation)._ | 7ve | 1 | the installer lane; 18a |
 
 **D. AWS** ([AWS design](aws-toolset.md); theseus-mgw). Floats on Eddie's go; drawn here after C.
 
@@ -204,7 +204,7 @@ counts half. The blocks:
 | 31 | C3 = 14c: the curated tools, the reaper in report mode, AWS text marked external (by DD5's own `external` marker, as a fetch is: 20a was dropped, theseus-b5cl) | mgw | 1 | C2 |
 | 32 | 15: the durability tender: WAL segments **and `blobs/`** to S3, index rows to DynamoDB, on the index lane's WAL follower | mgw | 1 | C2; the WAL follower (§6, conflict 3) |
 | 33 | 16: `theseus restore --from s3://…` | mgw | 1 | 15 |
-| 34 | 18e: the `aws` grant under L1: an L1 job's AWS session, granted at its launch as any broker grant is (theseus-w5op; 18d's socket is gone) | mgw | 0.5 | w5op; C2 |
+| 34 | 18e: the `aws` grant under L1: an L1 job's AWS session, granted at its launch as any broker grant is (theseus-w5op; 18d's socket is gone). **Done 2026-10-03** (theseus-mgw.8; Part III Item 94): `~/.aws` hidden in every L1 view, and AWS reached through `[sandbox] egress` or the call's named hosts | mgw | 0.5 | w5op; C2 |
 | 35 | 40, part 1: the hand role and image, `aws.hands.run` on Lambda and Fargate, the SQS poller | mgw | 1 | C2; P4's hands stacks |
 | 36 | 40, part 2: cancellation per backend, the TTL reaper, budget reservations, the grid; the `kill -9` prove | mgw | 1 | 40, part 1 |
 
@@ -237,7 +237,7 @@ counts half. The blocks:
 | 52 | 30a: `theseus-memory`'s trait and baseline; the recall step, in shadow; `[memory]`; `memory.search`. **Joins the math lane** (the crate's first code) | 6fn | 1 | 29b; 19a |
 | 53 | 30b: the `Recall` node; `derived_from` EDGEs in 12a's convention; the `BudgetReport`; canary and live on 26a's arms | 6fn, 3nk | 1 | 30a; 12a; 26a |
 | 54 | 30c: compaction roots, `context_overage`, the assembled strategy (what lets M5's CONTINUE act) | 6fn | 1 | 30b |
-| 55 | 34b's wire-in: `turn.submit`'s `memory_arm`. **Joins the exam lane**; the first honest report | 6fn | 0.5 | 34b (lane) |
+| 55 | 34b's wire-in: ~~`turn.submit`'s `memory_arm`~~ the exam's scratch daemon's `[memory] arm`, one daemon per arm (the cut-list's 6.2, Part III Item 80). **Joins the exam lane**; the first honest report | 6fn | 0.5 | 34b (lane) |
 | 56 | 31a: the memory pass, attribution, `memory.v1` in shadow. **29c joins here**, if not before | 6fn | 1 | 30b; 29c; 23a |
 | 57 | 31b: consolidation, `Synthesis` nodes, the `+synthesis` arm | 6fn | 1 | 31a |
 | 58 | 32a's wire-in: FSRS-6's retention projection, the `+retention` arm, on the math lane's code | 6fn | 0.5 | 31a |
@@ -253,12 +253,12 @@ counts half. The blocks:
 
 | # | Step | Ids | Slots | Waits on |
 |---|---|---|---|---|
-| 64 | 37a: the repeating wake (`every`, `days`, `until`) | ext | 1 | T1b. A filler: can run earlier |
+| 64 | 37a: the repeating wake (`every`, `days`, `until`). **Done 2026-10-03** (theseus-d4pt; Part III Item 84; store format 5) | ext | 1 | T1b. A filler: can run earlier |
 | 65 | 37b: tasks set one-shot wakes | 7kg | 1 | 37a |
 | 66 | 36b: MCP tools in turns: the `&str` change, `McpBoard`, `[mcp.servers]`, `theseus-sim fake-mcp`; servers in L1. **Joins 36a** | ext | 1.5 (M7's biggest) | the MCP lane (36a); 17b |
 | 67 | 36c: MCP prompts: `/prompt`, `theseus prompt`, the web picker | ext | 1 | 36b |
 | 68 | 38a: bindings format 2: many guilds, per-place ceilings | ext | 1 | e89 (T1b) |
-| 69 | 38b: gliding: `channel.post` and `channel.read`, under 19a's audience rule | ext | 1 | 38a; 19a |
+| 69 | 38b: gliding: `channel.post` and `channel.read`, under 19a's audience rule. _19a's labels were removed with the place rule (Part III Item 76), so its design waits for Eddie's call on a redesign._ | ext | 1 | 38a; 19a |
 | 70 | 39a: the `TASK` record kind, three layers, CAS, the tools; 27's arrangement kept | ext | 1 | 37b; 27 |
 | 71 | 39b: claim leases, the board, `/tasks`, the web task graph | ext | 1 | 39a |
 | 72 | 41b: the MCP server's wire-in: `[mcp_server]`, `Surface::Mcp`. **Joins 41a** | ext | 1 | 41a (lane); 9c; d64 (a job's session and `opened_from`, in the integrity lane, theseus-b5cl) |
@@ -266,8 +266,8 @@ counts half. The blocks:
 | 74 | 42b's join: the Budgets, Ledger, and Policy tabs | ext | 0.5 | 42b (lane) |
 | 75 | 43a: `extend.propose`: freeze, start in L1, test, the ack card | ext | 1 | 36b; 17b |
 | 76 | 43b: load on ack, restart, revoke, `/extensions` | ext | 1 | 43a |
-| 77 | 44b: the voice wire-in: `/join`, utterances into turns. **Joins 44a** | ext | 1 | the voice lane; 38a; a test voice channel for its live check (Eddie) |
-| 78 | 45b: speech as spend. **Joins 45a** | ext | 1 | 45a (Eddie's providers and keys); 44b; M5's latency table |
+| 77 | 44b: the voice wire-in: `/join`, utterances into turns. **Joins 44a**. **Done 2026-10-03** (theseus-drrs; Part III Item 83): a voice channel is a place of its own | ext | 1 | the voice lane; 38a; a test voice channel for its live check (Eddie) |
+| 78 | 45b: speech as spend. **Joins 45a**. **Done 2026-10-03** (theseus-drrs; Part III Item 83), with 45a's Deepgram | ext | 1 | 45a (Eddie's providers and keys); 44b; M5's latency table |
 
 - M7 puts 37a and 37b before 36b, against the roadmap's numbering: they are small, and need only T1b.
 - Store schema bumps (ACTION in 18a and 18d, NODE and COMPILATION in 19a, 21b, and 30b, EXECUTION in 37a) take

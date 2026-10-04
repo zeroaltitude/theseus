@@ -29,6 +29,8 @@ the split.
 | 12 | [12-part3-item-21.md](12-part3-item-21.md) | Part III: A4's Items 21 to 47 |
 | 13 | [13-part3-item-48.md](13-part3-item-48.md) | Part III: A4's Items 48 to 66 |
 | 14 | [14-part3-item-67.md](14-part3-item-67.md) | Part III: A4's Items 67 to 78 |
+| 15 | [15-part3-item-79.md](15-part3-item-79.md) | Part III: A4's Items 79 to 85, the joins of 2026-10-03's afternoon (C2's bootstrap applied, the third cloud batch, the smalls, Tier 7's store, voice, the repeating wake, Tier 7's defences) |
+| 16 | [16-part3-item-86.md](16-part3-item-86.md) | Part III: A4's Items 86 to 96, the joins of 2026-10-03's evening (the cockpit at `/`, the load flakes, Tier 7's kernel, the trusted guild, the sparse note, the ledger's reads, the WAL's synced mark, the benchmark plumbing, 18e, `security.v3`, the LSP client) |
 
 ## How the chapters fit together
 
