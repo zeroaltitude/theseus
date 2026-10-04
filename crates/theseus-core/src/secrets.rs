@@ -560,6 +560,17 @@ impl SecretBoard {
         }
     }
 
+    /// A runtime secret (AWS design §3.5): a value a call returned, such as
+    /// a Secrets Manager secret, held under its handle (`aws-secret:…`) in
+    /// zeroizing memory and never written. The scrubber knows it from now
+    /// on. It is not a round of the vault's: health's method and timings
+    /// stay the vault's.
+    pub fn hold(&self, name: &str, value: Secret) {
+        self.tx.send_modify(|m| {
+            m.insert(name.to_string(), SecretState::Ready(value));
+        });
+    }
+
     fn retry_at(&self, at: Instant) {
         self.progress.lock().unwrap().retry_at = Some(at);
     }

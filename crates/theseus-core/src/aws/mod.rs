@@ -16,7 +16,7 @@
 //!   invalid input, deletions of what holds state waiting), `aws.describe`
 //!   (the catalog, local), `aws.whoami`, `aws.s3.list`, `aws.stack.plan`,
 //!   `.apply`, `.status`, and `.delete`, and `aws.cost`. A call that returns
-//!   a secret is invalid input until 14c.
+//!   a secret holds it on the secrets board under a handle ([`secret`]).
 //! - **The bootstrap** ([`bootstrap`]) and **the tenders** ([`tend`]): the
 //!   account's first stacks, on the operator's yes; after serving, the
 //!   budget's reconcile and reads, and GuardDuty's weekly usage.
@@ -47,6 +47,7 @@ pub mod bootstrap;
 pub mod cost;
 pub mod logs;
 pub mod s3;
+pub mod secret;
 pub mod session;
 pub mod stack;
 pub mod tend;
@@ -59,6 +60,8 @@ mod tests;
 mod tests_c2;
 #[cfg(test)]
 mod tests_c3;
+#[cfg(test)]
+mod tests_handles;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 14] = [

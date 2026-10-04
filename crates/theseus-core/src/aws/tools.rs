@@ -13,8 +13,9 @@
 //! invalid input that points to the stack tools; any other guardrail is the
 //! floor; a deletion of what holds state waits for approval. An approved
 //! floor call that AWS's guards would refuse runs in a floor session. A call
-//! that returns a secret stays invalid input until 14c. `aws.describe` reads
-//! the local catalog alone.
+//! that returns a secret (14c) holds it on the secrets board under a handle,
+//! and its result shows the handle and the value's shape, never the value
+//! (`secret`). `aws.describe` reads the local catalog alone.
 
 use std::sync::Arc;
 
@@ -154,6 +155,8 @@ struct Planned {
     pages: u32,
     cost_bearing: bool,
     class: ToolClass,
+    /// It returns a secret (§3.5): held on the board, shown as a handle.
+    secret: bool,
     /// The floor's confirm line, when a guardrail hits (§3.6).
     guardrail: Option<String>,
     /// A hit AWS's guards refuse in a work session: the approved call runs
@@ -296,12 +299,7 @@ impl CallTool {
             Class::Write => ToolClass::Write,
             Class::Run => ToolClass::Run,
         };
-        if c.secret != SecretBearing::No && c.secret.for_input(&body) {
-            return Err(format!(
-                "{name} returns a secret value: secret-bearing reads arrive with step 14c \
-                 (AWS's C3), as a handle the model never reads. Nothing was sent."
-            ));
-        }
+        let secret = c.secret != SecretBearing::No && c.secret.for_input(&body);
         let (guardrail, floor_session, destructive) = guard(&account.id, &region, &name, &body)?;
         Ok(Planned {
             account,
@@ -312,6 +310,7 @@ impl CallTool {
             pages,
             cost_bearing: c.cost_bearing,
             class,
+            secret,
             guardrail,
             floor_session,
             destructive,
@@ -332,8 +331,10 @@ impl Tool for CallTool {
          follows its paginator. Durable infrastructure (buckets, roles, networks, functions, \
          alarms, rules) is made only through stacks: such an operation is invalid input that \
          points to aws_stack_plan. A guardrail (public ingress, the audit trail, the budget, \
-         long-lived credentials) and deleting what holds state wait for the operator. An \
-         operation that returns a secret is invalid input until step 14c. Event streams, \
+         long-lived credentials) and deleting what holds state wait for the operator. A secret \
+         an operation returns (a secret's value, a decrypted parameter, a token) is held for \
+         Theseus under a handle (aws-secret:…): you see the handle and its shape, never the \
+         value. Event streams, \
          SigV2 services, and S3 directory buckets need the aws CLI, through proc_run."
     }
     fn input_schema(&self) -> Value {
@@ -385,15 +386,36 @@ impl Tool for CallTool {
                 class: p.class.as_str(),
                 signer: p.signer(),
             };
-            let out = p
+            let mut out = p
                 .account
                 .request(binding.as_deref(), &req)
                 .await
                 .map_err(|f| failure(&p.what(), f))?;
+            let mut m = meta(&p.account.id, &p.region, &p.name(), &out);
+            if p.secret {
+                // The value goes onto the board, never into the result.
+                let held = super::secret::hold(
+                    &p.account.board,
+                    &p.service,
+                    &p.operation,
+                    &p.input,
+                    &mut out.body,
+                )
+                .map_err(ToolFailure::new)?;
+                if held.is_empty() {
+                    return Err(ToolFailure::new(format!(
+                        "{} returns a secret, and no member of its output was found to hold \
+                         it, so none of its output is returned (request {})",
+                        p.what(),
+                        out.request_id.as_deref().unwrap_or("(none)")
+                    )));
+                }
+                m["secrets"] = json!(held.iter().map(|h| &h.handle).collect::<Vec<_>>());
+            }
             Ok((
                 ToolOutput {
                     text: call_text(&p, &out),
-                    meta: meta(&p.account.id, &p.region, &p.name(), &out),
+                    meta: m,
                 },
                 None,
             ))

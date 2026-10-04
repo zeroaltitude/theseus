@@ -527,7 +527,7 @@ async fn aws_call_reads_any_service_and_returns_its_output() {
 /// the CLI can make it. Since C2 (14b) a write and a run plan; durable
 /// infrastructure and a stack's own writes are what stay invalid input.
 #[tokio::test]
-async fn iac_a_stack_write_and_a_secret_are_invalid_input_and_nothing_is_sent() {
+async fn iac_and_a_stack_write_are_invalid_input_and_nothing_is_sent() {
     let fake = Fake::start(aws_answers(ACCOUNT));
     let aws = layer(&fake, board());
     let t = tool(&aws, "aws.call");
@@ -539,14 +539,6 @@ async fn iac_a_stack_write_and_a_secret_are_invalid_input_and_nothing_is_sent() 
         (
             json!({"service": "cloudformation", "operation": "DeleteStack", "input": {"StackName": "example-stack"}}),
             "cloudformation:DeleteStack writes a stack outside the review; use aws.stack.plan",
-        ),
-        (
-            json!({"service": "secretsmanager", "operation": "GetSecretValue", "input": {"SecretId": "s"}}),
-            "returns a secret value: secret-bearing reads arrive with step 14c",
-        ),
-        (
-            json!({"service": "ssm", "operation": "GetParameter", "input": {"Name": "p", "WithDecryption": true}}),
-            "ssm:GetParameter returns a secret value",
         ),
         (
             json!({"service": "ec2", "operation": "DescribeNothing"}),
@@ -588,9 +580,13 @@ async fn iac_a_stack_write_and_a_secret_are_invalid_input_and_nothing_is_sent() 
         let e = t.plan(&input, &plain_ctx()).unwrap_err();
         assert!(e.contains(says), "{input}: {e}");
     }
-    // Without decryption, a parameter is a plain read.
-    let plain = json!({"service": "ssm", "operation": "GetParameter", "input": {"Name": "p"}});
-    t.plan(&plain, &plain_ctx()).unwrap();
+    // A secret-bearing read plans as a read (14c holds its value as a handle).
+    for ok in [
+        json!({"service": "ssm", "operation": "GetParameter", "input": {"Name": "p"}}),
+        json!({"service": "secretsmanager", "operation": "GetSecretValue", "input": {"SecretId": "s"}}),
+    ] {
+        t.plan(&ok, &plain_ctx()).unwrap();
+    }
     // A run that skipped the plan would still check it again, and send nothing.
     let f = t
         .run_async(
