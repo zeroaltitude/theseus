@@ -14,10 +14,11 @@
 //!   extractor.
 //! - **The gate**: the node's neighbours by the 768-d vector
 //!   (`index.neighbours`, only nodes written before it), and the science's
-//!   thresholds (`MemoryScience::gate`): a near-duplicate is a `same_entity`
-//!   edge, an operator's correction close enough to its top neighbour a
-//!   `supersedes` edge from the newer node to the older, both `via =
-//!   "memory"`. The tender embeds a node a little after its frame: the gate
+//!   thresholds (`MemoryScience::gate`): an operator's correction close
+//!   enough to its top neighbour is a `supersedes` edge from the newer node
+//!   to the older, however close (that rule comes first: theseus-lx3x), and
+//!   any other near-duplicate a `same_entity` edge, both `via = "memory"`.
+//!   The tender embeds a node a little after its frame: the gate
 //!   asks again, waiting [`NEIGHBOUR_WAIT_FIRST`] and doubling, for at most
 //!   [`NEIGHBOUR_WAIT`] in a pass, and a node still without its vector is
 //!   left whole for the session's next pass. An index that has no vectors

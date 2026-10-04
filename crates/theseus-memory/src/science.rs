@@ -134,7 +134,8 @@ pub struct Baseline {
     /// starting point, for Nomic v1.5's space).
     pub merge_cosine: f32,
     /// A correction whose top neighbour is at this cosine or above
-    /// supersedes it.
+    /// supersedes it, however close: the correction rule comes before the
+    /// near-duplicate line (theseus-lx3x).
     pub supersede_cosine: f32,
     /// A node unread this many days is a demotion hint.
     pub idle_days: f64,
@@ -187,10 +188,14 @@ impl MemoryScience for Baseline {
             .filter(|n| !n.cosine.is_nan())
             .max_by(|a, b| a.cosine.total_cmp(&b.cosine));
         match top {
-            Some(n) if n.cosine >= self.merge_cosine => GateDecision::MergeInto(n.node_id.clone()),
+            // A correction first (theseus-lx3x, Eddie's decision 10): it
+            // restates most of what it corrects, so it can pass the
+            // near-duplicate line (0.954 on Nomic v1.5, live), and it
+            // supersedes all the same.
             Some(n) if fresh.correction && n.cosine >= self.supersede_cosine => {
                 GateDecision::Supersedes(n.node_id.clone())
             }
+            Some(n) if n.cosine >= self.merge_cosine => GateDecision::MergeInto(n.node_id.clone()),
             _ => GateDecision::Store,
         }
     }
@@ -264,8 +269,8 @@ mod tests {
         }
     }
 
-    /// §2.3's gate: a near-duplicate merges, a correction close enough
-    /// supersedes, anything else is stored.
+    /// §2.3's gate: a correction close enough supersedes, even past the
+    /// near-duplicate line; a near-duplicate merges; anything else is stored.
     #[test]
     fn the_baseline_gate_follows_the_design_table() {
         let b = Baseline::default();
@@ -288,6 +293,16 @@ mod tests {
             GateDecision::Supersedes("a".into())
         );
         assert_eq!(b.gate(&fix, &[near("a", 0.7)]), GateDecision::Store);
+        // A correction past the merge line (theseus-lx3x: 0.954 on Nomic
+        // v1.5, live): it supersedes, where a plain node merges.
+        assert_eq!(
+            b.gate(&fix, &[near("a", 0.954)]),
+            GateDecision::Supersedes("a".into())
+        );
+        assert_eq!(
+            b.gate(&plain, &[near("a", 0.954)]),
+            GateDecision::MergeInto("a".into())
+        );
         assert_eq!(b.gate(&plain, &[near("a", f32::NAN)]), GateDecision::Store);
     }
 

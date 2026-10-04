@@ -413,9 +413,9 @@ async fn a_labeled_row_carries_the_tables_labels_and_the_indexs_entities() {
 
 /// §2.3's thresholds over fixed neighbours: a near-duplicate (0.92 or
 /// more) is `same_entity`, an operator's correction whose top neighbour
-/// reaches 0.75 is `supersedes` from the newer node to the older, and the
-/// rest store. Each edge is `via = "memory"`, scoped into the older node;
-/// each row names the neighbours it saw.
+/// reaches 0.75 is `supersedes` from the newer node to the older, even past
+/// 0.92 (theseus-lx3x), and the rest store. Each edge is `via = "memory"`,
+/// scoped into the older node; each row names the neighbours it saw.
 #[tokio::test(start_paused = true)]
 async fn the_gates_thresholds_make_the_right_edges() {
     let r = rig(MemoryMode::Shadow);
@@ -445,9 +445,19 @@ async fn the_gates_thresholds_make_the_right_edges() {
     r.index.near(&fix.id, &[("msg_old_a", 0.80)]);
     r.index.near(&far.id, &[("msg_old_c", 0.70)]);
     r.index.near(&plain.id, &[("msg_old_a", 0.80)]);
-    r.put(&[&dup, &fix, &far, &plain]);
-    r.pass(sid, "trn_4").await;
+    // The live check's correction (theseus-lx3x): 0.954 against the fact it
+    // corrects, on Nomic v1.5.
+    let close = user(
+        sid,
+        "trn_5",
+        "Correction: the Larkspur staging host is stg-2, not stg-1.",
+    );
+    r.index.near(&close.id, &[("msg_old_d", 0.954)]);
+    r.put(&[&dup, &fix, &far, &plain, &close]);
+    r.pass(sid, "trn_5").await;
     let g = r.gated(sid);
+    assert_eq!(g[&close.id]["decision"], "supersedes", "past the merge line");
+    assert_eq!(g[&close.id]["to"], "msg_old_d");
     assert_eq!(g[&dup.id]["decision"], "same_entity");
     assert_eq!(g[&dup.id]["to"], "msg_old_a");
     assert_eq!(g[&dup.id]["neighbours"].as_array().unwrap().len(), 2);
