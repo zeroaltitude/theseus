@@ -694,3 +694,144 @@ async fn recalled_items_are_attributed_and_their_outcome_follows() {
     assert_eq!(used.len(), 1);
     assert_eq!(used[0]["outcome"], "corrected");
 }
+
+/// Wait, on the real clock, until `f` holds (the core's pass runs on its
+/// own clocks: a 2 s window and a still WAL).
+async fn until(what: &str, f: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !f() {
+        assert!(std::time::Instant::now() < deadline, "never: {what}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+fn mscope(sid: &str) -> String {
+    crate::fact::memory::scope(sid)
+}
+
+/// A core's rows of `kind` in `scope`, their data.
+fn core_rows(c: &crate::Core, scope: &str, kind: &str) -> Vec<Value> {
+    c.store
+        .scope_after(scope, 0)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.kind == kinds::LEDGER)
+        .map(|r| r.decode::<LedgerRow>().unwrap())
+        .filter(|r| r.kind == kind)
+        .map(|r| r.data)
+        .collect()
+}
+
+/// The node of `sid` that says `said`.
+fn said_in(c: &crate::Core, sid: &str, said: &str) -> Node {
+    c.store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text == said))
+        .unwrap()
+        .1
+}
+
+/// The live check's story through a whole core, offline (§3.2's 31a live
+/// check, with stand-in indexes): the operator corrects an earlier fact in
+/// another session, and the pass after that session's turn writes a
+/// `supersedes` edge from the correction to the fact; a later question's
+/// recall (live, `baseline`) admits the correction and drops the fact as
+/// `superseded`; the reply uses the note, and after the session's next
+/// message its `memory.used` row says `used`, outcome `ok`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_correction_supersedes_the_fact_and_recall_prefers_it() {
+    use crate::provider::Scripted;
+    use crate::tests_recall::{index_of, recalls, rig_with, session, turn};
+    let r = rig_with(MemoryMode::Live, |c| c.memory.recall_deadline_ms = 2000);
+    let c = &r.core;
+    let index = Arc::new(Fixed {
+        state: Mutex::new("ready".into()),
+        ..Fixed::default()
+    });
+    c.runner.pass.set_index(index.clone());
+    let a = session(
+        c,
+        None,
+        &["The staging port of the Larkspur service is 8081."],
+    );
+    c.runner.memory.set_ask(index_of(c, vec![]));
+    let fact = c.store.session_nodes(&a).unwrap()[0].1.clone();
+    let b = session(c, None, &[]);
+    let said = "Correction: Larkspur's staging port is 8082, not 8081.";
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(Scripted::text("Noted: 8082."));
+    let res = turn(c, &b, said).await;
+    let fix = said_in(c, &b, said);
+    index.near(&fix.id, &[(&fact.id, 0.84)]);
+    // The turn's end handed B to the pass; the pass wrote its rows.
+    until("B's nodes gated", || {
+        core_rows(c, &mscope(&b), "memory.gated").len() == 2
+    })
+    .await;
+    let g = core_rows(c, &mscope(&b), "memory.gated");
+    let row = g.iter().find(|g| g["node_id"] == fix.id.as_str()).unwrap();
+    assert_eq!(row["decision"], "supersedes", "{row}");
+    assert_eq!(row["to"], fact.id.as_str());
+    let into = c.store.scope_after(&Edge::scope_into(&fact.id), 0).unwrap();
+    let e = into
+        .iter()
+        .map(|r| r.decode::<Edge>().unwrap())
+        .find(|e| e.kind == "supersedes")
+        .expect("the edge");
+    assert_eq!(
+        (e.from.as_str(), e.via.as_str()),
+        (fix.id.as_str(), "memory")
+    );
+    assert_eq!(res.session_id, b);
+
+    // C asks: recall admits the correction, and drops the fact.
+    let q = session(c, None, &[]);
+    c.runner
+        .memory
+        .set_ask(index_of(c, vec![a.clone(), b.clone()]));
+    r.model.script.lock().unwrap().push_back(Scripted::text(
+        "As you said: Correction: Larkspur's staging port is 8082, not 8081.",
+    ));
+    let res = turn(c, &q, "What is Larkspur's staging port?").await;
+    // The correction, and B's reply ("Noted: 8082."): never the fact.
+    assert_eq!(res.recalled, 2);
+    let m = recalls(c, &q).pop().unwrap();
+    assert!(m.science.starts_with("baseline@"), "{}", m.science);
+    let admitted: Vec<&str> = m.admitted.iter().map(|i| i.node_id.as_str()).collect();
+    assert!(admitted.contains(&fix.id.as_str()), "{admitted:?}");
+    assert!(!admitted.contains(&fact.id.as_str()), "{admitted:?}");
+    let dropped: Vec<(&str, &str)> = m
+        .dropped
+        .iter()
+        .map(|d| (d.node_id.as_str(), d.reason.as_str()))
+        .collect();
+    assert!(
+        dropped.contains(&(fact.id.as_str(), "superseded")),
+        "{dropped:?}"
+    );
+
+    // The next message: the used note's row, `ok`.
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(Scripted::text("You're welcome."));
+    turn(c, &q, "Thanks, that is what I needed.").await;
+    let used = || core_rows(c, &crate::fact::recall::scope(&q), "memory.used");
+    until("both items attributed", || used().len() == 2).await;
+    let u = used();
+    let of = |id: &str| u.iter().find(|x| x["node_id"] == id).cloned().unwrap();
+    assert_eq!(of(&fix.id)["used"], true, "{u:?}");
+    assert_eq!(of(&fix.id)["outcome"], "ok");
+    assert_eq!(of(&fix.id)["by"], json!(["run"]));
+    let other = u.iter().find(|x| x["node_id"] != fix.id.as_str()).unwrap();
+    assert_eq!(
+        (other["used"].clone(), other["outcome"].clone()),
+        (json!(false), Value::Null)
+    );
+}

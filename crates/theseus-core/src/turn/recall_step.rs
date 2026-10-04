@@ -159,9 +159,14 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let scene = self.scene(t, "shadow");
-        let mut m = self
-            .memory
-            .manifest(&scene, &begun, answer, |s| self.place_of(s), false);
+        let mut m = self.memory.manifest(
+            &scene,
+            &begun,
+            answer,
+            |s| self.place_of(s),
+            |ids| crate::recall::links(&self.store, ids),
+            false,
+        );
         m.arm = self
             .memory
             .cfg()
@@ -190,9 +195,14 @@ impl TurnRunner {
         let answer = begun.answer().await;
         let mode = self.memory.cfg().mode.as_str();
         let scene = self.scene(t, mode);
-        let mut m = self
-            .memory
-            .manifest(&scene, &begun, answer, |s| self.place_of(s), true);
+        let mut m = self.memory.manifest(
+            &scene,
+            &begun,
+            answer,
+            |s| self.place_of(s),
+            |ids| crate::recall::links(&self.store, ids),
+            true,
+        );
         m.arm = Some(a.arm.as_str().into());
         let cap = self.memory.cfg().session_recall_cap_tokens;
         let in_tail = self.recall_tokens_in_tail(t, session);

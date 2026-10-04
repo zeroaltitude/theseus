@@ -252,6 +252,8 @@ fn reason_words(reason: &str) -> &'static str {
         "untrusted" => "as external text",
         "labeled_wrong" => "as labeled wrong",
         "recursion" => "as a harness line",
+        "superseded" => "as corrected by a newer note",
+        "duplicate" => "as a newer note's duplicate",
         "threshold" => "below the threshold",
         "budget" => "for the budget",
         _ => "for another reason",

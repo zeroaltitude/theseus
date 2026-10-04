@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
-use theseus_memory::recall::{self as pipeline, Asker, Candidate, Pack, Place};
+use theseus_memory::recall::{self as pipeline, Asker, Candidate, Link, LinkKind, Pack, Place};
 use theseus_memory::{Baseline, MemoryScience};
 use theseus_protocol::index::{IndexQueryParams, IndexQueryResult};
 use theseus_protocol::memory::{
@@ -267,6 +267,7 @@ impl Memory {
         begun: &Begun,
         (answer, index_took): (Answer, Duration),
         place_of: impl Fn(&str) -> Place,
+        links_of: impl Fn(&[String]) -> Vec<Link>,
         texts: bool,
     ) -> RecallManifest {
         let mut m = RecallManifest {
@@ -339,11 +340,19 @@ impl Memory {
             })
             .collect();
         m.sources = sources;
+        // The memory pass's edges among them, for a science that reads them.
+        let links = if self.science.prefers_newer() {
+            let ids: BTreeSet<String> = candidates.iter().map(|c| c.node_id.clone()).collect();
+            links_of(&ids.into_iter().collect::<Vec<_>>())
+        } else {
+            Vec::new()
+        };
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
             place: &scene.place,
             in_context: &scene.in_context,
             labeled: &scene.labeled,
+            links: &links,
             now_ms: theseus_protocol::now_unix_ms(),
         };
         let pack = pipeline::recall(&self.science, &asker, candidates, &self.cfg.params());
@@ -417,6 +426,40 @@ fn fill(
 
 fn ms(d: Duration) -> f64 {
     (d.as_secs_f64() * 1_000_000.0).round() / 1000.0
+}
+
+/// The memory pass's edges into `ids` (M6 31a; the scope `in:<id>`), as
+/// recall reads them: `same_entity` and `supersedes`, from the newer node to
+/// the older. An edge that does not read is left out, and said.
+pub fn links(store: &crate::store::Store, ids: &[String]) -> Vec<Link> {
+    use crate::graph::{Edge, EdgeKind};
+    let mut out = Vec::new();
+    for id in ids {
+        let records = match store.scope_after(&Edge::scope_into(id), 0) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(node_id = %id, error = %format!("{e:#}"), "recall: the edges into a node cannot be read; none is applied");
+                continue;
+            }
+        };
+        for r in records {
+            if r.kind != theseus_store::kinds::EDGE {
+                continue;
+            }
+            let Ok(e) = r.decode::<Edge>() else { continue };
+            let kind = match EdgeKind::named(&e.kind) {
+                Some(EdgeKind::SameEntity) => LinkKind::SameEntity,
+                Some(EdgeKind::Supersedes) => LinkKind::Supersedes,
+                Some(EdgeKind::DerivedFrom) | None => continue,
+            };
+            out.push(Link {
+                kind,
+                newer: e.from,
+                older: e.to,
+            });
+        }
+    }
+    out
 }
 
 /// `private`, or `shared:<target>`.
