@@ -202,13 +202,17 @@ pub fn job_session() -> Option<String> {
 
 /// The methods only the operator makes, each with the command that makes it
 /// (theseus-zmgb): an answer to a waiting call, the undo of a tightening, a
-/// trust, a publish, and the AWS bootstrap.
-pub const OPERATORS: [(&str, &str); 5] = [
+/// trust, a publish, the AWS bootstrap, and the ontology's writes
+/// (theseus-8kk.1: guidance steers every session in its category).
+pub const OPERATORS: [(&str, &str); 8] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
     (method::PLACE_PUBLISH, "theseus publish"),
     (method::AWS_BOOTSTRAP, "theseus aws bootstrap"),
+    (method::ONTOLOGY_CATEGORY_ADD, "theseus ontology topic add"),
+    (method::ONTOLOGY_GUIDANCE_SET, "theseus ontology guide"),
+    (method::ONTOLOGY_MEMBERSHIP_SET, "theseus ontology member"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
@@ -264,6 +268,22 @@ mod tests {
         ] {
             assert!(refuse_in_a_job(m, Some("ses_0000aa1b2c3")).is_ok(), "{m}");
         }
+    }
+
+    /// A job's process cannot write guidance (theseus-8kk.1): guidance
+    /// steers every session in its category, so the ontology's writes are
+    /// the operator's, refused inside a job; its reads are not.
+    #[test]
+    fn a_jobs_process_cannot_write_the_ontology() {
+        for m in [
+            method::ONTOLOGY_GUIDANCE_SET,
+            method::ONTOLOGY_CATEGORY_ADD,
+            method::ONTOLOGY_MEMBERSHIP_SET,
+        ] {
+            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
+            assert!(e.to_string().contains("theseus ontology"), "{e}");
+        }
+        assert!(refuse_in_a_job(method::ONTOLOGY_LIST, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     #[test]

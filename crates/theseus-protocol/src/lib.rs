@@ -17,6 +17,7 @@ mod gate;
 mod health;
 pub mod index;
 mod ledger;
+mod ontology;
 mod places;
 mod push;
 pub mod sandbox;
@@ -31,6 +32,7 @@ pub use gate::*;
 pub use health::*;
 pub use index::TenderStatus;
 pub use ledger::*;
+pub use ontology::*;
 pub use places::*;
 pub use push::*;
 
@@ -117,6 +119,13 @@ pub mod method {
         /// Publish an item into a place's conversation (the place rule,
         /// theseus-nbsh): the owner's act, from a private place.
         PLACE_PUBLISH = "place.publish",
+        /// The ontology (M4 §2.8, theseus-8kk.1): the kinds, the categories
+        /// and their guidance, and memberships; then the operator's writes,
+        /// judged as an approval is (the owner, from a private place).
+        ONTOLOGY_LIST = "ontology.list",
+        ONTOLOGY_CATEGORY_ADD = "ontology.category.add",
+        ONTOLOGY_GUIDANCE_SET = "ontology.guidance.set",
+        ONTOLOGY_MEMBERSHIP_SET = "ontology.membership.set",
         /// Tasks (DD7): the child sessions conversations started, with state and
         /// spend.
         TASK_LIST = "task.list",

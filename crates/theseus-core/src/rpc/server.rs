@@ -261,6 +261,16 @@ impl Core {
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
             method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
+            method::ONTOLOGY_LIST => route(params, |p| self.rpc_ontology_list(p)),
+            method::ONTOLOGY_CATEGORY_ADD => {
+                route(params, |p| self.rpc_ontology_category_add(p, conn))
+            }
+            method::ONTOLOGY_GUIDANCE_SET => {
+                route(params, |p| self.rpc_ontology_guidance_set(p, conn))
+            }
+            method::ONTOLOGY_MEMBERSHIP_SET => {
+                route(params, |p| self.rpc_ontology_membership_set(p, conn))
+            }
             method::CONFIRM_LIST => reply(theseus_protocol::ConfirmListResult {
                 confirms: self.confirm_list()?,
             }),

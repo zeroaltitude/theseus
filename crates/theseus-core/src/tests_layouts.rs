@@ -154,7 +154,7 @@ const SAMPLES: &[Sample] = &[
     },
     Sample {
         kind: kinds::COMPILATION,
-        layout: "3 (theseus-ev1): its cache layout and a context file, before the audience (4); the build before 42a27af (1d33622) writes it back byte for byte",
+        layout: "3 (theseus-ev1): its cache layout and a context file, before the audience (4); the build before 42a27af (1d33622) writes it back byte for byte; and the place rule's (5), which dropped the audience, before the ontology's memberships and guidance (6, theseus-8kk.1)",
         bytes: r#"{"id":"cmp_00000000000000000000000000000051","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000051,"trigger":"new_session","strategy":"transcript","as_of":17,"includes":["msg_00000000000000000000000000000051"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":1000000,"strip_thinking":false,"context_files":[{"path":"/w/NOTES.md","digest":"a1b2c3d4e5f60718","bytes":12}],"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true}]}}}"#,
         kept: Kept::All,
     },

@@ -44,6 +44,7 @@ pub mod answer;
 pub mod cancel;
 pub mod driver;
 pub mod index;
+pub mod ontology;
 pub mod place;
 pub mod sandbox;
 pub mod start;
@@ -321,6 +322,9 @@ facts![
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,
     start::CrashFound<'static>,
+    ontology::CategorySet<'static>,
+    ontology::GuidanceSet<'static>,
+    ontology::MembershipSet<'static>,
 ];
 
 #[cfg(test)]

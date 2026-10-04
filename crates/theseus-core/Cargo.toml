@@ -17,6 +17,8 @@ theseus-sandbox.workspace = true
 theseus-aws = { path = "../theseus-aws" }
 # AWS (row 30, C2 = 14b): the guard list both enforcers read.
 theseus-aws-guard = { path = "../theseus-aws-guard" }
+# The ontology (row 26, 21b): its records, the snapshot, and the compile walk.
+theseus-ontology = { path = "../theseus-ontology" }
 anyhow.workspace = true
 base64.workspace = true
 thiserror.workspace = true

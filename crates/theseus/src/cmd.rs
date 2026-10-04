@@ -26,7 +26,7 @@ use crate::{
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it
 /// decoded.
-fn output<T: DeserializeOwned>(
+pub(crate) fn output<T: DeserializeOwned>(
     json: bool,
     v: Value,
     lines: impl FnOnce(T) -> Result<()>,

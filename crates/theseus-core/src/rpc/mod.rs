@@ -17,6 +17,7 @@ pub(crate) use confirms::{expired_answer, Act};
 mod driver;
 mod info;
 mod methods;
+mod ontology;
 mod policy;
 mod publish;
 mod server;
@@ -554,6 +555,8 @@ impl Core {
             latest_stops: Default::default(),
             // Told by the binding as it starts (the place rule).
             place_rule: Default::default(),
+            // Built after serving, by one META scan (theseus-8kk.1).
+            ontology: Default::default(),
         };
         let telemetry_cell = std::sync::OnceLock::new();
         if let Some(t) = telemetry {

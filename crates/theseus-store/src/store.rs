@@ -358,8 +358,10 @@ const BULK: usize = 4096;
 /// an older build refuses the newer store. 2 = scope field (M2). 3 = the
 /// newest schema written for each kind (F4a). 4 = one number for the whole
 /// store: the per-kind marks are gone (theseus-ptx1). 5 = a wake's repeat
-/// and occurrence in an execution's wakes (37a, theseus-d4pt).
-const MANIFEST_FORMAT: u32 = 5;
+/// and occurrence in an execution's wakes (37a, theseus-d4pt). 6 = the
+/// ontology's `onto:*` META records, and a compilation manifest's
+/// `memberships` and `guidance` (21b, theseus-8kk.1).
+const MANIFEST_FORMAT: u32 = 6;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

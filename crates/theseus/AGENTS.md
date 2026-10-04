@@ -26,8 +26,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - **Inside a job, it names the job's session.** `ask`, `sessions open`, and `watch --interactive`'s messages send
   the `THESEUS_SESSION` every job carries as `opened_from` (`client::job_session`), so a session that a holding
   session's job reaches holds its external text too (theseus-b5cl). And it refuses the operator's methods there
-  (`client::refuse_in_a_job`: an answer, an undo, a trust, a publish, the AWS bootstrap), before sending anything
-  (theseus-zmgb). Both are light guards: a job can strip the variable.
+  (`client::refuse_in_a_job`: an answer, an undo, a trust, a publish, the AWS bootstrap, the ontology's writes),
+  before sending anything (theseus-zmgb, theseus-8kk.1). Both are light guards: a job can strip the variable.
 - **A move keeps the bytes.** A refactor here starts with goldens of today's output, and ends with every golden and
   every `--help` page byte-identical (Item 30; theseus-7yx's goldens before the library's move).
 
