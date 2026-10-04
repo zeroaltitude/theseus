@@ -354,78 +354,6 @@ pub struct PolicyNotified {
     pub task: Option<String>,
 }
 
-/// The process behind an answer, as the process tree says (theseus-6qy).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[serde(default)]
-pub struct Asker {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub pid: Option<u32>,
-    /// Its program: the file name of its `argv[0]`, else its `comm`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub argv0: Option<String>,
-    /// How long the trace took, in µs.
-    pub trace_us: u64,
-    /// The job whose wrapper is above it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub job: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub wrapper_pid: Option<u32>,
-    /// It is under this daemon with no wrapper between: a job's orphan
-    /// (theseus-z4b). The daemon's pid.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub under_daemon: Option<u32>,
-    /// It is under another serving daemon (theseus-6uo). That daemon's pid.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub under_other_daemon: Option<u32>,
-    /// Why it could not be traced.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub untraceable: Option<String>,
-}
-
-/// `approval.refused`: an answer, an undo, or a trust from a Theseus job's
-/// process, refused (theseus-6qy). A security event every connection hears.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[serde(default)]
-pub struct ApprovalRefused {
-    /// The method of the act: `action.confirm`, `policy.tighten`,
-    /// `policy.untighten`, or `policy.trust`.
-    pub act: String,
-    /// The session it was about; `null` for a tool's tightening.
-    pub session_id: Option<String>,
-    /// An answer's call.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub correlation_id: Option<String>,
-    /// The answer's call's tool, or the tightening's.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub tool: Option<String>,
-    /// An answer's: approve or decline.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub approve: Option<bool>,
-    /// The connection it came through (`sock#9`), its surface (`cli`), why it
-    /// did not count, and the label it gave.
-    pub who: String,
-    pub via: String,
-    pub why: String,
-    pub by: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub asker: Option<Asker>,
-    /// Always set: the asker was a job's.
-    pub from_job: bool,
-}
-
 /// Every notification as `(variant, its params, method)`: `Event` and its
 /// conversions come from this one table.
 macro_rules! events {
@@ -497,7 +425,6 @@ events! {
     PolicyTightened(TightenResult) = notify::POLICY_TIGHTENED,
     PolicyUntightened(TightenResult) = notify::POLICY_UNTIGHTENED,
     SessionTrusted(TrustResult) = notify::SESSION_TRUSTED,
-    ApprovalRefused(ApprovalRefused) = notify::APPROVAL_REFUSED,
     NarrativeLine(NarrativeLine) = notify::NARRATIVE_LINE,
     /// An execution's view, after a frame changed it (theseus-in3).
     ExecutionChanged(ExecutionView) = notify::EXECUTION_CHANGED,
@@ -521,7 +448,6 @@ impl Event {
             Event::TurnFailed(e) => Some(&e.session_id),
             Event::PolicyNotified(e) => Some(&e.session_id),
             Event::SessionTrusted(e) => Some(&e.session_id),
-            Event::ApprovalRefused(e) => e.session_id.as_deref(),
             Event::NarrativeLine(e) => e.session_id.as_deref(),
             Event::ExecutionChanged(e) => Some(&e.session_id),
             Event::LoopStarted(_)
@@ -557,7 +483,6 @@ impl Event {
             | Event::PolicyTightened(_)
             | Event::PolicyUntightened(_)
             | Event::SessionTrusted(_)
-            | Event::ApprovalRefused(_)
             | Event::ExecutionChanged(_)
             | Event::EventsLost(_) => None,
         }

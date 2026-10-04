@@ -1000,6 +1000,18 @@ mod tests {
         (place, rx)
     }
 
+    /// `p` in the DM with Eddie, which the binding binds as the bindings
+    /// file's `[[dm]]` would: with no owner named, its person is the owner
+    /// (the place rule, theseus-zmgb).
+    fn in_eddies_dm(core: &Core, p: &mut Place) {
+        core.bind_places(vec![theseus_core::places::BoundPlace {
+            target: format!("discord:dm:{EDDIE}"),
+            name: "DM".into(),
+            private: false,
+        }]);
+        p.target = format!("discord:dm:{EDDIE}");
+    }
+
     fn secrets(key: Option<&str>) -> Arc<SecretBoard> {
         let board = SecretBoard::new(["deepgram_api_key".to_string()], Instant::now());
         if let Some(k) = key {
@@ -1033,8 +1045,9 @@ mod tests {
             said.contains("only when invited from a private place"),
             "{said}"
         );
-        // The DM with Eddie is private (no owner named: the DM's person is).
-        p.target = format!("discord:dm:{EDDIE}");
+        // The DM with Eddie is private (no owner named: the bound DM's person
+        // is).
+        in_eddies_dm(&core, &mut p);
         let said = p.join(Some(999), eddie(), "discord:eddie").await;
         assert!(
             said.contains("not a voice channel the bindings file binds"),
@@ -1055,7 +1068,8 @@ mod tests {
         let core = core_with(d.path(), secrets(Some("tv-deepgram-7f3a9c")), |c| {
             c.voice.enabled = true
         });
-        let (p, _rx) = place(&core, "ses_dm");
+        let (mut p, _rx) = place(&core, "ses_dm");
+        in_eddies_dm(&core, &mut p);
         let said = p.join(Some(LOUNGE), eddie(), "discord:eddie").await;
         assert_eq!(said, "The gateway isn't up yet; try again in a moment.");
         assert!(p.shared.voice.joined().is_none(), "nothing joined");

@@ -2,15 +2,15 @@
 //! (theseus-6g62): `theseus_sim::fake_discord` for REST, with its gateway.
 //! A test types a message as a user and presses a card's button as one, the
 //! way Discord sends both, and reads back what the binding posted and
-//! answered (theseus-qifw). The guild the stand-in holds answers the viewer
-//! check, so a card in a trusted guild channel is tested end to end
-//! (theseus-ck0k). A real core over a scratch store; the model is scripted.
+//! answered (theseus-qifw). The guild the stand-in holds answers the place
+//! rule's viewer read, and a card in a private channel, or one sent to the
+//! owner's DM from a shared channel, is tested end to end (theseus-ck0k,
+//! theseus-zmgb). A real core over a scratch store; the model is scripted.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use theseus_core::config::ApprovalConfig;
 use theseus_core::policy::Posture;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
 use theseus_core::secrets::{Secret, SecretBoard};
@@ -25,22 +25,13 @@ const LAB: u64 = 900_000_000_000_000_010;
 /// The stand-in's DM channel with `ANA`.
 const ANA_DM: u64 = ANA + 1;
 
-/// `#lab`, where ana may drive Theseus, and ana's DM.
-fn bindings() -> String {
+/// `#lab`, where ana may drive Theseus, bound private or shared, and ana's DM.
+fn bindings(lab_private: bool) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
-         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = true\n\
+         [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = {lab_private}\n\
          [[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"
     )
-}
-
-/// ana and ben are trusted; approvals may happen in the CLI, a trusted DM,
-/// and `#lab`.
-fn approval() -> ApprovalConfig {
-    ApprovalConfig {
-        trusted_users: vec![format!("discord:{ANA}"), format!("discord:{BEN}")],
-        channels: vec!["cli".into(), "discord:dm".into(), format!("discord:{LAB}")],
-    }
 }
 
 /// The guild: ana owns it, ben and cy are members, and `lab` is private to
@@ -63,12 +54,24 @@ struct Rig {
 }
 
 impl Rig {
-    /// A core whose binding talks only to the stand-in, bound to `#lab` and
-    /// ana's DM, its gateway connected. `script` gets the rig's directory.
+    /// A core whose binding talks only to the stand-in, bound to `#lab`
+    /// (private) and ana's DM, its gateway connected. `script` gets the rig's
+    /// directory.
     async fn start(script: impl FnOnce(&Path) -> Vec<Scripted>, open_lab: bool) -> Self {
         Self::start_with(
             |dir, _| Arc::new(FakeProvider::scripted(script(dir))),
             open_lab,
+            true,
+        )
+        .await
+    }
+
+    /// The same, with `#lab` bound shared and open to everyone.
+    async fn shared(script: impl FnOnce(&Path) -> Vec<Scripted>) -> Self {
+        Self::start_with(
+            |dir, _| Arc::new(FakeProvider::scripted(script(dir))),
+            true,
+            false,
         )
         .await
     }
@@ -78,13 +81,14 @@ impl Rig {
     async fn start_with(
         model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
         open_lab: bool,
+        lab_private: bool,
     ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let fake = FakeDiscord::start_with_gateway();
         fake.set_guild(guild(open_lab));
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()));
         let path = dir.path().join("bindings.toml");
-        std::fs::write(&path, bindings()).unwrap();
+        std::fs::write(&path, bindings(lab_private)).unwrap();
         // The continuation driver, as the daemon starts it: an answered
         // card's call runs in the turn it resumes.
         tokio::spawn(theseus_core::harness::drive(core.clone()));
@@ -198,7 +202,10 @@ fn core_at(dir: &Path, fake: &FakeDiscord, model: Arc<dyn Provider>) -> Arc<Core
     cfg.discord.rest_proxy = Some(fake.addr.clone());
     cfg.discord.gateway_proxy = fake.gateway().map(|g| g.url());
     cfg.discord.edit_interval_ms = 250;
-    cfg.approval = Some(approval());
+    // ana and ben are the owners (the place rule, theseus-zmgb). A wake
+    // asks first, so a shared place has a call that waits.
+    cfg.places.owner = Some(vec![format!("discord:{ANA}"), format!("discord:{BEN}")]);
+    cfg.policy.tools.insert("wake.at".into(), Posture::Approve);
     let name = cfg.discord.token_secret.clone();
     let secrets = SecretBoard::new([name.clone()], Instant::now());
     secrets.publish(
@@ -282,14 +289,14 @@ async fn a_typed_message_is_a_turn_and_its_reply_answers_it_in_the_channel() {
     );
 }
 
-/// theseus-6g62 and theseus-ck0k: a write on the approve list waits, and its
-/// card stays in `#lab`, a channel `[approval]` lists that the viewer check
-/// trusts (only ana and ben can view it), naming its one answerer. Pressed
-/// by ben, who is trusted but not one of `#lab`'s users, it is refused and
-/// the call keeps waiting; pressed by ana, Approve is acknowledged, the call
-/// runs, the card says so and loses its buttons, and the reply comes.
+/// theseus-6g62 and the place rule (theseus-zmgb): a write on the approve
+/// list waits, and its card stays in `#lab`, a channel bound private, naming
+/// its one answerer, the place's user who is an owner. Pressed by ben, an
+/// owner but not one of `#lab`'s users, it is refused and the call keeps
+/// waiting; pressed by ana, Approve is acknowledged, the call runs, the card
+/// says so and loses its buttons, and the reply comes.
 #[tokio::test]
-async fn approve_pressed_in_a_trusted_channel_runs_the_call_and_settles_the_card() {
+async fn approve_pressed_in_a_private_channel_runs_the_call_and_settles_the_card() {
     let r = Rig::start(write_script, false).await;
     r.say((ANA, "ana"), Some(LAB), "Write the proof file.");
     r.until("the card in #lab", || r.card(LAB).is_some()).await;
@@ -304,8 +311,6 @@ async fn approve_pressed_in_a_trusted_channel_runs_the_call_and_settles_the_card
     let labels: Vec<&str> = card.buttons.iter().map(|b| b.label.as_str()).collect();
     assert_eq!(labels, ["Approve", "Decline"]);
     assert_eq!(r.waiting(), 1);
-    let checked = r.core.approval.checked(LAB).expect("#lab was checked");
-    assert!(checked.trusted, "{}", checked.detail);
 
     let refused = r.press(&card.id, "Approve", (BEN, "ben"));
     r.until("ben is told no", || {
@@ -376,35 +381,50 @@ async fn approve_pressed_in_a_trusted_channel_runs_the_call_and_settles_the_card
     assert_eq!(r.waiting(), 0);
 }
 
-/// theseus-ck0k: when cy, who is not trusted, can view `#lab`, the viewer
-/// check does not trust it, so the card goes to ana's DM with a note in
-/// `#lab`, and a press there approves it.
+/// The place rule (theseus-zmgb): `#lab` is bound shared, so a call that
+/// waits there sends its card to ana's DM, an owner's, with a note in `#lab`,
+/// and her press there approves it.
 #[tokio::test]
-async fn a_listed_channel_an_outsider_can_view_sends_its_card_to_the_dm() {
-    let r = Rig::start(write_script, true).await;
-    r.say((ANA, "ana"), Some(LAB), "Write the proof file.");
+async fn a_shared_channels_card_goes_to_the_owners_dm() {
+    let r = Rig::shared(|_| {
+        vec![
+            Scripted::tools(
+                "Setting it.",
+                &[(
+                    "t1",
+                    "wake_at",
+                    serde_json::json!({"after": "10m", "note": "check the build"}),
+                )],
+            ),
+            Scripted::text("Set: I will check the build in ten minutes."),
+        ]
+    })
+    .await;
+    r.say((ANA, "ana"), Some(LAB), "Remind me to check the build.");
     r.until("the card in the DM", || r.card(ANA_DM).is_some())
         .await;
     assert!(r.card(LAB).is_none(), "no card in #lab");
-    let checked = r.core.approval.checked(LAB).expect("#lab was checked");
-    assert!(!checked.trusted);
-    assert!(
-        checked.detail.contains(&format!("cy ({CY})")),
-        "{}",
-        checked.detail
-    );
     r.until("the note in #lab", || {
-        r.posted(LAB).iter().any(|m| m.content.starts_with("🔐"))
+        r.posted(LAB).iter().any(|m| {
+            m.content.starts_with("🔐")
+                && m.content
+                    .contains("this channel is shared, and an answer counts only")
+        })
     })
     .await;
     let card = r.card(ANA_DM).unwrap();
     r.press(&card.id, "Approve", (ANA, "ana"));
-    r.until("the file written", || outside(r.dir.path()).exists())
-        .await;
+    r.until("the wake set and the reply in #lab", || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.content.contains("I will check the build"))
+    })
+    .await;
     r.until("the DM's card settled", || {
         r.card(ANA_DM).is_some_and(|c| c.buttons.is_empty())
     })
     .await;
+    assert_eq!(r.waiting(), 0);
 }
 
 /// The place rule (theseus-nbsh): `#lab` is bound private, so ana's turn

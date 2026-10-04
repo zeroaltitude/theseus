@@ -5,14 +5,13 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use serde_json::json;
-use theseus_protocol::{ApprovalRefused, ConfirmRequest, GateDecision, PendingConfirm};
+use theseus_protocol::{ConfirmRequest, GateDecision, PendingConfirm};
 
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::fact;
 use crate::node::{Body, Node, ResultStatus};
 use crate::outbox::Closed;
-use crate::peer::Traced;
 use crate::session::SessionRecord;
 use crate::turn::OPERATOR;
 use theseus_kernel::{Action, LimitFollowed, BUDGET_TOOL};
@@ -254,12 +253,11 @@ impl Core {
     /// execution so the driver resumes the turn exactly where it parked.
     ///
     /// This is the one place an answer becomes a decision, for a tool call and
-    /// a budget question alike, so `[approval]` is judged here (theseus-sgh):
-    /// an answer that does not count is refused with the reason, ledgered as
-    /// `approval.refused`, and narrated, and the question keeps waiting. `by`
+    /// a budget question alike, so the place rule is judged here
+    /// (theseus-zmgb): an answer that does not count is refused with the
+    /// reason, ledgered as `approval.refused`, and narrated, and the question
+    /// keeps waiting. `by`
     /// is who answered and through what; a bare label is no known surface.
-    /// The process that answered, when the connection knows one, is recorded
-    /// with the answer (theseus-6qy).
     pub fn confirm_action(
         &self,
         correlation_id: &str,
@@ -295,7 +293,7 @@ impl Core {
                  its session, or use `policy.trust`"
             );
         }
-        let asker = self.judge_act(
+        self.judge_act(
             &who,
             Act::Answer {
                 action: &a,
@@ -311,7 +309,7 @@ impl Core {
         }
         let via = who.via();
         if a.tool == BUDGET_TOOL {
-            return self.answer_budget(&a, approve, note, by, &via, &asker);
+            return self.answer_budget(&a, approve, note, by, &via);
         }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
         // bind or the decline, an approval's trust, the answer's row, and the
@@ -325,7 +323,6 @@ impl Core {
             note,
             by,
             via: &via,
-            asker: asker.json(),
             trust,
         };
         let answered = fact::row(&fact, Some(&a.session_id), None)?;
@@ -354,7 +351,6 @@ impl Core {
                         &who,
                         theseus_protocol::method::ACTION_CONFIRM,
                         Some(correlation_id),
-                        &asker,
                     )?,
                     None => None,
                 };
@@ -502,62 +498,43 @@ impl Core {
 
     /// The one judgment of every approval-like act (theseus-sgh): an answer
     /// to a waiting call (the spend reset among them), a "should have asked"
-    /// press, and its undo.
+    /// press, its undo, a trust, and a publish.
     ///
-    /// An answer and an undo first trace the process that asked (theseus-6qy):
-    /// one that descends from a live Theseus job wrapper, or that cannot be
-    /// traced, is refused, with or without `[approval]`. Then they take the
-    /// whole `[approval]` rule. A press only makes calls ask, so any surface
-    /// that can answer an approval may make one, a job's process included,
-    /// and it is not traced.
+    /// Each but the press takes the place rule: the owner, from a private
+    /// place (`places::owner_in_private`, theseus-zmgb). A press only makes
+    /// calls ask, so any known surface may make one. Who asks is not traced
+    /// (theseus-zmgb): the CLI refuses these acts inside a Theseus job, a
+    /// speed bump, and L1, whose view has no route to the daemon, is the
+    /// boundary.
     ///
     /// A refusal is ledgered as `approval.refused` (who, through what, and
-    /// why) and narrated, and it is the error, a `Refusal`; one from a job's
-    /// process is a security event, announced to every connection as well.
-    /// Nothing else changes. What the trace found is returned, to be
-    /// recorded with the act.
-    pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<Traced> {
-        let traced = match act {
-            Act::Tighten { .. } => Traced::NoProcess,
-            Act::Answer { .. }
-            | Act::Untighten { .. }
-            | Act::Trust { .. }
-            | Act::Publish { .. } => who.peer.trace(),
+    /// why) and narrated, and it is the error, a `Refusal`. Nothing else
+    /// changes.
+    pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<()> {
+        let verdict = match act {
+            Act::Tighten { .. } => who.unknown().map_or(Ok(()), Err),
+            _ => crate::places::owner_in_private(who, &self.runner.place_rule, &self.cfg),
         };
-        let verdict = match (act, traced.refusal()) {
-            (_, Some(why)) => Err(Refusal {
-                who: who.who(),
-                via: who.via(),
-                why,
-            }),
-            (Act::Tighten { .. }, None) => self.approval.judge_tighten(who),
-            (_, None) => self.approval.judge(who),
+        let Err(why) = verdict else {
+            return Ok(());
         };
-        let Err(r) = verdict else {
-            return Ok(traced);
+        let r = Refusal {
+            who: who.who(),
+            via: who.via(),
+            why,
         };
-        self.refused(act, who, &r, &traced)?;
+        self.refused(act, who, &r)?;
         Err(r.into())
     }
 
-    /// An act that does not count: ledgered with who, where, why, and the
-    /// process that asked, and narrated. A refused answer leaves the action
-    /// and its execution waiting; a refused undo leaves the tool asking. One
-    /// from a Theseus job's process (theseus-6qy) is narrated as the security
-    /// event it is, and announced as `approval.refused` to every connection,
-    /// so the Discord binding tells the operator where approvals go.
-    pub(super) fn refused(
-        &self,
-        act: Act<'_>,
-        who: &Answerer,
-        r: &Refusal,
-        traced: &Traced,
-    ) -> Result<()> {
+    /// An act that does not count: ledgered with who, where, and why, and
+    /// narrated. A refused answer leaves the action and its execution
+    /// waiting; a refused undo leaves the tool asking.
+    pub(super) fn refused(&self, act: Act<'_>, who: &Answerer, r: &Refusal) -> Result<()> {
         let fact = fact::answer::ActRefused {
             act,
             refusal: r,
             by: &who.label,
-            traced,
         };
         let session = fact.session();
         self.store.append(&[fact::row(&fact, session, None)?])?;
@@ -569,61 +546,7 @@ impl Core {
             store: &self.store,
         };
         rec.announce(&fact);
-        if traced.refusal().is_some() {
-            self.refused_from_job(rec, act, who, r, session, traced);
-        }
         Ok(())
-    }
-
-    /// A refusal of a Theseus job's process, or of one that cannot be traced
-    /// (theseus-6qy): a security event. The narrative says so, and every
-    /// connection hears of it (`approval.refused`, with the ledger row's
-    /// fields), the Discord binding among them, which tells the operator in
-    /// the DM where approvals go.
-    fn refused_from_job(
-        &self,
-        rec: fact::Rec<'_>,
-        act: Act<'_>,
-        who: &Answerer,
-        r: &Refusal,
-        session: Option<&str>,
-        traced: &Traced,
-    ) {
-        let (correlation_id, tool, approve) = match act {
-            Act::Answer { action: a, approve } => (
-                Some(a.correlation_id.clone()),
-                Some(a.tool.clone()),
-                Some(approve),
-            ),
-            Act::Tighten { tool } | Act::Untighten { tool } => (None, Some(tool.into()), None),
-            Act::Trust { .. } | Act::Publish { .. } => (None, None, None),
-        };
-        let refusal = ApprovalRefused {
-            act: act.method().into(),
-            session_id: session.map(str::to_string),
-            correlation_id,
-            tool,
-            approve,
-            who: r.who.clone(),
-            via: r.via.clone(),
-            why: r.why.clone(),
-            by: who.label.clone(),
-            asker: traced.asker(),
-            from_job: true,
-        };
-        // A security event the operator must see, where approvals go, whether
-        // or not the binding is there now (theseus-q4v).
-        if let Err(e) = self
-            .outbox
-            .to_operator(session, json!({"kind": "refusal", "params": refusal}))
-        {
-            tracing::warn!(error = %format!("{e:#}"), "the refusal's notice was not written");
-        }
-        rec.record(&fact::answer::JobActRefused {
-            act,
-            refusal: r,
-            params: &refusal,
-        });
     }
 
     /// Answer a budget question (theseus-0sg). Approve: the execution's spend
@@ -638,7 +561,6 @@ impl Core {
         note: Option<&str>,
         by: &str,
         via: &str,
-        asker: &Traced,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let correlation_id = q.correlation_id.as_str();
         // The answer and its row in one frame, a kernel transaction, as a
@@ -649,7 +571,6 @@ impl Core {
             note,
             by,
             via,
-            asker: asker.json(),
         };
         let answered = fact::row(&fact, Some(&q.session_id), None)?;
         let reset = self.kernel.frame(&[&q.execution_id], |k| {
@@ -694,23 +615,8 @@ impl Core {
 }
 
 impl Core {
-    /// Open sessions follow `[kernel] spend_limit_usd` (theseus-3pj). The
-    /// core runs this when the vault confirms the copy this start served
-    /// from, before the gate opens, so nothing acts on an old limit once the
-    /// vault has confirmed a new one. (A start whose config may act at once
-    /// had the kernel's startup do it.) A failure is loud, and the gate still
-    /// opens: a store that cannot write this frame cannot write a turn either.
-    pub fn follow_spend_limit(&self) {
-        match self.kernel.follow_spend_limit() {
-            Ok(followed) => self.said_limits_followed(&followed),
-            Err(e) => tracing::error!(
-                error = %format!("{e:#}"),
-                "open sessions could not take the configured spend limit; they keep the one they had"
-            ),
-        }
-    }
-
-    /// Say what following the spend limit did: one log line, a narrative
+    /// Say what following the spend limit did (theseus-3pj, the kernel's
+    /// startup step 2): one log line, a narrative
     /// line per session, and `confirm.resolved` to the clients of each
     /// session whose question a raise withdrew.
     pub(crate) fn said_limits_followed(&self, followed: &[LimitFollowed]) {

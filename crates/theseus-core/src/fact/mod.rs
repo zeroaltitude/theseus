@@ -298,7 +298,6 @@ facts![
     answer::SpendReset<'static>,
     answer::ResetDeclined<'static>,
     answer::ActRefused<'static>,
-    answer::JobActRefused<'static>,
     answer::LimitChanged<'static>,
     answer::QuestionWithdrawn<'static>,
     answer::QuestionExpired<'static>,

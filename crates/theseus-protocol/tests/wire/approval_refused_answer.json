@@ -1,1 +1,0 @@
-{"jsonrpc":"2.0","method":"approval.refused","params":{"act":"action.confirm","approve":true,"asker":{"argv0":"theseus","job":"act_j1","pid":4300,"trace_us":210,"wrapper_pid":4290},"by":"the CLI","correlation_id":"act_k4","from_job":true,"session_id":"ses_q7f3k2","tool":"fs.write","via":"cli","who":"sock#9","why":"from a Theseus job's process (job act_j1, pid 4300, theseus)"}}

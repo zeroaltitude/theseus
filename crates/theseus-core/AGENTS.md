@@ -31,12 +31,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     can read, or a message) into a bound place's session as the owner's message, with a `derived_from` edge for a
     node (`publish`), its `place.published` row, and a notice post in the place, in one frame under the place's
     execution lock, never while a turn holds it. Only the owner, from a private place: `judge_act(Act::Publish)`
-    (a job's process never may), then `places::may_publish`. `theseus publish`, Discord's `/publish`.
+    which asks `places::owner_in_private`. `theseus publish`, Discord's `/publish`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs`, the continuation in `toolrun/resume.rs`, and the results no call's own run
   writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are `policy.rs`
   (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
-  `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,
+  `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept). Plus the
+  harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
   serving (its calls fail closed until STS names the account), who signs (`session.rs`: the key until the config
   names `owner_role`, then work, job, floor, and tender sessions, and the key signs only STS), `aws.call` (reads,
@@ -164,9 +165,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Nothing retractable goes in the shared header** (Appendix F), so sessions on a profile share one cache entry.
 - **The config template is the contract.** Change a default there, not only in code. The loader rejects unknown
   keys, and `example_template_uncommented_still_parses` un-comments every line and parses it.
-- **Approval fails closed** (review 2's consideration 2). Without `[approval]`, only the CLI and a Discord DM the
-  bindings file binds answer; the web UI and a guild channel answer once the section names them, and health then
-  says `approval: open`. A test's bare label answers as the CLI (`From<&str> for Answerer` is test-only).
+- **Approvals come from private places** (the place rule, theseus-zmgb). An answer, the undo of a tightening, a
+  trust, and a publish count only from the CLI, the web UI, a DM with the owner, or a channel bound `private = true`,
+  and only from the owner (`[places] owner`, else the person of each DM the bindings file binds):
+  `places::owner_in_private`. A shared place's cards go to the owner's DM. `[approval]` is retired: a config that
+  has it loads with a warning, and nothing reads it. A test's bare label answers as the CLI (`From<&str> for
+  Answerer` is test-only).
 - **A result that is outside text writes its session's hold in its own frame** (theseus-9bp): `external::with_hold`
   for a result written alone, and `external::under_hold` for a frame that may carry one (a late result, the cancel's
   sweep), which is built first without the session's lock and again under it only when it does. A job of a program
@@ -225,8 +229,6 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the daemon's reaper can take its exit status (`ECHILD`).
 - A static or a detached thread holds the core or the store by `Weak`. One that held an `Arc<Core>` kept the store
   open past a clean stop, and every start then paid redb's repair.
-- A test that needs a process outside every job skips that part when the test runs inside a job, and says so: an
-  approval from inside a job is refused, correctly.
 - A recompile inside a tool loop strips thinking between a call and its result, so context files change on the
   next turn's first loop, never mid-turn.
 - **Every `tool_use` gets a result, whoever ends its execution.** A cancelled execution takes no more turns, so

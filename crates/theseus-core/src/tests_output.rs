@@ -133,6 +133,16 @@ impl World {
         self.core.store.put_session(&rec.session_id, &rec).unwrap();
         if let Some(p) = place {
             self.core.outbox.bind_place(p, &rec.session_id).unwrap();
+            // A DM's person is its owner once the binding binds it (the
+            // place rule, theseus-zmgb).
+            self.core
+                .runner
+                .place_rule
+                .bind_one(crate::places::BoundPlace {
+                    target: format!("discord:{p}"),
+                    name: "DM".into(),
+                    private: false,
+                });
         }
         rec.session_id
     }
@@ -185,7 +195,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSu
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await

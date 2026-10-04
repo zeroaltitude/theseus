@@ -175,7 +175,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
             recompile: None,
             attachments: vec![],
             arrived: None,
-            config_wait_us: 0,
             reply_to: None,
         })
         .await
@@ -404,80 +403,6 @@ async fn a_read_after_the_fetch_keeps_its_posture() {
     assert_eq!(ledgered(&r.core, "session.external_read").len(), 1);
 }
 
-/// A job's process cannot trust a session again (J1's rule, theseus-6qy):
-/// `policy.trust` from a process under a live job wrapper is refused with the
-/// job, ledgered as `approval.refused`, and the session keeps its hold. The
-/// operator's own trust, from outside every job, counts.
-#[tokio::test]
-async fn a_jobs_process_cannot_trust_a_session_again() {
-    use crate::approval::Surface::Cli;
-    let job = crate::peer::Standin::start("act_truster");
-    let r = rig(
-        |req| match asked(req) {
-            (said, 0) => fetch("f1", said.split_whitespace().last().unwrap()),
-            _ => Scripted::text("Read."),
-        },
-        false,
-    )
-    .await;
-    let sid = session(&r.core);
-    turn(&r.core, &sid, &format!("read {}", page(r.port))).await;
-    assert!(hold(&r.core, &sid).is_some());
-    let params = json!({"session_id": sid});
-    let client = crate::approval::Client::new("sock#7", Cli)
-        .with_peer(crate::peer::Peer::process(job.child));
-    let e = rpc_as(
-        &r.core,
-        client,
-        theseus_protocol::method::POLICY_TRUST,
-        params.clone(),
-    )
-    .await
-    .expect_err("refused");
-    assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
-    let why = format!(
-        "from a Theseus job's process (job act_truster, pid {}, sleep)",
-        job.child
-    );
-    assert!(e.message.contains(&why), "{}", e.message);
-    let refused = ledgered(&r.core, "approval.refused");
-    assert_eq!(refused.len(), 1);
-    assert_eq!(
-        (
-            refused[0]["act"].as_str(),
-            refused[0]["session_id"].as_str()
-        ),
-        (Some("policy.trust"), Some(sid.as_str()))
-    );
-    assert_eq!(refused[0]["from_job"], true);
-    assert!(
-        hold(&r.core, &sid).is_some(),
-        "it still holds external text"
-    );
-    assert!(ledgered(&r.core, "session.trusted").is_empty());
-
-    if crate::peer::tests_support::inside_a_job() {
-        return;
-    }
-    let client = crate::approval::Client::new("sock#1", Cli)
-        .with_peer(crate::peer::Peer::process(std::process::id()));
-    let ok = rpc_as(
-        &r.core,
-        client,
-        theseus_protocol::method::POLICY_TRUST,
-        params,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        (ok["by"].as_str(), ok["via"].as_str()),
-        (Some("the CLI"), Some("cli"))
-    );
-    assert!(hold(&r.core, &sid).is_none());
-    let trusted = ledgered(&r.core, "session.trusted");
-    assert_eq!(trusted[0]["asker"]["pid"], std::process::id());
-}
-
 /// The hold is the session's own record, so a restart keeps it: after the
 /// daemon's core is rebuilt over the same store, the session still holds
 /// external text, health lists it, and its next `proc.run` still waits.
@@ -621,9 +546,6 @@ async fn an_approval_with_trust_runs_the_call_and_trusts_the_session() {
 #[tokio::test]
 async fn an_approvals_trust_names_the_surface_as_policy_trust_does() {
     use crate::approval::Surface::Cli;
-    if crate::peer::tests_support::inside_a_job() {
-        return;
-    }
     let r = rig(
         |req| {
             let (said, results) = asked(req);
@@ -640,8 +562,7 @@ async fn an_approvals_trust_names_the_surface_as_policy_trust_does() {
     let res = turn(&r.core, &sid, &format!("read {}", page(r.port))).await;
     let corr = res.awaiting_confirm.clone().expect("the run waits");
     let held = hold(&r.core, &sid).expect("the fetch holds it");
-    let client = crate::approval::Client::new("sock#32", Cli)
-        .with_peer(crate::peer::Peer::process(std::process::id()));
+    let client = crate::approval::Client::new("sock#32", Cli);
     let ok = rpc_as(
         &r.core,
         client,

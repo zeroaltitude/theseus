@@ -35,8 +35,6 @@ watching ses_q7f3k2 (Ctrl-C to stop)
   ✗ declined act_k9 (by config)
   🔒 proc.run now asks first: tightened by the CLI (the config says notify, enforcement = notify) · undo: theseus policy untighten proc.run
   🔒 proc.run is back to what the config says: approve (tightened by the CLI); the tightening by the CLI is undone
-  🚨 refused an answer to fs.write from a Theseus job's process (job act_j1, pid 4300, theseus) through cli
-  🚨 refused the undo of proc.run's tightening from a Theseus job's process through cli
   ✗ turn failed (rate_limited): 429 Too Many Requests [retrying with backoff]
   ✗ turn failed: the store is full
 [quick → zed/glm-x · 2 loop(s) · 3 tool call(s) · end_turn · tokens in 5230 out 212 cache r4096 w0 · $0.0031 · 3021 ms (first token 640 ms) · session ses_q7f3k2]

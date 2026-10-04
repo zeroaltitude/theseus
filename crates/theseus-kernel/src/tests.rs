@@ -1504,41 +1504,6 @@ fn a_lowered_limit_asks_at_the_next_reservation_over_it() {
     drop(g);
 }
 
-/// Under a copy the vault has not confirmed (theseus-2fo), startup writes no
-/// limit the copy decides. The vault's word applies it, once
-/// (`follow_spend_limit`).
-#[test]
-fn under_an_unconfirmed_copy_startup_keeps_the_limits_and_the_vaults_word_applies_them() {
-    let w = world_with(limited(100_000));
-    let (s, e, g) = following(&w);
-    let q = parked_at_limit(&w, g, 60_000, 60_000);
-    let (w, rep) = crash(
-        w,
-        KernelConfig {
-            unconfirmed_config: true,
-            ..limited(250_000)
-        },
-    );
-    assert!(rep.limits_followed.is_empty());
-    let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
-    assert_eq!(
-        (e1.state, e1.budget.limit_micros, e1.budget.question),
-        (ExecState::Waiting, 100_000, Some(q.correlation_id))
-    );
-    assert!(rows(&w, &s, "budget.limit_changed").is_empty());
-
-    let followed = w.kernel.follow_spend_limit().unwrap();
-    assert_eq!(followed.len(), 1);
-    assert!(followed[0].proceeds);
-    let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
-    assert_eq!(
-        (e2.state, e2.budget.limit_micros),
-        (ExecState::Queued, 250_000)
-    );
-    assert!(w.kernel.follow_spend_limit().unwrap().is_empty(), "once");
-    assert_eq!(rows(&w, &s, "budget.limit_changed").len(), 1);
-}
-
 /// A declined question leaves the session waiting on its budget. A raise
 /// lets that wait proceed too: the declined question, which stays declined,
 /// is queued as the result.
