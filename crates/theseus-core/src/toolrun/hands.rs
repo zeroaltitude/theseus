@@ -137,7 +137,17 @@ impl ToolRuntime {
             waiting: (0..n as u32).collect(),
             ..Default::default()
         };
-        let wave = match group::next(&rec, &t) {
+        // The room the account's quota leaves (part 2): a bigger group
+        // launches in waves, and never fails for a quota.
+        let cap = crate::aws::hands::quota::cap(
+            &aws.hands.quotas,
+            &account,
+            &region,
+            backend,
+            &rec.request,
+        )
+        .await;
+        let wave = match group::next(&rec, &t, cap) {
             group::Next::Launch(w) => w,
             group::Next::Done { why, .. } => {
                 return fail(&format!("no hand can launch: {}", why.unwrap_or_default()))

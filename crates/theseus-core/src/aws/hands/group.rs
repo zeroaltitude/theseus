@@ -179,9 +179,10 @@ pub enum Next {
     Wait,
 }
 
-/// The rule: `until` first, then the room `concurrency` and `max_usd`
-/// leave.
-pub fn next(rec: &GroupRecord, t: &Tally) -> Next {
+/// The rule: `until` first, then the room `concurrency`, the quota's `cap`
+/// (part 2: how many of its hands its account's quota lets run at once, at
+/// least one), and `max_usd` leave.
+pub fn next(rec: &GroupRecord, t: &Tally, cap: Option<u32>) -> Next {
     let open = t.running + t.waiting.len() as u32;
     let (met, done) = match rec.request.until {
         // `all` runs every hand to its end, and is met when none failed.
@@ -198,7 +199,10 @@ pub fn next(rec: &GroupRecord, t: &Tally) -> Next {
             }),
         };
     }
-    let room = rec.request.concurrency.saturating_sub(t.running) as usize;
+    let most = cap.map_or(rec.request.concurrency, |c| {
+        rec.request.concurrency.min(c.max(1))
+    });
+    let room = most.saturating_sub(t.running) as usize;
     let mut take = room.min(t.waiting.len());
     if let Some(cap) = rec.request.max_usd {
         let committed = t.spent_usd + f64::from(t.running) * rec.hand_max_usd;
@@ -439,7 +443,15 @@ pub async fn step(ctx: &Ctx<'_>, group: &str) -> Result<bool> {
         }
         let actions = hands(ctx.kernel, &rec)?;
         let t = tally(ctx.store, &rec, &actions);
-        match next(&rec, &t) {
+        let cap = match (t.waiting.is_empty(), ctx.aws.account(Some(&rec.account))) {
+            (false, Ok(account)) => {
+                let account = account.clone();
+                let q = &ctx.aws.hands.quotas;
+                super::quota::cap(q, &account, &rec.region, rec.backend, &rec.request).await
+            }
+            _ => None,
+        };
+        match next(&rec, &t, cap) {
             Next::Wait => return Ok(false),
             Next::Done { met, why } => {
                 // The hands still running are stopped first (part 2): their

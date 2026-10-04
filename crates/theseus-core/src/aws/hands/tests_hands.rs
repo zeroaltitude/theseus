@@ -50,6 +50,10 @@ pub(super) struct State {
     /// StopTask stops its task at once (STOPPED at the next read).
     pub(super) stop_at_once: AtomicBool,
     pub(super) describes: AtomicUsize,
+    /// Fargate's vCPU quota and Lambda's unreserved concurrency, when set;
+    /// unset, the reads answer nothing, and no quota caps a group.
+    pub(super) quota: Mutex<Option<f64>>,
+    pub(super) quota_reads: AtomicUsize,
 }
 
 impl State {
@@ -221,6 +225,21 @@ pub(super) fn answer(state: &State, s: &Seen, n: usize) -> Reply {
             json(
                 json!({"tasks": [{"taskArn": format!("arn:aws:ecs:us-west-2:{ACCOUNT}:task/theseus-hands/t{k}")}], "failures": []}),
             )
+        }
+        "GetServiceQuota" => {
+            state.quota_reads.fetch_add(1, Ordering::SeqCst);
+            match *state.quota.lock().unwrap() {
+                Some(v) => json(json!({"Quota": {"QuotaCode": body["QuotaCode"], "Value": v}})),
+                None => json(json!({})),
+            }
+        }
+        "" if s.method == "GET" && s.target.contains("/account-settings") => {
+            state.quota_reads.fetch_add(1, Ordering::SeqCst);
+            match *state.quota.lock().unwrap() {
+                Some(v) => json(json!({"AccountLimit": {"ConcurrentExecutions": 1000,
+                    "UnreservedConcurrentExecutions": v}})),
+                None => json(json!({})),
+            }
         }
         "StopTask" => {
             let arn = body["task"].as_str().unwrap_or_default().to_string();

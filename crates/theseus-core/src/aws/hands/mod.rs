@@ -14,6 +14,8 @@
 //!   `StopTask`, verified STOPPED; Lambda's none), and a group's.
 //! - [`overdue`]: a hand past its deadline, asked about before it is
 //!   called unknown, and a hand the TTL reaper stopped.
+//! - [`quota`]: the room Fargate's vCPU quota or Lambda's concurrency
+//!   leaves a group, read once an hour; a bigger group launches in waves.
 //! - [`watch`]: health's hands block, the hour's meter and its alert, and
 //!   the TTL reaper's failures.
 //! - [`poller`]: the completion queue's long poll, after serving and only
@@ -35,6 +37,7 @@ pub mod hand;
 pub mod launch;
 pub mod overdue;
 pub mod poller;
+pub mod quota;
 pub mod tool;
 pub mod watch;
 
@@ -61,6 +64,8 @@ pub struct Hands {
     over_budget: Mutex<BTreeMap<String, OverBudget>>,
     /// The TTL reaper's failures read off the queue, for health.
     pub reaper: watch::Reaper,
+    /// Each account's quotas, read before a wave and kept an hour.
+    pub quotas: quota::Quotas,
 }
 
 /// What a group needed of its session's budget, and what it had.

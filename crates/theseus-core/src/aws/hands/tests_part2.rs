@@ -702,3 +702,69 @@ async fn a_reaped_hand_fails_with_the_reapers_reason_and_its_failures_are_read()
     })
     .await;
 }
+
+// ------------------------------------------------------------ quotas
+
+/// A Fargate group bigger than its account's vCPU quota launches in waves:
+/// with room for 3 one-vCPU hands, 3 of 5 launch at once, the next as each
+/// settles, and all 5 in the end; the quota is read once and kept. It never
+/// fails for a quota.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_group_bigger_than_its_quota_launches_in_waves() {
+    let r = fargate_rig(json!({"argv": ["true"], "count": 5, "backend": "fargate"}));
+    *r.state.quota.lock().unwrap() = Some(3.0);
+    turn(&r.core, "run five").await;
+    let g = group_of(&r.core);
+    assert_eq!(r.state.ran.lock().unwrap().len(), 3, "the first wave");
+    r.core.poll_hands_after_serving();
+    for done in 0..5 {
+        until("a hand to come home", || fargate_specs(&r).len() > done).await;
+        let s = fargate_specs(&r)[done].clone();
+        r.state.push(signed(&s, "succeeded", 0));
+        until("its settle", || {
+            state_of(&r.core, &s.correlation_id) == ActionState::Succeeded
+        })
+        .await;
+        // Never more running than the quota's room.
+        let rec = record(&r.core, &g);
+        let running = rec
+            .hands
+            .iter()
+            .filter(|h| state_of(&r.core, &h.correlation_id) == ActionState::Dispatched)
+            .count();
+        assert!(running <= 3, "{running} running");
+    }
+    until("the group to settle", || {
+        state_of(&r.core, &g) == ActionState::Succeeded
+    })
+    .await;
+    assert_eq!(r.state.ran.lock().unwrap().len(), 5);
+    assert_eq!(
+        r.state.quota_reads.load(Ordering::SeqCst),
+        1,
+        "kept an hour"
+    );
+}
+
+/// Lambda's unreserved concurrency caps a group the same way; a quota
+/// smaller than one hand still runs one at a time, never none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lambdas_concurrency_caps_a_group_and_a_tiny_quota_runs_one() {
+    let r = rig(calls(json!({"argv": ["true"], "count": 3})));
+    *r.state.quota.lock().unwrap() = Some(2.0);
+    turn(&r.core, "run three").await;
+    assert_eq!(r.state.invoked().len(), 2);
+    let f = fargate_rig(json!({"argv": ["true"], "count": 2, "backend": "fargate",
+        "vcpu": 2, "memory_mb": 4096}));
+    *f.state.quota.lock().unwrap() = Some(1.0);
+    turn(&f.core, "run two big ones").await;
+    assert_eq!(f.state.ran.lock().unwrap().len(), 1, "one at a time");
+    assert_eq!(
+        super::quota::hands_that_fit(
+            1.0,
+            super::launch::Backend::Fargate,
+            &super::launch::parse(&json!({"argv": ["x"], "vcpu": 2, "memory_mb": 4096})).unwrap()
+        ),
+        1
+    );
+}
