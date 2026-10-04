@@ -14,6 +14,7 @@ pub mod bench;
 pub mod cancel;
 pub mod cred;
 mod events;
+pub mod extend;
 mod gate;
 mod hands;
 mod health;
@@ -204,6 +205,8 @@ pub mod method {
         /// The prompts the MCP servers list (M7 36c,
         /// `mcp::McpPromptListParams`). A read.
         MCP_PROMPT_LIST = "mcp.prompt.list",
+        /// Proposed extensions (M7 43a, `extend::ExtendListResult`). A read.
+        EXTEND_LIST = "extend.list",
     }
 }
 
@@ -511,6 +514,10 @@ pub struct HealthResult {
     /// The MCP servers the config attaches (M7 36b). Empty without one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp: Vec<mcp::McpServerStatus>,
+    /// Proposed extensions by state (M7 43a). Absent when there are none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub extensions: Option<extend::ExtendHealth>,
     /// The store's refused reads (R4, theseus-15g); zero from a daemon before it.
     #[serde(default)]
     pub store: StoreStatus,

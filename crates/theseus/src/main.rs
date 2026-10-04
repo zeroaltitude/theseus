@@ -13,6 +13,7 @@
 //! `print.rs` writes the lines they return.
 
 mod cmd;
+mod extend;
 mod herdr;
 mod herdr_sync;
 mod interactive;
@@ -343,6 +344,12 @@ enum Cmd {
     Mcp {
         #[command(subcommand)]
         cmd: Option<mcp::McpCmd>,
+    },
+    /// Proposed extensions (M7 43a): `extend list` shows each with its state, its frozen digest,
+    /// its tools and tests, and the question `theseus confirm` answers.
+    Extend {
+        #[command(subcommand)]
+        cmd: extend::ExtendCmd,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
@@ -707,6 +714,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,
         Cmd::Mcp { cmd } => mcp::run(c, json, cmd).await,
+        Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

@@ -9,6 +9,7 @@ import type { ConfigStatus } from "./ConfigStatus";
 import type { ContextStatus } from "./ContextStatus";
 import type { CrashStatus } from "./CrashStatus";
 import type { DiskStatus } from "./DiskStatus";
+import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { GrantStatus } from "./GrantStatus";
 import type { HarnessOnly } from "./HarnessOnly";
@@ -159,6 +160,10 @@ index?: IndexHealth,
  * The MCP servers the config attaches (M7 36b). Empty without one.
  */
 mcp?: Array<McpServerStatus>, 
+/**
+ * Proposed extensions by state (M7 43a). Absent when there are none.
+ */
+extensions?: ExtendHealth, 
 /**
  * The store's refused reads (R4, theseus-15g); zero from a daemon before it.
  */

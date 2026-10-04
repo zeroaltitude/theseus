@@ -45,6 +45,7 @@ pub mod arrangement;
 pub mod cancel;
 pub mod driver;
 pub mod durability;
+pub mod extend;
 pub mod index;
 pub mod judge;
 pub mod lsp;
@@ -361,6 +362,10 @@ facts![
     mcp::McpPromptChanged,
     crate::aws::hands::watch::HourAlert<'static>,
     crate::aws::hands::watch::ReaperFailed<'static>,
+    extend::ExtendProposed<'static>,
+    extend::ExtendTested<'static>,
+    extend::ExtendAcked<'static>,
+    extend::ExtendDeclined<'static>,
 ];
 
 #[cfg(test)]

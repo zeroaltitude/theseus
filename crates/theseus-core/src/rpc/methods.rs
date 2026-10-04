@@ -97,6 +97,7 @@ impl Core {
             // at once.
             index: None,
             mcp: self.mcp.status(),
+            extensions: self.extend_health(),
             store: self.store_status(),
             crash: self.crash_status(),
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),

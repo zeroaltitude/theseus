@@ -310,6 +310,7 @@ impl Core {
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),
+            method::EXTEND_LIST => reply(self.extend_list()?),
             method::MCP_RESTART => reply(self.mcp_restart(parse(params)?)?),
             method::MCP_PROMPT_LIST => reply(self.mcp_prompt_list(params)?),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.

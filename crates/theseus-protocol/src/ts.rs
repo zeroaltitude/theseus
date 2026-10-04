@@ -41,6 +41,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("gate.rs"),
         include_str!("index.rs"),
         include_str!("mcp.rs"),
+        include_str!("extend.rs"),
         include_str!("memory.rs"),
         include_str!("ontology.rs"),
         include_str!("places.rs"),
@@ -137,6 +138,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         mcp::McpRestartParams, mcp::McpRestartResult, mcp::McpPromptArgument,
         mcp::McpPromptInfo, mcp::McpPromptListParams, mcp::McpPromptListResult, mcp::McpPromptRef,
         mcp_server::McpServerHealth, mcp_server::McpServerRefusals,
+        extend::ExtendInfo, extend::ExtendListResult, extend::ExtendHealth,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

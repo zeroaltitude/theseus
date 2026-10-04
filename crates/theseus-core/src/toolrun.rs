@@ -292,6 +292,9 @@ pub struct ToolRuntime {
     pub terms: Arc<crate::term::Terms>,
     /// The language-server board (L2), when `[lsp]` is on.
     pub lsp: Option<Arc<crate::lsp::Board>>,
+    /// Proposed extensions (M7 43a): where they are frozen, and the board
+    /// that tries them.
+    pub extend: Arc<crate::extend::Extensions>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -403,7 +406,7 @@ impl ToolRuntime {
             external_text: Default::default(),
             external_programs: Vec::new(),
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
-            disk: Arc::new(crate::disk::Disk::new(tmp, 0, 0)),
+            disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
             aws: None,
             question_due: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
@@ -413,6 +416,10 @@ impl ToolRuntime {
             mcp: Default::default(),
             terms: Arc::new(crate::term::Terms::new(Vec::new(), Vec::new())),
             lsp: None,
+            extend: Arc::new(crate::extend::Extensions::new(
+                tmp.join("extensions"),
+                vec![],
+            )),
         }
     }
 
@@ -1348,8 +1355,50 @@ impl ToolRuntime {
                 self.run_job(tc, correlation_id, tool.as_ref(), call, ran_at, &class)
                     .await
             }
+            // A proposed extension's trial waits for its server (M7 43a).
+            Backend::Harness if tool.name() == crate::extend::PROPOSE => {
+                self.run_extend(tc, correlation_id, tool.as_ref(), call)
+                    .await
+            }
             Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call),
         }
+    }
+
+    /// `extend.propose` (M7 43a): a harness call whose trial waits on its
+    /// server, so it is awaited here, as an async tool is, and never on a
+    /// core; its result is written as any harness call's.
+    async fn run_extend(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: &dyn Tool,
+        call: &ToolUse,
+    ) -> Result<CallOutcome> {
+        Self::harness_started(tc, correlation_id, tool, call);
+        let started = theseus_protocol::now_unix_ms();
+        let t0 = Instant::now();
+        let done = crate::extend::propose(self, tc, &call.input, correlation_id).await;
+        // A trial a cancel or a stop aborted (18a): the cancel settles the
+        // call, with its verdict, and its result says so, riding as a late
+        // one does.
+        if matches!(&done, Err(e) if e == crate::extend::STOPPED) {
+            if let Some(a) = crate::cancel::after_abort(tc.kernel, correlation_id).await {
+                let (status, text, meta) = crate::cancel::aborted_result(&a);
+                let node = self.result_node(
+                    tc,
+                    ResultNode {
+                        correlation_id: Some(correlation_id),
+                        duration_ms: Some(t0.elapsed().as_millis() as u64),
+                        meta,
+                        ..ResultNode::new(&call.id, tool.name(), status, text)
+                    },
+                );
+                tc.store.append(&[node.record()?])?;
+                Self::announce_end(tc, &node);
+                return Ok(CallOutcome::Done { status });
+            }
+        }
+        self.harness_done(tc, correlation_id, tool, call, (started, t0), done)
     }
 
     /// A tool the harness runs itself, in the turn's own task (`task.create`,
@@ -1363,6 +1412,20 @@ impl ToolRuntime {
         tool: &dyn Tool,
         call: &ToolUse,
     ) -> Result<CallOutcome> {
+        Self::harness_started(tc, correlation_id, tool, call);
+        let started = theseus_protocol::now_unix_ms();
+        let t0 = Instant::now();
+        let done = match tool.name() {
+            crate::task::CREATE => crate::task::create(tc, &call.input, correlation_id),
+            crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
+            // Run again after a restart: what the first run proposed.
+            crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
+            other => Err(format!("{other} is not a tool the harness runs")),
+        };
+        self.harness_done(tc, correlation_id, tool, call, (started, t0), done)
+    }
+
+    fn harness_started(tc: &TurnCtx<'_>, correlation_id: &str, tool: &dyn Tool, call: &ToolUse) {
         tc.record(&fact::tool::ToolStarted {
             session_id: tc.session_id,
             turn_id: tc.turn_id,
@@ -1371,13 +1434,18 @@ impl ToolRuntime {
             correlation_id,
             backend: tool.backend().as_str(),
         });
-        let started = theseus_protocol::now_unix_ms();
-        let t0 = Instant::now();
-        let done = match tool.name() {
-            crate::task::CREATE => crate::task::create(tc, &call.input, correlation_id),
-            crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
-            other => Err(format!("{other} is not a tool the harness runs")),
-        };
+    }
+
+    /// A harness call's result node, in its completion's frame.
+    fn harness_done(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: &dyn Tool,
+        call: &ToolUse,
+        (started, t0): (u64, Instant),
+        done: Result<(String, Value), String>,
+    ) -> Result<CallOutcome> {
         let dur = t0.elapsed().as_millis() as u64;
         let (status, text, meta) = match done {
             Ok((text, meta)) => (ResultStatus::Ok, text, meta),
@@ -1846,6 +1914,11 @@ pub fn build_runtime(
         .and_then(|s| s.dir().parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| cfg.state_dir());
     let (roots, floor_paths, approve) = guarded_paths(cfg, &state);
+    // Proposed extensions are frozen beside the store (M7 43a).
+    let extend = Arc::new(crate::extend::Extensions::new(
+        state.join("extensions"),
+        roots.clone(),
+    ));
     if roots.is_empty() && t.enabled {
         tracing::warn!(
             "no [tools].projects_dir (or roots): every path a tool names is outside the workspace"
@@ -1886,9 +1959,11 @@ pub fn build_runtime(
         for tool in lsp.iter().flat_map(|b| b.tools()) {
             r.register(tool);
         }
-        // Task sessions (DD7) and wakes (DD8): the harness runs them.
+        // Task sessions (DD7), wakes (DD8), and proposed extensions (M7
+        // 43a): the harness runs them.
         r.register(Arc::new(crate::task::TaskCreate));
         r.register(Arc::new(crate::wake::WakeAt));
+        r.register(Arc::new(crate::extend::Propose));
         r
     } else {
         Registry::new()
@@ -1973,6 +2048,7 @@ pub fn build_runtime(
         mcp: Default::default(),
         terms,
         lsp,
+        extend,
     })
 }
 

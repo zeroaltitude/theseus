@@ -103,6 +103,8 @@ fn server_cfg(read: &[&str]) -> McpServerConfig {
         auth_secret: None,
         read: read.iter().map(|s| s.to_string()).collect(),
         sandbox: Default::default(),
+        egress: vec![],
+        frozen: None,
         external: true,
         enabled: true,
         start_timeout_secs: 30,

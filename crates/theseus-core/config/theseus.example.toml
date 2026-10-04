@@ -388,6 +388,10 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # "term.send" = "notify"
 "term.read" = "open"
 "term.close" = "open"
+# a proposed extension (M7 43a): its directory frozen, started in L1, and tested;
+# nothing loads until you ack its card. Inherits enforcement, so each proposal is
+# a notice
+# "extend.propose" = "notify"
 # AWS, when an [aws.accounts] table binds an account: aws.describe reads the
 # local catalog; the others call AWS, and [policy.aws] gives each call its
 # posture unless a line here sets the tool's
@@ -698,11 +702,15 @@ total_secs = 5                          # a whole call, connect included
 # command = ["github-mcp-server", "stdio"]   # its argv, run with no shell, in its own process group; stderr to <state>/mcp/github.log
 # env = { GITHUB_PERSONAL_ACCESS_TOKEN = "github_token" }   # variable = [secrets] name; each call then runs at no looser a posture than the secret's
 # read = ["get_issue", "list_pull_requests"]   # the tools you call read-class (default none)
-# sandbox = "l0"                        # where it runs: l0 (L1 for servers is a follow-up)
+# sandbox = "l0"                        # where it runs: l0 (default), or l1: below the sandbox's init, in the view a job gets
 # external = true                       # its results hold the session (default true)
 # enabled = true                        # false keeps it configured and unstarted
 # start_timeout_secs = 30               # the longest a start, and a call waiting for one, waits
 # call_timeout_secs = 110               # the longest one call waits (at most 115, under the 120 s in-process deadline)
+# [mcp.servers.wordcount]               # a server in L1: the workspace read-only, its writes scratch, no network unless listed
+# command = ["wc-mcp", "--stdio"]
+# sandbox = "l1"
+# egress = ["api.wordlist.invalid:443"] # an L1 server's hosts, through its egress proxy, as [sandbox] egress for a job (default none)
 # [mcp.servers.docs]                    # a remote server, over streamable HTTP
 # url = "https://mcp.docs.invalid/mcp"
 # auth_secret = "docs_mcp_token"        # a [secrets] name, sent as a bearer token

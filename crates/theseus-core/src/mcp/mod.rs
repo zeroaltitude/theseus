@@ -27,10 +27,12 @@
 //!
 //! Each start, ready, exit, failure, and change is a fact (`fact::mcp`).
 
+pub mod l1;
 pub mod prompts;
 #[cfg(test)]
 mod tests;
 pub mod tool;
+mod trial;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -78,6 +80,9 @@ pub enum State {
     Restarting,
     Failed,
     Disabled,
+    /// A proposed extension on trial (43a): started and tested, its tools
+    /// never offered.
+    Proposed,
 }
 
 impl State {
@@ -89,6 +94,7 @@ impl State {
             State::Restarting => "restarting",
             State::Failed => "failed",
             State::Disabled => "disabled",
+            State::Proposed => "proposed",
         }
     }
 }
@@ -166,6 +172,8 @@ pub struct Spawn {
     pub cwd: PathBuf,
     /// The job's environment, which a stdio server gets too.
     pub base_env: Vec<(String, String)>,
+    /// How a server with `sandbox = "l1"` starts (M7 43a).
+    pub l1: l1::L1Spawn,
 }
 
 fn options(cfg: &McpServerConfig) -> theseus_mcp::Options {
@@ -209,12 +217,26 @@ impl Spawn {
         cfg: &McpServerConfig,
         env: Vec<(String, String)>,
     ) -> Result<theseus_mcp::Transport, String> {
-        let mut cmd = theseus_mcp::client::stdio_command(&cfg.command)
-            .ok_or_else(|| "its command names no program".to_string())?;
-        cmd.env_clear()
-            .envs(self.base_env.iter().cloned())
-            .envs(env)
-            .current_dir(&self.cwd);
+        if cfg.command.first().is_none_or(|p| p.trim().is_empty()) {
+            return Err("its command names no program".into());
+        }
+        // An extension's frozen copy is where it runs, never the workspace.
+        let cwd = cfg.frozen.clone().unwrap_or_else(|| self.cwd.clone());
+        let mut cmd = match cfg.sandbox {
+            crate::config::mcp::McpSandbox::L1 => {
+                let env = self.base_env.iter().cloned().chain(env).collect();
+                l1::command(&self.l1, cfg, env, cwd)?
+            }
+            crate::config::mcp::McpSandbox::L0 => {
+                let mut cmd = theseus_mcp::client::stdio_command(&cfg.command)
+                    .ok_or_else(|| "its command names no program".to_string())?;
+                cmd.env_clear()
+                    .envs(self.base_env.iter().cloned())
+                    .envs(env)
+                    .current_dir(cwd);
+                cmd
+            }
+        };
         let _ = std::fs::create_dir_all(&self.log_dir);
         let child = theseus_kernel::children::spawn(
             theseus_kernel::children::Kind::Owned,
@@ -451,6 +473,9 @@ pub struct McpBoard {
     /// Set once the daemon stops.
     stop: watch::Sender<bool>,
     started: std::sync::atomic::AtomicBool,
+    /// Proposed extensions on trial (43a, `trial.rs`): never in `servers`,
+    /// so `rebuild` never offers their tools.
+    trials: Mutex<BTreeMap<String, Arc<Server>>>,
 }
 
 impl McpBoard {
@@ -478,6 +503,7 @@ impl McpBoard {
             core: OnceLock::new(),
             stop: watch::Sender::new(false),
             started: Default::default(),
+            trials: Mutex::default(),
         });
         board.rebuild();
         board
@@ -503,7 +529,12 @@ impl McpBoard {
 
     /// Health's `mcp[]`.
     pub fn status(&self) -> Vec<theseus_protocol::mcp::McpServerStatus> {
-        self.servers.values().map(|s| s.status()).collect()
+        let trials = self.trials.lock().unwrap_or_else(PoisonError::into_inner);
+        self.servers
+            .values()
+            .chain(trials.values())
+            .map(|s| s.status())
+            .collect()
     }
 
     /// After serving: tend every enabled server, each in a task of its own.
@@ -520,7 +551,8 @@ impl McpBoard {
     /// The daemon stops: SIGTERM to each server's group, never waited for.
     pub fn stop(&self) {
         self.stop.send_replace(true);
-        for s in self.servers.values() {
+        let trials = self.trials.lock().unwrap_or_else(PoisonError::into_inner);
+        for s in self.servers.values().chain(trials.values()) {
             if let Some(c) = s.live().client.take() {
                 c.terminate();
             }

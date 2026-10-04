@@ -25,6 +25,9 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 - `hand` (step 40, theseus-mgw.6): a hand, the job wrapper inside AWS, run in the hand image (`infra/aws/hand/`) as
   Lambda's bootstrap or a Fargate task's command, never by hand. It reads no config, store, or secret: its spec (in
   the Lambda event, or `THESEUS_HAND`) is its whole input. Its code is `theseus_core::aws::hands::hand`.
+- The MCP server's L1 role (M7 43a): `mcp-sandbox`, dispatched second in `main`, after `job-sandbox` and before
+  anything else, so it spawns the server's init from its main thread (`theseus_kernel::mcp_l1`). The board spawns it
+  as an ordinary stdio child. `tests/mcp_l1.rs` runs a real server in L1 (as root, only L1's refusal).
 - `job-wrapper` catches SIGTERM from its first moments (M4 18a): a cancel asks it alone, and it stops its job's
   whole tree (`theseus_kernel::tree`), an L1 job through its init, then answers in the spool.
   `tests/job_wrapper.rs` stops real trees, a `setsid` sleeper included; `tests/sandbox.rs` an L1 job's.
