@@ -610,6 +610,33 @@ enum JudgeCmd {
         /// The judgment's id (`jdg_…`), as `judge log --json` or a trace's `judge` mark names it.
         id: String,
     },
+    /// Label a judgment, for the learning ledger: right or wrong, or what the right answer was.
+    /// The operator's alone: refused inside a Theseus job, and from a shared place.
+    Label {
+        /// The judgment's id (`jdg_…`).
+        id: String,
+        /// The label. On the whole judgment: right, wrong, noise, or useful. On a question
+        /// (`--question`): a yes-or-no question's true or false, a choice's option
+        /// (`progressing`) or `not:<option>`, a score's level, or right or wrong.
+        label: String,
+        /// The question it labels (`work_state`); none labels the whole judgment.
+        #[arg(long, short)]
+        question: Option<String>,
+        /// Why, in a few words.
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// The learning report: per pack and question, calls, labels, precision and recall,
+    /// calibration, agreement with the baseline, bands, cost, latency, and the frozen holdout.
+    /// Run now, or `--date` reads a stored one.
+    Report {
+        /// One pack's (`loop.v1`, or `loop` for every version).
+        #[arg(long, value_name = "PACK")]
+        pack: Option<String>,
+        /// The stored report of a local day (`2026-10-04`).
+        #[arg(long)]
+        date: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

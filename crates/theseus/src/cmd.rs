@@ -1370,6 +1370,42 @@ pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
                 Ok(())
             })
         }
+        JudgeCmd::Label {
+            id,
+            label,
+            question,
+            note,
+        } => {
+            use theseus_protocol::learning::{JudgeLabelParams, JudgeLabelResult};
+            let p = JudgeLabelParams {
+                judgment: id,
+                question,
+                label: Value::String(label),
+                note,
+            };
+            let v = conn
+                .request(method::JUDGE_LABEL, serde_json::to_value(&p)?)
+                .await?;
+            output(json, v, |r: JudgeLabelResult| {
+                println!("{}", render::judge_label_line(&r));
+                Ok(())
+            })
+        }
+        JudgeCmd::Report { pack, date } => {
+            use theseus_protocol::learning::{LearningReport, LearningReportParams};
+            let v = conn
+                .request(
+                    method::LEARNING_REPORT,
+                    serde_json::to_value(LearningReportParams { pack, date })?,
+                )
+                .await?;
+            output(json, v, |r: LearningReport| {
+                for line in render::learning_report_lines(&r) {
+                    println!("{line}");
+                }
+                Ok(())
+            })
+        }
     }
 }
 

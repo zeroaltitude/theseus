@@ -252,8 +252,9 @@ pub fn job_session() -> Option<String> {
 /// trust, a publish, the AWS bootstrap, the alerts' confirmation, the
 /// ontology's writes (theseus-8kk.1: guidance steers every session in its
 /// category), and a memory label (M6 30b: `wrong` keeps a node out of every
-/// session's recall).
-pub const OPERATORS: [(&str, &str); 10] = [
+/// session's recall), and a judgment's label (M5 25c: the learning ledger
+/// grades Jev by it).
+pub const OPERATORS: [(&str, &str); 11] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -264,6 +265,7 @@ pub const OPERATORS: [(&str, &str); 10] = [
     (method::ONTOLOGY_GUIDANCE_SET, "theseus ontology guide"),
     (method::ONTOLOGY_MEMBERSHIP_SET, "theseus ontology member"),
     (method::MEMORY_LABEL, "theseus memory label"),
+    (method::JUDGE_LABEL, "theseus judge label"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
@@ -335,6 +337,20 @@ mod tests {
             assert!(e.to_string().contains("theseus ontology"), "{e}");
         }
         assert!(refuse_in_a_job(method::ONTOLOGY_LIST, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// A job's process cannot label a judgment (M5 25c): the learning
+    /// ledger grades the judge watching it by those labels. The report is a
+    /// read, and goes.
+    #[test]
+    fn a_jobs_process_cannot_label_a_judgment() {
+        let e = refuse_in_a_job(method::JUDGE_LABEL, Some("ses_0000aa1b2c3")).unwrap_err();
+        assert!(
+            e.to_string().starts_with("theseus judge label refused:"),
+            "{e}"
+        );
+        assert!(refuse_in_a_job(method::LEARNING_REPORT, Some("ses_0000aa1b2c3")).is_ok());
+        assert!(refuse_in_a_job(method::JUDGE_LIST, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     #[test]

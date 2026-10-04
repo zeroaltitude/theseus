@@ -683,6 +683,7 @@ shadow_limit_usd_per_day = 1.0          # what shadow judgments may spend in a l
 max_in_flight = 8                       # Jev calls at once; a shadow judgment with none free is skipped and counted
 connect_secs = 2
 total_secs = 5                          # a whole call, connect included
+learning_hour = 3                       # the local hour of the nightly learning report (labels, calibration, holdouts); a missed night runs 10 minutes after the next start
 # api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
 # A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
 # [judge.packs."loop.v1"]

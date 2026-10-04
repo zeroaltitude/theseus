@@ -171,7 +171,10 @@ impl ActRefused<'_> {
             Act::Answer { action: a, .. } => Some(a.session_id.as_str()),
             Act::Tighten { .. } | Act::Untighten { .. } => None,
             Act::Trust { session } => Some(session),
-            Act::Publish { .. } | Act::Ontology { .. } | Act::Label { .. } => None,
+            Act::Publish { .. }
+            | Act::Ontology { .. }
+            | Act::Label { .. }
+            | Act::JudgeLabel { .. } => None,
         }
     }
 }
@@ -198,7 +201,7 @@ impl Fact for ActRefused<'_> {
                 json!({"act": act.method(), "place": place, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
-            Act::Ontology { what, .. } | Act::Label { what } => {
+            Act::Ontology { what, .. } | Act::Label { what } | Act::JudgeLabel { what } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -242,6 +245,11 @@ impl Fact for ActRefused<'_> {
                 Act::Label { what } => format!(
                     "A memory label, {what}, from {} through {}, did not count: {}. Nothing \
                      was written.",
+                    r.who, r.via, r.why
+                ),
+                Act::JudgeLabel { what } => format!(
+                    "A judgment's label, {what}, from {} through {}, did not count: {}. \
+                     Nothing was written.",
                     r.who, r.via, r.why
                 ),
             },

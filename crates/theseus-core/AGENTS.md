@@ -237,6 +237,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     turn's trace marks it (under the call's span) and a "should have asked" press labels it (`judge.label`, in the
     press's frame) before its row is written. A notified call's score follows its notice as `judge.scored`.
     Tests: `tests_security.rs`.
+  - **The learning ledger** (step 25c, `learning/`): labels (`labels.rs`: what a label says of a Noul, a Choice,
+    a Score; the heaviest counts, then the newest), system labels derived by each run (`system.rs`, weight 0.5,
+    keyed by judgment, question and rule so a second run writes none), the report per pack version and question
+    from the `judge:<pack>` scopes alone, every number from `theseus_judge::learn` (`report.rs`), with its holdout
+    frozen into it, and the tender (`tender.rs`: never within 10 minutes of a start, at `[judge] learning_hour`, a
+    `learning` thread at nice 19 and about 5% of a core). `judge.label` (`judge_act(Act::JudgeLabel)`) and
+    `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
+    in one frame, then `<state>/learning/<date>.json`. Tests: `tests_learning.rs`, `learning::*::tests`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it

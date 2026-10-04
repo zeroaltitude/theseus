@@ -310,6 +310,9 @@ impl Core {
             // Jev's judgments (M5 23b): their rows, and one with its state.
             method::JUDGE_LIST => reply(self.judge_list(parse(params)?)?),
             method::JUDGE_GET => reply(self.judge_get(parse(params)?)?),
+            // The learning ledger (M5 25c): a label, and the report.
+            method::JUDGE_LABEL => route(params, |p| self.rpc_judge_label(p, conn)),
+            method::LEARNING_REPORT => reply(self.learning_report(params).await?),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),

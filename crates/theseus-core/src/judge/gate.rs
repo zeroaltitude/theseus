@@ -226,6 +226,7 @@ impl JudgeService {
                 weight: 1.0,
                 note: "should have asked",
                 correlation_id: Some(correlation_id),
+                rule: None,
             };
             let mut r = crate::fact::row(&label, session_id, None)?;
             r.key = Some(id);

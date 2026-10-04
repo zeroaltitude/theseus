@@ -65,6 +65,10 @@ pub struct JudgeConfig {
     /// limit, shadow pauses until midnight (§2.6).
     #[serde(default = "shadow_limit")]
     pub shadow_limit_usd_per_day: f64,
+    /// The local hour (0 to 23) of the nightly learning report (M5 25c): a
+    /// night the daemon missed runs once, 10 minutes after the next start.
+    #[serde(default = "learning_hour")]
+    pub learning_hour: u8,
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
@@ -139,6 +143,9 @@ fn total_secs() -> u64 {
 fn shadow_limit() -> f64 {
     1.0
 }
+fn learning_hour() -> u8 {
+    3
+}
 
 impl Default for JudgeConfig {
     fn default() -> Self {
@@ -151,6 +158,7 @@ impl Default for JudgeConfig {
             connect_secs: connect_secs(),
             total_secs: total_secs(),
             shadow_limit_usd_per_day: shadow_limit(),
+            learning_hour: learning_hour(),
             packs: BTreeMap::new(),
             signals: SignalsConfig::default(),
         }
@@ -178,6 +186,9 @@ impl JudgeConfig {
         let limit = self.shadow_limit_usd_per_day;
         if !limit.is_finite() || limit < 0.0 {
             anyhow::bail!("judge.shadow_limit_usd_per_day must be zero or more, in dollars");
+        }
+        if self.learning_hour > 23 {
+            anyhow::bail!("judge.learning_hour must be a local hour, 0 to 23");
         }
         let band = self.signals.tail_band;
         if band.is_nan() || band <= 0.0 || band > 1.0 {
@@ -236,6 +247,7 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     assert_eq!(j.packs["loop.v1"].mode, Some(PackMode::Off));
     assert_eq!(j.packs["loop.v1"].sample, Some(0.5));
     assert_eq!(j.signals, SignalsConfig::default());
+    assert_eq!(j.learning_hour, 3);
     j.validate(&cfg.secrets).unwrap();
 }
 
@@ -313,6 +325,15 @@ mod tests {
         short.validate(&secrets).unwrap();
         assert_eq!(short.signals.dormancy_minutes, 1);
         assert!(cfg("[signals]\ndormancy = 1").is_err(), "an unknown key");
+        assert_eq!(cfg("").unwrap().learning_hour, 3);
+        cfg("learning_hour = 23")
+            .unwrap()
+            .validate(&secrets)
+            .unwrap();
+        assert!(cfg("learning_hour = 24")
+            .unwrap()
+            .validate(&secrets)
+            .is_err());
         for band in ["0.0", "1.5", "-0.5"] {
             let bad = cfg(&format!("[signals]\ntail_band = {band}")).unwrap();
             assert!(bad.validate(&secrets).is_err(), "{band}");

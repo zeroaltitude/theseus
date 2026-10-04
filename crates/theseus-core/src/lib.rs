@@ -35,6 +35,7 @@ pub mod github;
 pub mod graph;
 pub mod harness;
 pub mod judge;
+pub mod learning;
 pub mod ledger;
 pub mod lsp;
 pub mod mcp;
@@ -138,6 +139,8 @@ mod tests_judge;
 mod tests_judge_surfaces;
 #[cfg(test)]
 mod tests_layouts;
+#[cfg(test)]
+mod tests_learning;
 #[cfg(test)]
 mod tests_lsp;
 #[cfg(test)]
