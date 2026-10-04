@@ -710,6 +710,17 @@ impl Store {
             .collect()
     }
 
+    /// One page of the ledger through the index (theseus-vm3n.5).
+    /// `None` while the index's shape is built after serving, for a page by
+    /// tag or by time: the caller scans, as before.
+    pub fn ledger_page(
+        &self,
+        page: &theseus_store::Page,
+    ) -> Result<Option<theseus_store::PageOut>> {
+        debug_assert_eq!(page.kind, kinds::LEDGER);
+        self.inner.page(page)
+    }
+
     /// The first `n` ledger rows after position `after`, oldest first, as
     /// (position, row): one page of a walk from the start (theseus-xo0m).
     pub fn ledger_after<T: DeserializeOwned>(&self, after: u64, n: usize) -> Result<Vec<(u64, T)>> {

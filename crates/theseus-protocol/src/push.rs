@@ -209,6 +209,17 @@ pub struct SessionListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub ids: Option<Vec<String>>,
+    /// The newest `n` sessions by when each was opened, newest first, in
+    /// place of every session (theseus-96w2): a page read through the
+    /// store's index, which costs the page, not every session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub n: Option<usize>,
+    /// With `n`: only sessions opened before this cursor, an answer's
+    /// `older`, to page back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub before: Option<u64>,
 }
 
 /// What `session.wait` waits for (design `stage2` §2.6).

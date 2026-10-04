@@ -17,7 +17,7 @@ use theseus_kernel::Authority;
 use theseus_protocol::{notify, Notification, TurnSubmitResult};
 use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-fn test_core(reply: &str) -> Arc<Core> {
+pub(super) fn test_core(reply: &str) -> Arc<Core> {
     let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
@@ -526,6 +526,7 @@ async fn rows_from_the_hook_system_still_read() {
                 kind: kind.map(str::to_string),
                 session_id: None,
                 after: None,
+                ..Default::default()
             },
         )
     };
@@ -571,8 +572,8 @@ async fn rows_from_the_hook_system_still_read() {
 
 /// `after` walks the ledger from a position, oldest first, a page at a time
 /// (theseus-xo0m): every row once, in order, with `next` gone at the end. A
-/// filtered page scans 50 rows for each one asked, and its `next` passes the
-/// rows the filter dropped, so a sparse kind's walk never stalls.
+/// filtered page reads its kind's postings in the index (theseus-vm3n.5), so
+/// a sparse kind's walk never stalls.
 #[tokio::test]
 async fn ledger_tail_after_walks_the_ledger_a_page_at_a_time() {
     let core = test_core("ok");
@@ -591,6 +592,7 @@ async fn ledger_tail_after_walks_the_ledger_a_page_at_a_time() {
             kind: kind.map(str::to_string),
             session_id: None,
             after: Some(after),
+            ..Default::default()
         })
         .unwrap()
     };
@@ -632,13 +634,10 @@ async fn ledger_tail_after_walks_the_ledger_a_page_at_a_time() {
         }
     }
     assert_eq!(seen, vec![0, 5, 10, 15, 20]);
-    // A window with no match still moves on: one asked scans 50 rows.
+    // A kind with no rows ends at once.
     let r = page(0, 1, Some("no.such_kind"));
     assert!(r.rows.is_empty());
-    assert_eq!(
-        r.next, None,
-        "fewer than 50 rows in all: the window held the whole ledger"
-    );
+    assert_eq!(r.next, None, "no row of the kind: nothing follows");
 }
 
 /// `sandbox.usage` answers with no params: the L1 jobs running now, none
@@ -869,6 +868,7 @@ async fn usage_accumulates_per_session_and_globally() {
                 kind: Some("provider.call".into()),
                 session_id: None,
                 after: None,
+                ..Default::default()
             },
         )],
     )
@@ -1350,6 +1350,7 @@ async fn rows_stored_with_the_old_denied_names_still_decode() {
                 kind: Some(kind.into()),
                 session_id: None,
                 after: None,
+                ..Default::default()
             },
         )
     };

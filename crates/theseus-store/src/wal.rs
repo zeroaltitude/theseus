@@ -556,8 +556,16 @@ impl Wal {
     /// cut short) leaves the log as it was: a write cut short is cut back
     /// off, so the next frame starts where this one did.
     pub fn write(&self, batch: &[NewRecord]) -> Result<Vec<(u64, RecordLocation)>, WalError> {
+        Ok(self.write_timed(batch)?.0)
+    }
+
+    /// `write`, with the frame's time, which every record in it carries.
+    pub fn write_timed(
+        &self,
+        batch: &[NewRecord],
+    ) -> Result<(Vec<(u64, RecordLocation)>, u64), WalError> {
         if batch.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), 0));
         }
         let mut w = self.w.lock().unwrap();
         if let Some(why) = &w.broken {
@@ -565,7 +573,10 @@ impl Wal {
                 "the log takes no more frames: {why}; a restart's open cuts the torn tail"
             ))));
         }
+        #[cfg(not(test))]
         let at = now_unix_ms();
+        #[cfg(test)]
+        let at = test_clock::now(&w.dir);
         let first = w.next_position;
 
         // Build body.
@@ -633,7 +644,7 @@ impl Wal {
         let seg = w.segment;
         self.frames
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Ok(rel
+        let placed = rel
             .into_iter()
             .map(|(pos, body_off, len)| {
                 (
@@ -645,7 +656,8 @@ impl Wal {
                     },
                 )
             })
-            .collect())
+            .collect();
+        Ok((placed, at))
     }
 
     /// Make every frame written so far durable: one fdatasync of the segment
@@ -1764,5 +1776,29 @@ mod tests {
         // Still readable and consistent after the refusal.
         let all = wal.replay_from(0).unwrap();
         assert_eq!(all.len(), ok);
+    }
+}
+
+/// A test's clock for a log's frames, by its directory: a window test steps
+/// it back as a host's clock may step (theseus-vm3n.5).
+#[cfg(test)]
+pub(crate) mod test_clock {
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    static SET: Mutex<BTreeMap<PathBuf, u64>> = Mutex::new(BTreeMap::new());
+
+    /// Frames written to the log in `dir` from now on carry `ms`.
+    pub fn set(dir: &Path, ms: u64) {
+        SET.lock().unwrap().insert(dir.to_path_buf(), ms);
+    }
+
+    pub(super) fn now(dir: &Path) -> u64 {
+        SET.lock()
+            .unwrap()
+            .get(dir)
+            .copied()
+            .unwrap_or_else(super::now_unix_ms)
     }
 }
