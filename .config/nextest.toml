@@ -34,3 +34,10 @@ retries = 2
 [[profile.default.overrides]]
 filter = 'package(theseusd) & test(=the_history_check_after_serving_finds_a_corrupt_frame_and_says_so)'
 retries = 2
+#
+# theseus-81ig: 37a's check that a wake series was put back counts what a kernel sim with a
+# raced second thread took, and some runs take no repeating wake (0 put back in 1 run of 6,
+# load 8; lane sparse-config's second gate, 2026-10-03 19:51).
+[[profile.default.overrides]]
+filter = 'package(theseus-sim) & test(=the_kernel_holds_its_invariants_under_seeded_faults)'
+retries = 2
