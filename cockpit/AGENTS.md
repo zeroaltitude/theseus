@@ -53,7 +53,8 @@ build.
 ## Building and checking
 
 - `npm ci`, then `npm run lint` (oxlint), `npm test`, and `npm run build` (`tsc -b && vite build`). The gate runs all
-  three when `cockpit/node_modules` exists.
+  three, before the suite, and runs `npm ci` first when `cockpit/node_modules` is missing (offline from npm's cache
+  when it can).
 - `npm test` is node's own runner over `test/*.test.ts`, with node stripping the types: no dependency. A module it
   tests is pure, imports nothing but the protocol's types (`import type`, which node erases), and names its own
   imports with their `.ts`; `src/lib/marks.ts` (the ship's log's marks) is the first.

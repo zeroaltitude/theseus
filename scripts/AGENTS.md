@@ -25,9 +25,12 @@ It runs, in order:
 1. *Without the lock*, every compile: `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500
    lines unless listed), then `features` (the five shipped binaries get no fewer features built alone than in the
    workspace; see "Releases", "Features"), then `cargo clippy --workspace --all-targets -- -D warnings`, which also
-   holds the shape budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and `npm run build`,
-   when `cockpit/node_modules` exists (else the gate says it skipped them), before the suite, whose tests of `/` read
-   that build; a failing npm step prints its name and the last 40 lines of its output above the table. Then
+   holds the shape budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and
+   `npm run build`, before the suite, whose tests of `/` read that build. When `cockpit/node_modules` is missing, the
+   gate installs it first (`npm ci --offline` from npm's cache, then `npm ci` over the network), and fails, saying
+   why, when it can't or there is no npm (theseus-i5xo: it used to skip, and the tests of `/` then passed on their
+   not-built branch); it also fails when the build leaves no `crates/theseusd/cockpit/dist/index.html`. A failing
+   npm step prints its name and the last 40 lines of its output above the table. Then
    `test build` (`cargo nextest run --workspace --no-run`), which builds what the suite runs, and with it the debug
    `theseusd`, `theseus-sim`, and `theseus-index` the benches run (cargo builds a package's binaries for its
    integration tests). It fails naming a bench binary that cargo's messages say it did not build, which the benches

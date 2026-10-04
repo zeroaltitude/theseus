@@ -431,11 +431,36 @@ npm_step() {
 # new with each edit); the install builds it before the release build, and a binary without it says so at /. It runs
 # before the compiles, so the suite's tests of / read this build: a debug theseusd reads it as it serves.
 cockpit() {
-  if [ -d cockpit/node_modules ]; then
-    npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build
-  else
-    echo "gate: cockpit/node_modules is missing, so the cockpit is neither checked nor built (npm ci --offline in cockpit/)"
+  cockpit_modules && npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build && cockpit_built
+}
+# The cockpit's modules (theseus-i5xo). Without them the phase used to skip, and the daemon's tests of / then took
+# their not-built branch and passed, so a gate could pass never having served the real shell. Now a missing
+# cockpit/node_modules is installed from package-lock.json: `npm ci --offline` from npm's cache, then `npm ci` over
+# the network when the cache lacks a package. When neither can, or npm is missing, the gate fails saying so.
+cockpit_modules() {
+  local log="$gate_tmp/cockpit-ci.log"
+  [ -d cockpit/node_modules ] && return 0
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "gate: cockpit/node_modules is missing, and there is no npm to install it: install Node.js and npm, then"
+    echo "gate: rerun the gate (the cockpit is built before the suite, whose tests of / read its build)"
+    return 1
   fi
+  echo "gate: cockpit/node_modules is missing; installing it from npm's cache (npm ci --offline)"
+  (cd cockpit && npm ci --offline --no-audit --no-fund) >"$log" 2>&1 && return 0
+  echo "gate: npm's cache lacks a package; installing over the network (npm ci)"
+  (cd cockpit && npm ci --no-audit --no-fund) >>"$log" 2>&1 && return 0
+  # A half-installed tree would be taken for an installed one next time.
+  rm -rf cockpit/node_modules
+  echo "gate: \`npm ci\` failed in cockpit/, so the cockpit is neither checked nor built; the last 40 lines of its output:"
+  tail -n 40 "$log" | sed 's/^/  /'
+  return 1
+}
+# The build the suite's tests of / read, where theseusd embeds it (rust-embed, `cockpit/dist/`).
+cockpit_built() {
+  [ -f crates/theseusd/cockpit/dist/index.html ] && return 0
+  echo "gate: \`npm run build\` passed in cockpit/, but crates/theseusd/cockpit/dist/index.html, the shell the tests of /"
+  echo "gate: read, is not there: vite.config.ts's outDir and theseusd's web.rs must name the same directory"
+  return 1
 }
 
 # The shipped features (theseus-dr2x). scripts/build.sh builds only the five binaries an install ships, and the
