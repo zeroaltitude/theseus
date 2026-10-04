@@ -69,6 +69,11 @@ pub struct JudgeConfig {
     /// night the daemon missed runs once, 10 minutes after the next start.
     #[serde(default = "learning_hour")]
     pub learning_hour: u8,
+    /// What one replay (`theseus judge replay`, M5 25d) may spend, in
+    /// dollars: a run whose estimate passes it is refused,
+    /// with the numbers.
+    #[serde(default = "replay_limit")]
+    pub replay_limit_usd: f64,
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
@@ -146,6 +151,9 @@ fn shadow_limit() -> f64 {
 fn learning_hour() -> u8 {
     3
 }
+fn replay_limit() -> f64 {
+    0.5
+}
 
 impl Default for JudgeConfig {
     fn default() -> Self {
@@ -159,6 +167,7 @@ impl Default for JudgeConfig {
             total_secs: total_secs(),
             shadow_limit_usd_per_day: shadow_limit(),
             learning_hour: learning_hour(),
+            replay_limit_usd: replay_limit(),
             packs: BTreeMap::new(),
             signals: SignalsConfig::default(),
         }
@@ -186,6 +195,11 @@ impl JudgeConfig {
         let limit = self.shadow_limit_usd_per_day;
         if !limit.is_finite() || limit < 0.0 {
             anyhow::bail!("judge.shadow_limit_usd_per_day must be zero or more, in dollars");
+        }
+        for (name, usd) in [("replay_limit_usd", self.replay_limit_usd)] {
+            if !usd.is_finite() || usd < 0.0 {
+                anyhow::bail!("judge.{name} must be zero or more, in dollars");
+            }
         }
         if self.learning_hour > 23 {
             anyhow::bail!("judge.learning_hour must be a local hour, 0 to 23");

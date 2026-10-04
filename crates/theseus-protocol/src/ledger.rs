@@ -130,6 +130,7 @@ ledger_kinds! {
     JudgeCircuit = "judge.circuit",
     JudgeLabel = "judge.label",
     JudgePaused = "judge.paused",
+    JudgeReplay = "judge.replay",
     JudgeReport = "judge.report",
     JudgeResumed = "judge.resumed",
     JudgeShed = "judge.shed",

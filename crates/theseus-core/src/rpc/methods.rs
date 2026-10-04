@@ -1599,7 +1599,7 @@ impl Core {
 /// its kind under each of its names (a renamed kind reads the rows stored
 /// under its old one too), in its session when it names one; the session's
 /// alone without a kind; none without either.
-pub(super) fn ledger_tags(kind: Option<&str>, session: Option<&str>) -> Vec<String> {
+pub(crate) fn ledger_tags(kind: Option<&str>, session: Option<&str>) -> Vec<String> {
     use theseus_store::pages::{ledger_kind, ledger_kind_session, ledger_session};
     let Some(kind) = kind else {
         return session.map(ledger_session).into_iter().collect();

@@ -1398,6 +1398,7 @@ pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
                 Ok(())
             })
         }
+        JudgeCmd::Replay(a) => crate::judge_runs::replay(conn, json, a).await,
         JudgeCmd::Report { pack, date } => {
             use theseus_protocol::learning::{LearningReport, LearningReportParams};
             let v = conn

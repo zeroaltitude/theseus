@@ -174,7 +174,8 @@ impl ActRefused<'_> {
             Act::Publish { .. }
             | Act::Ontology { .. }
             | Act::Label { .. }
-            | Act::JudgeLabel { .. } => None,
+            | Act::JudgeLabel { .. }
+            | Act::JudgeRun { .. } => None,
         }
     }
 }
@@ -201,7 +202,10 @@ impl Fact for ActRefused<'_> {
                 json!({"act": act.method(), "place": place, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
-            Act::Ontology { what, .. } | Act::Label { what } | Act::JudgeLabel { what } => {
+            Act::Ontology { what, .. }
+            | Act::Label { what }
+            | Act::JudgeLabel { what }
+            | Act::JudgeRun { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -250,6 +254,11 @@ impl Fact for ActRefused<'_> {
                 Act::JudgeLabel { what } => format!(
                     "A judgment's label, {what}, from {} through {}, did not count: {}. \
                      Nothing was written.",
+                    r.who, r.via, r.why
+                ),
+                Act::JudgeRun { what, .. } => format!(
+                    "A {what}, from {} through {}, did not count: {}. Nothing was sent or \
+                     written.",
                     r.who, r.via, r.why
                 ),
             },

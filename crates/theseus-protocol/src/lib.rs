@@ -22,6 +22,7 @@ mod hands;
 mod health;
 pub mod index;
 pub mod judge;
+pub mod judge_runs;
 pub mod learning;
 mod ledger;
 pub mod lsp;
@@ -211,6 +212,8 @@ pub mod method {
         /// the owner, from a private place), and the report, stored by date or run now.
         JUDGE_LABEL = "judge.label",
         LEARNING_REPORT = "learning.report",
+        /// The owner's runs over the ledger (M5 25d; `judge_runs`): a candidate replayed.
+        JUDGE_REPLAY = "judge.replay",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

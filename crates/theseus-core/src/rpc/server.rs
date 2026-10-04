@@ -313,6 +313,8 @@ impl Core {
             // The learning ledger (M5 25c): a label, and the report.
             method::JUDGE_LABEL => route(params, |p| self.rpc_judge_label(p, conn)),
             method::LEARNING_REPORT => reply(self.learning_report(params).await?),
+            // The owner's runs over the ledger (M5 25d).
+            method::JUDGE_REPLAY => self.rpc_judge_replay(params, conn).await,
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),

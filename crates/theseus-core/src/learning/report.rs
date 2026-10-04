@@ -35,7 +35,7 @@ fn acting(pack_id: &str) -> Option<(&'static str, &'static [&'static str])> {
 }
 
 /// A judgment's whole answer to a question (not a per-item Noul's).
-fn answer<'a>(s: &'a Seen, question: &str) -> Option<&'a AnswerRecord> {
+pub(crate) fn answer<'a>(s: &'a Seen, question: &str) -> Option<&'a AnswerRecord> {
     s.judgment
         .answers
         .iter()
@@ -166,7 +166,7 @@ pub fn question(
 /// What a label grades an answer: the probability it gave, and whether its
 /// lean was right. None where the label settles nothing of it (a class
 /// known wrong that its top is not).
-fn graded(a: &AnswerRecord, t: &Truth) -> Option<(f64, bool)> {
+pub(crate) fn graded(a: &AnswerRecord, t: &Truth) -> Option<(f64, bool)> {
     match (&a.band.top, t, &a.answer) {
         (_, Truth::Bool(b), theseus_judge::client::Answer::Noul { noul }) => Some((*noul, *b)),
         (Top::Choice(top), Truth::Class(c), _) => Some((confidence(a), top == c)),
@@ -241,12 +241,24 @@ pub fn pack_report(
     window: Window,
 ) -> PackReport {
     let pack = theseus_judge::pack::by_name(name);
+    pack_report_of(pack.as_deref(), name, seen, labels, window)
+}
+
+/// The same, for a pack this build may not embed (a replay's candidate,
+/// 25d): its questions, kinds and baseline from `pack`.
+pub fn pack_report_of(
+    pack: Option<&Pack>,
+    name: &str,
+    seen: &[Seen],
+    labels: &std::collections::HashMap<String, Vec<LabelRow>>,
+    window: Window,
+) -> PackReport {
     let pack_id = name.split('.').next().unwrap_or(name);
     let answered: Vec<&Seen> = seen
         .iter()
         .filter(|s| s.judgment.outcome == Outcome::Answered)
         .collect();
-    let qs = questions_of(pack.as_deref(), seen);
+    let qs = questions_of(pack, seen);
     let questions: Vec<QuestionReport> = qs
         .iter()
         .map(|(id, k, d, o)| question(*k, id, *d, o, &answered, labels).0)
@@ -272,7 +284,7 @@ pub fn pack_report(
         if called {
             let class = s
                 .context("class")
-                .unwrap_or(match pack.as_ref().map(|p| p.point) {
+                .unwrap_or(match pack.map(|p| p.point) {
                     Some(theseus_judge::pack::Point::Inbound) => "inbound",
                     _ => "other",
                 })
@@ -304,7 +316,6 @@ pub fn pack_report(
         skipped: count(&|o| matches!(o, Outcome::Skipped { .. })),
         labeled,
         baseline: pack
-            .as_ref()
             .and_then(|p| serde_json::to_value(p.baseline).ok())
             .and_then(|v| v.as_str().map(str::to_string))
             .unwrap_or_default(),

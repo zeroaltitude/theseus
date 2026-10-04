@@ -746,6 +746,10 @@ pub(crate) enum Act<'a> {
     /// grades Jev by it, so a job's process that wrote it would grade the
     /// judge watching it. `what` names it: `wrong on jdg_…`.
     JudgeLabel { what: &'a str },
+    /// One of the owner's runs over the learning ledger (M5 25d): a replay,
+    /// an audit, or a backfill. Each spends money, and a backfill sends his
+    /// history to Jev. `what` names it: `replay of loop.v2`.
+    JudgeRun { method: &'static str, what: &'a str },
 }
 
 impl Act<'_> {
@@ -760,6 +764,7 @@ impl Act<'_> {
             Act::Ontology { method, .. } => method,
             Act::Label { .. } => theseus_protocol::method::MEMORY_LABEL,
             Act::JudgeLabel { .. } => theseus_protocol::method::JUDGE_LABEL,
+            Act::JudgeRun { method, .. } => method,
         }
     }
 }

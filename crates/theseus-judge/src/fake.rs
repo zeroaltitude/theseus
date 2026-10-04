@@ -60,10 +60,20 @@ pub struct Seen {
     pub bearer_len: Option<usize>,
 }
 
+/// A per-state script (`FakeJev::script_when`).
+#[derive(Debug, Clone)]
+struct Rule {
+    state_has: String,
+    criteria_has: Option<String>,
+    question: String,
+    answer: Scripted,
+}
+
 #[derive(Debug)]
 struct Shared {
     mode: FakeMode,
     script: BTreeMap<String, Scripted>,
+    rules: Vec<Rule>,
     answer_as: Option<String>,
     seen: Vec<Seen>,
     connections: usize,
@@ -83,6 +93,7 @@ impl FakeJev {
         let shared = Arc::new(Mutex::new(Shared {
             mode: FakeMode::Up,
             script: BTreeMap::new(),
+            rules: Vec::new(),
             answer_as: None,
             seen: Vec::new(),
             connections: 0,
@@ -116,6 +127,26 @@ impl FakeJev {
     /// (`work_state`, which also covers a per-item Noul's `still_member.2`).
     pub fn script(&self, question: &str, answer: Scripted) {
         self.lock().script.insert(question.to_string(), answer);
+    }
+
+    /// Scripts a question for some states only (M5 25d's replay tests): a
+    /// request whose state's JSON holds `state_has`, and, when given, whose
+    /// question's criteria hold `criteria_has`, gets `answer` for
+    /// `question` (matched as [`FakeJev::script`] matches). The first rule
+    /// that matches wins, before the plain script.
+    pub fn script_when(
+        &self,
+        state_has: &str,
+        criteria_has: Option<&str>,
+        question: &str,
+        answer: Scripted,
+    ) {
+        self.lock().rules.push(Rule {
+            state_has: state_has.to_string(),
+            criteria_has: criteria_has.map(str::to_string),
+            question: question.to_string(),
+            answer,
+        });
     }
 
     /// Answer as another model (to test `model_drift`), or as asked.
@@ -179,7 +210,13 @@ fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
             body: req.clone(),
             bearer_len: bearer.as_ref().map(String::len),
         });
-        (s.script.clone(), s.answer_as.clone())
+        (
+            Script {
+                plain: s.script.clone(),
+                rules: s.rules.clone(),
+            },
+            s.answer_as.clone(),
+        )
     };
     let (status, extra, out) = match &mode {
         FakeMode::Up | FakeMode::Down => (200, String::new(), answers(&req, &script, answer_as)),
@@ -226,15 +263,41 @@ fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
     Ok(())
 }
 
-/// The script's answer for a question id: the full id, then the pack's own
-/// id, then that id without a per-item suffix.
-fn scripted<'a>(id: &str, script: &'a BTreeMap<String, Scripted>) -> Option<&'a Scripted> {
+/// Everything scripted, read once a request.
+struct Script {
+    plain: BTreeMap<String, Scripted>,
+    rules: Vec<Rule>,
+}
+
+/// Whether a scripted key names a question id: the full id, the pack's own
+/// id, or that id without a per-item suffix.
+fn names(key: &str, id: &str) -> bool {
+    let own = id.rsplit('/').next().unwrap_or(id);
+    let def = own.split('.').next().unwrap_or(own);
+    key == id || key == own || key == def
+}
+
+/// The script's answer for a question: the first per-state rule that
+/// matches, then the full id, then the pack's own id, then that id without
+/// a per-item suffix.
+fn scripted<'a>(id: &str, q: &Value, state: &str, script: &'a Script) -> Option<&'a Scripted> {
+    let criteria = q["criteria"].to_string();
+    if let Some(r) = script.rules.iter().find(|r| {
+        names(&r.question, id)
+            && state.contains(&r.state_has)
+            && r.criteria_has
+                .as_deref()
+                .is_none_or(|c| criteria.contains(c))
+    }) {
+        return Some(&r.answer);
+    }
     let own = id.rsplit('/').next().unwrap_or(id);
     let def = own.split('.').next().unwrap_or(own);
     script
+        .plain
         .get(id)
-        .or_else(|| script.get(own))
-        .or_else(|| script.get(def))
+        .or_else(|| script.plain.get(own))
+        .or_else(|| script.plain.get(def))
 }
 
 fn spread(n: usize, top: usize, confidence: f64) -> Vec<f64> {
@@ -248,11 +311,15 @@ fn spread(n: usize, top: usize, confidence: f64) -> Vec<f64> {
 }
 
 /// A valid response, in the verified shape, to every question asked.
-fn answers(req: &Value, script: &BTreeMap<String, Scripted>, answer_as: Option<String>) -> Value {
+fn answers(req: &Value, script: &Script, answer_as: Option<String>) -> Value {
     let mut out = Map::new();
     let questions = req["questions"].as_object().cloned().unwrap_or_default();
+    let state = match &req["state"] {
+        Value::String(s) => s.clone(),
+        v => v.to_string(),
+    };
     for (id, q) in &questions {
-        let s = scripted(id, script);
+        let s = scripted(id, q, &state, script);
         let a = match q["type"].as_str() {
             Some("choice") => {
                 let options: Vec<String> = q["criteria"]

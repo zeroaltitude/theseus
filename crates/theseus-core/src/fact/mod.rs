@@ -49,6 +49,7 @@ pub mod durability;
 pub mod extend;
 pub mod index;
 pub mod judge;
+pub mod judge_runs;
 pub mod lsp;
 pub mod mcp;
 pub mod ontology;
@@ -366,6 +367,7 @@ facts![
     judge::JudgeLabel<'static>,
     judge::ProposalLabel<'static>,
     judge::JudgeReport<'static>,
+    judge_runs::JudgeReplayed<'static>,
     mcp::McpStarted,
     mcp::McpReady,
     mcp::McpExited,

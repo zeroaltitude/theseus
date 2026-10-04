@@ -182,6 +182,8 @@ mod tests_refused;
 #[cfg(test)]
 mod tests_registry;
 #[cfg(test)]
+mod tests_replay;
+#[cfg(test)]
 mod tests_rerank;
 #[cfg(test)]
 mod tests_sandbox;
