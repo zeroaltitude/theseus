@@ -763,7 +763,8 @@ pub fn wake_header(parts: &mut [(String, String)], wakes: &[String]) {
 }
 
 /// This place's pending wakes (DD8), as `/wakes` lists them: the soonest
-/// ten, each with its time in the reader's own zone and its note.
+/// ten, each with its time in the reader's own zone and its note. A series
+/// says its span before its next time: `🔁 every 1d · next 21:00` (37a).
 pub fn wakes(wakes: &[theseus_protocol::WakeInfo]) -> String {
     if wakes.is_empty() {
         return "No wakes pending here. Ask for one: \"remind me in 10 minutes to …\".".into();
@@ -776,8 +777,12 @@ pub fn wakes(wakes: &[theseus_protocol::WakeInfo]) -> String {
             "running" | "queued" => " · runs when the current turn ends",
             _ => "",
         };
+        let series = w
+            .every
+            .as_deref()
+            .map_or(String::new(), |e| format!("🔁 every {e} · next "));
         lines.push(format!(
-            "• `{}` <t:{at}:t> (<t:{at}:R>){busy} · {}",
+            "• `{}` {series}<t:{at}:t> (<t:{at}:R>){busy} · {}",
             w.short,
             clip(note, 120)
         ));
@@ -2696,6 +2701,18 @@ mod tests {
              -# `/cancel <id>` cancels one."
         );
         assert!(wakes(&[]).starts_with("No wakes pending here"));
+        let daily = theseus_protocol::WakeInfo {
+            every: Some("1d".into()),
+            occurrence: Some(4),
+            next: Some("21:00 Thu".into()),
+            ..w("c5d6e7", "waiting")
+        };
+        assert_eq!(
+            wakes(&[daily]),
+            "**Wakes here** (1)\n\
+             • `c5d6e7` 🔁 every 1d · next <t:1790798700:t> (<t:1790798700:R>) · check the build\n\
+             -# `/cancel <id>` cancels one."
+        );
     }
 
     /// A wake's turn's reply opens with the wake's line, on its first part;

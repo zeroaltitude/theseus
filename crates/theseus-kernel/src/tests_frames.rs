@@ -369,6 +369,7 @@ fn script(w: &World, log: &Log) {
             w.clock.now_ms() + 1_000,
             "check the build",
             None,
+            None,
         ),
         |s| format!("{s:?}"),
     );
@@ -480,7 +481,14 @@ fn script(w: &World, log: &Log) {
     );
     log.step(
         "set_wake (later)",
-        k.set_wake(&g, &new_id("act"), w.clock.now_ms() + 60_000, "later", None),
+        k.set_wake(
+            &g,
+            &new_id("act"),
+            w.clock.now_ms() + 60_000,
+            "later",
+            None,
+            None,
+        ),
         |s| format!("{s:?}"),
     );
     // A stop during the turn: the running job is told to stop, the planned
@@ -729,13 +737,13 @@ fn legacy(log: &Log) {
     let now = w.clock.now_ms();
     log.step(
         "set_wake (soon)",
-        k.set_wake(&g, &new_id("act"), now + 1_000, "soon", None),
+        k.set_wake(&g, &new_id("act"), now + 1_000, "soon", None, None),
         |s| s.wake.id.clone(),
     );
     let later = new_id("act");
     log.step(
         "set_wake (later)",
-        k.set_wake(&g, &later, now + 90_000, "later", None),
+        k.set_wake(&g, &later, now + 90_000, "later", None, None),
         |s| s.wake.id.clone(),
     );
     log.step(

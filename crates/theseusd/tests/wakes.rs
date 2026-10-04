@@ -6,7 +6,10 @@
 //!   reply posts once, through the outbox, under the wake's line; a cancel
 //!   clears another, and names the surface that cancelled it;
 //! - a `kill -9` before the due time, and the daemon down across it: the
-//!   wake runs after the restart, marked late, once.
+//!   wake runs after the restart, marked late, once;
+//! - a repeating wake at the floor (`[kernel] min_repeat_minutes = 1`) runs
+//!   twice on the daemon's clock, a minute apart, each turn's reply under its
+//!   occurrence's line, with its rows (37a).
 
 mod common;
 
@@ -42,13 +45,19 @@ struct Rig {
 
 impl Rig {
     /// The stand-in model sets a wake two seconds ahead for `Wake me soon`,
-    /// and an hour ahead for `Wake me later`; any other call gets text.
+    /// an hour ahead for `Wake me later`, and one every minute from two
+    /// seconds ahead for `Wake me every minute`; any other call gets text.
     fn new() -> Self {
         let model = FakeModel::start(|prompt| {
             if prompt.contains("Wake me soon") {
                 vec![("wake_at", json!({"after": "2s", "note": "check the build"}))]
             } else if prompt.contains("Wake me later") {
                 vec![("wake_at", json!({"after": "1h", "note": "much later"}))]
+            } else if prompt.contains("Wake me every minute") {
+                vec![(
+                    "wake_at",
+                    json!({"after": "2s", "every": "1m", "note": "write me a haiku"}),
+                )]
             } else {
                 vec![]
             }
@@ -79,6 +88,8 @@ impl Rig {
                 .insert("api_base".into(), model.base.clone().into());
         }
         table(&mut t, "policy").insert("enforcement".into(), "notify".into());
+        // The floor a live check uses (37a): a series every minute.
+        table(&mut t, "kernel").insert("min_repeat_minutes".into(), 1.into());
         let discord = table(&mut t, "discord");
         discord.insert("enabled".into(), true.into());
         discord.insert("rest_proxy".into(), fake.addr.clone().into());
@@ -141,15 +152,19 @@ impl Rig {
         std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default()
     }
 
-    fn wait<T>(&self, what: &str, mut f: impl FnMut() -> Option<T>) -> T {
+    fn wait<T>(&self, what: &str, f: impl FnMut() -> Option<T>) -> T {
+        self.wait_for(what, 40, f)
+    }
+
+    fn wait_for<T>(&self, what: &str, secs: u64, mut f: impl FnMut() -> Option<T>) -> T {
         let t0 = Instant::now();
         loop {
             if let Some(v) = f() {
                 return v;
             }
             assert!(
-                t0.elapsed() < Duration::from_secs(40),
-                "no {what} in 40 s; the daemon's log ends:\n{}",
+                t0.elapsed() < Duration::from_secs(secs),
+                "no {what} in {secs} s; the daemon's log ends:\n{}",
                 tail(&self.log(), 30)
             );
             std::thread::sleep(Duration::from_millis(20));
@@ -205,7 +220,7 @@ impl Rig {
         self.fake
             .messages(DM)
             .into_iter()
-            .filter(|m| m.content.starts_with("-# ⏰ wake (set "))
+            .filter(|m| m.content.starts_with("-# ⏰ wake ("))
             .collect()
     }
 
@@ -314,4 +329,93 @@ fn a_wake_due_while_the_daemon_is_down_runs_after_the_restart_marked_late_once()
     assert_eq!(fired[0]["data"]["while_down"], true);
     assert!(fired[0]["data"]["late_ms"].as_u64().unwrap() >= 5_000);
     assert_eq!(sid, r.session(), "the same place and session");
+}
+
+/// A repeating wake at the floor, every minute from two seconds ahead (37a):
+/// its first occurrence runs about then, and its second a minute after, on
+/// the daemon's own clock. Each turn's reply posts once, under its
+/// occurrence's line; each `wake.fired` row says which occurrence ran, that
+/// none was passed over, and when the next is due; and `wake.list` shows the
+/// series, with its third occurrence next. A cancel ends it.
+#[test]
+fn a_repeating_wake_at_the_floor_runs_twice_a_minute_apart() {
+    let r = Rig::new();
+    let _daemon = r.spawn();
+    let sid = r.session();
+    let t0 = Instant::now();
+    let set = r.ask(&sid, "Wake me every minute");
+    assert_eq!(set["output"], "Done.", "{set}");
+    let w = r.wait("the series listed", || r.wakes().into_iter().next());
+    assert_eq!(
+        (w["every"].as_str(), w["occurrence"].as_u64()),
+        (Some("1m"), Some(1))
+    );
+    let first_due = w["due_at_ms"].as_u64().unwrap();
+    let first = r.wait("the first occurrence's reply", || {
+        let got = r.woken();
+        (!got.is_empty()).then_some(got)
+    });
+    assert!(
+        t0.elapsed() >= Duration::from_millis(1_900),
+        "not before its time"
+    );
+    assert!(
+        first[0]
+            .content
+            .starts_with("-# ⏰ wake (every 1m, #1): write me a haiku\n"),
+        "{}",
+        first[0].content
+    );
+    let w = r.wait("the series put back", || {
+        r.wakes()
+            .into_iter()
+            .next()
+            .filter(|w| w["occurrence"] == 2)
+    });
+    assert_eq!(w["due_at_ms"].as_u64(), Some(first_due + 60_000));
+    assert!(w["next"].as_str().is_some_and(|n| n.contains(':')), "{w}");
+    // The second, a minute after the first: the floor is a minute.
+    let both = r.wait_for("the second occurrence's reply", 75, || {
+        let got = r.woken();
+        (got.len() >= 2).then_some(got)
+    });
+    assert!(
+        t0.elapsed() >= Duration::from_millis(61_900),
+        "a minute apart"
+    );
+    assert!(
+        both[1]
+            .content
+            .starts_with("-# ⏰ wake (every 1m, #2): write me a haiku\n"),
+        "{}",
+        both[1].content
+    );
+    let fired = r.wait("both rows", || {
+        let f = r.rows("wake.fired");
+        (f.len() >= 2).then_some(f)
+    });
+    let mut occ: Vec<(u64, u64, u64)> = fired
+        .iter()
+        .map(|f| {
+            (
+                f["data"]["occurrence"].as_u64().unwrap(),
+                f["data"]["missed"].as_u64().unwrap(),
+                f["data"]["next_due_at_ms"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    occ.sort();
+    assert_eq!(
+        occ,
+        vec![(1, 0, first_due + 60_000), (2, 0, first_due + 120_000)]
+    );
+    assert!(fired.iter().all(|f| f["data"]["every"] == "1m"));
+    let w = r.wakes();
+    assert_eq!(w.len(), 1, "one wake: the series");
+    assert_eq!(w[0]["occurrence"], 3);
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(r.woken().len(), 2, "each once: {:?}", r.woken());
+    r.call("wake.cancel", json!({"wake": w[0]["short"]}))
+        .unwrap();
+    assert!(r.wakes().is_empty(), "a cancel ends the series");
 }

@@ -21,7 +21,14 @@
 //!   that frame leaves them pending; a crash after it leaves them taken. A
 //!   wake's id comes from the call that set it, so the call, run again after
 //!   a restart, finds its wake instead of setting a second.
-//! - **The cap.** At most `MAX_PENDING` per execution.
+//! - **The cap.** At most `MAX_PENDING` per execution. A repeating series
+//!   is one wake, and counts once.
+//! - **A repeating wake** (37a, theseus-d4pt; `repeat.rs`). The frame that
+//!   takes it puts its next occurrence back on the list, with the same id and
+//!   the next occurrence's number, so a crash either side of that frame
+//!   leaves one wake. Occurrences that fell due while it waited are counted
+//!   (`missed`) and never run; past `until` it is not put back, and a
+//!   `wake.ended` row says so. A cancel removes it, and ends the series.
 
 use std::sync::atomic::Ordering;
 use theseus_protocol::LedgerKind;
@@ -31,6 +38,7 @@ use serde_json::json;
 use theseus_store::NewRecord;
 
 use crate::kernel::{exec_record, Kernel, KernelError, TurnGuard};
+use crate::repeat::Repeat;
 use crate::types::*;
 
 /// The most wakes one execution may hold at once.
@@ -91,6 +99,20 @@ pub struct FiredWake {
     pub late_ms: u64,
     /// It fell due before this process started: the daemon was not running.
     pub while_down: bool,
+    /// A repeating wake's occurrences that fell due after this one and by
+    /// the time the turn took it: passed over, never run (37a).
+    pub missed: u64,
+    /// A repeating wake's next due time, put back on the list in the frame
+    /// that took this one; none for a one-shot wake, and for a series that
+    /// `until` ended.
+    pub next_due_at_ms: Option<u64>,
+}
+
+impl FiredWake {
+    /// A repeating wake whose series ended with this occurrence.
+    pub fn ended(&self) -> bool {
+        self.wake.repeat.is_some() && self.next_due_at_ms.is_none()
+    }
 }
 
 impl Kernel {
@@ -98,7 +120,7 @@ impl Kernel {
     /// holds, in one frame with the row `wake.set`. The execution must hold
     /// its turn. `TooManyWakes` when it holds `MAX_PENDING` already, and
     /// nothing is written. A call that set its wake before gets it back, and
-    /// writes nothing.
+    /// writes nothing. With `repeat`, `due_at_ms` is its first occurrence.
     pub fn set_wake(
         &self,
         guard: &TurnGuard,
@@ -106,6 +128,7 @@ impl Kernel {
         due_at_ms: u64,
         note: &str,
         target: Option<String>,
+        repeat: Option<Repeat>,
     ) -> Result<WakeSet> {
         self.require_accepting()?;
         let id = wake_id(correlation_id);
@@ -124,6 +147,15 @@ impl Kernel {
         if e.wakes.len() >= MAX_PENDING {
             return Err(KernelError::TooManyWakes { max: MAX_PENDING }.into());
         }
+        if let Some(r) = &repeat {
+            let floor = self.config().min_repeat_ms;
+            anyhow::ensure!(
+                r.every.nominal_ms() >= floor,
+                "a wake may repeat every {} minutes at the most often, not every {}",
+                floor / 60_000,
+                r.every
+            );
+        }
         let now = self.now_ms();
         let wake = PendingWake {
             id,
@@ -132,20 +164,27 @@ impl Kernel {
             set_at_ms: now,
             by: correlation_id.to_string(),
             target,
+            occurrence: u32::from(repeat.is_some()),
+            repeat,
         };
         e.wakes.push(wake.clone());
-        e.wakes
-            .sort_by(|a, b| (a.due_at_ms, &a.id).cmp(&(b.due_at_ms, &b.id)));
+        sort(&mut e.wakes);
         e.updated_at_ms = now;
+        let mut row = json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": due_at_ms,
+                       "in_ms": due_at_ms.saturating_sub(now), "note": clip(&wake.note),
+                       "by": correlation_id, "pending": e.wakes.len()});
+        if let Some(r) = &wake.repeat {
+            row["every"] = json!(r.every.to_string());
+            if !r.days.is_empty() {
+                row["days"] = json!(r.days);
+            }
+            if let Some(u) = r.until_ms {
+                row["until_ms"] = json!(u);
+            }
+        }
         self.commit(&[
             exec_record(&e)?,
-            self.ledger(
-                LedgerKind::WakeSet,
-                Some(&e.session_id),
-                json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": due_at_ms,
-                       "in_ms": due_at_ms.saturating_sub(now), "note": clip(&wake.note),
-                       "by": correlation_id, "pending": e.wakes.len()}),
-            )?,
+            self.ledger(LedgerKind::WakeSet, Some(&e.session_id), row)?,
         ])?;
         Ok(WakeSet {
             wake,
@@ -157,8 +196,11 @@ impl Kernel {
     /// The wakes of the turn `guard` holds that are due now, soonest first.
     /// They are removed in one frame with the records `extra` builds from
     /// them (their nodes in the session) and a `wake.fired` row each, which
-    /// says how late each ran. None due, and nothing is written: a plain turn
-    /// pays one read.
+    /// says how late each ran. A repeating one goes back on the list in the
+    /// same frame, at its next occurrence after now, and its row says which
+    /// occurrence ran, how many it passed over, and when the next is due; one
+    /// that `until` ends gets a `wake.ended` row instead. None due, and
+    /// nothing is written: a plain turn pays one read.
     pub fn take_wakes(
         &self,
         guard: &TurnGuard,
@@ -178,24 +220,58 @@ impl Kernel {
             .partition(|w| w.due_at_ms <= now);
         e.wakes = later;
         e.updated_at_ms = now;
+        let zone = &self.config().zone;
         let fired: Vec<FiredWake> = due
             .into_iter()
-            .map(|w| FiredWake {
-                late_ms: now.saturating_sub(w.due_at_ms),
-                while_down: started > 0 && w.due_at_ms < started,
-                wake: w,
+            .map(|w| {
+                let (missed, next) = match &w.repeat {
+                    Some(r) => (r.between(zone, w.due_at_ms, now), r.next_after(zone, now)),
+                    None => (0, None),
+                };
+                FiredWake {
+                    late_ms: now.saturating_sub(w.due_at_ms),
+                    while_down: started > 0 && w.due_at_ms < started,
+                    missed,
+                    next_due_at_ms: next,
+                    wake: w,
+                }
             })
             .collect();
+        // Each series' next occurrence, numbered past those passed over.
+        for f in &fired {
+            if let Some(next) = f.next_due_at_ms {
+                let skipped = u32::try_from(f.missed).unwrap_or(u32::MAX);
+                e.wakes.push(PendingWake {
+                    due_at_ms: next,
+                    occurrence: f.wake.occurrence.saturating_add(1).saturating_add(skipped),
+                    ..f.wake.clone()
+                });
+            }
+        }
+        sort(&mut e.wakes);
         let mut frame = vec![exec_record(&e)?];
         frame.extend(extra(&fired)?);
         for f in &fired {
-            frame.push(self.ledger(
-                LedgerKind::WakeFired,
-                Some(&e.session_id),
-                json!({"execution_id": e.id, "wake_id": f.wake.id, "due_at_ms": f.wake.due_at_ms,
+            let mut row = json!({"execution_id": e.id, "wake_id": f.wake.id, "due_at_ms": f.wake.due_at_ms,
                        "set_at_ms": f.wake.set_at_ms, "late_ms": f.late_ms,
-                       "while_down": f.while_down, "turn": guard.turn}),
-            )?);
+                       "while_down": f.while_down, "turn": guard.turn});
+            if let Some(r) = &f.wake.repeat {
+                row["every"] = json!(r.every.to_string());
+                row["occurrence"] = json!(f.wake.occurrence);
+                row["missed"] = json!(f.missed);
+                row["next_due_at_ms"] = json!(f.next_due_at_ms);
+            }
+            frame.push(self.ledger(LedgerKind::WakeFired, Some(&e.session_id), row)?);
+            if f.ended() {
+                frame.push(self.ledger(
+                    LedgerKind::WakeEnded,
+                    Some(&e.session_id),
+                    json!({"execution_id": e.id, "wake_id": f.wake.id,
+                           "occurrence": f.wake.occurrence,
+                           "until_ms": f.wake.repeat.as_ref().and_then(|r| r.until_ms),
+                           "why": "until"}),
+                )?);
+            }
         }
         self.commit(&frame)?;
         Ok(fired)
@@ -305,6 +381,11 @@ impl Kernel {
         }
         Ok(())
     }
+}
+
+/// Soonest first, and by id at the same time.
+fn sort(wakes: &mut [PendingWake]) {
+    wakes.sort_by(|a, b| (a.due_at_ms, &a.id).cmp(&(b.due_at_ms, &b.id)));
 }
 
 /// A note as a ledger row carries it: its first 200 characters.

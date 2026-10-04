@@ -128,8 +128,9 @@ pub enum Wake {
 }
 
 /// A wake a conversation set for itself with `wake.at` (DD8, theseus-cff): at
-/// `due_at_ms` its session gets a turn whose input is `note`. One-shot: the
-/// turn that takes it removes it.
+/// `due_at_ms` its session gets a turn whose input is `note`. A one-shot
+/// wake is removed by the turn that takes it; a repeating one (37a) is put
+/// back, in the same frame, at its next occurrence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingWake {
     /// `wak_…`, from the id of the call that set it (`wake_id`).
@@ -144,6 +145,18 @@ pub struct PendingWake {
     /// that moved on to a new session).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// What makes it repeat (37a, theseus-d4pt); none for a one-shot wake.
+    /// Store format 5; a wake written before it reads as one-shot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat: Option<crate::repeat::Repeat>,
+    /// Which occurrence of its series is due, from 1 (37a); 0 for a one-shot
+    /// wake.
+    #[serde(default, skip_serializing_if = "no_occurrence")]
+    pub occurrence: u32,
+}
+
+fn no_occurrence(n: &u32) -> bool {
+    *n == 0
 }
 
 /// A `/stop` that landed while a turn held its execution (W1, theseus-lji):
