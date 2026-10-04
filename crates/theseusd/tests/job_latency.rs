@@ -133,8 +133,13 @@ impl Rig {
 }
 
 /// Five turns that each run `true`: every result's wait, from the launch to
-/// the result the turn took, is far under the turn's 1 s backstop, so each
-/// came by the drain's word. A 50 ms poll's first look was at 50 ms.
+/// the result the turn took, is under the turn's 1 s backstop, so each came
+/// by the drain's word. The turn looks at the launch and then waits for the
+/// word, so a result the backstop brought comes a second or more after the
+/// launch: each came well before. A word is quick (tens of ms alone), but
+/// one wait in a loaded suite once took 642 ms (the gate, 2026-10-03 18:26),
+/// so the bound on each is the backstop's, and the bound on the median is
+/// the word's.
 #[test]
 fn a_quick_jobs_result_comes_by_the_drains_word_not_a_poll() {
     let r = Rig::new();
@@ -162,7 +167,14 @@ fn a_quick_jobs_result_comes_by_the_drains_word_not_a_poll() {
     eprintln!("each job's wait, launch to result: {waits:?} ms");
     assert_eq!(waits.len(), 5, "of {} nodes", nodes.len());
     assert!(
-        waits.iter().all(|w| *w < 500),
+        waits.iter().all(|w| *w < 900),
         "a result waited for the backstop, not the drain's word: {waits:?} ms"
+    );
+    let mut sorted = waits.clone();
+    sorted.sort_unstable();
+    assert!(
+        sorted[2] < 200,
+        "the drain's word was slow: median {} ms of {waits:?}",
+        sorted[2]
     );
 }
