@@ -65,6 +65,7 @@ ledger_kinds! {
     AwsBudgetReconciled = "aws.budget.reconciled",
     AwsCalled = "aws.called",
     AwsSessionMinted = "aws.session.minted",
+    AwsTrailChecked = "aws.trail.checked",
     BudgetAsked = "budget.asked",
     BudgetCarved = "budget.carved",
     BudgetLimitChanged = "budget.limit_changed",

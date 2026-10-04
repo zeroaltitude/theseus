@@ -538,13 +538,18 @@ pub async fn tools(conn: &mut Conn, json: bool, verbose: bool) -> Result<()> {
 /// apply of exactly that plan, bound to its digest.
 pub async fn aws(conn: &mut Conn, json: bool, cmd: AwsCmd) -> Result<()> {
     use std::io::IsTerminal;
-    let AwsCmd::Bootstrap {
-        account,
-        alert_email,
-        trail_key,
-        apply,
-        plan_only,
-    } = cmd;
+    let (account, alert_email, trail_key, apply, plan_only) = match cmd {
+        AwsCmd::Bootstrap {
+            account,
+            alert_email,
+            trail_key,
+            apply,
+            plan_only,
+        } => (account, alert_email, trail_key, apply, plan_only),
+        AwsCmd::ConfirmAlerts { token, account } => {
+            return confirm_alerts(conn, json, token, account).await
+        }
+    };
     let params = |apply: Option<String>| theseus_protocol::AwsBootstrapParams {
         account: account.clone(),
         alert_email: alert_email.clone(),
@@ -588,6 +593,58 @@ pub async fn aws(conn: &mut Conn, json: bool, cmd: AwsCmd) -> Result<()> {
         println!("{line}");
     }
     Ok(())
+}
+
+/// `theseus aws confirm-alerts` (theseus-9p40): the token from SNS's
+/// confirmation email (or its link), from the command line or stdin, sent to
+/// the daemon, which confirms the subscription authenticated on
+/// unsubscribe. The token is never printed.
+async fn confirm_alerts(
+    conn: &mut Conn,
+    json: bool,
+    token: Option<String>,
+    account: Option<String>,
+) -> Result<()> {
+    use std::io::IsTerminal;
+    let token = match token {
+        Some(t) => t,
+        None => {
+            if io::stdin().is_terminal() {
+                eprint!("Paste the confirmation link's address, or its Token=… value: ");
+                io::stderr().flush()?;
+            }
+            let mut line = String::new();
+            io::stdin().read_line(&mut line)?;
+            line
+        }
+    };
+    let v = conn
+        .request(
+            method::AWS_CONFIRM_ALERTS,
+            theseus_protocol::AwsConfirmAlertsParams { account, token },
+        )
+        .await?;
+    output(json, v, |r: theseus_protocol::AwsConfirmAlertsResult| {
+        println!(
+            "Confirmed {}'s subscription to {} ({}).",
+            r.endpoint.as_deref().unwrap_or("the alert address"),
+            r.topic,
+            r.subscription
+        );
+        if r.authenticated {
+            println!(
+                "SNS says ConfirmationWasAuthenticated = true: only the account can unsubscribe \
+                 it, so an alert's unsubscribe link, or a scanner that follows it, cannot."
+            );
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "SNS says ConfirmationWasAuthenticated = false: the subscription was confirmed \
+                 before without authentication (its link was opened), so an alert's unsubscribe \
+                 link still works. Subscribe the address again and confirm the new token here."
+            ))
+        }
+    })
 }
 
 /// `theseus policy`: the postures, a tightening and its undo, and a trust.

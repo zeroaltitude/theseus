@@ -308,6 +308,9 @@ impl Core {
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.
             method::AWS_BOOTSTRAP => reply(self.aws_bootstrap(parse(params)?, conn).await?),
+            method::AWS_CONFIRM_ALERTS => {
+                reply(self.aws_confirm_alerts(parse(params)?, conn).await?)
+            }
             // The loops wake once the answer is written (`serve_connection`).
             method::SHUTDOWN => reply(self.stopping()),
             other => Err(RpcFailure::new(

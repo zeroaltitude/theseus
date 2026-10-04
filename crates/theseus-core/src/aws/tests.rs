@@ -273,7 +273,7 @@ pub(super) fn board() -> Arc<SecretBoard> {
 
 /// The account, its endpoint the fake, in `us-west-2`, which may name
 /// `eu-west-1` too.
-fn account(endpoint: &str) -> AwsConfig {
+pub(super) fn account(endpoint: &str) -> AwsConfig {
     AwsConfig {
         accounts: BTreeMap::from([(
             ACCOUNT.to_string(),
@@ -290,11 +290,11 @@ fn account(endpoint: &str) -> AwsConfig {
     }
 }
 
-fn layer(fake: &Fake, board: Arc<SecretBoard>) -> Arc<Aws> {
+pub(super) fn layer(fake: &Fake, board: Arc<SecretBoard>) -> Arc<Aws> {
     Aws::from_config(&account(&fake.url), board).expect("an account")
 }
 
-fn tool(aws: &Arc<Aws>, name: &str) -> Arc<dyn Tool> {
+pub(super) fn tool(aws: &Arc<Aws>, name: &str) -> Arc<dyn Tool> {
     aws.tools()
         .into_iter()
         .find(|t| t.name() == name)
@@ -308,7 +308,11 @@ pub(super) fn plain_ctx() -> ToolCtx {
 /// One call of an AWS tool, planned then run, as the runtime runs it: with a
 /// binding for execution `exe_test` and correlation id `act_test_1`. What
 /// it returned, and the requests it made.
-async fn call(aws: &Arc<Aws>, name: &str, input: Value) -> (AsyncResult, Vec<AwsRequest>) {
+pub(super) async fn call(
+    aws: &Arc<Aws>,
+    name: &str,
+    input: Value,
+) -> (AsyncResult, Vec<AwsRequest>) {
     let t = tool(aws, name);
     let b = aws.bind("exe_test", "act_test_1", "toolu_test_1");
     let ctx = ToolCtx {
@@ -320,7 +324,7 @@ async fn call(aws: &Arc<Aws>, name: &str, input: Value) -> (AsyncResult, Vec<Aws
     (r, b.requests())
 }
 
-fn no_secret_in(v: &str) {
+pub(super) fn no_secret_in(v: &str) {
     assert!(!v.contains(SECRET) && !v.contains(KEY_ID), "a key in {v}");
 }
 
@@ -523,7 +527,7 @@ async fn aws_call_reads_any_service_and_returns_its_output() {
 /// the CLI can make it. Since C2 (14b) a write and a run plan; durable
 /// infrastructure and a stack's own writes are what stay invalid input.
 #[tokio::test]
-async fn iac_a_stack_write_and_a_secret_are_invalid_input_and_nothing_is_sent() {
+async fn iac_and_a_stack_write_are_invalid_input_and_nothing_is_sent() {
     let fake = Fake::start(aws_answers(ACCOUNT));
     let aws = layer(&fake, board());
     let t = tool(&aws, "aws.call");
@@ -535,14 +539,6 @@ async fn iac_a_stack_write_and_a_secret_are_invalid_input_and_nothing_is_sent() 
         (
             json!({"service": "cloudformation", "operation": "DeleteStack", "input": {"StackName": "example-stack"}}),
             "cloudformation:DeleteStack writes a stack outside the review; use aws.stack.plan",
-        ),
-        (
-            json!({"service": "secretsmanager", "operation": "GetSecretValue", "input": {"SecretId": "s"}}),
-            "returns a secret value: secret-bearing reads arrive with step 14c",
-        ),
-        (
-            json!({"service": "ssm", "operation": "GetParameter", "input": {"Name": "p", "WithDecryption": true}}),
-            "ssm:GetParameter returns a secret value",
         ),
         (
             json!({"service": "ec2", "operation": "DescribeNothing"}),
@@ -584,9 +580,13 @@ async fn iac_a_stack_write_and_a_secret_are_invalid_input_and_nothing_is_sent() 
         let e = t.plan(&input, &plain_ctx()).unwrap_err();
         assert!(e.contains(says), "{input}: {e}");
     }
-    // Without decryption, a parameter is a plain read.
-    let plain = json!({"service": "ssm", "operation": "GetParameter", "input": {"Name": "p"}});
-    t.plan(&plain, &plain_ctx()).unwrap();
+    // A secret-bearing read plans as a read (14c holds its value as a handle).
+    for ok in [
+        json!({"service": "ssm", "operation": "GetParameter", "input": {"Name": "p"}}),
+        json!({"service": "secretsmanager", "operation": "GetSecretValue", "input": {"SecretId": "s"}}),
+    ] {
+        t.plan(&ok, &plain_ctx()).unwrap();
+    }
     // A run that skipped the plan would still check it again, and send nothing.
     let f = t
         .run_async(
@@ -891,7 +891,7 @@ fn policy_aws_gives_each_call_its_posture() {
 
 /// A core whose config binds the account at the fake, and whose model calls
 /// what `script` says; its board holds the key.
-fn core(
+pub(super) fn core(
     fake: &Fake,
     dir: &std::path::Path,
     script: Vec<crate::provider::Scripted>,
@@ -912,7 +912,10 @@ fn core(
     .unwrap()
 }
 
-async fn turn(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::TurnSubmitResult {
+pub(super) async fn turn(
+    core: &Arc<crate::Core>,
+    input: &str,
+) -> theseus_protocol::TurnSubmitResult {
     use crate::session::SessionRecord;
     let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
@@ -935,7 +938,7 @@ async fn turn(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::TurnSub
         .unwrap()
 }
 
-fn ledgered(core: &crate::Core, kind: &str) -> Vec<Value> {
+pub(super) fn ledgered(core: &crate::Core, kind: &str) -> Vec<Value> {
     core.store
         .ledger_tail::<crate::ledger::LedgerRow>(100_000)
         .unwrap()
@@ -988,11 +991,17 @@ async fn an_aws_call_through_the_core_is_a_row_a_span_and_a_result() {
             "aws_call",
             "aws_cost",
             "aws_describe",
+            "aws_inventory",
+            "aws_logs_query",
+            "aws_logs_tail",
+            "aws_s3_get",
             "aws_s3_list",
+            "aws_s3_put",
             "aws_stack_apply",
             "aws_stack_delete",
             "aws_stack_plan",
             "aws_stack_status",
+            "aws_trail",
             "aws_whoami"
         ]
     );

@@ -9,6 +9,9 @@
 //! - **The budget's line**, every six hours: `DescribeBudget`, which is free.
 //! - **GuardDuty's usage**, weekly: `GetUsageStatistics`, which is free.
 //!   Health warns when the month's projection passes $1.
+//! - **The CloudTrail cross-check** ([`super::crosscheck`]), daily, from an
+//!   hour after serving: the events of Theseus's identities that nothing in
+//!   the ledger accounts for. Ledgered as `aws.trail.checked`.
 //!
 //! They sign in the tender session `theseus-tender`, whose inline policy
 //! ([`policy`]) allows exactly these calls.
@@ -67,6 +70,12 @@ pub fn policy(tender: &str, account: &str) -> Option<Value> {
                     "Effect": "Allow",
                     "Action": "budgets:ViewBudget",
                     "Resource": format!("arn:aws:budgets::{account}:budget/{BUDGET}"),
+                },
+                {
+                    "Sid": "ReadTheTrail",
+                    "Effect": "Allow",
+                    "Action": "cloudtrail:LookupEvents",
+                    "Resource": "*",
                 },
                 {
                     "Sid": "ReadGuardDutysUsage",
@@ -359,6 +368,7 @@ impl crate::Core {
             return;
         };
         for account in aws.accounts().filter(|a| a.cfg.owner_role.is_some()) {
+            self.crosscheck_daily(account.clone());
             let core = Arc::downgrade(self);
             let account = account.clone();
             tokio::spawn(async move {
@@ -399,5 +409,63 @@ impl crate::Core {
                 }
             });
         }
+    }
+
+    /// The CloudTrail cross-check (§3.8), from an hour after serving, then
+    /// daily: each run one `aws.trail.checked` row, and a warning in the log
+    /// for each event of Theseus's that nothing in the ledger accounts for.
+    fn crosscheck_daily(self: &Arc<Self>, account: Arc<Account>) {
+        use super::crosscheck::{self, Ledgered};
+        let core = Arc::downgrade(self);
+        tokio::spawn(async move {
+            if !account.settled().await {
+                return;
+            }
+            tokio::time::sleep(crosscheck::LAG).await;
+            loop {
+                let Some(c) = core.upgrade() else { return };
+                let rows = theseus_store::blocking(|| c.store.ledger_tail::<LedgerRow>(100_000));
+                drop(c);
+                let checked = match rows {
+                    Err(e) => Err(format!("the ledger's read failed: {e}")),
+                    Ok(rows) => {
+                        let ledgered =
+                            Ledgered::of(rows.iter().map(|(_, r)| (r.kind.as_str(), &r.data)));
+                        crosscheck::events(&account, theseus_protocol::now_unix_ms())
+                            .await
+                            .map_err(|f| f.to_string())
+                            .map(|events| {
+                                let role = account.cfg.owner_role.clone().unwrap_or_default();
+                                let key = account.identity().map(|(arn, _)| arn);
+                                let (ours, found) = crosscheck::unaccounted(
+                                    &events,
+                                    &ledgered,
+                                    &role,
+                                    key.as_deref(),
+                                );
+                                (events.len(), ours, found)
+                            })
+                    }
+                };
+                match checked {
+                    Err(e) => {
+                        tracing::warn!(account = %account.id, error = %e, "aws: the CloudTrail cross-check failed")
+                    }
+                    Ok((read, ours, found)) => {
+                        for u in &found {
+                            tracing::warn!(account = %account.id, event = %u.event, session = %u.session, request = ?u.request_id, "aws: CloudTrail shows a call of Theseus's that the ledger does not account for");
+                        }
+                        let row = crosscheck::row(&account.id, read, ours, &found);
+                        let ledger = LedgerRow::new(LedgerKind::AwsTrailChecked, None, None, row);
+                        if let Some(c) = core.upgrade() {
+                            if let Err(e) = c.store.append_ledger(&ledger) {
+                                tracing::warn!(error = %e, "ledger append failed");
+                            }
+                        }
+                    }
+                }
+                tokio::time::sleep(crosscheck::EVERY).await;
+            }
+        });
     }
 }

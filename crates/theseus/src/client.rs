@@ -249,13 +249,14 @@ pub fn job_session() -> Option<String> {
 
 /// The methods only the operator makes, each with the command that makes it
 /// (theseus-zmgb): an answer to a waiting call, the undo of a tightening, a
-/// trust, a publish, and the AWS bootstrap.
-pub const OPERATORS: [(&str, &str); 5] = [
+/// trust, a publish, the AWS bootstrap, and the alerts' confirmation.
+pub const OPERATORS: [(&str, &str); 6] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
     (method::PLACE_PUBLISH, "theseus publish"),
     (method::AWS_BOOTSTRAP, "theseus aws bootstrap"),
+    (method::AWS_CONFIRM_ALERTS, "theseus aws confirm-alerts"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):

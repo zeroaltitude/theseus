@@ -157,6 +157,9 @@ pub mod method {
         /// read-only, or that plan applied on the operator's yes. The
         /// operator's alone: refused from a job's process.
         AWS_BOOTSTRAP = "aws.bootstrap",
+        /// The alerts subscription confirmed with the token from SNS's email,
+        /// authenticated on unsubscribe (theseus-9p40). The operator's alone.
+        AWS_CONFIRM_ALERTS = "aws.confirm_alerts",
     }
 }
 

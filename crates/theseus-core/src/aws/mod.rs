@@ -16,7 +16,7 @@
 //!   invalid input, deletions of what holds state waiting), `aws.describe`
 //!   (the catalog, local), `aws.whoami`, `aws.s3.list`, `aws.stack.plan`,
 //!   `.apply`, `.status`, and `.delete`, and `aws.cost`. A call that returns
-//!   a secret is invalid input until 14c.
+//!   a secret holds it on the secrets board under a handle ([`secret`]).
 //! - **The bootstrap** ([`bootstrap`]) and **the tenders** ([`tend`]): the
 //!   account's first stacks, on the operator's yes; after serving, the
 //!   budget's reconcile and reads, and GuardDuty's weekly usage.
@@ -43,30 +43,52 @@ use tokio::sync::watch;
 use crate::config::{AwsAccountConfig, AwsConfig};
 use crate::secrets::{Secret, SecretBoard, SecretState};
 
+pub mod alerts;
 pub mod bootstrap;
 pub mod cost;
+pub mod crosscheck;
+pub mod external;
+pub mod inventory;
+pub mod logs;
+pub mod s3;
+pub mod secret;
 pub mod session;
 pub mod stack;
 pub mod tend;
 pub mod tools;
+pub mod trail;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_c2;
 #[cfg(test)]
+mod tests_c3;
+#[cfg(test)]
+mod tests_handles;
+#[cfg(test)]
+mod tests_inventory;
+#[cfg(test)]
 mod tests_l1;
+#[cfg(test)]
+mod tests_outside;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 9] = [
+pub const NAMES: [&str; 15] = [
     "aws.call",
     "aws.cost",
     "aws.describe",
+    "aws.inventory",
+    "aws.logs.query",
+    "aws.logs.tail",
+    "aws.s3.get",
     "aws.s3.list",
+    "aws.s3.put",
     "aws.stack.apply",
     "aws.stack.delete",
     "aws.stack.plan",
     "aws.stack.status",
+    "aws.trail",
     "aws.whoami",
 ];
 
@@ -75,13 +97,13 @@ pub const NAMES: [&str; 9] = [
 pub const ALLOW_ALL: &str = "theseus-allow-all";
 
 /// An AWS tool's own `[policy.aws]` class, as the tool list and the system
-/// note show its posture: a stack's apply and delete write, and the rest
+/// note show its posture: a stack's apply and delete and an S3 put write, and the rest
 /// read (an `aws.call` that writes or runs takes its own class's line at the
 /// gate). None for `aws.describe`, which calls nothing.
 pub fn tool_class(name: &str) -> Option<&'static str> {
     match name {
         "aws.describe" => None,
-        "aws.stack.apply" | "aws.stack.delete" => Some("write"),
+        "aws.stack.apply" | "aws.stack.delete" | "aws.s3.put" => Some("write"),
         n if NAMES.contains(&n) => Some("read"),
         _ => None,
     }
@@ -131,6 +153,10 @@ impl Aws {
     /// Every AWS tool ([`NAMES`]).
     pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
         let mut all = tools::all(self);
+        all.extend(s3::all(self));
+        all.extend(logs::all(self));
+        all.extend(trail::all(self));
+        all.extend(inventory::all(self));
         all.extend(stack::all(self));
         all.push(Arc::new(cost::Cost::new(self.clone())));
         all

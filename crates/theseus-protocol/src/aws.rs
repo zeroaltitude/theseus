@@ -1,6 +1,6 @@
 //! AWS's wire types beyond an account's health line (AWS design §3.7, §5's
 //! C2): the budget and GuardDuty as their reads after serving found them,
-//! and `aws.bootstrap`'s plan.
+//! `aws.bootstrap`'s plan, and `aws.confirm_alerts`.
 
 use std::collections::BTreeMap;
 
@@ -95,4 +95,51 @@ pub struct AwsBootstrapResult {
     pub applied: bool,
     /// What the operator does next.
     pub next: Vec<String>,
+}
+
+/// `aws.confirm_alerts`'s params (theseus-9p40): the token from SNS's
+/// confirmation email, which the core confirms with
+/// `AuthenticateOnUnsubscribe`. A secret: never printed, logged, or kept.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AwsConfirmAlertsParams {
+    /// The account, when several are bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub account: Option<String>,
+    /// The token, or the whole confirmation link (copied, never opened).
+    pub token: String,
+}
+
+impl std::fmt::Debug for AwsConfirmAlertsParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AwsConfirmAlertsParams")
+            .field("account", &self.account)
+            .field("token", &"<withheld>")
+            .finish()
+    }
+}
+
+/// `aws.confirm_alerts`'s result: the subscription, as SNS read it back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AwsConfirmAlertsResult {
+    pub account: String,
+    /// The alerts topic's ARN.
+    pub topic: String,
+    /// The subscription's ARN.
+    pub subscription: String,
+    /// SNS's `ConfirmationWasAuthenticated`: only the account can
+    /// unsubscribe it.
+    pub authenticated: bool,
+    /// SNS's `PendingConfirmation`.
+    pub pending: bool,
+    /// The subscribed address, its local part masked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub endpoint: Option<String>,
+    /// The confirmation's request id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub request_id: Option<String>,
 }

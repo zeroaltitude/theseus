@@ -404,7 +404,8 @@ enum AwsCmd {
         #[arg(long)]
         account: Option<String>,
         /// The address the alerts topic emails (a new foundation only); SNS mails it a
-        /// confirmation link once.
+        /// confirmation link once: do not open it, but give its token to
+        /// `theseus aws confirm-alerts`.
         #[arg(long, value_name = "ADDRESS")]
         alert_email: Option<String>,
         /// The trail's encryption: aws-managed (SSE-S3, the default) or customer (its own KMS
@@ -417,6 +418,19 @@ enum AwsCmd {
         /// Show the plan and stop: never ask.
         #[arg(long, conflicts_with = "apply")]
         plan_only: bool,
+    },
+    /// Confirm the alerts topic's email subscription so that only the account can unsubscribe
+    /// it. Do not open the link in SNS's confirmation email (an opened link lets any alert's
+    /// unsubscribe link, or a mail scanner that follows it, remove the subscription): copy the
+    /// link's address, or its Token=… value, and give it here. With no TOKEN it is read from
+    /// stdin, which keeps it out of the shell's history. The token is never printed.
+    ConfirmAlerts {
+        /// The token, or the whole confirmation link (default: read from stdin).
+        #[arg(value_name = "TOKEN")]
+        token: Option<String>,
+        /// The account, when several are bound.
+        #[arg(long)]
+        account: Option<String>,
     },
 }
 

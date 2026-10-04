@@ -13,8 +13,9 @@
 //! invalid input that points to the stack tools; any other guardrail is the
 //! floor; a deletion of what holds state waits for approval. An approved
 //! floor call that AWS's guards would refuse runs in a floor session. A call
-//! that returns a secret stays invalid input until 14c. `aws.describe` reads
-//! the local catalog alone.
+//! that returns a secret (14c) holds it on the secrets board under a handle,
+//! and its result shows the handle and the value's shape, never the value
+//! (`secret`). `aws.describe` reads the local catalog alone.
 
 use std::sync::Arc;
 
@@ -52,7 +53,10 @@ pub(super) fn all(aws: &Arc<Aws>) -> Vec<Arc<dyn Tool>> {
 pub(super) fn failure(what: &str, f: Failure) -> ToolFailure {
     let message = match &f {
         Failure::Unbound(why) => format!("{what} was not sent: {why}."),
-        Failure::Call(CallError::Aws(e)) => format!("{what}: AWS answered {e}."),
+        Failure::Call(CallError::Aws(e)) => match &e.denial {
+            Some(d) => format!("{what}: AWS answered {e}. {}", refused_by(d)),
+            None => format!("{what}: AWS answered {e}."),
+        },
         Failure::Call(e @ CallError::NotSent { .. }) => format!("{what} was not sent: {e}."),
         Failure::Call(CallError::Unsupported(m)) => {
             format!("{what} was not sent: {m}. The aws CLI can make it, through proc_run.")
@@ -62,8 +66,43 @@ pub(super) fn failure(what: &str, f: Failure) -> ToolFailure {
     ToolFailure::new(message)
 }
 
+/// Who refused a call, in words (§3.6): Theseus's own guard, a session's
+/// narrowing, IAM, or an Organization's policy.
+fn refused_by(d: &theseus_aws::Denial) -> String {
+    use theseus_aws::Enforcer;
+    let policy = d
+        .policy
+        .as_deref()
+        .map(|p| format!(" ({p})"))
+        .unwrap_or_default();
+    match d.enforcer {
+        Enforcer::Guard => format!(
+            "Theseus's own guard refused it: an explicit deny in a session policy{policy}, \
+             the theseus-guard-* policies every work session carries. An approved floor call \
+             runs without them."
+        ),
+        Enforcer::Iam if d.policy_type == "session policy" => format!(
+            "The session policy refused it: the narrowing this session was minted with \
+             allows too little{policy}."
+        ),
+        Enforcer::Iam => format!(
+            "IAM refused it: {} {}{policy}.",
+            if d.explicit {
+                "an explicit deny in an"
+            } else {
+                "no"
+            },
+            d.policy_type
+        ),
+        Enforcer::Scp | Enforcer::Rcp => format!(
+            "The Organization refused it: a {}{policy}, which Theseus cannot change.",
+            d.policy_type
+        ),
+    }
+}
+
 /// `1,234`.
-fn count(n: u64) -> String {
+pub(super) fn count(n: u64) -> String {
     crate::narrative::thousands(n)
 }
 
@@ -116,6 +155,8 @@ struct Planned {
     pages: u32,
     cost_bearing: bool,
     class: ToolClass,
+    /// It returns a secret (§3.5): held on the board, shown as a handle.
+    secret: bool,
     /// The floor's confirm line, when a guardrail hits (§3.6).
     guardrail: Option<String>,
     /// A hit AWS's guards refuse in a work session: the approved call runs
@@ -160,7 +201,7 @@ impl Planned {
 /// confirm line, whether AWS's guards would refuse it in a work session, and
 /// whether it deletes what holds state; or the invalid input a stack write or
 /// durable infrastructure is.
-fn guard(
+pub(super) fn guard(
     account: &str,
     region: &str,
     op: &str,
@@ -258,12 +299,7 @@ impl CallTool {
             Class::Write => ToolClass::Write,
             Class::Run => ToolClass::Run,
         };
-        if c.secret != SecretBearing::No && c.secret.for_input(&body) {
-            return Err(format!(
-                "{name} returns a secret value: secret-bearing reads arrive with step 14c \
-                 (AWS's C3), as a handle the model never reads. Nothing was sent."
-            ));
-        }
+        let secret = c.secret != SecretBearing::No && c.secret.for_input(&body);
         let (guardrail, floor_session, destructive) = guard(&account.id, &region, &name, &body)?;
         Ok(Planned {
             account,
@@ -274,6 +310,7 @@ impl CallTool {
             pages,
             cost_bearing: c.cost_bearing,
             class,
+            secret,
             guardrail,
             floor_session,
             destructive,
@@ -294,8 +331,10 @@ impl Tool for CallTool {
          follows its paginator. Durable infrastructure (buckets, roles, networks, functions, \
          alarms, rules) is made only through stacks: such an operation is invalid input that \
          points to aws_stack_plan. A guardrail (public ingress, the audit trail, the budget, \
-         long-lived credentials) and deleting what holds state wait for the operator. An \
-         operation that returns a secret is invalid input until step 14c. Event streams, \
+         long-lived credentials) and deleting what holds state wait for the operator. A secret \
+         an operation returns (a secret's value, a decrypted parameter, a token) is held for \
+         Theseus under a handle (aws-secret:…): you see the handle and its shape, never the \
+         value. Event streams, \
          SigV2 services, and S3 directory buckets need the aws CLI, through proc_run."
     }
     fn input_schema(&self) -> Value {
@@ -347,15 +386,36 @@ impl Tool for CallTool {
                 class: p.class.as_str(),
                 signer: p.signer(),
             };
-            let out = p
+            let mut out = p
                 .account
                 .request(binding.as_deref(), &req)
                 .await
                 .map_err(|f| failure(&p.what(), f))?;
+            let mut m = meta(&p.account.id, &p.region, &p.name(), &out);
+            if p.secret {
+                // The value goes onto the board, never into the result.
+                let held = super::secret::hold(
+                    &p.account.board,
+                    &p.service,
+                    &p.operation,
+                    &p.input,
+                    &mut out.body,
+                )
+                .map_err(ToolFailure::new)?;
+                if held.is_empty() {
+                    return Err(ToolFailure::new(format!(
+                        "{} returns a secret, and no member of its output was found to hold \
+                         it, so none of its output is returned (request {})",
+                        p.what(),
+                        out.request_id.as_deref().unwrap_or("(none)")
+                    )));
+                }
+                m["secrets"] = json!(held.iter().map(|h| &h.handle).collect::<Vec<_>>());
+            }
             Ok((
                 ToolOutput {
                     text: call_text(&p, &out),
-                    meta: meta(&p.account.id, &p.region, &p.name(), &out),
+                    meta: m,
                 },
                 None,
             ))
@@ -749,7 +809,7 @@ impl Listing {
 /// `s3://bucket/prefix`, `bucket/prefix`, or `bucket`: the bucket and the
 /// prefix. A bucket's name is 3 to 63 lowercase letters, digits, dots, and
 /// hyphens.
-fn split_path(path: &str) -> Result<(String, String), String> {
+pub(super) fn split_path(path: &str) -> Result<(String, String), String> {
     let rest = path.strip_prefix("s3://").unwrap_or(path);
     let (bucket, prefix) = rest.split_once('/').unwrap_or((rest, ""));
     let ok = (3..=63).contains(&bucket.len())
