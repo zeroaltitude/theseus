@@ -119,7 +119,7 @@ fn the_web_apps_types_are_generated_from_the_rust_ones() {
         sandbox::SandboxUsage, sandbox::RunningJob, bench::BenchHistoryParams,
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,
         AwsBudgetStatus, AwsGuardDutyStatus, AwsBootstrapParams, AwsBootstrapStack,
-        AwsBootstrapResult,
+        AwsBootstrapResult, AwsConfirmAlertsParams, AwsConfirmAlertsResult,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

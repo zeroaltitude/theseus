@@ -564,7 +564,10 @@ pub fn result(account: &Account, plan: &Plan, applied: bool) -> AwsBootstrapResu
             && !plan.stacks[0].parameters["AlertEmail"].is_empty()
         {
             next.push(
-                "Open the confirmation link SNS mailed to the alert address, once, so alerts reach it."
+                "SNS mails the alert address a confirmation link: do not open it (opening it lets \
+                 any alert's link unsubscribe the address). Copy the link's address, or its \
+                 Token=… value, and run `theseus aws confirm-alerts <token>`, which confirms it \
+                 so only the account can unsubscribe."
                     .into(),
             );
         }

@@ -43,6 +43,7 @@ use tokio::sync::watch;
 use crate::config::{AwsAccountConfig, AwsConfig};
 use crate::secrets::{Secret, SecretBoard, SecretState};
 
+pub mod alerts;
 pub mod bootstrap;
 pub mod cost;
 pub mod external;
