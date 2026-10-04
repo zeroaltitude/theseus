@@ -258,6 +258,24 @@ fn texts(n: usize) -> Vec<Scripted> {
 /// judgment Jev sees is categorize's, the owner named, the owner's DM and a
 /// shared channel bound, and the topics `harbor` and `garden` declared.
 fn rig(jev: Option<&FakeJev>, turns: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_topics(
+        jev,
+        turns,
+        tweak,
+        &[
+            ("harbor", "Tides, moorings, the harbour master."),
+            ("garden", "Irrigation, planting plans, seasonal chores."),
+        ],
+    )
+}
+
+/// [`rig`], with `topics` declared (none: an empty ontology).
+fn rig_topics(
+    jev: Option<&FakeJev>,
+    turns: usize,
+    tweak: impl FnOnce(&mut Config),
+    topics: &[(&str, &str)],
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -301,10 +319,7 @@ fn rig(jev: Option<&FakeJev>, turns: usize, tweak: impl FnOnce(&mut Config)) -> 
             ..Default::default()
         },
     ]);
-    for (name, desc) in [
-        ("harbor", "Tides, moorings, the harbour master."),
-        ("garden", "Irrigation, planting plans, seasonal chores."),
-    ] {
+    for &(name, desc) in topics {
         core.ontology_category_add(
             &OntologyCategoryAddParams {
                 name: name.into(),
@@ -502,6 +517,134 @@ async fn ten_human_messages_bring_one_judgment_and_its_proposal() {
         "{:?}",
         h.packs
     );
+}
+
+/// The session records the point's decisions have read, once a decision
+/// has run since `before` (on the runtime's timer).
+async fn read_since(core: &Core, before: u64) -> u64 {
+    let t0 = Instant::now();
+    loop {
+        let now = core.runner.judge.categorize_records_read();
+        if now > before {
+            // A decision reads once; let a second (there is none) show.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            return core.runner.judge.categorize_records_read() - before;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(20), "no decision ran");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn mark_of(core: &Core, sid: &str) -> Mark {
+    core.store
+        .get_meta(&format!("{}{sid}", categorize::MARK_PREFIX))
+        .unwrap()
+        .unwrap()
+}
+
+/// On an empty ontology a due exchange end still judges (theseus-ext.12):
+/// the Choice is `new_topic` and `none`, the mark moves, and the answer is
+/// a proposal whose accept names the ontology's first topic. After the
+/// mark, a decision reads only the records after it, and a quiet judgment's
+/// input is the human messages since it, never the session's whole history
+/// (theseus-gky0).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_empty_ontology_still_judges_and_reads_only_after_the_mark() {
+    let jev = FakeJev::start().unwrap();
+    harbor_at(&jev, "new_topic", 0.9);
+    let r = rig_topics(Some(&jev), 20, |_| {}, &[]);
+    let sid = session(&r.core, None);
+    moorings(&r.core, &sid, EVERY).await;
+    let judged = until_judged(&r.core.store, 1).await;
+    let d = &judged[0].1.data;
+    assert_eq!(d["context"]["candidates"], 0);
+    let body = serde_json::to_string(&jev.seen()[0].body).unwrap();
+    for id in ["new_topic", "none"] {
+        assert!(body.contains(&format!("\"{id}\"")), "{id} offered: {body}");
+    }
+    assert!(!body.contains("\"harbor\""), "no topic is declared");
+    let mark = mark_of(&r.core, &sid);
+    assert_eq!(mark.judgment, d["id"].as_str().unwrap(), "the mark moved");
+
+    // The mark moved past the tenth message's reply, and its message 31
+    // minutes back: the next message is quiet, and its judgment reads the
+    // records after the mark, the one message among them, and nothing from
+    // before.
+    let (last, _) = r.core.store.session_nodes(&sid).unwrap().pop().unwrap();
+    let back = Mark {
+        through: last,
+        through_ms: mark.through_ms - QUIET_MS - 60_000,
+        ..mark.clone()
+    };
+    let mark = back.clone();
+    r.core
+        .store
+        .put_meta(&format!("{}{sid}", categorize::MARK_PREFIX), &back)
+        .unwrap();
+    let before = r.core.runner.judge.categorize_records_read();
+    turn(&r.core, &sid, "Fender placement on the north pontoon.").await;
+    let judged = until_judged(&r.core.store, 2).await;
+    let read = read_since(&r.core, before).await;
+    let after_mark = r.core.store.scope_after(&sid, mark.through).unwrap().len() as u64;
+    let all = r.core.store.scope_after(&sid, 0).unwrap().len() as u64;
+    assert!(
+        read > 0 && read <= after_mark && after_mark < all,
+        "read {read}: {after_mark} after the mark, {all} in all"
+    );
+    let d = &judged[1].1.data;
+    assert_eq!(d["context"]["trigger"], "quiet");
+    let state: Value = serde_json::from_slice(
+        &std::fs::read(
+            r.core
+                .store
+                .blobs()
+                .path(d["state"]["sha256"].as_str().unwrap()),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        state["recent_human_messages"],
+        json!(["Fender placement on the north pontoon."]),
+        "the messages since the mark alone"
+    );
+
+    // An exchange end that is not due reads only what follows the new mark.
+    let mark = mark_of(&r.core, &sid);
+    let before = r.core.runner.judge.categorize_records_read();
+    turn(&r.core, &sid, "And the stern line?").await;
+    let read = read_since(&r.core, before).await;
+    let after_mark = r.core.store.scope_after(&sid, mark.through).unwrap().len() as u64;
+    assert!(
+        read > 0 && read <= after_mark,
+        "read {read} of {after_mark}"
+    );
+    assert_eq!(rows(&r.core.store, "judge.call").len(), 2, "not due");
+
+    // The proposal is new_topic, and its accept makes the first topic.
+    let p = r
+        .core
+        .ontology_proposals(&OntologyProposalsParams::default())
+        .unwrap()
+        .proposals;
+    let newest = p.iter().find(|p| p.session_id == sid).unwrap();
+    assert!(newest.new_topic && newest.topic.is_none());
+    let done = r
+        .core
+        .ontology_proposal_accept(
+            &OntologyProposalAcceptParams {
+                judgment: newest.judgment.clone(),
+                topic: Some("garden".into()),
+                description: Some("Moorings, as it happens.".into()),
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    assert_eq!(done.topic.as_deref(), Some("topic:garden"));
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    let (c, _, _) = categorize::candidates(&o, &sid);
+    assert_eq!(c.len(), 1, "the ontology's first topic");
 }
 
 /// Three sessions of ten messages about moorings, judged `harbor`,

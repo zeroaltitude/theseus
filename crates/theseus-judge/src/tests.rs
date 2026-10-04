@@ -875,3 +875,56 @@ fn every_live_call_fits_inside_its_reservation() {
         );
     }
 }
+
+/// The live `categorize.v1` calls of theseus-q0rn, rebuilt to the same
+/// reservation by bytes: 50 topics (52 options) billed 1,798 input and 477
+/// output tokens (96 µ$) where 82 were reserved, and 2 topics (4 options)
+/// 688 and 54 (32 µ$) against 37. With each option's input reserved, both
+/// reserve at least what they cost.
+#[test]
+fn a_choice_reserves_input_for_its_options() {
+    use crate::builders::{CategorizeInput, TopicInput};
+    let p = price::JevPrice::jev_1_13_0();
+    let pack = by_name("categorize.v1").unwrap();
+    let fixture = format!(
+        "{}/fixtures/inputs/categorize.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let base: CategorizeInput =
+        serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+    let words = "moorings, tides, the harbour master's notices, chandlery orders ".repeat(4);
+    // (topics, description bytes, reserved live, billed in and out, now)
+    for (topics, len, live, input_tokens, output_tokens, pinned) in
+        [(50, 33, 82, 1_798, 477, 104), (2, 255, 37, 688, 54, 39)]
+    {
+        let mut i = base.clone();
+        i.memberships.clear();
+        i.candidates = (0..topics)
+            .map(|k| TopicInput {
+                id: format!("topic-{k:02}"),
+                description: words[..len].to_string(),
+            })
+            .collect();
+        let prepared = prepare(&pack, &Input::Categorize(i), &NoScrub).unwrap();
+        let ask = Ask::new(pack.clone(), &prepared, Mode::Shadow, json!({}));
+        let batches = crate::batch::plan(vec![crate::judge::part(0, &ask)]);
+        let req = &batches[0].request;
+        let output = req
+            .questions
+            .iter()
+            .map(|(_, q)| price::output_allowance(q))
+            .sum();
+        let by_bytes = p.reserve_micros(req.body().len(), output);
+        assert!(
+            by_bytes.abs_diff(live) <= 1,
+            "{topics} topics: {by_bytes} by bytes, {live} live"
+        );
+        let billed = p.cost_micros(&Usage {
+            input_tokens,
+            output_tokens,
+        });
+        let reserved = p.reserve_request(req);
+        assert!(reserved >= billed, "{topics} topics: {reserved} < {billed}");
+        assert_eq!(reserved, pinned, "{topics} topics");
+    }
+}

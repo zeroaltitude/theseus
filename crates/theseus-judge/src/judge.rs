@@ -465,7 +465,7 @@ impl JevJudge {
     }
 }
 
-fn part(tag: usize, a: &Ask) -> Part {
+pub(crate) fn part(tag: usize, a: &Ask) -> Part {
     Part {
         tag,
         pack: a.pack.clone(),
