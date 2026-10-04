@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use theseus_store::Store as _;
 
 use super::host::{self, Fake, Host, User};
-use super::layout::{real, unit_arg, unit_env};
+use super::layout::{real, system_unit, unit_arg, unit_env, user_unit};
 use super::*;
 
 const OPERATOR: &str = "ada";
@@ -968,7 +968,7 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
         }))
         .unwrap();
     assert_eq!(code, 1);
-    assert!(out.contains("content: line 8 is `ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain"), "{out}");
+    assert!(out.contains("content: line 10 is `ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain"), "{out}");
     let log = r.ok(&args(|a| {
         a.user = true;
         a.remove = true;
@@ -998,6 +998,75 @@ fn a_user_unit_without_a_token_file_says_how_to_give_it_one() {
     );
 }
 
+/// `--apply` with no token file named refuses before it writes anything, unless
+/// `--token-from-drop-in` says a drop-in supplies the token; a plan only notes it
+/// (theseus-4xyj).
+#[test]
+fn a_user_apply_without_a_token_file_refuses_unless_a_drop_in_supplies_it() {
+    let mut r = Rig::user();
+    r.g.op_token_file = None;
+    let before = tree(&r.env.root);
+    let e = r.err(&args(|a| {
+        a.user = true;
+        a.apply = true;
+    }));
+    assert!(e.contains("nothing was changed"), "{e}");
+    assert!(e.contains("--op-token-file"), "{e}");
+    assert!(e.contains("--token-from-drop-in"), "{e}");
+    assert_eq!(tree(&r.env.root), before, "a refused --apply wrote");
+    assert!(!r.at(UNIT).exists());
+    // A plan is not refused: it says the same as a note.
+    let plan = r.ok(&args(|a| a.user = true));
+    assert!(plan.contains("the unit names no token file"), "{plan}");
+    // A check is not either.
+    r.run(&args(|a| {
+        a.user = true;
+        a.check = true;
+    }))
+    .unwrap();
+    // The flag lets the apply through, and the unit names no token file.
+    let log = r.ok(&args(|a| {
+        a.user = true;
+        a.apply = true;
+        a.token_from_drop_in = true;
+    }));
+    assert!(log.contains(&format!("wrote {UNIT}")), "{log}");
+    let text = std::fs::read_to_string(r.at(UNIT)).unwrap();
+    assert!(!text.contains("--op-token-file"), "{text}");
+    // --remove needs no token.
+    r.g.op_token_file = None;
+    r.ok(&args(|a| {
+        a.user = true;
+        a.remove = true;
+        a.apply = true;
+    }));
+    assert!(!r.at(UNIT).exists());
+}
+
+/// Both daemon units restart after 1 s and stop a crash loop at 10 starts in 300 s, so the
+/// crash files it keeps are not buried by an endless restart (theseus-0v8s).
+#[test]
+fn the_daemon_units_bound_a_crash_loop() {
+    let exec = vec!["/opt/theseus/bin/theseusd".to_string()];
+    let user = user_unit(&exec, &[]).unwrap();
+    let system = system_unit(&exec).unwrap();
+    for (name, unit) in [("user", &user), ("system", &system)] {
+        let (unit_sect, service) = unit.split_once("[Service]").unwrap();
+        assert!(
+            unit_sect.contains("StartLimitIntervalSec=300\n"),
+            "{name}:\n{unit}"
+        );
+        assert!(
+            unit_sect.contains("StartLimitBurst=10\n"),
+            "{name}:\n{unit}"
+        );
+        assert!(
+            service.contains("Restart=on-failure\nRestartSec=1\n"),
+            "{name}:\n{unit}"
+        );
+    }
+}
+
 /// The hint is the command as it was typed, with the flag added after it
 /// (theseus-w1nf): a flag the operator gave is not lost on the re-run, and a
 /// word with a space in it is quoted so the line pastes back whole.
@@ -1016,7 +1085,8 @@ fn the_hint_repeats_the_command_as_it_was_typed() {
     .into();
     let out = r.ok(&args(|a| {
         a.user = true;
-        a.apply = true;
+        // A plan, whatever argv says: --apply with no token file refuses (theseus-4xyj).
+        a.apply = false;
     }));
     assert!(
         out.contains(

@@ -941,6 +941,35 @@ fn check_follows_the_installed_unit_for_the_token_and_the_socket() {
     assert!(out.contains(&r.socket().display().to_string()), "{out}");
 }
 
+/// A day-to-day `check` in a shell without `THESEUS_CONFIG` reads the config the installed unit names, not the
+/// build's default, which a plan would name and which may be a file this machine does not have (theseus-a7gx).
+#[test]
+fn check_follows_the_installed_unit_for_the_config_when_the_shell_has_none() {
+    let r = rig!();
+    let (code, out) = installed(&r);
+    assert_eq!(code, 0, "{out}");
+    // The build's plan would now name a default file that is not there.
+    r.plan_build();
+    let (code, out) = r.check_without_the_variable();
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains(
+            "ok    config: op://Example/theseus-config/notesPlain (a vault note: the daemon reads it with the \
+             token; THESEUS_CONFIG is not set here, so this is the installed unit's config)"
+        ),
+        "{out}"
+    );
+    // The variable, when the shell has it, still decides.
+    let mut c = r.command(&["check"]);
+    c.env("THESEUS_CONFIG", "not-a-ref");
+    let (code, out) = Rig::said(&c.output().unwrap());
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("FAIL  config: not-a-ref is not a readable file"),
+        "{out}"
+    );
+}
+
 #[test]
 fn uninstall_removes_the_unit_and_leaves_the_store_and_the_token_alone() {
     let r = rig!();

@@ -24,6 +24,8 @@
 # THESEUS_OP_TOKEN_FILE. Run it from the shell you start the daemon in today. `check` reads the config
 # the unit would get from the plan's `config:` line, not from THESEUS_CONFIG alone: a build's built-in
 # default can be a file you do not have, and then the check fails until THESEUS_CONFIG names your note.
+# Once a unit is installed and this shell has no THESEUS_CONFIG, the `check` command (not install's) reads the unit's own `--config`
+# instead, as it does for the token file and the socket: the service runs that one.
 #
 # It never prints a secret. The token file is only checked with `stat`: it is never opened. Every
 # wait is bounded, and a daemon is found by its socket answering `theseus health`, never by
@@ -181,13 +183,16 @@ exec_flag() {
   return 1
 }
 
-# The socket and the token file: what the options and variables say, else what the unit names.
+# The socket, the token file, and the config: what the options and variables say, else what the unit names.
+# UNIT_CONFIG is set only for `check` (install checks the config the unit would get), when the shell has no THESEUS_CONFIG and the installed unit names one (theseus-a7gx).
 resolve_from_unit() {
   local text v
+  UNIT_CONFIG=""
   [ "$UNIT_PRESENT" = 0 ] && return 0
   text=$(probe systemctl --user show --property=ExecStart --value "$UNIT") || return 0
   if [ -z "${THESEUS_SOCKET:-}" ] && v=$(exec_flag "$text" --socket); then SOCKET=$v; fi
   if [ -z "$TOKEN_FILE" ] && v=$(exec_flag "$text" --op-token-file); then TOKEN_FILE=$v; fi
+  if [ "${FOLLOW_UNIT_CONFIG:-0}" = 1 ] && [ -z "${THESEUS_CONFIG:-}" ] && v=$(exec_flag "$text" --config); then UNIT_CONFIG=$v; fi
   return 0
 }
 
@@ -372,13 +377,19 @@ check_config() {
     info "config: not checked: theseusd is not on PATH, so there is no plan to read it from"
     return
   }
-  plan=$(probe timeout 20 theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user)
-  if ! ref=$(plan_config "$plan"); then
-    first=$(printf '%s' "$plan" | head -n 1)
-    fail "config: the plan names none (theseusd install --user said: ${first:-nothing})"
-    return
+  if [ -n "${UNIT_CONFIG:-}" ]; then
+    # No variable in this shell, and a unit that names its config: that is the config that runs.
+    ref=$UNIT_CONFIG
+    built_in="THESEUS_CONFIG is not set here, so this is the installed unit's config"
+  else
+    plan=$(probe timeout 20 theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user)
+    if ! ref=$(plan_config "$plan"); then
+      first=$(printf '%s' "$plan" | head -n 1)
+      fail "config: the plan names none (theseusd install --user said: ${first:-nothing})"
+      return
+    fi
+    [ -n "${THESEUS_CONFIG:-}" ] || built_in="THESEUS_CONFIG is not set here, so this is theseusd's built-in default"
   fi
-  [ -n "${THESEUS_CONFIG:-}" ] || built_in="THESEUS_CONFIG is not set here, so this is theseusd's built-in default"
   case $ref in
   op://*)
     if [[ $ref =~ ^op://[^/]+/[^/]+/.+$ ]]; then
@@ -772,7 +783,10 @@ if dry; then
   esac
 fi
 case $CMD in
-check) check_all ;;
+check)
+  FOLLOW_UNIT_CONFIG=1
+  check_all
+  ;;
 install) cmd_install ;;
 uninstall) cmd_uninstall ;;
 status) cmd_status ;;

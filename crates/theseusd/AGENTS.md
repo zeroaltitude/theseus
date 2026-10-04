@@ -33,7 +33,9 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   token file is checked by `stat` alone and never opened (`token.rs`): a regular file, the operator's, mode 0600 or
   stricter, not empty, else the plan refuses and says the fix, and so does `--apply`, before it writes anything.
   `--op-token-file` is a global flag, so it works before the subcommand and after it; the plan's hint is the command as
-  typed with it added. `scripts/user-service.sh` wraps all of this (`docs/user-service.md`).
+  typed with it added. `--apply` with no token file named refuses unless `--token-from-drop-in` says a drop-in supplies
+  it (a plan only notes it). Both units restart after 1 s and stop a crash loop at 10 starts in 300 s
+  (`StartLimit*`). `scripts/user-service.sh` wraps all of this (`docs/user-service.md`).
 - `cockpit/dist/`: the cockpit's build, ignored. In a debug build it is read as it is served, so the suite's tests of
   `/` see the build the gate made before them.
 

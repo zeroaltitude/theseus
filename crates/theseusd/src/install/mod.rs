@@ -74,6 +74,10 @@ pub(crate) struct InstallArgs {
     /// With --separate: the operator, who joins theseus-ops (default: whoever ran sudo).
     #[arg(long, value_name = "USER")]
     pub operator: Option<String>,
+    /// With --user --apply and no --op-token-file: the token comes from a drop-in (an
+    /// `EnvironmentFile`) you write yourself, so the unit may name no token file.
+    #[arg(long, requires = "user")]
+    pub token_from_drop_in: bool,
 }
 
 /// The daemon's own flags, as this invocation has them.
@@ -281,6 +285,21 @@ pub(crate) fn run_with(
             bail!(
                 "`--user` installs your own daemon's unit: run it as yourself, not as root (no \
                  sudo)"
+            );
+        }
+        // The unnamed token stays a note in a plan, so a drop-in's token isn't blocked; but
+        // --apply writes a unit whose daemon cannot start, unless the operator says why not
+        // (theseus-4xyj).
+        if mode == Mode::Apply
+            && !args.remove
+            && g.op_token_file.is_none()
+            && !args.token_from_drop_in
+        {
+            bail!(
+                "nothing was changed: the unit would name no token file, and the daemon will not \
+                 start without its 1Password token. Name one with --op-token-file <file> \
+                 (THESEUS_OP_TOKEN_FILE), or, if a drop-in supplies the token \
+                 (`systemctl --user edit theseusd`, an `EnvironmentFile`), add --token-from-drop-in"
             );
         }
         modes::user(env, g, args.remove, host)?
