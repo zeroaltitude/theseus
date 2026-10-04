@@ -231,7 +231,9 @@ fn wait(
             let (exit, v) = stop(child, reap, grace);
             return (exit, End::TimedOut(v));
         }
-        std::thread::sleep(Duration::from_millis(20));
+        // Asleep until the init exits, a stop or a child's exit pokes the
+        // wake pipe, or the deadline comes (7.1).
+        crate::job_wait::wait(child.pidfd(), deadline.saturating_sub(t0.elapsed()));
     }
 }
 

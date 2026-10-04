@@ -294,6 +294,10 @@ impl ToolRuntime {
                 self.settled(&mut ended, a, None, backend);
             }
         }
+        // A turn waiting on a job this stopped hears at once (W1, 7.1).
+        for corr in to_kill {
+            self.job_waits.wake(corr);
+        }
         ended
     }
 

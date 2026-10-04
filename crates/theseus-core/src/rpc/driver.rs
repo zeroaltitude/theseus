@@ -57,6 +57,9 @@ impl Core {
                             evidence,
                             unknown,
                         });
+                        // A job the reconciler settled: its turn, if one
+                        // waits, looks again (7.1).
+                        self.tools.job_waits.wake_all();
                     }
                     self.admission.notify_waiters();
                 } else {
@@ -94,6 +97,9 @@ impl Core {
     }
 
     /// Accept every spooled completion, removing each file after its frame.
+    /// A job a turn waits on is that turn's: woken, it takes the completion
+    /// with its result's node in one frame (7.1). Each other is taken here,
+    /// so one a turn took first writes nothing.
     #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     pub fn drain_spool(&self) -> u32 {
         let mut n = 0;
@@ -106,7 +112,15 @@ impl Core {
                     );
                 }
                 for (path, c) in d.completions {
-                    match self.kernel.accept_completion(&c) {
+                    if self.tools.job_waits.wake(&c.correlation_id) {
+                        continue;
+                    }
+                    match self.kernel.take_completion_with(&c, vec![]) {
+                        Ok(theseus_kernel::Accepted::Taken { .. }) => {
+                            if let Err(e) = self.spool.remove(&path) {
+                                tracing::warn!(error = %e, "spool remove failed");
+                            }
+                        }
                         Ok(acc) => {
                             tracing::info!(correlation_id = %c.correlation_id, producer = %c.producer, result = ?acc, "completion accepted from spool");
                             if self.narrator.on() {
@@ -396,6 +410,8 @@ impl Core {
         if self.kernel.mark_unknown(job, "wrapper_lost").is_err() {
             return false;
         }
+        // A turn waiting on the job hears at once (7.1).
+        self.tools.job_waits.wake(job);
         tracing::warn!(pid, job, signal, tool = %a.tool, "a job's wrapper was killed before it reported; its outcome is unknown");
         self.session_rec(&a.session_id)
             .record(&fact::driver::WrapperLost {

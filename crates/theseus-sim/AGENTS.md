@@ -80,7 +80,8 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
 - `bench turn` counts every frame the WAL gains from just before a turn until it has been still for 50 ms, so a frame
   another writer put in that window counts as the turn's. The gate reruns a miss once; a regression writes its frame
   every time, and the output names each frame by what it holds.
-- A tool-call turn writes 10 to 12 frames: whether the tool's result is consumed in the turn or by a wake varies. The
-  plain turn's 5 never does.
+- A tool-call turn writes 9 frames since Tier 7.1 (theseus-kpfv), held by `--check` as the plain turn's 5 is: the
+  turn takes its job's completion itself, with its result, in one frame. It wrote 10 to 12 before, as the drain
+  usually took the completion first.
 - The stand-in model (`fake_model::FakeModel::start_mixed`) asks for its tool only when a turn's input holds
   `fake_model::TOOL_MARK`; the lifecycle bench's `start` asks on every call.

@@ -227,10 +227,11 @@ fn full_lifecycle_one_action_one_turn() {
 }
 
 /// `plan_and_dispatch` (theseus-qa0): planned, authorized, and dispatched in
-/// one frame, each transition with its record and row, in that order, and the
-/// caller's records after the plan's; the end state `dispatched` leaves; over
-/// budget, nothing written. A view commits through its own handle and shares
-/// the turn locks.
+/// one frame, each transition with its row, in that order, and the caller's
+/// records after the plan's; the action and the execution once each, their
+/// last copies, where they stand (Tier 7.3); the end state `dispatched`
+/// leaves; over budget, nothing written. A view commits through its own
+/// handle and shares the turn locks.
 #[test]
 fn plan_and_dispatch_is_three_transitions_in_one_frame() {
     let w = world();
@@ -263,11 +264,8 @@ fn plan_and_dispatch_is_three_transitions_in_one_frame() {
     assert_eq!(
         labels,
         [
-            "execution",
-            "action",
             "action.planned",
             "meta",
-            "action",
             "action.authorized",
             "action",
             "execution",
@@ -324,6 +322,56 @@ fn duplicate_completion_is_a_logged_noop_and_stray_is_quarantined() {
     assert_eq!(w.kernel.quarantined().unwrap().len(), 1);
     // Still one execution, untouched.
     assert_eq!(w.kernel.executions().unwrap().len(), 1);
+    drop(g);
+}
+
+/// Tier 7.1: a spooled completion is taken (`take_completion_with`). The
+/// first taker settles the action, its own records in the same frame, and a
+/// second taker (the drain after the turn waiting on the job, or the turn
+/// after the drain) writes nothing, where a delivery from elsewhere is a
+/// logged duplicate.
+#[test]
+fn a_taken_completion_settles_once_and_its_second_taker_writes_nothing() {
+    let w = world();
+    let (_, _, g) = running(&w);
+    let a = dispatched(&w, &g, "proc.run", 0);
+    let c = completion(&a.correlation_id, Outcome::Succeeded, None);
+    let frames = || w.kernel.store().stats().unwrap().frames_appended;
+    let f0 = frames();
+    let node =
+        NewRecord::json(kinds::NODE, Some("msg_taken"), &json!({"id": "msg_taken"})).unwrap();
+    assert!(matches!(
+        w.kernel.take_completion_with(&c, vec![node]).unwrap(),
+        Accepted::Settled { .. }
+    ));
+    assert_eq!(frames(), f0 + 1, "the settlement and the node in one frame");
+    let store = w.kernel.store();
+    assert!(store
+        .latest_by_key(kinds::NODE, "msg_taken")
+        .unwrap()
+        .is_some());
+    let p = store.last_position();
+    assert!(matches!(
+        w.kernel.take_completion_with(&c, vec![]).unwrap(),
+        Accepted::Taken { .. }
+    ));
+    assert_eq!(
+        (frames(), store.last_position()),
+        (f0 + 1, p),
+        "nothing written"
+    );
+    let seen = w
+        .kernel
+        .action(&a.correlation_id)
+        .unwrap()
+        .unwrap()
+        .completions_seen;
+    assert_eq!(seen, 1);
+    assert!(matches!(
+        w.kernel.accept_completion(&c).unwrap(),
+        Accepted::DuplicateNoop { .. }
+    ));
+    assert_eq!(frames(), f0 + 2, "a delivery from elsewhere is logged");
     drop(g);
 }
 

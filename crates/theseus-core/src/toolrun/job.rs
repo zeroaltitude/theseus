@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use theseus_kernel::job::WrapperArgs;
-use theseus_kernel::{Action, ActionState, Completion, Kernel, Outcome, Spool};
+use theseus_kernel::{Accepted, Action, ActionState, Completion, Kernel, Outcome, Spool};
 use theseus_store::Store as _;
 use theseus_tools::{JobSpec, Tool};
 use zeroize::Zeroize;
@@ -20,7 +20,7 @@ use super::{
 use crate::egress;
 use crate::fact;
 use crate::narrative;
-use crate::node::ResultStatus;
+use crate::node::{Node, ResultStatus};
 use crate::policy::Posture;
 use crate::provider::ToolUse;
 use crate::sandbox;
@@ -47,6 +47,29 @@ struct Tail {
     total: u64,
     /// The bytes before what was read.
     unread: u64,
+}
+
+/// What the turn's look at its job needs (7.1).
+struct Look<'a> {
+    spool: &'a Spool,
+    correlation_id: &'a str,
+    call: &'a ToolUse,
+    tool: &'a str,
+    /// The launch, from which the result's duration counts.
+    t0: Instant,
+    /// The broker's note, which heads the result.
+    note: Option<&'a str>,
+}
+
+impl Look<'_> {
+    /// `r` with the wait's duration and the broker's note.
+    fn dressed<'r>(&self, mut r: ResultNode<'r>) -> ResultNode<'r> {
+        r.duration_ms = Some(self.t0.elapsed().as_millis() as u64);
+        if let Some(n) = self.note {
+            r.text = format!("{n}\n{}", r.text);
+        }
+        r
+    }
 }
 
 /// The last `MAX_RESULT_READ` bytes of a job's raw output, read by seek
@@ -202,7 +225,10 @@ impl ToolRuntime {
             wipe(&mut args);
             return self.not_started(tc, &a, call, tool.name());
         }
-        let launched = self.launcher.launch(&spool, &args);
+        // The turn waits on its job from before the launch, so the drain
+        // leaves the job's completion to it, and wakes it (7.1).
+        let waiting = self.job_waits.wait(correlation_id);
+        let launched = self.launcher.launch(&spool, &args, waiting.done());
         wipe(&mut args);
         let pid = match launched {
             Ok(p) => p,
@@ -272,23 +298,31 @@ impl ToolRuntime {
         {
             self.stop_launched(tc, correlation_id, pid).await;
         }
+        let look = Look {
+            spool: &spool,
+            correlation_id,
+            call,
+            tool: tool.name(),
+            t0,
+            note: note.as_deref(),
+        };
         loop {
-            if let Some(done) = Self::job_settled(tc.kernel, &spool, correlation_id)? {
-                let mut r = ResultNode {
-                    duration_ms: Some(t0.elapsed().as_millis() as u64),
-                    ..self.job_result(tc.store, &done, &call.id, tool.name(), Some(&call.input))
-                };
-                if let Some(n) = &note {
-                    r.text = format!("{n}\n{}", r.text);
-                }
-                return Ok(CallOutcome::Done {
-                    status: self.answer_job(tc, r, &done)?,
-                });
+            if let Some(status) = self.look_at_job(tc, &look)? {
+                return Ok(CallOutcome::Done { status });
             }
-            if t0.elapsed() >= bound {
+            let left = bound.saturating_sub(t0.elapsed());
+            if left.is_zero() {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            // The drain's word, a stop's, or the backstop's look (7.1).
+            waiting.woken(left.min(super::waits::LOOK)).await;
+        }
+        // Past its bound the job goes on in the background, and its
+        // completion is the drain's to take: one the drain left to this turn
+        // as the wait ended is taken here.
+        drop(waiting);
+        if let Some(status) = self.look_at_job(tc, &look)? {
+            return Ok(CallOutcome::Done { status });
         }
         let mut text = format!(
             "Still running as background job {correlation_id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.",
@@ -398,15 +432,112 @@ impl ToolRuntime {
         });
     }
 
-    /// Has the job settled? Accepts a spooled completion if it is there
-    /// (idempotent with the harness's own drain) and returns the settled action.
+    /// The turn's look at its job (7.1). A completion the wrapper has spooled
+    /// is taken with the result's node in one frame: the drain leaves it to
+    /// the waiting turn. A job something else settled (a stop or a cancel,
+    /// W1; the drain, once the wait has ended; the reconciler) is answered
+    /// from its action in a frame of its own, as before. None while it runs.
+    fn look_at_job(&self, tc: &TurnCtx<'_>, look: &Look<'_>) -> Result<Option<ResultStatus>> {
+        self.job_waits.looked();
+        let id = look.correlation_id;
+        let action = || {
+            tc.kernel
+                .action(id)?
+                .ok_or_else(|| anyhow!("action {id} vanished"))
+        };
+        let mut egress = false;
+        if let Some(c) = look.spool.read_completion(id)? {
+            let a = action()?;
+            let took = match a.state {
+                ActionState::Dispatched | ActionState::OutcomeUnknown => {
+                    let status = match c.outcome {
+                        Outcome::Succeeded => ResultStatus::Ok,
+                        Outcome::Failed => ResultStatus::Error,
+                        Outcome::Unknown => ResultStatus::Unknown,
+                    };
+                    let input = Some(&look.call.input);
+                    let ended = (Some(&c), status);
+                    let r =
+                        self.job_result_of(tc.store, &a, ended, &look.call.id, look.tool, input);
+                    let r = look.dressed(r);
+                    // Its egress rows ride in the frame that writes it (18c).
+                    crate::egress::record(tc, &self.sandbox, &a, &r.meta["detail"]);
+                    egress = true;
+                    let node = self.result_node(tc, r);
+                    self.take_with_result(tc, &c, &node)?
+                        .then_some((node, status))
+                }
+                // Settled already: taken, which writes nothing, or late after
+                // a cancel, which the action records.
+                _ => {
+                    tc.kernel.take_completion_with(&c, vec![])?;
+                    None
+                }
+            };
+            look.spool.remove(&look.spool.completion_path(id))?;
+            look.spool.remove_pid(&id.to_string());
+            if let Some((node, status)) = took {
+                Self::announce_end(tc, &node);
+                self.remove_job_output(&a);
+                return Ok(Some(status));
+            }
+        }
+        let a = action()?;
+        if !matches!(
+            a.state,
+            ActionState::Succeeded
+                | ActionState::Failed
+                | ActionState::OutcomeUnknown
+                | ActionState::Cancelled
+        ) {
+            return Ok(None);
+        }
+        let r = look.dressed(self.job_result(
+            tc.store,
+            &a,
+            &look.call.id,
+            look.tool,
+            Some(&look.call.input),
+        ));
+        // Unless a take that lost recorded them already.
+        if !egress {
+            crate::egress::record(tc, &self.sandbox, &a, &r.meta["detail"]);
+        }
+        let status = self.answer(tc, r)?;
+        self.remove_job_output(&a);
+        Ok(Some(status))
+    }
+
+    /// A job's completion and its result's node, taken in one frame (7.1),
+    /// with the session's hold when the result brings one, as `complete`
+    /// writes an in-process call's. Whether this took it: not when the drain
+    /// or the reconciler had, or a cancel had settled the call.
+    fn take_with_result(&self, tc: &TurnCtx<'_>, c: &Completion, node: &Node) -> Result<bool> {
+        let sid = tc.session_id;
+        let (accepted, newly) =
+            crate::external::with_hold(tc.store, sid, Some(tc.turn_id), node, |frame| {
+                tc.kernel.take_completion_with(c, frame)
+            })?;
+        let took = matches!(
+            accepted,
+            Accepted::Settled { .. } | Accepted::ResolvedUnknown { .. }
+        );
+        if took {
+            self.held(tc, newly);
+        }
+        Ok(took)
+    }
+
+    /// Has the job settled? Takes a spooled completion if it is there (with
+    /// the harness's own drain, whichever is first) and returns the settled
+    /// action.
     pub(super) fn job_settled(
         kernel: &Kernel,
         spool: &Spool,
         correlation_id: &str,
     ) -> Result<Option<Action>> {
         if let Some(c) = spool.read_completion(correlation_id)? {
-            kernel.accept_completion(&c)?;
+            kernel.take_completion_with(&c, vec![])?;
             spool.remove(&spool.completion_path(correlation_id))?;
             spool.remove_pid(&correlation_id.to_string());
         }
@@ -429,7 +560,6 @@ impl ToolRuntime {
     /// Answer it with `answer_job`, which then deletes the raw output.
     /// `input` is the call's, by which a job of a listed program is marked
     /// (theseus-b5cl).
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) fn job_result<'a>(
         &self,
         store: &Store,
@@ -445,12 +575,34 @@ impl ToolRuntime {
             .ok()
             .flatten()
             .and_then(|r| r.decode().ok());
+        let status = match a.state {
+            ActionState::Succeeded => ResultStatus::Ok,
+            ActionState::Failed => ResultStatus::Error,
+            ActionState::Cancelled => ResultStatus::Cancelled,
+            _ => ResultStatus::Unknown,
+        };
+        let ended = (completion.as_ref(), status);
+        self.job_result_of(store, a, ended, tool_use_id, tool, input)
+    }
+
+    /// `job_result` from how the job `ended`: its completion and the status
+    /// it settles the call as. The turn's take has them before the action
+    /// does, and writes the two in one frame (7.1).
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    fn job_result_of<'a>(
+        &self,
+        store: &Store,
+        a: &'a Action,
+        (completion, status): (Option<&Completion>, ResultStatus),
+        tool_use_id: &'a str,
+        tool: &'a str,
+        input: Option<&Value>,
+    ) -> ResultNode<'a> {
         let detail = completion
-            .as_ref()
             .and_then(|c| c.detail.clone())
             .unwrap_or(Value::Null);
         // An L1 job's launch, as health's last one (theseus-gyin).
-        if let Some(c) = &completion {
+        if let Some(c) = completion {
             self.sandbox.launched(&detail, c.started_at_ms);
         }
         let Tail {
@@ -459,12 +611,6 @@ impl ToolRuntime {
             unread,
         } = read_result_file(self.raw_output(a).as_deref());
         let exit = detail.get("exit_code").and_then(Value::as_i64);
-        let status = match a.state {
-            ActionState::Succeeded => ResultStatus::Ok,
-            ActionState::Failed => ResultStatus::Error,
-            ActionState::Cancelled => ResultStatus::Cancelled,
-            _ => ResultStatus::Unknown,
-        };
         let header = match (
             status,
             exit,
