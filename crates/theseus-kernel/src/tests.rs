@@ -1346,7 +1346,7 @@ fn a_call_that_costs_more_than_it_reserved_books_all_of_it() {
 
 // ------------------------------------------------------------ the limit follows the config (theseus-3pj)
 
-fn limited(spend_limit_micros: Micros) -> KernelConfig {
+pub(super) fn limited(spend_limit_micros: Micros) -> KernelConfig {
     KernelConfig {
         spend_limit_micros,
         ..KernelConfig::default()
@@ -1355,7 +1355,7 @@ fn limited(spend_limit_micros: Micros) -> KernelConfig {
 
 /// A conversation opened with the config's limit, which it follows, woken
 /// and admitted.
-fn following(w: &World) -> (SessionId, Execution, TurnGuard) {
+pub(super) fn following(w: &World) -> (SessionId, Execution, TurnGuard) {
     let e = w
         .kernel
         .open_execution(
@@ -1375,7 +1375,7 @@ fn following(w: &World) -> (SessionId, Execution, TurnGuard) {
 
 /// Spend `cost` on one call; then the next call, needing `needs`, does not
 /// fit, and the turn parks on its question.
-fn parked_at_limit(w: &World, g: TurnGuard, cost: Micros, needs: Micros) -> Action {
+pub(super) fn parked_at_limit(w: &World, g: TurnGuard, cost: Micros, needs: Micros) -> Action {
     let a = dispatched(w, &g, "provider.messages", cost);
     w.kernel
         .accept_completion(&completion(

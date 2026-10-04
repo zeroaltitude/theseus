@@ -1837,7 +1837,21 @@ impl Kernel {
         if !self.follows_limit(e) {
             return Ok(None);
         }
-        let (from, to) = (e.budget.limit_micros, self.cfg.spend_limit_micros);
+        self.limit_to(e, self.cfg.spend_limit_micros, now, "config")
+            .map(Some)
+    }
+
+    /// Give `e`, read under its lock, the limit `to`, as `follow_limit` says;
+    /// `why` names what chose it: the `config`, or a `place`'s ceiling
+    /// (`place_limit.rs`).
+    pub(crate) fn limit_to(
+        &self,
+        e: &mut Execution,
+        to: Micros,
+        now: u64,
+        why: &str,
+    ) -> Result<(LimitFollowed, Vec<NewRecord>)> {
+        let from = e.budget.limit_micros;
         e.budget.limit_micros = to;
         e.updated_at_ms = now;
         let mut records = Vec::new();
@@ -1893,6 +1907,7 @@ impl Kernel {
                 "state": e.state,
                 "withdrew": withdrew,
                 "proceeds": proceeds,
+                "why": why,
             }),
         )?);
         if woke {
@@ -1902,7 +1917,7 @@ impl Kernel {
                 json!({"execution_id": e.id, "why": "limit_raised"}),
             )?);
         }
-        Ok(Some((
+        Ok((
             LimitFollowed {
                 execution_id: e.id.clone(),
                 session_id: e.session_id.clone(),
@@ -1912,7 +1927,7 @@ impl Kernel {
                 proceeds,
             },
             records,
-        )))
+        ))
     }
 
     /// Bind a confirmation to the action's *current* digest (§3.9).

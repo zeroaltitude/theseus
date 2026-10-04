@@ -19,6 +19,7 @@ mod job_wait;
 pub mod kernel;
 mod locks;
 pub mod outbox;
+pub mod place_limit;
 pub mod redact;
 mod reopen;
 pub mod repeat;
@@ -39,6 +40,8 @@ mod tests;
 mod tests_budgets;
 #[cfg(test)]
 mod tests_frames;
+#[cfg(test)]
+mod tests_place_limit;
 #[cfg(test)]
 mod tests_repeat;
 #[cfg(test)]
