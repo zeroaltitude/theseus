@@ -67,6 +67,13 @@ pub struct AwsAccountConfig {
     /// health). It alerts only. Default $1.
     #[serde(default = "default_hourly_alert_usd")]
     pub hourly_alert_usd: f64,
+    /// Runaway-train mode (theseus-ext.12): the lines above alert, and the
+    /// alerts are the authority, unless the observed spend reaches this
+    /// many times `hourly_alert_usd` within the hour, or `daily_budget_usd`
+    /// within the local day. Then new AWS actions that reserve are refused
+    /// until the hour or day turns. Default 10, at least 2.
+    #[serde(default = "default_runaway_factor")]
+    pub runaway_factor: f64,
     /// The durability tender (AWS step 15): after serving, ship the store's
     /// WAL segments and blobs to the foundation's bucket and its index rows
     /// to the durability table, under the deployment's prefix, in the
@@ -81,7 +88,23 @@ pub fn default_hourly_alert_usd() -> f64 {
     1.0
 }
 
+/// Runaway mode's factor unless the config names one: 10.
+pub fn default_runaway_factor() -> f64 {
+    10.0
+}
+
 impl AwsAccountConfig {
+    /// `runaway_factor` is at least 2.
+    fn check_runaway_factor(&self, id: &str) -> Result<()> {
+        if !(self.runaway_factor.is_finite() && self.runaway_factor >= 2.0) {
+            anyhow::bail!(
+                "aws.accounts.{id}.runaway_factor is {}: name a factor of 2 or more (default 10)",
+                self.runaway_factor
+            );
+        }
+        Ok(())
+    }
+
     /// The regions a call may name: `regions`, or `region` alone.
     pub fn allowed_regions(&self) -> Vec<String> {
         if self.regions.is_empty() {
@@ -245,6 +268,7 @@ impl super::Config {
                     a.hourly_alert_usd
                 );
             }
+            a.check_runaway_factor(id)?;
         }
         let shipping: Vec<&String> = self
             .aws

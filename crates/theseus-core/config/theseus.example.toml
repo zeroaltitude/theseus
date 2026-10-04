@@ -310,8 +310,11 @@ search_key_secret = "brave_api_key"     # the [secrets] entry that holds the Bra
 # owner_role = "theseus-owner"          # after `theseus aws bootstrap`: calls sign in role sessions under the guards, and the key signs only STS
 # deployment = "theseus-desktop"        # every session's source identity: which Theseus this is (default "theseus")
 # monthly_budget_usd = 50               # the month's budget: the bootstrap's, and reconciled into its stack after serving
-# daily_budget_usd = 5                  # the day's budget, which only alerts: reconciled into the foundation stack's DailyBudgetUsd as the month's is
+# daily_budget_usd = 10                 # the day's budget, which only alerts: reconciled into the foundation stack's DailyBudgetUsd as the month's is
 # hourly_alert_usd = 1.0                # the hour's line: past what AWS actions reserved and spent this hour, Theseus alerts once that hour (default 1.0)
+# runaway_factor = 10.0                 # "let the budget notify be the authority unless 'runaway train' mode is triggered, which is,
+#                                       #  observationally, spend is 10x over the limit": at this many times the hour's or the day's
+#                                       #  line, new AWS actions that reserve are refused until the hour or day turns (default 10, at least 2)
 # durability = true                    # ship the store off the machine (default false; needs owner_role): WAL segments and blobs to the foundation's bucket, index rows to its table, under durability/<deployment>/
 # endpoint = "http://127.0.0.1:4566"    # tests and scratch daemons only: a stand-in for AWS on this machine
 

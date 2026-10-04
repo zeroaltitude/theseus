@@ -68,6 +68,7 @@ ledger_kinds! {
     AwsHandsSettled = "aws.hands.settled",
     AwsHourAlert = "aws.hour.alert",
     AwsReaperFailed = "aws.reaper.failed",
+    AwsRunaway = "aws.runaway",
     AwsSessionMinted = "aws.session.minted",
     AwsTrailChecked = "aws.trail.checked",
     BudgetAsked = "budget.asked",

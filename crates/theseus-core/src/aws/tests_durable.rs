@@ -536,6 +536,7 @@ pub(super) fn layer(fake: &Fake) -> Arc<Aws> {
                 monthly_budget_usd: None,
                 daily_budget_usd: None,
                 hourly_alert_usd: crate::config::default_hourly_alert_usd(),
+                runaway_factor: crate::config::default_runaway_factor(),
                 durability: true,
             },
         )]),
@@ -1037,6 +1038,7 @@ fn the_tender_session_is_narrowed_to_its_prefix_and_its_rows() {
         monthly_budget_usd: None,
         daily_budget_usd: None,
         hourly_alert_usd: crate::config::default_hourly_alert_usd(),
+        runaway_factor: crate::config::default_runaway_factor(),
         durability: true,
     };
     assert!(durable::policy("tender", ACCOUNT, &fake_cfg).is_none());

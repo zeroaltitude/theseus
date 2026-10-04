@@ -33,6 +33,11 @@ hour_line_micros: number,
  */
 alerted_hour_unix_ms?: number, 
 /**
+ * Runaway mode (theseus-ext.12), while it holds: until when, and in
+ * words. New AWS actions that reserve are refused until then.
+ */
+runaway_until_unix_ms?: number, runaway?: string, 
+/**
  * The reaper's failure records taken off the queue since the start, and
  * the last one's words.
  */
