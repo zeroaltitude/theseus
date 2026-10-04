@@ -140,7 +140,7 @@ export default function Systems() {
           {b.bindings_file && <Field label="bindings" mono>{b.bindings_file}{b.revision ? ` · revision ${b.revision}` : ''}</Field>}
           {b.members_intent != null && (
             <Field label="Server Members intent"><Pill tone={b.members_intent ? 'ok' : 'wait'}>{b.members_intent ? 'on' : 'off'}</Pill>
-              <span className="ml-1 text-[11px] text-ink-faint">{b.members_intent ? 'who can view a guild channel is checked for approvals' : 'a guild channel cannot be verified for approvals, so none is trusted'}</span></Field>
+              <span className="ml-1 text-[11px] text-ink-faint">{b.members_intent ? 'who can view a channel bound private is read at the start' : 'who can view a channel bound private cannot be read'}</span></Field>
           )}
           {b.connected_at_ms > 0 && <Field label="connected" mono>{ago(b.connected_at_ms, now)}{b.latency_ms ? ` · ${b.latency_ms} ms` : ''}</Field>}
           <Field label="in · out · edits" mono>{b.messages_in} · {b.messages_out} · {b.edits}</Field>
@@ -185,6 +185,14 @@ export default function Systems() {
       </Card>
 
       <Card title="Context files" icon={<FileText size={13} />}>
+        {h.context && (h.context.system_files.length > 0 || h.context.persona || h.context.personas.length > 0) && (
+          <div className="mb-1 text-[12px] text-ink-dim" title="the config's context files: the system level, which every session gets, then the persona in play's; until Jev chooses one, the persona is [context] default_persona">
+            <span className="num text-ink">{h.context.system_files.length}</span> at the system level ·{' '}
+            {h.context.persona
+              ? <>persona <span className="num text-ink">{h.context.persona}</span> in play, with <span className="num text-ink">{h.context.persona_files.length}</span></>
+              : <span className={h.context.personas.length ? 'text-wait' : 'text-ink-faint'}>no persona in play{h.context.personas.length ? ` (defined: ${h.context.personas.join(', ')})` : ''}</span>}
+          </div>
+        )}
         <Field label="persona" mono>{h.context?.persona ?? '—'}</Field>
         <Field label="personas" mono>{h.context?.personas.join(', ') || '—'}</Field>
         {(h.context?.system_files ?? []).map((f) => <Field key={f} label="system" mono>{f}</Field>)}
@@ -286,7 +294,7 @@ function WebAccess({ web }: { web: Health['web'] }) {
           {web.dev_origin && 'Unset [web] dev_origin when you are done developing: the dev server checks no one.'}
         </div>
       </> : <Empty>this daemon doesn't report its web UI's refusals</Empty>}
-      <div className="mt-2 border-t border-line/50 pt-1.5 text-[11px] text-ink-faint">This page talks to the daemon over one WebSocket (<span className="num">/ws</span>), JSON-RPC 2.0, the same protocol as the CLI and the classic Observatory.</div>
+      <div className="mt-2 border-t border-line/50 pt-1.5 text-[11px] text-ink-faint">This page talks to the daemon over one WebSocket (<span className="num">/ws</span>), JSON-RPC 2.0, the same protocol as the CLI and the TUI.</div>
     </Card>
   )
 }

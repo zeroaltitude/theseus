@@ -4,61 +4,95 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Bot, Brain, ChevronRight, CircleCheck, KeyRound, OctagonX, ScanSearch, Shield, ShieldCheck, User, Wrench } from 'lucide-react'
+import { Bot, Brain, ChevronRight, CircleCheck, CornerDownRight, KeyRound, OctagonX, ScanSearch, Shield, ShieldCheck, Undo2, User, Wrench, X } from 'lucide-react'
 import type { Health, NodeInfo, PublishResult, Tightening } from '@protocol'
 import { useTick } from '@/lib/hooks'
 import { call, useRpc } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
+import { dropDraft, type Draft } from '@/lib/drafts'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
-import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords } from '@/lib/toolwords'
+import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords, wireToName } from '@/lib/toolwords'
 import { JsonView } from './JsonView'
-import { Pill } from './ui'
+import { LiveDot, Pill } from './ui'
 import { ShouldHaveAsked } from './ShouldHaveAsked'
 
 type D = Record<string, any>
 
-interface Item { kind: 'user' | 'assistant' | 'tool'; node: NodeInfo; result?: NodeInfo }
+/** A call the model asked for, from its message's `tool_calls`. */
+interface Use { id: string; name: string; input: unknown }
+
+interface Item { kind: 'user' | 'assistant' | 'tool' | 'queued'; node: NodeInfo; result?: NodeInfo; use?: Use }
 
 function items(nodes: NodeInfo[]): Item[] {
   const results = new Map<string, NodeInfo>()
-  for (const n of nodes) if (n.kind === 'tool_result') { const id = (n.detail as D | null)?.tool_use_id; if (id) results.set(id, n) }
+  const planned = new Set<string>()
+  for (const n of nodes) {
+    const id = (n.detail as D | null)?.tool_use_id
+    if (!id) continue
+    if (n.kind === 'tool_result') results.set(id, n)
+    else if (n.kind === 'tool_call') planned.add(id)
+  }
   const out: Item[] = []
+  // A message's calls that have no call node yet: each waits for the one before it, so they go after the cards of
+  // the calls it made, before whatever comes next.
+  let queued: Item[] = []
+  const flush = () => { out.push(...queued); queued = [] }
   for (const n of nodes) {
     const d = (n.detail ?? {}) as D
-    if (n.kind === 'user_message') out.push({ kind: 'user', node: n })
-    else if (n.kind === 'assistant_message') out.push({ kind: 'assistant', node: n })
-    else if (n.kind === 'tool_call') out.push({ kind: 'tool', node: n, result: d.tool_use_id ? results.get(d.tool_use_id) : undefined })
+    if (n.kind === 'user_message') { flush(); out.push({ kind: 'user', node: n }) }
+    else if (n.kind === 'assistant_message') {
+      flush()
+      out.push({ kind: 'assistant', node: n })
+      queued = ((Array.isArray(d.tool_calls) ? d.tool_calls : []) as Use[])
+        .filter((u) => !planned.has(u.id) && !results.has(u.id))
+        .map((u): Item => ({ kind: 'queued', node: n, use: u }))
+    } else if (n.kind === 'tool_call') out.push({ kind: 'tool', node: n, result: d.tool_use_id ? results.get(d.tool_use_id) : undefined })
     else if (n.kind === 'tool_result' && !d.tool_use_id) out.push({ kind: 'tool', node: n })
   }
+  flush()
   return out
 }
 
 /** What a session's current turn is doing that no node holds yet: the streamed text and thinking, and the tools running. */
 export interface LiveTurn { turn_id: string; text: string; thinking?: string; running?: { id: string; tool: string; startedAt: number }[] }
 
-export function Transcript({ nodes, turns, live, asking, tightened }: {
+export function Transcript({ nodes, turns, live, asking, tightened, drafts }: {
   nodes: NodeInfo[]; turns: Map<string, TurnRow>; live?: LiveTurn | null
   /** The correlation ids of the calls waiting for the operator, and the tools "should have asked" tightened. */
   asking?: Set<string>; tightened?: Map<string, Tightening>
+  /** What was sent from here that the session has not written yet (`lib/drafts.ts`). */
+  drafts?: Draft[]
 }) {
-  const groups = useMemo(() => {
+  const { groups, late, callOf } = useMemo(() => {
     const g: { turn_id: string | null; items: Item[] }[] = []
     for (const it of items(nodes)) {
       const t = it.node.turn_id ?? null
       if (!g.length || g[g.length - 1].turn_id !== t) g.push({ turn_id: t, items: [] })
       g[g.length - 1].items.push(it)
     }
-    return g
+    // A late result belongs on its call's card, in the turn that made the call; the turn it arrived in says it came.
+    const late = new Map<string, NodeInfo[]>()
+    const callOf = new Map<string, NodeInfo>()
+    for (const n of nodes) {
+      const d = (n.detail ?? {}) as D
+      if (n.kind === 'tool_call' && d.tool_use_id) callOf.set(d.tool_use_id, n)
+      if (n.kind === 'tool_result' && d.late === true && n.turn_id) late.set(n.turn_id, [...(late.get(n.turn_id) ?? []), n])
+    }
+    return { groups: g, late, callOf }
   }, [nodes])
 
   return (
     <div className="flex flex-col gap-4 p-4">
       {groups.map((g, gi) => {
         const t = g.turn_id ? turns.get(g.turn_id) : undefined
+        const running = !!live && live.turn_id === g.turn_id
+        // A call the model asked for waits for the one before it while the turn runs, or while one of its calls waits
+        // for you; after a stop or a failure it never runs, so it is not shown.
+        const waits = running || g.items.some((it) => it.kind === 'tool' && !!asking?.has((it.node.detail as D | null)?.correlation_id))
         return (
           <section key={`${g.turn_id}-${gi}`} className="relative">
-            <div className="sticky top-0 z-10 -mx-4 mb-2 flex items-center gap-2 border-y border-line bg-hull px-4 py-1 shadow-[0_6px_12px_-8px_rgba(0,0,0,0.8)]">
+            <div className="sticky top-0 z-10 -mx-4 mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap border-y border-line bg-hull px-4 py-1 shadow-[0_6px_12px_-8px_rgba(0,0,0,0.8)]">
               <span className="panel-title">turn {gi + 1}</span>
               {t && <>
                 <span className="num text-[11px] text-ink-faint">{stamp(t.start)}</span>
@@ -66,6 +100,7 @@ export function Transcript({ nodes, turns, live, asking, tightened }: {
                 <span className="num text-[11px] text-model">{t.loops ?? '?'} loops</span>
                 <span className="num text-[11px] text-tool">{t.tool_calls ?? 0} tools</span>
                 <span className="num text-[11px] text-money">{usd(t.cost)}</span>
+                {t.usage && <TurnUsage u={t.usage} />}
                 {t.first_token_ms != null && <span className="num text-[11px] text-ink-faint" title="time to the first token">first token {ms(t.first_token_ms)}</span>}
                 {t.model && <span className="num text-[11px] text-ink-faint">{t.model}</span>}
                 {t.stop && <span className="num text-[11px] text-ink-faint">{t.stop}</span>}
@@ -73,16 +108,99 @@ export function Transcript({ nodes, turns, live, asking, tightened }: {
               </>}
             </div>
             <div className="flex flex-col gap-2">
+              {g.turn_id && !g.items.some((it) => it.kind === 'user') && <Continuation late={late.get(g.turn_id) ?? []} callOf={callOf} />}
               {g.items.map((it) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} />
                 : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} />
+                : it.kind === 'queued' ? (waits && it.use ? <QueuedItem key={`${it.node.node_id}:${it.use.id}`} at={it.node.at_unix_ms} use={it.use} /> : null)
                 : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} />)}
-              {live && live.turn_id === g.turn_id && <LiveItem live={live} />}
+              {running && live && <LiveItem live={live} />}
               {t?.failed && <TurnFailed t={t} />}
             </div>
           </section>
         )
       })}
       {live && !groups.some((g) => g.turn_id === live.turn_id) && <LiveItem live={live} />}
+      {drafts?.map((d) => <DraftItem key={d.id} d={d} />)}
+    </div>
+  )
+}
+
+/** A turn's own tokens, as the Observatory's turn footer gave them: all the input (what the cache gave and took, in
+ *  the tooltip) and the output. */
+function TurnUsage({ u }: { u: NonNullable<TurnRow['usage']> }) {
+  const read = u.cache_read_input_tokens ?? 0
+  const written = u.cache_creation_input_tokens ?? 0
+  const input = (u.input_tokens ?? 0) + read + written
+  return (
+    <span className="num text-[11px] text-ink-dim" title={`this turn's tokens: ${(u.input_tokens ?? 0).toLocaleString()} fresh input, ${read.toLocaleString()} read from the cache, ${written.toLocaleString()} written to it, ${(u.output_tokens ?? 0).toLocaleString()} output`}>
+      {tokens(input)} in{read || written ? <span className="text-think"> ({tokens(read)} cached{written ? `, ${tokens(written)} written` : ''})</span> : null} · {tokens(u.output_tokens)} out
+    </span>
+  )
+}
+
+/** Where a turn goes on after a cut, as the Observatory's divider said it: a continuation has no prompt of its own. It
+ *  answers the background results that arrived (each named here; its card is in the turn that made the call), or it
+ *  resumes after a confirmation or a restart. */
+function Continuation({ late, callOf }: { late: NodeInfo[]; callOf: Map<string, NodeInfo> }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-[11px] text-ink-faint">
+        <span className="h-px flex-1 bg-line" />
+        <span className="flex items-center gap-1"><CornerDownRight size={11} className="text-live" />
+          continuation · {late.length ? `${late.length} background result${late.length === 1 ? '' : 's'} arrived` : 'resumed after a confirmation or a restart'}</span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      {late.map((r) => {
+        const d = (r.detail ?? {}) as D
+        const c = callOf.get(d.tool_use_id)
+        const cd = (c?.detail ?? {}) as D
+        const tool = String(d.tool ?? cd.tool ?? 'tool')
+        const words = resultWords(r.detail)
+        return (
+          <div key={r.node_id} className="num ml-[76px] flex items-center gap-2 text-[11.5px]">
+            <Undo2 size={11} className="shrink-0 text-tool" />
+            <span className="shrink-0 text-tool">{tool}</span>
+            <span className="min-w-0 truncate text-ink-dim">{cd.plan?.summary ?? (c ? callSummary(tool, cd.input) : String(d.tool_use_id ?? ''))}</span>
+            <span className="shrink-0 text-ink-faint">background result · {words.status}{words.exit != null ? ` · exit ${words.exit}` : ''}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** A call the model asked for that waits for the one before it (the Observatory's queued card): no call node yet, so
+ *  no gate and no result. Shown while its turn runs or waits for you. */
+function QueuedItem({ use, at }: { use: Use; at: number }) {
+  const tool = wireToName(use.name)
+  return (
+    <div className="flex gap-3">
+      <Gutter icon={<Wrench size={13} />} at={at} tone="bg-tool/5 text-ink-faint ring-line" />
+      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-dashed border-tool/30 px-3 py-1.5">
+        <span className="num text-[12.5px] font-medium text-ink-dim">{tool}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-ink-faint">{callSummary(tool, use.input)}</span>
+        <span className="shrink-0 text-[11px] text-ink-faint">waits for the call before it</span>
+      </div>
+    </div>
+  )
+}
+
+/** A send the session has not written yet (the Observatory's draft bubble): waiting for admission (a turn may run
+ *  before it), or why it was never admitted, until dismissed. */
+function DraftItem({ d }: { d: Draft }) {
+  return (
+    <div className="flex gap-3">
+      <Gutter icon={<User size={13} />} at={d.at} tone="bg-white/5 text-ink-faint ring-line" />
+      <div className={cn('min-w-0 flex-1 rounded-lg border border-dashed px-3 py-2', d.error ? 'border-fault/40 bg-fault/[0.04]' : 'border-line-strong bg-white/[0.02]')}>
+        <div className="mb-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider">
+          {d.error
+            ? <span className="text-fault">not admitted</span>
+            : <span className="flex items-center gap-1.5 text-wait"><LiveDot tone="wait" size={5} /> waiting for admission…</span>}
+          {d.error && <button onClick={() => dropDraft(d.id)} title="dismiss" className="ml-auto text-ink-faint hover:text-ink"><X size={12} /></button>}
+        </div>
+        <div className="whitespace-pre-wrap text-[13px] text-ink-dim">{d.text}</div>
+        {d.error && <div className="mt-1 whitespace-pre-wrap text-[12px] text-fault">{d.error}</div>}
+      </div>
     </div>
   )
 }

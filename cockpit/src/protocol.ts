@@ -1,8 +1,9 @@
 // The Theseus protocol over a WebSocket: one JSON-RPC 2.0 object per text
 // frame. Its types are generated from crates/theseus-protocol (theseus-0g4):
 // ./protocol.gen, which a test there writes and the gate holds to the Rust
-// types. They are re-exported here, some under the names the apps use; this
-// file keeps what is not a type: ProtocolClient and its helpers.
+// types. They are re-exported here, some under the names the cockpit uses;
+// this file keeps what is not a type: ProtocolClient and its helpers. Both
+// moved here from web/src/ when the Observatory retired (theseus-vm3n.6).
 
 import type { ExternalText, Id, Message, NodeReachResult, Notification, Request, RpcError } from './protocol.gen'
 

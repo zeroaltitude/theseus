@@ -2,7 +2,7 @@
 // is said here too (theseus-vm3n.6). Invented ids and names.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { summarize } from '../src/lib/summary.ts'
+import { nodeSummary, summarize } from '../src/lib/summary.ts'
 
 const row = (kind: string, data: Record<string, unknown> = {}) =>
   ({ position: 1, at_unix_ms: 1, kind, session_id: null, turn_id: null, data }) as any
@@ -47,4 +47,14 @@ test('discord rows name the place, the author, and a failed press', () => {
   assert.equal(summarize(row('discord.confirm', { approve: true, by: 'ada', ok: false, error: 'late' })),
     'Discord press: approve by ada (failed: late)')
   assert.equal(summarize(row('discord.ignored', { author: 'bot', author_id: '7', reason: 'not bound' })), 'bot (7) · not bound')
+})
+
+test('a node reads in one line, as the Observatory\'s Nodes list said it', () => {
+  const node = (kind: string, text: string, detail: Record<string, unknown>) =>
+    ({ node_id: 'nod_1', session_id: 'ses_1', turn_id: null, kind, text, at_unix_ms: 1, position: 1, detail }) as any
+  assert.equal(nodeSummary(node('user_message', 'list   the\nharbour files', {})), 'list the harbour files')
+  assert.equal(nodeSummary(node('assistant_message', 'Reading them.', { model: 'm-1', stop_reason: 'tool_use', cost_usd: 0.002, tool_calls: [{}, {}] })),
+    'm-1 · tool_use · $0.0020 · 2 tool calls · Reading them.')
+  assert.equal(nodeSummary(node('tool_call', '', { tool: 'fs.list', input: { path: '.' }, decision: { posture: 'open' } })), 'fs.list {"path":"."} · open')
+  assert.equal(nodeSummary(node('tool_result', 'a.txt', { tool: 'fs.list', status: 'ok', late: true })), 'fs.list · ok · late · a.txt')
 })

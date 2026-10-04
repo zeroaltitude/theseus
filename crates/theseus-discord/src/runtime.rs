@@ -1736,7 +1736,7 @@ async fn send_tighten(
 /// What the presser alone is told after a "should have asked" press.
 fn tightened_reply(tool: &str, r: &Result<TightenResult, CallError>) -> String {
     let undo =
-        format!("Undo it in the web UI's Tools view, or with `theseus policy untighten {tool}`.");
+        format!("Undo it from the cockpit's Actions view, or `theseus policy untighten {tool}`.");
     match r {
         Ok(t) if t.already => format!(
             "🔒 `{tool}` already asks first: tightened by {}.",
@@ -2098,7 +2098,7 @@ impl Place {
             }
             Control::New => match self.rebind().await {
                 Ok(()) => format!(
-                    "🆕 New session `{}` here. The previous one stays in the web UI's session list.",
+                    "🆕 New session `{}` here. The previous one stays in the cockpit's Fleet.",
                     self.session_id
                 ),
                 Err(e) => format!("⚠️ Could not open a new session: {e}"),
@@ -2196,12 +2196,13 @@ impl Place {
                     .await
                 {
                     Ok(r) => {
+                        let note = r.wake.note.lines().next().unwrap_or_default();
                         return format!(
                             "⏹️ Wake `{}` cancelled: it will not run. It was due <t:{}:t>: {}",
                             r.wake.short,
                             r.wake.due_at_ms / 1000,
-                            crate::render::clip(r.wake.note.lines().next().unwrap_or_default(), 200)
-                        )
+                            crate::render::clip(note, 200)
+                        );
                     }
                     Err(e) if e.code == theseus_protocol::error_code::NOT_FOUND => e.message,
                     Err(e) => return format!("⚠️ Could not cancel: {e}."),
@@ -3064,7 +3065,7 @@ mod tests {
         assert_eq!(core.health().tightenings[0].tool, "proc.run");
         assert_eq!(
             tightened_reply("proc.run", &r),
-            "🔒 `proc.run` asks first from now on. Undo it in the web UI's Tools view, or with \
+            "🔒 `proc.run` asks first from now on. Undo it from the cockpit's Actions view, or \
              `theseus policy untighten proc.run`."
         );
         let again = send_tighten(&rpc, &pick, "discord:eddie", dm()).await;

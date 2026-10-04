@@ -7,16 +7,17 @@
 // - The broker: which program or tool is handed which secret, by name only; and what it withheld.
 // - Places (the place rule): each place and its class, a private channel's start-time read, and the public trees.
 // - Egress (18c, a seam): the hosts sandboxed jobs reach, and the refusals, once 18c records them.
-import { useDeferredValue, useMemo, type ReactNode } from 'react'
+import { useDeferredValue, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Anchor, CircleCheck, Eye, KeyRound, Link2, Lock, OctagonX, Radar, ShieldCheck, ShieldHalf, Siren, Undo2 } from 'lucide-react'
-import type { ActionInfo, ConfirmRequest, Health, LedgerEntry, NodeInfo, SandboxUsage, SessionInfo } from '@protocol'
+import type { ActionInfo, ConfirmRequest, Health, LedgerEntry, NodeInfo, SandboxHealth, SandboxUsage, SessionInfo } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useHistoryRows } from '@/lib/history'
 import { useWorld } from '@/lib/world'
 import { verdictWords } from '@/lib/verdict'
+import { decimalBytes, givenWords, jobsWords, l1Head, sandboxLine } from '@/lib/sandboxwords'
 import { ago, bytes, clock, cn, ms, short, stamp } from '@/lib/format'
 import { Btn, Empty, Panel, Pill } from '@/components/ui'
 
@@ -93,12 +94,13 @@ export default function Boundaries() {
           <Latch holds={holds} rows={mine} title={title} now={now} onOpen={(sid) => nav(`/session/${sid}`)} />
         </Panel>
         <Panel title={<>The gate · approvals and tightenings</>} icon={<ShieldCheck size={13} />} bodyClassName="p-2.5">
-          <Gate confirms={confirms} tight={tight} rows={mine} title={title} now={now} />
+          <Gate confirms={confirms} tight={tight} rows={mine} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
         </Panel>
       </div>
 
       <Panel title={<>The sandbox · L1 jobs, live and finished</>} icon={<ShieldHalf size={13} />} bodyClassName="p-2.5"
-        actions={<span className="num text-[11px] text-ink-faint">{sandboxLine(h)}</span>}>
+        actions={world ? <span className="num text-[11px] text-ink-faint">the settings are the daemon&rsquo;s now</span> : null}>
+        <SandboxSettings s={h?.sandbox} now={tick} />
         <Sandbox usage={usage} rows={mine} results={results} actions={world ? world.actions : al?.actions ?? []} asOf={asOf} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
       </Panel>
 
@@ -136,11 +138,12 @@ function Seal({ icon, n, word, tone, hint }: { icon: ReactNode; n: number; word:
   )
 }
 
+/** Confirmed first; true once the daemon has done it. */
 function useAct() {
   const qc = useQueryClient()
-  return async (method: string, params: unknown, ask: string) => {
-    if (!window.confirm(ask)) return
-    try { await call(method, params); await qc.invalidateQueries() } catch (e: any) { window.alert(e?.message ?? String(e)) }
+  return async (method: string, params: unknown, ask: string): Promise<boolean> => {
+    if (!window.confirm(ask)) return false
+    try { await call(method, params); await qc.invalidateQueries(); return true } catch (e: any) { window.alert(e?.message ?? String(e)); return false }
   }
 }
 
@@ -190,8 +193,10 @@ function Latch({ holds, rows, title, now, onOpen }: { holds: Health['external_te
 
 // ---------------------------------------------------------------- the gate
 
-function Gate({ confirms, tight, rows, title, now }: { confirms: ConfirmRequest[]; tight: Health['tightenings']; rows: LedgerEntry[]; title: (s?: string | null) => string; now: number }) {
+function Gate({ confirms, tight, rows, title, now, onOpen }: { confirms: ConfirmRequest[]; tight: Health['tightenings']; rows: LedgerEntry[]; title: (s?: string | null) => string; now: number; onOpen: (sid: string, cid?: string) => void }) {
   const act = useAct()
+  // What the last undo here did, as the Observatory's policy note said it.
+  const [note, setNote] = useState<string | null>(null)
   const log = rows.filter((r) => r.kind === 'policy.tightened' || r.kind === 'policy.untightened').slice(-6).reverse()
   return (
     <div className="flex flex-col gap-2">
@@ -214,15 +219,20 @@ function Gate({ confirms, tight, rows, title, now }: { confirms: ConfirmRequest[
         </div>
       ))}
       <div className="ship-engraved mt-1 text-[9.5px]">Tightenings · “Make actions like this ask in the future”</div>
+      {note && <div className="flex items-center gap-1.5 px-1 text-[11.5px] text-live"><CircleCheck size={12} /> {note}</div>}
       {!tight.length && <div className="px-1 text-[12px] text-ink-faint">no tool asks first beyond its configured posture</div>}
       {tight.map((t) => (
         <div key={t.tool} className="flex items-center gap-3 rounded-lg px-3 py-1.5 ring-1 ring-line">
           <Lock size={14} className="text-wait" />
           <div className="min-w-0 flex-1">
             <div className="text-[12.5px]"><span className="num text-tool">{t.tool}</span> <span className="text-ink-dim">asks first ({t.posture})</span></div>
-            <div className="num text-[11px] text-ink-faint">pressed by {t.by} via {t.via} · {ago(t.at_ms, now)}{t.session_id ? ` · in ${title(t.session_id)}` : ''}</div>
+            <div className="num text-[11px] text-ink-faint">
+              pressed by {t.by} via {t.via} · {ago(t.at_ms, now)}
+              {t.session_id && <> · in <button type="button" onClick={() => onOpen(t.session_id!, t.correlation_id ?? undefined)} title={`open the session it was pressed in (${t.session_id})`}
+                className="underline decoration-dotted underline-offset-2 hover:text-live">{title(t.session_id)}</button></>}
+            </div>
           </div>
-          <Btn tone="ok" onClick={() => act('policy.untighten', { tool: t.tool }, `Let ${t.tool} go back to its configured posture?`)}><Undo2 size={12} /> Undo</Btn>
+          <Btn tone="ok" onClick={async () => { if (await act('policy.untighten', { tool: t.tool }, `Let ${t.tool} go back to its configured posture?`)) setNote(`${t.tool} is back to what the config says`) }}><Undo2 size={12} /> Undo</Btn>
         </div>
       ))}
       {!!log.length && (
@@ -245,15 +255,56 @@ function Gate({ confirms, tight, rows, title, now }: { confirms: ConfirmRequest[
 
 // ---------------------------------------------------------------- the sandbox
 
-function sandboxLine(h?: Health): string {
-  const s = h?.sandbox
-  if (!s) return 'no sandbox in this daemon (tools are off)'
+/** L1 as health reports it now, in the CLI's words (the Observatory's Sandbox section, theseus-vm3n.6): the last real
+ *  launch since the start, the default level, the jobs by class, the programs that always run in L1, what an L1 job is
+ *  given, and the egress list. There is no start-time probe or delegated cgroup to show: the sandbox trims removed
+ *  both (1378382), so the last real launch is what says whether L1 works. */
+function SandboxSettings({ s, now }: { s?: SandboxHealth; now: number }) {
+  if (!s) return <div className="mb-3 rounded-lg px-3 py-2 text-[12px] text-ink-faint ring-1 ring-line">this daemon reports no sandbox: its tools are off</div>
+  const head = l1Head(s)
   const l = s.last_launch
-  const launch = s.refuses ? `L1 unavailable: ${s.refuses}`
-    : !l ? 'no L1 job yet since start'
-    : l.ok ? `last launch ok${l.start_ms != null ? `, start ${l.start_ms.toFixed(1)} ms` : ''}`
-    : `last launch failed: ${l.why ?? 'no reason given'}`
-  return `limits ${s.pids} processes · ${s.scratch_mb} MB scratch · ${launch} · ${s.jobs_l1} L1 jobs since the start`
+  const skipped = l?.skipped ?? []
+  const egress = s.egress ?? []
+  const conns = s.egress_connections ?? 0
+  const refused = s.egress_refused ?? 0
+  return (
+    <div className="mb-3 grid grid-cols-1 gap-x-6 gap-y-2.5 rounded-lg bg-white/[0.02] px-3 py-2.5 ring-1 ring-line md:grid-cols-2 2xl:grid-cols-3" title={`sandbox: ${sandboxLine(s)}`}>
+      <Setting label="L1 · the last real launch since the start">
+        <span className={head.tone === 'ok' ? 'text-ok' : head.tone === 'fault' ? 'text-fault' : 'text-ink-dim'}>{head.words}</span>
+        {l && <div className="text-[11px] text-ink-faint">at {clock(l.at_ms)} · {ago(l.at_ms, now)}</div>}
+        {skipped.length > 0 && <div className="text-[11px] text-wait" title="[sandbox] ro_paths that do not exist, so a job is given none of them">ro_paths missing: {skipped.join(', ')}</div>}
+      </Setting>
+      <Setting label="default level" hint="[sandbox] default: a job runs here unless its call asks for L1, or its program is always in L1">
+        <Pill tone={s.default === 'l1' ? 'ok' : 'idle'}>{s.default}</Pill>
+      </Setting>
+      <Setting label="jobs since the start">{jobsWords(s)}</Setting>
+      <Setting label="always in L1" hint="[sandbox] l1_argv: the programs that always run in L1, matched as allow_argv matches">
+        {s.l1_argv.length
+          ? <span className="flex flex-wrap gap-1">{s.l1_argv.map((a) => <code key={a} className="rounded bg-black/30 px-1.5 py-0.5 text-[11px] text-tool">{a}</code>)}</span>
+          : <span className="text-ink-faint">none listed: a job runs in L1 when its call asks for it</span>}
+      </Setting>
+      <Setting label="an L1 job gets" hint="[sandbox] pids, scratch_mb, output_mb: its processes, what it may write to scratch (and to each of its /tmp and HOME), and the largest file it may write">
+        {givenWords(s)}
+      </Setting>
+      <Setting label="egress" hint="[sandbox] egress: the hosts every L1 job may reach through its proxy. A call that names more waits for approval, which reaches those hosts alone.">
+        {egress.length
+          ? <span className="flex flex-wrap gap-1">{egress.map((x) => <code key={x} className="rounded bg-black/30 px-1.5 py-0.5 text-[11px] text-live">{x}</code>)}</span>
+          : <span className="text-ink-faint">none listed: an L1 job has no network, unless its call names hosts and you approve them</span>}
+        <div className="text-[11px] text-ink-faint">
+          since the start {conns} connection{conns === 1 ? '' : 's'} out, {decimalBytes(s.egress_up ?? 0)} up, {decimalBytes(s.egress_down ?? 0)} down · <span className={refused ? 'text-fault' : undefined}>{refused} refused</span>
+        </div>
+      </Setting>
+    </div>
+  )
+}
+
+function Setting({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0" title={hint}>
+      <div className="ship-engraved mb-0.5 text-[9.5px]">{label}</div>
+      <div className="num text-[12px] text-ink">{children}</div>
+    </div>
+  )
 }
 
 interface Finished { node: NodeInfo; cid: string; exit?: number; ms?: number; scratch?: string; failed: boolean }
