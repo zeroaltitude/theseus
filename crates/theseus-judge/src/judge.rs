@@ -53,6 +53,9 @@ pub struct Ask {
     pub mode: Mode,
     /// The core's own fields, echoed into the judgment untouched.
     pub context: Value,
+    /// The judgment's id, when the core minted it at its dispatch (so the
+    /// turn's trace can name it before Jev answers); none mints one here.
+    pub id: Option<String>,
 }
 
 impl Ask {
@@ -64,6 +67,7 @@ impl Ask {
             asked,
             mode,
             context,
+            id: None,
         }
     }
 }
@@ -196,10 +200,15 @@ pub struct Judgment {
     pub context: Value,
 }
 
+/// A fresh judgment id, `jdg_<uuid v7>`.
+pub fn new_id() -> String {
+    format!("jdg_{}", uuid::Uuid::now_v7().simple())
+}
+
 impl Judgment {
     fn pending(ask: &Ask) -> Self {
         Self {
-            id: format!("jdg_{}", uuid::Uuid::now_v7().simple()),
+            id: ask.id.clone().unwrap_or_else(new_id),
             pack: ask.pack.name(),
             version: ask.pack.version,
             pack_sha256: ask.pack.sha256.clone(),

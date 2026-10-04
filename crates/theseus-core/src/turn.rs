@@ -51,6 +51,7 @@ use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
+mod inbound_step;
 mod recall_step;
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
@@ -1527,6 +1528,7 @@ impl TurnRunner {
                 t.tc.store.append(&[node.record()?])?;
             }
             t.tc.node_written(&node);
+            self.inbound_point(t, &node, &author);
         }
 
         // 3. The loops, while the model has something new to read.

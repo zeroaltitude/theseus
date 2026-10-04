@@ -642,6 +642,24 @@ async fn shared_states_ride_one_call_and_split_its_cost_by_question_count() {
     assert_eq!(judge.sink().judgments(), js);
 }
 
+/// An id the core minted at its dispatch is the judgment's, so a trace that
+/// names it before Jev answers names its row; an ask without one gets a
+/// fresh id.
+#[tokio::test]
+async fn a_minted_id_is_the_judgments_and_none_mints_one() {
+    let fake = FakeJev::start().unwrap();
+    let mut minted = ask_with(probe_pack(), probe_input());
+    minted.id = Some("jdg_minted0001".into());
+    let js = judge_for(&fake)
+        .judge(DecisionPoint {
+            asks: vec![minted, ask_with(versioned(2, "jev-1.13.0"), probe_input())],
+            urgency: Urgency::Shadow,
+        })
+        .await;
+    assert_eq!(js[0].id, "jdg_minted0001");
+    assert!(js[1].id.starts_with("jdg_") && js[1].id != js[0].id);
+}
+
 #[tokio::test]
 async fn an_answer_from_another_model_is_drift_and_never_actionable() {
     let fake = FakeJev::start().unwrap();

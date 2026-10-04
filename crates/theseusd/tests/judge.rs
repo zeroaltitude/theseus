@@ -69,6 +69,14 @@ impl Rig {
             j.insert("api_base".into(), base.into());
             j.insert("connect_secs".into(), 1.into());
             j.insert("total_secs".into(), 5.into());
+            // loop.v1 alone: the inbound point's packs (25a) are judged in
+            // theseus-core's tests_inbound.
+            let packs = table(j, "packs");
+            for p in ["classify.v1", "role.v1"] {
+                let mut off = toml::Table::new();
+                off.insert("mode".into(), "off".into());
+                packs.insert(p.into(), off.into());
+            }
         }
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         Self { dir, model }
@@ -190,7 +198,10 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
     let j = rig.judge();
     assert_eq!(j["enabled"], true, "{j}");
     assert_eq!(j["breaker"], "idle", "{j}");
-    assert_eq!(j["packs"], json!(["loop.v1: shadow"]));
+    assert_eq!(
+        j["packs"],
+        json!(["loop.v1: shadow", "classify.v1: off", "role.v1: off"])
+    );
     assert!(rig.rows("judge.call").is_empty());
     rig.stop(d);
 }

@@ -2,6 +2,8 @@
 //! asks Jev its typed questions, through `theseus-judge`, and records every
 //! answer. In 23a one pack judges, `loop.v1`, in shadow: at each turn the
 //! baseline ended with no tool calls, after the turn, and nothing acts on it.
+//! In 25a two more, `classify.v1` and `role.v1`, judge each message a person
+//! sends, in one request (`inbound`).
 //!
 //! - **Off the start path.** `JudgeService::new` reads nothing and sends
 //!   nothing. The client, its breaker, and its sink's task are built by the
@@ -20,6 +22,7 @@
 //!   never called, and a judgment that would pass the day's limit is skipped
 //!   and counted, never queued.
 
+pub mod inbound;
 pub mod loop_end;
 pub mod sink;
 pub mod spend;
@@ -47,7 +50,11 @@ use spend::{Reserve, ShadowBudget};
 
 /// The packs this build wires in, and the mode the ladder gives each (step
 /// 26a brings the ladder; until then every pack is in shadow).
-pub const WIRED: &[(&str, PackMode)] = &[(LOOP_PACK, PackMode::Shadow)];
+pub const WIRED: &[(&str, PackMode)] = &[
+    (LOOP_PACK, PackMode::Shadow),
+    (inbound::CLASSIFY_PACK, PackMode::Shadow),
+    (inbound::ROLE_PACK, PackMode::Shadow),
+];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.
 pub const LOOP_PACK: &str = "loop.v1";
