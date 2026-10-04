@@ -27,12 +27,17 @@ use crate::{Config, Core};
 struct Kept(Mutex<Vec<WrapperArgs>>);
 
 impl crate::toolrun::JobLauncher for Kept {
-    fn launch(&self, spool: &theseus_kernel::Spool, args: &WrapperArgs) -> anyhow::Result<u32> {
+    fn launch(
+        &self,
+        spool: &theseus_kernel::Spool,
+        args: &WrapperArgs,
+        done: crate::toolrun::JobDone,
+    ) -> anyhow::Result<u32> {
         self.0.lock().unwrap().push(args.clone());
         let mut a = args.clone();
         a.sandbox = None;
         a.argv = vec!["true".into()];
-        crate::toolrun::InlineLauncher.launch(spool, &a)
+        crate::toolrun::InlineLauncher.launch(spool, &a, done)
     }
 }
 

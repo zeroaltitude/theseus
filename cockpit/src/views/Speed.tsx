@@ -5,7 +5,9 @@
 // - each turn's harness overhead, from its trace (the turn's time less its model and tool time), split into the
 //   disk's commits (the write path, one fsync a frame) and the rest;
 // - the stops, restarts, swaps, and frames per turn: the gates' benches, from the history they append
-//   (`bench.history`), with every gate's numbers over time.
+//   (`bench.history`), with every gate's numbers over time;
+// - frames per turn live too: each turn's trace counts its own (theseus-wz4y), and the dial reads the plain turns'
+//   (one loop, no tool call) beside the bench's.
 //
 // Without the bench history the wall shows the live numbers alone, and says so.
 import { useMemo, useState } from 'react'
@@ -35,7 +37,7 @@ const CONTRACTS = [
 
 // ---------------------------------------------------------------- reading the record
 
-interface TurnCost { at: number; session: string | null; turn: string | null; total: number; model: number; tools: number; commits: number; compile: number; admission: number; rest: number; harness: number; storeSpans: number[]; loops: number }
+interface TurnCost { at: number; session: string | null; turn: string | null; total: number; model: number; tools: number; commits: number; compile: number; admission: number; rest: number; harness: number; storeSpans: number[]; loops: number; stop: string; frames?: number }
 
 /** One turn's trace, split: the model's calls and the tools' runs are the turn's own waits; the rest is the harness,
  *  and of that, the store's commits are the disk's (each frame one fsync). */
@@ -59,6 +61,8 @@ function costOf(r: LedgerEntry): TurnCost | null {
   return {
     at: r.at_unix_ms, session: r.session_id, turn: r.turn_id, total, harness, ...c,
     rest: Math.max(0, harness - c.commits - c.compile - c.admission), loops: Number(attrs.loops ?? 0),
+    // The turn's own frame count (theseus-wz4y); absent from a daemon before it, and from a failed turn.
+    stop: String(attrs.stop_reason ?? ''), frames: typeof attrs.frames === 'number' ? attrs.frames : undefined,
   }
 }
 
@@ -111,6 +115,21 @@ export default function Speed() {
     }
     const g = lastWith(c.bench!)
     const ph = g ? phaseOf(g, c.bench!) : undefined
+    if (c.key === 'frames') {
+      // This daemon's plain turns (one loop, no tool call), each counting its own frames, beside the gate's bench. A
+      // session's first turn is left out, as the bench leaves out its warm-ups: it also writes what opens the session.
+      const seen = new Set<string | null>()
+      const warm = turns.filter((t) => { const first = !seen.has(t.session); seen.add(t.session); return !first })
+      const live = warm.filter((t) => t.loops === 1 && t.stop === 'no_tool_calls' && t.frames !== undefined).slice(-50).map((t) => t.frames!)
+      if (live.length) {
+        return {
+          value: p(live, 0.95), gate: ph?.p95, limit: ph?.limit,
+          source: `this daemon’s last ${live.length} plain turns, each counting its own frames (p95; a session’s first turn left out)${g ? `; the pointer is the gate’s bench, ${g.label} (p95)` : ''}`,
+          note: `live p95 ${p(live, 0.95)} of ${live.length} turns${ph ? ` · gate p95 ${ph.p95}` : ' · no bench history'}`,
+          spark: live,
+        }
+      }
+    }
     return {
       value: ph?.p95, gate: ph?.p50, limit: ph?.limit, source: g ? `the gate’s bench, ${g.label} (p95; the pointer is p50)` : 'no bench history on this machine',
       note: g ? `gate ${g.label.replace(/^main /, 'main ')}${ph?.limit ? ` · limit ${c.unit === 'frames' ? ph.limit : ms(ph.limit)}` : ''}` : 'no bench history',

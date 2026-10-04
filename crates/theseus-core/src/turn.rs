@@ -29,7 +29,7 @@ use theseus_protocol::{
     BudgetAsk, CacheSummary, ConfirmRequest, ContextCompiled, SessionKind, Span, TurnSubmitResult,
     Usage,
 };
-use theseus_store::NewRecord;
+use theseus_store::{frames_written_here, NewRecord};
 
 use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
@@ -831,18 +831,24 @@ impl TurnRunner {
     /// execution in the same frame when it has parked meanwhile
     /// (theseus-l6y); without it (continuations), give up at once and let the
     /// driver try again.
+    ///
+    /// `frames` counts the frames it writes (theseus-wz4y): each try is one
+    /// call, with no `.await` in it, so this thread's count is its own.
     async fn admit(
         &self,
         exec_id: &str,
         arrived: Instant,
         wait: bool,
+        frames: &mut u64,
     ) -> Result<Option<TurnGuard>> {
         loop {
+            let f0 = frames_written_here();
             let tried = if wait {
                 self.kernel.admit_input(exec_id)
             } else {
                 self.kernel.admit(exec_id)
             };
+            *frames += frames_written_here() - f0;
             match tried {
                 Ok(g) => return Ok(Some(g)),
                 Err(e) => match e.downcast_ref::<KernelError>() {
@@ -862,7 +868,10 @@ impl TurnRunner {
                         if !wait {
                             return Ok(None);
                         }
-                        self.kernel.wake_input(exec_id)?;
+                        let f0 = frames_written_here();
+                        let woke = self.kernel.wake_input(exec_id);
+                        *frames += frames_written_here() - f0;
+                        woke?;
                         continue;
                     }
                     Some(KernelError::NotRunnable { state, .. }) => {
@@ -997,7 +1006,16 @@ impl TurnRunner {
             Ok(us) => us,
             Err(r) => return Err(self.refuse(&req, r)),
         };
-        let exec = self.execution_for(&mut req.session)?;
+        // The frames the turn writes before its store handle exists
+        // (theseus-wz4y): its execution's opening, a superseded question,
+        // and its admission. Each stretch between two reads of this thread's
+        // count has no `.await`, so the count is the turn's own.
+        let mut admission_frames = 0u64;
+        let f0 = frames_written_here();
+        let exec = self.execution_for(&mut req.session);
+        admission_frames += frames_written_here() - f0;
+        let exec = exec?;
+        let f0 = frames_written_here();
         // The narrative's clock, taken only when it is on.
         let admitting = self.narrator.on().then(Instant::now);
         // An input wakes its execution and takes the turn in one frame
@@ -1037,15 +1055,20 @@ impl TurnRunner {
                     });
             }
         }
+        admission_frames += frames_written_here() - f0;
         let guard = match admitted {
             Some(g) => g,
-            None => match self.admit(&exec.id, arrived, !continuation).await? {
+            None => match self
+                .admit(&exec.id, arrived, !continuation, &mut admission_frames)
+                .await?
+            {
                 Some(g) => g,
                 None => {
                     anyhow::bail!("execution {} is not ready for a continuation turn", exec.id)
                 }
             },
         };
+        let f0 = frames_written_here();
         // A `/stop` that landed after this input arrived and before its turn
         // held the execution (theseus-hmwv) found no turn to mark: it waited
         // on its secrets, or for admission. The operator said "do this",
@@ -1067,6 +1090,7 @@ impl TurnRunner {
             admit_us,
         };
         let store = self.store.for_turn();
+        store.count_frames(admission_frames + (frames_written_here() - f0));
         let frames = Frames {
             // The results this turn settles for its execution are its own:
             // it reads them itself, so none is queued (theseus-l6y).
@@ -3026,11 +3050,16 @@ impl TurnRunner {
                 return Err(Self::fault(t, session, e));
             }
         }
+        // The turn's frames (theseus-wz4y): those written so far, and its
+        // last, `end_turn`'s, which carries this trace. The bench counts the
+        // same turn's from the WAL (`theseus-sim bench turn`).
+        let frames = t.tc.store.turn_frames().map(|n| n + 1);
         result.trace = Some(t.trace.finish(json!({
             "outcome": "complete",
             "loops": result.loops,
             "stop_reason": result.stop_reason,
             "usage": result.usage,
+            "frames": frames,
         })));
         // The trace is finished: the fact draws no span.
         t.tc.record(&fact::turn::TurnEnded { result: &result });

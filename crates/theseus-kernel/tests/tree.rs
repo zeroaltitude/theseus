@@ -3,7 +3,8 @@
 //! `theseusd job-wrapper`, stops its whole tree at a cancel and at its
 //! deadline, a `setsid` descendant included, and says how it knows. A wrapper
 //! from before 18a is stopped by its process group, as before, and one that
-//! never answers is killed with its group, the cancel uncertain. Each case
+//! never answers is killed with its group, the cancel uncertain. A SIGTERM
+//! any of the wrapper's threads takes wakes its wait at once (7.1). Each case
 //! ends with a scan of `/proc` for its own marker, so a process the stop
 //! missed fails it.
 //!
@@ -47,6 +48,10 @@ const CASES: &[Case] = &[
     Case {
         name: "a_plain_sigterm_stops_the_tree_and_the_wrapper_still_ends_by_it",
         run: plain_sigterm,
+    },
+    Case {
+        name: "a_sigterm_another_thread_takes_still_wakes_the_wrappers_wait_at_once",
+        run: sigterm_on_another_thread,
     },
 ];
 
@@ -455,4 +460,55 @@ fn plain_sigterm() -> Result<(), String> {
             .is_none(),
         || "no completion".into(),
     )
+}
+
+/// The wrapper sleeps in a poll on its command's pidfd (7.1). A SIGTERM its
+/// main thread takes interrupts the poll, but one another thread takes (the
+/// output's copy) does not: only the handler's byte in the wake pipe wakes
+/// the wait then. So the signal goes to the copy's thread alone (`tgkill`),
+/// and the wrapper must still stop its tree and end by it at once, not at
+/// its deadline a minute later.
+fn sigterm_on_another_thread() -> Result<(), String> {
+    let (rig, marker) = (Rig::new(), "300.1806");
+    let wrapper = rig.start(
+        "act_thread",
+        &format!("echo $$ > main.pid; exec sleep {marker}"),
+        60_000,
+        None,
+    );
+    rig.sleeper("main.pid")?;
+    wait_for("the handler", || {
+        job::catches_sigterm(wrapper).then_some(())
+    })?;
+    let copy = wait_for("the output's copy thread", || {
+        thread_named(wrapper, "job-output")
+    })?;
+    let t0 = Instant::now();
+    // SAFETY: a SIGTERM to one thread of the wrapper, which catches it.
+    unsafe { libc::syscall(libc::SYS_tgkill, wrapper as i32, copy as i32, libc::SIGTERM) };
+    // A wrapper still asleep would hold its tree: the scan runs either way,
+    // and kills what it finds.
+    let status = reaped(wrapper);
+    let took = t0.elapsed();
+    none_left(marker)?;
+    let status = status?;
+    check(status.signal() == Some(libc::SIGTERM), || {
+        format!("it ended by SIGTERM: {status}")
+    })?;
+    check(took < Duration::from_secs(3), || {
+        format!("woken at once, not at its deadline: {took:?}")
+    })
+}
+
+/// The thread of process `pid` named `name`, other than its main one.
+fn thread_named(pid: u32, name: &str) -> Option<u32> {
+    std::fs::read_dir(format!("/proc/{pid}/task"))
+        .ok()?
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .find(|tid| {
+            *tid != pid
+                && std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/comm"))
+                    .is_ok_and(|c| c.trim() == name)
+        })
 }

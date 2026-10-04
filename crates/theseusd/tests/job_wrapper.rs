@@ -238,6 +238,37 @@ fn orphans_that_exit_while_the_command_runs_are_reaped() {
     );
 }
 
+/// Tier 7.1 (review F2): a running wrapper sleeps until its command ends,
+/// where it looked every 20 ms. Over a second of a command that does nothing,
+/// its main thread is switched out a handful of times, not fifty; then the
+/// command's end wakes it, and it reports.
+#[test]
+fn a_running_wrapper_sleeps_until_its_command_ends() {
+    let rig = Rig::new();
+    let wrapper = rig.start("act_sleep", "echo $$ > main.pid; exec sleep 1.6");
+    rig.pid("main.pid");
+    let switches = || -> u64 {
+        std::fs::read_to_string(format!("/proc/{wrapper}/status"))
+            .unwrap()
+            .lines()
+            .find_map(|l| l.strip_prefix("voluntary_ctxt_switches:"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    let before = switches();
+    std::thread::sleep(Duration::from_secs(1));
+    let woke = switches() - before;
+    assert!(woke <= 5, "the wrapper woke {woke} times in a second");
+    let c = wait_for("the completion", || {
+        rig.spool.read_completion("act_sleep").unwrap()
+    });
+    assert_eq!(c.outcome, theseus_kernel::Outcome::Succeeded);
+    wait_for("the wrapper to exit", || (!alive(wrapper)).then_some(()));
+}
+
 /// A command that leaves nothing running: the wrapper exits with it, and
 /// never marks itself lingering.
 #[test]

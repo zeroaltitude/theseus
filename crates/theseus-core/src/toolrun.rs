@@ -41,13 +41,17 @@ use crate::store::Store;
 mod job;
 mod late;
 mod resume;
+mod waits;
 
 pub(crate) use late::{announce_cancelled, not_run_results};
+pub use waits::{JobDone, JobWaits, Waiting};
 
-/// Starts a job. The real one spawns `theseusd job-wrapper` detached; tests
-/// substitute one that runs the command on a thread and spools the result.
+/// Starts a job. The real one spawns `theseusd job-wrapper` detached, whose
+/// report reaches the waiting turn through the notify socket and the drain;
+/// tests substitute one that runs the command on a thread, spools the
+/// result, and wakes the turn with `done` (Tier 7.1).
 pub trait JobLauncher: Send + Sync {
-    fn launch(&self, spool: &Spool, args: &WrapperArgs) -> Result<u32>;
+    fn launch(&self, spool: &Spool, args: &WrapperArgs, done: JobDone) -> Result<u32>;
 }
 
 pub struct WrapperLauncher {
@@ -55,7 +59,7 @@ pub struct WrapperLauncher {
 }
 
 impl JobLauncher for WrapperLauncher {
-    fn launch(&self, spool: &Spool, args: &WrapperArgs) -> Result<u32> {
+    fn launch(&self, spool: &Spool, args: &WrapperArgs, _: JobDone) -> Result<u32> {
         spawn_detached(
             &self.self_exe,
             &[theseus_kernel::job::WRAPPER_MODE],
@@ -65,14 +69,16 @@ impl JobLauncher for WrapperLauncher {
     }
 }
 
-/// Runs the wrapper's body on a thread in this process (tests).
+/// Runs the wrapper's body on a thread in this process (tests), and wakes
+/// the turn once the job's completion is spooled.
 pub struct InlineLauncher;
 
 impl JobLauncher for InlineLauncher {
-    fn launch(&self, _spool: &Spool, args: &WrapperArgs) -> Result<u32> {
+    fn launch(&self, _spool: &Spool, args: &WrapperArgs, done: JobDone) -> Result<u32> {
         let a = args.clone();
         std::thread::spawn(move || {
             let _ = theseus_kernel::job::run_wrapper(&a);
+            done.wake();
         });
         Ok(std::process::id())
     }
@@ -262,6 +268,9 @@ pub struct ToolRuntime {
     /// `[places] public_paths`, expanded and canonical: all a shared place's
     /// file tools reach (the place rule, theseus-nbsh).
     pub public_roots: Vec<PathBuf>,
+    /// The jobs turns wait on (Tier 7.1): the drain leaves each one's
+    /// completion to its turn, and wakes it.
+    pub job_waits: Arc<JobWaits>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -379,6 +388,7 @@ impl ToolRuntime {
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
+            job_waits: Arc::default(),
         }
     }
 
@@ -1786,6 +1796,7 @@ pub fn build_runtime(
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
+        job_waits: Arc::default(),
     })
 }
 

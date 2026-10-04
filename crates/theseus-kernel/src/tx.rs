@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::Result;
-use theseus_store::{NewRecord, Record, RecordKind, Store, StoreStats, FROZEN_SCHEMA};
+use theseus_store::{kinds, NewRecord, Record, RecordKind, Store, StoreStats, FROZEN_SCHEMA};
 
 use crate::kernel::{Kernel, TurnGuard};
 use crate::terms;
@@ -301,6 +301,38 @@ impl Store for Staged {
     fn totals(&self, kind: RecordKind) -> Result<Option<theseus_store::Sums>> {
         self.under.totals(kind)
     }
+}
+
+/// `frame` with each execution and action record once, where it holds an
+/// earlier copy (Tier 7.3): the last copy, where it stands, and every other
+/// record as it was, each transition's ledger row among them. A copy before
+/// the last can never be read: the index keeps the last, a replay ends at
+/// it, and no reader of the WAL reads the copies between (the push keeps a
+/// frame's last copy of each). `None` when nothing repeats, which is every
+/// frame but a transaction's.
+pub(crate) fn once_each(frame: &[NewRecord]) -> Option<Vec<NewRecord>> {
+    fn key(r: &NewRecord) -> Option<(RecordKind, &str)> {
+        match r.kind {
+            kinds::EXECUTION | kinds::ACTION => r.key.as_deref().map(|k| (r.kind, k)),
+            _ => None,
+        }
+    }
+    let mut last = std::collections::HashMap::new();
+    let mut keyed = 0;
+    for (i, r) in frame.iter().enumerate() {
+        if let Some(k) = key(r) {
+            keyed += 1;
+            last.insert(k, i);
+        }
+    }
+    (last.len() < keyed).then(|| {
+        frame
+            .iter()
+            .enumerate()
+            .filter(|(i, r)| key(r).is_none_or(|k| last[&k] == *i))
+            .map(|(_, r)| r.clone())
+            .collect()
+    })
 }
 
 /// How many of `terms` are in `lo..hi`.

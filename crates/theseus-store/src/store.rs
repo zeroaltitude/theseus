@@ -272,6 +272,21 @@ struct Job {
     answer: mpsc::SyncSender<Result<Vec<u64>>>,
 }
 
+thread_local! {
+    /// The frames appended for this thread's callers (theseus-wz4y).
+    static WRITTEN_HERE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The frames this thread has appended since it started, to any store
+/// (theseus-wz4y): each counted when the writer answers it, on the thread
+/// that asked. A caller that writes with no `.await` between two reads of
+/// it (a kernel transition is one call) knows how many frames it wrote
+/// itself, whatever other threads wrote meanwhile: a turn counts its
+/// admission's frames this way.
+pub fn frames_written_here() -> u64 {
+    WRITTEN_HERE.with(std::cell::Cell::get)
+}
+
 /// Run `f`, which waits (for the disk, or for a lock held across it),
 /// without holding a runtime worker (theseus-vni9). On a worker of a
 /// multi-thread tokio runtime, `block_in_place` first hands the worker's
@@ -1145,9 +1160,12 @@ impl Store for WalStore {
                 anyhow::bail!("the store's writer has stopped");
             }
             s.queued.fetch_add(1, Ordering::SeqCst);
-            answered
+            let positions = answered
                 .recv()
-                .map_err(|_| anyhow::anyhow!("the store's writer stopped before it answered"))?
+                .map_err(|_| anyhow::anyhow!("the store's writer stopped before it answered"))??;
+            // One job is one frame, written by the writer for this caller.
+            WRITTEN_HERE.with(|n| n.set(n.get() + 1));
+            Ok(positions)
         })
     }
 

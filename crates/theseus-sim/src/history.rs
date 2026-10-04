@@ -944,9 +944,9 @@ mod tests {
         );
 
         // A count is held to its budget whatever the allowance: one frame over.
-        let frames = crate::perf::turn_verdicts(&summary(6.0, 6.0));
-        assert!(!frames[0].ok);
-        assert!(!allowed(&frames[0], 100));
+        let frames = crate::perf::turn_verdicts(&summary(6.0, 6.0), &summary(10.0, 10.0));
+        assert!(!frames[0].ok && !frames[1].ok);
+        assert!(!allowed(&frames[0], 100) && !allowed(&frames[1], 100));
 
         // A phase within its limit passes with or without one.
         let ok = verdicts(&[("shutdown".to_string(), summary(41.6, 51.9))], 0, None);

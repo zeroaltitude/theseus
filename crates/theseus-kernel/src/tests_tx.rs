@@ -48,7 +48,8 @@ fn panic_text(p: Box<dyn std::any::Any + Send>) -> String {
 /// Two transitions, one frame: the input's wake and the turn's admission,
 /// the second reading what the first staged, observed once. Nothing reaches
 /// the store before the closure returns: a reader outside it sees the
-/// execution as it was.
+/// execution as it was. The frame holds the execution once, its last copy,
+/// after the wake's row, and both transitions' rows (Tier 7.3).
 #[test]
 fn a_transaction_commits_its_transitions_as_one_observed_frame() {
     let w = world();
@@ -75,14 +76,9 @@ fn a_transaction_commits_its_transitions_as_one_observed_frame() {
         .unwrap();
     assert_eq!(
         *seen.lock().unwrap(),
-        vec![vec![
-            kinds::EXECUTION,
-            kinds::LEDGER,
-            kinds::EXECUTION,
-            kinds::LEDGER
-        ]]
+        vec![vec![kinds::LEDGER, kinds::EXECUTION, kinds::LEDGER]]
     );
-    assert_eq!(w.kernel.store().last_position(), before + 4);
+    assert_eq!(w.kernel.store().last_position(), before + 3);
     assert_eq!(
         w.kernel.execution(&e.id).unwrap().unwrap().state,
         ExecState::Running

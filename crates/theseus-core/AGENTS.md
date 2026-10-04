@@ -33,11 +33,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     execution lock, never while a turn holds it. Only the owner, from a private place: `judge_act(Act::Publish)`
     which asks `places::owner_in_private`. `theseus publish`, Discord's `/publish`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
-  a job's call in `toolrun/job.rs`, the continuation in `toolrun/resume.rs`, and the results no call's own run
-  writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are `policy.rs`
-  (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
-  `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept). Plus the
-  harness's own tools,
+  a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
+  completion with its result in one frame; Tier 7.1), the continuation in `toolrun/resume.rs`, and the results
+  no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are
+  `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
+  secrets), `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept).
+  Plus the harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
   serving (its calls fail closed until STS names the account), who signs (`session.rs`: the key until the config
   names `owner_role`, then work, job, floor, and tender sessions, and the key signs only STS), `aws.call` (reads,
@@ -129,6 +130,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The frame budget.** A plain one-loop turn writes 5 frames, and each loop with one in-process tool adds 4.
   Observability rows ride in the turn's next frame; the session's write rides in `end_turn`'s
   (`Store::defer_session`). `tests_m3::a_plain_turn_stays_within_its_frame_budget` fails a sixth frame.
+  Each turn counts its own (theseus-wz4y), as `frames` on its trace's root span: its admission's frames, read from
+  this thread's count around calls with no `.await` (`theseus_store::frames_written_here`, since the store's writer
+  thread writes them), its handle's (`Store::turn_frames`), and its last, which carries the trace. A frame written for
+  the turn by another path is counted to it (`Store::count_frames`): a job's completion the spool's drain accepted.
+  `tests_m3::frames_counted` and the turn bench (`theseus-sim bench turn`, against the WAL) hold it.
 - **A turn has one exit after it begins** (R1). `run_inner`'s body is `turn_body`, and its error goes to `fault`,
   which closes the books as `fail` does (class `internal`). A new `?` in the body or in `finish` lands there; never
   return an error from a turn by another path.
