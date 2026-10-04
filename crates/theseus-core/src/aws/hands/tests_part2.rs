@@ -485,6 +485,14 @@ async fn the_hours_alert_fires_once_an_hour() {
     assert!(alert["usd"].as_f64().unwrap() > 0.03, "{alert}");
     let aws = r.core.tools.aws.clone().unwrap();
     let account = aws.account(None).unwrap();
+    // Health's block is set just after the alert's row is written.
+    until("health's alert", || {
+        account
+            .status()
+            .hands
+            .is_some_and(|h| h.alerted_hour_unix_ms.is_some())
+    })
+    .await;
     let h = account.status().hands.expect("health's hands block");
     assert_eq!((h.running_lambda, h.running_fargate), (2, 0));
     assert_eq!(h.groups_open, 1);

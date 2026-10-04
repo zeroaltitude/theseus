@@ -23,14 +23,18 @@ use theseus_core::aws::hands::envelope::{Envelope, HandSpec, VERSION};
 const ACCOUNT: &str = "111122223333";
 
 /// What the fake keeps: each hand's spec as Lambda was asked to run it, and
-/// the queue's messages.
+/// the queue's messages, each with when it is visible again: as SQS does, a
+/// message received and not deleted (its receiver killed first) comes back
+/// once its visibility timeout has passed.
 #[derive(Default)]
 struct Aws {
     invoked: Mutex<Vec<HandSpec>>,
-    queue: Mutex<VecDeque<(String, String)>>,
+    queue: Mutex<VecDeque<(String, String, Instant)>>,
     sent: Mutex<u64>,
-    deleted: Mutex<Vec<String>>,
 }
+
+/// The fake's visibility timeout.
+const VISIBILITY: Duration = Duration::from_secs(2);
 
 impl Aws {
     fn push(&self, body: String) {
@@ -39,7 +43,12 @@ impl Aws {
         self.queue
             .lock()
             .unwrap()
-            .push_back((format!("rh-{n}"), body));
+            .push_back((format!("rh-{n}"), body, Instant::now()));
+    }
+
+    /// Every message but `kept` has been deleted.
+    fn drained_but(&self, kept: &str) -> bool {
+        self.queue.lock().unwrap().iter().all(|(r, _, _)| r == kept)
     }
 }
 
@@ -111,9 +120,16 @@ fn answer(
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     if target.ends_with("ReceiveMessage") {
         let got: Vec<(String, String)> = {
+            let now = Instant::now();
             let mut q = aws.queue.lock().unwrap();
-            let k = q.len().min(10);
-            q.drain(..k).collect()
+            let mut got = Vec::new();
+            for (r, b, at) in q.iter_mut() {
+                if *at <= now && got.len() < 10 {
+                    *at = now + VISIBILITY;
+                    got.push((r.clone(), b.clone()));
+                }
+            }
+            got
         };
         if got.is_empty() {
             std::thread::sleep(Duration::from_millis(100));
@@ -123,11 +139,10 @@ fn answer(
             "MessageId": r, "ReceiptHandle": r, "Body": b})).collect::<Vec<_>>()}));
     }
     if target.ends_with("DeleteMessage") {
-        aws.deleted
-            .lock()
-            .unwrap()
-            .push(v["ReceiptHandle"].as_str().unwrap_or_default().into());
+        let r = v["ReceiptHandle"].as_str().unwrap_or_default().to_string();
+        aws.queue.lock().unwrap().retain(|(x, _, _)| *x != r);
     }
+
     json(json!({}))
 }
 
@@ -415,9 +430,11 @@ fn a_kill_9_mid_group_then_a_restart_settles_each_hand_and_the_group_once() {
     up.until("the group", |u| {
         settled_of(u, "action.succeeded", &group) == 1
     });
-    up.until("every message deleted", |_| {
-        aws.deleted.lock().unwrap().len() == 4
-    });
+    // Every message the restart found is deleted. The first hand's may stay:
+    // when the kill came between its settle and its delete, SQS gives it
+    // again after its visibility timeout, and a poller whose groups have all
+    // settled is idle; the next group's poll takes it, as a duplicate.
+    up.until("every message deleted", |_| aws.drained_but("rh-1"));
     for s in &specs {
         assert_eq!(
             settled_of(&up, "action.succeeded", &s.correlation_id),
@@ -432,7 +449,11 @@ fn a_kill_9_mid_group_then_a_restart_settles_each_hand_and_the_group_once() {
         "the group settled once"
     );
     assert_eq!(up.rows("aws.hands.settled").len(), 1);
-    assert_eq!(up.rows("completion.duplicate").len(), 1);
+    // The envelope sent twice is a duplicate; so is the first hand's, when
+    // the kill came between its settle and its message's delete, and SQS
+    // gave it again.
+    let dups = up.rows("completion.duplicate").len();
+    assert!((1..=2).contains(&dups), "{dups} duplicates");
     assert_eq!(
         aws.invoked.lock().unwrap().len(),
         3,
