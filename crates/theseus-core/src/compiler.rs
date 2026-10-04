@@ -165,7 +165,8 @@ pub struct Compilation {
     /// Why it was made: `new_session`, `model_changed`, `system_changed`,
     /// `tools_changed` (joined with `+`), `overflow`, `manual_fresh`, `manual_transcript`.
     pub trigger: String,
-    /// `transcript` (everything so far), `fresh` (nothing), `ring` (leading turns dropped).
+    /// `transcript` (everything so far), `fresh` (nothing), `ring` (leading
+    /// turns dropped), `compaction` (a summary of them in their place, 30c).
     pub strategy: String,
     /// WAL position the selection was made at: later nodes are the tail.
     pub as_of: u64,
@@ -179,6 +180,11 @@ pub struct Compilation {
     /// Absent in a compilation from before it (COMPILATION's layout 7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<BudgetReport>,
+    /// An assembled prefix's recall section (M6 30c): the `Recall` node it
+    /// renders first, whatever its position. Absent in a compilation from
+    /// before it (COMPILATION's layout 8), and in one not assembled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recall_id: Option<String>,
 }
 
 /// An operator's request to recompile.
@@ -262,6 +268,9 @@ pub struct CompileInput<'a> {
     pub overflowed: Option<&'a Overflowed>,
     /// The sources the session's `Recall` nodes render (M6 30b).
     pub sources: &'a crate::recall::render::Sources,
+    /// The assembled strategy's recall section (M6 30c): a new compilation
+    /// renders this `Recall` node first in its prefix (`recall_id`).
+    pub assembled: Option<&'a str>,
 }
 
 /// A request that passed the model's window, as the provider said it
@@ -720,6 +729,7 @@ fn compile_with(
                     ..base.clone()
                 },
                 budget: None,
+                recall_id: input.assembled.map(str::to_string),
             }
         };
 
@@ -915,15 +925,19 @@ pub fn render_request(
     ),
 ) -> Rendered {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
+    // An assembled prefix's recall section is its, wherever it was written.
+    let section = |n: &Node| c.recall_id.as_deref() == Some(n.id.as_str());
     let prefix: Vec<&Node> = nodes
         .iter()
-        .filter(|(pos, n)| *pos <= c.as_of && included.contains(n.id.as_str()) && renderable(n))
+        .filter(|(pos, n)| {
+            (*pos <= c.as_of && included.contains(n.id.as_str()) && renderable(n)) || section(n)
+        })
         .map(|(_, n)| &**n)
         .collect();
-    let prefix = compaction::summaries_first(prefix);
+    let prefix = compaction::summaries_first(prefix, c.recall_id.as_deref());
     let tail: Vec<&Node> = nodes
         .iter()
-        .filter(|(pos, n)| *pos > c.as_of && renderable(n))
+        .filter(|(pos, n)| *pos > c.as_of && renderable(n) && !section(n))
         .map(|(_, n)| &**n)
         .collect();
     let entry = catalog.get(&spec.model);
@@ -1382,6 +1396,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            assembled: None,
         })
     }
 
@@ -1631,6 +1646,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            assembled: None,
         });
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
@@ -1663,6 +1679,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            assembled: None,
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");
@@ -1919,6 +1936,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            assembled: None,
         });
         assert_eq!(c.request.system.len(), 2);
         assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
@@ -1976,6 +1994,7 @@ mod tests {
             strip: None,
             overflowed,
             sources: &Default::default(),
+            assembled: None,
         })
     }
 
@@ -2225,6 +2244,7 @@ mod tests {
             strip: None,
             overflowed: None,
             sources: &Default::default(),
+            assembled: None,
         })
     }
 

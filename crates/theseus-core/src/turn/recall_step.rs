@@ -43,6 +43,20 @@ pub(crate) struct Recalled {
     pub drops: Vec<BudgetDrop>,
     /// The notes it admitted: the reply's footer says them.
     pub count: u32,
+    /// It is an assembled prefix's recall section (30c): a task's first
+    /// compile, or a compaction. Its pack takes `assembled_budget_tokens`,
+    /// and the new compilation renders it first in its prefix.
+    pub assembled: bool,
+}
+
+impl Recalled {
+    /// The pending node an assembled prefix renders first (`recall_id`).
+    pub fn assembled_id(&self) -> Option<&str> {
+        self.pending
+            .as_ref()
+            .filter(|_| self.assembled)
+            .map(|n| n.id.as_str())
+    }
 }
 
 /// The position a pending `Recall` node renders at: after every node, as
@@ -62,6 +76,9 @@ impl TurnRunner {
         if !self.memory.on() {
             return None;
         }
+        // A task's first compile is assembled (30c): its recall section
+        // goes first in the prefix, at the assembled budget.
+        t.recall.assembled = session.task.is_some() && session.compilation_id.is_none();
         let assigned = self.memory.cfg().assign(t.tc.session_id);
         if let Some(a) = assigned {
             self.record_arm(t, a);
@@ -69,7 +86,7 @@ impl TurnRunner {
         let begun = self.recall_begin(t)?;
         match assigned {
             Some(a) if a.live => {
-                self.recall_live(t, session, begun, a).await;
+                self.recall_live(t, Some(session), begun, a).await;
                 None
             }
             _ => Some(begun),
@@ -128,7 +145,11 @@ impl TurnRunner {
     fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str) -> Scene<'a> {
         let mut in_context = BTreeSet::new();
         if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
-            for (_, n) in nodes.iter() {
+            // An assembled section's context is what its prefix keeps: past
+            // a compaction, the summarized range is out of it (30c).
+            let floor = crate::compiler::compaction::floor(&nodes).map(|(_, last)| last);
+            let after = floor.filter(|_| t.recall.assembled).unwrap_or(0);
+            for (_, n) in nodes.iter().filter(|(p, _)| *p > after) {
                 in_context.insert(n.id.clone());
                 if let Body::Recall { items, .. } = &n.body {
                     in_context.extend(items.iter().map(|r| r.node_id.clone()));
@@ -149,6 +170,10 @@ impl TurnRunner {
             place: self.place_of(t.tc.session_id),
             in_context,
             labeled,
+            budget_tokens: t
+                .recall
+                .assembled
+                .then(|| self.memory.cfg().assembled_budget_tokens),
         }
     }
 
@@ -182,7 +207,7 @@ impl TurnRunner {
     async fn recall_live(
         &self,
         t: &mut Turn<'_>,
-        session: &SessionRecord,
+        session: Option<&SessionRecord>,
         mut begun: Begun,
         a: Assigned,
     ) {
@@ -195,7 +220,8 @@ impl TurnRunner {
             .manifest(&scene, &begun, answer, |s| self.place_of(s), true);
         m.arm = Some(a.arm.as_str().into());
         let cap = self.memory.cfg().session_recall_cap_tokens;
-        let in_tail = self.recall_tokens_in_tail(t, session);
+        // An assembled section sits in the prefix: the tail's cap is not its.
+        let in_tail = session.map_or(0, |s| self.recall_tokens_in_tail(t, s));
         if !m.admitted.is_empty() && in_tail + m.used_tokens > cap {
             m.outcome = "paused".into();
             m.why = Some(format!(
@@ -219,20 +245,55 @@ impl TurnRunner {
         t.announce_fact(&f);
     }
 
+    /// A compaction's assembled recall section (30c): the first loop's
+    /// pending recall, when there is one, becomes it; otherwise recall runs
+    /// now at the assembled budget, under its deadline, in front of the
+    /// model or in shadow as the session's arm says. Its node's id, when
+    /// it admitted something in front of the model.
+    pub(super) async fn recall_assembled(&self, t: &mut Turn<'_>) -> Option<String> {
+        if !self.memory.on() {
+            return None;
+        }
+        t.recall.assembled = true;
+        if let Some(n) = &t.recall.pending {
+            return Some(n.id.clone());
+        }
+        let begun = self.recall_begin(t)?;
+        match self.memory.cfg().assign(t.tc.session_id) {
+            Some(a) if a.live => self.recall_live(t, None, begun, a).await,
+            _ => self.recall_end(t, begun).await,
+        }
+        t.recall.pending.as_ref().map(|n| n.id.clone())
+    }
+
+    /// Drop an assembled section the compaction did not use: its node
+    /// rides nothing, and the next loop recalls nothing more.
+    pub(super) fn recall_unassembled(t: &mut Turn<'_>, fresh: bool) {
+        t.recall.assembled = false;
+        if fresh {
+            t.recall.pending = None;
+            t.recall.rides.clear();
+            t.recall.drops.clear();
+            t.recall.count = 0;
+        }
+    }
+
     /// The tokens of the recall notes in the session's tail: those after
     /// its current compilation's `as_of`.
     fn recall_tokens_in_tail(&self, t: &Turn<'_>, session: &SessionRecord) -> u64 {
-        let as_of = session
+        let current = session
             .compilation_id
             .as_deref()
-            .and_then(|id| self.store.get_compilation(id).ok().flatten())
-            .map_or(0, |c| c.as_of);
+            .and_then(|id| self.store.get_compilation(id).ok().flatten());
+        let as_of = current.as_ref().map_or(0, |c| c.as_of);
+        // An assembled prefix's section is its prefix's, not the tail's.
+        let section = current.and_then(|c| c.recall_id);
         let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) else {
             return 0;
         };
         nodes
             .iter()
-            .filter(|(p, _)| *p > as_of)
+            .filter(|(p, n)| *p > as_of && section.as_deref() != Some(n.id.as_str()))
             .map(|(_, n)| match &n.body {
                 Body::Recall { items, .. } => items.iter().map(|r| r.tokens).sum(),
                 _ => 0,

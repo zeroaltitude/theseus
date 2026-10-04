@@ -85,11 +85,15 @@ pub(super) fn visible(nodes: &[(u64, Arc<Node>)]) -> Vec<&(u64, Arc<Node>)> {
         .collect()
 }
 
-/// A prefix's nodes with its summaries first, in the order they were
-/// written, and the rest in position order.
-pub(super) fn summaries_first(prefix: Vec<&Node>) -> Vec<&Node> {
-    let (mut first, rest): (Vec<&Node>, Vec<&Node>) =
-        prefix.into_iter().partition(|n| is_summary(n));
+/// A prefix's nodes in the assembled order (30c): its recall section
+/// (`recall`, the compilation's `recall_id`), its summaries in the order
+/// they were written, and the rest in position order.
+pub(super) fn summaries_first<'n>(prefix: Vec<&'n Node>, recall: Option<&str>) -> Vec<&'n Node> {
+    let (mut first, rest): (Vec<&Node>, Vec<&Node>) = prefix
+        .into_iter()
+        .partition(|n| Some(n.id.as_str()) == recall);
+    let (summaries, rest): (Vec<&Node>, Vec<&Node>) = rest.into_iter().partition(|n| is_summary(n));
+    first.extend(summaries);
     first.extend(rest);
     first
 }
@@ -117,6 +121,7 @@ pub fn compact(
         .chain(c.includes.iter().filter(|id| *id != summary).cloned())
         .collect();
     c.manifest.strip_thinking = true;
+    c.recall_id = input.assembled.map(str::to_string);
     let media = (
         input.blobs,
         input.hidden,
@@ -217,7 +222,15 @@ mod tests {
         let none: Vec<(u64, Arc<Node>)> = vec![(1, user("a")), (2, user("b"))];
         assert_eq!(visible(&none).len(), 2);
         // In the prefix, a summary renders first whatever its position.
-        let ordered = summaries_first(vec![&*nodes[4].1, &*nodes[5].1, &*nodes[6].1]);
+        let ordered = summaries_first(vec![&*nodes[4].1, &*nodes[5].1, &*nodes[6].1], None);
         assert!(is_summary(ordered[0]));
+        // An assembled prefix's recall section comes before it.
+        let section = nodes[6].1.id.as_str();
+        let ordered = summaries_first(
+            vec![&*nodes[4].1, &*nodes[5].1, &*nodes[6].1],
+            Some(section),
+        );
+        assert_eq!(ordered[0].id, section);
+        assert!(is_summary(ordered[1]));
     }
 }

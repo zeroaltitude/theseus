@@ -117,16 +117,18 @@ impl TurnRunner {
                 return Ok(ring);
             }
         };
-        // The compaction's compilation, as of the summary's frame.
-        let nodes = t.tc.store.transcript(t.tc.session_id)?;
-        let (nodes, sources) = self.recall_view(t, nodes);
-        let input = CompileInput {
-            nodes: &nodes,
-            last_position: self.store.last_position(),
-            sources: &sources,
-            ..base
-        };
-        let c = compaction::compact(input, &ring, &summary.id, summary_drops(&ring, &done));
+        // The assembled prefix (30c): its recall section, the summary, the
+        // kept turns, as of the summary's frame; without the section when
+        // the section is what would not fit.
+        let fresh = t.recall.pending.is_none();
+        let section = self.recall_assembled(t).await;
+        let drops = summary_drops(&ring, &done);
+        let mut c =
+            self.compaction_of(t, &ring, base, &summary, section.as_deref(), drops.clone())?;
+        if !compaction::fits(&c) && section.is_some() {
+            Self::recall_unassembled(t, fresh);
+            c = self.compaction_of(t, &ring, base, &summary, None, drops)?;
+        }
         if !compaction::fits(&c) {
             let why = format!(
                 "the summary and the kept turns came to {} tokens, past the {} the window leaves",
@@ -145,9 +147,33 @@ impl TurnRunner {
                 t0,
                 i,
             );
+            Self::recall_unassembled(t, fresh);
             return Ok(ring);
         }
         Ok(c)
+    }
+
+    /// The compaction's compilation over the transcript as it stands, with
+    /// the turn's pending recall, `section` its assembled recall section.
+    fn compaction_of(
+        &self,
+        t: &Turn<'_>,
+        ring: &Compiled,
+        base: CompileInput<'_>,
+        summary: &Node,
+        section: Option<&str>,
+        drops: Vec<BudgetDrop>,
+    ) -> anyhow::Result<Compiled> {
+        let nodes = t.tc.store.transcript(t.tc.session_id)?;
+        let (nodes, sources) = self.recall_view(t, nodes);
+        let input = CompileInput {
+            nodes: &nodes,
+            last_position: self.store.last_position(),
+            sources: &sources,
+            assembled: section,
+            ..base
+        };
+        Ok(compaction::compact(input, ring, &summary.id, drops))
     }
 
     /// The ring stands: its row, span, and line say why.

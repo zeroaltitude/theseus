@@ -254,6 +254,9 @@ pub struct Scene<'a> {
     pub in_context: BTreeSet<String>,
     /// The nodes the operator labeled wrong or stale.
     pub labeled: BTreeSet<String>,
+    /// The pack's tokens when not `[memory] recall_budget_tokens`: an
+    /// assembled prefix's recall section (30c), `assembled_budget_tokens`.
+    pub budget_tokens: Option<u64>,
 }
 
 impl Memory {
@@ -280,7 +283,7 @@ impl Memory {
             query_chars: begun.query.chars().count() as u64,
             query_digest: hex::encode(&Sha256::digest(begun.query.as_bytes())[..8]),
             as_of: begun.as_of,
-            budget_tokens: self.cfg.recall_budget_tokens,
+            budget_tokens: scene.budget_tokens.unwrap_or(self.cfg.recall_budget_tokens),
             timings: RecallTimings {
                 index_ms: ms(index_took),
                 deadline_ms: begun.deadline.as_millis() as u64,
@@ -346,7 +349,11 @@ impl Memory {
             labeled: &scene.labeled,
             now_ms: theseus_protocol::now_unix_ms(),
         };
-        let pack = pipeline::recall(&self.science, &asker, candidates, &self.cfg.params());
+        let params = theseus_memory::Params {
+            budget_tokens: m.budget_tokens,
+            ..self.cfg.params()
+        };
+        let pack = pipeline::recall(&self.science, &asker, candidates, &params);
         fill(&mut m, pack, &mut ranks, texts);
         m.timings.pack_ms = ms(t0.elapsed());
         m.timings.total_ms = ms(begun.started.elapsed());

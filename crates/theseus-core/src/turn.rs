@@ -2017,6 +2017,7 @@ impl TurnRunner {
             None => None,
         };
         let (nodes, sources) = self.recall_view(t, nodes);
+        let assembled = t.recall.assembled_id().map(str::to_string);
         let input = CompileInput {
             session_id: sid,
             current: current.as_ref(),
@@ -2031,6 +2032,7 @@ impl TurnRunner {
             strip,
             overflowed,
             sources: &sources,
+            assembled: assembled.as_deref(),
         };
         // Where the ring cut, a summary in its place (30c); past the window
         // with nothing left to drop, the turn fails before any call.

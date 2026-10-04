@@ -12,6 +12,9 @@
 //! - the ring runs when the summary call fails, and when the profile is off;
 //! - the newest exchange alone past the window fails the turn before any
 //!   call (`context_overage`), and nothing retries it.
+//! - the assembled strategy (recall live, a stand-in index): a task's first
+//!   compile, and a compaction, carry a recall section first in the prefix,
+//!   at `assembled_budget_tokens`, recorded as the compilation's `recall_id`.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -508,4 +511,126 @@ async fn the_newest_exchange_past_the_window_fails_with_context_overage() {
     );
     let ok = turn(&r.core, &sid, "a small question").await.unwrap();
     assert_eq!(ok.output, "Short and sweet.");
+}
+
+const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook.";
+
+/// A session that said `HERON`, and an index over it, with recall live.
+fn recalling(r: &Rig) -> String {
+    let a = crate::tests_recall::session(&r.core, None, &[HERON]);
+    r.core
+        .runner
+        .memory
+        .set_ask(crate::tests_recall::index_of(&r.core, vec![a.clone()]));
+    a
+}
+
+fn live(model: Vec<Scripted>, glm: Vec<Scripted>) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::scripted(model));
+    let glm = Arc::new(FakeProvider::scripted(glm));
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = config(&root.canonicalize().unwrap(), dir.path(), "glm");
+    cfg.memory.mode = crate::config::MemoryMode::Live;
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    parts.providers.insert("zai".into(), glm.clone());
+    let core = Core::build(parts).unwrap();
+    Rig {
+        core,
+        model,
+        glm,
+        dir,
+    }
+}
+
+/// A task's first compile is assembled: its recall section first in the
+/// prefix, at `assembled_budget_tokens`, then the brief; the compilation
+/// records the section's node.
+#[tokio::test]
+async fn a_tasks_first_compile_is_assembled_with_its_recall_section_first() {
+    let r = live(vec![], vec![]);
+    recalling(&r);
+    let parent = session(&r.core);
+    turn(&r.core, &parent, "start a task").await.unwrap();
+    let parent_rec: SessionRecord = r.core.store.get_session(&parent).unwrap().unwrap();
+    let mut task = SessionRecord::new(SessionKind::Task, None);
+    task.task = Some(crate::session::TaskOf {
+        parent_session: parent.clone(),
+        parent_execution: parent_rec.execution_id.clone().unwrap(),
+        by: "act_brief".into(),
+        target: None,
+    });
+    r.core.store.put_session(&task.session_id, &task).unwrap();
+    let sid = task.session_id.clone();
+    turn(&r.core, &sid, "Where does the grey heron nest?")
+        .await
+        .unwrap();
+    let q = r.model.requests().pop().unwrap();
+    assert!(
+        first_text(&q).starts_with("[Recalled: 1 note from earlier sessions."),
+        "{}",
+        first_text(&q)
+    );
+    assert!(text_of(&q).contains("old weir"));
+    let section = r
+        .core
+        .store
+        .transcript(&sid)
+        .unwrap()
+        .iter()
+        .find(|(_, n)| matches!(n.body, Body::Recall { .. }))
+        .map(|(_, n)| n.id.clone())
+        .unwrap();
+    let comps = r.core.store.session_compilations(&sid).unwrap();
+    assert_eq!(comps[0].recall_id.as_deref(), Some(section.as_str()));
+    let ran = r
+        .core
+        .store
+        .scope_after(&crate::fact::recall::scope(&sid), 0)
+        .unwrap()
+        .iter()
+        .map(|x| x.decode::<crate::ledger::LedgerRow>().unwrap())
+        .find(|x| x.kind == "recall.ran")
+        .unwrap();
+    assert_eq!(ran.data["budget_tokens"], 4_000, "the assembled budget");
+
+    // A task ends with its turn: the compaction tests hold the append.
+}
+
+/// A compaction is assembled: the recall section, then the summary, then
+/// the kept turns; the compilation records the section.
+#[tokio::test]
+async fn a_compaction_is_assembled_with_recall_before_the_summary() {
+    let r = live(vec![], vec![summary("Six tides were logged.", 9_000, 40)]);
+    recalling(&r);
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    let comps = r.core.store.session_compilations(&sid).unwrap();
+    let c = comps.last().unwrap();
+    assert_eq!(c.strategy, "compaction");
+    let section = c.recall_id.clone().expect("an assembled recall section");
+    let q = r.model.requests().pop().unwrap();
+    let first: Vec<&str> = q.messages[0]["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|b| b["text"].as_str())
+        .collect();
+    assert!(first[0].starts_with("[Recalled: "), "{first:?}");
+    assert!(first[1].starts_with("[Summary of "), "{first:?}");
+    assert!(r
+        .core
+        .store
+        .transcript(&sid)
+        .unwrap()
+        .iter()
+        .any(|(_, n)| n.id == section));
+    turn(&r.core, &sid, "and the wind?").await.unwrap();
+    let next = r.model.requests().pop().unwrap();
+    assert_eq!(
+        &next.messages[..q.messages.len() - 1],
+        &q.messages[..q.messages.len() - 1]
+    );
 }
