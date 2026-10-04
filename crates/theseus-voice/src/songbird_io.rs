@@ -118,8 +118,8 @@ impl Ssrcs {
 
 enum Signal {
     Heard(Heard),
-    /// The connection dropped: the binding rejoins, or doesn't.
-    Gone,
+    /// The connection dropped, and why: the binding rejoins, or doesn't.
+    Gone(String),
 }
 
 /// A joined call, as the engine's seam.
@@ -129,6 +129,8 @@ pub struct SongbirdIo {
     tx: mpsc::UnboundedSender<Signal>,
     track: Option<TrackHandle>,
     ssrcs: Arc<Mutex<Ssrcs>>,
+    /// Why the connection dropped, once it did.
+    gone: Option<String>,
 }
 
 impl SongbirdIo {
@@ -165,6 +167,7 @@ impl SongbirdIo {
             tx,
             track: None,
             ssrcs,
+            gone: None,
         }
     }
 
@@ -184,9 +187,16 @@ impl VoiceIo for SongbirdIo {
         Box::pin(async move {
             match self.rx.recv().await? {
                 Signal::Heard(heard) => Some(heard),
-                Signal::Gone => None,
+                Signal::Gone(why) => {
+                    self.gone = Some(why);
+                    None
+                }
             }
         })
+    }
+
+    fn gone(&self) -> Option<String> {
+        self.gone.clone()
     }
 
     fn play(&mut self, id: ClipId, clip: Audio) -> BoxFuture<'_, ()> {
@@ -249,8 +259,12 @@ impl EventHandler for Receive {
                 let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
                 ssrcs.left(Speaker(gone.user_id.0));
             }
-            EventContext::DriverDisconnect(_) => {
-                let _ = self.tx.send(Signal::Gone);
+            EventContext::DriverDisconnect(d) => {
+                let why = match d.reason {
+                    Some(r) => format!("{:?}: {r:?}", d.kind),
+                    None => format!("{:?}", d.kind),
+                };
+                let _ = self.tx.send(Signal::Gone(why));
             }
             _ => {}
         }

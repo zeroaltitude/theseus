@@ -80,6 +80,9 @@ pub struct Config {
     pub policy: PolicyConfig,
     #[serde(default)]
     pub discord: DiscordConfig,
+    /// `[voice]` (rows 77 and 78): speech in a voice channel, in `crate::voice`.
+    #[serde(default, skip_serializing_if = "crate::voice::VoiceConfig::is_default")]
+    pub voice: crate::voice::VoiceConfig,
     /// `[aws.accounts.<id>]`: the AWS accounts Theseus owns (AWS design
     /// §3.5). None: no AWS tool, and nothing AWS runs.
     #[serde(default, skip_serializing_if = "AwsConfig::is_empty")]
@@ -536,6 +539,10 @@ pub struct KernelSection {
     /// not run (theseus-830), and how long an approval stays valid.
     #[serde(default = "default_confirm_ttl_secs")]
     pub confirm_ttl_secs: u64,
+    /// The shortest span a repeating wake may take, in minutes (37a): a
+    /// floor on a runaway series' turns. At least 1.
+    #[serde(default = "default_min_repeat_minutes")]
+    pub min_repeat_minutes: u64,
 }
 
 fn default_admission_ceiling() -> u32 {
@@ -553,6 +560,9 @@ fn default_deadline_secs() -> u64 {
 fn default_confirm_ttl_secs() -> u64 {
     900
 }
+fn default_min_repeat_minutes() -> u64 {
+    5
+}
 
 impl Default for KernelSection {
     fn default() -> Self {
@@ -564,6 +574,7 @@ impl Default for KernelSection {
             heartbeat_secs: default_heartbeat_secs(),
             default_deadline_secs: default_deadline_secs(),
             confirm_ttl_secs: default_confirm_ttl_secs(),
+            min_repeat_minutes: default_min_repeat_minutes(),
         }
     }
 }
@@ -589,6 +600,9 @@ impl KernelSection {
             heartbeat_ms: self.heartbeat_secs.max(1) * 1000,
             fault_after_startup_step: None,
             unconfirmed_config: false,
+            min_repeat_ms: self.min_repeat_minutes.max(1) * 60_000,
+            // The system's zone.
+            ..Default::default()
         }
     }
 }
@@ -1243,6 +1257,7 @@ impl Config {
             }
         }
         self.validate_places()?;
+        self.validate_voice()?;
         if let Some(name) = &self.context.default_persona {
             if !self.personas.contains_key(name) {
                 anyhow::bail!(
@@ -1734,6 +1749,8 @@ mod tests {
         // The broker's example grant and posture are real (theseus-dcy).
         assert_eq!(cfg.broker.programs["gh"].env["GH_TOKEN"], "github_token");
         assert_eq!(cfg.broker.secrets["github_token"].posture, Posture::Notify);
+        // [voice] and its key's line are real too (rows 77 and 78).
+        assert!(cfg.voice.enabled && cfg.secrets.contains_key(&cfg.voice.key_secret));
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);

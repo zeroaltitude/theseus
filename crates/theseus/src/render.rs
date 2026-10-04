@@ -1224,12 +1224,18 @@ pub fn until_due(due_ms: u64, now_ms: u64) -> String {
 }
 
 /// One pending wake, as `theseus wakes` lists it (DD8): its short id, when
-/// it is due, its session and its state, and its note's first line.
+/// it is due, how often (`once`, or a series' span and the occurrence due,
+/// `every 1d #4`; 37a), its session and its state, and its note's first line.
 pub fn wake_line(w: &theseus_protocol::WakeInfo, now_ms: u64) -> String {
     let note = w.note.lines().next().unwrap_or_default();
     let note: String = note.chars().take(100).collect();
+    let every = match (&w.every, w.occurrence) {
+        (Some(e), Some(n)) => format!("every {e} #{n}"),
+        (Some(e), None) => format!("every {e}"),
+        (None, _) => "once".into(),
+    };
     format!(
-        "{}\t{} ({})\tsession {} ({}){}\t{note}",
+        "{}\t{} ({})\t{every}\tsession {} ({}){}\t{note}",
         w.short,
         w.due_local,
         until_due(w.due_at_ms, now_ms),
@@ -1746,6 +1752,9 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         if let Some(outbox) = &b.outbox {
             push(o, Tag::Plain, &outbox_line(&b.kind, outbox));
         }
+        if let Some(voice) = &b.voice {
+            push(o, Tag::Plain, &voice.line());
+        }
     }
     o.extend(approval_lines(&h.approval));
     if let Some(line) = wakes_line(&h.wakes, now_ms) {
@@ -2149,11 +2158,25 @@ mod tests {
             set_at_ms: 1_000_000,
             target: Some("discord:dm:42".into()),
             state: "waiting".into(),
+            every: None,
+            occurrence: None,
+            next: None,
         };
         assert_eq!(
             wake_line(&w, 1_000_000),
-            "3f9a1c\t2026-09-30 13:15:00 -07:00 (in 9m)\tsession ses_1 (waiting) → discord:dm:42\t\
-             check the build"
+            "3f9a1c\t2026-09-30 13:15:00 -07:00 (in 9m)\tonce\tsession ses_1 (waiting) → \
+             discord:dm:42\tcheck the build"
+        );
+        let daily = theseus_protocol::WakeInfo {
+            every: Some("1d".into()),
+            occurrence: Some(4),
+            next: Some("13:15 Wed".into()),
+            ..w.clone()
+        };
+        assert_eq!(
+            wake_line(&daily, 1_000_000),
+            "3f9a1c\t2026-09-30 13:15:00 -07:00 (in 9m)\tevery 1d #4\tsession ses_1 (waiting) → \
+             discord:dm:42\tcheck the build"
         );
         assert_eq!(until_due(1_000, 181_000), "due 3m ago");
         assert_eq!(wakes_line(&[], 0), None);

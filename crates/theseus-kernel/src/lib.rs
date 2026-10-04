@@ -21,6 +21,8 @@ mod locks;
 pub mod outbox;
 pub mod redact;
 mod reopen;
+pub mod repeat;
+pub mod spend;
 pub mod spool;
 pub mod stops;
 pub mod tasks;
@@ -37,6 +39,8 @@ mod tests;
 mod tests_budgets;
 #[cfg(test)]
 mod tests_frames;
+#[cfg(test)]
+mod tests_repeat;
 #[cfg(test)]
 mod tests_stops;
 #[cfg(test)]
@@ -56,6 +60,7 @@ pub use kernel::{
     TurnEnd, TurnGuard,
 };
 pub use outbox::{Post, Settled, OUTBOX_TOOL};
+pub use repeat::{Day, Every, Repeat, TimeZone};
 pub use spool::Spool;
 pub use stops::Stop;
 pub use tasks::{carve_key, task_ids, TakenReports, TaskOpen};

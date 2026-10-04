@@ -477,3 +477,69 @@ async fn leave_stops_speaking_and_ends_the_run() {
     assert!(played[0].stopped);
     assert_eq!(played[0].ended, Some(ms(1700)));
 }
+
+/// A call whose connection drops after `after`, saying why, as songbird's
+/// `DriverDisconnect` does.
+struct Dropping {
+    after: Duration,
+    why: Option<String>,
+}
+
+impl theseus_voice::VoiceIo for Dropping {
+    fn next(&mut self) -> futures_util::future::BoxFuture<'_, Option<theseus_voice::Heard>> {
+        Box::pin(async move {
+            sleep(self.after).await;
+            self.why = Some("Runtime: WsClosed(Some(Disconnected))".into());
+            None
+        })
+    }
+
+    fn play(
+        &mut self,
+        _: theseus_voice::ClipId,
+        _: Audio,
+    ) -> futures_util::future::BoxFuture<'_, ()> {
+        Box::pin(std::future::ready(()))
+    }
+
+    fn stop(&mut self) -> futures_util::future::BoxFuture<'_, ()> {
+        Box::pin(std::future::ready(()))
+    }
+
+    fn gone(&self) -> Option<String> {
+        self.why.clone()
+    }
+}
+
+/// A dropped connection (44b) ends the run with a `Failed` event saying why;
+/// a call that just ends, as a WAV runs out, ends it with none.
+#[tokio::test(start_paused = true)]
+async fn a_dropped_connection_is_a_failed_event_with_its_reason() {
+    let io = Dropping {
+        after: ms(400),
+        why: None,
+    };
+    let (seen, _) = call(
+        WavIo::new(ms(0)),
+        Config::new([EDDIE]),
+        Arc::new(StandInSpeech::new()),
+        silent(),
+        vec![],
+    )
+    .await;
+    assert!(seen.is_empty(), "a WAV's end is no failure: {seen:?}");
+    let (engine, mut handle) = Engine::new(
+        Config::new([EDDIE]),
+        Box::new(io),
+        Arc::new(StandInSpeech::new()),
+    );
+    engine.run().await;
+    assert_eq!(
+        handle.events.try_recv().unwrap(),
+        Event::Failed {
+            what: theseus_voice::Failure::Connection,
+            error: theseus_voice::SpeechError("Runtime: WsClosed(Some(Disconnected))".into()),
+        }
+    );
+    assert!(handle.events.try_recv().is_err(), "and nothing else");
+}

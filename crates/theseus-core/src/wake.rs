@@ -12,15 +12,27 @@
 //!   13:05): check the build`, with how late it ran when it ran late. It is
 //!   an ordinary turn: it spends from the session's limit, under its
 //!   authority, and its reply posts where the session posts.
-//! - **One-shot, and few.** At most `MAX_PENDING` per session. A task cannot
-//!   set one: it reports when it is done.
+//! - **Few.** At most `MAX_PENDING` per session. A task cannot set one: it
+//!   reports when it is done.
+//! - **Repeating** (37a, theseus-d4pt). `every` (`30m`, `1d`, `1w`; `[kernel]
+//!   min_repeat_minutes` at the shortest), with `days` for a daily one and
+//!   `until`, makes the wake a series: one pending wake, counted once, that
+//!   the turn taking it puts back at its next occurrence in the daemon's
+//!   zone (`theseus_kernel::repeat`). Its node says which occurrence it is,
+//!   and how many were passed over while it waited: `⏰ wake (every 1d, #4;
+//!   2 missed while the daemon was down): …`. A repeating wake waits for
+//!   approval in a session holding external text, where a one-shot one keeps
+//!   its posture (T1b): set once under a page's influence, it would run every
+//!   day (`repeats`, read by the gate).
 //! - **Seeing and stopping.** `wake.list` and `wake.cancel`, `theseus wakes`
 //!   and `theseus cancel`, Discord's `/wakes` and `/cancel`, health, and the
 //!   Observatory.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use theseus_kernel::{Execution, FiredWake, KernelError, PendingWake, MAX_PENDING};
+use theseus_kernel::{
+    Day, Every, Execution, FiredWake, KernelError, PendingWake, Repeat, TimeZone, MAX_PENDING,
+};
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::toolrun::TurnCtx;
@@ -35,6 +47,8 @@ pub const MIN_AHEAD_MS: u64 = 1_000;
 pub const MAX_AHEAD_MS: u64 = 30 * 86_400_000;
 /// A wake that runs more than this after its due time says how late it ran.
 pub const LATE_AFTER_MS: u64 = 5_000;
+/// The longest span a repeating wake may take.
+pub const MAX_EVERY_MS: u64 = 365 * 86_400_000;
 
 /// What a task says to a model that asks it to set a wake.
 pub const TASK_REFUSAL: &str = "Refused: this session is a task, and a task cannot set wakes; it \
@@ -48,7 +62,19 @@ struct Input {
     at: Option<String>,
     #[serde(default)]
     after: Option<String>,
+    #[serde(default)]
+    every: Option<String>,
+    #[serde(default)]
+    days: Option<Vec<String>>,
+    #[serde(default)]
+    until: Option<String>,
     note: String,
+}
+
+/// Whether a `wake.at` call's input asks for a repeating wake (37a): the
+/// gate holds it in a session holding external text.
+pub fn repeats(input: &Value) -> bool {
+    input.get("every").is_some_and(|v| !v.is_null())
 }
 
 fn input_of(input: &Value) -> Result<Input, String> {
@@ -62,13 +88,103 @@ fn input_of(input: &Value) -> Result<Input, String> {
             "the note is {n} characters, over the {MAX_NOTE_CHARS} a wake takes"
         ));
     }
+    if i.every.is_none() && (i.days.is_some() || i.until.is_some()) {
+        return Err("`days` and `until` belong to a repeating wake: give `every` too".into());
+    }
     match (&i.at, &i.after) {
         (Some(_), Some(_)) => Err("give `at` or `after`, not both".into()),
-        (None, None) => {
+        (None, None) if i.every.is_none() => {
             Err("give `after` (a duration such as 10m or 2h) or `at` (an RFC 3339 time)".into())
         }
         _ => Ok(i),
     }
+}
+
+/// When `i`'s wake is first due, from `now_ms`, and its series if it
+/// repeats, in `zone`, with `floor_ms` the shortest span it may take; or why
+/// it cannot be.
+fn plan_of(
+    i: &Input,
+    now_ms: u64,
+    zone: &TimeZone,
+    floor_ms: u64,
+) -> Result<(u64, Option<Repeat>), String> {
+    let Some(every) = &i.every else {
+        return Ok((due_of(i, now_ms)?, None));
+    };
+    let every = Every::parse(every)?;
+    if every.nominal_ms() < floor_ms {
+        return Err(format!(
+            "a wake may repeat every {} at the most often, not every {every}",
+            span(floor_ms)
+        ));
+    }
+    if every.nominal_ms() > MAX_EVERY_MS {
+        return Err(format!(
+            "a wake may repeat every 365 days at the longest, not every {every}"
+        ));
+    }
+    let days = match &i.days {
+        None => vec![],
+        Some(d) if d.is_empty() => {
+            return Err("`days` is empty: leave it out to repeat every day".into())
+        }
+        Some(d) => {
+            if every.to_string() != "1d" {
+                return Err(format!(
+                    "`days` limits a daily wake: give `every = \"1d\"` with it, not `{every}`"
+                ));
+            }
+            let mut days = d
+                .iter()
+                .map(|s| {
+                    Day::parse(s).ok_or_else(|| {
+                        format!("`days` takes weekdays such as mon, tue, …, sun, not `{s}`")
+                    })
+                })
+                .collect::<Result<Vec<Day>, String>>()?;
+            days.sort();
+            days.dedup();
+            days
+        }
+    };
+    // The first time: `at` or `after`, or one span from now.
+    let first_ms = if i.at.is_some() || i.after.is_some() {
+        due_of(i, now_ms)?
+    } else {
+        let from_now = Repeat {
+            every,
+            first_ms: now_ms,
+            days: vec![],
+            until_ms: None,
+        };
+        from_now
+            .at(zone, 1)
+            .ok_or_else(|| format!("`every` ({every}) runs past what a time can be"))?
+    };
+    let until_ms = match &i.until {
+        None => None,
+        Some(u) => Some(parse_at(u).map_err(|e| e.replace("`at`", "`until`"))?),
+    };
+    let repeat = Repeat {
+        every,
+        first_ms,
+        days,
+        until_ms,
+    };
+    let Some(first) = repeat.first(zone) else {
+        return Err(format!(
+            "`until` ({}) comes before the series' first time: nothing would run",
+            i.until.as_deref().unwrap_or("")
+        ));
+    };
+    if first.saturating_sub(now_ms) > MAX_AHEAD_MS {
+        return Err(format!(
+            "a wake's first time may be at most 30 days from now, and this one is {}",
+            span(first.saturating_sub(now_ms))
+        ));
+    }
+    Ok((first, Some(repeat)))
 }
 
 /// The due time `i` asks for, from `now_ms`, or why it cannot be.
@@ -119,7 +235,11 @@ impl Tool for WakeAt {
          and at most 30 days ahead. Write the note as the instruction you will want then. It \
          fires once. Messages that come before it are answered as usual, and it still fires \
          later; if a turn is running at its time, it runs when that turn ends. A session holds \
-         at most 5 pending wakes."
+         at most 5 pending wakes. To repeat it, give `every` (`30m`, `2h`, `1d`, `1w`): it then \
+         runs at each occurrence, from `at` or `after` (or one `every` from now), in the \
+         daemon's time zone, so a daily wake keeps its clock time; `days` limits a daily one \
+         to weekdays (`[\"mon\", \"fri\"]`), and `until` (RFC 3339) ends it. A series counts \
+         as one wake, and a cancel ends it."
     }
 
     fn input_schema(&self) -> Value {
@@ -133,6 +253,19 @@ impl Tool for WakeAt {
                 "at": {
                     "type": "string",
                     "description": "When, as an RFC 3339 time with its offset, such as 2026-09-30T15:00:00-07:00."
+                },
+                "every": {
+                    "type": "string",
+                    "description": "Repeat it at this span: Nm (5 minutes at least), Nh, Nd, or Nw, such as 30m, 1d, or 1w."
+                },
+                "days": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "With every = 1d: the weekdays it runs on, such as [\"mon\", \"tue\", \"wed\", \"thu\", \"fri\"]."
+                },
+                "until": {
+                    "type": "string",
+                    "description": "With every: no occurrence after this RFC 3339 time."
                 },
                 "note": {
                     "type": "string",
@@ -160,11 +293,17 @@ impl Tool for WakeAt {
 
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let i = input_of(input)?;
-        let when = match (&i.after, &i.at) {
+        let mut when = match (&i.after, &i.at) {
             (Some(a), _) => format!("in {a}"),
             (None, Some(at)) => format!("at {at}"),
             (None, None) => String::new(),
         };
+        if let Some(every) = &i.every {
+            when = format!(
+                "every {every}{}{when}",
+                if when.is_empty() { "" } else { ", first " }
+            );
+        }
         Ok(Plan {
             summary: format!("wake {when}: {}", crate::session::title_from(&i.note)),
             ..Default::default()
@@ -185,12 +324,17 @@ pub fn set(
         return Err(TASK_REFUSAL.into());
     }
     let now = tc.kernel.now_ms();
-    let due = due_of(&i, now)?;
+    let kc = tc.kernel.config();
+    let (due, repeat) = plan_of(&i, now, &kc.zone, kc.min_repeat_ms)?;
     let target = tc.outbox.target(tc.session_id);
-    let set = match tc
-        .kernel
-        .set_wake(tc.guard, correlation_id, due, &i.note, target.clone())
-    {
+    let set = match tc.kernel.set_wake(
+        tc.guard,
+        correlation_id,
+        due,
+        &i.note,
+        target.clone(),
+        repeat,
+    ) {
         Ok(s) => s,
         Err(e) => {
             return Err(match e.downcast_ref::<KernelError>() {
@@ -215,15 +359,27 @@ pub fn set(
         local(w.due_at_ms).full(),
         span(w.due_at_ms.saturating_sub(now))
     );
+    let series = w.repeat.as_ref().map(series_of);
     if set.set {
         tc.record(&crate::fact::tool::WakeSet {
             short: &s,
             when: &when,
             note: &w.note,
             pending: set.pending,
+            series: series.as_deref(),
         });
     }
-    let text = if set.set {
+    let text = if set.set && w.repeat.is_some() {
+        format!(
+            "Set wake {s}, {}, first at {when}; {} of {MAX_PENDING} wakes are pending (a series \
+             counts once), and its id is {}. This conversation gets a turn at each occurrence, \
+             whose input is this line:\n{}",
+            series.as_deref().unwrap_or(""),
+            set.pending,
+            w.id,
+            line(w, None, w.note.as_str())
+        )
+    } else if set.set {
         format!(
             "Set wake {s} for {when}; {} of {MAX_PENDING} wakes are pending, and its id is {}. \
              This conversation gets a turn then, whose input is this line:\n\
@@ -239,7 +395,7 @@ pub fn set(
             w.id
         )
     };
-    let meta = json!({
+    let mut meta = json!({
         "wake_id": w.id,
         "short": s,
         "due_at_ms": w.due_at_ms,
@@ -249,7 +405,47 @@ pub fn set(
         "set": set.set,
         "target": target,
     });
+    if let Some(r) = &w.repeat {
+        meta["every"] = json!(r.every.to_string());
+        meta["days"] = json!(r.days);
+        meta["until_ms"] = json!(r.until_ms);
+    }
     Ok((text, meta))
+}
+
+/// A series as people say it: `every 1d`, `every 1d on mon–fri`, `every 1h
+/// until 2026-10-09 18:00:00 -07:00`.
+pub fn series_of(r: &Repeat) -> String {
+    let mut out = format!("every {}", r.every);
+    if !r.days.is_empty() {
+        let days: Vec<&str> = r.days.iter().map(|d| d.as_str()).collect();
+        out.push_str(&format!(" on {}", days.join(", ")));
+    }
+    if let Some(u) = r.until_ms {
+        out.push_str(&format!(" until {}", local(u).full()));
+    }
+    out
+}
+
+/// A time as a series' next is said: `21:00 Thu`.
+pub fn next_of(ms: u64) -> String {
+    let l = local(ms);
+    format!("{} {}", l.hm(), l.weekday())
+}
+
+/// A repeating wake's line: `⏰ wake (every 1d, #4): <note>`, with what
+/// `extra` adds after the number.
+fn line(w: &PendingWake, extra: Option<String>, note: &str) -> String {
+    let every = w
+        .repeat
+        .as_ref()
+        .map(|r| r.every.to_string())
+        .unwrap_or_default();
+    format!(
+        "⏰ wake (every {every}, #{}{}): {note}",
+        w.occurrence,
+        extra.unwrap_or_default()
+    )
 }
 
 /// The refusal at the cap: what is pending, soonest first.
@@ -275,10 +471,37 @@ fn too_many(max: usize, pending: &[PendingWake], now_ms: u64) -> String {
 }
 
 /// The node a fired wake writes into its session: `⏰ wake (set 13:05):
-/// <note>`, and, when it ran late, when it was due and by how much.
+/// <note>`, and, when it ran late, when it was due and by how much. A
+/// repeating one says its span and which occurrence it is, and how many it
+/// passed over (37a): `⏰ wake (every 1d, #4; 2 missed while the daemon was
+/// down): <note>`.
 pub fn fired_text(f: &FiredWake) -> String {
     let set = local(f.wake.set_at_ms);
     let due = local(f.wake.due_at_ms);
+    if f.wake.repeat.is_some() {
+        let why = if f.while_down {
+            " while the daemon was down"
+        } else {
+            ""
+        };
+        let extra = if f.missed > 0 {
+            Some(format!("; {} missed{why}", f.missed))
+        } else if f.late_ms > LATE_AFTER_MS {
+            let why = if f.while_down {
+                ": the daemon was not running then"
+            } else {
+                ""
+            };
+            Some(format!(
+                ", due {}, {} late{why}",
+                due.hms_on(&set),
+                span(f.late_ms)
+            ))
+        } else {
+            None
+        };
+        return line(&f.wake, extra, &f.wake.note);
+    }
     let late = if f.late_ms > LATE_AFTER_MS {
         let why = if f.while_down {
             ": the daemon was not running then"
@@ -308,6 +531,9 @@ pub fn info(e: &Execution, w: &PendingWake, title: Option<String>) -> theseus_pr
         set_at_ms: w.set_at_ms,
         target: w.target.clone(),
         state: e.state.as_str().into(),
+        every: w.repeat.as_ref().map(|r| r.every.to_string()),
+        occurrence: w.repeat.as_ref().map(|_| w.occurrence),
+        next: w.repeat.as_ref().map(|_| next_of(w.due_at_ms)),
     }
 }
 
@@ -513,6 +739,13 @@ impl Local {
     /// `13:05`.
     pub fn hm(&self) -> String {
         format!("{:02}:{:02}", self.hour, self.minute)
+    }
+    /// `Thu`.
+    pub fn weekday(&self) -> &'static str {
+        // 1970-01-01 was a Thursday.
+        const DAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+        let d = days_from_civil(i64::from(self.year), self.month, self.day);
+        DAYS[d.rem_euclid(7) as usize]
     }
     /// `13:05:07`.
     pub fn hms(&self) -> String {
@@ -730,12 +963,16 @@ mod tests {
             set_at_ms: set_at,
             by: "act_x".into(),
             target: None,
+            repeat: None,
+            occurrence: 0,
         };
         let set = local(set_at).hm();
         let on_time = FiredWake {
             wake: w.clone(),
             late_ms: 300,
             while_down: false,
+            missed: 0,
+            next_due_at_ms: None,
         };
         assert_eq!(
             fired_text(&on_time),
@@ -745,6 +982,8 @@ mod tests {
             wake: w.clone(),
             late_ms: 36_000,
             while_down: true,
+            missed: 0,
+            next_due_at_ms: None,
         };
         let due = local(set_at + 60_000).hms();
         assert_eq!(
@@ -758,6 +997,8 @@ mod tests {
             wake: w,
             late_ms: 90_000,
             while_down: false,
+            missed: 0,
+            next_due_at_ms: None,
         };
         assert!(fired_text(&busy).contains("1 min 30 s late):"));
     }
@@ -796,6 +1037,8 @@ mod tests {
             set_at_ms: 0,
             by: "act".into(),
             target: None,
+            repeat: None,
+            occurrence: 0,
         };
         let all = vec![
             (e.clone(), w("wak_0199aaaa1111")),
@@ -813,5 +1056,125 @@ mod tests {
             .contains("no pending wake"));
         let two = resolve(&all, "1111").unwrap_err();
         assert!(two.contains("names 2 wakes (aa1111, bb1111)"), "{two}");
+    }
+
+    /// `every`, `days`, and `until` (37a): the first time is `at` or
+    /// `after`, or one span from now in the zone; the floor, the year, the
+    /// days' daily span, and an `until` before the first time are refused.
+    #[test]
+    fn the_input_takes_a_series_and_refuses_what_cannot_run() {
+        let ny = TimeZone::posix("EST5EDT,M3.2.0,M11.1.0").unwrap();
+        // Saturday 2026-10-03, 16:05 EDT.
+        let now = parse_at("2026-10-03T20:05:00Z").unwrap();
+        let floor = 5 * 60_000;
+        let plan = |v: Value| input_of(&v).and_then(|i| plan_of(&i, now, &ny, floor));
+        let (first, r) = plan(json!({"every": "1d", "note": "n"})).unwrap();
+        assert_eq!(first, now + 86_400_000, "one day from now");
+        assert_eq!(r.unwrap().every.to_string(), "1d");
+        let (first, r) = plan(
+            json!({"after": "10m", "every": "30m", "until": "2026-10-04T00:00:00Z", "note": "n"}),
+        )
+        .unwrap();
+        let r = r.unwrap();
+        assert_eq!((first, r.first_ms), (now + 600_000, now + 600_000));
+        assert_eq!(r.until_ms, Some(parse_at("2026-10-04T00:00:00Z").unwrap()));
+        // A weekday series set on a Saturday starts on Monday.
+        let (first, r) = plan(json!({"at": "2026-10-03T21:00:00-04:00", "every": "1d",
+                                     "days": ["mon", "Tuesday", "fri", "mon"], "note": "n"}))
+        .unwrap();
+        assert_eq!(first, parse_at("2026-10-05T21:00:00-04:00").unwrap());
+        assert_eq!(r.unwrap().days, vec![Day::Mon, Day::Tue, Day::Fri]);
+        let (_, none) = plan(json!({"after": "1m", "note": "n"})).unwrap();
+        assert!(none.is_none(), "no every: one-shot");
+
+        let err = |v: Value| plan(v).unwrap_err();
+        assert!(err(json!({"every": "4m", "note": "n"})).contains("every 5 min at the most often"));
+        assert!(err(json!({"every": "53w", "note": "n"})).contains("365 days at the longest"));
+        assert!(err(json!({"every": "1x", "note": "n"})).contains("such as 30m"));
+        assert!(
+            err(json!({"every": "1w", "days": ["mon"], "note": "n"})).contains("limits a daily")
+        );
+        assert!(err(json!({"every": "1d", "days": ["someday"], "note": "n"})).contains("weekdays"));
+        assert!(err(json!({"every": "1d", "days": [], "note": "n"})).contains("is empty"));
+        assert!(
+            err(json!({"after": "1m", "until": "2026-10-04T00:00:00Z", "note": "n"}))
+                .contains("give `every` too")
+        );
+        assert!(err(
+            json!({"after": "1h", "every": "1d", "until": "2026-10-03T20:30:00Z", "note": "n"})
+        )
+        .contains("comes before the series' first time"));
+        assert!(
+            err(json!({"every": "1d", "until": "tomorrow", "note": "n"}))
+                .contains("`until` must be")
+        );
+        assert!(
+            err(json!({"after": "31d", "every": "1d", "note": "n"})).contains("at most 30 days")
+        );
+        assert!(repeats(&json!({"every": "1d", "note": "n"})));
+        assert!(!repeats(&json!({"after": "1d", "note": "n"})));
+        assert!(!repeats(
+            &json!({"after": "1d", "every": null, "note": "n"})
+        ));
+    }
+
+    /// A repeating wake's node says its span and occurrence, and what it
+    /// passed over and why, or how late it ran (37a).
+    #[test]
+    fn a_repeating_wakes_line_says_its_occurrence_and_what_it_missed() {
+        let set_at = parse_at("2026-09-30T20:05:00Z").unwrap();
+        let w = PendingWake {
+            id: "wak_x".into(),
+            due_at_ms: set_at + 60_000,
+            note: "write me a haiku".into(),
+            set_at_ms: set_at,
+            by: "act_x".into(),
+            target: None,
+            repeat: Some(Repeat {
+                every: Every::parse("1d").unwrap(),
+                first_ms: set_at + 60_000,
+                days: vec![],
+                until_ms: None,
+            }),
+            occurrence: 4,
+        };
+        let fired = |late_ms: u64, while_down: bool, missed: u64| FiredWake {
+            wake: w.clone(),
+            late_ms,
+            while_down,
+            missed,
+            next_due_at_ms: Some(set_at + 86_460_000),
+        };
+        assert_eq!(
+            fired_text(&fired(300, false, 0)),
+            "⏰ wake (every 1d, #4): write me a haiku"
+        );
+        assert_eq!(
+            fired_text(&fired(2 * 86_400_000, true, 2)),
+            "⏰ wake (every 1d, #4; 2 missed while the daemon was down): write me a haiku"
+        );
+        assert_eq!(
+            fired_text(&fired(2 * 86_400_000, false, 2)),
+            "⏰ wake (every 1d, #4; 2 missed): write me a haiku"
+        );
+        let due = local(set_at + 60_000).hms();
+        assert_eq!(
+            fired_text(&fired(36_000, true, 0)),
+            format!(
+                "⏰ wake (every 1d, #4, due {due}, 36 s late: the daemon was not running then): \
+                 write me a haiku"
+            )
+        );
+        let r = w.repeat.clone().unwrap();
+        assert_eq!(series_of(&r), "every 1d");
+        let weekdays = Repeat {
+            days: vec![Day::Mon, Day::Fri],
+            until_ms: Some(set_at),
+            ..r
+        };
+        assert_eq!(
+            series_of(&weekdays),
+            format!("every 1d on mon, fri until {}", local(set_at).full())
+        );
     }
 }

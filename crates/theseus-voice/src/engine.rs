@@ -53,6 +53,9 @@ pub struct Config {
     pub min_speech: Duration,
     /// An utterance this long closes, even mid-speech: 30 s.
     pub max_utterance: Duration,
+    /// What was received under the threshold just before an utterance opens
+    /// begins it, a word's soft start: 200 ms.
+    pub pre_roll: Duration,
 }
 
 impl Config {
@@ -66,6 +69,7 @@ impl Config {
             speech_rms: 500.0,
             min_speech: Duration::from_millis(100),
             max_utterance: Duration::from_secs(30),
+            pre_roll: Duration::from_millis(200),
         }
     }
 
@@ -75,6 +79,7 @@ impl Config {
             quiet_frames: frames(self.end_of_utterance),
             min_speech_frames: frames(self.min_speech),
             max_frames: frames(self.max_utterance),
+            pre_roll_frames: frames(self.pre_roll),
         }
     }
 }
@@ -117,9 +122,10 @@ pub enum Command {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Utterance {
     pub speaker: Speaker,
-    /// When its first speech frame began, from the call's start.
+    /// When its audio began, from the call's start: its first speech frame,
+    /// or the soft start received just before it (`Config::pre_roll`).
     pub started: Duration,
-    /// From its first speech frame to the end of its last.
+    /// From there to the end of its last speech frame.
     pub length: Duration,
     /// When it closed: after the silence that ended it.
     pub closed: Duration,
@@ -129,13 +135,16 @@ pub struct Utterance {
     pub latency: Duration,
 }
 
-/// A call to the speech provider that failed.
+/// What failed: a call to the speech provider, or the call itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Failure {
     /// An utterance's transcription: the utterance is dropped.
     Transcribe(Speaker),
     /// A sentence's synthesis: the sentence is skipped.
     Synthesize(Spoken),
+    /// The voice connection dropped (44b): the run ends, and the error says
+    /// why, as the seam gave it (`VoiceIo::gone`).
+    Connection,
 }
 
 /// What the engine tells the session, the ledger, and the observatory.
@@ -364,7 +373,18 @@ impl Engine {
                 Step::Done(done) => self.done(done),
                 Step::Command(Some(Command::Reply { turn, text })) => self.reply(turn, &text, now),
                 Step::Command(Some(Command::Report { text })) => self.reports.push_back(text),
-                Step::Command(None | Some(Command::Leave)) | Step::Heard(None) => break,
+                Step::Command(None | Some(Command::Leave)) => break,
+                Step::Heard(None) => {
+                    // A dropped connection says so; a call that just ended
+                    // (a test's WAV running out) does not.
+                    if let Some(why) = self.io.gone() {
+                        self.emit(Event::Failed {
+                            what: Failure::Connection,
+                            error: SpeechError(why),
+                        });
+                    }
+                    break;
+                }
                 Step::Heard(Some(Heard::Tick(frames))) => self.tick(&frames),
                 Step::Heard(Some(Heard::Ended(id))) => self.ended(id),
                 Step::AckDue => {

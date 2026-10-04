@@ -57,6 +57,11 @@ pub trait VoiceIo: Send {
     fn play(&mut self, id: ClipId, clip: Audio) -> BoxFuture<'_, ()>;
     /// Stop the clip that's playing, if any. Its `Ended` still comes.
     fn stop(&mut self) -> BoxFuture<'_, ()>;
+    /// Why the call is gone, once `next` said it was: a dropped connection's
+    /// reason. `None` when it simply ended, as a test's WAV runs out.
+    fn gone(&self) -> Option<String> {
+        None
+    }
 }
 
 /// A clip played through a [`WavIo`], with its times from the call's start.

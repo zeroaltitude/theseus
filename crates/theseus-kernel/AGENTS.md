@@ -38,7 +38,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
   `op` is left to tokio; anything else is an orphan.
 - `outbox.rs`: posts that must reach a channel, as actions of their own record kind, `OUTBOX`.
 - `spool.rs` (completions on disk), `redact.rs` (granted secrets withheld from a job's output), `stops.rs` (the
-  soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `gate.rs` (a confirmation's proposal and its
+  soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:
+  its span, days, and `until`, by jiff's zoned arithmetic in `KernelConfig::zone`; 37a), `gate.rs` (a confirmation's proposal and its
   digest), `clock.rs`, and `umask.rs`.
 
 ## Invariants
@@ -90,7 +91,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
 ## Tests
 
 - In `src/`: `tests.rs` (whose fixtures run on a `VirtualClock`), `tests_stops.rs`, `tests_tasks.rs`,
-  `tests_tx.rs` (the transaction), and `tests_wakes.rs`.
+  `tests_tx.rs` (the transaction), `tests_wakes.rs`, and `tests_repeat.rs` (a series: the re-arm, missed
+  occurrences, a cancel, `until`, the cap, and both changes of offset of a year, in zones from POSIX TZ strings, so no
+  tz database is read).
 - `tests_frames.rs` is a golden: every frame a scripted run of the transitions commits, record by record, against
   `tests/golden/kernel_frames.txt`. A refactor leaves it byte-identical; `THESEUS_GOLDEN=write` rewrites it, for a
   change you mean.

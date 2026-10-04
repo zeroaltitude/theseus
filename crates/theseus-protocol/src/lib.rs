@@ -22,6 +22,7 @@ mod push;
 pub mod sandbox;
 #[cfg(test)]
 mod ts;
+pub mod voice;
 
 pub use aws::*;
 pub use cancel::{CancelCount, CancelVerdict};
@@ -1157,6 +1158,10 @@ pub struct BindingStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub outbox: Option<OutboxStatus>,
+    /// Its voice (rows 77 and 78), when `[voice]` is on: in `voice.rs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub voice: Option<voice::VoiceStatus>,
 }
 
 /// A binding's outbox (theseus-q4v): what waits to reach its channels.
@@ -1696,6 +1701,19 @@ pub struct WakeInfo {
     pub target: Option<String>,
     /// Its session's execution state now: a wake waits for a busy session.
     pub state: String,
+    /// A repeating wake's span (`1d`, `30m`; 37a); none for a one-shot wake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub every: Option<String>,
+    /// Which occurrence of its series is due next, from 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub occurrence: Option<u32>,
+    /// When a series' next occurrence is due, as people read it on the
+    /// daemon's clock (`21:00 Thu`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub next: Option<String>,
 }
 
 /// `wake.list`: every pending wake, soonest first, or only one session's, or
