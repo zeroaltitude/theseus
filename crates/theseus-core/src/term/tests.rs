@@ -373,7 +373,10 @@ async fn sh_runs_a_command_and_ctrl_c_interrupts_one() {
         d.path(),
     )
     .await;
-    let text = read_until(&terms, "s1", &id, "42", d.path()).await;
+    // Until the prompt after the output, not the output alone: the shell draws
+    // `ok>` on the next row a moment after `42`, and a read that returned
+    // between the two would see that prompt as a change (theseus-y6zr).
+    let text = read_until(&terms, "s1", &id, "42\nok>", d.path()).await;
     assert!(text.contains("|ok> echo $((6*7))\n"), "{text}");
     assert!(text.contains("|42\n"), "{text}");
     assert!(text.contains("Changed since the last read: rows"), "{text}");
