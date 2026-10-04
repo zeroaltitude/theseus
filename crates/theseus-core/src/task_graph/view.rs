@@ -12,6 +12,13 @@
 //! after it, and `context.compiled` carries its digest and counts. A scope
 //! with no task adds nothing, so a plain turn's request and its token count
 //! are unchanged.
+//!
+//! A check's view (theseus-w8ys) shows the checked task, every task under
+//! it, and any record of a session its basis excludes by id, title, and
+//! state alone (`restricted`): no owner, deps, acceptance, or version, so
+//! the check reads what the task set out to do only through its basis's
+//! objective and claim. Its other lines, and every other session's view,
+//! are as they were.
 
 use serde_json::{json, Value};
 use theseus_protocol::tasks::TaskViewSummary;
@@ -46,6 +53,52 @@ fn tokens(s: &str) -> u64 {
 /// The view of `tasks` (each as it reads now) for `session_id`'s turns;
 /// None when its scope holds no task.
 pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
+    render_for(tasks, session_id, None)
+}
+
+/// The tasks the check `session_id` sees by id, title, and state alone: the
+/// checked task and every task under it, and each record whose session its
+/// basis excludes; never the check's own task or a task under it.
+pub fn restricted_ids(
+    tasks: &[TaskRecord],
+    check: &theseus_protocol::TaskCheck,
+    session_id: &str,
+) -> std::collections::HashSet<String> {
+    let checked = super::of_session(&check.checked_task);
+    let mut ids: std::collections::HashSet<String> = super::subtree(tasks, &checked)
+        .into_iter()
+        .map(|t| t.id.clone())
+        .collect();
+    ids.extend(
+        tasks
+            .iter()
+            .filter(|t| {
+                t.session
+                    .as_ref()
+                    .is_some_and(|s| check.excluded_sessions.contains(s))
+            })
+            .map(|t| t.id.clone()),
+    );
+    for own in super::subtree(tasks, &super::of_session(session_id)) {
+        ids.remove(&own.id);
+    }
+    ids
+}
+
+/// A restricted line: id, title, and state.
+fn bare(t: &TaskRecord) -> String {
+    format!("{} \"{}\" [{}]", t.id, t.title, t.state.as_str())
+}
+
+/// `render`, for a check's session when `check` is its basis (theseus-w8ys).
+pub fn render_for(
+    tasks: &[TaskRecord],
+    session_id: &str,
+    check: Option<&theseus_protocol::TaskCheck>,
+) -> Option<View> {
+    let hidden = check
+        .map(|c| restricted_ids(tasks, c, session_id))
+        .unwrap_or_default();
     let scoped = scope(tasks, session_id);
     if scoped.is_empty() {
         return None;
@@ -53,7 +106,8 @@ pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
     let open = scoped.iter().filter(|t| !t.state.is_closed()).count() as u32;
     let closed = scoped.len() as u32 - open;
     // A closed task whose subtree is all closed is one line, with its count.
-    let mut full: Vec<(bool, String)> = Vec::new();
+    // Each line: whether it is open, whether it is restricted, its text.
+    let mut full: Vec<(bool, bool, String)> = Vec::new();
     let mut folded: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for t in &scoped {
         if t.parent.as_deref().is_some_and(|p| folded.contains(p)) {
@@ -61,6 +115,17 @@ pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
             continue;
         }
         let pad = "  ".repeat(depth(&scoped, t));
+        if hidden.contains(&t.id) {
+            if t.state.is_closed()
+                && super::subtree(tasks, &t.id)
+                    .iter()
+                    .all(|u| u.state.is_closed())
+            {
+                folded.insert(&t.id);
+            }
+            full.push((!t.state.is_closed(), true, format!("{pad}- {}", bare(t))));
+            continue;
+        }
         if t.state.is_closed() {
             let under = super::subtree(tasks, &t.id);
             if under.iter().all(|u| u.state.is_closed()) {
@@ -71,6 +136,7 @@ pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
                     n => format!(", and {n} under it, all closed"),
                 };
                 full.push((
+                    false,
                     false,
                     format!(
                         "{pad}- {} \"{}\" [{}]{more}, v{}",
@@ -83,7 +149,7 @@ pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
                 continue;
             }
         }
-        full.push((!t.state.is_closed(), format!("{pad}- {}", line(t))));
+        full.push((!t.state.is_closed(), false, format!("{pad}- {}", line(t))));
     }
     let head = format!(
         "{HEAD} {open} open, {closed} closed. Edit it with \
@@ -91,18 +157,14 @@ pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
          \"{OWNERS_MARK}\", an objective or acceptance change, or abandoning, waits for the \
          operator; on any other, it applies at once.]"
     );
-    let mut lines: Vec<&str> = full.iter().map(|(_, l)| l.as_str()).collect();
+    let mut lines: Vec<&(bool, bool, String)> = full.iter().collect();
     let mut left_out = 0u32;
-    let fits = |lines: &[&str]| {
-        tokens(&head) + lines.iter().map(|l| tokens(l) + 1).sum::<u64>() <= MAX_TOKENS
+    let fits = |lines: &[&(bool, bool, String)]| {
+        tokens(&head) + lines.iter().map(|l| tokens(&l.2) + 1).sum::<u64>() <= MAX_TOKENS
     };
     if !fits(&lines) {
         // Past the bound: open tasks only, then as many as fit.
-        lines = full
-            .iter()
-            .filter(|(o, _)| *o)
-            .map(|(_, l)| l.as_str())
-            .collect();
+        lines = full.iter().filter(|(o, _, _)| *o).collect();
         left_out = (full.len() - lines.len()) as u32;
         while !fits(&lines) && !lines.is_empty() {
             lines.pop();
@@ -112,7 +174,7 @@ pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
     let mut text = head;
     for l in &lines {
         text.push('\n');
-        text.push_str(l);
+        text.push_str(&l.2);
     }
     if left_out > 0 {
         text.push_str(&format!(
@@ -128,6 +190,7 @@ pub fn render(tasks: &[TaskRecord], session_id: &str) -> Option<View> {
         lines: lines.len() as u32,
         left_out,
         tokens: tokens(&text),
+        restricted: lines.iter().filter(|l| l.1).count() as u32,
     };
     Some(View { text, summary })
 }
@@ -153,14 +216,17 @@ pub fn attach_to(request: &mut crate::provider::ProviderRequest, view: &View) {
 }
 
 /// The turn's side (`compile_step`): the session's view, attached to the
-/// compiled request, its tokens counted in the estimate. Returns what it
+/// compiled request, its tokens counted in the estimate; a check's is
+/// restricted by its basis (theseus-w8ys). Returns what it
 /// showed; None, and the request untouched, when the scope holds no task.
 pub fn attach(
     store: &crate::store::Store,
     kernel: &theseus_kernel::Kernel,
-    session_id: &str,
+    session: &crate::session::SessionRecord,
     compiled: &mut crate::compiler::Compiled,
 ) -> Option<TaskViewSummary> {
+    let session_id = session.session_id.as_str();
+    let check = session.task.as_ref().and_then(|t| t.check.as_ref());
     let tasks = match super::all_shown(store, kernel) {
         Ok(t) if !t.is_empty() => t,
         Ok(_) => return None,
@@ -169,7 +235,7 @@ pub fn attach(
             return None;
         }
     };
-    let view = render(&tasks, session_id)?;
+    let view = render_for(&tasks, session_id, check)?;
     attach_to(&mut compiled.request, &view);
     let t = view.summary.tokens;
     compiled.est_tokens += t;

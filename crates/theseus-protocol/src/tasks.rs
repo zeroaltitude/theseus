@@ -218,4 +218,13 @@ pub struct TaskViewSummary {
     pub left_out: u32,
     /// Its size, estimated.
     pub tokens: u64,
+    /// In a check's view, the lines shown as id, title, and state alone: the
+    /// checked task, every task under it, and any record of an excluded
+    /// session (theseus-w8ys).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub restricted: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }

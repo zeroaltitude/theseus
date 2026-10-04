@@ -35,7 +35,8 @@ const WORKING: &str = "Harbour log, Tuesday: the north pier holds forty two herr
     tide, counted from the lamp gallery at dawn by the keeper.";
 const MAKER_BRIEF: &str = "Count the gulls by reading the harbour log in tide.txt.";
 const REPORT: &str = "REPORT: there are 42 herring gulls on the north pier.";
-const CHECK_BRIEF: &str = "CHECKBRIEF: establish independently how many gulls the pier holds.";
+pub(crate) const CHECK_BRIEF: &str =
+    "CHECKBRIEF: establish independently how many gulls the pier holds.";
 /// Twelve words of `WORKING`, and eleven.
 const COPIED_12: &str = "CHECKBRIEF: confirm that the north pier holds forty two herring gulls \
     at low tide counted, by your own count.";
@@ -44,9 +45,9 @@ const COPIED_11: &str = "CHECKBRIEF: confirm that the north pier holds forty two
 
 /// A stand-in model that answers each request from the request itself, and
 /// keeps every request.
-struct Model {
+pub(crate) struct Model {
     script: Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>,
-    requests: Mutex<Vec<ProviderRequest>>,
+    pub(crate) requests: Mutex<Vec<ProviderRequest>>,
 }
 
 impl Provider for Model {
@@ -79,7 +80,7 @@ fn blocks(m: &Value) -> Vec<String> {
     }
 }
 
-fn first_user(req: &ProviderRequest) -> String {
+pub(crate) fn first_user(req: &ProviderRequest) -> String {
     req.messages
         .iter()
         .find(|m| m["role"] == "user")
@@ -103,16 +104,16 @@ fn answers_a_call(req: &ProviderRequest) -> bool {
         .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"))
 }
 
-struct Rig {
-    core: Arc<Core>,
-    model: Arc<Model>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) model: Arc<Model>,
     _dir: tempfile::TempDir,
 }
 
 /// The parent: the operator's messages, then `START` opens the maker and
 /// `CHECK <input>` a check with that input. The maker reads the harbour log
 /// and reports; a check answers. `PARK` starts a maker that waits on a wake.
-fn rig() -> Rig {
+pub(crate) fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -190,14 +191,14 @@ fn create(input: Value) -> Scripted {
     Scripted::tools("Starting it.", &[("t_task", "task_create", input)])
 }
 
-fn parent_session(core: &Arc<Core>) -> String {
+pub(crate) fn parent_session(core: &Arc<Core>) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place(PLACE, &rec.session_id).unwrap();
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -219,7 +220,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
         .unwrap();
 }
 
-async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
+pub(crate) async fn until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
     let t0 = Instant::now();
     while !f() {
         assert!(
@@ -261,7 +262,7 @@ fn tasks(core: &Core) -> Vec<Execution> {
     core.kernel.tasks(None).unwrap()
 }
 
-fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
+pub(crate) fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
     core.store
         .ledger_tail::<LedgerRow>(100_000)
         .unwrap()
@@ -271,7 +272,7 @@ fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
         .collect()
 }
 
-async fn finished(core: &Core, e: &Execution) {
+pub(crate) async fn finished(core: &Core, e: &Execution) {
     until("the task complete", 30, || {
         core.kernel.execution(&e.id).unwrap().unwrap().state == ExecState::Complete
     })
@@ -279,7 +280,7 @@ async fn finished(core: &Core, e: &Execution) {
 }
 
 /// The maker, started and finished: its execution.
-async fn maker(r: &Rig, sid: &str) -> Execution {
+pub(crate) async fn maker(r: &Rig, sid: &str) -> Execution {
     turn(&r.core, sid, OBJECTIVE).await;
     turn(&r.core, sid, ACCEPT).await;
     turn(&r.core, sid, "START").await;
@@ -291,13 +292,13 @@ async fn maker(r: &Rig, sid: &str) -> Execution {
 }
 
 /// Start a check with `input`, and say what the call answered.
-async fn check(r: &Rig, sid: &str, input: Value) -> (ResultStatus, String, Value) {
+pub(crate) async fn check(r: &Rig, sid: &str, input: Value) -> (ResultStatus, String, Value) {
     turn(&r.core, sid, &format!("CHECK {input}")).await;
     last_create(&r.core, sid)
 }
 
 /// The check task the last call opened.
-fn the_check(r: &Rig, meta: &Value) -> Execution {
+pub(crate) fn the_check(r: &Rig, meta: &Value) -> Execution {
     let id = meta["task_id"].as_str().unwrap();
     tasks(&r.core)
         .into_iter()
@@ -311,7 +312,7 @@ fn basis(core: &Core, e: &Execution) -> TaskCheck {
 }
 
 /// The requests a session's turns made, by the brief that opens them.
-fn requests_with(model: &Model, brief: &str) -> Vec<ProviderRequest> {
+pub(crate) fn requests_with(model: &Model, brief: &str) -> Vec<ProviderRequest> {
     model
         .requests
         .lock()

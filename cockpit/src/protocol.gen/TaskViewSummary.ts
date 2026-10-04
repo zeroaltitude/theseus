@@ -16,4 +16,10 @@ lines: number, left_out: number,
 /**
  * Its size, estimated.
  */
-tokens: number, };
+tokens: number, 
+/**
+ * In a check's view, the lines shown as id, title, and state alone: the
+ * checked task, every task under it, and any record of an excluded
+ * session (theseus-w8ys).
+ */
+restricted?: number, };
