@@ -5,7 +5,8 @@
 //! a changed note restarts the daemon onto the vault's version through
 //! `exec`, in the same process; a comment-only change confirms; a vault that
 //! does not answer is said in health while the copy serves. The vault is a fake `op`,
-//! first on the daemon's PATH, that answers after `OP_MS`. Each daemon is
+//! first on the daemon's PATH, that answers after `OP_MS`, and not while
+//! the test holds it (`hold`). Each daemon is
 //! held by a guard that kills and reaps it, so an assertion that fails
 //! before its stop leaves none running.
 
@@ -22,8 +23,9 @@ use serde_json::{json, Value};
 use theseus_core::config_copy;
 
 const NOTE_REF: &str = "op://Test/theseus-config/notesPlain";
-/// How long the fake vault takes to answer. A first answer that says
-/// `confirming` came before it could have.
+/// How long the fake vault takes to answer. A start from the copy is proved
+/// to serve first by order, not by this: the vault is held until health has
+/// answered (theseus-a2ec).
 const OP_MS: u64 = 500;
 
 struct Rig {
@@ -39,7 +41,11 @@ impl Rig {
         };
         let op = r.path("bin").join("op");
         std::fs::create_dir_all(op.parent().unwrap()).unwrap();
-        std::fs::write(&op, fake_op(&r.path("note.toml"), &r.path("down"))).unwrap();
+        std::fs::write(
+            &op,
+            fake_op(&r.path("note.toml"), &r.path("down"), &r.path("hold")),
+        )
+        .unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::create_dir_all(r.path("projects")).unwrap();
@@ -186,12 +192,13 @@ impl Rig {
 }
 
 /// The fake vault: `read` answers the note from its file, and `inject`
-/// gives every secret one value, each after `OP_MS`. While `down` exists it
-/// answers nothing.
-fn fake_op(note: &Path, down: &Path) -> String {
+/// gives every secret one value, each after `OP_MS`, and not while `hold`
+/// exists. While `down` exists it answers nothing.
+fn fake_op(note: &Path, down: &Path, hold: &Path) -> String {
     format!(
         "#!/bin/sh\n\
          sleep {}\n\
+         while [ -e '{}' ]; do sleep 0.01; done\n\
          if [ -e '{}' ]; then echo '[ERROR] 2026/09/29 12:00:00 network down' >&2; exit 1; fi\n\
          case \"$1\" in\n\
          \x20 read) cat '{}' ;;\n\
@@ -199,6 +206,7 @@ fn fake_op(note: &Path, down: &Path) -> String {
          \x20 *) exit 1 ;;\n\
          esac\n",
         OP_MS as f64 / 1000.0,
+        hold.display(),
         down.display(),
         note.display()
     )
@@ -241,15 +249,15 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
     );
     r.stop(daemon);
 
-    // From the copy: health answers before the vault could, says
-    // confirming, and then confirmed.
-    let (mut daemon, h, took) = r.start();
+    // From the copy: health answers while the vault is held, so before it
+    // could answer, by order and not by a stopwatch (theseus-a2ec); it says
+    // confirming, and once the vault answers, confirmed. A start that waited
+    // for the vault would not answer at all until the hold is lifted.
+    std::fs::write(r.path("hold"), "").unwrap();
+    let (mut daemon, h, _) = r.start();
+    std::fs::remove_file(r.path("hold")).unwrap();
     assert_eq!(h["config"]["state"], "confirming", "{}", h["config"]);
     assert_eq!(h["config"]["started_from"], "copy");
-    assert!(
-        took < Duration::from_millis(OP_MS),
-        "served from the copy: {took:?}"
-    );
     let h = r.until(&mut daemon, "confirmed", |h| {
         h["config"]["state"] == "confirmed"
     });
@@ -331,9 +339,13 @@ fn the_copy_serves_the_next_start_and_a_changed_note_restarts_the_daemon_in_plac
 
     // The note changes: the daemon serves from the old copy, finds the
     // change, and restarts itself onto the vault's version, in place.
+    // The first answer comes while the vault is held, so before it could
+    // say the note changed, whatever the load (theseus-a2ec).
     let changed = test_note(&r, 42.5);
     std::fs::write(r.path("note.toml"), &changed).unwrap();
+    std::fs::write(r.path("hold"), "").unwrap();
     let (mut daemon, h, _) = r.start();
+    std::fs::remove_file(r.path("hold")).unwrap();
     assert_eq!(h["config"]["state"], "confirming");
     let pid = daemon.id();
     let h = r.until(&mut daemon, "the restart confirmed", |h| {

@@ -82,6 +82,15 @@ impl Spool {
     /// Every completion currently spooled, oldest first by file mtime.
     /// Unparseable files move to `malformed/` and are counted.
     pub fn drain(&self) -> Result<Drained> {
+        self.drain_with(|p| fs::read(p))
+    }
+
+    /// `drain`, its reads through `read`: the seam a test uses to take a
+    /// file between the listing and the read, as a turn's `job_settled` can.
+    fn drain_with(
+        &self,
+        mut read: impl FnMut(&Path) -> std::io::Result<Vec<u8>>,
+    ) -> Result<Drained> {
         let mut out = Drained::default();
         let mut entries: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
         for e in fs::read_dir(&self.dir)? {
@@ -97,10 +106,15 @@ impl Spool {
         }
         entries.sort();
         for (_, p) in entries {
-            match fs::read(&p)
-                .context("read spool file")
-                .and_then(|b| serde_json::from_slice::<Completion>(&b).context("parse"))
-            {
+            let parsed = match read(&p) {
+                // The other consumer, a turn's `job_settled`, accepted and
+                // removed it since the listing: it is taken, not malformed
+                // (theseus-46ya).
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => Err(anyhow::Error::from(e).context("read spool file")),
+                Ok(b) => serde_json::from_slice::<Completion>(&b).context("parse"),
+            };
+            match parsed {
                 Ok(c) => out.completions.push((p, c)),
                 Err(_) => {
                     let name = p.file_name().unwrap().to_owned();
@@ -139,12 +153,29 @@ impl Spool {
         self.completion_path(id).exists()
     }
 
+    /// A job's spooled completion, or `None` when there is none. Two
+    /// consumers take completions, the daemon's drain and a turn's
+    /// `job_settled`, each accepting one before it removes the file, so a
+    /// file gone at the read was taken, its completion already accepted: it
+    /// reads as `None`, never as an error (theseus-46ya). There is no
+    /// `exists()` first, which would leave the window between the check and
+    /// the read in which the other consumer removes it.
     pub fn read_completion(&self, id: &str) -> Result<Option<Completion>> {
-        let p = self.completion_path(id);
-        if !p.exists() {
-            return Ok(None);
+        self.read_completion_with(id, |p| fs::read(p))
+    }
+
+    /// `read_completion`, its read through `read`: the seam a test uses to
+    /// take the file just before the read.
+    fn read_completion_with(
+        &self,
+        id: &str,
+        read: impl FnOnce(&Path) -> std::io::Result<Vec<u8>>,
+    ) -> Result<Option<Completion>> {
+        match read(&self.completion_path(id)) {
+            Ok(b) => Ok(Some(serde_json::from_slice(&b)?)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
         }
-        Ok(Some(serde_json::from_slice(&fs::read(p)?)?))
     }
 
     pub fn write_pid(&self, id: &str, pid: u32) -> Result<()> {
@@ -298,5 +329,82 @@ mod tests {
         sp.remove(&dr.completions[0].0).unwrap();
         assert!(sp.drain().unwrap().completions.is_empty());
         sp.remove(Path::new("/nonexistent/x.json")).unwrap();
+    }
+
+    fn completion(id: &str) -> Completion {
+        Completion {
+            correlation_id: id.into(),
+            outcome: Outcome::Succeeded,
+            result_ref: None,
+            external_op_id: None,
+            started_at_ms: 1,
+            finished_at_ms: 2,
+            producer: "test".into(),
+            signature: None,
+            cost_micros: None,
+            detail: None,
+        }
+    }
+
+    /// A completion that is not there, or no longer, reads as `None`.
+    #[test]
+    fn a_completion_that_is_gone_reads_as_none() {
+        let d = tempfile::tempdir().unwrap();
+        let sp = Spool::open(d.path()).unwrap();
+        assert!(sp.read_completion("act_never").unwrap().is_none());
+        let p = sp.write(&completion("act_gone")).unwrap();
+        assert!(sp.read_completion("act_gone").unwrap().is_some());
+        sp.remove(&p).unwrap();
+        assert!(sp.read_completion("act_gone").unwrap().is_none());
+    }
+
+    /// The race (theseus-46ya): the drain accepts and removes a completion
+    /// between a turn's look and its read. The seam removes the file at the
+    /// read itself, after any look, as the drain did: it reads as `None`,
+    /// the other consumer having taken it, never as `No such file`.
+    #[test]
+    fn a_completion_the_drain_takes_at_the_read_reads_as_none() {
+        let d = tempfile::tempdir().unwrap();
+        let sp = Spool::open(d.path()).unwrap();
+        let p = sp.write(&completion("act_taken")).unwrap();
+        let got = sp
+            .read_completion_with("act_taken", |path| {
+                sp.remove(&p).unwrap();
+                fs::read(path)
+            })
+            .unwrap();
+        assert!(got.is_none());
+        // Another error still is one.
+        let err = sp.read_completion_with("act_taken", |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        });
+        assert!(err.is_err());
+    }
+
+    /// The mirror race: a turn takes a completion between the drain's
+    /// listing and its read. It is skipped, not counted malformed, and
+    /// nothing moves to `malformed/`; the others drain as before.
+    #[test]
+    fn a_completion_a_turn_takes_during_the_drain_is_skipped() {
+        let d = tempfile::tempdir().unwrap();
+        let sp = Spool::open(d.path()).unwrap();
+        let taken = sp.write(&completion("act_taken")).unwrap();
+        sp.write(&completion("act_kept")).unwrap();
+        let dr = sp
+            .drain_with(|path| {
+                if path == taken {
+                    sp.remove(&taken).unwrap();
+                }
+                fs::read(path)
+            })
+            .unwrap();
+        assert_eq!(dr.malformed, 0);
+        let ids: Vec<_> = dr
+            .completions
+            .iter()
+            .map(|(_, c)| c.correlation_id.as_str())
+            .collect();
+        assert_eq!(ids, ["act_kept"]);
+        assert_eq!(fs::read_dir(d.path().join("malformed")).unwrap().count(), 0);
     }
 }

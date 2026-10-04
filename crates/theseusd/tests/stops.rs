@@ -25,13 +25,15 @@ const FAKE_OP: &str = "#!/bin/sh\n\
     \x20 *) exit 1 ;;\n\
     esac\n";
 
-/// A job that ignores SIGTERM (its `sleep`s inherit the ignore), writes its
-/// pid to `job-<i>.pid` in the projects dir, and ends by itself within 30 s
-/// should a failing test leave it.
+/// A job that outlives SIGTERM: its shell traps it, writing when it came
+/// to `job-<i>.term` in the projects dir, and carries on (a `sleep` the
+/// signal ends is followed by the next), so only SIGKILL ends it. It writes
+/// its pid to `job-<i>.pid`, and ends by itself within 30 s should a failing
+/// test leave it.
 fn stubborn(i: usize) -> Value {
     json!({
         "argv": ["sh", "-c", format!(
-            "trap '' TERM; echo $$ > job-{i}.pid; n=0; while [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done"
+            "trap 'date +%s%N >> job-{i}.term' TERM; echo $$ > job-{i}.pid; n=0; while [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done"
         )],
         "timeout_secs": 60,
     })
@@ -235,17 +237,36 @@ fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker(
         took >= Duration::from_secs(2),
         "the grace was waited out: {took:?}"
     );
+    // One grace, not three, by order rather than by a stopwatch
+    // (theseus-3dsz): every job had its SIGTERM before any job's grace was
+    // out. Stopped one after another, each next job would be signalled only
+    // after the last one's grace (2 s), however fast the machine; stopped
+    // together, they are signalled at once, however slow it is.
+    let terms: Vec<u128> = (0..3)
+        .map(|i| {
+            let t = std::fs::read_to_string(r.path("projects").join(format!("job-{i}.term")))
+                .unwrap_or_else(|e| panic!("job {i} had no SIGTERM: {e}"));
+            t.lines().next().unwrap().trim().parse().unwrap()
+        })
+        .collect();
+    let spread =
+        Duration::from_nanos((terms.iter().max().unwrap() - terms.iter().min().unwrap()) as u64);
     assert!(
-        took < Duration::from_millis(3500),
-        "one grace and a margin, not three: {took:?}"
+        spread < Duration::from_secs(2),
+        "one grace, not three: the jobs' SIGTERMs came {spread:?} apart"
     );
     assert!(
         answers.len() >= 5,
         "health was asked during the stop: {answers:?}"
     );
+    // A health that waited on the stop would answer only once the grace
+    // was out: its first answer, asked 200 ms in, at about 1.8 s, and the
+    // stop finished by then, so one answer in all. The bound is well under
+    // that and well over a scheduler's stall under load (theseus-3dsz: one
+    // answer took 880 ms at a load of 25 on 16 cores).
     let slowest = answers.iter().max().unwrap();
     assert!(
-        *slowest < Duration::from_millis(500),
+        *slowest < Duration::from_millis(1500),
         "health waited on the stop: {answers:?}"
     );
     for pid in &jobs {
