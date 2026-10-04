@@ -822,6 +822,87 @@ fn install_walks_the_steps_in_order_and_ends_with_the_cheat_sheet() {
     );
 }
 
+/// `--unit` installs a second daemon's unit beside the first (scripts/setup.sh's scratch runs): a unit file of
+/// its own, named in every command, with the shell's socket and state dir in its `ExecStart`, and the first unit
+/// left alone. Without a socket and a state dir of its own, it installs nothing: on the first daemon's socket it
+/// would take that daemon for one started by hand, and stop it.
+#[test]
+fn install_with_a_unit_name_writes_a_second_daemons_unit_and_leaves_the_first_alone() {
+    let r = rig!();
+    let (code, out) = r.run(&["--unit", "theseus-scratch", "install", "--yes"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("a second daemon needs a socket and a state dir of its own"),
+        "{out}"
+    );
+    assert_eq!(
+        r.calls(),
+        Vec::<String>::new(),
+        "a refused install ran a command"
+    );
+    let (code, out) = r.run(&["--unit", "../x", "check"]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("a unit's name is letters"), "{out}");
+
+    let state = r.home().join("scratch-state");
+    let with_state = |args: &[&str]| {
+        let mut c = r.command(args);
+        c.env("THESEUS_STATE_DIR", &state);
+        Rig::said(&c.output().unwrap())
+    };
+    let (code, out) = with_state(&["--dry-run", "--unit", "theseus-scratch.service", "install"]);
+    assert_eq!(code, 0, "{out}");
+    for want in [
+        " install --user --unit theseus-scratch --check",
+        " install --user --unit theseus-scratch --apply",
+        "+ systemctl --user enable --now theseus-scratch.service",
+    ] {
+        assert!(out.contains(want), "{want:?} missing from:\n{out}");
+    }
+    assert_eq!(r.calls(), Vec::<String>::new(), "a dry run ran a command");
+
+    let (code, out) = with_state(&["--unit", "theseus-scratch", "install", "--yes"]);
+    assert_eq!(code, 0, "{out}");
+    let text = std::fs::read_to_string(
+        r.home()
+            .join(".config/systemd/user/theseus-scratch.service"),
+    )
+    .unwrap();
+    assert!(
+        text.contains(&format!(
+            " --state-dir {} --socket {} ",
+            state.display(),
+            r.socket().display()
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains("\nDescription=Theseus daemon (theseus-scratch)\n"),
+        "{text}"
+    );
+    assert!(!r.unit().exists(), "the first daemon's unit was written");
+    assert!(
+        r.at("systemctl --user enable --now theseus-scratch.service")
+            .is_some(),
+        "{:?}",
+        r.calls()
+    );
+    assert!(
+        !r.calls().iter().any(|c| c.contains("theseusd.service")),
+        "{:?}",
+        r.calls()
+    );
+    // The cheat sheet's commands act on this unit.
+    assert!(out.contains("--unit theseus-scratch status"), "{out}");
+    // A second install writes nothing.
+    let (code, again) = with_state(&["--unit", "theseus-scratch", "install", "--yes"]);
+    assert_eq!(code, 0, "{again}");
+    assert!(
+        again.contains("The unit already matches the plan: nothing to write."),
+        "{again}"
+    );
+}
+
 #[test]
 fn install_names_the_token_file_it_was_given_by_option_and_not_by_variable() {
     let r = rig!();

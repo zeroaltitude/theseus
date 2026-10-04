@@ -32,7 +32,8 @@ theseusd install: run the daemon as a systemd service. Pick a mode:
 
   --user       Your own daemon as a systemd user service. Needs nothing but you: run it as
                yourself, not root (L1 runs no job of a root daemon).
-               Writes ~/.config/systemd/user/theseusd.service; the state dir stays where it is.
+               Writes ~/.config/systemd/user/theseusd.service (--unit names another, for a
+               second daemon); the state dir stays where it is.
   --separate   The daemon as its own `theseus` user, so a job, run as you, cannot read or write
                the store, the config's copy, or the vault token. Needs root: run it with sudo.
                Makes the theseus user and the theseus-ops group (you join it), /var/lib/theseus,
@@ -78,6 +79,31 @@ pub(crate) struct InstallArgs {
     /// `EnvironmentFile`) you write yourself, so the unit may name no token file.
     #[arg(long, requires = "user")]
     pub token_from_drop_in: bool,
+    /// With --user: the unit's name (default theseusd). A second daemon beside yours, with
+    /// its own --socket and --state-dir, gets a unit of its own (scripts/setup.sh --unit).
+    #[arg(long, value_name = "NAME", requires = "user")]
+    pub unit: Option<String>,
+}
+
+/// The `--user` unit's name when `--unit` names none.
+pub(crate) const USER_UNIT: &str = "theseusd";
+
+/// `--unit`'s name, as systemd takes it: letters, digits, `-`, `_`, and `.`,
+/// with or without `.service` after it.
+fn unit_name(named: Option<&str>) -> Result<String> {
+    let Some(n) = named else {
+        return Ok(USER_UNIT.into());
+    };
+    let n = n.strip_suffix(".service").unwrap_or(n);
+    if n.is_empty()
+        || n.len() > 200
+        || !n
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
+        bail!("--unit {n:?}: a unit's name is letters, digits, `-`, `_`, and `.`");
+    }
+    Ok(n.into())
 }
 
 /// The daemon's own flags, as this invocation has them.
@@ -302,7 +328,7 @@ pub(crate) fn run_with(
                  (`systemctl --user edit theseusd`, an `EnvironmentFile`), add --token-from-drop-in"
             );
         }
-        modes::user(env, g, args.remove, host)?
+        modes::user(env, g, &unit_name(args.unit.as_deref())?, args.remove, host)?
     } else {
         if mode != Mode::Plan && env.euid != 0 {
             bail!(

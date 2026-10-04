@@ -41,7 +41,15 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   `--op-token-file` is a global flag, so it works before the subcommand and after it; the plan's hint is the command as
   typed with it added. `--apply` with no token file named refuses unless `--token-from-drop-in` says a drop-in supplies
   it (a plan only notes it). Both units restart after 1 s and stop a crash loop at 10 starts in 300 s
-  (`StartLimit*`). `scripts/user-service.sh` wraps all of this (`docs/user-service.md`).
+  (`StartLimit*`). `--user --unit NAME` writes a second daemon's unit, `NAME.service`, whose description and
+  drop-in hint name it; the default unit's text is as it always was, so an installed unit still matches its plan.
+  `scripts/user-service.sh` wraps all of this (`docs/user-service.md`), and `scripts/setup.sh` wraps that.
+- The config's source (theseus-5aqz): `--config`, else `THESEUS_CONFIG`, else `~/.theseus/theseus.toml` if it exists,
+  else `/etc/theseus/theseus.toml` (`theseus_core::config::find_config`), found once in `main` before `install`'s
+  dispatch, so a plan writes the file the lookup found into the unit. `config` and `check` name the source and how it
+  was found; neither file is `NO_CONFIG`. A debug build's `THESEUS_TEST_SYSTEM_CONFIG` stands in for
+  `/etc/theseus/theseus.toml`, so a test never reads the machine's: set it in any test that runs `theseusd` without
+  `--config` (`tests/default_config.rs`).
 - `cockpit/dist/`: the cockpit's build, ignored. In a debug build it is read as it is served, so the suite's tests of
   `/` see the build the gate made before them.
 

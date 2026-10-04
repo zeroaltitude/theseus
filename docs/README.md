@@ -29,6 +29,9 @@
   - the phase designs: Stage 2 (the operator's surfaces), the AWS toolset, M4 boundaries, M5 judgment, M6 memory,
     and M7 surface;
   - Review 2, a read-only review of complexity, speed, and hardening, whose findings became fix batches.
+- **[setup.md](setup.md)**: one command from a checkout to a running daemon (`scripts/setup.sh`): what it needs,
+  what each step does, where the config lives and the order theseusd looks for it, a second daemon beside yours,
+  and the same steps by hand.
 - **[user-service.md](user-service.md)**: running the daemon as a systemd user service. It covers why, the one
   command (`scripts/user-service.sh install`), what each step does, daily use, undoing it, and the WSL notes.
 - **[benchmarks.md](benchmarks.md)**: Theseus's results on public benchmarks, published here first, and how each is

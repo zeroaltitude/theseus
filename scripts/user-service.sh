@@ -17,6 +17,8 @@
 #   --yes, -y              answer yes to every question
 #   --op-token-file FILE   the file that holds the 1Password service-account token (default:
 #                          $THESEUS_OP_TOKEN_FILE, else the file the installed unit names)
+#   --unit NAME            the unit's name (default theseusd): a second daemon, with its own
+#                          THESEUS_SOCKET and THESEUS_STATE_DIR, gets a unit of its own
 #   --help, -h
 #
 # The daemon's own variables are read the way `theseusd install --user` reads them, and the plan
@@ -34,7 +36,8 @@ set -u
 set -o pipefail
 exec 3>&1 # the terminal: "+ command" lines must reach it from inside a $(...)
 
-UNIT=theseusd.service
+UNIT_NAME=theseusd # --unit names another; UNIT and UNIT_FILE are set once the options are read
+UNIT_ARGS=()       # `--unit NAME` for `theseusd install --user`, only when it is not theseusd
 SELF=$0
 ME=$(id -un)
 MY_UID=$(id -u)
@@ -43,7 +46,6 @@ case ${XDG_CONFIG_HOME:-} in
 /*) CONFIG_HOME=$XDG_CONFIG_HOME ;;
 *) CONFIG_HOME=$HOME/.config ;;
 esac
-UNIT_FILE=$CONFIG_HOME/systemd/user/$UNIT
 SOCKET=${THESEUS_SOCKET:-$HOME/.theseus/theseus.sock}
 TOKEN_FILE=${THESEUS_OP_TOKEN_FILE:-}
 DRY=0
@@ -60,7 +62,7 @@ REST=()
 
 usage() {
   cat <<EOF
-usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] <command>
+usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] [--unit NAME] <command>
 
   check       read-only: is this machine ready, and what is running now?
   install     check, show the plan, write the unit, start it, prove it answers
@@ -76,6 +78,8 @@ usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] <command>
   --op-token-file FILE
               the file that holds the 1Password service-account token (default:
               \$THESEUS_OP_TOKEN_FILE, else the file the installed unit names)
+  --unit NAME the unit's name (default theseusd): a second daemon, with its own
+              THESEUS_SOCKET and THESEUS_STATE_DIR, gets a unit of its own
 
 The how-to: docs/user-service.md
 EOF
@@ -369,7 +373,7 @@ check_config() {
   local plan ref first built_in=""
   token_args
   if dry; then
-    probe timeout 20 theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user >/dev/null
+    probe timeout 20 theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user ${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"} >/dev/null
     note "its \`config:\` line is the config the unit would get: a file is checked with test, a reference by its shape"
     return
   fi
@@ -382,7 +386,7 @@ check_config() {
     ref=$UNIT_CONFIG
     built_in="THESEUS_CONFIG is not set here, so this is the installed unit's config"
   else
-    plan=$(probe timeout 20 theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user)
+    plan=$(probe timeout 20 theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user ${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"})
     if ! ref=$(plan_config "$plan"); then
       first=$(printf '%s' "$plan" | head -n 1)
       fail "config: the plan names none (theseusd install --user said: ${first:-nothing})"
@@ -405,7 +409,8 @@ check_config() {
       fail "config: $ref is not a readable file (${built_in:-THESEUS_CONFIG names it})"
       hint "the unit would be written to read it, and the daemon would not start. Name your config's vault note instead,"
       hint "in the shell that runs this script (your profile keeps it):  export THESEUS_CONFIG=op://<vault>/<item>/notesPlain"
-      hint "or write the file."
+      hint "or write the file. scripts/setup.sh writes /etc/theseus/theseus.toml from the template, which theseusd reads"
+      hint "when there is no ~/.theseus/theseus.toml."
     fi
     ;;
   esac
@@ -539,7 +544,7 @@ cheat_sheet() {
 # The unit, written from the plan, after a question.
 write_unit() {
   local rc
-  probe theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user --check >/dev/null
+  probe theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user ${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"} --check >/dev/null
   rc=$?
   if [ $rc = 0 ]; then
     say "The unit already matches the plan: nothing to write."
@@ -548,7 +553,7 @@ write_unit() {
       say "Nothing was changed."
       return 2
     }
-    run theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user --apply || return 1
+    run theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user ${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"} --apply || return 1
   fi
   run systemctl --user daemon-reload
 }
@@ -572,6 +577,13 @@ stop_hand_daemon() {
 
 cmd_install() {
   local rc
+  # A second daemon's unit (--unit) beside the first: on the first's socket, this script would find the first
+  # daemon answering, take it for one started by hand, and stop it; on its state dir, the two would share a store.
+  if [ ${#UNIT_ARGS[@]} -gt 0 ] && { [ -z "${THESEUS_SOCKET:-}" ] || [ -z "${THESEUS_STATE_DIR:-}" ]; }; then
+    say "Not installing $UNIT: a second daemon needs a socket and a state dir of its own."
+    say "Set THESEUS_SOCKET and THESEUS_STATE_DIR in this shell (the plan writes them into its unit), then run this again."
+    return 1
+  fi
   check_all || {
     say
     say "Not installing: fix the FAIL lines above, then run this again."
@@ -581,7 +593,7 @@ cmd_install() {
 
   say
   say "== the plan: what theseusd would write (nothing is changed yet)"
-  run theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user || {
+  run theseusd ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} install --user ${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"} || {
     say
     say "The plan did not finish (the lines above say why): fix that, then run this again."
     return 1
@@ -633,10 +645,10 @@ cmd_install() {
 cmd_uninstall() {
   need_theseusd || return 1
   say "== the plan: what would be removed (nothing is changed yet)"
-  run theseusd install --user --remove || return 1
+  run theseusd install --user ${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"} --remove || return 1
   say
   # Only a unit that theseusd wrote is this script's to take away; the plan says "keep" for any other.
-  probe theseusd install --user --remove --check >/dev/null
+  probe theseusd install --user ${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"} --remove --check >/dev/null
   if [ $? = 0 ]; then
     say "Nothing to remove: no unit that theseusd wrote is installed. Nothing was changed."
     return 0
@@ -650,7 +662,7 @@ cmd_uninstall() {
     dry && note "only if the unit is installed"
     run systemctl --user disable --now "$UNIT" || return 1
   fi
-  run theseusd install --user --remove --apply || return 1
+  run theseusd install --user ${UNIT_ARGS[@]+"${UNIT_ARGS[@]}"} --remove --apply || return 1
   run systemctl --user daemon-reload || return 1
   say
   done_say "Removed. Your state dir and store were not touched. To run the daemon by hand again, start theseusd as before."
@@ -744,6 +756,15 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   --op-token-file=*) TOKEN_FILE=${1#*=} ;;
+  --unit)
+    [ $# -ge 2 ] || {
+      echo "$SELF: --unit needs a name" >&2
+      exit 2
+    }
+    UNIT_NAME=$2
+    shift
+    ;;
+  --unit=*) UNIT_NAME=${1#*=} ;;
   -h | --help)
     usage
     exit 0
@@ -770,6 +791,20 @@ while [ $# -gt 0 ]; do
   shift
 done
 case $TOKEN_FILE in "~/"*) TOKEN_FILE=$HOME/${TOKEN_FILE#"~/"} ;; esac
+UNIT_NAME=${UNIT_NAME%.service}
+case $UNIT_NAME in
+"" | *[!A-Za-z0-9._-]*)
+  echo "$SELF: --unit '$UNIT_NAME': a unit's name is letters, digits, -, _, and ." >&2
+  exit 2
+  ;;
+theseusd) ;;
+*)
+  UNIT_ARGS=(--unit "$UNIT_NAME")
+  SELF="$SELF --unit $UNIT_NAME" # every command it suggests acts on this unit
+  ;;
+esac
+UNIT=$UNIT_NAME.service
+UNIT_FILE=$CONFIG_HOME/systemd/user/$UNIT
 
 if [ -n "$CMD" ] && [ "$CMD" != logs ] && [ ${#REST[@]} -gt 0 ]; then
   echo "$SELF: $CMD takes no further arguments (${REST[*]})" >&2

@@ -5,6 +5,8 @@
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
+- `setup.sh`: one command from a checkout to a running daemon: preflight, build, install, `/etc/theseus/theseus.toml` from
+  the template, `theseusd check`, then `user-service.sh install`. The how-to is `docs/setup.md`; see "setup.sh" below.
 
 `gate.sh` is a shared file: it changes only at a join, one change at a time.
 
@@ -367,6 +369,35 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   logs each call and keeps its state in files. A command the script starts to run needs a case in that stand-in, and a line
   in the dry-run test. The config tests swap `theseusd` for a stand-in plan (`PLAN_STANDIN`) that names a file as its default,
   so they hold before and after theseus-8d1b changes the real default.
+- **`--unit NAME`** is a second daemon's unit, `NAME.service` (passed on as `theseusd install --user --unit NAME`, and only
+  when it is not `theseusd`, so an older build still installs the default). `install` refuses it unless `THESEUS_SOCKET`
+  and `THESEUS_STATE_DIR` are set: on the operator's socket, `--yes` would take the operator's daemon for one started by
+  hand and stop it.
+
+## setup.sh
+
+(theseus-00me.) One command, from a checkout to a running daemon; `docs/setup.md` is its how-to. What to keep true:
+
+- **`--dry-run` changes nothing, and runs nothing but the preflight's reads.** In a dry run it never runs `theseusd`, and
+  never connects to a socket: on this machine the default socket is the operator's daemon. It prints `user-service.sh
+  --dry-run install` under its own step 6.
+- **It never writes a secret.** A new config is the template's sparse cut, and before it is written every `[secrets]`
+  value must be an `op://<…>/<…>/…` placeholder and no run of 40 or more token characters may appear. It never overwrites
+  a config: it says which keys differ from the template (`flat` and `differs`), never a value. Output from `theseusd check`
+  and `theseus health` goes through `mask`.
+- **Idempotent.** Binaries are compared with `cmp` and only a differing one is copied and renamed; `npm ci` is skipped while
+  `node_modules/.package-lock.json` is newer than the lock file, and `npm run build` while its `dist/index.html` is newer
+  than every file in `cockpit/`; cargo decides the rest. The service step does nothing when the unit matches its plan
+  (`theseusd install --user --check`), is active, and answers; it restarts when a binary changed; else it runs
+  `user-service.sh install --yes`.
+- **`--unit NAME` needs `--state-dir` and `--socket`** (a usage error without them), for the same reason as above.
+- **Exit status 3** is a stop for the operator (placeholders in `[secrets]`, or no token file), not a failure: an agent
+  running it reads the last lines.
+- **Its proof** is a scratch run: `--prefix`, `--config`, `--state-dir`, and `--socket` under one `/tmp` directory,
+  `--unit theseus-scratch-<name>`, a config with a stand-in model (a `file:` key) and `[discord]` off, a web port that
+  `ss -ltn` shows free, and a stand-in token file (mode 0600). Run it twice (the second changes nothing), then
+  `user-service.sh --unit <name> uninstall --yes` and delete the directory. Never with the defaults on this machine,
+  except `--dry-run`.
 
 ## smoke.sh
 
