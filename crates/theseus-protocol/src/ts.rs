@@ -37,6 +37,7 @@ fn declared() -> Vec<(String, bool)> {
     for src in [
         include_str!("lib.rs"),
         include_str!("arrangement.rs"),
+        include_str!("check.rs"),
         include_str!("tasks.rs"),
         include_str!("events.rs"),
         include_str!("gate.rs"),
@@ -136,7 +137,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,
         AwsBudgetStatus, AwsGuardDutyStatus, AwsBootstrapParams, AwsBootstrapStack,
         AwsBootstrapResult, AwsConfirmAlertsParams, AwsConfirmAlertsResult, TaskArrangement,
-        ArrangementPiece,
+        ArrangementPiece, TaskCheck, CheckPiece, CheckOverlap,
         mcp::McpServerStatus, mcp::McpToolInfo, mcp::McpListResult,
         mcp::McpRestartParams, mcp::McpRestartResult, mcp::McpPromptArgument,
         mcp::McpPromptInfo, mcp::McpPromptListParams, mcp::McpPromptListResult, mcp::McpPromptRef,

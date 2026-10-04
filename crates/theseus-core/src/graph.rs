@@ -96,6 +96,9 @@ pub const VIA_PUBLISH: &str = "publish";
 pub const VIA_RECALL: &str = "recall";
 /// A task's arrangement, from each message it quotes (M5 27).
 pub const VIA_ARRANGEMENT: &str = "arrangement";
+/// A check task's arrangement, from the checked task's report, its claim
+/// (M5 28a).
+pub const VIA_CLAIM: &str = "claim";
 
 impl Edge {
     pub fn new(kind: EdgeKind, from: &str, to: &str, via: &str) -> Self {

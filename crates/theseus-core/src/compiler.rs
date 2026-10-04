@@ -1137,10 +1137,11 @@ pub fn render_messages(
             }
             // A task's arrangement reads right after its brief, as the
             // same user message (M5 27).
-            Body::Arrangement { pieces, .. } => push(
+            // A check's claim reads after its pieces (M5 28a).
+            Body::Arrangement { pieces, claim, .. } => push(
                 &mut out,
                 "user",
-                vec![json!({"type": "text", "text": crate::arrangement::render(pieces)})],
+                vec![json!({"type": "text", "text": crate::check::render(pieces, claim.as_ref())})],
             ),
             Body::AssistantMessage { .. } if replaced.contains(n.id.as_str()) => {}
             Body::AssistantMessage {

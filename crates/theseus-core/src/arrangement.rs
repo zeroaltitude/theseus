@@ -499,6 +499,7 @@ pub fn info(node: &Node) -> Option<theseus_protocol::TaskArrangement> {
     let Body::Arrangement {
         pieces,
         fidelity_ack,
+        ..
     } = &node.body
     else {
         return None;

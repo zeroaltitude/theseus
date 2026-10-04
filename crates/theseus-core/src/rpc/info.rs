@@ -287,12 +287,18 @@ fn arrangement_info(n: &Node) -> (String, String, Value, u64) {
     let Body::Arrangement {
         pieces,
         fidelity_ack,
+        claim,
     } = &n.body
     else {
         return (String::new(), String::new(), Value::Null, 0);
     };
-    let text = crate::arrangement::render(pieces);
+    let text = crate::check::render(pieces, claim.as_ref());
     let bytes = text.len() as u64;
-    let detail = json!({"pieces": crate::arrangement::meta(pieces), "fidelity_ack": fidelity_ack});
+    let mut detail =
+        json!({"pieces": crate::arrangement::meta(pieces), "fidelity_ack": fidelity_ack});
+    // A check's claim, by reference (M5 28a).
+    if let Some(c) = claim {
+        detail["claim"] = json!({"task": c.task, "node": c.node, "at_ms": c.at_ms});
+    }
     (text, String::new(), detail, bytes)
 }

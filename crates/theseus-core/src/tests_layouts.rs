@@ -57,6 +57,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::SESSION,
+        layout: "a task's session with its arrangement's node (format 9, M5 27; unchanged through 12), before a check's basis (13, M5 28a); the build before theseus-vug.3 (78d749c) writes it back byte for byte",
+        bytes: r#"{"session_id":"ses_00000000000000000000000000000081","kind":"task","label":"task","created_at_unix_ms":1790000000081,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000081","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":0,"cost_usd":0.0,"tool_calls":0,"title":"Chart the harbour soundings","task":{"parent_session":"ses_lighthouse","parent_execution":"exe_lighthouse","by":"act_00000000000000000000000000000081","target":"discord:dm:42","arrangement":"arr_00000000000000000000000000000083"}}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::EXECUTION,
         layout: "1, 460a35b's: before an execution's wakes, report wakes, and stop (2)",
         bytes: r#"{"id":"exe_01a0f3f3c9b77474a7caa5d505b05b5e","schema":2,"session_id":"ses_01a0f3f3c9b77474a7caa5d4925bd678","kind":"conversation","state":"cancelled","authority":{"principal":"operator","ceilings":{}},"budget":{"limit_micros":100000000,"spent_micros":440,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":0},"outstanding":["act_01a0f3f3cd97711e8a0b5fbbdc8b2bbc"],"queued_results":[],"turns":1,"interrupted":0,"resume_pending":false,"cancel":"requested","ended_reason":"cancelled by sock#4","created_at_ms":1790799235511,"updated_at_ms":1790799237745}"#,
@@ -168,6 +174,12 @@ const SAMPLES: &[Sample] = &[
         kind: kinds::NODE,
         layout: "7 (theseus-8kk.1; unchanged through 9): a user message of origin `operator`, as every input was written before an MCP prompt's `mcp` origin (10, theseus-ext.4); the builds before it write it back byte for byte",
         bytes: r#"{"id":"msg_00000000000000000000000000000071","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t7","loop_index":null,"origin":"operator","author":"cli","created_at_ms":1790000000071,"body":{"kind":"user_message","text":"say hello to Ada"}}"#,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::NODE,
+        layout: "a task's arrangement node (format 9, M5 27; unchanged through 12): a trusted piece, a superseded one, and the fidelity ack, before a check's claim (13, M5 28a); the build before theseus-vug.3 (78d749c) writes it back byte for byte",
+        bytes: r#"{"id":"arr_00000000000000000000000000000083","schema":1,"session_id":"ses_00000000000000000000000000000081","turn_id":null,"loop_index":null,"origin":"agent","author":"session:ses_lighthouse","created_at_ms":1790000000081,"body":{"kind":"arrangement","pieces":[{"role":"objective","node":"msg_00000000000000000000000000000071","session_id":"ses_lighthouse","origin":"operator","author":"cli","at_ms":1790000000071,"text":"Chart the harbour soundings before the spring tide.","first_line":"Chart the harbour soundings before the spring tide.","trusted":true},{"role":"context","node":"msg_00000000000000000000000000000072","session_id":"ses_lighthouse","origin":"agent","author":null,"at_ms":1790000000072,"first_line":"The old chart is from 1998.","superseded_by":0}],"fidelity_ack":true}}"#,
         kept: Kept::All,
     },
     Sample {

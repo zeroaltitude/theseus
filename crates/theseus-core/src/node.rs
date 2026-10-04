@@ -206,6 +206,11 @@ pub enum Body {
         /// The call acknowledged the fidelity check.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fidelity_ack: bool,
+        /// A check task's claim (M5 28a, `check.rs`): the checked task's
+        /// report, rendered after the pieces. Absent in nodes written before
+        /// it (format 13), and on every other task's arrangement.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim: Option<crate::check::Claim>,
     },
 }
 
@@ -345,6 +350,7 @@ impl Node {
             Body::Arrangement {
                 pieces,
                 fidelity_ack,
+                claim: None,
             },
         );
         n.author = Some(author.into());

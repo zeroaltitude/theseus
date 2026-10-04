@@ -301,6 +301,9 @@ pub struct ToolRuntime {
     /// The judge (M5 step 24): every call that acts goes to `gate` once it
     /// is planned. Set as the core is built; unset, nothing is judged.
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
+    /// The configured profiles, each what it runs on: a check's `profile`
+    /// names one (M5 28a).
+    pub profiles: BTreeMap<String, crate::session::TargetRef>,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -427,6 +430,7 @@ impl ToolRuntime {
                 tmp.join("extensions"),
                 vec![],
             )),
+            profiles: BTreeMap::new(),
         }
     }
 
@@ -1496,7 +1500,8 @@ impl ToolRuntime {
         let mut edit = crate::task_graph::tools::Done::default();
         let done = match tool.name() {
             crate::task::CREATE => {
-                crate::task::create(tc, &call.input, correlation_id).map(|c| edit.take(c))
+                crate::task::create(tc, &call.input, correlation_id, &self.profiles)
+                    .map(|c| edit.take(c))
             }
             crate::wake::AT => crate::wake::set(tc, &call.input, correlation_id),
             // Run again after a restart: what the first run proposed.
@@ -2148,6 +2153,18 @@ pub fn build_runtime(
         lsp,
         extend,
         judge: Default::default(),
+        profiles: cfg
+            .all_profiles()
+            .iter()
+            .map(|(name, p)| {
+                let target = crate::session::TargetRef {
+                    profile: name.clone(),
+                    provider: p.provider.clone(),
+                    model: p.model.clone(),
+                };
+                (name.clone(), target)
+            })
+            .collect(),
     })
 }
 

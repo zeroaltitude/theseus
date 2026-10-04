@@ -274,6 +274,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the node, which `task.list` reads; the rows are `task.arranged` and `task.arrangement_refused`
   (`fact/arrangement.rs`). A scripted `task.create` in a test needs an arrangement whose quote its parent's
   transcript holds once. Tests: `tests_arrangement.rs`, `arrangement::tests`.
+- **Check tasks** (M5 step 28a, theseus-vug.3): `check.rs`. `task.create { check_of, profile? }` opens a task that
+  checks another by its claim: `check_of` resolves only among the tasks the calling session started, and a task
+  with no report is refused (`task.check_refused`). Its `Arrangement` node carries the checked task's standing
+  `objective` and `acceptance` pieces (which stand for its own under 27's rule; the fidelity check does not apply),
+  any pieces of its own, and the report as a `claim` (`Body::Arrangement.claim`, rendered by `check::render`), with
+  a `derived_from` edge to the report (`VIA_CLAIM`). The exclusion is enforced on what the parent writes: an own
+  piece that copies the report reads as the claim, one deriving from any other node of the checked session is
+  refused. The overlap flag (`OVERLAP_WORDS`, 12, words as runs of letters and digits without case) compares the
+  brief and own pieces with that session's nodes but its report, brief and arrangement. The basis is
+  `TaskOf.check` (`theseus_protocol::TaskCheck`, store format 13), the row `task.check_opened`, and its line on
+  `task.list`, the report's post and node. `profile` is a check's alone (`ToolRuntime::profiles`). Tests:
+  `tests_check.rs`, `check::tests`.
 - **The task graph** (M7 step 39a, theseus-ext.6): `task_graph/`. A task is a record of the store's `TASK` kind
   (`theseus_protocol::tasks::TaskRecord`, stored as shown; `tsk_…`, a task session's id sharing its session's tail).
   `task.create` without `brief` records a plan item (no arrangement needed); with it, 27's rules hold and the record
