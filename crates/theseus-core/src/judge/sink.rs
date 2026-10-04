@@ -80,6 +80,7 @@ impl JudgeService {
                 let circuit = JudgeCircuit {
                     transition: t,
                     judgment: &j.id,
+                    breaker: self.breaker_of(&j.pack),
                 };
                 records.extend(crate::fact::row(&circuit, None, None).ok());
             }
@@ -107,6 +108,7 @@ impl JudgeService {
                 let circuit = JudgeCircuit {
                     transition: t,
                     judgment: &j.id,
+                    breaker: self.breaker_of(&j.pack),
                 };
                 self.announce(None, None, &circuit);
             }
@@ -117,6 +119,14 @@ impl JudgeService {
         if let Some(shed) = shed {
             self.announce(None, None, &JudgeShed { shed });
         }
+    }
+}
+
+impl JudgeService {
+    /// The breaker of its own `pack` answers to (`rerank`); `None`, the
+    /// shared one.
+    fn breaker_of(&self, pack: &str) -> Option<&str> {
+        self.built.get()?.judge.inner().breaker_of(pack)
     }
 }
 

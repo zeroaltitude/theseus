@@ -209,7 +209,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "route.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
-            "rerank.v1: shadow",
+            "rerank.v1: live",
             "memory.v1: shadow",
             "attribution.v1: shadow"
         ])

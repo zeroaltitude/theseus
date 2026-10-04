@@ -56,7 +56,16 @@ impl Core {
             .as_deref()
             .map(str::trim)
             .filter(|q| !q.is_empty());
-        let label = labels::check(&pack, question, &p.label).map_err(anyhow::Error::msg)?;
+        // A per-item question names its answer (`helps.3`, 32d): the
+        // judgment must have asked it, and the label keeps the item's key.
+        let about = question.and_then(|q| learning::items::asked_about(&row.data["answers"], q));
+        let label = match (question, &about) {
+            (Some(q), Some(_)) => labels::check_item(q, &p.label),
+            (Some(q), None) => learning::items::refuse_unasked(&pack, &row.data["answers"], q)
+                .and_then(|()| labels::check(&pack, Some(q), &p.label)),
+            (None, _) => labels::check(&pack, None, &p.label),
+        }
+        .map_err(anyhow::Error::msg)?;
         let what = format!(
             "{} on {}{}",
             label,
@@ -71,6 +80,7 @@ impl Core {
             judgment: &p.judgment,
             pack: &pack_name,
             question,
+            about: about.as_deref(),
             label: label.clone(),
             source: "operator",
             who: &who_s,
@@ -90,6 +100,7 @@ impl Core {
             judgment: p.judgment.clone(),
             pack: pack_name,
             question: question.map(str::to_string),
+            about,
             label,
             source: "operator".into(),
             weight: 1.0,
@@ -196,7 +207,8 @@ impl Core {
                         id: l.id.clone(),
                         judgment: l.judgment.clone(),
                         pack: l.pack.clone(),
-                        question: Some(l.question.to_string()),
+                        question: Some(l.question.clone()),
+                        about: l.about.clone(),
                         label: l.label.clone(),
                         source: "system".into(),
                         weight: learning::SYSTEM_WEIGHT,

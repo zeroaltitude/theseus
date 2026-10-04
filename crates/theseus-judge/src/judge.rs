@@ -316,6 +316,17 @@ impl<J: Judge, S: JudgmentSink> Judge for Recording<J, S> {
 pub struct JevJudge {
     client: JevClient,
     prices: BTreeMap<String, JevPrice>,
+    /// The shared breaker: every pack's but those with one of their own.
+    breaker: Mutex<Breaker>,
+    /// Breakers of their own (32d: `rerank`), each with the packs it
+    /// serves. Their outcomes move only them; the client, its in-flight
+    /// permits and its shed count, stays shared.
+    own: Vec<OwnBreaker>,
+}
+
+struct OwnBreaker {
+    name: String,
+    packs: Vec<String>,
     breaker: Mutex<Breaker>,
 }
 
@@ -329,19 +340,63 @@ impl JevJudge {
             client,
             prices,
             breaker: Mutex::new(Breaker::new(breaker)),
+            own: Vec::new(),
         }
+    }
+
+    /// A breaker of its own, `name`, for `packs` (by name, `rerank.v1`):
+    /// their failures and timeouts move it alone, and the shared one's
+    /// don't stop them.
+    pub fn with_breaker(mut self, name: &str, packs: &[&str], config: BreakerConfig) -> Self {
+        self.own.push(OwnBreaker {
+            name: name.to_string(),
+            packs: packs.iter().map(|p| p.to_string()).collect(),
+            breaker: Mutex::new(Breaker::new(config)),
+        });
+        self
     }
 
     pub fn client(&self) -> &JevClient {
         &self.client
     }
 
+    /// The shared breaker's status (route.v1 reads it).
     pub fn breaker_status(&self) -> Status {
         self.breaker().status(Instant::now())
     }
 
+    /// The name of the breaker `pack` answers to, when it has one of its
+    /// own; `None`, the shared one.
+    pub fn breaker_of(&self, pack: &str) -> Option<&str> {
+        self.own_of(pack).map(|o| o.name.as_str())
+    }
+
+    /// Each breaker of its own, by name, with its status.
+    pub fn own_breakers(&self) -> Vec<(String, Status)> {
+        let now = Instant::now();
+        self.own
+            .iter()
+            .map(|o| (o.name.clone(), lock(&o.breaker).status(now)))
+            .collect()
+    }
+
+    fn own_of(&self, pack: &str) -> Option<&OwnBreaker> {
+        self.own.iter().find(|o| o.packs.iter().any(|p| p == pack))
+    }
+
     fn breaker(&self) -> std::sync::MutexGuard<'_, Breaker> {
-        self.breaker.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.breaker)
+    }
+
+    /// The breaker a batch answers to: its first pack's (a batch's packs
+    /// share a state, and a pack with a breaker of its own has a state of
+    /// its own).
+    fn breaker_for(&self, b: &Batch) -> std::sync::MutexGuard<'_, Breaker> {
+        let own = b.parts.first().and_then(|p| self.own_of(&p.pack.name()));
+        match own {
+            Some(o) => lock(&o.breaker),
+            None => self.breaker(),
+        }
     }
 
     /// What the asks would reserve, batched as they would go out; none when
@@ -383,7 +438,7 @@ impl JevJudge {
                 j.reserve_micros = reserve.as_ref().map(|r| r[k]);
             }
         }
-        if !self.breaker().admit(Instant::now()) {
+        if !self.breaker_for(&b).admit(Instant::now()) {
             for p in &b.parts {
                 if let Some(j) = out[p.tag].as_mut() {
                     j.outcome = Outcome::Skipped {
@@ -400,7 +455,7 @@ impl JevJudge {
             Err(CallError::Jev(_)) => breaker::Outcome::Answered,
             Err(CallError::Shed | CallError::NoKey) => breaker::Outcome::NotSent,
         };
-        let circuit = self.breaker().record(Instant::now(), counted);
+        let circuit = self.breaker_for(&b).record(Instant::now(), counted);
         // The usage the call billed, when known, split by question count.
         let billed = match &called.result {
             Ok(r) => Some(r.usage),
@@ -463,6 +518,10 @@ impl JevJudge {
             }
         }
     }
+}
+
+fn lock(m: &Mutex<Breaker>) -> std::sync::MutexGuard<'_, Breaker> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn part(tag: usize, a: &Ask) -> Part {

@@ -69,7 +69,7 @@ export default function Judgment() {
         <Panel title="Judgment" icon={<Scale size={14} />} actions={
           world
             ? <Pill tone="wait">as of {stamp(world.t)}: {world.judge.calls} calls · {money(world.judge.costMicros)}{world.judge.paused ? ' · paused' : ''}</Pill>
-            : h && <Pill tone={h.enabled ? (h.paused ? 'wait' : 'ok') : 'idle'}>{h.enabled ? `breaker ${h.breaker} · key ${h.key || '?'}` : 'off'}</Pill>
+            : h && <Pill tone={h.enabled ? (h.paused ? 'wait' : 'ok') : 'idle'}>{h.enabled ? `breaker ${h.breaker}${(h.breakers ?? []).map((b) => ` · ${b.replace(': ', ' breaker ')}`).join('')} · key ${h.key || '?'}` : 'off'}</Pill>
         }>
           {!h?.enabled && !all.length ? (
             <Empty>the judge is off ([judge] enabled = false)</Empty>

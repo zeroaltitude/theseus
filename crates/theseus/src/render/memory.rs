@@ -96,11 +96,46 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
             m.budget_tokens
         ),
     );
+    if let Some(r) = &m.rerank {
+        push(
+            o,
+            if r.applied { Tag::Plain } else { Tag::Dim },
+            &rerank_line(r),
+        );
+    }
     for a in &m.admitted {
         item_lines(o, a);
     }
     drop_lines(o, m);
     out
+}
+
+/// Whether Jev's live rerank ordered the pack (32d), or why recall's own
+/// order stood.
+fn rerank_line(r: &theseus_protocol::memory::RecallRerank) -> String {
+    let jdg = r
+        .judgment
+        .as_deref()
+        .map(|j| format!(" ({j})"))
+        .unwrap_or_default();
+    if r.applied {
+        return format!(
+            "  in Jev's order{jdg}: rerank.v1 answered after {:.1} ms of the {} ms wait",
+            r.waited_ms, r.wait_ms
+        );
+    }
+    let why = match r.why.as_deref() {
+        Some("timeout") => format!(
+            "Jev had not answered within the {} ms wait; its answer, if it comes, is recorded late",
+            r.wait_ms
+        ),
+        Some("breaker_open") => "rerank's breaker is open".into(),
+        Some("budget") => "the judge's day budget is spent".into(),
+        Some("nothing_eligible") => "no note passed the filters".into(),
+        Some(other) => format!("the rerank fell back: {other}"),
+        None => "no answer".into(),
+    };
+    format!("  in recall's own order{jdg}: {why}")
 }
 
 /// An admitted item: its rank, where it is, its scores, and its text.
@@ -230,5 +265,34 @@ mod tests {
         assert!(all.contains("would admit 1 · 9 of 1500 tokens"), "{all}");
         assert!(all.contains("the heron nests by the weir"), "{all}");
         assert!(all.contains("dropped 1 for place: msg_2#0"), "{all}");
+        assert!(!all.contains("order"), "no rerank, no line: {all}");
+        let reranked = |applied: bool, why: Option<&str>| {
+            let m = RecallManifest {
+                rerank: Some(theseus_protocol::memory::RecallRerank {
+                    judgment: Some("jdg_h1".into()),
+                    applied,
+                    why: why.map(str::to_string),
+                    waited_ms: 115.0,
+                    wait_ms: 200,
+                }),
+                ..m.clone()
+            };
+            let lines: Vec<String> = recall_lines(&m).into_iter().map(|l| l.text).collect();
+            lines.join("\n")
+        };
+        let all = reranked(true, None);
+        assert!(
+            all.contains(
+                "in Jev's order (jdg_h1): rerank.v1 answered after 115.0 ms of the 200 ms wait"
+            ),
+            "{all}"
+        );
+        let all = reranked(false, Some("timeout"));
+        assert!(
+            all.contains(
+                "in recall's own order (jdg_h1): Jev had not answered within the 200 ms wait"
+            ),
+            "{all}"
+        );
     }
 }

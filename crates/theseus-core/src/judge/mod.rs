@@ -71,10 +71,18 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (inbound::ROUTE_PACK, PackMode::Live),
     (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
-    (rerank::RERANK_PACK, PackMode::Shadow),
+    (rerank::RERANK_PACK, PackMode::Live),
     (memory::MEMORY_PACK, PackMode::Shadow),
     (memory::ATTRIBUTION_PACK, PackMode::Shadow),
 ];
+
+/// The mode `WIRED` gives `pack` (shadow for one it does not list).
+pub fn wired_mode(pack: &str) -> PackMode {
+    WIRED
+        .iter()
+        .find(|(p, _)| *p == pack)
+        .map_or(PackMode::Shadow, |(_, m)| *m)
+}
 
 /// JUDGE_STOP (§2.4), at `loop_end`.
 pub const LOOP_PACK: &str = "loop.v1";
@@ -131,6 +139,9 @@ pub struct JudgeService {
     /// `route.v1` verdicts that came after their turn's wait, by session:
     /// each applies from the session's next message (25e).
     late: Mutex<std::collections::HashMap<String, crate::routing::Verdict>>,
+    /// A test's judge in Jev's place for the rerank (a channel for Jev).
+    #[cfg(test)]
+    rerank_judge: OnceLock<Arc<dyn Judge>>,
     me: Weak<JudgeService>,
     /// Where the judge's facts say their sentences, and their metrics go
     /// (23b): set by the core as it builds, and as its telemetry is built.
@@ -180,10 +191,18 @@ impl JudgeService {
             categorize: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
             late: Mutex::default(),
+            #[cfg(test)]
+            rerank_judge: OnceLock::new(),
             me: me.clone(),
             narrator: OnceLock::new(),
             telemetry: OnceLock::new(),
         })
+    }
+
+    /// A test's judge in Jev's place for the rerank's call.
+    #[cfg(test)]
+    pub(crate) fn rerank_with(&self, judge: Arc<dyn Judge>) {
+        let _ = self.rerank_judge.set(judge);
     }
 
     /// The narrative the judge's facts speak in (the core's).
@@ -245,7 +264,14 @@ impl JudgeService {
                 name: self.cfg.key_secret.clone(),
             }),
         )?;
-        let judge = JevJudge::new(client, self.prices.clone(), BreakerConfig::default());
+        // Rerank's failures and timeouts move only its own breaker (32d):
+        // five slow reranks in a row stop no other pack.
+        let judge = JevJudge::new(client, self.prices.clone(), BreakerConfig::default())
+            .with_breaker(
+                rerank::BREAKER,
+                &[rerank::RERANK_PACK],
+                BreakerConfig::default(),
+            );
         let (channel, rx) = sink::Channel::new();
         let b = Arc::new(Built {
             judge: Recording::new(judge, channel),
@@ -466,17 +492,30 @@ impl JudgeService {
             .built
             .get()
             .map_or(0, |b| b.judge.inner().client().shed_total());
-        let (breaker, in_flight) = match self.built.get() {
+        let words = |s: Status| match s {
+            Status::Closed { .. } => "closed".to_string(),
+            Status::Open { secs_left } => format!("open ({secs_left}s left)"),
+            Status::HalfOpen => "half_open".to_string(),
+        };
+        let (breaker, breakers, in_flight) = match self.built.get() {
             Some(b) => {
                 let j = b.judge.inner();
-                let s = match j.breaker_status() {
-                    Status::Closed { .. } => "closed".to_string(),
-                    Status::Open { secs_left } => format!("open ({secs_left}s left)"),
-                    Status::HalfOpen => "half_open".to_string(),
-                };
-                (s, j.client().in_flight() as u64)
+                let own = j
+                    .own_breakers()
+                    .into_iter()
+                    .map(|(name, s)| format!("{name}: {}", words(s)))
+                    .collect();
+                (
+                    words(j.breaker_status()),
+                    own,
+                    j.client().in_flight() as u64,
+                )
             }
-            None => ("idle".to_string(), 0),
+            None => (
+                "idle".to_string(),
+                vec![format!("{}: idle", rerank::BREAKER)],
+                0,
+            ),
         };
         JudgeHealth {
             enabled: self.cfg.enabled,
@@ -486,6 +525,7 @@ impl JudgeService {
                 .map(|(p, given)| format!("{p}: {}", self.cfg.mode_of(p, *given).as_str()))
                 .collect(),
             breaker,
+            breakers,
             in_flight,
             day: t.day,
             calls_today: t.calls,

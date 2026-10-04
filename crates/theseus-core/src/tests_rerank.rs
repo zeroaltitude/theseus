@@ -38,13 +38,13 @@ const DEN: u64 = 271_000_000_000_000_001;
 const PIER: u64 = 271_000_000_000_000_002;
 const QUAY: u64 = 271_000_000_000_000_003;
 
-struct Rig {
-    core: Arc<Core>,
-    model: Arc<FakeProvider>,
+pub(crate) struct Rig {
+    pub core: Arc<Core>,
+    pub model: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
-fn board() -> Arc<SecretBoard> {
+pub(crate) fn board() -> Arc<SecretBoard> {
     let b = SecretBoard::new(["jev_api_key".to_string()], Instant::now());
     b.publish(
         BTreeMap::from([(
@@ -56,7 +56,7 @@ fn board() -> Arc<SecretBoard> {
     b
 }
 
-fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
+pub(crate) fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
     cfg.judge.packs.insert(
         pack.into(),
         JudgePackConfig {
@@ -70,7 +70,7 @@ fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
 /// given, with every other wired pack off (`loop.v1`, and the gate's,
 /// inbound's, compile's and categorize's points), so every judgment is the
 /// rerank's.
-fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -110,7 +110,7 @@ fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
 }
 
 /// A session, posting to `place` when given, saying `said`.
-fn session(core: &Core, place: Option<&str>, said: &[&str]) -> String {
+pub(crate) fn session(core: &Core, place: Option<&str>, said: &[&str]) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     if let Some(p) = place {
@@ -125,7 +125,7 @@ fn session(core: &Core, place: Option<&str>, said: &[&str]) -> String {
 
 /// A stand-in index over `sessions`, in the order given (the first is the
 /// best), every node written before the query's `as_of`.
-fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
+pub(crate) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     let store = core.store.clone();
     Arc::new(move |p| -> AskFuture {
         let mut hits = Vec::new();
@@ -178,7 +178,7 @@ fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
     })
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -204,7 +204,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
         .unwrap()
 }
 
-fn recalls(core: &Core, sid: &str) -> Vec<RecallManifest> {
+pub(crate) fn recalls(core: &Core, sid: &str) -> Vec<RecallManifest> {
     core.memory_recalls(MemoryRecallsParams {
         session_id: sid.into(),
         limit: Some(200),
@@ -214,7 +214,7 @@ fn recalls(core: &Core, sid: &str) -> Vec<RecallManifest> {
 }
 
 /// The rerank's `judge.call` rows.
-fn reranks(store: &Store) -> Vec<LedgerRow> {
+pub(crate) fn reranks(store: &Store) -> Vec<LedgerRow> {
     store
         .scope_after("judge:rerank", 0)
         .unwrap()
@@ -224,7 +224,7 @@ fn reranks(store: &Store) -> Vec<LedgerRow> {
 }
 
 /// Wait, on the runtime's timer, for `n` rerank rows.
-async fn until_reranked(store: &Store, n: usize) -> Vec<LedgerRow> {
+pub(crate) async fn until_reranked(store: &Store, n: usize) -> Vec<LedgerRow> {
     let t0 = Instant::now();
     loop {
         let rows = reranks(store);
@@ -241,7 +241,7 @@ async fn until_reranked(store: &Store, n: usize) -> Vec<LedgerRow> {
 }
 
 /// Every `judge` mark in a trace.
-fn marks(s: &Span, out: &mut Vec<Value>) {
+pub(crate) fn marks(s: &Span, out: &mut Vec<Value>) {
     // The rerank's marks: 23b marks loop.v1's dispatch at each turn's end.
     if s.name == "judge" && s.kind == "mark" && s.attrs["pack"] == "rerank.v1" {
         out.push(s.attrs.clone());
@@ -251,7 +251,7 @@ fn marks(s: &Span, out: &mut Vec<Value>) {
     }
 }
 
-fn keys_of(v: &Value) -> Vec<String> {
+pub(crate) fn keys_of(v: &Value) -> Vec<String> {
     v.as_array()
         .unwrap()
         .iter()
@@ -260,7 +260,10 @@ fn keys_of(v: &Value) -> Vec<String> {
 }
 
 /// Three notes, the stand-in index best first: the heron's note third.
-fn heron_rig(jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> (Rig, String, Vec<String>) {
+pub(crate) fn heron_rig(
+    jev: &FakeJev,
+    tweak: impl FnOnce(&mut Config),
+) -> (Rig, String, Vec<String>) {
     let r = rig(Some(jev), tweak);
     let c = &r.core;
     let kettle = session(c, None, &["the kettle in the shed needs descaling"]);
@@ -347,7 +350,7 @@ async fn a_fake_jev_reorders_what_would_be_admitted() {
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(h.spend_today_usd, theseus_judge::price::micros_to_usd(cost));
     assert!(
-        h.packs.contains(&"rerank.v1: shadow".to_string()),
+        h.packs.contains(&"rerank.v1: live".to_string()),
         "{:?}",
         h.packs
     );
@@ -454,7 +457,7 @@ async fn mode_off_calls_nothing() {
 }
 
 /// The requests a core's model got, as bytes.
-fn sent(model: &FakeProvider) -> Vec<String> {
+pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
     let reqs: Vec<ProviderRequest> = model.requests.lock().unwrap().clone();
     reqs.iter()
         .map(|q| serde_json::to_string(&(&q.system, &q.messages, &q.tools)).unwrap())

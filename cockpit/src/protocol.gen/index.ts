@@ -230,6 +230,7 @@ export type * from './ReachTotals';
 export type * from './RecallDrop';
 export type * from './RecallItem';
 export type * from './RecallManifest';
+export type * from './RecallRerank';
 export type * from './RecallTimings';
 export type * from './ReliabilityBin';
 export type * from './Request';

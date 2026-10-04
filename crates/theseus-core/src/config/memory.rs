@@ -100,6 +100,11 @@ pub struct MemoryConfig {
     /// it past its model call's answer and this.
     #[serde(default = "default_deadline_ms")]
     pub recall_deadline_ms: u64,
+    /// How long a recall in front of the model waits for Jev's live rerank
+    /// (32d), from the rerank's start, its state's build included. Past it,
+    /// recall's own order stands, and the answer is recorded `late`.
+    #[serde(default = "default_rerank_wait_ms")]
+    pub rerank_wait_ms: u64,
     /// Whether external text (a fetched page, a listed program's output) may
     /// be recalled.
     #[serde(default)]
@@ -125,6 +130,11 @@ fn default_max_items() -> usize {
 }
 fn default_deadline_ms() -> u64 {
     250
+}
+/// 11 live reranks took p50 115 ms and p95 149 ms (the most 149): 200
+/// misses few, and with the index's 250 ms stays inside §2.12's 600 ms.
+fn default_rerank_wait_ms() -> u64 {
+    200
 }
 fn default_canary_fraction() -> f64 {
     0.5
@@ -152,6 +162,9 @@ pub const SUMMARY_SESSION: &str = "session";
 
 /// The longest a recall may wait for the index.
 pub const MAX_RECALL_DEADLINE_MS: u64 = 5_000;
+/// The longest a recall may wait for Jev's live rerank: its call's own
+/// deadline (`judge::rerank::DEADLINE`).
+pub const MAX_RERANK_WAIT_MS: u64 = 600;
 /// The most items a pack may hold: the index's hits for a turn.
 pub const MAX_RECALL_ITEMS: usize = 40;
 
@@ -166,6 +179,7 @@ impl Default for MemoryConfig {
             recall_budget_tokens: default_budget(),
             recall_max_items: default_max_items(),
             recall_deadline_ms: default_deadline_ms(),
+            rerank_wait_ms: default_rerank_wait_ms(),
             include_external: false,
             summary_profile: default_summary_profile(),
             assembled_budget_tokens: default_assembled_budget(),
@@ -225,6 +239,13 @@ impl MemoryConfig {
                 "memory.recall_deadline_ms = {} is outside 1 to {MAX_RECALL_DEADLINE_MS}: recall \
                  never holds a turn for long",
                 self.recall_deadline_ms
+            );
+        }
+        if !(1..=MAX_RERANK_WAIT_MS).contains(&self.rerank_wait_ms) {
+            bail!(
+                "memory.rerank_wait_ms = {} is outside 1 to {MAX_RERANK_WAIT_MS}: a turn never \
+                 waits on Jev's rerank past its call's own deadline",
+                self.rerank_wait_ms
             );
         }
         Ok(())
@@ -323,6 +344,7 @@ mod tests {
             );
         }
         assert!(parse("[memory]\nrecall_after = 1\n").is_err());
+        assert_eq!(crate::Config::example().memory.rerank_wait_ms, 200);
         assert!(parse("[memory]\narm = \"+rerank\"\n").is_err());
         for (arm, want) in [
             ("none", MemoryArm::None),
@@ -339,6 +361,8 @@ mod tests {
             "recall_max_items = 41",
             "recall_deadline_ms = 0",
             "recall_deadline_ms = 5001",
+            "rerank_wait_ms = 0",
+            "rerank_wait_ms = 601",
             "canary_fraction = 1.5",
             "canary_fraction = -0.1",
             "experiment = \" \"",

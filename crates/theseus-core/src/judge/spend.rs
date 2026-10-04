@@ -264,6 +264,13 @@ impl ShadowBudget {
         }
     }
 
+    /// Whether today's limit has paused the judge's spend: a read of what
+    /// this process knows, never the store's.
+    pub fn paused(&self, today: &str) -> bool {
+        let d = self.lock();
+        d.loaded && d.paused_said && d.stored.day == today
+    }
+
     /// A judgment skipped before it reserved (shed, the breaker, no key,
     /// sampling aside).
     pub fn skipped(&self, today: &str) {

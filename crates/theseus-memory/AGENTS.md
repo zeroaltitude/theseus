@@ -22,7 +22,8 @@ Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `fsrs.rs`, `activation.rs`,
 - `rerank.rs` (step 32c): the `+rerank` arm's pure half. `eligible` is what passed every filter, in the science's
   order (only it may reach Jev); `reorder` re-sorts the top 20 by Jev's probabilities (an unanswered item keeps its
   fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order
-  (a `Reranked` science). The core's shadow rerank (`judge/rerank.rs`) calls all three; 30b's live arm would too.
+  (a `Reranked` science). The core's rerank (`judge/rerank.rs`) calls all three, and since 32d a live
+  rerank's turn packs again in Jev's order with `repack` too (`Memory::refill`), so the row and the request agree.
 - `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is), `activation.rs` (32b's math).
 
 ## Invariants

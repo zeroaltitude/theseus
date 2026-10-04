@@ -151,7 +151,7 @@ impl TurnRunner {
 
     /// The scene of the turn's recall: its place, the nodes its request
     /// carries (and the sources of the recalls among them), and the labels.
-    fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str) -> Scene<'a> {
+    pub(super) fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str) -> Scene<'a> {
         let mut in_context = BTreeSet::new();
         if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
             // An assembled section's context is what its prefix keeps: past
@@ -259,15 +259,7 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let mode = self.memory.cfg().mode.as_str();
-        let scene = self.scene(t, mode);
-        let mut m = self.memory.manifest(
-            &scene,
-            &begun,
-            answer,
-            |s| self.place_of(s),
-            |ids| crate::recall::links(&self.store, ids),
-            true,
-        );
+        let mut m = self.recall_reranked(t, mode, &begun, answer).await;
         m.arm = Some(a.arm.as_str().into());
         let cap = self.memory.cfg().session_recall_cap_tokens;
         // An assembled section sits in the prefix: the tail's cap is not its.

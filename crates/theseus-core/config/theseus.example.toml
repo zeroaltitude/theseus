@@ -621,6 +621,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # recall_budget_tokens = 1500             # the pack's tokens
 # recall_max_items = 6                    # the pack's items, at most 40
 # recall_deadline_ms = 250                # how long recall waits for the index; the turn never waits past its model call and this
+# rerank_wait_ms = 200                    # how long a recall in front of the model waits for Jev's rerank (rerank.v1 live), 1 to 600; past it, recall's own order stands
 # include_external = false                # whether fetched text may be recalled
 # Compaction (step 30c): where the ring would drop a session's leading turns to fit
 # the model's window, this profile summarizes them instead, and the request carries
@@ -718,8 +719,8 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # ---------------------------------------------------------------- judge
 # Jev's judgments (M5): typed questions about the session's work, asked of
 # TypeSafe's Jev. Off by default. On, every pack this build wires in judges in
-# shadow: each judgment is made, priced, and recorded in the ledger, and nothing
-# acts on one. A judgment sends its state (your messages, the assistant's final
+# shadow but one: each judgment is made, priced, and recorded in the ledger, and
+# nothing acts on one. rerank.v1 is the one live pack (below). A judgment sends its state (your messages, the assistant's final
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
 # changes no turn. Today eight packs judge: loop.v1, at each turn that ends
@@ -733,10 +734,19 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # the end of an exchange in a private conversation, once ten of your messages
 # came since its last judgment or after 30 minutes' quiet (which of your
 # topics is it about? Jev only proposes: `theseus ontology proposals` lists
-# them, and you accept or reject each); and rerank.v1, after a turn's recall
-# in shadow ([memory] mode = "shadow", or a canary's control): which of
-# recall's top 20 notes would help answer the message? Its state is the
-# message and those notes, only ones the place rule lets the turn draw on.
+# them, and you accept or reject each); and rerank.v1, after a turn's recall:
+# which of recall's top 20 notes would help answer the message? Its state is
+# the message and those notes, only ones the place rule and your labels let
+# the turn draw on. The arms rule: memory's mode decides what reaches the
+# model, rerank's whether Jev orders it. rerank.v1 is live by default, so a
+# recall in front of the model (a canary's treatment; every session when
+# memory's mode is "live") waits for Jev's order at most the memory table's
+# rerank_wait_ms (200), and keeps its own order past it, or when rerank's own
+# breaker is open or the day's limit is spent; the answer, when it comes, is
+# still recorded. A recall that reaches no model (memory in shadow, a
+# canary's control) is reranked in shadow. Its spend is the judge's day
+# budget's. `theseus memory recalled <session>` says whose order each recall
+# used.
 # `theseus judge log` lists the judgments, and health's judge: line counts
 # them and their spend.
 [judge]
@@ -753,8 +763,8 @@ learning_hour = 3                       # the local hour of the nightly learning
 # [judge.packs."loop.v1"]
 # mode = "off"                          # off | shadow: "off" stops this pack alone
 # sample = 0.5                          # the share of its events judged in shadow (default the pack's own, 1.0)
-# [judge.packs."rerank.v1"]            # recall's +rerank arm (M6 32c), with its own 600 ms deadline
-# mode = "off"
+# [judge.packs."rerank.v1"]            # recall's +rerank arm, live (M6 32d): its own 600 ms deadline and breaker
+# mode = "off"                          # "shadow" keeps Jev's order out of every request; "off" reranks nothing
 # CONTINUE's candidate signals, which every compile computes, judge on or off, and
 # context.compiled carries. One that fires at a compile that appends asks continue.v1.
 # [judge.signals]

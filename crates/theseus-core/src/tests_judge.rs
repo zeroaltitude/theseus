@@ -266,7 +266,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "route.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
-            "rerank.v1: shadow",
+            "rerank.v1: live",
             "memory.v1: shadow",
             "attribution.v1: shadow"
         ]
@@ -429,7 +429,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "route.v1: off",
             "continue.v1: shadow",
             "categorize.v1: shadow",
-            "rerank.v1: shadow",
+            "rerank.v1: live",
             "memory.v1: shadow",
             "attribution.v1: shadow"
         ]

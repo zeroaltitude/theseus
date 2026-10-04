@@ -31,6 +31,7 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use theseus_judge::breaker::Status;
 use theseus_judge::builders::{RerankInput, RerankNote, RERANK_NOTES};
 use theseus_judge::{
     Ask, DecisionPoint, Input, Judge, Judgment, JudgmentSink, Mode, Outcome, Pack, Urgency,
@@ -38,6 +39,8 @@ use theseus_judge::{
 use theseus_memory::recall::{Asker, Candidate, Link, Params, Place};
 use theseus_memory::rerank::{eligible, reorder, repack};
 use theseus_memory::MemoryScience;
+use theseus_protocol::memory::RecallRerank;
+use tokio::sync::oneshot;
 
 use super::{sampled, spend, JudgeService, ScrubWith};
 use crate::config::PackMode;
@@ -48,6 +51,9 @@ pub const RERANK_PACK: &str = "rerank.v1";
 
 /// The rerank's own deadline (§2.7: Jev takes about 350 ms).
 pub const DEADLINE: Duration = Duration::from_millis(600);
+
+/// Rerank's own breaker (32d): its failures and timeouts move it alone.
+pub const BREAKER: &str = "rerank";
 
 /// The most of the message the state holds, in characters.
 const MESSAGE_CHARS: usize = 2000;
@@ -98,12 +104,56 @@ impl Recalled {
     }
 }
 
+/// What a live rerank hands the waiting turn: Jev's order, by key (the
+/// eligible notes re-sorted, then the rest in the fused order), or why
+/// recall's own stands.
+type Handoff = Result<Vec<String>, String>;
+
 /// A rerank on its way: the recall, and its eligible notes in the fused
-/// order.
+/// order; a live one's handoff to its waiting turn.
 struct Dispatched {
     recalled: Recalled,
     eligible: Vec<Candidate>,
     id: String,
+    mode: Mode,
+    live: Option<oneshot::Sender<Handoff>>,
+}
+
+impl Dispatched {
+    /// Hand the turn `h`: whether it took it (a send after the turn gave
+    /// up, or with no turn waiting, is not taken). `None`: no turn waits on
+    /// this rerank (a shadow one).
+    fn hand(&mut self, h: Handoff) -> Option<bool> {
+        self.live.take().map(|tx| tx.send(h).is_ok())
+    }
+}
+
+/// What a live rerank did for the turn that waited on it (32d).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Waited {
+    /// The rerank's judgment, when one was dispatched.
+    pub judgment: Option<String>,
+    /// Jev's order, by key, when it came in time and answered.
+    pub order: Option<Vec<String>>,
+    /// Why recall's own order stands, when it does.
+    pub why: Option<String>,
+    /// From the rerank's start to the turn going on.
+    pub waited: Duration,
+    /// The wait's bound.
+    pub wait: Duration,
+}
+
+impl Waited {
+    /// The recall manifest's account of it.
+    pub fn manifest(&self) -> RecallRerank {
+        RecallRerank {
+            judgment: self.judgment.clone(),
+            applied: self.order.is_some(),
+            why: self.why.clone(),
+            waited_ms: (self.waited.as_secs_f64() * 1_000_000.0).round() / 1000.0,
+            wait_ms: self.wait.as_millis() as u64,
+        }
+    }
 }
 
 impl JudgeService {
@@ -120,33 +170,28 @@ impl JudgeService {
             .store(d.as_millis() as u64, Ordering::Relaxed);
     }
 
+    /// `rerank.v1`'s mode now: `WIRED`'s, under the config's ceiling and
+    /// its own line. The arms rule (32d): memory's mode decides what
+    /// reaches the model, rerank's whether Jev orders it. A recall in front
+    /// of the model is reranked live when this is `live`, in shadow when
+    /// `shadow`; one that reaches no model is reranked in shadow, as 32c's;
+    /// `off` reranks none.
+    pub fn rerank_mode(&self) -> PackMode {
+        self.cfg
+            .mode_of(RERANK_PACK, super::wired_mode(RERANK_PACK))
+    }
+
     /// A turn's recall ran: `rerank.v1` judges its top 20 in shadow, in a
     /// task of its own, and the turn's trace is marked with the judgment's
     /// id. Returns at once, whatever Jev does; nothing when the pack is off,
     /// the recall is out of its sample, or no candidate passed the filters.
     pub fn at_recall(&self, trace: &mut Trace, recalled: Recalled) {
-        let mode = self.cfg.mode_of(RERANK_PACK, PackMode::Shadow);
-        if mode == PackMode::Off {
+        if self.rerank_mode() == PackMode::Off {
             return;
         }
-        let Some(pack) = theseus_judge::pack::by_name(RERANK_PACK) else {
+        let Some((pack, eligible)) = self.rerank_eligible(&recalled) else {
             return;
         };
-        if !sampled(
-            &recalled.recall_id,
-            self.cfg.sample_of(RERANK_PACK, pack.sample),
-        ) {
-            return;
-        }
-        let eligible = eligible(
-            recalled.science.as_ref(),
-            &recalled.asker(),
-            &recalled.candidates,
-            &recalled.params,
-        );
-        if eligible.is_empty() {
-            return;
-        }
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
             return;
         };
@@ -154,7 +199,7 @@ impl JudgeService {
         trace.mark(
             "judge",
             "mark",
-            json!({"pack": RERANK_PACK, "point": "recall", "mode": mode.as_str(), "judgment": id}),
+            json!({"pack": RERANK_PACK, "point": "recall", "mode": "shadow", "judgment": id}),
         );
         rt.spawn(judge_rerank(
             self.me.clone(),
@@ -163,18 +208,131 @@ impl JudgeService {
                 recalled,
                 eligible,
                 id,
+                mode: Mode::Shadow,
+                live: None,
             },
         ));
     }
 
+    /// The pack and the recall's eligible notes, when it is in the pack's
+    /// sample and any passed the filters (the place rule first, and the
+    /// owner's labels: only they may reach Jev).
+    fn rerank_eligible(&self, r: &Recalled) -> Option<(Arc<Pack>, Vec<Candidate>)> {
+        let pack = theseus_judge::pack::by_name(RERANK_PACK)?;
+        if !sampled(&r.recall_id, self.cfg.sample_of(RERANK_PACK, pack.sample)) {
+            return None;
+        }
+        let eligible = eligible(r.science.as_ref(), &r.asker(), &r.candidates, &r.params);
+        (!eligible.is_empty()).then_some((pack, eligible))
+    }
+
+    /// Why a live rerank would not be waited on now, read without a write:
+    /// rerank's breaker open, or the day's limit reached.
+    fn rerank_no_wait(&self) -> Option<&'static str> {
+        if let Some(b) = self.built.get() {
+            let open = b
+                .judge
+                .inner()
+                .own_breakers()
+                .into_iter()
+                .any(|(n, s)| n == BREAKER && matches!(s, Status::Open { .. }));
+            if open {
+                return Some("breaker_open");
+            }
+        }
+        let today = spend::local_day(theseus_protocol::now_unix_ms());
+        self.budget.paused(&today).then_some("budget")
+    }
+
+    /// A recall in front of the model, with `rerank.v1` live (32d): its
+    /// top 20 go to Jev in a task of its own, as `at_recall`'s do, and the
+    /// turn waits for the answer at most `wait` from now, the state's build
+    /// included. In time and answered, Jev's order comes back; otherwise
+    /// (a miss, a timeout, a failure, rerank's breaker open, the day's
+    /// budget spent) recall's own stands, and an answer that comes after the
+    /// turn went on is still recorded, marked `late`. The call keeps its own
+    /// deadline. A `judge` span covers the wait.
+    pub async fn at_recall_live(
+        &self,
+        trace: &mut Trace,
+        recalled: Recalled,
+        wait: Duration,
+    ) -> Waited {
+        let start = tokio::time::Instant::now();
+        let t0 = trace.now_us();
+        let mut w = Waited {
+            wait,
+            ..Waited::default()
+        };
+        let dispatched = match self.rerank_eligible(&recalled) {
+            Some(pe) => tokio::runtime::Handle::try_current()
+                .ok()
+                .map(|rt| (pe, rt)),
+            None => None,
+        };
+        let Some(((pack, eligible), rt)) = dispatched else {
+            w.why = Some("nothing_eligible".into());
+            return w;
+        };
+        let id = theseus_judge::judge::new_id();
+        w.judgment = Some(id.clone());
+        trace.mark(
+            "judge",
+            "mark",
+            json!({"pack": RERANK_PACK, "point": "recall", "mode": "live", "judgment": id}),
+        );
+        let no_wait = self.rerank_no_wait();
+        let (tx, mut rx) = oneshot::channel();
+        rt.spawn(judge_rerank(
+            self.me.clone(),
+            pack,
+            Dispatched {
+                recalled,
+                eligible,
+                id: id.clone(),
+                mode: Mode::Live,
+                live: no_wait.is_none().then_some(tx),
+            },
+        ));
+        let got = match no_wait {
+            Some(why) => Err(why.to_string()),
+            None => match tokio::time::timeout_at(start + wait, &mut rx).await {
+                Ok(Ok(h)) => h,
+                // The rerank ended without a word: it sent nothing.
+                Ok(Err(_)) => Err("not_sent".into()),
+                // The wait is over. An answer handed over before this is
+                // taken; after it, the rerank finds the turn gone.
+                Err(_) => {
+                    rx.close();
+                    rx.try_recv().unwrap_or_else(|_| Err("timeout".into()))
+                }
+            },
+        };
+        w.waited = start.elapsed();
+        match got {
+            Ok(order) => w.order = Some(order),
+            Err(why) => w.why = Some(why),
+        }
+        trace.record(
+            "judge",
+            "wait",
+            t0,
+            trace.now_us(),
+            json!({"pack": RERANK_PACK, "point": "recall", "mode": "live", "judgment": id,
+                   "applied": w.order.is_some(), "why": w.why, "wait_ms": wait.as_millis() as u64}),
+        );
+        w
+    }
+
     /// The blocking half before the call: the state, its blob, and the
-    /// reservation. `None`: nothing to send (the day's limit among them).
+    /// reservation. `Err`: nothing to send, and why (the day's limit is
+    /// `budget`).
     fn prepare_rerank(
         &self,
         pack: Arc<Pack>,
         d: &Dispatched,
         today: &str,
-    ) -> Option<super::Prepared> {
+    ) -> Result<super::Prepared, &'static str> {
         let r = &d.recalled;
         let input = RerankInput {
             message: r.message.chars().take(MESSAGE_CHARS).collect(),
@@ -189,31 +347,36 @@ impl JudgeService {
                 .collect(),
         };
         let scrub = ScrubWith(self.scrubber.clone());
-        let state = theseus_judge::prepare(&pack, &Input::Rerank(input), &scrub).ok()?;
+        let state =
+            theseus_judge::prepare(&pack, &Input::Rerank(input), &scrub).map_err(|_| "state")?;
         let blob = self
             .store
             .blobs()
             .put(state.state.json.as_bytes())
             .map_err(|e| tracing::warn!(error = %e, "judge: the rerank's state was not written; not judged"))
-            .ok()?;
+            .map_err(|_| "state")?;
         let built = self
             .built()
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
-            .ok()?;
+            .map_err(|_| "client")?;
+        let live = d.mode == Mode::Live;
         let context = json!({
             "session": r.session_id, "turn": r.turn_id, "recall": r.recall_id,
             "purpose": "recall", "arm": "+rerank", "baseline": "fused", "blob": blob,
-            "deadline_ms": self.rerank_deadline().as_millis() as u64, "on_path_ms": 0,
+            "deadline_ms": self.rerank_deadline().as_millis() as u64,
+            "on_path_ms": 0, "live": live,
         });
-        let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+        let mut ask = Ask::new(pack, &state, d.mode, context);
         ask.id = Some(d.id.clone());
         let need = built
             .judge
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
-        self.reserve(today, need)
-            .then_some(super::Prepared { built, ask, need })
+        match self.reserve(today, need) {
+            true => Ok(super::Prepared { built, ask, need }),
+            false => Err("budget"),
+        }
     }
 }
 
@@ -244,17 +407,30 @@ pub fn fallback(j: &Judgment) -> Option<String> {
     }
 }
 
-/// What the row adds of the rerank: the recall, both orders' admitted
-/// keys, whether they differ, Jev's latency against the deadline, and the
-/// fallback.
-fn rerank_record(d: &Dispatched, j: &Judgment, deadline: Duration) -> Value {
-    let r = &d.recalled;
+/// The order a judgment gives the eligible notes: Jev's over the fused
+/// one's top 20, or the fused one on a fallback.
+fn order_of(d: &Dispatched, j: &Judgment) -> (Vec<String>, Vec<String>, Option<String>) {
     let fused: Vec<String> = d.eligible.iter().map(Candidate::key).collect();
     let fell = fallback(j);
     let order = match fell {
         Some(_) => fused.clone(),
         None => reorder(&fused, &probabilities(j)),
     };
+    (fused, order, fell)
+}
+
+/// What the row adds of the rerank: the recall, both orders' admitted
+/// keys, whether they differ, Jev's latency against the deadline, the
+/// fallback, and for a live one whether the turn used its order (`applied`)
+/// or had gone on before it came (`late`).
+fn rerank_record(
+    d: &Dispatched,
+    j: &Judgment,
+    deadline: Duration,
+    (fused, order, fell): (Vec<String>, Vec<String>, Option<String>),
+    taken: Option<bool>,
+) -> Value {
+    let r = &d.recalled;
     let top: Vec<&String> = order.iter().take(RERANK_NOTES).collect();
     let pack = repack(
         r.science.as_ref(),
@@ -266,7 +442,7 @@ fn rerank_record(d: &Dispatched, j: &Judgment, deadline: Duration) -> Value {
     let reranked: Vec<String> = pack.admitted.iter().map(|a| a.candidate.key()).collect();
     let as_set = |v: &[String]| v.iter().cloned().collect::<BTreeSet<_>>();
     let deadline_ms = deadline.as_millis() as u64;
-    json!({
+    let mut v = json!({
         "recall": r.recall_id,
         "eligible": fused.len(),
         "asked": j.questions,
@@ -280,32 +456,67 @@ fn rerank_record(d: &Dispatched, j: &Judgment, deadline: Duration) -> Value {
         "deadline_ms": deadline_ms,
         "within_deadline": j.timing.total_ms <= deadline_ms,
         "cost_micros": j.cost_micros,
-    })
+    });
+    if d.mode == Mode::Live {
+        v["live"] = json!(true);
+        v["applied"] = json!(taken == Some(true) && fell.is_none());
+        v["late"] = json!(taken == Some(false));
+    }
+    v
 }
 
 /// One rerank, in its own task. The service is held only around the
-/// blocking halves, never across the call.
+/// blocking halves, never across the call. A live one hands its waiting
+/// turn the order (or why there is none) before its row is recorded.
 async fn judge_rerank(me: Weak<JudgeService>, pack: Arc<Pack>, d: Dispatched) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
     let deadline = svc.rerank_deadline();
     let day = today.clone();
-    let Ok((Some(super::Prepared { built, ask, need }), d)) =
-        tokio::task::spawn_blocking(move || {
-            let p = svc.prepare_rerank(pack, &d, &day);
-            (p, d)
-        })
-        .await
+    let Ok((prepared, mut d)) = tokio::task::spawn_blocking(move || {
+        let p = svc.prepare_rerank(pack, &d, &day);
+        (p, d)
+    })
+    .await
     else {
         return;
     };
+    let super::Prepared { built, ask, need } = match prepared {
+        Ok(p) => p,
+        Err(why) => {
+            d.hand(Err(why.into()));
+            return;
+        }
+    };
+    let urgency = Urgency::live(deadline);
     let t0 = Instant::now();
+    #[cfg(test)]
+    let mut judgments = match svc_test_judge(&me) {
+        Some(j) => {
+            j.judge(DecisionPoint {
+                asks: vec![ask],
+                urgency,
+            })
+            .await
+        }
+        None => {
+            built
+                .judge
+                .inner()
+                .judge(DecisionPoint {
+                    asks: vec![ask],
+                    urgency,
+                })
+                .await
+        }
+    };
+    #[cfg(not(test))]
     let mut judgments = built
         .judge
         .inner()
         .judge(DecisionPoint {
             asks: vec![ask],
-            urgency: Urgency::live(deadline),
+            urgency,
         })
         .await;
     tracing::debug!(
@@ -315,7 +526,12 @@ async fn judge_rerank(me: Weak<JudgeService>, pack: Arc<Pack>, d: Dispatched) {
     // The reorder and the repack are pure, and small (at most the index's
     // hits): they run here, before the row is recorded.
     for j in &mut judgments {
-        let rerank = rerank_record(&d, j, deadline);
+        let orders = order_of(&d, j);
+        let taken = d.hand(match &orders.2 {
+            None => Ok(orders.1.clone()),
+            Some(fell) => Err(fell.clone()),
+        });
+        let rerank = rerank_record(&d, j, deadline, orders, taken);
         if let Some(o) = j.context.as_object_mut() {
             o.insert("rerank".into(), rerank);
         }
@@ -331,4 +547,11 @@ async fn judge_rerank(me: Weak<JudgeService>, pack: Arc<Pack>, d: Dispatched) {
         let spent = j.cost_micros.unwrap_or(if unknown { need } else { 0 });
         svc.budget.settle(&today, need, spent, called, failed);
     }
+}
+
+/// A test's judge in Jev's place, when one is set (the paused clock's
+/// tests: a channel for Jev).
+#[cfg(test)]
+fn svc_test_judge(me: &Weak<JudgeService>) -> Option<Arc<dyn Judge>> {
+    me.upgrade()?.rerank_judge.get().cloned()
 }
