@@ -1249,7 +1249,7 @@ mod tests {
             (
                 "categorize.v1",
                 Input::Categorize(CategorizeInput {
-                    session_title: big,
+                    session_title: big.clone(),
                     recent_human_messages: (0..2_000).map(|_| item.clone()).collect(),
                     memberships: (0..2_000)
                         .map(|i| MembershipInput {
@@ -1261,6 +1261,28 @@ mod tests {
                         .map(|i| TopicInput {
                             id: format!("c{i}"),
                             description: item.clone(),
+                        })
+                        .collect(),
+                }),
+            ),
+            (
+                "memory.v1",
+                Input::Memory(MemoryInput {
+                    role: big.clone(),
+                    tool: Some(big.clone()),
+                    text: big.clone(),
+                    previous: Some(big.clone()),
+                }),
+            ),
+            (
+                "attribution.v1",
+                Input::Attribution(AttributionInput {
+                    ask: big.clone(),
+                    reply: big,
+                    notes: (0..2_000)
+                        .map(|i| NoteInput {
+                            id: format!("n{i}"),
+                            excerpt: item.clone(),
                         })
                         .collect(),
                 }),
