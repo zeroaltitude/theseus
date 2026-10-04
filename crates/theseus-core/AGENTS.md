@@ -97,8 +97,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`restore`, and `repair`: a corrupt frame taken whole from a copy, theseus-15g), `sweep.rs`, `disk.rs`,
   `binary.rs` (whether jobs can write the daemon's own binary, read when health asks), and `crash.rs` (the panic
   hook's crash file beside the store, which the next start takes and health reports). The config template is
-  `config/theseus.example.toml`; `config_overlay.rs` prints it with an operator's private overlay in place
-  (`example-config`, theseus-dxgb), so the public template never carries the deployment's own values.
+  `config/theseus.example.toml`, public, so it never carries a deployment's own values: a deployment's note holds
+  only what differs from the defaults, and `config/sparse.rs` cuts a whole note to that (`theseusd config
+  --sparse`, theseus-vwar).
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
@@ -125,7 +126,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The outbox**: `crates/theseus-kernel/src/outbox.rs`, `crates/theseus-core/src/outbox.rs`, and
   `crates/theseus-discord/src/courier.rs`.
 - **The config**: `crates/theseus-core/src/config.rs`, and the template `crates/theseus-core/config/theseus.example.toml`
-  (`theseusd example-config` prints it, with an operator's private overlay in place: `config_overlay.rs`).
+  (`theseusd example-config` prints it); `config/sparse.rs` cuts a note to what differs from the defaults.
 - **L1**: `crates/theseus-core/src/sandbox.rs` (`[sandbox]`, the class, the last launch), and the wrapper's L1 path in
   `crates/theseus-kernel/src/job_l1.rs`.
 - **The index tender**: the binary in `crates/theseus-index`, its supervisor in `crates/theseus-core/src/tender.rs`

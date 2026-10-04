@@ -488,14 +488,6 @@ impl Core {
         );
         let admission = Arc::new(tokio::sync::Notify::new());
         let catalog = Arc::new(Catalog::with_overrides(&cfg.catalog));
-        let unpriced = Catalog::missing_from(&cfg.catalog);
-        if !unpriced.is_empty() {
-            tracing::warn!(
-                models = %unpriced.join(", "),
-                "catalog: {} built-in model(s) have no [catalog] table in the config, so they run at the built-in prices; paste the tables from `theseusd example-config`",
-                unpriced.len()
-            );
-        }
         for (name, p) in cfg.all_profiles() {
             if catalog.get(&p.model).is_none() {
                 tracing::warn!(profile = %name, model = %p.model, "model is not in the catalog: it runs, but cost is unknown and limits are defaults");

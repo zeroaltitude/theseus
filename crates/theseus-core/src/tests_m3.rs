@@ -3756,11 +3756,16 @@ async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
         json!({"type": "ephemeral"})
     );
 
+    // A config's table over the code's row: the template holds none
+    // (theseus-vwar), so the test brings its own.
     let r = rig_with(vec![Scripted::text("Small.")], |cfg| {
-        cfg.catalog
-            .get_mut("claude-haiku-4-5")
-            .unwrap()
-            .cache_min_tokens = Some(16_384);
+        cfg.catalog.insert(
+            "claude-haiku-4-5".into(),
+            crate::catalog::CatalogRow {
+                cache_min_tokens: Some(16_384),
+                ..Default::default()
+            },
+        );
     });
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     assert!(r.core.narrator.watch("watcher", tx).is_some());

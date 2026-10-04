@@ -1520,6 +1520,45 @@ fn catalog_prints_windows_and_prices() {
     );
 }
 
+/// The config's `[catalog]` tables, each beside the code's row
+/// (theseus-vwar): one that changes a price names it and the code's value,
+/// one that adds a model says so, and one that copies the code's figures
+/// says it changes nothing.
+#[test]
+fn catalog_says_what_the_configs_tables_change() {
+    let cat = json!({"version": "2026-09-30+config:2", "models": [
+        {"model": "glm-x", "entry": {"provider": "zed", "context_window": 200000,
+            "max_output_tokens": 16000, "input_per_mtok": 0.6, "output_per_mtok": 2.5,
+            "cache_read_per_mtok": 0.11, "cache_write_per_mtok": 0.0, "thinking": "none",
+            "source": "config"},
+         "profiles": ["quick"],
+         "config": {"input_per_mtok": 0.6, "output_per_mtok": 2.5},
+         "code": {"provider": "zed", "context_window": 200000, "max_output_tokens": 16000,
+            "input_per_mtok": 0.6, "output_per_mtok": 2.2, "cache_read_per_mtok": 0.11,
+            "cache_write_per_mtok": 0.0, "thinking": "none", "source": "the zed price page"}},
+        {"model": "glm-y", "entry": {"provider": "zed", "context_window": 200000,
+            "max_output_tokens": 16000, "input_per_mtok": 0.3, "output_per_mtok": 1.1,
+            "cache_read_per_mtok": 0.05, "cache_write_per_mtok": 0.0, "thinking": "none",
+            "source": "the zed price page"},
+         "profiles": [],
+         "config": {"input_per_mtok": 0.3, "output_per_mtok": 1.1, "source": "a price sheet"},
+         "code": {"provider": "zed", "context_window": 200000, "max_output_tokens": 16000,
+            "input_per_mtok": 0.3, "output_per_mtok": 1.1, "cache_read_per_mtok": 0.05,
+            "cache_write_per_mtok": 0.0, "thinking": "none", "source": "the zed price page"}},
+        {"model": "orbit-9", "entry": {"provider": "orbit", "context_window": 1000000,
+            "max_output_tokens": 64000, "input_per_mtok": 3.0, "output_per_mtok": 15.0,
+            "cache_read_per_mtok": 0.3, "cache_write_per_mtok": 3.75, "thinking": "adaptive",
+            "source": "config"},
+         "profiles": [],
+         "config": {"provider": "orbit", "context_window": 1000000, "max_output_tokens": 64000,
+            "input_per_mtok": 3.0, "output_per_mtok": 15.0, "cache_read_per_mtok": 0.3,
+            "cache_write_per_mtok": 3.75}}]});
+    golden(
+        "catalog_config",
+        &run(&["catalog"], vec![step("catalog.list", cat)]),
+    );
+}
+
 #[test]
 fn sessions_list_open_and_recompile() {
     let list = json!({"sessions": [

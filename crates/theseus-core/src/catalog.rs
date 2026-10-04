@@ -296,6 +296,19 @@ impl CatalogRow {
         ]
     }
 
+    /// Whether this row, over the built-in `base`, changes none of its
+    /// figures: a copy of the code's row, as the template's tables were
+    /// until theseus-vwar. Its `source` alone changes nothing: it says only
+    /// where the figures came from.
+    pub fn copies(&self, base: &CatalogEntry) -> bool {
+        self.over(Some(base)).is_ok_and(|e| {
+            CatalogEntry {
+                source: base.source.clone(),
+                ..e
+            } == *base
+        })
+    }
+
     /// This row over the built-in entry, if the model has one. Without one,
     /// `Err` names the fields a new model still needs.
     pub fn over(&self, base: Option<&CatalogEntry>) -> Result<CatalogEntry, Vec<&'static str>> {
@@ -503,36 +516,32 @@ impl Catalog {
 
     /// The built-in table with the config's `[catalog."<id>"]` tables over
     /// it: a table over a built-in row replaces the fields it names, and a
-    /// complete table adds a model. Any table changes the version string, so
-    /// a priced row says so. `Config::validate` refuses an incomplete new
-    /// model, so none is skipped here.
+    /// complete table adds a model. A table that copies the code's row
+    /// changes nothing and counts for nothing (theseus-vwar): the row stays
+    /// the code's, source and all. Every other table changes the version
+    /// string, so a priced row says so. `Config::validate` refuses an
+    /// incomplete new model, so none is skipped here.
     pub fn with_overrides(overrides: &BTreeMap<String, CatalogRow>) -> Self {
         let mut c = Self::builtin();
-        if overrides.is_empty() {
-            return c;
-        }
+        let mut changed = 0;
         for (k, row) in overrides {
             let base = c.entries.get(k);
             let new_model = base.is_none();
+            if base.is_some_and(|b| row.copies(b)) {
+                continue;
+            }
             if let Ok(mut e) = row.over(base) {
                 if new_model && row.bytes_per_token.is_none() {
                     e.bytes_per_token = TokenRates::of(k);
                 }
                 c.entries.insert(k.clone(), e);
+                changed += 1;
             }
         }
-        c.version = format!("{BUILTIN_VERSION}+config:{}", overrides.len());
+        if changed > 0 {
+            c.version = format!("{BUILTIN_VERSION}+config:{changed}");
+        }
         c
-    }
-
-    /// Built-in models the config has no `[catalog]` table for: they run at
-    /// the built-in prices, and startup names them.
-    pub fn missing_from(overrides: &BTreeMap<String, CatalogRow>) -> Vec<String> {
-        Self::builtin()
-            .entries
-            .into_keys()
-            .filter(|id| !overrides.contains_key(id))
-            .collect()
     }
 
     pub fn get(&self, model: &str) -> Option<&CatalogEntry> {
@@ -542,33 +551,6 @@ impl Catalog {
     /// Dollars for a call, or `None` when the model is not in the catalog.
     pub fn cost_usd(&self, model: &str, usage: &Usage) -> Option<f64> {
         self.get(model).map(|e| e.cost_usd(usage))
-    }
-
-    /// The template's `[catalog]` tables: every built-in model with its five
-    /// prices. The template holds this text verbatim, and a test compares
-    /// the two, so the prices Eddie reads in his config are the built-in ones.
-    pub fn template_tables() -> String {
-        let mut out = String::new();
-        for (id, e) in &Self::builtin().entries {
-            let head = format!("[catalog.\"{id}\"]");
-            out.push_str(&format!(
-                "{head:<40}# {} · {}-token window · {} out\n",
-                e.provider,
-                crate::narrative::thousands(e.context_window),
-                crate::narrative::thousands(e.max_output_tokens as u64)
-            ));
-            for (key, price) in [
-                ("input_per_mtok", e.input_per_mtok),
-                ("output_per_mtok", e.output_per_mtok),
-                ("cache_read_per_mtok", e.cache_read_per_mtok),
-                ("cache_write_per_mtok", e.cache_write_per_mtok),
-                ("cache_write_1h_per_mtok", e.cache_write_1h_per_mtok),
-            ] {
-                out.push_str(&format!("{key} = {price:?}\n"));
-            }
-            out.push('\n');
-        }
-        out
     }
 }
 
@@ -800,10 +782,35 @@ mod tests {
         // Unnamed, a new model's 1-hour writes cost 2 × input, and it caches.
         assert_eq!((new.cache_write_1h_per_mtok, new.caches), (2.0, true));
         assert!(c.version.ends_with("+config:2"), "{}", c.version);
+        // A copy of the code's row changes nothing and counts for nothing
+        // (theseus-vwar), whatever source it names; one figure apart, it
+        // counts, and names its source.
+        let code = Catalog::builtin();
+        let s55 = code.get("claude-sonnet-5-5").unwrap();
+        let copy = CatalogRow {
+            input_per_mtok: Some(s55.input_per_mtok),
+            output_per_mtok: Some(s55.output_per_mtok),
+            source: Some("a price sheet".into()),
+            ..Default::default()
+        };
+        assert!(copy.copies(s55));
+        o.insert("claude-sonnet-5-5".into(), copy.clone());
+        let c = Catalog::with_overrides(&o);
+        assert_eq!(c.get("claude-sonnet-5-5"), Some(s55));
+        assert!(c.version.ends_with("+config:2"), "{}", c.version);
+        let apart = CatalogRow {
+            output_per_mtok: Some(s55.output_per_mtok + 1.0),
+            ..copy
+        };
+        assert!(!apart.copies(s55));
+        o.insert("claude-sonnet-5-5".into(), apart);
+        let c = Catalog::with_overrides(&o);
+        let got = c.get("claude-sonnet-5-5").unwrap();
         assert_eq!(
-            Catalog::missing_from(&o).len(),
-            Catalog::builtin().entries.len() - 1
+            (got.output_per_mtok, got.source.as_str()),
+            (s55.output_per_mtok + 1.0, "a price sheet")
         );
+        assert!(c.version.ends_with("+config:3"), "{}", c.version);
         // Named, they replace the defaults; over a built-in row, the rest stays.
         let named = CatalogRow {
             cache_write_1h_per_mtok: Some(1.5),

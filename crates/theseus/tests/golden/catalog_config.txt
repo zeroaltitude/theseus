@@ -1,0 +1,14 @@
+$ theseus catalog
+--- requests
+catalog.list
+--- stdout
+model                    provider      window  max out     $in    $out   $c.rd   $c.wr  thinking  profiles
+glm-x                    zed             200K      16K     0.6     2.5    0.11       -  none      quick
+glm-y                    zed             200K      16K     0.3     1.1    0.05       -  none      
+orbit-9                  orbit             1M      64K       3      15     0.3    3.75  adaptive  
+--- stderr
+[catalog 2026-09-30+config:2 · prices are USD per million tokens]
+[glm-x: the config's [catalog] table sets output_per_mtok 2.5 (the code's 2.2)]
+[glm-y: the config's [catalog] table copies the code's figures and changes nothing, but would hold them past the code's next fix: leave it out]
+[orbit-9: the config's [catalog] table adds it; the code has no such model]
+--- exit 0

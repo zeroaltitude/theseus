@@ -20,12 +20,14 @@ use theseus_protocol::{
 
 mod aws;
 mod cancel;
+mod catalog;
 mod index;
 mod places;
 mod sandbox;
 mod store;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
+pub use catalog::catalog_config_lines;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;

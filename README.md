@@ -290,6 +290,7 @@ install -m 755 target/release/theseus target/release/theseusd target/release/the
 mkdir -p ~/.theseus
 theseusd example-config > ~/.theseus/theseus.toml
 #   then edit it: point each op:// reference in [secrets] at an item in your own vault.
+#   Every key has a default: `theseusd config --sparse` prints it cut to what differs.
 export OP_SERVICE_ACCOUNT_TOKEN=...      # or keep it in a file: --op-token-file
 theseusd check                           # proves every secret resolves, then exits
 
