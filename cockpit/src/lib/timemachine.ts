@@ -94,7 +94,22 @@ export interface Snap {
   profile?: string
   costTotal: number
   usageTotal: Usage
+  /** Jev's judgments (M5 23b): replaced, never mutated, by each judge row. */
+  judge: JudgeAt
 }
+
+/** The judge as of a moment: its judgments, their cost, the shadow budget's pause, and the breaker. */
+export interface JudgeAt {
+  calls: number
+  failed: number
+  skipped: number
+  costMicros: number
+  paused: boolean
+  /** `closed`, or `open` after a `judge.circuit` that opened it. */
+  breaker: string
+}
+
+const zeroJudge: JudgeAt = { calls: 0, failed: 0, skipped: 0, costMicros: 0, paused: false, breaker: 'closed' }
 
 const zeroUsage = (): Usage => ({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
 
@@ -112,7 +127,7 @@ function addUsage(a: Usage, u: D | undefined): Usage {
 
 const empty = (): Snap => ({
   index: 0, sessions: new Map(), execs: new Map(), acts: new Map(), asks: new Map(), tight: new Map(), jobs: new Set(),
-  l1: new Set(), startedAt: null, stoppedAt: null, costTotal: 0, usageTotal: zeroUsage(),
+  l1: new Set(), startedAt: null, stoppedAt: null, costTotal: 0, usageTotal: zeroUsage(), judge: zeroJudge,
 })
 
 const copy = (s: Snap): Snap => ({
@@ -368,6 +383,27 @@ function step(s: Snap, r: LedgerEntry): void {
     case 'profile.changed':
       if (typeof d.live === 'string') s.profile = d.live
       return
+    // Jev's judgments (M5 23b): the Judgment view's counts, cost, pause, and breaker as of the moment.
+    case 'judge.call': {
+      const o = String((d.outcome as D | undefined)?.outcome ?? '')
+      const j = s.judge
+      s.judge = {
+        ...j, calls: j.calls + (o === 'skipped' ? 0 : 1), failed: j.failed + (o === 'failed' ? 1 : 0),
+        skipped: j.skipped + (o === 'skipped' ? 1 : 0), costMicros: j.costMicros + Number(d.cost_micros ?? 0),
+      }
+      return
+    }
+    case 'judge.paused':
+      s.judge = { ...s.judge, paused: true }
+      return
+    case 'judge.resumed':
+      s.judge = { ...s.judge, paused: false }
+      return
+    case 'judge.circuit': {
+      const c = String((d.transition as D | undefined)?.circuit ?? '')
+      s.judge = { ...s.judge, breaker: c === 'closed' ? 'closed' : 'open' }
+      return
+    }
   }
 }
 
@@ -451,6 +487,8 @@ export interface World {
   l1: Set<string>
   /** Reserved by each execution's calls in flight. */
   reserved: Map<string, number>
+  /** Jev's judgments as of the moment (M5 23b). */
+  judge: JudgeAt
   gauges: {
     /** Up since the last start, or null while the daemon was down. */
     uptimeSecs: number | null
@@ -605,7 +643,7 @@ export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; t
   }
   return {
     t, sessions, executions, actions, confirms: [...s.asks.values()], tasks, holds, tightenings: [...s.tight.values()],
-    jobsRunning: s.jobs, l1: s.l1, reserved,
+    jobsRunning: s.jobs, l1: s.l1, reserved, judge: s.judge,
     gauges: {
       uptimeSecs: up, accepting: up !== null, running: executions.filter((e) => e.state === 'running').length, costTotal: s.costTotal,
       usageTotal: s.usageTotal, profile: s.profile, tpm,

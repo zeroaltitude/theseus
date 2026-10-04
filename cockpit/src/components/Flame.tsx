@@ -50,9 +50,11 @@ export function Flame({ trace, onPick, cursor }: { trace: Span | null | undefine
           const tone = kindTone[f.kind] ?? 'idle'
           const h = Math.max(4, e[1] - s[1] - 3)
           if (f.kind === 'mark') {
-            // A mark (first byte, first token) is an instant: a small diamond at the top of its row.
+            // A mark (first byte, first token) is an instant: a small diamond at the top of its row. A judgment's
+            // dispatch (M5 23b, `judge`) is a larger one, in the judge's own colour.
             const cx = s[0]; const cy = s[1] + 6
-            return { type: 'polygon' as const, shape: { points: [[cx, cy - 5], [cx + 4, cy], [cx, cy + 5], [cx - 4, cy]] }, style: { fill: toneHex[tone] } }
+            const r = f.name === 'judge' ? 7 : 5
+            return { type: 'polygon' as const, shape: { points: [[cx, cy - r], [cx + r - 1, cy], [cx, cy + r], [cx - r + 1, cy]] }, style: { fill: toneHex[f.name === 'judge' ? 'think' : tone] } }
           }
           const w = Math.max(1.5, e[0] - s[0])
           const future = cursor != null && f.start > cursor

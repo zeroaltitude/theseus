@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence } from 'motion/react'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
 import { Tabs } from 'radix-ui'
-import { ArrowDown, ArrowLeft, Brain, Coins, Copy, GitBranch, Layers, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Brain, Coins, Copy, Gavel, GitBranch, Layers, OctagonX, Pause, Play, ScrollText, ShieldCheck, Timer } from 'lucide-react'
 import type { CatalogList, CompilationInfo, ContextFileRef, ExecutionInfo, Health, LedgerEntry, SessionHistory, Span, Tightening } from '@protocol'
 import { call, useRpc, usePush, useSessionWatch } from '@/lib/rpc'
 import { useLedger, providerCalls, turnRows, type ProviderCall, type TurnRow } from '@/lib/derive'
@@ -17,6 +17,7 @@ import { cacheBy, pricing } from '@/lib/money'
 import { ledgerKind, toneHex } from '@/lib/taxonomy'
 import { axisStyle, type EChartsOption } from '@/lib/chart'
 import { useTick } from '@/lib/hooks'
+import { judged, line, marksOf } from '@/lib/judgment'
 import { useAsOf } from '@/lib/timemachine'
 import { Echart } from '@/components/Echart'
 import { Flame, flatten } from '@/components/Flame'
@@ -286,7 +287,7 @@ function Inspector({ turns, traces, comps, rows, calls, session, nodes }: {
           </Tabs.Trigger>
         ))}
       </Tabs.List>
-      <Tabs.Content value="timeline" className="min-h-0 flex-1"><TimelineTab turns={turns} traces={traces} /></Tabs.Content>
+      <Tabs.Content value="timeline" className="min-h-0 flex-1"><TimelineTab turns={turns} traces={traces} rows={rows} /></Tabs.Content>
       <Tabs.Content value="context" className="min-h-0 flex-1 overflow-auto"><ContextTab comps={comps} rows={rows} session={session} /></Tabs.Content>
       <Tabs.Content value="spend" className="min-h-0 flex-1 overflow-auto"><SpendTab turns={turns} calls={calls} /></Tabs.Content>
       <Tabs.Content value="graph" className="min-h-0 flex-1"><SessionGraph nodes={nodes} /></Tabs.Content>
@@ -372,7 +373,7 @@ function AtInstant({ trace, t }: { trace: Span | null | undefined; t: number }) 
   )
 }
 
-function TimelineTab({ turns, traces }: { turns: TurnRow[]; traces: Map<string, Span> }) {
+function TimelineTab({ turns, traces, rows }: { turns: TurnRow[]; traces: Map<string, Span>; rows: Rows }) {
   const withTrace = turns.filter((t) => traces.has(t.turn_id))
   const [pick, setPick] = useState<string | null>(null)
   const [span, setSpan] = useState<PickedSpan | null>(null)
@@ -402,6 +403,7 @@ function TimelineTab({ turns, traces }: { turns: TurnRow[]; traces: Map<string, 
         ))}
       </div>
       <ReplayBar replay={replay} />
+      <Judgments trace={trace} rows={rows} />
       {trace && (
         <div className="num flex flex-wrap items-baseline gap-x-3 border-b border-line px-3 py-1 text-[11px] text-ink-faint" title="where the turn's time went, by kind of span">
           <span className="font-semibold text-ink">{ms(((trace.end_us ?? trace.start_us) - trace.start_us) / 1000)}</span> total
@@ -420,6 +422,34 @@ function TimelineTab({ turns, traces }: { turns: TurnRow[]; traces: Map<string, 
           </>
         ) : <Empty>click a span for its attributes</Empty>}
       </div>
+    </div>
+  )
+}
+
+/** Each judgment the turn dispatched, beside the loop it judged (M5 23b): its mark in the trace, and what its row says
+ *  once the judge's frame has landed. */
+function Judgments({ trace, rows }: { trace: Span | null | undefined; rows: Rows }) {
+  const nav = useNavigate()
+  const marks = useMemo(() => marksOf(trace), [trace])
+  const byId = useMemo(() => {
+    const m = new Map<string, LedgerEntry>()
+    for (const r of rows ?? []) if (r.kind === 'judge.call') m.set(String((r.data as Record<string, unknown>)?.id ?? ''), r)
+    return m
+  }, [rows])
+  if (!marks.length) return null
+  return (
+    <div className="num flex flex-wrap gap-x-4 gap-y-0.5 border-b border-line px-3 py-1 text-[11px]">
+      {marks.map((m) => {
+        const r = byId.get(m.judgment)
+        const j = r ? judged(r) : null
+        return (
+          <button key={m.judgment} onClick={() => nav(`/judgment?id=${m.judgment}`)} title={`${m.pack} at ${m.point} · ${m.judgment}`}
+            className={cn('text-left hover:text-live', !j ? 'text-ink-faint' : j.disagrees ? 'text-wait' : j.outcome === 'answered' ? 'text-ink' : 'text-ink-faint')}>
+            <Gavel size={11} className="mr-1 inline" />
+            {m.loop !== null ? `loop ${m.loop + 1} · ` : ''}{j ? line(j) : `Jev (${m.mode}): ${m.pack} judging…`}
+          </button>
+        )
+      })}
     </div>
   )
 }
