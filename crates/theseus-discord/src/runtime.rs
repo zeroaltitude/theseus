@@ -1641,17 +1641,23 @@ fn parse_asked_pick(custom_id: &str, values: &[String]) -> Option<Asked> {
     parse_asked(custom_id.strip_prefix(ASKED_MENU)?.strip_prefix(':')?)
 }
 
-/// The one "Should have asked…" menu on a tool message: an option per
-/// distinct notified tool (the renderer caps them at 25).
+/// What a "should have asked" press says it does, on the menu's options and a
+/// notice card's button (Eddie, 2026-10-03 14:53).
+const ASK_IN_FUTURE: &str = "Make actions like this ask in the future";
+
+/// The one "Should I have asked?" menu on a tool message: an option per
+/// distinct notified tool (the renderer caps them at 25). Every option says
+/// the same words, so its description names what the press does: it tightens
+/// the whole tool.
 pub(crate) fn asked_menu(options: &[Asked]) -> Vec<Component> {
     let options = options
         .iter()
         .take(crate::render::MAX_ASKED)
         .map(|a| SelectMenuOption {
             default: false,
-            description: Some(format!("Ask before every {} call from now on", a.tool)),
+            description: Some(format!("Every {} call asks you first", a.tool)),
             emoji: None,
-            label: a.tool.clone(),
+            label: ASK_IN_FUTURE.into(),
             value: asked_value(a),
         })
         .collect();
@@ -1667,14 +1673,14 @@ pub(crate) fn asked_menu(options: &[Asked]) -> Vec<Component> {
             max_values: Some(1),
             min_values: Some(1),
             options: Some(options),
-            placeholder: Some("Should have asked…".into()),
+            placeholder: Some("Should I have asked?".into()),
             required: None,
         })],
     })]
 }
 
-/// A notice card's "Should have asked" button (with `[discord]
-/// notice_embeds`), or none once its tool asks first.
+/// A notice card's "Make actions like this ask in the future" button (with
+/// `[discord] notice_embeds`), or none once its tool asks first.
 pub(crate) fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
     let Some(a) = ask else {
         return vec![];
@@ -1686,7 +1692,7 @@ pub(crate) fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
             custom_id: Some(format!("{ASKED_MENU}:{}", asked_value(a))),
             disabled: false,
             emoji: None,
-            label: Some("Should have asked".into()),
+            label: Some(ASK_IN_FUTURE.into()),
             style: ButtonStyle::Secondary,
             url: None,
             sku_id: None,
@@ -2597,18 +2603,29 @@ mod tests {
             panic!()
         };
         assert_eq!(m.custom_id, "tighten");
-        assert_eq!(m.placeholder.as_deref(), Some("Should have asked…"));
+        assert_eq!(m.placeholder.as_deref(), Some("Should I have asked?"));
         assert_eq!((m.min_values, m.max_values), (Some(1), Some(1)));
-        let opts: Vec<(&str, &str)> = m
+        let opts: Vec<(&str, Option<&str>, &str)> = m
             .options
             .as_ref()
             .unwrap()
             .iter()
-            .map(|o| (o.label.as_str(), o.value.as_str()))
+            .map(|o| (o.label.as_str(), o.description.as_deref(), o.value.as_str()))
             .collect();
         assert_eq!(
             opts,
-            [("proc.run", "proc.run|act_019"), ("fs.write", "fs.write")]
+            [
+                (
+                    "Make actions like this ask in the future",
+                    Some("Every proc.run call asks you first"),
+                    "proc.run|act_019"
+                ),
+                (
+                    "Make actions like this ask in the future",
+                    Some("Every fs.write call asks you first"),
+                    "fs.write"
+                )
+            ]
         );
         assert!(asked_button(None).is_empty());
         let b = asked_button(Some(&a));
@@ -2619,6 +2636,10 @@ mod tests {
             panic!()
         };
         assert_eq!(b.custom_id.as_deref(), Some("tighten:proc.run|act_019"));
+        assert_eq!(
+            b.label.as_deref(),
+            Some("Make actions like this ask in the future")
+        );
         assert!(
             everywhere(&CoreEvent::PolicyTightened(Default::default()))
                 && everywhere(&CoreEvent::PolicyUntightened(Default::default()))

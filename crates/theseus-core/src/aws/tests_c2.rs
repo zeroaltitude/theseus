@@ -163,13 +163,39 @@ fn assumed(n: usize, name: &str) -> Reply {
     )
 }
 
-/// A stack in the fake.
+/// A stack in the fake: its policy and termination protection too.
 #[derive(Clone, Debug, Default)]
 struct Stack {
     status: String,
     params: BTreeMap<String, String>,
     template: String,
+    policy: Option<String>,
+    protected: bool,
 }
+
+/// A stack the fake holds already, made from `template` under `params`.
+fn made(template: &str, params: &[(&str, &str)]) -> Stack {
+    Stack {
+        status: "CREATE_COMPLETE".into(),
+        params: params
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        template: template.into(),
+        ..Default::default()
+    }
+}
+
+/// The lean posture's parameters, as the plan makes them for the fake's
+/// account.
+const LEAN_POSTURE: [(&str, &str); 6] = [
+    ("FoundationStack", "theseus-foundation"),
+    ("OwnerUserName", "example"),
+    ("TrailKey", "aws-managed"),
+    ("GuardDuty", "enabled"),
+    ("AccessAnalyzer", "enabled"),
+    ("SnapshotPublicSharing", "block-all-sharing"),
+];
 
 /// A change set in the fake: its stack, its kind, its parameters and
 /// template, and its changes (action, logical id, type).
@@ -229,8 +255,9 @@ fn stack_xml(name: &str, s: &Stack) -> String {
     format!(
         "<member><StackName>{name}</StackName><StackId>arn:aws:cloudformation:us-west-2:{ACCOUNT}:stack/{name}/1</StackId>\
          <CreationTime>2026-10-03T12:00:00Z</CreationTime><StackStatus>{}</StackStatus>\
+         <EnableTerminationProtection>{}</EnableTerminationProtection>\
          <Parameters>{params}</Parameters></member>",
-        s.status
+        s.status, s.protected
     )
 }
 
@@ -315,14 +342,9 @@ impl Cloud {
                 ok(n, "ExecuteChangeSet", "<ExecuteChangeSetResult/>")
             }
             "DeleteChangeSet" => ok(n, "DeleteChangeSet", "<DeleteChangeSetResult/>"),
-            "SetStackPolicy" => ok(n, "SetStackPolicy", ""),
-            "UpdateTerminationProtection" => ok(
-                n,
-                "UpdateTerminationProtection",
-                &format!(
-                    "<UpdateTerminationProtectionResult><StackId>{name}</StackId></UpdateTerminationProtectionResult>"
-                ),
-            ),
+            "SetStackPolicy" => self.set_policy(&f, &name, s, n),
+            "GetStackPolicy" => self.get_policy(&name, n),
+            "UpdateTerminationProtection" => self.protect(&f, &name, n),
             other => error(
                 n,
                 400,
@@ -330,6 +352,78 @@ impl Cloud {
                 &format!("the fake does not know {other:?}"),
             ),
         }
+    }
+
+    /// `GetStackPolicy`: no body when no policy is set.
+    fn get_policy(&self, name: &str, n: usize) -> Reply {
+        let inner = match self.stacks.get(name).and_then(|s| s.policy.as_deref()) {
+            Some(p) => format!(
+                "<GetStackPolicyResult><StackPolicyBody>{}</StackPolicyBody></GetStackPolicyResult>",
+                xml_escape(p)
+            ),
+            None => "<GetStackPolicyResult/>".into(),
+        };
+        ok(n, "GetStackPolicy", &inner)
+    }
+
+    fn protect(&mut self, f: &BTreeMap<String, String>, name: &str, n: usize) -> Reply {
+        if let Some(st) = self.stacks.get_mut(name) {
+            st.protected = f
+                .get("EnableTerminationProtection")
+                .is_some_and(|v| v == "true");
+        }
+        let inner = format!(
+            "<UpdateTerminationProtectionResult><StackId>{name}</StackId></UpdateTerminationProtectionResult>"
+        );
+        ok(n, "UpdateTerminationProtection", &inner)
+    }
+
+    /// `SetStackPolicy`, refused as AWS refuses it: a policy naming a logical
+    /// id the stack doesn't have (the bootstrap's second live run, 2026-10-03).
+    fn set_policy(
+        &mut self,
+        f: &BTreeMap<String, String>,
+        name: &str,
+        s: &Seen,
+        n: usize,
+    ) -> Reply {
+        let Some(stack) = self.stacks.get_mut(name) else {
+            let missing = format!("Stack with id {name} does not exist");
+            return error(n, 400, "ValidationError", &missing);
+        };
+        let ctx = Context {
+            account: ACCOUNT.into(),
+            region: s.region().unwrap_or("us-west-2").into(),
+        };
+        let has: Vec<String> = theseus_aws_guard::parse_template(&stack.template)
+            .ok()
+            .and_then(|t| theseus_aws_guard::planned_resources(&t, &ctx, &stack.params).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| r.logical_id)
+            .collect();
+        let body = f.get("StackPolicyBody").cloned().unwrap_or_default();
+        let policy: Value = serde_json::from_str(&body).unwrap_or_default();
+        for st in policy["Statement"].as_array().into_iter().flatten() {
+            let named = match &st["Resource"] {
+                Value::Array(a) => a.clone(),
+                r => vec![r.clone()],
+            };
+            for r in named.iter().filter_map(Value::as_str) {
+                let unknown = r
+                    .strip_prefix("LogicalResourceId/")
+                    .is_some_and(|id| !has.iter().any(|h| h == id));
+                if unknown {
+                    let why = format!(
+                        "Error validating stack policy: Unknown logical id '{r}' in statement {{}} - \
+                         stack policies can only be applied to logical ids referenced in the template"
+                    );
+                    return error(n, 400, "ValidationError", &why);
+                }
+            }
+        }
+        stack.policy = Some(body);
+        ok(n, "SetStackPolicy", "")
     }
 
     fn execute(&mut self, f: &BTreeMap<String, String>) {
@@ -480,6 +574,7 @@ fn writes(fake: &Fake) -> Vec<String> {
                     | "AssumeRole"
                     | "DescribeStacks"
                     | "GetTemplate"
+                    | "GetStackPolicy"
                     | "DescribeChangeSet"
             )
         })
@@ -930,15 +1025,14 @@ async fn the_key_signs_only_sts_and_each_call_its_session() {
 // ------------------------------------------------------------------ the reconcile
 
 fn foundation(budget: &str) -> Stack {
-    Stack {
-        status: "CREATE_COMPLETE".into(),
-        params: BTreeMap::from([
-            ("OwnerUserName".to_string(), "example".to_string()),
-            ("MonthlyBudgetUsd".to_string(), budget.to_string()),
-            ("AlertEmail".to_string(), String::new()),
-        ]),
-        template: bootstrap::FOUNDATION_TEMPLATE.into(),
-    }
+    made(
+        bootstrap::FOUNDATION_TEMPLATE,
+        &[
+            ("OwnerUserName", "example"),
+            ("MonthlyBudgetUsd", budget),
+            ("AlertEmail", ""),
+        ],
+    )
 }
 
 /// The budget's reconcile (§3.7) against a fake: config 60 and stack 50 is a
@@ -1103,6 +1197,17 @@ async fn the_bootstrap_plans_read_only_applies_once_and_plans_no_diff_after() {
     let stacks = c.lock().unwrap().stacks.clone();
     assert_eq!(stacks.len(), 3);
     assert!(stacks.values().all(|s| s.status == "CREATE_COMPLETE"));
+    // Each with its policy, which names only what the stack has (the fake
+    // refuses another, as AWS does), and its termination protection.
+    assert!(
+        stacks.values().all(|s| s.policy.is_some() && s.protected),
+        "{stacks:?}"
+    );
+    let posture = stacks["theseus-posture"].policy.clone().unwrap();
+    assert!(
+        !posture.contains("TrailKmsKey") && posture.contains("LogicalResourceId/Trail\""),
+        "{posture}"
+    );
     let sets: Vec<(String, String, String)> = fake
         .seen()
         .iter()
@@ -1141,16 +1246,341 @@ async fn the_bootstrap_plans_read_only_applies_once_and_plans_no_diff_after() {
     let again = bootstrap::plan(&account, &p).await.unwrap();
     let r = bootstrap::result(&account, &again, false);
     assert!(!r.changes, "{:?}", r.stacks);
-    assert!(r.stacks.iter().all(|s| s.action == "none"));
-    let seen = &fake.seen()[before..];
+    assert!(r
+        .stacks
+        .iter()
+        .all(|s| s.action == "none" && s.sets.is_empty()));
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    nothing_written_and_no_key(&fake.seen()[before..]);
+}
+
+/// A plan after the owner role exists: only reads, and none signed with the
+/// key but STS's.
+fn nothing_written_and_no_key(seen: &[Seen]) {
     assert!(seen.iter().all(|s| {
         let a = form(&s.body).get("Action").cloned().unwrap_or_default();
         matches!(a.as_str(), "AssumeRole" | "GetCallerIdentity") || signed_by(s) == SESSION_KEY
     }));
-    assert!(seen
+    let actions: Vec<String> = seen
         .iter()
         .filter_map(|s| form(&s.body).get("Action").cloned())
-        .all(|a| matches!(a.as_str(), "AssumeRole" | "DescribeStacks" | "GetTemplate")));
+        .collect();
+    assert!(
+        actions.iter().all(|a| matches!(
+            a.as_str(),
+            "AssumeRole" | "DescribeStacks" | "GetTemplate" | "GetStackPolicy"
+        )),
+        "{actions:?}"
+    );
+}
+
+/// The resumed apply's requests: 3 policies and 3 protections, set in the
+/// floor session minted before the first of them, and one stack made.
+fn three_guards_in_the_floor_session_and_one_create(seen: &[Seen]) {
+    let a: Vec<String> = seen
+        .iter()
+        .filter_map(|s| form(&s.body).get("Action").cloned())
+        .collect();
+    let count = |op: &str| a.iter().filter(|x| *x == op).count();
+    assert_eq!(
+        (
+            count("SetStackPolicy"),
+            count("UpdateTerminationProtection"),
+            count("CreateChangeSet"),
+            count("ExecuteChangeSet")
+        ),
+        (3, 3, 1, 1),
+        "{a:?}"
+    );
+    let floor = seen.iter().position(|s| {
+        let f = form(&s.body);
+        f.get("Action").map(String::as_str) == Some("AssumeRole")
+            && f.get("RoleSessionName")
+                .is_some_and(|n| n.ends_with(".floor"))
+    });
+    let first = seen
+        .iter()
+        .position(|s| form(&s.body).get("Action").map(String::as_str) == Some("SetStackPolicy"));
+    assert!(floor.is_some() && floor < first, "{a:?}");
+    for s in seen {
+        let f = form(&s.body);
+        if matches!(
+            f.get("Action").map(String::as_str),
+            Some("SetStackPolicy" | "UpdateTerminationProtection")
+        ) {
+            assert_eq!(signed_by(s), SESSION_KEY);
+        }
+    }
+}
+
+/// A stopped bootstrap resumes (theseus-oszz). The account as the second
+/// live run left it: the foundation and the posture made, with no policy and
+/// no termination protection, and no relay. The plan says what each lacks
+/// and sends no write. The apply sets the two stacks' policies and
+/// protections in the floor session, with no change set, and creates the
+/// relay with its own. A second plan has nothing to do.
+#[tokio::test]
+async fn a_stopped_bootstrap_resumes_and_sets_what_it_skipped() {
+    let owner = [
+        ("OwnerUserName", "example"),
+        ("MonthlyBudgetUsd", "50"),
+        ("AlertEmail", "alerts@example.com"),
+    ];
+    let (fake, c) = cloud(Cloud {
+        stacks: BTreeMap::from([
+            (
+                "theseus-foundation".to_string(),
+                made(bootstrap::FOUNDATION_TEMPLATE, &owner),
+            ),
+            (
+                "theseus-posture".to_string(),
+                made(bootstrap::POSTURE_TEMPLATE, &LEAN_POSTURE),
+            ),
+        ]),
+        owner_role: true,
+        ..Default::default()
+    });
+    let aws = layer(&fake, false, Some(50));
+    let account = aws.account(None).unwrap().clone();
+    let p = AwsBootstrapParams {
+        alert_email: Some("alerts@example.com".into()),
+        ..Default::default()
+    };
+    let plan = bootstrap::plan(&account, &p).await.unwrap();
+    let r = bootstrap::result(&account, &plan, false);
+    let both = ["stack policy", "termination protection"];
+    let shape: Vec<(&str, &str, Vec<&str>)> = r
+        .stacks
+        .iter()
+        .map(|s| {
+            (
+                s.stack.as_str(),
+                s.action.as_str(),
+                s.sets.iter().map(String::as_str).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            ("theseus-foundation", "none", both.to_vec()),
+            ("theseus-posture", "none", both.to_vec()),
+            ("theseus-posture-relay", "create", both.to_vec()),
+        ]
+    );
+    assert!(r.changes && r.warnings.is_empty(), "{:?}", r.warnings);
+    assert!(!r.stacks[1].policy.contains("TrailKmsKey"));
+    assert!(writes(&fake).is_empty(), "{:?}", writes(&fake));
+    // The digest names the exact policies, and what the apply sets.
+    assert_eq!(bootstrap::digest(&plan.stacks), plan.digest);
+    let mut other = plan.stacks.clone();
+    other[1].policy.push('\n');
+    assert_ne!(bootstrap::digest(&other), plan.digest, "the policy");
+    let mut other = plan.stacks.clone();
+    other[0].sets.pop();
+    assert_ne!(bootstrap::digest(&other), plan.digest, "what it sets");
+
+    let before = fake.seen().len();
+    bootstrap::apply(&account, &p, &plan.digest).await.unwrap();
+    three_guards_in_the_floor_session_and_one_create(&fake.seen()[before..]);
+    let stacks = c.lock().unwrap().stacks.clone();
+    assert_eq!(stacks["theseus-posture-relay"].status, "CREATE_COMPLETE");
+    assert!(
+        stacks.values().all(|s| s.policy.is_some() && s.protected),
+        "{stacks:?}"
+    );
+    let posture = stacks["theseus-posture"].policy.clone().unwrap();
+    assert!(!posture.contains("TrailKmsKey"), "{posture}");
+
+    // A second plan: everything as planned, nothing to set, nothing written.
+    let before = fake.seen().len();
+    let again = bootstrap::plan(&account, &p).await.unwrap();
+    let r = bootstrap::result(&account, &again, false);
+    assert!(!r.changes, "{:?}", r.stacks);
+    assert!(r
+        .stacks
+        .iter()
+        .all(|s| s.action == "none" && s.sets.is_empty()));
+    nothing_written_and_no_key(&fake.seen()[before..]);
+}
+
+/// A policy that is set but is not this binary's stays, with a warning: the
+/// plan sets nothing on it, and its apply sends no write (theseus-oszz).
+#[tokio::test]
+async fn a_stack_policy_set_by_hand_stays_and_is_a_warning() {
+    let by_hand =
+        r#"{"Statement":[{"Effect":"Allow","Action":"Update:*","Principal":"*","Resource":"*"}]}"#;
+    let mut posture = made(bootstrap::POSTURE_TEMPLATE, &LEAN_POSTURE);
+    posture.policy = Some(by_hand.into());
+    posture.protected = true;
+    let mut foundation = made(
+        bootstrap::FOUNDATION_TEMPLATE,
+        &[
+            ("OwnerUserName", "example"),
+            ("MonthlyBudgetUsd", "50"),
+            ("AlertEmail", ""),
+        ],
+    );
+    foundation.policy = Some(bootstrap::FOUNDATION_POLICY.into());
+    foundation.protected = true;
+    let (fake, c) = cloud(Cloud {
+        stacks: BTreeMap::from([
+            ("theseus-foundation".to_string(), foundation),
+            ("theseus-posture".to_string(), posture),
+        ]),
+        owner_role: true,
+        ..Default::default()
+    });
+    let aws = layer(&fake, false, Some(50));
+    let account = aws.account(None).unwrap().clone();
+    let p = AwsBootstrapParams::default();
+    let plan = bootstrap::plan(&account, &p).await.unwrap();
+    let r = bootstrap::result(&account, &plan, false);
+    assert!(r.stacks[..2]
+        .iter()
+        .all(|s| s.action == "none" && s.sets.is_empty()));
+    assert_eq!(r.warnings.len(), 1, "{:?}", r.warnings);
+    assert!(
+        r.warnings[0].starts_with("theseus-posture in us-west-2 has a stack policy that is not"),
+        "{:?}",
+        r.warnings
+    );
+    // The apply makes the relay, and leaves the two stacks alone.
+    bootstrap::apply(&account, &p, &plan.digest).await.unwrap();
+    assert_eq!(
+        c.lock().unwrap().stacks["theseus-posture"]
+            .policy
+            .as_deref(),
+        Some(by_hand)
+    );
+    let guarded: Vec<String> = fake
+        .seen()
+        .iter()
+        .map(|s| form(&s.body))
+        .filter(|f| {
+            matches!(
+                f.get("Action").map(String::as_str),
+                Some("SetStackPolicy" | "UpdateTerminationProtection")
+            )
+        })
+        .map(|f| f["StackName"].clone())
+        .collect();
+    assert_eq!(guarded, ["theseus-posture-relay", "theseus-posture-relay"]);
+}
+
+/// The plan's ids for a template under parameters.
+fn made_ids(template: &str, params: &[(&str, &str)]) -> Vec<String> {
+    let t = theseus_aws_guard::parse_template(template).unwrap();
+    let ctx = Context {
+        account: ACCOUNT.into(),
+        region: "us-west-2".into(),
+    };
+    let params: BTreeMap<String, String> = params
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    theseus_aws_guard::planned_resources(&t, &ctx, &params)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.logical_id)
+        .collect()
+}
+
+/// Each stack's policy names only the resources its stack makes
+/// (theseus-oszz). AWS refused the lean posture's, which named the
+/// `TrailKmsKey` that `TrailKey=aws-managed` does not make; the customer
+/// posture's still protects the key; the foundation's and the relay's are
+/// their files as written. A statement left with no resource goes, and `*`
+/// stays. The fake refuses the uncut file as AWS did.
+#[tokio::test]
+async fn a_stack_policy_names_only_the_resources_its_stack_makes() {
+    let owner = [("OwnerUserName", "example")];
+    let lean = bootstrap::stack_policy(
+        bootstrap::POSTURE_POLICY,
+        &made_ids(bootstrap::POSTURE_TEMPLATE, &LEAN_POSTURE),
+    )
+    .unwrap();
+    assert!(!lean.contains("TrailKmsKey"), "{lean}");
+    for id in ["Trail", "TrailBucket", "TrailBucketPolicy"] {
+        assert!(
+            lean.contains(&format!("\"LogicalResourceId/{id}\"")),
+            "{lean}"
+        );
+    }
+    let customer = bootstrap::stack_policy(
+        bootstrap::POSTURE_POLICY,
+        &made_ids(
+            bootstrap::POSTURE_TEMPLATE,
+            &[("OwnerUserName", "example"), ("TrailKey", "customer")],
+        ),
+    )
+    .unwrap();
+    assert!(customer.contains("\"LogicalResourceId/TrailKmsKey\""));
+    assert_eq!(customer, bootstrap::POSTURE_POLICY);
+    let foundation = made_ids(bootstrap::FOUNDATION_TEMPLATE, &owner);
+    assert_eq!(
+        bootstrap::stack_policy(bootstrap::FOUNDATION_POLICY, &foundation).unwrap(),
+        bootstrap::FOUNDATION_POLICY
+    );
+    let relay = made_ids(bootstrap::RELAY_TEMPLATE, &[]);
+    assert_eq!(
+        bootstrap::stack_policy(bootstrap::RELAY_POLICY, &relay).unwrap(),
+        bootstrap::RELAY_POLICY
+    );
+
+    // The rule: a statement left with no resource goes, and "*" stays.
+    let cut = bootstrap::stack_policy(
+        r#"{"Statement":[
+            {"Effect":"Allow","Action":"Update:*","Principal":"*","Resource":"*"},
+            {"Effect":"Deny","Action":"Update:Delete","Principal":"*","Resource":"LogicalResourceId/Gone"},
+            {"Effect":"Deny","Action":"Update:Replace","Principal":"*",
+             "Resource":["LogicalResourceId/Gone","LogicalResourceId/Kept"]}]}"#,
+        &["Kept".to_string()],
+    )
+    .unwrap();
+    let v: Value = serde_json::from_str(&cut).unwrap();
+    assert_eq!(v["Statement"].as_array().map(Vec::len), Some(2), "{cut}");
+    assert_eq!(v["Statement"][0]["Resource"], "*");
+    assert_eq!(
+        v["Statement"][1]["Resource"],
+        json!(["LogicalResourceId/Kept"])
+    );
+
+    // The fake refuses the uncut file as AWS refused it, and takes the cut.
+    let (fake, c) = cloud(Cloud {
+        stacks: BTreeMap::from([(
+            "theseus-posture".to_string(),
+            made(bootstrap::POSTURE_TEMPLATE, &LEAN_POSTURE),
+        )]),
+        ..Default::default()
+    });
+    let aws = layer(&fake, false, None);
+    let account = aws.account(None).unwrap().clone();
+    let cfn = super::stack::Cfn {
+        account: &account,
+        region: "us-west-2",
+        binding: None,
+        signer: super::Signer::Key,
+    };
+    let e = cfn
+        .set_policy("theseus-posture", bootstrap::POSTURE_POLICY)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains(
+            "Error validating stack policy: Unknown logical id 'LogicalResourceId/TrailKmsKey'"
+        ),
+        "{e}"
+    );
+    assert!(c.lock().unwrap().stacks["theseus-posture"].policy.is_none());
+    cfn.set_policy("theseus-posture", &lean).await.unwrap();
+    assert_eq!(
+        c.lock().unwrap().stacks["theseus-posture"]
+            .policy
+            .as_deref(),
+        Some(lean.as_str())
+    );
 }
 
 // ------------------------------------------------------------------ the templates

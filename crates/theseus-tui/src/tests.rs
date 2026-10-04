@@ -1312,6 +1312,64 @@ async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
     );
 }
 
+/// A long reason wraps at the pane's edge, its later rows under its text, so
+/// it is read to its end, where a shared place's clause stands (theseus-94a6);
+/// one row cut it at the edge before. A reason past five rows keeps its first
+/// row, `…`, and its last three, which say why.
+#[tokio::test]
+async fn a_long_reason_wraps_and_is_read_to_its_end() {
+    let reason =
+        "fetch http://127.0.0.1:7455/notes: http.fetch — approve (127.0.0.1 is a loopback \
+                  address, and a private address waits for approval; this is a shared place, so \
+                  the page joins a conversation others can read)";
+    let world = harbour_world();
+    {
+        let mut w = world.lock().unwrap();
+        let mut q = gate_question("ses_spec01", "cor_spec01", 98, 98 + 252);
+        q.reason = reason.into();
+        w.board["confirms"] = json!([q]);
+    }
+    NOW.with(|n| n.set(T0 + 98_000));
+    let mut rig = Rig::new(120, 20, script(world));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab]).await;
+    rig.shows("expires in 4:12").await;
+    let rows = pane(&rig.screen(), 120);
+    let why = rows.iter().position(|r| r.starts_with("   why: ")).unwrap();
+    let keys = rows
+        .iter()
+        .position(|r| r.starts_with("   [y] approve"))
+        .unwrap();
+    let card: Vec<&str> = rows[why..keys].iter().map(|r| r.trim_end()).collect();
+    assert_eq!(card.len(), 3, "{card:?}");
+    assert!(
+        card[1..]
+            .iter()
+            .all(|r| r.starts_with("   ") && !r.starts_with("    ")),
+        "the later rows are as indented as the line: {card:?}"
+    );
+    assert_eq!(
+        card.iter().map(|r| r.trim()).collect::<Vec<_>>().join(" "),
+        format!("why: {reason}"),
+        "the whole reason, in order"
+    );
+
+    let long = format!(
+        "  why: run `{}` in /harbour: proc.run — approve (`bash` matches the approve list entry `bash`)",
+        "tide ".repeat(80)
+    );
+    let shown = ui::card_rows(&long, 82);
+    assert_eq!(shown.len(), 5, "{shown:?}");
+    assert!(shown[0].starts_with("  why: run `tide tide"), "{shown:?}");
+    assert_eq!(shown[1], "  …");
+    let end: Vec<&str> = shown[2..].iter().map(|r| r.trim()).collect();
+    assert!(
+        end.join(" ")
+            .ends_with("proc.run — approve (`bash` matches the approve list entry `bash`)"),
+        "the end, which says why: {shown:?}"
+    );
+}
+
 /// `n` asks for a note, and the decline carries it; `t` approves and trusts a
 /// session that holds external text.
 #[tokio::test]

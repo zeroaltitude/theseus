@@ -107,7 +107,13 @@ pub fn bootstrap_lines(r: &theseus_protocol::AwsBootstrapResult) -> Vec<String> 
         }
     )];
     for s in &r.stacks {
-        lines.push(format!("  {} in {}: {}", s.stack, s.region, s.action));
+        lines.push(format!(
+            "  {} in {}: {}{}",
+            s.stack,
+            s.region,
+            s.action,
+            unset(s)
+        ));
         let params: Vec<String> = s
             .parameters
             .iter()
@@ -119,6 +125,9 @@ pub fn bootstrap_lines(r: &theseus_protocol::AwsBootstrapResult) -> Vec<String> 
             lines.extend(s.resources.iter().map(|x| format!("      + {x}")));
         }
         lines.extend(s.changes.iter().map(|c| format!("    ~ {c}")));
+        if s.sets.iter().any(|x| x == "stack policy") {
+            lines.push(format!("    stack policy: {}", policy_line(&s.policy)));
+        }
     }
     lines.extend(r.warnings.iter().map(|w| format!("  warning: {w}")));
     if !r.applied {
@@ -126,6 +135,56 @@ pub fn bootstrap_lines(r: &theseus_protocol::AwsBootstrapResult) -> Vec<String> 
     }
     lines.extend(r.next.iter().map(|n| format!("  next: {n}")));
     lines
+}
+
+/// What an existing stack lacks, which the apply sets: `; its stack policy
+/// and termination protection are not set, and the apply sets them`. A
+/// create gets both, and says nothing.
+fn unset(s: &theseus_protocol::AwsBootstrapStack) -> String {
+    if s.action == "create" || s.sets.is_empty() {
+        return String::new();
+    }
+    let one = s.sets.len() == 1;
+    format!(
+        "; its {} {} not set, and the apply sets {}",
+        s.sets.join(" and "),
+        if one { "is" } else { "are" },
+        if one { "it" } else { "them" }
+    )
+}
+
+/// A stack policy in one line: each statement's effect, actions, and
+/// resources, a logical id by its name.
+fn policy_line(policy: &str) -> String {
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(policy) else {
+        return format!("(not JSON) {policy}");
+    };
+    let names = |v: &serde_json::Value| -> String {
+        let one = |x: &serde_json::Value| {
+            x.as_str()
+                .unwrap_or("?")
+                .trim_start_matches("LogicalResourceId/")
+                .to_string()
+        };
+        match v {
+            serde_json::Value::Array(a) => a.iter().map(one).collect::<Vec<_>>().join(", "),
+            v => one(v),
+        }
+    };
+    doc["Statement"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|st| {
+            format!(
+                "{} {} on {}",
+                st["Effect"].as_str().unwrap_or("?"),
+                names(&st["Action"]),
+                names(&st["Resource"])
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// One account's check and its requests.
@@ -181,4 +240,62 @@ fn aws_account_line(a: &theseus_protocol::AwsAccountStatus, now_ms: u64) -> Stri
             String::new()
         }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use theseus_protocol::{AwsBootstrapResult, AwsBootstrapStack};
+
+    /// A stopped bootstrap's re-plan (theseus-oszz): an existing stack says
+    /// what it lacks, and the policy the apply sets; a stack with nothing to
+    /// set says neither.
+    #[test]
+    fn a_stack_says_what_the_apply_sets_on_it() {
+        let stack = |name: &str, action: &str, sets: &[&str]| AwsBootstrapStack {
+            stack: name.into(),
+            region: "us-west-2".into(),
+            action: action.into(),
+            sets: sets.iter().map(|x| x.to_string()).collect(),
+            policy: r#"{"Statement":[{"Effect":"Allow","Action":"Update:*","Resource":"*"},
+                {"Effect":"Deny","Action":["Update:Replace","Update:Delete"],
+                 "Resource":["LogicalResourceId/Trail","LogicalResourceId/TrailBucket"]}]}"#
+                .into(),
+            ..Default::default()
+        };
+        let r = AwsBootstrapResult {
+            stacks: vec![
+                stack(
+                    "theseus-posture",
+                    "none",
+                    &["stack policy", "termination protection"],
+                ),
+                stack("theseus-foundation", "none", &["termination protection"]),
+                stack("theseus-posture-relay", "none", &[]),
+            ],
+            changes: true,
+            ..Default::default()
+        };
+        let lines = super::bootstrap_lines(&r);
+        let has = |l: &str| lines.iter().any(|x| x == l);
+        assert!(
+            has(
+                "  theseus-posture in us-west-2: none; its stack policy and termination \
+                 protection are not set, and the apply sets them"
+            ),
+            "{lines:#?}"
+        );
+        assert!(has(
+            "    stack policy: Allow Update:* on *; Deny Update:Replace, Update:Delete on \
+             Trail, TrailBucket"
+        ));
+        assert!(has(
+            "  theseus-foundation in us-west-2: none; its termination protection is not set, \
+             and the apply sets it"
+        ));
+        assert!(has("  theseus-posture-relay in us-west-2: none"));
+        assert_eq!(
+            lines.iter().filter(|l| l.contains("stack policy:")).count(),
+            1
+        );
+    }
 }

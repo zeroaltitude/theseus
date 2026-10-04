@@ -45,8 +45,8 @@ pub fn lines(
                 format!("⏸ confirm {}: {}", c.tool, summary(&c.input)),
             ));
             // The countdown and the floor on a line of their own, before the
-            // reason: a long reason (a path, a command) is cut at the pane's
-            // edge and would hide them.
+            // reason: a long reason (a path, a command) wraps over rows of its
+            // own (`ui::card_rows`), and would push them down.
             out.extend(when(c.floor, c.expires_at_ms, now_ms));
             out.push((Tag::Dim, format!("  why: {}", c.reason)));
             if let Some(t) = &c.task {

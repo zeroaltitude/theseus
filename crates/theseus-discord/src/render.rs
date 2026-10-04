@@ -37,7 +37,7 @@ pub enum Buttons {
     /// Approve, "Approve + trust session", and Decline (theseus-9bp): the
     /// call waits because its session read external text.
     ConfirmTrust(String),
-    /// One "Should have asked…" select menu (theseus-sgh): an option per
+    /// One "Should I have asked?" select menu (theseus-sgh): an option per
     /// distinct notified tool on the message, at most `MAX_ASKED`.
     ShouldHaveAsked(Vec<Asked>),
     /// Remove every component.
@@ -64,8 +64,8 @@ pub struct NoticeCard {
     pub color: u32,
     pub description: String,
     pub fields: Vec<(String, String)>,
-    /// A "Should have asked" button for this call; None once its tool asks
-    /// first (theseus-sgh).
+    /// A "Make actions like this ask in the future" button for this call;
+    /// None once its tool asks first (theseus-sgh).
     pub ask: Option<Asked>,
 }
 
@@ -593,8 +593,8 @@ impl Renderer {
         ops
     }
 
-    /// A notice card's "Should have asked" button, or, once its tool asks
-    /// first, a line that says who tightened it.
+    /// A notice card's "Make actions like this ask in the future" button, or,
+    /// once its tool asks first, a line that says who tightened it.
     fn asked_on(&self, card: &mut NoticeCard, call: &Asked) {
         card.fields.retain(|(name, _)| name != TIGHTENED_FIELD);
         match self.tightened.get(&call.tool) {
@@ -657,7 +657,7 @@ impl Renderer {
 }
 
 /// The field a notice card gains once its tool asks first.
-const TIGHTENED_FIELD: &str = "Should have asked";
+const TIGHTENED_FIELD: &str = "Asks first now";
 
 /// One message of a turn as rendered: its key, its text, and, on a tool
 /// message when menus are on, its "should have asked" choices.
@@ -680,7 +680,7 @@ impl Rendered {
 /// Every live message a turn shows, in the order Discord should first see
 /// them: its streamed text while it runs (then its reply's post owns the
 /// text), and its tool messages. `tightened` is tool → who tightened it;
-/// `menus` puts a "Should have asked…" select on each tool message that lists
+/// `menus` puts a "Should I have asked?" select on each tool message that lists
 /// a notified call.
 fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) -> Vec<Rendered> {
     let mut out: Vec<Rendered> = Vec::new();
@@ -831,7 +831,7 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     let line = format!("{task}`{}` {}", req.tool, summarize(&req.tool, &req.input));
     let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });
     if !req.reason.is_empty() {
-        content.push_str(&format!("\n{}", clip(&req.reason, 300)));
+        content.push_str(&format!("\n{}", clip_middle(&req.reason, 300)));
     }
     let asked_for = match route {
         Route::Dm { place, .. } => format!("for {place} · "),
@@ -1256,6 +1256,22 @@ pub(crate) fn clip(s: &str, max: usize) -> String {
     }
     let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
     out.push('…');
+    out
+}
+
+/// `s` in at most `max` characters, cut in its middle: a third of them from
+/// its start, the rest from its end, where a card's reason says why
+/// (theseus-94a6: a shared place's clause ends a private fetch's reason, after
+/// its URL). The start is on the card's line too.
+pub(crate) fn clip_middle(s: &str, max: usize) -> String {
+    let n = s.chars().count();
+    if n <= max {
+        return s.to_string();
+    }
+    let head = max / 3;
+    let mut out: String = s.chars().take(head).collect();
+    out.push('…');
+    out.extend(s.chars().skip(n - (max - head - 1)));
     out
 }
 
@@ -1804,7 +1820,7 @@ mod tests {
         assert_eq!(
             card.fields.last(),
             Some(&(
-                "Should have asked".to_string(),
+                "Asks first now".to_string(),
                 "🔒 `proc.run` asks first from now on: tightened by discord:eddie".to_string()
             ))
         );
@@ -1816,7 +1832,7 @@ mod tests {
             panic!("{ops:?}")
         };
         assert_eq!(card.ask, Some(asked("proc.run", Some("act_1"))));
-        assert!(card.fields.iter().all(|(n, _)| n != "Should have asked"));
+        assert!(card.fields.iter().all(|(n, _)| n != "Asks first now"));
     }
 
     /// The Daily Driver's proof (theseus-w4f): thirty notified calls in one
@@ -2456,6 +2472,38 @@ mod tests {
             failed.starts_with("⚠️ **Task `a1b2c3` failed** · Run the gate: provider_overloaded"),
             "{failed}"
         );
+    }
+
+    /// A card's reason past 300 characters loses its middle, not its end, which
+    /// says why: a fetch of a private address from a shared place keeps its
+    /// clause behind a long URL (theseus-94a6). A short reason is whole.
+    #[test]
+    fn a_long_reason_keeps_its_end_on_the_card() {
+        let url = format!("http://10.0.0.5:8080/reports?{}", "tide=high&".repeat(20));
+        let why = "http.fetch — approve (10.0.0.5 is a private address, and a private address \
+                   waits for approval; this is a shared place, so the page joins a conversation \
+                   others can read)";
+        let req = |reason: &str| {
+            request(json!({
+                "correlation_id": "act_1", "session_id": "ses_x", "execution_id": "exe_x",
+                "tool": "http.fetch", "input": {"url": url}, "reason": reason,
+                "by": "operator", "requested_at_ms": 1, "expires_at_ms": 60_000
+            }))
+        };
+        let long = format!("fetch {url}: {why}");
+        assert!(long.chars().count() > 300);
+        let shown = card(&req(&long), &Route::Here, "").content;
+        let reason = shown.lines().nth(1).unwrap();
+        assert_eq!(reason.chars().count(), 300, "{reason}");
+        assert!(
+            reason.starts_with("fetch http://10.0.0.5:8080/reports?"),
+            "{reason}"
+        );
+        assert!(reason.contains('…'), "{reason}");
+        assert!(reason.ends_with(why), "the end, which says why: {reason}");
+        let short = "fetch http://10.0.0.5/: http.fetch — approve (10.0.0.5 is a private address)";
+        let whole = card(&req(short), &Route::Here, "").content;
+        assert_eq!(whole.lines().nth(1), Some(short));
     }
 
     /// A task's question names the task on its card, and so on its settle.

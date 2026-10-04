@@ -268,7 +268,7 @@ lifecycle() {
 # start's fsyncs for seconds, and then the bench measures the neighbour, not
 # Theseus. On 2026-10-01 an openclaw rotation held IO pressure near 50 %, and
 # a restart's p95 was 2.3 s, where the same tree had passed at 41 ms. So each
-# run first waits, for up to 5 minutes, until the kernel's IO and CPU
+# run first waits, for up to 2 minutes, until the kernel's IO and CPU
 # pressure (PSI, `some avg10`) are under 10 % and 20 %, and it says what it
 # saw. The budgets don't change. Without PSI it doesn't wait.
 #
@@ -277,12 +277,23 @@ lifecycle() {
 # little CPU pressure. At 15:25 the same day every phase ran about 2x slow,
 # untouched code included, at load 14 on 16 cores and CPU pressure 2 %;
 # about 16:39 a run missed with the load near 20. So the wait also holds
-# while the 1-minute load average is at or over the core count, the cores
-# oversubscribed. That bar, not half the cores, keeps a long neighbouring
-# build from stalling every gate; the wait is bounded at 5 minutes
+# while the 1-minute load average is high. Its first bar was the core count,
+# the cores oversubscribed (not half the cores, so that a long neighbouring
+# build would not stall every gate), with the wait bounded at 5 minutes
 # (theseus-611s).
 #
-# When the 5 minutes pass with no quiet window, the bench measures a busy
+# Since 2026-10-03 the bar is three quarters of the cores (12 of 16), and
+# the wait 2 minutes (Eddie, 14:20: "Your pick is good"; theseus-lf1n). With
+# the lanes' compilers no longer paused for the bench (theseus-lew7), the
+# strict misses cluster at loads of 12 to 16: at normal priority a phase
+# missed in 41 % of the runs at a load of 12 or more, against 10 % from 8 to
+# 12 and 6 % under 8. The old bar called that band quiet and judged it
+# strictly, so a second miss there failed a join. Now a gate there waits,
+# then measures with the busy allowance, which was calibrated on that band.
+# And since a busy machine now means the allowance, not a likely failure,
+# the shorter wait keeps it from holding the shared lock for 5 minutes.
+#
+# When the 2 minutes pass with no quiet window, the bench measures a busy
 # machine, and its timing budgets get the busy allowance (theseus-lew7):
 # `--allowance` with `$THESEUS_GATE_BENCH_ALLOWANCE`, a percentage of each
 # limit. A phase over its limit by no more than that passes, and the bench
@@ -295,19 +306,20 @@ settle() {
   busy_args=()
   [ -r /proc/pressure/io ] && [ -r /proc/pressure/cpu ] || return 0
   local io cpu load waited=0
-  local cores
+  local cores bar
   cores=$(nproc)
+  bar=$(awk -v c="$cores" 'BEGIN {print c * 3 / 4}')
   while :; do
     io=$(awk '/^some/ {split($2, a, "="); print int(a[2])}' /proc/pressure/io)
     cpu=$(awk '/^some/ {split($2, a, "="); print int(a[2])}' /proc/pressure/cpu)
     load=$(awk '{print $1}' /proc/loadavg)
-    if [ "$io" -lt 10 ] && [ "$cpu" -lt 20 ] && awk -v l="$load" -v c="$cores" 'BEGIN {exit !(l < c)}'; then break; fi
-    if [ "$waited" -ge 300 ]; then
+    if [ "$io" -lt 10 ] && [ "$cpu" -lt 20 ] && awk -v l="$load" -v b="$bar" 'BEGIN {exit !(l < b)}'; then break; fi
+    if [ "$waited" -ge 120 ]; then
       if [ "$allowance" -eq 0 ]; then
-        echo "lifecycle: still busy after 5 minutes (IO pressure $io %, CPU $cpu %, load $load on $cores cores); measuring anyway, strictly (THESEUS_GATE_BENCH_ALLOWANCE=0)"
+        echo "lifecycle: still busy after 2 minutes (IO pressure $io %, CPU $cpu %, load $load on $cores cores, quiet under $bar); measuring anyway, strictly (THESEUS_GATE_BENCH_ALLOWANCE=0)"
       else
         busy_args=(--allowance "$allowance")
-        echo "lifecycle: still busy after 5 minutes (IO pressure $io %, CPU $cpu %, load $load on $cores cores); measuring anyway, with the busy allowance: +$allowance% over a timing budget's limit"
+        echo "lifecycle: still busy after 2 minutes (IO pressure $io %, CPU $cpu %, load $load on $cores cores, quiet under $bar); measuring anyway, with the busy allowance: +$allowance% over a timing budget's limit"
       fi
       return 0
     fi
@@ -315,7 +327,7 @@ settle() {
     waited=$((waited + 5))
   done
   if [ "$waited" -gt 0 ]; then
-    echo "lifecycle: waited $waited s for the machine to settle (IO pressure $io %, CPU $cpu %, load $load on $cores cores)"
+    echo "lifecycle: waited $waited s for the machine to settle (IO pressure $io %, CPU $cpu %, load $load on $cores cores, quiet under $bar)"
   fi
   return 0
 }

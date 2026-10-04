@@ -168,6 +168,12 @@ fn script(req: &ProviderRequest) -> Scripted {
             &[("t1", "task_create", json!({"brief": "count the files"}))],
         );
     }
+    if let Some(url) = last.strip_prefix("FETCH ") {
+        return Scripted::tools(
+            "Fetching.",
+            &[("f1", "http_fetch", json!({"url": url.trim()}))],
+        );
+    }
     if last.starts_with("WAKE") {
         return Scripted::tools(
             "Setting it.",
@@ -404,6 +410,39 @@ async fn a_private_place_gets_everything_and_anyone_elses_dm_is_shared() {
     let before = r.requests().len();
     turn(&r.core, &alice, "hello").await;
     assert_eq!(offered(&r.requests()[before]), SHARED_TOOLS);
+}
+
+/// theseus-94a6, through the whole core: a fetch of a private address waits
+/// for approval in a shared place and in the owner's DM alike, and only the
+/// shared place's card says that the page would join a conversation others
+/// can read. Nothing connects: neither question is answered.
+#[tokio::test]
+async fn a_private_address_fetch_asks_and_a_shared_places_card_says_where_the_page_goes() {
+    let r = rig();
+    let url = "http://127.0.0.1:7455/notes";
+    let asks = format!(
+        "fetch {url}: http.fetch — approve (127.0.0.1 is a loopback address, and a private \
+         address waits for approval"
+    );
+    let note = "; this is a shared place, so the page joins a conversation others can read)";
+    for (place, shared) in [
+        (format!("channel:{LAB}"), true),
+        (format!("dm:{OWNER}"), false),
+    ] {
+        let sid = session(&r.core, Some(&place));
+        turn(&r.core, &sid, &format!("FETCH {url}")).await;
+        let asked: Vec<Value> = rows(&r.core, "tool.confirm_requested")
+            .into_iter()
+            .filter(|row| row["session_id"] == sid.as_str())
+            .collect();
+        assert_eq!(asked.len(), 1, "{place}: {asked:?}");
+        let reason = asked[0]["reason"].as_str().unwrap_or_default();
+        let want = match shared {
+            true => format!("{asks}{note}"),
+            false => format!("{asks})"),
+        };
+        assert_eq!(reason, want, "{place}");
+    }
 }
 
 /// A task takes its parent's class: started in a shared place, it is
