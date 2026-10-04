@@ -1,23 +1,25 @@
-//! The run: items × arms × runs against a scratch daemon over the exam's
-//! store, through its socket, as any protocol client drives it (§2.9's "the
-//! present: a task sent through the protocol to a scratch daemon on that
-//! store").
+//! The run: items × arms × runs, each cell through the socket of the
+//! scratch daemon its arm names, as any protocol client drives it (§2.9's
+//! "the present: a task sent through the protocol to a scratch daemon on that
+//! store"). `arms.rs` starts the daemons, one per arm of the real pipeline.
 //!
-//! - **Arms.** `none` sends the task alone: today's compiler, which sees only
-//!   the session's own transcript. `oracle` sends the item's gold, rendered as
-//!   the recall note, before the task (§3.1's 34a row, until 30b exists).
-//!   Arms of the real memory pipeline (row 55) are not a per-turn choice: they
-//!   are the scratch daemon's `[memory] arm` config key, which this driver's
-//!   caller will set when it starts the daemon for each arm. The key does not
-//!   exist yet (row 55 adds it); `turn.submit` carries no arm field, and none
-//!   is planned.
+//! - **Arms.** `none`, `bm25` and `baseline` are arms of the real memory
+//!   pipeline: each is a scratch daemon of its own, in `[memory] mode =
+//!   "live"`, whose config names the arm (row 55; the arm is config, never a
+//!   turn's field: `turn.submit` carries none). `none` is today's compiler,
+//!   which sees only the session's own transcript and asks the index nothing.
+//!   `oracle` is the driver's: the item's gold, rendered as the core renders
+//!   a `Recall` node (`render.rs`), sent after the task to the `none` daemon.
 //! - **A cell** is one item under one arm, once: a fresh session, one turn on
 //!   the given profile. A call that waits for approval is declined, as an
 //!   operator who wants a text answer would; the continuation runs, and the
 //!   cell ends when the session's last turn does. The reply is every
-//!   assistant text of the session; the calls are its tool calls.
+//!   assistant text of the session; the calls are its tool calls; its
+//!   recalls are the session's recall rows (`memory.recalls`), each of which
+//!   must name the cell's arm, or the cell is an error: a daemon that runs
+//!   another arm than its name says measures nothing.
 //! - **Pairing.** Cells are ordered by a seeded shuffle, run by run, with an
-//!   item's arms next to each other, so both arms of an item meet the same
+//!   item's arms next to each other, so every arm of an item meets the same
 //!   provider weather.
 //! - **Spend.** Each cell's cost is its session's, as the daemon books it
 //!   (every turn, continuations and failures included). A cell starts only
@@ -26,9 +28,9 @@
 //! - **Resume.** Cells with a verdict in the output file are skipped, so a run
 //!   that stopped (the cap, an abort) goes on where it left off; an errored
 //!   cell runs again.
-//! - **Preflight.** The manifest must be this exam's; the profile must be the
-//!   daemon's live one (a continuation runs on the live profile,
-//!   theseus-kol); and every keyed node the manifest names must be served at
+//! - **Preflight.** The manifest must be this exam's; on every daemon, the
+//!   profile must be the live one (a continuation runs on the live profile,
+//!   theseus-kol), and every keyed node the manifest names must be served at
 //!   its position with its text.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -51,13 +53,19 @@ use crate::render;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Arm {
     None,
+    Bm25,
+    Baseline,
     Oracle,
 }
 
 impl Arm {
+    pub const ALL: [Arm; 4] = [Arm::None, Arm::Bm25, Arm::Baseline, Arm::Oracle];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Arm::None => "none",
+            Arm::Bm25 => "bm25",
+            Arm::Baseline => "baseline",
             Arm::Oracle => "oracle",
         }
     }
@@ -65,10 +73,42 @@ impl Arm {
     pub fn parse(s: &str) -> Result<Arm> {
         match s {
             "none" => Ok(Arm::None),
+            "bm25" => Ok(Arm::Bm25),
+            "baseline" => Ok(Arm::Baseline),
             "oracle" => Ok(Arm::Oracle),
-            o => bail!("unknown arm {o:?}: 34a has none and oracle"),
+            o => bail!("unknown arm {o:?}: the arms are none, bm25, baseline and oracle"),
         }
     }
+
+    /// The `[memory] arm` of the daemon a cell of this arm runs on: its own,
+    /// or, for `oracle`, `none`'s.
+    pub fn daemon(self) -> &'static str {
+        match self {
+            Arm::Oracle => "none",
+            a => a.as_str(),
+        }
+    }
+}
+
+/// What one recall row of a cell's session says: the arm the daemon ran,
+/// its science (with its parameters' digest), and what it admitted.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CellRecall {
+    pub arm: String,
+    pub mode: String,
+    pub science: String,
+    pub outcome: String,
+    pub candidates: u64,
+    pub admitted: usize,
+    /// Of the item's gold nodes, how many the pack admitted.
+    pub gold_admitted: usize,
+    pub tokens: u64,
+    /// Each source's hits, and the sources that did not answer, with why.
+    #[serde(default)]
+    pub sources: BTreeMap<String, u64>,
+    #[serde(default)]
+    pub skipped: BTreeMap<String, String>,
+    pub total_ms: f64,
 }
 
 /// One cell's record: a JSON line in the run's output.
@@ -106,10 +146,18 @@ pub struct Record {
     #[serde(default)]
     pub calls: Vec<Value>,
     pub started_at_ms: u64,
+    /// The session's recall rows (none for `none` and `oracle`).
+    #[serde(default)]
+    pub recall: Vec<CellRecall>,
 }
 
+/// The oracle's note for each item, by id (`render::note`).
+pub type Notes = BTreeMap<String, Option<String>>;
+
 pub struct Plan {
-    pub socket: PathBuf,
+    /// Each daemon's socket, by its `[memory] arm` (`Arm::daemon`).
+    pub sockets: BTreeMap<String, PathBuf>,
+    pub notes: Notes,
     pub profile: String,
     pub arms: Vec<Arm>,
     pub runs: u32,
@@ -120,6 +168,18 @@ pub struct Plan {
     pub seed: u64,
     pub timeout: Duration,
     pub out: PathBuf,
+    /// Only this run's cells (`arms.rs` starts fresh daemons for each run).
+    pub only_run: Option<u32>,
+}
+
+impl Plan {
+    /// The socket of the daemon `arm`'s cells run on.
+    pub fn socket(&self, arm: Arm) -> Result<&Path> {
+        self.sockets
+            .get(arm.daemon())
+            .map(PathBuf::as_path)
+            .with_context(|| format!("no daemon runs arm {}", arm.daemon()))
+    }
 }
 
 /// What a cell in flight may still spend, at most: GLM-5.3 Flash at $0.15
@@ -171,19 +231,28 @@ pub fn read_records(path: &Path) -> Result<Vec<Record>> {
     Ok(out)
 }
 
-/// The note the oracle arm shows for `item`, from the manifest.
-pub fn oracle_note(m: &Manifest, item: &Item) -> Result<Option<String>> {
-    let gold = m.gold(item)?;
-    Ok(render::note(&gold, m.utc_offset_min))
+/// The oracle's note for each of `items`, read from the exam's store at
+/// `store` (before any daemon serves a copy of it).
+pub fn oracle_notes(store: &Path, m: &Manifest, items: &[&Item]) -> Result<Notes> {
+    let s = theseus_core::store::Store::open(store)
+        .with_context(|| format!("opening the exam's store at {}", store.display()))?;
+    let mut out = Notes::new();
+    for item in items {
+        out.insert(item.id.clone(), render::note(&s, &m.gold(item)?)?);
+    }
+    Ok(out)
 }
 
 /// What a turn sends for `item` under `arm`.
-pub fn input_for(m: &Manifest, item: &Item, arm: Arm) -> Result<String> {
+pub fn input_for(notes: &Notes, item: &Item, arm: Arm) -> Result<String> {
     let note = match arm {
-        Arm::None => None,
-        Arm::Oracle => oracle_note(m, item)?,
+        Arm::Oracle => notes
+            .get(&item.id)
+            .with_context(|| format!("no oracle note for {}", item.id))?
+            .as_deref(),
+        _ => None,
     };
-    Ok(render::input(note.as_deref(), &item.task))
+    Ok(render::input(note, &item.task))
 }
 
 /// The daemon serves every keyed node at the manifest's position with its
@@ -221,8 +290,8 @@ pub fn verify_store(c: &mut Client, m: &Manifest) -> Result<usize> {
     Ok(checked)
 }
 
-/// Before a run: the store is this exam's, the profile is live, the nodes
-/// are served as written.
+/// Before a run: the store is this exam's, and on every daemon the profile
+/// is live and the nodes are served as written.
 pub fn preflight(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<String> {
     ensure!(
         m.digest == exam.digest,
@@ -231,27 +300,92 @@ pub fn preflight(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<String> {
         m.digest,
         exam.digest
     );
-    let mut c = Client::connect(&plan.socket)?;
-    let p = c.call("profile.list", Value::Null, RPC)?;
-    let live = p["live"].as_str().unwrap_or("");
-    ensure!(
-        live == plan.profile,
-        "the daemon's live profile is {live:?}, not {:?}: a continuation runs on the live profile \
-         (theseus-kol), so set it first with `theseus --socket … profile use {}`",
-        plan.profile,
-        plan.profile
-    );
-    let model = p["profiles"]
-        .as_array()
-        .and_then(|ps| ps.iter().find(|x| x["name"] == plan.profile.as_str()))
-        .and_then(|x| x["model"].as_str())
-        .unwrap_or("?")
-        .to_string();
-    let n = verify_store(&mut c, m)?;
-    Ok(format!(
-        "profile {} ({model}) is live; {n} keyed nodes served as written",
-        plan.profile
-    ))
+    let mut said = Vec::new();
+    let daemons: BTreeSet<&str> = plan.arms.iter().map(|a| a.daemon()).collect();
+    for d in daemons {
+        let sock = plan
+            .sockets
+            .get(d)
+            .with_context(|| format!("no daemon runs arm {d}"))?;
+        let mut c = Client::connect(sock)?;
+        let p = c.call("profile.list", Value::Null, RPC)?;
+        let live = p["live"].as_str().unwrap_or("");
+        ensure!(
+            live == plan.profile,
+            "the {d} daemon's live profile is {live:?}, not {:?}: a continuation runs on the live \
+             profile (theseus-kol), so set [model] live in the base config",
+            plan.profile
+        );
+        let model = p["profiles"]
+            .as_array()
+            .and_then(|ps| ps.iter().find(|x| x["name"] == plan.profile.as_str()))
+            .and_then(|x| x["model"].as_str())
+            .unwrap_or("?")
+            .to_string();
+        let n = verify_store(&mut c, m)?;
+        said.push(format!(
+            "{d}: profile {} ({model}) is live; {n} keyed nodes served as written",
+            plan.profile
+        ));
+    }
+    Ok(said.join("; "))
+}
+
+/// The session's recall rows, each of which must name the daemon's arm:
+/// `none` writes none.
+fn recalls_of(
+    c: &mut Client,
+    sid: &str,
+    arm: Arm,
+    gold: &BTreeSet<&str>,
+) -> Result<Vec<CellRecall>> {
+    let r = c.call(
+        "memory.recalls",
+        json!({"session_id": sid, "limit": 200}),
+        RPC,
+    )?;
+    let rows = r["recalls"].as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for m in rows {
+        let ran = m["arm"].as_str().unwrap_or("-").to_string();
+        ensure!(
+            arm.daemon() != "none",
+            "the none daemon recalled (a {} row, arm {ran}): its config runs another arm",
+            m["mode"].as_str().unwrap_or("?")
+        );
+        ensure!(
+            ran == arm.daemon(),
+            "the {} daemon ran arm {ran}: its config runs another arm",
+            arm.daemon()
+        );
+        let admitted = m["admitted"].as_array().cloned().unwrap_or_default();
+        let map = |v: &Value| -> BTreeMap<String, Value> {
+            serde_json::from_value(v.clone()).unwrap_or_default()
+        };
+        out.push(CellRecall {
+            arm: ran,
+            mode: m["mode"].as_str().unwrap_or("").into(),
+            science: m["science"].as_str().unwrap_or("").into(),
+            outcome: m["outcome"].as_str().unwrap_or("").into(),
+            candidates: m["candidates"].as_u64().unwrap_or(0),
+            admitted: admitted.len(),
+            gold_admitted: admitted
+                .iter()
+                .filter(|a| a["node_id"].as_str().is_some_and(|id| gold.contains(id)))
+                .count(),
+            tokens: m["used_tokens"].as_u64().unwrap_or(0),
+            sources: map(&m["sources"])
+                .into_iter()
+                .map(|(k, v)| (k, v.as_u64().unwrap_or(0)))
+                .collect(),
+            skipped: map(&m["skipped"])
+                .into_iter()
+                .map(|(k, v)| (k, v.as_str().unwrap_or("").to_string()))
+                .collect(),
+            total_ms: m["timings"]["total_ms"].as_f64().unwrap_or(0.0),
+        });
+    }
+    Ok(out)
 }
 
 struct Acc {
@@ -300,9 +434,9 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
     let mut declined = 0;
     let mut sid: Option<String> = None;
     let outcome = (|| -> Result<Client> {
-        let input = input_for(m, item, arm)?;
+        let input = input_for(&plan.notes, item, arm)?;
         rec.input_chars = input.chars().count();
-        let mut c = Client::connect(&plan.socket)?;
+        let mut c = Client::connect(plan.socket(arm)?)?;
         let label = format!("exam {} {} r{run}", item.id, arm.as_str());
         let info = c.call(
             "session.open",
@@ -316,8 +450,8 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
         sid = Some(s.clone());
         let deadline = t0 + plan.timeout;
         let left = || deadline.saturating_duration_since(Instant::now());
-        // The submit names no memory arm: the daemon's `[memory] arm` (row 55)
-        // sets it for every turn it runs.
+        // The submit names no memory arm: the daemon's `[memory] arm` sets it
+        // for every turn it runs.
         let r: TurnSubmitResult = serde_json::from_value(c.call(
             "turn.submit",
             json!({"session_id": s, "input": input, "profile": plan.profile}),
@@ -368,7 +502,7 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
         Ok(c) => c,
         Err(e) => {
             rec.error = Some(format!("{e:#}"));
-            match Client::connect(&plan.socket) {
+            match plan.socket(arm).and_then(Client::connect) {
                 Ok(mut c) => {
                     if let Some(s) = &sid {
                         cancel(&mut c, s);
@@ -418,6 +552,21 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
                 .iter()
                 .map(|c| json!({"tool": c.tool, "input": c.input}))
                 .collect();
+            let gold: BTreeSet<&str> = m
+                .gold(item)
+                .map(|g| g.iter().map(|e| e.node_id.as_str()).collect())
+                .unwrap_or_default();
+            match recalls_of(&mut c, &s, arm, &gold) {
+                Ok(r) => rec.recall = r,
+                Err(e) => {
+                    let prior = rec
+                        .error
+                        .take()
+                        .map(|p| format!("{p}; "))
+                        .unwrap_or_default();
+                    rec.error = Some(format!("{prior}{e:#}"));
+                }
+            }
             if rec.error.is_none() {
                 let check = &exam.checks[&item.id];
                 let a = Answer {
@@ -480,7 +629,10 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
         .filter(|r| r.pass.is_some() && r.digest == exam.digest)
         .map(|r| (r.item.clone(), r.arm.clone(), r.run))
         .collect();
-    let all = order(&items, &plan.arms, plan.runs, plan.seed);
+    let mut all = order(&items, &plan.arms, plan.runs, plan.seed);
+    if let Some(r) = plan.only_run {
+        all.retain(|(run, _, _)| *run == r);
+    }
     let planned = all.len();
     let queue: VecDeque<_> = all
         .into_iter()
@@ -642,12 +794,15 @@ mod tests {
     }
 
     #[test]
-    fn arms_parse_by_name() {
-        assert_eq!(Arm::parse("none").unwrap(), Arm::None);
-        assert_eq!(Arm::parse("oracle").unwrap(), Arm::Oracle);
-        assert!(Arm::parse("bm25")
+    fn arms_parse_by_name_and_oracle_runs_on_nones_daemon() {
+        for a in Arm::ALL {
+            assert_eq!(Arm::parse(a.as_str()).unwrap(), a);
+        }
+        assert_eq!(Arm::Oracle.daemon(), "none");
+        assert_eq!(Arm::Bm25.daemon(), "bm25");
+        assert!(Arm::parse("+rerank")
             .unwrap_err()
             .to_string()
-            .contains("none and oracle"));
+            .contains("none, bm25, baseline and oracle"));
     }
 }

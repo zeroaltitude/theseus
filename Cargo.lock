@@ -6485,6 +6485,7 @@ dependencies = [
  "tempfile",
  "theseus-core",
  "theseus-kernel",
+ "theseus-memory",
  "theseus-protocol",
  "theseus-store",
  "toml",

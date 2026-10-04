@@ -577,7 +577,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # with `theseus memory label <node> wrong` to keep it out.
 # [memory]
 # mode = "shadow"                         # off (the default) | shadow | canary | live
-# arm = "baseline"                        # the arm canary and live sessions get: none | baseline
+# arm = "baseline"                        # the arm canary and live sessions get: none | bm25 | baseline
 # canary_fraction = 0.5                   # canary: the share of sessions on the arm, sticky by a hash of session and experiment; the rest run none, with baseline in shadow
 # experiment = "m6-1"                     # names the plan; seeds each session's arm
 # session_recall_cap_tokens = 12000       # the recall notes a session's tail may hold; past it, recall pauses until the next recompile

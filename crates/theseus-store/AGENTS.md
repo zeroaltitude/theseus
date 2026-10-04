@@ -1,8 +1,8 @@
 # theseus-store
 
 The keel (spec §6, Part II M1): an append-only WAL of checksummed, length-prefixed atomic frames, which is the
-truth, and a redb index rebuilt from it. Read by theseus-kernel, theseus-core, theseusd, and theseus-sim, and by
-the reserved theseus-follow, theseus-index, and theseus-exam.
+truth, and a redb index rebuilt from it. Read by theseus-kernel, theseus-core, theseusd, theseus-sim, and
+theseus-exam, and by the reserved theseus-follow and theseus-index.
 
 Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). Read by: kernel, core, theseusd, sim.
 
