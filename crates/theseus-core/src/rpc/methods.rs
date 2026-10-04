@@ -100,6 +100,7 @@ impl Core {
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
             cancels: self.tools.stops.counts(),
             places: Some(self.runner.place_rule.health(&self.cfg)),
+            mcp_server: self.mcp_server.health(self.cfg.mcp_server.enabled),
         }
     }
 
@@ -217,22 +218,30 @@ impl Core {
     }
 
     pub(crate) fn open_session(&self, p: SessionOpenParams) -> Result<SessionRecord> {
+        let operator = Authority {
+            principal: OPERATOR.to_string(),
+            ..Default::default()
+        };
+        self.open_session_as(p, operator, None)
+    }
+
+    /// `open_session` under `authority`, with a spend limit other than the
+    /// default: an MCP client's (step 41b, `rpc::mcp`).
+    pub(super) fn open_session_as(
+        &self,
+        p: SessionOpenParams,
+        authority: Authority,
+        limit_micros: Option<theseus_kernel::Micros>,
+    ) -> Result<SessionRecord> {
         // A session that a holding session's job opens holds what that one
         // holds, from the frame that writes it (theseus-b5cl). Read before
         // anything is opened, so a record that cannot be read leaves nothing.
         let now = theseus_protocol::now_unix_ms();
         let inherited = crate::external::from_job(&self.store, p.opened_from.as_deref(), now)?;
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
-        let exec = self.kernel.open_execution(
-            &rec.session_id,
-            rec.kind,
-            Authority {
-                principal: OPERATOR.to_string(),
-                ..Default::default()
-            },
-            None,
-            None,
-        )?;
+        let exec =
+            self.kernel
+                .open_execution(&rec.session_id, rec.kind, authority, limit_micros, None)?;
         if self.narrator.on() {
             self.narrator.first_sight(&rec.session_id);
             narrate!(
@@ -783,7 +792,7 @@ impl Core {
     }
 
     /// A session's record, or `NOT_FOUND`.
-    fn session(&self, id: &str) -> Result<SessionRecord, RpcFailure> {
+    pub(super) fn session(&self, id: &str) -> Result<SessionRecord, RpcFailure> {
         self.store
             .get_session::<SessionRecord>(id)?
             .ok_or_else(|| RpcFailure::new(error_code::NOT_FOUND, format!("no session {id}")))

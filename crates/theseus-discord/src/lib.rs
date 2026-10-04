@@ -25,7 +25,7 @@ pub mod bindings;
 mod courier;
 mod files;
 pub mod render;
-mod rpc_client;
+pub mod rpc_client;
 mod runtime;
 #[cfg(test)]
 mod tests_gateway;

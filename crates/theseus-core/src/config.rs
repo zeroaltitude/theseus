@@ -13,7 +13,9 @@ use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
+mod mcp_server;
 pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
+pub use mcp_server::McpServerConfig;
 
 /// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
 /// names it: a local file, so nothing here names anyone's vault
@@ -90,6 +92,9 @@ pub struct Config {
     /// `[index]`: the index tender (roadmap row 51).
     #[serde(default)]
     pub index: IndexConfig,
+    /// `[mcp_server]` (step 41b): Theseus's own MCP server, off by default.
+    #[serde(default, skip_serializing_if = "McpServerConfig::is_default")]
+    pub mcp_server: McpServerConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
@@ -1224,6 +1229,7 @@ impl Config {
         }
         self.validate_places()?;
         self.validate_voice()?;
+        self.validate_mcp_server()?;
         if let Some(name) = &self.context.default_persona {
             if !self.personas.contains_key(name) {
                 anyhow::bail!(
@@ -1709,6 +1715,9 @@ mod tests {
         assert_eq!(cfg.broker.secrets["github_token"].posture, Posture::Notify);
         // [voice] and its key's line are real too (rows 77 and 78).
         assert!(cfg.voice.enabled && cfg.secrets.contains_key(&cfg.voice.key_secret));
+        // [mcp_server] and its key's line are real too (step 41b).
+        assert!(cfg.mcp_server.enabled && cfg.secrets.contains_key(&cfg.mcp_server.key_secret));
+        assert_eq!(cfg.mcp_server.posture_floor, Posture::Approve);
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);

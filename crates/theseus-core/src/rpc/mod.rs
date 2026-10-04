@@ -16,6 +16,7 @@ mod confirms;
 pub(crate) use confirms::{expired_answer, Act};
 mod driver;
 mod info;
+mod mcp;
 mod methods;
 mod policy;
 mod publish;
@@ -107,6 +108,8 @@ pub struct Core {
     /// The newest crash a start found (Review 2's consideration 1), for
     /// health: set after serving (`report_crash`).
     crash: std::sync::Mutex<Option<theseus_protocol::CrashStatus>>,
+    /// The MCP server's health block, as its listener sets it (step 41b).
+    pub mcp_server: crate::mcp_server::Board,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -606,6 +609,7 @@ impl Core {
             push: crate::push::Push::default(),
             index,
             crash: Default::default(),
+            mcp_server: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         // `server.started` waits for `announce_serving`: nothing on the start

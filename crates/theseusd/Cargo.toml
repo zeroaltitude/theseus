@@ -17,6 +17,7 @@ theseus-protocol.workspace = true
 theseus-kernel.workspace = true
 theseus-sandbox.workspace = true
 theseus-discord.workspace = true
+theseus-mcp = { path = "../theseus-mcp" }
 theseus-store.workspace = true
 anyhow.workspace = true
 clap.workspace = true

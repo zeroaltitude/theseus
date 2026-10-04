@@ -29,6 +29,10 @@ pub enum Surface {
     Web,
     /// The Discord binding, in process.
     Discord,
+    /// Theseus's own MCP server (step 41b), in process: an MCP client on
+    /// this machine. Never an approval surface: an answer, a trust, a press,
+    /// an undo, or a publish from it is refused (`unknown`).
+    Mcp,
     /// A connection no listener named (a test's). Never a private place.
     Unnamed,
 }
@@ -39,6 +43,7 @@ impl Surface {
             Self::Cli => "cli",
             Self::Web => "web",
             Self::Discord => "discord",
+            Self::Mcp => "mcp",
             Self::Unnamed => "unnamed",
         }
     }
@@ -49,6 +54,7 @@ impl Surface {
             Self::Cli => "the CLI",
             Self::Web => "the web UI",
             Self::Discord => "the Discord binding",
+            Self::Mcp => "the MCP server",
             Self::Unnamed => "a connection no listener named",
         }
     }
@@ -137,6 +143,11 @@ impl Answerer {
                 "only the Discord binding can name a Discord channel and user, and this answer \
                  came through {}",
                 s.name()
+            )),
+            (Surface::Mcp, _) => Some(format!(
+                "it came through {}, which is never an approval surface: the operator answers \
+                 from the CLI, the web UI, or a private place on Discord",
+                Surface::Mcp.name()
             )),
             (Surface::Unnamed, _) => Some(format!(
                 "it came through {}, which is never a private place",
@@ -231,6 +242,7 @@ mod tests {
         }
         let why = |a: Answerer| a.unknown().unwrap();
         assert!(why(answerer(Unnamed, None)).contains("never a private place"));
+        assert!(why(answerer(Surface::Mcp, None)).contains("never an approval surface"));
         assert!(why(answerer(Discord, None)).contains("named no channel and user"));
         assert!(why(answerer(Cli, discord(eddie, None)))
             .starts_with("only the Discord binding can name a Discord channel and user"));

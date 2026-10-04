@@ -17,6 +17,7 @@ mod gate;
 mod health;
 pub mod index;
 mod ledger;
+pub mod mcp_server;
 mod places;
 mod push;
 pub mod sandbox;
@@ -482,6 +483,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub places: Option<PlacesHealth>,
+    /// The MCP server (step 41b): absent while `[mcp_server]` is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub mcp_server: Option<mcp_server::McpServerHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).

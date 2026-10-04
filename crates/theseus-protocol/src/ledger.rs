@@ -115,6 +115,8 @@ ledger_kinds! {
     JobWrapperLost = "job.wrapper_lost",
     LoopEnded = "loop.ended",
     LoopStarted = "loop.started",
+    McpServerCall = "mcp_server.call",
+    McpServerRefused = "mcp_server.refused",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
     PolicyTightened = "policy.tightened",

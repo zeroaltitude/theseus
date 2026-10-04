@@ -14,6 +14,7 @@ import type { GrantStatus } from "./GrantStatus";
 import type { HarnessOnly } from "./HarnessOnly";
 import type { IndexHealth } from "./IndexHealth";
 import type { KernelStatus } from "./KernelStatus";
+import type { McpServerHealth } from "./McpServerHealth";
 import type { PlacesHealth } from "./PlacesHealth";
 import type { PushStatus } from "./PushStatus";
 import type { SandboxHealth } from "./SandboxHealth";
@@ -172,4 +173,8 @@ cancels?: Array<CancelCount>,
 /**
  * The place rule (theseus-nbsh): each place and its class.
  */
-places?: PlacesHealth, };
+places?: PlacesHealth, 
+/**
+ * The MCP server (step 41b): absent while `[mcp_server]` is off.
+ */
+mcp_server?: McpServerHealth, };

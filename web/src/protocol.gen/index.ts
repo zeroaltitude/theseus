@@ -101,6 +101,8 @@ export type * from './LedgerTailResult';
 export type * from './Level';
 export type * from './LoopEnded';
 export type * from './LoopStarted';
+export type * from './McpServerHealth';
+export type * from './McpServerRefusals';
 export type * from './Message';
 export type * from './ModelDelta';
 export type * from './NarrativeLine';

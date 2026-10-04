@@ -6735,6 +6735,7 @@ dependencies = [
  "theseus-core",
  "theseus-discord",
  "theseus-kernel",
+ "theseus-mcp",
  "theseus-protocol",
  "theseus-sandbox",
  "theseus-sim",

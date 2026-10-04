@@ -21,12 +21,14 @@ use theseus_protocol::{
 mod aws;
 mod cancel;
 mod index;
+mod mcp_server;
 mod places;
 mod sandbox;
 mod store;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
+pub use mcp_server::mcp_server_line;
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
@@ -1621,6 +1623,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         push(o, Tag::Plain, &line);
     }
     places::push_health(o, h.places.as_ref());
+    mcp_server::push_health(o, h.mcp_server.as_ref());
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);
     }

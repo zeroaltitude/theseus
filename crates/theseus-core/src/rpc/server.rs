@@ -226,8 +226,14 @@ impl Core {
             arrived,
         };
         let params = req.params;
+        // The MCP server's connection (step 41b): its tools' methods, and
+        // the owner's acts, which their judgment refuses.
+        if surface == Surface::Mcp {
+            self.mcp_admit(&req.method, &params)?;
+        }
         match req.method.as_str() {
             method::HEALTH => reply(self.health_now().await),
+            method::SESSION_OPEN if surface == Surface::Mcp => route(params, |p| self.mcp_open(p)),
             method::SESSION_OPEN => route(params, |p| self.session_open(p)),
             method::SESSION_LIST => {
                 // Its filter is optional: no params lists every session.
