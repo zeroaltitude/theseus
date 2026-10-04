@@ -100,6 +100,7 @@ impl Core {
             sandbox: self.tools.enabled().then(|| self.tools.sandbox.health()),
             cancels: self.tools.stops.counts(),
             places: Some(self.runner.place_rule.health(&self.cfg)),
+            judge: Some(self.runner.judge.health()),
         }
     }
 

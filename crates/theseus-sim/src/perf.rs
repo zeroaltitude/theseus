@@ -94,16 +94,23 @@ impl Scratch {
     }
 }
 
-/// The lifecycle bench's config with Discord off as well as the web UI: a
-/// bench of the core's own cost has no binding trying a port nothing listens
-/// on, which would be its own wakeups.
+/// The lifecycle bench's config with Discord and the judge off as well as the
+/// web UI: a bench of the core's own cost has no background work reaching for
+/// a service nothing serves. The binding would try a port nothing listens on,
+/// which would be its own wakeups. The judge would judge each plain turn's
+/// end against a Jev nothing serves, and its sink's frame of failed calls
+/// would land inside a measured turn, which the frame check counts
+/// (theseus-0j2.3). The judge's own tests cover the judge, and the lifecycle
+/// bench keeps it on.
 fn quiet_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> Result<String> {
     let mut t: toml::Table = lifecycle::bench_config(model, state, sock, projects)?.parse()?;
-    t.entry("discord")
-        .or_insert_with(|| toml::Value::Table(Default::default()))
-        .as_table_mut()
-        .context("[discord] is a table")?
-        .insert("enabled".into(), false.into());
+    for section in ["discord", "judge"] {
+        t.entry(section)
+            .or_insert_with(|| toml::Value::Table(Default::default()))
+            .as_table_mut()
+            .with_context(|| format!("[{section}] is a table"))?
+            .insert("enabled".into(), false.into());
+    }
     Ok(toml::to_string(&t)?)
 }
 
@@ -1131,6 +1138,22 @@ mod tests {
         assert_eq!(frames_text(&[5, 5, 5]), "5");
         assert_eq!(frames_text(&[5, 6, 5]), "5..6");
         assert_eq!(frames_text(&[]), "0");
+    }
+
+    /// The turn and idle benches run the lifecycle bench's config with
+    /// Discord and the judge off (theseus-0j2.3): a judgment's frame would
+    /// land inside a measured turn. The lifecycle bench keeps both on.
+    #[test]
+    fn the_quiet_config_turns_discord_and_the_judge_off() {
+        let d = tempfile::tempdir().unwrap();
+        let (state, sock) = (d.path().join("state"), d.path().join("sock"));
+        let model = "http://127.0.0.1:9";
+        let quiet = quiet_config(model, &state, &sock, d.path()).unwrap();
+        let (cfg, _warnings) = theseus_core::Config::parse(&quiet).unwrap();
+        assert!(!cfg.discord.enabled && !cfg.judge.enabled && !cfg.web.enabled);
+        let full = lifecycle::bench_config(model, &state, &sock, d.path()).unwrap();
+        let (cfg, _warnings) = theseus_core::Config::parse(&full).unwrap();
+        assert!(cfg.discord.enabled && cfg.judge.enabled);
     }
 
     #[test]

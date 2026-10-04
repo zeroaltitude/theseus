@@ -598,6 +598,13 @@ impl Core {
             place_rule: Default::default(),
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
+            // Builds nothing until its first judgment (FAST).
+            judge: crate::judge::JudgeService::new(
+                cfg.judge.clone(),
+                store.clone(),
+                secrets.clone(),
+                tools.scrubber.clone(),
+            ),
         };
         let telemetry_cell = std::sync::OnceLock::new();
         if let Some(t) = telemetry {

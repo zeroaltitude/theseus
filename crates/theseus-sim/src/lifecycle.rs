@@ -829,6 +829,13 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
     // Recall runs in shadow (M6 step 30a), as it will on the operator's daemon: no
     // phase may move with it, and the turn bench counts its frames with it.
     table(&mut t, "memory").insert("mode".into(), "shadow".into());
+    // The judge runs, its endpoint a port nothing listens on (M5 23a, design
+    // §2.16): no phase may move with it enabled and Jev out of reach, since
+    // nothing of it is built before its first judgment, and a judgment never
+    // holds a turn or a stop.
+    let judge = table(&mut t, "judge");
+    judge.insert("enabled".into(), true.into());
+    judge.insert("api_base".into(), format!("http://{NOWHERE}").into());
     let tools = table(&mut t, "tools");
     tools.insert("projects_dir".into(), projects.display().to_string().into());
     tools.insert("proc_sync_secs".into(), 1.into());
@@ -1922,6 +1929,10 @@ mod tests {
         assert_eq!(a.endpoint.as_deref(), Some("http://127.0.0.1:9"));
         assert!(cfg.secrets.contains_key(&a.credentials.access_key_id));
         assert!(cfg.secrets.contains_key(&a.credentials.secret_access_key));
+        // The judge is on, and Jev too is a port nothing listens on (M5 23a).
+        assert!(cfg.judge.enabled);
+        assert_eq!(cfg.judge.api_base, "http://127.0.0.1:9");
+        assert!(cfg.secrets.contains_key(&cfg.judge.key_secret));
         // The index tender runs, and finds no model's files.
         assert!(cfg.index.enabled);
         assert!(!theseus_core::config::expand(&cfg.index.weights_dir).exists());

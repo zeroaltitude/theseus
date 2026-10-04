@@ -36,6 +36,8 @@ futures-util.workspace = true
 [dev-dependencies]
 tempfile = "3"
 theseus-sim = { path = "../theseus-sim" }
+# The fake Jev, for the judge's daemon test (M5 23a).
+theseus-judge = { path = "../theseus-judge", features = ["fake"] }
 
 [lints]
 workspace = true
