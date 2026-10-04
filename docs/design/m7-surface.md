@@ -298,9 +298,9 @@ may not set one. T1b makes `wake.at` exempt from the external-text hold.
   - It stays one tool (§3.24, "one tool, one verb"): a repeat is a property of the wake.
 - **The kernel.**
   - `PendingWake` gains `repeat: Option<Repeat>` and `occurrence: u32`. The execution's schema goes from 2
-    to 3, with serde defaults as the reader and a test that reads schema 2 (F4a's rule).
+    to 3, with serde defaults as the reader and a test that reads schema 2 (F4a's rule). _As built (2026-10-03, Part III Item 84): one store format bump, 4 to 5, with a literal sample of the execution layout it replaces in `tests_layouts` (Tier 7.9)._
   - **Re-armed in the same frame.** `take_wakes` takes a due repeating wake, writes its node, and puts its
-    next occurrence back on the list, with the same id and `occurrence + 1`.
+    next occurrence back on the list, with the same id and ~~`occurrence + 1`~~ the occurrence its time gives, `occurrence + 1 + missed` (as built; Eddie, 2026-10-03 17:14: "Built seems right, adjust the design to match").
     - The next time is the first `at + k·every` after now, in the zone (jiff's zoned arithmetic).
     - So "daily 21:00" stays 21:00 across daylight-saving changes. Phoenix has none; the code must still
       be right.
@@ -799,7 +799,7 @@ it), and joins `main` through its SPINE wire-in.
 | 36a | LANE | `theseus-mcp`: the client (stdio, streamable HTTP), and a fake server | nothing: can start now |
 | 36b | SPINE | MCP tools in turns: the `&str` trait change, `McpBoard`, `[mcp.servers]`, stored lists, class and external rules, `theseus-sim fake-mcp`, every surface | 36a; step 17 (L1), or L0 with a warning |
 | 36c | SPINE | MCP prompts: `turn.submit { prompt }`, `/prompt`, `theseus prompt`, the web picker | 36b |
-| 37a | SPINE | the repeating wake: `every`, `days`, `until`; the re-arm in `take_wakes`; execution schema 3; the hold rule | T1b (4b) |
+| 37a | SPINE | the repeating wake: `every`, `days`, `until`; the re-arm in `take_wakes`; ~~execution schema 3~~ store format 5; the hold rule. **Done 2026-10-03** (Part III Item 84) | T1b (4b) |
 | 37b | SPINE | tasks set one-shot wakes (theseus-7kg) | 37a |
 | 38a | SPINE | bindings format 2 (many guilds), per-place ceilings in the gate, tools offered, spend, and profile | T1b (theseus-e89) |
 | 38b | SPINE | gliding: `channel.post`, `channel.read`, the audience rule | 38a |

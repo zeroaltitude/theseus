@@ -34,3 +34,4 @@ Each says so in its manifest (`reserved_for` under `[package.metadata.theseus]`,
 | `theseus-memory` | FSRS-6 and spreading activation, pure | row 52 (30a) |
 | `theseus-exam` | The memory exam | row 55 |
 | `theseus-mcp` | MCP, client and server, written by hand | row 66 (36b) |
+| `theseus-lsp` | The LSP client, written by hand: framing, push and pull diagnostics, navigation, the stop, a scripted fake server (Part III Item 96) | L2 (theseus-n88g.8; its `reserved_for` says row 0 until the roadmap numbers it) |

@@ -1036,3 +1036,4 @@ lags spend by hours, and the six-hourly line), the weekly drift tender (`aws.sta
 `aws.stack.planned` and `aws.stack.applied` rows, and committing a planned template to git. The stack tools' writes
 and the bootstrap's apply are tested against fakes only, and GuardDuty's usage read was not exercised live (the
 account has no detector yet).
+
