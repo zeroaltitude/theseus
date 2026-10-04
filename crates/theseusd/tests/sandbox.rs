@@ -74,12 +74,17 @@ echo "printed=$GH_TOKEN"
 
 impl Rig {
     fn start(tweak: impl FnOnce(&mut toml::Table)) -> Self {
-        Self::start_with(&[], tweak)
+        Self::start_with(&[], |_| {}, tweak)
     }
 
     /// `start`, with `env` in the daemon's own environment too, set after the
-    /// rig's own variables, so it can replace one.
-    fn start_with(env: &[(&str, &str)], tweak: impl FnOnce(&mut toml::Table)) -> Self {
+    /// rig's own variables, so it can replace one; and `prepare` run on the
+    /// rig's directory before the daemon starts.
+    fn start_with(
+        env: &[(&str, &str)],
+        prepare: impl FnOnce(&std::path::Path),
+        tweak: impl FnOnce(&mut toml::Table),
+    ) -> Self {
         let script = Script::default();
         let asks = script.clone();
         let model = FakeModel::start(move |prompt| {
@@ -97,6 +102,7 @@ impl Rig {
         }
         // A HOME of the rig's own, with something in it.
         std::fs::write(path("home/.planted"), "x").unwrap();
+        prepare(dir.path());
         use std::os::unix::fs::PermissionsExt;
         let exe = |p: PathBuf, body: &str| {
             std::fs::write(&p, body).unwrap();
@@ -1249,8 +1255,9 @@ fn sts_answer(s: std::net::TcpStream, minted: &Mutex<Vec<String>>) -> std::io::R
 
 /// A stand-in `aws` that the broker grants a job session (18e), one
 /// `key=value` a line: its AWS variables, by name; how many of its values the
-/// daemon's environment planted; what `~/.aws` shows; whether it can reach
-/// the metadata service directly; then two `CONNECT`s through its proxy, the
+/// daemon's environment planted; what `~/.aws` shows, under HOME and at its
+/// real path (`$4`, which `ro_paths` binds); whether it can reach the
+/// metadata service directly; then two `CONNECT`s through its proxy, the
 /// metadata service's and STS's by name (`$3`), and STS asked
 /// `GetCallerIdentity` with its session's token, as the AWS CLI asks it.
 const AWS: &str = r#"#!/bin/bash
@@ -1258,7 +1265,8 @@ echo "vars=$(env | sed -n 's/^\(AWS_[A-Z_]*\)=.*/\1/p' | sort | paste -sd' ' -)"
 echo "region=$AWS_REGION"
 echo "files=$AWS_CONFIG_FILE $AWS_SHARED_CREDENTIALS_FILE"
 echo "planted=$(env | grep -c PLANTED)"
-echo "dotaws=$(ls -A "$HOME/.aws" 2>/dev/null | wc -l)"
+echo "homeaws=$(ls -A "$HOME/.aws" 2>/dev/null | wc -l)"
+if [ -d "$4" ]; then echo "realaws=$(ls -A "$4" | wc -l)"; else echo realaws=absent; fi
 if timeout 5 bash -c 'exec 3<>/dev/tcp/169.254.169.254/80' 2>/dev/null; then echo imds=yes; else echo imds=no; fi
 proxy=${HTTPS_PROXY#http://}
 connect() {
@@ -1282,13 +1290,22 @@ echo "arn=$(timeout 20 cat <&3 | sed -n 's:.*<Arn>\(.*\)</Arn>.*:\1:p')"
 /// with the stand-in's `port` on `[sandbox] egress` (returned), and `~/.aws`
 /// on `ro_paths`, which the approve list leaves out; each of `DAEMON_AWS` in
 /// the daemon's environment and named in `proc_env`; the operator's own AWS
-/// files under its HOME; and the stand-in `aws` in the workspace.
+/// files behind a symlinked `~/.aws`, as on a machine that links it to
+/// another disk, so `ro_paths` binds their real path, `outside/aws`; and the
+/// stand-in `aws` in the workspace.
 fn aws_rig(url: &str, port: u16) -> (Rig, String) {
     let sts = format!("sts.us-west-2.amazonaws.com:{port}");
     let dns = format!("{EGRESS_DNS};sts.us-west-2.amazonaws.com=127.0.0.1");
     let mut env = vec![("THESEUS_TEST_EGRESS_DNS", dns.as_str())];
     env.extend(DAEMON_AWS);
-    let r = Rig::start_with(&env, |t| {
+    let linked = |dir: &std::path::Path| {
+        let real = dir.join("outside/aws");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("credentials"), "[default]\n").unwrap();
+        std::fs::write(real.join("config"), "[default]\n").unwrap();
+        std::os::unix::fs::symlink(&real, dir.join("home/.aws")).unwrap();
+    };
+    let r = Rig::start_with(&env, linked, |t| {
         let toml = |s: &str| -> toml::Value { toml::from_str::<toml::Table>(s).unwrap().into() };
         t.insert(
             "aws".into(),
@@ -1318,10 +1335,6 @@ fn aws_rig(url: &str, port: u16) -> (Rig, String) {
             approve.retain(|p| p.as_str() != Some("~/.aws"));
         }
     });
-    // The operator's own AWS files, under the daemon's HOME.
-    std::fs::create_dir_all(r.path("home/.aws")).unwrap();
-    std::fs::write(r.path("home/.aws/credentials"), "[default]\n").unwrap();
-    std::fs::write(r.path("home/.aws/config"), "[default]\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     let aws = r.path("projects/bin/aws");
     std::fs::write(&aws, AWS).unwrap();
@@ -1333,8 +1346,9 @@ fn aws_rig(url: &str, port: u16) -> (Rig, String) {
 /// granted an AWS job session runs in L1 with the session alone. Its
 /// environment has the session's three variables, its region, and no
 /// profile file, and none of the daemon's own AWS variables, though
-/// `proc_env` lists each; `~/.aws` shows nothing, though `ro_paths` binds it
-/// and the approve list leaves it out; the metadata service has no route, and
+/// `proc_env` lists each; `~/.aws` shows nothing, under HOME or at the real
+/// path its link names, though `ro_paths` binds it and the approve list
+/// leaves it out; the metadata service has no route, and
 /// its proxy refuses it. Through its proxy the job reaches STS by name (the
 /// operator's list; a debug build's stand-in resolver points the name at the
 /// stand-in), and STS, asked with the session's token, names the session the
@@ -1345,7 +1359,8 @@ fn aws_rig(url: &str, port: u16) -> (Rig, String) {
 fn an_aws_granted_l1_job_holds_its_session_and_no_other_aws_credential() {
     let (url, port, minted) = fake_sts();
     let (r, sts) = aws_rig(&url, port);
-    let call = json!({"argv": ["aws", "sts", "get-caller-identity", &sts], "sandbox": true});
+    let real = r.path("outside/aws").canonicalize().unwrap();
+    let call = json!({"argv": ["aws", "sts", "get-caller-identity", &sts, real], "sandbox": true});
     let (sid, out) = r.turn_in("whoami in L1", vec![("proc_run", call)]);
     let text = &out[0];
     assert!(
@@ -1369,7 +1384,12 @@ fn an_aws_granted_l1_job_holds_its_session_and_no_other_aws_credential() {
         "0",
         "a daemon variable reached the job: {text}"
     );
-    assert_eq!(said(text, "dotaws"), "0", "~/.aws showed in L1: {text}");
+    assert_eq!(said(text, "homeaws"), "0", "~/.aws showed in L1: {text}");
+    assert_eq!(
+        said(text, "realaws"),
+        "0",
+        "~/.aws's real path showed in L1: {text}"
+    );
     assert_eq!(said(text, "imds"), "no", "{text}");
     assert!(
         said(text, "connect 169.254.169.254:80").starts_with("HTTP/1.1 403"),
