@@ -133,6 +133,7 @@ ledger_kinds! {
     McpToolsChanged = "mcp.tools_changed",
     MemoryArm = "memory.arm",
     MemoryLabel = "memory.label",
+    MemoryLabeled = "memory.labeled",
     OntologyCategory = "ontology.category",
     OntologyGuidance = "ontology.guidance",
     OntologyMembership = "ontology.membership",

@@ -738,6 +738,41 @@ impl IndexTender {
     }
 }
 
+impl IndexTender {
+    /// One of the memory pass's calls (M6 step 31a: `index.neighbours`,
+    /// `index.entities`), to a tender that runs, under [`QUERY_DEADLINE`].
+    /// `Err(None)`: no tender runs, or none answered, and why; `Err(Some)`:
+    /// it answered with an error.
+    pub async fn ask<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: impl Serialize,
+    ) -> Result<T, TenderMiss> {
+        let Some(tender) = self.status() else {
+            return Err(TenderMiss::Down(
+                "the index is off: [index] enabled = false".into(),
+            ));
+        };
+        if tender.state != "running" {
+            return Err(TenderMiss::Down(down_why(&tender, None)));
+        }
+        match call(&self.socket(), method, params, QUERY_DEADLINE).await {
+            Ok(r) => Ok(r),
+            Err(CallError::Answered { message, .. }) => Err(TenderMiss::Refused(message)),
+            Err(e) => Err(TenderMiss::Down(down_why(&tender, Some(&e)))),
+        }
+    }
+}
+
+/// Why the tender gave no answer to one of the memory pass's calls.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TenderMiss {
+    /// No tender runs, or none answered.
+    Down(String),
+    /// It answered with an error (a node it has no vector for yet).
+    Refused(String),
+}
+
 /// Why no tender answered, in words: what its supervisor knows, else what the
 /// call met (`None`: none was made).
 fn down_why(t: &TenderStatus, call: Option<&CallError>) -> String {

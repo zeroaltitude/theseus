@@ -47,6 +47,7 @@ pub mod durability;
 pub mod index;
 pub mod judge;
 pub mod mcp;
+pub mod memory;
 pub mod ontology;
 pub mod place;
 pub mod recall;
@@ -239,6 +240,7 @@ facts![
     recall::RecallRan<'static>,
     recall::ArmAssigned<'static>,
     recall::Labeled<'static>,
+    memory::MemoryLabeled<'static>,
     place::PlaceViewed<'static>,
     place::Published<'static>,
     turn::LoopStarted<'static>,

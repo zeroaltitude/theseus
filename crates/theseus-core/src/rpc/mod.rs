@@ -593,11 +593,18 @@ impl Core {
             None,
             Arc::new(crate::tender::ChildrenOs),
         ));
+        let memory = Arc::new(crate::recall::Memory::new(
+            cfg.memory.clone(),
+            Some(index.clone()),
+        ));
         let runner = TurnRunner {
-            memory: Arc::new(crate::recall::Memory::new(
-                cfg.memory.clone(),
+            // Reads nothing and starts nothing until a turn ends (FAST).
+            pass: crate::memory_pass::MemoryPass::new(
+                memory.clone(),
+                store.clone(),
                 Some(index.clone()),
-            )),
+            ),
+            memory,
             outbox: outbox.clone(),
             cfg: cfg.clone(),
             providers,
