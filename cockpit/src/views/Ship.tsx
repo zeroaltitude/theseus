@@ -71,12 +71,14 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   const hlId = params.get('n') ?? undefined
   const bench = params.has('bench')
   const pin = Number(params.get('scale')) || undefined
+  // In Live mode the sea rolls, always; `?swell=0` stills it for one page (screenshots, benches), beside `?calm=1`.
+  const swell = params.get('swell') !== '0'
 
   // The engine lives as long as the view.
   useEffect(() => {
     const mountedAt = performance.now()
     // A probe can pass and the renderer's context still fail: then the Ship's place says so too.
-    const made = tryBuild(() => new ShipEngine(host.current!, { calm: useCalm.getState().calm, bench, scale: pin }))
+    const made = tryBuild(() => new ShipEngine(host.current!, { calm: useCalm.getState().calm, bench, scale: pin, swell }))
     if ('failed' in made) { onFail(made.failed); return }
     const e = made.engine
     // The title above and the instruments below cover the canvas's edges: a fit keeps the fleet between them.
@@ -91,7 +93,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       e.dispose()
       setEngine(null)
     }
-  }, [bench, pin, onFail])
+  }, [bench, pin, swell, onFail])
 
   useEffect(() => { engine?.setCalm(calm) }, [engine, calm])
 
@@ -222,7 +224,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
         </BrassButton>
         <BrassButton title="See the whole fleet (Home)" onClick={() => engine?.fit()}><Maximize size={13} /> Fleet</BrassButton>
         {vessel && <BrassButton title="Back to the selected vessel" onClick={() => engine?.flyToVessel(sel)}><Crosshair size={13} /> Vessel</BrassButton>}
-        <BrassButton title={calm ? 'Calm: no motion or glow. Click for the full hologram.' : 'Calm mode drops the motion, the glow, and the particles'} on={calm} onClick={() => setCalm(!calm)}>
+        <BrassButton title={calm ? 'Calm: no motion or glow. Click for the full hologram.' : 'Calm mode stills the sea and drops the motion, the glow, and the particles'} on={calm} onClick={() => setCalm(!calm)}>
           {calm ? <Anchor size={13} /> : <Waves size={13} />} {calm ? 'Calm' : 'Live'}
         </BrassButton>
       </div>

@@ -1,4 +1,5 @@
-// Calm is a mode (theseus-logs): no post-processing, no particles, no decorative motion anywhere in the cockpit.
+// Calm is a mode (theseus-logs): no post-processing, no particles, no decorative motion anywhere in the cockpit (the
+// Ship's sea stands still: theseus-wp2d).
 // It starts on when the system asks for reduced motion, and the operator's choice is kept. `?calm=1` turns it on for
 // one page (screenshots, a quiet wall display).
 import { create } from 'zustand'

@@ -3,11 +3,16 @@
 // every node's light, the oars, the currents and tethers, the wakes, and the beacons. React draws the brass
 // instruments around it.
 //
-// Motion means something is happening now. The loop renders only while something moves: the camera, a vessel
-// changing slot, a fact's flare, a vessel under sail (its wake), a lantern (waiting for the operator), a job's gear,
-// a model call streaming, a running task's current. An idle daemon draws one frame and stops. Calm mode stops the
-// motion and the post-processing.
+// The sea's swell is ambient: in Live mode the waves roll gently and the stars' glints on the water twinkle, always,
+// idle included (theseus-wp2d). Everything else moves only when something is happening now: the camera, a vessel changing slot, a
+// fact's flare, a vessel under sail (its wake), a lantern (waiting for the operator), a job's gear, a model call
+// streaming, a running task's current. While one of those moves the loop draws every display frame; when none does,
+// it draws the swell alone at `IDLE_FPS` (`loop.ts`): the composite alone, which draws the waves over the sea's cache
+// and under the fleet's layer, both kept (`post.ts`). A hidden tab draws nothing. Calm mode stops all motion, the
+// swell included, and the post-processing: an idle daemon in Calm draws one frame and stops. `?swell=0` stills the
+// sea for one page.
 import * as THREE from 'three'
+import { Loop, type Tick } from './loop'
 import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
 import {
@@ -30,6 +35,9 @@ const WAKE_PER = 30
 const FLOW_PER_TETHER = 96
 const FLOW_PER_CURRENT = 30
 const FOV = 36
+/** The swell's rows' spacing in world units (`SEA_SWELL`): it follows the zoom in steps of two, a few rows to the
+ *  screen. */
+const waveSpacing = (dist: number) => 1.875 * 2 ** Math.max(0, Math.floor(Math.log2(Math.max(dist, 2) / 10)))
 
 // Each kind's colour (HDR, so the neon blooms) and size, in world units.
 const LIGHT_LOOK: Record<string, { c: [number, number, number]; s: number }> = {
@@ -55,9 +63,17 @@ export class ShipEngine {
   readonly renderer: THREE.WebGLRenderer
   readonly camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 40000)
   private scene = new THREE.Scene()
-  /** The sea and the stars: drawn only when the camera moves (the post's cache). */
+  /** The sea's still parts and the stars: drawn only when the camera moves (the post's cache). */
   private seaScene = new THREE.Scene()
-  private post = new Post()
+  /** The swell's uniforms (`SEA_SWELL`), shared by the post's composite and Calm's copy of the sea: its clock, and the
+   *  camera's rays, by which each pixel finds its point of the sea. */
+  private swellU = {
+    uTarget: { value: new THREE.Vector2() }, uNearScale: { value: 1 / 200 }, uWaveScale: { value: 1 }, uSwell: { value: 0 },
+    uWaves: { value: 1 }, uCamPos: { value: new THREE.Vector3() }, uRayC: { value: new THREE.Vector3() },
+    uRayX: { value: new THREE.Vector3() }, uRayY: { value: new THREE.Vector3() },
+  }
+  private post = new Post(this.swellU)
+  private loop: Loop
   /** The internal resolution, as a share of the canvas's: lowered while frames run long, raised when they're quick.
    *  `pinnedScale` fixes it (for measuring). */
   scale = 1
@@ -68,11 +84,14 @@ export class ShipEngine {
   private ro: ResizeObserver
   private t0 = performance.now()
   private wall0 = Date.now()
-  private raf = 0
   private disposed = false
   calm: boolean
   /** Render every frame (for measuring), whatever moves. */
   bench: boolean
+  /** The sea rolls in Live mode (off for one page with `?swell=0`). */
+  swell: boolean
+  /** The swell's own clock, in seconds: it runs only while the sea rolls, so Calm stills the sea where it is. */
+  private swellT = 0
   private hooks: EngineHooks = {}
 
   // The camera rig: a point on the sea, a distance, and a pitch that follows the zoom (top-down far out, tilted close).
@@ -104,7 +123,7 @@ export class ShipEngine {
     uScale: { value: 500 },
     uPixel: { value: 1 },
   }
-  private seaU = { uTarget: { value: new THREE.Vector2() }, uDist: { value: 200 }, uCenter: { value: new THREE.Vector2() }, uRose: { value: 0 } }
+  private seaU = { uTarget: this.swellU.uTarget, uDist: { value: 200 }, uCenter: { value: new THREE.Vector2() }, uRose: { value: 0 } }
   private starU = { uTarget: this.seaU.uTarget, uScale: this.u.uScale }
 
   private sea: THREE.Mesh
@@ -123,14 +142,25 @@ export class ShipEngine {
   private highlight = -1
   /** Until when (engine seconds) something flares, so the loop keeps drawing. */
   private flareUntil = 0
-  stats = { frames: 0, cpu: [] as number[], firstFrameAt: 0, firstFleetAt: 0, scale: 1 }
+  /** `swellFrames`: frames that drew only the swell (the composite alone), a share of `frames`. */
+  stats = { frames: 0, swellFrames: 0, cpu: [] as number[], firstFrameAt: 0, firstFleetAt: 0, scale: 1 }
 
-  constructor(container: HTMLElement, opts: { calm: boolean; bench?: boolean; scale?: number }) {
+  constructor(container: HTMLElement, opts: { calm: boolean; bench?: boolean; scale?: number; swell?: boolean }) {
     this.container = container
     this.calm = opts.calm
     this.bench = !!opts.bench
+    this.swell = opts.swell ?? true
     if (opts.scale) { this.pinnedScale = opts.scale; this.scale = opts.scale }
+    // Without WebGL this throws, and nothing below has started (theseus-9k53).
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance', stencil: false })
+    this.loop = new Loop({
+      now: () => performance.now(),
+      frame: (cb) => requestAnimationFrame(cb),
+      cancelFrame: (id) => cancelAnimationFrame(id),
+      timer: (cb, ms) => window.setTimeout(cb, ms),
+      cancelTimer: (id) => window.clearTimeout(id),
+      hidden: () => document.hidden,
+    }, this.frame, () => this.rolling())
     this.devicePixels = Math.min(window.devicePixelRatio || 1, 1.5)
     this.renderer.setPixelRatio(this.devicePixels)
     this.renderer.setClearColor(0x030912, 1)
@@ -138,11 +168,11 @@ export class ShipEngine {
     container.appendChild(this.renderer.domElement)
 
 
-    const mat = (vertexShader: string, fragmentShader: string, extra: Record<string, unknown> = {}, blending: THREE.Blending = THREE.AdditiveBlending) =>
-      new THREE.ShaderMaterial({
+    const mat = (vertexShader: string, fragmentShader: string, extra: Record<string, unknown> = {}, over = false) =>
+      layered(new THREE.ShaderMaterial({
         uniforms: { ...this.u, ...extra } as Record<string, THREE.IUniform>,
-        vertexShader, fragmentShader, transparent: true, depthTest: false, depthWrite: false, blending,
-      })
+        vertexShader, fragmentShader, transparent: true, depthTest: false, depthWrite: false,
+      }), over)
 
     const seaGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
     this.sea = new THREE.Mesh(seaGeo, new THREE.ShaderMaterial({ uniforms: this.seaU, vertexShader: SEA_VERT, fragmentShader: SEA_FRAG, depthTest: false, depthWrite: false }))
@@ -154,7 +184,7 @@ export class ShipEngine {
     this.stars.renderOrder = 1
 
     const quadXZ = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
-    this.hulls = new THREE.Mesh(instanced(quadXZ), mat(HULL_VERT, HULL_FRAG, {}, THREE.NormalBlending))
+    this.hulls = new THREE.Mesh(instanced(quadXZ), mat(HULL_VERT, HULL_FRAG, {}, true))
     this.hulls.renderOrder = 2
     this.lines = new THREE.LineSegments(new THREE.BufferGeometry(), mat(LINE_VERT, LINE_FRAG))
     this.lines.renderOrder = 3
@@ -164,7 +194,7 @@ export class ShipEngine {
     this.wakes.renderOrder = 4
     this.lights = new THREE.Points(new THREE.BufferGeometry(), mat(LIGHT_VERT, LIGHT_FRAG))
     this.lights.renderOrder = 5
-    this.sails = new THREE.Mesh(instanced(new THREE.PlaneGeometry(1, 1)), mat(SAIL_VERT, SAIL_FRAG, {}, THREE.NormalBlending))
+    this.sails = new THREE.Mesh(instanced(new THREE.PlaneGeometry(1, 1)), mat(SAIL_VERT, SAIL_FRAG, {}, true))
     this.sails.renderOrder = 6
     this.beacons = new THREE.Points(new THREE.BufferGeometry(), mat(BEACON_VERT, BEACON_FRAG))
     this.beacons.renderOrder = 7
@@ -192,6 +222,7 @@ export class ShipEngine {
     this.ro.observe(container)
     this.resize()
     this.bindPointer()
+    document.addEventListener('visibilitychange', this.onVisibility)
   }
 
   setHooks(h: EngineHooks) {
@@ -268,8 +299,17 @@ export class ShipEngine {
     this.camera.position.set(this.tx, this.dist * Math.cos(p), this.tz + this.dist * Math.sin(p))
     this.camera.lookAt(this.tx, 0, this.tz)
     this.camera.updateMatrixWorld()
+    // The swell's rays: the camera's forward, right and up, scaled to the view's half-extents (`SEA_SWELL`).
+    const m = this.camera.matrixWorld.elements
+    const tanH = Math.tan(THREE.MathUtils.degToRad(FOV / 2))
+    this.swellU.uCamPos.value.copy(this.camera.position)
+    this.swellU.uRayC.value.set(-m[8], -m[9], -m[10])
+    this.swellU.uRayX.value.set(m[0], m[1], m[2]).multiplyScalar(tanH * this.camera.aspect)
+    this.swellU.uRayY.value.set(m[4], m[5], m[6]).multiplyScalar(tanH)
     this.seaU.uTarget.value.set(this.tx, this.tz)
     this.seaU.uDist.value = this.dist
+    this.swellU.uNearScale.value = 1 / Math.max(this.dist, 1)
+    this.swellU.uWaveScale.value = 1 / waveSpacing(this.dist)
     this.sea.position.set(this.tx, 0, this.tz)
     const s = this.dist * 14 + 400
     this.sea.scale.set(s, 1, s)
@@ -906,9 +946,16 @@ export class ShipEngine {
 
   // ---------------------------------------------------------------- the loop
 
+  /** Something changed: the whole scene is drawn at the next display frame. */
   requestRender() {
-    if (this.disposed || this.raf) return
-    this.raf = requestAnimationFrame(this.frame)
+    this.loop.request()
+  }
+
+  private onVisibility = () => this.loop.visibility()
+
+  /** Whether the sea rolls now: Live mode, unless `?swell=0`. */
+  private rolling(): boolean {
+    return this.swell && !this.calm && !this.disposed
   }
 
   private lastFrame = performance.now()
@@ -925,42 +972,53 @@ export class ShipEngine {
     return m.lights.some((l) => l.running)
   }
 
-  private frame = (when: number) => {
-    this.raf = 0
-    if (this.disposed) return
+  /** Draws a frame; true while something moves, so the loop draws the next display frame too. */
+  private frame = (when: number, tick: Tick): boolean => {
     const interval = when - this.lastFrame
     const dt = Math.min(0.1, interval / 1000)
     this.lastFrame = when
-    // Only back-to-back frames say how long a frame takes.
-    if (interval < 250) this.adapt(interval)
+    // Only back-to-back frames say how long a frame takes: the swell's are apart on purpose. One slower than 250 ms
+    // counts as 250: skipped, as it was, a CPU rasteriser whose first frames ran slow kept full resolution for good.
+    if (tick.paced) this.adapt(Math.min(interval, 250))
     const t = this.now()
     const camMoved = this.stepCamera(performance.now())
     const vesselsMoved = this.stepVessels(dt)
+    const alive = this.alive(t)
+    // The whole scene is drawn when something changed or moves. Otherwise only the swell moved: the composite alone is
+    // drawn, over the sea's cache and the fleet's kept layer.
+    const full = tick.changed || camMoved || vesselsMoved || alive
+    // The swell's clock runs on wall time, so slow frames (a CPU rasteriser) don't slow the sea, and a long gap (a
+    // hidden tab, Calm) resumes it where it stood.
+    if (this.rolling()) this.swellU.uSwell.value = this.swellT += Math.min(0.25, interval / 1000)
     this.u.uTime.value = t
     const c0 = performance.now()
-    this.post.render(this.renderer, this.seaScene, this.scene, this.camera, this.calm)
+    this.post.render(this.renderer, this.seaScene, this.scene, this.camera, this.calm, full, this.rolling())
     const c1 = performance.now()
     this.stats.frames++
+    if (!full) this.stats.swellFrames++
     this.stats.scale = this.scale
     if (!this.stats.firstFrameAt) this.stats.firstFrameAt = performance.now()
     if (!this.stats.firstFleetAt && this.model?.vessels.length) this.stats.firstFleetAt = performance.now()
     this.stats.cpu.push(c1 - c0)
     if (this.stats.cpu.length > 240) this.stats.cpu.shift()
-    this.hooks.onFrame?.(camMoved || vesselsMoved)
-    if (camMoved || this.settling || this.tween || this.alive(t)) this.requestRender()
+    // The labels and the porthole follow the camera and the fleet, which a swell's frame leaves where they were.
+    if (full) this.hooks.onFrame?.(camMoved || vesselsMoved)
+    return camMoved || this.settling || this.tween !== null || alive
   }
 
   /** Dev and bench only: hide layers by name, to see what draws what. */
   debugHide(names: string[]) {
     const all = { sea: this.sea, stars: this.stars, hulls: this.hulls, lines: this.lines, flows: this.flows, wakes: this.wakes, lights: this.lights, sails: this.sails, beacons: this.beacons }
     for (const [k, o] of Object.entries(all)) o.visible = !names.includes(k)
+    this.swellU.uWaves.value = names.includes('sea') ? 0 : 1
     this.post.seaDirty = true
     this.requestRender()
   }
 
   dispose() {
     this.disposed = true
-    if (this.raf) cancelAnimationFrame(this.raf)
+    this.loop.dispose()
+    document.removeEventListener('visibilitychange', this.onVisibility)
     this.ro.disconnect()
     this.scene.traverse((o) => {
       const mesh = o as THREE.Mesh
@@ -978,6 +1036,20 @@ export class ShipEngine {
     this.renderer.dispose()
     this.renderer.domElement.remove()
   }
+}
+
+/** The fleet's blending: three's normal (`over`) or additive colour, unchanged, and an alpha that keeps the share of
+ *  the sea still showing through (an `over` layer takes its alpha's share; light takes none). The post draws the
+ *  fleet over black once, then puts the sea, at each moment of its swell, under it by that share (`post.ts`). */
+function layered(m: THREE.ShaderMaterial, over: boolean): THREE.ShaderMaterial {
+  m.blending = THREE.CustomBlending
+  m.blendEquation = THREE.AddEquation
+  m.blendSrc = THREE.SrcAlphaFactor
+  m.blendDst = over ? THREE.OneMinusSrcAlphaFactor : THREE.OneFactor
+  m.blendEquationAlpha = THREE.AddEquation
+  m.blendSrcAlpha = THREE.ZeroFactor
+  m.blendDstAlpha = over ? THREE.OneMinusSrcAlphaFactor : THREE.OneFactor
+  return m
 }
 
 function instanced(base: THREE.BufferGeometry): THREE.InstancedBufferGeometry {

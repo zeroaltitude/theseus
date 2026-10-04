@@ -1059,7 +1059,10 @@ are one lane's, so they are one Item.
   every state (shields, the hold's chain, boats under sail, lanterns, a flare, the gold run); the reviewer read the
   screenshots. This machine's headless Chrome has only SwiftShader, a CPU rasteriser, so every frame rate is a floor:
   49 fps on his store with the hologram (adaptive), 57 in calm mode, 37 at 10,000 nodes, and a first frame in 0.59 to
-  0.85 s. The engine's CPU side is 0.4 to 0.6 ms a frame, and the loop draws only while something moves.
+  0.85 s. The engine's CPU side is 0.4 to 0.6 ms a frame, and the loop draws only while something moves. _(Since
+  the cockpit-swell lane, 2026-10-04, theseus-wp2d: the sea's swell is ambient. In Live mode an idle Ship draws the
+  swell alone at a low idle rate, one composite pass a frame; everything else still draws only while something
+  moves, Calm draws one frame and stops, and a hidden tab draws nothing.)_
 - **Round two**: gates of 1,690 tests. A scrub redraws in under 100 ms at p95 on every folding view (the Ship 83 ms,
   Fleet 83, Actions 50, the river 50), and the fold itself takes 0.1 ms at the median. At the present, the fold
   agreed with the daemon's own lists on every execution's state, the waiting question, and the holds; the one
