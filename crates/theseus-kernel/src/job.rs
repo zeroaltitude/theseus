@@ -14,6 +14,7 @@
 //! verifies that no live process is left in it (`Stopping`, several jobs at
 //! once); `WrapperEvidence` is what the reconciler asks.
 
+use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -203,11 +204,13 @@ pub use theseus_sandbox::Limits as SandboxLimits;
 /// the command's result as `run_wrapper` does, then lingers until no
 /// descendant remains, and only then exits. It kills nothing.
 pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
-    // First, so the daemon reads this wrapper as one that stops its tree
-    // (`catches_sigterm`) from as early as it can (M4 18a).
+    // The wake pipe before the handlers that write to it (7.1).
+    let armed = crate::job_wait::arm();
+    // First after it, so the daemon reads this wrapper as one that stops its
+    // tree (`catches_sigterm`) from as early as it can (M4 18a).
     let caught = catch_sigterm();
     let subreaper = crate::children::set_subreaper();
-    let errors: Vec<String> = [subreaper.err(), caught.err()]
+    let errors: Vec<String> = [subreaper.err(), caught.err(), armed.err()]
         .into_iter()
         .flatten()
         .collect();
@@ -261,7 +264,8 @@ impl StopAsked {
 static STOP_ASKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The wrapper's SIGTERM handler: it only notes what came, with an atomic
-/// store, which is async-signal-safe; the wrapper's loop acts on it.
+/// store, and wakes the wrapper's wait (7.1), both async-signal-safe; the
+/// wrapper's loop acts on it.
 extern "C" fn on_sigterm(_: libc::c_int, info: *mut libc::siginfo_t, _: *mut libc::c_void) {
     // SAFETY: the kernel's siginfo, read in the handler it was given to.
     let asked = unsafe {
@@ -278,6 +282,7 @@ extern "C" fn on_sigterm(_: libc::c_int, info: *mut libc::siginfo_t, _: *mut lib
         std::sync::atomic::Ordering::SeqCst,
         std::sync::atomic::Ordering::SeqCst,
     );
+    crate::job_wait::poke();
 }
 
 /// Catch SIGTERM (M4 18a). Without `SA_RESTART`, so the linger's blocking
@@ -550,6 +555,9 @@ fn run_l0(
         Ok(child) => child,
     };
     let deadline = Duration::from_millis(args.deadline_ms);
+    // Asleep between looks until the command exits, a stop or a child's exit
+    // pokes the wake pipe, or the deadline comes (7.1).
+    let pidfd = crate::job_wait::pidfd(child.id());
     loop {
         let exited = match reap {
             Reap::Command => child.try_wait(),
@@ -594,7 +602,11 @@ fn run_l0(
                         format!("deadline {} ms exceeded; {how}", args.deadline_ms),
                     );
                 }
-                std::thread::sleep(Duration::from_millis(20));
+                let left = deadline.saturating_sub(t0.elapsed());
+                match &pidfd {
+                    Some(fd) => crate::job_wait::wait(fd.as_fd(), left),
+                    None => std::thread::sleep(crate::job_wait::NO_PIDFD_LOOK.min(left)),
+                }
             }
             Err(e) => return (Outcome::Unknown, format!("wait: {e}")),
         }

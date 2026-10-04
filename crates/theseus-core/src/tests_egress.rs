@@ -46,7 +46,12 @@ struct Kept {
 }
 
 impl crate::toolrun::JobLauncher for Kept {
-    fn launch(&self, spool: &Spool, args: &WrapperArgs) -> anyhow::Result<u32> {
+    fn launch(
+        &self,
+        spool: &Spool,
+        args: &WrapperArgs,
+        done: crate::toolrun::JobDone,
+    ) -> anyhow::Result<u32> {
         self.args.lock().unwrap().push(args.clone());
         let ran = self.ran.lock().unwrap().clone().expect("a job's run");
         let (dir, id) = (spool.dir().to_path_buf(), args.correlation_id.clone());
@@ -76,6 +81,7 @@ impl crate::toolrun::JobLauncher for Kept {
             std::thread::spawn(move || {
                 std::thread::sleep(ran.after);
                 let _ = settle();
+                done.wake();
             });
         }
         Ok(std::process::id())

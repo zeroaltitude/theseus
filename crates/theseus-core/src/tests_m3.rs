@@ -1397,9 +1397,10 @@ impl crate::toolrun::JobLauncher for CountingLauncher {
         &self,
         spool: &theseus_kernel::Spool,
         args: &theseus_kernel::job::WrapperArgs,
+        done: crate::toolrun::JobDone,
     ) -> anyhow::Result<u32> {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        crate::toolrun::InlineLauncher.launch(spool, args)
+        crate::toolrun::InlineLauncher.launch(spool, args, done)
     }
 }
 
@@ -1417,6 +1418,7 @@ impl crate::toolrun::JobLauncher for HeldLaunch {
         &self,
         spool: &theseus_kernel::Spool,
         args: &theseus_kernel::job::WrapperArgs,
+        _: crate::toolrun::JobDone,
     ) -> anyhow::Result<u32> {
         self.held.hold();
         let s = crate::peer::Standin::start(&args.correlation_id);
@@ -1626,6 +1628,7 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
         &self,
         spool: &theseus_kernel::Spool,
         args: &theseus_kernel::job::WrapperArgs,
+        _: crate::toolrun::JobDone,
     ) -> anyhow::Result<u32> {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;

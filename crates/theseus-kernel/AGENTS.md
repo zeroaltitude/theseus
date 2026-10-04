@@ -18,6 +18,10 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
   in the signal's value), and it stops its whole tree, writes its verdict to the spool's `stops/`, and exits with no
   completion. `Stopping` tells it from a wrapper from before 18a by `/proc/<pid>/status`'s `SigCgt`
   (`catches_sigterm`) and stops an older one by its process group, as before (`verified_by: group`).
+- `job_wait.rs` (Tier 7.1): the wrapper's wait on its command, asleep until something happens: the command's pidfd
+  (an L1 job's init's), and a wake pipe its SIGTERM and SIGCHLD handlers write a byte to, polled with the time left
+  before the deadline. It looked every 20 ms before. A spooled completion is taken (`Kernel::take_completion_with`):
+  the drain and the turn waiting on the job both read it, and the second finds it settled and writes nothing.
 - `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases:
   SIGTERM to every process, the grace, the freeze (SIGSTOP, rescanning until nothing new appears and all read
   stopped), then SIGKILL and the reap. Each process is signalled through a pidfd checked against its start time.

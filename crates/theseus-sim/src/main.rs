@@ -257,8 +257,8 @@ enum BenchCmd {
         label: Option<String>,
     },
     /// What a turn costs, on the stand-in model: a plain turn's and a
-    /// tool-call turn's wall time and frames (a frame is one fdatasync; the
-    /// plain turn's count is held to §9's budget by --check), the daemon's
+    /// tool-call turn's wall time and frames (a frame is one fdatasync; each
+    /// kind's count is held to its budget by --check), the daemon's
     /// memory after the start and after a burst of turns, and this disk's
     /// fdatasync (theseus-goa8).
     Turn(perf::TurnArgs),

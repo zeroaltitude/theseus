@@ -112,6 +112,8 @@ mod tests_failures;
 #[cfg(test)]
 mod tests_grants;
 #[cfg(test)]
+mod tests_jobs;
+#[cfg(test)]
 mod tests_layouts;
 #[cfg(test)]
 mod tests_m3;

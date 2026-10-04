@@ -191,6 +191,9 @@ pub enum Accepted {
     },
     /// Already settled; this delivery was a duplicate. Logged, nothing changed.
     DuplicateNoop { correlation_id: CorrelationId },
+    /// Already settled, by another taker of the same spooled completion
+    /// (`take_completion_with`, Tier 7.1): nothing written.
+    Taken { correlation_id: CorrelationId },
     /// No action carries this correlation id; recorded and surfaced, never inferred.
     Quarantined { correlation_id: CorrelationId },
     /// The action had been cancelled; the result is recorded as a resolution
@@ -2240,9 +2243,36 @@ impl Kernel {
         c: &Completion,
         extra: Vec<NewRecord>,
     ) -> Result<Accepted> {
+        self.completion_with(c, extra, false)
+    }
+
+    /// `accept_completion_with` for a spooled completion, which the drain and
+    /// the turn waiting on its job both read (Tier 7.1): whichever takes it
+    /// first settles the action, and the other finds it settled and writes
+    /// nothing (`Taken`), where a delivery from elsewhere writes
+    /// `completion.duplicate`.
+    pub fn take_completion_with(&self, c: &Completion, extra: Vec<NewRecord>) -> Result<Accepted> {
+        self.completion_with(c, extra, true)
+    }
+
+    fn completion_with(
+        &self,
+        c: &Completion,
+        extra: Vec<NewRecord>,
+        take: bool,
+    ) -> Result<Accepted> {
         let execution = self.action(&c.correlation_id)?.map(|a| a.execution_id);
         let ids: Vec<&str> = execution.iter().map(String::as_str).collect();
         self.frame(&ids, |k| {
+            let settled =
+                |a: &Action| matches!(a.state, ActionState::Succeeded | ActionState::Failed);
+            if take {
+                if let Some(a) = k.action(&c.correlation_id)?.filter(settled) {
+                    return Ok(Accepted::Taken {
+                        correlation_id: a.correlation_id,
+                    });
+                }
+            }
             let accepted = k.accept_completion(c)?;
             if matches!(
                 accepted,

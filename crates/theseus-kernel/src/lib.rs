@@ -15,6 +15,7 @@ pub mod gate;
 pub mod job;
 mod job_egress;
 mod job_l1;
+mod job_wait;
 pub mod kernel;
 mod locks;
 pub mod outbox;

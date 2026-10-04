@@ -413,6 +413,13 @@ impl SandboxChild {
         self.signal(libc::SIGKILL)
     }
 
+    /// The init's pidfd, which reads as ready once the init has exited: what
+    /// the wrapper's wait polls (Tier 7.1).
+    pub fn pidfd(&self) -> std::os::fd::BorrowedFd<'_> {
+        use std::os::fd::AsFd;
+        self.pidfd.as_fd()
+    }
+
     /// SIGTERM to the init, which forwards it to the command.
     pub fn terminate(&self) -> io::Result<()> {
         self.signal(libc::SIGTERM)

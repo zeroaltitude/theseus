@@ -6,9 +6,10 @@
 //!   run N times on one warm session: wall time by this clock and by the
 //!   daemon's, and **frames per turn**, counted from the WAL (`walcount`). A
 //!   frame is one `fdatasync`, so frames are §9's per-turn overhead in a unit
-//!   that does not depend on the disk: the plain turn's count is the gated
-//!   budget (5 today, with a floor of 2, review 2's S5), the way the cold
-//!   start is. The rest is measured with no budget: the disk's own `fdatasync`
+//!   that does not depend on the disk: each kind's count is a gated budget
+//!   (the plain turn's 5, with a floor of 2, review 2's S5; the tool-call
+//!   turn's 9 since Tier 7.1), the way the cold start is. The rest is
+//!   measured with no budget: the disk's own `fdatasync`
 //!   (so the harness's share of a turn can be read off), and the daemon's
 //!   resident memory after the start and after a burst of turns.
 //! - **`idle`**: a daemon with nothing to do, over a window (30 s by
@@ -43,6 +44,14 @@ use crate::walcount::{Frame, Tail};
 /// the completion with the turn's end is the other). A step that writes fewer
 /// lowers this number in the same commit, so it only goes down.
 pub const PLAIN_TURN_FRAMES: f64 = 5.0;
+
+/// A turn whose first loop runs the bench's job (`proc.run` of `true`) writes
+/// at most this many: the plain turn's 5, and 4 for the loop with the job:
+/// its plan and dispatch, its completion with its result (the turn takes the
+/// completion itself), and the second provider call's two. 9 since Tier 7.1
+/// (theseus-kpfv); 11 or 12 before, as the drain usually took the completion
+/// first, and the turn's own look could then write a duplicate.
+pub const TOOL_TURN_FRAMES: f64 = 9.0;
 
 /// §9's binary size, in MB (10^6 bytes): under 60.
 pub const BINARY_MB: f64 = 60.0;
@@ -280,16 +289,22 @@ impl TurnReport {
     }
 }
 
-/// The verdicts of a turn bench: the plain turn's frames against its budget.
-/// A count is exact, so the margin is none.
-pub fn turn_verdicts(plain_frames: &Summary) -> Vec<Verdict> {
-    vec![Verdict {
-        phase: "frames_plain".to_string(),
-        p95: plain_frames.p95,
-        budget: PLAIN_TURN_FRAMES,
+/// The verdicts of a turn bench: each kind's frames against its budget. A
+/// count is exact, so the margin is none.
+pub fn turn_verdicts(plain_frames: &Summary, tool_frames: &Summary) -> Vec<Verdict> {
+    [
+        ("frames_plain", plain_frames, PLAIN_TURN_FRAMES),
+        ("frames_tool", tool_frames, TOOL_TURN_FRAMES),
+    ]
+    .into_iter()
+    .map(|(phase, frames, budget)| Verdict {
+        phase: phase.to_string(),
+        p95: frames.p95,
+        budget,
         margin: 0.0,
-        ok: plain_frames.p95 <= PLAIN_TURN_FRAMES,
-    }]
+        ok: frames.p95 <= budget,
+    })
+    .collect()
 }
 
 /// One `fdatasync` of an append of 4 KiB, as the WAL pays for each frame: `n`
@@ -434,7 +449,7 @@ pub fn run_turn(o: &TurnOpts) -> Result<TurnReport> {
     } else {
         fsync_before
     };
-    let verdicts = turn_verdicts(&plain.frames);
+    let verdicts = turn_verdicts(&plain.frames, &tool.frames);
     Ok(TurnReport {
         theseusd: o.theseusd.display().to_string(),
         runs: o.runs,
@@ -505,10 +520,11 @@ pub fn print_turn(r: &TurnReport) {
     );
     for k in [&r.plain, &r.tool] {
         let budget = if k.name == "plain" {
-            format!(" (budget {})", PLAIN_TURN_FRAMES)
+            PLAIN_TURN_FRAMES
         } else {
-            String::new()
+            TOOL_TURN_FRAMES
         };
+        let budget = format!(" (budget {budget})");
         println!(
             "  {:<10} {:>7} {:>6.1} ms {:>6.1} ms {:>6.1} ms {:>8.1} ms{budget}",
             k.name,
@@ -931,7 +947,7 @@ pub struct TurnArgs {
     /// memory is read after the measured turns).
     #[arg(long, default_value_t = 30)]
     burst: usize,
-    /// Exit 1 when the plain turn writes more frames than §9's budget.
+    /// Exit 1 when a turn writes more frames than its kind's budget.
     #[arg(long)]
     check: bool,
     /// Also write the report as JSON here.
@@ -1082,15 +1098,21 @@ mod tests {
     }
 
     #[test]
-    fn the_plain_turns_frames_are_held_to_their_budget_exactly() {
-        let ok = turn_verdicts(&frames(&[5.0; 10]));
+    fn each_turns_frames_are_held_to_their_budget_exactly() {
+        let tool = frames(&[9.0; 10]);
+        let ok = turn_verdicts(&frames(&[5.0; 10]), &tool);
         assert!(ok[0].ok && ok[0].budget == 5.0 && ok[0].margin == 0.0);
+        assert!(ok[1].ok && ok[1].budget == 9.0 && ok[1].phase == "frames_tool");
         // One run of ten that wrote a sixth frame is the p95: a miss.
         let mut some = vec![5.0; 9];
         some.push(6.0);
-        assert!(!turn_verdicts(&frames(&some))[0].ok);
+        assert!(!turn_verdicts(&frames(&some), &tool)[0].ok);
+        // A tool-call turn whose completion the drain took first, and its
+        // turn's look wrote again: 11 or 12, as before Tier 7.1.
+        let raced = frames(&[11.0, 9.0, 12.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0]);
+        assert!(!turn_verdicts(&frames(&[5.0; 10]), &raced)[1].ok);
         // Fewer frames than the budget passes: a step that gets to 2 is a gain.
-        assert!(turn_verdicts(&frames(&[2.0; 10]))[0].ok);
+        assert!(turn_verdicts(&frames(&[2.0; 10]), &tool)[0].ok);
     }
 
     #[test]
@@ -1184,7 +1206,7 @@ mod tests {
                 per_turn_ms: 0.0,
                 frames: 0,
             },
-            verdicts: turn_verdicts(&single(5.0)),
+            verdicts: turn_verdicts(&single(5.0), &single(9.0)),
             wall_ms: 0.0,
         };
         assert!(turn.ok());

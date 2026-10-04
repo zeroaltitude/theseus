@@ -33,10 +33,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     execution lock, never while a turn holds it. Only the owner, from a private place: `judge_act(Act::Publish)`
     (a job's process never may), then `places::may_publish`. `theseus publish`, Discord's `/publish`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
-  a job's call in `toolrun/job.rs`, the continuation in `toolrun/resume.rs`, and the results no call's own run
-  writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are `policy.rs`
-  (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted secrets),
-  `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,
+  a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
+  completion with its result in one frame; Tier 7.1), the continuation in `toolrun/resume.rs`, and the results
+  no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are
+  `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
+  secrets), `approval.rs`, and `peer.rs` (who is asking: a job's process can't answer). Plus the harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
   serving (its calls fail closed until STS names the account), who signs (`session.rs`: the key until the config
   names `owner_role`, then work, job, floor, and tender sessions, and the key signs only STS), `aws.call` (reads,
