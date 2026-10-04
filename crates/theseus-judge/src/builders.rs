@@ -920,6 +920,7 @@ mod tests {
             "loop.v1",
             "security.v1",
             "security.v2",
+            "security.v3",
             "classify.v1",
             "continue.v1",
             "categorize.v1",
@@ -1182,7 +1183,8 @@ mod tests {
                 }),
             ),
             ("security.v1", Input::Security(sec.clone())),
-            ("security.v2", Input::Security2(sec)),
+            ("security.v2", Input::Security2(sec.clone())),
+            ("security.v3", Input::Security2(sec)),
             (
                 "classify.v1",
                 Input::Inbound(InboundInput {

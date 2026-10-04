@@ -13,6 +13,7 @@
 //! - [`state`] and [`builders`]: states capped by construction, built from
 //!   plain inputs;
 //! - [`eval`]: the planted-injection eval sets, with their expected answers;
+//! - [`decision`]: what a pack's deciding questions say together;
 //! - [`band`], [`batch`], [`breaker`]: the three-band gate, batching by
 //!   shared state, and the circuit breaker;
 //! - [`price`]: the catalog-shaped price of the pinned model;
@@ -27,6 +28,7 @@ pub mod batch;
 pub mod breaker;
 pub mod builders;
 pub mod client;
+pub mod decision;
 pub mod eval;
 pub mod judge;
 pub mod learn;
@@ -49,6 +51,7 @@ pub use client::{
     Answer, CallError, ClientConfig, JevClient, JevError, KeySource, Request, Response, StaticKey,
     Urgency, Usage,
 };
+pub use decision::{decide, Decision, Verdict};
 pub use judge::{
     Ask, DecisionPoint, JevJudge, Judge, Judgment, JudgmentSink, MemorySink, Mode, Outcome,
     Recording, Skip,

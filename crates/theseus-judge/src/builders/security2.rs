@@ -681,7 +681,7 @@ mod tests {
     }
 
     fn case(name: &str) -> SecurityInput {
-        eval::set("security.v2")
+        eval::set("security.v3")
             .unwrap()
             .into_iter()
             .find(|c| c.name == name)
@@ -698,11 +698,11 @@ mod tests {
     #[test]
     fn every_eval_case_builds_its_golden_state() {
         let mut all = serde_json::Map::new();
-        for c in eval::set("security.v2").unwrap() {
+        for c in eval::set("security.v3").unwrap() {
             all.insert(c.name.clone(), state_of(&c.input, &NoScrub));
         }
         golden(
-            "fixtures/golden/security.v2.eval.states.json",
+            "fixtures/golden/security.v3.eval.states.json",
             &serde_json::to_string_pretty(&Value::Object(all)).unwrap(),
         );
     }
@@ -948,7 +948,7 @@ mod tests {
     /// bound here is a loose guard against work that grows with the input.
     #[test]
     fn the_builder_is_fast() {
-        let cases = eval::set("security.v2").unwrap();
+        let cases = eval::set("security.v3").unwrap();
         let p = by_name("security.v2").unwrap();
         let start = std::time::Instant::now();
         let rounds = 200;

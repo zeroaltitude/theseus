@@ -85,7 +85,7 @@ impl Banded {
     }
 }
 
-fn at_least(x: f64, threshold: f64) -> bool {
+pub(crate) fn at_least(x: f64, threshold: f64) -> bool {
     x >= threshold - EPS
 }
 
