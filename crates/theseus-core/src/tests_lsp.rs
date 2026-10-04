@@ -23,13 +23,13 @@ use crate::{Config, Core};
 /// The fake, served in this process over pipes: each spawn counted, with
 /// the root it was started on.
 #[derive(Default)]
-struct InProcess {
-    spawns: Mutex<Vec<PathBuf>>,
-    cfg: Mutex<Option<FakeConfig>>,
+pub(crate) struct InProcess {
+    pub(crate) spawns: Mutex<Vec<PathBuf>>,
+    pub(crate) cfg: Mutex<Option<FakeConfig>>,
 }
 
 impl InProcess {
-    fn count(&self) -> usize {
+    pub(crate) fn count(&self) -> usize {
         self.spawns.lock().unwrap().len()
     }
 }
@@ -62,7 +62,7 @@ impl Spawn for InProcess {
 
 /// `[lsp]` on, with the fake as the server of `.fake` files, rooted at a
 /// `fake.toml`.
-fn lsp_config(cfg: &mut Config, idle_mins: f64) {
+pub(crate) fn lsp_config(cfg: &mut Config, idle_mins: f64) {
     cfg.lsp = toml::from_str(&format!(
         "enabled = true\nidle_stop_mins = {idle_mins}\n[servers.fake]\ncommand = [\"theseus-lsp-fake\"]\nextensions = [\"fake\"]\nroots = [\"fake.toml\"]\n"
     ))
@@ -71,7 +71,7 @@ fn lsp_config(cfg: &mut Config, idle_mins: f64) {
 
 /// A project: `a.fake` defines `total`, which `b.fake` uses; `a.fake`'s
 /// fourth line holds a planted error. `sub/` is a project of its own.
-fn project(dir: &Path) -> PathBuf {
+pub(crate) fn project(dir: &Path) -> PathBuf {
     let work = dir.join("work");
     std::fs::create_dir_all(work.join("sub")).unwrap();
     std::fs::write(work.join("fake.toml"), "").unwrap();

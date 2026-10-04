@@ -27,6 +27,7 @@
 //!   `theseus.lsp.request.duration` reads. The count of servers up is
 //!   health's, not a metric: the encoder has no gauge.
 
+pub(crate) mod edits;
 mod rename;
 mod tools;
 
@@ -51,6 +52,7 @@ use crate::ledger::LedgerRow;
 use crate::policy::Decision;
 use crate::toolrun::ToolRuntime;
 
+pub use edits::{Attached, EDITS};
 pub use rename::RenameShown;
 
 /// Every `lsp.*` tool, for the config's `[policy.tools]` check.

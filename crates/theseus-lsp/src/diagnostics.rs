@@ -111,6 +111,17 @@ impl Client {
         st.pushed.get(&uri).map(|p| (p.version, p.items.clone()))
     }
 
+    /// Each document's count of errors in the last list pushed for it, by
+    /// URI: what L3 compares before and after an edit to count the new
+    /// errors in other files.
+    pub fn pushed_errors(&self) -> std::collections::BTreeMap<String, usize> {
+        let st = self.shared().lock();
+        st.pushed
+            .iter()
+            .map(|(u, p)| (u.clone(), p.items.iter().filter(|d| d.is_error()).count()))
+            .collect()
+    }
+
     /// This file's diagnostics for its current text, within `bound`: open
     /// it if it is not, sync it with the disk, then pull (when the server
     /// can) or wait for a push for this version. A server that reports a
