@@ -171,7 +171,7 @@ impl ActRefused<'_> {
             Act::Answer { action: a, .. } => Some(a.session_id.as_str()),
             Act::Tighten { .. } | Act::Untighten { .. } => None,
             Act::Trust { session } => Some(session),
-            Act::Publish { .. } => None,
+            Act::Publish { .. } | Act::Ontology { .. } => None,
         }
     }
 }
@@ -196,6 +196,10 @@ impl Fact for ActRefused<'_> {
             }
             Act::Publish { place } => {
                 json!({"act": act.method(), "place": place, "who": r.who, "via": r.via,
+                       "why": r.why, "by": self.by})
+            }
+            Act::Ontology { what, .. } => {
+                json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
         }
@@ -228,6 +232,11 @@ impl Fact for ActRefused<'_> {
                 Act::Publish { place } => format!(
                     "Publishing into {place}, from {} through {}, did not count: {}. Nothing \
                      was published.",
+                    r.who, r.via, r.why
+                ),
+                Act::Ontology { what, .. } => format!(
+                    "Writing the ontology's {what}, from {} through {}, did not count: {}. \
+                     Nothing was written.",
                     r.who, r.via, r.why
                 ),
             },

@@ -34,6 +34,7 @@ pub mod harness;
 pub mod ledger;
 pub mod narrative;
 pub mod node;
+pub mod ontology;
 pub mod outbound;
 pub mod outbox;
 pub mod peer;
@@ -118,6 +119,8 @@ mod tests_jobs;
 mod tests_layouts;
 #[cfg(test)]
 mod tests_m3;
+#[cfg(test)]
+mod tests_ontology;
 #[cfg(test)]
 mod tests_output;
 #[cfg(test)]

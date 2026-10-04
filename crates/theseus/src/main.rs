@@ -16,6 +16,7 @@ mod cmd;
 mod herdr;
 mod herdr_sync;
 mod interactive;
+mod ontology;
 mod print;
 
 use std::path::PathBuf;
@@ -162,6 +163,13 @@ enum Cmd {
         /// Your words above it.
         #[arg(long, value_name = "NOTE")]
         note: Option<String>,
+    },
+    /// The ontology: the kinds of context, the categories (a bound place's channel or person,
+    /// and the topics you declare) with their guidance, and sessions' memberships. A session's
+    /// system block carries the guidance of the categories it is in, from its next recompile.
+    Ontology {
+        #[command(subcommand)]
+        cmd: Option<OntologyCmd>,
     },
     /// Follow a session live: streamed text, tool calls, confirmations, context decisions,
     /// whoever started the turn (web UI, CLI, the harness). SESSION defaults to the most recent.
@@ -402,6 +410,48 @@ enum PolicyCmd {
 }
 
 #[derive(Subcommand, Debug)]
+enum OntologyCmd {
+    /// The kinds table: where each kind's memberships come from, how many a session holds, its
+    /// precedence, and its rule (default).
+    Kinds,
+    /// The category tree, with each category's guidance.
+    Categories,
+    /// Declare a topic.
+    Topic {
+        #[command(subcommand)]
+        cmd: TopicCmd,
+    },
+    /// Set CATEGORY's guidance (its id, or a topic's name): TEXT, or stdin with `-` or nothing.
+    /// Empty text takes it away. Only you, from a private place (the CLI is one), may.
+    Guide {
+        category: String,
+        #[arg(value_name = "TEXT|-")]
+        text: Option<String>,
+    },
+    /// A session's memberships; with changes, `+CATEGORY` adds it and `-CATEGORY` takes it out.
+    /// They apply at the session's next recompile (`theseus sessions recompile`).
+    Member {
+        session: String,
+        #[arg(allow_hyphen_values = true, value_name = "+CATEGORY|-CATEGORY")]
+        changes: Vec<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum TopicCmd {
+    /// A new topic, NAME; its id is made from it.
+    Add {
+        name: String,
+        /// The topic it nests under: its id or its name.
+        #[arg(long)]
+        parent: Option<String>,
+        /// What it is about, in a line or two.
+        #[arg(long)]
+        desc: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum AwsCmd {
     /// The account's foundation, posture, and relay stacks (AWS design §5): the plan, read-only
     /// (no change set is made), then, on a terminal, a question whether to apply it. A stack
@@ -581,6 +631,9 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Tools { verbose } => cmd::tools(c, json, verbose).await,
         Cmd::Policy { cmd } => cmd::policy(c, json, cmd.unwrap_or(PolicyCmd::List)).await,
         Cmd::Aws { cmd } => cmd::aws(c, json, cmd).await,
+        Cmd::Ontology { cmd } => {
+            ontology::ontology(c, json, cmd.unwrap_or(OntologyCmd::Kinds)).await
+        }
         Cmd::Catalog => cmd::catalog(c, json).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { cmd } => cmd::sessions(c, json, cmd.unwrap_or(SessionsCmd::List)).await,

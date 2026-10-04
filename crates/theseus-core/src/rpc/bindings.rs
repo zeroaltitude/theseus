@@ -38,6 +38,10 @@ impl Core {
     /// starts, before it reads a message from any of them; until then a guild
     /// place is shared.
     pub fn bind_places(&self, places: Vec<crate::places::BoundPlace>) {
+        // Each place's given category, at its first bind (theseus-8kk.1).
+        if let Err(e) = self.bind_categories(&places) {
+            tracing::warn!(error = %format!("{e:#}"), "the places' categories were not made");
+        }
         self.runner.place_rule.bind(places);
     }
 

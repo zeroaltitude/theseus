@@ -35,6 +35,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     node (`publish`), its `place.published` row, and a notice post in the place, in one frame under the place's
     execution lock, never while a turn holds it. Only the owner, from a private place: `judge_act(Act::Publish)`
     which asks `places::owner_in_private`. `theseus publish`, Discord's `/publish`.
+- **The ontology** (row 26, step 21b; M4 §2.8; theseus-8kk.1): `ontology.rs` holds the snapshot (`Board`: built
+  after serving by one `onto:` META prefix scan, `Core::warm_ontology`, or by its first reader; kept current on every
+  write, which checks, writes its records and their rows in one frame, and swaps it), the given kinds (a bound
+  place's `channel:`/`person:` category made at its first bind, `Core::bind_categories`; a session's given
+  membership read from its place at compile, never stored), and the turn's `Walk`, fixed with the request's spec.
+  `compiler::compile` renders the guidance after the context files: an append composes the memberships its
+  manifest recorded, a recompile (or a ring) the current ones, so a membership change waits for the next recompile
+  and a guidance edit in play is one `system_changed`. The manifest records `memberships` and `guidance`. A shared
+  place composes only its own place's given memberships, and the place rule's admissions never read a membership.
+  The methods are `rpc/ontology.rs` (`ontology.list`; the writes are `judge_act(Act::Ontology)`, the owner from a
+  private place); the rows `fact/ontology.rs`. Tests: `tests_ontology.rs`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1), the continuation in `toolrun/resume.rs`, and the results

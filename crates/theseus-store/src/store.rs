@@ -429,8 +429,10 @@ const BULK: usize = 4096;
 /// store: the per-kind marks are gone (theseus-ptx1). 5 = a wake's repeat
 /// and occurrence in an execution's wakes (37a, theseus-d4pt). 6 = every
 /// frame written carries its synced mark, and the reader reads both frame
-/// layouts (`wal::Layout`, theseus-7nfj).
-const MANIFEST_FORMAT: u32 = 6;
+/// layouts (`wal::Layout`, theseus-7nfj). 7 = the ontology's `onto:*` META
+/// records, and a compilation manifest's `memberships` and `guidance` (21b,
+/// theseus-8kk.1).
+const MANIFEST_FORMAT: u32 = 7;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

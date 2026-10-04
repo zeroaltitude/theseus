@@ -919,6 +919,9 @@ async fn after_serving(
     // no turn waits for it (theseus-q4v).
     let outbox = core.outbox.clone();
     tokio::task::spawn_blocking(move || outbox.warm());
+    // The ontology's snapshot, by one META prefix scan (theseus-8kk.1): a
+    // compile reads it from memory.
+    core.warm_ontology();
     // The index tender (roadmap row 51; M6 §2.2), started once the socket
     // answers, never before, and by the socket daemon alone (`bindings` is
     // its): a `--stdio` daemon serves `store-stdio` for one client.

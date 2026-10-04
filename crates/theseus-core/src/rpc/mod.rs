@@ -18,6 +18,7 @@ mod driver;
 mod info;
 mod memory;
 mod methods;
+mod ontology;
 mod pages;
 mod policy;
 mod publish;
@@ -566,6 +567,8 @@ impl Core {
             latest_stops: Default::default(),
             // Told by the binding as it starts (the place rule).
             place_rule: Default::default(),
+            // Built after serving, by one META scan (theseus-8kk.1).
+            ontology: Default::default(),
         };
         let telemetry_cell = std::sync::OnceLock::new();
         if let Some(t) = telemetry {

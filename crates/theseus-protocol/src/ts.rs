@@ -40,6 +40,7 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("gate.rs"),
         include_str!("index.rs"),
         include_str!("memory.rs"),
+        include_str!("ontology.rs"),
         include_str!("places.rs"),
         include_str!("push.rs"),
     ] {
@@ -108,6 +109,9 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         ExecutionView, ExecutionsWatchParams, ExecutionsWatchResult, SessionListParams, PushStatus,
         WaitUntil, SessionWaitParams, SessionWaitResult, EventsLost, ToolClass, AwsPlan, AwsStatus,
         AwsAccountStatus, TenderStatus, PlaceClass, PlacesHealth, PlaceInfo, PlacePublishParams, PublishResult,
+        OntologyListParams, OntologyListResult, OntologyKind, OntologyCategory, OntologyGuidance,
+        OntologyMembership, OntologyCategoryAddParams, OntologyGuidanceSetParams,
+        OntologyMembershipSetParams, OntologyMembershipResult,
         index::IndexQueryParams, index::IndexWeights, index::IndexFilters, index::IndexSourceRank,
         index::IndexHit, index::IndexTimings, index::IndexLag, index::IndexQueryResult,
         index::IndexStamp, index::IndexEmbedTask, index::IndexNeighboursParams,

@@ -70,6 +70,15 @@ pub struct Manifest {
     /// manifest from before 13c.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache: Option<CacheLayout>,
+    /// Every membership the compile walk used (theseus-8kk.1): its kind,
+    /// category, origin, and as-of. While the session appends, the walk
+    /// takes these again; a recompile takes the current ones.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub memberships: Vec<theseus_ontology::MembershipUsed>,
+    /// Each category's guidance the system's second block carried, in
+    /// order, with its version and digest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guidance: Vec<theseus_ontology::GuidanceUsed>,
     // A manifest from 19a to the place rule (COMPILATION schema 4) also has
     // `audience`, `readers`, `integrity`, and `withheld`: they read, and are
     // left unread (COMPILATION schema 5, theseus-nbsh).
@@ -207,6 +216,13 @@ pub struct RequestSpec {
     /// so a longer-lived entry never follows a shorter one, as the provider
     /// requires.
     pub conversation_ttl: CacheTtl,
+    /// The ontology's compile walk, fixed for the turn (theseus-8kk.1); none
+    /// while the ontology holds no category. `compile` renders its guidance
+    /// after the context files.
+    pub walk: Option<Arc<crate::ontology::Walk>>,
+    /// What the walk used, once `compile` has rendered it: the manifest's.
+    pub memberships: Vec<theseus_ontology::MembershipUsed>,
+    pub guidance: Vec<theseus_ontology::GuidanceUsed>,
 }
 
 #[derive(Clone, Copy)]
@@ -571,6 +587,8 @@ pub fn manifest_for(
         strip_thinking: strip,
         context_files: spec.context_files.clone(),
         cache: Some(cache_layout(spec, catalog)),
+        memberships: spec.memberships.clone(),
+        guidance: spec.guidance.clone(),
     }
 }
 
@@ -580,9 +598,34 @@ pub(crate) fn renderable(n: &Node) -> bool {
     !matches!(n.body, Body::ToolCall { .. })
 }
 
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+/// Compile a loop's request. With an ontology walk, the spec an append
+/// renders carries the guidance of the memberships the current manifest
+/// recorded, and the one a recompile renders that of the current ones
+/// (theseus-8kk.1): so a membership change waits for the next recompile,
+/// and a guidance edit in play changes the system block, which recompiles.
 pub fn compile(input: CompileInput<'_>) -> Compiled {
-    let spec = input.spec;
+    let Some(walk) = input.spec.walk.as_deref() else {
+        return compile_with(input, input.spec, input.spec);
+    };
+    let recompiled = crate::ontology::guided(input.spec, walk.compose(&walk.current));
+    let appended = match input.current {
+        Some(c) => crate::ontology::guided(
+            input.spec,
+            walk.compose(&crate::ontology::recorded(&c.manifest.memberships)),
+        ),
+        None => std::borrow::Cow::Borrowed(&*recompiled),
+    };
+    compile_with(input, &appended, &recompiled)
+}
+
+/// `compile`, with the spec an append renders and the one a recompile does.
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+fn compile_with(
+    input: CompileInput<'_>,
+    appended: &RequestSpec,
+    recompiled: &RequestSpec,
+) -> Compiled {
+    let spec = appended;
     let entry = input.catalog.get(&spec.model);
     let window = input.window_override.or(entry.map(|e| e.context_window));
     // The provider's word on the window beats the catalog's when it is
@@ -631,24 +674,40 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
     if let (None, Some(why), Some(_)) = (&decided, input.strip, input.current) {
         decided = Some((why.to_string(), "transcript", true));
     }
+    // A recompile, or a ring, renders the walk's current memberships.
+    let now_manifest = if std::ptr::eq(appended, recompiled) {
+        now_manifest
+    } else if decided.is_some() {
+        manifest_for(recompiled, input.catalog, window, false)
+    } else {
+        now_manifest
+    };
+    let mut spec = if decided.is_some() {
+        recompiled
+    } else {
+        appended
+    };
 
     let all_renderable: Vec<&(u64, Arc<Node>)> =
         input.nodes.iter().filter(|(_, n)| renderable(n)).collect();
-    let make = |trigger: String, strategy: &str, strip: bool, includes: Vec<String>| Compilation {
-        id: crate::new_id("cmp"),
-        schema: COMPILATION_SCHEMA,
-        session_id: input.session_id.into(),
-        created_at_ms: theseus_protocol::now_unix_ms(),
-        trigger,
-        strategy: strategy.into(),
-        as_of: input.last_position,
-        includes,
-        derived_from: input.current.map(|c| c.id.clone()),
-        manifest: Manifest {
-            strip_thinking: strip,
-            ..now_manifest.clone()
-        },
-    };
+    let make =
+        |trigger: String, strategy: &str, strip: bool, includes: Vec<String>, base: &Manifest| {
+            Compilation {
+                id: crate::new_id("cmp"),
+                schema: COMPILATION_SCHEMA,
+                session_id: input.session_id.into(),
+                created_at_ms: theseus_protocol::now_unix_ms(),
+                trigger,
+                strategy: strategy.into(),
+                as_of: input.last_position,
+                includes,
+                derived_from: input.current.map(|c| c.id.clone()),
+                manifest: Manifest {
+                    strip_thinking: strip,
+                    ..base.clone()
+                },
+            }
+        };
 
     let mut compilation = match decided.take() {
         None => input
@@ -670,7 +729,7 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
             } else {
                 all_renderable.iter().map(|(_, n)| n.id.clone()).collect()
             };
-            make(trigger, strategy, strip, includes)
+            make(trigger, strategy, strip, includes, &now_manifest)
         }
     };
     let mut new_compilation = input
@@ -704,6 +763,12 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
             .saturating_sub(4_096);
         if est.upper > budget || input.overflowed.is_some() {
             let target = budget * 6 / 10;
+            // A ring is a new compilation: it takes the walk's current
+            // memberships, as any recompile does.
+            let ring_base = match std::ptr::eq(spec, recompiled) {
+                true => now_manifest,
+                false => manifest_for(recompiled, input.catalog, window, false),
+            };
             let seq: Vec<&Node> = all_renderable.iter().map(|(_, n)| &**n).collect();
             let starts: Vec<usize> = seq
                 .iter()
@@ -713,14 +778,15 @@ pub fn compile(input: CompileInput<'_>) -> Compiled {
                 .collect();
             for &cut in starts.iter().skip(1) {
                 let includes: Vec<String> = seq[cut..].iter().map(|n| n.id.clone()).collect();
-                let candidate = make("overflow".into(), "ring", true, includes);
-                let r = render_request(spec, input.catalog, &candidate, input.nodes, media);
+                let candidate = make("overflow".into(), "ring", true, includes, &ring_base);
+                let r = render_request(recompiled, input.catalog, &candidate, input.nodes, media);
                 let e = estimate(&r.request, rates, None);
                 let last = cut == *starts.last().unwrap();
                 let tokens = input.overflowed.map_or(e.tokens, |o| o.scale(e.tokens));
                 if tokens <= target || last {
                     compilation = candidate;
                     rendered = r;
+                    spec = recompiled;
                     est = e;
                     new_compilation = true;
                     trigger = Some("overflow".into());
@@ -1129,6 +1195,9 @@ mod tests {
             first_party: true,
             cache_ttl: CacheTtl::FiveMinutes,
             conversation_ttl: CacheTtl::FiveMinutes,
+            walk: None,
+            memberships: vec![],
+            guidance: vec![],
         }
     }
 

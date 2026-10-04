@@ -34,6 +34,8 @@ One line each; a crate's key modules and its readers are in its own `AGENTS.md`.
 - `theseus-core`: The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools.
 - `theseus-aws-catalog`, `theseus-aws`: Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1).
 - `theseus-discord`: The Discord binding, in-process; it acts through the protocol.
+- `theseus-ontology`: The ontology's pure types (M4 §2.8): the kinds table, categories, guidance, memberships, and
+  the compile walk's composition. No store, no policy; theseus-core keeps its records and runs the walk (21b).
 - `theseus-sandbox`: L1: a job in its own namespaces under seccomp, with no cgroup of its own; the egress proxy (wired at 18c)
 - `theseusd`: The daemon: serving, `job-wrapper`, `job-sandbox`, `check`, `restore`, `install`, the web server.
 - `theseus`: The CLI, and its library `theseus_client` (client, render), which the terminal UI shares.

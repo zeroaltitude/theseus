@@ -19,6 +19,8 @@ theseus-aws = { path = "../theseus-aws" }
 theseus-aws-guard = { path = "../theseus-aws-guard" }
 # Recall's science: the filters, the rank, and the pack (M6 step 30a).
 theseus-memory = { path = "../theseus-memory" }
+# The ontology (row 26, 21b): its records, the snapshot, and the compile walk.
+theseus-ontology = { path = "../theseus-ontology" }
 anyhow.workspace = true
 base64.workspace = true
 thiserror.workspace = true

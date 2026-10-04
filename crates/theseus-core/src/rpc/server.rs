@@ -261,6 +261,10 @@ impl Core {
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
             method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
+            method::ONTOLOGY_LIST
+            | method::ONTOLOGY_CATEGORY_ADD
+            | method::ONTOLOGY_GUIDANCE_SET
+            | method::ONTOLOGY_MEMBERSHIP_SET => self.rpc_ontology(&req.method, params, conn),
             method::CONFIRM_LIST => reply(theseus_protocol::ConfirmListResult {
                 confirms: self.confirm_list()?,
             }),
@@ -410,7 +414,7 @@ pub(super) fn parse<T: DeserializeOwned>(v: Value) -> Result<T, RpcFailure> {
 }
 
 /// Parse a method's params, run it, and serialize its result.
-fn route<P: DeserializeOwned, R: Serialize>(
+pub(super) fn route<P: DeserializeOwned, R: Serialize>(
     params: Value,
     method: impl FnOnce(P) -> Result<R, RpcFailure>,
 ) -> Result<Value, RpcFailure> {

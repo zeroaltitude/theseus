@@ -679,6 +679,10 @@ pub(crate) enum Act<'a> {
     /// The owner's publish into a place (the place rule): it puts the owner's
     /// material where others read it.
     Publish { place: &'a str },
+    /// An ontology write (theseus-8kk.1): guidance steers every session in
+    /// its category, so a job's process that wrote it would be an injection
+    /// path. `what` names the write: `guidance of topic:theseus`.
+    Ontology { method: &'static str, what: &'a str },
 }
 
 impl Act<'_> {
@@ -690,6 +694,7 @@ impl Act<'_> {
             Act::Untighten { .. } => theseus_protocol::method::POLICY_UNTIGHTEN,
             Act::Trust { .. } => theseus_protocol::method::POLICY_TRUST,
             Act::Publish { .. } => theseus_protocol::method::PLACE_PUBLISH,
+            Act::Ontology { method, .. } => method,
         }
     }
 }

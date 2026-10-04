@@ -120,6 +120,8 @@ pub struct TurnRunner {
     pub place_rule: crate::places::PlaceRule,
     /// Recall (M6 step 30a): `[memory]`, and the index it asks.
     pub memory: Arc<crate::recall::Memory>,
+    /// The ontology's snapshot (theseus-8kk.1), built after serving.
+    pub ontology: crate::ontology::Board,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -724,6 +726,9 @@ impl TurnRunner {
                 SessionKind::Task => CacheTtl::FiveMinutes,
                 SessionKind::Conversation => target.cache_ttl,
             },
+            walk: None,
+            memberships: vec![],
+            guidance: vec![],
         };
         (spec, unreadable)
     }
@@ -1524,7 +1529,8 @@ impl TurnRunner {
         // recompiles the next turn, never between a tool call and its result.
         // So is the place's class (the place rule): a class that changes
         // mid-turn applies at the next turn's first loop.
-        let (spec, unreadable) = self.request_spec(target, session.kind, t.tc.class);
+        let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.class);
+        spec.walk = self.walk(sid, t.tc.class);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");

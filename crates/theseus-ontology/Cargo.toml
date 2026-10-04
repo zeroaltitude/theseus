@@ -7,10 +7,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy): its reader, or the roadmap re-cut's row that wires it in.
-[package.metadata.theseus]
-reserved_for = "row 26 (21b), M4: the ontology's records, its snapshot, and the compile walk in theseus-core"
-
 [dependencies]
 hex = "0.4"
 serde.workspace = true
