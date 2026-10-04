@@ -36,12 +36,13 @@ use crate::client::{
 use crate::learn::RollbackRule;
 
 /// Every pack version this build knows, by file name: the test pack,
-/// §2.4's six, and `security.v2`, a candidate beside `security.v1`.
+/// §2.4's six, and `security.v2` and `security.v3`, candidates beside `security.v1`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
     ("security.v1", include_str!("../packs/security.v1.toml")),
     ("security.v2", include_str!("../packs/security.v2.toml")),
+    ("security.v3", include_str!("../packs/security.v3.toml")),
     ("classify.v1", include_str!("../packs/classify.v1.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
@@ -150,6 +151,11 @@ pub struct QuestionDef {
     pub thresholds: Thresholds,
     /// Whether the pack's live action reads it (its sample minimum is 200).
     pub decides: bool,
+    /// A deciding Noul's own bar: it decides (asks) when p reaches this,
+    /// instead of at its `confirm`. None keeps the `confirm` line, which is
+    /// every pack that existed before the field. Within `confirm..=act`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decide_above: Option<f64>,
     /// A Choice's static options, the no-match option among them.
     pub options: Vec<ChoiceOption>,
     pub no_match: Option<String>,
@@ -221,6 +227,7 @@ struct QuestionFile {
     confirm: f64,
     #[serde(default)]
     decides: bool,
+    decide_above: Option<f64>,
     #[serde(default)]
     options: Vec<OptionFile>,
     no_match: Option<String>,
@@ -256,6 +263,9 @@ pub enum Rule {
     NoulShape,
     Dynamic,
     Rollback,
+    /// A `decide_above` on a question that cannot carry one, or outside its
+    /// thresholds.
+    DecideAbove,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error, Serialize, Deserialize)]
@@ -602,6 +612,23 @@ fn check_question(id: &str, q: QuestionFile) -> Result<QuestionDef, (Rule, Strin
             "a Noul's confirm is above 0.5, or its middle band is empty".into(),
         ));
     }
+    if let Some(bar) = q.decide_above {
+        if !q.decides || q.kind != Kind::Noul || q.per.is_some() {
+            return Err((
+                Rule::DecideAbove,
+                "`decide_above` belongs to a deciding, whole (not per-item) Noul".into(),
+            ));
+        }
+        if !(t.confirm <= bar && bar <= t.act) {
+            return Err((
+                Rule::DecideAbove,
+                format!(
+                    "decide_above ({bar}) lies within confirm ({}) to act ({})",
+                    t.confirm, t.act
+                ),
+            ));
+        }
+    }
     let choice_only = !q.options.is_empty() || q.no_match.is_some() || q.options_from.is_some();
     let score_only = !q.levels.is_empty() || q.applies.is_some();
     let noul_only =
@@ -700,6 +727,7 @@ fn check_question(id: &str, q: QuestionFile) -> Result<QuestionDef, (Rule, Strin
         instructions: ins,
         thresholds: t,
         decides: q.decides,
+        decide_above: q.decide_above,
         options: q
             .options
             .into_iter()
@@ -986,6 +1014,9 @@ mod tests {
             let mut line = format!("{} {:?}", q.id, q.kind);
             if q.decides {
                 line.push_str(" decides");
+                if let Some(bar) = q.decide_above {
+                    line.push_str(&format!(" above {bar}"));
+                }
             }
             if let Some(s) = q.options_from {
                 line.push_str(&format!(" from {s:?} +"));
@@ -1050,6 +1081,21 @@ mod tests {
                     "risky Noul decides",
                     "safe Noul",
                     "steered Noul",
+                    "touches_credentials Noul",
+                    "rollback []",
+                ],
+            ),
+            (
+                "security.v3",
+                &[
+                    "Gate Security2 Posture None",
+                    "beyond_ask Noul",
+                    "destructive Noul",
+                    "exfiltrates Noul",
+                    "kind Choice [read_only local_edit local_exec remote_write publish credentials_or_config other]",
+                    "risky Noul decides",
+                    "safe Noul",
+                    "steered Noul decides above 0.75",
                     "touches_credentials Noul",
                     "rollback []",
                 ],
@@ -1150,7 +1196,7 @@ mod tests {
     #[test]
     fn the_loaders_rules_hold_on_all_the_packs() {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
-        assert_eq!(six.len(), 7, "§2.4's six, and security.v2");
+        assert_eq!(six.len(), 8, "§2.4's six, and security.v2 and v3");
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
             let edit = |from: &str, to: &str| {
@@ -1207,6 +1253,51 @@ mod tests {
                     .expect("a pack that acts has rules");
                 check(text[..cut].to_string(), Rule::Rollback, "no rollback rules");
             }
+        }
+    }
+
+    /// `decide_above` rides on a deciding whole Noul, within confirm..=act.
+    #[test]
+    fn decide_above_belongs_to_a_deciding_noul_within_its_thresholds() {
+        let v3 = include_str!("../packs/security.v3.toml");
+        let ok = Pack::parse(v3).unwrap();
+        assert_eq!(ok.question("steered").unwrap().decide_above, Some(0.75));
+        assert_eq!(ok.question("risky").unwrap().decide_above, None);
+        let edit = |from: &str, to: &str| {
+            assert!(v3.contains(from), "{from:?}");
+            v3.replacen(from, to, 1)
+        };
+        // Not deciding.
+        let s = edit("decides = true\ndecide_above = 0.75", "decide_above = 0.75");
+        assert_eq!(refused(&s), Rule::DecideAbove);
+        // Below confirm, above act.
+        let s = edit("decide_above = 0.75", "decide_above = 0.5");
+        assert_eq!(refused(&s), Rule::DecideAbove);
+        let s = edit("decide_above = 0.75", "decide_above = 0.95");
+        assert_eq!(refused(&s), Rule::DecideAbove);
+        // Edges are inside.
+        Pack::parse(&edit("decide_above = 0.75", "decide_above = 0.60")).unwrap();
+        Pack::parse(&edit("decide_above = 0.75", "decide_above = 0.90")).unwrap();
+        // On a Choice.
+        let s = edit(
+            "no_match = \"other\"",
+            "no_match = \"other\"\ndecides = true\ndecide_above = 0.75",
+        );
+        assert_eq!(refused(&s), Rule::DecideAbove);
+    }
+
+    /// Every pack that exists before `decide_above` loads to the same
+    /// checked definition: no bar, and a serialization without the field.
+    #[test]
+    fn a_pack_without_decide_above_serializes_as_before() {
+        for (file, text) in EMBEDDED.iter().filter(|(f, _)| *f != "security.v3") {
+            let p = Pack::parse(text).unwrap();
+            assert!(
+                p.questions.iter().all(|q| q.decide_above.is_none()),
+                "{file}"
+            );
+            let json = serde_json::to_string(&p).unwrap();
+            assert!(!json.contains("decide_above"), "{file}");
         }
     }
 }

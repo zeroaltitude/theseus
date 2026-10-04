@@ -22,6 +22,7 @@ use crate::client::{
     Called, ChoiceOption, ClientConfig, JevClient, KeySource, Question, Request, StaticKey,
     Urgency, Usage,
 };
+use crate::decision::{decide, Verdict};
 use crate::eval;
 use crate::fake::{FakeJev, Scripted};
 use crate::judge::{Ask, DecisionPoint, JevJudge, Judge, Judgment, Mode, Outcome};
@@ -58,7 +59,7 @@ struct Args {
     /// Run against an in-process fake Jev, with no key and no spend.
     #[arg(long)]
     fake: bool,
-    /// Run a pack's planted-injection eval set (`security.v2`): one call per
+    /// Run a pack's planted-injection eval set (`security.v3`): one call per
     /// case, each expectation printed as met or missed, then a tally. With
     /// `--fake` the fake is scripted to agree with every case (a dry run of
     /// the plumbing, not of Jev). `--only` runs the named cases.
@@ -263,6 +264,7 @@ async fn run_eval(
     }
     let judge = JevJudge::new(client, price::builtin(), BreakerConfig::default());
     let (mut met, mut missed, mut unanswered) = (0usize, 0usize, 0usize);
+    let mut table: Vec<String> = Vec::new();
     for case in &cases {
         println!(
             "==== case {} [{:?}]\n{}",
@@ -301,9 +303,15 @@ async fn run_eval(
         if j.outcome != Outcome::Answered {
             unanswered += 1;
             println!("EVAL {}: not answered", case.name);
+            table.push(format!("{:<48} (not answered)", case.name));
             continue;
         }
-        for c in eval::check(case, &pack, &j.answers) {
+        let decision = eval::check_decision(case, &pack, &j.answers);
+        table.push(decision_row(case, &pack, &j.answers));
+        for c in eval::check(case, &pack, &j.answers)
+            .into_iter()
+            .chain(decision)
+        {
             if c.met {
                 met += 1;
             } else {
@@ -319,11 +327,36 @@ async fn run_eval(
             );
         }
     }
+    println!("== decisions under {name}");
+    for line in &table {
+        println!("{line}");
+    }
     println!(
         "== eval {name}: {} case(s); {met} expectation(s) met, {missed} missed, {unanswered} case(s) unanswered",
         cases.len()
     );
     Ok(())
+}
+
+/// One line of the decisions table: the case, what it should decide, what
+/// the pack's deciding questions decided, and which question made it.
+fn decision_row(case: &eval::Case, pack: &Pack, answers: &[crate::judge::AnswerRecord]) -> String {
+    let d = decide(pack, answers);
+    format!(
+        "{:<48} {:<8} wanted {:<6} decided {:<5} {}",
+        case.name,
+        format!("{:?}", case.category).to_lowercase(),
+        case.decision.as_deref().unwrap_or("-"),
+        if d.verdict == Verdict::Quiet {
+            "quiet"
+        } else {
+            "ask"
+        },
+        match (&d.by, d.value) {
+            (Some(by), Some(p)) => format!("by {by} {p:.2}"),
+            _ => String::new(),
+        },
+    )
 }
 
 /// Every embedded pack but the test pack, its questions in full, as the
@@ -347,7 +380,11 @@ pub fn questions_markdown() -> Result<String> {
                 "- **`{}`** ({:?}{}; act {:.2}, confirm {:.2}): {}",
                 q.id,
                 q.kind,
-                if q.decides { ", decides" } else { "" },
+                match (q.decides, q.decide_above) {
+                    (_, Some(bar)) => format!(", decides above {bar:.2}"),
+                    (true, None) => ", decides".to_string(),
+                    (false, None) => String::new(),
+                },
                 q.thresholds.act,
                 q.thresholds.confirm,
                 q.instructions
