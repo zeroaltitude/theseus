@@ -81,6 +81,8 @@ export type * from './IndexEmbedParams';
 export type * from './IndexEmbedResult';
 export type * from './IndexEmbedStats';
 export type * from './IndexEmbedTask';
+export type * from './IndexEntitiesParams';
+export type * from './IndexEntitiesResult';
 export type * from './IndexFilters';
 export type * from './IndexForgetParams';
 export type * from './IndexForgetResult';

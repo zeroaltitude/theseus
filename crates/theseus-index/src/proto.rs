@@ -7,7 +7,8 @@
 pub use theseus_protocol::index::{
     method, IndexBackfill as Backfill, IndexChunkRef as ChunkRef, IndexCompactions as Compactions,
     IndexEmbedParams as EmbedParams, IndexEmbedResult as EmbedResult,
-    IndexEmbedStats as EmbedStats, IndexEmbedTask as Task, IndexFilters as Filters,
+    IndexEmbedStats as EmbedStats, IndexEmbedTask as Task, IndexEntitiesParams as EntitiesParams,
+    IndexEntitiesResult as EntitiesResult, IndexFilters as Filters,
     IndexForgetParams as ForgetParams, IndexForgetResult as ForgetResult, IndexHit as Hit,
     IndexLag as Lag, IndexNeighbour as Neighbour, IndexNeighboursParams as NeighboursParams,
     IndexNeighboursResult as NeighboursResult, IndexQueryParams as QueryParams,
