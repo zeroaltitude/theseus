@@ -238,8 +238,10 @@ pub mod method {
         /// The prompts the MCP servers list (M7 36c,
         /// `mcp::McpPromptListParams`). A read.
         MCP_PROMPT_LIST = "mcp.prompt.list",
-        /// Proposed extensions (M7 43a, `extend::ExtendListResult`). A read.
+        /// Proposed and loaded extensions (M7 43a, 43b; `extend::ExtendListResult`). A read.
         EXTEND_LIST = "extend.list",
+        /// Revoke a loaded extension (43b, `extend::ExtensionRevokeParams`). The operator's.
+        EXTENSION_REVOKE = "extension.revoke",
     }
 }
 

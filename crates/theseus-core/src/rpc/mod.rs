@@ -709,6 +709,11 @@ impl Core {
         }
         core.tools.extend.attach(&core.mcp);
         core.runner.judge.attach(&core);
+        // The loaded extensions (M7 43b): one META key, and each one's
+        // stored list, offered at once; each starts after serving.
+        if let Err(e) = core.seed_extensions() {
+            tracing::warn!(error = %format!("{e:#}"), "the loaded extensions did not read");
+        }
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);

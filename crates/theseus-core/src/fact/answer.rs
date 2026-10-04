@@ -174,7 +174,8 @@ impl ActRefused<'_> {
             Act::Publish { .. }
             | Act::Ontology { .. }
             | Act::Label { .. }
-            | Act::JudgeLabel { .. } => None,
+            | Act::JudgeLabel { .. }
+            | Act::Revoke { .. } => None,
         }
     }
 }
@@ -203,6 +204,10 @@ impl Fact for ActRefused<'_> {
             }
             Act::Ontology { what, .. } | Act::Label { what } | Act::JudgeLabel { what } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
+                       "why": r.why, "by": self.by})
+            }
+            Act::Revoke { name } => {
+                json!({"act": act.method(), "name": name, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
         }
@@ -250,6 +255,11 @@ impl Fact for ActRefused<'_> {
                 Act::JudgeLabel { what } => format!(
                     "A judgment's label, {what}, from {} through {}, did not count: {}. \
                      Nothing was written.",
+                    r.who, r.via, r.why
+                ),
+                Act::Revoke { name } => format!(
+                    "Revoking extension {name}, from {} through {}, did not count: {}. It \
+                     stays loaded.",
                     r.who, r.via, r.why
                 ),
             },

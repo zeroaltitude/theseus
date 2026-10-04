@@ -316,7 +316,7 @@ impl Core {
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),
-            method::EXTEND_LIST => reply(self.extend_list()?),
+            m @ (method::EXTEND_LIST | method::EXTENSION_REVOKE) => self.rpc_ext(m, params, conn),
             method::MCP_RESTART => reply(self.mcp_restart(parse(params)?)?),
             method::MCP_PROMPT_LIST => reply(self.mcp_prompt_list(params)?),
             // AWS's bootstrap (C2): the plan reads; the apply waits for the stacks.
@@ -330,6 +330,15 @@ impl Core {
                 error_code::METHOD_NOT_FOUND,
                 format!("unknown method {other:?}"),
             )),
+        }
+    }
+
+    /// 43a's list and 43b's revoke, from one arm of `dispatch`, which stays
+    /// within clippy's length that way (the shape budget).
+    fn rpc_ext(&self, name: &str, params: Value, conn: Conn<'_>) -> Result<Value, RpcFailure> {
+        match name {
+            method::EXTEND_LIST => reply(self.extend_list()?),
+            _ => route(params, |p| self.rpc_extension_revoke(p, conn)),
         }
     }
 

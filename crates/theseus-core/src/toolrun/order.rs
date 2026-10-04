@@ -43,7 +43,7 @@ pub(crate) enum Layer {
     Lsp,
     /// A shared place's word on a fetch of a private address (theseus-94a6).
     SharedFetch,
-    /// The place's floor (step 38a).
+    /// The place's floor (step 38a), and an extension's load's (43b).
     Floor,
     /// T1's hold after external text (theseus-9bp).
     Hold,
@@ -90,6 +90,11 @@ impl ToolRuntime {
             Some(c) => c.floor(decision, tool.name(), &plan.summary),
             None => decision,
         };
+        // An extension's call: no looser than its load's ceiling (43b).
+        let decision = self
+            .extend
+            .floors
+            .floor(tool.name(), decision, &plan.summary);
         seen(Layer::Floor, &decision);
         // After the whole order (theseus-9bp): a call that acts in a
         // session that read external text waits. A read and a one-shot

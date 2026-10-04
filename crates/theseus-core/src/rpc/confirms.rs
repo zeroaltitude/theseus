@@ -746,6 +746,10 @@ pub(crate) enum Act<'a> {
     /// grades Jev by it, so a job's process that wrote it would grade the
     /// judge watching it. `what` names it: `wrong on jdg_…`.
     JudgeLabel { what: &'a str },
+    /// A loaded extension's revoke (M7 43b, `extension.revoke`): it stops a
+    /// server the owner acked, so a job's process that made it would undo
+    /// the owner's word.
+    Revoke { name: &'a str },
 }
 
 impl Act<'_> {
@@ -760,6 +764,7 @@ impl Act<'_> {
             Act::Ontology { method, .. } => method,
             Act::Label { .. } => theseus_protocol::method::MEMORY_LABEL,
             Act::JudgeLabel { .. } => theseus_protocol::method::JUDGE_LABEL,
+            Act::Revoke { .. } => theseus_protocol::method::EXTENSION_REVOKE,
         }
     }
 }

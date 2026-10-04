@@ -214,9 +214,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`mcp/trial.rs`, state `proposed`, never in `servers`, so `rebuild` never offers its tools), lists, runs each
   test, and stops it; the manifest is a META record, `extend.manifest.<name>.<digest>`; and the ack is a planned
   `extend.ack` action with its card, answered by `action.confirm` (`judge_act`'s place rule, then
-  `extend/answer.rs`: an ack binds its confirm, a decline or an expiry declines it, neither wakes anything, and
-  nothing loads until 43b). Facts in `fact/extend.rs`; `extend.list` and health's `extensions` in
-  `extend/list.rs`; tests in `extend/tests.rs` and theseusd's `tests/extend.rs`.
+  `extend/answer.rs`: an ack binds its confirm, a decline or an expiry declines it, neither wakes anything). Facts in
+  `fact/extend.rs`; `extend.list` and health's `extensions` in `extend/list.rs`; tests in `extend/tests.rs` and
+  theseusd's `tests/extend.rs`.
+  **Loaded** (43b, theseus-ext.8; `extend/load.rs`, `mcp/ext.rs`): the ack's frame also writes the META record
+  `extensions` (one key: name to digest, command, tools, capabilities, who acked and when, the proposing session, and
+  its place and ceiling at the ack), `extend.loaded`, the server's stored list `mcp.tools.ext-<name>` (the trial's
+  tools, so a new version never offers an old one's), and a replaced version's manifest (`replaced`). Then the board
+  loads `ext-<name>` beside the configured servers (`McpBoard::load_extension`): the frozen copy in L1, the acked
+  network only, no secret, results outside text only with a network (Q22); its tools are in the catalog at once and
+  offered from the next turn's start (the turn's spec is fixed). Posture `notify` unless `[policy.mcp]
+  "ext-<name>"` says otherwise (never looser than the enforcement), class `Run`; the load's ceiling's floor holds
+  every call (`Floors`, in `toolrun`'s gate after the place's own). A start reads the record once
+  (`Core::seed_extensions`, in `build`) and offers the stored lists; each starts after serving with the rest. The
+  `ext-` prefix is refused for a configured server. `extension.revoke` (`extend/revoke.rs`, `judge_act(Act::Revoke)`,
+  in the CLI's `OPERATORS`): one frame (the record without it, its manifest `revoked`, `extend.revoked`), then the
+  board drops it and SIGTERMs its group; the frozen copy stays. Tests: `extend/tests_load.rs`, theseusd's
+  `tests/extend.rs`.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

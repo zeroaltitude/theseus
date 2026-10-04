@@ -295,7 +295,7 @@ pub(crate) fn normalized_argv(argv: &[String]) -> Vec<String> {
 impl ToolPolicy {
     /// A tool's posture and the setting that chose it: `[policy.tools]`, then
     /// for an MCP tool (`mcp:<server>/<tool>`) `[policy.mcp]` "server/tool"
-    /// and "server", for an AWS tool its own class's `[policy.aws]` line
+    /// and "server" (an extension's, `ext-<name>`, then notify), for an AWS tool its own class's `[policy.aws]` line
     /// (`aws::tool_class`), then `[policy].enforcement`. An AWS call's own
     /// lines, by its operation, service, and class, are the gate's to read
     /// (`decide_with`).
@@ -309,6 +309,12 @@ impl ToolPolicy {
                 if let Some(p) = self.mcp.get(key) {
                     return (*p, format!("[policy.mcp] \"{key}\" = {}", p.as_str()));
                 }
+            }
+            // An extension's tools run at notify unless its line says
+            // otherwise (M7 43b), never looser than the enforcement.
+            if server.starts_with(crate::extend::SERVER_PREFIX) {
+                let p = self.enforcement.max(Posture::Notify);
+                return (p, format!("an extension's default ({})", p.as_str()));
             }
         }
         if let Some(class) = crate::aws::tool_class(name) {

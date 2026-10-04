@@ -16,6 +16,7 @@ import { Startup } from '@/components/instruments'
 import { AwsCard, PhasesCard, PushFields, RecentRows, StoreCard } from '@/components/SystemsCards'
 import { HandsGrid } from '@/components/HandsGrid'
 import { DiskSpoolCard } from '@/components/DiskSpool'
+import { ExtensionsCard } from '@/components/Extensions'
 import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
 import { ceilingWords } from '@/lib/ceiling'
@@ -56,6 +57,8 @@ export default function Systems() {
       <StoreCard health={h} />
 
       <AwsCard aws={h.aws} now={now} />
+
+      {h.extensions && <ExtensionsCard now={now} />}
 
       {(h.aws?.accounts.length ?? 0) > 0 && <HandsGrid now={now} />}
 

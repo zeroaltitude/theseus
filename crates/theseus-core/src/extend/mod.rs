@@ -1,7 +1,8 @@
-//! Self-extension, step 43a (M7 §2.7; theseus-ext.5): `extend.propose`
-//! proposes a small MCP server the model wrote, and puts it to the operator.
-//! "Planks, never the keel": nothing here compiles or restarts Theseus, and
-//! in this step nothing loads (43b loads on the ack).
+//! Self-extension, steps 43a and 43b (M7 §2.7; theseus-ext.5, theseus-ext.8):
+//! `extend.propose` proposes a small MCP server the model wrote, and puts it
+//! to the operator; the ack loads it (`load.rs`), and `extension.revoke`
+//! unloads it (`revoke.rs`). "Planks, never the keel": nothing here compiles
+//! or restarts Theseus.
 //!
 //! 1. **The tool.** `extend.propose { name, dir, command, description,
 //!    tests?, network? }`, run by the harness: class `Run`, posture `notify`
@@ -31,16 +32,20 @@
 //!    job's shell (`THESEUS_SESSION`), and L1 has no route to the daemon. An
 //!    ack binds the question's confirm and writes `extend.acked`; a decline,
 //!    or no answer within the question's time, writes `extend.declined`.
-//!    Neither wakes the execution, and nothing loads.
+//!    Neither wakes the execution. An ack loads it (43b, `load.rs`).
 //!
-//! Its rows are `extend.proposed`, `extend.tested`, `extend.acked`, and
-//! `extend.declined` (`fact::extend`).
+//! Its rows are `extend.proposed`, `extend.tested`, `extend.acked`,
+//! `extend.declined`, `extend.loaded`, and `extend.revoked` (`fact::extend`).
 
 pub mod answer;
 pub mod freeze;
 pub mod list;
+pub mod load;
+pub mod revoke;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_load;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
@@ -238,6 +243,11 @@ pub struct Extensions {
     pub dir: PathBuf,
     roots: Vec<PathBuf>,
     board: OnceLock<Weak<McpBoard>>,
+    /// The ceilings loaded extensions hold their calls to (43b).
+    pub floors: load::Floors,
+    /// Held across each read and write of the `extensions` record: a load
+    /// and a revoke never interleave.
+    pub(crate) writes: std::sync::Mutex<()>,
 }
 
 impl Extensions {
@@ -246,6 +256,8 @@ impl Extensions {
             dir,
             roots,
             board: OnceLock::new(),
+            floors: Default::default(),
+            writes: Default::default(),
         }
     }
 

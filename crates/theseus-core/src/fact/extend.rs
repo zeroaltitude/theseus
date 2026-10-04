@@ -1,8 +1,9 @@
-//! A proposed extension's facts (M7 43a, design §2.7): proposed (frozen),
-//! tested (in L1, through the board), acked, and declined. Each is a ledger
-//! row and its narrative lines. The proposal and its test are the proposing
-//! turn's, and ride in its next frame; an answer's row rides in the answer's
-//! frame.
+//! An extension's facts (M7 43a and 43b, design §2.7): proposed (frozen),
+//! tested (in L1, through the board), acked, declined, loaded, and revoked.
+//! Each is a ledger row and its narrative lines. The proposal and its test
+//! are the proposing turn's, and ride in its next frame; an answer's rows,
+//! the load's among them, ride in the answer's frame, and a revoke's in its
+//! own.
 
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
@@ -92,7 +93,7 @@ impl Fact for ExtendTested<'_> {
     }
 }
 
-/// The operator acked it: in this step, nothing loads (43b loads it).
+/// The operator acked it: it loads (43b, `ExtendLoaded` in the same frame).
 pub struct ExtendAcked<'a> {
     pub name: &'a str,
     pub digest: &'a str,
@@ -113,7 +114,7 @@ impl Fact for ExtendAcked<'_> {
         say.line(
             Approval,
             format!(
-                "Extension {} {} acked by {}; nothing loads in this build.",
+                "Extension {} {} acked by {}.",
                 self.name,
                 short(self.digest),
                 self.by
@@ -146,6 +147,80 @@ impl Fact for ExtendDeclined<'_> {
             Approval,
             format!(
                 "Extension {} {} declined by {}; nothing loads.",
+                self.name,
+                short(self.digest),
+                self.by
+            ),
+        );
+    }
+}
+
+/// An acked extension loaded (43b): its server `ext-<name>` starts in L1
+/// from the frozen copy, and its tools are offered from the next turn.
+pub struct ExtendLoaded<'a> {
+    pub name: &'a str,
+    pub digest: &'a str,
+    pub tools: &'a [String],
+    pub network: &'a [String],
+    /// The digest of the version it replaced.
+    pub replaced: Option<&'a str>,
+    pub by: &'a str,
+    /// The proposing session's place, and its ceiling, at the ack.
+    pub place: Option<&'a str>,
+    pub ceiling: Option<&'a theseus_protocol::PlaceCeiling>,
+}
+
+impl Fact for ExtendLoaded<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ExtendLoaded);
+
+    fn row(&self) -> Value {
+        json!({"name": self.name, "digest": self.digest, "server": format!("ext-{}", self.name),
+            "tools": self.tools, "network": self.network, "replaced": self.replaced,
+            "by": self.by, "place": self.place, "ceiling": self.ceiling})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let replaced = match self.replaced {
+            Some(d) => format!(", in place of {}", short(d)),
+            None => String::new(),
+        };
+        say.line(
+            Tool,
+            format!(
+                "Extension {} {} loaded as ext-{}{replaced}: {}, offered from the next turn.",
+                self.name,
+                short(self.digest),
+                self.name,
+                count(self.tools.len() as u64, "tool", "tools"),
+            ),
+        );
+    }
+}
+
+/// The operator revoked it (43b): its server stopped, its tools dropped from
+/// the next turn; the frozen copy stays on disk.
+pub struct ExtendRevoked<'a> {
+    pub name: &'a str,
+    pub digest: &'a str,
+    pub tools: &'a [String],
+    pub by: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for ExtendRevoked<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ExtendRevoked);
+
+    fn row(&self) -> Value {
+        json!({"name": self.name, "digest": self.digest, "server": format!("ext-{}", self.name),
+            "tools": self.tools, "by": self.by, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "Extension {} {} revoked by {}: its server stopped, and its tools are gone \
+                 from the next turn.",
                 self.name,
                 short(self.digest),
                 self.by

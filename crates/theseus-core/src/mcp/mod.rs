@@ -27,6 +27,7 @@
 //!
 //! Each start, ready, exit, failure, and change is a fact (`fact::mcp`).
 
+pub mod ext;
 pub mod l1;
 pub mod prompts;
 #[cfg(test)]
@@ -476,6 +477,9 @@ pub struct McpBoard {
     /// Proposed extensions on trial (43a, `trial.rs`): never in `servers`,
     /// so `rebuild` never offers their tools.
     trials: Mutex<BTreeMap<String, Arc<Server>>>,
+    /// Loaded extensions (43b, `ext.rs`), `ext-<name>`: offered as the
+    /// configured servers are, loaded and revoked while the daemon runs.
+    extensions: Mutex<BTreeMap<String, ext::Loaded>>,
 }
 
 impl McpBoard {
@@ -504,6 +508,7 @@ impl McpBoard {
             stop: watch::Sender::new(false),
             started: Default::default(),
             trials: Mutex::default(),
+            extensions: Mutex::default(),
         });
         board.rebuild();
         board
@@ -532,7 +537,9 @@ impl McpBoard {
         let trials = self.trials.lock().unwrap_or_else(PoisonError::into_inner);
         self.servers
             .values()
-            .chain(trials.values())
+            .cloned()
+            .chain(self.loaded_servers())
+            .chain(trials.values().cloned())
             .map(|s| s.status())
             .collect()
     }
@@ -546,13 +553,15 @@ impl McpBoard {
         for s in self.servers.values().filter(|s| s.cfg.enabled) {
             tokio::spawn(self.clone().tend(s.clone()));
         }
+        self.start_extensions();
     }
 
     /// The daemon stops: SIGTERM to each server's group, never waited for.
     pub fn stop(&self) {
         self.stop.send_replace(true);
         let trials = self.trials.lock().unwrap_or_else(PoisonError::into_inner);
-        for s in self.servers.values().chain(trials.values()) {
+        let loaded = self.loaded_servers();
+        for s in self.servers.values().chain(&loaded).chain(trials.values()) {
             if let Some(c) = s.live().client.take() {
                 c.terminate();
             }
@@ -562,7 +571,8 @@ impl McpBoard {
     /// `mcp.restart`: start the server again now, a failed one included, its
     /// crashes forgotten. The state it was in, or None for no such server.
     pub fn restart(self: &Arc<Self>, name: &str) -> Option<State> {
-        let s = self.servers.get(name)?;
+        let loaded = self.loaded_server(name);
+        let s = self.servers.get(name).or(loaded.as_ref())?;
         let was = s.state();
         if was == State::Disabled {
             return Some(was);
@@ -639,7 +649,8 @@ impl McpBoard {
     /// secrets, so its calls run at no looser a posture than theirs.
     fn rebuild(&self) {
         let mut pairs: Vec<(Arc<Server>, Listed)> = Vec::new();
-        for s in self.servers.values().filter(|s| s.cfg.enabled) {
+        let servers = self.servers.values().cloned().chain(self.loaded_servers());
+        for s in servers.filter(|s| s.cfg.enabled) {
             for t in s.live().tools.clone() {
                 pairs.push((s.clone(), t));
             }

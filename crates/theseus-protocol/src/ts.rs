@@ -149,6 +149,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         mcp::McpPromptInfo, mcp::McpPromptListParams, mcp::McpPromptListResult, mcp::McpPromptRef,
         mcp_server::McpServerHealth, mcp_server::McpServerRefusals,
         extend::ExtendInfo, extend::ExtendListResult, extend::ExtendHealth,
+        extend::ExtendLoadedInfo, extend::ExtensionRevokeParams, extend::ExtensionRevokeResult,
         tasks::TaskState, tasks::TaskOrigin, tasks::TaskEvidence, tasks::TaskProposal,
         tasks::TaskRecord, tasks::TaskGetParams, tasks::TaskGetResult, tasks::TaskChanged,
         tasks::TaskViewSummary,
