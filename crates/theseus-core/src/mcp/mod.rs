@@ -27,6 +27,7 @@
 //!
 //! Each start, ready, exit, failure, and change is a fact (`fact::mcp`).
 
+pub mod l1;
 #[cfg(test)]
 mod tests;
 pub mod tool;
@@ -165,6 +166,8 @@ pub struct Spawn {
     pub cwd: PathBuf,
     /// The job's environment, which a stdio server gets too.
     pub base_env: Vec<(String, String)>,
+    /// How a server with `sandbox = "l1"` starts (M7 43a).
+    pub l1: l1::L1Spawn,
 }
 
 fn options(cfg: &McpServerConfig) -> theseus_mcp::Options {
@@ -208,12 +211,26 @@ impl Spawn {
         cfg: &McpServerConfig,
         env: Vec<(String, String)>,
     ) -> Result<theseus_mcp::Transport, String> {
-        let mut cmd = theseus_mcp::client::stdio_command(&cfg.command)
-            .ok_or_else(|| "its command names no program".to_string())?;
-        cmd.env_clear()
-            .envs(self.base_env.iter().cloned())
-            .envs(env)
-            .current_dir(&self.cwd);
+        if cfg.command.first().is_none_or(|p| p.trim().is_empty()) {
+            return Err("its command names no program".into());
+        }
+        // An extension's frozen copy is where it runs, never the workspace.
+        let cwd = cfg.frozen.clone().unwrap_or_else(|| self.cwd.clone());
+        let mut cmd = match cfg.sandbox {
+            crate::config::mcp::McpSandbox::L1 => {
+                let env = self.base_env.iter().cloned().chain(env).collect();
+                l1::command(&self.l1, cfg, env, cwd)?
+            }
+            crate::config::mcp::McpSandbox::L0 => {
+                let mut cmd = theseus_mcp::client::stdio_command(&cfg.command)
+                    .ok_or_else(|| "its command names no program".to_string())?;
+                cmd.env_clear()
+                    .envs(self.base_env.iter().cloned())
+                    .envs(env)
+                    .current_dir(cwd);
+                cmd
+            }
+        };
         let _ = std::fs::create_dir_all(&self.log_dir);
         let child = theseus_kernel::children::spawn(
             theseus_kernel::children::Kind::Owned,

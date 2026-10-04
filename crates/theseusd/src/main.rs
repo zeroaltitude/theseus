@@ -157,6 +157,15 @@ fn main() -> Result<()> {
     {
         theseus_sandbox::init_main();
     }
+    // An MCP server in L1 (M7 43a): the board spawns this role, which holds
+    // the server's init. As the init does, before anything else: it spawns
+    // the init from this, its main thread, which lives as long as the server.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|a| a == theseus_kernel::mcp_l1::ROLE)
+    {
+        std::process::exit(theseus_kernel::mcp_l1::role_main());
+    }
     // The start of every startup phase's clock (theseus-qa0).
     let origin = Instant::now();
     // The commit this binary was built from, a constant (theseus-9o5n):

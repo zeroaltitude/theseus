@@ -125,6 +125,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   built-ins, in private places only, and a turn's request spec fixes its tools, so a `list_changed` applies at the
   next turn (`mcp.tools_changed`, and an operator notice). Facts in `fact/mcp.rs`; tests in `mcp/tests.rs` (an
   in-process fake through a `Connect` stand-in, the backoff on the paused clock) and theseusd's `tests/mcp.rs`.
+  A server with `sandbox = "l1"` (43a, `mcp/l1.rs`) is the daemon's own binary in its `mcp-sandbox` role
+  (`theseus_kernel::mcp_l1`), spawned as any stdio server is, holding the server's init: the view a job gets
+  (`Sandbox::job_view`), its own `egress` list (none: no network), and its pipes the board's own. It never falls
+  back to L0: a root daemon's start fails with L1's refusal. `l0` stays a configured server's default. Its
+  test is theseusd's `tests/mcp_l1.rs`, which as root checks the refusal alone.
 - **The index tender's supervisor**: `tender.rs` (row 51): it starts `theseus-index` 2 s after serving
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and

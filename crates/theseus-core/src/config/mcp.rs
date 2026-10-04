@@ -27,8 +27,10 @@ impl McpConfig {
     }
 }
 
-/// Where a server's process runs. L1 is filed for a follow-up: until the
-/// job wrapper's L1 path can spawn a long-lived server, a server runs at L0.
+/// Where a server's process runs: L0, as the daemon's own child, or L1
+/// (M7 43a), below the sandbox's init in the view a job gets, through the
+/// daemon's `mcp-sandbox` role (`theseus_kernel::mcp_l1`). L0 stays the
+/// default for a configured server; an extension always runs in L1.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum McpSandbox {
@@ -61,9 +63,18 @@ pub struct McpServerConfig {
     /// never loosen a tool.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub read: Vec<String>,
-    /// Where its process runs; `l0` until servers run in L1.
+    /// Where its process runs: `l0` (the default), or `l1`.
     #[serde(default)]
     pub sandbox: McpSandbox,
+    /// In L1: the hosts it may reach through its egress proxy, as `[sandbox]
+    /// egress` lists them for a job. Empty: no network at all.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub egress: Vec<String>,
+    /// An extension's frozen copy (43a), never the config's: its working
+    /// directory, bound read-only into its view. `None` for a configured
+    /// server, which starts in the workspace's first root.
+    #[serde(skip)]
+    pub frozen: Option<std::path::PathBuf>,
     /// Its results are outside text, which holds the session that reads one
     /// (T1). `false` only for a server whose output is the operator's own.
     #[serde(default = "yes")]
@@ -185,11 +196,20 @@ impl super::Config {
             if let Some(t) = s.read.iter().find(|t| t.trim().is_empty()) {
                 anyhow::bail!("{at}.read names an empty tool ({t:?})");
             }
-            if s.sandbox == McpSandbox::L1 {
+            if s.sandbox == McpSandbox::L1 && s.url.is_some() {
                 anyhow::bail!(
-                    "{at}.sandbox = \"l1\": MCP servers run at L0 in this build; a server in \
-                     L1 is a follow-up (theseus-ext.1's report). Leave `sandbox` unset"
+                    "{at}.sandbox = \"l1\" is for a server Theseus starts; a server over HTTP \
+                     runs elsewhere"
                 );
+            }
+            if !s.egress.is_empty() && s.sandbox != McpSandbox::L1 {
+                anyhow::bail!(
+                    "{at}.egress is an L1 server's list: set sandbox = \"l1\" too (at L0 a \
+                     server reaches what the daemon reaches)"
+                );
+            }
+            if let Err(e) = crate::egress::check(&s.egress) {
+                anyhow::bail!("{at}.egress has {e}");
             }
             if s.start_timeout_secs == 0 || s.start_timeout_secs > 600 {
                 anyhow::bail!("{at}.start_timeout_secs must be 1 to 600");
@@ -216,6 +236,10 @@ pub(crate) fn the_templates_mcp_section(cfg: &super::Config) {
     assert_eq!(gh.read, ["get_issue", "list_pull_requests"]);
     assert!(gh.external && gh.enabled);
     assert_eq!(gh.sandbox, McpSandbox::L0);
+    assert!(gh.egress.is_empty());
+    let wc = &cfg.mcp.servers["wordcount"];
+    assert_eq!(wc.sandbox, McpSandbox::L1);
+    assert_eq!(wc.egress, ["api.wordlist.invalid:443"]);
     assert_eq!((gh.start_timeout_secs, gh.call_timeout_secs), (30, 110));
     let docs = &cfg.mcp.servers["docs"];
     assert_eq!(docs.transport(), "http");
@@ -250,6 +274,27 @@ mod tests {
         assert_eq!(d.transport(), "http");
         assert!(!d.external);
         assert_eq!(cfg.mcp.enabled().count(), 2);
+        assert_eq!(f.sandbox, super::McpSandbox::L0, "l0 stays the default");
+    }
+
+    /// A stdio server in L1 loads, with its egress list (M7 43a); the
+    /// frozen copy is never read from a config.
+    #[test]
+    fn an_l1_server_loads_with_its_egress_list() {
+        let cfg = with(
+            "[mcp.servers.wc]\ncommand = [\"wc-mcp\"]\nsandbox = \"l1\"\n\
+             egress = [\"api.wordlist.invalid:443\"]\n",
+        )
+        .unwrap();
+        let wc = &cfg.mcp.servers["wc"];
+        assert_eq!(wc.sandbox, super::McpSandbox::L1);
+        assert_eq!(wc.egress, ["api.wordlist.invalid:443"]);
+        assert_eq!(wc.frozen, None);
+        let e = format!(
+            "{:#}",
+            with("[mcp.servers.wc]\ncommand = [\"x\"]\nfrozen = \"/tmp\"").unwrap_err()
+        );
+        assert!(e.contains("unknown field"), "{e}");
     }
 
     #[test]
@@ -283,8 +328,16 @@ mod tests {
                 "a server's name",
             ),
             (
-                "[mcp.servers.a]\ncommand = [\"x\"]\nsandbox = \"l1\"",
-                "follow-up",
+                "[mcp.servers.a]\nurl = \"http://h/\"\nsandbox = \"l1\"",
+                "over HTTP runs elsewhere",
+            ),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\negress = [\"h.invalid\"]",
+                "an L1 server's list",
+            ),
+            (
+                "[mcp.servers.a]\ncommand = [\"x\"]\nsandbox = \"l1\"\negress = [\"\"]",
+                "egress has",
             ),
             (
                 "[mcp.servers.a]\ncommand = [\"x\"]\ncall_timeout_secs = 120",

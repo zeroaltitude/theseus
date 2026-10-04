@@ -18,6 +18,7 @@ mod job_l1;
 mod job_wait;
 pub mod kernel;
 mod locks;
+pub mod mcp_l1;
 pub mod outbox;
 pub mod redact;
 mod reopen;

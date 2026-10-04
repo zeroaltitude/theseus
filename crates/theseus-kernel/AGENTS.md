@@ -33,6 +33,11 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
   to L0. `job_egress.rs` (18c): for a job whose `L1.egress` is not empty, the listener in its namespace, the proxy's
   variables, the proxy on the wrapper's threads, stopped once the job has ended (a stop and a deadline included), and
   its `Summary` in `detail.egress`. A job with no list gets none of it.
+- `mcp_l1.rs` (M7 43a): an MCP server in L1, `theseusd mcp-sandbox`: its `Server` (argv, environment, cwd, more
+  read-only binds, the job's `L1` view) rides in `THESEUS_MCP_L1`; it hands its own stdin, stdout, and stderr to
+  the init and keeps no end of the pipes, runs `job_egress`'s proxy for a server with a list, and waits on the
+  init's pidfd, a signalfd (SIGTERM, SIGINT, SIGHUP: SIGTERM to the init, a 2 s grace, then SIGKILL), and the
+  daemon's pidfd (its `kill -9`: SIGKILL to the init at once).
 - `children.rs`: the daemon's children: what it spawned, what it adopted, and who reaps each. Job wrappers and
   tenders (the index tender, row 51) are reaped by their pids, a tender's exit reported to its supervisor; an
   `op` is left to tokio; anything else is an orphan.

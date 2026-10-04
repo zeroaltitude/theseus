@@ -184,6 +184,17 @@ pub struct Parts {
 
 const META_LIVE_PROFILE: &str = "live_profile";
 
+/// This very image, for the children that run it in a role (a job's wrapper,
+/// an MCP server's L1 holder): after an in-place upgrade (copy, then rename
+/// over the old file) the path on disk is a newer binary, or `current_exe()`
+/// names a deleted file; `/proc/self/exe` is still us.
+fn self_exe() -> std::path::PathBuf {
+    match std::path::Path::new("/proc/self/exe") {
+        p if p.exists() => p.to_path_buf(),
+        _ => std::env::current_exe().unwrap_or_else(|_| "/proc/self/exe".into()),
+    }
+}
+
 /// How old the last whole check of the WAL's history may be before a start
 /// checks the whole log again, not only what was written since
 /// (theseus-0dq): a day, for what rots where nothing writes.
@@ -227,14 +238,8 @@ impl Core {
             );
         }
         let scrubber = Arc::new(Scrubber::from_board(secrets.clone()));
-        // Wrappers run this very image: after an in-place upgrade (copy, then
-        // rename over the old file) the path on disk is a newer binary, or
-        // `current_exe()` names a deleted file; `/proc/self/exe` is still us.
-        let self_exe = match std::path::Path::new("/proc/self/exe") {
-            p if p.exists() => p.to_path_buf(),
-            _ => std::env::current_exe()
-                .context("locating the theseusd binary for the job wrapper")?,
-        };
+        // Wrappers run this very image (`self_exe`).
+        let self_exe = self_exe();
         let launcher: Arc<dyn JobLauncher> = Arc::new(WrapperLauncher { self_exe });
         // The start path's phases follow one another: providers, kernel, core.
         startup_log.record("providers", false, t, json!({"providers": providers.len()}));
@@ -563,6 +568,11 @@ impl Core {
                 log_dir: crate::mcp::log_dir(store.dir()),
                 cwd: tools.ctx.cwd.clone(),
                 base_env: tools.proc_env.clone(),
+                l1: crate::mcp::l1::L1Spawn {
+                    exe: self_exe(),
+                    sandbox: tools.sandbox.clone(),
+                    umask: tools.ctx.umask,
+                },
             }),
             |name| crate::mcp::read_stored(&store, name),
         );
