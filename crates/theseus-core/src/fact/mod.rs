@@ -44,6 +44,7 @@ pub mod answer;
 pub mod cancel;
 pub mod driver;
 pub mod index;
+pub mod judge;
 pub mod place;
 pub mod sandbox;
 pub mod start;
@@ -321,6 +322,11 @@ facts![
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,
     start::CrashFound<'static>,
+    judge::JudgeCall<'static>,
+    judge::JudgePaused<'static>,
+    judge::JudgeBlockBooked<'static>,
+    judge::JudgeCircuit<'static>,
+    judge::JudgeShed,
 ];
 
 #[cfg(test)]

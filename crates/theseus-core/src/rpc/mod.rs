@@ -554,6 +554,13 @@ impl Core {
             latest_stops: Default::default(),
             // Told by the binding as it starts (the place rule).
             place_rule: Default::default(),
+            // Builds nothing until its first judgment (FAST).
+            judge: crate::judge::JudgeService::new(
+                cfg.judge.clone(),
+                store.clone(),
+                secrets.clone(),
+                tools.scrubber.clone(),
+            ),
         };
         let telemetry_cell = std::sync::OnceLock::new();
         if let Some(t) = telemetry {

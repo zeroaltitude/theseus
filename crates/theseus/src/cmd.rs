@@ -21,7 +21,8 @@ use theseus_protocol::{
 
 use crate::print::{self, Mode, Printer};
 use crate::{
-    AskArgs, AwsCmd, ConfirmArgs, ExecutionsCmd, IndexCmd, PolicyCmd, ProfileCmd, SessionsCmd,
+    AskArgs, AwsCmd, ConfirmArgs, ExecutionsCmd, IndexCmd, JudgeCmd, PolicyCmd, ProfileCmd,
+    SessionsCmd,
 };
 
 /// The answer as the daemon sent it under `--json`; else `lines`, given it
@@ -1097,6 +1098,29 @@ pub async fn places(conn: &mut Conn, json: bool) -> Result<()> {
         println!("{line}");
     }
     Ok(())
+}
+
+/// `theseus judge log` (M5 23a): the newest `judge.call` rows, through
+/// `ledger.tail`.
+pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
+    let JudgeCmd::Log { n, session } = cmd;
+    let v = conn
+        .request(
+            method::LEDGER_TAIL,
+            LedgerTailParams {
+                n: Some(n),
+                kind: Some("judge.call".into()),
+                session_id: session,
+                after: None,
+            },
+        )
+        .await?;
+    output(json, v, |r: LedgerTailResult| {
+        for line in render::judge_log_lines(&r.rows) {
+            println!("{line}");
+        }
+        Ok(())
+    })
 }
 
 /// `theseus cancel ID`: a pending wake first (DD8), then a task. Each is

@@ -16,6 +16,7 @@ mod events;
 mod gate;
 mod health;
 pub mod index;
+pub mod judge;
 mod ledger;
 mod places;
 mod push;
@@ -474,6 +475,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub sandbox: Option<sandbox::SandboxHealth>,
+    /// The judge (M5 23a): `[judge]`, the breaker, and today's calls and spend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub judge: Option<judge::JudgeHealth>,
     /// Each backend's cancels since the daemon started, by how they ended
     /// (M4 18a). Empty until the first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

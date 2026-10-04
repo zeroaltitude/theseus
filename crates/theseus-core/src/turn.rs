@@ -116,6 +116,9 @@ pub struct TurnRunner {
     /// Each place's class (the place rule, theseus-nbsh): the places the
     /// binding binds, as it told the core at its start.
     pub place_rule: crate::places::PlaceRule,
+    /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
+    /// judges in a task of its own; the turn never waits on it.
+    pub judge: Arc<crate::judge::JudgeService>,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -1155,6 +1158,9 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
+        if let Ok((res, _, _)) = &r {
+            self.judge.after_turn(res, task_of.is_some());
+        }
         // A failed turn extends its session's run of failures (theseus-ljr),
         // which says whether its execution retries and whether the turn posts
         // the run's notice. A task's failure ends it (DD7), and a stopped

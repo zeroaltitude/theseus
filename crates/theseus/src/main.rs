@@ -292,6 +292,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: IndexCmd,
     },
+    /// Jev's judgments (M5): `judge log` lists the recent ones, each with its pack, session,
+    /// answers, and cost.
+    Judge {
+        #[command(subcommand)]
+        cmd: JudgeCmd,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     Rpc {
         method: String,
@@ -437,6 +443,20 @@ enum IndexCmd {
 }
 
 #[derive(Subcommand, Debug)]
+enum JudgeCmd {
+    /// The recent judgments, oldest first: time, pack and mode, session, answers (each with its
+    /// band), cost, and how long Jev took; a failed or skipped one says why.
+    Log {
+        /// How many (the newest).
+        #[arg(short, long, default_value_t = 20)]
+        n: usize,
+        /// Only this session's.
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum ProfileCmd {
     /// List profiles; `*` marks the live one and where the choice came from (default).
     List,
@@ -545,6 +565,7 @@ async fn run(cli: Cli) -> Result<()> {
             herdr_sync::run(c, json, cmd, socket).await
         }
         Cmd::Index { cmd } => cmd::index(c, json, cmd).await,
+        Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
         Cmd::Shutdown => cmd::shutdown(c, json).await,
         Cmd::Tui { .. } => unreachable!("`theseus tui` execs theseus-tui before connecting"),

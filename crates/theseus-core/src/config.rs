@@ -14,6 +14,8 @@ use crate::secrets::{OpReader, SecretRef};
 
 mod aws;
 pub use aws::{AwsAccountConfig, AwsConfig, AwsCredentialNames};
+mod judge;
+pub use judge::{JudgeConfig, JudgePackConfig, PackMode};
 
 /// Where the config is read when neither `--config` nor `THESEUS_CONFIG`
 /// names it: a local file, so nothing here names anyone's vault
@@ -93,6 +95,9 @@ pub struct Config {
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,
+    /// `[judge]`: Jev's judgments, in shadow (M5 23a), in `config/judge.rs`.
+    #[serde(default)]
+    pub judge: JudgeConfig,
     /// `[approval]`, retired (theseus-zmgb): an answer counts only from a
     /// private place, by the owner (the place rule). A config that still has
     /// the section loads, with one warning a load; nothing reads it.
@@ -1172,6 +1177,7 @@ impl Config {
             );
         }
         self.sandbox.validate()?;
+        self.judge.validate(&self.secrets)?;
         let providers = self.all_providers();
         for (name, prof) in &self.profiles {
             if !providers.contains_key(&prof.provider) {
@@ -1710,6 +1716,7 @@ mod tests {
         // [voice] and its key's line are real too (rows 77 and 78).
         assert!(cfg.voice.enabled && cfg.secrets.contains_key(&cfg.voice.key_secret));
         crate::sandbox::the_templates_sandbox_section(&cfg.sandbox);
+        judge::the_templates_judge_section(&cfg);
         crate::broker::the_templates_broker_section(&cfg);
         crate::broker::the_templates_harness_only_keys(&cfg);
     }
