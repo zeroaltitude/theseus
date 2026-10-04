@@ -601,7 +601,8 @@ async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// `theseus catalog`: models, windows, and prices.
+/// `theseus catalog`: models, windows, and prices, the code's unless the
+/// config's `[catalog]` tables change them, and a line for each such table.
 pub async fn catalog(conn: &mut Conn, json: bool) -> Result<()> {
     let v = conn.request(method::CATALOG_LIST, Value::Null).await?;
     output(json, v, |l: CatalogListResult| {
@@ -630,6 +631,9 @@ pub async fn catalog(conn: &mut Conn, json: bool) -> Result<()> {
             "[catalog {} · prices are USD per million tokens]",
             l.version
         );
+        for line in render::catalog_config_lines(&l) {
+            eprintln!("[{line}]");
+        }
         Ok(())
     })
 }

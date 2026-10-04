@@ -943,20 +943,30 @@ impl Core {
         Ok(written.is_some())
     }
 
+    /// Every model, as the code has it with the config's tables over it,
+    /// and each table beside the code's own row (theseus-vwar).
     pub(super) fn catalog_list(&self) -> theseus_protocol::CatalogListResult {
         let profiles = self.cfg.all_profiles();
+        let code = crate::catalog::Catalog::builtin();
         let models = self
             .catalog
             .entries
             .iter()
-            .map(|(m, e)| theseus_protocol::CatalogModel {
-                model: m.clone(),
-                entry: serde_json::to_value(e).unwrap_or(Value::Null),
-                profiles: profiles
-                    .iter()
-                    .filter(|(_, p)| &p.model == m)
-                    .map(|(n, _)| n.clone())
-                    .collect(),
+            .map(|(m, e)| {
+                let config = self.cfg.catalog.get(m);
+                theseus_protocol::CatalogModel {
+                    model: m.clone(),
+                    entry: serde_json::to_value(e).unwrap_or(Value::Null),
+                    profiles: profiles
+                        .iter()
+                        .filter(|(_, p)| &p.model == m)
+                        .map(|(n, _)| n.clone())
+                        .collect(),
+                    config: config.map(|r| serde_json::to_value(r).unwrap_or(Value::Null)),
+                    code: config
+                        .and(code.get(m))
+                        .map(|c| serde_json::to_value(c).unwrap_or(Value::Null)),
+                }
             })
             .collect();
         theseus_protocol::CatalogListResult {

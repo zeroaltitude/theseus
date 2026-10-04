@@ -199,9 +199,11 @@ Each traces to the Part III item that taught it.
   `docs/status.md`.
 - **Reviews are appendices.** A review of the design is answered in an appendix of the spec (Appendices A, C to F),
   and a review of the code is a design document (`docs/design/review-2.md`) whose accepted findings become steps.
-- **The config is the operator's.** It is a note in a vault that agents can't write. A new key or default is a
-  change to the template (`crates/theseus-core/config/theseus.example.toml`), which the operator pastes. The loader
-  rejects unknown keys, and `example_template_uncommented_still_parses` holds the template to it.
+- **The config is the operator's.** It is a note in a vault that agents can't write, and it holds only what differs
+  from the defaults (theseus-vwar), so a new key or default reaches it with the build, and only a value of the
+  operator's own needs a paste. Every key has a default, documented in the template
+  (`crates/theseus-core/config/theseus.example.toml`). The loader rejects unknown keys, and
+  `example_template_uncommented_still_parses` holds the template to it.
 
 ## This machine
 

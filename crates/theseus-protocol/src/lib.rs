@@ -2230,6 +2230,17 @@ pub struct CatalogModel {
     /// Profiles that use this model.
     #[serde(default)]
     pub profiles: Vec<String>,
+    /// The config's `[catalog."<model>"]` table, as written, when it has one
+    /// (theseus-vwar): `entry` holds what it changes, and one that copies the
+    /// code's row changes nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "Record<string, unknown>"))]
+    pub config: Option<Value>,
+    /// The code's own row for the model, when the config's table is over a
+    /// model the code has: what the table changes is where the two differ.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "Record<string, unknown>"))]
+    pub code: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
