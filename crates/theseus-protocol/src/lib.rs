@@ -8,6 +8,7 @@
 //! Requests change state and get exactly one response. Notifications report
 //! state and are also ledger rows on the server side.
 
+pub mod arrangement;
 mod aws;
 pub mod bench;
 pub mod cancel;
@@ -26,6 +27,7 @@ pub mod sandbox;
 mod ts;
 pub mod voice;
 
+pub use arrangement::{ArrangementPiece, TaskArrangement};
 pub use aws::*;
 pub use cancel::{CancelCount, CancelVerdict};
 pub use events::*;
@@ -1537,6 +1539,10 @@ pub struct TaskInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub attention: Option<Attention>,
+    /// The messages its parent quoted to start it (M5 27).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub arrangement: Option<TaskArrangement>,
 }
 
 /// `task.list`: every task, the newest first, or only one session's, or

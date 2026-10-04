@@ -151,6 +151,8 @@ ledger_kinds! {
     StoreCorrupt = "store.corrupt",
     StoreIndexReplaced = "store.index_replaced",
     StoreRestored = "store.restored",
+    TaskArranged = "task.arranged",
+    TaskArrangementRefused = "task.arrangement_refused",
     TaskEnded = "task.ended",
     TaskReportWake = "task.report_wake",
     TaskReportsRead = "task.reports_read",

@@ -126,6 +126,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   nothing, and `memory.recalls`), and `config/memory.rs`. In shadow the model's request is the one compiled without
   recall, and the row rides in the turn's next frame. The filters and pack are `theseus_memory::recall`. Tests:
   `tests_recall.rs`.
+- **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
+  pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
+  whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier
+  `task.create` results are no source), refused without a standing `objective` or `design` piece, and held by the
+  fidelity check (a brief under 200 characters, more than ten operator messages since the last task, one piece)
+  unless `fidelity_ack`. The pieces go into the child as one `Body::Arrangement` node after the brief, in
+  `open_task`'s frame, with a `derived_from` edge (`arrangement`) to each piece's node, and carry the text the
+  compiler renders after the brief (a superseded piece by reference only). The session's `task.arrangement` names
+  the node, which `task.list` reads; the rows are `task.arranged` and `task.arrangement_refused`
+  (`fact/arrangement.rs`). A scripted `task.create` in a test needs an arrangement whose quote its parent's
+  transcript holds once. Tests: `tests_arrangement.rs`, `arrangement::tests`.
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

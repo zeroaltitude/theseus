@@ -609,7 +609,12 @@ async fn a_task_that_a_holding_session_starts_holds_it_too() {
                 0 => fetch("f1", said.split_whitespace().last().unwrap()),
                 1 => Scripted::tools(
                     "",
-                    &[("t1", "task_create", json!({"brief": "Run echo child"}))],
+                    &[(
+                        "t1",
+                        "task_create",
+                        json!({"brief": "Run echo child", "arrangement":
+                               {"pieces": [{"quote": said, "role": "objective"}]}}),
+                    )],
                 ),
                 _ => Scripted::text("Started it."),
             }
@@ -716,7 +721,8 @@ async fn a_report_from_a_task_that_read_external_text_makes_its_parent_hold_it()
                         &[(
                             "t1",
                             "task_create",
-                            json!({"brief": format!("Fetch the page {url}"), "wake_parent": true}),
+                            json!({"brief": format!("Fetch the page {url}"), "wake_parent": true,
+                                   "arrangement": {"pieces": [{"quote": said, "role": "objective"}]}}),
                         )],
                     )
                 }

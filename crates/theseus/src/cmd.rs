@@ -1156,6 +1156,9 @@ pub async fn tasks(conn: &mut Conn, json: bool, session: Option<String>) -> Resu
         let now = theseus_protocol::now_unix_ms();
         for t in l.tasks {
             println!("{}", render::task_line(&t, now).text);
+            for p in render::task_pieces(&t) {
+                println!("{p}");
+            }
         }
         Ok(())
     })

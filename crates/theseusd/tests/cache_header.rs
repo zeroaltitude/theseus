@@ -39,7 +39,7 @@ const FAKE_OP: &str = "#!/bin/sh\n\
     esac\n";
 
 /// The first session's prompt, which the stand-in answers with a task.
-const START: &str = "Start the task";
+const START: &str = "Start the task in the background";
 /// The second session's prompt.
 const OTHER: &str = "A second session";
 /// The third session's prompt, after the persona's context file is edited.
@@ -65,7 +65,11 @@ impl Rig {
     fn start() -> Self {
         let model = FakeModel::start(|prompt| {
             if prompt.starts_with(START) {
-                vec![("task_create", json!({"brief": BRIEF}))]
+                vec![(
+                    "task_create",
+                    json!({"brief": BRIEF, "arrangement":
+                           {"pieces": [{"quote": START, "role": "objective"}]}}),
+                )]
             } else {
                 vec![]
             }

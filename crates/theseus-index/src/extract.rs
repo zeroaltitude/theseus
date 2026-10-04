@@ -111,6 +111,7 @@ pub fn extract(payload: &[u8]) -> Result<Extract, ExtractError> {
             str_of(body, "content").unwrap_or_default().to_string()
         }
         "recall" => return skip("recalled text is never indexed again"),
+        "arrangement" => return skip("a task's arrangement copies nodes indexed already"),
         // A later body (`summary`, `synthesis`, `lesson`): its text.
         _ => match str_of(body, "text") {
             Some(t) => t.to_string(),

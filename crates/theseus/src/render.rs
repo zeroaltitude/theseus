@@ -27,6 +27,7 @@ mod ontology;
 mod places;
 mod sandbox;
 mod store;
+mod tasks;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use catalog::catalog_config_lines;
@@ -36,6 +37,7 @@ pub use ontology::{ontology_categories_lines, ontology_kinds_lines, ontology_mem
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
 pub use store::{crash_line, store_reads_line};
+pub use tasks::task_pieces;
 
 /// What a line is, as the CLI's marks have always told one from another. The
 /// CLI prints a line's text alone, so a tag changes nothing it prints; the
@@ -1323,6 +1325,9 @@ pub fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> Line {
     // Its report starts its parent's next turn (W1).
     if t.wake_parent {
         asks.push_str(" · wakes its parent");
+    }
+    if let Some(a) = &t.arrangement {
+        asks.push_str(&tasks::clip(a));
     }
     Line::new(
         level_tag(t.attention.as_ref()),

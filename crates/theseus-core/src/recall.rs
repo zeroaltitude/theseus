@@ -376,6 +376,7 @@ pub fn text_of(n: &Node) -> String {
         Body::AssistantMessage { blocks, .. } => crate::provider::text_of(blocks),
         Body::ToolCall { tool, input, .. } => format!("{tool} {input}"),
         Body::ToolResult { content, .. } => content.clone(),
+        Body::Arrangement { pieces, .. } => crate::arrangement::render(pieces),
     }
 }
 

@@ -1957,7 +1957,8 @@ impl TurnRunner {
         // (DD7).
         let awaiting_reply = matches!(
             last.map(|(_, n)| &n.body),
-            Some(Body::UserMessage { .. } | Body::ToolResult { .. })
+            // A task's arrangement follows its brief (M5 27).
+            Some(Body::UserMessage { .. } | Body::ToolResult { .. } | Body::Arrangement { .. })
         );
         if !awaiting_reply {
             t.stop_reason = "nothing_new".into();

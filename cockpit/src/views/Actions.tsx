@@ -6,7 +6,7 @@ import { memo, useDeferredValue, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence } from 'motion/react'
 import { CircleCheck, GitFork, History, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, X } from 'lucide-react'
-import type { ActionInfo, ConfirmRequest, ExternalTextInfo, Health, SessionInfo, TaskInfo, TaskListResult, Tightening, ToolList } from '@protocol'
+import type { ActionInfo, ConfirmRequest, ExternalTextInfo, Health, SessionInfo, TaskArrangement, TaskInfo, TaskListResult, Tightening, ToolList } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
@@ -81,6 +81,7 @@ function Tasks({ past }: { past?: { t: number; tasks: TaskInfo[] } }) {
   const { busy, run } = useAct()
   const { data: tl } = useRpc<TaskListResult>('task.list', {}, 3000)
   const [ended, setEnded] = useState(false)
+  const [pieces, setPieces] = useState<string | null>(null)
   const tasks = past?.tasks ?? tl?.tasks ?? []
   // The kernel's terminal states (ExecState::is_terminal).
   const alive = (t: TaskInfo) => !['complete', 'cancelled', 'failed', 'budget_exhausted'].includes(t.state)
@@ -106,10 +107,35 @@ function Tasks({ past }: { past?: { t: number; tasks: TaskInfo[] } }) {
             {t.target && <span>reports to {t.target}{t.wake_parent ? ' · wakes its parent' : ''}</span>}
             <span>{ago(t.updated_at_ms, now)}</span>
             {t.ended_reason && <span className="text-ink-dim">{t.ended_reason}</span>}
+            {t.arrangement && (
+              <button onClick={() => setPieces((v) => (v === t.task_id ? null : t.task_id))} className="hover:text-live" title="the messages it was started from, quoted">
+                📎 {t.arrangement.pieces.length} {t.arrangement.pieces.length === 1 ? 'piece' : 'pieces'}{t.arrangement.fidelity_ack ? ' · fidelity acknowledged' : ''}
+              </button>
+            )}
           </div>
+          {pieces === t.task_id && t.arrangement && <Pieces a={t.arrangement} />}
         </div>
       ))}
     </Panel>
+  )
+}
+
+/** A task's arrangement (M5 27): each piece its parent quoted, by role, who wrote it and when, and its first line;
+ *  a trusted piece marked, a superseded one struck through (the task saw it by reference only). */
+function Pieces({ a }: { a: TaskArrangement }) {
+  const nav = useNavigate()
+  return (
+    <ol className="mt-1.5 space-y-1 border-l border-line/60 pl-2 text-[11px]">
+      {a.pieces.map((p) => (
+        <li key={p.index} className="flex min-w-0 items-baseline gap-2">
+          <Pill tone={p.superseded_by != null ? 'idle' : 'live'}>{p.role}</Pill>
+          <button onClick={() => nav(`/session/${p.session_id}`)} className={cn('min-w-0 flex-1 truncate text-left text-ink hover:text-live', p.superseded_by != null && 'line-through text-ink-faint')} title={p.node_id}>{p.first_line}</button>
+          <span className="num shrink-0 text-ink-faint">
+            {p.author ? `${p.origin} (${p.author})` : p.origin} · {clock(p.at_ms)}{p.trusted ? ' · trusted' : ''}{p.superseded_by != null ? ` · superseded by ${p.superseded_by}` : ''}
+          </span>
+        </li>
+      ))}
+    </ol>
   )
 }
 

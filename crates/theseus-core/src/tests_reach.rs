@@ -150,7 +150,8 @@ fn colours(req: &ProviderRequest) -> Scripted {
             &[(
                 "t_task",
                 "task_create",
-                json!({"brief": "CHILD: name a colour", "budget_usd": 1.5}),
+                json!({"brief": "CHILD: name a colour", "budget_usd": 1.5, "arrangement":
+                       {"pieces": [{"quote": last_user(req), "role": "objective"}]}}),
             )],
         );
     }

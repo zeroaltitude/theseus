@@ -242,8 +242,15 @@ fn the_extractor_covers_every_body_variant() {
                 assert!(e.external);
                 assert_eq!(e.origin, "tool");
             }
+            Body::Arrangement { .. } => unreachable!("an arrangement is skipped, below"),
         }
     }
+    // A task's arrangement (M5 27) copies nodes the index already holds.
+    let arrangement = Node::arrangement("ses_1", "session:ses_0", vec![], false);
+    assert!(matches!(
+        extract(&arrangement.record().unwrap().payload).unwrap(),
+        Extract::Skip { .. }
+    ));
     // A call whose input is never indexed: a write's content.
     let w = call(
         "ses_1",

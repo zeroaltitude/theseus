@@ -1040,6 +1040,13 @@ pub fn render_messages(
                 let blocks = user_blocks(n, text, attachments, media, &mut image_tokens);
                 push(&mut out, "user", blocks)
             }
+            // A task's arrangement reads right after its brief, as the
+            // same user message (M5 27).
+            Body::Arrangement { pieces, .. } => push(
+                &mut out,
+                "user",
+                vec![json!({"type": "text", "text": crate::arrangement::render(pieces)})],
+            ),
             Body::AssistantMessage { .. } if replaced.contains(n.id.as_str()) => {}
             Body::AssistantMessage {
                 blocks,

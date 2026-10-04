@@ -29,6 +29,7 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `cred.rs` (theseus-gh7): `HarnessOnly`, health's and `theseusd check`'s line of the secrets a job may be handed
   and the keys that stay the harness's own. 18d's credential requests, `secret.requested` among them, went in
   theseus-w5op: a stored row of their kinds still reads, as an unknown kind.
+- `arrangement.rs` (M5 27): a task's arrangement as `TaskInfo` carries it, its pieces by reference.
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

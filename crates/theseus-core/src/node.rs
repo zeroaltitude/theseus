@@ -8,6 +8,7 @@
 //! - `tcl_` ToolCall: the harness's record of one tool invocation (the tool, its
 //!   input, the gate's decision, the action's correlation id).
 //! - `trs_` ToolResult: what went back to the model for one `tool_use`.
+//! - `arr_` Arrangement: a task's quoted pieces (M5 27), after its brief.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -180,6 +181,17 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         external: Option<theseus_tools::External>,
     },
+    /// A task's arrangement (M5 27, theseus-vug.2): the messages of its
+    /// parent's session that `task.create` quoted, written after the brief
+    /// in the frame that opens the task. It carries what the child's
+    /// compilation renders (`arrangement::render`), so the compiler reads
+    /// only the child's own nodes.
+    Arrangement {
+        pieces: Vec<crate::arrangement::Piece>,
+        /// The call acknowledged the fidelity check.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fidelity_ack: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -272,6 +284,27 @@ impl Node {
         n
     }
 
+    /// A task's arrangement, by its parent's model (M5 27).
+    pub fn arrangement(
+        session_id: &str,
+        author: &str,
+        pieces: Vec<crate::arrangement::Piece>,
+        fidelity_ack: bool,
+    ) -> Self {
+        let mut n = Self::new(
+            "arr",
+            session_id,
+            None,
+            Origin::Agent,
+            Body::Arrangement {
+                pieces,
+                fidelity_ack,
+            },
+        );
+        n.author = Some(author.into());
+        n
+    }
+
     pub fn assistant(session_id: &str, turn_id: &str, loop_index: u32, body: Body) -> Self {
         let mut n = Self::new("msg", session_id, Some(turn_id), Origin::Agent, body);
         n.loop_index = Some(loop_index);
@@ -310,6 +343,7 @@ impl Node {
             Body::AssistantMessage { .. } => "assistant_message",
             Body::ToolCall { .. } => "tool_call",
             Body::ToolResult { .. } => "tool_result",
+            Body::Arrangement { .. } => "arrangement",
         }
     }
 
@@ -340,6 +374,15 @@ impl Node {
                 content,
                 ..
             } => format!("{tool} [{}] {content}", status.as_str()),
+            Body::Arrangement { pieces, .. } => format!(
+                "{}: {}",
+                crate::arrangement::clip(pieces.len()),
+                pieces
+                    .iter()
+                    .map(|p| format!("{} \"{}\"", p.role.as_str(), p.first_line))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
         };
         let s = s.replace('\n', " ");
         if s.chars().count() > max {

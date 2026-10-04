@@ -8,6 +8,7 @@
 
 pub mod advancer;
 pub mod approval;
+pub mod arrangement;
 pub mod attach;
 pub mod aws;
 pub mod bench;
@@ -97,6 +98,8 @@ pub fn new_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::now_v7().simple())
 }
 
+#[cfg(test)]
+mod tests_arrangement;
 #[cfg(test)]
 mod tests_books;
 #[cfg(test)]

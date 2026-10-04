@@ -976,8 +976,13 @@ pub fn tasks(tasks: &[theseus_protocol::TaskInfo], now_ms: u64) -> String {
         } else {
             ""
         };
+        // The pieces it was started from (M5 27).
+        let pieces = t
+            .arrangement
+            .as_ref()
+            .map_or(String::new(), |a| format!(" · 📎 {}", a.pieces.len()));
         lines.push(format!(
-            "• `{}` {state}{asks} · {} of {} · {age} · {}",
+            "• `{}` {state}{asks}{pieces} · {} of {} · {age} · {}",
             t.short,
             dollars(t.spent_usd),
             dollars(t.limit_usd),

@@ -130,6 +130,9 @@ impl Core {
                     Body::ToolCall { tool, .. } => bail!(
                         "{id} is a call to {tool}, which has no content of its own: publish its result"
                     ),
+                    Body::Arrangement { .. } => bail!(
+                        "{id} is a task's arrangement, which copies other messages: publish the messages it quotes"
+                    ),
                 };
                 Ok(Item {
                     what,
