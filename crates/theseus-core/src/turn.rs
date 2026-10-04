@@ -51,6 +51,7 @@ use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
+pub mod compaction;
 mod recall_step;
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
@@ -1605,15 +1606,21 @@ impl TurnRunner {
                 0 => self.recall_first(t, session).await,
                 _ => None,
             };
-            let compiled = self.compile_step(
-                t,
-                session,
-                &spec,
-                force.take(),
-                strip.take(),
-                overflow.as_ref().map(|o| &o.hint),
-                i,
-            )?;
+            let compiled = match self
+                .compile_step(
+                    t,
+                    session,
+                    &spec,
+                    force.take(),
+                    strip.take(),
+                    overflow.as_ref().map(|o| &o.hint),
+                    i,
+                )
+                .await?
+            {
+                Ok(c) => c,
+                Err(f) => return Ok(Next::Fail(f)),
+            };
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the
                 // window again: the turn fails without the call.
@@ -1992,7 +1999,7 @@ impl TurnRunner {
     /// The images the provider refused in the session render as their line;
     /// `strip` recompiles without the prefix's thinking (theseus-0s4).
     #[allow(clippy::too_many_arguments)]
-    fn compile_step(
+    async fn compile_step(
         &self,
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
@@ -2001,7 +2008,7 @@ impl TurnRunner {
         strip: Option<&'static str>,
         overflowed: Option<&Overflowed>,
         i: u32,
-    ) -> Result<Compiled> {
+    ) -> Result<Result<Compiled, Failure>> {
         let sid = t.tc.session_id;
         let c0 = t.trace.now_us();
         let nodes = t.tc.store.transcript(sid)?;
@@ -2010,7 +2017,7 @@ impl TurnRunner {
             None => None,
         };
         let (nodes, sources) = self.recall_view(t, nodes);
-        let mut compiled = compile(CompileInput {
+        let input = CompileInput {
             session_id: sid,
             current: current.as_ref(),
             nodes: &nodes,
@@ -2024,8 +2031,14 @@ impl TurnRunner {
             strip,
             overflowed,
             sources: &sources,
-        });
+        };
+        // Where the ring cut, a summary in its place (30c); past the window
+        // with nothing left to drop, the turn fails before any call.
+        let mut compiled = self.compact(t, compile(input), input, i).await?;
         Self::recall_compiled(t, &mut compiled);
+        if let Some(f) = Self::overage(t, &compiled, i) {
+            return Ok(Err(f));
+        }
         if compiled.new_compilation {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
@@ -2080,7 +2093,7 @@ impl TurnRunner {
             model: &t.target.model,
             tools_offered: spec.tools.len() as u32,
         });
-        Ok(compiled)
+        Ok(Ok(compiled))
     }
 
     /// The provider call, as a kernel action (§3.16): planned (with its

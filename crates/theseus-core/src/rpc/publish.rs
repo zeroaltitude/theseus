@@ -130,6 +130,7 @@ impl Core {
                     Body::ToolCall { tool, .. } => bail!(
                         "{id} is a call to {tool}, which has no content of its own: publish its result"
                     ),
+                    Body::Summary { text, .. } => (format!("the summary {id}"), text.clone()),
                     Body::Recall { .. } => bail!(
                         "{id} is a recall, which copies nothing of its own: publish its sources"
                     ),

@@ -106,6 +106,8 @@ mod tests_books;
 #[cfg(test)]
 mod tests_cancel;
 #[cfg(test)]
+mod tests_compaction;
+#[cfg(test)]
 mod tests_config;
 #[cfg(test)]
 mod tests_continuations;

@@ -167,6 +167,24 @@ pub(crate) fn call(session: &str, tool: &str, input: serde_json::Value) -> Node 
 /// The registry test (M6 §2.1): every `Body` variant, through the core's own
 /// serialization, into the extractor. The match has no wildcard, so a new
 /// variant fails this build until the extractor's table gives it a row.
+/// A compaction's summary.
+fn summary_node() -> Node {
+    Node::summary(
+        "ses_1",
+        "turn_1",
+        Body::Summary {
+            first: 3,
+            last: 40,
+            nodes: 12,
+            text: "the harbour opens at six".into(),
+            profile: "glm".into(),
+            model: "glm-5.3-flash".into(),
+            cost_usd: Some(0.0011),
+            header: "[Summary of 12 earlier messages, 2026-09-20, written by glm]".into(),
+        },
+    )
+}
+
 #[test]
 fn the_extractor_covers_every_body_variant() {
     let samples = vec![
@@ -211,6 +229,8 @@ fn the_extractor_covers_every_body_variant() {
             json!({"argv": ["cargo", "build", "-p", "theseus-index"]}),
         ),
         result("ses_1", "http.fetch", "fetched words", true),
+        // A compaction's summary (M6 30c): its text, never its header.
+        summary_node(),
     ];
     for node in samples {
         let record = node.record().unwrap();
@@ -242,6 +262,7 @@ fn the_extractor_covers_every_body_variant() {
                 assert!(e.external);
                 assert_eq!(e.origin, "tool");
             }
+            Body::Summary { .. } => assert_eq!(e.text, "the harbour opens at six"),
             // Below: a recall is never indexed again.
             Body::Recall { .. } => unreachable!("a recall is skipped"),
         }

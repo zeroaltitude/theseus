@@ -328,6 +328,19 @@ pub(super) fn tool_calls(node: &Span, out: &mut Vec<ToolCall>) {
     }
 }
 
+/// Each compaction of a turn's (30c, its `compaction` span): its outcome
+/// (`compaction` or `ring`), and its summary's output tokens.
+pub(super) fn compactions(node: &Span, out: &mut Vec<(String, u64)>) {
+    if node.kind == "compaction" {
+        let outcome = node.attrs.get("outcome").and_then(Value::as_str);
+        let tokens = node.attrs.get("summary_tokens").and_then(Value::as_u64);
+        out.push((outcome.unwrap_or("ring").to_string(), tokens.unwrap_or(0)));
+    }
+    for c in &node.children {
+        compactions(c, out);
+    }
+}
+
 /// Each wake a turn took (`wake.fired`'s point on its trace, 37a): whether
 /// it repeats, and how late it was taken, in ms.
 pub(super) fn wakes(node: &Span, out: &mut Vec<(bool, f64)>) {

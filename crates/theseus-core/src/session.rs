@@ -169,7 +169,11 @@ impl Failing {
             Then::Backoff
         } else {
             run.lasting += 1;
-            if run.lasting == 1 && class != crate::turn::WINDOW_CLASS {
+            let refit = [
+                crate::turn::WINDOW_CLASS,
+                crate::turn::compaction::OVERAGE_CLASS,
+            ];
+            if run.lasting == 1 && !refit.contains(&class) {
                 Then::Retry
             } else {
                 Then::Park

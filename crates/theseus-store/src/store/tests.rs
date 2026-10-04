@@ -577,7 +577,11 @@ fn another_format_or_engine_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     for (name, manifest, says) in [
         ("format1", r#"{"format": 1, "engine": "redb"}"#, "format 1"),
-        ("format9", r#"{"format": 9, "engine": "redb"}"#, "format 9"),
+        (
+            "format10",
+            r#"{"format": 10, "engine": "redb"}"#,
+            "format 10",
+        ),
         ("fjall", r#"{"format": 2, "engine": "fjall"}"#, "fjall"),
     ] {
         let store_dir = dir.path().join(name);

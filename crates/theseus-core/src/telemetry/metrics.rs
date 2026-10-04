@@ -95,6 +95,19 @@ const WAKE_LATE: Instrument = Instrument {
     unit: "ms",
     kind: Kind::Histogram,
 };
+const COMPACTIONS: Instrument = Instrument {
+    name: "theseus.compactions",
+    description:
+        "Where the ring would cut (M6 30c): a summary written (compaction), or the ring, by outcome",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const COMPACTION_TOKENS: Instrument = Instrument {
+    name: "theseus.compaction.tokens",
+    description: "A compaction's summary, in output tokens",
+    unit: "",
+    kind: Kind::Histogram,
+};
 
 const PUSH_EVENTS: Instrument = Instrument {
     name: "theseus.push.events",
@@ -129,7 +142,7 @@ const DURABILITY_LAG: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 16] = [
+const INSTRUMENTS: [&Instrument; 18] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -141,6 +154,8 @@ const INSTRUMENTS: [&Instrument; 16] = [
     &TOOL_DURATION,
     &WAKES_FIRED,
     &WAKE_LATE,
+    &COMPACTIONS,
+    &COMPACTION_TOKENS,
     &PUSH_EVENTS,
     &PUSH_LOST,
     &PUSH_DELAY,
@@ -286,6 +301,7 @@ impl Metrics {
             self.tool_calls(t, &attrs);
             self.provider_calls(t);
             self.wakes(t);
+            self.compactions(t);
         }
     }
 
@@ -320,6 +336,7 @@ impl Metrics {
         if let Some(t) = f.trace {
             self.provider_calls(t);
             self.wakes(t);
+            self.compactions(t);
         }
     }
 
@@ -403,6 +420,20 @@ impl Metrics {
                 vec![("theseus.wake.repeat", Attr::B(repeat))],
                 late_ms,
             );
+        }
+    }
+
+    /// Each compaction the turn ran or fell back from (30c), by outcome, and
+    /// each summary's tokens.
+    fn compactions(&mut self, trace: &Span) {
+        let mut out = Vec::new();
+        spans::compactions(trace, &mut out);
+        for (outcome, tokens) in out {
+            let attrs = vec![("theseus.compaction.outcome", Attr::S(outcome.clone()))];
+            self.add(&COMPACTIONS, attrs.clone(), 1);
+            if outcome == "compaction" {
+                self.record(&COMPACTION_TOKENS, attrs, tokens as f64);
+            }
         }
     }
 

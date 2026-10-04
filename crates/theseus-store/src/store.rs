@@ -432,8 +432,9 @@ const BULK: usize = 4096;
 /// layouts (`wal::Layout`, theseus-7nfj). 7 = the ontology's `onto:*` META
 /// records, and a compilation manifest's `memberships` and `guidance` (21b,
 /// theseus-8kk.1). 8 = M6's `Recall` node (a NODE body), and a
-/// compilation's `budget` (30b, theseus-6fn.2).
-const MANIFEST_FORMAT: u32 = 8;
+/// compilation's `budget` (30b, theseus-6fn.2). 9 = M6's `Summary` node (a
+/// NODE body), and a compilation's `recall_id` (30c, theseus-6fn.4).
+const MANIFEST_FORMAT: u32 = 9;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

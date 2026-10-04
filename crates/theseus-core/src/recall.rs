@@ -478,6 +478,8 @@ pub fn text_of(n: &Node) -> String {
         Body::ToolResult { content, .. } => content.clone(),
         // A recall's text is its sources': it is never recalled again.
         Body::Recall { .. } => String::new(),
+        // A summary's text is the model's account of its range.
+        Body::Summary { text, .. } => text.clone(),
     }
 }
 
