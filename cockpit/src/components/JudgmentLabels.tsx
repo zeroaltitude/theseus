@@ -1,7 +1,8 @@
 // A judgment's label buttons (M5 25c; design §2.9, §2.13): the operator's word on whether Jev was right, for the
 // learning ledger. Each press is confirmed first, and is `judge.label`, judged by the core as any surface's (the owner,
 // from a private place). A whole judgment takes right, wrong, or noise; a question takes right or wrong, a yes-or-no
-// question true or false, and a choice the option that was right.
+// question true or false, and a choice the option that was right. A per-item answer (rerank.v1's `helps.3`, one
+// note's, M6 32d) takes true or false, labeled by its own question, and the label keeps the item's key.
 import { useState } from 'react'
 import type { JudgeLabelResult } from '@protocol'
 import { call } from '@/lib/rpc'
@@ -18,7 +19,7 @@ export function JudgmentLabels({ id, answers }: { id: string; answers: D[] }) {
     setBusy(true)
     try {
       const r = await call<JudgeLabelResult>('judge.label', { judgment: id, question, label: value })
-      setDone((d) => [...d, `${r.question ?? 'the whole judgment'}: ${JSON.stringify(r.label)}`])
+      setDone((d) => [...d, `${r.question ?? 'the whole judgment'}${r.about ? ` (${r.about})` : ''}: ${JSON.stringify(r.label)}`])
     } catch (x: any) { window.alert(x?.message ?? String(x)) } finally { setBusy(false) }
   }
   const btn = (question: string | null, value: unknown, text: string, words: string) => (
@@ -26,6 +27,7 @@ export function JudgmentLabels({ id, answers }: { id: string; answers: D[] }) {
       className="rounded px-1.5 text-[10.5px] text-ink-faint ring-1 ring-line hover:text-live disabled:opacity-50">{text}</button>
   )
   const whole = answers.filter((a) => a.about == null)
+  const items = answers.filter((a) => a.about != null)
   return (
     <div>
       <div className="panel-title mb-1">labels</div>
@@ -49,6 +51,18 @@ export function JudgmentLabels({ id, answers }: { id: string; answers: D[] }) {
                 {opts.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             )}
+          </div>
+        )
+      })}
+      {items.map((a) => {
+        const q = String(a.question)
+        const about = String(a.about)
+        const p = typeof a.answer?.noul === 'number' ? ` · ${Math.round(a.answer.noul * 100)}%` : ''
+        return (
+          <div key={q} className="mb-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="w-40 shrink-0 truncate text-ink-faint" title={about}>{q} · {about}{p}</span>
+            {btn(q, true, 'true', `${q} (${about}) true`)}
+            {btn(q, false, 'false', `${q} (${about}) false`)}
           </div>
         )
       })}

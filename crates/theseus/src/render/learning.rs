@@ -8,10 +8,13 @@ use theseus_protocol::learning::{
 
 /// `lbl_… labeled jdg_… (loop.v1) work_state: "progressing"`.
 pub fn judge_label_line(r: &JudgeLabelResult) -> String {
-    let what = r
-        .question
-        .as_deref()
-        .map_or_else(|| "the whole judgment".to_string(), str::to_string);
+    let what = r.question.as_deref().map_or_else(
+        || "the whole judgment".to_string(),
+        |q| match &r.about {
+            Some(item) => format!("{q} (about {item})"),
+            None => q.to_string(),
+        },
+    );
     format!(
         "{} labeled {} ({}) {what}: {} ({}, weight {})",
         r.id, r.judgment, r.pack, r.label, r.source, r.weight

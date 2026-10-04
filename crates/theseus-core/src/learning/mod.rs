@@ -21,8 +21,10 @@
 //!   about 5% of a core, holding the core weakly. Nothing runs with the judge
 //!   off.
 
+pub mod items;
 pub mod labels;
 pub mod report;
+pub mod rerank;
 pub mod system;
 pub mod tender;
 
@@ -69,6 +71,8 @@ pub struct LabelRow {
     pub judgment: String,
     pub pack: String,
     pub question: Option<String>,
+    /// A per-item question's item key (32d).
+    pub about: Option<String>,
     pub label: Value,
     pub source: String,
     pub weight: f64,
@@ -123,6 +127,7 @@ fn label_row(position: u64, at_ms: u64, d: &Value) -> Option<LabelRow> {
         judgment: s("judgment")?,
         pack: s("pack").unwrap_or_default(),
         question: s("question"),
+        about: s("about"),
         label: label_of(d),
         source: s("source").unwrap_or_else(|| "operator".into()),
         weight: d.get("weight").and_then(Value::as_f64).unwrap_or(1.0),

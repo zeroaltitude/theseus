@@ -53,6 +53,11 @@ pub struct JudgeLabelResult {
     /// `loop.v1`.
     pub pack: String,
     pub question: Option<String>,
+    /// A per-item question's item (`<node>#<chunk>`, 32d): the key the
+    /// judgment asked it about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub about: Option<String>,
     #[cfg_attr(test, ts(type = "unknown"))]
     pub label: serde_json::Value,
     /// `operator`.

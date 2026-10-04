@@ -50,7 +50,7 @@ fn kind_name(k: Kind) -> &'static str {
     }
 }
 
-fn band_name(b: Band) -> &'static str {
+pub(super) fn band_name(b: Band) -> &'static str {
     match b {
         Band::Act => "act",
         Band::Confirm => "confirm",
@@ -166,7 +166,7 @@ pub fn question(
 /// What a label grades an answer: the probability it gave, and whether its
 /// lean was right. None where the label settles nothing of it (a class
 /// known wrong that its top is not).
-fn graded(a: &AnswerRecord, t: &Truth) -> Option<(f64, bool)> {
+pub(super) fn graded(a: &AnswerRecord, t: &Truth) -> Option<(f64, bool)> {
     match (&a.band.top, t, &a.answer) {
         (_, Truth::Bool(b), theseus_judge::client::Answer::Noul { noul }) => Some((*noul, *b)),
         (Top::Choice(top), Truth::Class(c), _) => Some((confidence(a), top == c)),
@@ -185,7 +185,7 @@ fn class_label(top: &Top, t: &Truth) -> Option<String> {
     }
 }
 
-fn calibration(c: &learn::Calibration) -> Calibration {
+pub(super) fn calibration(c: &learn::Calibration) -> Calibration {
     Calibration {
         n: c.n as u32,
         brier: c.brier,
@@ -247,10 +247,12 @@ pub fn pack_report(
         .filter(|s| s.judgment.outcome == Outcome::Answered)
         .collect();
     let qs = questions_of(pack.as_deref(), seen);
-    let questions: Vec<QuestionReport> = qs
+    let mut questions: Vec<QuestionReport> = qs
         .iter()
         .map(|(id, k, d, o)| question(*k, id, *d, o, &answered, labels).0)
         .collect();
+    // Per-item answers (32d), by definition, each graded as a Noul.
+    questions.extend(super::items::questions(pack.as_deref(), &answered, labels));
     let labeled = answered
         .iter()
         .filter(|s| {
@@ -259,7 +261,7 @@ pub fn pack_report(
                     let ls = labels.get(&s.judgment.id).map_or(&[][..], Vec::as_slice);
                     resolve(ls, q, a).is_some_and(|(_, t)| graded(a, &t).is_some())
                 })
-            })
+            }) || !super::items::labels_of(pack.as_deref(), s, labels).is_empty()
         })
         .count() as u32;
     let disagreements = answered
@@ -316,7 +318,12 @@ pub fn pack_report(
         ),
         latency,
         questions,
-        holdout: holdout(pack_id, &qs, &answered, labels, window),
+        holdout: super::items::with_items(
+            holdout(pack_id, &qs, &answered, labels, window),
+            pack.as_deref(),
+            &answered,
+            labels,
+        ),
     }
 }
 

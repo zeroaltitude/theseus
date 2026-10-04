@@ -219,6 +219,7 @@ impl JudgeService {
                 judgment: &judgment,
                 pack,
                 question: Some(RISKY),
+                about: None,
                 label: json!(true),
                 source: "operator",
                 who,

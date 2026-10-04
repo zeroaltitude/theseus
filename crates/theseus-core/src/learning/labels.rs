@@ -129,6 +129,18 @@ pub fn check(pack: &Pack, question: Option<&str>, label: &Value) -> Result<Value
     }
 }
 
+/// An operator's label on a per-item answer (`helps.3`, 32d), which is a
+/// Noul's: true, false, right, or wrong.
+pub fn check_item(question: &str, label: &Value) -> Result<Value, String> {
+    let words = label.as_str().map(|s| s.trim().to_lowercase());
+    if let Some(w) = words.filter(|w| w == "right" || w == "wrong") {
+        return Ok(json!(w));
+    }
+    noul(label).ok_or_else(|| {
+        format!("{question} is a yes-or-no question about one item: its label is true, false, right, or wrong")
+    })
+}
+
 fn noul(label: &Value) -> Option<Value> {
     match label {
         Value::Bool(b) => Some(json!(b)),
@@ -232,6 +244,7 @@ mod tests {
             judgment: "jdg_a".into(),
             pack: "security.v1".into(),
             question: question.map(str::to_string),
+            about: None,
             label,
             source: if weight < 1.0 { "system" } else { "operator" }.into(),
             weight,

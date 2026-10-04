@@ -91,7 +91,9 @@ pub struct SystemLabel {
     pub judgment: String,
     pub pack: String,
     pub session: Option<String>,
-    pub question: &'static str,
+    pub question: String,
+    /// A per-item question's item key (rerank.v1's, 32d).
+    pub about: Option<String>,
     pub label: Value,
     pub rule: &'static str,
     pub note: String,
@@ -114,6 +116,12 @@ impl Core {
         scope: &Scope,
         now_ms: u64,
     ) -> Vec<SystemLabel> {
+        // rerank.v1's come from the owner's memory labels (32d), one a label.
+        if pack_id == "rerank" {
+            let mut out = self.rerank_labels(scope);
+            out.retain(|l| !scope.label_ids.contains(&l.id));
+            return out;
+        }
         let mut reads = Reads::default();
         let mut out = Vec::new();
         for seen in scope.judgments.values().flatten() {
@@ -158,12 +166,13 @@ impl Core {
         if s.context("decision") != Some("no_tool_calls") {
             return vec![];
         }
-        let label = |question, label, rule, note: String| SystemLabel {
+        let label = |question: &str, label, rule, note: String| SystemLabel {
             id: system_key(&j.id, question, rule),
             judgment: j.id.clone(),
             pack: j.pack.clone(),
             session: Some(session.to_string()),
-            question,
+            question: question.to_string(),
+            about: None,
             label,
             rule,
             note,
@@ -290,7 +299,8 @@ impl Core {
             judgment: j.id.clone(),
             pack: j.pack.clone(),
             session: s.context("session").map(str::to_string),
-            question: "risky",
+            question: "risky".into(),
+            about: None,
             label: json!(risky),
             rule,
             note,
@@ -324,7 +334,8 @@ impl Core {
             judgment: j.id.clone(),
             pack: j.pack.clone(),
             session: Some(session.to_string()),
-            question: "should_promote",
+            question: "should_promote".into(),
+            about: None,
             label: json!(called),
             rule: "task_create",
             note: if called {
@@ -350,7 +361,8 @@ impl SystemLabel {
             id: &self.id,
             judgment: &self.judgment,
             pack: &self.pack,
-            question: Some(self.question),
+            question: Some(&self.question),
+            about: self.about.as_deref(),
             label: self.label.clone(),
             source: "system",
             who: "theseus",

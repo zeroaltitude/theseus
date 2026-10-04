@@ -8,7 +8,12 @@ id: string, judgment: string,
 /**
  * `loop.v1`.
  */
-pack: string, question: string | null, label: unknown, 
+pack: string, question: string | null, 
+/**
+ * A per-item question's item (`<node>#<chunk>`, 32d): the key the
+ * judgment asked it about.
+ */
+about?: string, label: unknown, 
 /**
  * `operator`.
  */

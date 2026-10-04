@@ -360,6 +360,9 @@ pub struct JudgeLabel<'a> {
     pub pack: &'a str,
     /// The question it labels, or `None` for all of them.
     pub question: Option<&'a str>,
+    /// A per-item question's item (`<node>#<chunk>` for rerank.v1's
+    /// `helps.3`, 32d): the key it was asked about.
+    pub about: Option<&'a str>,
     pub label: Value,
     /// `operator`, `system`, or `audit`.
     pub source: &'a str,
@@ -379,10 +382,14 @@ impl Fact for JudgeLabel<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeLabel);
 
     fn row(&self) -> Value {
-        json!({"id": self.id, "judgment": self.judgment, "pack": self.pack,
+        let mut row = json!({"id": self.id, "judgment": self.judgment, "pack": self.pack,
             "question": self.question, "label": self.label, "source": self.source,
             "who": self.who, "via": self.via, "weight": self.weight, "note": self.note,
-            "correlation_id": self.correlation_id, "rule": self.rule})
+            "correlation_id": self.correlation_id, "rule": self.rule});
+        if let Some(about) = self.about {
+            row["about"] = json!(about);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
