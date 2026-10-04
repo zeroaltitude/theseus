@@ -391,7 +391,15 @@ impl Tool for Query {
             m["status"] = out.body["status"].clone();
             m["bytes_scanned"] = out.body["statistics"]["bytesScanned"].clone();
             m["groups"] = json!(groups.len());
-            Ok((ToolOutput { text, meta: m }, None))
+            // Its rows are log lines: outside text (§3.9, T1).
+            let rows = out.body["results"]
+                .as_array()
+                .is_some_and(|r| !r.is_empty());
+            let url = format!("logs:{}:query/{id}", q.region);
+            Ok((
+                ToolOutput { text, meta: m },
+                rows.then(|| super::external::marker(&url)),
+            ))
         })
     }
     fn rest(&self, _left_out: &str) -> String {
@@ -713,7 +721,10 @@ impl Tool for Tail {
             let mut m = meta(&t.account.id, &t.region, "logs:FilterLogEvents", &out);
             m["lines"] = json!(events.len());
             m["group"] = json!(t.group);
-            Ok((ToolOutput { text, meta: m }, None))
+            // Log lines are outside text (§3.9, T1).
+            let url = format!("logs:{}:{}", t.region, t.group);
+            let marked = (!events.is_empty()).then(|| super::external::marker(&url));
+            Ok((ToolOutput { text, meta: m }, marked))
         })
     }
     fn rest(&self, _left_out: &str) -> String {

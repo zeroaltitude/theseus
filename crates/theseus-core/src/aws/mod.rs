@@ -45,6 +45,7 @@ use crate::secrets::{Secret, SecretBoard, SecretState};
 
 pub mod bootstrap;
 pub mod cost;
+pub mod external;
 pub mod logs;
 pub mod s3;
 pub mod secret;
@@ -62,6 +63,8 @@ mod tests_c2;
 mod tests_c3;
 #[cfg(test)]
 mod tests_handles;
+#[cfg(test)]
+mod tests_outside;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 14] = [

@@ -305,7 +305,11 @@ impl Tool for Trail {
             }
             let mut m = meta(&l.account.id, &l.region, "cloudtrail:LookupEvents", &out);
             m["events"] = json!(events.len());
-            Ok((ToolOutput { text, meta: m }, None))
+            // An event's user agent and parameters are its caller's words:
+            // outside text (§3.9, T1).
+            let url = format!("cloudtrail:{}:LookupEvents", l.region);
+            let marked = (!events.is_empty()).then(|| super::external::marker(&url));
+            Ok((ToolOutput { text, meta: m }, marked))
         })
     }
     fn rest(&self, _left_out: &str) -> String {

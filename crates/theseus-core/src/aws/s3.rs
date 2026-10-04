@@ -338,7 +338,11 @@ impl Tool for Get {
                              workspace file.\n"
                         ),
                     };
-                    Ok((ToolOutput { text, meta: m }, None))
+                    // An object's text is outside text (§3.9, T1).
+                    Ok((
+                        ToolOutput { text, meta: m },
+                        Some(super::external::marker(&g.url())),
+                    ))
                 }
             }
         })
