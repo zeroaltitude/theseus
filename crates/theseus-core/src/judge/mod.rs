@@ -20,6 +20,7 @@
 //!   never called, and a judgment that would pass the day's limit is skipped
 //!   and counted, never queued.
 
+pub mod categorize;
 pub mod loop_end;
 pub mod sink;
 pub mod spend;
@@ -47,7 +48,10 @@ use spend::{Reserve, ShadowBudget};
 
 /// The packs this build wires in, and the mode the ladder gives each (step
 /// 26a brings the ladder; until then every pack is in shadow).
-pub const WIRED: &[(&str, PackMode)] = &[(LOOP_PACK, PackMode::Shadow)];
+pub const WIRED: &[(&str, PackMode)] = &[
+    (LOOP_PACK, PackMode::Shadow),
+    (categorize::PACK, PackMode::Shadow),
+];
 
 /// JUDGE_STOP (§2.4), at `loop_end`.
 pub const LOOP_PACK: &str = "loop.v1";
@@ -95,6 +99,8 @@ pub struct JudgeService {
     built: OnceLock<Arc<Built>>,
     flush: Duration,
     prices: BTreeMap<String, JevPrice>,
+    /// `categorize.v1`'s point (28b): the core it reads, and its decisions.
+    categorize: categorize::Point,
     me: Weak<JudgeService>,
 }
 
@@ -136,6 +142,7 @@ impl JudgeService {
             built: OnceLock::new(),
             flush,
             prices,
+            categorize: Default::default(),
             me: me.clone(),
         })
     }
@@ -173,11 +180,20 @@ impl JudgeService {
     }
 
     /// A turn that ended: one the baseline ended with no tool calls goes to
-    /// `loop.v1` (`at_loop_end`); any other is not judged in 23a.
+    /// `loop.v1` (`at_loop_end`), and a conversation's to `categorize.v1`'s
+    /// decision (`at_exchange_end`, 28b); any other is not judged.
     pub fn after_turn(&self, res: &theseus_protocol::TurnSubmitResult, task: bool) {
         if res.stop_reason != "no_tool_calls" {
             return;
         }
+        self.at_exchange_end(
+            categorize::ExchangeEnd {
+                session_id: res.session_id.clone(),
+                execution_id: res.execution_id.clone().unwrap_or_default(),
+                turn_id: res.turn_id.clone(),
+            },
+            task,
+        );
         self.at_loop_end(LoopEnd {
             session_id: res.session_id.clone(),
             execution_id: res.execution_id.clone().unwrap_or_default(),

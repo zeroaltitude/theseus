@@ -128,6 +128,11 @@ pub mod method {
         ONTOLOGY_CATEGORY_ADD = "ontology.category.add",
         ONTOLOGY_GUIDANCE_SET = "ontology.guidance.set",
         ONTOLOGY_MEMBERSHIP_SET = "ontology.membership.set",
+        /// `categorize.v1`'s unanswered proposals (M5 28b), and the
+        /// operator's answers to one, judged as the ontology's writes are.
+        ONTOLOGY_PROPOSALS = "ontology.proposals",
+        ONTOLOGY_PROPOSAL_ACCEPT = "ontology.proposal.accept",
+        ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject",
         /// Tasks (DD7): the child sessions conversations started, with state and
         /// spend.
         TASK_LIST = "task.list",
@@ -500,6 +505,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub judge: Option<judge::JudgeHealth>,
+    /// The tasks that cannot progress by themselves (M5 28b).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tasks: Option<TasksHealth>,
     /// Each backend's cancels since the daemon started, by how they ended
     /// (M4 18a). Empty until the first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

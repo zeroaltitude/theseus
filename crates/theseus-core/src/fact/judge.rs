@@ -98,3 +98,49 @@ impl Fact for JudgeShed {
         json!({"shed": self.shed})
     }
 }
+
+/// The operator's label on a judgment (design §2.5's `judge.label`; M5
+/// 28b): an accepted or rejected `categorize.v1` proposal. Keyed `lbl_<id>`
+/// and scoped `judge:<pack id>` by its writer, in the frame that writes the
+/// membership an accept makes. Labels are rows, never edits, so the
+/// learning ledger (25c) takes them over as they are.
+pub struct JudgeLabel<'a> {
+    /// `lbl_<uuid v7>`.
+    pub id: &'a str,
+    pub judgment: &'a str,
+    /// `categorize.v1`.
+    pub pack: &'a str,
+    /// The question labelled (`topic`).
+    pub question: &'a str,
+    /// `accepted` or `rejected`.
+    pub label: &'a str,
+    /// What the judgment answered (`harbor`, `new_topic`).
+    pub answer: &'a str,
+    /// The topic the session joined, on an accept.
+    pub topic: Option<&'a str>,
+    pub who: &'a str,
+    pub via: &'a str,
+    pub note: Option<&'a str>,
+}
+
+impl Fact for JudgeLabel<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeLabel);
+
+    fn row(&self) -> Value {
+        json!({"id": self.id, "judgment": self.judgment, "pack": self.pack,
+               "question": self.question, "label": self.label, "answer": self.answer,
+               "topic": self.topic, "source": "operator", "who": self.who, "via": self.via,
+               "weight": 1.0, "note": self.note})
+    }
+
+    fn narrate(&self, say: &mut super::Say<'_>) {
+        let what = match (self.label, self.topic) {
+            ("accepted", Some(t)) => format!("accepted Jev's proposal, and the session joins {t}"),
+            _ => format!("rejected Jev's proposal ({})", self.answer),
+        };
+        say.line(
+            theseus_protocol::NarrativePart::Session,
+            format!("Ontology: {} {what} ({}).", self.who, self.judgment),
+        );
+    }
+}

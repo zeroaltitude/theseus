@@ -559,6 +559,24 @@ fn ask_with(pack: Arc<Pack>, input: ProbeInput) -> Ask {
     Ask::new(pack, &p, Mode::Shadow, json!({"session": "s1"}))
 }
 
+/// The core mints a judgment's id at its dispatch, to mark a turn's trace
+/// with it: the judgment carries that id; an ask without one gets its own.
+#[tokio::test]
+async fn a_judgment_takes_the_id_its_dispatch_minted() {
+    let fake = FakeJev::start().unwrap();
+    let judge = judge_for(&fake);
+    let mut minted = ask_with(probe_pack(), probe_input());
+    minted.id = Some("jdg_0000minted".into());
+    let js = judge
+        .judge(DecisionPoint {
+            asks: vec![minted, ask_with(probe_pack(), probe_input())],
+            urgency: Urgency::Shadow,
+        })
+        .await;
+    assert_eq!(js[0].id, "jdg_0000minted");
+    assert!(js[1].id.starts_with("jdg_") && js[1].id != js[0].id);
+}
+
 fn versioned(v: u32, model: &str) -> Arc<Pack> {
     let mut p = (*probe_pack()).clone();
     p.version = v;

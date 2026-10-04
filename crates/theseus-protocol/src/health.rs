@@ -148,3 +148,37 @@ pub struct SecretSource {
     pub name: String,
     pub kind: String,
 }
+
+/// Health's `tasks` block (M5 28b; the parked-task invariant, theseus-vug).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct TasksHealth {
+    /// Each task in progress that cannot progress by itself: no running
+    /// turn, queue place, job, wake of its own, or pending question younger
+    /// than 24 hours. Read from the open executions alone.
+    pub parked: Vec<ParkedTask>,
+}
+
+/// A task that waits on something that will not come by itself.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ParkedTask {
+    /// The task's session.
+    pub task_id: String,
+    pub short: String,
+    pub execution_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub title: Option<String>,
+    /// Its execution's state: `waiting` or `blocked`.
+    pub state: String,
+    /// What holds it: `input` (a task gets none), `stopped`, `approval`,
+    /// `budget` (a question older than 24 hours), `blocked`, or `nothing`
+    /// (it waits with no wake).
+    pub blocker: String,
+    /// The blocker, said.
+    pub detail: String,
+    /// Since when (ms since the epoch): the question's, or the execution's
+    /// last change.
+    pub since_ms: u64,
+}

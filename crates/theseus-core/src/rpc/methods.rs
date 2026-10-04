@@ -101,6 +101,7 @@ impl Core {
             cancels: self.tools.stops.counts(),
             places: Some(self.runner.place_rule.health(&self.cfg)),
             judge: Some(self.runner.judge.health()),
+            tasks: Some(self.tasks_health()),
         }
     }
 

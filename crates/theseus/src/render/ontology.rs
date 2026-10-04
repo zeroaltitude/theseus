@@ -1,7 +1,9 @@
 //! The ontology's lines (theseus-8kk.1): `theseus ontology kinds`,
-//! `categories`, and a session's memberships.
+//! `categories`, a session's memberships, and Jev's proposals (28b).
 
-use theseus_protocol::{OntologyCategory, OntologyKind, OntologyMembership};
+use theseus_protocol::{
+    OntologyCategory, OntologyKind, OntologyMembership, OntologyProposalsResult,
+};
 
 /// The kinds table, a row per kind, by precedence.
 pub fn ontology_kinds_lines(kinds: &[OntologyKind]) -> Vec<String> {
@@ -71,6 +73,49 @@ pub fn ontology_memberships_lines(ms: &[OntologyMembership]) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// `theseus ontology proposals`: a line per proposal, newest first, with
+/// what answers it.
+pub fn ontology_proposals_lines(r: &OntologyProposalsResult) -> Vec<String> {
+    if r.proposals.is_empty() {
+        return vec!["No proposals: Jev's categorize.v1 has none unanswered.".into()];
+    }
+    let mut out: Vec<String> = r
+        .proposals
+        .iter()
+        .map(|p| {
+            let what = match (&p.topic, p.new_topic) {
+                (_, true) => "a new topic".to_string(),
+                (Some(t), _) => match &p.topic_name {
+                    Some(n) => format!("{t} ({n})"),
+                    None => format!("{t} (gone)"),
+                },
+                (None, false) => "?".to_string(),
+            };
+            format!(
+                "{}  {}{} -> {what}  {:.2} {}  {}",
+                p.judgment,
+                p.session_id,
+                p.session_title
+                    .as_deref()
+                    .map(|t| format!(" \"{t}\""))
+                    .unwrap_or_default(),
+                p.confidence,
+                p.band,
+                super::fmt_time(p.at_ms)
+            )
+        })
+        .collect();
+    if r.more > 0 {
+        out.push(format!("… and {} more (--limit shows them)", r.more));
+    }
+    out.push(
+        "`theseus ontology accept JUDGMENT` (with --topic NAME for a new topic) or `theseus \
+         ontology reject JUDGMENT` answers one."
+            .into(),
+    );
+    out
 }
 
 #[cfg(test)]

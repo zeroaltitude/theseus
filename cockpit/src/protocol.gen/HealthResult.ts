@@ -22,6 +22,7 @@ import type { SecretsStatus } from "./SecretsStatus";
 import type { SpoolStatus } from "./SpoolStatus";
 import type { StartupPhase } from "./StartupPhase";
 import type { StoreStatus } from "./StoreStatus";
+import type { TasksHealth } from "./TasksHealth";
 import type { TelemetryStatus } from "./TelemetryStatus";
 import type { Tightening } from "./Tightening";
 import type { Usage } from "./Usage";
@@ -169,6 +170,10 @@ sandbox?: SandboxHealth,
  * The judge (M5 23a): `[judge]`, the breaker, and today's calls and spend.
  */
 judge?: JudgeHealth, 
+/**
+ * The tasks that cannot progress by themselves (M5 28b).
+ */
+tasks?: TasksHealth, 
 /**
  * Each backend's cancels since the daemon started, by how they ended
  * (M4 18a). Empty until the first.

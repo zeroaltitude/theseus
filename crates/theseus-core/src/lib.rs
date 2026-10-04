@@ -38,6 +38,7 @@ pub mod node;
 pub mod ontology;
 pub mod outbound;
 pub mod outbox;
+pub mod parked;
 pub mod peer;
 pub mod places;
 pub mod policy;
@@ -102,6 +103,8 @@ pub fn new_id(prefix: &str) -> String {
 mod tests_books;
 #[cfg(test)]
 mod tests_cancel;
+#[cfg(test)]
+mod tests_categorize;
 #[cfg(test)]
 mod tests_config;
 #[cfg(test)]

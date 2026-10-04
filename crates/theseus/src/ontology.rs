@@ -11,7 +11,8 @@ use theseus_client::{render, Conn};
 use theseus_protocol::{
     method, OntologyCategory, OntologyCategoryAddParams, OntologyGuidance,
     OntologyGuidanceSetParams, OntologyListParams, OntologyListResult, OntologyMembershipResult,
-    OntologyMembershipSetParams,
+    OntologyMembershipSetParams, OntologyProposalAcceptParams, OntologyProposalAnswered,
+    OntologyProposalRejectParams, OntologyProposalsParams, OntologyProposalsResult,
 };
 
 use crate::cmd::output;
@@ -65,7 +66,70 @@ pub async fn ontology(conn: &mut Conn, json: bool, cmd: OntologyCmd) -> Result<(
         }
         OntologyCmd::Guide { category, text } => guide(conn, json, category, text).await,
         OntologyCmd::Member { session, changes } => member(conn, json, session, changes).await,
+        OntologyCmd::Proposals { session, limit } => {
+            let v = conn
+                .request(
+                    method::ONTOLOGY_PROPOSALS,
+                    OntologyProposalsParams {
+                        session_id: session,
+                        limit,
+                    },
+                )
+                .await?;
+            output(json, v, |r: OntologyProposalsResult| {
+                print(render::ontology_proposals_lines(&r));
+                Ok(())
+            })
+        }
+        OntologyCmd::Accept {
+            judgment,
+            topic,
+            desc,
+            note,
+        } => {
+            let v = conn
+                .request(
+                    method::ONTOLOGY_PROPOSAL_ACCEPT,
+                    OntologyProposalAcceptParams {
+                        judgment,
+                        topic,
+                        description: desc,
+                        note,
+                        author: None,
+                        discord: None,
+                    },
+                )
+                .await?;
+            output(json, v, answered)
+        }
+        OntologyCmd::Reject { judgment, note } => {
+            let v = conn
+                .request(
+                    method::ONTOLOGY_PROPOSAL_REJECT,
+                    OntologyProposalRejectParams {
+                        judgment,
+                        note,
+                        author: None,
+                        discord: None,
+                    },
+                )
+                .await?;
+            output(json, v, answered)
+        }
     }
+}
+
+/// What an accept or a reject wrote.
+fn answered(r: OntologyProposalAnswered) -> Result<()> {
+    match &r.topic {
+        Some(t) => println!(
+            "{}: accepted; {} joins {t} (yours, operator), at its next recompile. Label {}.",
+            r.judgment, r.session_id, r.label_id
+        ),
+        None => println!("{}: rejected. Label {}.", r.judgment, r.label_id),
+    }
+    print(render::ontology_memberships_lines(&r.memberships));
+    Ok(())
 }
 
 /// `theseus ontology guide`: a category's guidance, from TEXT or stdin.

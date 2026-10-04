@@ -126,6 +126,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   nothing, and `memory.recalls`), and `config/memory.rs`. In shadow the model's request is the one compiled without
   recall, and the row rides in the turn's next frame. The filters and pack are `theseus_memory::recall`. Tests:
   `tests_recall.rs`.
+- **The judge** (M5): `judge/` (`JudgeService`, `WIRED`, the sink, the shadow budget; 23a's `loop.v1` at a turn's
+  end). `judge/categorize.rs` is 28b's point: at a private conversation's exchange end (never a shared place's, never
+  a task's), `categorize.v1` judges in shadow when 10 human messages arrived since the session's last judgment, or the
+  exchange began after 30 minutes' quiet; the decision, off the turn's path, reads the session's records after its
+  mark (META `judge.categorize.<session>`, moved as a judgment is dispatched). The service reaches the core by `Weak`
+  (`JudgeService::attach`). Jev writes no membership: `rpc/proposals.rs` lists its proposals (`ontology.proposals`,
+  one scan of `judge:categorize`) and takes the operator's answer (`ontology.proposal.accept`/`reject`, through
+  `judge_act`): an accept's membership, its topic for `new_topic`, and its `judge.label` row in one frame. Tests:
+  `tests_judge.rs`, `tests_categorize.rs`.
+- **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
+  with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
 
 ## Where the big things live

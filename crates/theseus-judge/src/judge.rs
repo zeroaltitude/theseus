@@ -53,6 +53,9 @@ pub struct Ask {
     pub mode: Mode,
     /// The core's own fields, echoed into the judgment untouched.
     pub context: Value,
+    /// The judgment's id, when the core minted it at its dispatch (to mark
+    /// a turn's trace with it); `None` mints one as the judgment is made.
+    pub id: Option<String>,
 }
 
 impl Ask {
@@ -64,6 +67,7 @@ impl Ask {
             asked,
             mode,
             context,
+            id: None,
         }
     }
 }
@@ -199,7 +203,10 @@ pub struct Judgment {
 impl Judgment {
     fn pending(ask: &Ask) -> Self {
         Self {
-            id: format!("jdg_{}", uuid::Uuid::now_v7().simple()),
+            id: ask
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("jdg_{}", uuid::Uuid::now_v7().simple())),
             pack: ask.pack.name(),
             version: ask.pack.version,
             pack_sha256: ask.pack.sha256.clone(),

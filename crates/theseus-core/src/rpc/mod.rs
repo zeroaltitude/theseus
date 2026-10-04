@@ -21,6 +21,7 @@ mod methods;
 mod ontology;
 mod pages;
 mod policy;
+mod proposals;
 mod publish;
 mod server;
 #[cfg(test)]
@@ -653,6 +654,7 @@ impl Core {
             closed: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
+        core.runner.judge.attach(&core);
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);
