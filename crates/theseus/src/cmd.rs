@@ -11,6 +11,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use theseus_client::render::{self, Frame};
 use theseus_client::{outcome, CallError, Conn};
+use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, JudgeListResult};
 use theseus_protocol::{
     method, notify, ActionConfirmParams, ActionConfirmResult, CatalogListResult, ConfirmListResult,
     Event, HealthResult, LedgerTailParams, LedgerTailResult, Message, ProfileListResult,
@@ -1327,28 +1328,49 @@ pub async fn places(conn: &mut Conn, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// `theseus judge log` (M5 23a): the newest `judge.call` rows, through
-/// `ledger.tail`.
+/// `theseus judge log` (M5 23a, on `judge.list` since 23b): the newest
+/// judgments; `theseus judge show <id>` (23b): one, with its state.
 pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
-    let JudgeCmd::Log { n, session } = cmd;
-    let v = conn
-        .request(
-            method::LEDGER_TAIL,
-            LedgerTailParams {
-                n: Some(n),
-                kind: Some("judge.call".into()),
-                session_id: session,
-                after: None,
-                ..Default::default()
-            },
-        )
-        .await?;
-    output(json, v, |r: LedgerTailResult| {
-        for line in render::judge_log_lines(&r.rows) {
-            println!("{line}");
+    match cmd {
+        JudgeCmd::Log { n, session, pack } => {
+            let v = conn
+                .request(
+                    method::JUDGE_LIST,
+                    JudgeListParams {
+                        pack,
+                        session_id: session,
+                        since: None,
+                        limit: Some(n as u64),
+                    },
+                )
+                .await?;
+            output(json, v, |r: JudgeListResult| {
+                for line in render::judge_log_lines(&r.judgments) {
+                    println!("{line}");
+                }
+                if r.matched > r.judgments.len() as u64 {
+                    println!(
+                        "({} of {} judgments in {}; `--n` shows more)",
+                        r.judgments.len(),
+                        r.matched,
+                        r.scopes.join(", ")
+                    );
+                }
+                Ok(())
+            })
         }
-        Ok(())
-    })
+        JudgeCmd::Show { id } => {
+            let v = conn
+                .request(method::JUDGE_GET, JudgeGetParams { id })
+                .await?;
+            output(json, v, |r: JudgeGetResult| {
+                for line in render::judge_show_lines(&r) {
+                    println!("{line}");
+                }
+                Ok(())
+            })
+        }
+    }
 }
 
 /// `theseus cancel ID`: a pending wake first (DD8), then a task. Each is

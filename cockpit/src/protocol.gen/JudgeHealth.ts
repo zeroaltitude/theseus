@@ -41,4 +41,15 @@ spend_today_usd: number, shadow_limit_usd: number,
 /**
  * The shadow budget's limit is reached: shadow is paused until midnight.
  */
-paused: boolean, };
+paused: boolean, 
+/**
+ * Shadow judgments shed for want of an in-flight permit since the
+ * client was built (23b).
+ */
+shed: number, 
+/**
+ * The key's state (23b): `ready`, `resolving`, `failed: <why>`, or
+ * `not configured` (`[judge] key_secret` names no `[secrets]` entry).
+ * Never a value.
+ */
+key: string, };

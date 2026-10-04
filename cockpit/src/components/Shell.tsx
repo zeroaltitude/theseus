@@ -6,7 +6,7 @@ import { Command } from 'cmdk'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Activity, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
-  RefreshCw, Sailboat, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
+  RefreshCw, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, ProfileList, SessionInfo } from '@protocol'
 import { call, client, useConn, usePaused, useRpc, usePush } from '@/lib/rpc'
@@ -34,12 +34,13 @@ const NAV = [
   { to: '/money', label: 'Money', icon: Landmark },
   { to: '/economics', label: 'Economics', icon: Coins },
   { to: '/speed', label: 'Speed', icon: Zap },
+  { to: '/judgment', label: 'Judgment', icon: Scale },
   { to: '/systems', label: 'Systems', icon: Cpu },
   { to: '/ontology', label: 'Ontology', icon: Shapes },
 ] as const
 
 const GO: Record<string, string> = {
-  h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', l: '/ledger', m: '/money', e: '/economics', w: '/speed', s: '/systems',
+  h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', l: '/ledger', m: '/money', e: '/economics', w: '/speed', j: '/judgment', s: '/systems',
 }
 
 export function Shell() {

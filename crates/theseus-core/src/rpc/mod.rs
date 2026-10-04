@@ -16,6 +16,7 @@ mod confirms;
 pub(crate) use confirms::{expired_answer, Act};
 mod driver;
 mod info;
+mod judge;
 mod mcp;
 mod memory;
 mod methods;
@@ -330,6 +331,7 @@ impl Core {
                 (Telemetry::failed(endpoint, why.clone()), Err(why))
             }
         };
+        self.runner.judge.export_to(t.clone());
         let _ = self.telemetry.set(t);
         out
     }
@@ -643,7 +645,10 @@ impl Core {
             ),
         };
         let telemetry_cell = std::sync::OnceLock::new();
+        // The judge's facts speak in the narrative, and count in telemetry (23b).
+        runner.judge.narrate_to(narrator.clone());
         if let Some(t) = telemetry {
+            runner.judge.export_to(t.clone());
             let _ = telemetry_cell.set(t);
         }
         // A persisted runtime switch wins over config, if it still names a profile.

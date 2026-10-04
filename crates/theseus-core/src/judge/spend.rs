@@ -20,7 +20,8 @@ use serde::{Deserialize, Serialize};
 use theseus_judge::price::Micros;
 use theseus_store::{kinds, NewRecord};
 
-use crate::fact::judge::{JudgeBlockBooked, JudgePaused};
+use crate::fact::judge::{JudgeBlockBooked, JudgePaused, JudgeResumed};
+use crate::fact::Rec;
 use crate::store::Store;
 
 /// The META record that holds today's blocks and settled spend.
@@ -57,9 +58,59 @@ struct Day {
 /// `judge.paused` row.
 #[derive(Debug)]
 pub enum Reserve {
-    Granted(Vec<NewRecord>),
+    Granted(Vec<NewRecord>, Vec<Said>),
     /// The day's limit is reached: the judgment is skipped, never queued.
-    Paused(Vec<NewRecord>),
+    Paused(Vec<NewRecord>, Vec<Said>),
+}
+
+/// A fact a reservation's records hold, said once their frame is written
+/// (23b: their sentences).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Said {
+    Paused {
+        day: String,
+        limit: Micros,
+        spent: Micros,
+        needed: Micros,
+    },
+    Booked {
+        day: String,
+        reserved: Micros,
+        settled: Micros,
+    },
+    Resumed {
+        day: String,
+        paused_day: String,
+    },
+}
+
+impl Said {
+    /// Its sentences: its row rode in the reservation's frame.
+    pub fn announce(&self, rec: &Rec<'_>) {
+        match self {
+            Said::Paused {
+                day,
+                limit,
+                spent,
+                needed,
+            } => rec.announce(&JudgePaused {
+                day,
+                limit_micros: *limit,
+                spent_micros: *spent,
+                needed_micros: *needed,
+            }),
+            Said::Booked {
+                day,
+                reserved,
+                settled,
+            } => rec.announce(&JudgeBlockBooked {
+                day,
+                reserved_micros: *reserved,
+                settled_micros: *settled,
+            }),
+            Said::Resumed { day, paused_day } => rec.announce(&JudgeResumed { day, paused_day }),
+        }
+    }
 }
 
 pub struct ShadowBudget {
@@ -99,6 +150,7 @@ impl ShadowBudget {
     pub fn reserve(&self, store: &Store, today: &str, need: Micros) -> Reserve {
         let mut d = self.lock();
         let mut out = Vec::new();
+        let mut said = Vec::new();
         if !d.loaded {
             d.loaded = true;
             if let Ok(Some(s)) = store.get_meta::<Stored>(META_KEY) {
@@ -113,6 +165,11 @@ impl ShadowBudget {
                         None,
                     ) {
                         out.push(r);
+                        said.push(Said::Booked {
+                            day: today.into(),
+                            reserved: s.reserved_micros,
+                            settled: s.spent_micros,
+                        });
                     }
                     d.stored = Stored {
                         spent_micros: s.reserved_micros,
@@ -124,6 +181,20 @@ impl ShadowBudget {
             }
         }
         if d.stored.day != today {
+            // The first judgment of a new day after a paused one (23b).
+            if d.paused_said && !d.stored.day.is_empty() {
+                let resumed = JudgeResumed {
+                    day: today,
+                    paused_day: &d.stored.day,
+                };
+                if let Ok(r) = crate::fact::row(&resumed, None, None) {
+                    out.push(r);
+                    said.push(Said::Resumed {
+                        day: today.into(),
+                        paused_day: d.stored.day.clone(),
+                    });
+                }
+            }
             *d = Day {
                 loaded: true,
                 in_flight: d.in_flight,
@@ -147,12 +218,18 @@ impl ShadowBudget {
                 };
                 if let Ok(r) = crate::fact::row(&paused, None, None) {
                     out.push(r);
+                    said.push(Said::Paused {
+                        day: today.into(),
+                        limit: self.limit,
+                        spent: d.stored.spent_micros,
+                        needed: need,
+                    });
                 }
             }
             if !out.is_empty() {
                 out.push(meta(&d.stored));
             }
-            return Reserve::Paused(out);
+            return Reserve::Paused(out, said);
         }
         if held + need > d.stored.reserved_micros {
             let blocks = (held + need - d.stored.reserved_micros).div_ceil(BLOCK_MICROS);
@@ -164,7 +241,7 @@ impl ShadowBudget {
             out.push(meta(&d.stored));
         }
         d.in_flight += need;
-        Reserve::Granted(out)
+        Reserve::Granted(out, said)
     }
 
     /// A judgment came back: its reservation is released and what it cost

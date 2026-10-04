@@ -3116,6 +3116,9 @@ impl TurnRunner {
         // last, `end_turn`'s, which carries this trace. The bench counts the
         // same turn's from the WAL (`theseus-sim bench turn`).
         let frames = t.tc.store.turn_frames().map(|n| n + 1);
+        // A judgment of this turn's end is marked before its last frame (23b).
+        self.judge
+            .mark_turn_end(&mut t.trace, &result, t.tc.task.is_some());
         result.trace = Some(t.trace.finish(json!({
             "outcome": "complete",
             "loops": result.loops,

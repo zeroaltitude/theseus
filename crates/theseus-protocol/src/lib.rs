@@ -180,6 +180,13 @@ pub mod method {
         /// (`memory::MemoryLabelParams`; M6 step 30b): `wrong` and `stale`
         /// keep it out of recall. Acting: the owner, from a private place.
         MEMORY_LABEL = "memory.label",
+        /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
+        /// `judge.call` rows, by pack, session, and time, without their
+        /// states. A read.
+        JUDGE_LIST = "judge.list",
+        /// One judgment by its id (`judge::JudgeGetParams`): its row, and the
+        /// state Jev was sent, from its blob. A read.
+        JUDGE_GET = "judge.get",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

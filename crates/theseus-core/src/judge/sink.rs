@@ -60,21 +60,14 @@ pub async fn run(
 
 impl JudgeService {
     /// One frame: the batch's rows, the breaker's moves, the shed count, and
-    /// the budget's record.
+    /// the budget's record. Once it is written, each fact's sentences are
+    /// said and each judgment's metrics recorded (23b).
     fn write(&self, batch: &[Judgment]) {
         let mut records: Vec<NewRecord> = Vec::new();
         for j in batch {
-            let session = j.context.get("session").and_then(|v| v.as_str());
-            let turn = j.context.get("turn").and_then(|v| v.as_str());
+            let (session, turn) = where_of(j);
             let scope = format!("judge:{}", j.pack.split('.').next().unwrap_or(&j.pack));
-            match crate::fact::row(
-                &JudgeCall {
-                    judgment: j,
-                    budget: "shadow",
-                },
-                session,
-                turn,
-            ) {
+            match crate::fact::row(&call(j), session, turn) {
                 Ok(mut r) => {
                     r.key = Some(j.id.clone());
                     records.push(r.scoped(&scope));
@@ -91,14 +84,49 @@ impl JudgeService {
                 records.extend(crate::fact::row(&circuit, None, None).ok());
             }
         }
-        if let Some(b) = self.built.get() {
-            if let Some(shed) = b.judge.inner().client().take_shed_report(Instant::now()) {
-                records.extend(crate::fact::row(&JudgeShed { shed }, None, None).ok());
-            }
+        let shed = self
+            .built
+            .get()
+            .and_then(|b| b.judge.inner().client().take_shed_report(Instant::now()));
+        if let Some(shed) = shed {
+            records.extend(crate::fact::row(&JudgeShed { shed }, None, None).ok());
         }
         records.extend(self.budget.record());
         if let Err(e) = self.store.append(&records) {
             tracing::warn!(error = %format!("{e:#}"), rows = batch.len(), "judge: the judgments' frame was not written");
+            return;
+        }
+        for j in batch {
+            let (session, turn) = where_of(j);
+            self.announce(session, turn, &call(j));
+            if let Some(t) = &j.circuit {
+                let circuit = JudgeCircuit {
+                    transition: t,
+                    judgment: &j.id,
+                };
+                self.announce(None, None, &circuit);
+            }
+            if let Some(t) = self.telemetry.get() {
+                t.record_judgment(j, crate::fact::judge::disagrees(j));
+            }
+        }
+        if let Some(shed) = shed {
+            self.announce(None, None, &JudgeShed { shed });
         }
     }
+}
+
+/// A judgment's fact: in 23b every judgment the sink writes is a shadow
+/// one, paid by the judge's own budget.
+fn call(j: &Judgment) -> JudgeCall<'_> {
+    JudgeCall {
+        judgment: j,
+        budget: "shadow",
+    }
+}
+
+/// Whose a judgment is: the session and turn its context names.
+fn where_of(j: &Judgment) -> (Option<&str>, Option<&str>) {
+    let s = |k: &str| j.context.get(k).and_then(|v| v.as_str());
+    (s("session"), s("turn"))
 }

@@ -23,11 +23,17 @@ pub struct LoopEnd {
 impl LoopEnd {
     /// The turn's workload class (§2.2), set deterministically.
     pub fn class(&self) -> &'static str {
-        match (self.task, self.tool_calls) {
-            (true, _) => "task",
-            (false, 0) => "reply",
-            (false, _) => "tools",
-        }
+        class(self.task, self.tool_calls)
+    }
+}
+
+/// A turn's workload class (§2.2) from whether it is a task's, and its
+/// tool calls.
+pub fn class(task: bool, tool_calls: u32) -> &'static str {
+    match (task, tool_calls) {
+        (true, _) => "task",
+        (false, 0) => "reply",
+        (false, _) => "tools",
     }
 }
 

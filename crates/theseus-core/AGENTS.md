@@ -213,6 +213,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
   never past 100 ms). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
   clock with a stand-in `Os`.
+- **The judge** (M5, steps 23a and 23b): `judge/` (`JudgeService`, built at the first judgment; `sink.rs`, the
+  batched frames; `spend.rs`, the shadow day budget; `loop_end.rs`, loop.v1's input; `mark.rs`, a dispatch's mark).
+  A judgment a turn dispatches is decided (mode and sample, pure) and its id minted before the turn's last frame,
+  and marked in the trace there (a zero-length `judge` span of kind `mark`: pack, point, mode, judgment); the call is
+  spawned after the frame with that id (`theseus_judge::Ask::id`). Every point that dispatches inside a turn marks
+  the same way. The facts (`fact/judge.rs`) say their sentences, and `Telemetry::record_judgment` counts each
+  judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark.
+  `judge.list` and `judge.get` are `rpc/judge.rs`. Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
+  `telemetry/tests_judge.rs`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it

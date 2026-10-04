@@ -21,6 +21,7 @@
 //!   and counted, never queued.
 
 pub mod loop_end;
+pub mod mark;
 pub mod sink;
 pub mod spend;
 
@@ -43,6 +44,7 @@ use crate::secrets::SecretBoard;
 use crate::store::Store;
 
 pub use loop_end::LoopEnd;
+pub use mark::Dispatch;
 use spend::{Reserve, ShadowBudget};
 
 /// The packs this build wires in, and the mode the ladder gives each (step
@@ -96,6 +98,10 @@ pub struct JudgeService {
     flush: Duration,
     prices: BTreeMap<String, JevPrice>,
     me: Weak<JudgeService>,
+    /// Where the judge's facts say their sentences, and their metrics go
+    /// (23b): set by the core as it builds, and as its telemetry is built.
+    narrator: OnceLock<Arc<crate::narrative::Narrator>>,
+    telemetry: OnceLock<crate::telemetry::Telemetry>,
 }
 
 impl JudgeService {
@@ -137,7 +143,47 @@ impl JudgeService {
             flush,
             prices,
             me: me.clone(),
+            narrator: OnceLock::new(),
+            telemetry: OnceLock::new(),
         })
+    }
+
+    /// The narrative the judge's facts speak in (the core's).
+    pub fn narrate_to(&self, narrator: Arc<crate::narrative::Narrator>) {
+        let _ = self.narrator.set(narrator);
+    }
+
+    /// The telemetry its metrics go to, once the core has built it.
+    pub fn export_to(&self, telemetry: crate::telemetry::Telemetry) {
+        let _ = self.telemetry.set(telemetry);
+    }
+
+    /// Say a fact whose row is written: its sentences, as `session`'s and
+    /// `turn`'s (none: the judge's own), to no one's notification.
+    pub(crate) fn announce<F: crate::fact::Fact>(
+        &self,
+        session: Option<&str>,
+        turn: Option<&str>,
+        f: &F,
+    ) {
+        if let Some(n) = self.narrator.get() {
+            self.rec(n, session, turn).announce(f);
+        }
+    }
+
+    fn rec<'a>(
+        &'a self,
+        narrator: &'a crate::narrative::Narrator,
+        session: Option<&'a str>,
+        turn: Option<&'a str>,
+    ) -> crate::fact::Rec<'a> {
+        crate::fact::Rec {
+            narrator,
+            session,
+            turn,
+            to: crate::fact::To::Nobody,
+            store: &self.store,
+        }
     }
 
     pub fn config(&self) -> &JudgeConfig {
@@ -172,45 +218,93 @@ impl JudgeService {
         Ok(self.built.get().cloned().unwrap_or(b))
     }
 
+    /// Whether `loop.v1` judges a turn that ended so, decided before its
+    /// last frame (23b): pure, from the config, the pack's sample, and the
+    /// turn's id, with the judgment's id minted now. `None`: not judged.
+    pub fn plan_loop_end(&self, stop_reason: &str, turn_id: &str) -> Option<Dispatch> {
+        if stop_reason != "no_tool_calls"
+            || self.cfg.mode_of(LOOP_PACK, PackMode::Shadow) == PackMode::Off
+        {
+            return None;
+        }
+        let pack = theseus_judge::pack::by_name(LOOP_PACK)?;
+        sampled(turn_id, self.cfg.sample_of(LOOP_PACK, pack.sample))
+            .then(|| Dispatch::new(LOOP_PACK, "loop_end", Mode::Shadow))
+    }
+
+    /// Mark the turn's trace with `loop.v1`'s dispatch, when it judges the
+    /// turn: at its end, before its last frame, which carries the trace. The
+    /// judgment is spawned after that frame (`after_turn`), with this id.
+    pub fn mark_turn_end(
+        &self,
+        trace: &mut crate::trace::Trace,
+        res: &theseus_protocol::TurnSubmitResult,
+        task: bool,
+    ) {
+        if let Some(d) = self.plan_loop_end(&res.stop_reason, &res.turn_id) {
+            let class = loop_end::class(task, res.tool_calls);
+            d.mark(
+                trace,
+                json!({"loop": res.loops.saturating_sub(1), "class": class}),
+            );
+        }
+    }
+
     /// A turn that ended: one the baseline ended with no tool calls goes to
-    /// `loop.v1` (`at_loop_end`); any other is not judged in 23a.
+    /// `loop.v1` (`at_loop_end`), with the id its trace's mark names; any
+    /// other is not judged in 23a.
     pub fn after_turn(&self, res: &theseus_protocol::TurnSubmitResult, task: bool) {
         if res.stop_reason != "no_tool_calls" {
             return;
         }
-        self.at_loop_end(LoopEnd {
-            session_id: res.session_id.clone(),
-            execution_id: res.execution_id.clone().unwrap_or_default(),
-            turn_id: res.turn_id.clone(),
-            task,
-            output: res.output.clone(),
-            loops: res.loops,
-            cost_usd: res.cost_usd,
-            tool_calls: res.tool_calls,
-        });
+        let marked = res
+            .trace
+            .as_ref()
+            .map(mark::marks)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|d| d.pack == LOOP_PACK)
+            .map(|d| d.id);
+        self.at_loop_end(
+            LoopEnd {
+                session_id: res.session_id.clone(),
+                execution_id: res.execution_id.clone().unwrap_or_default(),
+                turn_id: res.turn_id.clone(),
+                task,
+                output: res.output.clone(),
+                loops: res.loops,
+                cost_usd: res.cost_usd,
+                tool_calls: res.tool_calls,
+            },
+            marked,
+        );
     }
 
     /// A turn the baseline ended with no tool calls: `loop.v1` judges it in
-    /// shadow, in a task of its own. Returns at once, whatever Jev does.
-    pub fn at_loop_end(&self, end: LoopEnd) {
-        if self.cfg.mode_of(LOOP_PACK, PackMode::Shadow) == PackMode::Off {
+    /// shadow, in a task of its own, as `id` when the turn's trace marked one
+    /// (else a fresh id). Returns at once, whatever Jev does.
+    pub fn at_loop_end(&self, end: LoopEnd, id: Option<String>) {
+        let Some(d) = self.plan_loop_end("no_tool_calls", &end.turn_id) else {
             return;
-        }
+        };
         let Some(pack) = theseus_judge::pack::by_name(LOOP_PACK) else {
             return;
         };
-        if !sampled(&end.turn_id, self.cfg.sample_of(LOOP_PACK, pack.sample)) {
-            return;
-        }
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        rt.spawn(judge_loop(self.me.clone(), pack, end));
+        rt.spawn(judge_loop(self.me.clone(), pack, end, id.unwrap_or(d.id)));
     }
 
     /// The blocking half before the call: the transcript's read, the state's
     /// build and blob, and the reservation. `None`: nothing to send.
-    fn prepare_loop(&self, pack: Arc<Pack>, end: &LoopEnd, today: &str) -> Option<Prepared> {
+    fn prepare_loop(
+        &self,
+        pack: Arc<Pack>,
+        end: &LoopEnd,
+        id: String,
+        today: &str,
+    ) -> Option<Prepared> {
         let (state, blob) = self.loop_state(&pack, end)?;
         let built = self
             .built()
@@ -221,7 +315,8 @@ impl JudgeService {
             "loops": end.loops, "baseline": "until_no_tool_calls", "decision": "no_tool_calls",
             "class": end.class(), "blob": blob, "on_path_ms": 0,
         });
-        let ask = Ask::new(pack, &state, Mode::Shadow, context);
+        let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+        ask.id = Some(id);
         let need = built
             .judge
             .inner()
@@ -258,15 +353,21 @@ impl JudgeService {
     /// asks for (a new block, a crash's booked rest, the day's pause) first.
     /// False: paused at the limit, or the frame was not written.
     fn reserve(&self, today: &str, need: theseus_judge::price::Micros) -> bool {
-        let (granted, records) = match self.budget.reserve(&self.store, today, need) {
-            Reserve::Granted(r) => (true, r),
-            Reserve::Paused(r) => (false, r),
+        let (granted, records, said) = match self.budget.reserve(&self.store, today, need) {
+            Reserve::Granted(r, s) => (true, r, s),
+            Reserve::Paused(r, s) => (false, r, s),
         };
         if records.is_empty() {
             return granted;
         }
         match self.store.append(&records) {
-            Ok(_) => granted,
+            Ok(_) => {
+                if let Some(n) = self.narrator.get() {
+                    let rec = self.rec(n, None, None);
+                    said.iter().for_each(|s| s.announce(&rec));
+                }
+                granted
+            }
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "judge: the budget's frame was not written");
                 if granted {
@@ -289,6 +390,16 @@ impl JudgeService {
                 ..spend::Today::default()
             },
         };
+        let key = match self.secrets.states().get(&self.cfg.key_secret) {
+            Some(crate::secrets::SecretState::Ready(_)) => "ready".to_string(),
+            Some(crate::secrets::SecretState::Resolving) => "resolving".to_string(),
+            Some(crate::secrets::SecretState::Failed(why)) => format!("failed: {why}"),
+            None => "not configured".to_string(),
+        };
+        let shed = self
+            .built
+            .get()
+            .map_or(0, |b| b.judge.inner().client().shed_total());
         let (breaker, in_flight) = match self.built.get() {
             Some(b) => {
                 let j = b.judge.inner();
@@ -317,6 +428,8 @@ impl JudgeService {
             spend_today_usd: theseus_judge::price::micros_to_usd(t.spent_micros),
             shadow_limit_usd: theseus_judge::price::micros_to_usd(self.budget.limit_micros()),
             paused: t.paused,
+            shed,
+            key,
         }
     }
 }
@@ -331,11 +444,11 @@ struct Prepared {
 /// One `loop.v1` judgment, in its own task. The service is held only
 /// around the blocking halves, never across the call: a stop never waits on
 /// Jev to let the store go.
-async fn judge_loop(me: Weak<JudgeService>, pack: Arc<Pack>, end: LoopEnd) {
+async fn judge_loop(me: Weak<JudgeService>, pack: Arc<Pack>, end: LoopEnd, id: String) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
     let day = today.clone();
-    let prepared = tokio::task::spawn_blocking(move || svc.prepare_loop(pack, &end, &day))
+    let prepared = tokio::task::spawn_blocking(move || svc.prepare_loop(pack, &end, id, &day))
         .await
         .ok()
         .flatten();

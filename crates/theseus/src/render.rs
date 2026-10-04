@@ -36,7 +36,7 @@ pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use catalog::catalog_config_lines;
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
-pub use judge::{judge_line, judge_log_lines};
+pub use judge::{judge_line, judge_log_lines, judge_show_lines};
 pub use lsp::lsp_line;
 pub use mcp::{mcp_line, mcp_lines};
 pub use mcp_server::mcp_server_line;
@@ -480,6 +480,8 @@ fn span_into(out: &mut Vec<Line>, s: &theseus_protocol::Span, depth: usize, f: &
         fmt_us(s.duration_us())
     };
     let attrs = match &s.attrs {
+        // A judgment's mark names its id whole (M5 23b).
+        _ if judge::is_mark(s) => judge::mark_note(s),
         serde_json::Value::Null => String::new(),
         v => {
             let t = serde_json::to_string(v).unwrap_or_default();

@@ -28,6 +28,8 @@ const Money = lazy(() => import('./views/Money'))
 const Boundaries = lazy(() => import('./views/Boundaries'))
 const Speed = lazy(() => import('./views/Speed'))
 const Ontology = lazy(() => import('./views/Ontology'))
+// Jev's judgments (M5 23b).
+const Judgment = lazy(() => import('./views/Judgment'))
 
 const queries = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, placeholderData: (prev: unknown) => prev } },
@@ -60,6 +62,7 @@ const router = createBrowserRouter(
             { path: 'boundaries', element: wrap(<Boundaries />) },
             { path: 'speed', element: wrap(<Speed />) },
             { path: 'ontology', element: wrap(<Ontology />) },
+            { path: 'judgment', element: wrap(<Judgment />) },
             { path: '*', element: <NotFound /> },
           ],
         },

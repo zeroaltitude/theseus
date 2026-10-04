@@ -156,7 +156,7 @@ fn cfg(endpoint: &str) -> TelemetryConfig {
 }
 
 /// Short times for tests; the interval is long unless a test wants ticks.
-fn tuning() -> Tuning {
+pub(super) fn tuning() -> Tuning {
     Tuning {
         interval: Duration::from_secs(3600),
         timeout: Duration::from_secs(2),
@@ -165,7 +165,7 @@ fn tuning() -> Tuning {
     }
 }
 
-fn pipeline(endpoint: &str, headers: Option<&Secret>, t: Tuning) -> Telemetry {
+pub(super) fn pipeline(endpoint: &str, headers: Option<&Secret>, t: Tuning) -> Telemetry {
     let tel = Telemetry::with_tuning(&cfg(endpoint), headers, t).unwrap();
     assert!(tel.enabled());
     tel
@@ -473,7 +473,7 @@ fn spans_of(got: &[Got]) -> Vec<Value> {
 }
 
 /// The metrics of the last metrics request.
-fn last_metrics(got: &[Got]) -> Vec<Value> {
+pub(super) fn last_metrics(got: &[Got]) -> Vec<Value> {
     got.iter()
         .rev()
         .find(|g| g.path == "/v1/metrics")
@@ -1456,7 +1456,7 @@ fn health_says_what_telemetry_is_doing() {
 // ---------------------------------------------------------------- the corrections (theseus-yf1)
 
 /// Every data point of the metric `name`.
-fn points_of<'a>(metrics: &'a [Value], name: &str) -> Vec<&'a Value> {
+pub(super) fn points_of<'a>(metrics: &'a [Value], name: &str) -> Vec<&'a Value> {
     metrics
         .iter()
         .filter(|m| m["name"] == name)
@@ -1471,7 +1471,7 @@ fn points_of<'a>(metrics: &'a [Value], name: &str) -> Vec<&'a Value> {
 }
 
 /// A point's attributes, each value as text.
-fn attrs_of(p: &Value) -> BTreeMap<String, String> {
+pub(super) fn attrs_of(p: &Value) -> BTreeMap<String, String> {
     p["attributes"]
         .as_array()
         .into_iter()
@@ -1489,7 +1489,7 @@ fn attrs_of(p: &Value) -> BTreeMap<String, String> {
 
 /// The one point of the metric `name` whose attributes include every pair
 /// of `with`.
-fn point_with<'a>(metrics: &'a [Value], name: &str, with: &[(&str, &str)]) -> &'a Value {
+pub(super) fn point_with<'a>(metrics: &'a [Value], name: &str, with: &[(&str, &str)]) -> &'a Value {
     let all = points_of(metrics, name);
     let found: Vec<&Value> = all
         .iter()

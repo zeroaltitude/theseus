@@ -307,6 +307,9 @@ impl Core {
             method::MEMORY_SEARCH => reply(self.memory_search(parse(params)?).await?),
             method::MEMORY_RECALLS => reply(self.memory_recalls(parse(params)?)?),
             method::MEMORY_LABEL => route(params, |p| self.rpc_memory_label(p, conn)),
+            // Jev's judgments (M5 23b): their rows, and one with its state.
+            method::JUDGE_LIST => reply(self.judge_list(parse(params)?)?),
+            method::JUDGE_GET => reply(self.judge_get(parse(params)?)?),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),

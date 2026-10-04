@@ -58,7 +58,7 @@ pub use client::{
 };
 pub use decision::{decide, Decision, Verdict};
 pub use judge::{
-    Ask, DecisionPoint, JevJudge, Judge, Judgment, JudgmentSink, MemorySink, Mode, Outcome,
+    new_id, Ask, DecisionPoint, JevJudge, Judge, Judgment, JudgmentSink, MemorySink, Mode, Outcome,
     Recording, Skip,
 };
 pub use pack::{Pack, Point};
