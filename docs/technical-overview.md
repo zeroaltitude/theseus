@@ -104,7 +104,9 @@ retries on its own.
 Storage is a WAL of checksummed atomic frames (the truth) plus a rebuildable index in `redb`
 (`fjall` was measured against it and removed; spec §1, "Storage kernel"). Every append is durable when it returns; a
 frame with several records commits all or none; recovery truncates a torn tail and refuses
-corruption elsewhere; deleting the index loses nothing. Concurrent appenders share one
+corruption elsewhere; deleting the index loses nothing. A sync that fails cuts its frames back off the log, so a write
+its caller was told failed never comes back after a restart, and a follower (the index's, the durability tender's)
+meets such a cut as a rewind (since 2026-10-05, spec Part III Item 176). Concurrent appenders share one
 `fdatasync` (**group commit**): sixteen writers get about seven times the frame throughput of one,
 and a single writer pays exactly one sync per frame as before. Records carry an optional **scope**
 (a session id) and the index keeps a per-scope position table, so a session's own records are one
@@ -182,7 +184,9 @@ confines them to `[tools].roots`, always denies protected paths (`~/.ssh`, `~/.a
 reads through while **writes and commands wait for your confirmation**, bound to the exact
 arguments and expiring after 15 minutes. `proc.run` runs in the detached job wrapper: if it takes
 longer than `[tools].proc_sync_secs`, the turn continues without it and the result comes back
-later, even across a daemon restart, as a late result the model reads in a continuation turn.
+later, even across a daemon restart, as a late result the model reads in a continuation turn. Since 2026-10-05 `proc.run` also takes `steps`: up to 16 programs run in turn, stopping at the first that
+fails, with one result and one approval for the whole batch, judged as its strictest step and run in one sandbox
+class; and `fs.patch` recounts a hunk header whose line counts are off (spec Part III Item 175).
 
 The **model catalog** gives every model its context window, output ceiling, and prices, so every
 call is priced in dollars (`theseus catalog`; override or add rows with `[catalog."<model>"]`).

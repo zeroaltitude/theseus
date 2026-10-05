@@ -12,8 +12,11 @@ Everything below is what that command does, why, and what to do afterwards. On a
 
 ## Why
 
-- **It comes back.** `Restart=on-failure` with `RestartSec=5`: a crash, a kill, or an out-of-memory stop starts the
-  daemon again five seconds later, and the write-ahead log replays as it does after any crash. A clean stop is
+- **It comes back.** `Restart=on-failure` with `RestartSec=1`: a crash, a kill, or an out-of-memory stop starts the
+  daemon again a second later, and the write-ahead log replays as it does after any crash. A daemon that fails at
+  every start stops after ten starts in 300 s (`StartLimitIntervalSec=300`, `StartLimitBurst=10` in `[Unit]`): the
+  unit is `failed` (start-limit-hit), with ten files in `crashes/`, until `systemctl --user reset-failed theseusd`
+  and a start (since 2026-10-04, theseus-0v8s). A clean stop is
   not restarted, so `theseus shutdown` and `systemctl --user stop` both end it until you start it again.
 - **It has a journal.** Everything the daemon writes to stderr goes to systemd's journal, which keeps and rotates
   it: `scripts/user-service.sh logs` follows it.
@@ -47,7 +50,9 @@ export THESEUS_CONFIG=op://<vault>/<item>/notesPlain
 
 Open a new shell (or run the line in this one) before `check`. `check` tells you which case you are in: it reads the
 config the unit would get from the plan's own `config:` line, not from the variable alone, so it holds for any build
-of `theseusd` (see "The one command" for what it prints).
+of `theseusd` (see "The one command" for what it prints). Once a unit is installed, `check` in a shell with no `THESEUS_CONFIG` reads the config that unit names (its
+`--config`), and its `config:` line says so ("THESEUS_CONFIG is not set here, so this is the installed unit's
+config"); `install` still checks the config the unit would get (since 2026-10-04, theseus-a7gx).
 
 ### A token file
 
@@ -234,7 +239,10 @@ runs systemd.
 plan and changes nothing, `--apply` performs it, `--check` compares the machine with it and exits 1 if anything
 differs, and `--remove` is its inverse. The flag that names the token file works before the subcommand or after it:
 `theseusd --op-token-file F install --user` and `theseusd install --user --op-token-file F` are the same. The script
-uses the first form, which every build of `theseusd` reads.
+uses the first form, which every build of `theseusd` reads. `--apply` with no token file named (neither the flag nor `THESEUS_OP_TOKEN_FILE`) refuses before it writes
+anything, since that unit's daemon could not reach the vault, and says how to name one; when your own drop-in
+supplies the token instead, `--token-from-drop-in` (with `--user`) lets the apply through (since 2026-10-04,
+theseus-4xyj). The plan, `--check` and `--remove` need no token file.
 
 The unit, as it is written:
 
@@ -243,6 +251,8 @@ The unit, as it is written:
 # put your own changes in a drop-in (`systemctl --user edit theseusd`).
 [Unit]
 Description=Theseus daemon
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=exec
@@ -252,7 +262,7 @@ Environment="LANG=C.UTF-8"
 KillSignal=SIGINT
 KillMode=process
 Restart=on-failure
-RestartSec=5
+RestartSec=1
 Delegate=yes
 
 [Install]
@@ -260,7 +270,7 @@ WantedBy=default.target
 ```
 
 `KillSignal=SIGINT` is the daemon's clean stop; `KillMode=process` leaves running jobs alone on a stop;
-`Restart=on-failure` brings it back after a crash; `Delegate=yes` makes the unit's cgroup the daemon's, for its jobs'
+`Restart=on-failure` brings it back a second after a crash, and the `[Unit]`'s start limit stops a crash loop after ten starts in 300 s; `Delegate=yes` makes the unit's cgroup the daemon's, for its jobs'
 own, and a restart while a job runs starts as any start does. A unit written before theseus-gyin also has an
 `ExecStopPost=` that runs `theseusd cgroup-release`, and one written between theseus-gyin and theseus-a5nv has no
 `Delegate=`: run `scripts/user-service.sh install` again to write it as above (the subcommand is gone, and the `-`

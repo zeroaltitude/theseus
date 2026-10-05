@@ -29,9 +29,9 @@ Each says so in its manifest (`reserved_for` under `[package.metadata.theseus]`,
 
 | Crate | What it is | Wired in at |
 |---|---|---|
-| `theseus-ontology` | The fungible ontology's first slice (§4.1a) | row 26 (21b) |
-| `theseus-judge` | Jev: the typed client, bands, batching, the breaker, the question packs | row 37 (23a) |
-| `theseus-memory` | FSRS-6 and spreading activation, pure | row 52 (30a) |
-| `theseus-exam` | The memory exam | row 55 |
-| `theseus-mcp` | MCP, client and server, written by hand | row 66 (36b) |
-| `theseus-lsp` | The LSP client, written by hand: framing, push and pull diagnostics, navigation, the stop, a scripted fake server (Part III Item 96) | L2 (theseus-n88g.8; its `reserved_for` says row 0 until the roadmap numbers it) |
+| `theseus-ontology` | The fungible ontology's first slice (§4.1a) | row 26 (21b): **wired in 2026-10-04**, its `reserved_for` removed (Part III Item 100) |
+| `theseus-judge` | Jev: the typed client, bands, batching, the breaker, the question packs | row 37 (23a): **wired in 2026-10-04**, its `reserved_for` removed (Part III Item 105) |
+| `theseus-memory` | FSRS-6 and spreading activation, pure | row 52 (30a): **wired in 2026-10-04**, its `reserved_for` removed (Part III Item 99) |
+| `theseus-exam` | The memory exam. _Since 2026-10-04 (34b's wire-in; Part III Item 124) a tool run by hand beside `theseusd`, never in a shipped binary: its `reserved_for` became `tool = …`, and it drives one scratch daemon per arm (`theseus-exam run`, `report`, `replay`)_ | row 55 |
+| `theseus-mcp` | MCP, client and server, written by hand | row 66 (36b) and row 72 (41b): **both sides read since 2026-10-04**, its `reserved_for` removed (Part III Items 106 and 110) |
+| `theseus-lsp` | The LSP client, written by hand: framing, push and pull diagnostics, navigation, the stop, a scripted fake server (Part III Item 96); since 2026-10-04 it never offers to watch files for a server, so each server watches its own and sees what a job wrote (card 6, Item 151), and a saved document waits for its server's check after the save, so rust-analyzer's pushed rustc errors join its pulled analysis (theseus-c6hv, Item 153) | L2 (theseus-n88g.8): **read since 2026-10-04** by theseus-core's board and tools, its `reserved_for` removed (Part III Item 114) |

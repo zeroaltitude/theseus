@@ -5,6 +5,7 @@
 //! (theseus-5gw9).
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -56,10 +57,12 @@ impl ToolRuntime {
             {
                 return Ok(out);
             }
-            let job = match place {
+            let started = Instant::now();
+            let cancelled = done(ResultStatus::Cancelled);
+            let outcome = match place {
                 Pending::NeverPlanned => {
                     self.not_run(tc, &u, "the operator sent a new message before this ran")?;
-                    None
+                    cancelled
                 }
                 Pending::StoppedAtGate => {
                     // Stopped at the gate (invalid input), but the result write was lost: answer again.
@@ -68,15 +71,15 @@ impl ToolRuntime {
                         &u,
                         "the harness restarted before its result was recorded",
                     )?;
-                    None
+                    cancelled
                 }
                 Pending::NeverAsked(a) => {
                     self.answer_never_asked(tc, &u, &a)?;
-                    None
+                    cancelled
                 }
                 Pending::Waiting(corr) if has_input => {
                     self.supersede(tc, &u, &corr)?;
-                    None
+                    done(ResultStatus::Declined)
                 }
                 Pending::Waiting(corr) => {
                     out.awaiting = Some(corr);
@@ -85,16 +88,14 @@ impl ToolRuntime {
                 Pending::Confirmed(a) => self.run_confirmed(tc, &u, &a, node).await?,
                 Pending::Authorized(a) => self.run_authorized(tc, &u, &a).await?,
                 Pending::Dispatched(a) => self.check_dispatched(tc, &u, &a)?,
-                Pending::Settled(a) => {
-                    self.answer_settled(tc, &u, &a)?;
-                    None
-                }
-                Pending::Cancelled(a) => {
-                    self.answer_cancelled(tc, &u, &a)?;
-                    None
-                }
+                Pending::Settled(a) => self.answer_settled(tc, &u, &a)?,
+                Pending::Cancelled(a) => done(self.answer_cancelled(tc, &u, &a)?),
             };
-            out.background.extend(job);
+            if let CallOutcome::Background { correlation_id } = &outcome {
+                out.background.push(correlation_id.clone());
+            }
+            // Its span is the turn's, under the continuation's (theseus-8pei).
+            out.answered(&u, outcome, started);
             out.wrote += 1;
         }
         self.run_fresh(tc, &assistant.id, &mut fresh, &mut out)
@@ -123,15 +124,19 @@ impl ToolRuntime {
             .collect();
         let batch = self.run_calls(tc, assistant_node, &calls).await?;
         drop(calls);
-        fresh.clear();
-        for r in batch.ran {
-            match r.outcome {
+        for r in &batch.ran {
+            match &r.outcome {
                 CallOutcome::AwaitingConfirm { .. } => continue,
-                CallOutcome::Background { correlation_id } => out.background.push(correlation_id),
+                CallOutcome::Background { correlation_id } => {
+                    out.background.push(correlation_id.clone());
+                }
                 CallOutcome::Done { .. } => {}
             }
             out.wrote += 1;
         }
+        // Never gated in their turn, so their spans are the continuation's.
+        out.ran_batch(fresh, batch.ran);
+        fresh.clear();
         out.awaiting = batch.awaiting;
         Ok(out.awaiting.is_some())
     }
@@ -241,18 +246,18 @@ impl ToolRuntime {
 
     /// A confirmed call: authorized against the proposal its confirm bound,
     /// then run. A confirm that no longer holds declines it instead. Returns
-    /// the job it left running in the background, if any.
+    /// what became of it: a job left running is `Background`.
     async fn run_confirmed(
         &self,
         tc: &TurnCtx<'_>,
         u: &ToolUse,
         a: &Action,
         node: Option<&Node>,
-    ) -> Result<Option<String>> {
+    ) -> Result<CallOutcome> {
         let (tool, name) = self.tool_of(u);
         let Some(tool) = tool else {
             self.not_run(tc, u, "the tool is no longer registered")?;
-            return Ok(None);
+            return Ok(done(ResultStatus::Cancelled));
         };
         let corr = &a.correlation_id;
         // Authorized and dispatched in one frame (theseus-l6y). A confirm
@@ -275,11 +280,10 @@ impl ToolRuntime {
                 tc.record(&fact::tool::ApprovedRunning { tool: &name });
                 let ran = self.execute(tc, corr, tool, u, Posture::Approve, class);
                 match ran.await? {
-                    CallOutcome::Background { correlation_id } => Ok(Some(correlation_id)),
                     CallOutcome::AwaitingConfirm { .. } => {
                         unreachable!("an authorized action does not ask again")
                     }
-                    CallOutcome::Done { .. } => Ok(None),
+                    outcome => Ok(outcome),
                 }
             }
             Err(e) => {
@@ -302,7 +306,7 @@ impl ToolRuntime {
                         )
                     },
                 )?;
-                Ok(None)
+                Ok(done(ResultStatus::Declined))
             }
         }
     }
@@ -313,55 +317,42 @@ impl ToolRuntime {
         tc: &TurnCtx<'_>,
         u: &ToolUse,
         a: &Action,
-    ) -> Result<Option<String>> {
+    ) -> Result<CallOutcome> {
         let (tool, name) = self.tool_of(u);
         let Some(tool) = tool else {
             self.not_run(tc, u, "the tool is no longer registered")?;
-            return Ok(None);
+            return Ok(done(ResultStatus::Cancelled));
         };
         tc.record(&fact::tool::AuthorizedResumed { tool: &name });
         // One with no proposal to read predates L1 (theseus-0g4): L0.
         let class = confirm_proposal(tc.store, a, None)
             .map_or_else(|_| Default::default(), |p| sandbox::Bound::of(&p));
         tc.kernel.dispatch(&a.correlation_id, None)?;
-        Ok(
-            match self
-                .execute(tc, &a.correlation_id, tool, u, Posture::Approve, class)
-                .await?
-            {
-                CallOutcome::Background { correlation_id } => Some(correlation_id),
-                _ => None,
-            },
-        )
+        self.execute(tc, &a.correlation_id, tool, u, Posture::Approve, class)
+            .await
     }
 
     /// Dispatched before a restart: the job's settled result, a placeholder if
     /// it still runs (returned as a background job), or `unknown`.
-    fn check_dispatched(
-        &self,
-        tc: &TurnCtx<'_>,
-        u: &ToolUse,
-        a: &Action,
-    ) -> Result<Option<String>> {
+    fn check_dispatched(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<CallOutcome> {
         let (tool, name) = self.tool_of(u);
         let corr = &a.correlation_id;
         // A harness tool run again finds what it did (DD7's task ids).
         if let Some(t) = tool.as_ref().filter(|t| t.backend() == Backend::Harness) {
-            self.run_harness(tc, corr, t.as_ref(), u, approved_at(a))?;
-            return Ok(None);
+            return self.run_harness(tc, corr, t.as_ref(), u, approved_at(a));
         }
         let is_job = tool.as_ref().is_some_and(|t| t.backend() == Backend::Job);
         let settled = match &self.spool {
             Some(sp) if is_job => Self::job_settled(tc.kernel, sp, corr)?,
             _ => None,
         };
-        if let Some(done) = settled {
-            self.answer_job(
+        if let Some(a) = settled {
+            let status = self.answer_job(
                 tc,
-                self.job_result(tc.store, &done, &u.id, &name, Some(&u.input)),
-                &done,
+                self.job_result(tc.store, &a, &u.id, &name, Some(&u.input)),
+                &a,
             )?;
-            return Ok(None);
+            return Ok(done(status));
         }
         let alive = is_job
             && self
@@ -371,16 +362,18 @@ impl ToolRuntime {
                 .is_some_and(|pid| theseus_kernel::job::wrapper_alive(pid, corr));
         if alive {
             self.answer(tc, ResultNode { correlation_id: Some(corr), ..ResultNode::new(&u.id, &name, ResultStatus::Background, format!("Still running as background job {corr} (the harness restarted meanwhile). Its result will arrive in a later message.")) })?;
-            return Ok(Some(corr.clone()));
+            return Ok(CallOutcome::Background {
+                correlation_id: corr.clone(),
+            });
         }
         let _ = tc.kernel.mark_unknown(corr, "interrupted_by_restart");
-        self.answer(tc, ResultNode { correlation_id: Some(corr), ..ResultNode::new(&u.id, &name, ResultStatus::Unknown, "The harness restarted while this call was running, and whether it completed cannot be established. Check the current state before retrying.") })?;
-        Ok(None)
+        let status = self.answer(tc, ResultNode { correlation_id: Some(corr), ..ResultNode::new(&u.id, &name, ResultStatus::Unknown, "The harness restarted while this call was running, and whether it completed cannot be established. Check the current state before retrying.") })?;
+        Ok(done(status))
     }
 
     /// Settled, but its result node was lost in a restart: a job's output is
     /// in the spool; an in-process call's is gone.
-    fn answer_settled(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<()> {
+    fn answer_settled(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<CallOutcome> {
         let (tool, name) = self.tool_of(u);
         // A harness call the reconciler marked unknown (the daemon was down
         // past its deadline) runs again, and finds what it did (DD7).
@@ -389,28 +382,32 @@ impl ToolRuntime {
             .filter(|t| t.backend() == Backend::Harness)
             .filter(|_| a.state == ActionState::OutcomeUnknown)
         {
-            self.run_harness(tc, &a.correlation_id, t.as_ref(), u, approved_at(a))?;
-            return Ok(());
+            return self.run_harness(tc, &a.correlation_id, t.as_ref(), u, approved_at(a));
         }
         if tool.as_ref().is_some_and(|t| t.backend() == Backend::Job) {
-            self.answer_job(
+            let status = self.answer_job(
                 tc,
                 self.job_result(tc.store, a, &u.id, &name, Some(&u.input)),
                 a,
             )?;
-            return Ok(());
+            return Ok(done(status));
         }
         let status = if a.state == ActionState::Succeeded {
             ResultStatus::Ok
         } else {
             ResultStatus::Unknown
         };
-        self.answer(tc, ResultNode { correlation_id: Some(&a.correlation_id), ..ResultNode::new(&u.id, &name, status, "The call settled but its output was lost in a restart. Check the current state before relying on it.") })?;
-        Ok(())
+        let status = self.answer(tc, ResultNode { correlation_id: Some(&a.correlation_id), ..ResultNode::new(&u.id, &name, status, "The call settled but its output was lost in a restart. Check the current state before relying on it.") })?;
+        Ok(done(status))
     }
 
     /// Declined or cancelled before it ran.
-    pub(super) fn answer_cancelled(&self, tc: &TurnCtx<'_>, u: &ToolUse, a: &Action) -> Result<()> {
+    pub(super) fn answer_cancelled(
+        &self,
+        tc: &TurnCtx<'_>,
+        u: &ToolUse,
+        a: &Action,
+    ) -> Result<ResultStatus> {
         let (_, name) = self.tool_of(u);
         let (status, text) = not_run_answer(a);
         let mut meta = Value::Null;
@@ -422,9 +419,13 @@ impl ToolRuntime {
                 meta,
                 ..ResultNode::new(&u.id, &name, status, text)
             },
-        )?;
-        Ok(())
+        )
     }
+}
+
+/// A call answered with a result node of `status`.
+fn done(status: ResultStatus) -> CallOutcome {
+    CallOutcome::Done { status }
 }
 
 /// Where one `tool_use` of the last assistant message stands when a turn

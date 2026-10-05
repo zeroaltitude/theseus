@@ -108,7 +108,7 @@ telemetry lane (Item 26) left five gaps between what the ledger knows and what O
 | iu3a | A tool span whose call failed has no ERROR status | `telemetry2` |
 | 8pei | A confirmed call's run and a background job's end are not timed or counted as tool calls; decide whether a call counted `awaiting_confirm` is counted again, or moved | `telemetry2` |
 | jxau, 4v1z, od13 | Health's `web` section is JSON only; the CLI's catalog and health lines show no 1-hour cache-write price or count; the web apps show neither `approval.open` nor `binary` (od13, filed by hardening2) | V6 (1) |
-| cny7 | Operator acts other than approvals ledger `by` as the connection's label (`web#35`), not the surface | V8 (1) |
+| cny7 | Operator acts other than approvals ledger `by` as the connection's label (`web#35`), not the surface. **Done 2026-10-05** (Part III Item 172) | V8 (1) |
 | f337 | Free disk space crossing the warning or the floor reaches no one who doesn't read health | V10 (1) |
 
 C2's recorder projects each fact to OTel once. Lane `telemetry2` re-reads each issue against it first, since some may
@@ -159,7 +159,7 @@ measured density; a GLM session past its window recovers by itself, as an Anthro
 | Review 2 C5 | The Discord binding reaches into `Core` directly (37 calls at the review). Name the seam as a `BindingPort` trait that `Core` implements, and correct the crate's doc. Eddie's answer: deferred "until the voice binding needs it" | lane `discord2` (2 of its 3.5) |
 | Review 2 C7 | A shared rig builder in `theseusd/tests/common` (the config, a fake `op`, the fake model, the fake Discord, and the socket, each opted into). At 9ac009d, 14 of the daemon's 19 test files carry their own `#!/bin/sh` scripts, 18 in all (Review 2 counted 12, in nine files) | lane `tests2` (2) |
 | Review 2 C7 | Split `tests_m3.rs` by subject: 7,374 lines at 9ac009d, up from 5,422 at the review | V12 (1.5) |
-| Review 2 S6 | Serialize once. The push added the backlog cap and `events.lost`, but `SessionBus::publish` still clones each message per watcher (`bus.rs:88-117`), and each connection serializes it again (`rpc/server.rs:368-380`) | lane `push2` (1) |
+| Review 2 S6 | Serialize once. The push added the backlog cap and `events.lost`, but `SessionBus::publish` still clones each message per watcher (`bus.rs:88-117`), and each connection serializes it again (`rpc/server.rs:368-380`). **Done 2026-10-05** for serialization (theseus-celu.36; Part III Item 172); latest-wins and the slow client's disconnect remain | lane `push2` (1) |
 | a6be | `NodeInfo.detail` is still a JSON map per node kind, read by key in three renderers. Type it per kind, generate its TypeScript, and match today's output byte for byte | V2 (2) |
 | g7qp | Four spellings pass the reader rule's registry test though nothing reads the item. Close the two cheap ones: an install list in the repo, checked against `tool` markers; and a reader counted only where `theseus_core::graph` is in scope | lane `reader` (1) |
 | zay1, 4htx, cox0 | The bench's noise margins re-derived from `main`'s gate history, or `--runs 20`; dependency variants counted after the workspace-only rule (close 4htx if few, by its own rule); `cargo deny` run without the advisory ignores, and each one whose fix has shipped dropped | lane `hygiene` (1) |
@@ -203,11 +203,11 @@ and `protocol.ts`. The steps are numbered V1 to V13 so as not to collide with ro
 | V3 | Every queue writes its row, in its frame: a late result's wake in the turn's end frame; `execution.queued { why: "result" }` in a completion's frame | 6qwr, 2xep | 1.5 | C2 (`turn.rs`) |
 | V4 | A lock taken while the thread holds another panics, after checking that nothing nests on purpose (the outbox's keys, the observer, startup's scans) | oqxw | 1 | robust2's R7 (`!Send` locks) |
 | V5 | One schema rule (fold or document); then a waiting call's reason and floor on its action, and a confirm continuation in one frame | q49, ef0 | 1.5 | robust2's R8 (the golden-schema test). ACTION's schema takes its number when V5 lands; snapshot Eddie's store before the install |
-| V6 | Health and the catalog in every surface's words: the `web:` line, the 1-hour cache writes, `approval.open` and `binary` | jxau, 4v1z, od13 | 1 | v1 (hardening2's health facts). Smaller if hardening2's join already showed od13's lines |
+| V6 | Health and the catalog in every surface's words: the `web:` line, the 1-hour cache writes, `approval.open` and `binary`. **Done 2026-10-05** (theseus-jxau, 4v1z, and od13's `binary` half; Part III Item 177); `approval.open` went with theseus-zmgb | jxau, 4v1z, od13 | 1 | v1 (hardening2's health facts). Smaller if hardening2's join already showed od13's lines |
 | V7 | S5: a plain turn in fewer frames, measured step by step; the manifest's digests cached per request spec | 2uby, Review 2 S5 | 2.5 | V3; `sim2` merged; S2's writer thread (vni9); bench2's frames-per-turn gate, which V7 lowers; `tokens2` merged (both touch `compiler.rs`) |
-| V8 | Every operator act's `by` from `Conn::actor`, with a test per act | cny7 | 1 | C2; `push2` merged (both near `rpc/server.rs`) |
+| V8 | Every operator act's `by` from `Conn::actor`, with a test per act. **Done 2026-10-05**, in push2's session (theseus-cny7; Part III Item 172): `profile.use` and `session.recompile` were the acts left; `turn.submit`'s author still falls back to the label, a step of its own | cny7 | 1 | C2; `push2` merged (both near `rpc/server.rs`) |
 | V9 | The image retry keeps its loop index; retries go on while each 400 names an image not yet hidden, bounded by the images in the request | 6hk, 8gf | 1.5 | C2 (`turn.rs`); the vision limits fetched beforehand |
-| V10 | One row and one notice per disk crossing (`disk.low`, `disk.below_floor`, `disk.ok`), from the heartbeat | f337 | 1 | C2 |
+| V10 | One row and one notice per disk crossing (`disk.low`, `disk.below_floor`, `disk.ok`), from the heartbeat. **Done 2026-10-05** (theseus-f337; Part III Item 177) | f337 | 1 | C2 |
 | V11 | The web lane's join | `web2` | 0.5 | `web2` |
 | V12 | `tests_m3.rs` split by subject, on a quiet tree: the test count before and after is the same, and no lane holds an edit to the file | Review 2 C7 | 1.5 | every v1.1 step and lane that adds to it, merged |
 | V13 (stretch) | Name a directory's `AGENTS.md` the first time a session's tools touch it, once per guide per session | ug9i | 1 | C2 (`toolrun.rs`) |
@@ -224,13 +224,13 @@ merges when it is reviewed. Weight: **H** is a Rust build, **L** a web or light 
 
 | Lane | Steps, in order | Depends on | Joins | Slots | W |
 |---|---|---|---|---|---|
-| **telemetry2** (core's `telemetry/`) | re-read each issue against C2's recorder → a failed turn's spend (b85w) → each call's first token, and `error.type` (8u02, lmhp) → a failed tool span's ERROR status (iu3a) → a resumed call's run and a late result timed and counted once (8pei) | C2. 8pei rebases over V3 if it needs `turn.rs` | merges | 2.5 | H |
+| **telemetry2** (core's `telemetry/`) | re-read each issue against C2's recorder → a failed turn's spend (b85w) → each call's first token, and `error.type` (8u02, lmhp) → a failed tool span's ERROR status (iu3a) → a resumed call's run and a late result timed and counted once (8pei). **Done 2026-10-05** (b85w, 8u02 and iu3a on 2026-10-03, Part III Item 67; lmhp, Item 178; 8pei, Item 180) | C2. 8pei rebases over V3 if it needs `turn.rs` | merges | 2.5 | H |
 | **tokens2** (core's `compiler.rs`, `provider.rs`'s `Census`, `catalog.rs`) | Haiku's figures and Sonnet 5.5's cache minimum (c5ba, o388) → a recompile's density (vj9q) → dense tool output, measured first (p171) → Z.ai's overflow (kucs) | the caching docs and Z.ai's error codes, fetched by Tabitha | merges, before V7 | 4 | H |
 | **sim2** (`crates/theseus-sim`) | kernel-sim drives `/stop`, scheduled wakes, and report wakes → crashes around the outbox's transitions | v1 | merges, before V7 | 2 | H |
 | **web2** (`web/`, `cockpit/`) | a Stop control (nkt) → the estimate's panel (kdkv) → Approve only where the web may answer (step 2b's gap) → the rest of the polls follow the push, with V1's `after` (7ovb) | V1, V2 | V11 | 3.5 | L |
 | **tui2** (`crates/theseus-tui`) | older pages at the pane's top, with V1's `before` (kym3) → another surface's message in its place (v6yc) | V1, V2 | merges | 2 | H |
-| **push2** (core's `bus.rs`, `rpc/server.rs`) | one serialization per notification, shared by every watcher (S6) | v1 | merges, before V8 | 1 | H |
-| **tools2** (`crates/theseus-tools`) | `fs.patch` recounts a hunk's header from its body (inw) | — | merges | 1 | H |
+| **push2** (core's `bus.rs`, `rpc/server.rs`) | one serialization per notification, shared by every watcher (S6). **Done 2026-10-05** (theseus-celu.36; Part III Item 172) | v1 | merges, before V8 | 1 | H |
+| **tools2** (`crates/theseus-tools`) | `fs.patch` recounts a hunk's header from its body (inw). **Done 2026-10-05**, in the proc-steps session (theseus-inw; Part III Item 175) | — | merges | 1 | H |
 | **discord2** (`crates/theseus-discord`, and `Core`'s side of the port) | the bindings file read live (ocwt) → the lane maps bounded (Item 6) → C5's `BindingPort`, last | C5: right before 44b, wherever 44b lands | merges | 3.5 | H |
 | **reader** (core's `tests_registry`) | g7qp's two cheap closures | — | merges | 1 | H |
 | **cli** (`crates/theseus`, never `main.rs`) | `watch` ends its line (1n2l: two goldens change by one newline) → a remembered pin (d5oc: a pane token, the smallest of its three options) → stretch: the herdr plugin (pkaq) | pkaq: Eddie's herdr (§6) | merges | 0.75, + 1 stretch | H |

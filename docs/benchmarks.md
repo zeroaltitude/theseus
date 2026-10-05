@@ -6,7 +6,7 @@ and cost. How to run one, and what each trial leaves behind, is in [`bench/READM
 ## Terminal-Bench 2.0
 
 89 tasks in their own containers, through [Harbor](https://github.com/laude-institute/harbor) 0.23, with the bench
-profile (`bench/theseus-bench.toml`): no vault, every tool open, L0.
+profile (`bench/theseus-bench.toml`): no vault, every tool open, L0. _(Since 2026-10-04, after the first run below, four of its losses' fixes are in (theseus-7gir.18 to .21; the spec's Part III, Items 150 and 154): the profile asks for its model's whole output (the catalog's 128,000 for Sonnet 5.5, not 32,000), opens private addresses (`[policy] private_addresses = "open"`), and retries a transient provider failure inside its turn (`[model.retries] transient = 4`), and a request Sonnet 5.5 refuses is made once more on Sonnet 5. The first run's numbers predate all four; the held-out rerun, at spend parity with Claude Code, measures them (theseus-7gir.22).)_
 
 | Date | Theseus build | Agent | Model | Tasks × attempts | Mean reward | Cost |
 |---|---|---|---|---|---|---|
@@ -154,6 +154,13 @@ error class, <code>r</code> a rate-limit retry)</summary>
 ## How a result is reported
 
 - The job's `result.json` from Harbor, and each trial's reward, time, and spend.
+- Since 2026-10-05 (the spec's Part III Item 167), each trial's efficiency record,
+  `agent/efficiency.json`, one shape for every arm: tokens by class (input, cache read, cache write, output), dollars,
+  model and tool calls, and the harness's own CPU and peak RSS apart from the commands it runs, sampled inside the
+  task's container (`bench/harbor/sampler.py`). `bench/report/efficiency.py` turns a run's jobs into solved per dollar,
+  tokens per solved task, the cache-read share, harness CPU per tool call and peak harness RSS, with Pareto charts of
+  score against dollars, tokens and RAM. A job from before it, such as the first full run's, reads "not sampled" for
+  CPU and RAM.
 - Theseus's build (`theseus --version`) and the profile's settings (`THESEUS_BENCH_*`), so a run can be repeated.
 - Trials that ended with an error, by Harbor's class for it: a timeout (`AgentTimeoutError`), a spend limit
   (`TheseusSpendLimitError`), a cut turn (`TheseusTurnCutError`), and so on (`bench/README.md`). Their rewards still

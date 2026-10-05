@@ -115,7 +115,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   under the call's one correlation id, the next launched once one exits 0, the turn's wait held across them so
   the drain never settles the call between two; theseus-7gir.3) and its gate in `toolrun/batch.rs` (`judge`: each
   step as the call alone, the strictest taken), the continuation in `toolrun/resume.rs`, and the results
-  no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are
+  no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). A call's span is
+  built in the turn that answers it (`turn/calls.rs`, theseus-8pei): `run_tools`'s calls in their loop, and the
+  calls `resume` answered (`ResumeOutcome.ran`) and the late results `absorb` took (`LateCall`, a point with the
+  job's `run_ms`) under the continuation's span; the tool metrics count each call once, at its answer. The gate's parts are
   `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
@@ -382,6 +385,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning/audit.rs`: a profile's answers as audit labels (weight 0.5), capped by `audit_limit_usd`.
     `learning/backfill.rs`: under `backfill_consent` only; one judgment per event (keyed by it), `event_at_ms`, which
     `read_scope` takes as the judgment's time. Tests: `tests_replay.rs`, `tests_audit.rs`, `tests_backfill.rs`.
+  - **The prove** (L3, roadmap row 50, theseus-0j2.18): `learning/prove.rs` builds `theseus_judge::prove`'s records,
+    one per `task.ended`, from rows the ledger holds (`build` is pure; `Core::prove_input` reads pages by kind and
+    session), every outcome from the labels as `labels::resolve` settles them, never a rule derived again;
+    `classify_quality` is classification's half. `judge.prove` (`rpc/judge_prove.rs`, a read: its window reads the
+    `pack.mode` rows from their scope, since the ladder's first load writes) runs the generator over them; `theseus
+    judge prove` prints its Markdown byte for byte as `theseus-judge prove` does. Tests: `tests_prove.rs`.
   - **The ladder** (step 26a, `judge/ladder/`): each pack version's mode as `pack.mode` rows scoped per pack id
     (`pack:<id>`, a few rows), read once after serving (`Core::warm_ladder`) or by the first judgment, then kept
     (`Ladder`; with no row, `WIRED`'s line). Every point asks `JudgeService::mode_for(pack, session)` (or

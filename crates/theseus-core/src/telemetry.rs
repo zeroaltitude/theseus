@@ -28,6 +28,8 @@ mod tests_files;
 mod tests_judge;
 #[cfg(test)]
 mod tests_recall;
+#[cfg(test)]
+pub(crate) mod tests_resumed;
 
 use std::sync::Arc;
 use std::time::Duration;

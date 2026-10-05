@@ -218,6 +218,8 @@ mod tests_overflow;
 #[cfg(test)]
 mod tests_places;
 #[cfg(test)]
+mod tests_prove;
+#[cfg(test)]
 mod tests_push;
 #[cfg(test)]
 mod tests_push_once;

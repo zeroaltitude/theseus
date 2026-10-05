@@ -26,6 +26,7 @@ pub mod backfill;
 pub mod items;
 pub mod labels;
 pub mod propose;
+pub mod prove;
 pub mod rebuild;
 pub mod replay;
 pub mod report;

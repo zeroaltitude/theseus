@@ -344,6 +344,8 @@ Judged and not built as tools:
 
 ### 3.3 Hands: compute fan-out
 
+_As built (step 40, part 1, 2026-10-04, theseus-mgw.6; Part III Item 107): the role is `theseusd hand`, not `theseus hand`: helper roles live in `theseusd`, and the CLI links only `theseus-protocol`, while a hand needs the AWS client. A group is no new record kind: the call's action, a META record `aws.hands.group.<group>`, and one kernel action per hand (tool `aws.hand`), so settling is the kernel's `accept_completion`, with its dedupe, quarantine and reconciler. Where hands run is discovered from the stacks' outputs (`DescribeStacks`, once per account and region), not configured. A hand's key is HKDF-SHA256 of the account's secret access key with the correlation id, stored nowhere; its envelope's HMAC is checked in constant time, and a bad one is quarantined. Fargate is refused while the hands network's NAT is off. Part 2 (cancellation per backend, the TTL reaper's act mode, reservations, quotas) is Part III Item 116._
+
 **A hand is a job that runs in AWS.** It keeps the job wrapper's contract (§3.16): detached, durable, and
 cancellable.
 - **The same static binary is the wrapper.** The hand runs `theseus` in a `hand` role (§1: helper processes
@@ -400,13 +402,13 @@ duration, cost, and result reference.
   region, from a price table in the crate that the weekly updater refreshes.
 - It reserves that against the session's dollar budget (§3.13), the one that already asks at its limit, and
   settles it at completion from the hands' real durations (question 6).
-- `max_usd` caps the group: past it, no hand launches and the running ones are cancelled.
+- `max_usd` caps the group: past it, no hand launches and the running ones are cancelled. _(As built, step 40 part 2: each hand's action reserves its worst case, its TTL at its size's rate, in the group's one frame, and settles at its envelope's cost; a group whose total worst case passes what the session has left is not run, and asks the session's budget question. Quotas are read once an hour per account, region and backend, and cap each group by itself.)_
 - Before launch the manager reads the Fargate vCPU and Lambda concurrency quotas (Service Quotas, cached). A
   group bigger than the quota launches in waves or queues in Batch. It never fails for a quota.
 
 **Watching a hundred hands.**
 - The Observatory shows one row per group: a grid of N cells (queued, running, succeeded, failed, unknown),
-  the cost so far against the cap, and the slowest hands. A cell opens that hand's log tail.
+  the cost so far against the cap, and the slowest hands. A cell opens that hand's log tail. _(As built, step 40 part 2, 2026-10-04; Part III Item 116: the cockpit's Systems view, a `HandsGrid` panel reading `hands.list` every 3 s while open, a row per group with a cell per hand (waiting, running, stopping, succeeded, failed, unknown, cancelled, not launched) and spend against the cap; no log tail per cell yet, and no slowest-hands column.)_
 - Discord shows one tool line per group, edited in place ("🖐️ 37/100 done, 2 failed, $1.84 of $5"), never
   a hundred lines. That is DD3's lesson on notice volume.
 - Under `notify` a group posts one notice, not one per hand.
@@ -420,7 +422,7 @@ duration, cost, and result reference.
     Theseus's cluster, queues, and `startedBy` prefix;
   - the budget's alerts (§3.7).
 - **The poller** long-polls (20 s) after serving, and only while an AWS action is outstanding; otherwise the
-  heartbeat's reconciler covers strays. While hands run, that is three requests a minute: pennies a month.
+  heartbeat's reconciler covers strays. _(As built, step 40 part 2; Part III Item 116: the heartbeat's reconciler leaves hands to their own pass in the poller, which asks ECS (`DescribeTasks`) about a Fargate hand past its deadline: a task the TTL reaper stopped settles failed with the reaper's reason, and a Lambda hand is unknown until its envelope. The reaper's own failure records are read from the queue and counted in health.)_ While hands run, that is three requests a minute: pennies a month.
 - **Every message is checked.**
   - A completion is deduplicated by its correlation id, since settling is idempotent.
   - The wrapper's envelope carries the `signature` field that §3.16 already defines. It is an HMAC keyed per
@@ -440,6 +442,7 @@ duration, cost, and result reference.
 - Internet egress goes through a NAT gateway, which costs about $36 a month when it is always on. By default
   the NAT is a parameter of the network stack: Theseus turns it on with a stack update (about two minutes)
   when a hand needs egress, and off after an idle hour (question 5).
+- _Since 2026-10-04 (theseus-mgw.9; Part III Item 134): **an existing VPC.** `[aws.accounts.<id>.hands_network]` names a VPC, its private subnets and, optionally, a security group. The network stack then makes only the hands' tagged group, with no ingress, in that VPC: none of the VPC's own parts and no NAT (its `Rules` refuse a NAT beside an existing VPC, and subnets or a group without one), and its outputs keep their keys (`NatGateway` reads `existing`). `aws.stack.plan` fills the stack's `Existing*` parameters from the config and refuses any other value, or the NAT, before anything is sent. A Fargate launch first reads the VPC's route tables: each subnet's table must send `0.0.0.0/0` to a NAT gateway whose route is not a blackhole, or the launch is refused naming the subnet, and the words never suggest a NAT. No S3 endpoint and no flow logs there (an endpoint would change the other project's route tables), so S3 and ECR pulls pay the existing NAT's data charge, about $0.045 a GB._
 
 ### 3.4 IaC: how infrastructure is made
 
@@ -606,6 +609,7 @@ input condition where one is needed, the limit it serves, and its SCP form. Appe
 | **The budget** | budget | creating, changing, or deleting Budgets and their actions; detaching the budget action's deny policy; `LeaveOrganization` and other Organizations calls; closing the account |
 | **Long-lived credentials** | SOC2 (the operator's employer's practice: the one IAM user "anywhere, ever, always") | `CreateUser`, `CreateAccessKey`, `CreateLoginProfile`, service-specific credentials, SSH keys; any change to the `<iam-user>` key |
 | **IaC-only** | IaC | the durable-infrastructure actions of §3.4's table (the separate guard, `theseus-guard-iac`) |
+| **Another project's resources** _(since 2026-10-04, theseus-mgw.9; Part III Item 134)_ | `others-resources` | `network-not-ours`: a direct change to network plumbing that exists (deleting, modifying, replacing, revoking, disassociating or detaching VPCs, subnets, route tables and routes, NAT, internet and egress-only gateways, ACLs, endpoints, flow logs, security groups and peering), at the floor even where the operation is otherwise IaC-only; in a template, a member naming a resource the template does not make (`not_own`). AWS denies the same on whatever lacks `theseus:owner`. Creates of new things stay IaC-only |
 
 This replaces the 2026-09-29 sketch's floor rule. IAM roles and policies are no longer on the floor: they are
 Theseus's business now (Eddie, 2026-09-30). Only what enforces the two hard limits is.
@@ -631,7 +635,7 @@ Theseus's business now (Eddie, 2026-09-30). Only what enforces the two hard limi
 - **Now, with no Organization:**
   - The guards are on every work and job session. Every hand role has `theseus-boundary` as its permissions
     boundary: everything is allowed except what the guards deny. (A boundary has to allow, so it cannot be
-    the deny-only guard itself.)
+    the deny-only guard itself.) _(Since 2026-10-04, theseus-mgw.9; Part III Item 134: the deployer role is bound too. `theseus-guard-deployer`, generated from every `scp = "deny"` entry's denies, is attached to `DeployerRole` in the foundation (with `GuardDeployerPolicy` in its stack policy); before it the deployer carried no session guard, and SCPs need an Organization. A stack that ever needs one of those actions fails until that changes. The boundary is then at 6,016 of IAM's 6,144 characters (theseus-mgw.13).)_
   - So AWS refuses a guardrail action that did not come through an approved floor session, whether it came
     from a CLI job, from a hand, or from a mistake.
   - **Honest limit:** the owner role itself is not guarded. Theseus, the owner, could mint an unguarded
@@ -685,6 +689,8 @@ Theseus's business now (Eddie, 2026-09-30). Only what enforces the two hard limi
   - At 100% of actual spend, cost-bearing calls wait for approval, as the model's spend limit does (question
     7).
   - If Bedrock ever becomes a provider, its spend lands in the same account, and one budget covers both.
+- _As built (step 40 part 2, 2026-10-04; Part III Item 116): a **daily budget** beside the month's, `daily_budget_usd` reconciled into the foundation's `DailyBudget` (`DailyBudgetUsd`, 0 for none; alerts at 80% and 100%, no action) by the same budget-only change set, setting it being the go, since AWS may charge for a budget past an account's first two; and **the hour's meter**, `hourly_alert_usd` (default $1): what the hour's AWS actions reserve or spend, alerting once an hour past it (`aws.hour.alert`, a META mark, a notice), alert only._
+- _Runaway-train mode (built 2026-10-04, theseus-ext.12; Eddie at 11:26: "let the budget notify be the authority unless 'runaway train' mode is triggered, which is, observationally spend is 10x over the limit"; Part III Item 147). The hands' `hourly_alert_usd` and `daily_budget_usd` stay alerts. When observed spend (reserved by running hands, the cost of settled ones) reaches `runaway_factor` (10 by default, at least 2) times a line, or would reach it with an admitted group's own worst case, the account enters runaway mode until the hour or the local day turns: META `aws.runaway.<account>` and an `aws.runaway` row in one frame, one notice, a RUNAWAY line in health, and every new reserving action refused with the words. A cancel, a list or status read, the reaper and settling always run. The refusal latches for the period, and two groups admitted at the same instant can both pass._
 
 **Tags.** The Theseus set:
 - `theseus:owner = theseus`, on everything Theseus made;
@@ -729,8 +735,13 @@ against the other project's (untagged), by stack, and by session.
 - It follows OTel's AWS conventions: `rpc.system = aws-api`, `rpc.service`, `rpc.method`,
   `aws.request_id`, `cloud.account.id`, `cloud.region`.
 - It adds Theseus's own attributes: the correlation id, the class and flags, the session name, the status,
-  retries, and bytes in and out.
-- Metrics count calls and measure latency by service, operation, and outcome.
+  retries, and bytes in and out. _(Since 2026-10-05, theseus-0zm4; spec Part III Item 180: a call that waited
+  for approval has its requests' spans under its call in the continuation that ran it, where before they were never
+  traced.)_
+- Metrics count calls and measure latency by service, operation, and outcome. _(As built 2026-10-05, theseus-ku5f; spec Part III Item
+  178: `theseus.aws.calls` and `theseus.aws.duration_ms`, by `rpc.service`, `rpc.method` and
+  `theseus.outcome` (`ok`, `unbound`, `error`), walked from every turn's trace, a failed turn's too. AWS's error code is
+  not an attribute: it is the service's own text, unbounded, and stays on the span and the `aws.called` row.)_
 
 **A ledger row per call**, `aws.called`: the account, region, service, operation, class and flags, session,
 correlation id, request id, status, AWS error code, duration, bytes, and resources. Beside it:
@@ -795,6 +806,11 @@ After the order, as now, come a granted secret's posture and the external-text h
 and the stricter answer wins:
 - a write to a resource outside Theseus's inventory (the other project's) is at least `notify`;
 - at 100% of the month's budget, a cost-bearing call waits (question 7).
+- _(As built 2026-10-05, theseus-6hkx; spec Part III Item 174: the hands' runaway brake, whose
+  refusal tells the operator to raise `hourly_alert_usd` or `runaway_factor` under `[aws.accounts.<id>]` and restart,
+  does what it says within the hour or day: a mark is ignored once the config gives its line more room (the line or
+  the factor raised, or the line removed), and admission decides again; a lowered line keeps the mark. It is read at
+  admission and in health, never at the start.)_
 
 The template's lines:
 
@@ -831,6 +847,11 @@ run = "notify"
     <home-account-id> us-west-2`;
   - a call made before that waits for it, bounded at 30 s like a secret, then fails with `aws_unbound` and
     the reason.
+- _(As built 2026-10-05, theseus-snhr; spec Part III Item 174: before that check, at the top of the
+  same `aws.check` phase task and on a blocking thread, each `[policy.aws]` key is checked against the catalog. One
+  that names no service or operation (a typo, an alias, a case-loose operation) is named in health's `aws:` line and
+  once in the log; the check took about 20 ms and 5 MB in a debug build, so the account check starts that much
+  later. The start never fails on one.)_
 - **Lazily:**
   - a service's catalog entry is decoded on its first call;
   - a session is minted on an execution's first AWS call, and cached.
@@ -1054,7 +1075,7 @@ repo's root.
   - Check that a `proc.run aws s3api create-bucket` in a job session is denied, naming the session policy.
   - Check that the budget holds the configured amount.
 
-**C3 = step 14c. The curated tools, and the owner's eyes.**
+**C3 = step 14c. The curated tools, and the owner's eyes.** _Built 2026-10-04 (theseus-mgw.5 and theseus-9p40; Part III Item 97): every wire item but the panel. The reaper is a tool in report mode, not yet a tender; a put is one `PutObject` of at most 64 MiB and a large get reads by ranges, since the client reads a body whole (no multipart, no streaming); the Observatory's AWS panel became a list of what the cockpit's should show (the report's seven points), not built. The live check ran on the account at the review: the query, the trail lookup (its request ids equal the ledger's), the inventory (34 resources, none of the other project's), and a put and get in the foundation bucket._
 - **Wire:**
   - `aws.s3.get` and `.put`, `aws.logs.query` and `.tail`, and `aws.trail`;
   - secret-bearing handles, as runtime secrets on the board;
@@ -1073,17 +1094,26 @@ repo's root.
 
 **Step 15, the durability tender.** WAL segments go to S3 (multipart `PutObject`), and index rows to DynamoDB
 (`BatchWriteItem`). It runs under a tender session narrowed to the bucket and table the foundation made. It
-adds no tool. Live check: segments land within the 5–60 s target, and `oldest_unshipped` is exported.
+adds no tool. Live check: segments land within the 5–60 s target, and `oldest_unshipped` is exported. _Built 2026-10-04 (theseus-mgw.7; Part III Item 108): in the daemon, reading the WAL through `theseus-follow`; the open segment's tails beside sealed segments and blobs; the session `theseus-durability` (put, get, list parts and abort under its prefix, and `BatchWriteItem` under `dynamodb:LeadingKeys`; no delete). The live check on the account caught up 4.0 s after a start and shipped a turn 11.2 s after it, each tail's checksum equal to its row's; a sealed segment was not seen (64 MiB of WAL)._ _(Fixed 2026-10-05, theseus-iame and theseus-mgw.12; spec Part III Item 171: only frames the
+WAL has synced ship, bounded by the writer's own synced position, read at each batch, so a power loss never leaves a
+tail in S3 past the log; a pass held by an unsynced frame says `waiting` "for the WAL's sync" in health and passes
+again a settle later. The tender's session may list its own prefix (`s3:ListBucket` under `StringLikeIfExists` on
+`durability/<deployment>/*`, as the restore's has it), so a missing key heads 404, not 403, and an object in flight at
+a crash is sent once instead of retried forever.)_
 
-**Step 16, `theseus restore --from s3://…`.** It uses the client's list and get from the CLI, under a tender
-session. Live check: a scratch store restored from S3 (read-only on AWS).
+**Step 16, ~~`theseus restore --from s3://…`~~ `theseusd restore --from s3://…`.** It uses the client's list and get from the CLI, under a tender
+session. Live check: a scratch store restored from S3 (read-only on AWS). _Built 2026-10-04 (theseus-mgw.10; Part III Item 123): `theseusd restore --from s3://<bucket>/durability/<deployment>/`. It signs in a session of its own, `theseus-restore`, not a tender's, minted for the URL's deployment under an inline policy that only reads (`s3:GetObject` and `s3:ListBucket` under the deployment's prefix, `dynamodb:Query` on its leading keys). The rows decide what is current, not a listing: a segment comes from its sealed object when there is one, else from its tails stitched only where each begins where the last ended; every object is checked against its row's length and SHA-256, and a mismatch refuses the whole restore; a gap stops it there and is said. Reads up to 8 MiB are one `GetObject` with S3's checksum mode, larger ones ranged. When the config's deployment is the one restored, the tender's cursor and the shipped blobs are seeded, so the next start ships only the restore's own row. The live check on the account (under a cent) was left for the owner at the join._ _(Since 2026-10-04, theseus-mgw.10's policy; Part III Item 147: the restore session lists its prefix under `StringLikeIfExists` on `s3:prefix`, so S3 answers a missing object's `GetObject` 404, said as missing, not 403; a list with no prefix now passes, which shows key names, never contents outside the prefix. The live check with a deleted blob waits for the owner's go. The durability tender's session has no `s3:ListBucket`, so real S3 would answer its `HeadObject` of a missing key 403.)_ _(Since 2026-10-05, theseus-b9x6; spec Part III Item 171: a restore joins a sealed object to
+the tails that start at its end, when the first begins at the object's last position + 1 ("from its object and N
+tail(s) after it"), so the frames shipped after a restore's own row, while that segment was still open, are read by
+the next restore; a tail that does not join is said, never stitched. The restore's gap and seed guards each have a
+test.)_
 
 **Steps 17–18, L1.** An L1 job starts with no AWS credentials. The `aws` program grant gives it a job session
 (the guards, plus its `aws_policy`). Since L1 blocks the metadata service, that is the only credential it can
 hold. Live check: `aws sts get-caller-identity` inside L1 names the job's correlation id, and a guarded action
 is denied, naming the guard.
 
-**Step 40, hands: A2 and A1, with SQS and EventBridge.**
+**Step 40, hands: A2 and A1, with SQS and EventBridge.** _(Part 1 built 2026-10-04, theseus-mgw.6; Part III Item 107: the role, the image's Dockerfile and build script, `aws.hands.run` on Lambda and Fargate, and the SQS poller with each completion's check. The image could not be built in the cloud, and the live check waited for hands on an existing network (theseus-mgw.9).)_ _Built 2026-10-04 in two parts: part 1 (theseus-mgw.6, Part III Item 107) and part 2 (theseus-mgw.11, Item 116): cancellation per backend, reservations, quotas and waves, overdue and reaped hands, the hour's alert and the daily budget, `hands.list`, Discord's line and the cockpit's grid. Lambda's part was proven live on the account (twenty hands, the hour's alert, a `kill -9` mid-group); Fargate's waits for hands on the account's existing network (theseus-mgw.9, Item 134)._
 - **Wire:**
   - the binary's `hand` role, and the hand image (built, then pushed to ECR);
   - `aws.hands.run` on Lambda and Fargate;
@@ -1263,6 +1293,8 @@ scp = "deny"                      # so rotating the <iam-user> key then needs Ed
 The IaC-only list and the destructive list have the same shape, with no `when`, grouped by service. The
 IaC-only list generates the deny-only `theseus-guard-iac` and `aws.call`'s invalid-input check (§3.4). The
 destructive list feeds the gate's approve step (§3.9).
+
+_(Since 2026-10-04, theseus-mgw.9; Part III Item 134: the list gained `network-not-ours`, the first entry of a new limit, `others-resources`. It is `direct`, with a `when` of `present` on the plumbing ids a call names, so even an otherwise IaC-only change to plumbing that exists goes to the floor. Its `iam` patterns (`ec2:Delete*`, `Disassociate*`, `Detach*`, `Replace*`, `Modify*`, `Associate*`, `Attach*`, `Authorize*`, `Revoke*`, `CreateRoute`, `CreateNetworkAclEntry`, `CreateTags`) are denied, `scp = "deny"`, on the ARNs of VPCs, subnets, route tables, NATs, internet gateways, ACLs and security groups that lack `theseus:owner` and are not being tagged at a create; security-group-rule ARNs, and `CreateSecurityGroup`, are left to the gate, so the hands' own tagged group can be made in another VPC. The template rule's new `not_own` test asks at plan for a member naming a resource the template does not make: a literal or a parameter's value yes, an import maybe, the template's own `Ref` or `GetAtt` no. Every `scp = "deny"` entry now also generates `theseus-guard-deployer`.)_
 
 *— written by Tabitha/Claude, 2026-09-30*
 

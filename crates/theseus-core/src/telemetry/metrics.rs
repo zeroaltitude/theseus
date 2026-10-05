@@ -657,12 +657,20 @@ impl Metrics {
         }
     }
 
-    /// Each tool call, counted and timed, with the turn's attributes and the
-    /// tool's name, family, backend, and outcome (§3.23).
+    /// Each tool call, counted once at its answer and timed by its run, with
+    /// the turn's attributes and the tool's name, family, backend, and
+    /// outcome (§3.23).
     fn tool_calls(&mut self, trace: &Span, base: &Attrs) {
         let mut calls = Vec::new();
         spans::tool_calls(trace, &mut calls);
-        for c in calls {
+        // Each call counts once, at its answer (theseus-8pei): one that
+        // waits for the operator in the continuation that answers it, a
+        // background job at its late result. Their proposing turn's span
+        // keeps what happened then.
+        let answered = calls
+            .into_iter()
+            .filter(|c| !matches!(c.outcome.as_str(), "awaiting_confirm" | "background"));
+        for c in answered {
             let mut attrs = base.clone();
             attrs.extend([
                 (TOOL_NAME, Attr::S(c.name)),
