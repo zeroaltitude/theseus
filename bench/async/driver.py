@@ -289,6 +289,19 @@ def close_command(fifo: str) -> str:
     return f'[ -e {f}.holder ] && kill "$(cat {f}.holder)" 2>/dev/null; exit 0'
 
 
-def results_command(log: str) -> str:
-    """How many turns the CLI has finished: its stream's result events."""
-    return f"grep -c '^{{\"type\":\"result\"' {shlex.quote(log)} 2>/dev/null || true"
+def log_command(log: str) -> str:
+    """Where the CLI's stream is: `LAST TOTAL`, the line of its last result
+    event (0 for none) and its lines. A message is answered once a result
+    lands after the line count read when it was sent, whether the CLI took
+    it mid-turn or as a turn of its own."""
+    f = shlex.quote(log)
+    return (f"r=$(grep -n '^{{\"type\":\"result\"' {f} 2>/dev/null | tail -n 1 | cut -d: -f1); "
+            f'n=$(wc -l < {f} 2>/dev/null); echo "${{r:-0}} ${{n:-0}}"')
+
+
+def log_state(stdout: str | None) -> tuple[int, int]:
+    try:
+        last, total = (stdout or "").split()
+        return int(last), int(total)
+    except ValueError:
+        return 0, 0

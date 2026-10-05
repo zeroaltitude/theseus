@@ -102,7 +102,7 @@ class TheseusAsync(ta.Theseus):
             environment, command=tb.daemon_script(ta.BIN, ta.STATE, logs),
             env={**env, "THESEUS_BENCH_INSTRUCTION": instruction},
         ))
-        session = None
+        session = injected = None
         try:
             session = (await environment.exec(command=trial.session_command())).stdout.strip() or None
             sent = 0
@@ -114,7 +114,6 @@ class TheseusAsync(ta.Theseus):
                                            env={**env, "ASYNC_MESSAGE": message})
                 return {"exit_code": int((r.stdout or "").strip() or -1)}
 
-            injected = None
             if inj and session:
                 injected = asyncio.create_task(driver.fire(inj, environment, deliver, started=started))
             failure: BaseException | None = None
@@ -137,6 +136,8 @@ class TheseusAsync(ta.Theseus):
             raise
         finally:
             first.cancel()
+            if injected:
+                injected.cancel()
             if session:
                 await asyncio.shield(environment.exec(command=trial.finish_script(session), timeout_sec=60))
             report["wall_s"] = round(time.monotonic() - started, 3)
@@ -196,22 +197,25 @@ class ClaudeCodeAsync(ClaudeCode):
         report: dict[str, Any] = {"arm": self.name(),
                                   "family": driver.task_of(_task_dir(environment)).get("family")}
         run = asyncio.create_task(super().run(instruction, environment, context))
-        messages = 1
+        # The stream's line count when the last message was sent: the
+        # instruction's is 0.
+        mark = 0
 
         async def deliver(message: str) -> Any:
-            nonlocal messages
+            nonlocal mark
             r = await environment.exec(command=driver.send_command(fifo, message))
             if r.return_code != 0:
                 raise RuntimeError("the CLI's input is closed: not measurable")
-            messages += 1
-            return {"sent": True}
+            mark = driver.log_state((await environment.exec(command=driver.log_command(log))).stdout)[1]
+            return {"sent": True, "after_line": mark}
 
         async def close_when_answered() -> None:
             if inj:
                 report["injection"] = await driver.fire(inj, environment, deliver, started=started)
+            # The stream is read every 2 s: the CLI says nothing to the driver.
             while not run.done():
-                n = (await environment.exec(command=driver.results_command(log))).stdout or "0"
-                if int(n.strip() or 0) >= messages:
+                last, _ = driver.log_state((await environment.exec(command=driver.log_command(log))).stdout)
+                if last > mark:
                     break
                 await asyncio.sleep(2)
             await environment.exec(command=driver.close_command(fifo))

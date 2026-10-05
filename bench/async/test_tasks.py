@@ -190,10 +190,10 @@ wait; grep -v foxtrot "$APP/all" > "$APP/digests.txt"
     def test_interrupt_with_the_long_job_abandoned(self):
         self.planted("interrupt", """
 train-model > /dev/null 2>&1 & pid=$!
-ticket-count | sed -n 's/^open tickets: //p' > "$APP/tickets.txt"
 $AWAIT --tool train-model --kind start --timeout 60 > /dev/null; kill -KILL "$pid"
+ticket-count | sed -n 's/^open tickets: //p' > "$APP/tickets.txt"
 echo 9000 > "$APP/score.txt"
-""", "train-model never finished")
+""", "train-model never finished", scale="0.2")
 
     def test_fanout_with_an_effect_twice(self):
         self.planted("fanout", """

@@ -195,12 +195,19 @@ class ClaudeStdin(unittest.TestCase):
             fake = FakeEnv(d)
 
             async def go():
+                async def state():
+                    return driver.log_state((await fake.exec(driver.log_command(str(log)))).stdout)
+
                 run = asyncio.create_task(fake.exec(cmd, env=env, timeout_sec=60))
-                while "1" not in (await fake.exec(driver.results_command(str(log)))).stdout:
+                while (await state())[0] == 0:
                     await asyncio.sleep(0.05)
+                first_result = (await state())[0]
                 sent = await fake.exec(driver.send_command(fifo, "Also count the tickets."))
-                while "2" not in (await fake.exec(driver.results_command(str(log)))).stdout:
+                mark = (await state())[1]
+                self.assertGreaterEqual(mark, first_result)
+                while (await state())[0] <= first_result:
                     await asyncio.sleep(0.05)
+                self.assertEqual(await state(), (4, 4))
                 await fake.exec(driver.close_command(fifo))
                 done = await run
                 late = await fake.exec(driver.send_command(fifo, "Too late."))

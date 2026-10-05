@@ -93,7 +93,7 @@ Harbor's `ClaudeCode` sets `ENABLE_BACKGROUND_TASKS=1` and `FORCE_AUTO_BACKGROUN
 into `claude --print`. This arm runs the same command with stdin from a FIFO (`fifo_path()`,
 `/tmp/async-claude-stdin`) in the CLI's stream-json input mode (`--input-format stream-json`, "realtime streaming
 input", in `claude --help` of Claude Code 2.1.289): the instruction is the first line, the driver writes the
-injection as another, and the input is closed once every message has its `result` event, so the CLI exits. A message
+injection as another, and the input is closed once a `result` event follows the last message (a turn of its own, or the turn it joined mid-run), so the CLI exits. A message
 to a CLI already gone is refused, and its cell reads "not measurable". The live check says whether the CLI reads a
 message mid-turn or queues it for the turn's end; either way the responsiveness column measures it.
 
