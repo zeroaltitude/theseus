@@ -389,8 +389,8 @@ pub struct JudgeProveResult {
     pub tasks: u32,
     /// Records by arm (`canary`, `control`).
     pub arms: std::collections::BTreeMap<String, u32>,
-    /// Tasks left out, by reason (`never_judged`, `no_arm`, `both_arms`,
-    /// `cancelled`, `unreadable`).
+    /// Tasks left out, by reason (`never_judged`, `learned_version`,
+    /// `no_arm`, `both_arms`, `cancelled`, `unreadable`).
     pub left_out: std::collections::BTreeMap<String, u32>,
     /// What the records cannot say yet, in words (the nudge's fields).
     pub notes: Vec<String>,
