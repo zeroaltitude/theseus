@@ -401,6 +401,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     user turn, after their words: theseus-fpm2), each item's frozen header and its source's text over the frozen byte
     range, read by position (cached: sources never change), so the next request begins with the previous one's bytes.
     Past `session_recall_cap_tokens` of notes in the tail, recall pauses (`paused`) until the next recompile.
+    A trivial detour's request carries no recall (theseus-n7nc): while routing has the route to decide
+    (`RouteState::deciding`) the row waits for it, and once it is known `recall_routed` drops a detour's node, its
+    rides and its footer count, and the row says `detoured`. Tests: `tests_route.rs`.
     `memory.label` (`rpc/memory.rs`, `judge_act(Act::Label)`, refused by the CLI inside a job) writes a `memory.label`
     row scoped `memory`; `wrong` and `stale` drop a node as `labeled_wrong` from a set built after serving
     (`Core::warm_labels`, `recall/labels.rs`).
