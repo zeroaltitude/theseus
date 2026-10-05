@@ -44,6 +44,7 @@ pub fn self_test(l1: &L1) -> Value {
         redact: vec![],
         output_max_bytes: 0,
         sandbox: None,
+        cgroup: None,
     };
     let null = || -> std::io::Result<OwnedFd> {
         Ok(std::fs::OpenOptions::new()

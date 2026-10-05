@@ -9,6 +9,7 @@
 //! `Clock`, so the simulator drives it deterministically.
 
 mod cancels;
+pub mod cgroup;
 pub mod children;
 pub mod clock;
 pub mod gate;
@@ -24,6 +25,7 @@ pub mod place_limit;
 pub mod redact;
 mod reopen;
 pub mod repeat;
+mod spawn;
 pub mod spend;
 pub mod spool;
 pub mod stops;

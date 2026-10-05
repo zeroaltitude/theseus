@@ -772,14 +772,14 @@ fn install_walks_the_steps_in_order_and_ends_with_the_cheat_sheet() {
         unit.contains(&format!(" --op-token-file {}\n", r.token_path().display())),
         "{unit}"
     );
-    // No delegation and no stop hook (theseus-gyin); a stop signals the daemon
-    // alone, so its jobs run on.
+    // Delegated, for its jobs' cgroups (theseus-a5nv), with no stop hook
+    // (theseus-gyin); a stop signals the daemon alone, so its jobs run on.
     assert!(
         unit.contains("\nKillSignal=SIGINT\n") && unit.contains("\nKillMode=process\n"),
         "{unit}"
     );
     assert!(
-        !unit.contains("Delegate=") && !unit.contains("ExecStopPost="),
+        unit.contains("\nDelegate=yes\n") && !unit.contains("ExecStopPost="),
         "{unit}"
     );
     for want in [

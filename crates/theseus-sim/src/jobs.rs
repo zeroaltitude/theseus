@@ -55,6 +55,12 @@ pub struct JobsArgs {
     /// daemon of that size.
     #[arg(long, default_value_t = 0)]
     hold_mb: usize,
+    /// Each L0 job's command born in a cgroup of its own under this
+    /// process's, as a delegated daemon's are (theseus-a5nv). This process's
+    /// cgroup must be delegated: `systemd-run --user --scope -p Delegate=yes
+    /// theseus-sim bench jobs --cgroup`.
+    #[arg(long)]
+    cgroup: bool,
 }
 
 pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
@@ -74,11 +80,17 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
     let mut miss = false;
     // Every page written, so each is resident and mapped.
     let held = vec![1u8; a.hold_mb << 20];
+    let cgroup = job_cgroup(a.cgroup)?;
     println!(
-        "bench jobs: /bin/true through `{} job-wrapper`, {} runs a class, holding {} MB",
+        "bench jobs: /bin/true through `{} job-wrapper`, {} runs a class, holding {} MB{}",
         theseusd.display(),
         a.runs,
-        a.hold_mb
+        a.hold_mb,
+        if a.cgroup {
+            ", each L0 job in a cgroup of its own"
+        } else {
+            ""
+        }
     );
     for class in &a.class {
         let l1 = match class.as_str() {
@@ -105,7 +117,7 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
                 &spool,
                 &ws,
                 &home,
-                l1.clone(),
+                (l1.clone(), cgroup.clone()),
                 &format!("{class}-{i}"),
             )?;
             if i >= 2 {
@@ -151,6 +163,22 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
     Ok(())
 }
 
+/// With `--cgroup`, this process's cgroup readied for jobs, as a delegated
+/// daemon readies its own (theseus-a5nv).
+fn job_cgroup(on: bool) -> Result<Option<theseus_kernel::cgroup::Jobs>> {
+    use theseus_kernel::cgroup;
+    if !on {
+        return Ok(None);
+    }
+    let jobs = cgroup::Jobs {
+        dir: cgroup::own()?,
+        pids_max: cgroup::DEFAULT_PIDS_MAX,
+    };
+    cgroup::ready(jobs.clone())
+        .context("readying this process's cgroup, which must be delegated")?;
+    Ok(Some(jobs))
+}
+
 /// One job: its L1 start in ms (none at L0), and its dispatch to its
 /// completion in ms.
 fn one(
@@ -158,7 +186,7 @@ fn one(
     spool: &Spool,
     ws: &Path,
     home: &Path,
-    sandbox: Option<L1>,
+    (sandbox, cgroup): (Option<L1>, Option<theseus_kernel::cgroup::Jobs>),
     id: &str,
 ) -> Result<(Option<f64>, f64)> {
     let args = WrapperArgs {
@@ -176,6 +204,7 @@ fn one(
         redact: vec![],
         output_max_bytes: job::DEFAULT_OUTPUT_MAX_BYTES,
         sandbox,
+        cgroup,
     };
     let t0 = Instant::now();
     job::spawn_detached(theseusd, &[job::WRAPPER_MODE], spool, &args)?;

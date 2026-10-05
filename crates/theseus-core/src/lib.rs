@@ -19,6 +19,7 @@ pub mod bus;
 pub mod cancel;
 pub mod catalog;
 pub mod ceiling;
+pub mod cgroup;
 pub mod check;
 pub mod compiler;
 pub mod config;

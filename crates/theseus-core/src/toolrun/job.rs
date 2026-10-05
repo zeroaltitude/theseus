@@ -75,6 +75,21 @@ impl Look<'_> {
 /// The last `MAX_RESULT_READ` bytes of a job's raw output, read by seek
 /// (theseus-102): whatever the job printed, the daemon holds no more than
 /// that. A cut through a UTF-8 character moves to the character's end.
+/// Its cgroup's cap refused it new processes (theseus-a5nv): what it did may
+/// have failed for that, and the result says so.
+fn cap_line(detail: &Value) -> Option<String> {
+    let n = detail
+        .get("pids_refused")
+        .and_then(Value::as_u64)
+        .filter(|n| *n > 0)?;
+    Some(format!(
+        "[its cap of {} processes and threads ([tools] job_pids_max) refused it {}: what it did \
+         may have failed for that]\n",
+        detail["pids_max"],
+        narrative::count(n, "new one", "new ones"),
+    ))
+}
+
 fn read_result_file(path: Option<&str>) -> Tail {
     let Some(p) = path else {
         return Tail::default();
@@ -207,6 +222,8 @@ impl ToolRuntime {
                 .collect(),
             output_max_bytes: self.output_max_bytes,
             sandbox,
+            // The daemon's cgroup, once it is readied (theseus-a5nv).
+            cgroup: theseus_kernel::cgroup::ready_jobs().cloned(),
         };
         // The values go with the spawn, as its environment, or nowhere; the
         // copies here are wiped either way.
@@ -696,6 +713,7 @@ impl ToolRuntime {
             ),
             _ => header,
         };
+        let header = format!("{header}{}", cap_line(&detail).unwrap_or_default());
         // No report, and the file stopped where the head does: the output
         // went past the head, and its end waited in the job's wrapper, which
         // was killed before the pipe's end (theseus-gsn9).
@@ -861,6 +879,21 @@ mod tests {
     /// Here 40 MiB, of which 4 MiB are read; and a sparse 8 GiB file, which a
     /// whole read could not hold, gives its tail (no disk is filled: the file
     /// is a hole and one line).
+    /// A job its cap refused processes says how many and why it may have
+    /// failed (theseus-a5nv); one it refused none says nothing.
+    #[test]
+    fn a_job_its_cap_refused_says_so() {
+        assert_eq!(cap_line(&json!({"cpu_us": 5})), None);
+        assert_eq!(cap_line(&json!({"pids_refused": 0, "pids_max": 10})), None);
+        assert_eq!(
+            cap_line(&json!({"pids_refused": 3, "pids_max": 10})).as_deref(),
+            Some(
+                "[its cap of 10 processes and threads ([tools] job_pids_max) refused it 3 new ones: \
+                 what it did may have failed for that]\n"
+            )
+        );
+    }
+
     #[test]
     fn a_jobs_output_is_read_by_seek_and_only_its_tail() {
         let big = 40 * 1024 * 1024;

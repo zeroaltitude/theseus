@@ -1675,9 +1675,15 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     {
         push(o, Tag::Plain, &line);
     }
-    // L1's line, and the language servers' (L2).
+    // L1's line, the jobs' cgroup's (theseus-a5nv), and the language
+    // servers' (L2).
     let sandbox = h.sandbox.as_ref().map(sandbox_line);
-    for line in sandbox.into_iter().chain(h.lsp.as_deref().map(lsp_line)) {
+    let cgroup = sandbox::cgroup_line(&h.startup);
+    for line in sandbox
+        .into_iter()
+        .chain(cgroup)
+        .chain(h.lsp.as_deref().map(lsp_line))
+    {
         push(o, Tag::Plain, &line);
     }
     if let Some(line) = cancels_line(&h.cancels) {

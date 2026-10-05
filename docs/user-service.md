@@ -22,8 +22,10 @@ Everything below is what that command does, why, and what to do afterwards. On a
 
 Nothing else changes. It is the same binary, config reference, state directory (`~/.theseus` unless your shell says
 otherwise), socket, and web port, so every client works as before. L1, the sandbox, works the same under the unit
-as from a shell: it needs no cgroup and no `Delegate=` (theseus-gyin). Run the daemon as yourself: L1 runs no job of a
-daemon that runs as root.
+as from a shell. Run the daemon as yourself: L1 runs no job of a daemon that runs as root. What the unit adds is its
+cgroup (`Delegate=yes`, theseus-a5nv): the daemon stays in it, and each L0 job's processes are born in a cgroup of
+their own inside it, so a stop ends every one of them and a job gets a process cap (`[tools] job_pids_max`). Health's
+`cgroup:` line says so, or, for a daemon started from a shell, that its jobs stop by their process tree.
 
 ## Before the first run
 
@@ -251,15 +253,18 @@ KillSignal=SIGINT
 KillMode=process
 Restart=on-failure
 RestartSec=5
+Delegate=yes
 
 [Install]
 WantedBy=default.target
 ```
 
 `KillSignal=SIGINT` is the daemon's clean stop; `KillMode=process` leaves running jobs alone on a stop;
-`Restart=on-failure` brings it back after a crash. A unit an older build wrote also has `Delegate=yes` and an
-`ExecStopPost=` that runs `theseusd cgroup-release`: run `scripts/user-service.sh install` again to write it without
-them (the subcommand is gone, and the `-` before it keeps its failure from failing the stop). `ExecStart` is the binary you ran
+`Restart=on-failure` brings it back after a crash; `Delegate=yes` makes the unit's cgroup the daemon's, for its jobs'
+own, and a restart while a job runs starts as any start does. A unit written before theseus-gyin also has an
+`ExecStopPost=` that runs `theseusd cgroup-release`, and one written between theseus-gyin and theseus-a5nv has no
+`Delegate=`: run `scripts/user-service.sh install` again to write it as above (the subcommand is gone, and the `-`
+before it keeps its failure from failing the stop). `ExecStart` is the binary you ran
 the install with, so install a reviewed build into `~/.local/bin` and run the script from there, not a build in a
 `target/` directory (`check` warns about one). `--state-dir` and `--socket` appear there only when your shell had
 set them.

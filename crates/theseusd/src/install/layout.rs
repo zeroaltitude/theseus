@@ -929,8 +929,10 @@ pub(crate) fn unit_env(key: &str, value: &str) -> Result<String> {
     Ok(format!("Environment=\"{kv}\""))
 }
 
-/// The lines every unit the installer writes shares: how it stops, and why.
-/// No `Delegate=`: an L1 job has no cgroup of its own (theseus-gyin).
+/// The lines every unit the installer writes shares: how it stops, and why,
+/// and the cgroup that is the daemon's own (theseus-a5nv): it stays in it,
+/// so a restart while a job runs starts as any start does, and no stop hook
+/// is needed.
 const SERVICE_COMMON: &str = "\
 # SIGINT is the daemon's clean stop: it removes its socket and closes the
 # store. A stop signals the daemon alone, so running jobs finish, and the
@@ -940,6 +942,9 @@ KillSignal=SIGINT
 KillMode=process
 Restart=on-failure
 RestartSec=1
+# The unit's cgroup is the daemon's own: each L0 job gets a cgroup of its
+# own inside it, with a process cap and an exact stop.
+Delegate=yes
 ";
 
 /// The start limit both daemon units share (theseus-0v8s): a start takes about 20 ms, so a

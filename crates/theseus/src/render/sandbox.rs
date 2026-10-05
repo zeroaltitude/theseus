@@ -1,7 +1,34 @@
-//! L1's lines (M4 17b): health's `sandbox:` line. Apart from `render.rs`,
-//! whose length the shape budget caps (`scripts/long-files.txt`).
+//! L1's lines (M4 17b): health's `sandbox:` line, and the jobs' `cgroup:`
+//! line. Apart from `render.rs`, whose length the shape budget caps
+//! (`scripts/long-files.txt`).
 
 use theseus_protocol::sandbox::{launch_words, SandboxHealth};
+use theseus_protocol::StartupPhase;
+
+/// `cgroup: delegated · each L0 job in its own, up to 4096 processes and
+/// threads · <dir>`, or `cgroup: none · a job stops by its process tree ·
+/// <why>`: the daemon's `cgroup` phase after serving (theseus-a5nv), `cgroup:
+/// checking` while it runs, and nothing before it begins.
+pub fn cgroup_line(phases: &[StartupPhase]) -> Option<String> {
+    let p = phases.iter().find(|p| p.name == "cgroup")?;
+    let d = &p.detail;
+    let text = |k: &str| d[k].as_str().unwrap_or("?").to_string();
+    Some(match (p.end_us, d["state"].as_str()) {
+        (None, _) => "cgroup: checking".into(),
+        (Some(_), Some("delegated")) => format!(
+            "cgroup: delegated · each L0 job in its own, up to {} processes and threads · {}",
+            match d["pids_max"].as_u64() {
+                Some(0) | None => "any number of".to_string(),
+                Some(n) => n.to_string(),
+            },
+            text("dir")
+        ),
+        (Some(_), _) => format!(
+            "cgroup: none · a job stops by its process tree · {}",
+            text("why")
+        ),
+    })
+}
 
 /// `sandbox: the last L1 launch worked (start 3.1 ms) · default l0 · jobs:
 /// 12 at L0, 3 in L1 · an L1 job gets 512 processes, 1024 MB of scratch,
@@ -129,6 +156,41 @@ mod tests {
         assert!(
             line.starts_with("sandbox: L1 is unavailable: the daemon runs as root · "),
             "{line}"
+        );
+    }
+
+    /// The `cgroup` phase in words (theseus-a5nv): delegated with its cap, or
+    /// none and why, and checking while it runs.
+    #[test]
+    fn the_cgroup_line_says_delegated_or_what_jobs_fall_back_to_and_why() {
+        let phase = |end: Option<u64>, detail| StartupPhase {
+            name: "cgroup".into(),
+            background: true,
+            start_us: 2_000_000,
+            end_us: end,
+            detail,
+        };
+        assert_eq!(cgroup_line(&[]), None);
+        let d = serde_json::json!({"state": "delegated", "dir": "/sys/fs/cgroup/u.service", "pids_max": 4096});
+        assert_eq!(
+            cgroup_line(&[phase(Some(2_010_000), d)]).as_deref(),
+            Some(
+                "cgroup: delegated · each L0 job in its own, up to 4096 processes and threads · \
+                 /sys/fs/cgroup/u.service"
+            )
+        );
+        let d =
+            serde_json::json!({"state": "none", "why": "x.service is not delegated (Delegate=no)"});
+        assert_eq!(
+            cgroup_line(&[phase(Some(2_010_000), d)]).as_deref(),
+            Some(
+                "cgroup: none · a job stops by its process tree · x.service is not delegated \
+                 (Delegate=no)"
+            )
+        );
+        assert_eq!(
+            cgroup_line(&[phase(None, serde_json::Value::Null)]).as_deref(),
+            Some("cgroup: checking")
         );
     }
 

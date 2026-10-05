@@ -292,6 +292,7 @@ proc_timeout_secs = 600                 # default proc.run timeout
 proc_timeout_max_secs = 3600            # ceiling a call may ask for
 proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME"]  # the ONLY variables a job sees
 job_output_max_bytes = 67108864         # a job's raw output file keeps at most this much (64 MiB); past it the job runs on, and its result says how much was dropped
+job_pids_max = 4096                     # the most processes and threads one L0 job may have at once, where the daemon's cgroup is delegated (its unit's Delegate=yes); past it a fork fails, and its result says so; 0: no cap
 
 # The web tools (DD5): http.fetch GETs a URL, follows up to 5 redirects, and
 # returns an HTML page as text (text, JSON, and XML as they are; other types

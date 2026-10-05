@@ -447,9 +447,9 @@ pub enum VerifiedBy {
     /// An L1 job's pid namespace: its init was killed and reaped, and the
     /// kernel kills every process of a namespace before its init's exit ends.
     Pidns,
-    /// The job's cgroup: `cgroup.kill`, then `cgroup.events` at `populated 0`.
-    /// Read from old records alone: no stop has written it since L1 lost its
-    /// cgroup (theseus-gyin).
+    /// An L0 job's cgroup (theseus-a5nv): every process in it killed, with no
+    /// new one let in, then `cgroup.events` at `populated 0`, and then what was
+    /// left of its tree. An L1 job's, in records from before theseus-gyin.
     Cgroup,
     /// An L0 job's process tree: its wrapper stopped every descendant and
     /// found none left (`scope: descendants`).
