@@ -365,3 +365,87 @@ async fn a_late_result_taken_as_its_turn_finishes_is_traced_there() {
         "timed by its run: {took}"
     );
 }
+
+/// Calls [A, B, C], A asking (theseus-6xwq): the continuation answers A,
+/// then runs B and C as a response's calls run (`run_fresh`), and each is
+/// traced under the continuation, named and `tool_use_id`'d for its own
+/// call, in order, A alone and the two reads together; each counts once.
+#[tokio::test]
+async fn a_continuations_fresh_calls_are_traced_each_for_its_own() {
+    let rx = Receiver::start(vec![]).await;
+    let r = rig(
+        vec![
+            Scripted::tools(
+                "",
+                &[
+                    ("a1", "proc_run", json!({"argv": ["sh", "-c", "echo tide"]})),
+                    ("b1", "fs_read", json!({"path": "one.txt"})),
+                    ("c1", "fs_read", json!({"path": "two.txt"})),
+                ],
+            ),
+            Scripted::text("All three answered."),
+        ],
+        &rx.endpoint(),
+        |c| {
+            c.policy.enforcement = Posture::Open;
+            c.policy.tools.insert("proc.run".into(), Posture::Approve);
+        },
+    );
+    let work = r._dir.path().join("work");
+    std::fs::write(work.join("one.txt"), "one\n").unwrap();
+    std::fs::write(work.join("two.txt"), "two\n").unwrap();
+    let first = turn(&r.core, "run it, then read both").await;
+    let cont = approved(&r.core, &first).await;
+    assert_eq!(cont.output, "All three answered.");
+    let trace = cont.trace.as_ref().unwrap();
+    let mut tools = Vec::new();
+    for name in ["tool proc_run", "tool fs_read"] {
+        tools.extend(spans_named(trace, name));
+    }
+    tools.sort_by_key(|(_, s)| s.attrs["tool_use_id"].as_str().map(str::to_string));
+    let seen: Vec<(&str, &str, &str, &str)> = tools
+        .iter()
+        .map(|(parent, s)| {
+            (
+                *parent,
+                s.name.as_str(),
+                s.attrs["tool_use_id"].as_str().unwrap(),
+                s.attrs["result"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            ("continuation", "tool proc_run", "a1", "ok"),
+            ("tools", "tool fs_read", "b1", "ok"),
+            ("tools", "tool fs_read", "c1", "ok"),
+        ],
+        "{trace:#?}"
+    );
+    // In order: the reads ran after A, under one `tools` span that is the
+    // continuation's.
+    let groups = spans_named(trace, "tools");
+    assert_eq!(groups.len(), 1, "{trace:#?}");
+    assert_eq!(groups[0].0, "continuation");
+    assert_eq!(groups[0].1.attrs["calls"], 2);
+    let a_end = tools[0].1.end_us.unwrap();
+    assert!(groups[0].1.start_us >= a_end, "{trace:#?}");
+    let cont_span = spans_named(trace, "continuation");
+    let kids: Vec<&str> = cont_span[0]
+        .1
+        .children
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    assert_eq!(kids, ["tool proc_run", "tools"], "{trace:#?}");
+
+    flushed(r.core.telemetry()).await;
+    let metrics = last_metrics(&rx.got());
+    for (tool, n) in [("proc.run", "1"), ("fs.read", "2")] {
+        let with = [("theseus.tool.name", tool), ("theseus.tool.outcome", "ok")];
+        let p = point_with(&metrics, "theseus.tool.calls", &with);
+        assert_eq!(p["asInt"], n, "{tool}");
+    }
+    assert_eq!(points_of(&metrics, "theseus.tool.calls").len(), 2);
+}
