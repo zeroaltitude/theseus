@@ -1599,7 +1599,8 @@ fn tool_span(wire: &str, start: u64, end: u64, tool: [&str; 4]) -> Span {
 /// Every tool call is counted and timed by its tool's name, family, and
 /// backend and the call's outcome (one kind of each), with the turn's
 /// attributes, in a failed turn too; so the shell-fallback ratio, `proc.run`
-/// over every call, is one query (§3.23).
+/// over every call, is one query (§3.23). A call that waits for the operator
+/// or runs on in the background counts at its answer, not here.
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 async fn tool_calls_are_counted_and_timed_by_name_family_backend_and_outcome() {
@@ -1730,16 +1731,7 @@ async fn tool_calls_are_counted_and_timed_by_name_family_backend_and_outcome() {
         (["fs.read", "fs", "inproc", "error"], "complete", 2.0),
         (["frob_it", "unknown", "none", "error"], "complete", 0.3),
         (["proc.run", "proc", "job", "ok"], "complete", 12_000.0),
-        (
-            ["proc.run", "proc", "job", "background"],
-            "complete",
-            60_000.0,
-        ),
-        (
-            ["proc.run", "proc", "job", "awaiting_confirm"],
-            "complete",
-            1.0,
-        ),
+        // A call that waits or runs on counts at its answer (theseus-8pei).
         (["proc.run", "proc", "job", "cancelled"], "complete", 2.0),
         (["proc.run", "proc", "job", "unknown"], "complete", 3.0),
         (
@@ -1789,7 +1781,7 @@ async fn tool_calls_are_counted_and_timed_by_name_family_backend_and_outcome() {
         .filter(|p| attrs_of(p)["theseus.tool.name"] == "proc.run")
         .map(count)
         .sum();
-    assert_eq!((shell, all), (6, 10));
+    assert_eq!((shell, all), (4, 8));
 }
 
 /// What became of each call, as its span's `result` says it: the result
@@ -2032,7 +2024,7 @@ async fn submit(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::Respo
 /// tool metrics, and their spans, with the registered tool's name, family,
 /// and backend and what became of each: a read that answered, a read that
 /// failed, a tool that is not registered, and a program that waits for the
-/// operator.
+/// operator, which its span says and the metrics count at its answer.
 #[tokio::test]
 async fn a_turns_calls_reach_the_tool_metrics_as_the_runtime_ran_them() {
     use crate::provider::Scripted;
@@ -2060,7 +2052,6 @@ async fn a_turns_calls_reach_the_tool_metrics_as_the_runtime_ran_them() {
         ["fs.read", "fs", "inproc", "ok"],
         ["fs.read", "fs", "inproc", "error"],
         ["frob_it", "unknown", "none", "error"],
-        ["proc.run", "proc", "job", "awaiting_confirm"],
     ];
     assert_eq!(
         points_of(&metrics, "theseus.tool.calls").len(),

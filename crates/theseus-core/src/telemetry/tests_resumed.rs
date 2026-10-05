@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::json;
 use theseus_protocol::{SessionKind, Span, TurnSubmitResult};
 
-use super::tests::{pipeline, tuning, Receiver};
+use super::tests::{flushed, last_metrics, pipeline, point_with, points_of, tuning, Receiver};
 use crate::bus::EventSink;
 use crate::policy::Posture;
 use crate::provider::{FakeProvider, Scripted};
@@ -192,4 +192,55 @@ async fn a_late_result_is_traced_once_with_its_jobs_run() {
     let run = span.attrs["run_ms"].as_u64().expect("the job's run");
     assert!((1_600..30_000).contains(&run), "the job's run: {run} ms");
     assert_eq!(span.duration_us(), 0, "a point at its absorption");
+}
+
+/// Counted once, at its answer (theseus-8pei): a confirmed call and a
+/// background job, across their turns, are one `theseus.tool.calls` point
+/// each, `ok`, and the duration holds their runs; nothing is counted
+/// `awaiting_confirm` or `background`.
+#[tokio::test]
+async fn a_confirmed_call_and_a_background_job_are_counted_once_by_their_runs() {
+    let rx = Receiver::start(vec![]).await;
+    let r = rig(
+        vec![
+            sleeper("t1", "0.4"),
+            Scripted::text("The tide is in."),
+            sleeper("t2", "1.6"),
+            Scripted::text("It runs on."),
+        ],
+        &rx.endpoint(),
+        |c| {
+            c.policy.enforcement = Posture::Approve;
+            c.tools.proc_sync_secs = 1;
+        },
+    );
+    let first = turn(&r.core, "run the tide script").await;
+    approved(&r.core, &first).await;
+    let second = turn(&r.core, "run the long tide script").await;
+    let cont = approved(&r.core, &second).await;
+    let placed = spans_named(cont.trace.as_ref().unwrap(), "tool proc_run");
+    assert_eq!(placed[0].1.attrs["result"], "background", "{placed:?}");
+    let exec = second.execution_id.clone().unwrap();
+    wait_queued(&r.core, &exec).await;
+    r.core.continue_execution(&exec).await.unwrap().unwrap();
+
+    flushed(r.core.telemetry()).await;
+    let metrics = last_metrics(&rx.got());
+    let calls = points_of(&metrics, "theseus.tool.calls");
+    assert_eq!(calls.len(), 1, "one series, `ok`: {calls:#?}");
+    let ok = [
+        ("theseus.tool.name", "proc.run"),
+        ("theseus.tool.outcome", "ok"),
+        ("theseus.outcome", "complete"),
+    ];
+    assert_eq!(
+        point_with(&metrics, "theseus.tool.calls", &ok)["asInt"],
+        "2"
+    );
+    let took = point_with(&metrics, "theseus.tool.duration_ms", &ok);
+    assert_eq!(took["count"], "2");
+    let sum = took["sum"].as_f64().unwrap();
+    assert!((2_000.0..60_000.0).contains(&sum), "their runs: {sum} ms");
+    let min = took["min"].as_f64().unwrap();
+    assert!(min >= 400.0, "each timed by its run: {took}");
 }
