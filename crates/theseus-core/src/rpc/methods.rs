@@ -810,19 +810,24 @@ impl Core {
         // A place's profile, unless the turn names one (step 38a).
         let live = self.place_profile(&session.session_id, self.live_profile().0);
         // The pane carries the profile the last turn ran on: when that is
-        // only where routing moved the session, it names nothing, so the
-        // session's own runs once routing no longer acts (theseus-9yyr).
-        let moved = session.routed.as_ref().and_then(|r| r.profile.as_deref());
+        // only where routing moved the session, it stands for the base the
+        // move was made from (`Routed.from`, theseus-0j2.17), never a new
+        // one, so a `-P` pane's profile runs once routing no longer acts; a
+        // record without it names nothing (theseus-9yyr).
+        let routed = session.routed.as_ref();
+        let moved = routed.and_then(|r| r.profile.as_deref());
         let only_routed =
             p.carried && p.provider.is_none() && p.model.is_none() && p.profile.as_deref() == moved;
+        let named = match only_routed {
+            // A base no longer configured names nothing.
+            true => routed
+                .and_then(|r| r.from.as_deref())
+                .filter(|f| self.cfg.all_profiles().contains_key(*f)),
+            false => p.profile.as_deref(),
+        };
         let mut target = self
             .runner
-            .resolve_target(
-                &live,
-                p.profile.as_deref().filter(|_| !only_routed),
-                p.provider.as_deref(),
-                p.model.as_deref(),
-            )
+            .resolve_target(&live, named, p.provider.as_deref(), p.model.as_deref())
             .map_err(RpcFailure::invalid)?;
         target.chosen = crate::routing::chosen(&p);
         let (t_profile, t_provider, t_model) = (

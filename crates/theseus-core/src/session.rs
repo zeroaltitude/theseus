@@ -71,8 +71,11 @@ pub struct SessionRecord {
     pub not_shown: Vec<NotShown>,
     /// Where routing moved the session, and a switch the cache holds back
     /// (M5 25e). Absent in records written before it (store format 15).
+    /// Boxed, which its bytes do not show: the record is held in the turn's
+    /// futures, and a debug build's turn runs close to a thread's 2 MiB
+    /// stack (`tests_output`'s golden overflowed it once `from` came).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub routed: Option<crate::routing::Routed>,
+    pub routed: Option<Box<crate::routing::Routed>>,
 }
 
 /// An image the provider refused (theseus-0s4).

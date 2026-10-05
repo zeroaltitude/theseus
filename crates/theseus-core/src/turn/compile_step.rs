@@ -73,10 +73,33 @@ impl TurnRunner {
         }
         let c1 = t.trace.now_us();
         let summary = Self::compiled_summary(t, &compiled, spec, (&nodes, read_before, i), tasks);
+        // While routing decides, the rows wait for the compile the call uses
+        // (`route_step`, theseus-d13v): one `context.compiled` and one
+        // `loop.started` a loop, each naming a stored compilation.
+        if t.route.defer_persist {
+            t.route.deferred = Some(Box::new(Deferred { summary, c0, c1 }));
+            return Ok(Ok(compiled));
+        }
+        self.compiled_rows(t, &summary, &compiled, spec, (c0, c1), i);
+        Ok(Ok(compiled))
+    }
+
+    /// The loop's compile, recorded: its `context.compiled` row, the judge's
+    /// mark at the compile, and `loop.started`.
+    pub(super) fn compiled_rows(
+        &self,
+        t: &mut Turn<'_>,
+        summary: &ContextCompiled,
+        compiled: &Compiled,
+        spec: &RequestSpec,
+        (c0, c1): (u64, u64),
+        i: u32,
+    ) {
+        let sid = t.tc.session_id;
         // Its span and its row carry the notification's params.
         t.record(&fact::turn::ContextCompiled {
-            summary: &summary,
-            compiled: &compiled,
+            summary,
+            compiled,
             spec,
             c0,
             c1,
@@ -89,7 +112,7 @@ impl TurnRunner {
             loop_index: i,
             kernel: &self.kernel,
         };
-        if let Some(mark) = self.judge.at_compile(&compiled, at) {
+        if let Some(mark) = self.judge.at_compile(compiled, at) {
             t.trace.mark("judge", "mark", mark);
         }
         t.record(&fact::turn::LoopStarted {
@@ -98,7 +121,6 @@ impl TurnRunner {
             model: &t.target.model,
             tools_offered: spec.tools.len() as u32,
         });
-        Ok(Ok(compiled))
     }
 
     /// The loop's `context.compiled`: its span, its row, and the
@@ -153,4 +175,11 @@ impl TurnRunner {
             situation: Some(compiled.situation.clone()),
         }
     }
+}
+
+/// A first compile's rows, held while routing decides (theseus-d13v).
+pub(super) struct Deferred {
+    pub(super) summary: ContextCompiled,
+    pub(super) c0: u64,
+    pub(super) c1: u64,
 }

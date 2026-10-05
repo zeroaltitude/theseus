@@ -39,7 +39,8 @@ pub const SHORT_INPUT: u64 = 4_000;
 /// A short turn's output, in tokens.
 pub const SHORT_OUTPUT: u64 = 500;
 
-/// What the session keeps of routing (a stored field: store format 15).
+/// What the session keeps of routing (a stored field: store format 15;
+/// its base, `from`, 21).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Routed {
     /// The profile routing moved the session to; its turns run there unless
@@ -48,6 +49,14 @@ pub struct Routed {
     /// session's last turn began, clears this (theseus-9yyr).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// The session's base, by the profile's name: where it ran before
+    /// routing first moved it (theseus-0j2.17). Once `route.v1` stops acting,
+    /// its turns run here, so a pane's `-P` profile comes back; a turn whose
+    /// base is another (`[model] live` changed and the session follows it,
+    /// or its place's profile did) clears the move. Absent in records
+    /// written before it (store format 21): the turn's base is taken as it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
     /// A switch the cache held back: the next agreeing turn makes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold: Option<Hold>,

@@ -455,8 +455,10 @@ const BULK: usize = 4096;
 /// 19 = a task's `claim`, its lease (M7 39b, theseus-ext.14).
 /// 20 = a `proc.run` batch's `steps` on a tool call's plan, each step's argv
 /// (theseus-7gir.3).
-/// 21 = a compilation's `situation` (M6 35a, theseus-3nk.1).
-const MANIFEST_FORMAT: u32 = 21;
+/// 21 = a session's routed base, `routed.from`: the profile routing first
+/// moved it from (theseus-0j2.17).
+/// 22 = a compilation's `situation` (M6 35a, theseus-3nk.1).
+const MANIFEST_FORMAT: u32 = 22;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

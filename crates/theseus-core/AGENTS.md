@@ -59,7 +59,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
     task's start; a session's first compile in this run, `RunCompiles` in memory, with nothing its turn brought is a
     resume; else a continuation; a detour its own), and `compile()` settles it (`settle`: a new compilation of its
-    own triggers is a recompile with its trigger). It rides `Compilation.situation` (store format 21) and
+    own triggers is a recompile with its trigger). It rides `Compilation.situation` (store format 22) and
     `context.compiled`. `admits` is the table of what each admits, from the code (lessons reserved for 35b): a
     detour admits its window's messages, replies and results, and a task's arrangement among them, never a recall
     or a summary (`compile_detour` leaves those out). `check`, after the compile, fails a piece not admitted, or a
@@ -372,13 +372,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     turn alone, compiled outside the session's compilation, which it never writes), or a switch of the session's
     `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. A turn whose
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
-    compilation the call uses is persisted (`RouteState.defer_persist`). The row is `route.decided`
-    (`fact/route.rs`); thinking goes back only to the model that wrote it. `routed` holds only while route.v1
+    compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
+    `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` alone,
+    since its compilation is never stored (`tests_route_rows.rs`). The row is `route.decided`
+    (`fact/route.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and a place's
+    profile caps it (`tests_route_cap.rs`). `routed` holds only while route.v1
     acts live for the session (theseus-9yyr, `route_base`): routing off or in shadow, the ladder's rollback, the
     judge off, or Jev unreachable (`JudgeService::reachable`) clear it at the next turn, in the turn's own session
     write, and so does a `profile.use` after the session's last turn began (META `live_profile.switched_ms`
-    against the turn id's time, `crate::id_ms`); the pane's carried profile, when it is the routed one, names
-    nothing (`turn_submit`). Tests: `tests_route.rs`, `routing::tests`, `turn::route_step::tests`.
+    against the turn id's time, `crate::id_ms`). A move keeps its base, `Routed.from` (the profile's name it was
+    first moved from, format 21, theseus-0j2.17): once route.v1 stops acting the turn runs there, and a turn whose
+    base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
+    profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
+    `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
   - **Replay, audit, and backfill** (step 25d, theseus-0j2.14; the owner's runs, each `judge_act(Act::JudgeRun)`
     and in the CLI's `OPERATORS`, each on a `learning` thread at nice 19, routed together by `rpc/judge_runs.rs`).
     `learning/replay.rs` (`Core::judge_replay`, public for the learning loop): a candidate the build does not wire

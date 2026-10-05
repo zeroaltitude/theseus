@@ -10,11 +10,13 @@
 //!   judge off, Jev's breaker open, a slash command, a continuation, a pinned
 //!   turn, or `route.v1` in shadow: no wait.
 //! - **A switch** rebuilds the spec and compiles again on the routed profile;
-//!   the first compile's compilation is persisted only when the call uses it.
+//!   the first compile's compilation is persisted, and its `context.compiled`
+//!   and `loop.started` recorded, only when the call uses it (theseus-d13v).
 //! - **A detour** (`trivial`) compiles the persona and the last
 //!   `trivial_context_turns` exchanges outside the session's compilation,
 //!   which it never writes; the session's profile, `last_target`, and
-//!   compilation stay as they were.
+//!   compilation stay as they were. Its loops record `loop.started` and no
+//!   `context.compiled`: its compilation is never stored, so no row names it.
 //! - **Recorded** as one `route.decided` row, in the turn's next frame, and
 //!   on the turn's result (`TurnSubmitResult.route`).
 //! - **A detour sends no recall** (theseus-n7nc): the turn's pending
@@ -52,6 +54,9 @@ pub(super) struct RouteState {
     /// Routing is deciding: the first compile does not persist its
     /// compilation (only the one the call uses is).
     pub(super) defer_persist: bool,
+    /// The first compile's rows, recorded only when the call uses it
+    /// (theseus-d13v).
+    pub(super) deferred: Option<Box<super::compile_step::Deferred>>,
     /// A detour: the session's own target, which its record keeps.
     pub(super) keeps: Option<TargetRef>,
     /// What the turn's result says.
@@ -143,6 +148,10 @@ impl TurnRunner {
         if !input || target.chosen.is_some() {
             return (target, None);
         }
+        if !Self::same_base(session, &target) {
+            session.routed = None;
+            return (target, None);
+        }
         let mode = self.route_mode(&target, &session.session_id);
         if mode < PackMode::Canary || !self.judge.reachable() {
             session.routed = None;
@@ -156,6 +165,21 @@ impl TurnRunner {
             _ => target,
         };
         (target, Some(mode))
+    }
+
+    /// The turn's base is the one routing moved the session from
+    /// (theseus-0j2.17). `target` is where the message runs without routing:
+    /// the place's profile or the live one, or the profile the pane carried,
+    /// which `turn_submit` reads as the session's `from` when it is only the
+    /// routed one. Compared by the profile's name, as a session unrouted
+    /// follows its profile: a model changed under the name reaches it there.
+    /// A record from before `from` takes the turn's base as it, so it reads
+    /// as before.
+    fn same_base(session: &mut SessionRecord, target: &Target) -> bool {
+        let Some(r) = session.routed.as_mut().filter(|r| r.profile.is_some()) else {
+            return true;
+        };
+        r.from.get_or_insert_with(|| target.profile.clone()) == &target.profile
     }
 
     /// The owner switched the live profile after the session's last turn
@@ -323,7 +347,7 @@ impl TurnRunner {
             self.judge.set_routed(t.tc.session_id, ran);
         }
         let Some(d) = decision else {
-            return Self::keep_first(t, session, compiled);
+            return self.keep_first(t, session, compiled, spec, i);
         };
         let routed = session.routed.get_or_insert_with(Default::default);
         match &d.hold {
@@ -331,22 +355,24 @@ impl TurnRunner {
             HoldNext::Clear => routed.hold = None,
             HoldNext::Set(h) => routed.hold = Some(h.clone()),
         }
-        if session.routed.as_ref() == Some(&Default::default()) {
+        if session.routed.as_deref() == Some(&Default::default()) {
             session.routed = None;
         }
         if d.profile == base {
-            return Self::keep_first(t, session, compiled);
+            return self.keep_first(t, session, compiled, spec, i);
         }
         let target = match self.resolve_target(&base, Some(&d.profile), None, None) {
             Ok(tg) => tg,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), profile = %d.profile, "routing: the profile did not resolve; the session's own runs");
-                return Self::keep_first(t, session, compiled);
+                return self.keep_first(t, session, compiled, spec, i);
             }
         };
         let Some(p) = self.providers.get(&target.provider).cloned() else {
-            return Self::keep_first(t, session, compiled);
+            return self.keep_first(t, session, compiled, spec, i);
         };
+        // The first compile is not the call's: its rows go with it.
+        t.route.deferred = None;
         if d.detour {
             t.route.keeps = Some(TargetRef::from(t.target));
         }
@@ -479,17 +505,23 @@ impl TurnRunner {
             .unwrap_or_else(|| TargetRef::from(t.target))
     }
 
-    /// The first compile is the one the call uses: persist it, as the
-    /// compile step would have.
+    /// The first compile is the one the call uses: persist it, and record
+    /// its rows, as the compile step would have.
     fn keep_first(
+        &self,
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
         compiled: Compiled,
+        spec: &RequestSpec,
+        i: u32,
     ) -> Result<Result<Compiled, Failure>> {
         if compiled.new_compilation
             && session.compilation_id.as_deref() != Some(&compiled.compilation.id)
         {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
+        }
+        if let Some(d) = t.route.deferred.take() {
+            self.compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
         }
         Ok(Ok(compiled))
     }
@@ -508,6 +540,7 @@ impl TurnRunner {
         if slot.set(target).is_err() {
             anyhow::bail!("a turn routes once");
         }
+        let base = t.target.profile.clone();
         let target = slot.get().expect("set");
         t.target = target;
         t.tc.target = Some(target);
@@ -516,8 +549,17 @@ impl TurnRunner {
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));
-            session.routed.get_or_insert_with(Default::default).profile =
-                Some(target.profile.clone());
+            // The base it was moved from, kept through later switches; a
+            // switch back to it ends the move (theseus-0j2.17).
+            let r = session.routed.get_or_insert_with(Default::default);
+            if r.from.get_or_insert(base) == &target.profile {
+                (r.profile, r.from) = (None, None);
+            } else {
+                r.profile = Some(target.profile.clone());
+            }
+            if session.routed.as_deref() == Some(&Default::default()) {
+                session.routed = None;
+            }
         }
         Ok(())
     }
