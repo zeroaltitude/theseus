@@ -2179,7 +2179,14 @@ async fn a_failed_continuation_is_counted_as_a_failed_turn_is() {
         point_with(&metrics, "theseus.turns", &complete)["asInt"],
         "1"
     );
-    assert_eq!(rx.at("/v1/traces").len(), 3, "each turn's trace");
+    // Three turns, three traces, counted by trace id: a post answered after
+    // the tuning's timeout is posted again, and a receiver counts both
+    // (theseus-qjd6).
+    let traces: std::collections::BTreeSet<String> = spans_of(&rx.at("/v1/traces"))
+        .iter()
+        .map(|s| s["traceId"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(traces.len(), 3, "each turn's trace: {traces:?}");
 }
 
 /// What a failed turn's finished loops spent is in `theseus.tokens` and
