@@ -134,6 +134,21 @@ fn lists_without_prefix(policy: &Value) -> bool {
         })
 }
 
+/// Whether the request's signer may be told a key is missing: a session's
+/// inline policy decides; the key's own, the fake's whole account, may list.
+/// A `GetObject` and a `HeadObject` alike.
+fn may_know_missing(s: &State, r: &Req) -> bool {
+    let key = r
+        .header("authorization")
+        .and_then(|a| a.split("Credential=").nth(1))
+        .and_then(|c| c.split('/').next())
+        .unwrap_or_default();
+    match s.policies.get(key) {
+        Some(Some(p)) => lists_without_prefix(p),
+        _ => true,
+    }
+}
+
 type Reply = (u16, Vec<(String, String)>, Vec<u8>);
 
 pub(super) struct Fake {
@@ -319,6 +334,12 @@ fn answer(s: &mut State, r: &Req, n: usize) -> Reply {
             reply
         }
         "HeadObject" => match s.objects.get(&r.key()) {
+            // S3's 403 to a HEAD has no body, so no code.
+            None if !may_know_missing(s, r) => (
+                403,
+                vec![("x-amz-request-id".into(), format!("req-{n}"))],
+                Vec::new(),
+            ),
             Some((b, sha)) => (
                 200,
                 vec![
@@ -455,16 +476,10 @@ fn answer(s: &mut State, r: &Req, n: usize) -> Reply {
         }
         "GetObject" => {
             let Some((bytes, sha)) = s.objects.get(&r.key()).cloned() else {
-                let key = r
-                    .header("authorization")
-                    .and_then(|a| a.split("Credential=").nth(1))
-                    .and_then(|c| c.split('/').next())
-                    .unwrap_or_default();
-                // A session's inline policy decides; the key's own, the
-                // fake's whole account, may list.
-                return match s.policies.get(key) {
-                    Some(Some(p)) if !lists_without_prefix(p) => s3_error(403, "AccessDenied"),
-                    _ => s3_error(404, "NoSuchKey"),
+                return if may_know_missing(s, r) {
+                    s3_error(404, "NoSuchKey")
+                } else {
+                    s3_error(403, "AccessDenied")
                 };
             };
             let mut headers = vec![
@@ -619,6 +634,7 @@ impl Rig {
         let hooks = Hooks {
             ledger: Some(Arc::new(move |r| rows.lock().unwrap().push(r))),
             measure: Some(Arc::new(move |m| shipped.lock().unwrap().push(m))),
+            ..Hooks::default()
         };
         let account = self.aws.accounts().next().unwrap().clone();
         Shipper::open(account, Paths::for_store(&self.store), tuning(), hooks).unwrap()
@@ -634,7 +650,7 @@ impl Rig {
 
 /// A segment's bytes as S3 holds them: the sealed object, or its tails
 /// joined, each tail starting where the last ended.
-fn shipped_segment(fake: &Fake, n: u32) -> Option<Vec<u8>> {
+pub(super) fn shipped_segment(fake: &Fake, n: u32) -> Option<Vec<u8>> {
     if let Some(b) = fake.object(&format!("{PREFIX}wal/{n:09}.seg")) {
         return Some(b);
     }
@@ -1025,6 +1041,90 @@ async fn a_refusal_is_said_in_health_and_the_next_pass_ships() {
     assert_eq!(shipped_segment(&fake, 1), Some(rig.segment(1)));
 }
 
+/// A daemon that died after its cursor saved an object in flight and before
+/// S3 stored it (theseus-iame): the restart heads the key, which its session
+/// may be told is missing (404, not 403), so it sends the object once and
+/// ships everything behind it. The fake answers a HEAD by the session's
+/// policy, as S3 does: without `ListItsPrefix` every pass fails `Retry`.
+#[tokio::test]
+async fn an_object_in_flight_that_s3_never_stored_is_sent_once() {
+    let fake = Fake::start();
+    let rig = Rig::new(&fake);
+    rig.write(0, 3);
+    assert_eq!(rig.segments(), vec![1], "one open segment: one tail");
+    fake.state.lock().unwrap().refuse = Some("PutObject".into());
+    let mut s = rig.shipper();
+    assert!(matches!(s.pass().await, Err(Halt::Retry(_))));
+    drop(s);
+    let paths = Paths::for_store(&rig.store);
+    let held = durable::cursor::load(&paths).unwrap();
+    assert_eq!(held.inflight.len(), 1, "the mark saved before the put");
+    let key = held.inflight[0].key.clone();
+    assert!(fake.object(&key).is_none(), "S3 never stored it");
+    fake.state.lock().unwrap().refuse = None;
+    let refused = sends(&fake);
+    assert_eq!(refused.get(&key), Some(&1), "the put S3 refused");
+    // The restart reads the same batch, so the same tail is in flight.
+    let mut s = rig.shipper();
+    s.pass().await.unwrap();
+    let heads = fake.ops("HeadObject");
+    assert!(heads.iter().any(|r| r.key() == key), "the restart asked S3");
+    assert_eq!(fake.object(&key).as_deref(), Some(&rig.segment(1)[..]));
+    // And everything behind it ships.
+    rig.write(3, 30);
+    s.pass().await.unwrap();
+    let once = sends(&fake);
+    assert_eq!(
+        once.get(&key),
+        Some(&2),
+        "refused once, sent once: {once:?}"
+    );
+    assert!(once.iter().all(|(k, n)| *n == 1 || *k == key), "{once:?}");
+    for n in rig.segments() {
+        assert_eq!(
+            shipped_segment(&fake, n),
+            Some(rig.segment(n)),
+            "segment {n}"
+        );
+    }
+    assert_eq!(s.status().shipped_to_position, 33);
+}
+
+/// A multipart upload S3 no longer lists (aborted, or expired by a
+/// lifecycle rule) while the cursor still held it: the restart's head of
+/// the key is 404, so it starts the upload again and completes it once.
+#[tokio::test]
+async fn an_upload_s3_no_longer_lists_starts_again_once() {
+    let fake = Fake::start();
+    let rig = Rig::new(&fake);
+    rig.write(0, 30);
+    let mut s = rig.shipper();
+    s.crash_after_part = Some(1);
+    assert!(matches!(s.pass().await, Err(Halt::Retry(_))));
+    drop(s);
+    let key = fake.ops("CreateMultipartUpload")[0].key();
+    fake.state.lock().unwrap().uploads.clear();
+    let mut s = rig.shipper();
+    s.pass().await.unwrap();
+    assert!(fake.ops("HeadObject").iter().any(|r| r.key() == key));
+    let created = fake
+        .ops("CreateMultipartUpload")
+        .iter()
+        .filter(|r| r.key() == key)
+        .count();
+    assert_eq!(created, 2, "the forgotten upload started again");
+    let once = sends(&fake);
+    assert_eq!(once.get(&key), Some(&1), "{once:?}");
+    assert!(once.values().all(|n| *n == 1), "{once:?}");
+    for n in rig.segments() {
+        assert_eq!(
+            shipped_segment(&fake, n),
+            Some(rig.segment(n)),
+            "segment {n}"
+        );
+    }
+}
+
 /// The tender's session: the foundation's bucket under its own prefix, and
 /// rows of its own deployment; nothing else.
 #[test]
@@ -1046,17 +1146,29 @@ fn the_tender_session_is_narrowed_to_its_prefix_and_its_rows() {
     assert!(durable::policy("tender", ACCOUNT, &fake_cfg).is_none());
     let p = durable::policy(durable::TENDER, ACCOUNT, &fake_cfg).unwrap();
     let st = p["Statement"].as_array().unwrap();
-    assert_eq!(st.len(), 2);
+    assert_eq!(st.len(), 3);
     assert_eq!(
         st[0]["Resource"],
         format!("arn:aws:s3:::theseus-{ACCOUNT}-us-west-2/durability/theseus-lab/*")
     );
+    // The list, on the bucket, passes without `s3:prefix`, so a missing key
+    // heads 404 (theseus-iame), and with one only under its own prefix.
+    assert_eq!(st[1]["Action"], "s3:ListBucket");
     assert_eq!(
         st[1]["Resource"],
+        format!("arn:aws:s3:::theseus-{ACCOUNT}-us-west-2")
+    );
+    assert_eq!(
+        st[1]["Condition"],
+        json!({"StringLikeIfExists": {"s3:prefix": ["durability/theseus-lab/*"]}})
+    );
+    assert!(lists_without_prefix(&p));
+    assert_eq!(
+        st[2]["Resource"],
         format!("arn:aws:dynamodb:us-west-2:{ACCOUNT}:table/theseus-durability")
     );
     assert_eq!(
-        st[1]["Condition"]["ForAllValues:StringLike"]["dynamodb:LeadingKeys"],
+        st[2]["Condition"]["ForAllValues:StringLike"]["dynamodb:LeadingKeys"],
         json!(["theseus-lab#*"])
     );
     let actions: Vec<&str> = st

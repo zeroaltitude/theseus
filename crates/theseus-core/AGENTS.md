@@ -116,8 +116,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   step 15: with `durability = true`, the WAL's sealed segments, the open one's tails, and blobs to S3, and index rows
   to DynamoDB, in the session `theseus-durability`, from a cursor in `<state>/durability/` saved after every object,
   so a restart asks S3 instead of sending again). Its tests are `aws/tests.rs` (C1), `aws/tests_c2.rs` (a fake
-  CloudFormation with state), and `aws/tests_durable.rs` (a fake S3 and DynamoDB with state, binary bodies, and
-  checksums); `config/aws.rs` holds `[aws]`'s types and checks.
+  CloudFormation with state), `aws/tests_durable.rs` (a fake S3 and DynamoDB with state, binary bodies, and
+  checksums, and a missing key answered 404 or 403 by the session's policy, GET and HEAD alike), `aws/tests_synced.rs`
+  (only frames the writer synced ship: `Hooks::synced_to`, `Store::synced_to`, theseus-mgw.12), and
+  `aws/tests_restore.rs`; `config/aws.rs` holds `[aws]`'s types and checks.
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late

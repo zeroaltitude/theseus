@@ -258,6 +258,9 @@ pub fn seed(paths: &Paths, last: u64, fetched: &Fetch) -> std::io::Result<Option
         return Ok(None);
     }
     let rotated = wal::segment_path(&paths.wal, c.segment + 1).exists();
+    // Its sealed object in S3 holds every byte of it the restore read: only
+    // then is it shipped already (with tails after the object, it is not
+    // whole there, and ships whole again).
     let whole = fetched
         .segments
         .iter()
@@ -309,6 +312,10 @@ pub fn lines(r: &S3Report) -> String {
         .map(|s| match s.source {
             Source::Object => format!("segment {} from its object", s.segment),
             Source::Tails { count } => format!("segment {} from {count} tail(s)", s.segment),
+            Source::ObjectAndTails { count } => format!(
+                "segment {} from its object and {count} tail(s) after it",
+                s.segment
+            ),
         })
         .collect();
     text.push_str(&format!("  {}\n", words.join(", ")));

@@ -9,7 +9,8 @@
  */
 export type AwsDurabilityStatus = { 
 /**
- * `waiting` (for serving, or the account's check), `shipping`,
+ * `waiting` (for serving, the account's check, or the WAL's sync of a
+ * frame written: only synced frames ship), `shipping`,
  * `caught_up`, `failing` (it retries; `error` says why), or `stopped`
  * (it cannot go on; `error` says why).
  */

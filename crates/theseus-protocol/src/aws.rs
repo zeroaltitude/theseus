@@ -28,7 +28,8 @@ pub struct AwsBudgetStatus {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AwsDurabilityStatus {
-    /// `waiting` (for serving, or the account's check), `shipping`,
+    /// `waiting` (for serving, the account's check, or the WAL's sync of a
+    /// frame written: only synced frames ship), `shipping`,
     /// `caught_up`, `failing` (it retries; `error` says why), or `stopped`
     /// (it cannot go on; `error` says why).
     pub state: String,

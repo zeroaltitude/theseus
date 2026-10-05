@@ -1,7 +1,10 @@
 //! What a restore fetches from S3 (step 16), and in what order: the rows
 //! say what is current, never a listing. For each segment the `<dep>#wal`
 //! rows name, its sealed object when there is one, else its tails stitched
-//! from byte 0, each starting where the last ended. Every object is checked
+//! from byte 0, each starting where the last ended. A sealed object is
+//! followed by the tails that start at its end (theseus-b9x6): a restore
+//! whose own row fit in its last segment, sealed in S3, seeds the tender to
+//! ship what follows as tails of it, and a second restore takes them. Every object is checked
 //! against its row's SHA-256. What does not join is said, never filled: a
 //! tail past where the stitch stopped (a gap, or a tail of a log since
 //! rewound, which stays in S3), a segment with no row, or one whose first
@@ -134,6 +137,8 @@ pub enum Source {
     Object,
     /// Its tails, joined.
     Tails { count: usize },
+    /// Its sealed object, and the tails shipped after it from its end.
+    ObjectAndTails { count: usize },
 }
 
 /// One restored segment.
@@ -171,18 +176,19 @@ impl Fetch {
     }
 }
 
-/// A segment's tails from byte 0, each starting where the last ended: the
-/// tails joined, and what was left past the join. None when no tail starts
-/// at 0. A tail whose object is gone ends the join there.
+/// A segment's tails from byte `from`, each starting where the last ended:
+/// the tails joined, and what was left past the join. None when no tail
+/// starts at `from`. A tail whose object is gone ends the join there.
 async fn stitch(
     reader: &Reader,
     n: u32,
     tails: &BTreeMap<u64, Tail>,
+    from: u64,
 ) -> Result<Option<(Vec<u8>, usize, u64, Option<String>)>, String> {
     let mut bytes = Vec::new();
     let mut count = 0usize;
     let mut last = 0u64;
-    let mut at = 0u64;
+    let mut at = from;
     let mut why_stopped = None;
     while let Some(t) = tails.get(&at) {
         match reader
@@ -220,6 +226,52 @@ async fn stitch(
     Ok(Some((bytes, count, last, unjoined)))
 }
 
+/// A sealed object's bytes, and the tails that start at its end joined after
+/// them when their first frame follows its last position: the restore's own
+/// row and what came after it, when the row fit in the object's segment. A
+/// tail past the end that does not join is said, as a stitch says it; the
+/// tails within the object, shipped while it was open, are not read.
+async fn after_object(
+    reader: &Reader,
+    n: u32,
+    s: &Sealed,
+    tails: &BTreeMap<u64, Tail>,
+    mut bytes: Vec<u8>,
+) -> Result<(Vec<u8>, Source, u64, Option<String>), String> {
+    let past: BTreeMap<u64, Tail> = tails
+        .range(s.bytes..)
+        .map(|(k, t)| (*k, t.clone()))
+        .collect();
+    let Some((more, count, last, unjoined)) = stitch(reader, n, &past, s.bytes).await? else {
+        let unjoined = past.values().next().map(|t| {
+            format!(
+                "{} tail(s) past the sealed object's end (byte {}; the first from byte {}) do                  not start there: a gap, or a log since rewound; left in S3, not restored",
+                past.len(),
+                s.bytes,
+                t.from
+            )
+        });
+        return Ok((bytes, Source::Object, s.last_position, unjoined));
+    };
+    let first = wal::first_position(&more, 0);
+    if first != Some(s.last_position + 1) {
+        return Ok((
+            bytes,
+            Source::Object,
+            s.last_position,
+            Some(format!(
+                "{} tail(s) from the sealed object's end (byte {}) begin at position {}, not                  {}: a log since rewound; left in S3, not restored",
+                past.len(),
+                s.bytes,
+                first.map_or("(none)".into(), |p| p.to_string()),
+                s.last_position + 1
+            )),
+        ));
+    }
+    bytes.extend(more);
+    Ok((bytes, Source::ObjectAndTails { count }, last, unjoined))
+}
+
 /// Fetch what `rows` name into `into`, laid out as a store's (`wal/`,
 /// `blobs/`): each segment from its object, else its tails, until the first
 /// gap. An object whose bytes are not its row's is refused, and so is the
@@ -253,9 +305,9 @@ pub async fn fetch(reader: &Reader, rows: &Rows, into: &Path) -> Result<Fetch, S
                         ),
                         e => format!("segment {n}: {e}"),
                     })?;
-                (b, Source::Object, s.last_position, None)
+                after_object(reader, n, s, &seg.tails, b).await?
             }
-            None => match stitch(reader, n, &seg.tails).await? {
+            None => match stitch(reader, n, &seg.tails, 0).await? {
                 Some((b, count, last, unjoined)) => (b, Source::Tails { count }, last, unjoined),
                 None => {
                     out.gap = Some(format!(
@@ -279,15 +331,18 @@ pub async fn fetch(reader: &Reader, rows: &Rows, into: &Path) -> Result<Fetch, S
         std::fs::write(wal::segment_path(&wal_dir, n), &bytes)
             .map_err(|e| io(&format!("writing segment {n}"), e))?;
         out.bytes += bytes.len() as u64;
+        // A sealed object is its segment whole: what a later segment
+        // follows is its last position, checked as it is fetched.
+        let cut_short = unjoined.is_some() && matches!(source, Source::Tails { .. });
         out.segments.push(Fetched {
             segment: n,
             source,
             bytes: bytes.len() as u64,
             last_position: last,
-            unjoined: unjoined.clone(),
+            unjoined,
         });
         expect = Some((n, last));
-        if unjoined.is_some() && n < rows.segments.keys().next_back().copied().unwrap_or(n) {
+        if cut_short && n < rows.segments.keys().next_back().copied().unwrap_or(n) {
             // A segment that a later one follows, cut short: what follows it
             // cannot join it.
             out.gap = Some(format!(

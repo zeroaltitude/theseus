@@ -33,10 +33,15 @@ struct Lab {
     store: PathBuf,
     wal: Option<Wal>,
     aws: Arc<Aws>,
+    segment_bytes: u64,
 }
 
 impl Lab {
     fn new(fake: &Fake) -> Self {
+        Self::sized(fake, 4096)
+    }
+
+    fn sized(fake: &Fake, segment_bytes: u64) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let store = dir.path().join("live/store");
         let mut lab = Lab {
@@ -44,6 +49,7 @@ impl Lab {
             store,
             wal: None,
             aws: layer(fake),
+            segment_bytes,
         };
         lab.open();
         lab
@@ -54,7 +60,7 @@ impl Lab {
             Wal::open(
                 &self.store.join("wal"),
                 WalConfig {
-                    segment_bytes: 4096,
+                    segment_bytes: self.segment_bytes,
                     fsync: false,
                     ..WalConfig::default()
                 },
@@ -100,6 +106,37 @@ impl Lab {
         wal::list_segments(&self.store.join("wal")).unwrap()
     }
 
+    fn segment_bytes_of(&self, n: u32) -> Vec<u8> {
+        std::fs::read(wal::segment_path(&self.store.join("wal"), n)).unwrap()
+    }
+
+    /// Ledger rows in frames of up to 8 MiB, until the open segment has
+    /// `free` bytes left: a frame's size is its row's padding and a fixed
+    /// rest, measured first.
+    fn fill_segment_to(&self, free: u64) {
+        let pad = |n: usize| {
+            let row = LedgerRow::named(
+                "test.pad",
+                None,
+                None,
+                serde_json::json!({"pad": "x".repeat(n)}),
+            );
+            let before = self.wal().total_bytes();
+            self.wal()
+                .write(&[NewRecord::json(kinds::LEDGER, None, &row).unwrap()])
+                .unwrap();
+            self.wal().total_bytes() - before
+        };
+        let rest = pad(0);
+        let left = |w: &Wal| self.segment_bytes - w.total_bytes();
+        while left(self.wal()) > (8 << 20) + rest + free {
+            pad(8 << 20);
+        }
+        let n = left(self.wal()) - rest - free;
+        pad(usize::try_from(n).unwrap());
+        assert_eq!(left(self.wal()), free);
+    }
+
     async fn ship(&self) {
         shipper(&self.aws, &self.store).pass().await.unwrap();
     }
@@ -114,10 +151,14 @@ impl Lab {
     }
 }
 
-async fn restore_with(aws: &Aws, into: &Path) -> anyhow::Result<S3Report> {
+pub(super) async fn restore_with(aws: &Aws, into: &Path) -> anyhow::Result<S3Report> {
+    restore_with_chunk(aws, into, 100).await
+}
+
+async fn restore_with_chunk(aws: &Aws, into: &Path, chunk: u64) -> anyhow::Result<S3Report> {
     let knobs = Knobs {
         page: Some(3),
-        chunk: Some(100),
+        chunk: Some(chunk),
     };
     restore::from_s3(aws, URL, into, &into.join("no.sock"), false, &knobs).await
 }
@@ -128,7 +169,7 @@ fn shipper(aws: &Arc<Aws>, store: &Path) -> Shipper {
 }
 
 /// Every record of a WAL, in order.
-fn records(wal_dir: &Path) -> Vec<Record> {
+pub(super) fn records(wal_dir: &Path) -> Vec<Record> {
     let mut f = WalFollower::open(wal_dir, Cursor::start()).unwrap();
     let mut out = Vec::new();
     loop {
@@ -140,7 +181,7 @@ fn records(wal_dir: &Path) -> Vec<Record> {
     }
 }
 
-fn titles(store: &Store) -> Vec<(String, Option<String>)> {
+pub(super) fn titles(store: &Store) -> Vec<(String, Option<String>)> {
     let mut s: Vec<(String, Option<String>)> = store
         .list_sessions::<SessionRecord>()
         .unwrap()
@@ -548,4 +589,182 @@ async fn the_restore_session_only_reads_and_nothing_is_fetched_while_a_daemon_se
     for write in ["PutObject", "BatchWriteItem", "Delete"] {
         assert!(!minted[0].contains(write), "{write} in {}", minted[0]);
     }
+}
+
+/// A segment whose row and object hold another segment's bytes, its row's
+/// digest with them (theseus-b9x6): it checks, but its first position does
+/// not follow the last one restored, so the restore stops there, names the
+/// position, and restores segment 1.
+#[tokio::test]
+async fn a_segment_that_does_not_follow_is_a_gap_and_what_precedes_it_restores() {
+    let fake = Fake::start();
+    let lab = Lab::new(&fake);
+    lab.sessions(30);
+    lab.ship().await;
+    assert!(lab.segments().len() >= 4, "{:?}", lab.segments());
+    let row = |n: u32| ("theseus-lab#wal".to_string(), format!("{n:09}"));
+    let (one, three) = {
+        let mut s = fake.state.lock().unwrap();
+        let object = s.objects[&format!("{PREFIX}wal/000000003.seg")].clone();
+        s.objects
+            .insert(format!("{PREFIX}wal/000000002.seg"), object);
+        let mut moved = s.items[&row(3)].clone();
+        moved["sk"] = serde_json::json!({"S": "000000002"});
+        moved["key"] = serde_json::json!({"S": format!("{PREFIX}wal/000000002.seg")});
+        s.items.insert(row(2), moved);
+        (s.items[&row(1)].clone(), s.items[&row(3)].clone())
+    };
+    let last_of = |r: &Value| {
+        r["last_position"]["N"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+    };
+    let first_of_three =
+        wal::first_position(&lab.segment_bytes_of(3), 0).expect("segment 3's first position");
+    assert!(first_of_three > last_of(&one) + 1);
+    let into = lab.target("fresh");
+    let r = lab.restore(&into).await.unwrap();
+    let gap = r.fetch.gap.clone().expect("the gap is said");
+    assert!(
+        gap.contains(&format!(
+            "segment 2 begins at position {first_of_three}, not {}",
+            last_of(&one) + 1
+        )),
+        "{gap}"
+    );
+    assert_eq!(r.fetch.segments.len(), 1);
+    assert_eq!(r.fetch.segments[0].source, Source::Object);
+    assert_eq!(r.restore.last_position, last_of(&one));
+    assert!(last_of(&three) > last_of(&one));
+    let restored = records(&into.join("store/wal"));
+    let live = records(&lab.store.join("wal"));
+    let upto = live
+        .iter()
+        .take_while(|x| x.position <= last_of(&one))
+        .count();
+    assert_eq!(&restored[..upto], &live[..upto]);
+    assert!(restore::lines(&r).contains("a gap, not filled"));
+}
+
+/// A tuning for segments of 64 MiB: parts and reads of 8 MiB.
+fn large() -> super::durable::Tuning {
+    super::durable::Tuning {
+        part_bytes: 8 << 20,
+        single_max: 8 << 20,
+        batch_bytes: 8 << 20,
+        ..tuning()
+    }
+}
+
+/// A store whose last fetched segment came from its sealed object, so full
+/// that the `store.restored` row rolls into a new segment (theseus-b9x6;
+/// the store's own 64 MiB segments): the seed marks the object shipped, and
+/// the next pass sends only the new segment's tail, never the sealed one
+/// again.
+#[tokio::test]
+async fn a_restore_whose_row_rolls_a_sealed_segment_ships_only_the_new_tail() {
+    let fake = Fake::start();
+    let lab = Lab::sized(&fake, WalConfig::default().segment_bytes);
+    lab.sessions(3);
+    lab.fill_segment_to(100);
+    lab.session("a session that rolls segment 1", 300);
+    assert_eq!(lab.segments(), vec![1, 2]);
+    let account = lab.aws.accounts().next().unwrap().clone();
+    let ship = |store: &Path| {
+        Shipper::open(
+            account.clone(),
+            Paths::for_store(store),
+            large(),
+            Hooks::default(),
+        )
+        .unwrap()
+    };
+    ship(&lab.store).pass().await.unwrap();
+    assert!(fake.object(&format!("{PREFIX}wal/000000001.seg")).is_some());
+    // The table names segment 1 alone: it is the last one fetched.
+    fake.state
+        .lock()
+        .unwrap()
+        .items
+        .retain(|(pk, sk), _| pk != "theseus-lab#wal" || !sk.starts_with("000000002"));
+    let into = lab.target("fresh");
+    let r = restore_with_chunk(&lab.aws, &into, 8 << 20).await.unwrap();
+    assert_eq!(r.fetch.segments.len(), 1);
+    assert_eq!(r.fetch.segments[0].source, Source::Object);
+    assert!(
+        wal::segment_path(&into.join("store/wal"), 2).exists(),
+        "the store.restored row rolled into segment 2"
+    );
+    assert_eq!(r.seeded_at, Some(r.restore.last_position));
+    let before = sends(&fake);
+    ship(&into.join("store")).pass().await.unwrap();
+    let after = sends(&fake);
+    assert!(
+        after
+            .iter()
+            .all(|(k, n)| before.get(k).is_none_or(|b| b == n)),
+        "an object sent again: {before:?} then {after:?}"
+    );
+    let new: Vec<&String> = after.keys().filter(|k| !before.contains_key(*k)).collect();
+    assert_eq!(new.len(), 1, "{new:?}");
+    assert!(new[0].contains("000000002.seg.tail/"), "{new:?}");
+}
+
+/// The narrow window (theseus-b9x6): the `store.restored` row fit in the
+/// last fetched segment, sealed in S3, so the next start ships it and what
+/// follows as tails of that segment from the object's end. A second restore
+/// joins them after the object, and says so; without the join it would
+/// prefer the object and drop them silently.
+#[tokio::test]
+async fn tails_after_a_sealed_object_are_joined_by_the_next_restore() {
+    let fake = Fake::start();
+    let lab = Lab::new(&fake);
+    lab.sessions(20);
+    lab.ship().await;
+    let segs = lab.segments();
+    assert!(segs.len() >= 3, "{segs:?}");
+    let last_sealed = segs[segs.len() - 2];
+    // The table names the segments up to the last sealed one.
+    fake.state.lock().unwrap().items.retain(|(pk, sk), _| {
+        pk != "theseus-lab#wal" || sk[..9].parse::<u32>().unwrap() <= last_sealed
+    });
+    let into = lab.target("fresh");
+    let r = lab.restore(&into).await.unwrap();
+    assert_eq!(r.fetch.segments.last().unwrap().source, Source::Object);
+    assert!(
+        !wal::segment_path(&into.join("store/wal"), last_sealed + 1).exists(),
+        "the store.restored row fit in segment {last_sealed}"
+    );
+    // The next start: the row ships as a tail of the sealed segment.
+    let store = into.join("store");
+    shipper(&lab.aws, &store).pass().await.unwrap();
+    let tails = fake.keys(&format!("{PREFIX}wal/{last_sealed:09}.seg.tail/"));
+    let object = fake
+        .object(&format!("{PREFIX}wal/{last_sealed:09}.seg"))
+        .unwrap();
+    assert!(
+        tails
+            .iter()
+            .any(|k| k.contains(&format!("/{:012}-", object.len()))),
+        "a tail from the object's end: {tails:?}"
+    );
+    let again = lab.target("again");
+    let r2 = lab.restore(&again).await.unwrap();
+    let seg = r2.fetch.segments.last().unwrap();
+    assert_eq!(seg.source, Source::ObjectAndTails { count: 1 });
+    assert!(seg.unjoined.is_none(), "{seg:?}");
+    assert_eq!(r2.restore.last_position, r.restore.last_position + 1);
+    assert!(restore::lines(&r2).contains("from its object and 1 tail(s) after it"));
+    let back = Store::open(&again.join("store")).unwrap();
+    let rows = back.ledger_tail::<LedgerRow>(2).unwrap();
+    assert_eq!(
+        (rows[0].1.kind.as_str(), rows[1].1.kind.as_str()),
+        ("store.restored", "store.restored")
+    );
+    assert_eq!(
+        records(&again.join("store/wal"))[..records(&store.join("wal")).len()],
+        records(&store.join("wal"))[..]
+    );
 }

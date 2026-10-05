@@ -19,6 +19,13 @@
 //!   write to segment n, so a follower that saw n+1 before it read n has read
 //!   all of n. A frame that is not whole in a segment that has a successor is
 //!   corruption, never a write in progress.
+//! - **Up to a bound, when asked** ([`WalFollower::read_upto`]): a reader
+//!   that ships the log off the machine stops before the first frame whose
+//!   records are not all at or before a position known synced (the durability
+//!   tender, theseus-mgw.12): a frame in the page cache that a power loss
+//!   takes would otherwise leave a copy the rewritten log never holds. The
+//!   held frame stays after the cursor, and a segment read in part is never
+//!   named sealed.
 //! - **Woken by inotify** on the WAL's directory ([`Waker`]), with a timer as
 //!   the backstop: no busy loop (QUIET BY CONSTRUCTION).
 
@@ -90,6 +97,27 @@ pub enum Stop {
     },
     /// At the read's byte budget, with more to read.
     Budget,
+    /// Before a whole frame past the read's bound ([`WalFollower::read_upto`]):
+    /// its first position, and its records' time. It waits for the bound.
+    Held {
+        segment: u32,
+        offset: u64,
+        position: u64,
+        at_unix_ms: u64,
+    },
+}
+
+impl Stop {
+    /// Held before the frame at `offset` of `segment`, whose first record
+    /// is `first`.
+    fn held(segment: u32, offset: u64, first: &Record) -> Self {
+        Stop::Held {
+            segment,
+            offset,
+            position: first.position,
+            at_unix_ms: first.at_unix_ms,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -241,9 +269,17 @@ impl WalFollower {
     /// a partial frame ([`WalFollower::stop`] says which). On an error the
     /// cursor stays where the read began.
     pub fn read(&mut self, max_bytes: usize) -> Result<Batch, FollowError> {
+        self.read_upto(max_bytes, u64::MAX)
+    }
+
+    /// [`WalFollower::read`], stopping before the first frame whose last
+    /// position is past `upto` ([`Stop::Held`]): only frames at or before
+    /// it are read, the cursor stays before the rest, and a segment the read
+    /// stopped inside is not named sealed.
+    pub fn read_upto(&mut self, max_bytes: usize, upto: u64) -> Result<Batch, FollowError> {
         let began = self.cursor.clone();
         let mut batch = Batch::default();
-        match self.read_into(max_bytes, &mut batch) {
+        match self.read_into(max_bytes, upto, &mut batch) {
             Ok(()) => Ok(batch),
             Err(e) => {
                 self.cursor = began;
@@ -252,7 +288,30 @@ impl WalFollower {
         }
     }
 
-    fn read_into(&mut self, max_bytes: usize, batch: &mut Batch) -> Result<(), FollowError> {
+    /// Segment `seg` and its length, which must reach `off`.
+    fn segment(&self, seg: u32, off: u64) -> Result<(File, u64), FollowError> {
+        let file = match File::open(wal::segment_path(&self.dir, seg)) {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(FollowError::Rewound(format!("segment {seg} is gone")))
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let len = file.metadata()?.len();
+        if len < off {
+            return Err(FollowError::Rewound(format!(
+                "segment {seg} is {len} bytes, and the cursor is at {off}"
+            )));
+        }
+        Ok((file, len))
+    }
+
+    fn read_into(
+        &mut self,
+        max_bytes: usize,
+        upto: u64,
+        batch: &mut Batch,
+    ) -> Result<(), FollowError> {
         let Some((mut seg, mut off)) = self.reading_from()? else {
             self.stop = Stop::CaughtUp;
             return Ok(());
@@ -261,27 +320,21 @@ impl WalFollower {
             // Checked before this segment is read: once segment n+1 exists,
             // nothing more is written to n, so what is read of n is all of it.
             let next_exists = wal::segment_path(&self.dir, seg + 1).exists();
-            let path = wal::segment_path(&self.dir, seg);
-            let file = match File::open(&path) {
-                Ok(f) => f,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    return Err(FollowError::Rewound(format!("segment {seg} is gone")))
-                }
-                Err(e) => return Err(e.into()),
-            };
-            let len = file.metadata()?.len();
-            if len < off {
-                return Err(FollowError::Rewound(format!(
-                    "segment {seg} is {len} bytes, and the cursor is at {off}"
-                )));
-            }
+            let (file, len) = self.segment(seg, off)?;
             let budget = max_bytes.saturating_sub(batch.bytes as usize);
             let (window, capped) = read_window(&file, off, len, budget, batch.is_empty())?;
             let mut i = 0usize;
             let span_from = off;
             let mut partial = None;
+            let mut held = None;
             while i < window.len() {
                 match wal::read_frame(&window, i, seg, off, self.cursor.position + 1) {
+                    FrameRead::Whole { records, .. }
+                        if records.last().is_some_and(|(r, _)| r.position > upto) =>
+                    {
+                        held = Some(Stop::held(seg, off + i as u64, &records[0].0));
+                        break;
+                    }
                     FrameRead::Whole {
                         end, crc, records, ..
                     } => {
@@ -318,6 +371,10 @@ impl WalFollower {
                 batch.ends.push(self.cursor.position);
             }
             off += i as u64;
+            if let Some(h) = held {
+                self.stop = h;
+                return Ok(());
+            }
             if let Some(reason) = partial {
                 if capped {
                     // The window cut the frame short, not the log.

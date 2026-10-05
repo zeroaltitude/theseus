@@ -312,6 +312,55 @@ fn a_rewound_or_replaced_log_is_noticed() {
     ));
 }
 
+/// A read up to a position (theseus-mgw.12): it stops before the first
+/// frame whose records pass it, the cursor stays before that frame, and a
+/// segment the read stopped inside is not named sealed, though a later one
+/// exists; a read with a higher bound takes the rest, and names it then.
+#[test]
+fn a_read_up_to_a_position_holds_the_frames_past_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(200)).unwrap();
+    for i in 0..8 {
+        w.append(&[row(i), row(i + 100)]).unwrap();
+    }
+    assert!(seg(dir.path(), 2).exists());
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    // Position 3 is the middle of the second frame: only the first is read.
+    let b = f.read_upto(1 << 20, 3).unwrap();
+    assert_eq!(
+        b.records.iter().map(|r| r.position).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert!(
+        b.sealed.is_empty(),
+        "segment 1 read in part: {:?}",
+        b.sealed
+    );
+    let held = f.stop().clone();
+    let Stop::Held {
+        segment,
+        offset,
+        position,
+        at_unix_ms,
+    } = held
+    else {
+        panic!("{held:?}");
+    };
+    assert_eq!((segment, offset, position), (1, f.cursor().offset, 3));
+    assert!(at_unix_ms > 0);
+    assert_eq!(f.cursor().position, 2);
+    // Nothing more while the bound stays.
+    let c = f.cursor().clone();
+    assert!(f.read_upto(1 << 20, 3).unwrap().is_empty());
+    assert_eq!(*f.cursor(), c);
+    // The rest, once the bound passes it: segment 1 named sealed now.
+    let b = f.read_upto(1 << 20, 16).unwrap();
+    assert_eq!(b.records.first().map(|r| r.position), Some(3));
+    assert_eq!(b.records.last().map(|r| r.position), Some(16));
+    assert!(b.sealed.contains(&1), "{:?}", b.sealed);
+    assert_eq!(*f.stop(), Stop::CaughtUp);
+}
+
 #[test]
 fn a_frame_cut_short_in_a_sealed_segment_is_corruption() {
     let dir = tempfile::tempdir().unwrap();
