@@ -1338,3 +1338,54 @@ async fn a_change_from_an_unwatched_session_reaches_its_homes_board() {
     })
     .await;
 }
+
+/// theseus-8phq: a disk crossing's operator notice reaches Discord. With a
+/// DM that takes approvals (its user an owner), each crossing (low from ok,
+/// below the floor, low again from below the floor, back to ok) posts one
+/// message in that DM, `disk_note`'s words for its body, under the key
+/// `note:<corr>`: the key its settle keeps and its create's nonce is made
+/// from.
+#[tokio::test]
+async fn each_disk_crossing_posts_one_note_in_the_dm_approvals_go_to() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![], |c| {
+        c.places.owner = Some(vec![format!("discord:{USER}")]);
+    });
+    bind(&core, d.path(), &dm_only()).await;
+    let f = fake.clone();
+    until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
+    let crossings = [
+        ("low", serde_json::json!("ok")),
+        ("below_floor", serde_json::json!("low")),
+        ("low", serde_json::json!("below_floor")),
+        ("ok", serde_json::json!("low")),
+    ];
+    for (i, (state, left)) in crossings.into_iter().enumerate() {
+        let body = serde_json::json!({"kind": "disk", "state": state, "left": left,
+            "free_mb": 900 + i, "total_mb": 100_000, "warn_mb": 5120, "floor_mb": 1024});
+        let post = core.outbox.to_operator(None, body.clone()).unwrap();
+        let corr = post.correlation_id.clone();
+        let c = core.clone();
+        let id = corr.clone();
+        until("the disk note settles", 10, move || {
+            c.kernel
+                .outbox_action(&id)
+                .unwrap()
+                .is_some_and(|a| a.state == theseus_kernel::ActionState::Succeeded)
+        })
+        .await;
+        let got = replies(&fake);
+        assert_eq!(got.len(), i + 1, "one message per crossing: {got:?}");
+        assert_eq!(got[i].content, crate::diskwords::disk_note(&body));
+        let settled = core.kernel.outbox_action(&corr).unwrap().unwrap();
+        let messages = settled.detail.unwrap()["messages"].clone();
+        let key = format!("note:{corr}");
+        assert_eq!(messages.as_array().map(Vec::len), Some(1), "{messages}");
+        assert_eq!(messages[0]["key"], key.as_str());
+        assert_eq!(messages[0]["channel"], DM.to_string());
+        assert_eq!(messages[0]["id"].as_str(), Some(got[i].id.as_str()));
+        assert_eq!(got[i].nonce.as_deref(), Some(crate::nonce(&key).as_str()));
+    }
+    assert_eq!(pending(&core), 0);
+}
