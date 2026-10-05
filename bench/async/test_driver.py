@@ -362,7 +362,7 @@ class EndToEnd(unittest.TestCase):
             for p in (root / "app", state, logs):
                 p.mkdir(parents=True)
             tools = task / "environment/async/bin"
-            run = ["env", f"ASYNC_ROOT={root}", "ASYNC_TIME_SCALE=0.05",
+            run = ["env", f"ASYNC_ROOT={root}", "ASYNC_TIME_SCALE=0.2",
                    f"PATH={tools}:{os.environ['PATH']}", "sh", "-c"]
             rules = [
                 {"when": "Train the model", "calls": [{"name": "proc_run", "input": {
@@ -400,7 +400,7 @@ class EndToEnd(unittest.TestCase):
             self.assertEqual(injected["delivered"], {"exit_code": 0})
             self.assertEqual(injected["trigger"]["by"], "event")
             check = subprocess.run(["bash", str(task / "tests/test.sh")], capture_output=True, text=True,
-                                   env=dict(os.environ, ASYNC_ROOT=str(root), ASYNC_TIME_SCALE="0.05"))
+                                   env=dict(os.environ, ASYNC_ROOT=str(root), ASYNC_TIME_SCALE="0.2"))
             self.assertIn("interrupt: reward 1", check.stdout)
             rec = ab.read(root / "var/lib/async/ledger.jsonl")
             tickets = ab.by(rec, "end", "ticket-count")[0]
