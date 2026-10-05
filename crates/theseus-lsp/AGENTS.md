@@ -27,6 +27,9 @@ core. Read by theseus-core's board (`crates/theseus-core/src/lsp/`, L2, theseus-
 - **The client never spawns a server in production code.** The caller does (L2, through
   `theseus_kernel::children::spawn`, in a process group of its own) and hands over the pipes and a kill. `spawn.rs` is
   for tests and the probe.
+- **The client watches no files for a server, and never offers to** (`didChangeWatchedFiles` without dynamic
+  registration, theseus-m9hj): offered, rust-analyzer stops watching for itself and misses what a job writes in
+  every file the client has not opened. The client still announces its own writes (`file_changed`).
 - **An edit is never applied here.** `rename` returns the `WorkspaceEdit`; `workspace/applyEdit` from a server is
   answered `applied: false`.
 - **A request never reads a document older than its file**: every request about a document syncs the open documents
@@ -48,9 +51,13 @@ core. Read by theseus-core's board (`crates/theseus-core/src/lsp/`, L2, theseus-
 ## Traps
 
 - TypeScript 7's server (`tsc --lsp --stdio`) answers `shutdown` and ignores `exit`: only the kill ends it.
-- ty and TypeScript 7 only pull diagnostics; pyright pushes; rust-analyzer pushes its own diagnostics on a change and
-  `cargo check`'s after a save, later.
+- ty and TypeScript 7 only pull diagnostics; pyright pushes. rust-analyzer, offered the pull, answers it with its own
+  analysis alone (by default that misses rustc's E0277 and E0425), and pushes `cargo check`'s errors, versioned, after
+  a save; the client reads only the pull, so those never reach the harness (theseus-c6hv, open).
 - typescript-language-server waits forever on a project without `node_modules/typescript` unless
   `initializationOptions.tsserver.path` is set (its preset takes the path).
 - rust-analyzer needs rustup's `cargo` first on `PATH`, or it never loads the workspace; its readiness is
   `experimental/serverStatus`'s `quiescent`, which the preset waits for.
+- Under `cargo nextest`, rustup's `rust-analyzer` proxy reads the inherited `RUSTUP_TOOLCHAIN`, the pinned toolchain,
+  which has no rust-analyzer: the live tests' server exits at once ("the server closed its stdout"). Set
+  `THESEUS_LSP_RUST_ANALYZER` to a toolchain's own binary (`~/.rustup/toolchains/<toolchain>/bin/rust-analyzer`).

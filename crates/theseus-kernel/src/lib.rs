@@ -46,6 +46,8 @@ mod tests_place_limit;
 #[cfg(test)]
 mod tests_repeat;
 #[cfg(test)]
+mod tests_spool;
+#[cfg(test)]
 mod tests_stops;
 #[cfg(test)]
 mod tests_tasks;

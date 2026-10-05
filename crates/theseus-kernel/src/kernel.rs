@@ -334,6 +334,10 @@ pub struct StartupReport {
     pub limits_followed: Vec<LimitFollowed>,
     pub spool_drained: u32,
     pub spool_quarantined: u32,
+    /// Completions whose rename a crash cut short, put in place by step 3
+    /// and drained with the rest (theseus-yxiv).
+    #[serde(default)]
+    pub spool_recovered: u32,
     pub reconcile: ReconcileReport,
     pub elapsed_us: u64,
 }
@@ -2745,7 +2749,9 @@ impl Kernel {
     /// 1. store opened and recovered (done by the caller; recorded here),
     /// 2. executions found `Running` were mid-turn when the process died:
     ///    requeue them as interrupted,
-    /// 3. drain the completion spool (each file settles, then is removed),
+    /// 3. drain the completion spool (each file settles, then is removed; a
+    ///    rename a crash cut short is finished first, and a completion whose
+    ///    action is settled already writes nothing),
     /// 4. reconcile against evidence,
     /// 5. accept events.
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
@@ -2899,18 +2905,24 @@ impl Kernel {
         let t = std::time::Instant::now();
         *self.phase.lock().unwrap() = 3;
         if let Some(sp) = spool {
-            let drained = sp.drain()?;
+            // A wrapper's completion is durable under its tmp name once synced;
+            // its rename may be lost to a crash, so the drain finishes it
+            // (theseus-yxiv). Each completion is taken: one whose action the
+            // WAL settled before the crash (its file's removal, or its rename,
+            // lost) writes nothing.
+            let drained = sp.drain_recovering()?;
             for (path, c) in drained.completions {
-                self.accept_completion(&c)?;
+                self.take_completion_with(&c, vec![])?;
                 sp.remove(&path)?; // after the frame: a crash here redelivers, which is a no-op
                 rep.spool_drained += 1;
             }
             rep.spool_quarantined = drained.malformed as u32;
+            rep.spool_recovered = drained.recovered as u32;
         }
         step_rows.push(self.ledger(
             LedgerKind::StartupStep,
             None,
-            json!({"step": 3, "name": "spool", "drained": rep.spool_drained, "malformed": rep.spool_quarantined}),
+            json!({"step": 3, "name": "spool", "drained": rep.spool_drained, "malformed": rep.spool_quarantined, "recovered": rep.spool_recovered}),
         )?);
         step(3, "spool", t)?;
 

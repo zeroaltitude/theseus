@@ -6674,6 +6674,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "crc32fast",
+ "libc",
  "rand 0.9.5",
  "redb",
  "serde",

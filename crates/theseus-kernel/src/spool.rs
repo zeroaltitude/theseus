@@ -4,7 +4,8 @@
 //!
 //! Layout under the spool dir:
 //! - `<correlation_id>.json`        a `Completion`, written tmp+rename
-//! - `<correlation_id>.json.tmp`    in flight; never read
+//! - `<correlation_id>.json.tmp`    in flight, locked by its writer until the rename; read at a
+//!   start when whole and its writer gone, which finishes the rename (theseus-yxiv)
 //! - `pids/<correlation_id>`        the wrapper's pid while it runs
 //! - `lingering/<correlation_id>`   the wrapper's pid while it waits, its command done,
 //!   for descendants that outlived the command (theseus-6qy)
@@ -12,9 +13,22 @@
 //! - `stops/<correlation_id>`       a cancel's verdict, from the wrapper that stopped the job
 //!   (M4 18a): a cancelled job writes it, and no completion
 //! - `malformed/`                   files that did not parse, moved aside and surfaced
+//!
+//! **One sync per completion** (theseus-yxiv). The wrapper syncs the tmp file,
+//! renames it, and syncs no directory: on a journalling filesystem (ext4,
+//! xfs) a new file's fsync commits the transaction that made its name, so
+//! after it the `.tmp` is durable under its own name, and a machine crash can
+//! lose only the rename. A start finishes that rename
+//! ([`Spool::drain_recovering`]): a `.tmp` whose writer has gone (its lock is
+//! free) and that parses as a whole completion is moved into place and
+//! drained. One that does not parse was never written whole, so its action
+//! stays as it was, unknown at the reconcile, as before. The recovery syncs
+//! nothing either: a rename it makes and a crash loses is made again at the
+//! next start, and the start takes a completion whose action is settled
+//! already as a no-op (`Kernel::startup`).
 
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -30,6 +44,38 @@ pub struct Spool {
 pub struct Drained {
     pub completions: Vec<(PathBuf, Completion)>,
     pub malformed: u64,
+    /// Renames a crash cut short, finished by a start's drain (theseus-yxiv).
+    pub recovered: u64,
+}
+
+/// A completion written and synced under its tmp name, locked until it is
+/// renamed into place ([`Synced::publish`]).
+pub(crate) struct Synced {
+    /// Its lock goes with it.
+    _file: File,
+    tmp: PathBuf,
+    path: PathBuf,
+}
+
+impl Synced {
+    /// The rename into place.
+    pub(crate) fn publish(self) -> Result<PathBuf> {
+        fs::rename(&self.tmp, &self.path)?;
+        Ok(self.path)
+    }
+}
+
+/// `fsync`, counted in this crate's tests: a completion's write has a budget
+/// of one (theseus-yxiv).
+fn sync(f: &File) -> std::io::Result<()> {
+    #[cfg(test)]
+    SYNCS.with(|n| n.set(n.get() + 1));
+    f.sync_all()
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SYNCS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 impl Spool {
@@ -59,52 +105,77 @@ impl Spool {
         self.dir.join("results").join(format!("{id}.out"))
     }
 
-    /// Durably write a completion: tmp file, fsync, rename, fsync dir.
+    /// Durably write a completion, with one sync: the tmp file written and
+    /// synced, then renamed into place, and no directory synced (the module's
+    /// note; theseus-yxiv).
     pub fn write(&self, c: &Completion) -> Result<PathBuf> {
-        let final_path = self.completion_path(&c.correlation_id);
+        self.write_synced(c)?.publish()
+    }
+
+    /// `write`'s first half: the tmp file written and synced, its lock held
+    /// until [`Synced::publish`], so a start's recovery leaves it alone.
+    pub(crate) fn write_synced(&self, c: &Completion) -> Result<Synced> {
+        let path = self.completion_path(&c.correlation_id);
         let tmp = self.dir.join(format!("{}.json.tmp", c.correlation_id));
-        {
-            let mut f = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&tmp)?;
-            f.write_all(&serde_json::to_vec(c)?)?;
-            f.sync_all()?;
-        }
-        fs::rename(&tmp, &final_path)?;
-        if let Ok(d) = File::open(&self.dir) {
-            let _ = d.sync_all();
-        }
-        Ok(final_path)
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&tmp)?;
+        // Never fatal: where the filesystem has no locks, the recovery can't
+        // take one either, and so takes no tmp.
+        let _ = file.lock();
+        file.write_all(&serde_json::to_vec(c)?)?;
+        sync(&file)?;
+        Ok(Synced {
+            _file: file,
+            tmp,
+            path,
+        })
     }
 
     /// Every completion currently spooled, oldest first by file mtime.
     /// Unparseable files move to `malformed/` and are counted.
     pub fn drain(&self) -> Result<Drained> {
-        self.drain_with(|p| fs::read(p))
+        self.drain_with(false, |p| fs::read(p))
+    }
+
+    /// `drain` at a start: each rename a crash cut short is finished first
+    /// (theseus-yxiv), so its completion drains with the rest.
+    pub fn drain_recovering(&self) -> Result<Drained> {
+        self.drain_with(true, |p| fs::read(p))
     }
 
     /// `drain`, its reads through `read`: the seam a test uses to take a
     /// file between the listing and the read, as a turn's `job_settled` can.
     fn drain_with(
         &self,
+        recover: bool,
         mut read: impl FnMut(&Path) -> std::io::Result<Vec<u8>>,
     ) -> Result<Drained> {
         let mut out = Drained::default();
         let mut entries: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
-        for e in fs::read_dir(&self.dir)? {
-            let e = e?;
+        let listed: Vec<fs::DirEntry> = fs::read_dir(&self.dir)?.collect::<Result<_, _>>()?;
+        let modified = |p: &Path| {
+            fs::metadata(p)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH)
+        };
+        for e in listed {
             let p = e.path();
-            if p.extension().is_some_and(|x| x == "json") && p.is_file() {
-                let mt = e
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::UNIX_EPOCH);
-                entries.push((mt, p));
+            if recover && e.file_name().to_string_lossy().ends_with(".json.tmp") {
+                if let Some(done) = self.finish_rename(&p) {
+                    out.recovered += 1;
+                    entries.push((modified(&done), done));
+                }
+            } else if p.extension().is_some_and(|x| x == "json") && p.is_file() {
+                entries.push((modified(&p), p));
             }
         }
         entries.sort();
+        // A finished rename's file is listed twice when a `.json` of the
+        // same job stood there already.
+        entries.dedup();
         for (_, p) in entries {
             let parsed = match read(&p) {
                 // The other consumer, a turn's `job_settled`, accepted and
@@ -124,6 +195,27 @@ impl Spool {
             }
         }
         Ok(out)
+    }
+
+    /// Finish a rename a crash cut short (theseus-yxiv): `tmp` moved into its
+    /// place, and that place, when its writer has gone and it holds the whole
+    /// completion of the job it names. `None` for a tmp still being written
+    /// (its writer holds the lock), one never written whole, and one gone
+    /// since the listing (its writer renamed it). The lock is the writer's
+    /// alone, and dies with it, so a live wrapper's file is never taken.
+    fn finish_rename(&self, tmp: &Path) -> Option<PathBuf> {
+        let mut f = File::open(tmp).ok()?;
+        f.try_lock().ok()?;
+        let mut bytes = Vec::new();
+        f.read_to_end(&mut bytes).ok()?;
+        let c: Completion = serde_json::from_slice(&bytes).ok()?;
+        let id = tmp.file_name()?.to_str()?.strip_suffix(".json.tmp")?;
+        if c.correlation_id != id {
+            return None;
+        }
+        let path = self.completion_path(id);
+        fs::rename(tmp, &path).ok()?;
+        Some(path)
     }
 
     /// Remove a settled completion file (after its frame committed).
@@ -391,7 +483,7 @@ mod tests {
         let taken = sp.write(&completion("act_taken")).unwrap();
         sp.write(&completion("act_kept")).unwrap();
         let dr = sp
-            .drain_with(|path| {
+            .drain_with(false, |path| {
                 if path == taken {
                     sp.remove(&taken).unwrap();
                 }
@@ -406,5 +498,69 @@ mod tests {
             .collect();
         assert_eq!(ids, ["act_kept"]);
         assert_eq!(fs::read_dir(d.path().join("malformed")).unwrap().count(), 0);
+    }
+
+    /// A completion's write syncs once: its file, and no directory
+    /// (theseus-yxiv). It was two before.
+    #[test]
+    fn a_completions_write_syncs_once() {
+        let d = tempfile::tempdir().unwrap();
+        let sp = Spool::open(d.path()).unwrap();
+        SYNCS.with(|n| n.set(0));
+        let p = sp.write(&completion("act_once")).unwrap();
+        assert_eq!(SYNCS.with(std::cell::Cell::get), 1);
+        assert_eq!(p, sp.completion_path("act_once"));
+        assert!(!d.path().join("act_once.json.tmp").exists());
+    }
+
+    fn ids(dr: &Drained) -> Vec<&str> {
+        dr.completions
+            .iter()
+            .map(|(_, c)| c.correlation_id.as_str())
+            .collect()
+    }
+
+    /// A start finishes a rename only for a whole tmp whose writer has gone:
+    /// a live writer's (its lock held), a torn one, and one naming another job
+    /// stay as they are, and the heartbeat's drain never reads a tmp.
+    #[test]
+    fn a_start_finishes_only_the_renames_whose_writers_have_gone() {
+        let d = tempfile::tempdir().unwrap();
+        let sp = Spool::open(d.path()).unwrap();
+        // Written and synced, the writer gone before its rename.
+        drop(sp.write_synced(&completion("act_cut")).unwrap());
+        // Written and synced, the writer still alive, before its rename.
+        let live = sp.write_synced(&completion("act_live")).unwrap();
+        fs::write(
+            d.path().join("act_torn.json.tmp"),
+            br#"{"correlation_id":"act_to"#,
+        )
+        .unwrap();
+        let other = serde_json::to_vec(&completion("act_other")).unwrap();
+        fs::write(d.path().join("act_named.json.tmp"), other).unwrap();
+
+        let dr = sp.drain().unwrap();
+        assert_eq!(
+            (ids(&dr).len(), dr.recovered),
+            (0, 0),
+            "the heartbeat's drain"
+        );
+
+        let dr = sp.drain_recovering().unwrap();
+        assert_eq!(ids(&dr), ["act_cut"]);
+        assert_eq!((dr.recovered, dr.malformed), (1, 0));
+        assert!(sp.has_completion("act_cut"));
+        assert!(!d.path().join("act_cut.json.tmp").exists());
+        for left in ["act_live", "act_torn", "act_named"] {
+            assert!(d.path().join(format!("{left}.json.tmp")).exists(), "{left}");
+            assert!(!sp.has_completion(left), "{left}");
+        }
+
+        // The live writer renames as it always did, and its completion drains.
+        assert_eq!(live.publish().unwrap(), sp.completion_path("act_live"));
+        sp.remove(&sp.completion_path("act_cut")).unwrap();
+        let dr = sp.drain_recovering().unwrap();
+        assert_eq!(ids(&dr), ["act_live"]);
+        assert_eq!(dr.recovered, 0);
     }
 }

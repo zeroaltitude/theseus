@@ -538,6 +538,7 @@ impl Core {
             requeued_interrupted = startup.requeued_interrupted.len(),
             spool_drained = startup.spool_drained,
             spool_malformed = startup.spool_quarantined,
+            spool_recovered = startup.spool_recovered,
             woke_due = startup.reconcile.woke_due.len(),
             marked_unknown = startup.reconcile.marked_unknown.len(),
             settled_from_evidence = startup.reconcile.settled_from_evidence.len(),
@@ -788,10 +789,12 @@ impl Core {
 
     /// The WAL's history, which the store's open left unchecked
     /// (theseus-8ni): checked once, after serving, on a thread of its own at
-    /// about 5 % of one core (it sleeps 19 times each stretch's work). The
-    /// background startup phase `store.verify` carries the outcome to health
-    /// and the Observatory. A corrupt frame is loud: an error in the log, a
-    /// `store.corrupt` ledger row, and its records' reads refused.
+    /// about 5 % of one core (it sleeps 19 times each stretch's work), and
+    /// waiting before each next stretch while the machine is busy
+    /// (theseus-tood; `yielded_ms`). The background startup phase
+    /// `store.verify` carries the outcome to health and the Observatory. A
+    /// corrupt frame is loud: an error in the log, a `store.corrupt` ledger
+    /// row, and its records' reads refused.
     ///
     /// It starts where the last check proved the log to (theseus-0dq): that
     /// check's last frame, checked again, then only what was written since.
@@ -816,7 +819,12 @@ impl Core {
         let spawned = std::thread::Builder::new()
             .name("store-verify".into())
             .spawn(move || {
-                let checked = check.run(|took| std::thread::sleep(took * 19));
+                use theseus_store::pressure::{quiet_blocking, BOUND};
+                let mut yielded = std::time::Duration::ZERO;
+                let checked = check.run(|took| {
+                    std::thread::sleep(took * 19);
+                    yielded += quiet_blocking(BOUND);
+                });
                 let detail = match checked {
                     Ok(h) => {
                         if let Some(v) = h.verified {
@@ -829,6 +837,7 @@ impl Core {
                             "records": h.records,
                             "bytes": h.bytes,
                             "busy_ms": (h.busy_ms * 10.0).round() / 10.0,
+                            "yielded_ms": yielded.as_millis() as u64,
                             "checked_at_open": h.checked_at_open,
                             "from_position": h.from_position,
                         })
@@ -867,7 +876,8 @@ impl Core {
     /// The index's terms, built again after serving when the store's open
     /// found them not whole: a store an older build wrote last
     /// (theseus-lv2). A stretch of `TERMS_STRETCH` keys at a time on the
-    /// blocking pool, so a stop waits for one stretch at most; until the
+    /// blocking pool, so a stop waits for one stretch at most, and each next
+    /// stretch waits while the machine is busy (theseus-tood); until the
     /// last, the kernel's readers by state read every record, as before. The
     /// background startup phase `store.terms` says how many stretches, and
     /// how long. Then the index's shape, the same way (`build_store_shape`).
@@ -894,7 +904,13 @@ impl Core {
     async fn build_terms_stretches(core: &std::sync::Weak<Self>) -> Value {
         let t0 = Instant::now();
         let (mut at, mut stretches) = (None, 0u64);
+        let mut yielded = std::time::Duration::ZERO;
         loop {
+            // Each next stretch waits while the machine is busy, holding
+            // nothing (theseus-tood).
+            if stretches > 0 {
+                yielded += theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+            }
             let Some(store) = core.upgrade().map(|c| c.store.inner().clone()) else {
                 break json!({"outcome": "stopped", "stretches": stretches});
             };
@@ -907,7 +923,8 @@ impl Core {
                 }
                 Ok(Ok(None)) => {
                     break json!({"outcome": "whole", "stretches": stretches,
-                                 "ms": (t0.elapsed().as_secs_f64() * 1000.0).round()});
+                                 "ms": (t0.elapsed().as_secs_f64() * 1000.0).round(),
+                                 "yielded_ms": yielded.as_millis() as u64});
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(error = %format!("{e:#}"), "store: building the index's terms failed; the kernel reads every record");
@@ -934,7 +951,12 @@ impl Core {
         tokio::spawn(async move {
             let t0 = Instant::now();
             let (mut at, mut stretches) = (None, 0u64);
+            let mut yielded = std::time::Duration::ZERO;
             let outcome = loop {
+                // As the terms' stretches (theseus-tood).
+                if stretches > 0 {
+                    yielded += theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                }
                 let Some(store) = core.upgrade().map(|c| c.store.inner().clone()) else {
                     break json!({"outcome": "stopped", "stretches": stretches});
                 };
@@ -948,7 +970,8 @@ impl Core {
                     }
                     Ok(Ok(None)) => {
                         break json!({"outcome": "whole", "stretches": stretches,
-                                     "ms": (t0.elapsed().as_secs_f64() * 1000.0).round()});
+                                     "ms": (t0.elapsed().as_secs_f64() * 1000.0).round(),
+                                     "yielded_ms": yielded.as_millis() as u64});
                     }
                     Ok(Err(e)) => {
                         tracing::warn!(error = %format!("{e:#}"), "store: building the index's shape failed; its counts walk");

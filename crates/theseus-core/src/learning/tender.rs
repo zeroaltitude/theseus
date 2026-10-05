@@ -5,10 +5,13 @@
 //!   the daemon missed (no run since the last such hour) runs once, as soon
 //!   as it may. Never within [`AFTER_START`] of a start: the start's
 //!   aftermath stays quiet.
-//! - **Where.** On a thread of its own (`learning`), at nice 19, and at
-//!   about 5% of a core: after each pack's stretch of work it sleeps 19
-//!   times as long, as the store's history check does. The tender's task
-//!   holds the core weakly, and the thread holds it only for its run.
+//! - **Where.** On a thread of its own (`learning`), at nice 19 and in
+//!   `SCHED_IDLE` (theseus-tood: it answers no one, so the one-way switch
+//!   costs nothing), and at about 5% of a core: after each pack's stretch of
+//!   work it sleeps 19 times as long, as the store's history check does.
+//!   Before each next pack it also waits while the machine is busy, up to
+//!   `theseus_store::pressure::BOUND`. The tender's task holds the core
+//!   weakly, and the thread holds it only for its run.
 //! - **Nothing with the judge off**: the tender is not started, and a run
 //!   is refused.
 
@@ -65,33 +68,67 @@ where
     }
 }
 
-/// Run `f` on a thread of its own, named `learning`, at nice [`NICE`]; the
-/// nice value it took (or the error that kept it) comes back with `f`'s
-/// result.
+/// What the run's thread took: its nice value, and whether it is in
+/// `SCHED_IDLE` (theseus-tood).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Low {
+    pub nice: i32,
+    pub idle: bool,
+}
+
+/// Run `f` on a thread of its own, named `learning`, at nice [`NICE`]; what
+/// it took (or kept, where a change failed) comes back with `f`'s result.
+/// The owner's runs (replay, audit, backfill), whose answers someone waits
+/// for.
 pub fn on_low_thread<T: Send + 'static>(
     f: impl FnOnce() -> T + Send + 'static,
-) -> std::io::Result<tokio::sync::oneshot::Receiver<(i32, T)>> {
+) -> std::io::Result<tokio::sync::oneshot::Receiver<(Low, T)>> {
+    spawn_low(f, false)
+}
+
+/// [`on_low_thread`], the thread also in `SCHED_IDLE`, which it never
+/// leaves (theseus-tood): for the nightly run, which answers no one and
+/// starts no thread others use.
+pub fn on_idle_thread<T: Send + 'static>(
+    f: impl FnOnce() -> T + Send + 'static,
+) -> std::io::Result<tokio::sync::oneshot::Receiver<(Low, T)>> {
+    spawn_low(f, true)
+}
+
+fn spawn_low<T: Send + 'static>(
+    f: impl FnOnce() -> T + Send + 'static,
+    idle: bool,
+) -> std::io::Result<tokio::sync::oneshot::Receiver<(Low, T)>> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     std::thread::Builder::new()
         .name("learning".into())
         .spawn(move || {
-            let nice = lower_this_thread();
-            let _ = tx.send((nice, f()));
+            let low = lower_this_thread(idle);
+            let _ = tx.send((low, f()));
         })?;
     Ok(rx)
 }
 
-/// Lower this thread's priority to [`NICE`] (Linux's nice is per thread);
-/// the value it has after.
-fn lower_this_thread() -> i32 {
+/// Lower this thread's priority to [`NICE`] (Linux's nice is per thread),
+/// and with `idle` put it in `SCHED_IDLE`. What it has after.
+fn lower_this_thread(idle: bool) -> Low {
     // SAFETY: gettid and setpriority/getpriority on this thread's own id
     // read and change nothing but its scheduling priority.
-    unsafe {
+    let nice = unsafe {
         let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
         if libc::setpriority(libc::PRIO_PROCESS, tid, NICE) != 0 {
             tracing::debug!(error = %std::io::Error::last_os_error(), "learning: the thread's priority was not lowered");
         }
         libc::getpriority(libc::PRIO_PROCESS, tid)
+    };
+    if idle {
+        if let Err(e) = theseus_store::pressure::idle_this_thread() {
+            tracing::debug!(error = %e, "learning: the thread did not take SCHED_IDLE");
+        }
+    }
+    Low {
+        nice,
+        idle: theseus_store::pressure::this_thread_is_idle(),
     }
 }
 
@@ -128,22 +165,31 @@ impl Core {
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 async move {
-                    let rx = on_low_thread(move || {
+                    let rx = on_idle_thread(move || {
+                        use theseus_store::pressure::{quiet_blocking_unless, BOUND};
                         let c = core.upgrade()?;
-                        let paced = |took: Duration| std::thread::sleep(took * 19);
+                        // Each next pack waits while the machine is busy, and
+                        // never past a stop (theseus-tood).
+                        let stopping = || c.outbox.stopping();
+                        let mut yielded = Duration::ZERO;
+                        let paced = |took: Duration| {
+                            std::thread::sleep(took * 19);
+                            yielded += quiet_blocking_unless(BOUND, stopping);
+                        };
                         let r = c.run_learning(theseus_protocol::now_unix_ms(), trigger, paced);
                         // The ladder's rules again, as the backstop (26a).
                         c.runner.judge.ladder().recheck();
-                        Some(r)
+                        Some((r, yielded))
                     });
                     match rx {
                         Ok(rx) => match rx.await {
-                            Ok((_, Some(Err(e)))) => {
+                            Ok((_, Some((Err(e), _)))) => {
                                 tracing::warn!(error = %format!("{e:#}"), "learning: the report did not run");
                             }
-                            Ok((nice, Some(Ok(r)))) => tracing::info!(
+                            Ok((low, Some((Ok(r), yielded)))) => tracing::info!(
                                 date = %r.date, trigger, packs = r.packs.len(),
-                                system_labels = r.labels.system_written, nice,
+                                system_labels = r.labels.system_written, nice = low.nice,
+                                sched_idle = low.idle, yielded_ms = yielded.as_millis() as u64,
                                 "learning: the report ran"
                             ),
                             _ => {}
@@ -211,12 +257,45 @@ mod tests {
         );
     }
 
-    /// The run's thread is named `learning` and runs at nice 19.
+    /// The thread's policy, as `/proc` says: field 41 of its `stat`,
+    /// counted after the command's closing paren.
+    fn proc_policy() -> i32 {
+        // SAFETY: gettid has no arguments.
+        let tid = unsafe { libc::syscall(libc::SYS_gettid) };
+        let stat = std::fs::read_to_string(format!("/proc/self/task/{tid}/stat")).unwrap();
+        let after = &stat[stat.rfind(')').unwrap() + 2..];
+        after.split(' ').nth(41 - 3).unwrap().parse().unwrap()
+    }
+
+    /// The nightly run's thread is named `learning` and runs at nice 19 and
+    /// in `SCHED_IDLE`, as `/proc` says of it too (theseus-tood); an owner's
+    /// run, which someone waits for, at nice 19 alone; and the caller's
+    /// thread is left as it was.
     #[tokio::test]
     async fn the_run_takes_a_low_priority_thread_of_its_own() {
-        let rx = on_low_thread(|| std::thread::current().name().map(str::to_string)).unwrap();
-        let (nice, name) = rx.await.unwrap();
-        assert_eq!(nice, NICE);
-        assert_eq!(name.as_deref(), Some("learning"));
+        let name = || std::thread::current().name().map(str::to_string);
+        let (low, (named, policy)) = on_idle_thread(move || (name(), proc_policy()))
+            .unwrap()
+            .await
+            .unwrap();
+        assert_eq!(
+            low,
+            Low {
+                nice: NICE,
+                idle: true
+            }
+        );
+        assert_eq!(policy, libc::SCHED_IDLE, "the thread's policy in /proc");
+        assert_eq!(named.as_deref(), Some("learning"));
+        let (low, policy) = on_low_thread(proc_policy).unwrap().await.unwrap();
+        assert_eq!(
+            low,
+            Low {
+                nice: NICE,
+                idle: false
+            }
+        );
+        assert_eq!(policy, libc::SCHED_OTHER);
+        assert!(!theseus_store::pressure::this_thread_is_idle());
     }
 }

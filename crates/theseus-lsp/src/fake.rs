@@ -90,6 +90,8 @@ pub struct Seen {
     pub initialized: bool,
     /// `initialize`'s `initializationOptions`.
     pub initialization_options: Value,
+    /// `initialize`'s `capabilities`: what the client says it can do.
+    pub capabilities: Value,
     pub shutdown: bool,
     pub exit: bool,
 }
@@ -305,6 +307,7 @@ impl Fake {
             .get("initializationOptions")
             .cloned()
             .unwrap_or(Value::Null);
+        self.lock().seen.capabilities = params.get("capabilities").cloned().unwrap_or(Value::Null);
         self.lock().root = params
             .get("rootUri")
             .and_then(Value::as_str)

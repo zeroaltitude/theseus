@@ -321,6 +321,20 @@ async fn a_written_file_is_sent_again_saved_and_watched() {
     assert_eq!(c.open_version(&a), None);
 }
 
+/// The client watches no files for a server, so it never offers to
+/// (theseus-m9hj): a server offered dynamic registration of watched files
+/// stops watching for itself, as rust-analyzer does, and then misses what a
+/// job writes. The client's own writes it still announces (above).
+#[tokio::test]
+async fn the_client_never_offers_to_watch_files_for_the_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _e) = in_process(Config::default(), options(dir.path())).await;
+    let s = seen(&c).await;
+    let watched = &s["capabilities"]["workspace"]["didChangeWatchedFiles"];
+    assert!(watched.is_object(), "{s}");
+    assert_ne!(watched["dynamicRegistration"], json!(true), "{watched}");
+}
+
 #[tokio::test]
 async fn a_change_on_disk_is_sent_before_the_next_request() {
     let dir = tempfile::tempdir().unwrap();

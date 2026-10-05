@@ -360,6 +360,71 @@ async fn live_rust_analyzer() {
     report(&probe(servers::rust_analyzer(), &RUST).await);
 }
 
+/// What a job writes reaches rust-analyzer's answers (theseus-m9hj): a
+/// separate process, as a job's command is, rewrites a file the client never
+/// opened and never announces (`ledger.rs`), and the diagnostics of the file
+/// that calls it (`lib.rs`, open) follow, by rust-analyzer's own watcher. With
+/// the client offering to watch files for it (before m9hj), rust-analyzer
+/// watched nothing itself, and `lib.rs` stayed clean.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs rust-analyzer on PATH or THESEUS_LSP_RUST_ANALYZER, and rustup's cargo first on PATH"]
+async fn live_rust_analyzer_sees_a_file_a_job_wrote() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"job-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\npublish = false\n\n[workspace]\n",
+    )
+    .unwrap();
+    let lib = root.join("src/lib.rs");
+    std::fs::write(
+        &lib,
+        "pub mod ledger;\n\npub fn run() -> i32 {\n    ledger::total(&[1, 2])\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/ledger.rs"),
+        "pub fn total(xs: &[i32]) -> i32 {\n    xs.iter().sum()\n}\n",
+    )
+    .unwrap();
+    let preset = servers::rust_analyzer();
+    let (server, _proc) = spawn::spawn(&command(&preset), &root, &[], Stdio::null()).unwrap();
+    let (c, _e) = Client::start(server, preset.options(&root))
+        .await
+        .expect("initialize");
+    let d = c.diagnostics(&lib, Duration::from_secs(60)).await.unwrap();
+    assert_eq!(d.errors().count(), 0, "clean before the job: {:?}", d.items);
+
+    // The job: another process, which the client knows nothing of.
+    let job = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("printf 'pub fn total(xs: &[i32]) -> u64 {\\n    xs.len() as u64\\n}\\n' > src/ledger.rs")
+        .current_dir(&root)
+        .status()
+        .unwrap();
+    assert!(job.success());
+    let wrote = Instant::now();
+    let found = loop {
+        let d = c.diagnostics(&lib, Duration::from_secs(10)).await.unwrap();
+        if let Some(e) = d.errors().find(|e| e.range.start.line + 1 == 4) {
+            break e.message.lines().next().unwrap_or_default().to_string();
+        }
+        assert!(
+            wrote.elapsed() < Duration::from_secs(30),
+            "lib.rs still clean 30 s after the job rewrote ledger.rs: rust-analyzer did not see it"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    };
+    println!(
+        "  lib.rs line 4, {:?} after the job wrote ledger.rs: {found}",
+        wrote.elapsed()
+    );
+    assert!(found.contains("u64"), "{found}");
+    let s = c.stop().await;
+    assert!(s.shutdown_answered, "{s:?}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs rust-analyzer and THESEUS_LSP_WORKSPACE; takes minutes and gigabytes"]
 async fn live_rust_analyzer_on_a_workspace() {

@@ -282,7 +282,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     keyed by judgment, question and rule so a second run writes none), the report per pack version and question
     from the `judge:<pack>` scopes alone, every number from `theseus_judge::learn` (`report.rs`), with its holdout
     frozen into it, and the tender (`tender.rs`: never within 10 minutes of a start, at `[judge] learning_hour`, a
-    `learning` thread at nice 19 and about 5% of a core). `judge.label` (`judge_act(Act::JudgeLabel)`) and
+    `learning` thread at nice 19, in `SCHED_IDLE`, and about 5% of a core, each next pack waiting while the
+    machine is busy: theseus-tood). `judge.label` (`judge_act(Act::JudgeLabel)`) and
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
     in one frame, then `<state>/learning/<date>.json`. Tests: `tests_learning.rs`, `learning::*::tests`.
   - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
