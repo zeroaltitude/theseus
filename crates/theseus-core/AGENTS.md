@@ -338,6 +338,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning/audit.rs`: a profile's answers as audit labels (weight 0.5), capped by `audit_limit_usd`.
     `learning/backfill.rs`: under `backfill_consent` only; one judgment per event (keyed by it), `event_at_ms`, which
     `read_scope` takes as the judgment's time. Tests: `tests_replay.rs`, `tests_audit.rs`, `tests_backfill.rs`.
+  - **The prove** (L3, roadmap row 50, theseus-0j2.18): `learning/prove.rs` builds `theseus_judge::prove`'s records,
+    one per `task.ended`, from rows the ledger holds (`build` is pure; `Core::prove_input` reads pages by kind and
+    session), every outcome from the labels as `labels::resolve` settles them, never a rule derived again;
+    `classify_quality` is classification's half. `judge.prove` (`rpc/judge_prove.rs`, a read: its window reads the
+    `pack.mode` rows from their scope, since the ladder's first load writes) runs the generator over them; `theseus
+    judge prove` prints its Markdown byte for byte as `theseus-judge prove` does. Tests: `tests_prove.rs`.
   - **The ladder** (step 26a, `judge/ladder/`): each pack version's mode as `pack.mode` rows scoped per pack id
     (`pack:<id>`, a few rows), read once after serving (`Core::warm_ladder`) or by the first judgment, then kept
     (`Ladder`; with no row, `WIRED`'s line). Every point asks `JudgeService::mode_for(pack, session)` (or
