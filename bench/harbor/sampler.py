@@ -35,8 +35,10 @@ peak the largest such sum, beside the largest single `VmHWM`.
 **Totals.** Where the container's cgroup v2 `cpu.stat` reads, its
 `usage_usec` from start to stop is the container's whole CPU, so a command
 shorter than an interval still counts: the harness's share comes from the
-samples, and the work is the rest (less the outside processes seen, and this
-sampler; `efficiency.py` does the sum). `memory.peak`, where it reads, is the
+samples, and the work is the rest (less the outside class, which holds this
+sampler's own CPU from its first sample; `efficiency.py` does the sum). What
+the sampler spent before its first sample, and after its last summary, is in
+the work. `memory.peak`, where it reads, is the
 container's peak since it was made, page cache included, so it is recorded
 beside the samples, not used for them.
 

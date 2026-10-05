@@ -92,7 +92,7 @@ def _priced(costs: Iterable[float | None]) -> float | None:
 
 
 def _spend(by_model: dict[str, dict[str, Any]], cost: float | None, source: str | None,
-           model_calls: int, tool_calls: int) -> dict[str, Any]:
+           model_calls: int | None, tool_calls: int | None) -> dict[str, Any]:
     total = dict.fromkeys(CLASSES, 0)
     for m in by_model.values():
         total = _add(total, m)
@@ -162,7 +162,7 @@ def theseus_spend(turn: dict[str, Any] | None, history: dict[str, Any] | None) -
     if history:
         tools = sum(1 for n in nodes if n.get("kind") == "tool_call")
         return _spend(by_model, _priced(costs) if costs else None, "history", len(answers), tools)
-    return _spend({}, None, None, 0, 0)
+    return _spend({}, None, None, None, None)
 
 
 # -------------------------------------------------------------- Claude Code
@@ -291,7 +291,7 @@ def claude_code_spend(stream: str | None, events: list[dict[str, Any]],
             c = mt.get("cost_usd")
             m["cost_usd"] = None if c is None or m["cost_usd"] is None else round(m["cost_usd"] + c, 6)
         return _spend(by_model, final.get("total_cost_usd"), "trajectory", calls, tools)
-    return _spend({}, None, None, 0, 0)
+    return _spend({}, None, None, None, None)
 
 
 def trajectory_tokens(metrics: dict[str, Any]) -> dict[str, int]:
@@ -326,9 +326,12 @@ def machine(summary: dict[str, Any] | None) -> dict[str, Any]:
     of a record, from the sampler's summary (`sampler.json`).
 
     The work's CPU is the container's (its cgroup's, where that read) less
-    the harness's, the wrappers', the outside processes', and the sampler's
-    own, so a command shorter than an interval still counts; `cpu_s_sampled`
-    is what the samples alone saw, and `cpu_from` says which `cpu_s` is."""
+    the harness's, the wrappers', and the outside class's, so a command
+    shorter than an interval still counts. The sampler's own CPU is not taken
+    off again: it classes its own pid as outside, so the outside class holds
+    it from its first sample (`sampler.cpu_s` is recorded beside, not
+    subtracted). `cpu_s_sampled` is what the samples alone saw, and
+    `cpu_from` says which `cpu_s` is."""
     if not summary:
         return {"harness": None, "work": None, "wrappers": None, "container": None,
                 "sampler": {"status": "missing", "reason": f"no {SAMPLER_SUMMARY}"}}
@@ -353,7 +356,7 @@ def machine(summary: dict[str, Any] | None) -> dict[str, Any]:
     work = dict(work or {}, cpu_s_sampled=(work or {}).get("cpu_s"), cpu_from="samples")
     if cg.get("cpu_s") is not None:
         rest = (cg["cpu_s"] - (harness or {}).get("cpu_s", 0) - (wrappers or {}).get("cpu_s", 0)
-                - outside.get("cpu_s", 0) - (sampler["cpu_s"] or 0))
+                - outside.get("cpu_s", 0))
         work["cpu_s"] = round(max(rest, 0.0), 3)
         work["cpu_from"] = "cgroup"
     container = None
