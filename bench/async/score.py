@@ -8,7 +8,8 @@ verifier's copy of the ledger (`verifier/ledger.jsonl`) and its problems,
 the agent's ATIF `trajectory.json`, the driver's report
 (`agent/async-driver.json`), Theseus's model calls
 (`agent/theseus-calls.json`), and, when there is one, bench-efficiency's
-record (`agent/efficiency.json`), which it reads and never requires. Writes
+record (`agent/efficiency.json`, else result.json's `metadata["efficiency"]`),
+which it reads and never requires. Writes
 `scores.json` (a row per trial) and `report.md` (a row per arm and family):
 
 - **success**: the verifier's reward;
@@ -21,7 +22,9 @@ record (`agent/efficiency.json`), which it reads and never requires. Writes
   (ticket-count's end for interrupt, the migration's first stop for cancel);
 - **orphans and duplicated effects**: steps that started and never ended,
   the migration's processes still alive at the check, and effects done twice;
-- **CPU and RAM**: from efficiency.json, when present.
+- **harness CPU, its peak RSS, and work CPU**: from bench-efficiency's
+  record (efficiency.json, else result.json's `metadata["efficiency"]`),
+  when its sampler ran.
 
 A trial whose injection could not reach its agent mid-run is "not
 measurable", never a failure.
@@ -204,23 +207,38 @@ def wait_tax(family: str, rec: list[dict[str, Any]], model_calls: list[dict[str,
             "window_s": round(w[1] - w[0], 3)}
 
 
-def efficiency(trial: Path) -> dict[str, Any]:
-    """CPU seconds and peak RAM, from bench-efficiency's record if there is one."""
+# bench-efficiency's record (bench/harbor/efficiency.py's SCHEMA).
+EFFICIENCY_SCHEMA = "bench-efficiency/1"
+# A sampler status whose classes are numbers (bench/report's rule): `running`
+# never wrote its last summary, but its samples stand.
+SAMPLED = ("ok", "running")
+
+
+def efficiency(trial: Path, result: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The harness's CPU seconds and peak RSS (MB), and its work's CPU
+    seconds, from bench-efficiency's record: `agent/efficiency.json`, else
+    result.json's `metadata["efficiency"]`. Each is None unless the record's
+    sampler ran (`ok` or `running`): an unsampled trial has no numbers, not
+    zeros."""
+    none = {"harness_cpu_s": None, "harness_peak_rss_mb": None, "work_cpu_s": None}
     e = _json(trial / "agent/efficiency.json")
-    if not isinstance(e, dict):
-        return {"cpu_s": None, "ram_mb": None}
+    if not isinstance(e, dict) or e.get("schema") != EFFICIENCY_SCHEMA:
+        meta = ((result or {}).get("agent_result") or {}).get("metadata") or {}
+        e = meta.get("efficiency")
+    if not isinstance(e, dict) or e.get("schema") != EFFICIENCY_SCHEMA:
+        return none
+    harness = e.get("harness")
+    if (e.get("sampler") or {}).get("status") not in SAMPLED or not isinstance(harness, dict):
+        return none
+    work = e.get("work") or {}
 
-    def first(*keys: str) -> Any:
-        for k in keys:
-            v = e.get(k)
-            if isinstance(v, (int, float)):
-                return v
-        return None
+    def num(v: Any) -> float | None:
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
-    ram = first("peak_rss_mb", "max_rss_mb", "rss_peak_mb", "ram_mb")
-    if ram is None and isinstance(first("peak_rss_bytes", "max_rss_bytes"), (int, float)):
-        ram = first("peak_rss_bytes", "max_rss_bytes") / 2**20
-    return {"cpu_s": first("cpu_s", "cpu_seconds", "cpu_total_s"), "ram_mb": ram}
+    rss = num(harness.get("peak_rss_kb"))
+    return {"harness_cpu_s": num(harness.get("cpu_s")),
+            "harness_peak_rss_mb": round(rss / 1024, 3) if rss is not None else None,
+            "work_cpu_s": num(work.get("cpu_s"))}
 
 
 # ---------------------------------------------------------------- a trial
@@ -263,7 +281,7 @@ def score(trial: Path) -> dict[str, Any]:
         "cost_usd": agent.get("cost_usd"),
         "tokens": (agent.get("n_input_tokens") or 0) + (agent.get("n_output_tokens") or 0),
         "exception": (result.get("exception_info") or {}).get("exception_type"),
-        **efficiency(trial),
+        **efficiency(trial, result),
     }
 
 
@@ -306,8 +324,9 @@ def rows(scores: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if family in INJECTED else None,
             "orphans": sum(s["unfinished_steps"] + s["orphans_alive"] for s in m),
             "duplicated_effects": sum(s["duplicated_effects"] for s in m),
-            "cpu_s": _median([s["cpu_s"] for s in m]),
-            "ram_mb": _median([s["ram_mb"] for s in m]),
+            "harness_cpu_s": _median([s["harness_cpu_s"] for s in m]),
+            "harness_peak_rss_mb": _median([s["harness_peak_rss_mb"] for s in m]),
+            "work_cpu_s": _median([s["work_cpu_s"] for s in m]),
             "cost_usd": _median([s["cost_usd"] for s in m]),
         })
     return out
@@ -318,7 +337,8 @@ COLUMNS = [
     ("over_ideal", "Wall / ideal"), ("wall_s", "Wall s"), ("ideal_s", "Ideal s"),
     ("wait_tax_calls", "Wait-tax calls"), ("wait_tax_tokens", "Wait-tax tokens"),
     ("responsiveness_s", "Responsiveness s"), ("orphans", "Orphans"),
-    ("duplicated_effects", "Dup. effects"), ("cpu_s", "CPU s"), ("ram_mb", "RAM MB"),
+    ("duplicated_effects", "Dup. effects"), ("harness_cpu_s", "Harness CPU s"),
+    ("harness_peak_rss_mb", "Harness peak RSS MB"), ("work_cpu_s", "Work CPU s"),
     ("cost_usd", "Cost $"),
 ]
 
@@ -329,7 +349,8 @@ def markdown(table: list[dict[str, Any]], jobs: list[str]) -> str:
         "",
         f"Jobs: {', '.join(jobs)}. Medians over each arm's trials of a family; orphans and duplicated "
         "effects are totals. \"Not measurable\": the arm's CLI could not be reached mid-run, so the "
-        "injection never arrived. CPU and RAM come from bench-efficiency's record, when a trial has one.",
+        "injection never arrived. Harness CPU, its peak RSS, and the work's CPU come from bench-efficiency's "
+        "record, from trials whose sampler ran; \"–\" where none did.",
         "",
         "| " + " | ".join(h for _, h in COLUMNS) + " |",
         "|" + "|".join("---" for _ in COLUMNS) + "|",

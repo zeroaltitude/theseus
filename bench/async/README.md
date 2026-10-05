@@ -116,7 +116,10 @@ OpenClaw (not built yet) fits the same shape: a subclass of its Harbor agent who
   stop).
 - **Orphans and duplicated effects**: steps that started and never ended, the migration's processes alive at the
   check, and effects done twice.
-- **CPU and RAM**: from `agent/efficiency.json`, bench-efficiency's record, when a trial has one.
+- **Harness CPU, its peak RSS, and work CPU**: from bench-efficiency's record (`agent/efficiency.json`, else
+  `metadata["efficiency"]` in the trial's `result.json`): its `harness.cpu_s`, `harness.peak_rss_kb` in MB, and
+  `work.cpu_s`, from trials whose sampler ran (`ok`, or `running` when it never wrote its last summary), as
+  bench/report reads them; a trial whose sampler did not run has no numbers, never zeros.
 - **Cost**: Harbor's, which for Theseus is the sum of its ledger's model calls.
 
 Results go in [`docs/benchmarks.md`](../../docs/benchmarks.md).
