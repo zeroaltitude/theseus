@@ -114,6 +114,14 @@ pub fn new_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::now_v7().simple())
 }
 
+/// When [`new_id`] minted `id`, in Unix milliseconds: a UUIDv7's first 48
+/// bits. None for an id of any other shape.
+pub fn id_ms(id: &str) -> Option<u64> {
+    let (_, tail) = id.rsplit_once('_')?;
+    let u = uuid::Uuid::try_parse(tail).ok()?;
+    (u.get_version_num() == 7).then(|| (u.as_u128() >> 80) as u64)
+}
+
 #[cfg(test)]
 mod tests_arrangement;
 #[cfg(test)]

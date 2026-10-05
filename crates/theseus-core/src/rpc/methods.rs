@@ -808,11 +808,17 @@ impl Core {
         };
         // A place's profile, unless the turn names one (step 38a).
         let live = self.place_profile(&session.session_id, self.live_profile().0);
+        // The pane carries the profile the last turn ran on: when that is
+        // only where routing moved the session, it names nothing, so the
+        // session's own runs once routing no longer acts (theseus-9yyr).
+        let moved = session.routed.as_ref().and_then(|r| r.profile.as_deref());
+        let only_routed =
+            p.carried && p.provider.is_none() && p.model.is_none() && p.profile.as_deref() == moved;
         let mut target = self
             .runner
             .resolve_target(
                 &live,
-                p.profile.as_deref(),
+                p.profile.as_deref().filter(|_| !only_routed),
                 p.provider.as_deref(),
                 p.model.as_deref(),
             )
@@ -958,7 +964,16 @@ impl Core {
     }
 
     fn switch_profile(&self, name: &str, by: &str) -> Result<ProfileChanged> {
-        self.store.put_meta(META_LIVE_PROFILE, &name.to_string())?;
+        // The switch and when it was, in one frame: a session routing moved
+        // before it runs on the new live profile at its next message
+        // (theseus-9yyr).
+        let at = theseus_protocol::now_unix_ms();
+        let meta = theseus_store::kinds::META;
+        self.store.append(&[
+            theseus_store::NewRecord::json(meta, Some(META_LIVE_PROFILE), &name.to_string())?,
+            theseus_store::NewRecord::json(meta, Some(crate::turn::SWITCHED), &at)?,
+        ])?;
+        self.runner.live_switched.moved(at);
         let previous = {
             let mut g = self.live.write().unwrap();
             let prev = g.0.clone();

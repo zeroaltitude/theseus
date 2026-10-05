@@ -39,7 +39,9 @@ pub const SHORT_OUTPUT: u64 = 500;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Routed {
     /// The profile routing moved the session to; its turns run there unless
-    /// the owner chooses another.
+    /// the owner chooses another, while `route.v1` acts live for them. A turn
+    /// that finds it not acting, or the live profile switched since the
+    /// session's last turn began, clears this (theseus-9yyr).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
     /// A switch the cache held back: the next agreeing turn makes it.

@@ -16,8 +16,13 @@
 //!   compilation stay as they were.
 //! - **Recorded** as one `route.decided` row, in the turn's next frame, and
 //!   on the turn's result (`TurnSubmitResult.route`).
+//! - **Only while it acts** (theseus-9yyr): a session routing moved runs
+//!   there while `route.v1` acts live for it, and goes back to its own
+//!   profile, its `routed` cleared, once it does not, or once the owner
+//!   switches the live profile ([`TurnRunner::route_base`]).
 
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use theseus_protocol::route::TurnRoute;
@@ -34,6 +39,9 @@ pub(super) struct RouteState {
     wait: Option<RouteWait>,
     /// `route.v1`'s mode for the turn (live, or shadow for a pin).
     mode: Option<PackMode>,
+    /// The mode `route_base` read at the turn's start, which the inbound
+    /// point takes rather than reading it again.
+    pub(super) read: Option<PackMode>,
     /// The turn's input carries an image.
     images: bool,
     /// Routing is deciding: the first compile does not persist its
@@ -95,21 +103,58 @@ impl TurnRunner {
         }
     }
 
-    /// A person's message's turn runs on the session's routed profile, unless
-    /// the owner chose one.
+    /// Where a turn starts, routing's state read (theseus-9yyr). A person's
+    /// message runs on the session's routed profile only while `route.v1`
+    /// acts live for it: `[routing]` on and live, the judge on, the ladder's
+    /// rung not rolled back, and Jev reachable. Once it does not, or once the
+    /// owner has switched the live profile since the session's last turn
+    /// began (`profile.use`, a turn of any kind), the session's `routed` is
+    /// cleared, in the turn's own session write (no frame of its own), and the
+    /// turn runs on its own profile, as if routing had never moved it. A
+    /// message the owner pinned (`-P`, `-p`, `-m`) runs where it names and
+    /// changes nothing. Returns the mode it read, which the inbound point
+    /// takes rather than reading it again.
     pub(super) fn route_base(
         &self,
-        session: &SessionRecord,
+        session: &mut SessionRecord,
         target: Target,
         input: bool,
-    ) -> Target {
+    ) -> (Target, Option<PackMode>) {
+        if session.routed.is_none() {
+            return (target, None);
+        }
+        if self.switched_since(session) {
+            session.routed = None;
+            return (target, None);
+        }
+        if !input || target.chosen.is_some() {
+            return (target, None);
+        }
+        let mode = self.route_mode(&target, &session.session_id);
+        if mode < PackMode::Canary || !self.judge.reachable() {
+            session.routed = None;
+            return (target, Some(mode));
+        }
         let routed = session.routed.as_ref().and_then(|r| r.profile.as_deref());
-        match routed {
-            Some(p) if input && target.chosen.is_none() && p != target.profile => self
+        let target = match routed {
+            Some(p) if p != target.profile => self
                 .resolve_target(&target.profile, Some(p), None, None)
                 .unwrap_or(target),
             _ => target,
-        }
+        };
+        (target, Some(mode))
+    }
+
+    /// The owner switched the live profile after the session's last turn
+    /// began: routing's move was made before the owner's latest word.
+    fn switched_since(&self, session: &SessionRecord) -> bool {
+        let at = self.live_switched.at(&self.store);
+        at > 0
+            && session
+                .last_turn_id
+                .as_deref()
+                .and_then(crate::id_ms)
+                .is_none_or(|began| began < at)
     }
 
     /// The inbound point's answer: the verdict's channel, kept for the first
@@ -466,6 +511,33 @@ impl TurnRunner {
     }
 }
 
+/// The META key of the owner's last switch of the live profile, in Unix
+/// milliseconds (`profile.use`, theseus-9yyr). A new key: no store format.
+pub const SWITCHED: &str = "live_profile.switched_ms";
+
+/// The owner's last switch of the live profile, 0 for none: read from
+/// [`SWITCHED`] at the first turn of a routed session after a start (never
+/// on the start path), and moved by each switch once its record is written.
+#[derive(Default)]
+pub struct LiveSwitched(OnceLock<AtomicU64>);
+
+impl LiveSwitched {
+    pub fn at(&self, store: &crate::store::Store) -> u64 {
+        self.0
+            .get_or_init(|| {
+                let read = store.get_meta::<u64>(SWITCHED);
+                AtomicU64::new(read.ok().flatten().unwrap_or(0))
+            })
+            .load(Ordering::Relaxed)
+    }
+
+    pub fn moved(&self, ms: u64) {
+        self.0
+            .get_or_init(|| AtomicU64::new(ms))
+            .store(ms, Ordering::Relaxed);
+    }
+}
+
 /// Where a detour's nodes begin: at the person's message `turns` messages
 /// before the newest one (the turn's own), or the session's start.
 pub fn detour_start(nodes: &[(u64, Arc<Node>)], turns: u32) -> usize {
@@ -549,6 +621,19 @@ mod tests {
         let (_tx, mut rx) = tokio::sync::oneshot::channel::<Option<Verdict>>();
         let (_, got, _) = beside(async {}, &mut rx, Duration::from_millis(200), false).await;
         assert_eq!((t0.elapsed().as_millis(), got), (0, Got::Late));
+    }
+
+    /// An id's time is when `new_id` minted it, which `switched_since` reads
+    /// from the session's last turn's id.
+    #[test]
+    fn an_ids_time_is_when_new_id_minted_it() {
+        let before = theseus_protocol::now_unix_ms();
+        let id = crate::new_id("turn");
+        let after = theseus_protocol::now_unix_ms();
+        let ms = crate::id_ms(&id).unwrap();
+        assert!((before..=after).contains(&ms), "{before} {ms} {after}");
+        assert_eq!(crate::id_ms("turn_c3"), None);
+        assert_eq!(crate::id_ms("ses_old2"), None);
     }
 
     #[test]

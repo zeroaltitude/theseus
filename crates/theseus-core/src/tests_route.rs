@@ -26,7 +26,8 @@ struct Rig {
     claude: Arc<FakeProvider>,
     /// The `zai` provider's fake: glm (5.3 Flash) and glm53.
     zai: Arc<FakeProvider>,
-    _dir: tempfile::TempDir,
+    /// A second rig on the same dir is a restart.
+    dir: Arc<tempfile::TempDir>,
 }
 
 /// Every judge pack but the inbound point's off, so its one call is the
@@ -46,7 +47,18 @@ fn routing_only(c: &mut Config) {
 }
 
 fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = Arc::new(tempfile::tempdir().unwrap());
+    rig_on(dir, jev, n, tweak, board())
+}
+
+/// The rig on `dir`'s store, with `secrets` as the board.
+fn rig_on(
+    dir: Arc<tempfile::TempDir>,
+    jev: Option<&FakeJev>,
+    n: usize,
+    tweak: impl FnOnce(&mut Config),
+    secrets: Arc<crate::secrets::SecretBoard>,
+) -> Rig {
     let mut cfg = crate::tests_judge::judge_config(dir.path(), jev);
     routing_only(&mut cfg);
     tweak(&mut cfg);
@@ -56,12 +68,12 @@ fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig 
     let zai = Arc::new(FakeProvider::scripted(texts(n)));
     let mut p = Parts::for_tests(cfg, claude.clone(), store);
     p.providers.insert("zai".into(), zai.clone());
-    p.secrets = board();
+    p.secrets = secrets;
     Rig {
         core: Core::build(p).unwrap(),
         claude,
         zai,
-        _dir: dir,
+        dir,
     }
 }
 
@@ -617,4 +629,228 @@ async fn a_pin_after_a_routed_turn_lands_on_the_ladder() {
         1,
         "one pin: the lone session's pin landed none"
     );
+}
+
+// ------------------------------------------- routing's state only while it acts (theseus-9yyr)
+
+/// One request through the protocol server, as a client sends it: its
+/// result.
+async fn call(core: &Arc<Core>, method: &str, params: Value) -> Value {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let (client, server) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(server);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "test".into()));
+    let (cr, mut cw) = tokio::io::split(client);
+    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), method, params);
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = tokio::io::BufReader::new(cr).lines();
+    let r = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break r;
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    assert!(r.error.is_none(), "{method}: {:?}", r.error);
+    r.result.unwrap_or(Value::Null)
+}
+
+/// A board on which Jev's key did not resolve.
+fn keyless() -> Arc<crate::secrets::SecretBoard> {
+    let b = crate::secrets::SecretBoard::new(["jev_api_key".to_string()], Instant::now());
+    b.publish(
+        std::collections::BTreeMap::from([(
+            "jev_api_key".to_string(),
+            Err("the vault does not hold it".to_string()),
+        )]),
+        "test",
+    );
+    b
+}
+
+/// A session routing moved to Opus, and its rig (`n` answers a provider).
+/// The wait for a verdict is long, so a loaded machine never makes one late;
+/// it ends as the verdict lands.
+async fn moved_to_opus(jev: &FakeJev, n: usize) -> (Rig, String) {
+    mode(jev, "sophisticated", 0.95);
+    let r = rig(Some(jev), n, |c| c.routing.max_wait_ms = 5_000);
+    let one = turn(
+        &r.core,
+        None,
+        "Weigh two designs for a crash-safe write-ahead log.",
+        None,
+    )
+    .await;
+    assert_eq!(one.profile, "opus");
+    assert_eq!(
+        session(&r.core, &one.session_id)
+            .routed
+            .unwrap()
+            .profile
+            .as_deref(),
+        Some("opus")
+    );
+    until_route_rows(&r.core.store, 1).await;
+    (r, one.session_id)
+}
+
+/// The ladder's rollback of route.v1 (its safety net) returns a session
+/// routing moved to its own profile at its next message, its `routed`
+/// cleared; and once route.v1 is live again, the session stays on its own
+/// until a verdict moves it: nothing of the old move comes back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
+    let jev = FakeJev::start().unwrap();
+    let (r, sid) = moved_to_opus(&jev, 3).await;
+    r.core
+        .pack_rollback(
+            &theseus_protocol::packs::PackRollbackParams {
+                pack: "route.v1".into(),
+                why: None,
+            },
+            "cli",
+        )
+        .unwrap();
+    let two = turn(&r.core, Some(&sid), "And its recovery path?", None).await;
+    assert_eq!(
+        (two.profile.as_str(), two.model.as_str()),
+        ("sonnet", "claude-sonnet-5-5")
+    );
+    assert_eq!(two.route.unwrap().reason, "shadow");
+    let s = session(&r.core, &sid);
+    assert!(s.routed.is_none(), "{:?}", s.routed);
+    assert_eq!(s.last_target.unwrap().profile, "sonnet");
+    r.core
+        .pack_promote(
+            &theseus_protocol::packs::PackPromoteParams {
+                pack: "route.v1".into(),
+                to: "live".into(),
+                share: None,
+                report: None,
+            },
+            "cli",
+        )
+        .unwrap();
+    mode(&jev, "chat", 0.95);
+    let three = turn(&r.core, Some(&sid), "What is a frame?", None).await;
+    assert_eq!(
+        (
+            three.profile.as_str(),
+            three.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("sonnet", "verdict")
+    );
+    let models: Vec<String> = r
+        .claude
+        .requests()
+        .iter()
+        .map(|q| q.model.clone())
+        .collect();
+    assert_eq!(
+        models,
+        ["claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5"]
+    );
+}
+
+/// Routing off, routing in shadow, the judge off, and Jev's key gone, each
+/// after a restart onto it: a session routing moved runs on its own profile
+/// at its next message, and its `routed` is cleared.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn routing_off_shadow_the_judge_off_or_no_jev_return_a_routed_session() {
+    use crate::config::routing::RoutingMode;
+    type Tweak = fn(&mut Config);
+    let cases: [(&str, Tweak, bool); 4] = [
+        ("routing off", |c| c.routing.enabled = false, true),
+        (
+            "routing in shadow",
+            |c| c.routing.mode = RoutingMode::Shadow,
+            true,
+        ),
+        ("the judge off", |c| c.judge.enabled = false, true),
+        ("Jev's key gone", |_| {}, false),
+    ];
+    let jev = FakeJev::start().unwrap();
+    for (what, tweak, key) in cases {
+        let (r, sid) = moved_to_opus(&jev, 1).await;
+        let dir = r.dir.clone();
+        drop(r);
+        let secrets = if key { board() } else { keyless() };
+        let r = rig_on(dir, Some(&jev), 1, tweak, secrets);
+        let two = turn(&r.core, Some(&sid), "And its recovery path?", None).await;
+        assert_eq!(
+            (two.profile.as_str(), two.model.as_str()),
+            ("sonnet", "claude-sonnet-5-5"),
+            "{what}"
+        );
+        assert_eq!(r.claude.requests()[0].model, "claude-sonnet-5-5", "{what}");
+        let s = session(&r.core, &sid);
+        assert!(s.routed.is_none(), "{what}: {:?}", s.routed);
+    }
+}
+
+/// `profile.use` moves a routed session to the profile it names at its next
+/// message; it is no pin (25e's design), so routing moves the session again
+/// on a later verdict.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn profile_use_moves_a_routed_session_and_pins_nothing() {
+    let jev = FakeJev::start().unwrap();
+    let (r, sid) = moved_to_opus(&jev, 3).await;
+    call(&r.core, "profile.use", serde_json::json!({"name": "glm"})).await;
+    mode(&jev, "chat", 0.95);
+    let two = turn(&r.core, Some(&sid), "What is a frame?", None).await;
+    assert_eq!(
+        (two.profile.as_str(), two.model.as_str()),
+        ("glm", "glm-5.3-flash")
+    );
+    assert_eq!(r.zai.requests()[0].model, "glm-5.3-flash");
+    assert!(session(&r.core, &sid).routed.is_none());
+    mode(&jev, "sophisticated", 0.95);
+    let three = turn(&r.core, Some(&sid), "Weigh the two once more.", None).await;
+    assert_eq!(
+        (
+            three.profile.as_str(),
+            three.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("opus", "verdict")
+    );
+}
+
+/// The pane carries the profile its session's last turn ran on, so after a
+/// switch it carries the routed one: while routing acts, that runs there;
+/// once it does not, the carried profile names nothing and the session's own
+/// runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_panes_carried_routed_profile_runs_only_while_routing_acts() {
+    let jev = FakeJev::start().unwrap();
+    let (r, sid) = moved_to_opus(&jev, 3).await;
+    let pane = |input: &str| {
+        serde_json::json!({
+            "session_id": sid, "input": input, "profile": "opus", "carried": true
+        })
+    };
+    mode(&jev, "chat", 0.95);
+    let two: TurnSubmitResult =
+        serde_json::from_value(call(&r.core, "turn.submit", pane("What is a frame?")).await)
+            .unwrap();
+    assert_eq!(two.profile, "opus", "routing acts: the session stays moved");
+    r.core
+        .pack_rollback(
+            &theseus_protocol::packs::PackRollbackParams {
+                pack: "route.v1".into(),
+                why: None,
+            },
+            "cli",
+        )
+        .unwrap();
+    let three: TurnSubmitResult =
+        serde_json::from_value(call(&r.core, "turn.submit", pane("And a segment?")).await).unwrap();
+    assert_eq!(
+        (three.profile.as_str(), three.model.as_str()),
+        ("sonnet", "claude-sonnet-5-5")
+    );
+    assert!(session(&r.core, &sid).routed.is_none());
 }

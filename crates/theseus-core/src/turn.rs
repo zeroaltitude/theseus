@@ -60,6 +60,8 @@ mod recall_step;
 mod rerank_step;
 mod route_step;
 
+pub use route_step::{LiveSwitched, SWITCHED};
+
 /// The persona at the front of every system prompt. Frozen text: it sits at
 /// the start of the cached prefix, so it never interpolates anything.
 pub const PERSONA: &str = "You are Theseus, a coding and operations agent working for your operator through a harness that records everything you do. Be direct and concise; lead with what you found or did. When you are unsure, say so plainly.";
@@ -137,6 +139,9 @@ pub struct TurnRunner {
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
     /// judges in a task of its own; the turn never waits on it.
     pub judge: Arc<crate::judge::JudgeService>,
+    /// The owner's last `profile.use`, which moves a session routing moved
+    /// before it (theseus-9yyr).
+    pub live_switched: LiveSwitched,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -1433,7 +1438,8 @@ impl TurnRunner {
         {
             session = fresh;
         }
-        target = self.route_base(&session, target, input.is_some());
+        let read;
+        (target, read) = self.route_base(&mut session, target, input.is_some());
         let provider = self
             .providers
             .get(&target.provider)
@@ -1492,6 +1498,7 @@ impl TurnRunner {
         }
         let mut t = Turn::start(tc, &target, input.is_none(), arrived);
         t.reply_to = reply_to;
+        t.route.read = read;
         t.announce(input.as_deref(), attachments.len(), &author, &waits);
         let asked = Asked {
             input,
