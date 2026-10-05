@@ -103,7 +103,12 @@ into `claude --print`. This arm runs the same command with stdin from a FIFO (`f
 `/tmp/async-claude-stdin`) in the CLI's stream-json input mode (`--input-format stream-json`, "realtime streaming
 input", in `claude --help` of Claude Code 2.1.289): the instruction is the first line, the driver writes the
 injection as another, and the input is closed once a `result` event follows the last message (a turn of its own, or the turn it joined mid-run), so the CLI exits. A message
-to a CLI already gone is refused, and its cell reads "not measurable". The live check says whether the CLI reads a
+to a CLI already gone is refused, and its cell reads "not measurable". It is bench/harbor's
+`MeasuredClaudeCode` underneath: the sampler around the CLI (started through `environment.exec`, so only Harbor's
+run command is rewritten) and the efficiency record, which counts the stream's `result` events (`result_events`)
+and reads the last one's `modelUsage` and `total_cost_usd` as the session's so far (`result_reading: "session"`;
+`efficiency.claude_code_async_record(per_turn=True)` sums them instead, should a live two-message run show them per
+turn). The live check says whether the CLI reads a
 message mid-turn or queues it for the turn's end; either way the responsiveness column measures it.
 
 ### A third arm
@@ -152,13 +157,12 @@ stand-in `theseus` (a daemon that answers health only once it is up, a wake pend
 around it all, and nothing left running after a test); and the scorer over fixture trials worked by hand. Three more run on request:
 
 ```bash
-ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async     # Harbor reads each task; the agents load
+ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async     # Harbor reads each task; the agents load and run
 ASYNC_E2E_BIN=$PWD/target/debug python3 -m unittest test_driver.EndToEnd # (from bench/async) a real daemon
 ```
 
 The second runs this workspace's `theseusd` on `theseus-sim fake-model --rules`, making the interrupt oracle's
 `proc.run` calls: the long job goes to the background, the injection is answered while it runs, and the trial
-settles only after the job's continuation; the sampler runs around it, and the record is the ledger's
-(`ASYNC_E2E_KEEP=DIR` keeps its logs).
+settles only after the job's continuation (`ASYNC_E2E_KEEP=DIR` keeps its logs).
 
 After changing `tools/asyncbench.py`, run `python3 bench/async/sync.py`; the tests fail on a stale copy.

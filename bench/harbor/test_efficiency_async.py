@@ -1,5 +1,5 @@
 """The async bench's efficiency records (theseus-z5ty): Theseus's from its
-daemon's ledger, over fixture files.
+daemon's ledger, and Claude Code's results counted, over fixture files.
 
     python3 -m unittest discover -s bench/harbor
 """
@@ -95,6 +95,56 @@ class LedgerRecord(unittest.TestCase):
         rec = ef.theseus_ledger_record(self.logs, wall_s=130.0)
         self.assertEqual((rec["wall_s"], rec["wall_from"], rec["sampler"]["status"]), (130.0, "agent", "missing"))
         self.assertIsNone(rec["harness"])
+
+
+def result(cost: float, usage: dict[str, dict]) -> str:
+    return json.dumps({"type": "result", "subtype": "success", "total_cost_usd": cost, "num_turns": 1,
+                       "modelUsage": usage}, separators=(",", ":"))
+
+
+def usage(i: int, o: int, read: int, write: int, cost: float) -> dict:
+    return {"inputTokens": i, "outputTokens": o, "cacheReadInputTokens": read,
+            "cacheCreationInputTokens": write, "costUSD": cost}
+
+
+# Two messages, two turns, two results: the second's numbers are the first's
+# and its own turn's (the session's so far).
+STREAM = "\n".join([
+    json.dumps({"type": "system", "subtype": "init"}),
+    result(0.02, {"claude-sonnet-5-5": usage(10, 100, 2000, 800, 0.02)}),
+    result(0.035, {"claude-sonnet-5-5": usage(15, 160, 4500, 900, 0.035)}),
+]) + "\n"
+
+
+class ClaudeCodeResults(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.logs = Path(self.tmp.name)
+        (self.logs / "claude-code.txt").write_text(STREAM)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_every_result_is_read_in_order(self):
+        self.assertEqual([r["total_cost_usd"] for r in ef.result_events(STREAM)], [0.02, 0.035])
+
+    def test_the_last_result_is_the_sessions_bill_and_the_results_are_counted(self):
+        rec = ef.claude_code_async_record(self.logs)
+        self.assertEqual((rec["result_events"], rec["result_reading"]), (2, "session"))
+        self.assertEqual((rec["spend_from"], rec["cost_usd"]), ("result_event", 0.035))
+        self.assertEqual(rec["tokens"], {"input": 15, "cache_read": 4500, "cache_write": 900, "output": 160})
+
+    def test_read_per_turn_the_results_are_summed(self):
+        rec = ef.claude_code_async_record(self.logs, per_turn=True)
+        self.assertEqual((rec["result_events"], rec["result_reading"]), (2, "per_turn"))
+        self.assertEqual(rec["cost_usd"], 0.055)
+        self.assertEqual(rec["tokens"], {"input": 25, "cache_read": 6500, "cache_write": 1700, "output": 260})
+        self.assertEqual(rec["by_model"]["claude-sonnet-5-5"]["cost_usd"], 0.055)
+
+    def test_one_result_reads_the_same_either_way(self):
+        (self.logs / "claude-code.txt").write_text(STREAM.splitlines()[1] + "\n")
+        a, b = ef.claude_code_async_record(self.logs), ef.claude_code_async_record(self.logs, per_turn=True)
+        self.assertEqual((a["cost_usd"], b["cost_usd"], a["result_events"]), (0.02, 0.02, 1))
 
 
 if __name__ == "__main__":

@@ -481,3 +481,59 @@ def theseus_ledger_record(logs: Path, calls_file: str = "theseus-calls.json",
     rows = calls.get("rows") if isinstance(calls, dict) else None
     return record("theseus", ledger_spend(rows or [], history if isinstance(history, dict) else None),
                   read_json(logs / SAMPLER_SUMMARY), wall_s=wall_s)
+
+
+def result_events(stream: str | None) -> list[dict[str, Any]]:
+    """Every `{"type": "result", …}` line of Claude Code's stream, in order.
+    In stream-json input the CLI writes one per turn; a message taken
+    mid-turn joins the running turn and adds none."""
+    out = []
+    for line in (stream or "").splitlines():
+        one = result_event(line)
+        if one is not None:
+            out.append(one)
+    return out
+
+
+def _summed_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """One result whose `modelUsage` and `total_cost_usd` are the sums of
+    `results`': the bill when each result is its own turn's."""
+    usage: dict[str, dict[str, Any]] = {}
+    for r in results:
+        for name, u in (r.get("modelUsage") or {}).items():
+            m = usage.setdefault(name, {})
+            for k in (*CLAUDE_MODEL_USAGE.values(), "costUSD"):
+                if u.get(k) is not None:
+                    m[k] = round((m.get(k) or 0) + u[k], 6)
+    costs = [r.get("total_cost_usd") for r in results]
+    return {"type": "result", "modelUsage": usage,
+            "total_cost_usd": None if any(c is None for c in costs) else round(sum(costs), 6)}
+
+
+def claude_code_async_record(logs: Path, per_turn: bool = False) -> dict[str, Any]:
+    """The async bench's Claude Code trial (bench/async/): the measured
+    arm's record (`claude_code_record`), with `result_events`, the results
+    its stream holds (one per turn; the driver's second message adds one
+    when the CLI answers it as a turn of its own).
+
+    Each result's `modelUsage` and `total_cost_usd` are read as the
+    session's so far, so the last result is the trial's bill: Claude Code
+    keeps its cost and model usage for the process, not for a turn. If a
+    live two-message trial shows them per turn, `per_turn=True` sums every
+    result's instead (`_summed_results`)."""
+    rec = claude_code_record(logs)
+    try:
+        stream = (logs / "claude-code.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        stream = None
+    results = result_events(stream)
+    if per_turn and len(results) > 1:
+        root = logs / "sessions" / "projects"
+        files = sorted(root.rglob("*.jsonl")) if root.is_dir() else []
+        trajectory = read_json(logs / "trajectory.json")
+        spend = claude_code_spend(json.dumps(_summed_results(results)), read_jsonl(files),
+                                  trajectory if isinstance(trajectory, dict) else None)
+        rec.update(spend)
+    rec["result_events"] = len(results)
+    rec["result_reading"] = "per_turn" if per_turn else "session"
+    return rec

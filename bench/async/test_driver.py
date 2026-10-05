@@ -679,6 +679,93 @@ class Spend(unittest.TestCase):
                                               "output_tokens": 60, "cost_usd": 0.03, "calls": 2})
 
 
+# A task of the interrupt family's shape whose injection fires by time, 1 s in.
+TASK_TOML = """[metadata.async]
+family = "interrupt"
+
+[metadata.async.injection]
+message = "Also count the tickets."
+after_tool = "train-model"
+after_kind = "start"
+delay_s = 0
+at_s = 1.0
+"""
+
+
+@unittest.skipIf(not os.environ.get("ASYNC_HARBOR"), "set ASYNC_HARBOR=1 under Harbor's python")
+class ClaudeCodeAsyncRun(unittest.TestCase):
+    """`ClaudeCodeAsync.run` itself, on a fake environment: Harbor's own run
+    issues its command (`HARBOR_RUN`), the arm rewrites it onto the FIFO,
+    the sampler runs around it, and the stand-in `claude` answers each
+    message STANDIN_ANSWER_S after reading it."""
+
+    def test_both_messages_are_answered_before_the_input_closes(self):
+        from unittest import mock
+
+        os.environ.setdefault("ANTHROPIC_API_KEY", "sk-invented")
+        import async_agents
+        import claude_code_agent as cca
+        from harbor.agents.installed.claude_code import ClaudeCode
+        from harbor.models.agent.context import AgentContext
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for sub in ("bin", "logs", "task/environment", "root", "measure"):
+                (d / sub).mkdir(parents=True)
+            (d / "task/task.toml").write_text(TASK_TOML)
+            claude = d / "bin/claude"
+            claude.write_text(standin(STANDIN_CLAUDE))
+            claude.chmod(stat.S_IRWXU)
+            fifo = str(d / "stdin")
+
+            class Env(FakeEnv):
+                environment_dir = d / "task/environment"
+                default_user = None
+
+                async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
+                    # The tools' library where this checkout keeps it.
+                    return await super().exec(command.replace(driver.LIB, LIB), cwd, env, timeout_sec)
+
+            class Arm(async_agents.ClaudeCodeAsync):
+                def fifo_path(self):
+                    return fifo
+
+            async def harbor_run(self, instruction, environment, context):
+                await self.exec_as_agent(environment, command=HARBOR_RUN.format(
+                    log=f"{self.environment_logs_dir}/claude-code.txt"),
+                    env={"HARBOR_CLAUDE_CODE_INSTRUCTION_0F": instruction})
+
+            env = Env(d / "root", {"PATH": f"{d / 'bin'}:{os.environ['PATH']}", "HOME": str(d),
+                                   "STANDIN_ANSWER_S": "0.5"})
+            agent = Arm(logs_dir=d / "logs", model_name="anthropic/claude-sonnet-5-5",
+                        environment_logs_dir=d / "logs")
+            try:
+                with mock.patch.object(ClaudeCode, "run", harbor_run), \
+                        mock.patch.object(cca, "SAMPLER", str(SAMPLER)), \
+                        mock.patch.object(cca, "STATE", str(d / "measure")):
+                    asyncio.run(asyncio.wait_for(agent.run("Train the model.", env, AgentContext()), 60))
+                agent.populate_context_post_run(AgentContext())
+            finally:
+                stop_pids(fifo_pids(d, fifo))
+                subprocess.run(["sh", "-c", smp.stop_script(str(d / "logs"), str(d / "measure"))], timeout=30)
+            self.assertEqual(json.loads(Path(str(claude) + ".seen").read_text()),
+                             ["Train the model.", "Also count the tickets."])
+            answers = json.loads(Path(str(claude) + ".answers").read_text())
+            # Each message's result came before the driver closed the input.
+            self.assertEqual(len(answers["answered"]), 2, answers)
+            self.assertTrue(all(a < answers["eof"] for a in answers["answered"]), answers)
+            report = json.loads((d / "logs" / driver.REPORT).read_text())
+            self.assertEqual(report["ended"], "settled")
+            self.assertEqual(report["injection"]["delivered"]["sent"], True)
+            # Measured: the sampler ran around the CLI, which it saw as the harness.
+            summary = json.loads((d / "logs" / smp.SUMMARY).read_text())
+            self.assertEqual(summary["status"], "ok")
+            self.assertGreaterEqual(summary["classes"]["harness"]["processes"], 1)
+            rec = json.loads((d / "logs" / ef.RECORD).read_text())
+            self.assertEqual((rec["result_events"], rec["sampler"]["status"]), (2, "ok"))
+            self.assertEqual(left_running(d), [])
+
+
 @unittest.skipIf(not os.environ.get("ASYNC_HARBOR"), "set ASYNC_HARBOR=1 under Harbor's python")
 class Agents(unittest.TestCase):
     def test_both_arms_load_as_harbor_agents(self):
@@ -687,6 +774,10 @@ class Agents(unittest.TestCase):
         self.assertEqual(async_agents.TheseusAsync.name(), "theseus-async")
         self.assertEqual(async_agents.ClaudeCodeAsync.name(), "claude-code-async")
         self.assertEqual(async_agents.ClaudeCodeAsync.fifo_path(None), "/tmp/async-claude-stdin")
+        # Measured as bench/harbor measures Claude Code; Theseus by its ledger.
+        import claude_code_agent as cca
+
+        self.assertTrue(issubclass(async_agents.ClaudeCodeAsync, cca.MeasuredClaudeCode))
 
     def test_theseus_records_its_ledger_not_its_first_turn(self):
         import async_agents
