@@ -29,6 +29,7 @@
 //! recompile. A control session runs `none` live with `baseline` in shadow.
 //! The operator's labels (`labels`) keep a node out as `labeled_wrong`.
 
+pub mod adjacency;
 pub mod labels;
 pub mod render;
 

@@ -370,6 +370,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     their own (`learning/items.rs`: the check, the report's per-definition questions), and the owner's memory labels
     write rerank's system labels (`learning/rerank.rs`). Tests: `tests_rerank_live.rs` (one on tokio's paused clock,
     with Jev a channel: `JudgeService::rerank_with`), `tests_rerank_labels.rs`.
+  - **The adjacency projection** (step 32b, theseus-6fn.12): `recall/adjacency.rs`, what spreading activation walks,
+    folded from the record and never stored: neighbours by position in a session (a `Recall` node is no one's
+    neighbour), a tool call and its result by `tool_use_id`, the EDGEs by kind and route (`mapped`: `derived_from`'s
+    copying routes, `recall`'s at weight zero by construction, a route it does not know, such as 31b's `synthesis`,
+    spreads nothing and is counted `unmapped`; `supersedes` 1.0 toward the newer node, 0.2 back), and each node's
+    entities from its `memory.labeled` row, expanded at a spread from each entity's list, never stored per pair
+    (`1/ln(1+df)`; an entity in more nodes than `cap` is not expanded: at the defaults, 1,095, past which one such
+    edge cannot carry a seed over the threshold alone). A node the memory pass never labeled has no entities.
+    `Projection::refresh` folds what was written since; the result does not depend on where a fold stopped. Tests:
+    `tests_activation.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier
