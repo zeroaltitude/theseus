@@ -211,13 +211,25 @@ fn lines(account: &Account, now_ms: u64) -> Vec<(Line, u64, u64, u64)> {
     out
 }
 
-/// The account's runaway mode, when it holds at `now_ms`.
-pub fn current(store: &Store, account: &str, now_ms: u64) -> Option<Runaway> {
+/// The account's runaway mode, when it holds at `now_ms` and the config still
+/// gives the mark's line no more room than the mark saw: a line or a factor
+/// raised since (a restart onto the new config), or a day's line removed,
+/// ends it, and `reached` decides again. A lowered line keeps it. Read at
+/// admission and at a poller's pass, never at the start.
+pub fn current(store: &Store, account: &Account, now_ms: u64) -> Option<Runaway> {
     store
-        .get_meta::<Runaway>(&format!("{MARK}{account}"))
+        .get_meta::<Runaway>(&format!("{MARK}{}", account.id))
         .ok()
         .flatten()
         .filter(|r| r.holds(now_ms))
+        .filter(|r| {
+            lines(account, now_ms)
+                .into_iter()
+                .find(|(line, ..)| *line == r.line)
+                .is_some_and(|(_, line_micros, ..)| {
+                    times(line_micros, account.cfg.runaway_factor) <= times(r.line_micros, r.factor)
+                })
+        })
 }
 
 /// The first line the figure, with `reserve` added, reaches at `now_ms`.
@@ -281,7 +293,7 @@ impl Sink<'_> {
         if reserve == 0 {
             return Ok(None);
         }
-        if let Some(r) = current(self.store, &account.id, now_ms) {
+        if let Some(r) = current(self.store, account, now_ms) {
             let figure = spend_since(self.kernel, self.store, &account.id, r.since_ms)? + reserve;
             return Ok(Some(refusal(&r, figure, reserve)));
         }
@@ -297,7 +309,7 @@ impl Sink<'_> {
     /// A poller's pass: runaway mode as it holds at `now_ms`, entered now
     /// when the figure is at a line already.
     pub fn observe(&self, account: &Account, now_ms: u64) -> Result<Option<Runaway>> {
-        if let Some(r) = current(self.store, &account.id, now_ms) {
+        if let Some(r) = current(self.store, account, now_ms) {
             return Ok(Some(r));
         }
         let r = reached(self.kernel, self.store, account, 0, now_ms)?;
