@@ -15,6 +15,10 @@
 //!   order and sequentially consistent. Whichever looks second sees the
 //!   other: the pass steps back for the turn, or the turn waits out the frame.
 //!   So no frame is written while a counted turn runs.
+//! - **Writers are counted** (31b): the pass and consolidation each write
+//!   through [`Turns::between`], so `writing` counts the frames being
+//!   written; a turn waits until none is, and a writer that steps back for
+//!   a turn uncounts only itself.
 //! - The bounds, so a busy daemon cannot starve the pass: a frame that has
 //!   waited [`super::QUIET_BOUND`] for a quiet stretch takes any moment with no
 //!   turn running, however short; one that has waited [`super::BUSY_BOUND`],
@@ -23,7 +27,7 @@
 //!   The clock starts at a batch's first frame, so a backlog is written at
 //!   once when a bound comes.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
+use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::Notify;
@@ -35,7 +39,8 @@ use super::Timing;
 #[derive(Default)]
 pub struct Turns {
     running: AtomicUsize,
-    writing: AtomicBool,
+    /// The frames being written: the pass's, and consolidation's.
+    writing: AtomicUsize,
     /// When the last turn ended.
     ended: Mutex<Option<Instant>>,
     /// A turn ended: a waiting pass looks again.
@@ -58,11 +63,11 @@ impl Turns {
         self.running.fetch_add(1, SeqCst);
         // Counted from here, so a turn dropped while it waits is uncounted.
         let running = Running(self.clone());
-        while self.writing.load(SeqCst) {
+        while self.writing.load(SeqCst) > 0 {
             let written = self.written.notified();
             tokio::pin!(written);
             written.as_mut().enable();
-            if self.writing.load(SeqCst) {
+            if self.writing.load(SeqCst) > 0 {
                 written.await;
             }
         }
@@ -89,7 +94,7 @@ impl Turns {
             ended.as_mut().enable();
             let now = Instant::now();
             if now >= hard {
-                self.writing.store(true, SeqCst);
+                self.writing.fetch_add(1, SeqCst);
                 let running = self.running();
                 if running > 0 {
                     tracing::info!(
@@ -119,12 +124,12 @@ impl Turns {
                     }
                 }
             }
-            self.writing.store(true, SeqCst);
+            self.writing.fetch_add(1, SeqCst);
             if self.running() == 0 {
                 return Writing(self.clone());
             }
             // A turn began meanwhile: step back for it.
-            self.writing.store(false, SeqCst);
+            self.writing.fetch_sub(1, SeqCst);
             self.written.notify_waiters();
         }
     }
@@ -140,7 +145,7 @@ impl Drop for Running {
 
 impl Drop for Writing {
     fn drop(&mut self) {
-        self.0.writing.store(false, SeqCst);
+        self.0.writing.fetch_sub(1, SeqCst);
         self.0.written.notify_waiters();
     }
 }
@@ -224,6 +229,28 @@ mod tests {
         drop(running);
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert!(done(&pass).await);
+    }
+
+    /// Two writers (the pass and consolidation, 31b): a turn waits until
+    /// both frames are written, not only the first to end.
+    #[tokio::test(start_paused = true)]
+    async fn a_turn_waits_for_every_writer() {
+        let turns = Arc::new(Turns::default());
+        let t = timing();
+        let pass = turns.between(Instant::now(), &t).await;
+        let consolidation = turns.between(Instant::now(), &t).await;
+        let turn = {
+            let turns = turns.clone();
+            tokio::spawn(async move { turns.begin().await })
+        };
+        assert!(!done(&turn).await);
+        drop(pass);
+        assert!(
+            !done(&turn).await,
+            "consolidation's frame is still being written"
+        );
+        drop(consolidation);
+        assert!(done(&turn).await);
     }
 
     /// The bounds: past the quiet bound, any moment with no turn running

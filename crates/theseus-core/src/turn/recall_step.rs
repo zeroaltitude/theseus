@@ -90,7 +90,7 @@ impl TurnRunner {
         }
         match assigned {
             Some(a) if a.live => {
-                let begun = self.recall_begin(t, a.arm.sources())?;
+                let begun = self.recall_begin(t, a.arm)?;
                 self.recall_live(t, Some(session), begun, a).await;
                 None
             }
@@ -98,12 +98,15 @@ impl TurnRunner {
             // compiler, and the index is asked nothing. A canary's control
             // still runs `baseline` in shadow.
             Some(_) if self.memory.cfg().mode == MemoryMode::Live => None,
-            _ => self.recall_begin(t, MemoryArm::Baseline.sources()),
+            _ => self.recall_begin(t, MemoryArm::Baseline),
         }
     }
 
-    /// Ask the index's `sources`, when the turn brings something new.
-    fn recall_begin(&self, t: &Turn<'_>, sources: &[&str]) -> Option<Begun> {
+    /// Ask the index for `arm`'s sources, when the turn brings something
+    /// new; every arm but `+synthesis` leaves the memory's harness session
+    /// out (31b).
+    fn recall_begin(&self, t: &Turn<'_>, arm: MemoryArm) -> Option<Begun> {
+        self.memory.syntheses(&self.store);
         let nodes = match t.tc.store.transcript(t.tc.session_id) {
             Ok(n) => n,
             Err(e) => {
@@ -115,7 +118,7 @@ impl TurnRunner {
         let deadline = std::time::Duration::from_millis(self.memory.cfg().recall_deadline_ms);
         Some(
             self.memory
-                .begin(query, Some(as_of), crate::recall::K, sources, deadline),
+                .begin(query, Some(as_of), crate::recall::K, arm, deadline),
         )
     }
 
@@ -150,8 +153,14 @@ impl TurnRunner {
     }
 
     /// The scene of the turn's recall: its place, the nodes its request
-    /// carries (and the sources of the recalls among them), and the labels.
+    /// carries (and the sources of the recalls among them), the labels, and
+    /// the science: in shadow (and a canary's control) `baseline`'s, in
+    /// front of the model the session's arm's (`Memory::science_for`).
     pub(super) fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str) -> Scene<'a> {
+        let science = match self.memory.cfg().assign(t.tc.session_id) {
+            Some(a) if a.live && mode != "shadow" => self.memory.science_for(a.arm),
+            _ => self.memory.science_for(MemoryArm::Baseline),
+        };
         let mut in_context = BTreeSet::new();
         if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
             // An assembled section's context is what its prefix keeps: past
@@ -183,6 +192,7 @@ impl TurnRunner {
                 .recall
                 .assembled
                 .then(|| self.memory.cfg().assembled_budget_tokens),
+            science,
         }
     }
 
@@ -207,6 +217,7 @@ impl TurnRunner {
             place,
             in_context,
             labeled,
+            science,
             ..
         } = scene;
         m.arm = self
@@ -235,7 +246,7 @@ impl TurnRunner {
                 candidates,
                 links,
                 params: self.memory.cfg().params(),
-                science: self.memory.science_owned(),
+                science,
                 admitted: m
                     .admitted
                     .iter()
@@ -304,9 +315,9 @@ impl TurnRunner {
         // own sources, `live` with arm `none` asks nothing, shadow `baseline`'s.
         let assigned = self.memory.cfg().assign(t.tc.session_id);
         let begun = match assigned {
-            Some(a) if a.live => self.recall_begin(t, a.arm.sources())?,
+            Some(a) if a.live => self.recall_begin(t, a.arm)?,
             Some(_) if self.memory.cfg().mode == MemoryMode::Live => return None,
-            _ => self.recall_begin(t, MemoryArm::Baseline.sources())?,
+            _ => self.recall_begin(t, MemoryArm::Baseline)?,
         };
         match assigned {
             Some(a) if a.live => self.recall_live(t, None, begun, a).await,

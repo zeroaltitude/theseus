@@ -251,6 +251,15 @@ impl MemoryPass {
         &self.turns
     }
 
+    /// A moment between turns for one frame of another writer's
+    /// (consolidation, 31b), by the pass's clocks: the frame is written
+    /// while the guard lives.
+    pub async fn writing(&self) -> turns::Writing {
+        self.turns
+            .between(tokio::time::Instant::now(), &self.timing)
+            .await
+    }
+
     /// Ask `index` instead of the tender (tests: a stand-in).
     pub fn set_index(&self, index: Arc<dyn PassIndex>) {
         *self.index.write().unwrap_or_else(PoisonError::into_inner) = Some(index);
@@ -793,7 +802,12 @@ async fn entities(
 /// harness line, or a tool call.
 pub fn eligible(n: &Node) -> bool {
     match &n.body {
-        Body::ToolCall { .. } | Body::Recall { .. } | Body::Arrangement { .. } => false,
+        // A synthesis is left unlabeled (31b): its gate would mark it
+        // `same_entity` with its sources, and `baseline` would drop them for it.
+        Body::ToolCall { .. }
+        | Body::Recall { .. }
+        | Body::Arrangement { .. }
+        | Body::Synthesis { .. } => false,
         Body::Summary { .. } => !text_of(n).trim().is_empty(),
         Body::UserMessage { .. } | Body::AssistantMessage { .. } | Body::ToolResult { .. } => {
             n.origin != Origin::Harness && !text_of(n).trim().is_empty()
@@ -811,7 +825,10 @@ fn shape_of(n: &Node, nodes: &Transcript) -> Option<(Shape, bool)> {
         Body::Summary { first, last, .. } => {
             Some((Shape::Summary, external_in(nodes, *first, *last)))
         }
-        Body::ToolCall { .. } | Body::Recall { .. } | Body::Arrangement { .. } => None,
+        Body::ToolCall { .. }
+        | Body::Recall { .. }
+        | Body::Arrangement { .. }
+        | Body::Synthesis { .. } => None,
     }
 }
 

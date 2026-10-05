@@ -34,7 +34,8 @@ const RECALLS: usize = 10;
 const MAX_RECALLS: usize = 200;
 
 impl Core {
-    /// `memory.search`: the pipeline over `p.query` (`baseline`'s sources), as a turn in
+    /// `memory.search`: the pipeline over `p.query` (`p.arm`'s sources and
+    /// science, `baseline`'s without one: 31b's `+synthesis`), as a turn in
     /// `p.session_id`'s place would run it (its nodes in context), or, with
     /// no session, as the CLI's: a private place. It writes nothing, whatever
     /// `[memory] mode` says.
@@ -55,14 +56,18 @@ impl Core {
             None => (Place::Private, BTreeSet::new()),
         };
         let memory = &self.runner.memory;
+        let arm = match &p.arm {
+            None => MemoryArm::Baseline,
+            Some(a) => serde_json::from_value::<MemoryArm>(serde_json::json!(a)).map_err(|_| {
+                RpcFailure::new(
+                    error_code::INVALID_PARAMS,
+                    format!("no arm {a:?}: none, bm25, baseline, or +synthesis"),
+                )
+            })?,
+        };
+        memory.syntheses(&self.store);
         let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(SEARCH_DEADLINE);
-        let mut begun = memory.begin(
-            p.query.clone(),
-            None,
-            p.k.unwrap_or(K),
-            MemoryArm::Baseline.sources(),
-            deadline,
-        );
+        let mut begun = memory.begin(p.query.clone(), None, p.k.unwrap_or(K), arm, deadline);
         let answer = begun.answer().await;
         let scene = Scene {
             mode: "search",
@@ -72,6 +77,7 @@ impl Core {
             in_context,
             labeled: memory.labeled(&self.store)?,
             budget_tokens: None,
+            science: memory.science_for(arm),
         };
         Ok(memory.manifest(
             &scene,

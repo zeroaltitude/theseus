@@ -24,6 +24,11 @@ pub struct MemorySearchParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub k: Option<usize>,
+    /// The arm whose science and sources the search runs (`baseline`,
+    /// `+synthesis`); `baseline` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub arm: Option<String>,
 }
 
 /// `memory.recalls`: a session's recalls, newest last.
@@ -291,4 +296,60 @@ pub struct RecallTimings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub index: Option<IndexTimings>,
+}
+
+/// `memory.consolidate` (M6 31b): consolidation now. A dry run lists the
+/// clusters it would synthesize, and writes nothing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryConsolidateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub dry_run: Option<bool>,
+}
+
+/// What a consolidation did, cluster by cluster.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryConsolidateResult {
+    pub dry_run: bool,
+    /// The recall rows read (`recall.shadow`, `recall.ran`).
+    pub recalls: u64,
+    pub clusters: Vec<SynthesisReport>,
+    /// Components and clusters left out, by reason (`size`,
+    /// `not_a_source`, `synthesized`, `external`, `profiles_disagree`, …).
+    pub skipped: std::collections::BTreeMap<String, u64>,
+    /// The local day's spend, this run's included, and its limit.
+    pub spent_today_usd: f64,
+    pub limit_usd: f64,
+    /// Why the run stopped before its last cluster, if it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stopped: Option<String>,
+}
+
+/// One cluster's synthesis, or what a dry run would ask.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SynthesisReport {
+    /// The digest of its sources' ids.
+    pub cluster: String,
+    pub sources: Vec<String>,
+    /// The distinct turns that admitted its weakest pair together.
+    pub turns: u64,
+    pub profile: String,
+    /// `would_propose` (a dry run), `supported`, `unchecked`, `rejected`, or
+    /// `failed`.
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub synthesis_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    #[serde(default)]
+    pub cost_usd: f64,
 }

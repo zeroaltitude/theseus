@@ -448,7 +448,9 @@ const BULK: usize = 4096;
 /// and a switch the cache holds back.
 /// 16 = a task's `origin.by_model`, the mark of a task whose layer 1 the model
 /// wrote (theseus-ext.10).
-const MANIFEST_FORMAT: u32 = 16;
+/// 17 = M6's `Synthesis` node (a NODE body; 31b, theseus-6fn.10). It replaces
+/// no layout, so no old sample is owed, as format 12's kind owed none.
+const MANIFEST_FORMAT: u32 = 17;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

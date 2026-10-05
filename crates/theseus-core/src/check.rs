@@ -552,7 +552,7 @@ pub fn working_text(n: &Node) -> Option<String> {
         }
         Body::ToolCall { input, .. } => strings(input, &mut parts),
         Body::ToolResult { content, .. } => parts.push(content),
-        Body::Summary { text, .. } => parts.push(text),
+        Body::Summary { text, .. } | Body::Synthesis { text, .. } => parts.push(text),
         Body::Arrangement { .. } | Body::Recall { .. } => return None,
     }
     let t = parts.join("\n");

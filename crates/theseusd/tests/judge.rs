@@ -219,7 +219,8 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "memory.v1: shadow",
-            "attribution.v1: shadow"
+            "attribution.v1: shadow",
+            "citation.v1: shadow"
         ])
     );
     assert_eq!(rig.rows("pack.mode").len(), 3, "one adoption row each");

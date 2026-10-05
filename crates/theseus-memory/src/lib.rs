@@ -11,13 +11,17 @@
 //! - [`access`]: what happened to a node, and the review it is;
 //! - [`activation`]: spreading activation over typed edges (step 32b);
 //! - [`rerank`]: the `+rerank` arm's reorder of the top 20 by Jev's answers,
-//!   and the pack it would admit (step 32c).
+//!   and the pack it would admit (step 32c);
+//! - [`consolidate`]: consolidation's clusters of nodes recall admits
+//!   together, a synthesis's citations and checks, and its shadow score
+//!   (step 31b).
 //!
 //! The wire-ins of 32a and 32b add the retention and adjacency projections
 //! and the `+retention` and `+activation` arms.
 
 pub mod access;
 pub mod activation;
+pub mod consolidate;
 pub mod fsrs;
 pub mod recall;
 pub mod rerank;
@@ -29,4 +33,4 @@ pub use fsrs::{Fsrs6, Grade, ParamsError, Retention, FSRS6_DEFAULT};
 pub use recall::{
     Admitted, Asker, Candidate, Dropped, Link, LinkKind, Pack, Params, Place, Reason,
 };
-pub use science::{Baseline, MemoryScience, ScienceId};
+pub use science::{Baseline, MemoryScience, ScienceId, SynthesisAdmit, WithSyntheses};

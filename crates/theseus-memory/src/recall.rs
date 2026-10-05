@@ -4,6 +4,9 @@
 //! and this decides what would be admitted.
 //!
 //! 30b adds `labeled_wrong`: a node the operator labeled wrong or stale.
+//! 31b adds a synthesis's two: `arm`, a synthesis under an arm that admits
+//! none (every arm but `+synthesis`), and `unchecked`, one whose citations
+//! were not checked and supported (`MemoryScience::synthesis`).
 //! 31a adds the memory pass's edges, read by a science that prefers the
 //! newer node (`baseline`'s second version): of a `same_entity` group only
 //! the newest is kept (`duplicate`), and the older side of a `supersedes`
@@ -18,7 +21,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::science::{MemoryScience, RankCtx, Scored};
+use crate::science::{MemoryScience, RankCtx, Scored, SynthesisAdmit};
 
 /// Where a session speaks, as the core read it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -57,6 +60,10 @@ pub enum Reason {
     LabeledWrong,
     /// A recall, or a line the harness wrote.
     Recursion,
+    /// A synthesis, and the arm admits none (31b: only `+synthesis` does).
+    Arm,
+    /// A synthesis whose citations were not checked and supported (31b).
+    Unchecked,
     /// A newer node corrects it, and is a candidate or in context (31a).
     Superseded,
     /// A newer node of its `same_entity` group is a candidate or in context
@@ -69,12 +76,14 @@ pub enum Reason {
 }
 
 impl Reason {
-    pub const ALL: [Reason; 9] = [
+    pub const ALL: [Reason; 11] = [
         Reason::Place,
         Reason::InContext,
         Reason::Untrusted,
         Reason::LabeledWrong,
         Reason::Recursion,
+        Reason::Arm,
+        Reason::Unchecked,
         Reason::Superseded,
         Reason::Duplicate,
         Reason::Threshold,
@@ -88,6 +97,8 @@ impl Reason {
             Reason::Untrusted => "untrusted",
             Reason::LabeledWrong => "labeled_wrong",
             Reason::Recursion => "recursion",
+            Reason::Arm => "arm",
+            Reason::Unchecked => "unchecked",
             Reason::Superseded => "superseded",
             Reason::Duplicate => "duplicate",
             Reason::Threshold => "threshold",
@@ -240,7 +251,12 @@ pub fn excerpt(text: &str, tokens: u64) -> String {
 
 /// The filter that drops `c`, if one does, in the order the place rule
 /// first.
-fn filter(c: &Candidate, asker: &Asker<'_>, p: &Params, min_score: f64) -> Option<Reason> {
+fn filter(
+    c: &Candidate,
+    asker: &Asker<'_>,
+    p: &Params,
+    science: &dyn MemoryScience,
+) -> Option<Reason> {
     if !asker.place.may_draw_on(&c.place) {
         return Some(Reason::Place);
     }
@@ -256,7 +272,14 @@ fn filter(c: &Candidate, asker: &Asker<'_>, p: &Params, min_score: f64) -> Optio
     if c.origin == "harness" || c.kind == "recall" {
         return Some(Reason::Recursion);
     }
-    if c.fused < min_score || c.fused.is_nan() {
+    if c.kind == "synthesis" {
+        match science.synthesis(&c.node_id) {
+            SynthesisAdmit::NotThisArm => return Some(Reason::Arm),
+            SynthesisAdmit::Unchecked => return Some(Reason::Unchecked),
+            SynthesisAdmit::Admit => {}
+        }
+    }
+    if c.fused < science.min_score() || c.fused.is_nan() {
         return Some(Reason::Threshold);
     }
     None
@@ -312,7 +335,7 @@ pub fn recall(
     let mut pack = Pack::default();
     let mut kept = Vec::new();
     for c in candidates {
-        match filter(&c, asker, p, science.min_score()) {
+        match filter(&c, asker, p, science) {
             Some(reason) => pack.dropped.push(Dropped {
                 candidate: c,
                 reason,
@@ -450,6 +473,41 @@ mod tests {
             .map(|d| d.reason)
     }
 
+    /// Under `+synthesis` (31b), a checked synthesis and an unchecked one.
+    fn synthesis_pack(p: &Params) -> Pack {
+        let mut checked = cand("syn_ok", "ses_mem", Place::Private, 0.5);
+        checked.kind = "synthesis".into();
+        let mut unchecked = cand("syn_no", "ses_mem", Place::Private, 0.5);
+        unchecked.kind = "synthesis".into();
+        let arm = crate::science::WithSyntheses {
+            base: Baseline {
+                min_score: 0.01,
+                ..Baseline::default()
+            },
+            checked: std::sync::Arc::new(BTreeSet::from(["syn_ok".to_string()])),
+        };
+        let none = BTreeSet::new();
+        let asker = Asker {
+            session_id: "ses_here",
+            place: &Place::Private,
+            in_context: &none,
+            labeled: &none,
+            links: &[],
+            now_ms: 0,
+        };
+        recall(&arm, &asker, vec![checked, unchecked], p)
+    }
+
+    /// Under `+synthesis`, a checked synthesis is a candidate, and an
+    /// unchecked one is dropped for it (31b).
+    #[test]
+    fn the_synthesis_arm_admits_a_checked_one_alone() {
+        let synth = synthesis_pack(&Params::default());
+        assert_eq!(synth.admitted.len(), 1);
+        assert_eq!(synth.admitted[0].candidate.node_id, "syn_ok");
+        assert_eq!(reason_of(&synth, "syn_no"), Some(Reason::Unchecked));
+    }
+
     /// Each filter's reason (§3.2's 30a tests), one candidate each, and one
     /// that passes them all.
     #[test]
@@ -465,7 +523,11 @@ mod tests {
         big.text = "x".repeat(4000);
         let mut second_chunk = cand("ok", "ses_b", Place::Private, 0.3);
         second_chunk.chunk = 1;
+        let mut synthesis = cand("syn", "ses_mem", Place::Private, 0.95);
+        synthesis.kind = "synthesis".into();
+        synthesis.origin = "agent".into();
         let cands = vec![
+            synthesis,
             cand("ok", "ses_b", Place::Private, 0.9),
             cand("seen", "ses_here", Place::Private, 0.9),
             external,
@@ -494,6 +556,7 @@ mod tests {
             .collect();
         assert_eq!(admitted, ["ok"]);
         for (node, reason) in [
+            ("syn", Reason::Arm),
             ("seen", Reason::InContext),
             ("ext", Reason::Untrusted),
             ("harness", Reason::Recursion),
@@ -511,7 +574,7 @@ mod tests {
             .dropped
             .iter()
             .any(|d| d.candidate.key() == "ok#1" && d.reason == Reason::InContext));
-        assert_eq!(pack.admitted.len() + pack.dropped.len(), 11);
+        assert_eq!(pack.admitted.len() + pack.dropped.len(), 12);
         // The place: a shared place draws on its own sessions alone.
         let there = vec![
             cand("mine", "ses_lab", lab.clone(), 0.9),
@@ -530,10 +593,11 @@ mod tests {
         for node in ["private", "unknown", "other"] {
             assert_eq!(reason_of(&placed, node), Some(Reason::Place), "{node}");
         }
+        let synth = synthesis_pack(&p);
         // Every reason this step builds is met above.
         for r in Reason::ALL {
             assert!(
-                pack.dropped_for(r) + placed.dropped_for(r) > 0,
+                pack.dropped_for(r) + placed.dropped_for(r) + synth.dropped_for(r) > 0,
                 "{}",
                 r.as_str()
             );

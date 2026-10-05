@@ -60,6 +60,7 @@ impl TurnRunner {
             in_context,
             labeled,
             budget_tokens,
+            science,
             ..
         } = scene;
         let live = rerank == PackMode::Live;
@@ -74,7 +75,7 @@ impl TurnRunner {
             candidates,
             links: links.clone(),
             params: self.memory.params_of(&m),
-            science: self.memory.science_owned(),
+            science: science.clone(),
             admitted: m
                 .admitted
                 .iter()
@@ -99,6 +100,7 @@ impl TurnRunner {
                 in_context,
                 labeled,
                 budget_tokens,
+                science,
             };
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);

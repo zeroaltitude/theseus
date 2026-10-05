@@ -9,6 +9,8 @@
 //!   input, the gate's decision, the action's correlation id).
 //! - `trs_` ToolResult: what went back to the model for one `tool_use`.
 //! - `arr_` Arrangement: a task's quoted pieces (M5 27), after its brief.
+//! - `syn_` Synthesis: consolidation's cited entry on a cluster of nodes
+//!   recall admits together (M6 31b), in the memory's harness session.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -189,7 +191,7 @@ pub enum Body {
     /// in the same user turn, as testimony: each item's frozen header, then
     /// its source's text over the frozen range, read by position
     /// (`recall::render`), so every later request repeats the same bytes.
-    /// (`Synthesis` and `Lesson` come with 31b and 35b.)
+    /// (`Lesson` comes with 35b.)
     Recall {
         recall_id: String,
         /// The session's arm (`baseline`).
@@ -234,6 +236,33 @@ pub enum Body {
         /// `[Summary of 212 earlier messages, 2026-09-20 to 2026-09-27,
         /// written by glm]`, frozen when it was written (§2.11's testimony).
         header: String,
+    },
+    /// Consolidation's synthesis (M6 step 31b, design §2.7): one short entry,
+    /// every sentence citing, that a profile wrote of a cluster of nodes
+    /// recall admits together. In the books (spec P8) it is an encyclopedia
+    /// entry, by topic: never an SOP (those are the operator's alone), nor
+    /// a recipe (promoted after repeated success). Its origin is `agent`; it
+    /// lives in the memory's harness session (`consolidate::session`), which
+    /// is never compiled, with a `derived_from` edge to each source (`via =
+    /// "synthesis"`). Never shown in shadow: only the `+synthesis` arm puts
+    /// a checked one before a model.
+    Synthesis {
+        /// The entry, each sentence ending with its citations, `[1]`,
+        /// numbered as `sources`.
+        text: String,
+        /// The nodes it cites, by id: `[1]` is the first.
+        sources: Vec<String>,
+        /// The citation check's verdict (`citation.v1`).
+        check: crate::consolidate::CitationCheck,
+        stage: crate::consolidate::Stage,
+        /// The digest of its sources' ids, sorted: a cluster synthesized
+        /// before is not proposed again.
+        cluster: String,
+        /// The profile and the model that wrote it, and what it cost.
+        profile: String,
+        model: String,
+        #[serde(default)]
+        cost_usd: Option<f64>,
     },
 }
 
@@ -435,6 +464,14 @@ impl Node {
         n
     }
 
+    /// Consolidation's synthesis (31b), in the memory's harness session:
+    /// the agent's words, written by the harness's run.
+    pub fn synthesis(session_id: &str, body: Body) -> Self {
+        let mut n = Self::new("syn", session_id, None, Origin::Agent, body);
+        n.author = Some("consolidation".into());
+        n
+    }
+
     pub fn record(&self) -> Result<NewRecord> {
         Ok(NewRecord::json(kinds::NODE, Some(&self.id), self)?.scoped(&self.session_id))
     }
@@ -448,6 +485,7 @@ impl Node {
             Body::Recall { .. } => "recall",
             Body::Arrangement { .. } => "arrangement",
             Body::Summary { .. } => "summary",
+            Body::Synthesis { .. } => "synthesis",
         }
     }
 
@@ -492,6 +530,9 @@ impl Node {
                     .join("; ")
             ),
             Body::Summary { header, text, .. } => format!("{header} {text}"),
+            Body::Synthesis { text, check, .. } => {
+                format!("[synthesis, {}] {text}", check.as_str())
+            }
         };
         let s = s.replace('\n', " ");
         if s.chars().count() > max {

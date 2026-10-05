@@ -1,0 +1,1 @@
+{"sentences":[{"sentence":1,"text":"The Kestrel relay listens on port 7714."},{"sentence":2,"text":"It logs to /var/log/kestrel/relay.log and restarts nightly."}],"sources":[{"source":1,"text":"The Kestrel relay listens on port 7714."},{"source":2,"text":"The Kestrel relay logs to /var/log/kestrel/relay.log."},{"source":3,"text":"The Kestrel relay restarts nightly at 03:00."}]}

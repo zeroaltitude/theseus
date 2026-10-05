@@ -16,7 +16,9 @@ Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `fsrs.rs`, `activation.rs`,
   in this order, with its reason: `place` (the place rule: a turn in a shared place draws only on that place's own
   sessions, a private place's on any session (theseus-1is6), and a session whose place cannot be read only in a
   private place), `in_context`, `untrusted` (external text, unless `include_external`), `labeled_wrong` (the operator
-  labeled it wrong or stale; 30b), `recursion` (a harness line or a recall), `threshold`; then the science's rank,
+  labeled it wrong or stale; 30b), `recursion` (a harness line or a recall), `arm` and `unchecked` (a synthesis
+  under an arm whose science admits none, or one not checked: 31b's `MemoryScience::synthesis`), `threshold`;
+  then the science's rank,
   and a greedy pack under the tokens and items (`budget`). A second chunk of an admitted node is `in_context`. The
   core reads each candidate's place (`TurnRunner::place_of`).
 - `rerank.rs` (step 32c): the `+rerank` arm's pure half. `eligible` is what passed every filter, in the science's
@@ -24,6 +26,10 @@ Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `fsrs.rs`, `activation.rs`,
   fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order
   (a `Reranked` science). The core's rerank (`judge/rerank.rs`) calls all three, and since 32d a live
   rerank's turn packs again in Jev's order with `repack` too (`Memory::refill`), so the row and the request agree.
+- `consolidate.rs` (step 31b): consolidation's pure half. `clusters` (pairs admitted together in 3 distinct turns,
+  components of 3 to 8, none a synthesis or a recall, none synthesized before by digest), `check` (every sentence
+  cites, every cited number is a source, at most 120 words), and `score` (a synthesis scored as its best admitted
+  source, ranked just ahead of it: rows keep no query). `science.rs`'s `WithSyntheses` is the `+synthesis` arm.
 - `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is), `activation.rs` (32b's math).
 
 ## Invariants

@@ -225,7 +225,8 @@ pub fn text_of(n: &Node) -> Option<String> {
         Body::ToolCall { .. }
         | Body::Arrangement { .. }
         | Body::Recall { .. }
-        | Body::Summary { .. } => return None,
+        | Body::Summary { .. }
+        | Body::Synthesis { .. } => return None,
     };
     (!t.trim().is_empty()).then_some(t)
 }

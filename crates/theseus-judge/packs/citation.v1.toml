@@ -1,0 +1,39 @@
+# citation.v1 (M6 step 31b, consolidation's check; design m6 §2.7): whether
+# each source a synthesis cites supports the sentence that cites it. At
+# `consolidation`: off every turn, after a cluster's synthesis passed the
+# deterministic checks (every sentence cites, every cited number is one of
+# the cluster's sources). The state is the sentences and the sources,
+# numbered; one Noul per sentence and cited source, the first ten pairs under
+# `supports` and the next ten under `supports_more`. A pair under 0.5 rejects
+# the synthesis. No live action: its verdict qualifies a synthesis for the
+# `+synthesis` arm alone.
+id = "citation"
+version = 1
+jev_model = "jev-1.13.0"
+point = "consolidation"
+state = "citation"
+state_cap_tokens = 6000
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "Consolidation's citation check: whether each source a synthesis cites supports the sentence that cites it."
+
+[questions.supports]
+type = "noul"
+per = "pairs"
+max = 10
+instructions = "For {item}, does the source support what the sentence says?"
+act = 0.90
+confirm = 0.60
+when_true = "The source states what the sentence says, or what it says follows plainly from the source's words, with no name, number, path, or time the source does not give."
+when_false = "The sentence says something the source does not state, adds a detail the source lacks, or contradicts it."
+
+[questions.supports_more]
+type = "noul"
+per = "more_pairs"
+max = 10
+instructions = "For {item}, does the source support what the sentence says?"
+act = 0.90
+confirm = 0.60
+when_true = "The source states what the sentence says, or what it says follows plainly from the source's words, with no name, number, path, or time the source does not give."
+when_false = "The sentence says something the source does not state, adds a detail the source lacks, or contradicts it."

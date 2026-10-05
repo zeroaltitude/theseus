@@ -24,6 +24,7 @@ pub mod compiler;
 pub mod config;
 pub mod config_copy;
 pub mod config_gate;
+pub mod consolidate;
 pub mod context_files;
 pub mod cpu;
 pub mod crash;
@@ -138,6 +139,8 @@ mod tests_check_view;
 mod tests_compaction;
 #[cfg(test)]
 mod tests_config;
+#[cfg(test)]
+mod tests_consolidate;
 #[cfg(test)]
 mod tests_continuations;
 #[cfg(test)]

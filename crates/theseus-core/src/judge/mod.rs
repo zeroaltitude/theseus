@@ -29,6 +29,7 @@
 //!   risky, the owner hears of it, under `security.v1`'s brake.
 
 pub mod categorize;
+pub mod citation;
 pub mod compile;
 pub mod gate;
 pub mod inbound;
@@ -82,6 +83,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (rerank::RERANK_PACK, PackMode::Live),
     (memory::MEMORY_PACK, PackMode::Shadow),
     (memory::ATTRIBUTION_PACK, PackMode::Shadow),
+    (citation::CITATION_PACK, PackMode::Shadow),
 ];
 
 /// The mode `WIRED` gives `pack` (shadow for one it does not list).

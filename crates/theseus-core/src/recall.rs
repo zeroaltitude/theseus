@@ -46,6 +46,7 @@ use theseus_protocol::memory::{
     BudgetDrop, BudgetReport, RecallDrop, RecallItem, RecallManifest, RecallTimings,
 };
 
+use crate::config::memory::MemoryArm;
 use crate::config::MemoryConfig;
 use crate::node::{AttachmentContent, Body, Node};
 use crate::store::Transcript;
@@ -74,6 +75,17 @@ pub struct Memory {
     armed: Mutex<BTreeSet<String>>,
     /// Sources a `Recall` node rendered, by id: they never change.
     sources: Mutex<render::Sources>,
+    /// The memory's harness session and its checked syntheses (31b), once
+    /// read (`syntheses`).
+    syntheses: RwLock<Option<Syntheses>>,
+}
+
+/// The memory's harness session (31b), and the syntheses in it whose
+/// citations were checked and supported: the `+synthesis` arm's candidates.
+#[derive(Clone, Debug, Default)]
+pub struct Syntheses {
+    pub session: Option<String>,
+    pub checked: Arc<BTreeSet<String>>,
 }
 
 impl Memory {
@@ -92,6 +104,7 @@ impl Memory {
             labels: RwLock::new(None),
             armed: Mutex::new(BTreeSet::new()),
             sources: Mutex::new(render::Sources::new()),
+            syntheses: RwLock::new(None),
         }
     }
 
@@ -173,17 +186,109 @@ impl Memory {
         Arc::new(self.science.clone())
     }
 
-    /// Ask the index's `sources` (an arm's, `MemoryArm::sources`) for
-    /// `query`'s hits as of `as_of`, in a task of its own, bounded by
-    /// `deadline`.
+    /// The arms' seam: the science an arm ranks with. `+synthesis` ranks as
+    /// `baseline` and admits the checked syntheses (31b); every other arm,
+    /// a control, shadow, and a search without an arm, is `baseline`.
+    pub fn science_for(&self, arm: MemoryArm) -> Arc<dyn MemoryScience> {
+        match arm {
+            MemoryArm::Synthesis => Arc::new(theseus_memory::WithSyntheses {
+                base: self.science.clone(),
+                checked: self.syntheses_known().checked,
+            }),
+            MemoryArm::None | MemoryArm::Bm25 | MemoryArm::Baseline => self.science_owned(),
+        }
+    }
+
+    /// The harness session and its checked syntheses, read once from the
+    /// store (the session by its META key, then its nodes).
+    pub fn syntheses(&self, store: &crate::store::Store) -> Syntheses {
+        if let Some(s) = self
+            .syntheses
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
+            return s;
+        }
+        let read = || -> anyhow::Result<Syntheses> {
+            let Some(session) =
+                store.get_meta::<String>(crate::consolidate::run::MEMORY_SESSION)?
+            else {
+                return Ok(Syntheses::default());
+            };
+            let checked = store
+                .session_nodes(&session)?
+                .into_iter()
+                .filter(
+                    |(_, n)| matches!(&n.body, Body::Synthesis { check, .. } if check.checked()),
+                )
+                .map(|(_, n)| n.id)
+                .collect();
+            Ok(Syntheses {
+                session: Some(session),
+                checked: Arc::new(checked),
+            })
+        };
+        match read() {
+            Ok(s) => {
+                *self
+                    .syntheses
+                    .write()
+                    .unwrap_or_else(PoisonError::into_inner) = Some(s.clone());
+                s
+            }
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "recall: the syntheses cannot be read; none is a candidate");
+                Syntheses::default()
+            }
+        }
+    }
+
+    /// What is known of the syntheses without a read.
+    fn syntheses_known(&self) -> Syntheses {
+        self.syntheses
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .unwrap_or_default()
+    }
+
+    /// Consolidation kept a synthesis in `session`; `checked`, when its
+    /// citations were supported.
+    pub fn kept_synthesis(&self, session: &str, id: &str, checked: bool) {
+        let mut w = self
+            .syntheses
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(s) = w.as_mut() else {
+            // Not read yet: the first read finds it.
+            return;
+        };
+        s.session = Some(session.to_string());
+        if checked {
+            Arc::make_mut(&mut s.checked).insert(id.to_string());
+        }
+    }
+
+    /// Ask the index for `query`'s hits as of `as_of` from `arm`'s sources
+    /// (`MemoryArm::sources`), in a task of its own, bounded by `deadline`.
+    /// Every arm but `+synthesis` leaves the memory's harness session out
+    /// before the index's top k (`exclude_sessions`).
     pub fn begin(
         &self,
         query: String,
         as_of: Option<u64>,
         k: usize,
-        sources: &[&str],
+        arm: MemoryArm,
         deadline: Duration,
     ) -> Begun {
+        let sources = arm.sources();
+        let exclude: Vec<String> = match arm {
+            MemoryArm::Synthesis => Vec::new(),
+            MemoryArm::None | MemoryArm::Bm25 | MemoryArm::Baseline => {
+                self.syntheses_known().session.into_iter().collect()
+            }
+        };
         let ask = self
             .ask
             .read()
@@ -193,6 +298,7 @@ impl Memory {
         p.k = k.clamp(1, 100);
         p.as_of = as_of;
         p.sources = sources.iter().map(|s| s.to_string()).collect();
+        p.exclude_sessions = exclude;
         let started = Instant::now();
         let task = tokio::spawn(async move {
             let answer = match ask {
@@ -272,6 +378,9 @@ pub struct Scene<'a> {
     /// The pack's tokens when not `[memory] recall_budget_tokens`: an
     /// assembled prefix's recall section (30c), `assembled_budget_tokens`.
     pub budget_tokens: Option<u64>,
+    /// The turn's arm's science (`Memory::science_for`): shadow, a
+    /// control, and a search without an arm rank as `baseline`.
+    pub science: Arc<dyn MemoryScience>,
 }
 
 impl Memory {
@@ -324,7 +433,7 @@ impl Memory {
         let mut m = RecallManifest {
             recall_id: crate::new_id("rcl"),
             mode: scene.mode.into(),
-            science: self.science.id().to_string(),
+            science: scene.science.id().to_string(),
             outcome: "ran".into(),
             session_id: scene.session_id.map(str::to_string),
             turn_id: scene.turn_id.map(str::to_string),
@@ -392,7 +501,7 @@ impl Memory {
             .collect();
         m.sources = sources;
         // The memory pass's edges among them, for a science that reads them.
-        let links = if self.science.prefers_newer() {
+        let links = if scene.science.prefers_newer() {
             let ids: BTreeSet<String> = candidates.iter().map(|c| c.node_id.clone()).collect();
             links_of(&ids.into_iter().collect::<Vec<_>>())
         } else {
@@ -410,7 +519,7 @@ impl Memory {
             budget_tokens: m.budget_tokens,
             ..self.cfg.params()
         };
-        let pack = pipeline::recall(&self.science, &asker, candidates.clone(), &params);
+        let pack = pipeline::recall(scene.science.as_ref(), &asker, candidates.clone(), &params);
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
         m.timings.pack_ms = ms(t0.elapsed());
@@ -439,8 +548,13 @@ impl Memory {
             now_ms: theseus_protocol::now_unix_ms(),
         };
         let params = self.params_of(m);
-        let pack =
-            theseus_memory::rerank::repack(&self.science, &asker, candidates, &params, order);
+        let pack = theseus_memory::rerank::repack(
+            scene.science.as_ref(),
+            &asker,
+            candidates,
+            &params,
+            order,
+        );
         m.drops.clear();
         fill(m, pack, &mut ranks, true);
     }
@@ -613,6 +727,8 @@ pub fn text_of(n: &Node) -> String {
         Body::Arrangement { pieces, claim, .. } => crate::check::render(pieces, claim.as_ref()),
         // A summary's text is the model's account of its range.
         Body::Summary { text, .. } => text.clone(),
+        // A synthesis's text is its cited entry (31b).
+        Body::Synthesis { text, .. } => text.clone(),
     }
 }
 

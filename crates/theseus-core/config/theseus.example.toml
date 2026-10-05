@@ -617,7 +617,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # with `theseus memory label <node> wrong` to keep it out.
 # [memory]
 # mode = "shadow"                         # off (the default) | shadow | canary | live
-# arm = "baseline"                        # the arm canary and live sessions get: none | bm25 | baseline
+# arm = "baseline"                        # the arm canary and live sessions get: none | bm25 | baseline | +synthesis
 # canary_fraction = 0.5                   # canary: the share of sessions on the arm, sticky by a hash of session and experiment; the rest run none, with baseline in shadow
 # experiment = "m6-1"                     # names the plan; seeds each session's arm
 # session_recall_cap_tokens = 12000       # the recall notes a session's tail may hold; past it, recall pauses until the next recompile
@@ -635,6 +635,16 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # not fit, rings as before, and the row says why.
 # summary_profile = "session"             # "session", a key of [profiles], or "off"
 # assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (canary and live)
+# Consolidation (step 31b): off every turn, nodes recall admits together in
+# three or more turns become one short synthesis per cluster, every sentence
+# citing its sources, checked by Jev (citation.v1) and kept as a Synthesis node.
+# Never shown in shadow: only arm "+synthesis" puts a checked one before a model.
+# "session" (the default) writes it with the profile every source's session
+# last used, so no second provider reads a session's text; sources whose
+# sessions disagree wait. A key of [profiles] is the operator's choice.
+# synth_profile = "session"               # "session", or a key of [profiles]
+# synth_limit_usd_per_day = 0.50          # what consolidation may spend in a local day, read from its rows
+# consolidate_hour = 4                    # the local hour of the nightly run (0 to 23); never within 10 minutes of a start
 
 # ---------------------------------------------------------------- lsp
 # Language servers (L2): the lsp tools ask a project's language server where a

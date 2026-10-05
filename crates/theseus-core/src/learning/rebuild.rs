@@ -52,6 +52,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "the memory pass's states (a labeled node, or a reply and the notes recall admitted \
              to it) are not rebuilt from the record: only loop.v1's input is, so far",
         ),
+        Builder::Citation => Some(
+            "a citation check's input is a synthesis's text before it was kept, and a rejected \
+             one is kept only in its row",
+        ),
     }
 }
 

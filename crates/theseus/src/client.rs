@@ -259,7 +259,7 @@ pub fn job_session() -> Option<String> {
 /// backfill spend money, and a backfill sends his history to Jev), and a
 /// move on the ladder (M5 26a: a promotion can make Jev act, and a rollback can
 /// silence security's notices).
-pub const OPERATORS: [(&str, &str); 19] = [
+pub const OPERATORS: [(&str, &str); 20] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -272,6 +272,7 @@ pub const OPERATORS: [(&str, &str); 19] = [
     (method::ONTOLOGY_PROPOSAL_ACCEPT, "theseus ontology accept"),
     (method::ONTOLOGY_PROPOSAL_REJECT, "theseus ontology reject"),
     (method::MEMORY_LABEL, "theseus memory label"),
+    (method::MEMORY_CONSOLIDATE, "theseus memory consolidate"),
     (method::JUDGE_LABEL, "theseus judge label"),
     (method::EXTENSION_REVOKE, "theseus extend revoke"),
     (method::JUDGE_REPLAY, "theseus judge replay"),

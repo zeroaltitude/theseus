@@ -112,6 +112,10 @@ impl MemoryScience for Reranked<'_> {
         self.inner.prefers_newer()
     }
 
+    fn synthesis(&self, node_id: &str) -> crate::science::SynthesisAdmit {
+        self.inner.synthesis(node_id)
+    }
+
     fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention> {
         self.inner.schedule(prior, ev)
     }
