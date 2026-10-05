@@ -281,6 +281,10 @@ async fn ctrl_c_interrupts_a_command(terms: &Arc<Terms>, id: &str, dir: &Path) {
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    // The prompt the interrupt draws, under the tty's `^C`, before the next
+    // line is typed: typed ahead, the tty echoes it before that prompt and
+    // the shell prints `back` after it, on the prompt's row (theseus-ynia).
+    read_until(terms, "s1", id, "echo after\n^C\nok> ", dir).await;
     call(
         terms,
         "s1",
