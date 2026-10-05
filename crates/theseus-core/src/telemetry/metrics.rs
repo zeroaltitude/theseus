@@ -246,8 +246,15 @@ const AWS_DURATION: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const CANCELS: Instrument = Instrument {
+    name: "theseus.cancel",
+    description: "Calls a cancel or a stop ended (M4 §2.11), by backend and how they ended, as health counts them",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 34] = [
+const INSTRUMENTS: [&Instrument; 35] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -282,6 +289,7 @@ const INSTRUMENTS: [&Instrument; 34] = [
     &NODE_CACHE_READS,
     &AWS_CALLS,
     &AWS_DURATION,
+    &CANCELS,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -616,6 +624,16 @@ impl Metrics {
             let spend = with(&pack, "theseus.spend", "judge");
             self.add_f64(&COST, spend, m as f64 / 1_000_000.0);
         }
+    }
+
+    /// A call a cancel ended (theseus-qdk5): its backend and its state, as
+    /// health's `cancels` names them.
+    pub(super) fn cancel(&mut self, backend: &str, state: &str) {
+        let attrs = vec![
+            ("theseus.cancel.backend", Attr::S(backend.to_string())),
+            ("theseus.cancel.state", Attr::S(state.to_string())),
+        ];
+        self.add(&CANCELS, attrs, 1);
     }
 
     /// The push (theseus-in3): `n` notifications dropped at a backlog cap.

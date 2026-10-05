@@ -23,6 +23,8 @@ mod tests_aws;
 #[cfg(test)]
 mod tests_calls;
 #[cfg(test)]
+mod tests_cancel;
+#[cfg(test)]
 mod tests_files;
 #[cfg(test)]
 mod tests_judge;
@@ -236,6 +238,16 @@ impl Telemetry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push_lost(n);
+    }
+
+    /// A call a cancel or a stop ended (theseus-qdk5), counted where health
+    /// counts it (`cancel::Stops`), by its backend and how it ended.
+    pub fn record_cancel(&self, backend: &str, state: &str) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .cancel(backend, state);
     }
 
     /// The durability tender (AWS step 15): bytes shipped, or the lag a

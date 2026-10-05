@@ -51,6 +51,9 @@ pub struct Stops {
     tasks: Mutex<HashMap<String, tokio::task::AbortHandle>>,
     /// Cancels since the daemon started, by backend and how they ended.
     counts: Mutex<BTreeMap<(&'static str, &'static str), u64>>,
+    /// Where each count is also a metric, `theseus.cancel` (theseus-qdk5):
+    /// set once the core has built its telemetry.
+    telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
 }
 
 /// An async tool's task, reachable by a cancel while this lives.
@@ -90,6 +93,11 @@ impl Stops {
             .remove(correlation_id)
     }
 
+    /// The telemetry each cancel is counted in, once the core has built it.
+    pub fn export_to(&self, telemetry: crate::telemetry::Telemetry) {
+        let _ = self.telemetry.set(telemetry);
+    }
+
     fn count(&self, backend: &'static str, state: &'static str) {
         *self
             .counts
@@ -97,6 +105,9 @@ impl Stops {
             .unwrap_or_else(PoisonError::into_inner)
             .entry((backend, state))
             .or_default() += 1;
+        if let Some(t) = self.telemetry.get() {
+            t.record_cancel(backend, state);
+        }
     }
 
     /// Health's counts: each backend's cancels since the start, by how they
