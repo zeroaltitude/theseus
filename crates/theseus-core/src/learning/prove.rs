@@ -303,6 +303,99 @@ pub fn jsonl(records: &[TaskRecord]) -> String {
     s
 }
 
+/// `classify.v1`, whose decision the prove compares with its baseline's.
+pub const CLASSIFY_PACK: &str = "classify.v1";
+
+/// Classification's decision quality (§2.9): `classify.v1`'s lean on
+/// `should_promote` against the baseline's decision, the model's own
+/// `task.create` in that turn (the system's `task_create` label, read by its
+/// key, never derived again), over the judgments in `[since, until]` that an
+/// operator or an audit labeled. The truth is their labels alone, resolved
+/// heaviest first: the system's label is the baseline itself, so it cannot
+/// also be the answer. A labeled judgment whose turn the system has not
+/// labeled yet is counted, not compared. Below `min` compared, the shares
+/// are not stated.
+pub fn classify_quality(
+    scope: &Scope,
+    since_ms: Option<u64>,
+    until_ms: Option<u64>,
+    min: usize,
+) -> theseus_protocol::judge_runs::ClassifyQuality {
+    const Q: &str = "should_promote";
+    let none: Vec<LabelRow> = Vec::new();
+    let (mut labeled, mut compared, mut jev, mut base) = (0u32, 0u32, 0u32, 0u32);
+    // The discordant pairs: Jev right and the baseline wrong, and the
+    // reverse.
+    let (mut only_jev, mut only_base) = (0u32, 0u32);
+    let judgments = scope
+        .judgments
+        .get(CLASSIFY_PACK)
+        .map_or(&[][..], Vec::as_slice);
+    for s in judgments {
+        if since_ms.is_some_and(|t| s.at_ms < t) || until_ms.is_some_and(|t| s.at_ms > t) {
+            continue;
+        }
+        let Some(answer) = (s.judgment.outcome == Outcome::Answered)
+            .then(|| s.judgment.answers.iter().find(|a| a.question == Q))
+            .flatten()
+        else {
+            continue;
+        };
+        let labels = scope.labels.get(&s.judgment.id).unwrap_or(&none);
+        let theirs: Vec<LabelRow> = labels
+            .iter()
+            .filter(|l| l.source != "system")
+            .cloned()
+            .collect();
+        let Some((_, Truth::Bool(truth))) = resolve(&theirs, Q, answer) else {
+            continue;
+        };
+        labeled += 1;
+        let key = super::labels::system_key(&s.judgment.id, Q, "task_create");
+        let Some(called) = labels
+            .iter()
+            .find(|l| l.id == key)
+            .and_then(|l| l.label.as_bool())
+        else {
+            continue;
+        };
+        compared += 1;
+        let lean = matches!(answer.band.top, theseus_judge::band::Top::Noul(true));
+        jev += u32::from(lean == truth);
+        base += u32::from(called == truth);
+        only_jev += u32::from(lean == truth && called != truth);
+        only_base += u32::from(called == truth && lean != truth);
+    }
+    let enough = compared > 0 && compared as usize >= min;
+    let rate = |k: u32| enough.then(|| f64::from(k) / f64::from(compared));
+    // McNemar's test on the discordant pairs, at 95%: a difference only
+    // where the pairs that disagree lean one way past chance.
+    let (b, c) = (f64::from(only_jev), f64::from(only_base));
+    let z = if b + c > 0.0 {
+        (b - c) / (b + c).sqrt()
+    } else {
+        0.0
+    };
+    let verdict = match enough {
+        false => "insufficient",
+        true if z > 1.96 => "jev_better",
+        true if z < -1.96 => "baseline_better",
+        true => "no_difference",
+    };
+    theseus_protocol::judge_runs::ClassifyQuality {
+        pack: CLASSIFY_PACK.into(),
+        question: Q.into(),
+        labeled,
+        compared,
+        jev_right: jev,
+        baseline_right: base,
+        jev_rate: rate(jev),
+        baseline_rate: rate(base),
+        verdict: verdict.into(),
+        insufficient: (!enough).then(|| format!("compared {compared} of {min}")),
+    }
+}
+
 /// A page walk's size.
 const PAGE: usize = 200;
 

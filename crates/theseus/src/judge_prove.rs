@@ -56,6 +56,26 @@ pub fn read_lines(r: &JudgeProveResult) -> Vec<String> {
     if !r.left_out.is_empty() {
         out.push(format!("left out: {}", counts(&r.left_out)));
     }
+    for q in &r.classification {
+        let share = |k: u32, rate: Option<f64>| match rate {
+            Some(v) => format!("{k} ({:.1}%)", v * 100.0),
+            None => k.to_string(),
+        };
+        out.push(format!(
+            "{} {} against its baseline: {} labeled, {} compared; Jev right {}, baseline right {}: {}{}",
+            q.pack,
+            q.question,
+            q.labeled,
+            q.compared,
+            share(q.jev_right, q.jev_rate),
+            share(q.baseline_right, q.baseline_rate),
+            q.verdict,
+            q.insufficient
+                .as_deref()
+                .map(|w| format!(" ({w})"))
+                .unwrap_or_default()
+        ));
+    }
     out.extend(r.notes.iter().map(|n| format!("note: {n}")));
     out.push(format!("built in {} ms", r.elapsed_ms));
     out
@@ -95,6 +115,7 @@ pub async fn prove(conn: &mut Conn, json: bool, a: ProveArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use theseus_protocol::judge_runs::ClassifyQuality;
 
     /// What the daemon read is said in plain lines: the window, both arms
     /// even when empty, each reason a task was left out, and the notes.
@@ -107,6 +128,17 @@ mod tests {
             arms: [("canary".into(), 1), ("control".into(), 0)].into(),
             left_out: [("never_judged".into(), 3)].into(),
             notes: vec!["nudges are 0".into()],
+            classification: vec![ClassifyQuality {
+                pack: "classify.v1".into(),
+                question: "should_promote".into(),
+                labeled: 5,
+                compared: 4,
+                jev_right: 3,
+                baseline_right: 2,
+                verdict: "insufficient".into(),
+                insufficient: Some("compared 4 of 30".into()),
+                ..ClassifyQuality::default()
+            }],
             elapsed_ms: 7,
             ..JudgeProveResult::default()
         };
@@ -116,6 +148,8 @@ mod tests {
                 "loop.v1: every task that ended: loop.v1 has not moved to canary",
                 "4 finished tasks read; records by arm: canary 1, control 0",
                 "left out: never_judged 3",
+                "classify.v1 should_promote against its baseline: 5 labeled, 4 compared; Jev right 3, \
+                 baseline right 2: insufficient (compared 4 of 30)",
                 "note: nudges are 0",
                 "built in 7 ms",
             ]

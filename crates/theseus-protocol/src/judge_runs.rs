@@ -295,6 +295,9 @@ pub struct JudgeProveResult {
     pub left_out: std::collections::BTreeMap<String, u32>,
     /// What the records cannot say yet, in words (the nudge's fields).
     pub notes: Vec<String>,
+    /// Classification's decision quality against its baseline.
+    #[serde(default)]
+    pub classification: Vec<ClassifyQuality>,
     /// The records, as JSON lines, when asked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -302,4 +305,34 @@ pub struct JudgeProveResult {
     /// How long the build and the report took.
     #[cfg_attr(test, ts(type = "number"))]
     pub elapsed_ms: u64,
+}
+
+/// The prove's classification part (design §2.9): `classify.v1`'s decision
+/// on one question against its baseline's, on the judgments an operator or
+/// an audit labeled. `should_promote`'s baseline is the model's own
+/// `task.create` in that turn, as the system's `task_create` label records it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ClassifyQuality {
+    /// `classify.v1`.
+    pub pack: String,
+    pub question: String,
+    /// Judgments in the window with an operator's or an audit's label on it.
+    pub labeled: u32,
+    /// Of those, the ones whose baseline is recorded: the compared set.
+    pub compared: u32,
+    /// Right on the compared set: Jev's lean, and the baseline's decision.
+    pub jev_right: u32,
+    pub baseline_right: u32,
+    /// The shares right, when `compared` reaches the minimum.
+    #[serde(default)]
+    pub jev_rate: Option<f64>,
+    #[serde(default)]
+    pub baseline_rate: Option<f64>,
+    /// `jev_better`, `baseline_better`, `no_difference` (McNemar's test on
+    /// the pairs where they disagree, at 95%), or `insufficient`.
+    pub verdict: String,
+    /// Set when the sample is short: "compared 3 of 30".
+    #[serde(default)]
+    pub insufficient: Option<String>,
 }

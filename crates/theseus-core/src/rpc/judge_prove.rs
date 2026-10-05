@@ -140,6 +140,13 @@ impl Core {
             min.labeled_per_metric = n as usize;
         }
         let report = prove(&built.records, min);
+        let classify = crate::learning::read_scope(&self.store, "classify")?;
+        let classification = vec![records::classify_quality(
+            &classify,
+            since_ms,
+            until_ms,
+            min.labeled_per_metric,
+        )];
         let mut arms = BTreeMap::from([("canary".to_string(), 0), ("control".to_string(), 0)]);
         for r in &built.records {
             *arms.entry(r.arm.as_str().to_string()).or_insert(0) += 1;
@@ -156,6 +163,7 @@ impl Core {
             arms,
             left_out: built.left_out,
             notes: vec![NUDGES.into()],
+            classification,
             records: p.records.then(|| records::jsonl(&built.records)),
             elapsed_ms: began.elapsed().as_millis() as u64,
         })

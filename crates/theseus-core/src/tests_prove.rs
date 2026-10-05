@@ -488,6 +488,8 @@ async fn the_method_is_the_generator_over_its_records() {
         "{reasons}"
     );
     assert!(v.notes.iter().any(|n| n.contains("26b")));
+    assert_eq!(v.classification.len(), 1);
+    assert_eq!(v.classification[0].verdict, "insufficient");
     // Without `records`, none are answered; the minimum is the caller's.
     let low = c
         .judge_prove(json!({"min_tasks": 2, "min_labeled": 1}))
@@ -714,4 +716,112 @@ async fn ten_thousand_tasks_read_in_time() {
         took.as_millis(),
         v.elapsed_ms
     );
+}
+
+// ------------------------------------------------------- classification
+
+fn promote(id: &str, p: f64, at_ms: u64) -> Seen {
+    let a = Answer::Noul { noul: p };
+    let mut j = judgment(id, "classify.v1", "ses_talk", "all", "complete", 30);
+    j.answers = vec![AnswerRecord {
+        question: "should_promote".into(),
+        def: "should_promote".into(),
+        about: None,
+        band: band(&a, T),
+        answer: a,
+    }];
+    Seen {
+        position: at_ms,
+        at_ms,
+        judgment: j,
+    }
+}
+
+fn label(id: &str, j: &str, value: bool, source: &str, weight: f64, position: u64) -> LabelRow {
+    LabelRow {
+        position,
+        at_ms: position,
+        id: id.into(),
+        judgment: j.into(),
+        pack: "classify.v1".into(),
+        question: Some("should_promote".into()),
+        about: None,
+        label: json!(value),
+        source: source.into(),
+        weight,
+    }
+}
+
+/// One `classify.v1` judgment with its labels: the system's `task_create`
+/// (`called`) and an operator's or an audit's truth.
+fn add(
+    scope: &mut crate::learning::Scope,
+    i: u32,
+    lean: f64,
+    called: Option<bool>,
+    truth: Option<(bool, &str)>,
+) {
+    let id = format!("jdg_m{i:02}");
+    scope
+        .judgments
+        .entry("classify.v1".into())
+        .or_default()
+        .push(promote(&id, lean, 1_000 + u64::from(i)));
+    let mut ls = vec![];
+    if let Some(c) = called {
+        let key = system_key(&id, "should_promote", "task_create");
+        ls.push(label(&key, &id, c, "system", 0.5, 1));
+    }
+    if let Some((t, source)) = truth {
+        let w = if source == "operator" { 1.0 } else { 0.5 };
+        ls.push(label(&format!("lbl_m{i}"), &id, t, source, w, 2));
+    }
+    scope.labels.insert(id, ls);
+}
+
+/// Classification's decision quality: Jev's lean against the model's own
+/// `task.create` (the system's label, by its key), on the messages an
+/// operator or an audit labeled; the system's label is never the truth, a
+/// judgment the system has not labeled is counted and not compared, the
+/// window holds, and the verdict is McNemar's on the pairs that disagree.
+#[test]
+fn classification_is_jev_against_the_models_own_task_create() {
+    use crate::learning::prove::classify_quality;
+    let mut scope = crate::learning::Scope::default();
+    // 30 compared: both right on 20; Jev alone right on 8; the baseline
+    // alone on 2.
+    for i in 0..20 {
+        add(&mut scope, i, 0.95, Some(true), Some((true, "operator")));
+    }
+    for i in 20..28 {
+        add(&mut scope, i, 0.05, Some(true), Some((false, "audit")));
+    }
+    for i in 28..30 {
+        add(&mut scope, i, 0.95, Some(false), Some((false, "operator")));
+    }
+    // Labeled, its turn not yet labeled by the system: counted only.
+    add(&mut scope, 30, 0.95, None, Some((true, "operator")));
+    // The system's label alone: not a truth.
+    add(&mut scope, 31, 0.95, Some(false), None);
+    // Outside the window.
+    add(&mut scope, 40, 0.95, Some(false), Some((true, "operator")));
+    let q = classify_quality(&scope, Some(1_000), Some(1_031), 30);
+    assert_eq!(
+        (q.labeled, q.compared, q.jev_right, q.baseline_right),
+        (31, 30, 28, 22)
+    );
+    assert_eq!(q.jev_rate, Some(28.0 / 30.0));
+    assert_eq!(q.baseline_rate, Some(22.0 / 30.0));
+    // (8 - 2) / sqrt(10) = 1.90: not past chance.
+    assert_eq!(q.verdict, "no_difference");
+    let q = classify_quality(&scope, Some(1_000), Some(1_031), 31);
+    assert_eq!(q.verdict, "insufficient");
+    assert_eq!(q.insufficient.as_deref(), Some("compared 30 of 31"));
+    assert_eq!(q.jev_rate, None);
+    // One more pair Jev alone gets right: (9 - 2) / sqrt(11) = 2.11.
+    let q = {
+        add(&mut scope, 41, 0.05, Some(true), Some((false, "operator")));
+        classify_quality(&scope, None, None, 30)
+    };
+    assert_eq!((q.compared, q.verdict.as_str()), (32, "jev_better"));
 }

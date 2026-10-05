@@ -52,6 +52,7 @@ export type * from './CheckOverlap';
 export type * from './CheckPiece';
 export type * from './ChildrenStatus';
 export type * from './ClassReport';
+export type * from './ClassifyQuality';
 export type * from './CompilationInfo';
 export type * from './CompilationListParams';
 export type * from './CompilationListResult';
