@@ -224,6 +224,8 @@ mod tests_route;
 #[cfg(test)]
 mod tests_route_base;
 #[cfg(test)]
+mod tests_route_rows;
+#[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;

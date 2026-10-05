@@ -9,11 +9,13 @@
 //!   judge off, Jev's breaker open, a slash command, a continuation, a pinned
 //!   turn, or `route.v1` in shadow: no wait.
 //! - **A switch** rebuilds the spec and compiles again on the routed profile;
-//!   the first compile's compilation is persisted only when the call uses it.
+//!   the first compile's compilation is persisted, and its `context.compiled`
+//!   and `loop.started` recorded, only when the call uses it (theseus-d13v).
 //! - **A detour** (`trivial`) compiles the persona and the last
 //!   `trivial_context_turns` exchanges outside the session's compilation,
 //!   which it never writes; the session's profile, `last_target`, and
-//!   compilation stay as they were.
+//!   compilation stay as they were. Its loops record `loop.started` and no
+//!   `context.compiled`: its compilation is never stored, so no row names it.
 //! - **Recorded** as one `route.decided` row, in the turn's next frame, and
 //!   on the turn's result (`TurnSubmitResult.route`).
 //! - **Only while it acts** (theseus-9yyr): a session routing moved runs
@@ -47,6 +49,9 @@ pub(super) struct RouteState {
     /// Routing is deciding: the first compile does not persist its
     /// compilation (only the one the call uses is).
     pub(super) defer_persist: bool,
+    /// The first compile's rows, recorded only when the call uses it
+    /// (theseus-d13v).
+    pub(super) deferred: Option<Box<super::compile_step::Deferred>>,
     /// A detour: the session's own target, which its record keeps.
     pub(super) keeps: Option<TargetRef>,
     /// What the turn's result says.
@@ -291,7 +296,7 @@ impl TurnRunner {
             self.judge.set_routed(t.tc.session_id, ran);
         }
         let Some(d) = decision else {
-            return Self::keep_first(t, session, compiled);
+            return self.keep_first(t, session, compiled, spec, i);
         };
         let routed = session.routed.get_or_insert_with(Default::default);
         match &d.hold {
@@ -303,18 +308,20 @@ impl TurnRunner {
             session.routed = None;
         }
         if d.profile == base {
-            return Self::keep_first(t, session, compiled);
+            return self.keep_first(t, session, compiled, spec, i);
         }
         let target = match self.resolve_target(&base, Some(&d.profile), None, None) {
             Ok(tg) => tg,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), profile = %d.profile, "routing: the profile did not resolve; the session's own runs");
-                return Self::keep_first(t, session, compiled);
+                return self.keep_first(t, session, compiled, spec, i);
             }
         };
         let Some(p) = self.providers.get(&target.provider).cloned() else {
-            return Self::keep_first(t, session, compiled);
+            return self.keep_first(t, session, compiled, spec, i);
         };
+        // The first compile is not the call's: its rows go with it.
+        t.route.deferred = None;
         if d.detour {
             t.route.keeps = Some(TargetRef::from(t.target));
         }
@@ -444,17 +451,23 @@ impl TurnRunner {
             .unwrap_or_else(|| TargetRef::from(t.target))
     }
 
-    /// The first compile is the one the call uses: persist it, as the
-    /// compile step would have.
+    /// The first compile is the one the call uses: persist it, and record
+    /// its rows, as the compile step would have.
     fn keep_first(
+        &self,
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
         compiled: Compiled,
+        spec: &RequestSpec,
+        i: u32,
     ) -> Result<Result<Compiled, Failure>> {
         if compiled.new_compilation
             && session.compilation_id.as_deref() != Some(&compiled.compilation.id)
         {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
+        }
+        if let Some(d) = t.route.deferred.take() {
+            self.compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
         }
         Ok(Ok(compiled))
     }
