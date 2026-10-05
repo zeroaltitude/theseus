@@ -31,6 +31,21 @@
 //! its first frame too (theseus-c67g): the segment's creator may have died
 //! before it did.
 //!
+//! **A sync that fails** (theseus-ljgm) answers every frame it covered with
+//! its error, so it cuts them back off before it returns: the segment is cut
+//! to the end of the last frame a sync that returned Ok covered, the cut is
+//! synced, and the next frame takes the first cut one's position. No open
+//! reads a failed batch back, and `synced` (each later frame's mark) never
+//! covers a page a failed fdatasync may have dropped while a later one
+//! returns Ok (fsyncgate). Syncs run one at a time, so the sync that meets
+//! an error is the one that cuts. Unsynced frames are only ever in the last
+//! segment: a roll syncs the segment it leaves, and a failed roll cuts it as
+//! a failed sync does. When the cut or its sync fails, or the open found
+//! frames past the last position known synced that no sync of this log has
+//! covered yet (its writer may have answered them, so they are not this
+//! log's to cut, nor to claim), the log is broken: it takes no more frames,
+//! and says why.
+//!
 //! On recovery, the first frame that fails (short, bad magic, bad crc) ends
 //! the log. A bad frame followed by good bytes in an earlier segment is
 //! corruption, not a torn tail, and recovery refuses to guess. In the last
@@ -297,13 +312,46 @@ struct Writer {
     segment_len: u64,
     total_len: u64,
     next_position: u64,
-    /// Why the log takes no more frames: a write cut short that could not be
-    /// cut back off, so the next frame would land after part of one.
+    /// Why the log takes no more frames: a write cut short, or frames a sync
+    /// that failed covered, that could not be cut back off, so the next frame
+    /// would land after them (theseus-ljgm).
     broken: Option<String>,
+    /// Each cut a failed sync made: the first position it cut. A frame
+    /// written before a cut is gone when the cut began at or before it.
+    cuts: Vec<u64>,
     /// A test's way to cut the next write short after this many bytes, as a
     /// full disk would.
     #[cfg(test)]
     short_write: Option<usize>,
+    /// A test's faults for the next sync and the cut after it.
+    #[cfg(test)]
+    planted: Planted,
+}
+
+/// A test's faults (theseus-ljgm): fail the next fdatasync, as a disk's error
+/// would, and the cut that follows a failed sync.
+#[cfg(test)]
+#[derive(Default)]
+struct Planted {
+    sync: bool,
+    cut: bool,
+}
+
+/// Where the log stood when a sync last returned Ok (theseus-ljgm): the end
+/// of the last frame it covered, which a sync that fails cuts the segment
+/// back to. Held by `Wal::durable`, which a sync holds from its capture to
+/// its answer, so syncs run one at a time.
+#[derive(Debug, Clone, Copy)]
+struct Durable {
+    segment: u32,
+    len: u64,
+    total: u64,
+    next: u64,
+    /// Frames the open found past the last position known synced, which no
+    /// sync of this log has covered yet: their writer may have answered them
+    /// Ok, so a failed sync may not cut them, and no later sync may claim
+    /// them. Cleared by the first sync that returns Ok.
+    found_unsynced: bool,
 }
 
 pub struct Wal {
@@ -328,6 +376,9 @@ pub struct Wal {
     unsynced_dirs: Mutex<Vec<PathBuf>>,
     /// Directory syncs since open.
     dir_syncs: std::sync::atomic::AtomicU64,
+    /// The end of the last frame a sync that returned Ok covered
+    /// (theseus-ljgm). Taken before `w`, never after it.
+    durable: Mutex<Durable>,
     /// One read handle per segment, opened on its first read: a record read
     /// is then one `pread`, where it was an open, a seek, a read, and a close
     /// (theseus-qa0: 10,000 executions read at startup cost 10,000 opens).
@@ -342,6 +393,27 @@ pub struct Wal {
 }
 
 impl Writer {
+    /// Where the log stands: the end of the last frame written.
+    fn reached(&self) -> Durable {
+        Durable {
+            segment: self.segment,
+            len: self.segment_len,
+            total: self.total_len,
+            next: self.next_position,
+            found_unsynced: false,
+        }
+    }
+
+    /// The error a test planted for the next sync, as a disk's would be.
+    #[cfg_attr(not(test), allow(clippy::unused_self))]
+    fn planted_sync_fault(&mut self) -> Option<io::Error> {
+        #[cfg(test)]
+        if std::mem::take(&mut self.planted.sync) {
+            return Some(io::Error::other("a sync that failed (a test's)"));
+        }
+        None
+    }
+
     /// One frame's bytes, at the end of the segment.
     fn write_frame(&mut self, frame: &[u8]) -> io::Result<()> {
         #[cfg(test)]
@@ -350,6 +422,69 @@ impl Writer {
             return Err(io::Error::other("a write cut short (a test's)"));
         }
         self.file.write_all(frame)
+    }
+}
+
+/// After a sync that failed with `e` (theseus-ljgm): cut the segment back to
+/// the end of the last frame a sync that returned Ok covered, sync the cut,
+/// and roll the writer back with it, so the next frame takes the first cut
+/// one's position. `synced` is left as it was. A failed fdatasync may have
+/// dropped those frames' pages while a later one returns Ok, so nothing
+/// written before the cut may stay. The log is broken instead when the cut
+/// or its sync fails, or when frames the open found unsynced lie before the
+/// cut: those are not this log's to cut, and a later sync may not claim them.
+///
+/// The cut is always in the segment written last: a roll syncs the segment
+/// it leaves before it creates the next, and one that fails cuts it here.
+fn cut_back(w: &mut Writer, durable: &mut Durable, e: &io::Error) {
+    let to = *durable;
+    let cut = (|| {
+        #[cfg(test)]
+        if std::mem::take(&mut w.planted.cut) {
+            return Err(io::Error::other("a cut that failed (a test's)"));
+        }
+        if to.segment != w.segment {
+            return Err(io::Error::other(format!(
+                "the last sync covered segment {}, and the log writes segment {}",
+                to.segment, w.segment
+            )));
+        }
+        w.file.set_len(to.len)?;
+        w.file.sync_data()
+    })();
+    let cut_from = w.next_position;
+    match cut {
+        Ok(()) => {
+            tracing::warn!(
+                error = %e,
+                segment = to.segment,
+                offset = to.len,
+                positions = ?(to.next..cut_from),
+                "wal: a sync failed; the frames it covered are cut back off"
+            );
+            w.segment_len = to.len;
+            w.total_len = to.total;
+            w.next_position = to.next;
+            w.cuts.push(to.next);
+        }
+        Err(cut) => {
+            w.broken = Some(format!(
+                "a sync failed ({e}), and the frames it covered, past segment {} offset {}, could \
+                 not be cut back off ({cut}); a restart's open reads whatever of them reached the \
+                 disk",
+                to.segment, to.len
+            ));
+            return;
+        }
+    }
+    if to.found_unsynced {
+        w.broken = Some(format!(
+            "a sync failed ({e}) before any sync covered the frames this log found at its open \
+             past the last position known synced (to position {}): their writer may have \
+             answered them, so they are not cut, and no later sync may claim them; a restart's \
+             open reads them again",
+            to.next - 1
+        ));
     }
 }
 
@@ -592,19 +727,27 @@ impl Wal {
         let synced = cfg.synced_to.max(walk.mark).min(recovery.last_position);
 
         let (segment, file, segment_len, unsynced_dirs) = append_segment(dir, last_seg, new_dir)?;
+        let writer = Writer {
+            dir: dir.to_path_buf(),
+            cfg,
+            segment,
+            file,
+            segment_len,
+            total_len,
+            next_position: expected_pos,
+            broken: None,
+            cuts: Vec::new(),
+            #[cfg(test)]
+            short_write: None,
+            #[cfg(test)]
+            planted: Planted::default(),
+        };
+        let durable = Durable {
+            found_unsynced: recovery.last_position > synced,
+            ..writer.reached()
+        };
         let wal = Self {
-            w: Mutex::new(Writer {
-                dir: dir.to_path_buf(),
-                cfg,
-                segment,
-                file,
-                segment_len,
-                total_len,
-                next_position: expected_pos,
-                broken: None,
-                #[cfg(test)]
-                short_write: None,
-            }),
+            w: Mutex::new(writer),
             dir: dir.to_path_buf(),
             recovery,
             frames: std::sync::atomic::AtomicU64::new(0),
@@ -612,6 +755,7 @@ impl Wal {
             synced: std::sync::atomic::AtomicU64::new(synced),
             unsynced_dirs: Mutex::new(unsynced_dirs),
             dir_syncs: std::sync::atomic::AtomicU64::new(0),
+            durable: Mutex::new(durable),
             readers: Mutex::default(),
             history_end,
             bad: Arc::default(),
@@ -653,11 +797,25 @@ impl Wal {
     /// (position, location) per record, in order. Durable when this returns
     /// (if `fsync` is on).
     pub fn append(&self, batch: &[NewRecord]) -> Result<Vec<(u64, RecordLocation)>, WalError> {
-        let placed = self.write(batch)?;
-        if !placed.is_empty() && self.fsync() {
+        let (placed, _, cuts) = self.write_counted(batch)?;
+        if let (Some(&(last, _)), true) = (placed.last(), self.fsync()) {
             self.sync()?;
+            // Another caller's sync may have failed, and cut this frame,
+            // between its write and this sync (theseus-ljgm).
+            if let Some(from) = self.cut_since(cuts, last) {
+                return Err(WalError::Io(io::Error::other(format!(
+                    "a sync that failed cut the log back to position {from}, and this frame with it"
+                ))));
+            }
         }
         Ok(placed)
+    }
+
+    /// The first position of a cut made since the log had made `cuts`, that
+    /// took `last` with it: a frame written then, ending at `last`, is gone.
+    fn cut_since(&self, cuts: usize, last: u64) -> Option<u64> {
+        let w = self.w.lock().unwrap();
+        w.cuts[cuts..].iter().copied().find(|&from| from <= last)
     }
 
     /// Whether frames are synced (`WalConfig::fsync`).
@@ -675,25 +833,115 @@ impl Wal {
     }
 
     /// `write`, with the frame's time, which every record in it carries.
+    /// A caller that writes and syncs alone, as the store's writer does,
+    /// knows a failed sync cut only frames it wrote; others `append`.
     pub fn write_timed(
         &self,
         batch: &[NewRecord],
     ) -> Result<(Vec<(u64, RecordLocation)>, u64), WalError> {
+        let (placed, at, _) = self.write_counted(batch)?;
+        Ok((placed, at))
+    }
+
+    /// `write_timed`, with how many cuts the log had made when the frame was
+    /// written: a sync that follows covers it only if no cut since began at
+    /// or before it.
+    #[allow(clippy::type_complexity)]
+    fn write_counted(
+        &self,
+        batch: &[NewRecord],
+    ) -> Result<(Vec<(u64, RecordLocation)>, u64, usize), WalError> {
         if batch.is_empty() {
-            return Ok((Vec::new(), 0));
+            return Ok((Vec::new(), 0, 0));
         }
         let mut w = self.w.lock().unwrap();
-        if let Some(why) = &w.broken {
-            return Err(WalError::Io(io::Error::other(format!(
-                "the log takes no more frames: {why}; a restart's open cuts the torn tail"
-            ))));
-        }
-        #[cfg(not(test))]
-        let at = now_unix_ms();
-        #[cfg(test)]
-        let at = test_clock::now(&w.dir);
-        let first = w.next_position;
+        // A roll syncs, so it holds `durable` as a sync does, taken first.
+        let mut rolling = None;
+        let ((first, at), rel, frame) = loop {
+            if let Some(why) = &w.broken {
+                return Err(WalError::Io(io::Error::other(format!(
+                    "the log takes no more frames: {why}"
+                ))));
+            }
+            #[cfg(not(test))]
+            let at = now_unix_ms();
+            #[cfg(test)]
+            let at = test_clock::now(&w.dir);
+            let first = w.next_position;
+            let (frame, rel) = self.frame(batch, first, at)?;
 
+            if let Some(max) = w.cfg.max_total_bytes {
+                if w.total_len + frame.len() as u64 > max {
+                    return Err(WalError::Full {
+                        used: w.total_len,
+                        max,
+                    });
+                }
+            }
+            let roll =
+                w.segment_len > 0 && w.segment_len + frame.len() as u64 > w.cfg.segment_bytes;
+            if roll && rolling.is_none() {
+                drop(w);
+                rolling = Some(self.durable.lock().unwrap());
+                w = self.w.lock().unwrap();
+                continue;
+            }
+            break ((first, at), rel, frame);
+        };
+
+        // Roll segment if needed (never split a frame).
+        if w.segment_len > 0 && w.segment_len + frame.len() as u64 > w.cfg.segment_bytes {
+            let Some(durable) = rolling.as_mut() else {
+                unreachable!("a roll holds `durable`");
+            };
+            self.roll(&mut w, durable)?;
+        }
+
+        let frame_offset = w.segment_len;
+        if let Err(e) = w.write_frame(&frame) {
+            // Part of the frame may be on disk, where the next one would go:
+            // the log must stay a run of whole frames, or the next open
+            // would end it here, and drop every frame written after.
+            if let Err(cut) = w.file.set_len(frame_offset) {
+                w.broken = Some(format!(
+                    "a write cut short at segment {} offset {frame_offset} ({e}) could not be cut \
+                     back off ({cut}); a restart's open cuts the torn tail",
+                    w.segment
+                ));
+            }
+            return Err(e.into());
+        }
+        w.segment_len += frame.len() as u64;
+        w.total_len += frame.len() as u64;
+        w.next_position = first + batch.len() as u64;
+        let (seg, cuts) = (w.segment, w.cuts.len());
+        self.frames
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let placed = rel
+            .into_iter()
+            .map(|(pos, body_off, len)| {
+                (
+                    pos,
+                    RecordLocation {
+                        segment: seg,
+                        offset: frame_offset + FRAME_HEADER as u64 + body_off as u64,
+                        len: len as u32,
+                    },
+                )
+            })
+            .collect();
+        Ok((placed, at, cuts))
+    }
+
+    /// One frame's bytes, its records at `first` on, each carrying `at`, and
+    /// each record's (position, offset in the body, length).
+    #[allow(clippy::type_complexity)]
+    fn frame(
+        &self,
+        batch: &[NewRecord],
+        first: u64,
+        at: u64,
+    ) -> Result<(Vec<u8>, Vec<(u64, usize, usize)>), WalError> {
         // Build body: the mark first (theseus-7nfj). A sync advances it only
         // past frames already written, so it is always before `first`.
         let mut body = Vec::new();
@@ -711,70 +959,38 @@ impl Wal {
         frame.extend_from_slice(&(body.len() as u32).to_le_bytes());
         frame.extend_from_slice(&Layout::Marked.crc(&body).to_le_bytes());
         frame.extend_from_slice(&body);
+        Ok((frame, rel))
+    }
 
-        if let Some(max) = w.cfg.max_total_bytes {
-            if w.total_len + frame.len() as u64 > max {
-                return Err(WalError::Full {
-                    used: w.total_len,
-                    max,
-                });
-            }
-        }
-
-        // Roll segment if needed (never split a frame). Everything in the old
-        // segment is durable before the first frame of the next is written.
-        if w.segment_len > 0 && w.segment_len + frame.len() as u64 > w.cfg.segment_bytes {
-            w.file.sync_all()?;
-            let next = w.segment + 1;
-            let path = segment_path(&w.dir, next);
-            w.file = OpenOptions::new()
-                .create_new(true)
-                .append(true)
-                .read(true)
-                .open(&path)?;
-            w.segment = next;
-            w.segment_len = 0;
-            // Its name is synced with its first frame (`sync`, theseus-xprd).
-            let mut dirs = self.unsynced_dirs.lock().unwrap();
-            if !dirs.contains(&w.dir) {
-                dirs.push(w.dir.clone());
-            }
-        }
-
-        let frame_offset = w.segment_len;
-        if let Err(e) = w.write_frame(&frame) {
-            // Part of the frame may be on disk, where the next one would go:
-            // the log must stay a run of whole frames, or the next open
-            // would end it here, and drop every frame written after.
-            if let Err(cut) = w.file.set_len(frame_offset) {
-                w.broken = Some(format!(
-                    "a write cut short at segment {} offset {frame_offset} ({e}) could not be cut \
-                     back off ({cut})",
-                    w.segment
-                ));
-            }
+    /// Roll to the next segment. Everything in the old segment is durable
+    /// before the first frame of the next is written: a sync that fails here
+    /// cuts it as `sync`'s does (theseus-ljgm), and creates nothing.
+    fn roll(&self, w: &mut Writer, durable: &mut Durable) -> Result<(), WalError> {
+        let synced = match w.planted_sync_fault() {
+            Some(e) => Err(e),
+            None => w.file.sync_all(),
+        };
+        if let Err(e) = synced {
+            cut_back(w, durable, &e);
             return Err(e.into());
         }
-        w.segment_len += frame.len() as u64;
-        w.total_len += frame.len() as u64;
-        w.next_position = first + batch.len() as u64;
-        let seg = w.segment;
-        self.frames
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let placed = rel
-            .into_iter()
-            .map(|(pos, body_off, len)| {
-                (
-                    pos,
-                    RecordLocation {
-                        segment: seg,
-                        offset: frame_offset + FRAME_HEADER as u64 + body_off as u64,
-                        len: len as u32,
-                    },
-                )
-            })
-            .collect();
-        Ok((placed, at))
+        *durable = w.reached();
+        let next = w.segment + 1;
+        let path = segment_path(&w.dir, next);
+        w.file = OpenOptions::new()
+            .create_new(true)
+            .append(true)
+            .read(true)
+            .open(&path)?;
+        w.segment = next;
+        w.segment_len = 0;
+        *durable = w.reached();
+        // Its name is synced with its first frame (`sync`, theseus-xprd).
+        let mut dirs = self.unsynced_dirs.lock().unwrap();
+        if !dirs.contains(&w.dir) {
+            dirs.push(w.dir.clone());
+        }
+        Ok(())
     }
 
     /// Make every frame written so far durable: one fdatasync of the segment
@@ -784,15 +1000,29 @@ impl Wal {
     /// (theseus-xprd). The handle is cloned, so the fdatasync holds no lock a
     /// reader of the last position waits on. Once it returns Ok, every frame
     /// written before it is synced, and the frames written after it say so
-    /// (their mark, theseus-7nfj).
+    /// (their mark, theseus-7nfj). One that fails cuts every frame written
+    /// since the last that returned Ok back off before it returns, or breaks
+    /// the log (`cut_back`, theseus-ljgm).
     pub fn sync(&self) -> Result<(), WalError> {
+        // One sync at a time, from its capture to its answer: the one that
+        // meets an error cuts, and none moves `durable` past what it lost.
+        let mut durable = self.durable.lock().unwrap();
         // The last position written before the fdatasync starts: a frame is
         // written whole under this lock, so it is all in the file by then.
-        let (file, last) = {
-            let w = self.w.lock().unwrap();
-            (w.file.try_clone()?, w.next_position - 1)
+        // No roll comes between: a roll holds `durable`.
+        let (file, reached, fault) = {
+            let mut w = self.w.lock().unwrap();
+            (w.file.try_clone()?, w.reached(), w.planted_sync_fault())
         };
-        file.sync_data()?;
+        let last = reached.next - 1;
+        let synced = match fault {
+            Some(e) => Err(e),
+            None => file.sync_data(),
+        };
+        if let Err(e) = synced {
+            cut_back(&mut self.w.lock().unwrap(), &mut durable, &e);
+            return Err(e.into());
+        }
         self.syncs
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // Held across the directory syncs: a sync that finds none left
@@ -805,6 +1035,7 @@ impl Wal {
             self.dir_syncs
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
+        *durable = reached;
         self.synced
             .fetch_max(last, std::sync::atomic::Ordering::AcqRel);
         Ok(())
@@ -820,6 +1051,18 @@ impl Wal {
     #[cfg(test)]
     pub(crate) fn cut_next_write(&self, bytes: usize) {
         self.w.lock().unwrap().short_write = Some(bytes);
+    }
+
+    /// Fail the next fdatasync, as a disk's error would.
+    #[cfg(test)]
+    pub(crate) fn fail_next_sync(&self) {
+        self.w.lock().unwrap().planted.sync = true;
+    }
+
+    /// Fail the cut that follows the next failed sync.
+    #[cfg(test)]
+    pub(crate) fn fail_next_cut(&self) {
+        self.w.lock().unwrap().planted.cut = true;
     }
 
     /// Frames appended since open.
@@ -1608,6 +1851,8 @@ mod tests {
 
     /// The synced mark (theseus-7nfj).
     mod mark;
+    /// A failed sync (theseus-ljgm).
+    mod sync;
 
     fn rec(kind: u16, key: Option<&str>, payload: &[u8]) -> NewRecord {
         NewRecord::bytes(kind, key, payload.to_vec())

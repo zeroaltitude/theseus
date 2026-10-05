@@ -33,6 +33,15 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   before its own sync did, and ext4's ordered mode hiding it is no promise of POSIX's. A file made durable needs its directory synced too. The
   store's open adds the holder of every directory it created, the store's own included (theseus-gf00), to those the
   first frame's sync makes durable.
+- **A sync that fails takes its frames with it** (theseus-ljgm). Its batch is answered failed, so `Wal::sync` cuts
+  the segment back to the end of the last frame a sync that returned Ok covered, syncs the cut, and rolls the
+  writer back: the next frame takes the first cut position, and `synced` (the mark) is left as it was, so no later
+  sync's Ok (fsyncgate) claims a page the failed one may have dropped. Syncs run one at a time (`Wal::durable`),
+  and a roll's sync is one of them. The log is broken instead (it refuses frames, saying why) when the cut or its
+  sync fails, or when the open found frames past the last position known synced and no sync has covered them yet:
+  their writer may have answered them. Followers meet the cut as a rewind (theseus-follow checks the frame behind
+  its cursor after each read). An index write that fails after a good sync still fails its batch, and its frames,
+  durable, come back at the next open: not yet fixed.
 - **The version rule: one format number** (P5b; Part III F4a; theseus-ptx1, Tier 7's 7.9 as Eddie amended it). Any
   step that adds a field to a stored record (nested ones included), or changes the frame or record encoding, bumps
   `MANIFEST_FORMAT`, so an older binary refuses the newer store. It lands with the reader for the layout it replaces
