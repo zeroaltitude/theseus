@@ -156,7 +156,7 @@ def theseus_config(
         t["mcp_server"]["enabled"] = False
     t.setdefault("index", {})["enabled"] = memory_arm != "none"
     # A small window wants a small output cap: the compiler keeps room for it.
-    t.setdefault("catalog", {})[m] = {"context_window": int(window), "max_output_tokens": min(16000, window // 4)}
+    t.setdefault("catalog", {})[m] = {"context_window": int(window), "max_output_tokens": pg.output_cap(window)}
     if api_base:
         t["model"]["api_base"] = api_base
         for p in t.get("providers", {}).values():

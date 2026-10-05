@@ -25,7 +25,7 @@ import progression as pg  # noqa: E402
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "a47aab4f47f4760f"
+SMOKE_7 = "97f25dbc1f0ca0d7"
 
 
 class Rng(unittest.TestCase):
@@ -133,6 +133,26 @@ class Stratification(unittest.TestCase):
             self.assertEqual(old.family, "superseded")
             self.assertEqual(q.stale, old.value)
             self.assertIn("lacks", q.check)
+
+
+class Window(unittest.TestCase):
+    def test_each_marks_bulk_read_crosses_the_budget_and_nothing_before_it_does(self):
+        """Theseus's request budget is the window less the output cap and
+        4,096: the turns before a mark fit with the margin to spare, and the
+        bulk read crosses it with the margin more."""
+        self.assertEqual(pg.request_budget(35000), 35000 - 8750 - 4096)
+        self.assertEqual(pg.request_budget(124000), 124000 - 16000 - 4096)
+        for size, window in (("smoke", 35000), ("full", 124000)):
+            p = generate.build(7, size)
+            self.assertEqual(p.context_window, window, size)
+            budget = pg.request_budget(p.context_window)
+            for m in p.marks():
+                s = p.turns[m].session
+                before = sum(generate.PER_TURN for t in p.session_turns(s) if t.index < m)
+                low, high = before * (1 - generate.MARGIN), before * (1 + generate.MARGIN)
+                self.assertLess(generate.OVERHEAD_TOKENS + high, budget, (size, m))
+                bulk = (p.turns[m].est_tokens - 300) - len(p.turns[m].text) // 4
+                self.assertGreater(generate.OVERHEAD_TOKENS + low + bulk, budget, (size, m))
 
 
 class Names(unittest.TestCase):

@@ -229,6 +229,20 @@ class Progression:
         return [t for t in self.turns if t.session == s]
 
 
+def output_cap(window: int) -> int:
+    """The output cap a scratch window gets (the driver's `max_output_tokens`):
+    a quarter of it, at most 16000, so a small window keeps room for its
+    requests."""
+    return min(16000, window // 4)
+
+
+def request_budget(window: int) -> int:
+    """The tokens Theseus lets a request hold in `window`: the window less the
+    output cap and a 4,096-token margin (theseus-core's compiler.rs,
+    `request_budget`)."""
+    return max(0, window - output_cap(window) - 4096)
+
+
 def load(path: Path) -> Progression:
     """A progression from its file, or from a directory holding
     `progression.json` (a generator's out or a run's)."""

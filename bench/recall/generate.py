@@ -109,7 +109,8 @@ VALUE_KINDS = KINDS[:-1]  # the kinds an abstention or a supersession asks after
 
 FULL_PER_CELL = 6
 OVERHEAD_TOKENS = 12000  # a guess at each arm's system prompt and tool list
-SMOKE_WINDOW = 32000
+PER_TURN = 650  # a guess at a turn's tokens: its text, a tool's output, the reply
+MARGIN = 0.15  # how far the per-turn guess may be off and a mark still compact
 
 # The catalog's prices per million tokens (theseus-core's catalog.rs, the
 # built-in table; test_generate holds this copy to it): input, output, cache
@@ -818,17 +819,26 @@ def _fact_turn(b: Builder, ws: Workspace, fact: Fact, scripts: set[str], rng: Rn
 
 def _window(b: Builder, ws: Workspace) -> tuple[int, int]:
     """The scratch context window that brings each arm's compaction near the
-    marks, and the bulk read's tokens: each mark's bulk read must cross the
-    window, and the rest of its session must not."""
+    marks, and the bulk read's tokens.
+
+    Theseus's compiler lets a request hold the window less the output cap
+    and 4,096 tokens (`request_budget` in compiler.rs), and the driver sets
+    the cap from the window (`progression.output_cap`). So the window is the
+    smallest (in thousands) whose budget holds each session's turns before
+    its mark with `MARGIN` to spare, and each bulk read crosses it by
+    `MARGIN` more: an estimate off by that much either way still compacts at
+    the mark. In the full, the turns after a mark fit beside the bulk read
+    and a summary again; in the smoke they may not, and an arm may compact a
+    second time. The scorer measures by where each arm compacted, so a
+    second compaction moves probes, and the report counts them."""
     lay = b.lay
-    per_turn = 650  # a guess at a turn's tokens (text, a tool's output, the reply)
-    befores = [(m - lay.session(m) * lay.session_turns) * per_turn for m in lay.marks]
-    afters = [((lay.session(m) + 1) * lay.session_turns - m - 1) * per_turn for m in lay.marks]
-    if lay.size == "smoke":
-        window = SMOKE_WINDOW
-    else:
-        window = OVERHEAD_TOKENS + max(befores) + max(afters) + 4000
-    bulk = max(4000, window - OVERHEAD_TOKENS - min(befores) + 2000)
+    befores = [(m - lay.session(m) * lay.session_turns) * PER_TURN for m in lay.marks]
+    need = OVERHEAD_TOKENS + max(befores) * (1 + MARGIN) + 2000
+    window = 1000
+    while pg.request_budget(window) < need:
+        window += 1000
+    budget = pg.request_budget(window)
+    bulk = int(budget - OVERHEAD_TOKENS - min(befores) * (1 - MARGIN) + 2000)
     return window, bulk
 
 
