@@ -132,6 +132,8 @@ mod tests_activation;
 #[cfg(test)]
 mod tests_activation_arm;
 #[cfg(test)]
+mod tests_actor;
+#[cfg(test)]
 mod tests_arrangement;
 #[cfg(test)]
 mod tests_audit;
@@ -215,6 +217,8 @@ mod tests_overflow;
 mod tests_places;
 #[cfg(test)]
 mod tests_push;
+#[cfg(test)]
+mod tests_push_once;
 #[cfg(test)]
 mod tests_reach;
 #[cfg(test)]

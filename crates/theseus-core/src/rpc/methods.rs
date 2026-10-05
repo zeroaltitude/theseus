@@ -957,12 +957,10 @@ impl Core {
         let name = p.name.as_str();
         self.cfg.profile(name).map_err(RpcFailure::invalid)?;
         let changed = self
-            .switch_profile(name, conn.client)
+            .switch_profile(name, &conn.actor(None))
             .map_err(RpcFailure::invalid)?;
-        conn.tx.notify(
-            Message::from(theseus_protocol::Event::ProfileChanged(changed.clone())),
-            "policy",
-        );
+        let m = Message::from(theseus_protocol::Event::ProfileChanged(changed.clone()));
+        conn.tx.notify(&crate::outbound::Note::new(&m), "policy");
         Ok(changed)
     }
 
@@ -1075,7 +1073,7 @@ impl Core {
             }
         };
         self.session(&p.session_id)?;
-        self.request_recompile(&p.session_id, strategy, conn.client)?;
+        self.request_recompile(&p.session_id, strategy, &conn.actor(None))?;
         Ok(json!({"session_id": p.session_id, "pending": p.strategy}))
     }
 
