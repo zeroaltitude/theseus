@@ -1,0 +1,203 @@
+# Incidental recall
+
+A benchmark of what an agent remembers from its own work (theseus-7gir.17). One scripted, realistic progression of
+work is replayed identically to each arm: sessions of turns that run scripts, read files and change topic, with
+facts seeded at known points, some said once in passing and some the topic of the moment. Probes come at set
+distances after each fact and ask for it directly, need it silently, or ask after something never said. Each arm
+uses its own memory, and the scorer draws each arm's recall curve and its half-life.
+
+theseus-exam's memory exam (`crates/theseus-exam`) measures Theseus alone, from written stores, with no salience,
+no distance and no indirect probe. This bench drives each arm live, through its own CLI, so the arms compare.
+
+| File | What it is |
+|---|---|
+| `progression.py` | The format: sessions, turns, facts, probes, the workspace; the buckets and the validator. |
+| `checks.py` | The check language, as theseus-exam's `check.rs` has it (`reply has word "…"`, `file "…" has …`). |
+| `generate.py` | The generator: a progression from a seed, and the budget. |
+| `drive.py` | The drivers: a progression replayed to Theseus or to Claude Code, each turn kept. |
+| `score.py` | The scorer: every probe checked, each arm's curve, half-life, and the report. |
+| `test_*.py` | Their tests. |
+
+Standard library only, everywhere.
+
+## The format
+
+A progression (`progression.json`, format `recall-progression-v1`) is:
+
+- **sessions**: a label and a date. Each session's first turn opens with its date ("It's Monday, 2026-11-09.").
+- **turns**: the user's text, each in a session and a topic block, with the workspace edits the driver makes
+  before sending it (`before`) and the tokens its work is expected to read (`est_tokens`). A turn with `mark` is a
+  compaction mark: a long log read where the script expects the arm's context to fill.
+- **facts**: an id, a subject ("the alder relay's port"), a kind (`port`, `path`, `version`, `host`, `ticket`,
+  `date`), its value, its salience, its family, the turn that states it, its source (the script that shows it, or
+  `said`), its `marker` (the text whose presence in the arm's transcript proves it arrived), and what it
+  supersedes.
+- **probes**: the fact, the kind, the planned distance bucket, the turn that asks it, and the check.
+- **workspace**: the files every arm starts from, byte for byte the same.
+
+**Salience.** *Incidental*: said once in passing. That can be a line in a script's output ("run
+./scripts/check-alder-relay.sh: did the build pass?" prints the port among the build lines), a path in an error
+message, a preference in an aside, or a decision in a side remark ("Side note: Maren decided in standup that…").
+*Central*: the topic of the moment ("Today's main thing is the alder relay: it moves to port 23817."). A block's
+central facts are about its topic; its incidental facts are about something else.
+
+**The world moves on.** A script that showed an incidental value is rewritten before the next turn (the log
+rotated, the error fixed), so a later probe can't be answered by running it again. The arm has to remember it.
+
+**Families**, theseus-exam's for their kinds and checks: `tool_output` (the value is in a command's output or
+error), `superseded` (a value a later fact replaces, never probed itself), `time` (when something happened: the
+value is its session's date), `distractor` (a same-kind value near an abstention probe, never probed itself), and
+`needs_nothing` (an abstention's subject: nothing to recall). One family is added: `said`, the user's own words (an
+aside, a side remark, the topic).
+
+**Probes.**
+- *direct*: "Quick question: which port is the alder relay on?"
+- *indirect*: a task that silently needs the fact: "Write the URL of the alder relay's health check on this machine
+  (http, path /healthz) into notes/p007.txt." It is scored by the file the task writes, never by the arm's words.
+- *abstention*: a subject never stated, asked near a distractor that shares a word with it ("the cedar relay's
+  port", near the alder relay's). The right answer gives no value of that kind and says it doesn't know.
+
+**Buckets**, nearest first: `near` (a few turns on, in the same block), `topic_shift` (a later block),
+`compaction` (a compaction between them), `session` (a later session the same day), `days` (a later session on a
+later date), and `supersession` (a probe of a value that replaced another: the new value is right, and the old one
+must be absent). The generator plans buckets by the marks. The scorer measures each arm's buckets by where that
+arm actually compacted. A probe planned past a mark that its arm never compacted at is a `topic_shift` probe for
+that arm.
+
+**Each fact is probed once.** A second probe would remind the arm. The validator refuses a progression that probes
+a fact twice, asks a probe before its fact, says a value anywhere but its own turn, or says an abstention's subject
+anywhere at all.
+
+## The commands
+
+```bash
+# 1. A progression, and its budget.
+python3 bench/recall/generate.py --seed 7 --size smoke --out /tmp/rc-smoke
+
+# 2. Each arm (an Anthropic key in ANTHROPIC_API_KEY; release binaries for Theseus).
+python3 bench/recall/drive.py --arm theseus --memory-arm baseline --bin-dir target/release \
+  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-th
+python3 bench/recall/drive.py --arm claude-code \
+  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-cc
+
+# 3. The scores.
+python3 bench/recall/score.py /tmp/rc-th /tmp/rc-cc --out /tmp/rc-report
+```
+
+**Sizes.** `smoke` is two sessions of 15 turns, three days apart, with one compaction mark and eight probes, at
+least one of each kind. `full` is three sessions of 200 turns: two on one day and the third nine days later, ten
+topic blocks each, a mark in each session, and 6 probes in each of the 34 bucket × salience × kind cells (204 in
+all; an abstention has no supersession). The generator prints the counts and an estimate of the tokens and dollars
+per arm at the catalog's price (`--model`). For seed 7 it says about $0.48 an arm for the smoke and about $11 for
+the full. Treat these as a budget, not a measurement: the per-turn tokens and the system prompt's size are
+guesses.
+
+**Run live only in a throwaway container or VM.** Neither arm's tools are confined to the workspace on a bare host.
+Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code runs its shell tool.
+
+## Each arm's memory
+
+- **Theseus**: a scratch `theseusd`, with `theseus-index` beside it, configured as theseus-exam's `daemon.rs`
+  configures an arm's daemon. That means the bench profile (`bench/theseus-bench.toml`, its key
+  `env:ANTHROPIC_API_KEY`), `[memory] mode = "live"` with `arm` from `--memory-arm`, Discord, the web UI and the
+  MCP server off, and the index on (off for `none`, as `daemon.rs` does). The arm is any string: `none`, `bm25`,
+  `baseline` today, and `+synthesis`, `+retention`, `+activation` once they land. So each memory arm is a sub-arm,
+  one run each. The arm is config, never a turn's field.
+  - Each progression session is one `sessions open`, and each turn is one `theseus --json ask -s <id> -`. A CLI
+    session has no target, so it is private, and recall draws on every earlier session.
+  - Its memory is its recall pass and its compaction's roots. A scratch `[catalog."<model>"] context_window`
+    brings compaction near the marks. The generator picks the window from the compiler's rule: a request may hold
+    the window less the output cap and 4,096 tokens, and the driver sets the cap to a quarter of the window, at
+    most 16000. The window is the smallest whose budget holds a session's turns before its mark with 15% to
+    spare, and each mark's bulk read crosses it with 15% more. For seed 7 that is 35000 for the smoke (a budget of
+    22,154) and 124000 for the full (103,904).
+  - Where it compacted is read from the ledger (`context.compacted`, a summary or a ring) after every turn.
+  - The run keeps each session's `history --full` and `memory recalled`. The daemon is stopped cleanly at the end.
+    The driver fails if anything is still running that names the run's directory or works inside it (a job
+    included).
+  - A turn past `--turn-timeout` (900 s) has its client's process group killed and is recorded as timed out. The
+    turn goes on in the daemon without its client, so the driver runs `theseus stop <session>`, and the next turn
+    starts clean.
+- **Claude Code**: `claude -p --output-format json` with a scratch `CLAUDE_CONFIG_DIR` and the workspace as its
+  working directory.
+  - Each session boundary starts a new session (`--session-id`), and each later turn uses `--resume <id>`.
+  - Its tools are `Bash`, `Read`, `Write`, `Edit`, `Glob` and `Grep` (`--tools` and `--allowedTools`), which do
+    Theseus's same work, with `--permission-prompts none`.
+  - Its memory is its compaction and its memory files (`CLAUDE.md`, its auto-memory). The run keeps both, and its
+    session logs.
+  - Compaction: at a window of 100k or more (what `--autocompact` takes, so the full's 124k), `--autocompact` at
+    the progression's window. Below that (the smoke), `/compact` is sent through `-p --resume` after each mark's
+    turn (`--cc-compact marks`). Print mode does run it (Claude Code 2.1.289): the session log gains a
+    `compact_boundary`, and the session keeps its id. Whether it worked is checked, not assumed: a compaction
+    counts only where the log shows a `compact_boundary`, and the run keeps each `/compact`'s result.
+  - Variables a parent Claude Code session sets (`CLAUDECODE`, …) are taken out of its environment. A turn past
+    `--turn-timeout` has its process group killed (claude and what its shell started).
+- **OpenClaw**, a third arm, is not built yet. Its memory would be its memory search and its wiki. A driver is a
+  class with `drive()`, writing the same run directory, and the scorer reads any arm's.
+
+**Days are dated text.** Neither CLI takes a clock, so each session opens with its date. What this measures is
+recall of what was said on a dated day, across the arm's session boundaries and compactions. It can't measure the
+effect of time itself. Both arms see the real date in their system prompts too, and a memory that weighs elapsed
+time (retention) sees the minutes the run took, not the script's days.
+
+**Delivery.** Every fact's marker is looked for in the arm's transcript (Theseus's history, Claude Code's session
+logs). A probe whose fact never reached the arm (it didn't run the script, say) is excluded and counted, never
+scored as a miss.
+
+## The run directory
+
+`run.json` holds the arm, the memory arm, the model, the progression's digest, the compactions (the turns whose
+request was compacted), and what the stop had to kill. `turns.jsonl` holds each turn's reply, exit, tokens, dollars
+and latency. `delivered.json` holds each fact's delivery. `progression.json` is a copy of the progression, and
+`workspace/` is the arm's workspace as the run left it. `raw/` holds each turn's stdout, the transcripts and the
+daemon's log.
+
+## Each score
+
+- **Correct**: the probe's check holds. That uses the check language: the value present (a whole word; a date in
+  the forms people write it), a superseded value absent, and for an abstention, no value of the kind and an
+  admission. An indirect probe's check reads its file in the arm's workspace.
+- **The curve**: recall accuracy (direct and indirect) per arm by bucket and salience, with the mean turns and
+  tokens since the fact. Each turn's new tokens are its input, cache writes and output. Abstention accuracy has a
+  table of its own.
+- **The half-life**: where accuracy falls to half its nearest bucket's. It is interpolated linearly between the
+  two buckets around the crossing, in turns and in tokens. It is `not reached` if accuracy never falls that far,
+  and `undefined` when the nearest bucket recalls nothing.
+- **Confident-wrong**: a wrong answer that gives a value of the asked kind (for an abstention, any value) with no
+  hedge.
+- **Stale**: a superseded value given, even as history. "It moved from 27340 to 38013" is stale and wrong, because
+  the check wants the old value absent, as theseus-exam's superseded items do.
+- **Cites**: of the right direct answers, those that say where (the script, or that the user said it) and when
+  (its date or weekday, or a relative time).
+- **Cost and latency** per probe: its turn's dollars and wall time.
+- Also: accuracy by probe kind, by how the fact was said (`output`, `error`, `aside`, `remark`, `topic`), and by
+  value kind, and how many probes each arm's compactions moved from their planned bucket.
+
+`score.py` writes `report.md`, `curve.svg` (drawn by hand: incidental solid, central dashed) and `scores.json`.
+
+## Tests
+
+```bash
+python3 -m unittest discover -s bench/recall
+```
+
+They cover:
+- **The generator**: determinism (the smoke's digest pinned, the full the same twice, another seed different),
+  stratification (every cell filled, each fact before its probe and probed once), and no generated name or value
+  in theseus-exam's `exam-v2.toml`. They also check the prices against `catalog.rs`.
+- **The scorer**, against numbers worked by hand: a known curve's half-life, confident-wrong, stale, citations, an
+  abstention, and distance measured where the arm compacted.
+- **The Claude Code driver**, against a stand-in `claude` on PATH: session ids carried, a boundary opening a new
+  one, `/compact` after the mark.
+- **The Theseus driver**, end to end on this workspace's binaries (`target/debug`, or `THESEUS_RECALL_BIN_DIR`) and
+  `theseus-sim fake-model --rules` over the smoke, and a turn past its timeout stopped while the next one runs.
+  It is skipped when they are missing, and nothing is left running. The stand-in model reports a few dozen input tokens a call, and Theseus trusts the provider's count, so
+  it never compacts there. The scorer then moves the smoke's compaction probe to `topic_shift`, as it should.
+
+The real `claude` runs against the same stand-in too: `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>
+ANTHROPIC_API_KEY=stand-in` with `drive.py --arm claude-code`, and rules that name its tools (`Bash`). That checks its
+flags, its sessions, its logs and a `/compact` in print mode. But the stand-in asks again for a tool call that some
+of its requests have already answered, so a few turns run to their timeout. That makes it a check by hand, not a
+test.
+
+The gate doesn't run them. Run them before each commit that touches this directory.
