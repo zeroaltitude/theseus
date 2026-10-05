@@ -64,6 +64,9 @@ pub struct SynthesisChecked<'a> {
     pub why: Option<&'a str>,
     /// The pairs under 0.5 (`s<sentence>:<source>`).
     pub unsupported: &'a [String],
+    /// The leading heading set aside before the checks, as written: the
+    /// node's text is the answer without it.
+    pub heading: Option<&'a str>,
 }
 
 impl Fact for SynthesisChecked<'_> {
@@ -72,7 +75,8 @@ impl Fact for SynthesisChecked<'_> {
     fn row(&self) -> Value {
         json!({"synthesis_id": self.synthesis_id, "cluster": self.cluster,
                "verdict": self.verdict, "least": self.least, "judgment": self.judgment,
-               "mode": self.mode, "why": self.why, "unsupported": self.unsupported})
+               "mode": self.mode, "why": self.why, "unsupported": self.unsupported,
+               "heading": self.heading})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

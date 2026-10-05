@@ -17,7 +17,10 @@
 //!   `synth_limit_usd_per_day`, the local day's spend read from its own
 //!   `synthesis.proposed` rows, so a restart keeps it.
 //! - **The checks**: the deterministic ones, then `citation.v1`
-//!   (`judge::citation`); without Jev a synthesis stays `unchecked`.
+//!   (`judge::citation`); without Jev a synthesis stays `unchecked`. Both
+//!   read the answer's entry (`theseus_memory::consolidate::entry`), a
+//!   leading heading set aside, and the node keeps the entry; the
+//!   `synthesis.proposed` row keeps the answer whole, as it was said.
 //! - **Frames.** Each cluster's records (its node and edges, its rows) are
 //!   one frame, written only between turns, through the memory pass's
 //!   writer handshake (`memory_pass::turns`, which counts its writers).
@@ -469,19 +472,25 @@ impl Core {
         *spent += cost;
         let id = crate::new_id("syn");
         report.synthesis_id = Some(id.clone());
-        report.text = Some(text.clone());
         report.cost_usd = micros_to_usd(cost);
-        let verdict = self.verdict(&id, &text, sources).await;
+        let entry = pure::entry(&text);
+        let verdict = self.verdict(&id, entry.text, sources).await;
         let session = match &verdict {
             Verdict::Checked(_) => Some(self.open_memory_session_between().await?),
             Verdict::Rejected(..) => None,
         };
         report.outcome = verdict.word().into();
         report.why = verdict.why();
+        // What was kept, or the answer refused, as it was said.
+        report.text = Some(match &verdict {
+            Verdict::Checked(_) => entry.text.to_string(),
+            Verdict::Rejected(..) => text.clone(),
+        });
         let records = self.records(
             &id,
             c,
             &text,
+            &entry,
             profile,
             &model,
             cost,
@@ -526,7 +535,8 @@ impl Core {
             .collect()
     }
 
-    /// The deterministic checks, then Jev's.
+    /// The deterministic checks, then Jev's, on an entry's text: its
+    /// sentences are numbered from 1 after its heading.
     async fn verdict(&self, id: &str, text: &str, sources: &[Source]) -> Verdict {
         let sentences = match pure::check(text, sources.len()) {
             Ok(s) => s,
@@ -571,13 +581,16 @@ impl Core {
     }
 
     /// One synthesis's frame: its node and edges (unless rejected), its
-    /// `synthesis.proposed`, `.checked`, and `.scored` rows.
+    /// `synthesis.proposed` (the answer whole), `.checked` (the heading set
+    /// aside, if any), and `.scored` rows; the node and the score are the
+    /// entry's.
     #[allow(clippy::too_many_arguments)]
     fn records(
         &self,
         id: &str,
         c: &pure::Cluster,
-        text: &str,
+        answer: &str,
+        entry: &pure::Entry<'_>,
         profile: &str,
         model: &str,
         cost: Micros,
@@ -596,7 +609,7 @@ impl Core {
             cluster: &c.digest,
             sources: &c.nodes,
             turns: c.turns as u64,
-            text,
+            text: answer,
             profile,
             model,
             cost_usd: micros_to_usd(cost),
@@ -637,13 +650,14 @@ impl Core {
             mode,
             why,
             unsupported: bad,
+            heading: entry.heading,
         };
         out.push(key(crate::fact::row(&checked, None, None)?));
         let (Verdict::Checked(check), Some(session)) = (verdict, session) else {
             return Ok(out);
         };
         let body = Body::Synthesis {
-            text: text.to_string(),
+            text: entry.text.to_string(),
             sources: c.nodes.clone(),
             check: check.clone(),
             stage: Stage::of(check),
@@ -658,7 +672,7 @@ impl Core {
         for s in &c.nodes {
             out.push(Edge::new(EdgeKind::DerivedFrom, id, s, VIA_SYNTHESIS).record()?);
         }
-        let scored = score(&c.nodes, text, rows, self.runner.memory.cfg());
+        let scored = score(&c.nodes, entry.text, rows, self.runner.memory.cfg());
         if !scored.is_empty() {
             let f = SynthesisScored {
                 synthesis_id: id,

@@ -689,3 +689,76 @@ async fn a_failed_call_leaves_its_cluster_for_the_next_run() {
         "the day's spend read back from its row"
     );
 }
+
+/// The live form: the entry headed by its title, with a stop, on the
+/// entry's line. The heading is set aside: the synthesis is kept, its
+/// node's text is the entry, and Jev is asked about the entry's three
+/// sentences alone, numbered from 1; the proposed row keeps the answer
+/// whole, and the checked row names the heading.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_synthesis_headed_by_its_title_is_kept_without_it() {
+    headed_is_kept(&format!("Kestrel relay. {SYNTHESIS}"), "Kestrel relay.").await;
+}
+
+/// The same with a Markdown heading on a line of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_synthesis_under_a_markdown_heading_is_kept_without_it() {
+    headed_is_kept(
+        &format!("# Kestrel relay\n\n{SYNTHESIS}"),
+        "# Kestrel relay",
+    )
+    .await;
+}
+
+async fn headed_is_kept(answer: &str, heading: &str) {
+    let jev = FakeJev::start().unwrap();
+    supports(&jev, 0.95);
+    let r = rig(MemoryMode::Shadow, Some(&jev), |_| {});
+    let c = &r.core;
+    kestrel(c).await;
+    r.model
+        .script
+        .lock()
+        .unwrap()
+        .push_back(Scripted::text(answer));
+    let out = consolidate(c, false).await;
+    let rep = &out.clusters[0];
+    assert_eq!(rep.outcome, "supported", "{out:?}");
+    assert_eq!(
+        rep.text.as_deref(),
+        Some(SYNTHESIS),
+        "the report shows the entry"
+    );
+    let kept = syntheses(c);
+    assert_eq!(kept.len(), 1);
+    let Body::Synthesis { text, .. } = &kept[0].body else {
+        unreachable!()
+    };
+    assert_eq!(text, SYNTHESIS, "the node keeps the entry");
+    let proposed = rows(c, LedgerKind::SynthesisProposed);
+    assert_eq!(
+        proposed[0].data["text"], answer,
+        "the row keeps what was said"
+    );
+    let checked = rows(c, LedgerKind::SynthesisChecked);
+    assert_eq!(checked[0].data["verdict"], "supported");
+    assert_eq!(checked[0].data["heading"], heading);
+    let asked: Vec<String> = jev.seen().iter().map(|s| s.body.to_string()).collect();
+    let citation = asked
+        .iter()
+        .find(|b| b.contains("citation.v1/supports"))
+        .unwrap();
+    assert!(citation.contains("supports.3"), "three pairs: {citation}");
+    assert!(!citation.contains("supports.4"), "three pairs: {citation}");
+    assert!(
+        citation.contains("listens on port 7714"),
+        "the entry's sentences"
+    );
+    assert!(
+        !citation.contains("Kestrel relay.") && !citation.contains("# Kestrel"),
+        "not the heading: {citation}"
+    );
+    // A second run proposes it again never.
+    let again = consolidate(c, true).await;
+    assert!(again.clusters.is_empty(), "{again:?}");
+}
