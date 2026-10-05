@@ -1038,7 +1038,9 @@ impl Core {
         rec.key = Some(lineage::key(&l.name()));
         self.store.append(&[rec.scoped(&lineage::scope(&l.root))])?;
         self.runner.judge.lineage().add(l.clone());
-        if let Err(e) = lineage::write_files(&self.cfg.state_dir(), std::slice::from_ref(l)) {
+        if let Err(e) =
+            lineage::write_files(&lineage::state_of(&self.store), std::slice::from_ref(l))
+        {
             tracing::warn!(error = %format!("{e:#}"), "learning: the version's file was not written; its row holds it");
         }
         self.rec(None).announce(&f);

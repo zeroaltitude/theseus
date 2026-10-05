@@ -251,7 +251,14 @@ async fn ten_train_errors_propose_once_and_the_holdout_never_reaches_the_writer(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_better_candidate_replaces_a_shadow_parent_and_a_rollback_restores_it() {
     let jev = fake(false);
-    let r = rig(vec![writer_reply()], &jev, |_| {});
+    // As `theseusd --state-dir` starts it: the store elsewhere than the
+    // config's `[server] state_dir`, which the files must not follow.
+    let elsewhere =
+        std::env::temp_dir().join(format!("learn-loop-elsewhere-{}", std::process::id()));
+    let cfg_dir = elsewhere.to_string_lossy().into_owned();
+    let r = rig(vec![writer_reply()], &jev, move |c| {
+        c.server.state_dir = cfg_dir
+    });
     let c = &r.core;
     let split = split_now();
     seed(c, 10, 0, split);
@@ -283,7 +290,12 @@ async fn a_better_candidate_replaces_a_shadow_parent_and_a_rollback_restores_it(
     assert_eq!(versions.len(), 1);
     let text = versions[0].data["text"].as_str().unwrap().to_string();
     assert!(text.contains("Plainly") && text.contains("version = 101"));
-    let file = c.cfg.state_dir().join("packs").join("loop.v101.toml");
+    let state = crate::judge::lineage::state_of(&c.store);
+    let file = state.join("packs").join("loop.v101.toml");
+    assert!(
+        !elsewhere.join("packs").exists(),
+        "the file followed [server] state_dir"
+    );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
     // It stands in loop.v1's place: a turn's end dispatches it.
     let j = &c.runner.judge;
@@ -293,9 +305,9 @@ async fn a_better_candidate_replaces_a_shadow_parent_and_a_rollback_restores_it(
         .unwrap();
     assert_eq!(d.pack, "loop.v101");
     // The rows rebuild the file, as a restart's warm does.
-    std::fs::remove_dir_all(c.cfg.state_dir().join("packs")).unwrap();
+    std::fs::remove_dir_all(state.join("packs")).unwrap();
     j.lineage().forget();
-    j.write_pack_files(&c.cfg.state_dir());
+    j.write_pack_files(&state);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
     // The ladder's rollback gives the place back.
     c.pack_rollback(

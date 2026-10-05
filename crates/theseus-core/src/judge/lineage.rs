@@ -170,6 +170,14 @@ impl Lineage {
     }
 }
 
+/// The state dir the store lives in: the store's own directory's parent.
+/// The daemon's `--state-dir` moves the store but not `[server] state_dir`,
+/// so `Config::state_dir` is not where a daemon so started keeps its state.
+pub fn state_of(store: &Store) -> std::path::PathBuf {
+    let dir = store.dir();
+    dir.parent().unwrap_or(dir).to_path_buf()
+}
+
 /// `<state dir>/packs/`.
 pub fn dir(state: &Path) -> std::path::PathBuf {
     state.join("packs")

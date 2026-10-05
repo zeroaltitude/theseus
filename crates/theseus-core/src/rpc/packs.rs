@@ -133,7 +133,9 @@ impl Core {
                 core.runner.judge.ladder().standing(crate::judge::LOOP_PACK);
                 // The learned versions (25f), and their files from their
                 // rows.
-                core.runner.judge.write_pack_files(&core.cfg.state_dir());
+                core.runner
+                    .judge
+                    .write_pack_files(&crate::judge::lineage::state_of(&core.store));
             }
         });
     }
