@@ -769,6 +769,12 @@ impl Store {
         self.inner.last_position()
     }
 
+    /// The last position known synced (`WalStore::synced_to`): how far the
+    /// durability tender ships (theseus-mgw.12).
+    pub fn synced_to(&self) -> u64 {
+        self.inner.synced_to()
+    }
+
     /// Append records as one atomic frame.
     pub fn append(&self, records: &[NewRecord]) -> Result<Vec<u64>> {
         self.commit(records)

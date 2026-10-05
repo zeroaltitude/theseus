@@ -804,6 +804,19 @@ impl WalStore {
         self.inner.wal.recovery()
     }
 
+    /// The last position known durable on this machine, for a reader that
+    /// ships the log off it (the durability tender, theseus-mgw.12): what the
+    /// writer's last sync covered (`Wal::synced`, exact and live), or, with
+    /// `fsync` off, every position written, since nothing is ever synced and
+    /// the page cache is all the store has. Read-only.
+    pub fn synced_to(&self) -> u64 {
+        if self.inner.fsync {
+            self.inner.wal.synced()
+        } else {
+            self.inner.wal.last_position()
+        }
+    }
+
     pub fn dir(&self) -> &Path {
         &self.inner.dir
     }

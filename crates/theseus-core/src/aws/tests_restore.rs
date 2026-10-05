@@ -114,7 +114,7 @@ impl Lab {
     }
 }
 
-async fn restore_with(aws: &Aws, into: &Path) -> anyhow::Result<S3Report> {
+pub(super) async fn restore_with(aws: &Aws, into: &Path) -> anyhow::Result<S3Report> {
     let knobs = Knobs {
         page: Some(3),
         chunk: Some(100),
@@ -128,7 +128,7 @@ fn shipper(aws: &Arc<Aws>, store: &Path) -> Shipper {
 }
 
 /// Every record of a WAL, in order.
-fn records(wal_dir: &Path) -> Vec<Record> {
+pub(super) fn records(wal_dir: &Path) -> Vec<Record> {
     let mut f = WalFollower::open(wal_dir, Cursor::start()).unwrap();
     let mut out = Vec::new();
     loop {
@@ -140,7 +140,7 @@ fn records(wal_dir: &Path) -> Vec<Record> {
     }
 }
 
-fn titles(store: &Store) -> Vec<(String, Option<String>)> {
+pub(super) fn titles(store: &Store) -> Vec<(String, Option<String>)> {
     let mut s: Vec<(String, Option<String>)> = store
         .list_sessions::<SessionRecord>()
         .unwrap()

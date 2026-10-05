@@ -634,6 +634,7 @@ impl Rig {
         let hooks = Hooks {
             ledger: Some(Arc::new(move |r| rows.lock().unwrap().push(r))),
             measure: Some(Arc::new(move |m| shipped.lock().unwrap().push(m))),
+            ..Hooks::default()
         };
         let account = self.aws.accounts().next().unwrap().clone();
         Shipper::open(account, Paths::for_store(&self.store), tuning(), hooks).unwrap()

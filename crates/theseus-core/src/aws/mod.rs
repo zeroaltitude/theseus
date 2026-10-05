@@ -81,6 +81,8 @@ mod tests_network;
 mod tests_outside;
 #[cfg(test)]
 mod tests_restore;
+#[cfg(test)]
+mod tests_synced;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 16] = [

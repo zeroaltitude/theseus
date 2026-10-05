@@ -16,6 +16,13 @@
 //!   carries its SHA-256, which S3 checks. It reads the WAL only through the
 //!   follower, and ships bytes, never frames re-encoded, so a change to the
 //!   frame's layout ships as it is.
+//! - **Only synced frames** (theseus-mgw.12): the follower reads up to the
+//!   last position the writer's sync covered ([`Hooks::synced_to`], the
+//!   store's `synced_to`, read at each batch), so a frame a power loss takes
+//!   from the page cache never ships, and the log written again after it
+//!   follows on from the cursor. A frame past it waits, still counted in
+//!   `oldest_unshipped_unix_ms`, and health says `waiting` until the next
+//!   pass, a settle later, ships it.
 //! - **The index rows** ([`rows`]): a row per object and per keyed record's
 //!   latest position, `BatchWriteItem`s into the durability table, retrying
 //!   unprocessed items.
@@ -183,11 +190,14 @@ pub enum Measure {
     CaughtUp { lag_ms: u64 },
 }
 
-/// Where the tender's rows and measures go.
+/// Where the tender's rows and measures go, and how far the log is synced.
 #[derive(Clone, Default)]
 pub struct Hooks {
     pub ledger: Option<Arc<dyn Fn(LedgerRow) + Send + Sync>>,
     pub measure: Option<Arc<dyn Fn(Measure) + Send + Sync>>,
+    /// The last position known synced: no frame past it ships. None ships
+    /// every whole frame (a test's log that is never synced).
+    pub synced_to: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
 }
 
 /// Why a pass stopped.
@@ -253,6 +263,9 @@ pub struct Shipper {
     blobs: BTreeSet<String>,
     status: AwsDurabilityStatus,
     hooks: Hooks,
+    /// The last pass stopped before a frame not yet synced: its first
+    /// position.
+    held: Option<u64>,
     /// A test's crash: fail just after S3 took this part, before the cursor
     /// records it.
     #[cfg(test)]
@@ -321,6 +334,7 @@ impl Shipper {
             blobs,
             status,
             hooks,
+            held: None,
             #[cfg(test)]
             crash_after_part: None,
             #[cfg(test)]
@@ -330,6 +344,16 @@ impl Shipper {
 
     pub fn status(&self) -> &AwsDurabilityStatus {
         &self.status
+    }
+
+    /// Whether the last pass left a frame that was not yet synced: the next
+    /// pass comes a settle later, not at the next change.
+    pub fn held(&self) -> bool {
+        self.held.is_some()
+    }
+
+    fn synced_to(&self) -> u64 {
+        self.hooks.synced_to.as_ref().map_or(u64::MAX, |f| f())
     }
 
     /// Health's line, on the account.
@@ -370,10 +394,18 @@ impl Shipper {
     pub async fn pass(&mut self) -> Result<(), Halt> {
         let r = self.ship_all().await;
         match &r {
-            Ok(()) => {
-                self.status.state = "caught_up".into();
-                self.status.error = None;
-            }
+            Ok(()) => match self.held {
+                Some(position) => {
+                    self.status.state = "waiting".into();
+                    self.status.error = Some(format!(
+                        "for the WAL's sync: position {position} is written, not yet synced"
+                    ));
+                }
+                None => {
+                    self.status.state = "caught_up".into();
+                    self.status.error = None;
+                }
+            },
             Err(Halt::Retry(e)) => {
                 self.status.state = "failing".into();
                 self.status.error = Some(e.clone());
@@ -389,11 +421,13 @@ impl Shipper {
 
     async fn ship_all(&mut self) -> Result<(), Halt> {
         self.status.state = "shipping".into();
+        self.held = None;
         self.ship_blobs().await?;
         loop {
             let before = self.follower.cursor().clone();
             let batch_bytes = self.tuning.batch_bytes;
-            let batch = match blocking(|| self.follower.read(batch_bytes)) {
+            let upto = self.synced_to();
+            let batch = match blocking(|| self.follower.read_upto(batch_bytes, upto)) {
                 Ok(b) => b,
                 Err(FollowError::Rewound(why)) => {
                     // A restore replaced the log: start again, and let S3's
@@ -426,6 +460,17 @@ impl Shipper {
             if *self.follower.stop() != Stop::Budget {
                 break;
             }
+        }
+        if let Stop::Held {
+            position,
+            at_unix_ms,
+            ..
+        } = *self.follower.stop()
+        {
+            // Everything before it shipped: the exposure is its own.
+            self.status.oldest_unshipped_unix_ms = Some(at_unix_ms);
+            self.held = Some(position);
+            return Ok(());
         }
         if let Some(t) = self.status.oldest_unshipped_unix_ms.take() {
             let lag_ms = now_unix_ms().saturating_sub(t);
@@ -939,6 +984,14 @@ async fn follow(mut shipper: Shipper, paths: &Paths, tuning: &Tuning, alive: &im
     let mut backoff = tuning.settle;
     while alive() {
         match shipper.pass().await {
+            Ok(()) if shipper.held() => {
+                // A frame written and not yet synced: the writer's sync
+                // follows its write at once, and changes nothing inotify
+                // sees, so look again a settle later.
+                backoff = tuning.settle;
+                tokio::time::sleep(tuning.settle).await;
+                continue;
+            }
             Ok(()) => backoff = tuning.settle,
             Err(halt) => {
                 if !after_failure(halt, &mut backoff).await {
@@ -988,9 +1041,15 @@ impl crate::Core {
                 }
             }) as Arc<dyn Fn(Measure) + Send + Sync>
         };
+        let synced_to = {
+            let core = weak.clone();
+            Arc::new(move || core.upgrade().map_or(0, |c| c.store.synced_to()))
+                as Arc<dyn Fn() -> u64 + Send + Sync>
+        };
         let hooks = Hooks {
             ledger: Some(ledger),
             measure: Some(measure),
+            synced_to: Some(synced_to),
         };
         let alive = move || weak.strong_count() > 0;
         tokio::spawn(run(account, paths, Tuning::default(), hooks, alive));
