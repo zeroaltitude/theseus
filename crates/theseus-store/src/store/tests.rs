@@ -1473,3 +1473,63 @@ fn a_checkpointed_frame_gone_bad_is_refused_before_anything_is_cut() {
     assert!(msg.contains("theseusd restore --repair"), "{msg}");
     assert_eq!(std::fs::read(&seg).unwrap(), b, "nothing was cut");
 }
+
+/// The writer's view of a failed sync (theseus-ljgm): a batch whose one sync
+/// fails is answered failed, every frame of it, and cut back off; the next
+/// batch goes on at the cut one's positions and is answered Ok; and a reopen
+/// holds exactly the records answered Ok, at gapless positions.
+#[test]
+fn a_batch_whose_sync_fails_is_answered_failed_and_never_comes_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = Arc::new(open(dir.path()));
+    let rec = |key: &str| NewRecord::json(kinds::META, Some(key), &key).unwrap();
+    s.append(&[rec("before")]).unwrap();
+    // Three appends queue behind a held writer, so they go in one batch,
+    // with one sync, which fails.
+    let held = s.inner.appending.write().unwrap();
+    let appenders: Vec<_> = ["one", "two", "three"]
+        .into_iter()
+        .map(|key| {
+            let s = s.clone();
+            std::thread::spawn(move || s.append(&[rec(key)]))
+        })
+        .collect();
+    until_queued(&s, 3);
+    s.inner.wal.fail_next_sync();
+    let syncs = s.stats().unwrap().syncs;
+    drop(held);
+    for a in appenders {
+        let err = a.join().unwrap().unwrap_err();
+        assert!(err.to_string().contains("a sync that failed"), "{err:#}");
+    }
+    assert_eq!(s.stats().unwrap().syncs, syncs, "one sync, which failed");
+    for key in ["one", "two", "three"] {
+        assert!(
+            s.latest_by_key(kinds::META, key).unwrap().is_none(),
+            "{key}"
+        );
+    }
+    assert_eq!(s.last_position(), 1, "the batch is cut back off");
+    let after = s.append(&[rec("after")]).unwrap();
+    assert_eq!(
+        after,
+        vec![2],
+        "the next batch takes the cut one's first position"
+    );
+    drop(s);
+    let s = open(dir.path());
+    let keys: Vec<(u64, String)> = s
+        .inner
+        .wal
+        .replay_from(0)
+        .unwrap()
+        .into_iter()
+        .map(|(r, _)| (r.position, r.key.unwrap()))
+        .collect();
+    assert_eq!(
+        keys,
+        vec![(1, "before".to_string()), (2, "after".to_string())],
+        "exactly the records answered Ok"
+    );
+    assert!(s.latest_by_key(kinds::META, "one").unwrap().is_none());
+}
