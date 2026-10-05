@@ -80,8 +80,11 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - **The lock.** A transition that reads an execution, or one of its actions, and writes it back holds that
   execution's lock from the read until its frame is indexed. Never call a transition that locks an execution
   this thread holds: it panics ("locked twice on one thread"), and inside a transaction, so does one of an
-  execution it did not name. Compose in a transaction instead, as `mark_unknown` does. Several executions:
-  `Kernel::lock`, in id order; a task and its parent: `lock_family`. Readers that write nothing take no lock.
+  execution it did not name. Nor take a lock while the thread holds any other: `lock_all` panics ("a lock taken
+  while this thread holds another", theseus-oqxw), so a frame's closure that calls the kernel itself on an
+  execution the frame did not name fails at once instead of deadlocking out of id order. Compose in a transaction
+  instead, as `mark_unknown` does. Several executions: `Kernel::lock`, in id order, in one call; a task and its
+  parent: `lock_family`. Readers that write nothing take no lock.
   A transition's commit waits for the store's writer on the thread that holds its locks, and a wait for a lock
   another thread holds runs in `theseus_store::blocking`: neither holds a runtime worker (theseus-vni9). A lock
   is its thread's, so `ExecLock` is `!Send` (Review 2's R7), and a build-time check beside it fails the build if

@@ -26,12 +26,21 @@
 //! that calls another which locks the same execution would wait on itself, so
 //! that panics instead.
 //!
+//! Nor is a lock taken while the thread holds another (theseus-oqxw). A
+//! transaction's closure that calls the kernel itself, not its view, on an
+//! execution the frame did not name would take that lock while holding the
+//! frame's, out of id order, and two such threads would deadlock with nothing
+//! to say so. So `lock_all` panics when its thread holds any lock already:
+//! every lock a thread needs at once is taken in one call. The check is a
+//! count per thread, so it costs every transition one thread-local read.
+//!
 //! A lock belongs to its OS thread, so it is `!Send` (Review 2's R7): held
 //! across an `.await`, in a future a runtime may move between threads, it is
 //! a compile error rather than a "locked twice" panic in an unrelated task. A
 //! wait for a lock another thread holds (across its fsync) holds no runtime
 //! worker (`theseus_store::blocking`, theseus-vni9).
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
@@ -49,6 +58,11 @@ struct Held {
     by: HashMap<String, ThreadId>,
     /// Lockers waiting for an execution another thread holds.
     waiting: usize,
+}
+
+thread_local! {
+    /// How many `ExecLock`s this thread holds now, of any `ExecLocks`.
+    static HELD_HERE: Cell<u32> = const { Cell::new(0) };
 }
 
 /// Executions locked by one transition; released when dropped, a panic
@@ -104,13 +118,27 @@ impl ExecLocks {
         ids.sort_unstable();
         ids.dedup();
         let me = std::thread::current().id();
+        let mut held = self.state();
+        if !ids.is_empty() && HELD_HERE.get() > 0 {
+            let twice = ids.iter().find(|id| held.by.get(**id) == Some(&me));
+            drop(held);
+            match twice {
+                Some(id) => panic!(
+                    "kernel: execution {id} locked twice on one thread (a transition called \
+                     another that locks it)"
+                ),
+                None => panic!(
+                    "kernel: a lock taken while this thread holds another: name it in the one \
+                     Kernel::frame (locking {ids:?})"
+                ),
+            }
+        }
         // Built first, so a panic below releases what it already took.
         let mut lock = ExecLock {
             locks: self,
             ids: Vec::with_capacity(ids.len()),
             _thread: PhantomData,
         };
-        let mut held = self.state();
         for id in ids {
             loop {
                 match held.by.get(id) {
@@ -134,6 +162,9 @@ impl ExecLocks {
                 }
             }
             held.by.insert(id.to_string(), me);
+            if lock.ids.is_empty() {
+                HELD_HERE.set(HELD_HERE.get() + 1);
+            }
             lock.ids.push(id.to_string());
         }
         lock
@@ -157,6 +188,7 @@ impl Drop for ExecLock<'_> {
         if self.ids.is_empty() {
             return;
         }
+        HELD_HERE.set(HELD_HERE.get().saturating_sub(1));
         let mut held = self.locks.state();
         for id in &self.ids {
             held.by.remove(id);
@@ -222,5 +254,35 @@ mod tests {
         drop(b);
         assert_eq!(locks.held(), 0);
         drop(locks.lock("exe_a"));
+    }
+
+    /// theseus-oqxw: a lock of another execution, taken while this thread
+    /// holds one, of these locks or of another kernel's, panics and takes
+    /// nothing; once the first is released the thread locks again.
+    #[test]
+    fn a_lock_taken_while_this_thread_holds_another_panics_and_takes_nothing() {
+        let (locks, others) = (ExecLocks::default(), ExecLocks::default());
+        for held_by in [&locks, &others] {
+            let a = held_by.lock("exe_a");
+            let nested = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                drop(locks.lock_all(&["exe_b", "exe_c"]))
+            }));
+            let msg = nested.expect_err("a second lock while exe_a is held");
+            let msg = msg.downcast_ref::<String>().unwrap();
+            assert!(
+                msg.contains("a lock taken while this thread holds another"),
+                "{msg}"
+            );
+            assert_eq!(locks.held() + others.held(), 1, "only exe_a is held");
+            drop(a);
+            drop(locks.lock_all(&["exe_b", "exe_c"]));
+        }
+        // Another thread's lock is no reason: it waits, as before.
+        let a = locks.lock("exe_a");
+        std::thread::scope(|s| {
+            s.spawn(|| drop(locks.lock("exe_b"))).join().unwrap();
+        });
+        drop(a);
+        assert_eq!(locks.held(), 0);
     }
 }

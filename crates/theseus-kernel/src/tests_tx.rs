@@ -276,3 +276,57 @@ fn two_transactions_naming_two_executions_in_opposite_orders_never_deadlock() {
     });
     assert_eq!(k.exec_locks().held(), 0);
 }
+
+/// theseus-oqxw: a transaction's closure that calls the kernel itself, not
+/// its view, on an execution the frame did not name would take that lock
+/// while holding the frame's. On one thread it panics, naming the fix, and
+/// writes nothing. On two, each holding the execution the other's closure
+/// then locks, both panic at once, where before they waited on each other
+/// for ever: a missing panic fails within seconds, not at nextest's kill.
+#[test]
+fn a_lock_taken_while_the_thread_holds_another_panics_and_writes_nothing() {
+    let w = Arc::new(world());
+    let (a, b) = (waiting(&w), waiting(&w));
+    let before = w.kernel.store().last_position();
+    let held = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        w.kernel.frame(&[&a.id], |_| w.kernel.wake_input(&b.id))
+    }));
+    let msg = panic_text(held.expect_err("a lock taken while the frame's is held"));
+    assert!(
+        msg.contains(
+            "a lock taken while this thread holds another: name it in the one Kernel::frame"
+        ),
+        "{msg}"
+    );
+    assert_eq!(w.kernel.store().last_position(), before, "nothing written");
+    assert_eq!(w.kernel.exec_locks().held(), 0);
+
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let (tx, rx) = mpsc::channel();
+    for (x, y) in [(a.id.clone(), b.id.clone()), (b.id.clone(), a.id.clone())] {
+        let (w, barrier, tx) = (w.clone(), barrier.clone(), tx.clone());
+        std::thread::spawn(move || {
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                w.kernel.frame(&[&x], |_| {
+                    barrier.wait();
+                    w.kernel.wake_input(&y)
+                })
+            }));
+            let _ = tx.send(r.err().map(panic_text));
+        });
+    }
+    for _ in 0..2 {
+        let msg = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("no panic: the two transactions wait on each other")
+            .expect("a panic, not a wake");
+        assert!(
+            msg.contains("a lock taken while this thread holds another"),
+            "{msg}"
+        );
+    }
+    assert_eq!(w.kernel.store().last_position(), before, "nothing written");
+    assert_eq!(w.kernel.exec_locks().held(), 0);
+    w.kernel.wake_input(&a.id).unwrap();
+    w.kernel.wake_input(&b.id).unwrap();
+}
