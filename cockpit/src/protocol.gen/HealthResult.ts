@@ -206,7 +206,7 @@ terminals?: Array<TerminalInfo>,
  */
 mcp_server?: McpServerHealth, 
 /**
- * Memory's retention projection (M6 32a): absent while memory is off.
+ * Recall's mode and arm and its projections (M6 32a, 32b): absent while memory is off.
  */
 memory?: MemoryHealth, 
 /**

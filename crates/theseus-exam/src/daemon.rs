@@ -357,7 +357,7 @@ port = 7434
 "#
         .parse()
         .unwrap();
-        for arm in ["none", "bm25", "baseline"] {
+        for arm in ["none", "bm25", "baseline", "+activation"] {
             let t = config_for(&base, arm);
             assert_eq!(t["memory"]["mode"].as_str(), Some("live"));
             assert_eq!(t["memory"]["arm"].as_str(), Some(arm));

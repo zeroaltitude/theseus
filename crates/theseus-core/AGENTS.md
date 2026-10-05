@@ -446,6 +446,33 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`ready`, or why it ranked without), and each admitted and dropped item its `RecallRetention`. `memory.search`
     takes `arm`; health's `memory` block and the gauge `theseus.memory.retention.nodes` give its size. Tests:
     `tests_retention.rs`, `recall::retention::tests`.
+  - **The adjacency projection** (step 32b, theseus-6fn.12): `recall/adjacency.rs`, what spreading activation walks,
+    folded from the record and never stored: neighbours by position in a session (a `Recall` node is no one's
+    neighbour), a tool call and its result by `tool_use_id`, the EDGEs by kind and route (`mapped`: `derived_from`'s
+    copying routes, `recall`'s at weight zero by construction, a route it does not know, such as 31b's `synthesis`,
+    spreads nothing and is counted `unmapped`; `supersedes` 1.0 toward the newer node, 0.2 back), and each node's
+    entities from its `memory.labeled` row, expanded at a spread from each entity's list, never stored per pair
+    (`1/ln(1+df)`; an entity in more nodes than `cap` is not expanded: at the defaults, 1,095, past which one such
+    edge cannot carry a seed over the threshold alone). A node the memory pass never labeled has no entities.
+    `Projection::refresh` folds what was written since; the result does not depend on where a fold stopped. Tests:
+    `tests_activation.rs`.
+  - **The `+activation` arm** (step 32b): `recall/activation.rs`. `[memory] arm = "+activation"` (canary or live;
+    shadow and a canary's control run `baseline`) asks the index for `baseline`'s sources, then, before the pipeline,
+    spreads (`Memory::activated`, theseus-memory's `Activated` science, which is `baseline` but for `activate`): the
+    turn's new node at 1.0 (`Begun.new_node`; its projection edges and the query's entities the hits matched, the
+    tender asked nothing more) and the top 10 fused hits over the best one's score. The reached nodes are one more
+    ranked source: a reached hit gains `weight / (60 + rank)` and `sources.activation`, and at most 20 of the
+    strongest the index did not return (none the turn holds, none at or after `as_of`, none the index never indexes)
+    join the candidates read from the store, before every filter (the place rule reads them as any candidate). The
+    spread runs on the blocking pool for what is left of the index's deadline (`deadline`); the projection is built
+    after serving (`Core::warm_activation`), and a turn that finds it unbuilt starts the build and goes on
+    (`building`); a search builds it itself. The seam other arms share: `MemoryArm`, `Memory::science_for(arm)`, the
+    `Scene`'s `science` (read by `manifest_ranked`, `refill` and the rerank's `Recalled`), and `memory.search`'s
+    `arm` (`theseus memory search --arm`). The manifest's `activation` says what it did and its share of what was
+    admitted (each item's rank and score are its `sources.activation`); the `recall` span holds a `recall.activate`
+    span, timed in `theseus.recall.activate_ms` by outcome, with its additions in `theseus.recall.activated`
+    (`telemetry/tests_recall.rs`); health's `memory` block (`Core::memory_health`) names the projection's nodes,
+    edges, entities and bytes. Tests: `tests_activation_arm.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

@@ -25,18 +25,21 @@ use crate::judge::rerank::Recalled;
 use crate::recall::{Answer, Begun, Scene};
 
 impl TurnRunner {
-    /// The manifest of a recall in front of the model, reranked as the arms
-    /// rule says; its items carry their excerpts (the node's ranges).
+    /// The manifest of a recall in front of the model under `arm`'s
+    /// science, reranked as the arms rule says; its items carry their
+    /// excerpts (the node's ranges).
     pub(super) async fn recall_reranked(
         &self,
         t: &mut Turn<'_>,
         mode: &str,
         arm: MemoryArm,
+        activation: Option<theseus_protocol::memory::RecallActivation>,
         begun: &Begun,
         answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
-        let scene = self.scene(t, mode, arm);
+        let mut scene = self.scene(t, mode, arm);
+        scene.activation = activation;
         if rerank == PackMode::Off {
             return self.memory.manifest(
                 &scene,
@@ -105,6 +108,7 @@ impl TurnRunner {
                 labeled,
                 budget_tokens,
                 science,
+                activation: None,
             };
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);

@@ -29,6 +29,8 @@
 //! recompile. A control session runs `none` live with `baseline` in shadow.
 //! The operator's labels (`labels`) keep a node out as `labeled_wrong`.
 
+pub mod activation;
+pub mod adjacency;
 pub mod labels;
 pub mod render;
 pub mod retention;
@@ -41,7 +43,7 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use theseus_memory::recall::{self as pipeline, Asker, Candidate, Link, LinkKind, Pack, Place};
-use theseus_memory::{Baseline, MemoryScience, Retention, RetentionRank};
+use theseus_memory::{Activated, Baseline, MemoryScience, Retention, RetentionRank};
 use theseus_protocol::index::{IndexQueryParams, IndexQueryResult};
 use theseus_protocol::memory::{
     BudgetDrop, BudgetReport, RecallDrop, RecallItem, RecallManifest, RecallRetention,
@@ -70,6 +72,10 @@ pub type Ask = Arc<dyn Fn(IndexQueryParams) -> AskFuture + Send + Sync>;
 pub struct Memory {
     cfg: MemoryConfig,
     science: Baseline,
+    /// The `+activation` arm's science (32b).
+    activated: Arc<Activated>,
+    /// The adjacency projection it spreads over, built after serving.
+    pub(crate) adjacency: Arc<activation::Adjacent>,
     ask: RwLock<Option<Ask>>,
     /// The nodes the operator labeled wrong or stale, once read (`labels`).
     labels: RwLock<Option<BTreeSet<String>>>,
@@ -95,6 +101,8 @@ impl Memory {
         Self {
             cfg,
             science: Baseline::default(),
+            activated: Arc::new(Activated::default()),
+            adjacency: Arc::new(activation::Adjacent::default()),
             ask: RwLock::new(ask),
             labels: RwLock::new(None),
             armed: Mutex::new(BTreeSet::new()),
@@ -182,9 +190,10 @@ impl Memory {
         Arc::new(self.science.clone())
     }
 
-    /// An arm's science: `+retention`'s (32a) for it, `baseline`'s for
-    /// every other. The arms' seam: each arm that ranks its own way adds
-    /// its line here.
+    /// An arm's science: `+retention`'s (32a) and `+activation`'s (32b) for
+    /// theirs, `baseline`'s for every other. Shadow, a canary's control, and a
+    /// search that names no arm run `baseline`. The arms' seam: each arm that
+    /// ranks its own way adds its line here.
     pub fn science_for(&self, arm: MemoryArm) -> Arc<dyn MemoryScience> {
         match arm {
             MemoryArm::Retention => Arc::new(RetentionRank {
@@ -192,6 +201,7 @@ impl Memory {
                 fsrs: self.retention.fsrs().clone(),
                 ..RetentionRank::default()
             }),
+            MemoryArm::Activation => self.activated.clone(),
             MemoryArm::None | MemoryArm::Bm25 | MemoryArm::Baseline => self.science_owned(),
         }
     }
@@ -256,6 +266,7 @@ impl Memory {
             query,
             as_of,
             deadline,
+            new_node: None,
         }
     }
 }
@@ -290,6 +301,8 @@ pub struct Begun {
     pub query: String,
     pub as_of: Option<u64>,
     pub deadline: Duration,
+    /// The turn's new node, which seeds a spread at 1.0 (32b).
+    pub new_node: Option<String>,
 }
 
 impl Begun {
@@ -317,9 +330,11 @@ pub struct Scene<'a> {
     /// The pack's tokens when not `[memory] recall_budget_tokens`: an
     /// assembled prefix's recall section (30c), `assembled_budget_tokens`.
     pub budget_tokens: Option<u64>,
-    /// The turn's arm's science (`Memory::science_for`): `baseline`'s in
-    /// shadow, for a canary's control, and for a search without an arm.
+    /// The turn's arm's science (`Memory::science_for`): `baseline` in
+    /// shadow, for a canary's control, and for a search with no arm.
     pub science: Arc<dyn MemoryScience>,
+    /// What spreading activation did before the pipeline (32b).
+    pub activation: Option<theseus_protocol::memory::RecallActivation>,
 }
 
 impl Memory {
@@ -373,6 +388,7 @@ impl Memory {
             recall_id: crate::new_id("rcl"),
             mode: scene.mode.into(),
             science: scene.science.id().to_string(),
+            activation: scene.activation.clone(),
             outcome: "ran".into(),
             session_id: scene.session_id.map(str::to_string),
             turn_id: scene.turn_id.map(str::to_string),
@@ -608,6 +624,17 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
             retention: None,
         })
         .collect();
+    // Activation's share of what was admitted (32b).
+    if let Some(a) = &mut m.activation {
+        let ranked = |i: &&RecallItem| i.sources.contains_key(activation::SOURCE);
+        a.admitted = m.admitted.iter().filter(ranked).count() as u64;
+        a.admitted_added = m
+            .admitted
+            .iter()
+            .filter(ranked)
+            .filter(|i| i.sources.len() == 1)
+            .count() as u64;
+    }
 }
 
 fn ms(d: Duration) -> f64 {

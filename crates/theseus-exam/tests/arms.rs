@@ -289,7 +289,10 @@ fn the_exam_runs_each_arm_on_a_daemon_of_its_own() {
     let mut said = Vec::new();
     let s = arms::run(&plan, &exam, &m, &mut |l| said.push(l.to_string()))
         .unwrap_or_else(|e| panic!("{e:#}\n{}", said.join("\n")));
-    assert_eq!(s.daemons, ["none", "bm25", "baseline", "+retention"]);
+    assert_eq!(
+        s.daemons,
+        ["none", "bm25", "baseline", "+retention", "+activation"]
+    );
     assert_eq!(s.runs.len(), 2, "{s:?}");
     assert!(s.killed.is_empty(), "every stop was clean: {:?}", s.killed);
     // Nothing is left: no daemon, and no tender.
@@ -300,7 +303,7 @@ fn the_exam_runs_each_arm_on_a_daemon_of_its_own() {
     );
 
     let recs = drive::read_records(&path("runs.jsonl")).unwrap();
-    assert_eq!(recs.len(), 2 * 5 * 2, "items × arms × runs");
+    assert_eq!(recs.len(), 2 * 6 * 2, "items × arms × runs");
     check_records(&recs);
     check_notes(&path("store"), &m, &exam, &model.seen.lock().unwrap());
 
@@ -367,16 +370,21 @@ fn check_records(recs: &[drive::Record]) {
                     (c.arm.as_str(), c.mode.as_str(), c.outcome.as_str()),
                     (arm, "live", "ran")
                 );
+                // `+retention` and `+activation` run their own sciences (32a,
+                // 32b), baseline's in all but the rank or the spread.
                 let science = if arm == "+retention" {
                     "retention@"
+                } else if arm == "+activation" {
+                    "activation@"
                 } else {
                     "baseline@"
                 };
                 assert!(c.science.starts_with(science), "{c:?}");
                 assert_eq!(c.gold_admitted, 1, "{arm} {}: {c:?}", r.item);
                 assert!(!c.sources.contains_key("vector"), "{c:?}");
-                // bm25 never asks for vectors; baseline and +retention do,
-                // and this tender, with no model files, says why it has none.
+                // bm25 never asks for vectors; baseline, +retention and
+                // +activation do, and this tender, with no model files, says
+                // why it has none.
                 assert_eq!(c.skipped.contains_key("vector"), arm != "bm25", "{c:?}");
             }
         }
@@ -392,6 +400,7 @@ fn check_records(recs: &[drive::Record]) {
         assert_eq!(p("bm25"), 2, "{item}");
         assert_eq!(p("baseline"), 2, "{item}: baseline passes what none fails");
         assert_eq!(p("+retention"), 2, "{item}");
+        assert_eq!(p("+activation"), 2, "{item}");
         assert_eq!(p("oracle"), 2, "{item}");
     }
 }
@@ -402,12 +411,19 @@ fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<Str
     let notes = drive::oracle_notes(store, m, &exam.file.items.iter().collect::<Vec<_>>()).unwrap();
     for item in &exam.file.items {
         let note = notes[&item.id].as_deref().unwrap();
-        // The baseline daemon's request: the task's block, then its Recall's.
-        let base = seen
-            .iter()
-            .find(|t| t.len() == 2 && t[0] == item.task)
-            .unwrap_or_else(|| panic!("no request with {}'s recall: {seen:?}", item.id));
-        assert_eq!(base[1], note, "{}: the core rendered another note", item.id);
+        // The baseline daemon's request: the task's block, then its Recall's
+        // (`+activation`'s may admit more, so any one of them).
+        assert!(
+            seen.iter().any(|t| t.len() == 2 && t[0] == item.task),
+            "no request with {}'s recall: {seen:?}",
+            item.id
+        );
+        assert!(
+            seen.iter()
+                .any(|t| t.len() == 2 && t[0] == item.task && t[1] == note),
+            "{}: the core rendered another note: {seen:?}",
+            item.id
+        );
         let oracle = format!("{}\n\n{note}", item.task);
         assert!(
             seen.iter().any(|t| t.len() == 1 && t[0] == oracle),

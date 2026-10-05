@@ -3,7 +3,7 @@
 //! admit with each source's rank, and why each other candidate was dropped.
 
 use theseus_protocol::memory::{
-    MemoryHealth, MemoryRecallsResult, RecallManifest, RecallRetention,
+    MemoryHealth, MemoryRecallsResult, RecallActivation, RecallManifest, RecallRetention,
 };
 
 use super::{plural, push, Line, Tag};
@@ -98,6 +98,18 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
             m.budget_tokens
         ),
     );
+    arm_lines(o, m);
+    for a in &m.admitted {
+        item_lines(o, a);
+    }
+    drop_lines(o, m);
+    out
+}
+
+/// The lines between a recall's head and its items: why the rank went
+/// without retention's projection (32a), Jev's live rerank (32d), and
+/// what spreading activation did (32b).
+fn arm_lines(o: &mut Vec<Line>, m: &RecallManifest) {
     if let Some(line) = unranked_line(m) {
         push(o, Tag::Warn, &line);
     }
@@ -108,11 +120,95 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
             &rerank_line(r),
         );
     }
-    for a in &m.admitted {
-        item_lines(o, a);
+    if let Some(a) = &m.activation {
+        let (tag, line) = activation_line(a, m.admitted.len());
+        push(o, tag, &line);
     }
-    drop_lines(o, m);
-    out
+}
+
+/// What spreading activation did (32b): its share of what was admitted,
+/// or why it did not run.
+fn activation_line(a: &RecallActivation, admitted: usize) -> (Tag, String) {
+    if a.outcome != "ran" {
+        let why = a
+            .why
+            .as_deref()
+            .map(|w| format!(": {w}"))
+            .unwrap_or_default();
+        return (
+            Tag::Dim,
+            format!("  activation did not run ({}){why}", a.outcome),
+        );
+    }
+    (
+        Tag::Plain,
+        format!(
+            "  activation ranked {} of the {admitted} admitted, {} found by it alone · from {} \
+             reached {} ({} of the index's hits, {} added) · {:.1} ms over {} nodes, {} edges",
+            a.admitted,
+            a.admitted_added,
+            plural(a.seeds, "seed", "seeds"),
+            a.reached,
+            a.boosted,
+            a.added,
+            a.took_ms,
+            a.nodes,
+            a.edges,
+        ),
+    )
+}
+
+/// Health's memory line: the mode and arm, the retention projection (32a)
+/// once the arm reads it or a search asked for it, and the adjacency
+/// projection (32b) once an arm reads it.
+pub(super) fn push_health(o: &mut Vec<Line>, h: Option<&MemoryHealth>) {
+    let Some(h) = h else { return };
+    let retention = h.arm == "+retention" || !matches!(h.retention.as_str(), "" | "unbuilt");
+    if h.mode == "off" && h.adjacency.is_none() && !retention {
+        return;
+    }
+    let mut line = format!("memory: {} · arm {}", h.mode, h.arm);
+    let mut tag = Tag::Plain;
+    if retention {
+        line.push_str(&format!(" · retention {}", h.retention));
+        if h.retention != "unbuilt" {
+            line.push_str(&format!(
+                " · {} ({})",
+                plural(h.nodes, "node", "nodes"),
+                plural(h.events, "event", "events")
+            ));
+        }
+        if let Some(why) = &h.why {
+            tag = Tag::Warn;
+            line.push_str(&format!(" · {why}"));
+        }
+    }
+    if let Some(a) = &h.adjacency {
+        match a.state.as_str() {
+            "built" => line.push_str(&format!(
+                " · adjacency {} nodes, {} edges, {} entities, {:.1} MB, through @{}{}",
+                a.nodes,
+                a.edges,
+                a.entities,
+                a.bytes as f64 / 1_048_576.0,
+                a.through,
+                if a.unmapped > 0 {
+                    format!(" ({} edges of routes it does not know)", a.unmapped)
+                } else {
+                    String::new()
+                }
+            )),
+            "failed" => {
+                tag = Tag::Warn;
+                line.push_str(&format!(
+                    " · adjacency failed: {}",
+                    a.why.as_deref().unwrap_or("unknown")
+                ));
+            }
+            state => line.push_str(&format!(" · adjacency {state}")),
+        }
+    }
+    push(o, tag, &line);
 }
 
 /// Whether Jev's live rerank ordered the pack (32d), or why recall's own
@@ -223,26 +319,6 @@ fn fmt_utc(unix_ms: u64) -> String {
         (s / 60) % 60,
         s % 60
     )
-}
-
-/// Health's memory line (32a): the mode, the arm, and the retention
-/// projection's state and size.
-pub fn memory_line(h: &MemoryHealth) -> String {
-    let mut line = format!(
-        "memory: {} · arm {} · retention {}",
-        h.mode, h.arm, h.retention
-    );
-    if h.retention != "unbuilt" {
-        line.push_str(&format!(
-            " · {} ({})",
-            plural(h.nodes, "node", "nodes"),
-            plural(h.events, "event", "events")
-        ));
-    }
-    if let Some(why) = &h.why {
-        line.push_str(&format!(" · {why}"));
-    }
-    line
 }
 
 /// The drops by reason, each with the first of its nodes.
@@ -368,12 +444,105 @@ mod tests {
             ),
             "{all}"
         );
+        // Activation's share (32b), and why it did not run.
+        let act = |outcome: &str| {
+            let m = RecallManifest {
+                activation: Some(RecallActivation {
+                    outcome: outcome.into(),
+                    why: (outcome != "ran").then(|| "the projection is built after serving".into()),
+                    seeds: 4,
+                    reached: 12,
+                    boosted: 2,
+                    added: 3,
+                    admitted: 2,
+                    admitted_added: 1,
+                    nodes: 900,
+                    edges: 2400,
+                    took_ms: 1.25,
+                    ..RecallActivation::default()
+                }),
+                ..m.clone()
+            };
+            let lines: Vec<String> = recall_lines(&m).into_iter().map(|l| l.text).collect();
+            lines.join("\n")
+        };
+        let all = act("ran");
+        assert!(
+            all.contains(
+                "activation ranked 2 of the 1 admitted, 1 found by it alone · from 4 seeds reached \
+                 12 (2 of the index's hits, 3 added) · 1.2 ms over 900 nodes, 2400 edges"
+            ),
+            "{all}"
+        );
+        let all = act("building");
+        assert!(
+            all.contains(
+                "activation did not run (building): the projection is built after serving"
+            ),
+            "{all}"
+        );
         let all = reranked(false, Some("timeout"));
         assert!(
             all.contains(
                 "in recall's own order (jdg_h1): Jev had not answered within the 200 ms wait"
             ),
             "{all}"
+        );
+    }
+
+    #[test]
+    fn health_names_the_adjacency_projection() {
+        let line = |h: &MemoryHealth| {
+            let mut o = Vec::new();
+            push_health(&mut o, Some(h));
+            o.into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n")
+        };
+        let mut h = MemoryHealth {
+            mode: "live".into(),
+            arm: "+activation".into(),
+            adjacency: Some(theseus_protocol::memory::AdjacencyHealth {
+                state: "built".into(),
+                nodes: 1200,
+                edges: 3400,
+                entities: 80,
+                bytes: 3 * 1_048_576,
+                through: 9876,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            line(&h),
+            "memory: live · arm +activation · adjacency 1200 nodes, 3400 edges, 80 entities, \
+             3.0 MB, through @9876"
+        );
+        h.adjacency = Some(theseus_protocol::memory::AdjacencyHealth {
+            state: "building".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            line(&h),
+            "memory: live · arm +activation · adjacency building"
+        );
+        let off = MemoryHealth {
+            mode: "off".into(),
+            arm: "baseline".into(),
+            adjacency: None,
+            ..Default::default()
+        };
+        assert_eq!(line(&off), "");
+        // Retention's clause (32a), beside it once both are merged.
+        let retention = MemoryHealth {
+            mode: "live".into(),
+            arm: "+retention".into(),
+            retention: "ready".into(),
+            nodes: 2,
+            events: 5,
+            ..Default::default()
+        };
+        assert_eq!(
+            line(&retention),
+            "memory: live · arm +retention · retention ready · 2 nodes (5 events)"
         );
     }
 }

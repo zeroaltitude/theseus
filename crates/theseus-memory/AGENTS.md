@@ -32,6 +32,9 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   (`retention@<16 hex>`). `RankCtx::retention` carries the candidates' retention by node, filled by the core
   (through `Asker::retention`) only for a science whose `reads_retention` says so; `Reranked` forwards it, so a
   repack in Jev's order keeps the arm's science.
+- `activated.rs` (32b's wire-in): `Activated`, the `+activation` arm's science: `baseline` in every verb but
+  `activate`, which spreads with its `SpreadParams`; and its numbers as a fusion source (`weight`, its term
+  `weight / (60 + rank)` as the tender fuses, the 10 seeds, the 20 nodes it may add), all in its digest.
 
 ## Invariants
 

@@ -12,6 +12,6 @@ export type MemorySearchParams = { query: string, session_id?: string,
 k?: number, 
 /**
  * The arm whose sources and science rank it (`[memory] arm`'s names:
- * `baseline`, `bm25`, `+retention`); default `baseline`.
+ * `baseline`, `bm25`, `+retention`, `+activation`); default `baseline`.
  */
 arm?: string, };

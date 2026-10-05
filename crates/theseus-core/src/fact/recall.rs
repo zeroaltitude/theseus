@@ -169,6 +169,22 @@ fn span(m: &RecallManifest, t0: u64, t1: u64, trace: &mut Trace) {
             at += us;
         }
     }
+    // Spreading activation (32b), after the index answered.
+    if let Some(a) = m.activation.as_ref().filter(|a| a.took_ms > 0.0) {
+        let at = t0 + (m.timings.index_ms * 1000.0) as u64;
+        children.push(Span {
+            name: "recall.activate".into(),
+            kind: "recall".into(),
+            start_us: at,
+            end_us: Some(at + (a.took_ms * 1000.0) as u64),
+            attrs: json!({
+                "outcome": a.outcome, "seeds": a.seeds, "reached": a.reached,
+                "boosted": a.boosted, "added": a.added, "admitted": a.admitted,
+                "admitted_added": a.admitted_added, "nodes": a.nodes, "edges": a.edges,
+            }),
+            children: Vec::new(),
+        });
+    }
     trace.push(Span {
         name: "recall".into(),
         kind: "recall".into(),
@@ -179,6 +195,7 @@ fn span(m: &RecallManifest, t0: u64, t1: u64, trace: &mut Trace) {
             "outcome": m.outcome, "candidates": m.candidates,
             "admitted": m.admitted.len(), "tokens": m.used_tokens, "drops": m.drops,
             "index_ms": m.timings.index_ms, "deadline_ms": m.timings.deadline_ms,
+            "activation": m.activation.as_ref().map(|a| a.outcome.as_str()),
         }),
         children,
     });
@@ -249,6 +266,16 @@ pub fn words(m: &RecallManifest) -> String {
             .map(|(reason, n)| format!("{n} {}", reason_words(reason)))
             .collect();
         line.push_str(&format!("; dropped {}", d.join(", ")));
+    }
+    match &m.activation {
+        Some(a) if a.outcome == "ran" => line.push_str(&format!(
+            "; activation reached {} and added {}, {} of them admitted",
+            narrative::count(a.reached, "node", "nodes"),
+            a.added,
+            a.admitted_added
+        )),
+        Some(a) => line.push_str(&format!("; activation did not run ({})", a.outcome)),
+        None => {}
     }
     line.push('.');
     line

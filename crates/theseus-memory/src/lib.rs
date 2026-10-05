@@ -9,7 +9,8 @@
 //! - [`fsrs`]: FSRS-6 retention (step 32a), from the published algorithm,
 //!   and its fold over a node's events;
 //! - [`access`]: what happened to a node, and the review it is;
-//! - [`activation`]: spreading activation over typed edges (step 32b);
+//! - [`activation`]: spreading activation over typed edges (step 32b), and
+//!   [`activated`], the `+activation` arm's science;
 //! - [`rerank`]: the `+rerank` arm's reorder of the top 20 by Jev's answers,
 //!   and the pack it would admit (step 32c);
 //! - [`retention`]: the `+retention` arm's science, the fused score weighed
@@ -19,6 +20,7 @@
 //! adjacency projection and the `+activation` arm.
 
 pub mod access;
+pub mod activated;
 pub mod activation;
 pub mod fsrs;
 pub mod recall;
@@ -27,6 +29,7 @@ pub mod retention;
 pub mod science;
 
 pub use access::{Access, AccessEvent, Durability, Label, Outcome};
+pub use activated::Activated;
 pub use activation::{spread, Adjacency, AdjacencyList, EdgeKind, EdgeWeights, SpreadParams};
 pub use fsrs::{Fsrs6, Grade, ParamsError, Retention, FSRS6_DEFAULT};
 pub use recall::{

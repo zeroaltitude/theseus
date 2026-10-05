@@ -125,6 +125,10 @@ pub fn id_ms(id: &str) -> Option<u64> {
 }
 
 #[cfg(test)]
+mod tests_activation;
+#[cfg(test)]
+mod tests_activation_arm;
+#[cfg(test)]
 mod tests_arrangement;
 #[cfg(test)]
 mod tests_audit;

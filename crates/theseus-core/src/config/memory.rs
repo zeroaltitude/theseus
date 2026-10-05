@@ -39,8 +39,9 @@ impl MemoryMode {
 
 /// The arms this build has (§2.9): `none`, today's compiler; `bm25`, the
 /// index's BM25 and entities alone (34b); `baseline`, the fused pipeline;
-/// and `+retention` (32a), `baseline` ranked by FSRS-6 retention too. Later
-/// steps add theirs.
+/// `+retention` (32a), `baseline` ranked by FSRS-6 retention too; and
+/// `+activation` (32b), `baseline` with spreading activation as one more
+/// ranked source. Later steps add theirs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryArm {
@@ -50,6 +51,8 @@ pub enum MemoryArm {
     Baseline,
     #[serde(rename = "+retention")]
     Retention,
+    #[serde(rename = "+activation")]
+    Activation,
 }
 
 impl MemoryArm {
@@ -59,6 +62,7 @@ impl MemoryArm {
             MemoryArm::Bm25 => "bm25",
             MemoryArm::Baseline => "baseline",
             MemoryArm::Retention => "+retention",
+            MemoryArm::Activation => "+activation",
         }
     }
 
@@ -71,12 +75,28 @@ impl MemoryArm {
     /// none for `none`, which asks nothing; BM25 and entities for `bm25`;
     /// and all three, fused, for `baseline`. A tender without its model
     /// answers `baseline` without vectors, and says so in `skipped`.
+    /// `+activation` asks for `baseline`'s: its own source is the core's.
     pub fn sources(self) -> &'static [&'static str] {
         match self {
             MemoryArm::None => &[],
             MemoryArm::Bm25 => &["bm25", "entity"],
-            MemoryArm::Baseline | MemoryArm::Retention => &["bm25", "entity", "vector"],
+            MemoryArm::Baseline | MemoryArm::Retention | MemoryArm::Activation => {
+                &["bm25", "entity", "vector"]
+            }
         }
+    }
+
+    /// The arm a name names (`memory search --arm`).
+    pub fn named(name: &str) -> Option<Self> {
+        [
+            MemoryArm::None,
+            MemoryArm::Bm25,
+            MemoryArm::Baseline,
+            MemoryArm::Retention,
+            MemoryArm::Activation,
+        ]
+        .into_iter()
+        .find(|a| a.as_str() == name)
     }
 }
 
@@ -360,11 +380,15 @@ mod tests {
             ("bm25", MemoryArm::Bm25),
             ("baseline", MemoryArm::Baseline),
             ("+retention", MemoryArm::Retention),
+            ("+activation", MemoryArm::Activation),
         ] {
             let cfg = parse(&format!("[memory]\nmode = \"live\"\narm = \"{arm}\"\n")).unwrap();
             assert_eq!(cfg.memory.arm, want);
             assert_eq!(want.as_str(), arm);
+            assert_eq!(MemoryArm::named(arm), Some(want));
         }
+        assert!(parse("[memory]\narm = \"activation\"\n").is_err());
+        assert_eq!(MemoryArm::named("+rerank"), None);
         for bad in [
             "recall_budget_tokens = 0",
             "recall_max_items = 0",
