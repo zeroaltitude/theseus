@@ -195,7 +195,8 @@ wants it nearer main's, the cheapest lever is the binding's 0.3 per step.
     it: Now(…)" (deliver_post).
   - fake binding sends under `<key>-<random>`: seed 1, after step 554, "post out_… is in the channel 2 times:
     [msg_74, msg_75]" (check_outbox).
-- 50 runs of tests/sim.rs under load: see the end of this report.
+- 50 runs of the whole tests/sim.rs binary (its 5 tests) at `nice -n 19` beside three busy loops (the same
+  deviation as step 1): **50 passed, 0 failed**; each run 11.9 to 17.3 s (median 14.8 s).
 
 ### Findings
 
