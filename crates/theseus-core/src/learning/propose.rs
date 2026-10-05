@@ -139,6 +139,17 @@ struct Gathered {
     cases: Vec<ErrorCase>,
 }
 
+/// Whether an answer's lean was right by a label's truth. `report::graded`
+/// gives a Noul's truth (its calibration pair), not whether its lean met it:
+/// a Noul is right when its lean is the truth.
+fn right(a: &AnswerRecord, t: &Truth) -> Option<bool> {
+    let (_, x) = graded(a, t)?;
+    Some(match a.band.top {
+        Top::Noul(lean) => lean == x,
+        _ => x,
+    })
+}
+
 /// The owner's labels saying a train answer was wrong, in `train`'s order,
 /// none an earlier proposal read (`used`).
 fn train_errors<'a>(
@@ -153,7 +164,7 @@ fn train_errors<'a>(
             let Some((l, t)) = resolve(ls, &a.def, a) else {
                 continue;
             };
-            let wrong = graded(a, &t).is_some_and(|(_, right)| !right);
+            let wrong = right(a, &t) == Some(false);
             if wrong && l.source == "operator" && !used.contains(&l.id) {
                 errors.push(Error {
                     label: l,
@@ -185,13 +196,25 @@ fn record_split(prop: &mut JudgeProposal, rule: SplitRule) {
 struct Pairs {
     classes: BTreeMap<String, Vec<(String, String)>>,
     graded: BTreeMap<String, Vec<Graded>>,
+    /// Whether each (judgment, question) answer was right.
+    right: BTreeMap<(String, String), bool>,
+}
+
+impl Pairs {
+    /// The answers wrong here and right in `then`: the errors it fixed.
+    fn fixed_by(&self, then: &Pairs) -> u32 {
+        self.right
+            .iter()
+            .filter(|(k, r)| !**r && then.right.get(*k) == Some(&true))
+            .count() as u32
+    }
 }
 
 /// What a label settles of an answer as a class pair: a Choice's top and
 /// its class (`not:<c>` when it names only a wrong one), a Noul's lean and
 /// its truth.
 fn pair(a: &AnswerRecord, t: &Truth) -> Option<(String, String)> {
-    let (_, right) = graded(a, t)?;
+    let right = right(a, t)?;
     Some(match (&a.band.top, t) {
         (Top::Choice(top), Truth::Class(c)) => (top.clone(), c.clone()),
         (Top::Choice(top), _) => (top.clone(), format!("not:{top}")),
@@ -239,11 +262,12 @@ fn pairs_of<'a>(
             if let Some(p) = pair(a, &t) {
                 out.classes.entry(q.clone()).or_default().push(p);
             }
-            if let Some((_, right)) = graded(a, &t) {
+            if let Some(right) = right(a, &t) {
                 out.graded.entry(q.clone()).or_default().push(Graded {
                     strength: strength(a),
                     right,
                 });
+                out.right.insert((id.to_string(), q.clone()), right);
             }
         }
     }
@@ -772,14 +796,6 @@ impl Core {
         )?;
         prop.replay = Some(rr.id.clone());
         prop.replay_usd = rr.cost_usd;
-        let train_ids: BTreeSet<&str> = train.iter().map(|s| s.judgment.id.as_str()).collect();
-        prop.fixed = rr
-            .per_judgment
-            .iter()
-            .filter(|r| train_ids.contains(r.judgment.as_str()))
-            .map(|r| r.fixed.len() as u32)
-            .sum();
-        prop.broken = rr.broken;
         // The numbers, each side apart, graded by the parent's labels.
         let parent_seen: Vec<Seen> = train.iter().chain(holdout).cloned().collect();
         let abs = super::replay::absolute_labels(&parent_seen, &g.labels);
@@ -799,6 +815,9 @@ impl Core {
         };
         let (p_train, c_train) = side_pairs(train);
         let (p_hold, c_hold) = side_pairs(holdout);
+        // Train errors fixed, and labeled answers on either side broken.
+        prop.fixed = p_train.fixed_by(&c_train);
+        prop.broken = c_train.fixed_by(&p_train) + c_hold.fixed_by(&p_hold);
         // Thresholds, re-fit in code from the candidate's train answers.
         let mut fit: BTreeMap<String, Thresholds> = BTreeMap::new();
         for q in propose::whole_questions(parent) {

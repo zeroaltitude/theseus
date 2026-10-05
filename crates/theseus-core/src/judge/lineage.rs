@@ -144,13 +144,17 @@ impl Lineage {
         self.with(store, |m| m.values().cloned().collect())
     }
 
-    /// A root's learned versions, newest (highest) first.
-    pub fn of_root(&self, store: &Store, root: &str) -> Vec<Learned> {
-        let mut v: Vec<Learned> = self.with(store, |m| {
-            m.values().filter(|l| l.root == root).cloned().collect()
+    /// A root's learned versions' names, newest (highest) first: what each
+    /// point reads, without the versions' texts.
+    pub fn names_of_root(&self, store: &Store, root: &str) -> Vec<String> {
+        let mut v: Vec<(u32, String)> = self.with(store, |m| {
+            m.values()
+                .filter(|l| l.root == root)
+                .map(|l| (l.pack.version, l.name()))
+                .collect()
         });
-        v.sort_by_key(|a| std::cmp::Reverse(a.pack.version));
-        v
+        v.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
+        v.into_iter().map(|(_, name)| name).collect()
     }
 
     /// Keep a version whose row was just written.
@@ -225,8 +229,7 @@ impl super::JudgeService {
         if !self.cfg.enabled {
             return root.to_string();
         }
-        for l in self.lineage.of_root(&self.store, root) {
-            let name = l.name();
+        for name in self.lineage.names_of_root(&self.store, root) {
             let has_row = !self.ladder().rows_of(&name).iter().all(|r| r.declined);
             let s = self.ladder().standing(&name);
             if !is_placed(s.rung, has_row) {

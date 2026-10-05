@@ -432,3 +432,111 @@ async fn the_nightly_run_uses_the_interleaved_split() {
         .iter()
         .all(|j| !theseus_judge::propose::interleaved_holdout(j)));
 }
+
+const SECURITY_V3: &str = include_str!("../../theseus-judge/packs/security.v3.toml");
+
+/// One `security.v3` judgment of a `proc.run echo <name>`, answered risky at
+/// `p`, labeled `risky: truth`.
+fn seed_security(c: &Core, name: &str, p: f64, truth: bool, at_ms: u64) {
+    let pack = theseus_judge::pack::by_name("security.v3").unwrap();
+    let input: theseus_judge::builders::SecurityInput = serde_json::from_value(json!({
+        "tool": "proc.run", "class": "exec", "posture": "open", "argv": ["echo", name],
+    }))
+    .unwrap();
+    let prepared = theseus_judge::prepare(
+        &pack,
+        &theseus_judge::Input::Security2(input),
+        &theseus_judge::NoScrub,
+    )
+    .unwrap();
+    let blob = c.store.blobs().put(prepared.state.json.as_bytes()).unwrap();
+    let answer = Answer::Noul { noul: p };
+    let risky = AnswerRecord {
+        question: "risky".into(),
+        def: "risky".into(),
+        about: None,
+        band: band(&answer, T),
+        answer,
+    };
+    let state = theseus_judge::judge::StateRecord::from(prepared.state.as_ref());
+    let mut j = judgment(
+        &format!("jdg_{name}"),
+        "security.v3",
+        &state,
+        vec![risky],
+        json!({"blob": blob, "session": "ses_harbor", "call": format!("act_{name}"),
+            "class": "tools", "decision": "open"}),
+    );
+    j.version = 3;
+    let mut row = LedgerRow::new(
+        LedgerKind::JudgeLabel,
+        None,
+        None,
+        json!({"id": format!("lbl_{name}"), "judgment": j.id, "pack": "security.v3",
+            "question": "risky", "label": truth, "source": "operator", "who": "owner",
+            "via": "cli", "weight": 1.0, "note": ""}),
+    );
+    row.at_unix_ms = 1;
+    let mut label = NewRecord::json(kinds::LEDGER, None, &row).unwrap();
+    label.key = Some(format!("lbl_{name}"));
+    c.store
+        .append(&[call_row(&j, at_ms), label.scoped("judge:security")])
+        .unwrap();
+}
+
+/// A security pack's better candidate waits on the owner's card: nothing
+/// is placed until it is answered, and the lineage's next run is held as
+/// one open proposal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_security_candidate_waits_on_the_owners_card() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_when("heron", Some("Plainly"), "risky", Jev::Noul(0.05));
+    jev.script_when("wren", Some("Plainly"), "risky", Jev::Noul(0.05));
+    jev.script_when("gull", Some("Plainly"), "risky", Jev::Noul(0.05));
+    jev.script("risky", Jev::Noul(0.95));
+    let reply = SECURITY_V3.replacen(
+        "when_true = \"The call could destroy",
+        "when_true = \"Plainly, the call could destroy",
+        1,
+    );
+    let r = rig(vec![Scripted::text(&reply); 2], &jev, |_| {});
+    let c = &r.core;
+    let split = split_now();
+    for i in 0..10 {
+        seed_security(c, &format!("heron{i}"), 0.95, false, split - 100_000 + i);
+    }
+    seed_security(c, "wren", 0.95, false, split + 10);
+    seed_security(c, "gull", 0.05, false, split + 20);
+    let learn_v3 = || {
+        c.judge_learn(
+            JudgeLearnParams {
+                pack: "security.v3".into(),
+                split: Some(split.to_string()),
+            },
+            "cli",
+        )
+    };
+    let p = learn_v3().await.unwrap();
+    assert_eq!(p.decision, "card", "{}", p.why);
+    // The Noul's errors: its lean against the label, not the label alone.
+    assert_eq!((p.fixed, p.broken), (10, 0));
+    assert_eq!(p.version.as_deref(), Some("security.v101"));
+    assert!(p.question.is_some(), "{p:?}");
+    assert!(
+        p.said.contains("waiting on your approval card"),
+        "{}",
+        p.said
+    );
+    // Nothing placed until the owner answers.
+    assert!(c.runner.judge.ladder().rows_of("security.v101").is_empty());
+    assert_eq!(
+        c.runner.judge.placed("security.v3", "ses_harbor"),
+        "security.v3"
+    );
+    // A new error, but the card is open: the next run is held.
+    seed_security(c, "heron10", 0.95, false, split - 1_000);
+    let again = learn_v3().await.unwrap();
+    assert_eq!(again.decision, "skipped", "{}", again.why);
+    assert!(again.why.contains("one open proposal"), "{}", again.why);
+    assert_eq!(r.fake.requests().len(), 1);
+}
