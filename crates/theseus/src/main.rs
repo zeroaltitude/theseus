@@ -18,6 +18,7 @@ mod extend;
 mod herdr;
 mod herdr_sync;
 mod interactive;
+mod judge_prove;
 mod judge_runs;
 mod mcp;
 mod ontology;
@@ -702,6 +703,10 @@ enum JudgeCmd {
     /// them in shadow, once each. It sends your history to Jev, so it runs only under your
     /// consent (`[judge] backfill_consent = true`). The operator's alone.
     Backfill(judge_runs::BackfillArgs),
+    /// The prove: loop.v1's canary against its control, from the ledger's finished tasks, at
+    /// equal total spend, per task and per dollar; "insufficient" with its counts until each arm
+    /// has its labeled tasks. A read.
+    Prove(judge_prove::ProveArgs),
 }
 
 #[derive(Subcommand, Debug)]
