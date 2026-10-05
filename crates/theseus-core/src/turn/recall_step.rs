@@ -371,7 +371,7 @@ impl TurnRunner {
             let excerpt = item.text.as_deref().unwrap_or_default();
             items.push(RecalledRef {
                 chunk: render::frozen_range(&text_of(&source), excerpt),
-                header: render::header(&source, item.position),
+                header: render::header(&source, item.position, &self.place_name(&item.session_id)),
                 ..probe
             });
         }

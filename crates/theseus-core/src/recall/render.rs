@@ -68,14 +68,19 @@ pub fn frozen_range(source: &str, excerpt: &str) -> (u32, u32) {
     (clamp(start), clamp(end))
 }
 
-/// An item's header, frozen when it is recalled: whose and what it is, in
-/// which session, when (UTC), and as of which position.
-pub fn header(n: &Node, position: u64) -> String {
+/// An item's header, frozen when it is recalled (§2.11's testimony): its
+/// origin (what it is, whose: a message's author, a reply's model; and its
+/// place, `TurnRunner::place_name`), when (UTC), and as of which position:
+/// `a reply by glm-5.3-flash in #harbor, 2026-09-30 14:34 UTC (as of
+/// @18231)`. A node recalled before 35a keeps the header it was frozen with
+/// (`in <session>`, no model): its bytes never change.
+pub fn header(n: &Node, position: u64, place: &str) -> String {
     let what = match &n.body {
         Body::UserMessage { .. } => match n.author.as_deref() {
             Some(a) if !a.is_empty() => format!("a message from {a}"),
             _ => "a message".to_string(),
         },
+        Body::AssistantMessage { model, .. } if !model.is_empty() => format!("a reply by {model}"),
         Body::AssistantMessage { .. } => "a reply".to_string(),
         Body::ToolCall { tool, .. } => format!("a {tool} call"),
         Body::ToolResult { tool, .. } => format!("a {tool} result"),
@@ -84,10 +89,15 @@ pub fn header(n: &Node, position: u64) -> String {
         Body::Summary { .. } => "a summary".to_string(),
     };
     format!(
-        "{what} in {}, {} (as of @{position})",
-        n.session_id,
+        "{what} in {place}, {} (as of @{position})",
         utc(n.created_at_ms)
     )
+}
+
+/// The place of a session no place runs on, in a header: the session, on
+/// the CLI or the web UI.
+pub fn unplaced(session_id: &str) -> String {
+    format!("{session_id} on the CLI or the web UI")
 }
 
 /// `2026-09-30 14:34 UTC`.
@@ -239,13 +249,53 @@ mod tests {
         assert_eq!(frozen_range("short", "a much longer excerpt"), (0, 5));
     }
 
+    /// A header names the origin (whose, a reply's model, the place), the
+    /// time, and the position (35a).
     #[test]
     fn a_header_says_whose_where_and_when() {
         let mut n = Node::user("ses_weir", None, "cli", "x");
         n.created_at_ms = 1_790_000_000_000;
         assert_eq!(
-            header(&n, 42),
-            "a message from cli in ses_weir, 2026-09-21 14:13 UTC (as of @42)"
+            header(&n, 42, "#harbor"),
+            "a message from cli in #harbor, 2026-09-21 14:13 UTC (as of @42)"
+        );
+        let mut reply = Node::assistant(
+            "ses_weir",
+            "turn_1",
+            0,
+            Body::AssistantMessage {
+                blocks: vec![serde_json::json!({"type": "text", "text": "Low tide at noon."})],
+                model: "glm-5.3-flash".into(),
+                provider: "zai".into(),
+                stop_reason: None,
+                usage: Default::default(),
+                cost_usd: None,
+                catalog_version: None,
+                request_id: None,
+                correlation_id: None,
+                compilation_id: None,
+                request_digest: None,
+            },
+        );
+        reply.created_at_ms = 1_790_000_040_000;
+        assert_eq!(
+            header(&reply, 18231, "#harbor"),
+            "a reply by glm-5.3-flash in #harbor, 2026-09-21 14:14 UTC (as of @18231)"
+        );
+    }
+
+    /// An item recalled before 35a renders the header it was frozen with,
+    /// byte for byte: the render never builds a header again.
+    #[test]
+    fn an_old_header_renders_its_stored_bytes() {
+        let mut heron = Node::user("ses_weir", None, "cli", "The heron nests by the weir.");
+        heron.id = "msg_heron".into();
+        let sources: Sources = [(heron.id.clone(), Arc::new(heron))].into_iter().collect();
+        let old = "a message from cli in ses_weir, 2026-09-21 14:13 UTC (as of @42)";
+        let text = render(&[item("msg_heron", (0, 28), old)], &sources);
+        assert!(
+            text.contains(&format!("\n(1) {old}\n    \"The heron")),
+            "{text}"
         );
     }
 }

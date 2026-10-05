@@ -231,8 +231,10 @@ pub enum Body {
         model: String,
         #[serde(default)]
         cost_usd: Option<f64>,
-        /// `[Summary of 212 earlier messages, 2026-09-20 to 2026-09-27,
-        /// written by glm]`, frozen when it was written (§2.11's testimony).
+        /// `[Summary of 212 earlier messages, 2026-09-20 to 2026-09-27
+        /// (@120 to @4810), written by glm on glm-5.3-flash]`, frozen when it
+        /// was written (§2.11's testimony; before 35a, without the positions
+        /// and the model).
         header: String,
     },
 }
@@ -247,7 +249,8 @@ pub struct RecalledRef {
     pub position: u64,
     /// The bytes of its text (`recall::text_of`) shown, `[start, end)`.
     pub chunk: (u32, u32),
-    /// `ses_…'s message from cli, 2026-09-30 14:34 UTC (as of @18231)`.
+    /// `a reply by glm-5.3-flash in #harbor, 2026-09-30 14:34 UTC (as of
+    /// @18231)`, frozen when recalled (before 35a, `in <session>`).
     pub header: String,
     /// The pack's estimate of its tokens: the session's cap counts them.
     pub tokens: u64,

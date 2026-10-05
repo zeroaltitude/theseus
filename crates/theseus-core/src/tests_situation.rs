@@ -7,6 +7,7 @@
 //!   appends;
 //! - a resume (a new core on the same store, a turn that brings nothing)
 //!   renders the manifest's prefix byte for byte and recalls nothing;
+//! - a recalled item's header names its source's place;
 //! - a compilation whose assembled recall section is gone does not close:
 //!   the turn fails as `context_unadmitted`, naming it, and nothing is sent.
 //!
@@ -254,6 +255,45 @@ async fn a_resume_rebuilds_its_prefix_byte_for_byte_and_recalls_nothing() {
         compiled.last().unwrap()["situation"]["kind"],
         "continuation"
     );
+}
+
+/// A recalled item's frozen header names its origin: whose it is, and the
+/// place its session speaks in, by its bound name (35a).
+#[tokio::test]
+async fn a_recalled_items_header_names_its_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = build(dir.path(), Arc::new(FakeProvider::default()));
+    core.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:channel:271000000000000009".into(),
+        name: "#harbor".into(),
+        private: true,
+        ..Default::default()
+    }]);
+    let harbor = session(&core, &[HERON]);
+    core.outbox
+        .bind_place("channel:271000000000000009", &harbor)
+        .unwrap();
+    let sid = session(&core, &[]);
+    core.runner
+        .memory
+        .set_ask(index_of(&core, vec![harbor.clone()]));
+    let res = run(&core, &sid, Some("Where does the grey heron nest?"))
+        .await
+        .unwrap();
+    assert_eq!(res.recalled, 1);
+    let nodes = core.store.session_nodes(&sid).unwrap();
+    let header = nodes
+        .iter()
+        .find_map(|(_, n)| match &n.body {
+            Body::Recall { items, .. } => Some(items[0].header.clone()),
+            _ => None,
+        })
+        .expect("a Recall node");
+    assert!(
+        header.starts_with("a message from test in #harbor, "),
+        "{header}"
+    );
+    assert!(header.contains(" UTC (as of @"), "{header}");
 }
 
 /// A compilation whose assembled recall section names a node the session

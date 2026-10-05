@@ -617,6 +617,27 @@ pub fn text_of(n: &Node) -> String {
 }
 
 impl TurnRunner {
+    /// Where `session_id` speaks, by name, for a recalled item's header (35a):
+    /// its bound place's name (`#harbor`, `DM @eddie`), its target when no
+    /// binding names it, or the session itself on the CLI or the web UI. A
+    /// shared place recalls only its own sessions (the place rule), so its
+    /// headers name no other place.
+    pub fn place_name(&self, session_id: &str) -> String {
+        let target = self.outbox.try_target(session_id).and_then(|t| match t {
+            Some(t) => Ok(Some(t)),
+            None => self.outbox.try_wake_target(session_id),
+        });
+        let places = crate::places::Places {
+            rule: &self.place_rule,
+            cfg: &self.cfg,
+        };
+        match target {
+            Ok(Some(t)) => places.name_of(Some(&t)),
+            Ok(None) => crate::recall::render::unplaced(session_id),
+            Err(_) => session_id.to_string(),
+        }
+    }
+
     /// Where `session_id` speaks, as the place rule reads a turn's (`class_of`):
     /// its target, or where its wakes and reports answer; `Unknown` when that
     /// cannot be read.
