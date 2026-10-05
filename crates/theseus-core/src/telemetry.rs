@@ -27,6 +27,8 @@ mod tests_cancel;
 #[cfg(test)]
 mod tests_files;
 #[cfg(test)]
+mod tests_index;
+#[cfg(test)]
 mod tests_judge;
 #[cfg(test)]
 mod tests_recall;
@@ -248,6 +250,17 @@ impl Telemetry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .cancel(backend, state);
+    }
+
+    /// A sample of the index tender (theseus-gfi4): health's `index` block,
+    /// its supervisor's restarts and the tender's last answer.
+    pub fn record_index(&self, h: &theseus_protocol::index::IndexHealth) {
+        let Some(s) = self.shared() else { return };
+        let restarts = h.tender.as_ref().map_or(0, |t| t.restarts);
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .index(restarts, h.status.as_ref());
     }
 
     /// The durability tender (AWS step 15): bytes shipped, or the lag a

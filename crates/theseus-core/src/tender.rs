@@ -54,6 +54,8 @@ use crate::fact::index::{
 use crate::fact::Fact;
 use crate::ledger::LedgerRow;
 
+mod sample;
+
 /// What the tender tends, in the children registry and in health.
 pub const NAME: &str = "index";
 /// Its binary, installed beside `theseusd`.
