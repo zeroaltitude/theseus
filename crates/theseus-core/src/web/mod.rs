@@ -42,11 +42,20 @@ pub struct Web {
     approved: OnceLock<Result<reqwest::Client, String>>,
     /// Where `web.search` asks: Brave's API, or a test's server.
     pub search_endpoint: String,
+    /// `[policy] private_addresses`: open, a fetch reaches a private address
+    /// as any other (theseus-7gir.20).
+    pub private: net::PrivateAddresses,
 }
 
 impl Web {
-    pub fn new(cfg: &WebToolsConfig, text_max: usize, cpu: Arc<CpuPool>) -> Arc<Self> {
-        Self::with_dns(cfg, text_max, cpu, net::Dns::checked(), BRAVE_ENDPOINT)
+    pub fn new(
+        cfg: &WebToolsConfig,
+        text_max: usize,
+        cpu: Arc<CpuPool>,
+        private: net::PrivateAddresses,
+    ) -> Arc<Self> {
+        let dns = net::Dns::checked();
+        Self::with_dns(cfg, text_max, cpu, dns, BRAVE_ENDPOINT, private)
     }
 
     /// The web tools over `dns`, asking `search_endpoint` (tests: names that
@@ -57,6 +66,7 @@ impl Web {
         cpu: Arc<CpuPool>,
         dns: net::Dns,
         search_endpoint: &str,
+        private: net::PrivateAddresses,
     ) -> Arc<Self> {
         Arc::new(Self {
             cfg: cfg.clone(),
@@ -66,6 +76,7 @@ impl Web {
             public: OnceLock::new(),
             approved: OnceLock::new(),
             search_endpoint: search_endpoint.into(),
+            private,
         })
     }
 

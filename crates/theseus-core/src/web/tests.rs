@@ -263,6 +263,7 @@ pub(crate) fn web(port: u16, cfg: WebToolsConfig, public: bool) -> Arc<Web> {
         CpuPool::new(2),
         dns,
         &format!("http://search.test:{port}/search"),
+        Default::default(),
     )
 }
 
@@ -469,6 +470,47 @@ async fn a_private_address_is_reached_only_by_an_approved_call() {
     assert_eq!(s.paths(), vec!["/plain.txt"]);
 }
 
+/// `[policy] private_addresses = "open"` (theseus-7gir.20; the bench
+/// profile's): a call no one approved reaches a private address, follows a
+/// redirect to one, and connects to a name whose answer is one.
+#[tokio::test]
+async fn an_open_policy_reaches_private_addresses_unapproved() {
+    let s = serve().await;
+    let p = s.port;
+    let mut dns = Dns::checked();
+    for n in ["site.test", "rebind.test"] {
+        dns.hosts
+            .insert(n.into(), vec!["127.0.0.1".parse().unwrap()]);
+    }
+    let w = Web::with_dns(
+        &WebToolsConfig::default(),
+        30_000,
+        CpuPool::new(2),
+        dns,
+        &format!("http://search.test:{p}/search"),
+        super::net::PrivateAddresses::Open,
+    );
+    let (out, _) = fetch(
+        &w,
+        json!({ "url": format!("http://127.0.0.1:{p}/plain.txt") }),
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(out.text.ends_with("line one\n  line <two> &amp; three\n"));
+    let to_loopback = format!("http://site.test:{p}/to-loopback");
+    let (out, _) = fetch(&w, json!({ "url": to_loopback }), false)
+        .await
+        .unwrap();
+    assert!(out.text.ends_with("line one\n  line <two> &amp; three\n"));
+    let rebind = format!("http://rebind.test:{p}/plain.txt");
+    fetch(&w, json!({ "url": rebind }), false).await.unwrap();
+    assert_eq!(
+        s.paths(),
+        ["/plain.txt", "/to-loopback", "/plain.txt", "/plain.txt"]
+    );
+}
+
 #[tokio::test]
 async fn a_name_that_resolves_to_a_loopback_address_is_refused_at_connect() {
     let s = serve().await;
@@ -563,12 +605,18 @@ fn open_policy() -> ToolPolicy {
         confirmer: "operator".into(),
         floor_paths: vec![],
         floor_argv: crate::policy::floor_argv(),
+        private_addresses: Default::default(),
     }
 }
 
 #[test]
 fn each_private_url_waits_for_approval_at_the_gate_and_a_public_one_does_not() {
-    let w = Web::new(&WebToolsConfig::default(), 30_000, CpuPool::new(1));
+    let w = Web::new(
+        &WebToolsConfig::default(),
+        30_000,
+        CpuPool::new(1),
+        Default::default(),
+    );
     let policy = open_policy();
     let c = ctx(false);
     let (fetch, search) = (Fetch(w.clone()), Search(w));
@@ -630,6 +678,7 @@ fn a_private_address_in_a_shared_place_says_so_on_its_card() {
         &WebToolsConfig::default(),
         30_000,
         CpuPool::new(1),
+        Default::default(),
     ));
     let c = ctx(false);
     let decided = |class, url: &str| {

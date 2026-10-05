@@ -78,6 +78,7 @@ fn policy(aws: &[(&str, Posture)]) -> ToolPolicy {
         confirmer: "operator".into(),
         floor_paths: vec![],
         floor_argv: crate::policy::floor_argv(),
+        private_addresses: Default::default(),
     }
 }
 

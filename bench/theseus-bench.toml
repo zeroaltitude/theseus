@@ -4,9 +4,11 @@
 #   - the one secret, the model's key, comes from the daemon's environment
 #     (`env:ANTHROPIC_API_KEY`), and nothing reads 1Password;
 #   - every tool is open (`enforcement = "open"`, no dangerous-argv list, no
-#     approve paths), and the workspace roots are `/`, so no call waits for an
-#     approval no one can give. Theseus's floor (its own state, `theseusd` and
-#     `op` as programs) still asks; no task touches it;
+#     approve paths, and `private_addresses = "open"`, so a fetch of this
+#     machine's own page runs too: theseus-7gir.20), and the workspace roots
+#     are `/`, so no call waits for an approval no one can give. Theseus's
+#     floor (its own state, `theseusd` and `op` as programs) still asks; no
+#     task touches it;
 #   - text from outside (a fetched page) gives notices only;
 #   - L0: jobs run as the daemon's user, with no sandbox, as a container's
 #     agent does;
@@ -60,6 +62,7 @@ allow_argv = []
 approve_argv = []
 external_text = "notify"
 external_programs = []
+private_addresses = "open"
 
 [sandbox]
 default = "l0"

@@ -509,7 +509,8 @@ fn conditions(core: &Core, s: &Scene, tool: &dyn Tool) -> Vec<ExplainCondition> 
             "approve",
         ));
     }
-    if takes(tool, "url") {
+    // `[policy] private_addresses = "open"` judges it as any other address.
+    if takes(tool, "url") && p.private_addresses == crate::web::net::PrivateAddresses::Ask {
         out.push(cond(
             "private_address",
             "a URL whose host is a private address (DD5)",

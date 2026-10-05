@@ -7,13 +7,17 @@
 
 mod common;
 
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use common::model::FakeModel;
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_core::config::Config;
 use theseus_core::policy::Posture;
+use theseus_core::web::net::PrivateAddresses;
 
 fn profile_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bench/theseus-bench.toml")
@@ -112,6 +116,61 @@ fn a_bench_call_asks_for_the_models_whole_output() {
     assert_eq!(bench.effective_max_tokens(&catalog), 128_000);
 }
 
+/// A page on this machine, as a task's own web server serves one: every
+/// request is answered with its HTML, and each one's first line is kept.
+fn page_server() -> (u16, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    let kept = seen.clone();
+    std::thread::spawn(move || {
+        for mut s in listener.incoming().flatten() {
+            let mut r = BufReader::new(s.try_clone().unwrap());
+            let mut line = String::new();
+            let _ = r.read_line(&mut line);
+            kept.lock().unwrap().push(line.trim_end().to_string());
+            let mut header = String::new();
+            while r.read_line(&mut header).is_ok_and(|n| n > 2) {
+                header.clear();
+            }
+            let body = "<html><title>noVNC</title><body>a screen</body></html>";
+            let _ = write!(
+                s,
+                "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\
+                 connection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    (port, seen)
+}
+
+/// A fetch of this machine's own page runs under the bench profile, and no
+/// call waits (theseus-7gir.20): its `private_addresses = "open"`. Before,
+/// the gate asked for an approval no one gives in a headless trial, and b5's
+/// install-windows-3.11 ended waiting (exit 6) on its check of its own
+/// `localhost/vnc.html`.
+#[test]
+fn a_fetch_of_this_machines_page_runs_and_waits_for_no_one() {
+    let (port, seen) = page_server();
+    let page = format!("http://127.0.0.1:{port}/vnc.html");
+    let model = FakeModel::start(move |prompt| match prompt.contains("check the page") {
+        true => vec![("http_fetch", json!({ "url": page.as_str() }))],
+        false => vec![],
+    });
+    let dir = trial(&model, |_| {});
+    let run = ask(dir.path(), "check the page your server serves");
+    assert_eq!(run.code, 0, "{}\n{}", run.turn, run.stderr);
+    assert_eq!(
+        (&run.turn["stop_reason"], &run.turn["tool_calls"]),
+        (&json!("no_tool_calls"), &json!(1)),
+        "{}",
+        run.turn
+    );
+    assert!(run.turn["awaiting_confirm"].is_null(), "{}", run.turn);
+    assert_eq!(*seen.lock().unwrap(), ["GET /vnc.html HTTP/1.1"]);
+}
+
 /// It parses and validates with no warning, as the template does, and says
 /// what its header says: no vault, every tool open, roots at `/`, L0, and
 /// Discord, the web UI, and the index tender off.
@@ -141,6 +200,8 @@ fn the_bench_profile_loads_and_opens_every_tool() {
     assert!(cfg.policy.mcp.is_empty() && cfg.policy.aws.is_empty());
     assert!(cfg.policy.allow_argv.is_empty() && cfg.policy.approve_argv.is_empty());
     assert!(cfg.policy.external_programs.is_empty());
+    // A private address is judged as any other (theseus-7gir.20).
+    assert_eq!(cfg.policy.private_addresses, PrivateAddresses::Open);
     assert_eq!(cfg.tools.roots, ["/"]);
     assert!(cfg.tools.approve_paths.is_empty());
     assert_eq!(cfg.tools.proc_sync_secs, 900);

@@ -379,6 +379,11 @@ external_text = "ask"                   # ask | notify: notify runs those calls 
 # is a cheap guard, not a boundary: a job can still bring outside text in by
 # other ways.
 external_programs = ["gh"]              # program names, matched by file name (built-in default: ["gh"])
+# A URL whose host is this machine or a private address (localhost, 10.x, a
+# link-local address) waits for your approval, which alone lets http.fetch
+# reach it. "open" judges it as any other address, redirects and DNS answers
+# included: only for a run with no one to approve, such as the bench profile.
+# private_addresses = "ask"             # ask | open
 
 # Per-tool postures, one line for every tool (keep it that way as tools are
 # added). A set line overrides enforcement; a commented one inherits it.

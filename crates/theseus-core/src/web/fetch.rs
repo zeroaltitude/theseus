@@ -217,15 +217,17 @@ impl Web {
 
     /// GET `first`, judging each hop as the gate judged the URL: a private
     /// address is followed only when the operator approved this call for
-    /// that very origin.
+    /// that very origin, or when `[policy] private_addresses` is open, every
+    /// one (theseus-7gir.20).
     async fn get(&self, first: &Url, cap: usize, approved: bool) -> Result<Got, ToolFailure> {
         // The operator approved this call, and so the private host its URL
         // names: that origin, and no other.
         let origin = (approved && net::private_host(first).is_some()).then(|| first.origin());
+        let open = self.private == net::PrivateAddresses::Open;
         let mut url = first.clone();
         let mut redirects = 0;
         loop {
-            let theirs = origin.as_ref() == Some(&url.origin());
+            let theirs = open || origin.as_ref() == Some(&url.origin());
             if !theirs {
                 if let Some(why) = net::private_host(&url) {
                     return Err(ToolFailure::new(refused_hop(first, &url, &why)));

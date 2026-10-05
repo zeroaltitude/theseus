@@ -8,11 +8,29 @@
 //!   (`Dns`), so a DNS answer cannot take a call past the gate. The check is
 //!   on the very answer the connection uses: nothing is resolved twice, so a
 //!   rebinding name has no second answer to give.
+//! - `[policy] private_addresses = "open"` lifts both, for a run that has no
+//!   operator to ask (the bench profile, theseus-7gir.20).
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use reqwest::Url;
+use serde::{Deserialize, Serialize};
+
+/// `[policy] private_addresses` (theseus-7gir.20): a URL whose host is a
+/// private address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrivateAddresses {
+    /// It waits for the operator's approval, which alone lets a fetch reach
+    /// it (DD5).
+    #[default]
+    Ask,
+    /// It is judged as any other address: the tool's posture decides, and a
+    /// fetch reaches it, through redirects and DNS answers too. For a run
+    /// with no operator to ask, such as a benchmark's container.
+    Open,
+}
 
 /// What kind of non-public address `ip` is, or None for a public one: the
 /// one classification, which L1's egress proxy uses too (18c).

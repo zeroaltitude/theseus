@@ -479,6 +479,11 @@ pub struct PolicyConfig {
     /// by default: `gh issue view` prints a stranger's text.
     #[serde(default = "default_external_programs")]
     pub external_programs: Vec<String>,
+    /// A URL whose host is a private address (theseus-7gir.20): `ask`, the
+    /// default, waits for approval (DD5); `open` judges it as any other, for a
+    /// run with no operator to ask (the bench profile).
+    #[serde(default)]
+    pub private_addresses: crate::web::net::PrivateAddresses,
     /// `[policy.aws]` (AWS design §3.9): an AWS call's posture when its tool
     /// has no `[policy.tools]` line: `"service:Operation"`, then `"service"`,
     /// then its class's (`read`), then `enforcement`.
@@ -524,6 +529,7 @@ impl Default for PolicyConfig {
             mcp: BTreeMap::new(),
             external_text: Default::default(),
             external_programs: default_external_programs(),
+            private_addresses: Default::default(),
             aws: BTreeMap::new(),
         }
     }
