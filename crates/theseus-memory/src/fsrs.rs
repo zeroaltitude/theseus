@@ -519,7 +519,7 @@ mod tests {
             (Access::Labeled(Label::Wrong), Grade::Again),
             (Access::Labeled(Label::Stale), Grade::Again),
             (Access::Labeled(Label::Useful), Grade::Easy),
-            (Access::Labeled(Label::Remember), Grade::Easy),
+            (Access::Labeled(Label::ShouldHave), Grade::Easy),
         ];
         for (access, grade) in cases {
             let got = f.step(
@@ -769,7 +769,7 @@ mod tests {
             Just(Access::Used(Outcome::Unknown)),
             Just(Access::Used(Outcome::Corrected)),
             Just(Access::Labeled(Label::Useful)),
-            Just(Access::Labeled(Label::Remember)),
+            Just(Access::Labeled(Label::ShouldHave)),
             Just(Access::Labeled(Label::Wrong)),
             Just(Access::Labeled(Label::Stale)),
             Just(Access::FirstSight(Durability::High)),

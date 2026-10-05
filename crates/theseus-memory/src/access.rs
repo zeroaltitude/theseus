@@ -41,8 +41,9 @@ pub enum Outcome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Label {
     Useful,
-    /// The operator asked Theseus to remember it.
-    Remember,
+    /// The operator says recall should have offered it: the same vouching
+    /// as `Useful`, for a node recall missed.
+    ShouldHave,
     /// Wrong: recall also excludes it (the `labeled_wrong` filter).
     Wrong,
     /// Stale: recall also excludes it (the `labeled_wrong` filter).
@@ -72,7 +73,7 @@ impl Access {
             Access::Used(Outcome::Corrected) | Access::Labeled(Label::Wrong | Label::Stale) => {
                 Some(Grade::Again)
             }
-            Access::Labeled(Label::Useful | Label::Remember) => Some(Grade::Easy),
+            Access::Labeled(Label::Useful | Label::ShouldHave) => Some(Grade::Easy),
             Access::FirstSight(Durability::High) => Some(Grade::Easy),
             Access::FirstSight(Durability::Medium) => Some(Grade::Good),
             Access::FirstSight(Durability::Low) => Some(Grade::Hard),
@@ -96,7 +97,7 @@ mod tests {
             (Access::Labeled(Label::Wrong), Some(Grade::Again)),
             (Access::Labeled(Label::Stale), Some(Grade::Again)),
             (Access::Labeled(Label::Useful), Some(Grade::Easy)),
-            (Access::Labeled(Label::Remember), Some(Grade::Easy)),
+            (Access::Labeled(Label::ShouldHave), Some(Grade::Easy)),
             (Access::FirstSight(Durability::High), Some(Grade::Easy)),
             (Access::FirstSight(Durability::Medium), Some(Grade::Good)),
             (Access::FirstSight(Durability::Low), Some(Grade::Hard)),

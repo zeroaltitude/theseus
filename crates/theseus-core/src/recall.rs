@@ -31,6 +31,7 @@
 
 pub mod labels;
 pub mod render;
+pub mod retention;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
