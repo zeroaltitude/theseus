@@ -168,8 +168,11 @@ def theseus_config(
 
 
 def processes_naming(d: Path) -> list[tuple[int, str]]:
-    """The processes whose command line names `d`, with their program: what a
-    stop must not leave behind (daemon.rs's `processes_naming`)."""
+    """The processes whose command line names `d`, or whose working directory
+    is in it, with their program: what a run must not leave behind
+    (daemon.rs's `processes_naming`, and a job or a tool's child that
+    outlived its turn)."""
+    d = Path(d).resolve()
     needle = str(d).encode()
     me = os.getpid()
     out = []
@@ -180,7 +183,12 @@ def processes_naming(d: Path) -> list[tuple[int, str]]:
             cmd = (e / "cmdline").read_bytes()
         except OSError:
             continue
-        if needle in cmd:
+        try:
+            cwd = Path(os.readlink(e / "cwd"))
+            inside = cwd == d or d in cwd.parents
+        except OSError:
+            inside = False
+        if needle in cmd or inside:
             prog = Path(cmd.split(b"\0", 1)[0].decode(errors="replace")).name
             out.append((int(e.name), prog))
     return out
@@ -365,7 +373,9 @@ class Theseus:
         return sid
 
     def compactions(self) -> list[dict]:
-        r = self.cli("--json", "ledger", "-k", "context.compacted", "-n", "100000")
+        """The newest `context.compacted` rows (a page holds 1000 at most:
+        far more than a run compacts)."""
+        r = self.cli("--json", "ledger", "-k", "context.compacted", "-n", "1000")
         if r.returncode != 0:
             raise RuntimeError(f"ledger failed: {r.stderr.strip()}")
         v = json.loads(r.stdout)
@@ -379,7 +389,7 @@ class Theseus:
         transcript: list[str] = []
         sids: list[str] = []
         try:
-            seen = len(self.compactions())
+            seen = {x.get("position") for x in self.compactions()}
             for t in prog.turns:
                 if t.session != session:
                     session = t.session
@@ -400,13 +410,12 @@ class Theseus:
                     v = json.loads(out) if out.strip() else {}
                 except json.JSONDecodeError:
                     v = {}
-                rows = self.compactions()
-                new = rows[seen:]
-                seen = len(rows)
+                new = [x for x in self.compactions() if x.get("position") not in seen]
+                seen |= {x.get("position") for x in new}
                 if new:
                     run.meta["compactions"].append(t.index)
                     run.meta.setdefault("compaction_rows", []).append(
-                        {"turn": t.index, "outcomes": [x.get("data", x).get("outcome") if isinstance(x.get("data", x), dict) else None for x in new]}
+                        {"turn": t.index, "outcomes": [(x.get("data") or {}).get("outcome") for x in new]}
                     )
                 run.turn({
                     "index": t.index, "session": t.session, "session_id": sid, "role": t.role,
@@ -427,7 +436,7 @@ class Theseus:
                 (run.raw / f"recalled-{i + 1}.json").write_text(r.stdout or r.stderr)
         finally:
             run.meta["killed"] = self.stop()
-            run.meta["left_running"] = [f"{p} {pid}" for pid, p in processes_naming(self.dir)]
+            run.meta["left_running"] = [f"{p} {pid}" for pid, p in processes_naming(run.out)]
             run.meta["sessions"] = sids
             run.save()
         return "\n".join(transcript)
@@ -549,7 +558,7 @@ class ClaudeCode:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(p, dst)
         run.meta["sessions"] = sids
-        run.meta["left_running"] = [f"{p} {pid}" for pid, p in processes_naming(run.workspace)]
+        run.meta["left_running"] = [f"{p} {pid}" for pid, p in processes_naming(run.out)]
         run.save()
         return "\n".join(transcript)
 

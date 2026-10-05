@@ -176,6 +176,26 @@ class ClaudeCodeDriver(unittest.TestCase):
             run.turns_f.close()
 
 
+class LeftRunning(unittest.TestCase):
+    def test_a_process_naming_the_run_or_working_in_it_is_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "workspace").mkdir()
+            by_cwd = subprocess.Popen(["sleep", "30"], cwd=d / "workspace")
+            elsewhere = subprocess.Popen(["sleep", "30"], cwd="/")
+            named = subprocess.Popen(["sh", "-c", "sleep 30", str(d / "daemon" / "sock")], cwd="/")
+            try:
+                found = {pid for pid, _ in drive.processes_naming(d)}
+                self.assertIn(by_cwd.pid, found)
+                self.assertIn(named.pid, found)
+                self.assertNotIn(elsewhere.pid, found)
+            finally:
+                for p in (by_cwd, elsewhere, named):
+                    p.kill()
+                    p.wait()
+            self.assertEqual(drive.processes_naming(d), [])
+
+
 class TheseusConfig(unittest.TestCase):
     def test_the_daemons_config_is_the_bench_profile_with_the_arm_set(self):
         base = tomllib.loads(drive.PROFILE.read_text())
