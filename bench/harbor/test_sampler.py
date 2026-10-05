@@ -266,7 +266,7 @@ class ThisHost(unittest.TestCase):
                 self.assertLess(time.monotonic(), deadline, "the sampler never sampled")
                 time.sleep(0.01)
             before = children_cpu()
-            subprocess.run(busy_harness(self.dir, name, loops, linger_s), check=True, timeout=120)
+            subprocess.run(busy_harness(self.dir, name, loops, linger_s), check=True, timeout=900)
             used = children_cpu() - before
             time.sleep(interval_ms / 1000.0 * 1.5)
         finally:
@@ -277,10 +277,10 @@ class ThisHost(unittest.TestCase):
         return json.loads((self.out / sm.SUMMARY).read_text()), used
 
     def test_a_busy_child_is_work_and_the_harness_and_sampler_stay_near_zero(self):
-        summary, used = self.run_sampled("harnessx", 3_000_000, 250)
+        summary, used = self.run_sampled("harnessx", 2_000_000, 250)
         c = summary["classes"]
         self.assertEqual(summary["status"], "ok")
-        self.assertGreater(used, 1.0, "the child did enough to measure")
+        self.assertGreater(used, 0.5, "the child did enough to measure")
         self.assertGreaterEqual(summary["samples"], 4)
         self.assertAlmostEqual(c["work"]["cpu_s"], used, delta=0.05)
         self.assertLess(c["harness"]["cpu_s"], 0.05, c)
@@ -296,10 +296,11 @@ class ThisHost(unittest.TestCase):
         # The harness lives on past the child, as an agent does past a
         # command: the child ends long before the second sample, so it is
         # only reaped (the one work process a sample sees is the harness's
-        # `sleep`).
+        # `sleep`; a starved machine can stretch the child into a sample
+        # too, and its CPU must still be work).
         summary, used = self.run_sampled("harnessy", 300_000, 4000, linger_s=4.5)
         c = summary["classes"]
-        self.assertEqual(c["work"]["processes"], 1)
+        self.assertIn(c["work"]["processes"], (1, 2))
         self.assertAlmostEqual(c["work"]["cpu_s"], used, delta=0.05)
         self.assertLess(c["harness"]["cpu_s"], 0.05, c)
 

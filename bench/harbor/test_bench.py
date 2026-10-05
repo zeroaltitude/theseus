@@ -190,12 +190,15 @@ class Scripts(unittest.TestCase):
 
     def test_the_stop_script_stops_the_sampler_on_a_timeout(self):
         p = self.start("wait", sampler=True)
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + 60
         while not (self.state / "ask.pid").exists():
             self.assertLess(time.monotonic(), deadline, "the turn never started")
             time.sleep(0.02)
-        stop = subprocess.run(["bash", "-c", tb.stop_script(str(self.state), str(self.logs), 10)],
-                              capture_output=True, text=True, timeout=60)
+        # The run's end now stops the sampler too (at most 5 s more): the
+        # first SIGTERM's wait is the adapter's own 20 s, so a starved
+        # machine does not reach the second.
+        stop = subprocess.run(["bash", "-c", tb.stop_script(str(self.state), str(self.logs))],
+                              capture_output=True, text=True, timeout=120)
         self.assertEqual(stop.returncode, 0, stop.stderr)
         p.communicate(timeout=30)
         self.assertEqual(p.returncode, 9)
