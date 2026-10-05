@@ -996,6 +996,9 @@ async fn after_serving(
     // The retention projection (M6 32a), when the arm reads it: one walk of
     // the memory rows on the blocking pool, never on the start path.
     core.warm_retention();
+    // The adjacency projection (M6 32b), for a daemon whose arm spreads
+    // activation in front of the model.
+    core.warm_activation();
     // The ladder (M5 26a): each pack's mode, read once the socket answers,
     // and the adoptions it lacks written then, never on the start path.
     core.warm_ladder();

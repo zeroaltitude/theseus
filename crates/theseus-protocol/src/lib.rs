@@ -607,7 +607,7 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub mcp_server: Option<mcp_server::McpServerHealth>,
-    /// Memory's retention projection (M6 32a): absent while memory is off.
+    /// Recall's mode and arm and its projections (M6 32a, 32b): absent while memory is off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub memory: Option<memory::MemoryHealth>,

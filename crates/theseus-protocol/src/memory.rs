@@ -25,7 +25,7 @@ pub struct MemorySearchParams {
     #[cfg_attr(test, ts(optional))]
     pub k: Option<usize>,
     /// The arm whose sources and science rank it (`[memory] arm`'s names:
-    /// `baseline`, `bm25`, `+retention`); default `baseline`.
+    /// `baseline`, `bm25`, `+retention`, `+activation`); default `baseline`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub arm: Option<String>,
@@ -128,6 +128,11 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub retention: Option<String>,
+    /// Spreading activation's part (M6 32b, the `+activation` arm): what it
+    /// reached, what it added, and why it did not run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub activation: Option<RecallActivation>,
 }
 
 /// A recalled node's FSRS-6 retention at the recall (M6 32a): what the
@@ -146,15 +151,18 @@ pub struct RecallRetention {
     pub last_review_ms: u64,
 }
 
-/// Memory's line in health (M6 32a): the retention projection.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// Health's memory block (M6): recall's mode and arm, the retention
+/// projection (32a), and the adjacency projection spreading activation walks
+/// (32b).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct MemoryHealth {
-    /// `[memory] mode` and `arm`.
+    /// `off`, `shadow`, `canary`, or `live`.
     pub mode: String,
+    /// The arm canary and live sessions get.
     pub arm: String,
-    /// The retention projection: `unbuilt` (nothing has read it), `building`,
-    /// `ready`, or `failed` (`why` says why).
+    /// The retention projection (32a): `unbuilt` (nothing has read it),
+    /// `building`, `ready`, or `failed` (`why` says why).
     pub retention: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -164,6 +172,68 @@ pub struct MemoryHealth {
     pub nodes: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub events: u64,
+    /// The adjacency projection (32b): absent while no arm reads it and no
+    /// search has built it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub adjacency: Option<AdjacencyHealth>,
+}
+
+/// The adjacency projection (M6 32b): built after serving, kept current at
+/// each spread.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AdjacencyHealth {
+    /// `built`, `building`, `waiting` (to be built after serving or at the
+    /// first spread), or `failed`.
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    pub nodes: u64,
+    /// Stored edges, each way counted.
+    pub edges: u64,
+    pub entities: u64,
+    /// EDGE records whose kind or route spreads nothing.
+    pub unmapped: u64,
+    /// An estimate of what it holds in memory.
+    pub bytes: u64,
+    /// The WAL position it holds everything through.
+    pub through: u64,
+}
+
+/// What spreading activation did in a recall (M6 32b): its seeds, the nodes
+/// it reached, the index's hits it ranked (each gains its term), and the
+/// nodes it added that the index did not return. An item's rank and score
+/// in it are its `sources.activation`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RecallActivation {
+    /// `ran`, or why it did not: `building` (the projection is built after
+    /// serving), `deadline` (recall's ran out first), `no_hits`, or the
+    /// projection's error.
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    pub seeds: u64,
+    /// The new node's entities the spread read: the query's, as the
+    /// index's hits matched them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entities: Vec<String>,
+    pub reached: u64,
+    /// The index's hits it reached, each gaining its term.
+    pub boosted: u64,
+    /// The reached nodes the index did not return, joined as candidates.
+    pub added: u64,
+    /// Of the admitted items, those it ranked, and those it alone found.
+    pub admitted: u64,
+    pub admitted_added: u64,
+    /// The projection as the spread read it.
+    pub nodes: u64,
+    pub edges: u64,
+    /// The projection's refresh and the spread, and the added nodes' reads.
+    pub took_ms: f64,
 }
 
 /// What a live rerank did to a recall (M6 32d): the turn waited at most

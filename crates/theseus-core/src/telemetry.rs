@@ -22,6 +22,8 @@ pub(crate) mod tests;
 mod tests_files;
 #[cfg(test)]
 mod tests_judge;
+#[cfg(test)]
+mod tests_recall;
 
 use std::sync::Arc;
 use std::time::Duration;
