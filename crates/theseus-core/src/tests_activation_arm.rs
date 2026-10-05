@@ -6,6 +6,7 @@
 //! never waits for the projection's build, nor past recall's deadline; and a
 //! shadow turn's request is the same byte for byte under the arm.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -379,4 +380,85 @@ proptest! {
 fn the_arm_is_off_unless_the_config_names_it() {
     let r = rig(MemoryMode::Live);
     assert_eq!(r.core.runner.memory.cfg().arm, MemoryArm::Baseline);
+}
+
+/// What activation adds is never what the turn already holds: the turn's own
+/// context shares the commit with more than `adds` other nodes and is
+/// reached more strongly than any of them, yet the additions are twenty
+/// others, and they fill every slot `adds` gives. Without `Ask::run`'s
+/// `exclude`, the context would take two of the twenty (dropped later as
+/// `in_context`). The index's hits are seeds, which a spread does not
+/// reach, so `exclude` holds them back only as a second guard.
+#[tokio::test]
+async fn activations_additions_skip_what_the_turn_already_holds() {
+    let r = rig_with(MemoryMode::Live, |c| {
+        c.memory.arm = MemoryArm::Activation;
+        c.memory.recall_deadline_ms = crate::config::memory::MAX_RECALL_DEADLINE_MS;
+        c.memory.recall_max_items = crate::config::memory::MAX_RECALL_ITEMS;
+        c.memory.recall_budget_tokens = 100_000;
+    });
+    let c = &r.core;
+    let adds = theseus_memory::Activated::default().adds;
+    assert_eq!(adds, 20);
+    let here = session(c, None, &["Kestrel context one.", "Kestrel context two."]);
+    let hits: Vec<String> = ["Kestrel hit one.", "Kestrel hit two."]
+        .iter()
+        .map(|t| session(c, None, &[t]))
+        .collect();
+    let others: Vec<String> = (0..adds + 5)
+        .map(|i| session(c, None, &[&format!("Kestrel other {i}.")]))
+        .collect();
+    let nodes_of = |sid: &String| -> Vec<String> {
+        c.store
+            .session_nodes(sid)
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| n.id)
+            .collect()
+    };
+    for sid in std::iter::once(&here).chain(&hits).chain(&others) {
+        for n in c.store.session_nodes(sid).unwrap() {
+            label(&c.store, &n.1, &[COMMIT]);
+        }
+    }
+    c.runner.memory.set_ask(index_of(c, hits.clone()));
+    c.runner.memory.adjacency.build(&c.store, false).unwrap();
+    let held: BTreeSet<String> = nodes_of(&here)
+        .into_iter()
+        .chain(hits.iter().flat_map(nodes_of))
+        .collect();
+    let other_ids: BTreeSet<String> = others.iter().flat_map(nodes_of).collect();
+
+    turn(c, &here, "What fixed the Kestrel relay?").await;
+    let m = &recalls(c, &here)[0];
+    let act = m.activation.as_ref().expect("the arm's report");
+    assert_eq!(act.outcome, "ran", "{act:?}");
+    assert_eq!(act.added as usize, adds, "the additions fill the slots");
+    assert_eq!(act.admitted_added as usize, adds, "{act:?}");
+    // Every addition (an admitted item the index did not return) is another
+    // node, and no candidate was dropped for being what the turn holds.
+    let added: Vec<&str> = m
+        .admitted
+        .iter()
+        .filter(|i| !i.sources.keys().any(|s| s != "activation"))
+        .map(|i| i.node_id.as_str())
+        .collect();
+    assert_eq!(added.len(), adds, "{added:?}");
+    for id in &added {
+        assert!(other_ids.contains(*id), "{id} is not one of the others");
+        assert!(
+            !held.contains(*id),
+            "{id} was added though the turn holds it"
+        );
+    }
+    assert_eq!(
+        added.iter().collect::<BTreeSet<_>>().len(),
+        adds,
+        "an addition came twice"
+    );
+    assert!(
+        !m.dropped.iter().any(|d| d.reason == "in_context"),
+        "{:?}",
+        m.dropped
+    );
 }
