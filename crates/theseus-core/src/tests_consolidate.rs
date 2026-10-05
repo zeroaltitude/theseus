@@ -158,6 +158,39 @@ async fn kestrel(core: &Arc<Core>) -> Vec<String> {
     facts
 }
 
+/// The store's last position once it has held still for a second (at most
+/// 20): an asking turn's shadow judgments (`judge.call` rows) land after the
+/// turn ends, and under load they landed during the dry run that follows.
+async fn still(core: &Core) -> u64 {
+    let mut last = core.store.last_position();
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let now = core.store.last_position();
+        if now == last {
+            break;
+        }
+        last = now;
+    }
+    last
+}
+
+/// The ledger rows written after `position`: each one's kind.
+fn ledger_after(core: &Core, position: u64) -> Vec<String> {
+    use theseus_store::Store as _;
+    let page = theseus_store::Page {
+        kind: theseus_store::kinds::LEDGER,
+        after: Some(position),
+        limit: 100,
+        ..Default::default()
+    };
+    let out = core.store.inner().page(&page).unwrap().unwrap_or_default();
+    out.records
+        .iter()
+        .filter_map(|r| r.decode::<LedgerRow>().ok())
+        .map(|r| r.kind)
+        .collect()
+}
+
 async fn consolidate(core: &Arc<Core>, dry_run: bool) -> MemoryConsolidateResult {
     core.memory_consolidate(
         MemoryConsolidateParams {
@@ -210,13 +243,18 @@ async fn a_cluster_becomes_one_checked_synthesis_and_a_dry_run_writes_nothing() 
     let r = rig(MemoryMode::Shadow, Some(&jev), |_| {});
     let c = &r.core;
     let facts = kestrel(c).await;
-    let before = c.store.last_position();
+    let before = still(c).await;
     let calls = r.model.requests().len();
     let dry = consolidate(c, true).await;
     assert_eq!(dry.clusters.len(), 1, "{dry:?}");
     assert_eq!(dry.clusters[0].outcome, "would_propose");
     assert_eq!(dry.clusters[0].turns, 3);
-    assert_eq!(c.store.last_position(), before, "a dry run writes nothing");
+    assert_eq!(
+        c.store.last_position(),
+        before,
+        "a dry run writes nothing: {:?}",
+        ledger_after(c, before)
+    );
     assert_eq!(r.model.requests().len(), calls, "and asks nothing");
     r.model
         .script
