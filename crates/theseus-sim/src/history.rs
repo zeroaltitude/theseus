@@ -47,7 +47,7 @@ const NEAR_PERCENT: i64 = 10;
 /// unit (theseus-goa8). Each is read as a phase is: a p50, a p95, and a limit
 /// when the bench has a budget for it. A single reading (a size, a memory) is
 /// its own p50 and p95.
-pub const OTHER: [(&str, &str); 13] = [
+pub const OTHER: [(&str, &str); 18] = [
     // `bench turn`
     ("turn_plain", "ms"),
     ("frames_plain", "frames"),
@@ -55,11 +55,17 @@ pub const OTHER: [(&str, &str); 13] = [
     ("frames_tool", "frames"),
     ("rss_start", "MB"),
     ("rss_burst", "MB"),
+    // `bench turn --session-nodes` (step 33)
+    ("turn_long", "ms"),
+    ("decodes_long", "nodes"),
+    ("rss_long", "MB"),
     // `bench idle`
     ("idle_cpu", "ms"),
     ("idle_wakeups", "per s"),
     ("idle_frames", "frames"),
     ("rss_idle", "MB"),
+    ("rss_tender", "MB"),
+    ("rss_active", "MB"),
     // `bench size`
     ("size_theseusd", "MB"),
     ("size_theseus", "MB"),
@@ -477,6 +483,11 @@ fn name(phase: &str) -> &str {
         "idle_wakeups" => "an idle daemon's wakeups",
         "idle_frames" => "frames an idle daemon wrote",
         "rss_idle" => "resident memory at idle",
+        "turn_long" => "a turn's wall time in a long session",
+        "decodes_long" => "nodes a turn in a long session decoded",
+        "rss_long" => "resident memory after turns in a long session, the tender's included",
+        "rss_tender" => "the index tender's resident memory at idle",
+        "rss_active" => "resident memory after turns in active sessions, the tender's included",
         "size_theseusd" => "theseusd's size",
         "size_theseus" => "theseus's size",
         "size_theseus_tui" => "theseus-tui's size",

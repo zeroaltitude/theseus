@@ -39,6 +39,8 @@ use crate::lifecycle::{self, Rig, Summary, Vault, Verdict};
 use crate::procfs::{self, Sample};
 use crate::walcount::{Frame, Tail};
 
+mod long;
+
 /// §9's per-turn overhead, restated as frames (review 2, consideration 8): a
 /// plain one-loop turn writes at most this many. 5 since theseus-l6y; the
 /// floor is 2 (review 2's S5: everything up to the dispatch is one frame, and
@@ -637,6 +639,8 @@ pub struct IdleOpts {
     /// Or a copy of this store directory.
     pub store: Option<PathBuf>,
     pub dir: Option<PathBuf>,
+    /// After the window, this many sessions opened and a turn in each.
+    pub active: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -662,17 +666,35 @@ pub struct IdleReport {
     pub frame_shapes: Vec<String>,
     pub threads: u64,
     pub rss: Sample,
+    /// The index tender's resident memory at the window's end, in kB.
+    pub tender_kb: u64,
+    /// `--active`'s sessions, and the memory after a turn in each, the
+    /// daemon's and the tender's (kB).
+    pub active: usize,
+    pub rss_active: Option<Sample>,
+    pub tender_active_kb: u64,
     pub wall_ms: f64,
 }
 
 impl IdleReport {
     pub fn columns(&self) -> Vec<(String, Summary)> {
-        vec![
+        let mut out = vec![
             ("idle_cpu".to_string(), single(self.cpu_ms)),
             ("idle_wakeups".to_string(), single(self.wakeups_per_s)),
             ("idle_frames".to_string(), single(self.frames as f64)),
             ("rss_idle".to_string(), single(self.rss.rss_mb())),
-        ]
+            (
+                "rss_tender".to_string(),
+                single(self.tender_kb as f64 / 1024.0),
+            ),
+        ];
+        if let Some(r) = self.rss_active {
+            out.push((
+                "rss_active".to_string(),
+                single((r.rss_kb + self.tender_active_kb) as f64 / 1024.0),
+            ));
+        }
+        out
     }
 }
 
@@ -734,6 +756,11 @@ pub fn run_idle(o: &IdleOpts) -> Result<IdleReport> {
     let window_s = t.elapsed().as_secs_f64();
     let after = procfs::sample(pid)?;
     let frames = tail.read()?;
+    let tender_kb = long::tender_rss_kb(pid);
+    let (rss_active, tender_active_kb) = match o.active {
+        0 => (None, 0),
+        n => long::active(&s.rig, pid, n).map(|(r, t)| (Some(r), t))?,
+    };
     s.rig.stop(&mut daemon)?;
     let cpu_ms = after.cpu_ns.saturating_sub(before.cpu_ns) as f64 / 1e6;
     let wakeups = after.wakeups.saturating_sub(before.wakeups);
@@ -753,6 +780,10 @@ pub fn run_idle(o: &IdleOpts) -> Result<IdleReport> {
         frame_shapes: labels(&frames),
         threads: after.threads,
         rss: after,
+        tender_kb,
+        active: o.active,
+        rss_active,
+        tender_active_kb,
         wall_ms: ms_since(wall),
     })
 }
@@ -788,10 +819,21 @@ pub fn print_idle(r: &IdleReport) {
         println!("  frames written while idle: {}", r.frame_shapes.join("  "));
     }
     println!(
-        "  resident memory {:.1} MB (peak {:.1} MB)",
+        "  resident memory {:.1} MB (peak {:.1} MB), and the index tender's {:.1} MB",
         r.rss.rss_mb(),
-        r.rss.hwm_mb()
+        r.rss.hwm_mb(),
+        r.tender_kb as f64 / 1024.0
     );
+    if let Some(a) = r.rss_active {
+        println!(
+            "  after a turn in each of {} more sessions: {:.1} MB (peak {:.1} MB), the tender's {:.1} MB, {:.1} MB together",
+            r.active,
+            a.rss_mb(),
+            a.hwm_mb(),
+            r.tender_active_kb as f64 / 1024.0,
+            (a.rss_kb + r.tender_active_kb) as f64 / 1024.0
+        );
+    }
     println!("  the bench took {:.1} s", r.wall_ms / 1000.0);
 }
 
@@ -982,9 +1024,32 @@ pub struct TurnArgs {
     /// The run's label in the history (the gate's: the branch and the commit).
     #[arg(long, requires = "record")]
     label: Option<String>,
+    /// Measure turns in one long session of this many nodes instead (step 33),
+    /// written before the daemon starts.
+    #[arg(long, default_value_t = 0)]
+    session_nodes: u64,
+    /// The long session's tool results, in bytes each.
+    #[arg(long, default_value_t = 8192)]
+    result_bytes: usize,
 }
 
 pub fn turn_cmd(a: TurnArgs) -> Result<()> {
+    if a.session_nodes > 0 {
+        let report = long::run_long(&long::LongOpts {
+            theseusd: theseusd_or_beside(a.theseusd)?,
+            runs: a.runs.max(1),
+            nodes: a.session_nodes,
+            result_bytes: a.result_bytes,
+            dir: a.dir,
+        })?;
+        long::print_long(&report);
+        let out = Output {
+            json: a.json.as_deref(),
+            record: a.record.as_deref(),
+            label: a.label.as_deref(),
+        };
+        return emit("turn", &out, &report, &report.columns(), &[], true);
+    }
     let report = run_turn(&TurnOpts {
         theseusd: theseusd_or_beside(a.theseusd)?,
         runs: a.runs.max(1),
@@ -1029,6 +1094,10 @@ pub struct IdleArgs {
     /// Or a copy of this store directory (e.g. a copy of ~/.theseus/store).
     #[arg(long, conflicts_with = "sessions")]
     store: Option<PathBuf>,
+    /// After the window, open this many sessions and run a turn in each, and
+    /// read the memory again (step 33: 10,000 parked and 50 active).
+    #[arg(long, default_value_t = 0)]
+    active: usize,
     /// Also write the report as JSON here.
     #[arg(long)]
     json: Option<PathBuf>,
@@ -1051,6 +1120,7 @@ pub fn idle_cmd(a: IdleArgs) -> Result<()> {
         sessions: a.sessions,
         store: a.store,
         dir: a.dir,
+        active: a.active,
     })?;
     print_idle(&report);
     let out = Output {
@@ -1206,9 +1276,13 @@ mod tests {
             frame_shapes: Vec::new(),
             threads: 12,
             rss: Sample::default(),
+            tender_kb: 0,
+            active: 50,
+            rss_active: Some(Sample::default()),
+            tender_active_kb: 0,
             wall_ms: 0.0,
         };
-        for (name, _) in report.columns() {
+        for (name, _) in report.columns().into_iter().chain(long::sample_columns()) {
             assert!(columns.contains(&name.as_str()), "{name} has no column");
         }
         let d = tempfile::tempdir().unwrap();
