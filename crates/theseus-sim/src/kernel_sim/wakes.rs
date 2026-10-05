@@ -1,9 +1,12 @@
 //! The kernel-sim's wakes (DD8, 37a): turns set them, one-shot and
 //! repeating, and take the due ones; the operator cancels some; and every
-//! check holds each execution's pending wakes to their rules.
+//! check holds each execution's pending wakes to their rules. A wake may
+//! fall due while its turn runs, and the turn's end queues it (sim2); after
+//! the heartbeat's due scan, nothing due is left parked.
 
 use anyhow::{bail, Result};
 use rand::Rng;
+use theseus_kernel::wakes::{due_now, wake_due};
 use theseus_kernel::*;
 
 use super::World;
@@ -204,6 +207,74 @@ impl World {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Now and then the turn holding `exec_id` runs long, past its soonest
+    /// pending wake: the wake falls due while its execution is busy.
+    pub(super) fn run_past_a_wake(&mut self, exec_id: &str) -> Result<()> {
+        if !self.chance(0.15) {
+            return Ok(());
+        }
+        let Some(e) = self.kernel.execution(exec_id)? else {
+            return Ok(());
+        };
+        let now = self.now();
+        if let Some(w) = e.wakes.first().filter(|w| w.due_at_ms > now) {
+            let past = w.due_at_ms - now + self.rng.random_range(0..5_000);
+            self.clock.advance(past);
+        }
+        Ok(())
+    }
+
+    /// End the turn `g` holds on a free wait (input, a due time, its jobs),
+    /// or otherwise: a wake that fell due while the turn ran is kept, and the
+    /// end that would park the execution queues it instead (DD8).
+    pub(super) fn end_a_turn(&mut self, g: TurnGuard, end: TurnEnd) -> Result<Execution> {
+        let id = g.execution_id.clone();
+        let before = self.kernel.execution(&id)?.unwrap();
+        let end = self.task_end(&before, end);
+        let due = wake_due(&before, self.now()) && before.stopped.is_none();
+        let parks = matches!(
+            end,
+            TurnEnd::Wait {
+                wake: Wake::Input | Wake::DueAt { .. } | Wake::Actions { .. }
+            }
+        );
+        let e = self.end_turn_posting(g, end)?;
+        if due && parks && !e.state.is_terminal() {
+            if e.state != ExecState::Queued || !e.wakes.iter().any(|w| w.due_at_ms <= self.now()) {
+                bail!(
+                    "{id}'s turn ended with a wake due, and left it {:?} {:?} holding {:?}",
+                    e.state,
+                    e.wake,
+                    e.wakes
+                );
+            }
+            self.rep.sim2.busy_wakes += 1;
+        }
+        Ok(e)
+    }
+
+    /// After the heartbeat's due scan (`fire_due`), no open execution is
+    /// left parked with a due time come, or free with a wake of its own due
+    /// or a report's wake (W1): each was queued. A stop's report wake waits
+    /// only for this scan.
+    pub(super) fn check_due_scan(&mut self) -> Result<()> {
+        let now = self.now();
+        for e in self.kernel.open_executions()? {
+            if due_now(&e, now) {
+                bail!(
+                    "the due scan at {now} left {} {:?} on {:?}, with wakes {:?} and report wakes {:?}",
+                    e.id,
+                    e.state,
+                    e.wake,
+                    e.wakes,
+                    e.report_wakes
+                );
+            }
+        }
+        self.s2.stopped_since_scan.clear();
         Ok(())
     }
 }

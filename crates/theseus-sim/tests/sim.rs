@@ -133,6 +133,29 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         count(&out, " series put back") > 0,
         "no series was put back: {total}"
     );
+    // sim2 (theseus-celu.35): `/stop`, between turns and in one, and of one
+    // call alone; tasks under a parent and their reports, a report's wake
+    // among them; a wake that fell due in a turn, queued by its end; and the
+    // outbox's posts, staged in a turn's end and planned outside one, sent
+    // again under their key after a crash, and settled twice.
+    for what in [
+        " stops:",
+        " while a turn ran,",
+        " next inputs ran a turn;",
+        " calls stopped alone",
+        " tasks opened:",
+        " refused at depth one;",
+        " reports read:",
+        " woke their parent,",
+        " wakes due in a turn queued by its end",
+        " posts staged in a turn's end",
+        " planned outside one;",
+        " sent again,",
+        " second settles,",
+        " crashes around a post",
+    ] {
+        assert!(count(&out, what) > 0, "none{what}: {total}");
+    }
 }
 
 /// The same seeds with a share of the turns raced by a second OS thread on
