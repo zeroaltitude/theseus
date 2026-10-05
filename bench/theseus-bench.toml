@@ -10,6 +10,9 @@
 #   - text from outside (a fetched page) gives notices only;
 #   - L0: jobs run as the daemon's user, with no sandbox, as a container's
 #     agent does;
+#   - a call's output cap is its model's own, the catalog's maximum (128000
+#     for Sonnet 5.5), as Claude Code's is: no `max_output_tokens` line
+#     (theseus-7gir.19);
 #   - Discord, the web UI, and the index tender are off.
 #
 # The Harbor adapter (bench/harbor/theseus_agent.py) writes this file into each
@@ -23,13 +26,11 @@ live = "bench"
 provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 api_key_secret = "anthropic_api_key"
-max_output_tokens = 32000
 max_loops = 200                         # set by the adapter: a task's turn runs until the model ends it
 
 [profiles.bench]
 provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
-max_output_tokens = 32000
 max_loops = 200                         # set by the adapter
 
 [secrets]
