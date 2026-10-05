@@ -479,6 +479,17 @@ fn conditions(core: &Core, s: &Scene, tool: &dyn Tool) -> Vec<ExplainCondition> 
         return out;
     }
     let argv = takes(tool, "argv");
+    if takes(tool, "steps") {
+        out.push(cond(
+            "steps",
+            "a batch: each step is judged as the call it would be alone, through every layer here, \
+             and the batch takes the strictest (a refusal of any step refuses it), its reason naming \
+             the step; one approval binds every step, and a batch whose steps differ in class \
+             (L1 and L0) is invalid input",
+            Vec::new(),
+            "the strictest step's",
+        ));
+    }
     let aws = name.starts_with("aws.");
     let mut floor = shown(&p.floor_paths);
     if argv {

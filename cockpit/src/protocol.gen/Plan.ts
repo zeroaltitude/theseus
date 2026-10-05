@@ -12,6 +12,11 @@ export type Plan = { resources: Array<Resource>,
  */
 argv?: Array<string>, 
 /**
+ * For a `proc.run` of `steps` (theseus-7gir.3): each step's exact argv,
+ * in the order they run. Its summary names each step's directory.
+ */
+steps?: Array<Array<string>>, 
+/**
  * For a network tool: the URL it asks for (`http.fetch`'s, or the
  * request `web.search` makes). The gate judges its host (DD5).
  */

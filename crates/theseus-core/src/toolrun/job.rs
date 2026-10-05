@@ -41,35 +41,67 @@ fn size(n: u64) -> String {
 
 /// The end of a job's raw output, as the result reads it.
 #[derive(Debug, Default, PartialEq)]
-struct Tail {
-    text: String,
+pub(super) struct Tail {
+    pub text: String,
     /// The file's whole length.
-    total: u64,
+    pub total: u64,
     /// The bytes before what was read.
     unread: u64,
 }
 
 /// What the turn's look at its job needs (7.1).
-struct Look<'a> {
-    spool: &'a Spool,
-    correlation_id: &'a str,
-    call: &'a ToolUse,
-    tool: &'a str,
+pub(super) struct Look<'a> {
+    pub spool: &'a Spool,
+    pub correlation_id: &'a str,
+    pub call: &'a ToolUse,
+    pub tool: &'a str,
     /// The launch, from which the result's duration counts.
-    t0: Instant,
+    pub t0: Instant,
     /// The broker's note, which heads the result.
-    note: Option<&'a str>,
+    pub note: Option<&'a str>,
+    /// A batch's (theseus-7gir.3): the steps before this one, the steps
+    /// after it, and every step's row for the result's meta. Empty and none
+    /// for one job.
+    pub before: &'a str,
+    pub after: &'a str,
+    pub steps: Option<&'a Value>,
 }
 
 impl Look<'_> {
-    /// `r` with the wait's duration and the broker's note.
+    /// `r` with the wait's duration and the broker's note, and a batch's
+    /// other steps around it.
     fn dressed<'r>(&self, mut r: ResultNode<'r>) -> ResultNode<'r> {
         r.duration_ms = Some(self.t0.elapsed().as_millis() as u64);
         if let Some(n) = self.note {
             r.text = format!("{n}\n{}", r.text);
         }
+        if let Some(steps) = self.steps {
+            r.text = format!("{}{}{}", self.before, r.text, self.after);
+            if let Some(m) = r.meta.as_object_mut() {
+                m.insert("steps".into(), steps.clone());
+            }
+        }
         r
     }
+}
+
+/// A job's call, as each of its launches needs it.
+pub(super) struct Job<'a> {
+    pub correlation_id: &'a str,
+    pub tool: &'a dyn Tool,
+    pub call: &'a ToolUse,
+    pub ran_at: Posture,
+    pub class: &'a sandbox::Bound,
+    pub spool: &'a Spool,
+}
+
+/// A job the wrapper runs: its pid, the broker's note, when it started, and
+/// an L1 job's listing, held until the call returns.
+pub(super) struct Launched<'s> {
+    pub pid: u32,
+    pub note: Option<String>,
+    pub t0: Instant,
+    pub _running: Option<sandbox::Running<'s>>,
 }
 
 /// The last `MAX_RESULT_READ` bytes of a job's raw output, read by seek
@@ -90,7 +122,7 @@ fn cap_line(detail: &Value) -> Option<String> {
     ))
 }
 
-fn read_result_file(path: Option<&str>) -> Tail {
+pub(super) fn read_result_file(path: Option<&str>) -> Tail {
     let Some(p) = path else {
         return Tail::default();
     };
@@ -122,8 +154,8 @@ fn read_tail<R: Read + Seek>(r: &mut R, max: u64) -> std::io::Result<Tail> {
 
 impl ToolRuntime {
     /// A job: started through the wrapper, waited for up to `proc_sync_secs`,
-    /// then left to run in the background with a placeholder result.
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    /// then left to run in the background with a placeholder result. A
+    /// batch (`proc.run`'s `steps`) runs its jobs in turn (`steps.rs`).
     pub(super) async fn run_job(
         &self,
         tc: &TurnCtx<'_>,
@@ -133,7 +165,7 @@ impl ToolRuntime {
         ran_at: Posture,
         class: &sandbox::Bound,
     ) -> Result<CallOutcome> {
-        let spec: JobSpec = match tool.job(&call.input, &self.ctx) {
+        let specs: Vec<JobSpec> = match tool.jobs(&call.input, &self.ctx) {
             Ok(s) => s,
             Err(e) => return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e),
         };
@@ -146,6 +178,104 @@ impl ToolRuntime {
                 "no completion spool is configured",
             );
         };
+        let job = Job {
+            correlation_id,
+            tool,
+            call,
+            ran_at,
+            class,
+            spool: &spool,
+        };
+        if tool.steps(&call.input).is_some() {
+            return self.run_steps(tc, &job, &specs).await;
+        }
+        let [spec] = &specs[..] else {
+            return Err(anyhow!(
+                "{} gave {} jobs for one call",
+                tool.name(),
+                specs.len()
+            ));
+        };
+        let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
+        // The turn waits on its job from before the launch, so the drain
+        // leaves the job's completion to it, and wakes it (7.1).
+        let waiting = self.job_waits.wait(correlation_id);
+        let launched = match self.launch(tc, &job, spec, &waiting, bound).await? {
+            Ok(l) => l,
+            Err(answered) => return Ok(answered),
+        };
+        let Launched { pid, note, t0, .. } = &launched;
+        let (pid, t0) = (*pid, *t0);
+        let look = Look {
+            spool: &spool,
+            correlation_id,
+            call,
+            tool: tool.name(),
+            t0,
+            note: note.as_deref(),
+            before: "",
+            after: "",
+            steps: None,
+        };
+        loop {
+            if let Some(status) = self.look_at_job(tc, &look)? {
+                return Ok(CallOutcome::Done { status });
+            }
+            let left = bound.saturating_sub(t0.elapsed());
+            if left.is_zero() {
+                break;
+            }
+            // The drain's word, a stop's, or the backstop's look (7.1).
+            waiting.woken(left.min(super::waits::LOOK)).await;
+        }
+        // Past its bound the job goes on in the background, and its
+        // completion is the drain's to take: one the drain left to this turn
+        // as the wait ended is taken here.
+        drop(waiting);
+        if let Some(status) = self.look_at_job(tc, &look)? {
+            return Ok(CallOutcome::Done { status });
+        }
+        let mut text = format!(
+            "Still running as background job {correlation_id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.",
+            self.proc_sync_secs, spec.timeout_secs
+        );
+        if let Some(n) = &note {
+            text.push_str(&format!("\n{n}"));
+        }
+        self.answer(
+            tc,
+            ResultNode {
+                correlation_id: Some(correlation_id),
+                meta: json!({"pid": pid}),
+                ..ResultNode::new(&call.id, tool.name(), ResultStatus::Background, text)
+            },
+        )?;
+        Ok(CallOutcome::Background {
+            correlation_id: correlation_id.into(),
+        })
+    }
+
+    /// One job's launch through the wrapper, with its `tool.job_started`
+    /// row: Err when the call is answered instead (the disk's floor, a
+    /// variable no call may set, a stop that came first, a spawn that
+    /// failed). `waiting` is the turn's wait on it, from before the launch.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    pub(super) async fn launch<'s>(
+        &'s self,
+        tc: &TurnCtx<'_>,
+        job: &Job<'_>,
+        spec: &JobSpec,
+        waiting: &super::waits::Waiting,
+        bound: Duration,
+    ) -> Result<Result<Launched<'s>, CallOutcome>> {
+        let Job {
+            correlation_id,
+            tool,
+            call,
+            ran_at,
+            class,
+            spool,
+        } = *job;
         // Below the floor no job starts (theseus-102): the store keeps room
         // to write, and the result says why, to the model and every surface.
         if let Some(r) = self.disk.refusal() {
@@ -155,18 +285,22 @@ impl ToolRuntime {
                 free_mb: r.free_mb,
                 floor_mb: r.floor_mb,
             });
-            return self.settle_job_failure(tc, correlation_id, tool.name(), call, &r.to_string());
+            return self
+                .settle_job_failure(tc, correlation_id, tool.name(), call, &r.to_string())
+                .map(Err);
         }
         let mut env = self.proc_env.clone();
         for (k, v) in &spec.env {
             if forbidden_env(k) {
-                return self.settle_job_failure(
-                    tc,
-                    correlation_id,
-                    tool.name(),
-                    call,
-                    &format!("environment variable {k} may not be set by a tool call"),
-                );
+                return self
+                    .settle_job_failure(
+                        tc,
+                        correlation_id,
+                        tool.name(),
+                        call,
+                        &format!("environment variable {k} may not be set by a tool call"),
+                    )
+                    .map(Err);
             }
             env.retain(|(ek, _)| ek != k);
             env.push((k.clone(), v.clone()));
@@ -189,7 +323,7 @@ impl ToolRuntime {
         let (brokered, sandbox) = sandbox::for_job(
             self,
             class,
-            &spec,
+            spec,
             &set,
             path.as_deref(),
             ran_at,
@@ -240,23 +374,22 @@ impl ToolRuntime {
         // (theseus-36to).
         if let Some(a) = Self::told_to_stop(tc.kernel, correlation_id)? {
             wipe(&mut args);
-            return self.not_started(tc, &a, call, tool.name());
+            return self.not_started(tc, &a, call, tool.name()).map(Err);
         }
-        // The turn waits on its job from before the launch, so the drain
-        // leaves the job's completion to it, and wakes it (7.1).
-        let waiting = self.job_waits.wait(correlation_id);
-        let launched = self.launcher.launch(&spool, &args, waiting.done());
+        let launched = self.launcher.launch(spool, &args, waiting.done());
         wipe(&mut args);
         let pid = match launched {
             Ok(p) => p,
             Err(e) => {
-                return self.settle_job_failure(
-                    tc,
-                    correlation_id,
-                    tool.name(),
-                    call,
-                    &format!("could not start the job: {e}"),
-                );
+                return self
+                    .settle_job_failure(
+                        tc,
+                        correlation_id,
+                        tool.name(),
+                        call,
+                        &format!("could not start the job: {e}"),
+                    )
+                    .map(Err);
             }
         };
         let granted = crate::broker::got(&brokered.granted);
@@ -267,10 +400,9 @@ impl ToolRuntime {
             .collect();
         let note = brokered.note();
         let t0 = Instant::now();
-        let bound = Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5));
         // An L1 job's command, for `sandbox.usage` until its row is written
         // (theseus-kpz1): listed until this call returns.
-        let _running = sandbox::started(self, tc, correlation_id, tool.name(), &spec, &args);
+        let running = sandbox::started(self, tc, correlation_id, tool.name(), spec, &args);
         tc.record(&fact::tool::JobStarted {
             session_id: tc.session_id,
             turn_id: tc.turn_id,
@@ -315,50 +447,12 @@ impl ToolRuntime {
         {
             self.stop_launched(tc, correlation_id, pid).await;
         }
-        let look = Look {
-            spool: &spool,
-            correlation_id,
-            call,
-            tool: tool.name(),
+        Ok(Ok(Launched {
+            pid,
+            note,
             t0,
-            note: note.as_deref(),
-        };
-        loop {
-            if let Some(status) = self.look_at_job(tc, &look)? {
-                return Ok(CallOutcome::Done { status });
-            }
-            let left = bound.saturating_sub(t0.elapsed());
-            if left.is_zero() {
-                break;
-            }
-            // The drain's word, a stop's, or the backstop's look (7.1).
-            waiting.woken(left.min(super::waits::LOOK)).await;
-        }
-        // Past its bound the job goes on in the background, and its
-        // completion is the drain's to take: one the drain left to this turn
-        // as the wait ended is taken here.
-        drop(waiting);
-        if let Some(status) = self.look_at_job(tc, &look)? {
-            return Ok(CallOutcome::Done { status });
-        }
-        let mut text = format!(
-            "Still running as background job {correlation_id} after {} seconds (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting.",
-            self.proc_sync_secs, spec.timeout_secs
-        );
-        if let Some(n) = &note {
-            text.push_str(&format!("\n{n}"));
-        }
-        self.answer(
-            tc,
-            ResultNode {
-                correlation_id: Some(correlation_id),
-                meta: json!({"pid": pid}),
-                ..ResultNode::new(&call.id, tool.name(), ResultStatus::Background, text)
-            },
-        )?;
-        Ok(CallOutcome::Background {
-            correlation_id: correlation_id.into(),
-        })
+            _running: running,
+        }))
     }
 
     pub(super) fn settle_job_failure(
@@ -454,7 +548,11 @@ impl ToolRuntime {
     /// the waiting turn. A job something else settled (a stop or a cancel,
     /// W1; the drain, once the wait has ended; the reconciler) is answered
     /// from its action in a frame of its own, as before. None while it runs.
-    fn look_at_job(&self, tc: &TurnCtx<'_>, look: &Look<'_>) -> Result<Option<ResultStatus>> {
+    pub(super) fn look_at_job(
+        &self,
+        tc: &TurnCtx<'_>,
+        look: &Look<'_>,
+    ) -> Result<Option<ResultStatus>> {
         self.job_waits.looked();
         let id = look.correlation_id;
         let action = || {
@@ -841,7 +939,7 @@ impl ToolRuntime {
     /// Delete a job's raw output, once its result's node is written
     /// (theseus-wz2). A failure is a warning: the file stays 0600 in the
     /// private spool.
-    fn remove_raw_output(&self, path: &str) {
+    pub(super) fn remove_raw_output(&self, path: &str) {
         if let Some(spool) = &self.spool {
             if let Err(e) = spool.remove_result(std::path::Path::new(path)) {
                 tracing::warn!(path, error = %format!("{e:#}"), "a job's raw output was not removed");

@@ -453,7 +453,9 @@ const BULK: usize = 4096;
 /// 18 = M6's `Synthesis` node (a NODE body; 31b, theseus-6fn.10). It replaces
 /// no layout, so no old sample is owed, as format 12's kind owed none.
 /// 19 = a task's `claim`, its lease (M7 39b, theseus-ext.14).
-const MANIFEST_FORMAT: u32 = 19;
+/// 20 = a `proc.run` batch's `steps` on a tool call's plan, each step's argv
+/// (theseus-7gir.3).
+const MANIFEST_FORMAT: u32 = 20;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

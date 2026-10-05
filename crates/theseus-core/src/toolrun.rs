@@ -38,14 +38,17 @@ use crate::sandbox::{self, Sandbox};
 use crate::scrub::Scrubber;
 use crate::store::Store;
 
+mod batch;
 mod glide;
 mod hands;
 mod job;
 mod late;
 pub(crate) mod order;
 mod resume;
+mod steps;
 mod waits;
 
+pub(crate) use batch::Turned;
 pub(crate) use late::{announce_cancelled, not_run_results};
 pub use waits::{JobDone, JobWaits, Waiting};
 
@@ -1155,18 +1158,20 @@ impl ToolRuntime {
         };
         // A shared place's call reaches only what the place may (the place
         // rule): the catalog offers nothing else, and this refuses it, in case.
-        let refused = planned
-            .as_ref()
-            .ok()
-            .and_then(|plan| self.refusal(at.place, tool.name(), plan))
-            .or_else(|| glide.as_ref().and_then(|g| g.as_ref().err().cloned()));
-        let planned = match &refused {
-            Some(why) => Err(why.clone()),
-            None => planned,
-        };
-        let planned = planned.map(|plan| {
-            let (decision, job_class) = self.order(&at, tool, &plan, &call.input, &mut |_, _| {});
-            (plan, decision, job_class)
+        // A batch's every step is judged (`batch.rs`, theseus-7gir.3).
+        let mut refused = None;
+        let planned = planned.and_then(|plan| {
+            let glided = glide.as_ref().and_then(|g| g.as_ref().err().cloned());
+            let judged = match self.judge(&at, tool, &plan, &call.input, &mut |_, _| {}) {
+                // A batch whose steps differ in class (theseus-nrvq).
+                Err(Turned::Invalid(e)) => return Err(e),
+                Err(Turned::Place(why)) => Err(why),
+                Ok(j) => Ok(j),
+            };
+            judged
+                .and_then(|j| glided.map_or(Ok(j), Err))
+                .map(|(decision, job_class)| (plan, decision, job_class))
+                .inspect_err(|why| refused = Some(why.clone()))
         });
         let result = match &planned {
             Err(e) => GateResult {
@@ -1390,15 +1395,22 @@ impl ToolRuntime {
         })
     }
 
-    fn deadline_ms(&self, tool: &dyn Tool, input: &Value) -> u64 {
+    pub(crate) fn deadline_ms(&self, tool: &dyn Tool, input: &Value) -> u64 {
         match tool.backend() {
             Backend::Inproc | Backend::Async | Backend::Harness => inproc_deadline_ms(tool),
             Backend::Job => {
-                let t = input
-                    .get("timeout_secs")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(self.ctx.proc_timeout_secs)
-                    .min(self.ctx.proc_timeout_max_secs);
+                let t = |input: &Value| {
+                    input
+                        .get("timeout_secs")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(self.ctx.proc_timeout_secs)
+                        .min(self.ctx.proc_timeout_max_secs)
+                };
+                // A batch's deadline covers every step's timeout (theseus-7gir.3).
+                let t = match tool.steps(input) {
+                    Some(steps) => steps.iter().map(t).sum(),
+                    None => t(input),
+                };
                 (t + 30) * 1000
             }
         }

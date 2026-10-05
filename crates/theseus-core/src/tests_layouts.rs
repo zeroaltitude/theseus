@@ -220,6 +220,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::NODE,
+        layout: "a `proc.run` call and its gate record at format 17 (unchanged from 3 through 19): one argv, before a batch's `steps` on its plan (20, theseus-7gir.3); by hand, in the layout the build before it (4d11e797) writes",
+        bytes: r#"{"id":"tcl_00000000000000000000000000000097","schema":1,"session_id":"ses_lighthouse","turn_id":"turn_t9","loop_index":0,"origin":"harness","author":null,"created_at_ms":1790000000097,"body":{"kind":"tool_call","tool_use_id":"tu_97","tool":"proc.run","wire_name":"proc_run","input":{"argv":["make","charts"],"cwd":"/w/harbour"},"assistant_node":"asm_00000000000000000000000000000097","correlation_id":"act_t97","gate":{"decision":{"notify":{"kind":"notify","rule":"proc.run — notify (enforcement = notify)","setting":"enforcement = notify"},"posture":"notify","reason":"proc.run — notify (enforcement = notify)"},"plan":{"argv":["make","charts"],"resources":[{"access":"exec","path":"/w/harbour"}],"summary":"run `make charts` in /w/harbour"},"proposal":{"args":{"argv":["make","charts"],"cwd":"/w/harbour"},"policy_context":{"cwd":"/w","roots":["/w"]},"resource":"/w/harbour","tool":"proc.run"},"result":{"gate":"allow"},"validated":true}}}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::COMPILATION,
         layout: "1, 460a35b's: a new session's compilation, before its cache layout (3)",
         bytes: r#"{"id":"cmp_01a0f3f3cd57766c8225231563419be3","schema":1,"session_id":"ses_01a0f3f3c9b77474a7caa5d4925bd678","created_at_ms":1790799236439,"trigger":"new_session","strategy":"transcript","as_of":49,"includes":["msg_01a0f3f3cd4f72d28cedea2e393aa42d"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":1,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"27aaef021b7a8f84","tools_digest":"57a95134045b2d98","tools":["fs_edit","fs_glob","fs_grep","fs_list","fs_patch","fs_read","fs_write","git_diff","git_log","proc_run","text_diff"],"catalog_version":"2026-09-29.1+config:12","context_window":1000000,"strip_thinking":false}}"#,

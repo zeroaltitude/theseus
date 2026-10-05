@@ -3797,9 +3797,10 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
 /// token takes 2 bytes at the fewest, so the header's breakpoint is placed
 /// on every built-in model (theseus-ev1); on Haiku the provider skips it
 /// until the header grows past the minimum. A minimum the prefix can never
-/// reach, here a config's 16,384 tokens (32,768 bytes), drops the header's
-/// breakpoint: the compilation's manifest and the narrative say so, and the
-/// conversation's breakpoint stays.
+/// reach, here a config's 65,536 tokens (131,072 bytes; 16,384 until the
+/// header with its tools passed 32 KB at proc-steps' join, theseus-7gir.3),
+/// drops the header's breakpoint: the compilation's manifest and the
+/// narrative say so, and the conversation's breakpoint stays.
 #[tokio::test]
 async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
     async fn on_haiku(r: &Rig) -> TurnSubmitResult {
@@ -3833,7 +3834,7 @@ async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
         cfg.catalog.insert(
             "claude-haiku-4-5".into(),
             crate::catalog::CatalogRow {
-                cache_min_tokens: Some(16_384),
+                cache_min_tokens: Some(65_536),
                 ..Default::default()
             },
         );
@@ -3843,9 +3844,12 @@ async fn a_header_under_the_models_cache_minimum_gets_no_breakpoint() {
     let res = on_haiku(&r).await;
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
     let layout = comps[0].manifest.cache.clone().unwrap();
-    assert_eq!(layout.min_tokens, 16_384);
+    assert_eq!(layout.min_tokens, 65_536);
     let header = &layout.blocks[0];
-    assert!(header.prefix_bytes < 32_768 && !header.marked && layout.caches);
+    assert!(
+        header.prefix_bytes < 131_072 && !header.marked && layout.caches,
+        "{layout:?}"
+    );
     let sent = r.fake.requests().pop().unwrap();
     assert!(sent.system[0].get("cache_control").is_none());
     assert_eq!(sent.cache_control, Some(json!({"type": "ephemeral"})));

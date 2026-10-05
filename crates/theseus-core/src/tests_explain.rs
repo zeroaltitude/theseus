@@ -16,6 +16,7 @@ use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::tests_places::{rig_setup, rig_with, session, turn, LAB, OWNER};
 use crate::toolrun::order::At;
+use crate::toolrun::Turned;
 
 /// A guild channel the bindings file binds shared.
 const PIER: u64 = 141_421_356_237_309_504;
@@ -114,6 +115,8 @@ fn input_for(tool: &dyn Tool, open: &Path) -> Value {
                           "evidence": [{"identity": "commit:0000tide"}]})
         }
         "wake.at" => return json!({"after": "10m", "note": "check the tide"}),
+        // `argv` or `steps`, so neither is required by the schema.
+        "proc.run" => return json!({"argv": ["wc", "-l"]}),
         _ => {}
     }
     let schema = tool.input_schema();
@@ -163,9 +166,6 @@ fn gated(core: &Core, sid: &str, tool: &dyn Tool, input: &Value) -> Option<(Stri
     let rt = &core.tools;
     let plan = tool.plan(input, &rt.ctx).ok()?;
     let view = core.runner.view_of(sid);
-    if let Some(why) = rt.refusal(view, tool.name(), &plan) {
-        return Some(("refused".into(), why));
-    }
     let held = || crate::external::held(&core.store, sid);
     // A glide's other place is its call's (38b), which neither a probe nor
     // this input names: `policy.explain` gives the rule as a condition.
@@ -175,8 +175,11 @@ fn gated(core: &Core, sid: &str, tool: &dyn Tool, input: &Value) -> Option<(Stri
         mcp: &|| None,
         glide: None,
     };
-    let (d, _) = rt.order(&at, tool, &plan, input, &mut |_, _| {});
-    Some((d.posture.as_str().into(), d.reason))
+    // The gate's own judgment: a batch's every step (theseus-7gir.3).
+    match rt.judge(&at, tool, &plan, input, &mut |_, _| {}) {
+        Ok((d, _)) => Some((d.posture.as_str().into(), d.reason)),
+        Err(Turned::Place(why) | Turned::Invalid(why)) => Some(("refused".into(), why)),
+    }
 }
 
 fn explained(core: &Core, sid: &str) -> Vec<ToolExplain> {
@@ -425,4 +428,32 @@ async fn each_call_a_turn_records_agrees_with_its_sessions_explanation() {
         recorded(&core, &held)[0],
         ("proc.run".into(), "approve".into())
     );
+}
+
+/// A batch (`proc.run`'s `steps`, theseus-7gir.3) is judged as the gate
+/// judges it: each step as the call it would be alone, the strictest
+/// taken, its reason naming the step; and the explanation says so.
+#[tokio::test]
+async fn a_batch_is_judged_as_its_strictest_step() {
+    let r = rig_with(|_| {});
+    let core = &r.core;
+    let sid = session(core, None);
+    let tool = core.tools.registry.get("proc.run").unwrap().clone();
+    let alone = gated(
+        core,
+        &sid,
+        tool.as_ref(),
+        &json!({"argv": ["op", "whoami"]}),
+    )
+    .unwrap();
+    let batch = json!({"steps": [{"argv": ["wc", "-l"]}, {"argv": ["op", "whoami"]}]});
+    let (posture, reason) = gated(core, &sid, tool.as_ref(), &batch).unwrap();
+    assert_eq!(posture, alone.0);
+    assert_eq!(posture, "approve");
+    assert_eq!(reason, format!("step 2 of 2 (`op whoami`): {}", alone.1));
+    let row = explained(core, &sid)
+        .into_iter()
+        .find(|t| t.tool == "proc.run")
+        .unwrap();
+    assert!(row.conditions.iter().any(|c| c.layer == "steps"), "{row:?}");
 }

@@ -12,10 +12,19 @@ use crate::{parse, Access, Backend, JobSpec, Plan, Resource, Retry, Tool, ToolCl
 
 pub struct Run;
 
+/// The most steps a call may give (theseus-7gir.3): a batch is a handful of
+/// shell steps, and its card lists every one of them whole.
+pub const MAX_STEPS: usize = 16;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RunArgs {
-    argv: Vec<String>,
+    #[serde(default)]
+    argv: Option<Vec<String>>,
+    /// Programs run in turn, stopping at the first that fails
+    /// (theseus-7gir.3): exactly one of `argv` and `steps`.
+    #[serde(default)]
+    steps: Option<Vec<StepArgs>>,
     #[serde(default)]
     cwd: Option<String>,
     #[serde(default)]
@@ -26,6 +35,52 @@ struct RunArgs {
     /// call's class; here its egress hosts are checked (18c).
     #[serde(default)]
     sandbox: Option<Sandbox>,
+}
+
+/// One step of a batch: its own program, and its own directory and timeout,
+/// each the call's when it gives none. `env` and `sandbox` are the call's.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StepArgs {
+    argv: Vec<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    #[expect(
+        dead_code,
+        reason = "read from the input, as each step alone (`steps`)"
+    )]
+    timeout_secs: Option<u64>,
+}
+
+impl RunArgs {
+    /// The one program, or the steps: exactly one, each naming a program.
+    fn checked(&self) -> Result<(), String> {
+        match (&self.argv, &self.steps) {
+            (Some(_), Some(_)) => {
+                Err("give argv (one program) or steps (programs run in turn), not both".into())
+            }
+            (None, None) => Err("argv must name a program (or steps, programs run in turn)".into()),
+            (Some(argv), None) => named(argv)
+                .then_some(())
+                .ok_or_else(|| "argv must name a program".into()),
+            (None, Some(steps)) if steps.is_empty() => {
+                Err("steps must hold at least one step".into())
+            }
+            (None, Some(steps)) if steps.len() > MAX_STEPS => Err(format!(
+                "steps holds {} steps, more than {MAX_STEPS}: split the batch",
+                steps.len()
+            )),
+            (None, Some(steps)) => match steps.iter().position(|s| !named(&s.argv)) {
+                Some(i) => Err(format!("step {}'s argv must name a program", i + 1)),
+                None => Ok(()),
+            },
+        }
+    }
+}
+
+fn named(argv: &[String]) -> bool {
+    argv.first().is_some_and(|p| !p.trim().is_empty())
 }
 
 /// `sandbox: true`, or `sandbox: { egress: [...] }` (M4 18c): L1, with hosts
@@ -50,19 +105,19 @@ impl Tool for Run {
         "proc.run"
     }
     fn description(&self) -> &'static str {
-        "Run one program with a typed argv (no shell): builds, tests, linters, git commands the git tools do not cover. Returns combined stdout and stderr with the exit code. Prefer the fs, text, and git tools when they can do the job. Long runs continue in the background and report back later."
+        "Run one program with a typed argv (no shell): builds, tests, linters, git commands the git tools do not cover. Returns combined stdout and stderr with the exit code. Several programs in a row go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. Long runs continue in the background and report back later."
     }
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Program and arguments, e.g. [\"cargo\", \"test\", \"-p\", \"core\"]. Pass [\"bash\", \"-c\", \"...\"] only when a shell is truly needed."},
+                "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Program and arguments, e.g. [\"cargo\", \"test\", \"-p\", \"core\"]. Pass [\"bash\", \"-c\", \"...\"] only when a shell is truly needed. Give argv or steps, not both."},
+                "steps": {"type": "array", "minItems": 1, "maxItems": MAX_STEPS, "items": {"type": "object", "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "cwd": {"type": "string"}, "timeout_secs": {"type": "integer", "minimum": 1}}, "required": ["argv"], "additionalProperties": false}, "description": "Programs run in order, in place of argv, each with its own argv and optional cwd and timeout_secs (the call's are the default; env and sandbox apply to every step). The run stops at the first step that exits non-zero, and one result gives each step's exit code, output tail, and time, and names the steps not run."},
                 "cwd": {"type": "string", "description": "Working directory. Default: the working directory."},
                 "timeout_secs": {"type": "integer", "minimum": 1, "description": "Kill the program after this many seconds."},
                 "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables (no secrets; token/key names are refused)."},
                 "sandbox": {"anyOf": [{"type": "boolean"}, {"type": "object", "properties": {"egress": {"type": "array", "items": {"type": "string"}}}}], "description": "Run it in the sandbox (L1): no network, an empty HOME, and its writes discarded afterwards. For untrusted code, builds, and tests. {\"egress\": [\"host:port\"]} lets it reach those hosts through the proxy HTTPS_PROXY names, once approved if the operator has not listed them; what it brings back is outside text."}
             },
-            "required": ["argv"],
             "additionalProperties": false
         })
     }
@@ -77,28 +132,58 @@ impl Tool for Run {
     }
     fn plan(&self, input: &Value, ctx: &ToolCtx) -> Result<Plan, String> {
         let a: RunArgs = parse(input)?;
-        if a.argv.is_empty() || a.argv[0].trim().is_empty() {
-            return Err("argv must name a program".into());
-        }
+        a.checked()?;
         if let Some(Sandbox::With(w)) = &a.sandbox {
             for e in &w.egress {
                 e.parse::<crate::net::Allow>()
                     .map_err(|why| format!("sandbox.egress: {why}"))?;
             }
         }
-        let cwd = a
-            .cwd
-            .as_deref()
-            .map(|p| ctx.resolve(p))
-            .unwrap_or_else(|| ctx.cwd.clone());
+        let dir = |cwd: Option<&str>| {
+            cwd.or(a.cwd.as_deref())
+                .map(|p| ctx.resolve(p))
+                .unwrap_or_else(|| ctx.cwd.clone())
+        };
+        let Some(steps) = &a.steps else {
+            let cwd = dir(None);
+            let argv = a.argv.unwrap_or_default();
+            return Ok(Plan {
+                summary: format!("run `{}` in {}", argv.join(" "), cwd.display()),
+                resources: vec![Resource {
+                    path: cwd,
+                    access: Access::Exec,
+                }],
+                argv: Some(argv),
+                url: None,
+                ..Default::default()
+            });
+        };
+        // The card shows the batch whole: every step's argv and directory.
+        let mut resources: Vec<Resource> = Vec::new();
+        let mut listed = Vec::new();
+        for (i, step) in steps.iter().enumerate() {
+            let cwd = dir(step.cwd.as_deref());
+            listed.push(format!(
+                "{}. `{}` in {}",
+                i + 1,
+                step.argv.join(" "),
+                cwd.display()
+            ));
+            if !resources.iter().any(|r| r.path == cwd) {
+                resources.push(Resource {
+                    path: cwd,
+                    access: Access::Exec,
+                });
+            }
+        }
         Ok(Plan {
-            summary: format!("run `{}` in {}", a.argv.join(" "), cwd.display()),
-            resources: vec![Resource {
-                path: cwd,
-                access: Access::Exec,
-            }],
-            argv: Some(a.argv),
-            url: None,
+            summary: format!(
+                "run {} steps in turn, stopping at the first that fails: {}",
+                steps.len(),
+                listed.join("; ")
+            ),
+            resources,
+            steps: Some(steps.iter().map(|s| s.argv.clone()).collect()),
             ..Default::default()
         })
     }
@@ -116,7 +201,7 @@ impl Tool for Run {
             ));
         }
         Ok(JobSpec {
-            argv: a.argv,
+            argv: a.argv.ok_or("a batch's jobs are its steps'")?,
             cwd,
             timeout_secs: a
                 .timeout_secs
@@ -124,6 +209,38 @@ impl Tool for Run {
                 .clamp(1, ctx.proc_timeout_max_secs),
             env: a.env.into_iter().collect(),
         })
+    }
+    /// Each step's job, every directory checked before the first starts.
+    fn jobs(&self, input: &Value, ctx: &ToolCtx) -> Result<Vec<JobSpec>, String> {
+        match self.steps(input) {
+            None => self.job(input, ctx).map(|j| vec![j]),
+            Some(steps) => steps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| self.job(s, ctx).map_err(|e| format!("step {}: {e}", i + 1)))
+                .collect(),
+        }
+    }
+    /// Each step as the call it would be alone: its argv, its directory and
+    /// timeout or the call's, and the call's `env` and `sandbox`.
+    fn steps(&self, input: &Value) -> Option<Vec<Value>> {
+        let steps = input.get("steps")?.as_array()?;
+        let mut alone = input.as_object()?.clone();
+        alone.remove("steps");
+        Some(
+            steps
+                .iter()
+                .map(|s| {
+                    let mut one = alone.clone();
+                    for k in ["argv", "cwd", "timeout_secs"] {
+                        if let Some(v) = s.get(k) {
+                            one.insert(k.into(), v.clone());
+                        }
+                    }
+                    Value::Object(one)
+                })
+                .collect(),
+        )
     }
     /// A job's raw output is deleted once its result is written
     /// (theseus-wz2): only a run that prints less, or keeps its output in a
@@ -154,6 +271,53 @@ mod tests {
         assert!(Run
             .job(&json!({"argv": ["ls"], "cwd": "no/such/dir"}), &c)
             .is_err());
+    }
+
+    /// `argv` or `steps`, exactly one, each naming a program, at most
+    /// `MAX_STEPS` of them (theseus-7gir.3); the plan lists every step's
+    /// argv and directory, and each step alone is the call with its own.
+    #[test]
+    fn steps_or_argv_exactly_one_and_the_plan_lists_every_step() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir(d.path().join("sub")).unwrap();
+        let c = ToolCtx::for_tests(d.path());
+        let err = |i: Value| Run.plan(&i, &c).unwrap_err();
+        assert!(err(json!({"argv": ["a"], "steps": [{"argv": ["b"]}]})).contains("not both"));
+        assert!(err(json!({})).contains("argv must name a program"));
+        assert!(err(json!({"steps": []})).contains("at least one step"));
+        assert!(err(json!({"steps": [{"argv": ["a"]}, {"argv": []}]})).contains("step 2's argv"));
+        assert!(err(json!({"steps": [{"argv": ["a"], "env": {}}]})).contains("unknown field"));
+        let many: Vec<Value> = (0..=MAX_STEPS).map(|_| json!({"argv": ["true"]})).collect();
+        assert!(err(json!({"steps": many})).contains("more than 16"));
+        let batch = json!({"steps": [{"argv": ["make", "x"]}, {"argv": ["ls"], "cwd": "sub", "timeout_secs": 5}], "env": {"A": "1"}, "timeout_secs": 9});
+        let p = Run.plan(&batch, &c).unwrap();
+        assert_eq!(p.argv, None);
+        assert_eq!(
+            p.steps,
+            Some(vec![
+                vec!["make".to_string(), "x".into()],
+                vec!["ls".into()]
+            ])
+        );
+        assert!(
+            p.summary.contains("1. `make x` in ") && p.summary.contains("2. `ls` in "),
+            "{}",
+            p.summary
+        );
+        assert!(p.summary.contains("/sub"), "{}", p.summary);
+        assert_eq!(p.resources.len(), 2);
+        let alone = Run.steps(&batch).unwrap();
+        assert_eq!(
+            alone[1],
+            json!({"argv": ["ls"], "cwd": "sub", "timeout_secs": 5, "env": {"A": "1"}})
+        );
+        assert_eq!(alone[0]["timeout_secs"], 9);
+        let jobs = Run.jobs(&batch, &c).unwrap();
+        assert_eq!((jobs[0].timeout_secs, jobs[1].timeout_secs), (9, 5));
+        assert!(jobs[1].cwd.ends_with("sub"));
+        let gone = json!({"steps": [{"argv": ["ls"]}, {"argv": ["ls"], "cwd": "nowhere"}]});
+        assert!(Run.jobs(&gone, &c).unwrap_err().starts_with("step 2: "));
+        assert!(Run.steps(&json!({"argv": ["ls"]})).is_none());
     }
 
     /// `sandbox` is `true`, or `{ egress: [...] }` whose every entry is

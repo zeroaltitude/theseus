@@ -743,6 +743,7 @@ impl Tool for Patch {
         let files = split_patch(&a.patch).map_err(ToolFailure::new)?;
         // Compute every result first; write only if all apply.
         let mut results: Vec<(PathBuf, Option<String>, String)> = Vec::new();
+        let mut recounted = Vec::new();
         for f in &files {
             let target = f
                 .new
@@ -754,7 +755,9 @@ impl Tool for Patch {
                 None => String::new(),
                 Some(o) => read_regular_text(&ctx.resolve(o), "fs_patch")?,
             };
-            let p = diffy::Patch::from_str(&f.text).map_err(|e| {
+            // Each hunk header's lengths from its body (theseus-inw).
+            let text = crate::recount::noted(&f.text, target, &mut recounted);
+            let p = diffy::Patch::from_str(&text).map_err(|e| {
                 ToolFailure::new(format!("cannot parse the section for {target}: {e}"))
             })?;
             let applied = diffy::apply(&original, &p).map_err(|e| ToolFailure::new(format!("the patch does not apply to {target}: {e}. Read the file and regenerate the hunk against its current contents.")))?;
@@ -796,6 +799,7 @@ impl Tool for Patch {
                 if content.is_none() { " (deleted)" } else { "" }
             ));
         }
+        summary.append(&mut recounted);
         Ok(ToolOutput {
             text: format!(
                 "Applied to {} file{}:\n{}",

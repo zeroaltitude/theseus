@@ -104,13 +104,12 @@ impl ToolRuntime {
                 continue;
             }
             let input = call_input(&nodes, &a.correlation_id);
-            let node = self.result_node(
-                tc,
-                ResultNode {
-                    late: true,
-                    ..self.job_result(tc.store, a, &tool_use_id, &tool, input)
-                },
-            );
+            let mut r = self.job_result(tc.store, a, &tool_use_id, &tool, input);
+            // A batch's step that ran on in the background (theseus-7gir.3).
+            if input.is_some_and(|i| i.get("steps").is_some()) {
+                r.text = format!("[the batch's step that went on in the background; the steps after it were not run]\n{}", r.text);
+            }
+            let node = self.result_node(tc, ResultNode { late: true, ..r });
             records.push(node.record()?);
             records.extend(egress::rows(&tc.rec(), &node)?);
             records.push(tc.rec().row(&fact::tool::LateResult {
