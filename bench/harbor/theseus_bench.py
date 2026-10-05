@@ -4,6 +4,8 @@
   trial sets (the model, the limits, the task's working directory);
 - `run_script` and `stop_script`: the shell a trial's container runs, with
   the harness sampler around the turn (`sampler.py`, theseus-7gir.12);
+  `daemon_script`, the async bench's trial on a daemon of its own
+  (`bench/async/`);
 - `ENDS`: what each of `theseus ask`'s exit codes says (theseus-n88g.2,
   `theseus ask --help`).
 
@@ -149,6 +151,34 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
         f"{spawn} history > {lg}/{HISTORY} 2>> {lg}/{LOG}; "
         f"{stop}"
         f"touch {lg}/{DONE}; "
+        f"if [ $rc -ne 0 ]; then grep '^theseus: ' {lg}/{LOG} | tail -n 1 >&2; fi; "
+        "exit $rc"
+    )
+
+
+def daemon_script(bin_dir: str, state: str, logs: str) -> str:
+    """The async bench's trial (theseus-7gir.16): a real daemon for the
+    whole trial, not one turn on stdio, so a job, a task, or a wake that
+    outlives the turn is still read. The daemon starts in a session of its
+    own on `<state>/theseus.sock` (its pid in `theseusd.pid`), the
+    conversation's session is opened (its id in `session`, where the driver
+    reads it to send its messages), and the instruction is its first turn;
+    the command exits with that `ask`'s code, as `run_script`'s does, and
+    leaves the daemon running for the driver's settle and finish."""
+    b, s, lg = (shlex.quote(p) for p in (bin_dir, state, logs))
+    cli = f"{b}/theseus --json"
+    return (
+        'instruction="$THESEUS_BENCH_INSTRUCTION"; unset THESEUS_BENCH_INSTRUCTION; '
+        f"export THESEUS_SOCKET={s}/theseus.sock; rm -f {s}/session {lg}/{DONE}; "
+        "detach=$(command -v setsid || true); "
+        f"$detach {b}/theseusd < /dev/null > /dev/null 2>> {lg}/{LOG} & echo $! > {s}/theseusd.pid; "
+        f"i=0; until {cli} health > /dev/null 2>&1; do i=$((i+1)); "
+        f"if [ $i -ge 100 ]; then echo 'theseus: the daemon did not answer in 10 s' >&2; exit 3; fi; "
+        "sleep 0.1; done; "
+        f"ses=$({b}/theseus sessions open --label bench 2>> {lg}/{LOG}) || exit 3; "
+        f'echo "$ses" > {s}/session; '
+        f'printf "%s" "$instruction" | {cli} ask -s "$ses" - > {lg}/{TURN} 2>> {lg}/{LOG}; rc=$?; '
+        f"echo $rc > {lg}/{EXIT}; "
         f"if [ $rc -ne 0 ]; then grep '^theseus: ' {lg}/{LOG} | tail -n 1 >&2; fi; "
         "exit $rc"
     )

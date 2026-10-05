@@ -1,0 +1,19 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "Two concurrent subtasks on a ledger that loses an update under a race, and a tool that allows 2 calls at once."
+
+[metadata.async]
+family = "contention"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048

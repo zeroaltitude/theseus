@@ -1,0 +1,28 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "A long job cancelled by an injected message; the tests count its processes still alive."
+
+[metadata.async]
+family = "cancel"
+
+# The driver's second message (bench/async/driver.py): sent `delay_s` after the
+# ledger's first `after_kind` record of `after_tool`, else `at_s` after the agent starts.
+[metadata.async.injection]
+message = "Cancel the migration now: it is pointed at the wrong database. Stop it, and leave none of its processes running."
+after_tool = "migrate"
+after_kind = "start"
+delay_s = 15
+at_s = 90
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048
