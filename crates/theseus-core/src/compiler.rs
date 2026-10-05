@@ -34,6 +34,7 @@ use crate::provider::{tool_uses_in, Census, ProviderRequest, ID_TOKENS, MESSAGE_
 use theseus_protocol::memory::{BudgetDrop, BudgetOverage, BudgetRange, BudgetReport};
 
 pub mod compaction;
+pub mod situation;
 
 pub const COMPILER_VERSION: u32 = 1;
 /// 2 since 13c (theseus-ev1): the system goes out as two blocks, and a block
@@ -185,6 +186,10 @@ pub struct Compilation {
     /// before it (COMPILATION's layout 8), and in one not assembled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recall_id: Option<String>,
+    /// The situation it was made in (M6 35a). Absent in a compilation from
+    /// before it (COMPILATION's layout 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub situation: Option<situation::Situation>,
 }
 
 /// An operator's request to recompile.
@@ -277,6 +282,8 @@ pub struct CompileInput<'a> {
     /// The assembled strategy's recall section (M6 30c): a new compilation
     /// renders this `Recall` node first in its prefix (`recall_id`).
     pub assembled: Option<&'a str>,
+    /// What the compile is for, as the compile step tells it (M6 35a).
+    pub situation: &'a situation::Situation,
 }
 
 /// A request that passed the model's window, as the provider said it
@@ -507,6 +514,8 @@ pub struct Compiled {
     /// CONTINUE's candidate signals that fired, and the sizes beside them
     /// (M5 25b). They decide nothing here.
     pub signals: crate::signals::Signals,
+    /// The situation it settled in (M6 35a): what its request may admit.
+    pub situation: situation::Situation,
 }
 
 /// A rendered request.
@@ -730,6 +739,7 @@ fn compile_with(
                 },
                 budget: None,
                 recall_id: input.assembled.map(str::to_string),
+                situation: None,
             }
         };
 
@@ -844,8 +854,11 @@ fn compile_with(
     let digest = request.digest();
     est.bytes = request.json_bytes();
     let budget = budget_report(window.map(|w| request_budget(w, spec)), &est, ring_drop);
+    let first = input.current.is_none();
+    let situation = situation::settle(input.situation, first, new_compilation, trigger.as_deref());
     if new_compilation {
         compilation.budget = Some(budget.clone());
+        compilation.situation = Some(situation.clone());
     }
     let signals = input.signals.map_or_else(Default::default, |at| {
         let seen = crate::signals::Seen {
@@ -875,6 +888,7 @@ fn compile_with(
         cache: cache_layout(spec, input.catalog),
         withheld: withheld as u64,
         signals,
+        situation,
     }
 }
 
@@ -938,22 +952,11 @@ pub fn render_request(
         &crate::recall::render::Sources,
     ),
 ) -> Rendered {
-    let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
     // An assembled prefix's recall section is its, wherever it was written.
-    let section = |n: &crate::stub::Stub| c.recall_id.as_deref() == Some(n.id.as_str());
-    let prefix: Vec<&Node> = nodes
-        .iter()
-        .filter(|(pos, n)| {
-            (*pos <= c.as_of && included.contains(n.id.as_str()) && renderable(n)) || section(n)
-        })
-        .map(|(_, n)| &**n)
-        .collect();
+    let (prefix, tail) = situation::selected(c, nodes);
+    let prefix = prefix.into_iter().map(|(_, n)| n).collect();
     let prefix = compaction::summaries_first(prefix, c.recall_id.as_deref());
-    let tail: Vec<&Node> = nodes
-        .iter()
-        .filter(|(pos, n)| *pos > c.as_of && renderable(n) && !section(n))
-        .map(|(_, n)| &**n)
-        .collect();
+    let tail: Vec<&Node> = tail.into_iter().map(|(_, n)| n).collect();
     let entry = catalog.get(&spec.model);
     // The compilation's model decides how its images and PDFs show
     // (theseus-9g2, theseus-c9l6).
@@ -1455,6 +1458,7 @@ mod tests {
             sources: &Default::default(),
             signals: None,
             assembled: None,
+            situation: &situation::Situation::Continuation,
         })
     }
 
@@ -1690,23 +1694,26 @@ mod tests {
         }
         let nodes: Vec<(u64, crate::stub::Stub)> =
             nodes.into_iter().map(|(p, n)| (p, n.into())).collect();
-        let c = compile(CompileInput {
+        let (catalog, sources) = (Catalog::builtin(), Default::default());
+        let input = CompileInput {
             session_id: "s",
             current: None,
             nodes: &nodes,
             last_position: 12,
             spec: &sp,
-            catalog: &Catalog::builtin(),
+            catalog: &catalog,
             force: Some(Recompile::Fresh),
             window_override: None,
             blobs: None,
             hidden: &[],
             strip: None,
             overflowed: None,
-            sources: &Default::default(),
+            sources: &sources,
             signals: None,
             assembled: None,
-        });
+            situation: &situation::Situation::Continuation,
+        };
+        let c = compile(input);
         assert_eq!(c.compilation.strategy, "fresh");
         assert!(c.compilation.manifest.strip_thinking);
         assert_eq!(
@@ -1725,21 +1732,9 @@ mod tests {
             .all(|b| !is_thinking(b)));
 
         let c = compile(CompileInput {
-            session_id: "s",
-            current: None,
-            nodes: &nodes,
-            last_position: 12,
-            spec: &sp,
-            catalog: &Catalog::builtin(),
             force: None,
             window_override: Some(13_000),
-            blobs: None,
-            hidden: &[],
-            strip: None,
-            overflowed: None,
-            sources: &Default::default(),
-            signals: None,
-            assembled: None,
+            ..input
         });
         assert_eq!(c.trigger.as_deref(), Some("overflow"));
         assert_eq!(c.compilation.strategy, "ring");
@@ -1998,6 +1993,7 @@ mod tests {
             sources: &Default::default(),
             signals: None,
             assembled: None,
+            situation: &situation::Situation::Continuation,
         });
         assert_eq!(c.request.system.len(), 2);
         assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
@@ -2055,6 +2051,7 @@ mod tests {
             sources: &Default::default(),
             signals: None,
             assembled: None,
+            situation: &situation::Situation::Continuation,
         })
     }
 
@@ -2304,6 +2301,7 @@ mod tests {
             sources: &Default::default(),
             signals: None,
             assembled: None,
+            situation: &situation::Situation::Continuation,
         })
     }
 

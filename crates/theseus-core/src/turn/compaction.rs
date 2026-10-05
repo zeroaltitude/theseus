@@ -415,7 +415,7 @@ impl TurnRunner {
         let text = resp.text.trim();
         let (first, last) = span_of(range);
         let summary = (!text.is_empty()).then(|| {
-            let header = header_of(nodes, messages, first, last, profile);
+            let header = header_of(nodes, messages, (first, last), profile, &resp.model);
             Node::summary(
                 t.tc.session_id,
                 t.tc.turn_id,
@@ -624,14 +624,14 @@ fn dropped<'n>(
     Ok(range)
 }
 
-/// A summary's header: its count, and the dates of its range's first and
-/// last node.
+/// A summary's header: its count, the dates and positions of its range's
+/// first and last node, its profile, and the model that wrote it.
 fn header_of(
     nodes: &[(u64, crate::stub::Stub)],
     messages: u64,
-    first: u64,
-    last: u64,
+    (first, last): (u64, u64),
     profile: &str,
+    model: &str,
 ) -> String {
     let at = |p: u64| {
         nodes
@@ -639,7 +639,8 @@ fn header_of(
             .find(|(q, _)| *q == p)
             .map_or(0, |(_, n)| n.created_at_ms)
     };
-    compaction::header(messages as u32, at(first), at(last), profile)
+    let dates = (at(first), at(last));
+    compaction::header(messages as u32, dates, (first, last), profile, model)
 }
 
 /// How many messages a summary stands for.

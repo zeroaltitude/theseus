@@ -31,6 +31,7 @@ impl TurnRunner {
         let (nodes, sources) = self.recall_view(t, nodes);
         let read_before = crate::stub::read(&nodes);
         let assembled = t.recall.assembled_id().map(str::to_string);
+        let given = self.situation_of(t, &nodes, current.is_none(), session);
         let input = CompileInput {
             session_id: sid,
             current: current.as_ref(),
@@ -50,15 +51,19 @@ impl TurnRunner {
                 now_ms: theseus_protocol::now_unix_ms(),
             }),
             assembled: assembled.as_deref(),
+            situation: &given,
         };
         // Where the ring cut, a summary in its place (30c); past the window
         // with nothing left to drop, the turn fails before any call.
-        let mut compiled = self.compact(t, compile(input), input, i).await?;
+        let mut compiled = Box::pin(self.compact(t, compile(input), input, i)).await?;
         Self::recall_compiled(t, &mut compiled);
         // A check sees the task it checks by title and state (theseus-w8ys).
         let tasks =
             crate::task_graph::view::attach(&self.store, &self.kernel, session, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
+            return Ok(Err(f));
+        }
+        if let Some(f) = self.admitted(t, &compiled, &nodes, tasks.is_some(), i)? {
             return Ok(Err(f));
         }
         // Routing may move the turn (25e): only the compilation the call
@@ -67,46 +72,7 @@ impl TurnRunner {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         let c1 = t.trace.now_us();
-        let summary = ContextCompiled {
-            session_id: sid.into(),
-            turn_id: t.tc.turn_id.into(),
-            loop_index: i,
-            decision: compiled.decision().into(),
-            trigger: compiled.trigger.clone(),
-            compilation_id: compiled.compilation.id.clone(),
-            strategy: compiled.compilation.strategy.clone(),
-            prefix_nodes: compiled.prefix_nodes as u64,
-            tail_nodes: compiled.tail_nodes as u64,
-            messages: compiled.messages as u64,
-            est_tokens: compiled.est_tokens,
-            digest: compiled.digest.clone(),
-            repairs: compiled.repairs.clone(),
-            tools: spec.tools.len() as u64,
-            nodes_scanned: nodes.len() as u64,
-            decoded: crate::stub::read(&nodes) - read_before,
-            stubs: nodes.len() as u64 - crate::stub::read(&nodes),
-            context_files: spec.context_files.clone(),
-            persona: spec.persona.clone(),
-            // How the compiler sized the request (theseus-f5hf).
-            estimate: Some(compiled.estimate.summary()),
-            // The request's cache breakpoints and their TTLs (theseus-ev1).
-            cache: CacheSummary {
-                breakpoints: compiled
-                    .cache
-                    .breakpoints()
-                    .into_iter()
-                    .map(String::from)
-                    .collect(),
-                ttl: spec.cache_ttl.as_str().into(),
-                conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
-            },
-            // The class of the place it speaks in, and the context files
-            // that class left out (the place rule).
-            class: Some(t.tc.class),
-            withheld: compiled.withheld,
-            signals: compiled.signals.fired.clone(),
-            tasks,
-        };
+        let summary = Self::compiled_summary(t, &compiled, spec, (&nodes, read_before, i), tasks);
         // While routing decides, the rows wait for the compile the call uses
         // (`route_step`, theseus-d13v): one `context.compiled` and one
         // `loop.started` a loop, each naming a stored compilation.
@@ -155,6 +121,59 @@ impl TurnRunner {
             model: &t.target.model,
             tools_offered: spec.tools.len() as u32,
         });
+    }
+
+    /// The loop's `context.compiled`: its span, its row, and the
+    /// notification carry it.
+    fn compiled_summary(
+        t: &Turn<'_>,
+        compiled: &Compiled,
+        spec: &RequestSpec,
+        (nodes, read_before, i): (&[(u64, crate::stub::Stub)], u64, u32),
+        tasks: Option<theseus_protocol::tasks::TaskViewSummary>,
+    ) -> ContextCompiled {
+        let sid = t.tc.session_id;
+        ContextCompiled {
+            session_id: sid.into(),
+            turn_id: t.tc.turn_id.into(),
+            loop_index: i,
+            decision: compiled.decision().into(),
+            trigger: compiled.trigger.clone(),
+            compilation_id: compiled.compilation.id.clone(),
+            strategy: compiled.compilation.strategy.clone(),
+            prefix_nodes: compiled.prefix_nodes as u64,
+            tail_nodes: compiled.tail_nodes as u64,
+            messages: compiled.messages as u64,
+            est_tokens: compiled.est_tokens,
+            digest: compiled.digest.clone(),
+            repairs: compiled.repairs.clone(),
+            tools: spec.tools.len() as u64,
+            nodes_scanned: nodes.len() as u64,
+            decoded: crate::stub::read(nodes) - read_before,
+            stubs: nodes.len() as u64 - crate::stub::read(nodes),
+            context_files: spec.context_files.clone(),
+            persona: spec.persona.clone(),
+            // How the compiler sized the request (theseus-f5hf).
+            estimate: Some(compiled.estimate.summary()),
+            // The request's cache breakpoints and their TTLs (theseus-ev1).
+            cache: CacheSummary {
+                breakpoints: compiled
+                    .cache
+                    .breakpoints()
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                ttl: spec.cache_ttl.as_str().into(),
+                conversation_ttl: spec.conversation_ttl.min(spec.cache_ttl).as_str().into(),
+            },
+            // The class of the place it speaks in, and the context files
+            // that class left out (the place rule).
+            class: Some(t.tc.class),
+            withheld: compiled.withheld,
+            signals: compiled.signals.fired.clone(),
+            tasks,
+            situation: Some(compiled.situation.clone()),
+        }
     }
 }
 

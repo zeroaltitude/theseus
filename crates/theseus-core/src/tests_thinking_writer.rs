@@ -98,6 +98,7 @@ fn run(spec: &RequestSpec) -> Compiled {
         sources: &Default::default(),
         signals: None,
         assembled: None,
+        situation: &crate::compiler::situation::Situation::ConversationStart,
     })
 }
 

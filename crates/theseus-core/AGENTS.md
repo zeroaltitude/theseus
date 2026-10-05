@@ -52,9 +52,26 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`judge/compile.rs`: the dispatch is a spawn, and the turn's trace gets a zero-length `judge` mark naming the
     judgment's id, minted at the dispatch). Tests: `tests_continue.rs`.
   - **The system header** (`TurnRunner::system_blocks`): the persona, the assembly note (`turn::ASSEMBLY`: what the
-    harness puts in a request, and that a recalled note is no part of the person's message; theseus-fpm2), the tools
-    note, and the profile's text, all static. Harness facts every request needs go there, never into a session's
-    messages.
+    harness puts in a request, and that a recalled note is no part of the person's message; theseus-fpm2), the
+    precedence line (`compiler::situation::PRECEDENCE`, 35a), the tools note, and the profile's text, all static.
+    Harness facts every request needs go there, never into a session's messages.
+  - **Situations** (M6 35a, theseus-3nk.1): `compiler/situation.rs`. What a compile is for: the step tells it from
+    what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
+    task's start; a session's first compile in this run, `RunCompiles` in memory, with nothing its turn brought is a
+    resume; else a continuation; a detour its own), and `compile()` settles it (`settle`: a new compilation of its
+    own triggers is a recompile with its trigger). It rides `Compilation.situation` (store format 22) and
+    `context.compiled`. `admits` is the table of what each admits, from the code (lessons reserved for 35b): a
+    detour admits its window's messages, replies and results, and a task's arrangement among them, never a recall
+    or a summary (`compile_detour` leaves those out). `check`, after the compile, fails a piece not admitted, or a
+    set that does not close (a result without its call, a call without its result), as `context_unadmitted`, with
+    nothing sent and no retry; it enforces from the first day, with no shadow mode (Eddie, 2026-10-05). An assembled
+    `recall_id` whose node is not in the session is a section never written (its call never dispatched; nodes are
+    never deleted): the render leaves it out, and so does the check (theseus-783a). The
+    precedence line (`PRECEDENCE`) follows the persona and the assembly note in the header. Headers written from 35a
+    on (§2.11's testimony): an item's names its origin and place (`TurnRunner::place_name`,
+    `recall::render::item_header`) and ends `volatile: as of <date>, unverified` when its shown text holds one by the
+    labeler's rule; a summary's names its positions and model; a synthesis's sources name their places too. A frozen
+    header never changes. Tests: `tests_situation.rs`, `compiler::situation::tests`, `recall::render::tests`.
 - **Places** (the place rule, theseus-nbsh; it replaced 19a's labels on nodes): `places.rs`. Every place a session
   speaks in is private or shared. Private: the CLI and the web UI (no place), a DM with an owner (`Config::owners_for`),
   and a guild channel the binding bound private (its own `private = true`, or, saying nothing, in a guild the bindings

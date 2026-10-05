@@ -508,6 +508,9 @@ impl Core {
         ids.iter()
             .map(|id| {
                 let (session_id, position) = at.get(id)?.clone();
+                // Its testimony header names its place, as a recalled item's
+                // does (35a).
+                let place = self.runner.place_name(&session_id);
                 let probe = RecalledRef {
                     node_id: id.clone(),
                     session_id,
@@ -518,7 +521,7 @@ impl Core {
                 };
                 let node = self.runner.memory.read_source(&self.store, &probe)?;
                 Some(Source {
-                    header: crate::recall::render::header(&node, position),
+                    header: crate::recall::render::header(&node, position, &place),
                     text: crate::recall::text_of(&node),
                     node,
                 })

@@ -34,12 +34,25 @@ use crate::stub::{Kind, Shaped, Stub};
 pub const STRATEGY: &str = "compaction";
 
 /// A summary's testimony header (§2.11): `[Summary of 212 earlier messages,
-/// 2026-09-20 to 2026-09-27, written by glm]`, the dates UTC.
-pub fn header(messages: u32, first_ms: u64, last_ms: u64, profile: &str) -> String {
+/// 2026-09-20 to 2026-09-27 (@120 to @4810), written by glm on
+/// glm-5.3-flash]`: its range's dates (UTC) and positions, its profile, and
+/// the model that wrote it (left out when the profile is named for it). A
+/// summary written before 35a keeps its header: its bytes never change.
+pub fn header(
+    messages: u32,
+    (first_ms, last_ms): (u64, u64),
+    (first, last): (u64, u64),
+    profile: &str,
+    model: &str,
+) -> String {
     let (a, b) = (day(first_ms), day(last_ms));
     let when = if a == b { a } else { format!("{a} to {b}") };
     let what = if messages == 1 { "message" } else { "messages" };
-    format!("[Summary of {messages} earlier {what}, {when}, written by {profile}]")
+    let by = match model.is_empty() || model == profile {
+        true => profile.to_string(),
+        false => format!("{profile} on {model}"),
+    };
+    format!("[Summary of {messages} earlier {what}, {when} (@{first} to @{last}), written by {by}]")
 }
 
 fn day(ms: u64) -> String {
@@ -157,6 +170,7 @@ pub fn compact(
         cache: cache_layout(&spec, input.catalog),
         withheld: ring.withheld,
         signals: ring.signals.clone(),
+        situation: ring.situation.clone(),
         request,
     }
 }
@@ -188,21 +202,31 @@ mod tests {
                 profile: "glm".into(),
                 model: "glm-5.3-flash".into(),
                 cost_usd: None,
-                header: header(2, 0, 0, "glm"),
+                header: header(2, (0, 0), (first, last), "glm", "glm-5.3-flash"),
             },
         ))
     }
 
+    /// How many, when and where (its range's dates and positions), and by
+    /// which profile on which model (35a).
     #[test]
     fn the_header_says_how_many_when_and_by_whom() {
         let day = 86_400_000;
+        let range = (20_351 * day, 20_358 * day + 5);
         assert_eq!(
-            header(212, 20_351 * day, 20_358 * day + 5, "glm"),
-            "[Summary of 212 earlier messages, 2025-09-20 to 2025-09-27, written by glm]"
+            header(212, range, (120, 4810), "glm", "glm-5.3-flash"),
+            "[Summary of 212 earlier messages, 2025-09-20 to 2025-09-27 (@120 to @4810), \
+             written by glm on glm-5.3-flash]"
         );
         assert_eq!(
-            header(1, 20_351 * day, 20_351 * day + 9, "glm"),
-            "[Summary of 1 earlier message, 2025-09-20, written by glm]"
+            header(
+                1,
+                (20_351 * day, 20_351 * day + 9),
+                (7, 7),
+                "glm-5.3-flash",
+                "glm-5.3-flash"
+            ),
+            "[Summary of 1 earlier message, 2025-09-20 (@7 to @7), written by glm-5.3-flash]"
         );
     }
 

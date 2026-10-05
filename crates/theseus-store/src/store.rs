@@ -457,7 +457,8 @@ const BULK: usize = 4096;
 /// (theseus-7gir.3).
 /// 21 = a session's routed base, `routed.from`: the profile routing first
 /// moved it from (theseus-0j2.17).
-const MANIFEST_FORMAT: u32 = 21;
+/// 22 = a compilation's `situation` (M6 35a, theseus-3nk.1).
+const MANIFEST_FORMAT: u32 = 22;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

@@ -271,10 +271,10 @@ impl TurnRunner {
         if t.route.keeps.is_some() {
             return self.compile_detour(t, session, spec, i);
         }
+        // The compile step's future is boxed (situations' join fix, 35a):
+        // inline, the turn's future overflowed a 2 MiB stack in debug builds.
         let Some(rx) = t.route.wait.take().filter(|_| i == 0) else {
-            return self
-                .compile_step(t, session, spec, force, strip, overflow, i)
-                .await;
+            return Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await;
         };
         let compiled = self
             .compile_first(
@@ -309,7 +309,7 @@ impl TurnRunner {
         let unreachable = live && self.judge.jev_unreachable();
         t.route.defer_persist = live;
         let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
-        let compile = self.compile_step(t, session, spec, force, strip, overflow, i);
+        let compile = Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i));
         let (compiled, got, waited) =
             beside(compile, &mut rx, max_wait, live && !unreachable).await;
         t.route.defer_persist = false;
@@ -381,8 +381,7 @@ impl TurnRunner {
         if d.detour {
             return self.compile_detour(t, session, spec, i);
         }
-        self.compile_step(t, session, spec, force, strip, overflow, i)
-            .await
+        Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
     }
 
     /// The verdict the turn reads, or why it has none: its own, else a late
@@ -580,7 +579,18 @@ impl TurnRunner {
         let sid = t.tc.session_id;
         let nodes = t.tc.store.transcript(sid)?;
         let from = detour_start(&nodes, self.cfg.routing.trivial_context_turns);
-        let nodes: Vec<_> = nodes[from..].to_vec();
+        // A detour admits no recall and no summary (35a): its last exchanges
+        // and the message.
+        let nodes: Vec<_> = nodes[from..]
+            .iter()
+            .filter(|(_, n)| {
+                !matches!(
+                    n.kind,
+                    crate::stub::Kind::Recall | crate::stub::Kind::Summary
+                )
+            })
+            .cloned()
+            .collect();
         let sources = crate::recall::render::Sources::default();
         let mut detour = spec.clone();
         detour.context_text = String::new();
@@ -602,7 +612,12 @@ impl TurnRunner {
             sources: &sources,
             signals: None,
             assembled: None,
+            situation: &crate::compiler::situation::Situation::Detour,
         });
+        let last = self.store.last_position();
+        if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
+            return Ok(Err(f));
+        }
         t.record(&fact::turn::LoopStarted {
             turn_id: t.tc.turn_id,
             index: i,

@@ -48,7 +48,7 @@ model = "claude-sonnet-5-5"
 # it defaults to the model's ceiling from the catalog (Sonnet 5/5.5, Opus 5/5.5,
 # Fable 5.1: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
 # max_output_tokens = 128000
-# system = "You are Theseus."           # appended to the built-in persona, the assembly note, and the tools note
+# system = "You are Theseus."           # appended to the built-in persona, the assembly note, the precedence line, and the tools note
 # effort = "high"                       # low | medium | high | xhigh | max (models that take effort)
 thinking_display = "summarized"         # summarized | omitted | updates (Fable 5.x, Opus 5.5)
 max_loops = 40                          # tool loops per turn before the Advancer ends it
@@ -130,12 +130,13 @@ max_loops = 40
 
 # ---------------------------------------------------------------- context files
 # Files (~/ or absolute paths) compiled into every session's system block, after the
-# built-in persona, the assembly note (how a request is built), the tools note, and the
-# profile's system, each under a header that names it and its level. Two levels: the
-# system level, which every session gets, then the files of the persona in play. A turn
-# stats each file and rereads it only when it changed, and an edit recompiles the next
-# turn once. No tool reads them, so nothing waits for approval. A missing file is noted
-# in the block and warned once per daemon run; a file over 64 KB is cut.
+# built-in persona, the assembly note (how a request is built), the precedence line (which
+# sources to trust first), the tools note, and the profile's system, each under a header
+# that names it and its level. Two levels: the system level, which every session gets,
+# then the files of the persona in play. A turn stats each file and rereads it only when
+# it changed, and an edit recompiles the next turn once. No tool reads them, so nothing
+# waits for approval. A missing file is noted in the block and warned once per daemon run;
+# a file over 64 KB is cut.
 [context]
 files = []                              # the system level, e.g. ["~/.openclaw/workspace/USER.md"]
 # The persona in play: a key of [personas]. Until Jev chooses a persona from its ontology,
