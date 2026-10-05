@@ -32,6 +32,7 @@ sys.path.insert(0, str(HERE))
 import drive  # noqa: E402
 import generate  # noqa: E402
 import progression as pg  # noqa: E402
+import score  # noqa: E402
 
 STANDIN = r'''#!/usr/bin/env python3
 # A stand-in `claude -p --output-format json`: its sessions under
@@ -156,6 +157,11 @@ class ClaudeCodeDriver(unittest.TestCase):
             rows = [json.loads(x) for x in (d / "run" / "turns.jsonl").read_text().splitlines()]
             self.assertEqual(len(rows), len(prog.turns))
             self.assertTrue(all(r["exit"] == 0 and r["cost_usd"] == 0.001 for r in rows))
+            # The perfect arm scores perfectly.
+            runs = [score.load_run(d / "run")]
+            s = score.summarize(score.score_run(runs[0]))
+            self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
+            self.assertEqual(s["undelivered"] + s["failed"] + s["confident_wrong"], 0)
 
     def test_a_window_of_100k_or_more_is_claude_codes_own_autocompact(self):
         prog = generate.build(7, "smoke")
@@ -285,6 +291,9 @@ class TheseusDriver(unittest.TestCase):
             # the scorer measures by it.
             rows_c = run.get("compaction_rows", [])
             self.assertEqual([r["turn"] for r in rows_c], run["compactions"])
+            s = score.summarize(score.score_run(score.load_run(out)))
+            self.assertEqual(s["scored"], len(prog.probes))
+            self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
 
 
 if __name__ == "__main__":
