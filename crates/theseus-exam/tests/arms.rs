@@ -289,7 +289,7 @@ fn the_exam_runs_each_arm_on_a_daemon_of_its_own() {
     let mut said = Vec::new();
     let s = arms::run(&plan, &exam, &m, &mut |l| said.push(l.to_string()))
         .unwrap_or_else(|e| panic!("{e:#}\n{}", said.join("\n")));
-    assert_eq!(s.daemons, ["none", "bm25", "baseline"]);
+    assert_eq!(s.daemons, ["none", "bm25", "baseline", "+retention"]);
     assert_eq!(s.runs.len(), 2, "{s:?}");
     assert!(s.killed.is_empty(), "every stop was clean: {:?}", s.killed);
     // Nothing is left: no daemon, and no tender.
@@ -300,7 +300,7 @@ fn the_exam_runs_each_arm_on_a_daemon_of_its_own() {
     );
 
     let recs = drive::read_records(&path("runs.jsonl")).unwrap();
-    assert_eq!(recs.len(), 2 * 4 * 2, "items × arms × runs");
+    assert_eq!(recs.len(), 2 * 5 * 2, "items × arms × runs");
     check_records(&recs);
     check_notes(&path("store"), &m, &exam, &model.seen.lock().unwrap());
 
@@ -326,10 +326,11 @@ fn the_exam_runs_each_arm_on_a_daemon_of_its_own() {
     assert!(r.leaks.values().all(|n| *n == 0), "{r:?}");
     assert!(theseus_exam::daemon::processes_naming(&path("replay")).is_empty());
 
-    // The report reads the four arms from these records.
+    // The report reads the five arms from these records.
     let md = theseus_exam::report::render(&recs, &exam, "runs.jsonl");
     assert!(md.contains("| `baseline − none` | all | 2 |"), "{md}");
     assert!(md.contains("| `oracle − baseline` | all | 2 |"), "{md}");
+    assert!(md.contains("| `+retention − baseline` | all | 2 |"), "{md}");
     assert!(
         md.contains("- **Vectors**: `baseline` recalled without vectors in 4 of its 4 recalls"),
         "{md}"
@@ -366,12 +367,17 @@ fn check_records(recs: &[drive::Record]) {
                     (c.arm.as_str(), c.mode.as_str(), c.outcome.as_str()),
                     (arm, "live", "ran")
                 );
-                assert!(c.science.starts_with("baseline@"), "{c:?}");
+                let science = if arm == "+retention" {
+                    "retention@"
+                } else {
+                    "baseline@"
+                };
+                assert!(c.science.starts_with(science), "{c:?}");
                 assert_eq!(c.gold_admitted, 1, "{arm} {}: {c:?}", r.item);
                 assert!(!c.sources.contains_key("vector"), "{c:?}");
-                // bm25 never asks for vectors; baseline does, and this
-                // tender, with no model files, says why it has none.
-                assert_eq!(c.skipped.contains_key("vector"), arm == "baseline", "{c:?}");
+                // bm25 never asks for vectors; baseline and +retention do,
+                // and this tender, with no model files, says why it has none.
+                assert_eq!(c.skipped.contains_key("vector"), arm != "bm25", "{c:?}");
             }
         }
     }
@@ -385,6 +391,7 @@ fn check_records(recs: &[drive::Record]) {
         assert_eq!(p("none"), 0, "{item}: none has no past to read");
         assert_eq!(p("bm25"), 2, "{item}");
         assert_eq!(p("baseline"), 2, "{item}: baseline passes what none fails");
+        assert_eq!(p("+retention"), 2, "{item}");
         assert_eq!(p("oracle"), 2, "{item}");
     }
 }

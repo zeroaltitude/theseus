@@ -102,7 +102,7 @@ fn aside(p: &Path) -> Result<()> {
 /// The daemons `arms` need, by their `[memory] arm`, in order.
 pub fn daemons_for(arms: &[Arm]) -> Vec<&'static str> {
     let set: BTreeSet<&str> = arms.iter().map(|a| a.daemon()).collect();
-    ["none", "bm25", "baseline"]
+    ["none", "bm25", "baseline", "+retention"]
         .into_iter()
         .filter(|d| set.contains(d))
         .collect()
@@ -296,7 +296,11 @@ mod tests {
 
     #[test]
     fn oracle_shares_nones_daemon_and_each_other_arm_has_its_own() {
-        assert_eq!(daemons_for(&Arm::ALL), ["none", "bm25", "baseline"]);
+        assert_eq!(
+            daemons_for(&Arm::ALL),
+            ["none", "bm25", "baseline", "+retention"]
+        );
+        assert_eq!(daemons_for(&[Arm::Retention]), ["+retention"]);
         assert_eq!(daemons_for(&[Arm::Oracle]), ["none"]);
         assert_eq!(
             daemons_for(&[Arm::Baseline, Arm::Bm25]),
