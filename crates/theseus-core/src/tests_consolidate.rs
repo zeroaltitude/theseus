@@ -246,6 +246,9 @@ async fn a_cluster_becomes_one_checked_synthesis_and_a_dry_run_writes_nothing() 
     assert_eq!(sources.len(), 3);
     assert!(matches!(check, CitationCheck::Supported { least, .. } if *least >= 0.9));
     assert_eq!(*stage, Stage::Arm);
+    // The memory pass leaves it unlabeled: its gate would mark it
+    // `same_entity` with its sources, and `baseline` would drop them for it.
+    assert!(!crate::memory_pass::eligible(n));
     // Each source has its edge from the synthesis, so `node.reach` lists it.
     let a_node = c.store.session_nodes(&facts[0]).unwrap()[0].1.id.clone();
     let into: Vec<crate::graph::Edge> = c
