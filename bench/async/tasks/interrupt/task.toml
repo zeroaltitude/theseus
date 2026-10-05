@@ -1,0 +1,28 @@
+schema_version = "1.4"
+
+[metadata]
+category = "async"
+description = "A long job, then an injected second request whose answer goes to a file; the long job finishes."
+
+[metadata.async]
+family = "interrupt"
+
+# The driver's second message (bench/async/driver.py): sent `delay_s` after the
+# ledger's first `after_kind` record of `after_tool`, else `at_s` after the agent starts.
+[metadata.async.injection]
+message = "One more thing, wanted soon: how many support tickets are open? `ticket-count` tells you. Write the number alone to /app/tickets.txt."
+after_tool = "train-model"
+after_kind = "start"
+delay_s = 20
+at_s = 120
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048
