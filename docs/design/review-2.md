@@ -496,6 +496,11 @@ that blocks the runtime while it serves.
   notifications (deltas, tool progress) are latest-wins when a client lags, as DD6's live ops already are,
   and a client that stays behind is disconnected.
 - **Payoff/Risk.** Less CPU per token, and bounded memory. Low risk. **Size** S to M. **LANE.**
+- _(Done in part 2026-10-05, theseus-celu.36, v1.1's lane push2; spec Part III Item 172: serialize
+  once is built. A notification is serialized at the first queue that takes it, and every queue holds the same
+  `Arc<str>` line; at 100 watchers a 64 KiB notification costs about 12 µs a watcher, not 1.4 ms. The bounded queue
+  came with the push (4,096 messages and `events.lost`, stage2 §2.5). The latest-wins live-only queues and the
+  disconnect of a client that stays behind remain.)_
 
 #### S7. Every install pays a fat-LTO release build, and the proc-macro stack compiles twice
 

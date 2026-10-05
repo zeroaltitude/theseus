@@ -664,7 +664,7 @@ tokens) waited for Eddie's OK after this join. He gave it at 22:58 ("I'm cool wi
 Its lane started at 23:01, and the run's driver at 23:21:20, as a user service of its own, task by task, with a pause
 past $600 or under 35 GB free on the disk, and a harvest wake that carries it to its results. At 23:49 it had run 23
 of its 534 trials, for $2.53, with no errors. Its results go to `docs/benchmarks.md` when it finishes; this record has
-none.
+none. _(It finished on 2026-10-04 at 18:07:32: Claude Code 81.5 %, Theseus 71.9 % plain and 73.6 % with the paragraph, $71.60 in all; published in `docs/benchmarks.md` at 4cef410c. Part III Item 148.)_
 
 **Divergences.** B2 gained the signal path, which the brief did not ask for: without it a harness's timeout killed the
 CLI, orphaned the daemon mid-turn, and lost the spend; the adapter's timeout depends on it. The trajectory gained an
@@ -905,3 +905,4 @@ events are an unbounded channel, which L2 must drain or drop. rust-analyzer's me
 one per workspace, and stopping it when idle. Found by the cloud's suites and filed by the harvest: the core's output
 golden depends on the machine's time zone, through a `wake.at` preview's UTC offset, and fails on a UTC machine
 (theseus-ig6n, P3).
+
