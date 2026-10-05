@@ -538,6 +538,7 @@ impl Core {
             requeued_interrupted = startup.requeued_interrupted.len(),
             spool_drained = startup.spool_drained,
             spool_malformed = startup.spool_quarantined,
+            spool_recovered = startup.spool_recovered,
             woke_due = startup.reconcile.woke_due.len(),
             marked_unknown = startup.reconcile.marked_unknown.len(),
             settled_from_evidence = startup.reconcile.settled_from_evidence.len(),
