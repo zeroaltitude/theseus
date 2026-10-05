@@ -822,6 +822,7 @@ fn policy_aws_gives_each_call_its_posture() {
         confirmer: "operator".into(),
         floor_paths: vec![],
         floor_argv: crate::policy::floor_argv(),
+        private_addresses: Default::default(),
     };
     let plan = |service: &str, operation: &str| Plan {
         summary: format!("read {service}:{operation}"),

@@ -280,6 +280,7 @@ facts![
     turn::WindowFailed,
     turn::ModelCallFailed<'static>,
     turn::ProviderError<'static>,
+    turn::ModelRetried<'static>,
     turn::ModelCut<'static>,
     turn::NodeWritten<'static>,
     turn::ContextRecompiled<'static>,

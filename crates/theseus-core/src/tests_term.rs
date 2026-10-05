@@ -186,6 +186,7 @@ fn policy_in(root: &Path) -> ToolPolicy {
         confirmer: "operator".into(),
         floor_paths: vec![],
         floor_argv: crate::policy::floor_argv(),
+        private_addresses: Default::default(),
     }
 }
 

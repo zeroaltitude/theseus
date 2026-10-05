@@ -403,6 +403,7 @@ impl ToolRuntime {
                 confirmer: "operator".into(),
                 floor_paths: vec![],
                 floor_argv: crate::policy::floor_argv(),
+                private_addresses: Default::default(),
             },
             ctx: ToolCtx::for_tests(&tmp),
             spool: None,
@@ -2051,7 +2052,8 @@ pub fn build_runtime(
     let mut registry = if t.enabled {
         let mut r = theseus_tools::default_registry();
         // The web tools wait on the network, as async tools (DD5).
-        let web = crate::web::Web::new(&t.web, t.result_max_chars, cpu.clone());
+        let private = cfg.policy.private_addresses;
+        let web = crate::web::Web::new(&t.web, t.result_max_chars, cpu.clone(), private);
         for tool in web.tools() {
             r.register(tool);
         }
@@ -2111,6 +2113,7 @@ pub fn build_runtime(
             confirmer: crate::turn::OPERATOR.into(),
             floor_paths: floor_paths.clone(),
             floor_argv: crate::policy::floor_argv(),
+            private_addresses: cfg.policy.private_addresses,
         },
         ctx: ToolCtx {
             roots,

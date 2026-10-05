@@ -59,12 +59,24 @@ api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding it
 
 # Provider call timeouts. Each failure is classified (timeout with its phase,
 # network, rate_limited, overloaded, server, auth, invalid_request, stream,
-# truncated); nothing retries on its own.
+# truncated); a failed turn is retried by its session's driver, with a
+# backoff for the classes that pass with time.
 [model.timeouts]
 connect_secs = 10                       # TCP + TLS
 first_byte_secs = 60                    # request sent → response headers
 stream_idle_secs = 60                   # longest silence between stream events
 total_secs = 600                        # the whole call
+
+# A call that fails with a class that passes with time (timeout, network,
+# rate_limited, overloaded, server, stream, truncated) can be made again
+# inside its turn instead, after a wait that doubles each time. Leave it at 0
+# here: the driver's retry, with its notice, serves a daemon you talk to. A
+# headless run (`theseus --spawn theseusd ask`) ends with its turn, so it
+# gets no later retry; the bench profile sets it.
+[model.retries]
+transient = 0                           # retries inside a turn; 0: none
+backoff_ms = 2000                       # the wait before the first one
+backoff_max_ms = 30000                  # the longest one wait
 
 # ---------------------------------------------------------------- profiles
 # A profile is provider + model + output limit + system prompt. Exactly one is
@@ -379,6 +391,11 @@ external_text = "ask"                   # ask | notify: notify runs those calls 
 # is a cheap guard, not a boundary: a job can still bring outside text in by
 # other ways.
 external_programs = ["gh"]              # program names, matched by file name (built-in default: ["gh"])
+# A URL whose host is this machine or a private address (localhost, 10.x, a
+# link-local address) waits for your approval, which alone lets http.fetch
+# reach it. "open" judges it as any other address, redirects and DNS answers
+# included: only for a run with no one to approve, such as the bench profile.
+# private_addresses = "ask"             # ask | open
 
 # Per-tool postures, one line for every tool (keep it that way as tools are
 # added). A set line overrides enforcement; a commented one inherits it.

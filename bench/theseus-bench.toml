@@ -4,12 +4,21 @@
 #   - the one secret, the model's key, comes from the daemon's environment
 #     (`env:ANTHROPIC_API_KEY`), and nothing reads 1Password;
 #   - every tool is open (`enforcement = "open"`, no dangerous-argv list, no
-#     approve paths), and the workspace roots are `/`, so no call waits for an
-#     approval no one can give. Theseus's floor (its own state, `theseusd` and
-#     `op` as programs) still asks; no task touches it;
+#     approve paths, and `private_addresses = "open"`, so a fetch of this
+#     machine's own page runs too: theseus-7gir.20), and the workspace roots
+#     are `/`, so no call waits for an approval no one can give. Theseus's
+#     floor (its own state, `theseusd` and `op` as programs) still asks; no
+#     task touches it;
 #   - text from outside (a fetched page) gives notices only;
 #   - L0: jobs run as the daemon's user, with no sandbox, as a container's
 #     agent does;
+#   - a call's output cap is its model's own, the catalog's maximum (128000
+#     for Sonnet 5.5), as Claude Code's is: no `max_output_tokens` line
+#     (theseus-7gir.19);
+#   - a call that fails with a class that passes with time (a first-byte
+#     timeout, overloaded, a server error) is made again inside its turn, up
+#     to 4 times, after 2, 4, 8 and 16 s: a headless run ends with its turn,
+#     so no later retry comes (theseus-7gir.21);
 #   - Discord, the web UI, and the index tender are off.
 #
 # The Harbor adapter (bench/harbor/theseus_agent.py) writes this file into each
@@ -23,13 +32,14 @@ live = "bench"
 provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 api_key_secret = "anthropic_api_key"
-max_output_tokens = 32000
 max_loops = 200                         # set by the adapter: a task's turn runs until the model ends it
+
+[model.retries]
+transient = 4
 
 [profiles.bench]
 provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
-max_output_tokens = 32000
 max_loops = 200                         # set by the adapter
 
 [secrets]
@@ -59,6 +69,7 @@ allow_argv = []
 approve_argv = []
 external_text = "notify"
 external_programs = []
+private_addresses = "open"
 
 [sandbox]
 default = "l0"

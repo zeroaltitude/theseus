@@ -10,7 +10,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
   (continue or end the turn), `harness.rs` (the harness loop, parked on its events and the heartbeat), and
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
-  and the cancel path).
+  and the cancel path). A failed turn's retry is the driver's (theseus-ljr); `[model.retries]` can make a transient
+  failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; the bench profile's, since a
+  headless run ends with its turn: theseus-7gir.21).
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching).
   - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the
@@ -68,7 +70,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are
   `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept).
-  Plus the harness's own tools,
+  A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
+  unless `[policy] private_addresses = "open"` (theseus-7gir.20, the bench profile's), which lifts both
+  (`web::net::PrivateAddresses`, `Web.private`). Plus the harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
   serving (its calls fail closed until STS names the account), who signs (`session.rs`: the key until the config
   names `owner_role`, then work, job, floor, and tender sessions, and the key signs only STS), `aws.call` (reads,

@@ -234,6 +234,10 @@ pub struct ToolPolicy {
     pub floor_paths: Vec<PathBuf>,
     /// Programs that always wait for approval (`theseusd`, `op`).
     pub floor_argv: Vec<Vec<String>>,
+    /// A URL whose host is a private address: `Ask` waits for approval,
+    /// `Open` judges it as any other (`[policy] private_addresses`,
+    /// theseus-7gir.20).
+    pub private_addresses: crate::web::net::PrivateAddresses,
 }
 
 /// An MCP tool's canonical name is `mcp:<server>/<tool>`.
@@ -534,8 +538,9 @@ impl ToolPolicy {
 
     /// What of the call the operator listed for approval: a path on the
     /// approve list, a read or a working directory outside the roots, a URL
-    /// whose host is a private address (DD5), an approve-listed program, or a
-    /// path argument on the approve list.
+    /// whose host is a private address (DD5, unless `private_addresses` is
+    /// open), an approve-listed program, or a path argument on the approve
+    /// list.
     ///
     /// A write outside the roots is not listed: it follows the tool's
     /// posture, whichever tool makes it (theseus-ewi; Eddie, 2026-09-30: one
@@ -575,7 +580,8 @@ impl ToolPolicy {
                 ));
             }
         }
-        if let Some(why) = url.and_then(crate::web::net::private_url) {
+        let ask = self.private_addresses == crate::web::net::PrivateAddresses::Ask;
+        if let Some(why) = url.filter(|_| ask).and_then(crate::web::net::private_url) {
             return Some(format!("{why}, and a private address waits for approval"));
         }
         if let Some(p) = self.approve_argv.iter().find(|p| prefix_match(nargv, p)) {
@@ -673,7 +679,57 @@ mod tests {
             confirmer: "operator".into(),
             floor_paths: vec![root.join("state")],
             floor_argv: floor_argv(),
+            private_addresses: Default::default(),
         }
+    }
+
+    /// The bench profile's policy (theseus-7gir.20): every tool open, no
+    /// approve lists. A fetch of this machine's page waits for approval under
+    /// the default, which no one gives in a headless trial (b5's
+    /// install-windows-3.11), and runs open once `private_addresses` is open;
+    /// a public host's fetch is open either way, and the floor still asks.
+    #[test]
+    fn a_private_address_waits_unless_the_policy_opens_it() {
+        let (_d, root) = workspace();
+        let bench = |private_addresses| ToolPolicy {
+            approve_paths: vec![],
+            allow_argv: vec![],
+            approve_argv: vec![],
+            private_addresses,
+            ..policy(&root, Posture::Open)
+        };
+        let fetch = |url: &str| Plan {
+            url: Some(url.into()),
+            summary: format!("fetch {url}"),
+            ..Default::default()
+        };
+        let t = T("http.fetch");
+        let local = fetch("http://localhost/vnc.html");
+        let asked = bench(Default::default()).decide(&t, &local);
+        assert_eq!(asked.posture, Posture::Approve, "{}", asked.reason);
+        assert!(
+            asked.reason.contains("localhost is this machine"),
+            "{}",
+            asked.reason
+        );
+        let open = crate::web::net::PrivateAddresses::Open;
+        for url in [
+            "http://localhost/vnc.html",
+            "http://127.0.0.1:6080/vnc.html",
+            "http://10.0.0.7/",
+            "http://example.com/",
+        ] {
+            let out = bench(open).decide(&t, &fetch(url));
+            assert_eq!(out.posture, Posture::Open, "{url}: {}", out.reason);
+        }
+        let floor = Plan {
+            resources: vec![Resource {
+                path: root.join("state/store"),
+                access: Access::Read,
+            }],
+            ..local
+        };
+        assert!(bench(open).decide(&t, &floor).floor);
     }
 
     fn plan(path: PathBuf, access: Access, argv: Option<Vec<&str>>) -> Plan {

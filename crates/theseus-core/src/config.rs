@@ -479,6 +479,11 @@ pub struct PolicyConfig {
     /// by default: `gh issue view` prints a stranger's text.
     #[serde(default = "default_external_programs")]
     pub external_programs: Vec<String>,
+    /// A URL whose host is a private address (theseus-7gir.20): `ask`, the
+    /// default, waits for approval (DD5); `open` judges it as any other, for a
+    /// run with no operator to ask (the bench profile).
+    #[serde(default)]
+    pub private_addresses: crate::web::net::PrivateAddresses,
     /// `[policy.aws]` (AWS design §3.9): an AWS call's posture when its tool
     /// has no `[policy.tools]` line: `"service:Operation"`, then `"service"`,
     /// then its class's (`read`), then `enforcement`.
@@ -524,6 +529,7 @@ impl Default for PolicyConfig {
             mcp: BTreeMap::new(),
             external_text: Default::default(),
             external_programs: default_external_programs(),
+            private_addresses: Default::default(),
             aws: BTreeMap::new(),
         }
     }
@@ -963,6 +969,51 @@ pub struct ModelConfig {
     pub api_key_secret: String,
     #[serde(default)]
     pub timeouts: crate::provider::Timeouts,
+    #[serde(default)]
+    pub retries: Retries,
+}
+
+/// `[model.retries]` (theseus-7gir.21): a call that fails with a class that
+/// passes with time is made again inside its turn, after a backoff that
+/// doubles each time, at most `transient` times. 0, the default: none; the
+/// turn fails and the session's driver retries it later (theseus-ljr), as an
+/// operator's daemon does. For a headless run, which ends with its turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Retries {
+    #[serde(default)]
+    pub transient: u32,
+    /// The wait before the first retry.
+    #[serde(default = "default_backoff_ms")]
+    pub backoff_ms: u64,
+    /// The longest one wait.
+    #[serde(default = "default_backoff_max_ms")]
+    pub backoff_max_ms: u64,
+}
+
+fn default_backoff_ms() -> u64 {
+    2_000
+}
+fn default_backoff_max_ms() -> u64 {
+    30_000
+}
+
+impl Default for Retries {
+    fn default() -> Self {
+        Self {
+            transient: 0,
+            backoff_ms: default_backoff_ms(),
+            backoff_max_ms: default_backoff_max_ms(),
+        }
+    }
+}
+
+impl Retries {
+    /// The wait before retry `n`, the first being 0.
+    pub fn wait(&self, n: u32) -> std::time::Duration {
+        let doubled = self.backoff_ms.saturating_mul(1 << n.min(30));
+        std::time::Duration::from_millis(doubled.min(self.backoff_max_ms))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1057,6 +1108,7 @@ impl Default for ModelConfig {
             api_base: default_api_base(),
             api_key_secret: default_key_name(),
             timeouts: Default::default(),
+            retries: Default::default(),
         }
     }
 }
