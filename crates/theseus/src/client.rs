@@ -254,8 +254,10 @@ pub fn job_session() -> Option<String> {
 /// category), the answers to Jev's proposals (28b), which write them, a
 /// memory label (M6 30b: `wrong` keeps a node out of every session's
 /// recall), a judgment's label (M5 25c: the learning ledger grades Jev by
-/// it), and an extension's revoke (M7 43b: it undoes the owner's ack).
-pub const OPERATORS: [(&str, &str); 14] = [
+/// it), an extension's revoke (M7 43b: it undoes the owner's ack), and the
+/// owner's runs over the learning ledger (M5 25d: a replay, an audit and a
+/// backfill spend money, and a backfill sends his history to Jev).
+pub const OPERATORS: [(&str, &str); 17] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -270,6 +272,9 @@ pub const OPERATORS: [(&str, &str); 14] = [
     (method::MEMORY_LABEL, "theseus memory label"),
     (method::JUDGE_LABEL, "theseus judge label"),
     (method::EXTENSION_REVOKE, "theseus extend revoke"),
+    (method::JUDGE_REPLAY, "theseus judge replay"),
+    (method::JUDGE_AUDIT, "theseus judge audit"),
+    (method::JUDGE_BACKFILL, "theseus judge backfill"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):

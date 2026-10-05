@@ -18,6 +18,7 @@ mod extend;
 mod herdr;
 mod herdr_sync;
 mod interactive;
+mod judge_runs;
 mod mcp;
 mod ontology;
 mod policy_explain;
@@ -682,6 +683,18 @@ enum JudgeCmd {
         #[arg(long)]
         date: Option<String>,
     },
+    /// Replay a candidate pack version over the incumbent's recorded judgments, and print both
+    /// side by side. Real Jev calls, inside `[judge] replay_limit_usd`; the candidate never acts.
+    /// The operator's alone: refused inside a Theseus job, and from a shared place.
+    Replay(judge_runs::ReplayArgs),
+    /// Have a model profile answer a pack's questions over a seeded sample of its answered
+    /// judgments, as audit labels (weight 0.5), inside `[judge] audit_limit_usd`. The operator's
+    /// alone: refused inside a Theseus job, and from a shared place.
+    Audit(judge_runs::AuditArgs),
+    /// Rebuild a pack's judged points from the recorded history since a local day, and judge
+    /// them in shadow, once each. It sends your history to Jev, so it runs only under your
+    /// consent (`[judge] backfill_consent = true`). The operator's alone.
+    Backfill(judge_runs::BackfillArgs),
 }
 
 #[derive(Subcommand, Debug)]

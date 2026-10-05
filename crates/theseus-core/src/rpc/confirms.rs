@@ -750,6 +750,10 @@ pub(crate) enum Act<'a> {
     /// server the owner acked, so a job's process that made it would undo
     /// the owner's word.
     Revoke { name: &'a str },
+    /// One of the owner's runs over the learning ledger (M5 25d): a replay,
+    /// an audit, or a backfill. Each spends money, and a backfill sends his
+    /// history to Jev. `what` names it: `replay of loop.v2`.
+    JudgeRun { method: &'static str, what: &'a str },
 }
 
 impl Act<'_> {
@@ -765,6 +769,7 @@ impl Act<'_> {
             Act::Label { .. } => theseus_protocol::method::MEMORY_LABEL,
             Act::JudgeLabel { .. } => theseus_protocol::method::JUDGE_LABEL,
             Act::Revoke { .. } => theseus_protocol::method::EXTENSION_REVOKE,
+            Act::JudgeRun { method, .. } => method,
         }
     }
 }

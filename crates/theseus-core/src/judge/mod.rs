@@ -126,6 +126,14 @@ pub(crate) struct Built {
     judge: Recording<JevJudge, sink::Channel>,
 }
 
+impl Built {
+    /// The judge's client and breaker, unrecorded: the owner's runs (25d)
+    /// write their own rows, in their own frames and scopes.
+    pub(crate) fn jev(&self) -> &JevJudge {
+        self.judge.inner()
+    }
+}
+
 pub struct JudgeService {
     cfg: JudgeConfig,
     store: Store,
@@ -308,6 +316,17 @@ impl JudgeService {
             tokio::spawn(sink::run(rx, self.me.clone(), self.flush));
         }
         Ok(self.built.get().cloned().unwrap_or(b))
+    }
+
+    /// The client, the breaker, and the sink's task, built as the first
+    /// judgment builds them: for the owner's runs (25d).
+    pub(crate) fn jev(&self) -> anyhow::Result<Arc<Built>> {
+        self.built()
+    }
+
+    /// The scrubber every state is built with.
+    pub(crate) fn scrub(&self) -> impl theseus_judge::Scrub {
+        ScrubWith(self.scrubber.clone())
     }
 
     /// Whether `loop.v1` judges a turn that ended so, decided before its
@@ -619,7 +638,7 @@ async fn judge_loop(me: Weak<JudgeService>, pack: Arc<Pack>, end: LoopEnd, id: S
 
 /// Whether a turn is in the pack's shadow sample: the first 8 bytes of the
 /// SHA-256 of its id, read as a fraction, under `share`.
-fn sampled(turn_id: &str, share: f64) -> bool {
+pub(crate) fn sampled(turn_id: &str, share: f64) -> bool {
     if share >= 1.0 {
         return true;
     }

@@ -19,6 +19,8 @@
 //! - [`price`]: the catalog-shaped price of the pinned model;
 //! - [`learn`]: the learning math (calibration, holdouts, canary arms,
 //!   rollback rules), pure functions;
+//! - [`replay`]: what a candidate changes beside its incumbent, and a
+//!   thresholds-only candidate re-banded (M5 25d);
 //! - [`prove`]: the exit report, a pure generator over plain task records
 //!   (`theseus-judge prove`);
 //! - [`fake`] (feature `fake`): a fake Jev on 127.0.0.1.
@@ -37,6 +39,7 @@ pub mod learn;
 pub mod pack;
 pub mod price;
 pub mod prove;
+pub mod replay;
 pub mod state;
 
 #[cfg(any(test, feature = "fake"))]

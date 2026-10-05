@@ -116,6 +116,10 @@ pub fn new_id(prefix: &str) -> String {
 #[cfg(test)]
 mod tests_arrangement;
 #[cfg(test)]
+mod tests_audit;
+#[cfg(test)]
+mod tests_backfill;
+#[cfg(test)]
 mod tests_books;
 #[cfg(test)]
 mod tests_budgets;
@@ -191,6 +195,8 @@ mod tests_recall_node;
 mod tests_refused;
 #[cfg(test)]
 mod tests_registry;
+#[cfg(test)]
+mod tests_replay;
 #[cfg(test)]
 mod tests_rerank;
 #[cfg(test)]

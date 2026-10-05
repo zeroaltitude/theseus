@@ -21,8 +21,12 @@
 //!   about 5% of a core, holding the core weakly. Nothing runs with the judge
 //!   off.
 
+pub mod audit;
+pub mod backfill;
 pub mod items;
 pub mod labels;
+pub mod rebuild;
+pub mod replay;
 pub mod report;
 pub mod rerank;
 pub mod system;
@@ -50,7 +54,8 @@ pub const SYSTEM_WEIGHT: f64 = 0.5;
 #[derive(Debug, Clone)]
 pub struct Seen {
     pub position: u64,
-    /// When its row was written.
+    /// When its row was written; a backfilled one's, when its event
+    /// happened (`context.event_at_ms`, 25d).
     pub at_ms: u64,
     pub judgment: Judgment,
 }
@@ -99,12 +104,19 @@ pub fn read_scope(store: &Store, pack_id: &str) -> anyhow::Result<Scope> {
         };
         if row.kind == LedgerKind::JudgeCall.as_str() {
             if let Ok(judgment) = serde_json::from_value::<Judgment>(row.data) {
+                // A backfilled judgment's time is its event's (25d): the
+                // holdout's split reads when the judged thing happened.
+                let at_ms = judgment
+                    .context
+                    .get("event_at_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(row.at_unix_ms);
                 s.judgments
                     .entry(judgment.pack.clone())
                     .or_default()
                     .push(Seen {
                         position: r.position,
-                        at_ms: row.at_unix_ms,
+                        at_ms,
                         judgment,
                     });
             }
