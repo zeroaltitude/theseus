@@ -179,9 +179,9 @@ enum Cmd {
     },
     /// A scripted stand-in for the Messages API (37b), for a scratch daemon's
     /// `[model] api_base` and its providers': `--rules` is a JSON array of
-    /// `{when, calls: [{name, input}], text}`, and each turn's last user text
-    /// takes the first rule it holds; a call that answers a tool call gets
-    /// `Done.`. Serves until killed.
+    /// `{when, calls: [{name, input}], text, hold_ms}`, and each turn's last
+    /// user text takes the first rule it holds, answered after `hold_ms`; a
+    /// call that answers a tool call gets `Done.`. Serves until killed.
     FakeModel {
         /// Where to listen.
         #[arg(long, default_value = "127.0.0.1:9448")]
