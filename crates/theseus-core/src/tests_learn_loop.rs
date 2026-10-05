@@ -352,7 +352,7 @@ async fn a_candidate_worse_on_one_holdout_class_is_held() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_live_parents_candidate_below_the_minimum_goes_to_the_canary() {
     let jev = fake(false);
-    let r = rig(vec![writer_reply()], &jev, |_| {});
+    let r = rig(vec![writer_reply(); 2], &jev, |_| {});
     let c = &r.core;
     c.pack_promote(
         &PackPromoteParams {
@@ -372,6 +372,13 @@ async fn a_live_parents_candidate_below_the_minimum_goes_to_the_canary() {
     assert_eq!(row.report.as_deref(), Some(p.id.as_str()));
     assert!(!row.forced && row.who == "system", "{row:?}");
     assert_eq!(row.from, "off", "a learned version stood nowhere before");
+    // While it runs, the lineage's next run is held: which version is the
+    // parent depends on a session's arm.
+    seed(c, 10, 10, split);
+    let again = learn(c, split).await;
+    assert_eq!(again.decision, "skipped", "{}", again.why);
+    assert!(again.why.contains("in its canary"), "{}", again.why);
+    assert_eq!(r.fake.requests().len(), 1, "no second writer request");
 }
 
 /// A writer's file that moves the builder is refused, and placed nowhere.

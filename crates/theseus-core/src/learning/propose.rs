@@ -720,10 +720,23 @@ impl Core {
         Ok(Some((cand_text, cand)))
     }
 
-    /// A proposal of the lineage still waiting on the owner's card, in
-    /// words.
+    /// A proposal of the lineage still open, in words: a card waiting on
+    /// the owner, or a learned canary still running.
     fn open_card(&self, earlier: &[(u64, JudgeProposal)]) -> Option<String> {
         let ladder = self.runner.judge.ladder();
+        // A learned canary still running is open too: which version is the
+        // parent depends on a session's arm until it goes live or back.
+        let canary = earlier.iter().find_map(|(_, p)| {
+            let v = p.version.as_deref()?;
+            (ladder.rows_of(v).iter().any(|r| !r.declined)
+                && ladder.standing(v).rung == crate::judge::ladder::Rung::Canary)
+                .then(|| v.to_string())
+        });
+        if let Some(v) = canary {
+            return Some(format!(
+                "{v} is in its canary; one open proposal per lineage, until it goes live or back"
+            ));
+        }
         let (_, p) = earlier.iter().find(|(_, p)| {
             p.decision == Verdict::Card.as_str()
                 && p.version
