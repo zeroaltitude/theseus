@@ -29,7 +29,7 @@ fn pane(sid: &str, input: &str, profile: &str) -> Value {
 }
 
 fn routed(r: &Rig, sid: &str) -> Option<Routed> {
-    session(&r.core, sid).routed
+    session(&r.core, sid).routed.map(|b| *b)
 }
 
 fn moved(profile: &str, from: &str) -> Option<Routed> {
@@ -241,10 +241,10 @@ async fn a_routed_record_without_its_base_reads_as_before() {
     mode(&jev, "chat", 0.95);
     let r = rig(Some(&jev), 3, |c| c.routing.max_wait_ms = 5_000);
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
-    rec.routed = Some(Routed {
+    rec.routed = Some(Box::new(Routed {
         profile: Some("opus".into()),
         ..Default::default()
-    });
+    }));
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
     let sid = rec.session_id;
     let one = submit(&r, pane(&sid, "What is a frame?", "opus")).await;

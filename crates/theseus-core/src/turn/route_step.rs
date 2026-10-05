@@ -299,7 +299,7 @@ impl TurnRunner {
             HoldNext::Clear => routed.hold = None,
             HoldNext::Set(h) => routed.hold = Some(h.clone()),
         }
-        if session.routed.as_ref() == Some(&Default::default()) {
+        if session.routed.as_deref() == Some(&Default::default()) {
             session.routed = None;
         }
         if d.profile == base {
@@ -490,7 +490,7 @@ impl TurnRunner {
             } else {
                 r.profile = Some(target.profile.clone());
             }
-            if session.routed.as_ref() == Some(&Default::default()) {
+            if session.routed.as_deref() == Some(&Default::default()) {
                 session.routed = None;
             }
         }
