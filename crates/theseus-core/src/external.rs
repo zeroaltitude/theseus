@@ -156,6 +156,10 @@ impl Listed {
     /// 'echo gh'` counts), which is the cheap side to err on. None when it
     /// names none, or `input` has no argv.
     pub fn of(input: &serde_json::Value, programs: &[String]) -> Option<Listed> {
+        // A batch's steps, each read as its own call's (theseus-7gir.3).
+        if let Some(steps) = input.get("steps").and_then(|s| s.as_array()) {
+            return steps.iter().find_map(|s| Self::of(s, programs));
+        }
         let argv: Vec<String> = input
             .get("argv")?
             .as_array()?

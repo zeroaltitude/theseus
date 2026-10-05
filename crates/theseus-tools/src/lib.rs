@@ -361,6 +361,17 @@ pub trait Tool: Send + Sync {
     fn job(&self, _input: &Value, _ctx: &ToolCtx) -> Result<JobSpec, String> {
         Err("this tool runs in process, not as a job".into())
     }
+    /// The jobs to launch in turn, each started when the one before exits
+    /// 0 (`proc.run`'s `steps`, theseus-7gir.3): one job, for any other call.
+    fn jobs(&self, input: &Value, ctx: &ToolCtx) -> Result<Vec<JobSpec>, String> {
+        self.job(input, ctx).map(|j| vec![j])
+    }
+    /// A batch's steps, each as the call it would be alone (theseus-7gir.3):
+    /// the gate judges every one, and the batch takes the strictest. None
+    /// for a call that is one.
+    fn steps(&self, _input: &Value) -> Option<Vec<Value>> {
+        None
+    }
     fn family(&self) -> &str {
         self.name().split('.').next().unwrap_or("")
     }

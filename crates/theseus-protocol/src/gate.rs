@@ -93,6 +93,11 @@ pub struct Plan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub argv: Option<Vec<String>>,
+    /// For a `proc.run` of `steps` (theseus-7gir.3): each step's exact argv,
+    /// in the order they run. Its summary names each step's directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub steps: Option<Vec<Vec<String>>>,
     /// For a network tool: the URL it asks for (`http.fetch`'s, or the
     /// request `web.search` makes). The gate judges its host (DD5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
