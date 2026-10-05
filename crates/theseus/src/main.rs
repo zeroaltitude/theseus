@@ -620,9 +620,17 @@ enum MemoryCmd {
         k: usize,
         /// The arm whose sources and science rank it (default `baseline`): `+retention` shows
         /// each item's retrievability, stability, difficulty and last review; `+activation`
-        /// what spreading activation reached and added.
-        #[arg(long, value_parser = ["bm25", "baseline", "+retention", "+activation"])]
+        /// what spreading activation reached and added; `+synthesis` admits the checked
+        /// syntheses.
+        #[arg(long, value_parser = ["bm25", "baseline", "+retention", "+activation", "+synthesis"])]
         arm: Option<String>,
+    },
+    /// Consolidation now: clusters of notes recall admits together become cited syntheses,
+    /// checked by Jev. The operator's, refused inside a job.
+    Consolidate {
+        /// List the clusters it would synthesize, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// What each of SESSION's turns recalled (canary, live) or would have (shadow), newest last.
     Recalled {

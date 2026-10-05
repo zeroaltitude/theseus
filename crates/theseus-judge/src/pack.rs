@@ -56,6 +56,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         include_str!("../packs/attribution.v1.toml"),
     ),
     ("route.v1", include_str!("../packs/route.v1.toml")),
+    ("citation.v1", include_str!("../packs/citation.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -73,6 +74,8 @@ pub enum Point {
     Probe,
     /// After a turn ends, off its path: the memory pass (M6 31a).
     MemoryPass,
+    /// Off every turn: consolidation's citation check (M6 31b).
+    Consolidation,
 }
 
 /// The state builder a pack names (a closed set, in code).
@@ -94,6 +97,8 @@ pub enum Builder {
     Memory,
     /// `attribution.v1`'s: a reply and the notes recall admitted (M6 31a).
     Attribution,
+    /// `citation.v1`'s: a synthesis's sentences and sources (M6 31b).
+    Citation,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -139,6 +144,10 @@ pub enum Source {
     /// at most ten); `attribution.v1`'s are the notes a recall admitted.
     Notes,
     MoreNotes,
+    /// A synthesis's (sentence, cited source) pairs (M6 31b): the first ten,
+    /// and the next ten.
+    Pairs,
+    MorePairs,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1259,8 +1268,9 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            12,
-            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1 and route.v1"
+            13,
+            "§2.4's six, security.v2 and v3, rerank.v1, memory.v1, attribution.v1, route.v1 and \
+             citation.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

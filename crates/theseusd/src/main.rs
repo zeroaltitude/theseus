@@ -972,6 +972,7 @@ async fn after_serving(
     // The learning ledger's nightly report (M5 25c), never within 10
     // minutes of this start, and nothing with the judge off.
     core.learn_after_serving();
+    core.consolidate_after_serving();
     if let Some(text) = keep {
         keep_copy(&core, &text);
     }

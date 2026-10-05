@@ -4,7 +4,9 @@
 //! place; the CLI refuses each inside a job), and runs on a thread of its
 //! own at low priority (`learning::tender::on_low_thread`). The runs
 //! themselves are `learning::replay`, `learning::audit`, and
-//! `learning::backfill`.
+//! `learning::backfill`. Consolidation (M6 31b, `memory.consolidate`) is
+//! routed with them: it spends money and sends sessions' text to a profile,
+//! so it is the owner's run too (`consolidate::run`).
 
 use serde_json::{json, Value};
 use theseus_protocol::error_code;
@@ -14,10 +16,11 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The runs' methods, which `server.rs` routes to [`Core::rpc_judge_run`].
-pub(super) const RUNS: [&str; 3] = [
+pub(super) const RUNS: [&str; 4] = [
     theseus_protocol::method::JUDGE_REPLAY,
     theseus_protocol::method::JUDGE_AUDIT,
     theseus_protocol::method::JUDGE_BACKFILL,
+    theseus_protocol::method::MEMORY_CONSOLIDATE,
 ];
 
 /// A run's error on the wire: a refusal is `REFUSED`, with who, through
@@ -54,6 +57,12 @@ impl Core {
                 .judge_audit(parse(params)?, who)
                 .await
                 .map(serde_json::to_value),
+            theseus_protocol::method::MEMORY_CONSOLIDATE => {
+                let params = if params.is_null() { json!({}) } else { params };
+                self.memory_consolidate(parse(params)?, who)
+                    .await
+                    .map(serde_json::to_value)
+            }
             _ => self
                 .judge_backfill(parse(params)?, who)
                 .await

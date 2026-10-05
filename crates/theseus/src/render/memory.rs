@@ -3,7 +3,8 @@
 //! admit with each source's rank, and why each other candidate was dropped.
 
 use theseus_protocol::memory::{
-    MemoryHealth, MemoryRecallsResult, RecallActivation, RecallManifest, RecallRetention,
+    MemoryConsolidateResult, MemoryHealth, MemoryRecallsResult, RecallActivation, RecallManifest,
+    RecallRetention,
 };
 
 use super::{plural, push, Line, Tag};
@@ -378,6 +379,62 @@ pub fn recalls_lines(r: &MemoryRecallsResult) -> Vec<Line> {
     }
     for m in &r.recalls {
         out.extend(recall_lines(m));
+    }
+    out
+}
+
+/// `theseus memory consolidate`: each cluster's outcome, its sources and
+/// text, what was skipped and why, and the day's spend against its limit.
+pub fn consolidated_lines(r: &MemoryConsolidateResult) -> Vec<Line> {
+    let mut out = Vec::new();
+    let o = &mut out;
+    let head = if r.dry_run {
+        "consolidation, a dry run (nothing written)"
+    } else {
+        "consolidation"
+    };
+    push(
+        o,
+        Tag::Plain,
+        &format!(
+            "{head}: {} from {} · ${:.4} of ${:.2} spent today",
+            plural(r.clusters.len() as u64, "cluster", "clusters"),
+            plural(r.recalls, "recall", "recalls"),
+            r.spent_today_usd,
+            r.limit_usd
+        ),
+    );
+    for c in &r.clusters {
+        let id = c.synthesis_id.as_deref().unwrap_or(&c.cluster);
+        push(
+            o,
+            Tag::Plain,
+            &format!(
+                "  {id} · {} · {} · {} turns · {} · ${:.4}",
+                c.outcome,
+                plural(c.sources.len() as u64, "source", "sources"),
+                c.turns,
+                c.profile,
+                c.cost_usd
+            ),
+        );
+        push(
+            o,
+            Tag::Dim,
+            &format!("    sources: {}", c.sources.join(", ")),
+        );
+        if let Some(t) = &c.text {
+            push(o, Tag::Plain, &format!("    {t}"));
+        }
+        if let Some(w) = &c.why {
+            push(o, Tag::Warn, &format!("    {w}"));
+        }
+    }
+    for (why, n) in &r.skipped {
+        push(o, Tag::Dim, &format!("  skipped {n} for {why}"));
+    }
+    if let Some(s) = &r.stopped {
+        push(o, Tag::Warn, &format!("  stopped: {s}"));
     }
     out
 }

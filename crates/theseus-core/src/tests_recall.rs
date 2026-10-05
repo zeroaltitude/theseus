@@ -205,8 +205,8 @@ pub(crate) fn dropped_for<'a>(m: &'a RecallManifest, reason: &str) -> Vec<&'a st
         .collect()
 }
 
-/// A turn in a private place recalls from private places' sessions, and
-/// drops a shared place's for its place and its own for being in context;
+/// A turn in a private place recalls from any session, a shared place's
+/// included (theseus-1is6), and drops its own for being in context;
 /// its row says so, scoped to the session, and `memory.recalls` gives each
 /// admitted item's text.
 #[tokio::test]
@@ -231,10 +231,15 @@ async fn a_turn_records_what_recall_would_admit_and_why_it_dropped_the_rest() {
     assert_eq!((m.mode.as_str(), m.outcome.as_str()), ("shadow", "ran"));
     assert_eq!(m.place, "private");
     assert!(m.science.starts_with("baseline@"), "{}", m.science);
-    assert_eq!(admitted(m), [notes.as_str()]);
-    assert_eq!(dropped_for(m, "place"), [pier.as_str()]);
+    let mut got = admitted(m);
+    got.sort_unstable();
+    let mut want = [notes.as_str(), pier.as_str()];
+    want.sort_unstable();
+    assert_eq!(got, want);
+    assert!(dropped_for(m, "place").is_empty());
+    let item = m.admitted.iter().find(|a| a.session_id == notes).unwrap();
     assert_eq!(
-        m.admitted[0].text.as_deref(),
+        item.text.as_deref(),
         Some("the heron nests by the weir"),
         "memory.recalls reads each item's text from its node"
     );
@@ -417,9 +422,10 @@ async fn memory_search_runs_the_pipeline_and_writes_nothing() {
         .await
         .unwrap();
     assert_eq!((m.mode.as_str(), m.place.as_str()), ("search", "private"));
-    assert_eq!(admitted(&m), [notes.as_str()]);
+    // A private place draws on a shared place's session too (theseus-1is6).
+    assert_eq!(admitted(&m), [pier.as_str(), notes.as_str()]);
     assert_eq!(
-        m.admitted[0].text.as_deref(),
+        m.admitted[1].text.as_deref(),
         Some("the heron nests by the weir")
     );
     let m = c
@@ -500,10 +506,10 @@ proptest! {
 
     /// The place property test (§3.2's 30a, as the place rule makes it): over
     /// generated stores and places, nothing from a private place's session is
-    /// a candidate in a shared place, nothing from one shared place is one in
-    /// another, and nothing of a shared place is one in a private place: each
-    /// such hit is dropped for its place, and every other survives that
-    /// filter. In shadow, and through canary (30b), where the request the
+    /// a candidate in a shared place, and nothing from one shared place is one
+    /// in another: each such hit is dropped for its place, and every other
+    /// survives that filter; a private place draws on every place
+    /// (theseus-1is6). In shadow, and through canary (30b), where the request the
     /// model gets carries no word of a session the place may not draw on.
     #[test]
     fn the_place_rule_holds_over_generated_stores(
@@ -555,7 +561,7 @@ proptest! {
             let here = asker.class();
             for (sid, s) in &spoken {
                 let may = match (&here, s.class()) {
-                    (Ok(()), Ok(())) => true,
+                    (Ok(()), _) => true,
                     (Err(a), Err(b)) => *a == b,
                     _ => false,
                 };
@@ -570,7 +576,7 @@ proptest! {
             let sent = sent(&r.model).concat();
             for (i, (_, s)) in spoken.iter().enumerate() {
                 let may = match (&here, s.class()) {
-                    (Ok(()), Ok(())) => true,
+                    (Ok(()), _) => true,
                     (Err(a), Err(b)) => *a == b,
                     _ => false,
                 };

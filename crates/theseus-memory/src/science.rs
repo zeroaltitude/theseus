@@ -128,6 +128,76 @@ pub trait MemoryScience: Send + Sync {
     fn reads_retention(&self) -> bool {
         false
     }
+    /// What recall does with a synthesis (31b): only the `+synthesis` arm's
+    /// science admits one, and only a checked one.
+    fn synthesis(&self, _node_id: &str) -> SynthesisAdmit {
+        SynthesisAdmit::NotThisArm
+    }
+}
+
+/// A science's word on one synthesis (31b).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SynthesisAdmit {
+    /// This arm admits no synthesis.
+    NotThisArm,
+    /// Its citations were not checked and supported.
+    Unchecked,
+    /// A candidate like any other.
+    Admit,
+}
+
+/// The `+synthesis` arm's science (31b): `baseline`'s in every verb, and
+/// the checked syntheses as candidates.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WithSyntheses {
+    pub base: Baseline,
+    /// The syntheses whose citations were checked and supported.
+    pub checked: std::sync::Arc<std::collections::BTreeSet<String>>,
+}
+
+impl MemoryScience for WithSyntheses {
+    fn id(&self) -> ScienceId {
+        ScienceId {
+            name: "baseline+synthesis",
+            params: self.base.id().params,
+        }
+    }
+    fn min_score(&self) -> f64 {
+        self.base.min_score()
+    }
+    fn gate(&self, fresh: &Fresh, near: &[Neighbour]) -> GateDecision {
+        self.base.gate(fresh, near)
+    }
+    fn gate_thresholds(&self) -> (f32, f32) {
+        self.base.gate_thresholds()
+    }
+    fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention> {
+        self.base.schedule(prior, ev)
+    }
+    fn activate(
+        &self,
+        g: &dyn Adjacency<String>,
+        seeds: &[(String, f32)],
+        budget: usize,
+    ) -> Vec<(String, f32)> {
+        self.base.activate(g, seeds, budget)
+    }
+    fn decay_sweep(&self, now_ms: u64, view: &[Heat]) -> Vec<Demotion> {
+        self.base.decay_sweep(now_ms, view)
+    }
+    fn rank(&self, fused: Vec<Scored>, ctx: &RankCtx) -> Vec<Scored> {
+        self.base.rank(fused, ctx)
+    }
+    fn prefers_newer(&self) -> bool {
+        self.base.prefers_newer()
+    }
+    fn synthesis(&self, node_id: &str) -> SynthesisAdmit {
+        if self.checked.contains(node_id) {
+            SynthesisAdmit::Admit
+        } else {
+            SynthesisAdmit::Unchecked
+        }
+    }
 }
 
 /// The baseline (§2.3): no retention model and no activation. It ranks by

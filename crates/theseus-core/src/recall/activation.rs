@@ -214,14 +214,18 @@ impl Ask {
 
 /// A reached node as a candidate: what the index would give of it, its one
 /// source activation. A node the index never indexes (a tool call, an
-/// arrangement, a recall), or one with no text, is none.
+/// arrangement, a recall), a synthesis (31b: only `+synthesis` admits one),
+/// or one with no text, is none.
 fn hit_of(n: &Node, position: u64, rank: usize, a: f32, sci: &Activated) -> Option<IndexHit> {
     let (tool, external) = match &n.body {
         Body::UserMessage { .. } | Body::AssistantMessage { .. } | Body::Summary { .. } => {
             (None, false)
         }
         Body::ToolResult { tool, external, .. } => (Some(tool.clone()), external.is_some()),
-        Body::ToolCall { .. } | Body::Recall { .. } | Body::Arrangement { .. } => return None,
+        Body::ToolCall { .. }
+        | Body::Recall { .. }
+        | Body::Arrangement { .. }
+        | Body::Synthesis { .. } => return None,
     };
     let text = text_of(n);
     if text.trim().is_empty() {
@@ -329,9 +333,11 @@ impl Memory {
     ) -> ((Answer, Duration), Option<RecallActivation>) {
         match arm {
             MemoryArm::Activation => {}
-            MemoryArm::None | MemoryArm::Bm25 | MemoryArm::Baseline | MemoryArm::Retention => {
-                return ((answer, took), None)
-            }
+            MemoryArm::None
+            | MemoryArm::Bm25
+            | MemoryArm::Baseline
+            | MemoryArm::Retention
+            | MemoryArm::Synthesis => return ((answer, took), None),
         }
         let t0 = Instant::now();
         let mut report = RecallActivation {

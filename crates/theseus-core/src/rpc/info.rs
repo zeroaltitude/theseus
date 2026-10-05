@@ -226,6 +226,8 @@ impl Core {
             Body::Recall { .. } => (n.preview(80), String::new(), recall_detail(n), 0),
             // A compaction's summary (30c): its testimony, and its range.
             Body::Summary { .. } => summary_info(n),
+            // Consolidation's synthesis (31b): its text, its sources and check.
+            Body::Synthesis { .. } => synthesis_info(n),
         };
         theseus_protocol::NodeInfo {
             node_id: n.id.clone(),
@@ -247,6 +249,31 @@ impl Core {
 /// Context files' paths, as health names them.
 fn paths(files: &[crate::context_files::ContextEntry]) -> Vec<String> {
     files.iter().map(|f| f.path().to_string()).collect()
+}
+
+/// Consolidation's synthesis (M6 31b): its cited text, and its sources,
+/// check, and stage as its detail.
+fn synthesis_info(n: &Node) -> (String, String, Value, u64) {
+    let Body::Synthesis {
+        text,
+        sources,
+        check,
+        stage,
+        cluster,
+        profile,
+        model,
+        cost_usd,
+    } = &n.body
+    else {
+        return (n.preview(80), String::new(), Value::Null, 0);
+    };
+    (
+        text.clone(),
+        String::new(),
+        json!({"sources": sources, "check": check, "stage": stage, "cluster": cluster,
+               "profile": profile, "model": model, "cost_usd": cost_usd}),
+        0,
+    )
 }
 
 /// A compaction's summary (M6 30c): its testimony as its text, and its

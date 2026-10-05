@@ -135,7 +135,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         memory::MemorySearchParams, memory::MemoryRecallsParams, memory::MemoryRecallsResult,
         memory::RecallManifest, memory::RecallRerank, memory::RecallActivation, memory::MemoryHealth, memory::AdjacencyHealth, memory::RecallItem, memory::RecallDrop, memory::RecallTimings,
         memory::BudgetReport, memory::BudgetDrop, memory::BudgetRange, memory::BudgetOverage,
-        memory::MemoryLabelParams, memory::MemoryLabelResult, memory::RecallRetention,
+        memory::MemoryLabelParams, memory::MemoryLabelResult, memory::RecallRetention, memory::MemoryConsolidateParams, memory::MemoryConsolidateResult, memory::SynthesisReport,
         sandbox::SandboxHealth, judge::JudgeHealth, judge::JudgeScored, judge::JudgeNoticed, judge::JudgeListParams, judge::JudgeListResult,
         judge::JudgeGetParams, judge::JudgeGetResult, learning::JudgeLabelParams, learning::JudgeLabelResult, packs::PackListResult, packs::PackInfo, packs::PackModeRow, packs::HoldoutBounds, packs::PackPromoteParams, packs::PackPromoteResult, packs::PackRollbackParams,
         learning::LearningReportParams, learning::LearningReport, judge_runs::JudgeReplayParams, judge_runs::ReplayLeftOut, judge_runs::ReplayJudgment, judge_runs::ReplayClassFell, judge_runs::ReplayEvalSide,

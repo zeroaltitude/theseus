@@ -39,9 +39,10 @@ impl MemoryMode {
 
 /// The arms this build has (§2.9): `none`, today's compiler; `bm25`, the
 /// index's BM25 and entities alone (34b); `baseline`, the fused pipeline;
-/// `+retention` (32a), `baseline` ranked by FSRS-6 retention too; and
+/// `+retention` (32a), `baseline` ranked by FSRS-6 retention too;
 /// `+activation` (32b), `baseline` with spreading activation as one more
-/// ranked source. Later steps add theirs.
+/// ranked source; and `+synthesis` (31b), `baseline` with consolidation's
+/// checked syntheses as candidates. Later steps add theirs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryArm {
@@ -53,6 +54,9 @@ pub enum MemoryArm {
     Retention,
     #[serde(rename = "+activation")]
     Activation,
+    /// `baseline` with consolidation's checked syntheses as candidates (31b).
+    #[serde(rename = "+synthesis")]
+    Synthesis,
 }
 
 impl MemoryArm {
@@ -63,6 +67,7 @@ impl MemoryArm {
             MemoryArm::Baseline => "baseline",
             MemoryArm::Retention => "+retention",
             MemoryArm::Activation => "+activation",
+            MemoryArm::Synthesis => "+synthesis",
         }
     }
 
@@ -80,9 +85,10 @@ impl MemoryArm {
         match self {
             MemoryArm::None => &[],
             MemoryArm::Bm25 => &["bm25", "entity"],
-            MemoryArm::Baseline | MemoryArm::Retention | MemoryArm::Activation => {
-                &["bm25", "entity", "vector"]
-            }
+            MemoryArm::Baseline
+            | MemoryArm::Retention
+            | MemoryArm::Activation
+            | MemoryArm::Synthesis => &["bm25", "entity", "vector"],
         }
     }
 
@@ -94,6 +100,7 @@ impl MemoryArm {
             MemoryArm::Baseline,
             MemoryArm::Retention,
             MemoryArm::Activation,
+            MemoryArm::Synthesis,
         ]
         .into_iter()
         .find(|a| a.as_str() == name)
@@ -149,6 +156,19 @@ pub struct MemoryConfig {
     /// a task's first compile, and a compaction.
     #[serde(default = "default_assembled_budget")]
     pub assembled_budget_tokens: u64,
+    /// The profile consolidation writes its syntheses with (31b).
+    /// `session`, the default, is the profile every source's session last
+    /// used (the owner's call at 30c: no second provider reads a session's
+    /// text by default); a cluster whose sources disagree waits. A key of
+    /// `[profiles]` is the operator's choice.
+    #[serde(default = "default_synth_profile")]
+    pub synth_profile: String,
+    /// What consolidation may spend in a local day, read from its rows.
+    #[serde(default = "default_synth_limit")]
+    pub synth_limit_usd_per_day: f64,
+    /// The local hour of the nightly consolidation, 0 to 23.
+    #[serde(default = "default_consolidate_hour")]
+    pub consolidate_hour: u8,
 }
 
 fn default_budget() -> u64 {
@@ -179,6 +199,15 @@ fn default_summary_profile() -> String {
 }
 fn default_assembled_budget() -> u64 {
     4_000
+}
+fn default_synth_profile() -> String {
+    SUMMARY_SESSION.into()
+}
+fn default_synth_limit() -> f64 {
+    0.50
+}
+fn default_consolidate_hour() -> u8 {
+    4
 }
 
 /// `summary_profile`'s word for no compaction: the ring drops leading turns.
@@ -212,6 +241,9 @@ impl Default for MemoryConfig {
             include_external: false,
             summary_profile: default_summary_profile(),
             assembled_budget_tokens: default_assembled_budget(),
+            synth_profile: default_synth_profile(),
+            synth_limit_usd_per_day: default_synth_limit(),
+            consolidate_hour: default_consolidate_hour(),
         }
     }
 }
@@ -268,6 +300,21 @@ impl MemoryConfig {
                 "memory.recall_deadline_ms = {} is outside 1 to {MAX_RECALL_DEADLINE_MS}: recall \
                  never holds a turn for long",
                 self.recall_deadline_ms
+            );
+        }
+        if self.synth_profile.trim().is_empty() {
+            bail!("memory.synth_profile is empty: name a profile, or \"session\"");
+        }
+        if !(0.0..=100.0).contains(&self.synth_limit_usd_per_day) {
+            bail!(
+                "memory.synth_limit_usd_per_day = {} is outside 0 to 100",
+                self.synth_limit_usd_per_day
+            );
+        }
+        if self.consolidate_hour > 23 {
+            bail!(
+                "memory.consolidate_hour = {} is not an hour of the day (0 to 23)",
+                self.consolidate_hour
             );
         }
         if !(1..=MAX_RERANK_WAIT_MS).contains(&self.rerank_wait_ms) {
@@ -381,6 +428,7 @@ mod tests {
             ("baseline", MemoryArm::Baseline),
             ("+retention", MemoryArm::Retention),
             ("+activation", MemoryArm::Activation),
+            ("+synthesis", MemoryArm::Synthesis),
         ] {
             let cfg = parse(&format!("[memory]\nmode = \"live\"\narm = \"{arm}\"\n")).unwrap();
             assert_eq!(cfg.memory.arm, want);
@@ -403,6 +451,9 @@ mod tests {
             "session_recall_cap_tokens = 100",
             "summary_profile = \"\"",
             "assembled_budget_tokens = 0",
+            "synth_profile = \"\"",
+            "synth_limit_usd_per_day = -1.0",
+            "consolidate_hour = 24",
         ] {
             let cfg = parse(&format!("[memory]\nmode = \"shadow\"\n{bad}\n")).unwrap();
             assert!(cfg.validate().is_err(), "{bad}");

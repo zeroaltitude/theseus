@@ -185,6 +185,25 @@ fn summary_node() -> Node {
     )
 }
 
+/// Consolidation's synthesis (M6 31b).
+fn synthesis_node() -> Node {
+    Node::synthesis(
+        "ses_mem",
+        Body::Synthesis {
+            text: "The relay on 7714 [1].".into(),
+            sources: vec!["msg_1".into()],
+            check: theseus_core::consolidate::CitationCheck::Unchecked {
+                why: "the judge is off".into(),
+            },
+            stage: theseus_core::consolidate::Stage::Shadow,
+            cluster: "00".into(),
+            profile: "glm".into(),
+            model: "glm-5.3-flash".into(),
+            cost_usd: None,
+        },
+    )
+}
+
 #[test]
 fn the_extractor_covers_every_body_variant() {
     let samples = vec![
@@ -231,6 +250,7 @@ fn the_extractor_covers_every_body_variant() {
         result("ses_1", "http.fetch", "fetched words", true),
         // A compaction's summary (M6 30c): its text, never its header.
         summary_node(),
+        synthesis_node(),
     ];
     for node in samples {
         let record = node.record().unwrap();
@@ -263,6 +283,7 @@ fn the_extractor_covers_every_body_variant() {
                 assert_eq!(e.origin, "tool");
             }
             Body::Summary { .. } => assert_eq!(e.text, "the harbour opens at six"),
+            Body::Synthesis { .. } => assert_eq!(e.text, "The relay on 7714 [1]."),
             // Below: a recall is never indexed again.
             Body::Recall { .. } => unreachable!("a recall is skipped"),
             Body::Arrangement { .. } => unreachable!("an arrangement is skipped, below"),

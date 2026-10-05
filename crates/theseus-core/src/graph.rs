@@ -60,7 +60,8 @@ vocabulary! {
         /// a node the owner published into a place (the place rule); and a
         /// `Recall` node to each source it renders (M6 30b, `recall`); and a
         /// task's arrangement, from each message it quotes (M5 27); and a
-        /// glide's borrowed node, from each message it read (38b, `glide`).
+        /// glide's borrowed node, from each message it read (38b, `glide`);
+        /// and a synthesis, to each source it cites (M6 31b, `synthesis`).
         /// (M4 19c's graduations wrote one in the source's own session, via
         /// `graduate`: they still read.)
         DerivedFrom = "derived_from",
@@ -112,6 +113,8 @@ pub const VIA_CLAIM: &str = "claim";
 pub const VIA_MEMORY: &str = "memory";
 /// A glide's read (38b): the borrowed node, from each message it took.
 pub const VIA_GLIDE: &str = "glide";
+/// A synthesis, to each source it cites (M6 31b, consolidation).
+pub const VIA_SYNTHESIS: &str = "synthesis";
 
 impl Edge {
     pub fn new(kind: EdgeKind, from: &str, to: &str, via: &str) -> Self {

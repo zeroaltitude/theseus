@@ -205,6 +205,8 @@ pub mod method {
         /// (`memory::MemoryLabelParams`; M6 step 30b): `wrong` and `stale`
         /// keep it out of recall. Acting: the owner, from a private place.
         MEMORY_LABEL = "memory.label",
+        /// Consolidation now (M6 31b; `memory::MemoryConsolidateParams`). Acting.
+        MEMORY_CONSOLIDATE = "memory.consolidate",
         /// Jev's judgments (M5 23b; `judge::JudgeListParams`): the newest
         /// `judge.call` rows, by pack, session, and time, without their
         /// states. A read.

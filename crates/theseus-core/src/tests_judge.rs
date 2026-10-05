@@ -269,7 +269,8 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "memory.v1: shadow",
-            "attribution.v1: shadow"
+            "attribution.v1: shadow",
+            "citation.v1: shadow"
         ]
     );
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
@@ -432,7 +433,8 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "memory.v1: shadow",
-            "attribution.v1: shadow"
+            "attribution.v1: shadow",
+            "citation.v1: shadow"
         ]
     );
 }

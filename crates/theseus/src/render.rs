@@ -46,7 +46,7 @@ pub use learning::{judge_label_line, learning_report_lines};
 pub use lsp::lsp_line;
 pub use mcp::{mcp_line, mcp_lines};
 pub use mcp_server::mcp_server_line;
-pub use memory::{recall_lines, recalls_lines};
+pub use memory::{consolidated_lines, recall_lines, recalls_lines};
 pub use ontology::{
     ontology_categories_lines, ontology_kinds_lines, ontology_memberships_lines,
     ontology_proposals_lines,

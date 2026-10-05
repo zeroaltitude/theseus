@@ -1,0 +1,11 @@
+{
+  "sentences": [
+    {"text": "The Kestrel relay listens on port 7714.", "cites": [1]},
+    {"text": "It logs to /var/log/kestrel/relay.log and restarts nightly.", "cites": [2, 3]}
+  ],
+  "sources": [
+    "The Kestrel relay listens on port 7714.",
+    "The Kestrel relay logs to /var/log/kestrel/relay.log.",
+    "The Kestrel relay restarts nightly at 03:00."
+  ]
+}

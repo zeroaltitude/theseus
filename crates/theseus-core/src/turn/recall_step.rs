@@ -90,7 +90,7 @@ impl TurnRunner {
         }
         match assigned {
             Some(a) if a.live => {
-                let begun = self.recall_begin(t, a.arm.sources())?;
+                let begun = self.recall_begin(t, a.arm)?;
                 // On the heap: the turn's own future stays the size it was
                 // before the arms' work (32b) joined this one.
                 Box::pin(self.recall_live(t, Some(session), begun, a)).await;
@@ -100,12 +100,15 @@ impl TurnRunner {
             // compiler, and the index is asked nothing. A canary's control
             // still runs `baseline` in shadow.
             Some(_) if self.memory.cfg().mode == MemoryMode::Live => None,
-            _ => self.recall_begin(t, MemoryArm::Baseline.sources()),
+            _ => self.recall_begin(t, MemoryArm::Baseline),
         }
     }
 
-    /// Ask the index's `sources`, when the turn brings something new.
-    fn recall_begin(&self, t: &Turn<'_>, sources: &[&str]) -> Option<Begun> {
+    /// Ask the index for `arm`'s sources, when the turn brings something
+    /// new; every arm but `+synthesis` leaves the memory's harness session
+    /// out (31b).
+    fn recall_begin(&self, t: &Turn<'_>, arm: MemoryArm) -> Option<Begun> {
+        self.memory.syntheses(&self.store);
         let nodes = match t.tc.store.transcript(t.tc.session_id) {
             Ok(n) => n,
             Err(e) => {
@@ -117,7 +120,7 @@ impl TurnRunner {
         let deadline = std::time::Duration::from_millis(self.memory.cfg().recall_deadline_ms);
         let mut begun = self
             .memory
-            .begin(query, Some(as_of), crate::recall::K, sources, deadline);
+            .begin(query, Some(as_of), crate::recall::K, arm, deadline);
         // The turn's new node seeds a spread (32b).
         begun.new_node = nodes
             .iter()
@@ -341,9 +344,9 @@ impl TurnRunner {
         // own sources, `live` with arm `none` asks nothing, shadow `baseline`'s.
         let assigned = self.memory.cfg().assign(t.tc.session_id);
         let begun = match assigned {
-            Some(a) if a.live => self.recall_begin(t, a.arm.sources())?,
+            Some(a) if a.live => self.recall_begin(t, a.arm)?,
             Some(_) if self.memory.cfg().mode == MemoryMode::Live => return None,
-            _ => self.recall_begin(t, MemoryArm::Baseline.sources())?,
+            _ => self.recall_begin(t, MemoryArm::Baseline)?,
         };
         match assigned {
             Some(a) if a.live => Box::pin(self.recall_live(t, None, begun, a)).await,

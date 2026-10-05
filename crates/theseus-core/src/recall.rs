@@ -87,6 +87,17 @@ pub struct Memory {
     retention: retention::Projection,
     /// Where the projection's size is measured, once telemetry is built.
     telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
+    /// The memory's harness session and its checked syntheses (31b), once
+    /// read (`syntheses`).
+    syntheses: RwLock<Option<Syntheses>>,
+}
+
+/// The memory's harness session (31b), and the syntheses in it whose
+/// citations were checked and supported: the `+synthesis` arm's candidates.
+#[derive(Clone, Debug, Default)]
+pub struct Syntheses {
+    pub session: Option<String>,
+    pub checked: Arc<BTreeSet<String>>,
 }
 
 impl Memory {
@@ -109,6 +120,7 @@ impl Memory {
             sources: Mutex::new(render::Sources::new()),
             retention: retention::Projection::default(),
             telemetry: std::sync::OnceLock::new(),
+            syntheses: RwLock::new(None),
         }
     }
 
@@ -190,7 +202,8 @@ impl Memory {
         Arc::new(self.science.clone())
     }
 
-    /// An arm's science: `+retention`'s (32a) and `+activation`'s (32b) for
+    /// An arm's science: `+retention`'s (32a), `+activation`'s (32b) and
+    /// `+synthesis`'s (31b: `baseline`'s, admitting the checked syntheses) for
     /// theirs, `baseline`'s for every other. Shadow, a canary's control, and a
     /// search that names no arm run `baseline`. The arms' seam: each arm that
     /// ranks its own way adds its line here.
@@ -202,6 +215,10 @@ impl Memory {
                 ..RetentionRank::default()
             }),
             MemoryArm::Activation => self.activated.clone(),
+            MemoryArm::Synthesis => Arc::new(theseus_memory::WithSyntheses {
+                base: self.science.clone(),
+                checked: self.syntheses_known().checked,
+            }),
             MemoryArm::None | MemoryArm::Bm25 | MemoryArm::Baseline => self.science_owned(),
         }
     }
@@ -228,17 +245,98 @@ impl Memory {
         (map, Some(phase.word().to_string()))
     }
 
-    /// Ask the index's `sources` (an arm's, `MemoryArm::sources`) for
-    /// `query`'s hits as of `as_of`, in a task of its own, bounded by
-    /// `deadline`.
+    /// The harness session and its checked syntheses, read once from the
+    /// store (the session by its META key, then its nodes).
+    pub fn syntheses(&self, store: &crate::store::Store) -> Syntheses {
+        if let Some(s) = self
+            .syntheses
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
+            return s;
+        }
+        let read = || -> anyhow::Result<Syntheses> {
+            let Some(session) =
+                store.get_meta::<String>(crate::consolidate::run::MEMORY_SESSION)?
+            else {
+                return Ok(Syntheses::default());
+            };
+            let checked = store
+                .session_nodes(&session)?
+                .into_iter()
+                .filter(
+                    |(_, n)| matches!(&n.body, Body::Synthesis { check, .. } if check.checked()),
+                )
+                .map(|(_, n)| n.id)
+                .collect();
+            Ok(Syntheses {
+                session: Some(session),
+                checked: Arc::new(checked),
+            })
+        };
+        match read() {
+            Ok(s) => {
+                *self
+                    .syntheses
+                    .write()
+                    .unwrap_or_else(PoisonError::into_inner) = Some(s.clone());
+                s
+            }
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "recall: the syntheses cannot be read; none is a candidate");
+                Syntheses::default()
+            }
+        }
+    }
+
+    /// What is known of the syntheses without a read.
+    fn syntheses_known(&self) -> Syntheses {
+        self.syntheses
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .unwrap_or_default()
+    }
+
+    /// Consolidation kept a synthesis in `session`; `checked`, when its
+    /// citations were supported.
+    pub fn kept_synthesis(&self, session: &str, id: &str, checked: bool) {
+        let mut w = self
+            .syntheses
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(s) = w.as_mut() else {
+            // Not read yet: the first read finds it.
+            return;
+        };
+        s.session = Some(session.to_string());
+        if checked {
+            Arc::make_mut(&mut s.checked).insert(id.to_string());
+        }
+    }
+
+    /// Ask the index for `query`'s hits as of `as_of` from `arm`'s sources
+    /// (`MemoryArm::sources`), in a task of its own, bounded by `deadline`.
+    /// Every arm but `+synthesis` leaves the memory's harness session out
+    /// before the index's top k (`exclude_sessions`).
     pub fn begin(
         &self,
         query: String,
         as_of: Option<u64>,
         k: usize,
-        sources: &[&str],
+        arm: MemoryArm,
         deadline: Duration,
     ) -> Begun {
+        let sources = arm.sources();
+        let exclude: Vec<String> = match arm {
+            MemoryArm::Synthesis => Vec::new(),
+            MemoryArm::None
+            | MemoryArm::Bm25
+            | MemoryArm::Baseline
+            | MemoryArm::Retention
+            | MemoryArm::Activation => self.syntheses_known().session.into_iter().collect(),
+        };
         let ask = self
             .ask
             .read()
@@ -248,6 +346,7 @@ impl Memory {
         p.k = k.clamp(1, 100);
         p.as_of = as_of;
         p.sources = sources.iter().map(|s| s.to_string()).collect();
+        p.exclude_sessions = exclude;
         let started = Instant::now();
         let task = tokio::spawn(async move {
             let answer = match ask {
@@ -737,6 +836,8 @@ pub fn text_of(n: &Node) -> String {
         Body::Arrangement { pieces, claim, .. } => crate::check::render(pieces, claim.as_ref()),
         // A summary's text is the model's account of its range.
         Body::Summary { text, .. } => text.clone(),
+        // A synthesis's text is its cited entry (31b).
+        Body::Synthesis { text, .. } => text.clone(),
     }
 }
 

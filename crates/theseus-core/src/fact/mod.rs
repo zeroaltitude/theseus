@@ -61,6 +61,7 @@ pub mod recall;
 pub mod route;
 pub mod sandbox;
 pub mod start;
+pub mod synthesis;
 pub mod task_graph;
 pub mod term;
 pub mod tool;
@@ -388,6 +389,9 @@ facts![
     judge_runs::JudgeReplayed<'static>,
     judge_runs::JudgeAudited<'static>,
     judge_runs::JudgeBackfilled<'static>,
+    synthesis::SynthesisProposed<'static>,
+    synthesis::SynthesisChecked<'static>,
+    synthesis::SynthesisScored<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,
     mcp::McpStarted,

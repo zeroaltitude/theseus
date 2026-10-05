@@ -114,6 +114,10 @@ impl MemoryScience for Reranked<'_> {
         self.inner.reads_retention()
     }
 
+    fn synthesis(&self, node_id: &str) -> crate::science::SynthesisAdmit {
+        self.inner.synthesis(node_id)
+    }
+
     fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention> {
         self.inner.schedule(prior, ev)
     }
@@ -253,9 +257,13 @@ mod tests {
         };
         let mut second = cand("n1", Place::Private, 0.85);
         second.chunk = 1;
+        // A private place draws on a shared place's sessions (theseus-1is6):
+        // external text is the filtered one here.
+        let mut ext = cand("ext", Place::Shared("discord:channel:9".into()), 0.95);
+        ext.external = true;
         let cands = vec![
             cand("n1", Place::Private, 0.9),
-            cand("shared", Place::Shared("discord:channel:9".into()), 0.95),
+            ext,
             cand("seen", Place::Private, 0.8),
             cand("n2", Place::Private, 0.7),
             cand("faint", Place::Private, 0.001),
@@ -281,11 +289,11 @@ mod tests {
         let re = repack(&science, &asker, cands, &p, order);
         assert_eq!(ids(&re), keys(&["n3#0", "n1#1"]));
         assert_eq!(re.admitted[0].rank, 1);
-        // The filters are the same: the shared place's is dropped for it.
+        // The filters are the same: the external one is dropped for it.
         assert!(re
             .dropped
             .iter()
-            .any(|d| d.candidate.node_id == "shared" && d.reason == Reason::Place));
+            .any(|d| d.candidate.node_id == "ext" && d.reason == Reason::Untrusted));
         assert_eq!(re.admitted.len() + re.dropped.len(), 7);
     }
 

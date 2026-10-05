@@ -42,7 +42,8 @@ impl Core {
     /// mode` says. An arm that reads retention builds the projection when
     /// nothing has yet, off this answer's path: until it is built, the row
     /// says so. Under `+activation` it builds the adjacency projection if no
-    /// turn has (32b), within its deadline.
+    /// turn has (32b), within its deadline. Every arm but `+synthesis` leaves
+    /// the memory's harness session out (31b).
     pub async fn memory_search(&self, p: MemorySearchParams) -> Result<RecallManifest, RpcFailure> {
         if p.query.trim().is_empty() {
             return Err(RpcFailure::new(
@@ -64,7 +65,7 @@ impl Core {
                     return Err(RpcFailure::new(
                         error_code::INVALID_PARAMS,
                         format!(
-                        "{name:?} is not an arm: one of bm25, baseline, +retention, +activation"
+                        "{name:?} is not an arm: one of bm25, baseline, +retention, +activation, +synthesis"
                     ),
                     ))
                 }
@@ -83,14 +84,9 @@ impl Core {
         if arm.reads_retention() {
             crate::recall::retention::warm(memory, &self.store);
         }
+        memory.syntheses(&self.store);
         let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(SEARCH_DEADLINE);
-        let mut begun = memory.begin(
-            p.query.clone(),
-            None,
-            p.k.unwrap_or(K),
-            arm.sources(),
-            deadline,
-        );
+        let mut begun = memory.begin(p.query.clone(), None, p.k.unwrap_or(K), arm, deadline);
         let answer = begun.answer().await;
         let (answer, activation) = memory
             .activated(&self.store, arm, &begun, answer, in_context.clone(), true)

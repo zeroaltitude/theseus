@@ -646,7 +646,7 @@ proptest! {
             let may: Vec<usize> = spoken
                 .iter()
                 .filter(|(_, s)| match (&here, s.class()) {
-                    (Ok(()), Ok(())) => true,
+                    (Ok(()), _) => true,
                     (Err(a), Err(b)) => *a == b,
                     _ => false,
                 })

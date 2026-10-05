@@ -473,6 +473,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     span, timed in `theseus.recall.activate_ms` by outcome, with its additions in `theseus.recall.activated`
     (`telemetry/tests_recall.rs`); health's `memory` block (`Core::memory_health`) names the projection's nodes,
     edges, entities and bytes. Tests: `tests_activation_arm.rs`.
+  - **Consolidation and the `+synthesis` arm** (step 31b, theseus-6fn.10): `consolidate/`. Off every turn
+    (`memory.consolidate`, routed with the owner's runs in `rpc/judge_runs.rs`, `judge_act(Act::JudgeRun)`; the
+    nightly tender `consolidate/tender.rs` at `[memory] consolidate_hour`, never within 10 minutes of a start;
+    the plan on a `learning` thread at nice 19, the calls and the frames' waits as tasks on the runtime, never a
+    thread blocked on it: a stop mid-wait must not panic it, and the release profile aborts on a panic), the newest `recall.shadow`/`recall.ran` rows (by kind through the
+    store's pages) become clusters (`theseus_memory::consolidate`), each written by `synth_profile` (`session`:
+    the profile every source's session last used; disagreeing sources wait), checked deterministically and by
+    `citation.v1` (`judge/citation.rs`, a point of its own, `WIRED` in shadow), and kept as a `Body::Synthesis`
+    node (store format 18) in the harness session (META `memory.session`, never compiled) with `derived_from`
+    edges (`via = "synthesis"`) and `synthesis.proposed`/`.checked`/`.scored` rows (`fact/synthesis.rs`, scope
+    `memory`; the day's spend reads back from them). A cluster with external text is never synthesized. Each
+    frame goes through the memory pass's writer handshake (`MemoryPass::writing`; `memory_pass/turns.rs` counts
+    its writers). The arms' seam: `Memory::science_for(arm)` and `Scene.science`; every arm but `+synthesis`
+    leaves the harness session out before the index's top k (`Memory::begin`'s `exclude_sessions`), and the
+    pipeline drops a synthesis as `arm` or `unchecked` (`MemoryScience::synthesis`). Tests: `tests_consolidate.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier
