@@ -38,11 +38,16 @@ fn config(root: &Path, state: &Path) -> Config {
 }
 
 fn rig(script: Vec<Scripted>) -> Rig {
+    rig_with(script, |_| {})
+}
+
+fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("harbor.txt"), "the tide turns at four\n").unwrap();
-    let cfg = config(&root.canonicalize().unwrap(), dir.path());
+    let mut cfg = config(&root.canonicalize().unwrap(), dir.path());
+    tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
@@ -295,4 +300,44 @@ async fn an_internal_fault_that_recurs_is_retried_once_then_waits() {
     assert_eq!(failing(&r.core, &sid).unwrap().class, "internal");
     // The rule's own name for what follows a park.
     assert_eq!(Then::Park.as_str(), "park");
+}
+
+/// `[model.retries]` (theseus-7gir.21): a call that fails with a class that
+/// passes with time is made again inside its turn, at most `transient`
+/// times, each wait a span on the turn's trace; past them the turn fails as
+/// before, to the driver's backoff. A class that will not pass is never made
+/// again there.
+#[tokio::test]
+async fn a_transient_failure_is_retried_inside_its_turn_as_the_config_allows() {
+    let retrying = |transient, script| {
+        rig_with(script, |c| {
+            c.model.retries = crate::config::Retries {
+                transient,
+                backoff_ms: 5,
+                backoff_max_ms: 5,
+            }
+        })
+    };
+    // Two 529s, then the answer: two retries, one turn.
+    let r = retrying(2, vec![overloaded(), overloaded(), Scripted::text("Done.")]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, "say done").await.expect("it answers");
+    assert_eq!(res.output, "Done.");
+    assert_eq!(r.fake.requests.lock().unwrap().len(), 3);
+    assert_eq!(rows(&r.core, "provider.error").len(), 2);
+    assert!(thens(&r.core).is_empty(), "no turn failed");
+    let trace = res.trace.expect("the turn's trace");
+    let spans = trace.children.iter().flat_map(|l| &l.children);
+    assert_eq!(spans.filter(|s| s.name == "retry").count(), 2);
+    // Past `transient`, the turn fails to the driver's backoff, as before.
+    let r = retrying(1, vec![overloaded(), overloaded(), Scripted::text("Done.")]);
+    let sid = bound_session(&r.core);
+    turn(&r.core, &sid, "say done").await.expect_err("it fails");
+    assert_eq!(r.fake.requests.lock().unwrap().len(), 2);
+    assert_eq!(thens(&r.core), ["backoff"]);
+    // A 400 is never made again inside the turn.
+    let r = retrying(2, vec![bad_request(), Scripted::text("Done.")]);
+    let sid = bound_session(&r.core);
+    turn(&r.core, &sid, "say done").await.expect_err("it fails");
+    assert_eq!(r.fake.requests.lock().unwrap().len(), 1);
 }

@@ -10,7 +10,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
   (continue or end the turn), `harness.rs` (the harness loop, parked on its events and the heartbeat), and
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
-  and the cancel path).
+  and the cancel path). A failed turn's retry is the driver's (theseus-ljr); `[model.retries]` can make a transient
+  failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; the bench profile's, since a
+  headless run ends with its turn: theseus-7gir.21).
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching).
   - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the

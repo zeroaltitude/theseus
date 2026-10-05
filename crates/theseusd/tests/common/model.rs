@@ -33,6 +33,9 @@ struct Seen {
     fails: Mutex<VecDeque<u16>>,
     /// How many of the next requests the model declines (`refusal`).
     refusals: Mutex<u32>,
+    /// How many of the next requests get no byte back at all, until the
+    /// client gives up and closes (theseus-7gir.21).
+    stalls: Mutex<u32>,
 }
 
 pub struct FakeModel {
@@ -100,6 +103,13 @@ impl FakeModel {
     pub fn decline_next(&self, n: u32) {
         *self.seen.refusals.lock().unwrap() += n;
     }
+
+    /// Answer the next `n` requests with nothing, not even headers, as a
+    /// provider that never starts does: the client's first-byte timeout
+    /// fails each call (theseus-7gir.21).
+    pub fn stall_next(&self, n: u32) {
+        *self.seen.stalls.lock().unwrap() += n;
+    }
 }
 
 /// The status and body the API refuses with, by status.
@@ -162,6 +172,18 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
     if let Some(status) = refused {
         stream.write_all(refusal(status).as_bytes())?;
         return stream.flush();
+    }
+    let stalls = {
+        let mut s = seen.stalls.lock().unwrap();
+        let stalls = *s > 0;
+        *s = s.saturating_sub(1);
+        stalls
+    };
+    if stalls {
+        // Nothing back: wait for the client to close (its read sees the end),
+        // or the read timeout.
+        let _ = r.read(&mut [0u8; 1]);
+        return Ok(());
     }
     let model = req["model"].as_str().unwrap_or(MODEL);
     let declines = {

@@ -116,6 +116,43 @@ fn a_bench_call_asks_for_the_models_whole_output() {
     assert_eq!(bench.effective_max_tokens(&catalog), 128_000);
 }
 
+/// A first call that times out before its first byte is made again inside
+/// the turn (theseus-7gir.21): the bench profile's `[model.retries]`, so a
+/// headless trial, which ends with its turn, ends 0 on the second call. With
+/// `transient = 0`, every other config's default, the turn fails as before,
+/// and the trial exits 1, as b5's hf-model-inference did.
+#[test]
+fn a_first_byte_timeout_is_retried_inside_the_headless_turn() {
+    // The first byte's timeout at 1 s, the table's other three as the defaults.
+    let short = |t: &mut toml::Table| {
+        for (key, secs) in [
+            ("connect_secs", 10),
+            ("first_byte_secs", 1),
+            ("stream_idle_secs", 60),
+            ("total_secs", 600),
+        ] {
+            set(t, &["model", "timeouts", key], secs.into());
+        }
+    };
+    let model = FakeModel::start(no_calls);
+    model.stall_next(1);
+    let dir = trial(&model, short);
+    let run = ask(dir.path(), "say hello");
+    assert_eq!(run.code, 0, "{}\n{}", run.turn, run.stderr);
+    assert_eq!(run.turn["stop_reason"], "no_tool_calls", "{}", run.turn);
+    assert_eq!(model.requests().len(), 2, "the call and its retry");
+    let model = FakeModel::start(no_calls);
+    model.stall_next(1);
+    let dir = trial(&model, |t| {
+        short(t);
+        set(t, &["model", "retries", "transient"], 0.into());
+    });
+    let run = ask(dir.path(), "say hello");
+    assert_eq!(run.code, 1, "{}\n{}", run.turn, run.stderr);
+    assert!(run.stderr.contains("FirstByte"), "{}", run.stderr);
+    assert_eq!(model.requests().len(), 1, "no retry inside the turn");
+}
+
 /// A page on this machine, as a task's own web server serves one: every
 /// request is answered with its HTML, and each one's first line is kept.
 fn page_server() -> (u16, Arc<Mutex<Vec<String>>>) {

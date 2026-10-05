@@ -59,12 +59,24 @@ api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding it
 
 # Provider call timeouts. Each failure is classified (timeout with its phase,
 # network, rate_limited, overloaded, server, auth, invalid_request, stream,
-# truncated); nothing retries on its own.
+# truncated); a failed turn is retried by its session's driver, with a
+# backoff for the classes that pass with time.
 [model.timeouts]
 connect_secs = 10                       # TCP + TLS
 first_byte_secs = 60                    # request sent → response headers
 stream_idle_secs = 60                   # longest silence between stream events
 total_secs = 600                        # the whole call
+
+# A call that fails with a class that passes with time (timeout, network,
+# rate_limited, overloaded, server, stream, truncated) can be made again
+# inside its turn instead, after a wait that doubles each time. Leave it at 0
+# here: the driver's retry, with its notice, serves a daemon you talk to. A
+# headless run (`theseus --spawn theseusd ask`) ends with its turn, so it
+# gets no later retry; the bench profile sets it.
+[model.retries]
+transient = 0                           # retries inside a turn; 0: none
+backoff_ms = 2000                       # the wait before the first one
+backoff_max_ms = 30000                  # the longest one wait
 
 # ---------------------------------------------------------------- profiles
 # A profile is provider + model + output limit + system prompt. Exactly one is

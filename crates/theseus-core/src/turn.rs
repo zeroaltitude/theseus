@@ -58,6 +58,7 @@ mod inbound_step;
 mod prompt_input;
 mod recall_step;
 mod rerank_step;
+mod retry_step;
 mod route_step;
 
 pub use route_step::{LiveSwitched, SWITCHED};
@@ -1624,6 +1625,8 @@ impl TurnRunner {
         // again with its line, once a turn (theseus-0s4); `strip` asks the
         // next compilation to drop the thinking the change sat under.
         let mut image_retried = false;
+        // A transient failure's retries in this turn (`[model.retries]`).
+        let mut retried = 0;
         let mut strip: Option<&'static str> = None;
         // A request the provider said passed the window (theseus-9p88): the
         // next loop recompiles with a ring by the provider's numbers and calls
@@ -1691,6 +1694,9 @@ impl TurnRunner {
             let (resp, node) = match called? {
                 Called::Answered(called) => *called,
                 Called::Failed(failure) => {
+                    if self.retry_after(t, &failure, &mut retried).await? {
+                        continue;
+                    }
                     if !image_retried {
                         if let Some(edited) = Self::hide_refused(t, session, &compiled, &failure)? {
                             image_retried = true;

@@ -1373,6 +1373,47 @@ impl Fact for ProviderError<'_> {
     }
 }
 
+/// A call that failed with a class that passes with time is made again
+/// inside its turn, after its backoff (`[model.retries]`, theseus-7gir.21):
+/// the wait, as a span, and a line. The failed call is its `provider.error`
+/// row; the retry is the loop's next call.
+pub struct ModelRetried<'a> {
+    pub model: &'a str,
+    pub class: &'a str,
+    /// This retry, from 1, and the most the config allows.
+    pub retry: u32,
+    pub of: u32,
+    /// When the wait began, on the trace's clock, and how long it was.
+    pub w0: u64,
+    pub waited_ms: u64,
+}
+
+impl Fact for ModelRetried<'_> {
+    fn span(&self, trace: &mut Trace) {
+        trace.record(
+            "retry",
+            "wait",
+            self.w0,
+            trace.now_us(),
+            json!({"class": self.class, "retry": self.retry, "of": self.of}),
+        );
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Model,
+            format!(
+                "{} is called again after {} ({}: retry {} of {}, [model.retries]).",
+                self.model,
+                narrative::duration(self.waited_ms),
+                self.class,
+                self.retry,
+                self.of
+            ),
+        );
+    }
+}
+
 /// A `/stop` cut the model's call while its stream ran (theseus-yey): the call
 /// settled as failed at an estimate of what it used (`provider.cut`). The
 /// estimate is the input the call's reservation assumed and the output

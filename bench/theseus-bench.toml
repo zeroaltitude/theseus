@@ -15,6 +15,10 @@
 #   - a call's output cap is its model's own, the catalog's maximum (128000
 #     for Sonnet 5.5), as Claude Code's is: no `max_output_tokens` line
 #     (theseus-7gir.19);
+#   - a call that fails with a class that passes with time (a first-byte
+#     timeout, overloaded, a server error) is made again inside its turn, up
+#     to 4 times, after 2, 4, 8 and 16 s: a headless run ends with its turn,
+#     so no later retry comes (theseus-7gir.21);
 #   - Discord, the web UI, and the index tender are off.
 #
 # The Harbor adapter (bench/harbor/theseus_agent.py) writes this file into each
@@ -29,6 +33,9 @@ provider = "anthropic"
 model = "claude-sonnet-5-5"             # set by the adapter
 api_key_secret = "anthropic_api_key"
 max_loops = 200                         # set by the adapter: a task's turn runs until the model ends it
+
+[model.retries]
+transient = 4
 
 [profiles.bench]
 provider = "anthropic"
