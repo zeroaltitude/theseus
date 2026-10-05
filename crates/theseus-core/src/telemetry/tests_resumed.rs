@@ -3,6 +3,7 @@
 //! the turn that answered it, through whole cores whose telemetry posts to
 //! a receiver.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,7 +13,9 @@ use theseus_protocol::{SessionKind, Span, TurnSubmitResult};
 use super::tests::{flushed, last_metrics, pipeline, point_with, points_of, tuning, Receiver};
 use crate::bus::EventSink;
 use crate::policy::Posture;
-use crate::provider::{FakeProvider, Scripted};
+use crate::provider::{
+    DeltaSink, FakeProvider, Provider, ProviderFuture, ProviderRequest, Scripted,
+};
 use crate::session::SessionRecord;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
@@ -26,6 +29,11 @@ struct Rig {
 /// work in a scratch folder, and whose telemetry posts to `endpoint`; `tweak`
 /// sets the rest of its config.
 fn rig(script: Vec<Scripted>, endpoint: &str, tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_with(Arc::new(FakeProvider::scripted(script)), endpoint, tweak)
+}
+
+/// `rig`, with this provider.
+fn rig_with(fake: Arc<dyn Provider>, endpoint: &str, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -36,7 +44,6 @@ fn rig(script: Vec<Scripted>, endpoint: &str, tweak: impl FnOnce(&mut Config)) -
     c.tools.roots = vec![];
     tweak(&mut c);
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
-    let fake = Arc::new(FakeProvider::scripted(script));
     let core = Core::build(crate::rpc::Parts {
         telemetry: Some(pipeline(endpoint, None, tuning())),
         ..crate::rpc::Parts::for_tests(c, fake, store)
@@ -243,4 +250,118 @@ async fn a_confirmed_call_and_a_background_job_are_counted_once_by_their_runs() 
     assert!((2_000.0..60_000.0).contains(&sum), "their runs: {sum} ms");
     let min = took["min"].as_f64().unwrap();
     assert!(min >= 400.0, "each timed by its run: {took}");
+}
+
+/// A provider that answers as `inner`, its call number `held` (from 0)
+/// waiting until `release` is notified.
+struct Held {
+    inner: FakeProvider,
+    held: usize,
+    calls: AtomicUsize,
+    release: Arc<tokio::sync::Notify>,
+}
+
+impl Provider for Held {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a ProviderRequest,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        Box::pin(async move {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == self.held {
+                self.release.notified().await;
+            }
+            self.inner.stream_message(req, on_delta).await
+        })
+    }
+}
+
+/// A late result that settles while a turn of its execution still runs is
+/// taken by that turn's `finish` (theseus-kxyc), the only place it counts:
+/// one `tool proc_run` span at the trace's top level, `late`, `ok`, with the
+/// job's run, and one `theseus.tool.calls` point. The model's answer to the
+/// `background` placeholder is held until the job's completion is queued on
+/// the execution, which a task drains from the spool as the daemon's
+/// heartbeat does, so the turn still runs when it lands on any machine.
+#[tokio::test]
+async fn a_late_result_taken_as_its_turn_finishes_is_traced_there() {
+    let rx = Receiver::start(vec![]).await;
+    let release = Arc::new(tokio::sync::Notify::new());
+    let model = Held {
+        inner: FakeProvider::scripted(vec![
+            sleeper("t1", "1.3"),
+            Scripted::text("It ran meanwhile."),
+        ]),
+        held: 1,
+        calls: AtomicUsize::new(0),
+        release: release.clone(),
+    };
+    let r = rig_with(Arc::new(model), &rx.endpoint(), |c| {
+        c.tools.proc_sync_secs = 1;
+        c.policy.tools.insert("proc.run".into(), Posture::Open);
+    });
+    let drain = {
+        let core = r.core.clone();
+        tokio::spawn(async move {
+            for _ in 0..600 {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                core.heartbeat("test");
+                let job = core.kernel.actions().unwrap();
+                let job = job.iter().find(|a| a.tool == "proc.run");
+                let queued = job.is_some_and(|a| {
+                    let e = core.kernel.execution(&a.execution_id).unwrap();
+                    e.is_some_and(|e| e.queued_results.contains(&a.correlation_id))
+                });
+                if queued {
+                    release.notify_one();
+                    return true;
+                }
+            }
+            release.notify_one();
+            false
+        })
+    };
+    let first = turn(&r.core, "run the tide script").await;
+    assert!(drain.await.unwrap(), "the job's completion was queued");
+    assert_eq!(first.output, "It ran meanwhile.");
+    let trace = first.trace.as_ref().unwrap();
+    let spans = spans_named(trace, "tool proc_run");
+    assert_eq!(
+        spans.len(),
+        2,
+        "its placeholder and its late result: {trace:#?}"
+    );
+    assert_eq!(spans[0].1.attrs["result"], "background");
+    let (parent, span) = spans[1];
+    assert_eq!(parent, trace.name, "at the trace's top level");
+    for (_, c) in spans_named(trace, "continuation") {
+        assert!(c.children.iter().all(|s| s.kind != "tool"), "{c:#?}");
+    }
+    assert_eq!(span.attrs["late"], json!(true));
+    assert_eq!(span.attrs["result"], "ok");
+    assert_eq!(span.attrs["tool"], "proc.run");
+    assert_eq!(span.attrs["tool_use_id"], "t1");
+    let run = span.attrs["run_ms"].as_u64().expect("the job's run");
+    assert!((1_300..30_000).contains(&run), "the job's run: {run} ms");
+
+    flushed(r.core.telemetry()).await;
+    let metrics = last_metrics(&rx.got());
+    let calls = points_of(&metrics, "theseus.tool.calls");
+    assert_eq!(calls.len(), 1, "one series, `ok`: {calls:#?}");
+    let ok = [
+        ("theseus.tool.name", "proc.run"),
+        ("theseus.tool.outcome", "ok"),
+    ];
+    assert_eq!(
+        point_with(&metrics, "theseus.tool.calls", &ok)["asInt"],
+        "1"
+    );
+    let took = point_with(&metrics, "theseus.tool.duration_ms", &ok);
+    assert!(
+        took["min"].as_f64().unwrap() >= 1_300.0,
+        "timed by its run: {took}"
+    );
 }
