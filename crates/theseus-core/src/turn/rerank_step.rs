@@ -19,6 +19,7 @@ use std::time::Duration;
 use theseus_protocol::memory::RecallManifest;
 
 use super::{Turn, TurnRunner};
+use crate::config::memory::MemoryArm;
 use crate::config::PackMode;
 use crate::judge::rerank::Recalled;
 use crate::recall::{Answer, Begun, Scene};
@@ -30,11 +31,12 @@ impl TurnRunner {
         &self,
         t: &mut Turn<'_>,
         mode: &str,
+        arm: MemoryArm,
         begun: &Begun,
         answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
-        let scene = self.scene(t, mode);
+        let scene = self.scene(t, mode, arm);
         if rerank == PackMode::Off {
             return self.memory.manifest(
                 &scene,
@@ -55,11 +57,13 @@ impl TurnRunner {
         );
         // What the rerank reads of the scene, taken now: the rest of it
         // borrows the turn, which the mark and the span need.
+        let retention = self.memory.retention_of(&*scene.science, &candidates);
         let Scene {
             place,
             in_context,
             labeled,
             budget_tokens,
+            science,
             ..
         } = scene;
         let live = rerank == PackMode::Live;
@@ -74,7 +78,8 @@ impl TurnRunner {
             candidates,
             links: links.clone(),
             params: self.memory.params_of(&m),
-            science: self.memory.science_owned(),
+            science: science.clone(),
+            retention: retention.clone(),
             admitted: m
                 .admitted
                 .iter()
@@ -99,6 +104,7 @@ impl TurnRunner {
                 in_context,
                 labeled,
                 budget_tokens,
+                science,
             };
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);

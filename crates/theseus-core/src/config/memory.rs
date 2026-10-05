@@ -38,8 +38,9 @@ impl MemoryMode {
 }
 
 /// The arms this build has (§2.9): `none`, today's compiler; `bm25`, the
-/// index's BM25 and entities alone (34b); and `baseline`, the fused
-/// pipeline. Later steps add theirs.
+/// index's BM25 and entities alone (34b); `baseline`, the fused pipeline;
+/// and `+retention` (32a), `baseline` ranked by FSRS-6 retention too. Later
+/// steps add theirs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryArm {
@@ -47,6 +48,8 @@ pub enum MemoryArm {
     Bm25,
     #[default]
     Baseline,
+    #[serde(rename = "+retention")]
+    Retention,
 }
 
 impl MemoryArm {
@@ -55,7 +58,13 @@ impl MemoryArm {
             MemoryArm::None => "none",
             MemoryArm::Bm25 => "bm25",
             MemoryArm::Baseline => "baseline",
+            MemoryArm::Retention => "+retention",
         }
+    }
+
+    /// Whether the arm's science reads the retention projection (32a).
+    pub fn reads_retention(self) -> bool {
+        self == MemoryArm::Retention
     }
 
     /// The index's sources the arm asks for (`index.query`'s `sources`):
@@ -66,7 +75,7 @@ impl MemoryArm {
         match self {
             MemoryArm::None => &[],
             MemoryArm::Bm25 => &["bm25", "entity"],
-            MemoryArm::Baseline => &["bm25", "entity", "vector"],
+            MemoryArm::Baseline | MemoryArm::Retention => &["bm25", "entity", "vector"],
         }
     }
 }
@@ -350,6 +359,7 @@ mod tests {
             ("none", MemoryArm::None),
             ("bm25", MemoryArm::Bm25),
             ("baseline", MemoryArm::Baseline),
+            ("+retention", MemoryArm::Retention),
         ] {
             let cfg = parse(&format!("[memory]\nmode = \"live\"\narm = \"{arm}\"\n")).unwrap();
             assert_eq!(cfg.memory.arm, want);

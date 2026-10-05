@@ -370,6 +370,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     their own (`learning/items.rs`: the check, the report's per-definition questions), and the owner's memory labels
     write rerank's system labels (`learning/rerank.rs`). Tests: `tests_rerank_live.rs` (one on tokio's paused clock,
     with Jev a channel: `JudgeService::rerank_with`), `tests_rerank_labels.rs`.
+  - **FSRS-6 retention and the `+retention` arm** (step 32a's wire-in, theseus-6fn.11): `recall/retention.rs`. Each
+    memory row is the `AccessEvent` it is (`event_of`, pure: `memory.labeled` a first sight by durability,
+    `memory.used` a use by outcome or, not used, `Shown`, which is no review; `memory.label` by §2.7's table), at
+    its row's time. The `Projection` folds them with `Fsrs6` (`fsrs6-default`) per node from every arm's rows (one
+    projection, §5 question 9), each node's events kept by position, so a row brought twice counts once and one
+    arriving out of order refolds the node: it always equals a rebuild. Built after serving only when read
+    (`Core::warm_retention` under `[memory] arm = "+retention"`, the first `+retention` search, or a turn of the
+    arm), by one walk of the three kinds through the ledger's index (`k:<kind>` tags; waits on tokio's timer while
+    the index's shape is built), on the blocking pool; kept current by `Memory::retention_written`, which the memory
+    pass's frames and `memory.label` call with their positions. The arms' seam is `Memory::science_for(arm)` (a
+    match: an arm that ranks its own way adds its line) and `Scene.science`, which `manifest_ranked`, `refill` and
+    the rerank's `Recalled` (with its `retention`) read; shadow, a canary's control and a search without an arm use
+    `baseline`'s. Under a science that reads retention the manifest's `retention` says the projection's state
+    (`ready`, or why it ranked without), and each admitted item carries its `RecallRetention`. `memory.search`
+    takes `arm`; health's `memory` block and the gauge `theseus.memory.retention.nodes` give its size. Tests:
+    `tests_retention.rs`, `recall::retention::tests`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

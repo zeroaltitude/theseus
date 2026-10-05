@@ -34,10 +34,12 @@ const RECALLS: usize = 10;
 const MAX_RECALLS: usize = 200;
 
 impl Core {
-    /// `memory.search`: the pipeline over `p.query` (`baseline`'s sources), as a turn in
-    /// `p.session_id`'s place would run it (its nodes in context), or, with
-    /// no session, as the CLI's: a private place. It writes nothing, whatever
-    /// `[memory] mode` says.
+    /// `memory.search`: the pipeline over `p.query` with `p.arm`'s sources and
+    /// science (default `baseline`), as a turn in `p.session_id`'s place
+    /// would run it (its nodes in context), or, with no session, as the
+    /// CLI's: a private place. It writes nothing, whatever `[memory] mode`
+    /// says. An arm that reads retention builds the projection when nothing
+    /// has yet, off this answer's path: until it is built, the row says so.
     pub async fn memory_search(&self, p: MemorySearchParams) -> Result<RecallManifest, RpcFailure> {
         if p.query.trim().is_empty() {
             return Err(RpcFailure::new(
@@ -45,6 +47,18 @@ impl Core {
                 "memory.search needs a query",
             ));
         }
+        let arm = match p.arm.as_deref() {
+            None => MemoryArm::Baseline,
+            Some(a) => serde_json::from_value::<MemoryArm>(serde_json::json!(a))
+                .ok()
+                .filter(|a| *a != MemoryArm::None)
+                .ok_or_else(|| {
+                    RpcFailure::new(
+                        error_code::INVALID_PARAMS,
+                        format!("{a:?} is not an arm a search can rank by: bm25, baseline, or +retention"),
+                    )
+                })?,
+        };
         let (place, in_context) = match &p.session_id {
             Some(sid) => {
                 self.session_exists(sid)?;
@@ -55,12 +69,15 @@ impl Core {
             None => (Place::Private, BTreeSet::new()),
         };
         let memory = &self.runner.memory;
+        if arm.reads_retention() {
+            crate::recall::retention::warm(memory, &self.store);
+        }
         let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(SEARCH_DEADLINE);
         let mut begun = memory.begin(
             p.query.clone(),
             None,
             p.k.unwrap_or(K),
-            MemoryArm::Baseline.sources(),
+            arm.sources(),
             deadline,
         );
         let answer = begun.answer().await;
@@ -72,6 +89,7 @@ impl Core {
             in_context,
             labeled: memory.labeled(&self.store)?,
             budget_tokens: None,
+            science: memory.science_for(arm),
         };
         Ok(memory.manifest(
             &scene,
@@ -160,9 +178,10 @@ impl Core {
             via: &via,
             excluded: set.contains(&p.node_id),
         };
-        self.store
-            .append(&[fact::row(&f, None, None)?.scoped(labels::SCOPE)])?;
+        let records = [fact::row(&f, None, None)?.scoped(labels::SCOPE)];
+        let positions = self.store.append(&records)?;
         memory.labeled_now(&p.node_id, label);
+        memory.retention_written(&records, &positions);
         self.rec(None).announce(&f);
         Ok(MemoryLabelResult {
             node_id: p.node_id.clone(),
@@ -201,6 +220,16 @@ impl Core {
                 tracing::warn!(error = %format!("{e:#}"), "memory: the labels cannot be read");
             }
         });
+    }
+
+    /// The retention projection (32a), built now when the config's arm
+    /// reads it: after serving, on the blocking pool. Otherwise the first
+    /// search that asks builds it.
+    pub fn warm_retention(self: &std::sync::Arc<Self>) {
+        let memory = &self.runner.memory;
+        if memory.on() && memory.cfg().arm.reads_retention() {
+            crate::recall::retention::warm(memory, &self.store);
+        }
     }
 
     fn session_exists(&self, sid: &str) -> Result<(), RpcFailure> {

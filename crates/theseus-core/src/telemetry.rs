@@ -229,6 +229,15 @@ impl Telemetry {
             .durability(m);
     }
 
+    /// Memory's retention projection (M6 32a): the nodes it holds.
+    pub fn record_retention(&self, nodes: u64) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retention(nodes);
+    }
+
     /// Send what waits, and the metrics, now: true once done (or nothing to
     /// do), false when `within` passed first. The daemon's clean shutdown
     /// waits here, bounded.

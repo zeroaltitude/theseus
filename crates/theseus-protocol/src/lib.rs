@@ -603,6 +603,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub mcp_server: Option<mcp_server::McpServerHealth>,
+    /// Memory's retention projection (M6 32a): absent while memory is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub memory: Option<memory::MemoryHealth>,
     /// The language servers (L2): absent when `[lsp]` is off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

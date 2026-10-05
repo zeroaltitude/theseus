@@ -3,8 +3,8 @@
 Theseus's memory science (M6), as pure logic with no I/O: every input is explicit, so each result replays from the
 record. It has no dependencies.
 
-Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `fsrs.rs`, `activation.rs`, `access.rs`. Read by: theseus-core
-(`recall.rs`, the turn's recall step, `memory.search`, and the judge's rerank).
+Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `retention.rs`, `fsrs.rs`, `activation.rs`, `access.rs`. Read
+by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the judge's rerank).
 
 ## What's here
 
@@ -24,7 +24,14 @@ Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `fsrs.rs`, `activation.rs`,
   fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order
   (a `Reranked` science). The core's rerank (`judge/rerank.rs`) calls all three, and since 32d a live
   rerank's turn packs again in Jev's order with `repack` too (`Memory::refill`), so the row and the request agree.
-- `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is), `activation.rs` (32b's math).
+- `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is: the operator's four labels,
+  `should_have` graded Easy as `useful` is), `activation.rs` (32b's math).
+- `retention.rs` (32a's wire-in): `RetentionRank`, the `+retention` arm's science: `baseline` in every verb but
+  `schedule` (FSRS-6's step) and `rank`, `fused × ((1 − w) + w × R(now))` with `w` = 0.5; a node with no retention
+  keeps its fused score. The form, the weight, FSRS-6's parameters and the baseline's line are in its digest
+  (`retention@<16 hex>`). `RankCtx::retention` carries the candidates' retention by node, filled by the core
+  (through `Asker::retention`) only for a science whose `reads_retention` says so; `Reranked` forwards it, so a
+  repack in Jev's order keeps the arm's science.
 
 ## Invariants
 

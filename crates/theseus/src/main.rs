@@ -618,6 +618,10 @@ enum MemoryCmd {
         /// How many hits to ask the index for (at most 100).
         #[arg(short, long, default_value_t = 40)]
         k: usize,
+        /// The arm whose sources and science rank it: `+retention` shows each item's
+        /// retrievability, stability, difficulty and last review (default `baseline`).
+        #[arg(long, value_parser = ["bm25", "baseline", "+retention"])]
+        arm: Option<String>,
     },
     /// What each of SESSION's turns recalled (canary, live) or would have (shadow), newest last.
     Recalled {

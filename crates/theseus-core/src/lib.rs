@@ -209,6 +209,8 @@ mod tests_rerank_labels;
 #[cfg(test)]
 mod tests_rerank_live;
 #[cfg(test)]
+mod tests_retention;
+#[cfg(test)]
 mod tests_route;
 #[cfg(test)]
 mod tests_sandbox;

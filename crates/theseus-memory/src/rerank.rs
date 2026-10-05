@@ -52,9 +52,7 @@ pub fn eligible(
                 score: c.fused,
             })
             .collect(),
-        &RankCtx {
-            now_ms: asker.now_ms,
-        },
+        &asker.rank_ctx(&kept),
     );
     let mut by_key: BTreeMap<String, Candidate> = kept.into_iter().map(|c| (c.key(), c)).collect();
     order.iter().filter_map(|s| by_key.remove(&s.key)).collect()
@@ -110,6 +108,10 @@ impl MemoryScience for Reranked<'_> {
 
     fn prefers_newer(&self) -> bool {
         self.inner.prefers_newer()
+    }
+
+    fn reads_retention(&self) -> bool {
+        self.inner.reads_retention()
     }
 
     fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention> {
@@ -247,6 +249,7 @@ mod tests {
             labeled: &BTreeSet::new(),
             links: &[],
             now_ms: 0,
+            retention: &BTreeMap::new(),
         };
         let mut second = cand("n1", Place::Private, 0.85);
         second.chunk = 1;
@@ -310,7 +313,7 @@ mod tests {
         ) {
             let science = Baseline { min_score: 0.01, ..Baseline::default() };
             let none = BTreeSet::new();
-            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, links: &[], now_ms: 0 };
+            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, links: &[], now_ms: 0, retention: &BTreeMap::new() };
             let cands: Vec<Candidate> = places
                 .iter()
                 .enumerate()

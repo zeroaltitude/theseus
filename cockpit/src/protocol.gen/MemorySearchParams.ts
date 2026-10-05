@@ -9,4 +9,9 @@ export type MemorySearchParams = { query: string, session_id?: string,
 /**
  * Hits asked of the index (default 40, at most 100).
  */
-k?: number, };
+k?: number, 
+/**
+ * The arm whose sources and science rank it (`[memory] arm`'s names:
+ * `baseline`, `bm25`, `+retention`); default `baseline`.
+ */
+arm?: string, };

@@ -46,7 +46,7 @@ pub use learning::{judge_label_line, learning_report_lines};
 pub use lsp::lsp_line;
 pub use mcp::{mcp_line, mcp_lines};
 pub use mcp_server::mcp_server_line;
-pub use memory::{recall_lines, recalls_lines};
+pub use memory::{memory_line, recall_lines, recalls_lines};
 pub use ontology::{
     ontology_categories_lines, ontology_kinds_lines, ontology_memberships_lines,
     ontology_proposals_lines,
@@ -1671,6 +1671,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         .as_ref()
         .map(index_line)
         .into_iter()
+        .chain(h.memory.as_ref().map(memory_line))
         .chain(mcp_line(&h.mcp))
     {
         push(o, Tag::Plain, &line);

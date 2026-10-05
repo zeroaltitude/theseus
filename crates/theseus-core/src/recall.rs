@@ -41,12 +41,14 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use theseus_memory::recall::{self as pipeline, Asker, Candidate, Link, LinkKind, Pack, Place};
-use theseus_memory::{Baseline, MemoryScience};
+use theseus_memory::{Baseline, MemoryScience, Retention, RetentionRank};
 use theseus_protocol::index::{IndexQueryParams, IndexQueryResult};
 use theseus_protocol::memory::{
-    BudgetDrop, BudgetReport, RecallDrop, RecallItem, RecallManifest, RecallTimings,
+    BudgetDrop, BudgetReport, RecallDrop, RecallItem, RecallManifest, RecallRetention,
+    RecallTimings,
 };
 
+use crate::config::memory::MemoryArm;
 use crate::config::MemoryConfig;
 use crate::node::{AttachmentContent, Body, Node};
 use crate::store::Transcript;
@@ -75,6 +77,10 @@ pub struct Memory {
     armed: Mutex<BTreeSet<String>>,
     /// Sources a `Recall` node rendered, by id: they never change.
     sources: Mutex<render::Sources>,
+    /// Each node's FSRS-6 retention (32a), once something reads it.
+    retention: retention::Projection,
+    /// Where the projection's size is measured, once telemetry is built.
+    telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
 }
 
 impl Memory {
@@ -93,6 +99,8 @@ impl Memory {
             labels: RwLock::new(None),
             armed: Mutex::new(BTreeSet::new()),
             sources: Mutex::new(render::Sources::new()),
+            retention: retention::Projection::default(),
+            telemetry: std::sync::OnceLock::new(),
         }
     }
 
@@ -172,6 +180,42 @@ impl Memory {
     /// rerank, step 32c).
     pub fn science_owned(&self) -> Arc<dyn MemoryScience> {
         Arc::new(self.science.clone())
+    }
+
+    /// An arm's science: `+retention`'s (32a) for it, `baseline`'s for
+    /// every other. The arms' seam: each arm that ranks its own way adds
+    /// its line here.
+    pub fn science_for(&self, arm: MemoryArm) -> Arc<dyn MemoryScience> {
+        match arm {
+            MemoryArm::Retention => Arc::new(RetentionRank {
+                base: self.science.clone(),
+                fsrs: self.retention.fsrs().clone(),
+                ..RetentionRank::default()
+            }),
+            MemoryArm::None | MemoryArm::Bm25 | MemoryArm::Baseline => self.science_owned(),
+        }
+    }
+
+    /// The retention of `candidates`' nodes for a science that reads it,
+    /// and the projection's state in a word (`ready`, or why the rank went
+    /// without: `building`, `unbuilt`, `failed`); none for one that does
+    /// not.
+    fn retention_for(
+        &self,
+        science: &dyn MemoryScience,
+        candidates: &[Candidate],
+    ) -> (BTreeMap<String, Retention>, Option<String>) {
+        if !science.reads_retention() {
+            return (BTreeMap::new(), None);
+        }
+        let phase = self.retention.phase();
+        let map = match phase {
+            retention::Phase::Ready => self
+                .retention
+                .of(candidates.iter().map(|c| c.node_id.as_str())),
+            _ => BTreeMap::new(),
+        };
+        (map, Some(phase.word().to_string()))
     }
 
     /// Ask the index's `sources` (an arm's, `MemoryArm::sources`) for
@@ -273,6 +317,9 @@ pub struct Scene<'a> {
     /// The pack's tokens when not `[memory] recall_budget_tokens`: an
     /// assembled prefix's recall section (30c), `assembled_budget_tokens`.
     pub budget_tokens: Option<u64>,
+    /// The turn's arm's science (`Memory::science_for`): `baseline`'s in
+    /// shadow, for a canary's control, and for a search without an arm.
+    pub science: Arc<dyn MemoryScience>,
 }
 
 impl Memory {
@@ -325,7 +372,7 @@ impl Memory {
         let mut m = RecallManifest {
             recall_id: crate::new_id("rcl"),
             mode: scene.mode.into(),
-            science: self.science.id().to_string(),
+            science: scene.science.id().to_string(),
             outcome: "ran".into(),
             session_id: scene.session_id.map(str::to_string),
             turn_id: scene.turn_id.map(str::to_string),
@@ -393,12 +440,14 @@ impl Memory {
             .collect();
         m.sources = sources;
         // The memory pass's edges among them, for a science that reads them.
-        let links = if self.science.prefers_newer() {
+        let links = if scene.science.prefers_newer() {
             let ids: BTreeSet<String> = candidates.iter().map(|c| c.node_id.clone()).collect();
             links_of(&ids.into_iter().collect::<Vec<_>>())
         } else {
             Vec::new()
         };
+        let (retention, state) = self.retention_for(&*scene.science, &candidates);
+        m.retention = state;
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
             place: &scene.place,
@@ -406,14 +455,16 @@ impl Memory {
             labeled: &scene.labeled,
             links: &links,
             now_ms: theseus_protocol::now_unix_ms(),
+            retention: &retention,
         };
         let params = theseus_memory::Params {
             budget_tokens: m.budget_tokens,
             ..self.cfg.params()
         };
-        let pack = pipeline::recall(&self.science, &asker, candidates.clone(), &params);
+        let pack = pipeline::recall(&*scene.science, &asker, candidates.clone(), &params);
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
+        self.retention_items(&*scene.science, &mut m, &retention, asker.now_ms);
         m.timings.pack_ms = ms(t0.elapsed());
         m.timings.total_ms = ms(begun.started.elapsed());
         (m, candidates, links, kept)
@@ -431,6 +482,7 @@ impl Memory {
         mut ranks: Ranks,
         order: Vec<String>,
     ) {
+        let (retention, _) = self.retention_for(&*scene.science, &candidates);
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
             place: &scene.place,
@@ -438,12 +490,48 @@ impl Memory {
             labeled: &scene.labeled,
             links,
             now_ms: theseus_protocol::now_unix_ms(),
+            retention: &retention,
         };
         let params = self.params_of(m);
         let pack =
-            theseus_memory::rerank::repack(&self.science, &asker, candidates, &params, order);
+            theseus_memory::rerank::repack(&*scene.science, &asker, candidates, &params, order);
         m.drops.clear();
         fill(m, pack, &mut ranks, true);
+        self.retention_items(&*scene.science, m, &retention, asker.now_ms);
+    }
+
+    /// The retention of `candidates`' nodes as the turn's science reads it:
+    /// for the judge's rerank, whose repack ranks as the recall did.
+    pub fn retention_of(
+        &self,
+        science: &dyn MemoryScience,
+        candidates: &[Candidate],
+    ) -> BTreeMap<String, Retention> {
+        self.retention_for(science, candidates).0
+    }
+
+    /// Under a science that reads retention, each admitted item's: its
+    /// retrievability at the turn's time, stability, difficulty and last
+    /// review (none for a node without one).
+    fn retention_items(
+        &self,
+        science: &dyn MemoryScience,
+        m: &mut RecallManifest,
+        retention: &BTreeMap<String, Retention>,
+        now_ms: u64,
+    ) {
+        if !science.reads_retention() {
+            return;
+        }
+        let fsrs = self.retention.fsrs();
+        for item in &mut m.admitted {
+            item.retention = retention.get(&item.node_id).map(|r| RecallRetention {
+                retrievability: fsrs.retrievability_at(r, now_ms),
+                stability: r.stability,
+                difficulty: r.difficulty,
+                last_review_ms: r.last_review_ms,
+            });
+        }
     }
 
     /// The pack's limits for a manifest's budget.
@@ -497,6 +585,7 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
                 fused: a.candidate.fused,
                 tokens: a.tokens,
                 text: texts.then_some(a.excerpt),
+                retention: None,
             }
         })
         .collect();
