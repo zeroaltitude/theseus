@@ -1,7 +1,7 @@
 # Cloud report: route-gaps (theseus-0j2.17, theseus-d13v, theseus-g1gl)
 
 Branch `cloud/20261005-route-gaps`, built on `902c403f` (the task commit over `80ef1dea`). Started 08:36 UTC,
-code done 09:55 UTC, report 10:35 UTC, all by `date`.
+code done 09:55 UTC, report 10:21 UTC, all by `date`.
 
 Commits, in order:
 
