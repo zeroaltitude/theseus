@@ -248,6 +248,8 @@ mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
 #[cfg(test)]
+mod tests_situation;
+#[cfg(test)]
 mod tests_steps;
 #[cfg(test)]
 mod tests_task_claims;

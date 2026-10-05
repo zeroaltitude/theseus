@@ -34,7 +34,9 @@ use theseus_store::{frames_written_here, NewRecord};
 use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
-use crate::compiler::{compile, CompileInput, Compiled, Overflowed, Recompile, RequestSpec};
+use crate::compiler::{
+    compile, situation, CompileInput, Compiled, Overflowed, Recompile, RequestSpec,
+};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::fact::{self, Fact, To};
@@ -61,6 +63,7 @@ mod recall_step;
 mod rerank_step;
 mod retry_step;
 mod route_step;
+pub(crate) mod situation_step;
 
 pub use route_step::{LiveSwitched, SWITCHED};
 
@@ -150,6 +153,8 @@ pub struct TurnRunner {
     /// The owner's last `profile.use`, which moves a session routing moved
     /// before it (theseus-9yyr).
     pub live_switched: LiveSwitched,
+    /// The sessions this run has compiled: the first with nothing new resumes (35a).
+    pub run_compiles: situation::RunCompiles,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -719,7 +724,11 @@ impl TurnRunner {
         files: &[ContextFile],
         place: crate::ceiling::PlaceView,
     ) -> (String, String) {
-        let mut parts = vec![PERSONA.to_string(), ASSEMBLY.to_string()];
+        let mut parts = vec![
+            PERSONA.to_string(),
+            ASSEMBLY.to_string(),
+            situation::PRECEDENCE.to_string(),
+        ];
         let note = self.tools.system_note_for(place);
         if !note.is_empty() {
             parts.push(note);

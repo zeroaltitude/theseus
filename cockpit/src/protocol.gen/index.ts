@@ -287,6 +287,7 @@ export type * from './SessionRecompileParams';
 export type * from './SessionRef';
 export type * from './SessionWaitParams';
 export type * from './SessionWaitResult';
+export type * from './Situation';
 export type * from './Span';
 export type * from './SpoolStatus';
 export type * from './SpoolSweep';

@@ -305,6 +305,8 @@ fn context_compiled() {
             // The place rule: a shared place's compile, and the file it withheld.
             summary["class"] = json!("shared");
             summary["withheld"] = json!(1);
+            // Its situation (M6 35a): an append from a daemon before it has none.
+            summary["situation"] = json!({"kind": "recompile", "trigger": "window"});
         } else {
             // CONTINUE's candidate signals (M5 25b): an append that fired one.
             summary["signals"] = json!([{"name": "dormancy", "value": 412,
@@ -832,6 +834,9 @@ fn summary(recompile: bool) -> ContextCompiled {
             }]
         },
         tasks: None,
+        situation: recompile.then(|| theseus_protocol::Situation::Recompile {
+            trigger: "window".into(),
+        }),
     }
 }
 

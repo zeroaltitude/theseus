@@ -61,6 +61,7 @@ pub mod place;
 pub mod recall;
 pub mod route;
 pub mod sandbox;
+pub mod situation;
 pub mod start;
 pub mod synthesis;
 pub mod task_graph;

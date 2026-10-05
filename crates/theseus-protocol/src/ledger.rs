@@ -92,6 +92,7 @@ ledger_kinds! {
     ContextOverage = "context.overage",
     ContextRecompileRequested = "context.recompile_requested",
     ContextRecompiled = "context.recompiled",
+    ContextUnadmitted = "context.unadmitted",
     DiscordBound = "discord.bound",
     DiscordCommand = "discord.command",
     DiscordConfirm = "discord.confirm",

@@ -194,6 +194,54 @@ pub struct ContextCompiled {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub tasks: Option<crate::tasks::TaskViewSummary>,
+    /// The situation the loop compiled in (M6 35a, §2.11), which decides what
+    /// its request may admit; absent from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub situation: Option<Situation>,
+}
+
+/// What a compile is for (M6 35a, §2.11): the compiler's input that decides
+/// what a request may admit. The compile step tells what it holds; a compile
+/// whose own triggers recompile (a model, system, or tools change, the ring)
+/// settles as `recompile` with its trigger.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Situation {
+    /// A conversation's first compile: no compilation before it.
+    ConversationStart,
+    /// A task's first compile: its brief, its arrangement, and an assembled
+    /// recall section.
+    TaskStart,
+    /// An append to the session's compilation.
+    Continuation,
+    /// A new compilation of a session that had one, and why
+    /// (`system_changed`, `overflow`, `manual_fresh`, …).
+    Recompile { trigger: String },
+    /// A session's first compile in this daemon's run, with nothing new
+    /// brought: the manifest's prefix again, and no new recall.
+    Resume,
+    /// A detour's request (25e), compiled outside the session's compilation.
+    Detour,
+    /// A situation this build does not know: a newer daemon's.
+    #[serde(other)]
+    Unknown,
+}
+
+impl Situation {
+    /// Its kind's wire name (`recompile`, not its trigger).
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::ConversationStart => "conversation_start",
+            Self::TaskStart => "task_start",
+            Self::Continuation => "continuation",
+            Self::Recompile { .. } => "recompile",
+            Self::Resume => "resume",
+            Self::Detour => "detour",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 /// `tool.started`: a call runs. A job's says how, and what the broker gave

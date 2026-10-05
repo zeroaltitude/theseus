@@ -133,6 +133,7 @@ fn run(
         overflowed: None,
         sources: &Default::default(),
         assembled: None,
+        situation: &crate::compiler::situation::Situation::Continuation,
         signals: Some(SignalsAt {
             config: cfg,
             now_ms: now,
@@ -328,6 +329,7 @@ fn the_signals_change_no_request_and_read_the_clock_they_are_given() {
         overflowed: None,
         sources: &sources,
         assembled: None,
+        situation: &crate::compiler::situation::Situation::Continuation,
         signals,
     };
     let none = compile(input(None));

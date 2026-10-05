@@ -4198,9 +4198,10 @@ async fn a_context_file_over_the_cap_is_cut_and_marked_as_cut() {
 
 /// A config that names no context files (Eddie's vault config names none)
 /// compiles the system block it always did: the persona, the assembly note,
-/// and the tools note, nothing after them. Its manifest and rows carry no
-/// `context_files` key, so a manifest stored before theseus-58a compares
-/// equal and appends, and nothing is read or warned.
+/// the precedence line (35a), and the tools note, nothing after them. Its
+/// manifest and rows carry no `context_files` key, so a manifest stored
+/// before theseus-58a compares equal and appends, and nothing is read or
+/// warned.
 #[tokio::test]
 async fn without_context_files_the_system_block_and_manifest_are_unchanged() {
     let r = rig(vec![Scripted::text("hi")]);
@@ -4208,9 +4209,10 @@ async fn without_context_files_the_system_block_and_manifest_are_unchanged() {
     assert_eq!(
         system_of(&r, 0),
         format!(
-            "{}\n\n{}\n\n{}",
+            "{}\n\n{}\n\n{}\n\n{}",
             crate::turn::PERSONA,
             crate::turn::ASSEMBLY,
+            crate::compiler::situation::PRECEDENCE,
             r.core.tools.system_note()
         )
     );
@@ -4317,9 +4319,10 @@ async fn a_persona_that_names_no_files_adds_nothing_to_the_system_block() {
     assert_eq!(
         system_of(&r, 0),
         format!(
-            "{}\n\n{}\n\n{}\n\n# Context file (system): {sys}\n\nThe operator is Eddie.",
+            "{}\n\n{}\n\n{}\n\n{}\n\n# Context file (system): {sys}\n\nThe operator is Eddie.",
             crate::turn::PERSONA,
             crate::turn::ASSEMBLY,
+            crate::compiler::situation::PRECEDENCE,
             r.core.tools.system_note()
         )
     );

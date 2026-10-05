@@ -4,6 +4,7 @@ import type { CompileSignal } from "./CompileSignal";
 import type { ContextFileRef } from "./ContextFileRef";
 import type { EstimateSummary } from "./EstimateSummary";
 import type { PlaceClass } from "./PlaceClass";
+import type { Situation } from "./Situation";
 import type { TaskViewSummary } from "./TaskViewSummary";
 
 /**
@@ -74,4 +75,9 @@ signals?: Array<CompileSignal>,
  * The task graph the request showed (39a); absent when its scope has
  * no task, as in a plain turn.
  */
-tasks?: TaskViewSummary, };
+tasks?: TaskViewSummary, 
+/**
+ * The situation the loop compiled in (M6 35a, §2.11), which decides what
+ * its request may admit; absent from a daemon before it.
+ */
+situation?: Situation, };

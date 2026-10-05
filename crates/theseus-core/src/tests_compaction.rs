@@ -253,7 +253,13 @@ async fn compaction_replaces_the_ring_on_overflow() {
     assert_eq!(range.range.as_ref().unwrap().nodes, dropped.len() as u64);
     assert_eq!((profile.as_str(), model.as_str()), ("glm", "glm-5.3-flash"));
     assert!(header.starts_with(&format!("[Summary of {count} earlier messages, ")));
-    assert!(header.ends_with(", written by glm]"), "{header}");
+    // Its testimony (35a): the range's positions, the profile, and its model.
+    assert!(
+        header.ends_with(&format!(
+            " (@{first} to @{end}), written by glm on glm-5.3-flash]"
+        )),
+        "{header}"
+    );
 
     // The summary call: the dropped turns went to glm, never the kept ones.
     let asked = r.glm.requests();
@@ -499,7 +505,7 @@ async fn summary_profile_session_summarizes_on_the_sessions_own_model() {
         (live.as_str(), "claude-sonnet-5-5")
     );
     assert!(
-        header.ends_with(&format!(", written by {live}]")),
+        header.ends_with(&format!(", written by {live} on claude-sonnet-5-5]")),
         "{header}"
     );
     let row = &rows(&r.core, "context.compacted")[0];
