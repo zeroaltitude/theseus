@@ -246,6 +246,10 @@ One struct, `ExecutionView`, is both this notification's params and a snapshot r
 - **Why a cap on the connection's queue, not a bounded channel per subscription.** Responses and
   notifications share one ordered queue, so that a turn's events precede its response. It must stay one
   queue, so the cap is on it.
+- _(As built 2026-10-05, theseus-celu.36; spec Part III Item 172: a queue's item is a response,
+  which its writer serializes, or a notification's line, serialized once at the first queue that takes it and shared
+  by every queue as one `Arc<str>`. A line counts as one message toward the cap, and `events.lost` still follows
+  whichever item drains the queue.)_
 - **The Discord binding** reads its in-process connection continuously. Its live progress is best-effort by
   design (§3.2), so it ignores `events.lost`, and its outbox is unaffected.
 

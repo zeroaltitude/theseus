@@ -191,8 +191,8 @@ counts half. The blocks:
 | 23 | ~~19c: graduation, and `may_leave` in the outbox~~ Built on 2026-10-02, and removed with the labels: graduation is the owner's publish (theseus-nbsh) | 3vu | 1 | 19a |
 | 24 | ~~20a: integrity by labels (T1's hold becomes the latch), origin `external`, `external_programs`; d64 built here~~ **Replaced by the integrity lane** (theseus-b5cl; Eddie, 2026-10-03, the cut-list's Tier 1.1): T1's latch stays as it is, per session, fed by DD5's own `external` marker. The lane adds its two cheap pieces: `[policy] external_programs` (`["gh"]` by default), whose `proc.run` output is outside text, and a job's session, `THESEUS_SESSION`, which the CLI sends as `opened_from`, so a session that a holding session's job opens or sends a turn to holds it too (d64, built here). No labels feed the latch, and there is no `external` origin | b5cl, d64 | 0 (a lane) | — |
 | 25 | ~~20b: file hashes and fomites (`via: file`)~~ **Dropped** (theseus-b5cl; Eddie, 2026-10-03), with the Advisory (theseus-3vu's quarantine levels). Laundering through files is Jev's: `security.v1` (row 39) | — | 0 | — |
-| 26 | 21b: the ontology wired in: records, the snapshot, the compile walk, the CLI, the ~~Observatory~~ cockpit (the cut-list's 6.4). **Joins 21a** | 8kk | 1 | the ontology lane; ~~19a~~ (its labels were removed, theseus-nbsh) |
-| 27 | 21c's join: the ~~web UI's~~ cockpit's Ontology view (the cut-list's 6.4: the cockpit replaces the Observatory) | 8kk | 0.5 | 21c (lane) |
+| 26 | 21b: the ontology wired in: records, the snapshot, the compile walk, the CLI, the ~~Observatory~~ cockpit (the cut-list's 6.4). **Joins 21a**. **Done 2026-10-04** (theseus-8kk.1; Part III Item 100; store format 7); the cockpit's view is 21c | 8kk | 1 | the ontology lane; ~~19a~~ (its labels were removed, theseus-nbsh) |
+| 27 | 21c's join: the ~~web UI's~~ cockpit's Ontology view (the cut-list's 6.4: the cockpit replaces the Observatory). **Done 2026-10-04** (theseus-8kk.2; Part III Item 111) | 8kk | 0.5 | 21c (lane) |
 | 28 | 22b: the job host, `RemoteLauncher`, `[control_plane]`. **Joins 22a**. _Moves after v1 (Eddie, 2026-10-03 15:26, taking the recommendation)._ | 7ve | 1 | the installer lane; 18a |
 
 **D. AWS** ([AWS design](aws-toolset.md); theseus-mgw). Floats on Eddie's go; drawn here after C.
@@ -201,48 +201,48 @@ counts half. The blocks:
 |---|---|---|---|---|
 | 29 | C1 = 14a: the bound account; `aws.call` for reads, `aws.describe`, `aws.whoami`, `aws.s3.list`. **Joins P1 and P2** | mgw | 1 | P1, P2; the SCP conversation (renewed 16:18; its default holds until he answers) |
 | 30 | C2 = 14b: stacks, `theseus aws bootstrap`, the owner role, writes, the budget. **Joins P3 and P4**. **Done 2026-10-03** (theseus-nyzn; Eddie's go-ahead at 11:24, with a cap under $1 a month: the lean posture), joined and installed; Eddie cleared the bootstrap's apply at 14:20, lean | mgw | 1 | C1; P3, P4; **Eddie's go-ahead for the first writes to his account** |
-| 31 | C3 = 14c: the curated tools, the reaper in report mode, AWS text marked external (by DD5's own `external` marker, as a fetch is: 20a was dropped, theseus-b5cl) | mgw | 1 | C2 |
-| 32 | 15: the durability tender: WAL segments **and `blobs/`** to S3, index rows to DynamoDB, on the index lane's WAL follower | mgw | 1 | C2; the WAL follower (§6, conflict 3) |
-| 33 | 16: `theseus restore --from s3://…` | mgw | 1 | 15 |
+| 31 | C3 = 14c: the curated tools, the reaper in report mode, AWS text marked external (by DD5's own `external` marker, as a fetch is: 20a was dropped, theseus-b5cl). **Done 2026-10-04** (theseus-mgw.5, with theseus-9p40's `confirm-alerts` and the daily CloudTrail cross-check; Part III Item 97) | mgw | 1 | C2 |
+| 32 | 15: the durability tender: WAL segments **and `blobs/`** to S3, index rows to DynamoDB, on the index lane's WAL follower. **Done 2026-10-04** (theseus-mgw.7; Part III Item 108): in the daemon, through the follower crate, with the open segment's tails | mgw | 1 | C2; the WAL follower (§6, conflict 3) |
+| 33 | 16: ~~`theseus restore --from s3://…`~~ `theseusd restore --from s3://…`. **Done 2026-10-04** (theseus-mgw.10; Part III Item 123) | mgw | 1 | 15 |
 | 34 | 18e: the `aws` grant under L1: an L1 job's AWS session, granted at its launch as any broker grant is (theseus-w5op; 18d's socket is gone). **Done 2026-10-03** (theseus-mgw.8; Part III Item 94): `~/.aws` hidden in every L1 view, and AWS reached through `[sandbox] egress` or the call's named hosts | mgw | 0.5 | w5op; C2 |
-| 35 | 40, part 1: the hand role and image, `aws.hands.run` on Lambda and Fargate, the SQS poller | mgw | 1 | C2; P4's hands stacks |
-| 36 | 40, part 2: cancellation per backend, the TTL reaper, budget reservations, the grid; the `kill -9` prove | mgw | 1 | 40, part 1 |
+| 35 | 40, part 1: the hand role and image, `aws.hands.run` on Lambda and Fargate, the SQS poller. **Done 2026-10-04** (theseus-mgw.6; Part III Item 107): the role is `theseusd hand` | mgw | 1 | C2; P4's hands stacks |
+| 36 | 40, part 2: cancellation per backend, the TTL reaper, budget reservations, the grid; the `kill -9` prove. **Done 2026-10-04** (theseus-mgw.11; Part III Item 116) | mgw | 1 | 40, part 1 |
 
-- The AWS design sizes step 40 as one slice. Its wire list reads as two, so this plan counts two.
+- The AWS design sizes step 40 as one slice. Its wire list reads as two, so this plan counts two. _(A third piece came beside them, with no row of its own: step 40's network, hands in an existing VPC and never a NAT of their own (theseus-mgw.9, on Eddie's condition of 2026-10-03 23:24), built 2026-10-04: Part III Item 134. Its live check waits for the owner.)_
 
 **E. M5 Judgment** ([M5 design](m5-judgment.md); theseus-0j2, vug)
 
 | # | Step | Ids | Slots | Waits on |
 |---|---|---|---|---|
-| 37 | 23a: the wire-in: `[judge]`, `JudgeService`, the sink, the shadow budget, `loop.v1` in shadow. **Joins L1 and L2** | 0j2 | 1 | the judge lane; block C (decision 16: Jev after M4), not D (§6, conflict 11) |
-| 38 | 23b: the surfaces: trace marks, `judge` spans, `judge.list` and `get`, the Observatory's Judgment section | 0j2 | 1 | 23a |
-| 39 | 24: `security.v1` in shadow at the gate; T1's floor tests unchanged. It is the integrity path for text laundered through files, since 20b was dropped (theseus-b5cl): "If it's failing, we boost its context for good classification" (Eddie, 2026-10-03) | 0j2 | 1 | 23a |
-| 40 | 25a: `classify.v1` and `role.v1` at inbound | 0j2 | 1 | 23a |
-| 41 | 25b: CONTINUE's candidate signals, `continue.v1` in shadow | 0j2 | 1 | 23a |
-| 42 | 25c: the learning ledger, the nightly report tender, holdouts | 0j2 | 1 | 24, 25a, 25b |
-| 43 | 25d: replay, audit, and backfill (backfill only after consent) | 0j2 | 1 | 25c |
-| 44 | 26a: the ladder: `pack.mode`, arms, promote, rollback. **M6 uses the same arms** | 0j2 | 1 | 25c |
+| 37 | 23a: the wire-in: `[judge]`, `JudgeService`, the sink, the shadow budget, `loop.v1` in shadow. **Joins L1 and L2**. **Done 2026-10-04** (theseus-0j2.1; Part III Item 105), with the turn bench's quiet config turning the judge off (theseus-0j2.3) | 0j2 | 1 | the judge lane; block C (decision 16: Jev after M4), not D (§6, conflict 11) |
+| 38 | 23b: the surfaces: trace marks, `judge` spans, `judge.list` and `get`, the Observatory's Judgment section. **Done 2026-10-04** (theseus-0j2.4; Part III Item 119), the section in the cockpit | 0j2 | 1 | 23a |
+| 39 | 24: `security.v1` in shadow at the gate; T1's floor tests unchanged. It is the integrity path for text laundered through files, since 20b was dropped (theseus-b5cl): "If it's failing, we boost its context for good classification" (Eddie, 2026-10-03). **Done 2026-10-04** in shadow, `security.v1` with `security.v3` (theseus-0j2.5; Part III Item 120) | 0j2 | 1 | 23a |
+| 40 | 25a: `classify.v1` and `role.v1` at inbound. **Done 2026-10-04** (theseus-0j2.6; Part III Item 121) | 0j2 | 1 | 23a |
+| 41 | 25b: CONTINUE's candidate signals, `continue.v1` in shadow. **Done 2026-10-04** (theseus-0j2.7; Part III Item 122) | 0j2 | 1 | 23a |
+| 42 | 25c: the learning ledger, the nightly report tender, holdouts. **Done 2026-10-04** (theseus-0j2.9; Part III Item 129) | 0j2 | 1 | 24, 25a, 25b |
+| 43 | 25d: replay, audit, and backfill (backfill only after consent). **Done 2026-10-04** (theseus-0j2.14; Part III Item 144) | 0j2 | 1 | 25c |
+| 44 | 26a: the ladder: `pack.mode`, arms, promote, rollback. **M6 uses the same arms** (memory's canary keeps its own hash for now). **Done 2026-10-04**, with `route.v1`, `rerank.v1` and `security.v3`'s notices on it (theseus-0j2.15, theseus-9j7x; Part III Item 145) | 0j2 | 1 | 25c |
 | 45 | 26b: JUDGE_STOP live for tasks, under canary | 0j2 | 1 | 26a |
 | 46 | 26c: the roles table, `role.v1` under canary | 0j2 | 1 | 26a; 25a |
-| 47 | 27: the arrangement on `task.create`: references, refusal, the fidelity check | vug, vmh | 1 | 23a |
-| 48 | 28a: independence: `check_of`, the exclusion set, the basis | vug | 1 | 27 |
-| 49 | 28b: `categorize.v1` in shadow; `tasks.parked` in health | vug | 1 | 21b; 23a |
-| 50 | L3's join: `theseus judge prove` | 0j2 | 0.5 | L3 (lane) |
+| 47 | 27: the arrangement on `task.create`: references, refusal, the fidelity check. **Done 2026-10-04** (theseus-vug.2; Part III Item 113) | vug, vmh | 1 | 23a |
+| 48 | 28a: independence: `check_of`, the exclusion set, the basis. **Done 2026-10-04** (theseus-vug.3; Part III Item 132; store format 14) | vug | 1 | 27 |
+| 49 | 28b: `categorize.v1` in shadow; `tasks.parked` in health. **Done 2026-10-04** (theseus-vug.1; Part III Item 126) | vug | 1 | 21b; 23a |
+| 50 | L3's join: `theseus judge prove`. **Done 2026-10-05** (theseus-0j2.18; Part III Item 179): the prove's records built from the ledger, one per finished task, the generator run over them, and classify.v1 held against the model's own `task_create`; it reads "insufficient" until 26b's canary has run | 0j2 | 0.5 | L3 (lane) |
 
 **F. M6 Memory** ([M6 design](m6-memory.md); theseus-6fn, 3nk)
 
 | # | Step | Ids | Slots | Waits on |
 |---|---|---|---|---|
 | 51 | 29b's wire-in: the `Tender` child kind, the spawn after serving, health's `index`, `theseus index status` and `search`. **Joins the index lane** | 6fn | 0.5 | the index lane (29b's crate) |
-| 52 | 30a: `theseus-memory`'s trait and baseline; the recall step, in shadow; `[memory]`; `memory.search`. **Joins the math lane** (the crate's first code) | 6fn | 1 | 29b; 19a |
-| 53 | 30b: the `Recall` node; `derived_from` EDGEs in 12a's convention; the `BudgetReport`; canary and live on 26a's arms | 6fn, 3nk | 1 | 30a; 12a; 26a |
-| 54 | 30c: compaction roots, `context_overage`, the assembled strategy (what lets M5's CONTINUE act) | 6fn | 1 | 30b |
-| 55 | 34b's wire-in: ~~`turn.submit`'s `memory_arm`~~ the exam's scratch daemon's `[memory] arm`, one daemon per arm (the cut-list's 6.2, Part III Item 80). **Joins the exam lane**; the first honest report | 6fn | 0.5 | 34b (lane) |
-| 56 | 31a: the memory pass, attribution, `memory.v1` in shadow. **29c joins here**, if not before | 6fn | 1 | 30b; 29c; 23a |
+| 52 | 30a: `theseus-memory`'s trait and baseline; the recall step, in shadow; `[memory]`; `memory.search`. **Joins the math lane** (the crate's first code). **Done 2026-10-04** (theseus-6fn.1; Part III Item 99) | 6fn | 1 | 29b; 19a |
+| 53 | 30b: the `Recall` node; `derived_from` EDGEs in 12a's convention; the `BudgetReport`; canary and live on 26a's arms. **Done 2026-10-04** (theseus-6fn.2; Part III Item 112) | 6fn, 3nk | 1 | 30a; 12a; 26a |
+| 54 | 30c: compaction roots, `context_overage`, the assembled strategy (what lets M5's CONTINUE act). **Done 2026-10-04** (theseus-6fn.4; Part III Item 131; store format 13), the summary on the session's own model by default (Eddie's decision 3) | 6fn | 1 | 30b |
+| 55 | 34b's wire-in: ~~`turn.submit`'s `memory_arm`~~ the exam's scratch daemon's `[memory] arm`, one daemon per arm (the cut-list's 6.2, Part III Item 80). **Joins the exam lane**; the first honest report. **Done 2026-10-04** (theseus-6fn.5; Part III Item 124), and the first honest report run on GLM the same day | 6fn | 0.5 | 34b (lane) |
+| 56 | 31a: the memory pass, attribution, `memory.v1` in shadow. **29c joins here**, if not before. **Done 2026-10-04** (theseus-6fn.6, with Eddie's decision 10's three fixes; Part III Item 136) | 6fn | 1 | 30b; 29c; 23a |
 | 57 | 31b: consolidation, `Synthesis` nodes, the `+synthesis` arm | 6fn | 1 | 31a |
 | 58 | 32a's wire-in: FSRS-6's retention projection, the `+retention` arm, on the math lane's code | 6fn | 0.5 | 31a |
 | 59 | 32b's wire-in: activation's adjacency projection, the `+activation` arm | 6fn | 0.5 | 31a; 12a |
-| 60 | 32c: the `+rerank` arm, through M5's client | 6fn | 0.5 | 23a |
+| 60 | 32c: the `+rerank` arm, through M5's client. **Done 2026-10-04** in shadow (theseus-6fn.3; Part III Item 128) | 6fn | 0.5 | 23a |
 | 61 | 33: tiering: stubs, the bounded heat cache | 6fn | 1 | 30c |
 | 62 | 35a: situations, the precedence line, testimony, volatile values as of a time | 3nk | 1 | 30c |
 | 63 | 35b: lessons | 3nk | 0.5 | 30b; 35a |
@@ -254,18 +254,18 @@ counts half. The blocks:
 | # | Step | Ids | Slots | Waits on |
 |---|---|---|---|---|
 | 64 | 37a: the repeating wake (`every`, `days`, `until`). **Done 2026-10-03** (theseus-d4pt; Part III Item 84; store format 5) | ext | 1 | T1b. A filler: can run earlier |
-| 65 | 37b: tasks set one-shot wakes | 7kg | 1 | 37a |
-| 66 | 36b: MCP tools in turns: the `&str` change, `McpBoard`, `[mcp.servers]`, `theseus-sim fake-mcp`; servers in L1. **Joins 36a** | ext | 1.5 (M7's biggest) | the MCP lane (36a); 17b |
-| 67 | 36c: MCP prompts: `/prompt`, `theseus prompt`, the web picker | ext | 1 | 36b |
-| 68 | 38a: bindings format 2: many guilds, per-place ceilings | ext | 1 | e89 (T1b) |
-| 69 | 38b: gliding: `channel.post` and `channel.read`, on the place rule. _19a's labels were removed with the place rule (Part III Item 76), and Eddie chose the redesign on 2026-10-04: into a private place a glide always may, and a read from a shared place is outside text; out of a private place, or between two shared places, it asks first, as `/publish` does (M7 §2.3, rewritten; theseus-ypy0)._ | ext | 1 | 38a |
-| 70 | 39a: the `TASK` record kind, three layers, CAS, the tools; 27's arrangement kept | ext | 1 | 37b; 27 |
+| 65 | 37b: tasks set one-shot wakes. **Done 2026-10-04** (theseus-7kg; Part III Item 98) | 7kg | 1 | 37a |
+| 66 | 36b: MCP tools in turns: the `&str` change, `McpBoard`, `[mcp.servers]`, `theseus-sim fake-mcp`; servers in L1. **Joins 36a**. **Done 2026-10-04** (theseus-ext.1; Part III Item 106), servers at L0 until 43a | ext | 1.5 (M7's biggest) | the MCP lane (36a); 17b |
+| 67 | 36c: MCP prompts: `/prompt`, `theseus prompt`, the web picker. **Done 2026-10-04** (theseus-ext.4; Part III Item 115) | ext | 1 | 36b |
+| 68 | 38a: bindings format 2: many guilds, per-place ceilings. **Done 2026-10-04** (theseus-ext.3; Part III Item 117) | ext | 1 | e89 (T1b) |
+| 69 | 38b: gliding: `channel.post` and `channel.read`, on the place rule. _19a's labels were removed with the place rule (Part III Item 76), and Eddie chose the redesign on 2026-10-04: into a private place a glide always may, and a read from a shared place is outside text; out of a private place, or between two shared places, it asks first, as `/publish` does (M7 §2.3, rewritten; theseus-ypy0)._ **Done 2026-10-04** (21683c9c; Part III Item 140). | ext | 1 | 38a |
+| 70 | 39a: the `TASK` record kind, three layers, CAS, the tools; 27's arrangement kept. **Done 2026-10-04** (theseus-ext.6; Part III Item 125; store format 12) | ext | 1 | 37b; 27 |
 | 71 | 39b: claim leases, the board, `/tasks`, the web task graph | ext | 1 | 39a |
-| 72 | 41b: the MCP server's wire-in: `[mcp_server]`, `Surface::Mcp`. **Joins 41a** | ext | 1 | 41a (lane); 9c; d64 (a job's session and `opened_from`, in the integrity lane, theseus-b5cl) |
-| 73 | 42a: `budget.list`, `policy.explain`, `theseus budgets` | ext | 1 | 36b; 38a |
+| 72 | 41b: the MCP server's wire-in: `[mcp_server]`, `Surface::Mcp`. **Joins 41a**. **Done 2026-10-04** (theseus-ext.2; Part III Item 110) | ext | 1 | 41a (lane); 9c; d64 (a job's session and `opened_from`, in the integrity lane, theseus-b5cl) |
+| 73 | 42a: `budget.list`, `policy.explain`, `theseus budgets`. **Done 2026-10-04** (theseus-ext.7; Part III Item 130) | ext | 1 | 36b; 38a |
 | 74 | 42b's join: the Budgets, Ledger, and Policy tabs | ext | 0.5 | 42b (lane) |
-| 75 | 43a: `extend.propose`: freeze, start in L1, test, the ack card | ext | 1 | 36b; 17b |
-| 76 | 43b: load on ack, restart, revoke, `/extensions` | ext | 1 | 43a |
+| 75 | 43a: `extend.propose`: freeze, start in L1, test, the ack card. **Done 2026-10-04** (theseus-ext.5; Part III Item 118) | ext | 1 | 36b; 17b |
+| 76 | 43b: load on ack, restart, revoke, `/extensions`. **Done 2026-10-04** (theseus-ext.8; Part III Item 133) | ext | 1 | 43a |
 | 77 | 44b: the voice wire-in: `/join`, utterances into turns. **Joins 44a**. **Done 2026-10-03** (theseus-drrs; Part III Item 83): a voice channel is a place of its own | ext | 1 | the voice lane; 38a; a test voice channel for its live check (Eddie) |
 | 78 | 45b: speech as spend. **Joins 45a**. **Done 2026-10-03** (theseus-drrs; Part III Item 83), with 45a's Deepgram | ext | 1 | 45a (Eddie's providers and keys); 44b; M5's latency table |
 
@@ -286,7 +286,7 @@ docs, or a short spike).
 |---|---|---|---|---|
 | **exam** (M6) | 34a: the memory exam (40 items, half held out) and the headroom test, `none` against `oracle` → later 34b, the harness over the real pipeline → 34c, the full sweep and the second report | 34a: nothing. 34b: 30b. 34c: all of M6 | 34b's wire-in (55); 34c ends M6 | H |
 | **sandbox** (M4) | 17a: `theseus-sandbox` (namespaces, the view, seccomp, the init; one contract test per clause) → 18b: the egress proxy, in the same crate | nothing; 18b follows 17a's API | 17b (17), 18c (19) | H |
-| **judge** (M5) | L1: `theseus-judge` (client, breaker, bands, batching, the fake) and `theseus-sim jev-probe` → L2: the six packs and `learn.rs` (calibration, holdouts, arms, rollback rules) → later L3: `theseus judge prove` | nothing (synthetic states only, so no consent needed); L3 after L2 and 26b's data | 23a (37); L3's join (50) | H |
+| **judge** (M5) | L1: `theseus-judge` (client, breaker, bands, batching, the fake) and `theseus-sim jev-probe` → L2: the six packs and `learn.rs` (calibration, holdouts, arms, rollback rules) → later L3: `theseus judge prove` (_L3's generator built 2026-10-04 as `theseus-judge prove`, Part III Item 101; its join, the CLI's command over the ledger, is row 50_) | nothing (synthetic states only, so no consent needed); L3 after L2 and 26b's data | 23a (37); L3's join (50) | H |
 | **cache** (stage2) | 13b: caching, part 1: measure first (the Observatory's figures, the byte-identical header test, the Z.ai probe, the 1-hour TTL's break-even from Eddie's ledger) | nothing | 13c (14) | L |
 | **voice** (M7) | 44a's spike (songbird, twilight 0.17, DAVE, a static libopus: a verdict) → 44a's engine, `theseus-voice` (the seam, the pipeline, stand-ins) → later 45a: the chosen speech providers | spike: nothing. The engine's live check: a test voice channel. 45a: Eddie's providers and keys | 44b (77), 45b (78) | L, then H |
 | **index** (M6) | 29a's spike (candle against tract for Nomic v1.5, static musl: a verdict) → 29b: `theseus-index` (the WAL follower, the extractor, tantivy, the tender's socket, `index.query`) → 29c: embeddings (the engine 29a picked, int8 flat scan, rank fusion) | nothing. The weights (about 275 MB) are fetched once, outside a build session (the provenance trap) | 29b's wire-in (51); 29c in 31a (56) | H |

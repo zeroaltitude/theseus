@@ -184,7 +184,12 @@ The spec's P6: "Make the durability and safety claims true, and measure them." [
 > **Superseded in part (2026-10-03, the sandbox trims: the cut-list's Tier 4; the spec's Part III, Item 77).** No delegated cgroup: no `memory.max`, `pids.max` or `cpu.max`, no `daemon/` leaf, and no `memory_mb`; a job's limits are `RLIMIT_NPROC`, `RLIMIT_FSIZE`, and the scratch caps. No probe after serving: health reports the last real launch, and `theseusd check` runs the self-test on demand. A root daemon's L1 job is refused. The `/run/theseus/` helper and broker socket (18d) went with grants at launch (Tier 3; Item 71).
 
 **Which class a job runs in.** A `proc.run` call's class is decided at plan time, deterministically, and it is
-decided at most one way: toward L1.
+decided at most one way: toward L1. _(As built 2026-10-05, theseus-nrvq; spec Part III Item
+175: a `proc.run` batch runs every step in one class, the one its proposal binds, so a batch whose
+steps differ in class, an `l1_argv` step beside an L0 one, is invalid input, refused before any card, its result
+naming each step's class and what chose L1. Before the fix a stricter L0 step's approval would have run the L1 program
+at L0. Option 1 of three, decided for Eddie at the join and reversible; a class per step, or L1 for the whole batch,
+stay his.)_
 
 | Source | Effect |
 |---|---|
@@ -308,7 +313,7 @@ the tree is filed, and needs a gated, labeled write (§2.6).
 
 ### 2.3 Cancellation verified per backend
 
-> **Superseded in part (2026-10-03, the sandbox trims: Tier 4; the spec's Part III, Item 77).** The cgroup rows are moot: L1 uses no cgroup, so an L1 stop is verified by its pid namespace, and `verified_by: cgroup` stays only so old records read.
+> **Superseded in part (2026-10-03, the sandbox trims: Tier 4; the spec's Part III, Item 77).** The cgroup rows are moot: L1 uses no cgroup, so an L1 stop is verified by its pid namespace, and `verified_by: cgroup` stays only so old records read. _(Since 2026-10-04, the Linux survey's card 5, theseus-a5nv; the spec's Part III, Item 152: the row "L0 job, with a cgroup" is live again, in a changed form. The job's cgroup is threaded (`+pids` makes the daemon's cgroup a thread root, whose domain children cannot take a process), so there is no `cgroup.kill`: the stop is SIGTERM to each process, the grace, `pids.max` 0, and SIGKILL to each listed task until `cgroup.events` reads `populated 0`. The command is born inside by `clone3(CLONE_INTO_CGROUP)`, since a move by `cgroup.procs` waits 8 to 40 ms for an RCU grace period on this kernel.)_
 
 The lifecycle already exists (§3.16; `CancelState`). What changes is what **verified** means: every process of
 the job is gone, and the record says how it knows.
@@ -331,6 +336,11 @@ the job is gone, and the record says how it knows.
 | AWS classes (M7) | Stop the task | The service API | `unsupported` for a running Lambda invocation (§3.16) |
 
 - **A deadline uses the same stop.** The wrapper's own deadline stops the whole tree, not only its child.
+- _(As built 2026-10-05, theseus-g11i; spec Part III Item 173: no phase of the tree's stop ends
+  on an empty scan alone; the wrapper's reap must not say a child is left, and a child the reap counts but no scan
+  finds is a survivor, never verified. The kill's wait keeps each killed process's pidfd and ends when every one has
+  exited, up to 2 s (it was 500 ms), and the daemon waits the grace plus 3 s for the wrapper's answer (it was 2.5 s)
+  before it kills the group.)_
 - **What L0 cannot see.** A job can ask a process outside its tree to act for it: a user systemd unit, a tmux
   server already running, cron (J1's known gap). At L0, verified means "every descendant of the wrapper", and
   the record says so (`scope: descendants`). L1 closes this path, since no session bus and no tmux socket
@@ -714,7 +724,7 @@ be an injection path. Ontology writes therefore go through `judge_act(Act::Ontol
 - Protocol: `ontology.list`, `ontology.category.add`, `ontology.guidance.set`, `ontology.membership.set`.
 - The web UI's Ontology view (LANE, 21c): the kinds, a category tree, a guidance editor, and each session's
   memberships.
-- The Observatory's session view: memberships, with their origin and as-of.
+- The Observatory's session view: memberships, with their origin and as-of. _(The Observatory retired (Part III Item 86); a session's memberships are on the cockpit's deck, 21c, Part III Item 111.)_
 - Discord's `/topic` is filed.
 
 ### 2.9 Control-plane separation (an installer option)
@@ -899,7 +909,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
 | 20a | 20 | SPINE | Integrity by labels: the latch fed by labels, origin `external`, `external_programs`, theseus-d64 folded in | 19a; T1b (theseus-q4t) |
 | 20b | 20 | SPINE | File hashes and fomites: `via: file` | 20a |
 | 21a | 21 | LANE | `theseus-ontology`: the kinds table, validation, `chain` and `intent_line`, the seed rows | — |
-| 21b | 21 | SPINE | The ontology wired in: store records, the snapshot, judged writes, the compile walk, CLI, Observatory | 21a, 19a |
+| 21b | 21 | SPINE | The ontology wired in: store records, the snapshot, judged writes, the compile walk, CLI, ~~Observatory~~ the cockpit's view in 21c. **Done 2026-10-04** (theseus-8kk.1; Part III Item 100; store format 7) | 21a, 19a |
 | 21c | 21 | LANE | The web UI's Ontology view | 21b's protocol |
 | 22a | 22 | LANE | `theseusd install`: plan, apply, check; `--user` and `--separate`; the container test script | — |
 | 22b | 22 | SPINE | The job host, `RemoteLauncher`, the web login code, `job-host` in J1's walk, `[control_plane]` | 22a, 18a |
@@ -909,7 +919,7 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   17a's API, 19b follows 19a, and 21c follows 21b.
 - **18a's L0 half does not need L1**, and can run before 17b if the spine is idle.
 - **Store bumps by step:** ACTION 3 (18a) and 4 (18d); NODE 3 (19a); COMPILATION 3 (19a) and 4 (21b). Each
-  lands with its reader and an old-layout test (F4a).
+  lands with its reader and an old-layout test (F4a). _(As built: Tier 7.9 made these one store format number (Part III Item 82), so 21b's COMPILATION 4 is `MANIFEST_FORMAT` 7, renumbered at its join past the WAL's synced mark's 6 (2026-10-04, Part III Item 100).)_
 
 ### Each step: its tests and its live check
 
@@ -1127,8 +1137,9 @@ Eddie's store, with Discord and the web UI off unless the step needs them.
   2. Assign it to his DM session, and run `theseus session recompile`.
   3. The next manifest lists the membership, and GLM's answer follows the guidance.
 - *Depends on:* 21a, and 19a (the manifest's bump comes first).
+- _As built (2026-10-04, theseus-8kk.1; Part III Item 100): the walk composes twice per loop, the append's spec from the recorded memberships and the recompile's from the current ones; the snapshot is built after serving, by one `onto:` prefix scan; a bound place's `channel:` and `person:` categories are made at its first bind; COMPILATION 4 is `MANIFEST_FORMAT` 7. The live check ran on a copy of the operator's store with Sonnet 5.5, not GLM, and the guided answer differed from a control's._
 
-**21c, the web UI's Ontology view (LANE).**
+**21c, the web UI's Ontology view (LANE).** _Built 2026-10-04 in the cockpit, not `web/` (the cut-list's 6.4; Part III Item 111): `/ontology` and the session deck's memberships panel, over 21b's four methods, with no Rust change; its live check ran in headless Chrome on a scratch daemon._
 - *Builds:* in `web/`: the kinds, the category tree, a guidance editor, and a session's memberships, over 21b's
   methods.
 - *Tests:* the web lint and build in the gate, and the web app's own tests.

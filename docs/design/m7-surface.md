@@ -161,6 +161,7 @@ command = ["github-mcp-server", "stdio"]
 env = { GITHUB_PERSONAL_ACCESS_TOKEN = "github_pat" }   # [secrets] names, through the broker
 read = ["get_issue", "list_pull_requests"]              # the tools the operator calls read-class
 # sandbox = "l1"                        # the default once M4's L1 exists; l0 until then
+#                                       # since 43a (2026-10-04): "l1" loads for a stdio server, with egress = [...]; l0 stays the default
 # external = true                       # results give the session T1's hold (the default)
 # start_timeout_secs = 30
 # call_timeout_secs = 110               # under the 120 s in-process deadline
@@ -170,7 +171,7 @@ url = "<the server's endpoint>"
 auth_secret = "docs_mcp_token"          # sent as a bearer token
 ```
 
-**Lifecycle.**
+**Lifecycle.** _(As built, 36b, 2026-10-04; Part III Item 106: the board starts every enabled server after serving (theseusd's `after_serving`), not once the vault confirms; servers ran at L0, with `sandbox = "l1"` refused until 43a built it (Part III Item 118); the states add `stopped`, before serving, and `disabled`.)_
 - **After serving.** Once the vault confirms the config (`after_serving`, as telemetry does), the board
   starts every enabled server, all at once:
   - stdio: through `children::spawn(Kind::Owned)`, in its own process group (so a stop reaches the children
@@ -216,13 +217,14 @@ auth_secret = "docs_mcp_token"          # sent as a bearer token
 - **The plan** names the server and the tool as its resource. The gate decides by name, as it always does,
   and never reads meaning into arguments.
 - **Secrets.** Each call of a server that was given a secret runs at no looser a posture than that secret's
-  (B1's rule). The spawn writes `secret.granted`.
+  (B1's rule). The spawn writes `secret.granted`. _(As built, 36b: each tool is granted its server's secrets (`Broker::grant_tool`), so a call runs at no looser a posture than theirs; the spawn writes no `secret.granted`, since that fact borrows a turn's context.)_
 - **Results.**
   - `content[]`: text as text; an image as an image block (as `fs.read` gives one, for a model with vision);
     resource links and embedded resources as text with their URIs.
   - `structuredContent` as JSON text.
   - `isError: true` as a failure the model reads.
   - Capped at `result_max_chars`, with the whole kept as a blob.
+  - _As built, 36b: an image is a line naming it, not an image block, since an async tool's result carries no image yet._
 - **Cancel, stop, restart.** A cancel or a `/stop` sends `notifications/cancelled` for the request and drops
   it. A restart mid-call leaves it `outcome_unknown`, like any async call, and `NonRepeatable` means nothing
   runs it again.
@@ -247,6 +249,7 @@ auth_secret = "docs_mcp_token"          # sent as a bearer token
   beside the composer.
 - **A prompt whose definition changed** since its last use is ledgered as `mcp.prompt_changed` and noticed
   to the operator, and the use goes ahead (§3.8's "notice before reuse", notify over block).
+- _As built (36c, 2026-10-04; Part III Item 115): the stored lists (META `mcp.prompts.<server>`) are offered at a start before the server is up; the arguments are checked and `prompts/get` called before any session opens, so a refusal leaves no node; a shared place's prompt is refused (the place rule); an assistant-role message is written user-role, marked `[the prompt's assistant message]`; the modal is a `Label` around a `TextInput`; `/prompt` runs in the place's own line of turns and does not queue behind a running turn; the definition at each prompt's last use is kept (META `mcp.prompt_used.<server>`), so a first use and a list change alone are silent; `Origin::Mcp` moved the store to format 10; the web UI's picker is the cockpit's._
 
 **Seen in.**
 - **Health:** `mcp[]` gives each server's transport, state, pid, tools, prompts, calls, errors, last error,
@@ -254,13 +257,13 @@ auth_secret = "docs_mcp_token"          # sent as a bearer token
 - **CLI:** `theseus mcp` lists the servers and their tools, with postures and classes.
   `theseus mcp restart <name>` restarts one.
 - **Observatory:** an MCP section. It shows each server, each tool's posture, class, and description, the
-  stored and live digests, and a restart button.
+  stored and live digests, and a restart button. _(The Observatory retired, Part III Item 86. 36b left the cockpit's MCP view as a list of what it should show, not built: Part III Item 106.)_
 - **Ledger:** `mcp.started`, `mcp.ready`, `mcp.exited`, `mcp.failed`, `mcp.tools_changed`, and
   `mcp.prompt_changed`. A call rides on its tool call's own rows.
 - **Narrative:** "MCP server github ready in 412 ms: 23 tools, 2 prompts", and "mcp:github/get_issue —
   notify (policy.mcp github)".
 - **Telemetry:** spans `mcp.call` (with `mcp.server` and `mcp.tool`), and the metrics `theseus.mcp.calls`,
-  `theseus.mcp.call.duration`, and `theseus.mcp.servers.up`.
+  `theseus.mcp.call.duration`, and `theseus.mcp.servers.up`. _(As built, 36b: the spans' attributes are there; the metrics are `theseus.tool.calls` and `theseus.tool.duration_ms` with `theseus.tool.family = "mcp"`, not series of their own, and `servers.up` waits for a gauge kind.)_
 
 **Why hand-written.**
 - MCP is JSON-RPC 2.0, which `theseus-protocol` already speaks.
@@ -328,6 +331,7 @@ may not set one. T1b makes `wake.at` exempt from the external-text hold.
   cancel drops its wakes. `wake_parent` fires when it finally ends.
 - `theseus wakes`, `/wakes`, and the Observatory name the task (`task a1b2c3`).
 - A repeating wake in a task is refused in v1: "a task must end". A later option adds one with `until`.
+- _As built (2026-10-04, Part III Item 98): as above, plus the kernel's rule that a task never waits on input with nothing to wake it: an operator's cancel of a parked task's last wake queues it, and it ends and reports once. The cockpit's Wakes panel names the task, and the live check runs on `theseus-sim fake-model --rules`, a scripted stand-in model._
 
 **Seen in.**
 - **Surfaces:**
@@ -394,6 +398,7 @@ user = "<user id>"
 - **Where the file lives.** The operator's file stays in the state dir, under the floor, so a tool's write to
   it waits for approval at every posture. §3.1's "versioned config in the store, editable by slash command
   and the web UI" is filed. The file's revision (its SHA-256 prefix) is already ledgered.
+- _As built (38a, 2026-10-04; Part III Item 117): format 2 is a `[[guild]]` table each (`id`, `name`, its own `private`), and each `[[channel]]` names its `guild`; a format-1 file loads as before, and a mix is refused naming the line. The ceiling is read with the place rule's class as one `PlaceView` at each turn, so `Authority.ceilings` is not written. A call the ceiling does not offer is a `place:` refusal naming it ("wake.at is not offered in #pier: its ceiling in the bindings file offers only web"), not an unknown tool; the model never sees the tool either way. A ceiling's `mcp:<server>` narrows the MCP board's tools (the join's fix). The limit is the kernel's `place_limit`, pinned while a cap is set, its rows `budget.limit_changed` with `why: place`. Slash commands stay global: per-guild registration was dropped, by the session's call and Eddie's of 2026-10-04 10:45._
 
 **38b: gliding, on the place rule.** _Rewritten 2026-10-04 (theseus-ypy0). The first design gated a glide
 by a subset rule on each place's users, until M4's confidentiality labels (step 19) took it over. The place
@@ -500,7 +505,7 @@ Task { id: tsk_…, version, title, objective, acceptance: [text], state,
 **The three layers** (§3.5: "so the agent cannot redefine success").
 1. **Objective and acceptance: the operator's authority.**
    - The agent proposes a change. The proposal is a card to the task's requester (its origin's principal),
-     or else the owner, through `[approval]`'s trusted channels.
+     or else the owner, through `[approval]`'s trusted channels. _As built (39a): the owner answers, from a private place, as `judge_act` judges every answer since `[approval]` was retired (Part III Item 85); a requester who is not the owner has no way to answer. The ask is on the gate's path, at every posture, right after the floor, and a whole patch waits when any of its fields is layer 1._
    - It is judged by `judge_act`, so a job's process can't accept it.
    - Accept applies it in one frame (`task.change_accepted`). Decline leaves the task as it was
      (`task.change_declined`).
@@ -514,11 +519,22 @@ Task { id: tsk_…, version, title, objective, acceptance: [text], state,
 - It is enforced under a per-task lock in the core, as `Store::with_session` does for sessions. The lock
   order is session, then task, then execution.
 
+_As built (39a, 2026-10-04; Part III Item 125): the record, its CAS (`Store::lock_task`) and the tools `task.update`, `task.split`, `task.close`, and `task.create` without a brief, as above, with ids from the creating call's correlation id; a task session's record shares its session's tail, so no session record gained a field. The edits run in the harness, and their records and rows ride in the frame that settles the call. A session's running states are derived when read, and its record is written at its own changes. The view is recomputed every loop and appended as the last block of the request's last message, with the conversation's cache marker moved before it (one more explicit breakpoint per request in a session with tasks); `context.compiled` gains `tasks`. `task.get` and `task.changed` are new, and `theseus tasks` prints the tree. Leases, the board, `/tasks` and the layer-1 card were left to 39b. The store's format went to 12._
+
 **Claim leases.**
 - `task.claim` sets `claim { by: exe_…, until: now + 30 min }`. Each turn of the holder that touches the task
   renews the lease.
 - An expired lease frees the task, found by the due scan, as wakes are.
 - A second claimer gets `blocked: claimed by session a1b2c3 until 14:05`, never a silent retry (§3.2a).
+- _As built (2026-10-05, Part III Item 163): the claim is `{ by: exe_…, session, until_ms }`, with the
+  session beside the execution so the refusal names it without a read. `task.claim` names the version it read and moves
+  it by one; the holder claiming again renews with no version move (`renewed: true`), and so do its `task.update` and
+  `task.split`, in their own frames; `task.close`, or a task session's report closing its record, ends it. The refusal
+  comes before the version compare, whatever version the second claimer names, and writes no row. Other sessions'
+  edits pass under CAS and leave the claim (whether to refuse a non-holder's close is the operator's call, recommended
+  and not built). The claims that hold are kept in memory, built once after serving; the driver's due pass walks only
+  them, and a lapse writes the record and `task.lease_expired` in one frame with the version kept. `[kernel]
+  task_lease_minutes` (30, at least 1)._
 
 **What the model sees.**
 - Each turn, the compiler admits the task graph for the execution's scope:
@@ -538,13 +554,21 @@ Task { id: tsk_…, version, title, objective, acceptance: [text], state,
   pin is best-effort.
 - **The layer-1 card:** "Change the objective of tsk_x? Before: … After: …", with Accept and Decline.
 - Buttons on the board are filed.
+- _As built (2026-10-05, Part III Item 163): a task's home is its root's origin session, or for a task
+  session (which no place routes) that session's own record's home, so a task session's plan items show on its
+  parent's board. `task.changed` is a wide notification and the binding watches every execution, so a change made in
+  any session reaches the board of its home's place. The board is the lane's live upsert under one key a place; after a
+  restart, at its first write, the lane finds the bot's pinned message that begins `📋 **Task board**` and edits it, or
+  makes a new one. Open tasks first, newest first; past 25 lines the closed ones are cut first and the last line counts
+  what was left out, pointing at `theseus tasks`. The layer-1 card's Accept and Decline carry Approve's and Decline's
+  ids (`confirm:approve:`, `confirm:decline:`), so a press is judged as any card's._
 
 **Protocol:** `task.list` returns records, and `task.get` reads one. A new notification, `task.changed`. The
 web UI's task tree reads the records.
 
 **Seen in.**
 - **CLI:** `theseus tasks` shows the graph (tree, states, versions, claims).
-- **Observatory:** a Tasks section with the graph, open proposals, and leases.
+- **Observatory:** a Tasks section with the graph, open proposals, and leases. _(As built, 2026-10-05, Item 163: the cockpit's Actions view has a Task graph panel, the records as a tree with claims, versions and a waiting change in the card's words, and `?taskgraph=1` draws them as a graph.)_
 - **Ledger:** `task.created`, `task.updated`, `task.split`, `task.claimed`, `task.lease_expired`,
   `task.change_proposed`, `task.change_accepted`, `task.change_declined`, `task.closed`, and
   `task.stale_refused`.
@@ -598,7 +622,7 @@ key_secret = "mcp_server_key"           # a [secrets] name: the one static key
 - A new `Surface::Mcp` is never an approval surface. An answer, a trust, a press, or an undo from it is
   refused (`approval.refused`, `surface: mcp`).
 - Its peer is traced as the web UI's is: the loopback owner, through `/proc/net/tcp`. So a session opened
-  through MCP from a Theseus job's process takes that job session's hold (theseus-d64's rule).
+  through MCP from a Theseus job's process takes that job session's hold (theseus-d64's rule). _As built (41b, 2026-10-04; Part III Item 110): theseus-zmgb had retired the process walk, so the listener admits only the daemon's own uid (the web UI's check; 403 otherwise), and a job is found by the client socket's inode among the daemon's own descendants, its `THESEUS_SESSION` sent as `opened_from`. The principal and the floor ride in `Authority`'s `principal` and its `ceilings` map, so the store's format did not move. The place class is private: the client is a process of the daemon's uid holding the operator's key, which could read every session through the socket anyway._
 
 **The principal is `mcp`:** one key, so one shared principal (§1, "Deferred").
 - Each session it opens is labelled `mcp <clientInfo.name>` and takes `[mcp_server]`'s ceiling.
@@ -628,7 +652,7 @@ key_secret = "mcp_server_key"           # a [secrets] name: the one static key
 **Seen in.**
 - **Health:** `mcp_server`: listening, the port, clients, sessions, calls, and refusals. `theseus health`
   gets a line.
-- **Observatory:** the MCP section gains a server panel.
+- **Observatory:** the MCP section gains a server panel. _(The cockpit replaced the Observatory. As built, 41b shows in health's `mcp_server` block, `theseus health`'s line, the narrative and the `mcp_server.call` and `mcp_server.refused` rows; the cockpit's panel is a list of what it should show, not built: Part III Item 110.)_
 - **Narrative:** "MCP client claude-code opened session a1b2c3".
 - **Telemetry:** spans `mcp_server.call`.
 ### 2.6 The web UI grows (step 42)
@@ -650,7 +674,11 @@ methods.
 
   The CLI gets `theseus policy explain [--session <id>]`.
 
-**42b: three tabs (LANE, in `web/`).**
+  _As built (42a, 2026-10-04; Part III Item 130):_
+  - _`budget.list`'s totals add the top rows only, since a task's spend is its parent's too and its carve is the parent's reservation; the lifetime total adds every session. Each row says where its limit comes from (`config`, `place`, `pinned`, `carve`), and the last reset is read from one ledger page of 8 rows by kind and session tag (`last_reset_unread` while the index's shape is built after a start)._
+  - _`policy.explain { session_id?, tool? }`: the gate's order is written once, in `toolrun/order.rs`, which the gate and explain both run, so explain cannot drift. Its rows are the order's layers as built: `place`, `ceiling`, `class` (L0 or L1), `posture` (with the setting that says it), `tightening`, `grant`, `lsp`, `floor`, `hold` and `mcp_client`. Its probe is a call inside the roots that no condition matches, and the call-dependent layers are listed as conditions with their entries, not decided. `--session` needs the full session id._
+
+**42b: three tabs (LANE, in ~~`web/`~~ `cockpit/`, which replaced `web/`; built 2026-10-05, Part III Item 165).**
 - **Budgets:**
   - a table of sessions and tasks: limit, spent, reserved, held, lifetime, and burn per hour, from the
     ledger tail's `provider.call` rows;
@@ -665,6 +693,17 @@ methods.
   - The approval channels and trusted users, moved here from the Observatory.
 - Earlier steps add their own sections: MCP (36b), Tasks (39), Extensions (43), and Voice (44).
 - **Live, with no polling:** the tabs stand on step 9's push (`execution.changed`, the all-sessions watch).
+- _As built (2026-10-05, Item 165):_
+  - _**Budgets** is a full-width panel in Money, above the activity river, not a table of sessions in a tab of its own:
+    `budget.list`'s rows with each session's tasks and carves under it, where each limit comes from, burn per hour from
+    the last hour's `provider.call` rows, the last reset, the questions waiting as the Actions view's own cards (a reset
+    is one click there), the totals (money over the top rows only), the judge's day line, and the AWS hands._
+  - _**Ledger** reads the cockpit's shared history, the whole ledger, so the 20,000-row poll is gone; its export is
+    built from the list's own filter, and its filter, time brush, row and follow are in the address._
+  - _**Policy** is a new view, `/policy`, with the tightenings and their undo shared with Boundaries. The approval
+    channels and trusted users stay in Systems, linked from it, not moved._
+  - _The push now also reads `budget.list` and `policy.explain` again, on `policy.tightened`, `policy.untightened` and
+    `session.trusted`; the core still sends those three only to connections that watch a session (theseus-n9wa)._
 
 **What the UI may change.** §3.14 wants "binding and policy editing with audit trail". In v1 the UI edits
 only what already has a judged act: tightenings and their undo, trust, resets, and cancels.
@@ -677,7 +716,7 @@ which the gate's dist check needs anyway.
 
 ### 2.7 Self-extension (step 43)
 
-**Today:** nothing. §3.24 lists `extend.propose` and `extend.promote`, and neither is built.
+**Today:** nothing. §3.24 lists `extend.propose` and `extend.promote`, and neither is built. _(Since 2026-10-04: 43a, propose, test and ack, and 43b, load, restart and revoke, are built (Part III Items 118 and 133); `extend.promote` is not.)_
 
 §3.21: "planks, never the keel". The agent may add tools, as MCP servers in L1, under the operator's ack.
 
@@ -701,6 +740,8 @@ It is class `Run`, posture `notify` by default, and waits under T1's hold like a
    - The web UI shows the frozen files, with a diff against the version it would replace.
    - Jev may advise (M5), and never approves (§3.21).
 
+_As built (43a, 2026-10-04; Part III Item 118): the manifest is a META record (`extend.manifest.<name>.<digest>`), not a node, so the store's format did not move; `proposed_by.correlation_id` stands for the `derived_from` edge. The ack is a planned `extend.ack` action on the proposing execution, answered by `action.confirm` and judged as `Act::Answer` (the same rule: the owner, from a private place); a decline, an expiry, or a `/stop` of the proposing session settles it. The trial is never a configured server, so no turn is offered its tools, and 43b adds acked extensions to the catalog itself. An MCP server in L1 runs under the daemon's `mcp-sandbox` role, which holds the init and ends it with the daemon. Discord's buttons still read Approve and Decline (theseus-ext.9: Load and Don't load). The web UI's view of the frozen files, with its diff, is not built._
+
 **43b: load, restart, revoke.**
 - **On ack:**
   - an `extensions` meta record (name to digest, command, acked by, when, and capabilities), with the rows
@@ -708,22 +749,22 @@ It is class `Run`, posture `notify` by default, and waits under T1's hold like a
   - the board moves the server to `ready`, and its tools, `mcp:ext-<name>/<tool>`, are offered from the next
     turn's start;
   - their posture is `notify` by default (`[policy.mcp] "ext-<name>"` overrides), class `Run`, and external
-    unless the network is off.
+    unless the network is off. _(As built, 2026-10-04, Part III Item 133: external exactly when a network was acked (`external = !network.is_empty()`, Q22 applied); the posture is the stricter of `notify` and the enforcement, so an `approve` enforcement still asks; a configured server named `ext-…` is refused at the config's check. The `extensions` record holds more than this list: the description, the frozen copy, the source, the tools, the question, the proposing session, its place and its ceiling at the ack, and the digest it replaced.)_
 - **Never wider.** Its ceiling is the proposing execution's at the ack. It can't ask for more authority than
-  that (§3.9: never widens).
+  that (§3.9: never widens). _(As built, 2026-10-04, Part III Item 133: the proposing place's ceiling at the ack is recorded, and its floor holds every call of the extension's tools, wherever the call comes from (the gate's `Floor` layer, after the place's own floor); its `tools` list is recorded but not applied, since the proposing place could not list `mcp:ext-<name>` before the ack. The tools are offered where MCP tools are: private places, within each place's own ceiling. theseus-sh9w: no test runs the floor through the gate. theseus-ext.13: load only the tools the proposal named.)_
 - **Restart:** acked extensions start after serving, from their frozen copies, as configured servers do.
 - **Revoke:** `extension.revoke { name }` acts and is judged. It is reached by `theseus extend revoke
   <name>`, a button on `/extensions`, or the web UI. It stops the server, drops its tools from the next turn,
   and writes `extend.revoked`.
 - **A new version** of the same name is a new proposal and a new ack. The old version runs until the new one
-  loads.
+  loads. _(As built: the latest ack wins. A new version replaces the old at its ack, and the old one stops when the new one is put in its place, so a v1 acked after v2 loads in v2's place. An extension's `list_changed` is honoured as any MCP server's is, with a notice.)_
 - **The keel.** Nothing here compiles or restarts Theseus. `extend.promote` (a pull request) is filed.
 
 **No L1, no step 43.** An agent-written server never runs at L0: it needs step 17.
 
 **Seen in.**
 - **Observatory:** an Extensions section with the manifest, digest, files, tests, who acked it, calls,
-  errors, and a revoke button.
+  errors, and a revoke button. _(Built 2026-10-04 as the cockpit's Extensions card in its Systems view, the cockpit having replaced the Observatory (Part III Items 86 and 133): each loaded extension with its Revoke button, confirmed first, then the proposals that are not what runs.)_
 - **CLI and Discord:** `theseus extend list|revoke`, and `/extensions`.
 - **Ledger:** `extend.proposed`, `extend.tested`, `extend.acked`, `extend.declined`, `extend.loaded`, and
   `extend.revoked`.
@@ -824,19 +865,19 @@ it), and joins `main` through its SPINE wire-in.
 | Id | Kind | Builds | Depends on |
 |---|---|---|---|
 | 36a | LANE | `theseus-mcp`: the client (stdio, streamable HTTP), and a fake server | nothing: can start now |
-| 36b | SPINE | MCP tools in turns: the `&str` trait change, `McpBoard`, `[mcp.servers]`, stored lists, class and external rules, `theseus-sim fake-mcp`, every surface | 36a; step 17 (L1), or L0 with a warning |
-| 36c | SPINE | MCP prompts: `turn.submit { prompt }`, `/prompt`, `theseus prompt`, the web picker | 36b |
+| 36b | SPINE | MCP tools in turns: the `&str` trait change, `McpBoard`, `[mcp.servers]`, stored lists, class and external rules, `theseus-sim fake-mcp`, every surface. **Done 2026-10-04** (theseus-ext.1; Part III Item 106), at L0 | 36a; step 17 (L1), or L0 with a warning |
+| 36c | SPINE | MCP prompts: `turn.submit { prompt }`, `/prompt`, `theseus prompt`, the web picker. **Done 2026-10-04** (theseus-ext.4; Part III Item 115) | 36b |
 | 37a | SPINE | the repeating wake: `every`, `days`, `until`; the re-arm in `take_wakes`; ~~execution schema 3~~ store format 5; the hold rule. **Done 2026-10-03** (Part III Item 84) | T1b (4b) |
-| 37b | SPINE | tasks set one-shot wakes (theseus-7kg) | 37a |
-| 38a | SPINE | bindings format 2 (many guilds), per-place ceilings in the gate, tools offered, spend, and profile | T1b (theseus-e89) |
+| 37b | SPINE | tasks set one-shot wakes (theseus-7kg). **Done 2026-10-04** (Part III Item 98) | 37a |
+| 38a | SPINE | bindings format 2 (many guilds), per-place ceilings in the gate, tools offered, spend, and profile. **Done 2026-10-04** (theseus-ext.3; Part III Item 117) | T1b (theseus-e89) |
 | 38b | SPINE | gliding: `channel.post`, `channel.read`, on the place rule (rewritten 2026-10-04) | 38a |
-| 39a | SPINE | the `TASK` record kind, three layers, CAS, the tools, the view in context | 37b |
+| 39a | SPINE | the `TASK` record kind, three layers, CAS, the tools, the view in context. **Done 2026-10-04** (theseus-ext.6; Part III Item 125; store format 12) | 37b |
 | 39b | SPINE | claim leases; the board and `/tasks`; the layer-1 card; the web task graph | 39a |
 | 41a | LANE | `theseus-mcp::server`: `/mcp`, the key, Origin, rate limit, a fake core | 36a |
-| 41b | SPINE | the server's wire-in: `[mcp_server]`, `Surface::Mcp`, principal `mcp`, cards to the operator | 41a; step 9; theseus-d64 |
-| 42a | SPINE | `budget.list`, `policy.explain`, `theseus budgets`, `theseus policy explain` | 36b; 38a |
+| 41b | SPINE | the server's wire-in: `[mcp_server]`, `Surface::Mcp`, principal `mcp`, cards to the operator. **Done 2026-10-04** (theseus-ext.2; Part III Item 110) | 41a; step 9; theseus-d64 |
+| 42a | SPINE | `budget.list`, `policy.explain`, `theseus budgets`, `theseus policy explain`. **Done 2026-10-04** (theseus-ext.7; Part III Item 130) | 36b; 38a |
 | 42b | LANE | the Budgets, Ledger, and Policy tabs in `web/` | 42a; step 9 |
-| 43a | SPINE | `extend.propose`: freeze, start in L1, test, manifest, the ack card | 36b; step 17 |
+| 43a | SPINE | `extend.propose`: freeze, start in L1, test, manifest, the ack card. **Done 2026-10-04** (theseus-ext.5; Part III Item 118) | 36b; step 17 |
 | 43b | SPINE | load on ack, restart, revoke, `/extensions` | 43a |
 | 44a | LANE | voice engine: the spike, then `theseus-voice` (seam, pipeline, stand-ins) | a test voice channel |
 | 44b | SPINE | voice wire-in: voice places, `/join`, utterances into turns, replies in voice | 44a; 38a |

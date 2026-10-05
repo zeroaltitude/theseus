@@ -82,7 +82,7 @@ Nothing that calls Jev is built. What M5 stands on:
 |---|---|
 | A typed Jev client in its own crate, with the three-band gate, capped states, batching, a circuit breaker, and a fake | A local judge behind the same trait (only if Eddie declines the third party; §6) |
 | Every call recorded (pack, version, state hash and size, answers, band, latency, cost, arm) and priced | An LLM that proposes pack wording from the report (packs are edited by hand in M5) |
-| Six packs in shadow: `loop.v1` (JUDGE_STOP), `security.v1`, `classify.v1`, `role.v1`, `continue.v1`, `categorize.v1` | `shell.v1` (L1's shell choice, after M4's sandbox), `memory.v1` (M6), `sampling.v1` (M7's MCP), `attribution.v1` and `relies_on` (M6) |
+| Six packs in shadow: `loop.v1` (JUDGE_STOP), `security.v1`, `classify.v1`, `role.v1`, `continue.v1`, `categorize.v1` | `shell.v1` (L1's shell choice, after M4's sandbox), `memory.v1` (M6), `sampling.v1` (M7's MCP), `attribution.v1` and `relies_on` (M6) _(`memory.v1` and `attribution.v1` built 2026-10-04 by M6's 31a, in shadow at a new point, `memory_pass`: Part III Item 136)_ |
 | The learning ledger: labels from people, the system, and an audit model; a frozen holdout; a nightly report | Discord reactions as labels, and the learning channel's full controls |
 | The promotion ladder with sticky canaries and automatic rollback | Per-question promotion (M5 promotes whole pack versions) |
 | One live pack: JUDGE_STOP for tasks under a canary, which nudges a task that stopped early | JUDGE_STOP live in conversations; JUDGE_CONTINUE's INTERVENE on thrashing |
@@ -154,7 +154,7 @@ theseus-sim   jev-probe (one real call per pack, prints cost and latency) and fa
 | Timeouts | Connect 2 s and total 5 s (no stream, so first byte is the total). Live calls pass a shorter deadline of their own |
 | Errors | Classified as the provider's are: `timeout(phase)`, `network`, `rate_limited(retry_after)`, `server`, `auth`, `invalid_request`, `malformed`, `over_state`, each with `transient` and `usage_unknown` (true for a total timeout after the send). **Nothing retries on its own** |
 | Admission | A semaphore, `[judge] max_in_flight` (8). Shadow only tries it: with no permit free, the judgment is shed and counted (health `judge.shed`, one row per minute at most). Live waits up to its deadline. Overload sheds shadow first, as §3.13 asks |
-| Circuit breaker | Five transient failures in a row open it for 60 s, then one probe. While it is open, shadow skips and live abstains at once, so an outage adds no latency. `judge.circuit` rows on open and close, a health line, a narrative line |
+| Circuit breaker | Five transient failures in a row open it for 60 s, then one probe. While it is open, shadow skips and live abstains at once, so an outage adds no latency. `judge.circuit` rows on open and close, a health line, a narrative line. _Since 2026-10-04 (32d; Part III Item 141): a pack may have a breaker of its own, by name. `rerank.v1` has one, so its failures and timeouts open only `rerank`, and `route.v1` and the security packs keep the shared one; one client still, its permits and shed count shared. `judge.circuit` rows name the breaker, and health lists it (`rerank: closed`)._ |
 | Batching | At one decision point, packs whose state is byte-identical go in one request, with question ids namespaced `<pack>/<question>` (ids are never shown to Jev, so this changes nothing it sees). Packs with different states go out concurrently. So serial depth, not call count, bounds latency (§3.7) |
 | Latency per class | Every judgment records `queued_ms`, `http_ms`, `total_ms`, `on_path_ms` (0 in shadow), and the turn's **workload class**, set deterministically: `reply` (one loop, no tools), `tools` (tool loops), `job_result` (woken by a job or a task report), `wake`, `task`. The Observatory and telemetry show p50/p95/p99 per pack and class (§9's "Jev per turn" row) |
 
@@ -189,7 +189,7 @@ other = ""                  # none of these
 **Loader rules**, each held by a test: every Choice has a no-match option; every Score has a companion
 `applies` Noul; instructions carry the whole meaning; no question asks for math, counting, dates, or exact
 lookup (the builder computes those and states them as fields: `loops: 7`, `minutes_since_ask: 42`). Two
-versions of a pack may run in shadow together (the incumbent and a candidate), and both are recorded.
+versions of a pack may run in shadow together (the incumbent and a candidate), and both are recorded. _As built: 32c added a sixth point, `recall`, with the `rerank` builder and the `fused` baseline, for `rerank.v1`; the loader caps a per-item Noul at ten items, so its twenty notes are two questions of one wording (`helps`, `helps_more`; Part III Item 128)._
 
 **The bands** (`band.rs`), per question, with thresholds from the pack:
 - Choice and Score: the top answer's `confidence` c. Act if c ≥ `act`; confirm if c ≥ `confirm`; else escalate.
@@ -210,15 +210,21 @@ versions of a pack may run in shadow together (the incumbent and a candidate), a
 | `role.v1` (ROLE_GUESS) | `inbound`, **batched with `classify.v1`** (same state, plus the current role) | As above | `role` Choice over the roles table's ids + other | The session's current role (none before the table) | Under canary: a hint note and a role line (§2.8c) |
 | `continue.v1` (CONTINUE) | `compile`: only when no deterministic trigger fired **and** a candidate signal did (§4.4a step 2) | The signals and their values, tail tokens and nodes, the provider's last cache read vs the prefix, the compilation's age, strategy, and trigger, budget left, the last human message | `decision` Choice: append · recompile_transcript · recompile_ring · recompile_compaction · recompile_fresh · other. Noul: `stronger_model_for_compaction` | Append | None (compaction and assembled are M6) |
 | `categorize.v1` | `exchange_end`: once 10 human messages have arrived since the session's last one, or at the first exchange end after 30 minutes' quiet | Session title, the last 10 human messages (trimmed), current memberships, up to 50 candidate topics with descriptions | `topic` Choice over topic ids + new_topic + none. Nouls: `still_member` per current membership (at most 5) | No membership | None (live memberships are M6) |
+| `route.v1` (since 2026-10-04, 25e; Part III Item 139) | `inbound`, batched with `classify.v1` and `role.v1` (their state, held byte-identical) | As `classify.v1`'s | `mode` Choice: trivial · chat · sophisticated · deep_coding · routine_coding · other | The session's own profile | **Live**: the turn waits at most `[routing] max_wait_ms` for it after its first compile; a mode's first usable profile from `[routing.modes]`; a trivial detour that leaves the session as it was; a switch, held for a second agreeing turn above `cold_switch_tokens`; a pin judged in shadow |
 
 - **CONTINUE's candidate signals** are built in step 25, deterministic and cheap, in `compile()`: a dormancy
   gap (over 6 h since the last node), the tail crossing a soft band (half the window, then every further
   quarter), a task report or wake arriving, and a provider cache miss (cache reads fall to zero while the
-  prefix is unchanged). No signal, no call: most turns in a live thread cost nothing.
+  prefix is unchanged). No signal, no call: most turns in a live thread cost nothing. _As built (25b, Part III Item 122): each signal is measured since the model's last answer, so an input's signals fire once, at its turn's first compile, but `tail_band` and `cache_miss` can fire at a later loop of a turn, and `continue.v1` is then asked mid-turn, in shadow. A signal is a value (minutes, the band's edge in percent, a count, the earlier cache read) and words: Jev reads the words, and the value is for the learning ledger and the bands' tuning. The signals run on every compile, judge on or off._
 - Question texts are written with the builder, reviewed by Tabitha, and kept in the pack file. Criteria spell
   out boundary cases, since Jev reads them literally.
 - The state builders **scrub secrets** (the existing `Scrubber`: every vault value, and known token
   shapes) before a state leaves the process, and admit nothing the session's own model could not see.
+- _As built, 2026-10-04, every pack in shadow:_
+  - _`security.v1` and Item 95's `security.v3` at the gate: one decision point and two Jev calls, since each builds its own state (v3's also reads the newest six `fs.read`, `http.fetch` and `web.search` results); `security.v2` is not wired, since its questions are v3's (24, Part III Item 120)._
+  - _`classify.v1` and `role.v1` in one request per human message that starts a turn, the cost split by question count; the place kind is read from the session's place or the client's label, not the connection's surface; the author is `operator` in a private place and "a person in a shared place" in a shared one, never a name; the roles are the twelve seed rows until 26c (25a, Item 121)._
+  - _`categorize.v1` only in private conversations, never a task, and only once a topic is declared (28b, Item 126)._
+  - _A seventh pack, `rerank.v1`, at the `recall` point after a shadow recall (32c, Item 128)._
 
 ### 2.5 Recording: every judgment, in the ledger
 
@@ -229,11 +235,12 @@ and no one-way door: an older binary still opens a store with judgments in it.
 
 | Row | Key, scope | Carries |
 |---|---|---|
-| `judge.call` | `jdg_<id>`, `judge:<pack>` | pack and version, point, mode (shadow, canary, live), arm (canary, control, all), session, execution, turn, loop, and the judged call's correlation id; Jev model asked and answered; the state's sha256, bytes, token estimate, blob digest, truncated fields, builder version, and its **inputs by reference** (node positions); every answer with its probabilities and confidence; each question's band; the baseline's decision; the verdict (what the pack did, or would have done) and `acted`; latencies and workload class; usage, cost in micro-dollars, and which budget paid; or the error with its class |
-| `judge.label` | `lbl_<id>`, `judge:<pack>` | the judgment, the question (or all), the label, its source (operator, system, audit), who and through what, a weight, a note |
-| `pack.mode` | none, `judge:<pack>` | version, from, to, share, who, why, the report it cites, `forced` |
+| `judge.call` | `jdg_<id>`, `judge:<pack>` | pack and version, point, mode (shadow, canary, live), arm (canary, control, all), session, execution, turn, loop, and the judged call's correlation id; Jev model asked and answered; the state's sha256, bytes, token estimate, blob digest, truncated fields, builder version, and its **inputs by reference** (node positions); every answer with its probabilities and confidence; each question's band; the baseline's decision; the verdict (what the pack did, or would have done) and `acted`; latencies and workload class; usage, cost in micro-dollars, and which budget paid; or the error with its class. _As built: `class` is the workload class for every pack, and a gate judgment's tool class is `tool_class` (24's join, kept by Eddie at 10:21); the row also carries `headline` (the pack's deciding answer) and `disagrees` (23b)_ |
+| `judge.label` | `lbl_<id>`, `judge:<pack>` | the judgment, the question (or all), the label, its source (operator, system, audit), who and through what, a weight, a note. _As built, keyed by the label's own id and written by two facts: `JudgeLabel` (24's press, `risky: true` with the call's correlation id; since 25c also the operator's labels and the system labels, whose `rule` names the rule and is part of their key) and `ProposalLabel` (28b's answer to a topic proposal, `accepted` or `rejected` beside the judgment's `answer`, which 25c reads as the answer's class or `{"not": answer}`)_ |
+| `pack.mode` | none, ~~`judge:<pack>`~~ `pack:<id>` (as built, 26a) | version, mode, from, share, who, by, via, why, the report it cites and its holdout's bounds, `forced` and the numbers; a rollback's rule and its words; a day brake's `until`; a security card's question; `declined` (Part III Item 145) |
+| `pack.event` (26a) | none, `pack.event:<id>:<day>` | one event a rollback rule counts: a label in words, a pin, a breaker's opening, a notice; a restart reads the day back |
 | `judge.report` | none, `judge:<pack>` | the nightly summary (§2.9) |
-| `judge.paused`, `judge.resumed`, `judge.circuit`, `judge.shed` | none, `judge` | the shadow budget, the breaker, and shedding, as they happen |
+| `judge.paused`, `judge.resumed`, `judge.circuit`, `judge.shed` | none, `judge` | the shadow budget, the breaker, and shedding, as they happen. _As built (23b): `judge.resumed` is written at the first reservation of a new local day after a paused one, known in process only, so a restart forgets the pause and writes none_ |
 
 - **The state** goes to a content-addressed blob (`blobs.rs`), written before its row, so a row never names a
   missing blob. The row keeps the digest and the inputs by reference, so a later builder version can rebuild
@@ -243,7 +250,7 @@ and no one-way door: an older binary still opens a store with judgments in it.
 - **Batched frames.** The core's `JudgmentSink` writes shadow judgments in frames of up to 32 rows, or every
   2 s, whichever comes first, from its own task. A turn never waits on it and writes no extra frame for a
   shadow judgment. A crash loses at most 2 s of shadow rows. Their spend is not lost: the block's unsettled
-  rest is booked as spent (§2.6), with a `judge.block_booked` row that shows the gap.
+  rest is booked as spent (§2.6), with a `judge.block_booked` row that shows the gap. _(As built, 23a, Part III Item 105: a clean stop drops the sink's last window too, as a crash does, and the next start books the block's rest at its first judgment, never before serving. The turn bench runs with the judge off (theseus-0j2.3, option (a)), so the sink's own frame per judged batch is measured apart (theseus-0j2.8); the lifecycle bench keeps the judge on. The trace's `mark` span is 23b's step.)_
 - **The trace.** A live judgment is a `judge` span (a new span kind, §3.3a) under its loop, with pack,
   band, and cost. A shadow dispatch is a `mark` span carrying the judgment's id, so the waterfall shows where
   each shadow judgment was taken, and its detail opens from there.
@@ -253,7 +260,7 @@ and no one-way door: an older binary still opens a store with judgments in it.
 - **The price** is a catalog row, `[catalog."jev-1.13.0"]`, with `kind = "judge"`, provider `typesafe`, input
   and output prices per million tokens, and no cache prices. It is in the built-in table and the template,
   and the existing agreement test covers it. A pack whose Jev model has no price is not called: `unpriced`,
-  as for models.
+  as for models. _(As built, 23a, Part III Item 105: the price is `catalog::judge_prices()`, `jev-1.13.0` at the judge crate's figures, built in only: not a `[catalog]` row, since the core's catalog rows are a model's, and not in the template, whose catalog copy was removed (Part III Item 90).)_
 - **The reservation** is the state's token estimate plus an output allowance of 64 tokens per question, at
   those prices, rounded up per call. At about $0.042 per million tokens, a 2,000-token state costs about 84
   micro-dollars.
@@ -269,7 +276,7 @@ and no one-way door: an older binary still opens a store with judgments in it.
 - The session's lifetime `cost_usd` includes its live judgments. Health shows the judge's shadow spend for today
   and in total. Telemetry's `theseus.cost.usd` gains `theseus.spend = judge` and `theseus.judge.pack`.
 - The **audit** labeler (§2.9) calls a strong model, so it has its own cap per run,
-  `[judge] audit_limit_usd` ($5.00), and draws from the judge's budget with `purpose: audit`.
+  `[judge] audit_limit_usd` ($5.00), and draws from the judge's budget with `purpose: audit`. _(As built 2026-10-04, 25d; Part III Item 144: a replay's, a backfill's and an audit's spend is held in memory against the run's own cap, `[judge] replay_limit_usd` ($0.50) or `audit_limit_usd` ($5.00), and never draws on the shadow day budget; each run's cost is in its row, written at its end (theseus-b7rw). The live judgments of 2026-10-04, `route.v1`'s, `rerank.v1`'s and `security.v3`'s, are still paid from the shadow day budget, not the session's, until 26b's kernel actions.)_
 
 ### 2.7 Shadow to live: the ladder
 
@@ -307,11 +314,15 @@ cite a report written after the rollback.
 | Pack | Rolls back when |
 |---|---|
 | `loop.v1` nudging tasks | A nudged turn ends with no new tool call and a near-identical final text (a nudge loop). The canary's spend per task exceeds twice the control's median, over 10 tasks or more. The operator stops or cancels a task within its nudge. The judgment's on-path p95 exceeds 1 s. |
-| `security.v1` notices | More than 30 Jev notices in a day (the quiet-notices lesson, theseus-w4f), or the operator labels 3 of them "noise" in a day |
+| ~~`security.v1` notices~~ `security.v1`'s rules, braking `security.v3`'s notices (since 2026-10-04: Part III Items 142 and 145) | More than 30 Jev notices in a day (the quiet-notices lesson, theseus-w4f), or the operator labels 3 of them "noise" in a day: a day's brake, until the next local midnight |
+| `route.v1` (adopted, 26a) | The owner pins another profile for a message within 10 minutes after a routed turn, 3 times in a day: a day's brake. Its file's own rules beside it: "wrong model" 3 times in a day, and an on-path p95 over 250 ms over 20 |
+| `rerank.v1` (adopted, 26a) | Its own breaker opens twice in a day: a day's brake |
 | `role.v1` | More than 2 role switches in one exchange, or the operator labels a switch "wrong role" twice in a day |
 
 An error rate over 20% in the last 50 calls is not a rollback. The pack abstains, and the baseline decides,
 until the breaker closes.
+
+**As built (26a, 2026-10-04; Part III Item 145).** The rows are scoped `pack:<id>`, read once after serving (`warm_ladder`, judge on only) and kept. `JudgeService::mode_for(pack, session)` is every point's answer, under `mode_of`'s ceiling, and `ask_mode` records the judgment's mode and its arm, as `pack_arm` (rerank's context already uses `arm` for memory's). The bar for moving up is a `judge.report` of the version, cited or the latest of 14 days, whose holdout passes the minimum and in which every acting class's labeled precision is above 0.50: "beats its baseline" as the code can settle it, until 26b's canary outcomes give the baseline's own. A security pack's promotion, the owner's or the system's, is a card planned on the ladder's own session ("the ladder: promotions waiting on the owner") and answered from a private place; a decline or an expiry writes a `declined` row and no mode. Every event a rule counts lands as a `pack.event` row, and each acting version of that pack id is checked at once; a pack in shadow is never rolled back. The three packs this build wires live, `route.v1`, `rerank.v1` and `security.v3`, are adopted once, `live (owner: decision of 2026-10-04)`, with the day-brake rules of the table above beside their files' own, and every acting decision reads the ladder: `route_mode`, `rerank_mode(session)`, the gate's packs per call, `notices_live(session)`. The notices' switch is a ceiling in `mode_of`, and their own pause, read by its key, is security's day brake. `theseus packs [list|promote|rollback]` and the cockpit's Ladder panel show and move it. Not built: Discord buttons for a security card (the ladder's session has no place), and memory's canary, whose hash differs from `learn::arm`'s.
 
 ### 2.8 The live packs in M5
 
@@ -338,12 +349,12 @@ return baseline                                           # abstain, confirm, or
 - The Advancer trait stays synchronous. The turn takes the judgment first and passes it in, so the trait's
   two existing policies are untouched.
 
-**(b) `security.v1` on notices.** In shadow, a call that already posts a notice shows the score, marked as
+**(b) ~~`security.v1`~~ `security.v3` on notices.** _(As built 2026-10-04, Eddie's decision 5; Part III Item 142: the notice is `security.v3`'s, live beside `security.v1` in shadow. It posts when v3's `risky` is act-true (0.90 or over) on an `open` call the hold did not stop, to the owner's DM alone (never a shared place's fallback), after the call has started: `🔔 notified after it ran: proc.run · Jev: 95% risky (…)`, a `tool.notified` row with `by: judge`, and right, wrong and noise buttons. Only `risky` posts, not `steered`, until its bar is calibrated. `[judge.packs."security.v3"] notices = false` caps v3 at shadow. The paragraph below is the plan as written.)_ In shadow, a call that already posts a notice shows the score, marked as
 uncalibrated: `🔔 notified (proc.run) · risk 12% (shadow)`, on Discord's tool line, in the web UI, and in the
 CLI. Once Eddie promotes it, a call whose posture is `open` (no notice) and whose `risky` is act-true posts a
 notice after the fact: `🔔 notified (Jev: 84% risky)`, ledgered as `tool.notified` with `by: judge`. The call
 is never delayed: the judgment runs beside the dispatch, and the notice follows within about a second. Making
-a call **wait** on a score would put a Jev call before every acting dispatch, and it is Eddie's decision (§5).
+a call **wait** on a score would put a Jev call before every acting dispatch, and it is Eddie's decision (§5). _As built in shadow (24, Part III Item 120): the score follows its notice as a notification of its own, `judge.scored`, the one place a judgment notifies (§2.13 had none): the CLI prints `! notified: proc.run · risk 12% (shadow)` after the notice's lines, Discord adds `· risk N% (shadow)` to the tool line (and a `Risk` field with `notice_embeds`), and the cockpit a pill beside "should have asked". Only notified calls hear their score; open and asked calls are judged and recorded. A press labels the call's judgments with the question `risky` for both packs. Live notices came with Eddie's decision 5, 10:21 (Item 142)._
 
 **(c) The roles table and `role.v1`**
 - **The table** (§3.4): the twelve seed rows compiled in as data, and operator rows as store records (a META
@@ -372,6 +383,7 @@ a call **wait** on a score would put a Jev call before every acting dispatch, an
 | `role.v1` | "Wrong role" | None | Yes |
 | `continue.v1` | Buttons | None in M5 (a recompile's worth shows only when acted on) | Yes |
 | `categorize.v1` | Accept or reject a proposed membership in the Observatory | None | No |
+| `rerank.v1` (since 2026-10-04, 32d; Part III Item 141) | Per item: `theseus judge label <jdg> true --question helps.3`, written with the item's `about`, and the cockpit's per-item buttons; an item the judgment did not answer is refused, naming those it did | Each memory label on a note (useful or should_have: true; wrong or stale: false) grades the rerank's answer about it, once (rule `memory_label`) | Yes |
 
 **The nightly report** (a tender: its own thread at low priority, at most 5% of a core, started by the
 driver's tick at `[judge] learning_hour` local time, never within 10 minutes of a start; on demand with
@@ -393,6 +405,13 @@ default the latest 14 days, never used to write the candidate's text or threshol
 in the `pack.mode` row. The minimum is 200 labeled judgments per question that decides, and 30 per Choice
 class that acts. Below it, the report says "insufficient", and promotion is refused unless forced.
 
+_As built (25c, 2026-10-04; Part III Item 129):_
+- _**What a label holds.** A Noul's label is `true` or `false`; a Choice's the right option, or `{"not": option}` when only a wrong one is known; a Score's a level. `right` and `wrong` grade an answer's own lean on any kind, and on the whole judgment they grade every answer; `wrong role` is role.v1's press; `noise` and `useful` are the ladder's words and grade nothing._
+- _**Weights choose, they do not scale.** Of several labels on a question the heaviest counts, then the newest (an operator's 1.0 beats a system 0.5); counts are of judgments, unweighted._
+- _**The acting classes** (`learning::report::ACTING`) are loop.v1's `work_state: progressing` alone, the one class that acts in M5; role.v1's classes are the roles table's, so its minimum counts its deciding question only._
+- _**The holdout** is fixed at 14 days (no config key) and frozen into the report with its judgment and label ids, and "insufficient" names every shortfall. Its numbers sit beside the all-time ones, and the ladder is to cite the holdout's._
+- _**The report** reads only the `judge:<pack>` scopes (and, for the system rules, the judged sessions' nodes, their calls' actions and the task list). Per-item questions (rerank.v1's) were not graded at 25c (32d grades them, Item 141). `learning.report` without a date runs it now and writes derived rows only, so it is not an operator's act. The digest to the learning channel (theseus-0j2.10), the canary part, nudge labels, the `control` label and an audit writer were not built._
+
 **Replay, backfill, and audit** (§8's replay harness):
 - `theseus judge replay loop.v2 --report <id>` runs a candidate over the holdout's recorded states (the blobs,
   or states rebuilt from their inputs when the builder changed), and reports agreement with the labels and
@@ -404,16 +423,37 @@ class that acts. Below it, the report says "insufficient", and promotion is refu
 - `theseus judge audit <pack> --sample 100 --profile opus` has a strong model answer the same questions over
   the same states, as audit labels, capped by `audit_limit_usd`.
 
+**As built (25d, 2026-10-04; Part III Item 144).** `theseus judge replay <candidate>` asks a candidate (an embedded version the build does not wire, or `--pack-file`, parsed with every loader rule; a name means one text) the incumbent's questions over a report's frozen holdout (its frozen labels), its train split, the incumbent's labeled errors (`--errors`), or ids. A state goes as it was sent when the candidate's builder, version and cap equal the judgment's, else it is rebuilt from the record (today `loop.v1`'s, from the turn's `turn.ended` row and its nodes, through the live point's own input function), else it is left out with the reason; a thresholds-only candidate makes no call and re-bands the stored answers. Its calls are `judge.call` rows scoped `judge.replay:<pack id>`, which the report never reads, and the run a `judge.replay` row; both sides are the report's numbers on the same judgments and labels, with each judgment the candidate fixed or broke and each class whose precision or recall fell, and a security candidate's planted-injection set beside the incumbent's. Its estimate is checked first against `[judge] replay_limit_usd` ($0.50 a run). `theseus judge audit <pack> --sample <n> --profile <p>` sends one request per state, outside any session, with Jev's instructions and criteria, and writes each answer inside its options as an audit label (weight 0.5, keyed by judgment, question and run), stopping before `[judge] audit_limit_usd`. `theseus judge backfill <pack> --since <date>` rebuilds the pack's judged points from the record at each event's time, judges each once in shadow (keyed by its event) with the live point's context and `event_at_ms`, which the holdout's split reads, and runs only under `[judge] backfill_consent = true`, a line of the owner's note, whose digest each run records. Each run is the owner's, from a private place, on a thread at nice 19. The memory pass's two builders, like CONTINUE's, inbound's, categorize's, security's and rerank's, are not rebuilt yet, and an audit's labels are whole-question.
+
 **The prove** (P7), as `theseus judge prove`: for JUDGE_STOP on tasks, canary against control, at equal total
 budget (each arm's spend includes its judge calls; the report gives rates per task and per dollar):
 - task success: no near-duplicate task within 24 h, no operator "wrong" label, the audit says done;
 - false completion: the baseline or Jev said complete, and a re-ask, a near-duplicate task, or the audit
   says it wasn't;
 - unnecessary continuation: a nudge after which the task made no new tool call and ended the same way.
+- _As built (L3's generator, 2026-10-04; Part III Item 101): the report never recomputes these labels; the wire-in supplies `success`, `false_completion` and the stop labels as defined here, and a task whose `success` is `null` is counted and left out of every rate. Wilson intervals for a proportion, Newcombe's hybrid for a difference, the ratio estimator per dollar. Minimums of 30 labeled tasks per arm and 30 labeled items per precision, recall, false-completion or nudge rate (both flags): under one, a metric has no value and says how far short it is. The verdict rests on the per-dollar completion difference: `canary_better` when its interval is wholly above zero, `canary_worse` also when the per-task difference is wholly below zero, `insufficient` when an arm is short; unequal total spend is named in the verdict's reasons._
 
 For classification it is decision quality on audit- and operator-labeled messages: `classify.v1` against the
 baseline (the model's own `task.create` decisions, and slash commands). The report states which packs beat
 their baseline, which stay in shadow, and why.
+
+_(As built 2026-10-05, row 50, theseus-0j2.18; spec Part III Item 179.)_ `theseus judge prove`
+builds one record per task from the ledger's `task.ended` rows (a second row counts once; `task.closed` makes none,
+since it repeats the same end) and runs the generator over them; it writes nothing.
+- **Who pays.** Today every judgment, canary included, is the judge's own day budget, so a task's spend is its
+  execution's plus its `shadow` judge calls. Once 26b puts an acting canary judgment on the execution (§2.6), those
+  rows are its execution's, and nothing counts twice.
+- **Success** waits for a learning run that has read the 24 hours after the task's end, since the near-duplicate
+  label is written only by that run; until then it is `null`. An operator's `complete` outweighs the system's rule and
+  an audit, as labels resolve heaviest first.
+- **The arm** is that of the task's `loop.v1` judgments. A task is left out, counted by reason, when no `loop.v1`
+  judgment names its session (`never_judged`), when it has only `all` (`no_arm`), judgments in both arms
+  (`both_arms`), when a cancel or `/stop` ended it (`cancelled`), or when its execution is missing (`unreadable`). A
+  task whose judgments all failed or were skipped (Jev down, or no key) counts in its arm with the baseline's
+  decisions: intent to treat. Nudges are 0 until 26b records them, and the report says so.
+- **Classification** holds `classify.v1`'s lean on `should_promote` against the model's own `task.create` (the
+  system's `task_create` label), with operator and audit labels as the truth and McNemar's test at 95 %. `kind` is not
+  compared: its baseline makes no class, and slash commands are not judged.
 
 ### 2.10 Promotion with an arrangement (§3.2a; step 27)
 
@@ -439,7 +479,7 @@ task.create {
   or the call fails with the reason (no match; or ambiguous, with the candidates' times and authors), and the
   model tries again. The result lists the resolved nodes (id, author, time, first line). Quotes need no change
   to the renderer, so the prompt cache is untouched. (Rendering node ids into the transcript is the
-  alternative, §5.)
+  alternative, §5.) _As built (step 27, 2026-10-04; Part III Item 113): matching is exact and case-sensitive, with one leniency, every run of whitespace reading as one space and the quote's ends trimmed, and at least 20 characters after that. The sources are the session's user messages, replies' text and tool results, never the reply that holds the call nor an earlier `task.create` result, which echoes its pieces. The failures are `no_match`, `ambiguous` (each candidate's id, author and time), `short`, `unknown_node` and `same_node`. At most 12 pieces, each piece's text capped at 16,000 characters._
 - **Refusal.** With no arrangement, or none with an `objective` or `design` piece, the call is refused with the
   reason: "Promotion needs an arrangement: quote the messages that define this work."
 - **The fidelity check**, deterministic: a brief under 200 characters, from a session with more than 10 human
@@ -450,7 +490,7 @@ task.create {
   reference only, and never admitted (it stays recallable).
 - **Records:** an `Arrangement` node body (a node schema bump, §2.14), written in the child's session in the
   frame `open_task` already writes. Surfaces: `📎 3 pieces` on the task's lines, the pieces in the web UI's
-  task tree, and `theseus tasks show <id>`.
+  task tree, and ~~`theseus tasks show <id>`~~ `theseus tasks`, one line per piece under each task. _(As built, step 27: the `Arrangement` node moved the store to format 9, renumbered at its join; the pieces show in the cockpit's Actions view and in Discord's `/tasks` count; Part III Item 113.)_
 - **Jev's part is small.** `classify.v1`'s `should_promote` (shadow) is compared with the model's own
   `task.create` calls in the report. A `fidelity` Noul is filed for later.
 
@@ -470,16 +510,17 @@ task.create {
 - **Filed:** "evidence that shares a transmission ancestor, or the same method over the same snapshot, counts
   once" inside JUDGE_STOP, and a `verify.v1` pack (Jev's citation-check shape: the claim, the evidence,
   `supports · contradicts · insufficient`), in shadow on each check's report.
+- _As built (28a, 2026-10-04; Part III Item 132): `check_of` resolves only among the tasks the calling conversation started, by session or execution id or by the 39a record id (`tsk_…`), and a task with no report is refused, saying why. `profile` is a check's alone (any other task naming one is refused); a check without one runs on its parent's model. The checked task's objective and acceptance pieces stand for the check's own, so a check needs no arrangement, and the fidelity check does not apply. The claim lives on the check's `Arrangement` node (`claim`: the task, its report node and time, and the report's text up to 16,000 characters), with a `derived_from` edge via `claim`. The exclusion walks `derived_from` edges back from each piece of the check's own (at most 20,000 nodes), so a parent's paraphrase with no edge is caught only by the overlap flag. The flag compares the brief and the check's own pieces with every node of the checked session but its report, brief and arrangement, a 30c `Summary` included; a word is a run of letters and digits, lowercased. The basis is `TaskOf.check` and a `task.check_opened` row (a refusal is `task.check_refused`), shown in one wording on `task.list`, `theseus tasks`, the report's post, Discord's `/tasks`, the report node the parent reads, and the cockpit's task view. By the call made at Eddie's 10:45 "Take all of these excellent recommendations" (theseus-w8ys), a check's task-graph view shows the checked task by title and state only (Item 146)._
 
 ### 2.12 `categorize.v1`, and the parked-task invariant (step 28)
 
 - `categorize.v1` needs M4's kinds table with topics (step 21, theseus-8kk). In shadow, it proposes topic
   memberships. The Observatory lists them, and the operator accepts one (M4's `operator`-origin membership) or
   rejects it; either is its label. Jev writes no membership in M5. `new_topic` asks the operator to name one,
-  since Jev does not generate text.
+  since Jev does not generate text. _As built (28b, Part III Item 126): `ontology.proposals`, `ontology.proposal.accept` and `ontology.proposal.reject` (`theseus ontology proposals`, `accept`, `reject`) in place of the Observatory, each answer through `judge_act`, an accept writing the membership and its label in one frame (for `new_topic`, the operator names an existing topic or a new one, made in that frame); an accept is refused for a session already in three topics. The trigger reads a human message as an operator's `UserMessage` (not a task's brief or report, a wake's note or a harness notice), and "30 minutes' quiet" as the run of human messages that began the latest exchange coming 30 minutes or more after the node before it; a session's first message is never quiet. A META mark per session (`judge.categorize.<session>`) records the last judgment and what it read through, written at dispatch, so one quiet brings one judgment. Only private conversations are judged, never a task, and with no topic declared there is no judgment. Eddie's decision 8 (11:00) asked for `new_topic` discovery from an empty ontology (Item 146)._ _(Since 2026-10-04, theseus-ext.12; Part III Item 147: on an empty ontology the point still judges, its Choice `new_topic` and `none`, and its mark moves; with no topic declared, its input is the human messages after the mark alone (theseus-gky0). Every Jev reservation of a Choice adds 10 input tokens per option (theseus-q0rn): a 52-option call reserves 104 µ$ against the 96 it was billed, where 82 had been reserved.)_
 - **The parked-task invariant** (theseus-vug): health gains `tasks.parked`, each task that is in progress and
   cannot progress by itself (no running turn, queue place, job, wake, or pending question younger than 24 h),
-  with its blocker named. It shows in `theseus health` and the Observatory.
+  with its blocker named. It shows in `theseus health` and the Observatory. _As built (28b): `tasks: {parked: [{task_id, short, execution_id, title, state, blocker, detail, since_ms}]}`, the blocker one of `input` (waiting on input with no wake), `stopped`, `approval` or `budget` (a question 24 h old or more), `blocked`, or `nothing`; a task waiting on input with a pending wake of its own (37b) is not parked. `theseus health` prints `tasks parked: N` and a line per task._
 - **Filed from theseus-vug:** honest delivery receipts (DD6's outbox settles each post; the vocabulary
   `posted | transport_failed | never_posted` is checked on the surfaces, not rebuilt); a reply that references
   a Question resolving without inference (M7, with the task graph); `relies_on` and `attribution.v1` (M6).
@@ -489,13 +530,13 @@ task.create {
 | Surface | What it shows |
 |---|---|
 | Ledger | `judge.call`, `judge.label`, `pack.mode`, `judge.report`, `judge.paused`/`resumed`, `judge.circuit`, `judge.shed`; `loop.ended` gains `advancer: judged` and the judgment id; `tool.notified` gains `by: judge` |
-| Protocol | Read: `judge.list {pack?, session_id?, since?, limit}` (no states), `judge.get {id}` (with the state), `pack.list`, `learning.report {pack?, date?}`. Acting (judged by `judge_act`): `judge.label`, `pack.promote`, `pack.rollback`, `roles.add`. Judgments stream on `ledger.tail`: no new notification method |
+| Protocol | Read: `judge.list {pack?, session_id?, since?, limit}` (no states), `judge.get {id}` (with the state), `pack.list`, `learning.report {pack?, date?}`. Acting (judged by `judge_act`): `judge.label`, `pack.promote`, `pack.rollback`, `roles.add`. Judgments stream on `ledger.tail`: ~~no new notification method~~ two notifications: `judge.scored`, a notified call's score after its notice (24), and `judge.noticed`, since 2026-10-04, so the CLI's `ask` prints a notice under its call (Part III Item 142). _As built: `judge.list` answers `{scopes, matched, judgments}`, the newest `limit` (50 by default, 500 at most), and `judge.get` `{judgment, state, state_missing?}` (23b); `learning.report {date}` reads a day's report, and without a date runs one now, writing only derived rows, so it is not an acting method (25c); `ontology.proposals` (a read), and `ontology.proposal.accept` and `.reject` (acting, through `judge_act`) (28b)_ |
 | CLI | `theseus judge log / show / label / report / replay / backfill / audit / prove`, `theseus packs [promote / rollback]`, `theseus roles [add]`; a `judge:` line in `theseus health` (enabled, breaker, today's calls and spend, shed, paused); `ask --trace` shows judge spans |
 | Discord | The risk on notices; `🎭 role` on replies; `📎 pieces` and `🔍 check` on task lines; rollback notices; the nightly digest in the learning channel when one is set |
-| Web UI | The Observatory's **Judgment** section: per pack, its mode, version, calls, cost, p50/p95, agreement, labeled precision, a calibration strip, and promote/rollback controls; a judgment log with filters and label buttons; each judgment's state as fields and its answers as probability bars. The **Roles** page. In a session: judgments beside the loop they judged ("Jev (shadow): complete 0.93 · agrees"), and judge spans in the waterfall |
+| Web UI | The Observatory's **Judgment** section: per pack, its mode, version, calls, cost, p50/p95, agreement, labeled precision, a calibration strip, and promote/rollback controls; _(built 2026-10-04 as the Judgment section's Ladder panel: each pack's mode, why, rules and last rows, with promote and roll-back buttons, off while the time machine is set; 26a, Part III Item 145)_ a judgment log with filters and label buttons; each judgment's state as fields and its answers as probability bars. The **Roles** page. In a session: judgments beside the loop they judged ("Jev (shadow): complete 0.93 · agrees"), and judge spans in the waterfall. _As built in the cockpit, which replaced the Observatory: the Judgment section (23b), and each judgment's label buttons and a Learning panel for the day's report (25c)_ |
 | Narrative | "Jev, in shadow, judged the stop: progressing (0.81, act band). The baseline ended the turn; recorded, not acted on." "Jev nudged task a1b2c3: its last message says it will run the tests, and it hasn't." "Shadow judging paused: today's $1.00 is spent." |
-| Telemetry | `theseus.judge.calls` {pack, mode, band, class}, `theseus.judge.duration_ms` {pack, class}, `theseus.judge.on_path_ms`, `theseus.judge.errors` {class}, `theseus.judge.disagreements` {pack}; `theseus.cost.usd` with `theseus.spend = judge`; a span per judgment |
-| Health | `judge {enabled, key, breaker, in_flight, shed, today_calls, today_usd, paused, packs[{pack, version, mode, share}]}`, `tasks.parked` |
+| Telemetry | `theseus.judge.calls` {pack, mode, band, class}, `theseus.judge.duration_ms` {pack, class}, `theseus.judge.on_path_ms`, `theseus.judge.errors` {class}, `theseus.judge.disagreements` {pack}; `theseus.cost.usd` with `theseus.spend = judge`; a span per judgment. _As built (23b, Part III Item 119): `on_path_ms` carries {pack, class} too, so a p95 per class can be read; errors count under the provider errors' key, `theseus.error.class`; a shadow judgment is a zero-length `judge` mark in its turn's trace, and no live `judge` span exists until a pack acts_ |
+| Health | `judge {enabled, key, breaker, in_flight, shed, today_calls, today_usd, paused, packs[{pack, version, mode, share}]}`, `tasks.parked`. _As built: the key's state reads `ready`, `resolving`, `failed: …` or `not configured`, never a value (23b); `tasks.parked` is `tasks: {parked: […]}` (28b, §2.12)_ |
 
 ### 2.14 The store and versions (F4a's standing rule)
 
@@ -503,8 +544,8 @@ task.create {
 |---|---|---|
 | Judgments, labels, modes, reports | `LEDGER` rows, schema 1, keyed and scoped | None needed: the row's `data` is free JSON |
 | The shadow day budget, role rows | `META` records under new keys | None needed: an older binary never reads those keys |
-| The session's `role` (step 26), and a check task's `basis` (step 28) | `SESSION` 2 → 3 at step 26. Step 28 bumps again (3 → 4) if a build with schema 3 was installed in between, since that store may already hold schema-3 records | Absent fields read as none; a test reads each older schema |
-| The `Arrangement` node body | `NODE` 2 → 3 | A test reads schema 2 nodes; an older binary refuses a schema-3 store, as F4a intends |
+| The session's `role` (step 26), and a check task's `basis` (step 28) | `SESSION` 2 → 3 at step 26. Step 28 bumps again (3 → 4) if a build with schema 3 was installed in between, since that store may already hold schema-3 records. _As built (28a): the basis is `TaskOf.check` on the check's session record, and the claim `Body::Arrangement.claim`, both absent when unset, at the store's one format number (Tier 7.9's rule): 13 on the branch, 14 at its join, after 30c's 13_ | Absent fields read as none; a test reads each older schema |
+| The `Arrangement` node body | ~~`NODE` 2 → 3~~ store format 9 (step 27, 2026-10-04: the one `MANIFEST_FORMAT` since Tier 7.9; Part III Item 113) | A test reads schema 2 nodes; an older binary refuses a schema-3 store, as F4a intends |
 | State blobs | Files in `<store>/blobs/` | Not in the WAL: M4's durability tender must ship blobs too (images already need it) |
 
 ### 2.15 Config
@@ -520,11 +561,15 @@ connect_secs = 2
 total_secs = 5
 shadow_limit_usd_per_day = 1.0
 audit_limit_usd = 5.0
+replay_limit_usd = 0.5            # a replay's or a backfill's own cap per run (25d)
+# backfill_consent = false        # the owner's word: a backfill sends recorded history to Jev (25d)
 learning_hour = 3                 # local time of the nightly report
 # learning_channel = "discord:<channel id>"
 # [judge.packs."security.v1"]
 # mode = "off"                    # the config can lower a pack's mode, never raise it
 # sample = 0.5                    # shadow sampling share
+# [judge.packs."security.v3"]
+# notices = true                  # 24's notices (2026-10-04); false caps v3 at shadow, a ceiling since 26a
 # [judge.signals]                 # CONTINUE's candidate signals (§2.4)
 # dormancy_minutes = 360
 # tail_band = 0.5                 # share of the window, then each further quarter
@@ -534,10 +579,20 @@ kind = "judge"
 provider = "typesafe"
 input_per_mtok = 0.042
 output_per_mtok = 0.042
+
+[routing]                         # route.v1, 25e (Part III Item 139)
+enabled = true
+mode = "live"                     # or "shadow": judged, never acted on
+max_wait_ms = 200                 # the turn's wait for the verdict, after its first compile
+trivial_context_turns = 2         # a detour's exchanges of context
+cold_switch_tokens = 30000        # above it, a switch waits for a second agreeing turn
+switch_confidence = 0.6           # under it, nothing routes
+# [routing.modes.trivial]
+# profiles = ["cheapest"]         # each mode's profiles, the first usable wins; [] keeps the session's own
 ```
 
 The endpoint's base is compiled in and overridable (`api_base`) for the fake. Every line is in the template,
-and the existing test parses the template with every line uncommented.
+and the existing test parses the template with every line uncommented. _As built: `[judge.signals]`'s `tail_band` is checked in (0, 1], and `dormancy_minutes = 0` fires at any gap, for tests and live checks (25b); `learning_hour` is checked in 0 to 23 (25c); `learning_channel` is not built (theseus-0j2.10)._
 
 ### 2.16 FAST
 
@@ -546,6 +601,7 @@ and the existing test parses the template with every line uncommented.
 | Start | Nothing new before serving. The client, the packs, and the ladder are built on the first judgment. The key settles with the other secrets after serving, and a judgment waits for that one secret alone (as a broker grant waits for an unsettled secret); a shadow judgment that would wait is skipped instead. The nightly tender starts at least 10 minutes after serving. **Held by** the lifecycle bench with `[judge] enabled = true` and the endpoint at 127.0.0.1:9 (as the Discord binding is benched): no phase may move |
 | Turn, shadow | Dispatch is a spawn after the decision; the turn never awaits it. The on-path cost is the state build, capped by construction. **Held by** a unit bench: each builder under 1 ms on its largest input, inside §9's 5 ms per-turn overhead; and by the frame-budget test (8 frames, unchanged with shadow on) |
 | Turn, live | Only at a task's turn end in M5, with a 3 s deadline, and abstaining on any failure. **Held by** `on_path_ms` p95 per class in the report; the canary rolls back past 1 s p95 |
+| Turn, live, at a person's message (since 2026-10-04) | `rerank.v1` waits at most `[memory] rerank_wait_ms` (200) from its start, before the first compile, and `route.v1` at most `[routing] max_wait_ms` (200) after it, beside work the turn does anyway; a pinned turn, a pack in shadow, an open breaker or a paused budget waits not at all, and a miss leaves the request as the judge-off one. **Held by** paused-clock tests of each wait (Part III Items 141 and 139); the gate's benches run the judge off, so the reviews' live checks give the waits (a rerank 153 ms of 200; route 133 to 201 ms, 4 of 9 verdicts late) |
 | Shutdown | Never waits for a judgment. In-flight shadow calls are dropped, and their block's rest is booked on the next use, not at start. **Held by** the bench's clean-shutdown phase with judgments in flight against the slow fake |
 | Money | Shadow is capped per day; live is inside the session's limit; the audit is capped per run; an unpriced model is never called |
 
@@ -637,21 +693,21 @@ modes.
 |---|---|---|---|---|
 | L1 | 23 | LANE | `theseus-judge` crate: the typed client, errors, breaker, semaphore, bands, batching, `StateBuilder`, `Judge` + `Recording`, the fake; `theseus-sim jev-probe` | None: can start now |
 | L2 | 23, 25 | LANE | The six pack files and their builders over plain inputs; `learn.rs` (calibration, holdouts, arms, rollback rules) | L1 |
-| 23a | 23 | SPINE | Wire-in: `[judge]`, the catalog row, `JudgeService`, the sink, the shadow budget, `loop.v1` in shadow at `loop_end`, health, `theseus judge log` | L1, L2; Stage 3 done (the roadmap's order, decision 16) |
-| 23b | 23 | SPINE | Surfaces: trace marks and `judge` spans, telemetry, narrative, `judge.list/get`, the Observatory's Judgment section and in-session judgments | 23a |
-| 24 | 24 | SPINE | `security.v1` in shadow at the gate; scores on notices; labels from presses, declines, approvals; the T1 floor tests | 23a (23b for the UI lines) |
-| 25a | 25 | SPINE | `classify.v1` and `role.v1` at `inbound`, batched in one request | 23a |
-| 25b | 25 | SPINE | CONTINUE: the compiler's candidate signals, and `continue.v1` in shadow | 23a |
-| 25c | 25 | SPINE | The learning ledger: `judge.label` everywhere, system labels, the nightly report tender, holdouts, the report page | 24, 25a, 25b |
+| 23a | 23 | SPINE | Wire-in: `[judge]`, the catalog row, `JudgeService`, the sink, the shadow budget, `loop.v1` in shadow at `loop_end`, health, `theseus judge log`. **Done 2026-10-04** (theseus-0j2.1; Part III Item 105): the price built in, not a catalog row; `loop.v1` after the turn ends, not at `loop_end` | L1, L2; Stage 3 done (the roadmap's order, decision 16) |
+| 23b | 23 | SPINE | Surfaces: trace marks and `judge` spans, telemetry, narrative, `judge.list/get`, the Observatory's Judgment section and in-session judgments. **Done 2026-10-04** (Part III Item 119), in the cockpit | 23a |
+| 24 | 24 | SPINE | `security.v1` in shadow at the gate; scores on notices; labels from presses, declines, approvals; the T1 floor tests. **Done 2026-10-04** with `security.v3` beside v1 (Part III Item 120); declines and approvals are 25c's system labels | 23a (23b for the UI lines) |
+| 25a | 25 | SPINE | `classify.v1` and `role.v1` at `inbound`, batched in one request. **Done 2026-10-04** (Part III Item 121) | 23a |
+| 25b | 25 | SPINE | CONTINUE: the compiler's candidate signals, and `continue.v1` in shadow. **Done 2026-10-04** (Part III Item 122) | 23a |
+| 25c | 25 | SPINE | The learning ledger: `judge.label` everywhere, system labels, the nightly report tender, holdouts, the report page. **Done 2026-10-04** (Part III Item 129) | 24, 25a, 25b |
 | 25d | 25 | SPINE | Replay, audit, and backfill (backfill runs on Eddie's history only after consent) | 25c |
 | 26a | 26 | SPINE | The ladder: `pack.mode`, config ceilings, arms, promote and rollback, `security.v1`'s approval card | 25c |
 | 25f | 25 | SPINE | The learning loop: the owner's labels rewrite a pack's text as a learned version, checked by a replay, placed by its numbers through the ladder (§2.17) | 25c, 25d, 26a |
 | 26b | 26 | SPINE | JUDGE_STOP live for tasks under canary: the `Judged` Advancer, live judgments as kernel actions, the nudge | 26a |
 | 26c | 26 | SPINE | The roles table, `role.v1` under canary: the hint note and the role line | 26a, 25a |
-| 27 | 27 | SPINE | The arrangement on `task.create`: references, refusal, the fidelity check, pieces admitted by reference | 23a (for the `should_promote` comparison only); DD7 (built) |
-| 28a | 28 | SPINE | Independence: `check_of`, the exclusion set, the overlap flag, the basis | 27 |
-| 28b | 28 | SPINE | `categorize.v1` in shadow; `tasks.parked` in health | M4 step 21 (the kinds table, topics); 23a |
-| L3 | exit | LANE | `theseus judge prove`: the exit metrics, as a report generator, plus a one-command wire-in | L2; 26b for data |
+| 27 | 27 | SPINE | The arrangement on `task.create`: references, refusal, the fidelity check, pieces admitted by reference. **Done 2026-10-04** (theseus-vug.2; Part III Item 113) | 23a (for the `should_promote` comparison only); DD7 (built) |
+| 28a | 28 | SPINE | Independence: `check_of`, the exclusion set, the overlap flag, the basis. **Done 2026-10-04** (Part III Item 132; store format 14) | 27 |
+| 28b | 28 | SPINE | `categorize.v1` in shadow; `tasks.parked` in health. **Done 2026-10-04** (Part III Item 126) | M4 step 21 (the kinds table, topics); 23a |
+| L3 | exit | LANE | `theseus judge prove`: the exit metrics, as a report generator, plus a one-command wire-in. **The generator built 2026-10-04** (theseus-0j2.2; Part III Item 101): `prove.rs` and the crate's binary, `theseus-judge prove <records.jsonl> [--json P|-] [--markdown P|-] [--min-tasks N] [--min-labeled N]`, over one JSON record per finished task (`task`, `arm`, `success` or `null`, `spend_micros` with the judge's calls, `judge_micros`, `turns`, `nudges`, `unnecessary_nudges`, `false_completion`, `stops`); the one-command wire-in is row 50 | L2; 26b for data |
 
 ### Each step's tests and live check
 
@@ -675,7 +731,7 @@ modes.
 - *Live check:* `jev-probe --pack <pack> --input <fixture>` for each of the six: every answer parses, and its
   bands are computed. About a tenth of a cent in all.
 
-**23a. The wire-in, and the first shadow pack** (SPINE)
+**23a. The wire-in, and the first shadow pack** (SPINE) _(As built 2026-10-04, Part III Item 105: these tests, with the frame-budget one a judged plain turn within its 5 frames; the lifecycle bench with the judge on held every phase, and an A/B of frozen builds moved none; the live check was one turn with the real key, its request digest the same with the judge on and off.)_
 - *Tests* (core, with the fake):
   - a turn ending `no_tool_calls` dispatches one `loop.v1` judgment, whose row is keyed and scoped, and whose
     blob exists;
@@ -718,13 +774,13 @@ modes.
   with the cost split by question count; no judgment for a slash command, a wake's turn, a report's turn, or a
   task's first turn.
 - *Live check:* three scratch messages: a new ask, a fragment ("and the tests too"), and "stop" typed as plain
-  text. The log shows the kinds, and the roles guessed.
+  text. The log shows the kinds, and the roles guessed. _As built (Part III Item 121): the roles are the spec's twelve seed rows, compiled in as data (`SEED_ROLES`) until 26c's table, with `current_role` none; Eddie kept them at 11:00 (decision 8)._
 
 **25b. CONTINUE** (SPINE)
 - *Tests:* pure `compile()` tests, one per signal; no signal, no judgment; a deterministic trigger, no
   judgment. The signals' thresholds are config (`[judge.signals]`), so tests and live checks can shorten them.
 - *Live check:* with `dormancy_minutes = 1`, a turn after a two-minute gap shows the signal on
-  `context.compiled` and a `continue.v1` judgment.
+  `context.compiled` and a `continue.v1` judgment. _As built (Part III Item 122): the live check at the review used `dormancy_minutes = 1` and a 75 s gap, and showed `dormancy` 1 on the append and a `continue.v1` judgment (`decision=append 0.78 confirm`); every signal is measured since the model's last answer, and a signal is a value and words (§2.4)._
 
 **25c. The learning ledger** (SPINE)
 - *Tests:*
