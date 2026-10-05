@@ -269,10 +269,17 @@ impl Core {
         })?;
         let l = self.runner.judge.ladder();
         let s = l.standing(&ask.pack);
+        // A learned version with no row of its own stands nowhere: off.
+        let placed_before = l.rows_of(&ask.pack).iter().any(|r| !r.declined);
         let row = PackModeRow {
             pack: ask.pack.clone(),
             mode: ask.to.as_str().into(),
-            from: s.rung.as_str().into(),
+            from: if placed_before {
+                s.rung.as_str()
+            } else {
+                Rung::Off.as_str()
+            }
+            .into(),
             share: ask.share,
             who: rules::SYSTEM.into(),
             by: "learning".into(),

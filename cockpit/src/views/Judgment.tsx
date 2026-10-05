@@ -119,7 +119,7 @@ export default function Judgment() {
           <PackLadder readOnly={!!world} />
         </Panel>
 
-        <Panel title="Versions" icon={<GitCompare size={14} />}>
+        <Panel title="Versions" icon={<GitCompare size={14} />} bodyClassName="max-h-[360px] overflow-auto">
           <PackVersions readOnly={!!world} />
         </Panel>
 

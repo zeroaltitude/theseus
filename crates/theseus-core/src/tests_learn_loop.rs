@@ -371,6 +371,7 @@ async fn a_live_parents_candidate_below_the_minimum_goes_to_the_canary() {
     assert_eq!((row.mode.as_str(), row.share), ("canary", Some(0.2)));
     assert_eq!(row.report.as_deref(), Some(p.id.as_str()));
     assert!(!row.forced && row.who == "system", "{row:?}");
+    assert_eq!(row.from, "off", "a learned version stood nowhere before");
 }
 
 /// A writer's file that moves the builder is refused, and placed nowhere.
