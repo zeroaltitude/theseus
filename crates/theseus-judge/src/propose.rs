@@ -210,41 +210,94 @@ pub fn file_in(reply: &str) -> &str {
     }
 }
 
+/// The key of a line `key = value` (comments and blank lines give none).
+fn key_of(line: &str) -> Option<&str> {
+    let t = line.trim_start();
+    if t.starts_with('#') || t.starts_with('[') {
+        return None;
+    }
+    t.split_once('=').map(|(k, _)| k.trim())
+}
+
+/// `text` with the first line keyed `key` inside `[section]` (the top level
+/// when none) set to `key = value`, its layout and every other line kept;
+/// none when no such line is there.
+fn set_line(text: &str, section: Option<&str>, key: &str, value: &str) -> Option<String> {
+    let mut inside = section.is_none();
+    let mut done = false;
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            inside = section.is_some_and(|s| t == format!("[{s}]"));
+        }
+        if inside && !done && key_of(line) == Some(key) {
+            out.push(format!("{key} = {value}"));
+            done = true;
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    done.then(|| out.join("\n") + "\n")
+}
+
+/// The same file re-serialized with `edit` applied: the fallback when a
+/// line to set is not where `set_line` looks (the writer moved it).
+fn reserialize(text: &str, edit: impl FnOnce(&mut toml::Table)) -> Result<String, String> {
+    let mut table: toml::Table = toml::from_str(text).map_err(|e| e.message().to_string())?;
+    edit(&mut table);
+    toml::to_string(&table).map_err(|e| e.to_string())
+}
+
 /// The candidate from a writer's reply: its pack file, numbered `version`,
 /// loaded by `Pack::parse` (every loader rule), and checked to change only
-/// text. Returns the file as stored and the pack.
+/// text. The file is stored as the writer gave it, its `version` line set,
+/// so its diff against its parent is the writer's wording alone. Returns
+/// the file as stored and the pack.
 pub fn candidate_from_reply(
     parent: &Pack,
     reply: &str,
     version: u32,
 ) -> Result<(String, Pack), String> {
-    let mut table: toml::Table = toml::from_str(file_in(reply))
+    let file = file_in(reply);
+    toml::from_str::<toml::Table>(file)
         .map_err(|e| format!("the writer's file is not TOML: {}", e.message()))?;
-    table.insert("version".into(), toml::Value::Integer(i64::from(version)));
-    let text = toml::to_string(&table).map_err(|e| e.to_string())?;
+    let text = match set_line(file, None, "version", &version.to_string()) {
+        Some(t) => t,
+        None => reserialize(file, |t| {
+            t.insert("version".into(), toml::Value::Integer(i64::from(version)));
+        })?,
+    };
     let pack = Pack::parse(&text).map_err(|e| format!("the writer's file does not load: {e}"))?;
     text_only(parent, &pack)?;
     Ok((text, pack))
 }
 
 /// The same file with each question's thresholds set from `thresholds`
-/// (the re-fit's), loaded again.
+/// (the re-fit's), each in its own line where it stands, loaded again.
 pub fn with_thresholds(
     text: &str,
     thresholds: &BTreeMap<String, Thresholds>,
 ) -> Result<(String, Pack), String> {
-    let mut table: toml::Table = toml::from_str(text).map_err(|e| e.message().to_string())?;
-    if let Some(toml::Value::Table(qs)) = table.get_mut("questions") {
-        for (id, t) in thresholds {
-            if let Some(toml::Value::Table(q)) = qs.get_mut(id) {
-                q.insert("act".into(), toml::Value::Float(t.act));
-                q.insert("confirm".into(), toml::Value::Float(t.confirm));
-            }
-        }
+    let mut out = text.to_string();
+    for (id, t) in thresholds {
+        let section = format!("questions.{id}");
+        let lined = set_line(&out, Some(&section), "act", &format!("{:.2}", t.act))
+            .and_then(|o| set_line(&o, Some(&section), "confirm", &format!("{:.2}", t.confirm)));
+        out = match lined {
+            Some(o) => o,
+            None => reserialize(&out, |table| {
+                if let Some(toml::Value::Table(qs)) = table.get_mut("questions") {
+                    if let Some(toml::Value::Table(q)) = qs.get_mut(id) {
+                        q.insert("act".into(), toml::Value::Float(t.act));
+                        q.insert("confirm".into(), toml::Value::Float(t.confirm));
+                    }
+                }
+            })?,
+        };
     }
-    let text = toml::to_string(&table).map_err(|e| e.to_string())?;
-    let pack = Pack::parse(&text).map_err(|e| e.to_string())?;
-    Ok((text, pack))
+    let pack = Pack::parse(&out).map_err(|e| e.to_string())?;
+    Ok((out, pack))
 }
 
 // --------------------------------------------------------------- re-fit
@@ -635,6 +688,34 @@ mod tests {
         let (stored, cand) = candidate_from_reply(&parent, &reply, 101).unwrap();
         assert_eq!(cand.name(), "classify.v101");
         assert!(stored.contains("bare word"));
+        // Stored as the writer wrote it, its version line set: the diff
+        // against the parent is the wording and the version alone.
+        let changed: Vec<(&str, &str)> = text
+            .lines()
+            .zip(stored.lines())
+            .filter(|(a, b)| a != b)
+            .collect();
+        assert_eq!(changed.len(), 2, "{changed:?}");
+        assert_eq!(changed[0].1, "version = 101");
+        // A re-fit sets its own lines, the rest kept.
+        let fit = BTreeMap::from([(
+            "kind".to_string(),
+            Thresholds {
+                act: 0.85,
+                confirm: 0.6,
+            },
+        )]);
+        let (refit_text, refit) = with_thresholds(&stored, &fit).unwrap();
+        assert_eq!(refit.question("kind").unwrap().thresholds.act, 0.85);
+        assert_eq!(refit.question("fragment").unwrap().thresholds.act, 0.9);
+        let moved = stored
+            .lines()
+            .zip(refit_text.lines())
+            .filter(|(a, b)| a != b)
+            .count();
+        // kind's act alone: its confirm (0.60) is written as it was.
+        assert_eq!(moved, 1);
+        assert!(refit_text.contains("act = 0.85"));
         let moved = text.replace("[questions.fragment]", "[questions.piece]");
         let e = candidate_from_reply(&parent, &moved, 101).unwrap_err();
         assert!(e.contains("questions' ids"), "{e}");
