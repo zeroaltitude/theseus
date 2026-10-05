@@ -261,6 +261,17 @@ impl JudgeService {
         })
     }
 
+    /// Whether Jev can answer now: its key settled or settling, and its
+    /// breaker not open. While it cannot, a session routing moved runs on
+    /// its own profile again (theseus-9yyr).
+    pub fn reachable(&self) -> bool {
+        let key = matches!(
+            self.secrets.states().get(&self.cfg.key_secret),
+            Some(crate::secrets::SecretState::Ready(_) | crate::secrets::SecretState::Resolving)
+        );
+        key && !self.breaker_open()
+    }
+
     /// The blocking half before the call: the state's build and blob, one
     /// ask per pack, and the reservation. `None`: nothing to send.
     fn prepare_inbound(

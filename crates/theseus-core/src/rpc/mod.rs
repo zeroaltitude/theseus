@@ -659,6 +659,8 @@ impl Core {
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
             judge,
+            // Read at a routed session's first turn, never on the start path.
+            live_switched: Default::default(),
         };
         // Every call that acts goes to the judge at its gate (M5 step 24).
         let _ = runner.tools.judge.set(runner.judge.clone());

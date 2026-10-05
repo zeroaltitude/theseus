@@ -21,8 +21,13 @@ impl TurnRunner {
         let class = t.tc.class;
         let place = self.outbox.try_target(t.tc.session_id).ok().flatten();
         // route.v1 (25e): live, or shadow for a turn whose profile the
-        // owner chose; its verdict's channel waits for the first compile.
-        let route = self.route_mode(t.target, t.tc.session_id);
+        // owner chose; its verdict's channel waits for the first compile. A
+        // routed session's turn read it at its start (theseus-9yyr).
+        let route = t
+            .route
+            .read
+            .take()
+            .unwrap_or_else(|| self.route_mode(t.target, t.tc.session_id));
         // A pin after a routed turn counts on route.v1's ladder (26a).
         if t.target.chosen.is_some() {
             self.judge.pinned(t.tc.session_id, &t.target.profile);
