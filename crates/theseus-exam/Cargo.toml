@@ -7,9 +7,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# The reader rule (theseus-wjy): a tool, an installed binary of its own.
+# The reader rule (theseus-wjy): a tool, a binary of its own. It is the one tool no install ships (scripts/build.sh's
+# `shipped`), so it says why (theseus-g7qp).
 [package.metadata.theseus]
 tool = "run by hand beside theseusd: M6's memory exam, which starts one scratch daemon per `[memory] arm` and writes the report (step 34b)"
+run_from_tree = "the exam is a measurement, not a part of a running Theseus: whoever runs it builds it from a checkout (`cargo run -p theseus-exam`), so an install never copies it"
 
 [[bin]]
 name = "theseus-exam"

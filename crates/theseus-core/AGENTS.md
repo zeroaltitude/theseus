@@ -723,7 +723,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_push.rs`, `tests_config.rs`, `tests_books.rs` (a fault at each exit after a paid loop still closes the
   books, R1), `tests_refused.rs` (a corrupt record skipped, counted, and the driver still continuing, R4), and
   `rpc/tests.rs`.
-- `tests_registry.rs` is the reader rule's test. The gate runs it alone, before the suite.
+- `tests_registry.rs` is the reader rule's test. The gate runs it alone, before the suite. A `tool` marker is held
+  to the install list, read as text (`scripts/build.sh`'s `shipped`, and `scripts/setup.sh`'s `SHIPPED`, its copy);
+  a tool no install ships says why beside it (`run_from_tree`, theseus-exam's). A use of `EdgeKind`, `Event`, or
+  `LedgerKind` counts only where the type named is its home's (`Home`): a path that resolves there
+  (`graph::EdgeKind::X` after `use crate::graph;`), or a bare name in a file that imports the home's type by name
+  and no other of that name; theseus-memory's own `EdgeKind` reads nothing of ours (theseus-g7qp).
 - `tests_layouts.rs` holds the store's version rule (P5b; theseus-ptx1): one table of every old record layout on
   disk somewhere, each a literal its build wrote (the 460a35b fixture's records, and each layout since). Each must
   decode, keep every field but the ones it names, and survive a round trip. A step that adds a field to a stored

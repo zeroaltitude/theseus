@@ -9,6 +9,11 @@
 //!   `[package.metadata.theseus] tool = "<what runs it>"`), or its manifest
 //!   says `reserved_for`. It reads the `Cargo.toml` files: `cargo metadata`
 //!   takes most of a second.
+//! - **The install list** (theseus-g7qp). A `tool` is a reader only if it is
+//!   installed: `scripts/build.sh`'s `shipped` names it (and `scripts/setup.sh`'s
+//!   `SHIPPED`, its copy, agrees), or its manifest says why a checkout runs it
+//!   instead (`run_from_tree = "<why>"`). Every root ships, and every shipped
+//!   package is a root or a tool. The scripts are read as text.
 //! - **Methods.** Every `method::*` name has its dispatch arm: a core answers
 //!   it with anything but "method not found".
 //! - **Notifications.** Every `notify::*` name has its `Event`, and every
@@ -132,6 +137,9 @@ struct Member {
     deps: Vec<String>,
     reserved_for: Option<String>,
     tool: Option<String>,
+    /// Why a tool is not installed, and who runs it from the tree instead
+    /// (`run_from_tree = "<why>"`): a tool the install lists leave out says so.
+    run_from_tree: Option<String>,
     has_bin: bool,
     /// What is wrong with its `[package.metadata.theseus]`.
     problems: Vec<String>,
@@ -223,7 +231,8 @@ fn member(root: &Path, dir: &str, shared: &BTreeMap<&str, &str>) -> Member {
         deps.push(built.to_string());
     }
 
-    let (mut reserved_for, mut tool, mut problems) = (None, None, Vec::new());
+    let (mut reserved_for, mut tool, mut run_from_tree) = (None, None, None);
+    let mut problems = Vec::new();
     if let Some(marks) = package.get("metadata").and_then(|m| m.get("theseus")) {
         let Some(marks) = marks.as_table() else {
             panic!("{path}: [package.metadata.theseus] is not a table");
@@ -238,8 +247,10 @@ fn member(root: &Path, dir: &str, shared: &BTreeMap<&str, &str>) -> Member {
             match key.as_str() {
                 "reserved_for" => reserved_for = Some(text.to_string()),
                 "tool" => tool = Some(text.to_string()),
+                "run_from_tree" => run_from_tree = Some(text.to_string()),
                 _ => problems.push(format!(
-                    "{path}: `{key}` under [package.metadata.theseus] is no marker: `reserved_for` or `tool`"
+                    "{path}: `{key}` under [package.metadata.theseus] is no marker: `reserved_for`, \
+                     `tool`, or `run_from_tree`"
                 )),
             }
         }
@@ -257,6 +268,7 @@ fn member(root: &Path, dir: &str, shared: &BTreeMap<&str, &str>) -> Member {
         deps,
         reserved_for,
         tool,
+        run_from_tree,
         has_bin,
         problems,
     }
@@ -347,7 +359,279 @@ fn every_crate_is_read_by_a_binary_or_reserved() {
     fail_on(problems);
 }
 
+// ---------------------------------------------------------------- the install lists
+
+/// The install list (theseus-g7qp): `scripts/build.sh`'s `shipped`, which the
+/// gate's features phase reads, and its copy, `scripts/setup.sh`'s `SHIPPED`.
+const BUILD_SH: (&str, &str) = ("scripts/build.sh", "shipped");
+const SETUP_SH: (&str, &str) = ("scripts/setup.sh", "SHIPPED");
+
+/// The words of the bash array `<name>=(…)` that starts a line of `text`, read
+/// as text (no shell runs): `None` when no line starts it.
+fn shell_list(text: &str, name: &str) -> Option<Vec<String>> {
+    let head = format!("{name}=(");
+    let line = text
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix(&head))?;
+    let (words, _) = line.split_once(')')?;
+    Some(words.split_whitespace().map(str::to_string).collect())
+}
+
+/// The list `(file, name)` names, from the workspace's root: an empty list and
+/// a problem when the file holds none.
+fn install_list((file, name): (&str, &str), problems: &mut Vec<String>) -> Vec<String> {
+    let text = std::fs::read_to_string(workspace_root().join(file)).unwrap_or_default();
+    shell_list(&text, name).unwrap_or_else(|| {
+        problems.push(format!(
+            "{file} has no `{name}=(…)` line: the reader rule's registry test reads the install \
+             list there, so put it back, or change `BUILD_SH`/`SETUP_SH` in tests_registry.rs to \
+             where it is now"
+        ));
+        Vec::new()
+    })
+}
+
+/// What is wrong between the members' markers and the install lists: `build`
+/// from build.sh, `setup` its copy in setup.sh. A root ships; a shipped package
+/// is a root or a tool; a tool ships, or says `run_from_tree` with why.
+fn install_problems(members: &[Member], build: &[String], setup: &[String]) -> Vec<String> {
+    let (b, s) = (BUILD_SH.0, SETUP_SH.0);
+    let mut problems = Vec::new();
+    if build != setup {
+        let alone = |of: &[String], other: &[String]| -> Vec<String> {
+            of.iter()
+                .filter(|p| !other.contains(p))
+                .map(|p| format!("`{p}`"))
+                .collect()
+        };
+        let mut what = Vec::new();
+        for (file, of, other) in [(s, setup, build), (b, build, setup)] {
+            let names = alone(of, other);
+            if !names.is_empty() {
+                what.push(format!("{} only in {file}", names.join(", ")));
+            }
+        }
+        if what.is_empty() {
+            what.push("the same packages in another order".to_string());
+        }
+        problems.push(format!(
+            "{s}'s `{}` ({}) differs from {b}'s `{}` ({}): {}. setup.sh's is a copy of \
+             build.sh's (the gate's features phase reads build.sh's): make it match",
+            SETUP_SH.1,
+            setup.join(" "),
+            BUILD_SH.1,
+            build.join(" "),
+            what.join("; ")
+        ));
+    }
+    let by_name: BTreeMap<&str, &Member> = members.iter().map(|m| (m.name.as_str(), m)).collect();
+    for p in build {
+        let Some(m) = by_name.get(p.as_str()) else {
+            problems.push(format!(
+                "{b}'s `{}` ships `{p}`, which is no workspace member: remove it from that list \
+                 and {s}'s `{}`",
+                BUILD_SH.1, SETUP_SH.1
+            ));
+            continue;
+        };
+        if !ROOTS.contains(&p.as_str()) && m.tool.is_none() {
+            problems.push(format!(
+                "crate `{p}` is shipped ({b}'s `{}`), but is neither a root (`ROOTS` in \
+                 tests_registry.rs) nor a tool: in {}/Cargo.toml, `[package.metadata.theseus] \
+                 tool = \"<what runs it>\"`, or remove it from {b}'s `{}` and {s}'s `{}`",
+                BUILD_SH.1, m.dir, BUILD_SH.1, SETUP_SH.1
+            ));
+        }
+    }
+    for root in ROOTS {
+        if !build.iter().any(|p| p == root) {
+            problems.push(format!(
+                "root `{root}` is not shipped: add it to {b}'s `{}` and {s}'s `{}`, or remove it \
+                 from `ROOTS` in tests_registry.rs",
+                BUILD_SH.1, SETUP_SH.1
+            ));
+        }
+    }
+    for m in members {
+        let (name, path) = (&m.name, format!("{}/Cargo.toml", m.dir));
+        let shipped = build.contains(name);
+        match (&m.tool, &m.run_from_tree, shipped) {
+            (Some(_), None, false) => problems.push(format!(
+                "crate `{name}` says `tool` in {path}, but is not shipped: an installed binary of \
+                 its own is in {b}'s `{}` and {s}'s `{}`, so add it there; or, for a tool run from \
+                 a checkout and never installed, say why in {path}: `run_from_tree = \"<why, and \
+                 who runs it>\"`",
+                BUILD_SH.1, SETUP_SH.1
+            )),
+            (Some(_), Some(_), true) => problems.push(format!(
+                "crate `{name}` is shipped ({b}'s `{}`), so its `run_from_tree` is stale: remove \
+                 it from {path}",
+                BUILD_SH.1
+            )),
+            (None, Some(_), _) => problems.push(format!(
+                "crate `{name}` says `run_from_tree` in {path}, but is no tool: `run_from_tree` \
+                 says why a `tool` is not installed, so add the `tool` or remove it"
+            )),
+            _ => {}
+        }
+    }
+    problems
+}
+
+/// Every tool is installed, or says why it runs from the tree; every root
+/// ships; build.sh's list and setup.sh's copy agree (theseus-g7qp). A `tool`
+/// marker makes a crate its own reader, so the test holds the claim against the
+/// list an install copies.
+#[test]
+fn every_tool_is_installed_or_run_from_the_tree() {
+    let mut problems = Vec::new();
+    let build = install_list(BUILD_SH, &mut problems);
+    let setup = install_list(SETUP_SH, &mut problems);
+    problems.extend(install_problems(&members(), &build, &setup));
+    fail_on(problems);
+}
+
+/// A member built in a test: `tool` and `run_from_tree` as given.
+fn fixture(name: &str, tool: bool, run_from_tree: bool) -> Member {
+    Member {
+        name: name.to_string(),
+        dir: format!("crates/{name}"),
+        deps: Vec::new(),
+        reserved_for: None,
+        tool: tool.then(|| "runs itself".to_string()),
+        run_from_tree: run_from_tree.then(|| "a checkout runs it".to_string()),
+        has_bin: true,
+        problems: Vec::new(),
+    }
+}
+
+/// Each way a marker and the install lists disagree fails, naming the crate,
+/// the file, and the fix.
+#[test]
+fn the_install_lists_fail_each_disagreement() {
+    let list = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+    let mut members = vec![
+        fixture("theseusd", false, false),
+        fixture("theseus", false, false),
+        fixture("quill-tool", true, false),
+        fixture("quill-exam", true, true),
+        fixture("quill-lib", false, false),
+    ];
+    let good = list("theseusd theseus quill-tool");
+    assert_eq!(
+        install_problems(&members, &good, &good),
+        Vec::<String>::new()
+    );
+    members.push(fixture("quill-odd", false, true));
+    let base = "theseusd theseus quill-tool";
+    // (build.sh's list, setup.sh's, what the one problem says)
+    let cases: [(&str, &str, &[&str]); 8] = [
+        // The copy differs: a fourth package in setup.sh's alone, or another order.
+        (
+            base,
+            "theseusd theseus quill-tool quill-lib",
+            &[
+                "scripts/setup.sh",
+                "`quill-lib` only in scripts/setup.sh",
+                "make it match",
+            ],
+        ),
+        (base, "theseus theseusd quill-tool", &["another order"]),
+        // A shipped package that is neither a root nor a tool.
+        (
+            "theseusd theseus quill-tool quill-lib",
+            "theseusd theseus quill-tool quill-lib",
+            &[
+                "crate `quill-lib`",
+                "crates/quill-lib/Cargo.toml",
+                "tool = ",
+            ],
+        ),
+        // A shipped package that is no member.
+        (
+            "theseusd theseus quill-tool quill-gone",
+            "theseusd theseus quill-tool quill-gone",
+            &["`quill-gone`", "no workspace member", "scripts/build.sh"],
+        ),
+        // A root not shipped.
+        (
+            "theseusd quill-tool",
+            "theseusd quill-tool",
+            &["root `theseus`", "scripts/build.sh", "scripts/setup.sh"],
+        ),
+        // A tool neither shipped nor run from the tree.
+        (
+            "theseusd theseus",
+            "theseusd theseus",
+            &[
+                "crate `quill-tool`",
+                "crates/quill-tool/Cargo.toml",
+                "run_from_tree = ",
+            ],
+        ),
+        // A shipped tool that still says it runs from the tree.
+        (
+            "theseusd theseus quill-tool quill-exam",
+            "theseusd theseus quill-tool quill-exam",
+            &[
+                "crate `quill-exam`",
+                "stale",
+                "crates/quill-exam/Cargo.toml",
+            ],
+        ),
+        // `run_from_tree` with no `tool` (quill-odd, in every case but the
+        // first two lists'; here alone).
+        (
+            base,
+            base,
+            &[
+                "crate `quill-odd`",
+                "no tool",
+                "crates/quill-odd/Cargo.toml",
+            ],
+        ),
+    ];
+    for (build, setup, parts) in cases {
+        let mut problems = install_problems(&members, &list(build), &list(setup));
+        // quill-odd's own problem rides along in every case: set it aside.
+        if parts[0] != "crate `quill-odd`" {
+            problems.retain(|p| !p.starts_with("crate `quill-odd`"));
+        }
+        assert_eq!(problems.len(), 1, "{build} / {setup}: {problems:#?}");
+        for part in parts {
+            assert!(
+                problems[0].contains(part),
+                "{part:?} is not in {:?}",
+                problems[0]
+            );
+        }
+    }
+}
+
+/// The install list is read as text: a bash array that starts a line.
+#[test]
+fn an_install_list_is_read_from_its_line() {
+    let list = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(
+        shell_list(
+            "x=1\n  shipped=(a b-c d) # a comment\nSHIPPED=(z)\n",
+            "shipped"
+        ),
+        Some(list("a b-c d"))
+    );
+    assert_eq!(shell_list("x=1\nSHIPPED=(z)\n", "SHIPPED"), Some(list("z")));
+    assert_eq!(shell_list("unshipped=(a)\n", "shipped"), None);
+}
+
 // ---------------------------------------------------------------- the protocol
+
+/// This crate's directory, with its name as a path names it.
+fn core_dir() -> (String, PathBuf) {
+    (
+        "theseus_core".to_string(),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+    )
+}
 
 /// A core on a fresh store in `dir`: the example config, a fake provider.
 fn core_in(dir: &Path) -> Arc<Core> {
@@ -438,7 +722,7 @@ async fn every_method_has_its_dispatch_arm() {
 #[test]
 fn every_notification_has_its_event_and_a_sender() {
     let events: BTreeMap<&str, &str> = Event::VARIANTS.iter().map(|(v, m)| (*m, *v)).collect();
-    let uses = uses_of(&[PathBuf::from(env!("CARGO_MANIFEST_DIR"))], &["Event"]);
+    let uses = uses_of(&[core_dir()], &[EVENT]);
     let mut problems = Vec::new();
     for name in notify::ALL {
         let variant = events.get(name);
@@ -479,15 +763,7 @@ fn every_notification_has_its_event_and_a_sender() {
 /// every kind by its name, the ones this build no longer writes included.
 #[test]
 fn every_ledger_kind_is_written() {
-    let members = members();
-    let reached = reached(&members);
-    let root = workspace_root();
-    let dirs: Vec<PathBuf> = members
-        .iter()
-        .filter(|m| reached.contains_key(&m.name))
-        .map(|m| root.join(&m.dir))
-        .collect();
-    let uses = uses_of(&dirs, &["LedgerKind"]);
+    let uses = uses_of(&reached_dirs(&members()), &[LEDGER_KIND]);
     let mut problems = Vec::new();
     for k in LedgerKind::ALL {
         let variant = format!("LedgerKind::{k:?}");
@@ -515,25 +791,29 @@ fn every_edge_kind_has_its_reader() {
         .iter()
         .any(|(.., variants)| !variants.is_empty())
     {
-        let members = members();
-        let reached = reached(&members);
-        let root = workspace_root();
-        let dirs: Vec<PathBuf> = members
-            .iter()
-            .filter(|m| reached.contains_key(&m.name))
-            .map(|m| root.join(&m.dir))
-            .collect();
-        uses_of(&dirs, &["EdgeKind"])
+        uses_of(&reached_dirs(&members()), &[EDGE_KIND])
     } else {
         Uses::default()
     };
     let mut problems = Vec::new();
     for (kind, what, ty, variants) in vocabularies {
         for (variant, name) in variants {
-            match (uses.read.get(&format!("{ty}::{variant}")), reserved(kind, name)) {
+            let key = format!("{ty}::{variant}");
+            // A use the scan could not count as theseus-core's (theseus-g7qp).
+            let unowned = uses
+                .unowned
+                .get(&key)
+                .map_or_else(String::new, |(file, why)| {
+                    format!(
+                        " {file} names `{key}`, but {why}, so it counts for nothing: if it means \
+                     theseus-core's, name it there as `graph::{key}` (after `use crate::graph;`)."
+                    )
+                });
+            match (uses.read.get(&key), reserved(kind, name)) {
                 (None, None) => problems.push(format!(
-                    "{what} `{name}` (`{ty}::{variant}`) has no reader: no code the binaries run, its \
-                     tests aside, matches it, binds it in a pattern, or compares it with `==`. {}",
+                    "{what} `{name}` (`{key}`) has no reader: no code the binaries run, its tests \
+                     aside, matches it, binds it in a pattern, or compares it with `==`, naming \
+                     theseus-core's.{unowned} {}",
                     fix(
                         &format!("a reader of `{ty}::{variant}`"),
                         &format!("{kind} {name}"),
@@ -605,6 +885,9 @@ fn print_the_reserved_list() {
     println!("\nTools, readers of their own:");
     for m in members.iter().filter(|m| m.tool.is_some()) {
         println!("- `{}`: {}", m.name, m.tool.as_deref().unwrap_or_default());
+        if let Some(why) = &m.run_from_tree {
+            println!("  - run from the tree, not installed: {why}");
+        }
     }
 }
 
@@ -617,16 +900,66 @@ fn print_the_reserved_list() {
 struct Uses {
     built: BTreeMap<String, String>,
     read: BTreeMap<String, String>,
+    /// A use that counts for nothing, since the type it names is not its
+    /// home's, or the scan can't tell (theseus-g7qp): the first file, and why.
+    unowned: BTreeMap<String, (String, &'static str)>,
 }
 
-/// What the code of each crate directory in `dirs`, its tests aside, does with
-/// the variants of `types`. Only a file that names one of them is read as
-/// tokens, so a string or a comment never counts.
-fn uses_of(dirs: &[PathBuf], types: &[&str]) -> Uses {
+/// Where a type the scan counts lives (theseus-g7qp): a use counts only where
+/// the type it names is this one, not another crate's or a private one of the
+/// same name.
+#[derive(Debug, Clone, Copy)]
+struct Home {
+    ty: &'static str,
+    /// Its crate, as a path names it.
+    krate: &'static str,
+    /// The modules of its crate a path may name it through (`""`: the root).
+    modules: &'static [&'static str],
+    /// The file that defines it, from the workspace's root: a bare name there
+    /// is its own.
+    file: &'static str,
+}
+
+const EDGE_KIND: Home = Home {
+    ty: "EdgeKind",
+    krate: "theseus_core",
+    modules: &["graph"],
+    file: "crates/theseus-core/src/graph.rs",
+};
+const EVENT: Home = Home {
+    ty: "Event",
+    krate: "theseus_protocol",
+    modules: &["", "events"],
+    file: "crates/theseus-protocol/src/events.rs",
+};
+const LEDGER_KIND: Home = Home {
+    ty: "LedgerKind",
+    krate: "theseus_protocol",
+    modules: &["", "ledger"],
+    file: "crates/theseus-protocol/src/ledger.rs",
+};
+
+/// The crate directories of the members the binaries reach, each with its
+/// crate's name as a path names it.
+fn reached_dirs(members: &[Member]) -> Vec<(String, PathBuf)> {
+    let reached = reached(members);
     let root = workspace_root();
-    let needles: Vec<String> = types.iter().map(|t| format!("{t}::")).collect();
+    members
+        .iter()
+        .filter(|m| reached.contains_key(&m.name))
+        .map(|m| (m.name.replace('-', "_"), root.join(&m.dir)))
+        .collect()
+}
+
+/// What the code of each crate directory in `dirs` (with its crate's name),
+/// its tests aside, does with the variants of the types `homes` place. Only a
+/// file that names one of them is read as tokens, so a string or a comment
+/// never counts.
+fn uses_of(dirs: &[(String, PathBuf)], homes: &[Home]) -> Uses {
+    let root = workspace_root();
+    let needles: Vec<String> = homes.iter().map(|h| format!("{}::", h.ty)).collect();
     let mut uses = Uses::default();
-    for dir in dirs {
+    for (krate, dir) in dirs {
         for file in code_files(dir) {
             let text = std::fs::read_to_string(&file).unwrap();
             if !needles.iter().any(|n| text.contains(n.as_str())) {
@@ -642,7 +975,7 @@ fn uses_of(dirs: &[PathBuf], types: &[&str]) -> Uses {
                 .unwrap_or(&file)
                 .display()
                 .to_string();
-            uses_in(&without_tests(toks), types, &at, &mut uses);
+            uses_in(&without_tests(toks), homes, krate, &at, &mut uses);
         }
     }
     uses
@@ -818,29 +1151,249 @@ fn without_tests(toks: Vec<Tok>) -> Vec<Tok> {
     out
 }
 
-/// Records each `<Type>::<Variant>` in `toks`, of `types`, as built or read.
-fn uses_in(toks: &[Tok], types: &[&str], at: &str, uses: &mut Uses) {
-    for (i, tok) in toks.iter().enumerate() {
-        let Tok::Ident(ty) = tok else { continue };
-        if !types.contains(&ty.as_str()) {
+/// Records each `<Type>::<Variant>` in `toks`, of the types `homes` place, as
+/// built or read, where the type it names is its home's (theseus-g7qp): a path
+/// at the site that resolves to the home (`crate::graph::EdgeKind`, or
+/// `graph::EdgeKind` after `use crate::graph;`), a bare name in a file that
+/// imports the home's type by name and no other of that name, or a bare name in
+/// the home's own file. Anything else names another type, or one the scan
+/// can't place, and goes to `unowned` with why. `krate` is the file's crate, as
+/// a path names it. One pass over the tokens: the imports and the sites, then
+/// each site's verdict.
+fn uses_in(toks: &[Tok], homes: &[Home], krate: &str, at: &str, uses: &mut Uses) {
+    let mut imports: Vec<(String, Vec<String>)> = Vec::new();
+    let mut defined: Vec<&str> = Vec::new();
+    let mut sites: Vec<(&Home, String, bool, Vec<String>)> = Vec::new();
+    let mut i = 0;
+    while i < toks.len() {
+        let Tok::Ident(word) = &toks[i] else {
+            i += 1;
+            continue;
+        };
+        if word == "use" {
+            i = use_item(toks, i + 1, krate, &mut imports);
             continue;
         }
+        if matches!(
+            word.as_str(),
+            "enum" | "struct" | "type" | "trait" | "union"
+        ) {
+            if let Some(Tok::Ident(name)) = toks.get(i + 1) {
+                defined.extend(homes.iter().filter(|h| h.ty == name).map(|h| h.ty));
+            }
+            i += 1;
+            continue;
+        }
+        let Some(home) = homes.iter().find(|h| h.ty == word) else {
+            i += 1;
+            continue;
+        };
         let (Some(Tok::Punct(':', true)), Some(Tok::Punct(':', false)), Some(Tok::Ident(variant))) =
             (toks.get(i + 1), toks.get(i + 2), toks.get(i + 3))
         else {
+            i += 1;
             continue;
         };
         // `Type::Assoc::…` names no variant.
-        if matches!(toks.get(i + 4), Some(Tok::Punct(':', true))) {
-            continue;
+        if !matches!(toks.get(i + 4), Some(Tok::Punct(':', true))) {
+            let key = format!("{word}::{variant}");
+            sites.push((home, key, is_read(toks, i, i + 3), prefix_of(toks, i)));
         }
-        let into = if is_read(toks, i, i + 3) {
-            &mut uses.read
-        } else {
-            &mut uses.built
+        i += 1;
+    }
+    for (home, key, read, prefix) in sites {
+        let own = defined.contains(&home.ty);
+        match whose(home, &prefix, krate, at, &imports, own) {
+            Ok(()) => {
+                let into = if read {
+                    &mut uses.read
+                } else {
+                    &mut uses.built
+                };
+                into.entry(key).or_insert_with(|| at.to_string());
+            }
+            Err(why) => {
+                uses.unowned
+                    .entry(key)
+                    .or_insert_with(|| (at.to_string(), why));
+            }
+        }
+    }
+}
+
+/// The path segments before the type at `ty` (`crate`, `graph` in
+/// `crate::graph::EdgeKind`), in order.
+fn prefix_of(toks: &[Tok], ty: usize) -> Vec<String> {
+    let mut prefix = Vec::new();
+    let mut start = ty;
+    while start >= 3
+        && toks[start - 1] == Tok::Punct(':', false)
+        && toks[start - 2] == Tok::Punct(':', true)
+    {
+        let Tok::Ident(seg) = &toks[start - 3] else {
+            break;
         };
-        into.entry(format!("{ty}::{variant}"))
-            .or_insert_with(|| at.to_string());
+        prefix.push(seg.clone());
+        start -= 3;
+    }
+    prefix.reverse();
+    prefix
+}
+
+/// Reads the `use` item whose tree starts at `k` into `imports`, each a local
+/// name and the path it stands for (`crate` as `krate`), and returns the index
+/// past its `;`. A glob imports nothing the scan can see.
+fn use_item(
+    toks: &[Tok],
+    k: usize,
+    krate: &str,
+    imports: &mut Vec<(String, Vec<String>)>,
+) -> usize {
+    let mut k = use_tree(toks, k, krate, Vec::new(), imports);
+    while k < toks.len() {
+        match toks[k] {
+            Tok::Punct(';', _) => return k + 1,
+            Tok::Open(_) => k = close_of(toks, k) + 1,
+            Tok::Close(_) => return k,
+            _ => k += 1,
+        }
+    }
+    k
+}
+
+/// One tree of a `use`, under the path `base`: its leaves into `imports`, and
+/// the index past it.
+fn use_tree(
+    toks: &[Tok],
+    mut k: usize,
+    krate: &str,
+    mut path: Vec<String>,
+    imports: &mut Vec<(String, Vec<String>)>,
+) -> usize {
+    let sep = |k: usize| {
+        toks.get(k) == Some(&Tok::Punct(':', true))
+            && toks.get(k + 1) == Some(&Tok::Punct(':', false))
+    };
+    if path.is_empty() && sep(k) {
+        k += 2;
+    }
+    loop {
+        match toks.get(k) {
+            Some(Tok::Ident(seg)) => {
+                let seg = if path.is_empty() && seg == "crate" {
+                    krate
+                } else {
+                    seg.as_str()
+                };
+                k += 1;
+                if sep(k) {
+                    path.push(seg.to_string());
+                    k += 2;
+                    continue;
+                }
+                let mut alias = None;
+                if matches!(toks.get(k), Some(Tok::Ident(a)) if a == "as") {
+                    if let Some(Tok::Ident(a)) = toks.get(k + 1) {
+                        alias = Some(a.clone());
+                    }
+                    k += 2;
+                }
+                if seg == "self" {
+                    // `{self}`: the module the braces are in.
+                    if let Some(last) = path.last() {
+                        imports.push((alias.unwrap_or_else(|| last.clone()), path));
+                    }
+                } else {
+                    path.push(seg.to_string());
+                    imports.push((alias.unwrap_or_else(|| seg.to_string()), path));
+                }
+                return k;
+            }
+            Some(Tok::Open(Delimiter::Brace)) => {
+                let end = close_of(toks, k);
+                let mut j = k + 1;
+                while j < end {
+                    j = use_tree(toks, j, krate, path.clone(), imports);
+                    while j < end && !matches!(toks[j], Tok::Punct(',', _)) {
+                        j = match toks[j] {
+                            Tok::Open(_) => close_of(toks, j) + 1,
+                            _ => j + 1,
+                        };
+                    }
+                    j += 1;
+                }
+                return end + 1;
+            }
+            // `*`, or what no `use` the scan reads holds.
+            _ => return k + 1,
+        }
+    }
+}
+
+/// Whether a use of `home`'s type with `prefix` before it, in the file `at` of
+/// the crate `krate`, names the home's type, and why not when it doesn't.
+/// `defined`: the file defines a type of that name.
+fn whose(
+    home: &Home,
+    prefix: &[String],
+    krate: &str,
+    at: &str,
+    imports: &[(String, Vec<String>)],
+    defined: bool,
+) -> Result<(), &'static str> {
+    // `[krate, module…]` is the home's crate and one of its modules.
+    let is_home = |path: &[String]| {
+        path.first().is_some_and(|c| c == home.krate)
+            && home.modules.iter().any(|m| {
+                let segs: Vec<&str> = m.split("::").filter(|s| !s.is_empty()).collect();
+                path[1..].iter().map(String::as_str).eq(segs)
+            })
+    };
+    if prefix.is_empty() {
+        if at == home.file {
+            return Ok(());
+        }
+        if defined {
+            return Err("the file defines a type of that name");
+        }
+        let named: Vec<&Vec<String>> = imports
+            .iter()
+            .filter(|(local, _)| local == home.ty)
+            .map(|(_, path)| path)
+            .collect();
+        if named.is_empty() {
+            return Err("the file imports none of that name that the scan can see");
+        }
+        let ours = |p: &&Vec<String>| {
+            p.split_last()
+                .is_some_and(|(last, module)| last == home.ty && is_home(module))
+        };
+        return if named.iter().all(ours) {
+            Ok(())
+        } else {
+            Err("the file imports another type of that name")
+        };
+    }
+    let (first, rest) = prefix.split_first().expect("a prefix");
+    let mut candidates: Vec<Vec<String>> = if first == "crate" {
+        vec![[krate.to_string()]
+            .into_iter()
+            .chain(rest.iter().cloned())
+            .collect()]
+    } else {
+        imports
+            .iter()
+            .filter(|(local, _)| local == first)
+            .map(|(_, path)| path.iter().chain(rest).cloned().collect())
+            .collect()
+    };
+    if candidates.is_empty() {
+        candidates.push(prefix.to_vec());
+    }
+    if candidates.iter().all(|p| is_home(p)) {
+        Ok(())
+    } else {
+        Err("its path names another type of that name, or one the scan can't place")
     }
 }
 
@@ -913,6 +1466,8 @@ fn is_read(toks: &[Tok], ty: usize, variant: usize) -> bool {
 #[test]
 fn the_scan_tells_a_build_from_a_read_and_skips_tests() {
     let code = r#"
+        use theseus_protocol::{Event, Message};
+        use crate::graph::EdgeKind;
         fn send(sink: &Sink, q: Q) {
             sink.send(Event::Built(Built { x: 1 }));
             let m = Message::from(theseus_protocol::Event::Qualified(q));
@@ -948,7 +1503,8 @@ fn the_scan_tells_a_build_from_a_read_and_skips_tests() {
     let mut uses = Uses::default();
     uses_in(
         &without_tests(toks),
-        &["Event", "EdgeKind"],
+        &[EVENT, EDGE_KIND],
+        "theseus_core",
         "x.rs",
         &mut uses,
     );
@@ -976,12 +1532,216 @@ fn the_scan_tells_a_build_from_a_read_and_skips_tests() {
             "Event::OrB",
         ]
     );
-    let whole_file = "#![cfg(test)]\nfn f() { sink.send(Event::InATestFile(1)); }";
+    let whole_file =
+        "#![cfg(test)]\nuse theseus_protocol::Event;\nfn f() { sink.send(Event::InATestFile(1)); }";
     let mut toks = Vec::new();
     flatten(whole_file.parse().unwrap(), &mut toks);
     let mut uses = Uses::default();
-    uses_in(&without_tests(toks), &["Event"], "y.rs", &mut uses);
+    uses_in(
+        &without_tests(toks),
+        &[EVENT],
+        "theseus_core",
+        "y.rs",
+        &mut uses,
+    );
     assert!(uses.built.is_empty(), "{uses:?}");
+}
+
+/// What the scan makes of `code`, a file `at` of the crate `krate`.
+fn scan(code: &str, krate: &str, at: &str, homes: &[Home]) -> Uses {
+    let mut toks = Vec::new();
+    flatten(code.parse().unwrap(), &mut toks);
+    let mut uses = Uses::default();
+    uses_in(&without_tests(toks), homes, krate, at, &mut uses);
+    uses
+}
+
+fn keys<V>(m: &BTreeMap<String, V>) -> Vec<&str> {
+    m.keys().map(String::as_str).collect()
+}
+
+/// A use counts only where the type it names is the home's (theseus-g7qp):
+/// another crate's `EdgeKind`, or a private `Event`, reads and builds nothing.
+#[test]
+fn the_scan_counts_a_use_only_of_the_homes_own_type() {
+    // theseus-memory's own `EdgeKind`, its reads and its builds.
+    let memory = r#"
+        pub enum EdgeKind { DerivedFrom, SameEntity, Neighbour }
+        pub fn weight(k: EdgeKind) -> f32 {
+            match k { EdgeKind::DerivedFrom => 1.0, EdgeKind::SameEntity => 0.5, _ => 0.0 }
+        }
+    "#;
+    let at = "crates/theseus-memory/src/activation.rs";
+    let uses = scan(memory, "theseus_memory", at, &[EDGE_KIND]);
+    assert!(uses.read.is_empty() && uses.built.is_empty(), "{uses:?}");
+    assert_eq!(
+        uses.unowned["EdgeKind::SameEntity"],
+        (at.to_string(), "the file defines a type of that name")
+    );
+    let reexported = "pub use activation::EdgeKind;
+fn f(g: G) { g.link(crate::EdgeKind::Neighbour);                       if k == EdgeKind::SameEntity {} }";
+    let uses = scan(
+        reexported,
+        "theseus_memory",
+        "crates/theseus-memory/src/lib.rs",
+        &[EDGE_KIND],
+    );
+    assert!(uses.read.is_empty() && uses.built.is_empty(), "{uses:?}");
+
+    // The adjacency's shape: theseus-memory's imported and built bare, ours
+    // named through the module.
+    for import in [
+        "use crate::graph;",
+        "use crate::{graph, store::Store};",
+        "use crate::graph::{self, Edge};",
+    ] {
+        let adjacency = format!(
+            r#"
+            use theseus_memory::{{Adjacency, EdgeKind, SpreadParams}};
+            {import}
+            fn kind(e: &Edge) -> Option<EdgeKind> {{
+                Some(match graph::EdgeKind::named(&e.kind)? {{
+                    graph::EdgeKind::DerivedFrom => EdgeKind::DerivedFrom,
+                    graph::EdgeKind::SameEntity => EdgeKind::SameEntity,
+                    graph::EdgeKind::Supersedes => return None,
+                }})
+            }}
+            fn back(k: EdgeKind) -> bool {{ matches!(k, EdgeKind::Neighbour) }}
+            "#
+        );
+        let uses = scan(
+            &adjacency,
+            "theseus_core",
+            "crates/theseus-core/src/recall/adjacency.rs",
+            &[EDGE_KIND],
+        );
+        assert_eq!(
+            keys(&uses.read),
+            [
+                "EdgeKind::DerivedFrom",
+                "EdgeKind::SameEntity",
+                "EdgeKind::Supersedes"
+            ],
+            "{import}: {uses:?}"
+        );
+        assert_eq!(keys(&uses.built), ["EdgeKind::named"], "{import}: {uses:?}");
+        assert_eq!(
+            uses.unowned["EdgeKind::Neighbour"].1, "the file imports another type of that name",
+            "{import}"
+        );
+    }
+}
+
+/// Ours imported inside a function, a path spelled out, and another crate's
+/// path to ours count; `crate::graph` outside theseus-core does not.
+#[test]
+fn the_scan_counts_ours_imported_anywhere_or_named_by_its_path() {
+    // Ours imported inside a function; a path spelled out; another crate's
+    // path to ours.
+    let nested = r#"
+        fn links(e: &Edge) {
+            use crate::graph::{Edge, EdgeKind};
+            match EdgeKind::named(&e.kind) { Some(EdgeKind::SameEntity) => {}, _ => {} }
+        }
+        fn spelled(k: K) -> bool { k == crate::graph::EdgeKind::DerivedFrom }
+    "#;
+    let uses = scan(
+        nested,
+        "theseus_core",
+        "crates/theseus-core/src/recall.rs",
+        &[EDGE_KIND],
+    );
+    assert_eq!(
+        keys(&uses.read),
+        ["EdgeKind::DerivedFrom", "EdgeKind::SameEntity"],
+        "{uses:?}"
+    );
+    let outside = "fn f(k: K) -> bool { k == theseus_core::graph::EdgeKind::Supersedes }
+                   fn g(k: K) -> bool { k == crate::graph::EdgeKind::DerivedFrom }";
+    let uses = scan(
+        outside,
+        "theseusd",
+        "crates/theseusd/src/x.rs",
+        &[EDGE_KIND],
+    );
+    assert_eq!(keys(&uses.read), ["EdgeKind::Supersedes"], "{uses:?}");
+    assert!(
+        uses.unowned.contains_key("EdgeKind::DerivedFrom"),
+        "{uses:?}"
+    );
+}
+
+/// A bare name counts in a file that imports ours by name and no other of
+/// that name, or in the home's own file; a private enum of the same name
+/// counts for nothing.
+#[test]
+fn a_bare_name_counts_only_beside_one_import_of_ours() {
+    // A bare name with no import the scan can see, or beside a second import.
+    let bare = "fn f(k: K) -> bool { k == EdgeKind::SameEntity }";
+    let uses = scan(
+        bare,
+        "theseus_core",
+        "crates/theseus-core/src/x.rs",
+        &[EDGE_KIND],
+    );
+    assert!(uses.read.is_empty(), "{uses:?}");
+    assert_eq!(
+        uses.unowned["EdgeKind::SameEntity"].1,
+        "the file imports none of that name that the scan can see"
+    );
+    let glob = format!(
+        "use crate::graph::*;
+{bare}"
+    );
+    let uses = scan(
+        &glob,
+        "theseus_core",
+        "crates/theseus-core/src/x.rs",
+        &[EDGE_KIND],
+    );
+    assert!(uses.read.is_empty(), "{uses:?}");
+    let two = format!(
+        "use crate::graph::EdgeKind;
+fn g() {{ use theseus_memory::EdgeKind; }}
+{bare}"
+    );
+    let uses = scan(
+        &two,
+        "theseus_core",
+        "crates/theseus-core/src/x.rs",
+        &[EDGE_KIND],
+    );
+    assert!(uses.read.is_empty(), "{uses:?}");
+    // graph.rs itself names its own bare.
+    let uses = scan(bare, "theseus_core", EDGE_KIND.file, &[EDGE_KIND]);
+    assert_eq!(keys(&uses.read), ["EdgeKind::SameEntity"], "{uses:?}");
+
+    // A private enum of the same name (the tender's `Event`) sends nothing;
+    // the protocol's, imported, does.
+    let tender = r#"
+        enum Event { Exited, Stop }
+        fn watch(tx: Tx) { tx.send(Event::Exited); match rx { Event::Stop => {} _ => {} } }
+    "#;
+    let uses = scan(
+        tender,
+        "theseus_core",
+        "crates/theseus-core/src/tender.rs",
+        &[EVENT],
+    );
+    assert!(uses.read.is_empty() && uses.built.is_empty(), "{uses:?}");
+    let sender = "use theseus_protocol::{Event, Message};
+fn f(s: S) { s.send(Event::TurnStarted(t));                   s.send(theseus_protocol::Event::TurnEnded(e)); }";
+    let uses = scan(
+        sender,
+        "theseus_core",
+        "crates/theseus-core/src/turn.rs",
+        &[EVENT],
+    );
+    assert_eq!(
+        keys(&uses.built),
+        ["Event::TurnEnded", "Event::TurnStarted"],
+        "{uses:?}"
+    );
 }
 
 /// A marker's form: a row, a milestone, and a reader.
@@ -1018,7 +1778,7 @@ fn the_registry_sees_the_whole_tree() {
     );
     assert!(method::ALL.len() >= 31 && method::ALL.contains(&method::WAKE_CANCEL));
     assert!(notify::ALL.len() >= 21 && notify::ALL.contains(&notify::NARRATIVE_LINE));
-    let uses = uses_of(&[PathBuf::from(env!("CARGO_MANIFEST_DIR"))], &["Event"]);
+    let uses = uses_of(&[core_dir()], &[EVENT]);
     // `turn.rs`'s, not a test's.
     assert!(
         uses.built["Event::TurnStarted"].ends_with("turn.rs"),
