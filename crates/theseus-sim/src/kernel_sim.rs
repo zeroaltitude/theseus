@@ -87,7 +87,13 @@ use theseus_kernel::job::WrapperEvidence;
 use theseus_kernel::*;
 use theseus_store::{Store, WalConfig, WalStore};
 
+mod counts;
+mod outbox;
+mod stops;
+mod tasks;
 mod wakes;
+
+pub use counts::Sim2Counts;
 
 #[derive(Debug, Clone)]
 pub struct SimParams {
@@ -179,6 +185,9 @@ pub struct SimReport {
     pub wakes_ended: u64,
     pub wakes_cancelled: u64,
     pub reconciles: u64,
+    /// `/stop`, a task's report, scheduled wakes in a busy turn, and the
+    /// outbox (theseus-celu.35).
+    pub sim2: Sim2Counts,
     pub invariant_checks: u64,
     pub final_positions: u64,
     pub wall_ms: u64,
@@ -244,6 +253,8 @@ struct World {
     fired: HashSet<(String, u32)>,
     /// Each pending wake's occurrence at the last check: it only grows.
     occurrences: HashMap<String, u32>,
+    /// What sim2's checks keep (theseus-celu.35).
+    s2: counts::Sim2,
 }
 
 /// Executions stored with unit budgets before theseus-0sg, seeded into the
@@ -382,6 +393,7 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         over: HashMap::new(),
         fired: HashSet::new(),
         occurrences: HashMap::new(),
+        s2: counts::Sim2::default(),
     };
     w.rep.legacy_migrated = w
         .kernel
@@ -536,6 +548,7 @@ impl World {
             self.rep.reconciles += 1;
             self.rep.unknowns += rep.marked_unknown.len() as u64;
             self.rep.resolved_unknowns += rep.resolved_unknown.len() as u64;
+            self.check_due_scan()?;
             // Drain the spool as the heartbeat would.
             let drained = self.spool.drain()?;
             for (path, c) in drained.completions {
@@ -546,6 +559,11 @@ impl World {
             if self.maybe_crash("after heartbeat")? {
                 return Ok(());
             }
+        }
+
+        // The outbox's binding delivers a post now and then (theseus-celu.35).
+        if self.chance(0.3) && self.run_binding()? {
+            return Ok(());
         }
 
         // One random operation.
@@ -597,6 +615,10 @@ impl World {
         // ends a series (37a).
         if self.chance(0.15) {
             return self.cancel_a_wake();
+        }
+        // A third of the rest, the operator's `/stop` (theseus-celu.35).
+        if self.chance(0.33) {
+            return self.stop_one();
         }
         // Wake a waiting conversation with input; on a budget wait, new
         // input is how its next call asks again.
@@ -675,7 +697,9 @@ impl World {
         }
         let e = &asked[self.rng.random_range(0..asked.len())];
         let q = e.budget.question.clone().unwrap();
-        if self.chance(0.6) {
+        // A task's question is declined: a reset of a task's spend is the one
+        // way past its carve, which its parent's limit would then not hold.
+        if self.chance(0.6) && e.parent.is_none() {
             self.kernel.reset_budget(&q, "sim")?;
             *self.resets_done.entry(e.id.clone()).or_default() += 1;
             self.rep.budget_resets += 1;
@@ -743,6 +767,10 @@ impl World {
         if self.maybe_crash("after take_results")? {
             return Ok(());
         }
+        // A parent reads its tasks' reports (DD7, W1).
+        if self.take_reports(&exec_id)? {
+            return Ok(());
+        }
         // Its due wakes, as the core's catch-up takes them, and now and then
         // a wake it sets for itself (DD8, 37a).
         self.take_wakes(&exec_id)?;
@@ -754,6 +782,18 @@ impl World {
             if self.maybe_crash("after set_wake")? {
                 return Ok(());
             }
+        }
+        // Now and then the operator stops a conversation while its turn runs
+        // (W1), and a turn opens a task (DD7).
+        let conversation = self
+            .kernel
+            .execution(&exec_id)?
+            .is_some_and(|e| e.kind == SessionKind::Conversation && e.parent.is_none());
+        if conversation && self.chance(0.05) {
+            return self.stop_in_turn(&exec_id);
+        }
+        if self.chance(0.15) && self.open_a_task(&exec_id)? {
+            return Ok(());
         }
         if self.chance(0.25) {
             return self.take_a_batch(&exec_id);
@@ -894,7 +934,8 @@ impl World {
                 return Ok(());
             }
         }
-        // End the turn.
+        // End the turn, now and then past a wake that fell due meanwhile.
+        self.run_past_a_wake(&exec_id)?;
         let g = self.guards.remove(&exec_id).unwrap();
         let end = if !dispatched.is_empty() {
             TurnEnd::Wait {
@@ -916,7 +957,7 @@ impl World {
                 _ => TurnEnd::Requeue,
             }
         };
-        let e = self.kernel.end_turn(g, end)?;
+        let e = self.end_a_turn(g, end)?;
         if e.state.is_terminal() {
             self.kill_jobs(&e.outstanding)?;
         }
@@ -1154,7 +1195,7 @@ impl World {
                 },
             }
         };
-        let e = self.kernel.end_turn(g, end)?;
+        let e = self.end_a_turn(g, end)?;
         if e.state.is_terminal() {
             self.kill_jobs(&e.outstanding)?;
         }
@@ -1167,12 +1208,21 @@ impl World {
     /// finishes as a job, in the turn, or on the racing thread as it arrives.
     /// A crash may stop the turn after any of its frames: the racing thread
     /// runs to its end, and then the process dies.
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn race_a_turn(&mut self, exec_id: &str) -> Result<()> {
         self.rep.races += 1;
         let mut ops = Vec::new();
+        let conversation = self
+            .kernel
+            .execution(exec_id)?
+            .is_some_and(|e| e.kind == SessionKind::Conversation && e.parent.is_none());
         for _ in 0..self.rng.random_range(1..=3) {
             let op = match self.rng.random_range(0..10) {
-                0..=2 => RaceOp::Cancel,
+                0..=1 => RaceOp::Cancel,
+                // The operator's `/stop` while the turn commits (W1); a task
+                // is cancelled instead.
+                2 if conversation => RaceOp::Stop,
+                2 => RaceOp::Cancel,
                 3..=4 => match self.finish_a_job_of(exec_id)? {
                     Some(c) => RaceOp::Complete(c),
                     None => RaceOp::Wake,
@@ -1184,7 +1234,21 @@ impl World {
             };
             ops.push(op);
         }
+        // A run's first race always runs a transaction on the racing thread
+        // (theseus-0owd): what the seed fixes before it does not depend on how
+        // threads interleave, so a run's count of them is never zero by chance
+        // (theseus-81ig).
+        if self.rep.races == 1 {
+            ops.push(RaceOp::Frame);
+        }
         self.rep.cancels += ops.iter().filter(|o| matches!(o, RaceOp::Cancel)).count() as u64;
+        if self.p.verbose {
+            eprintln!(
+                "  race {} on {exec_id} at t={}: {ops:?}",
+                self.rep.races,
+                self.now()
+            );
+        }
         let mut calls = Vec::new();
         for _ in 0..self.rng.random_range(0..=4) {
             let finish = match self.rng.random_range(0..3) {
@@ -1232,6 +1296,12 @@ impl World {
         let raced = raced?;
         self.rep.race_ops += raced.ops;
         self.rep.race_frames += raced.frames;
+        self.rep.sim2.stops += raced.stops;
+        self.rep.sim2.stops_in_turn += raced.stops_in_turn;
+        self.rep.sim2.stopped_calls += raced.stopped_calls;
+        if raced.stops > 0 {
+            self.s2.stopped_since_scan.insert(exec_id.to_string());
+        }
         self.rep.unknowns += raced.unknowns;
         self.rep.resolved_unknowns += raced.resolved;
         for (corr, acc) in &raced.accepted {
@@ -1258,7 +1328,8 @@ impl World {
             self.rep.race_crashes += 1;
             self.crash("inside a raced turn")?;
         }
-        self.kill_jobs(&to_kill)
+        self.kill_jobs(&to_kill)?;
+        self.check_told_settled(&to_kill)
     }
 
     /// The raced turn's own commits, on this thread.
@@ -1328,14 +1399,16 @@ impl World {
             };
             let a = match planned {
                 Ok(a) => a,
-                // Cancelled beside the turn: nothing more is planned.
+                // Cancelled or stopped beside the turn: nothing more is planned.
                 Err(e)
                     if matches!(
                         e.downcast_ref::<KernelError>(),
-                        Some(KernelError::NoTurn {
-                            state: "cancelled",
-                            ..
-                        })
+                        Some(
+                            KernelError::NoTurn {
+                                state: "cancelled",
+                                ..
+                            } | KernelError::Stopped { .. }
+                        )
                     ) =>
                 {
                     break
@@ -1358,7 +1431,7 @@ impl World {
                 let cancelled = |e: &anyhow::Error| {
                     matches!(
                         e.downcast_ref::<KernelError>(),
-                        Some(KernelError::NotRunnable { .. })
+                        Some(KernelError::NotRunnable { .. } | KernelError::Stopped { .. })
                     )
                 };
                 match self.kernel.authorize(&a.correlation_id, &prop, None) {
@@ -1634,7 +1707,8 @@ impl World {
             self.rep.unknowns += rep.marked_unknown.len() as u64;
             self.rep.resolved_unknowns += rep.resolved_unknown.len() as u64;
         }
-        Ok(())
+        // The binding runs until every post is delivered (theseus-celu.35).
+        self.deliver_every_post()
     }
 
     /// The kernel's reads by state agree with a read of every record
@@ -1754,6 +1828,7 @@ impl World {
         }
         self.check_terms(at, &execs, &actions, &stats)?;
         self.check_wakes(at, &execs)?;
+        self.check_tasks(at, &execs)?;
         // An execution that was cancelled never runs again (theseus-id9). Read
         // in WAL order, as far as the store has gone: after an execution's
         // `execution.cancelled` row, no turn of it starts and no action of it
@@ -1769,6 +1844,9 @@ impl World {
                 .store()
                 .scan(self.ledger_read_to + 1, Some(last), usize::MAX)?
             {
+                if r.kind == theseus_store::kinds::OUTBOX {
+                    self.post_record(at, &r)?;
+                }
                 if r.kind != theseus_store::kinds::LEDGER {
                     continue;
                 }
@@ -1784,7 +1862,11 @@ impl World {
                         let micros = |k: &str| usd_to_micros(row.data[k].as_f64().unwrap_or(-1.0));
                         changed.insert(id.to_string(), (micros("from_usd"), micros("to_usd")));
                     }
-                    "execution.running" | "action.planned" if self.cancelled.contains(id) => {
+                    // A post is not its execution's action: a cancelled
+                    // execution's card says how it closed.
+                    "execution.running" | "action.planned"
+                        if self.cancelled.contains(id) && row.data["tool"] != OUTBOX_TOOL =>
+                    {
                         bail!(
                             "{at}: {id} was cancelled, and then wrote {} at {}",
                             row.kind,
@@ -1793,9 +1875,13 @@ impl World {
                     }
                     _ => {}
                 }
+                let id = id.to_string();
+                self.stop_row(at, &id, &row, r.position)?;
+                self.report_row(at, &id, &row, r.position)?;
             }
             self.ledger_read_to = last;
         }
+        self.check_outbox(at, &execs, &actions)?;
         for e in execs.iter().filter(|e| self.cancelled.contains(&e.id)) {
             if e.state != ExecState::Cancelled {
                 bail!("{at}: {} was cancelled and is now {:?}", e.id, e.state);
@@ -2177,8 +2263,11 @@ impl World {
 }
 
 /// What the racing thread does to a raced turn's execution (theseus-id9).
+#[derive(Debug)]
 enum RaceOp {
     Cancel,
+    /// The operator's `/stop` (W1).
+    Stop,
     /// A job of the execution finished: its completion is spooled, and the
     /// racing thread accepts it and removes the file, as the driver's drain does.
     Complete(Completion),
@@ -2231,6 +2320,11 @@ struct Raced {
     accepted: Vec<(String, Accepted)>,
     unknowns: u64,
     resolved: u64,
+    /// Its stops, those that landed while the turn ran, and the calls they
+    /// told to stop (theseus-celu.35).
+    stops: u64,
+    stops_in_turn: u64,
+    stopped_calls: u64,
 }
 
 /// The racing thread: its operations in order, and each call the turn hands
@@ -2275,6 +2369,14 @@ fn run_racer(
         out.ops += 1;
         match op {
             RaceOp::Cancel => out.to_kill.extend(k.cancel_execution(exec_id, "sim-race")?),
+            RaceOp::Stop => {
+                if let Some(s) = k.stop_execution(exec_id, "sim-race")? {
+                    out.stops += 1;
+                    out.stops_in_turn += u64::from(s.turn_running);
+                    out.stopped_calls += s.to_kill.len() as u64;
+                    out.to_kill.extend(s.to_kill);
+                }
+            }
             RaceOp::Complete(c) => {
                 let acc = k.accept_completion(&c)?;
                 spool.remove(&spool.completion_path(&c.correlation_id))?;

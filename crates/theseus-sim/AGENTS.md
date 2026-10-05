@@ -14,7 +14,12 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
   - `kernel-sim` (the M2 exit test): the kernel under a virtual clock with seeded faults (a crash between any two
     frames or inside a startup step, lost, duplicate, and late completions, cancels; wakes, one-shot and repeating,
     in `kernel_sim/wakes.rs`, and crashes that keep the daemon down for minutes) and invariants checked at every
-    step. `--p-race` races a second thread against turns; 0 is fully deterministic.
+    step. `--p-race` races a second thread against turns; 0 is fully deterministic. sim2 (theseus-celu.35):
+    `/stop` between turns, in one, beside a raced one, and of one call (`kernel_sim/stops.rs`); tasks under a
+    parent, their carve and reports (`kernel_sim/tasks.rs`); and the outbox's posts, sent by a fake binding to a
+    fake channel with crashes around each transition (`kernel_sim/outbox.rs`). Each operation goes in a module of
+    its own; `kernel_sim.rs` holds the roll, the race's arm, and the checks' calls. tests/sim.rs reads its coverage
+    counts from the `--p-race 0` run only, since a raced run reproduces only up to its first race (theseus-81ig).
   - `bench lifecycle` (`src/lifecycle.rs`): §9's budgets on a real `theseusd`: cold start, the same from a vault
     note's copy, clean shutdown with a job running, the same with a reply's post in flight to the in-process fake
     Discord (`inflight`, its own rig), SIGKILL and restart, a binary swap with the job's wrapper adopted, restore
