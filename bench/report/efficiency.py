@@ -315,6 +315,12 @@ def _n(v: Any, fmt: str = "{:,.0f}", none: str = "–") -> str:
     return none if v is None else fmt.format(v)
 
 
+def _dollars(v: float) -> str:
+    """Cents, as the published tables have them; four places under a dime,
+    so a small run does not read as free."""
+    return f"${v:.2f}" if v >= 0.1 or v == 0 else f"${v:.4f}"
+
+
 def markdown(arms: list[dict[str, Any]], sources: list[tuple[str, str]]) -> str:
     lines = ["# Efficiency report", ""]
     lines.append("Arms: " + "; ".join(f"**{n}** (`{d}`)" for n, d in sources) + ".")
@@ -332,7 +338,7 @@ def markdown(arms: list[dict[str, Any]], sources: list[tuple[str, str]]) -> str:
     row("Solved", lambda a: f"{a['solved']}/{a['trials']}")
     row("Mean reward", lambda a: _n(a["mean_reward"], "{:.3f}"))
     row("Trials with an error", lambda a: str(a["errors"]))
-    row("Cost, total", lambda a: f"${a['cost_usd']:.2f}" + (f" ({a['unpriced']} unpriced)" if a["unpriced"] else ""))
+    row("Cost, total", lambda a: _dollars(a["cost_usd"]) + (f" ({a['unpriced']} unpriced)" if a["unpriced"] else ""))
     row("Cost per trial", lambda a: _n(a["cost_per_trial"], "${:.3f}"))
     row("Solved per dollar", lambda a: _n(a["solved_per_dollar"], "{:.2f}"))
     row("Tokens per trial", lambda a: _n(a["tokens_per_trial"]))
@@ -431,7 +437,7 @@ def main(argv: list[str]) -> int:
         ap.error("each --arm needs its own name")
     result = report(arms, a.out)
     for s in result["arms"]:
-        print(f"{s['arm']}: {s['solved']}/{s['trials']} solved, ${s['cost_usd']:.2f}")
+        print(f"{s['arm']}: {s['solved']}/{s['trials']} solved, {_dollars(s['cost_usd'])}")
     print(f"wrote {a.out / 'report.md'}")
     return 0
 

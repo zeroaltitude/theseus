@@ -200,6 +200,11 @@ class Report(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             rp.main(["--arm", "nojob", "--out", str(out)])
 
+    def test_dollars_read_as_cents_and_a_small_run_not_as_free(self):
+        self.assertEqual((rp._dollars(24.72), rp._dollars(0.6), rp._dollars(0.00064), rp._dollars(0)),
+                         ("$24.72", "$0.60", "$0.0006", "$0.00"))
+        self.assertIn("| Cost, total | $0.60 | $0.80 | $0.60 |", (self.out / "report.md").read_text())
+
     def test_an_svg_escapes_an_arms_name(self):
         text = rp.svg("Score <&>", "dollars", [("a<b>&c", 0.1, 0.5)], {"a<b>&c"})
         root = ET.fromstring(text)
