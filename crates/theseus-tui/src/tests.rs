@@ -427,6 +427,7 @@ pub fn question(sid: &str, correlation_id: &str, reason: &str, at: u64) -> Confi
         budget: None,
         task: None,
         external_text: None,
+        change: None,
     }
 }
 

@@ -528,5 +528,6 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         budget: None,
         task: crate::task::task_ref(session),
         external_text: None,
+        change: None,
     }
 }

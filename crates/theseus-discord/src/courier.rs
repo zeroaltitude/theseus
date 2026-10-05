@@ -771,7 +771,9 @@ impl Lane {
         let note_key = format!("approval:{q}");
         // A call that waits because its session read external text gets the
         // third button, which trusts the session again (theseus-9bp).
-        let buttons = if req.external_text.is_some() {
+        let buttons = if req.change.is_some() {
+            Buttons::Accept(q.clone())
+        } else if req.external_text.is_some() {
             Buttons::ConfirmTrust(q.clone())
         } else {
             Buttons::Confirm(q.clone())
@@ -1116,6 +1118,7 @@ impl Lane {
         let comps = match buttons {
             Buttons::Confirm(corr) => confirm_buttons(corr, false),
             Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
+            Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
             Buttons::Clear | Buttons::Keep => vec![],
@@ -1152,7 +1155,7 @@ impl Lane {
             LedgerKind::DiscordMessageOut,
             None,
             json!({"place": self.label, "message_id": m.id.to_string(), "part": key,
-                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_)),
+                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_) | Buttons::Accept(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
         Ok((m.id.get(), m.content))
@@ -1169,6 +1172,7 @@ impl Lane {
         let comps = match buttons {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
             Buttons::ConfirmTrust(corr) => Some(confirm_buttons(corr, true)),
+            Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
             Buttons::Clear => Some(vec![]),

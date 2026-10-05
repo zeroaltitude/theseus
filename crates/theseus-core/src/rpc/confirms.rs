@@ -88,6 +88,7 @@ impl Core {
             // The call waits because its session read external text
             // (theseus-9bp): its card offers to trust the session again.
             external_text: decision.external,
+            change: crate::task_graph::tools::change_of(&self.store, tool, input),
         })
     }
 
@@ -135,6 +136,7 @@ impl Core {
             }),
             task: crate::task::task_ref(session),
             external_text: None,
+            change: None,
         })
     }
 

@@ -781,5 +781,6 @@ pub fn confirm_request(
         budget: None,
         task: crate::task::task_ref(session),
         external_text: None,
+        change: None,
     }
 }

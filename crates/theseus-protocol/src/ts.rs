@@ -153,7 +153,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         extend::ExtendLoadedInfo, extend::ExtensionRevokeParams, extend::ExtensionRevokeResult,
         tasks::TaskState, tasks::TaskOrigin, tasks::TaskEvidence, tasks::TaskProposal,
         tasks::TaskRecord, tasks::TaskGetParams, tasks::TaskGetResult, tasks::TaskChanged,
-        tasks::TaskViewSummary, tasks::TaskClaim,
+        tasks::TaskViewSummary, tasks::TaskClaim, tasks::TaskChange,
     }
     let files: BTreeSet<String> = std::fs::read_dir(&dir)
         .unwrap()

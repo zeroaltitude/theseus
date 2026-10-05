@@ -1371,6 +1371,7 @@ impl ToolRuntime {
                 title: None,
             }),
             external_text: g.decision.external,
+            change: crate::task_graph::tools::change_of(tc.store, tool, &call.input),
         };
         tc.record(&fact::tool::CallAsked { request: &req });
         // It expires at its plan's time and the TTL, as `confirm.list` says

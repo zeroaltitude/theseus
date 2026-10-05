@@ -135,6 +135,33 @@ mod tests {
         assert!(task_tree_lines(&[]).is_empty());
     }
 
+    /// A layer-1 question reads as its card does (39b), with how to accept or
+    /// decline it.
+    #[test]
+    fn a_layer_one_question_says_the_change() {
+        let c: theseus_protocol::ConfirmRequest = serde_json::from_value(serde_json::json!({
+            "correlation_id": "act_0000reef", "session_id": "ses_0000lagoon",
+            "execution_id": "exe_0000lagoon", "tool": "task.update", "input": {},
+            "reason": "layer 1", "by": "operator", "requested_at_ms": 1, "expires_at_ms": 2,
+            "change": {"task": "tsk_0000reef", "title": "Chart the reef", "field": "objective",
+                       "before": "chart the north edge", "after": "chart the whole reef"}
+        }))
+        .unwrap();
+        let lines: Vec<String> = crate::render::confirm_lines(&c)
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "  ? Change the objective of tsk_0000reef (Chart the reef)? Before: chart the \
+                 north edge After: chart the whole reef",
+                "      accept: theseus confirm act_0000reef",
+                "      decline: theseus confirm --decline act_0000reef",
+            ]
+        );
+    }
+
     /// A claim shows its session and how long its lease has left while it
     /// holds, and nothing once it lapsed (39b).
     #[test]

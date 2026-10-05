@@ -213,6 +213,47 @@ impl TaskRecord {
     }
 }
 
+/// The layer-1 change a question asks (39b): the task, its title, the field,
+/// and the field before and after; or abandoning it (`field` `abandon`, its
+/// state before). The card on Discord, `theseus confirm`, and the cockpit
+/// word it the one way (`question`).
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskChange {
+    pub task: String,
+    pub title: String,
+    /// `objective`, `acceptance`, `objective and acceptance`, or `abandon`.
+    pub field: String,
+    pub before: String,
+    pub after: String,
+}
+
+impl TaskChange {
+    /// `Change the acceptance of tsk_… (title)? Before: … After: …`, or
+    /// `Abandon tsk_… (title)? Before: accepted After: abandoned`.
+    pub fn question(&self) -> String {
+        let (before, after) = (or_none(&self.before), or_none(&self.after));
+        match self.field.as_str() {
+            "abandon" => format!(
+                "Abandon {} ({})? Before: {before} After: {after}",
+                self.task, self.title
+            ),
+            f => format!(
+                "Change the {f} of {} ({})? Before: {before} After: {after}",
+                self.task, self.title
+            ),
+        }
+    }
+}
+
+fn or_none(s: &str) -> &str {
+    if s.trim().is_empty() {
+        "(none)"
+    } else {
+        s
+    }
+}
+
 /// `task.get`: one task's record, by its id or the end of it.
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -264,4 +305,36 @@ pub struct TaskViewSummary {
 
 fn is_zero(n: &u32) -> bool {
     *n == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The card's words (39b): a field's change, before and after, and an
+    /// abandon; an empty side reads `(none)`.
+    #[test]
+    fn a_changes_question_says_the_field_before_and_after() {
+        let mut c = TaskChange {
+            task: "tsk_0000reef".into(),
+            title: "Chart the reef".into(),
+            field: "acceptance".into(),
+            before: "every marker has a depth".into(),
+            after: "every marker has a depth; the chart is signed".into(),
+        };
+        assert_eq!(
+            c.question(),
+            "Change the acceptance of tsk_0000reef (Chart the reef)? Before: every marker has \
+             a depth After: every marker has a depth; the chart is signed"
+        );
+        c.field = "abandon".into();
+        c.before = "accepted".into();
+        c.after = "abandoned".into();
+        assert_eq!(
+            c.question(),
+            "Abandon tsk_0000reef (Chart the reef)? Before: accepted After: abandoned"
+        );
+        c.before = String::new();
+        assert!(c.question().contains("Before: (none)"));
+    }
 }

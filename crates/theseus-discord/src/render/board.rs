@@ -4,6 +4,7 @@
 //! out; the claim's time of day is the daemon's clock (`theseus_core::push::hm`).
 
 use theseus_core::task_graph::{depth, homed, TaskRecord};
+use theseus_protocol::ConfirmRequest;
 
 use super::clip;
 
@@ -144,6 +145,40 @@ pub fn tasks_here(
     out.join("\n")
 }
 
+/// The layer-1 card (39b): "Change the acceptance of tsk_… (title)? Before:
+/// … After: …", answered with Accept and Decline on Approve's and Decline's
+/// ids (`Buttons::Accept`).
+pub fn change_card(
+    req: &ConfirmRequest,
+    c: &theseus_protocol::tasks::TaskChange,
+    task: &str,
+    route: &super::Route,
+    elsewhere: &str,
+) -> super::CardText {
+    let asked_for = match route {
+        super::Route::Dm { place, .. } => format!("for {place} · "),
+        _ => String::new(),
+    };
+    let also = match elsewhere {
+        "" => String::new(),
+        e => format!(" · you can also answer {e}"),
+    };
+    let content = format!(
+        "📝 {task}{}\n-# {asked_for}Accept applies it; Decline leaves the task as it is · expires <t:{}:R>{also}",
+        clip(&c.question(), 1500),
+        req.expires_at_ms / 1000
+    );
+    super::CardText {
+        content,
+        line: format!("{task}the {} of task `…{}`", c.field, short_id(&c.task)),
+        budget: false,
+    }
+}
+
+fn short_id(id: &str) -> &str {
+    id.get(id.len().saturating_sub(6)..).unwrap_or(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +243,28 @@ mod tests {
             "{t}"
         );
         assert!(!t.contains("other part"), "{t}");
+    }
+
+    /// The layer-1 card's words (39b): the change, before and after, with
+    /// what Accept and Decline do.
+    #[test]
+    fn the_layer_one_card_says_the_change_before_and_after() {
+        let req: ConfirmRequest = serde_json::from_value(serde_json::json!({
+            "correlation_id": "act_0000reef", "session_id": "ses_0000lagoon",
+            "execution_id": "exe_0000lagoon", "tool": "task.update", "input": {},
+            "reason": "layer 1", "by": "operator", "requested_at_ms": 1_000, "expires_at_ms": 901_000,
+            "change": {"task": "tsk_000000reef", "title": "Chart the reef", "field": "acceptance",
+                       "before": "every marker has a depth", "after": "the chart is signed"}
+        }))
+        .unwrap();
+        let c = crate::render::card(&req, &crate::render::Route::Here, "");
+        assert_eq!(
+            c.content,
+            "📝 Change the acceptance of tsk_000000reef (Chart the reef)? Before: every marker \
+             has a depth After: the chart is signed\n-# Accept applies it; Decline leaves the task \
+             as it is · expires <t:901:R>"
+        );
+        assert_eq!(c.line, "the acceptance of task `…00reef`");
+        assert!(!c.budget);
     }
 }

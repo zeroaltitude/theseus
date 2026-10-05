@@ -15,6 +15,8 @@
 //!   the task sessions of today, from `task.list`.
 
 use theseus_protocol::tasks::TaskChanged;
+use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle};
+use twilight_model::channel::message::Component;
 
 use super::{Place, PlaceMsg, Shared};
 use crate::courier::LaneMsg;
@@ -81,5 +83,72 @@ impl Place {
             ),
             Err(e) => format!("⚠️ Could not list the tasks: {e}."),
         }
+    }
+}
+
+/// The layer-1 card's buttons (39b): Accept and Decline, on Approve's and
+/// Decline's ids, so a press parses as any card's (`parse_confirm_id`).
+pub(crate) fn accept_buttons(corr: &str) -> Vec<Component> {
+    let button = |verb: &str, label: &str, style| {
+        Component::Button(Button {
+            id: None,
+            custom_id: Some(format!("confirm:{verb}:{corr}")),
+            disabled: false,
+            emoji: None,
+            label: Some(label.to_string()),
+            style,
+            url: None,
+            sku_id: None,
+        })
+    };
+    vec![Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![
+            button("approve", "Accept", ButtonStyle::Success),
+            button("decline", "Decline", ButtonStyle::Danger),
+        ],
+    })]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The design's 39b test: the card's ids parse. Accept is an approve and
+    /// Decline a decline of the card's question, as any card's presses are.
+    #[test]
+    fn the_layer_one_cards_ids_parse() {
+        let Component::ActionRow(row) = &accept_buttons("act_0000reef")[0] else {
+            panic!("a row")
+        };
+        let pressed: Vec<(String, bool, bool, String)> = row
+            .components
+            .iter()
+            .map(|b| match b {
+                Component::Button(b) => {
+                    let id = b.custom_id.clone().unwrap();
+                    let p = super::super::parse_confirm_id(&id).expect("it parses");
+                    (b.label.clone().unwrap(), p.approve, p.trust, p.corr)
+                }
+                _ => panic!("a button"),
+            })
+            .collect();
+        assert_eq!(
+            pressed,
+            [
+                (
+                    "Accept".to_string(),
+                    true,
+                    false,
+                    "act_0000reef".to_string()
+                ),
+                (
+                    "Decline".to_string(),
+                    false,
+                    false,
+                    "act_0000reef".to_string()
+                ),
+            ]
+        );
     }
 }

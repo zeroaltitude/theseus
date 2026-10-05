@@ -283,6 +283,7 @@ export type * from './StoreStatus';
 export type * from './TaskArrangement';
 export type * from './TaskCancelParams';
 export type * from './TaskCancelResult';
+export type * from './TaskChange';
 export type * from './TaskChanged';
 export type * from './TaskCheck';
 export type * from './TaskClaim';

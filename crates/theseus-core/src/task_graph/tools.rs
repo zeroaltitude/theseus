@@ -229,6 +229,51 @@ fn authority_of(name: &str, input: &Value) -> Option<String> {
     }
 }
 
+/// What a layer-1 call changes, for its question (39b): the task it names,
+/// its title, the field, and the field before (the record as it is) and
+/// after (the call's input), or abandoning it. None for any other call, or a
+/// task the call does not name.
+pub fn change_of(
+    store: &crate::store::Store,
+    name: &str,
+    input: &Value,
+) -> Option<theseus_protocol::tasks::TaskChange> {
+    authority_of(name, input)?;
+    let id = input.get("id")?.as_str()?;
+    let all = super::all(store).ok()?;
+    let t = super::resolve(&all, id).ok()?;
+    let lines = |a: &[String]| a.join("; ");
+    let (field, before, after) = match name {
+        CLOSE => (
+            "abandon".to_string(),
+            t.state.as_str().to_string(),
+            TaskState::Abandoned.as_str().to_string(),
+        ),
+        _ => {
+            let i = update_in(input).ok()?;
+            let field = i.patch.layer1()?.to_string();
+            let mut before = Vec::new();
+            let mut after = Vec::new();
+            if let Some(o) = &i.patch.objective {
+                before.push(t.objective.clone());
+                after.push(o.clone());
+            }
+            if let Some(a) = &i.patch.acceptance {
+                before.push(lines(&t.acceptance));
+                after.push(lines(a));
+            }
+            (field, before.join(" / "), after.join(" / "))
+        }
+    };
+    Some(theseus_protocol::tasks::TaskChange {
+        task: t.id.clone(),
+        title: t.title.clone(),
+        field,
+        before,
+        after,
+    })
+}
+
 /// The task a layer-1 call names, when it is the owner's: the one whose
 /// change waits for the operator. None for any other call, a plan item or a
 /// split's child, or a task the call does not name (its run refuses it).

@@ -52,6 +52,7 @@ use crate::viewers;
 
 mod audience;
 mod board;
+pub(crate) use board::accept_buttons;
 mod extensions;
 mod guilds;
 mod jev;
