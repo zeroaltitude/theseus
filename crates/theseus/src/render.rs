@@ -21,6 +21,7 @@ use theseus_protocol::{
 mod aws;
 mod cancel;
 mod catalog;
+pub mod history;
 mod index;
 mod judge;
 mod judge_runs;

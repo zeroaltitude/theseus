@@ -1006,33 +1006,29 @@ impl Core {
             .filter(|a| a.session_id == p.session_id)
             .cloned()
             .collect();
-        // The newest `n` alone, through the session's tag (theseus-96w2),
-        // unless a question waits in it: its card reads the gate's record
-        // on its call's node, wherever that is, so the whole session is
-        // read, as it always was.
-        let newest = match p.n {
-            Some(n) if mine.is_empty() => {
-                self.nodes_paged(None, Some(&p.session_id), n)?
-                    .map(|mut v| {
-                        v.reverse();
-                        v
-                    })
-            }
-            _ => None,
+        // A page, through the session's tag (theseus-96w2, theseus-xo0m).
+        // A question waiting in it reads its card's gate record on its
+        // call's node, wherever that is: the whole session when that is
+        // what was asked for, else its tool calls back to the call's.
+        let page = self.history_page(&p.session_id, p.n, p.after, p.before)?;
+        let whole = p.n.is_none() && p.after.is_none() && p.before.is_none();
+        let cards = if whole || mine.is_empty() {
+            None
+        } else {
+            Some(self.card_nodes(&p.session_id, &mine)?)
         };
-        let nodes = match newest {
-            Some(v) => v,
-            None => self.store.session_nodes(&p.session_id)?,
-        };
-        let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
-        let asks = self.pending_by_execution(&mine, Some((&p.session_id, &nodes)));
+        let known = cards.as_deref().unwrap_or(&page.nodes);
+        let asks = self.pending_by_execution(&mine, Some((&p.session_id, known)));
         Ok(theseus_protocol::SessionHistoryResult {
             session: self.session_info(&rec, &asks),
-            nodes: nodes[skip..]
+            pending_confirms: self.confirms_of(&pending, &rec, known),
+            nodes: page
+                .nodes
                 .iter()
                 .map(|(pos, n)| Self::node_info(*pos, n))
                 .collect(),
-            pending_confirms: self.confirms_of(&pending, &rec, &nodes),
+            next: page.next,
+            older: page.older,
         })
     }
 

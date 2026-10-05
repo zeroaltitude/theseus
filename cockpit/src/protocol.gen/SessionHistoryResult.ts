@@ -7,4 +7,16 @@ export type SessionHistoryResult = { session: SessionInfo, nodes: Array<NodeInfo
 /**
  * Actions waiting for the operator's confirmation in this session.
  */
-pending_confirms: Array<ConfirmRequest>, };
+pending_confirms: Array<ConfirmRequest>, 
+/**
+ * With `after`: the `after` for the next page while more nodes may
+ * follow (this page's last); absent at the session's end, and
+ * without `after`.
+ */
+next?: number, 
+/**
+ * With `before` alone: the `before` for the next page back while older
+ * nodes remain (this page's first); absent once none do, and without
+ * `before`.
+ */
+older?: number, };

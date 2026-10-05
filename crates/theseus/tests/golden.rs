@@ -948,6 +948,38 @@ fn history_json_is_the_raw_result() {
     );
 }
 
+/// `theseus history --before` and `--after` (theseus-xo0m, theseus-kym3):
+/// a page, and the command that reads past it either way.
+#[test]
+fn history_pages_say_how_to_read_past_them() {
+    let page = |cursor: Value| {
+        let mut h = history();
+        h["nodes"] = json!([
+            node("user_message", 1, "And list them.", Value::Null),
+            node(
+                "assistant_message",
+                3,
+                "Two files.",
+                json!({"model": "glm-x"})
+            ),
+        ]);
+        h["pending_confirms"] = json!([]);
+        for (k, v) in cursor.as_object().unwrap() {
+            h[k] = v.clone();
+        }
+        h
+    };
+    let back = run(
+        &["history", S, "-n", "2", "--before", "5"],
+        vec![step("session.history", page(json!({"older": 1})))],
+    );
+    let forward = run(
+        &["history", S, "-n", "2", "--after", "0"],
+        vec![step("session.history", page(json!({"next": 3})))],
+    );
+    golden("history_pages", &format!("{back}{forward}"));
+}
+
 #[test]
 fn history_with_no_sessions_says_so() {
     golden(

@@ -166,6 +166,7 @@ async fn node_list_and_history_through_the_index_answer_as_the_scan_did() {
                 .session_history(SessionHistoryParams {
                     session_id: s.clone(),
                     n: Some(n),
+                    ..Default::default()
                 })
                 .unwrap();
             let all = core.store.session_nodes(s).unwrap();

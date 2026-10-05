@@ -2523,6 +2523,7 @@ async fn the_lists_carry_attention_for_a_session_parked_on_a_confirm() {
         .session_history(theseus_protocol::SessionHistoryParams {
             session_id: a.session_id.clone(),
             n: None,
+            ..Default::default()
         })
         .unwrap();
     assert_eq!(history.session.attention.as_ref(), Some(&parked));
