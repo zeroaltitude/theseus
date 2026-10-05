@@ -103,8 +103,9 @@ async fn an_end_too_short_or_unknown_is_not_found() {
     let (code, why) = reach(&core, "abcdef").unwrap_err();
     assert_eq!(code, error_code::NOT_FOUND);
     assert_eq!(why, "no node's id ends with `abcdef`");
-    let (code, _) = reach(&core, "res·e0f1a2").unwrap_err();
+    let (code, why) = reach(&core, "res·e0f1a2").unwrap_err();
     assert_eq!(code, error_code::NOT_FOUND, "the prefix is held too");
+    assert_eq!(why, "no node's id starts `res_` and ends with `e0f1a2`");
 }
 
 /// The resolve walks the index's keys and decodes no node: its time over a

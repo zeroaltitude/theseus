@@ -318,7 +318,10 @@ pub fn resolve(store: &Store, name: &str) -> Result<Named> {
         ids.retain(|id| id.starts_with(p.as_str()));
     }
     match ids.as_slice() {
-        [] => Ok(Named::Unknown(format!("no node's id ends with `{ending}`"))),
+        [] => Ok(Named::Unknown(match &prefix {
+            Some(p) => format!("no node's id starts `{p}` and ends with `{ending}`"),
+            None => format!("no node's id ends with `{ending}`"),
+        })),
         [one] => Ok(Named::One(one.clone())),
         many => {
             let mut named = Vec::new();
