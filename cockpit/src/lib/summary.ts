@@ -19,6 +19,8 @@ export function summarize(r: LedgerEntry): string {
       return `${d.provider}/${d.model} loop ${d.loop} · ${tokens((d.usage?.input_tokens ?? 0) + (d.usage?.cache_read_input_tokens ?? 0) + (d.usage?.cache_creation_input_tokens ?? 0))} in, ${tokens(d.usage?.output_tokens)} out · ${usd(d.cost_usd)} · ${ms(d.timing?.total_ms)} · ${d.stop_reason ?? ''}`
     case 'provider.error':
       return `${s('class')}${d.transient ? ' transient' : ''}${d.usage_unknown ? ' usage unknown' : ''} · ${s('message')}`
+    case 'provider.fallback':
+      return `${s('from')} refused${d.category ? ` (${s('category')})` : ''} · the request goes to ${s('to')}, once`
     case 'loop.ended':
       return `loop ${d.loop} ended: ${d.outcome?.provider_stop_reason ?? ''}, ${d.outcome?.tool_calls ?? 0} tool calls → ${d.decision?.decision ?? ''}`
     case 'loop.started': return `loop ${d.loop ?? ''} started`

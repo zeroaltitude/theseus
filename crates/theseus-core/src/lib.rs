@@ -160,6 +160,8 @@ mod tests_external;
 #[cfg(test)]
 mod tests_failures;
 #[cfg(test)]
+mod tests_fallback;
+#[cfg(test)]
 mod tests_glide;
 #[cfg(test)]
 mod tests_grants;

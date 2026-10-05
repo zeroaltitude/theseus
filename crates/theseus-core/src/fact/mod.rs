@@ -271,6 +271,7 @@ facts![
     turn::ModelAnswered<'static>,
     turn::ProviderCall<'static>,
     turn::ProviderRefused<'static>,
+    turn::FellBack<'static>,
     turn::BudgetAsked<'static>,
     turn::LoopEndedOnBudget<'static>,
     turn::OverLimit<'static>,

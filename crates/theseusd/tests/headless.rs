@@ -62,12 +62,17 @@ fn rig(model: &FakeModel, tweak: impl FnOnce(&mut toml::Table)) -> tempfile::Tem
 
 /// `theseus --spawn <theseusd> --json ARGS…` in `dir`, with no vault.
 fn spawn_cli(dir: &Path, args: &[&str]) -> Command {
+    let mut c = spawn_bare(dir);
+    c.arg("--json").args(args);
+    c
+}
+
+/// `theseus --spawn <theseusd>` in `dir`, with no vault: its arguments to come.
+fn spawn_bare(dir: &Path) -> Command {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let mut c = Command::new(theseusd.with_file_name("theseus"));
     c.arg("--spawn")
         .arg(&theseusd)
-        .arg("--json")
-        .args(args)
         .env("THESEUS_CONFIG", dir.join("config.toml"))
         .env("THESEUS_STATE_DIR", dir.join("state"))
         .env(KEY_VAR, "tv-headless-7f3a9c")
@@ -187,15 +192,53 @@ fn a_turn_parked_on_an_approval_exits_6() {
     assert!(run.turn["awaiting_confirm"].is_string(), "{}", run.turn);
 }
 
-/// The model declines: 7.
+/// The model declines, and so does its fallback (theseus-7gir.18): 7.
 #[test]
 fn a_refused_turn_exits_7() {
     let model = FakeModel::start(reads_notes);
-    model.decline_next(1);
+    model.decline_next(2);
     let dir = rig(&model, |_| {});
     let run = ask(dir.path(), "say hello");
     assert_eq!(run.code, 7, "{}\n{}", run.turn, run.stderr);
     assert_eq!(run.turn["stop_reason"], "refusal", "{}", run.turn);
+    assert_eq!(model.requests().len(), 2, "one fallback, never a loop");
+}
+
+/// The model declines and its fallback answers (theseus-7gir.18): 0, and the
+/// plain output says so in a line of its own, above the status line.
+#[test]
+fn a_refusal_its_fallback_answers_exits_0_and_says_so() {
+    let model = FakeModel::start(reads_notes);
+    model.decline_next(1);
+    let dir = rig(&model, |_| {});
+    let out = spawn_bare(dir.path())
+        .args(["ask", "say hello"])
+        .output()
+        .unwrap();
+    let (stdout, stderr) = (
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert_eq!(out.status.code(), Some(0), "{stdout}\n{stderr}");
+    let line = "Sonnet 5.5 declined (cyber); Sonnet 5 answered.";
+    let at = stderr.find(line).expect(&stderr);
+    assert!(
+        stderr[at..].contains("[sonnet → anthropic/claude-sonnet-5 "),
+        "{stderr}"
+    );
+    assert!(
+        !stdout.contains(line),
+        "the reply's text is the model's alone: {stdout}"
+    );
+    let models: Vec<Value> = model
+        .requests()
+        .iter()
+        .map(|r| r["model"].clone())
+        .collect();
+    assert_eq!(
+        models,
+        [json!("claude-sonnet-5-5"), json!("claude-sonnet-5")]
+    );
 }
 
 /// The loop cap ends the turn before the model does: 8.

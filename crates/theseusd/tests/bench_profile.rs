@@ -153,6 +153,42 @@ fn a_first_byte_timeout_is_retried_inside_the_headless_turn() {
     assert_eq!(model.requests().len(), 1, "no retry inside the turn");
 }
 
+/// A request the model refuses is made once more on its fallback inside the
+/// turn (theseus-7gir.18): Sonnet 5.5's is Sonnet 5, so a headless trial ends
+/// 0 on its answer, as Claude Code's trials did where b5's three refused.
+/// With `[model.retries] refusal = false` the trial exits 7, as those did.
+#[test]
+fn a_refused_request_is_answered_by_its_fallback_inside_the_headless_turn() {
+    let prompt = "Find the word inside the locked archive and write it to answer.txt.";
+    let model = FakeModel::start(no_calls);
+    model.decline_next(1);
+    let dir = trial(&model, |_| {});
+    let run = ask(dir.path(), prompt);
+    assert_eq!(run.code, 0, "{}\n{}", run.turn, run.stderr);
+    assert_eq!(run.turn["model"], "claude-sonnet-5", "{}", run.turn);
+    assert_eq!(
+        run.turn["fallback"],
+        json!({"from": "claude-sonnet-5-5", "to": "claude-sonnet-5", "category": "cyber", "answered": true})
+    );
+    let models: Vec<Value> = model
+        .requests()
+        .iter()
+        .map(|r| r["model"].clone())
+        .collect();
+    assert_eq!(
+        models,
+        [json!("claude-sonnet-5-5"), json!("claude-sonnet-5")]
+    );
+    let model = FakeModel::start(no_calls);
+    model.decline_next(1);
+    let dir = trial(&model, |t| {
+        set(t, &["model", "retries", "refusal"], false.into())
+    });
+    let run = ask(dir.path(), prompt);
+    assert_eq!(run.code, 7, "{}\n{}", run.turn, run.stderr);
+    assert_eq!(model.requests().len(), 1, "no fallback");
+}
+
 /// A page on this machine, as a task's own web server serves one: every
 /// request is answered with its HTML, and each one's first line is kept.
 fn page_server() -> (u16, Arc<Mutex<Vec<String>>>) {

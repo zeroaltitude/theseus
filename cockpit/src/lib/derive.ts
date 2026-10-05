@@ -1,7 +1,7 @@
 // Series and summaries derived from the ledger: the cockpit's instruments read the same append-only record the
 // daemon writes, so every number on screen can be traced back to rows.
 import { useMemo } from 'react'
-import type { LedgerEntry, Usage } from '@protocol'
+import type { LedgerEntry, TurnFallback, Usage } from '@protocol'
 import { useRpc } from './rpc'
 import { ledgerKind, type Tone } from './taxonomy'
 
@@ -75,6 +75,8 @@ export interface TurnRow {
   error?: string; errorClass?: string | null
   /** The turn's own tokens (`turn.ended`'s `usage`). */
   usage?: Usage
+  /** A refusal moved the turn to its model's fallback (`turn.ended`'s `fallback`, theseus-7gir.18). */
+  fallback?: TurnFallback
 }
 
 /** Turns from turn.started / turn.ended / turn.failed, oldest first. */
@@ -89,7 +91,7 @@ export function turnRows(rows: LedgerEntry[] | undefined): TurnRow[] {
       Object.assign(t, {
         end: r.at_unix_ms, elapsed_ms: d.elapsed_ms ?? r.at_unix_ms - t.start, first_token_ms: d.first_token_ms,
         loops: d.loops, tool_calls: d.tool_calls, cost: d.cost_usd, model: d.model, stop: d.stop_reason, failed: r.kind === 'turn.failed',
-        usage: d.usage ?? undefined,
+        usage: d.usage ?? undefined, fallback: d.fallback ?? undefined,
         ...(r.kind === 'turn.failed' ? { error: d.error ?? d.reason ?? d.message, errorClass: d.class ?? null } : {}),
       })
       m.set(r.turn_id, t)

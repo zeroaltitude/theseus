@@ -12,6 +12,7 @@ import { useWorld } from '@/lib/world'
 import { dropDraft, type Draft } from '@/lib/drafts'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
+import { fallbackLine } from '@/lib/fallback'
 import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords, wireToName } from '@/lib/toolwords'
 import { JsonView } from './JsonView'
 import { LiveDot, Pill } from './ui'
@@ -120,6 +121,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
                 : it.kind === 'queued' ? (waits && it.use ? <QueuedItem key={`${it.node.node_id}:${it.use.id}`} at={it.node.at_unix_ms} use={it.use} /> : null)
                 : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} scores={scores} noticed={noticed} />)}
               {running && live && <LiveItem live={live} />}
+              {t?.fallback && <TurnFellBack t={t} />}
               {t?.failed && <TurnFailed t={t} />}
             </div>
           </section>
@@ -290,6 +292,16 @@ function AssistantItem({ n }: { n: NodeInfo }) {
           {n.text && <PublishControl nodeId={n.node_id} />}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** A turn a refusal moved to its model's fallback (theseus-7gir.18), in the line every surface shows. */
+function TurnFellBack({ t }: { t: TurnRow }) {
+  if (!t.fallback) return null
+  return (
+    <div className="ml-[76px] rounded-lg bg-wait/[0.06] px-3 py-1.5 text-[12px] text-ink-dim ring-1 ring-wait/30">
+      {fallbackLine(t.fallback, t.stop ?? '')}
     </div>
   )
 }

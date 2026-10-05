@@ -1067,6 +1067,45 @@ async fn the_detail_pane_shows_a_recorded_history_then_its_events() {
     );
 }
 
+/// A turn a refusal's fallback answered says so in the pane, above its status
+/// line, in the words every surface uses (theseus-7gir.18).
+#[tokio::test]
+async fn the_detail_pane_says_a_refusals_fallback_answered() {
+    let mut rig = harbour_rig(120, 20);
+    open_dm(&mut rig).await;
+    let d = rig.daemon();
+    d.notify(
+        "turn.started",
+        json!({"session_id": "ses_dm0001", "turn_id": "turn_f1", "execution_id": "exe_ses_dm0001"}),
+    );
+    let ended = TurnSubmitResult {
+        session_id: "ses_dm0001".into(),
+        turn_id: "turn_f1".into(),
+        loops: 2,
+        stop_reason: "no_tool_calls".into(),
+        model: "claude-sonnet-5".into(),
+        provider: "anthropic".into(),
+        profile: "sonnet".into(),
+        elapsed_ms: 1840,
+        fallback: Some(theseus_protocol::route::TurnFallback {
+            from: "claude-sonnet-5-5".into(),
+            to: "claude-sonnet-5".into(),
+            category: Some("cyber".into()),
+            answered: true,
+        }),
+        ..Default::default()
+    };
+    d.notify("turn.ended", serde_json::to_value(&ended).unwrap());
+    let line = "Sonnet 5.5 declined (cyber); Sonnet 5 answered.";
+    rig.shows(line).await;
+    let rows = pane(&rig.screen(), 120);
+    let at = rows.iter().position(|r| r.contains(line)).unwrap();
+    assert!(
+        rows[at + 1].starts_with(" [sonnet → anthropic/claude-sonnet-5 · 2 loop(s)"),
+        "{rows:?}"
+    );
+}
+
 #[test]
 fn a_long_line_wraps_at_its_last_space_that_fits() {
     assert_eq!(ui::wrap("low water at 14:10", 9), ["low water", "at 14:10"]);

@@ -323,7 +323,12 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
                 ),
             );
         }
-        Event::TurnEnded(r) if show.turns => push(&mut out, Tag::Dim, &status_line(r)),
+        Event::TurnEnded(r) if show.turns => {
+            if let Some(line) = fallback_line(r) {
+                push(&mut out, Tag::Warn, &line);
+            }
+            push(&mut out, Tag::Dim, &status_line(r))
+        }
         Event::TurnFailed(f) => {
             // What follows it (theseus-ljr).
             let then = match f.then.as_deref() {
@@ -403,6 +408,12 @@ fn budget_answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
             c.correlation_id
         ),
     );
+}
+
+/// What a turn a refusal moved to its model's fallback says, above its status
+/// line (theseus-7gir.18): `Sonnet 5.5 declined (cyber); Sonnet 5 answered.`
+pub fn fallback_line(r: &TurnSubmitResult) -> Option<String> {
+    r.fallback.as_ref().map(|f| f.line(&r.stop_reason))
 }
 
 pub fn status_line(r: &TurnSubmitResult) -> String {
@@ -3028,5 +3039,24 @@ mod tests {
             ..ALL
         };
         assert!(shown(notify::TURN_STARTED, started, no_turns).is_empty());
+    }
+
+    /// A turn a refusal's fallback answered says so above its status line, as
+    /// a `Warn` line (theseus-7gir.18): `theseus watch`, and the TUI's pane.
+    #[test]
+    fn a_fallbacks_turn_says_so_above_its_status_line() {
+        let ended = serde_json::json!({"session_id": "ses_a", "turn_id": "turn_a", "loops": 2,
+            "output": "", "stop_reason": "no_tool_calls", "provider_stop_reason": "end_turn",
+            "model": "claude-sonnet-5", "provider": "anthropic", "profile": "sonnet",
+            "usage": {"input_tokens": 1, "output_tokens": 2}, "elapsed_ms": 900,
+            "fallback": {"from": "claude-sonnet-5-5", "to": "claude-sonnet-5", "category": "cyber",
+                "answered": true}});
+        let lines = shown(notify::TURN_ENDED, ended, ALL);
+        let line = "Sonnet 5.5 declined (cyber); Sonnet 5 answered.";
+        assert_eq!(lines[0], (Tag::Warn, line.to_string()));
+        assert_eq!((lines.len(), lines[1].0), (2, Tag::Dim), "{lines:?}");
+        assert!(lines[1]
+            .1
+            .starts_with("[sonnet → anthropic/claude-sonnet-5 · 2 loop(s)"));
     }
 }
