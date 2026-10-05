@@ -220,6 +220,7 @@ async fn a_file_that_does_not_load_changes_nothing_and_a_changed_place_updates_i
     .await;
     let d = r.detail().unwrap();
     assert!(d.contains("stays bound until it does"), "{d}");
+    assert!(!d.contains('\n'), "health's one line: {d}");
     let errors = r.ledger("discord.error");
     assert!(
         errors.iter().any(|e| e["op"] == "bindings file"),

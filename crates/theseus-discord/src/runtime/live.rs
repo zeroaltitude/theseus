@@ -89,7 +89,7 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
         seen = now;
         match read(&path).await {
             Err(e) => {
-                let why = format!("{e:#}");
+                let why = one_line(&format!("{e:#}"));
                 let n = format!(
                     "the bindings file does not load, so revision {} stays bound until it \
                      does: {why}",
@@ -105,6 +105,22 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
                 bound = new;
             }
         }
+    }
+}
+
+/// A parse error on one line, for health's one line: TOML's names the
+/// place on its first line and the fault on its last, with the file's line
+/// and a caret between.
+fn one_line(why: &str) -> String {
+    let lines: Vec<&str> = why
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    match lines.as_slice() {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [first, .., last] => format!("{first}: {last}"),
     }
 }
 
@@ -507,5 +523,23 @@ impl Shared {
             self.start_dm_lane(d)?;
         }
         self.start_dm(d).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A TOML error's caret drawing is left out of health's one line.
+    #[test]
+    fn a_parse_error_is_said_on_one_line() {
+        let e = Bindings::parse("guild_id = \"9\n[[channel\n").unwrap_err();
+        let why = one_line(&format!("{e:#}"));
+        assert!(!why.contains('\n') && !why.contains('^'), "{why}");
+        assert!(why.starts_with("TOML parse error at line "), "{why}");
+        assert_eq!(
+            one_line("no [[channel]] and no [[dm]]"),
+            "no [[channel]] and no [[dm]]"
+        );
     }
 }
