@@ -844,6 +844,14 @@ fn typed_model_thinking_and_context() {
         }),
     );
     typed(
+        "model_answered",
+        Event::ModelAnswered(ModelDelta {
+            turn_id: T.into(),
+            loop_index: 0,
+            text: "Good evening. What can I do for you?".into(),
+        }),
+    );
+    typed(
         "context_compiled_recompile",
         Event::ContextCompiled(summary(true)),
     );
@@ -1079,7 +1087,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 40);
+    assert_eq!(n, 41);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in

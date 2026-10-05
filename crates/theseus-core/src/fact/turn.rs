@@ -955,14 +955,28 @@ impl Fact for ModelThinking<'_> {
 }
 
 /// The provider answered: the call's span closes with what it said, after
-/// its first byte and first token.
+/// its first byte and first token, and the loop's whole text goes to the
+/// session's clients at once (`model.answered`, theseus-ck0n), before the
+/// settle's frame, so a place shows it without waiting on that sync.
 pub struct ModelAnswered<'a> {
     pub resp: &'a ModelResponse,
     /// When the call's span opened, on the trace's clock.
     pub call_t0: u64,
+    pub turn_id: &'a str,
+    pub loop_index: u32,
 }
 
 impl Fact for ModelAnswered<'_> {
+    const METHOD: Option<&'static str> = Some(notify::MODEL_ANSWERED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::ModelAnswered(theseus_protocol::ModelDelta {
+            turn_id: self.turn_id.into(),
+            loop_index: self.loop_index,
+            text: self.resp.text.clone(),
+        }))
+    }
+
     fn span(&self, trace: &mut Trace) {
         let resp = self.resp;
         if let Some(fb) = resp.timing.first_byte_ms {

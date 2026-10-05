@@ -2245,6 +2245,8 @@ impl TurnRunner {
                 t.record(&fact::turn::ModelAnswered {
                     resp: &resp,
                     call_t0,
+                    turn_id: t.tc.turn_id,
+                    loop_index: i,
                 });
                 let node = self.settle_call(t, &action, compiled, &resp, started_ms, i)?;
                 Ok(Called::Answered(Box::new((resp, node))))

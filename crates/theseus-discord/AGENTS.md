@@ -47,6 +47,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   ledger rows (Item 30).
 - **What must be seen is an outbox post**, written by the core when it happens: a reply, a card, a card's settle, a
   failed turn. Live progress (streamed text, tool lines, typing) is best effort and never replayed (Item 6).
+- **The reply shows before its frames are synced** (theseus-ck0n): a loop's first text goes out at once, the rest of
+  its stream at the edit tick, and its whole text the moment its stream ends (`model.answered`, which the core sends
+  before the settle's frame), all live ops under the post's keys, so the post, durable and exactly once, only seals
+  them and adds the footer. A create's `discord.message.out` row goes through `Core::binding_ledger_soon`, so the
+  lane's next write never waits on that row's sync.
 - **One lane per place is the only writer of its messages**: posts first, in order, then live progress. A create
   carries a nonce from its message's key, with `enforce_nonce`, so a retry after a crash returns the first message.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so

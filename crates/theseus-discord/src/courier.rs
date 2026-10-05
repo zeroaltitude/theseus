@@ -1138,9 +1138,11 @@ impl Lane {
             message: format!("reading the sent message: {e}"),
         })?;
         self.shared.board.update(|s| s.messages_out += 1);
-        // Whom Discord says the message mentions: what it notified.
+        // Whom Discord says the message mentions: what it notified. The row
+        // is written off the lane's path, so the next write never waits on
+        // its sync (theseus-ck0n).
         let mentioned: Vec<String> = m.mentions.iter().map(|u| u.id.to_string()).collect();
-        self.shared.core.binding_ledger(
+        self.shared.core.binding_ledger_soon(
             LedgerKind::DiscordMessageOut,
             None,
             json!({"place": self.label, "message_id": m.id.to_string(), "part": key,
@@ -1291,7 +1293,7 @@ impl Lane {
                     })?;
                 self.msgs.insert(key.to_string(), (channel, m.id.get()));
                 self.shared.board.update(|s| s.messages_out += 1);
-                self.shared.core.binding_ledger(
+                self.shared.core.binding_ledger_soon(
                     LedgerKind::DiscordMessageOut,
                     None,
                     json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "notice": card.title}),

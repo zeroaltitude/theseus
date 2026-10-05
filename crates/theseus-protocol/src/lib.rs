@@ -266,6 +266,10 @@ pub mod notify {
         PROFILE_CHANGED = "profile.changed",
         /// Thinking summaries / progress updates as they stream.
         MODEL_THINKING = "model.thinking",
+        /// One loop's answer is whole (theseus-ck0n): its stream ended, sent before its
+        /// settle's frame is written, so a client shows the whole text at once. `text` is
+        /// the loop's whole text, so a client that dropped a delta still ends with it.
+        MODEL_ANSWERED = "model.answered",
         /// The context for a loop was compiled (append or recompile, sizes, digest).
         CONTEXT_COMPILED = "context.compiled",
         /// A tool call started (after the gate) and ended (with its result).
