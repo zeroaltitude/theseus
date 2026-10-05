@@ -83,6 +83,15 @@ on as a background job, and its late result comes back as a continuation.
   task's timeout. Then every session is stopped (its turn and its jobs), and the daemon's records are read before it
   stops cleanly: `theseus-history.json` (the conversation), `theseus-calls.json` (every `provider.call` row, tasks'
   sessions included: the trial's spend), `theseus-tasks.json`, `theseus-executions.json`, and `theseus-health.json`.
+- **Measured** as bench/README.md's arms are: the harness sampler (`bench/harbor/sampler.py`) starts before the
+  daemon, in a session of its own, and stops after the finish's clean stop (on Harbor's timeout too), with
+  theseusd's job wrappers apart. The driver's own calls (settle's polls, the finish's reads and stops) go through
+  `<state>/async-driver`, a link to `theseus`, so the sampler counts them outside the harness; the two asks are the
+  arm's own client and count as harness. The record (`agent/efficiency.json`, `efficiency.theseus_ledger_record`)
+  takes its spend from `theseus-calls.json` (`spend_from: "ledger"`: the calls its rows, the dollars their sum, by
+  model), its tool calls from the conversation's history (a task's session's tool calls are not counted), and the
+  sampler's numbers. The rows leave out a call a stop cut (its estimate is a `provider.cut` row) and a failed call
+  (a `provider.error` row, with no usage or cost), which a turn's totals count.
 - **Jobs and cgroups.** A container has no systemd, so the daemon's cgroup is not delegated: health's `cgroup` phase
   says `none` ("the daemon runs in /sys/fs/cgroup/, not in a unit of its own", as it did on the build VM), and a job
   stops by its process group and tree, not by a cgroup of its own.
@@ -139,8 +148,8 @@ python3 -m unittest discover -s bench/async && python3 -m unittest discover -s b
 The standard library runs them without Harbor or Docker: each family's oracle on this host under a scratch
 `ASYNC_ROOT` at a time scale of 0.01, and a planted wrong effect per family; the ledger's check against an edited
 one; the driver against a fake environment, a stand-in `claude` on the FIFO, and the daemon-mode script under a
-stand-in `theseus` (a daemon that answers health only once it is up, a wake pending after its job, and nothing left
-running after a test); and the scorer over fixture trials worked by hand. Three more run on request:
+stand-in `theseus` (a daemon that answers health only once it is up, a wake pending after its job, the sampler
+around it all, and nothing left running after a test); and the scorer over fixture trials worked by hand. Three more run on request:
 
 ```bash
 ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async     # Harbor reads each task; the agents load
@@ -149,6 +158,7 @@ ASYNC_E2E_BIN=$PWD/target/debug python3 -m unittest test_driver.EndToEnd # (from
 
 The second runs this workspace's `theseusd` on `theseus-sim fake-model --rules`, making the interrupt oracle's
 `proc.run` calls: the long job goes to the background, the injection is answered while it runs, and the trial
-settles only after the job's continuation (`ASYNC_E2E_KEEP=DIR` keeps its logs).
+settles only after the job's continuation; the sampler runs around it, and the record is the ledger's
+(`ASYNC_E2E_KEEP=DIR` keeps its logs).
 
 After changing `tools/asyncbench.py`, run `python3 bench/async/sync.py`; the tests fail on a stale copy.

@@ -156,7 +156,13 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
     )
 
 
-def daemon_script(bin_dir: str, state: str, logs: str) -> str:
+# The async bench's driver reaches the daemon through a link of this name
+# beside the state, so its polls' `comm` is not a harness name (`ARMS`).
+POLL = "async-driver"
+
+
+def daemon_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
+                  sample_ms: int = smp.INTERVAL_MS) -> str:
     """The async bench's trial (theseus-7gir.16): a real daemon for the
     whole trial, not one turn on stdio, so a job, a task, or a wake that
     outlives the turn is still read. The daemon starts in a session of its
@@ -164,13 +170,27 @@ def daemon_script(bin_dir: str, state: str, logs: str) -> str:
     conversation's session is opened (its id in `session`, where the driver
     reads it to send its messages), and the instruction is its first turn;
     the command exits with that `ask`'s code, as `run_script`'s does, and
-    leaves the daemon running for the driver's settle and finish."""
+    leaves the daemon running for the driver's settle and finish.
+
+    `<state>/async-driver` (`POLL`) is a link to `theseus` for the driver's
+    own calls, so the sampler sees them as outside the harness. With
+    `sampler` (its path in the container), the harness sampler starts before
+    the daemon, in a session of its own so that it outlives this command, as
+    `run_script` runs it (theseusd's job wrappers apart); the driver's finish
+    stops it after the daemon's clean stop (`driver.Theseus.finish_script`)."""
     b, s, lg = (shlex.quote(p) for p in (bin_dir, state, logs))
     cli = f"{b}/theseus --json"
+    start = ""
+    if sampler:
+        arm = ef.ARMS["theseus"]
+        start = "$detach sh -c " + shlex.quote(
+            smp.start_script(sampler, logs, state, arm["names"], arm["wrapper_args"], sample_ms)) + "; "
     return (
         'instruction="$THESEUS_BENCH_INSTRUCTION"; unset THESEUS_BENCH_INSTRUCTION; '
         f"export THESEUS_SOCKET={s}/theseus.sock; rm -f {s}/session {lg}/{DONE}; "
+        f"ln -sf {b}/theseus {s}/{POLL}; "
         "detach=$(command -v setsid || true); "
+        f"{start}"
         f"$detach {b}/theseusd < /dev/null > /dev/null 2>> {lg}/{LOG} & echo $! > {s}/theseusd.pid; "
         f"i=0; until {cli} health > /dev/null 2>&1; do i=$((i+1)); "
         f"if [ $i -ge 100 ]; then echo 'theseus: the daemon did not answer in 10 s' >&2; exit 3; fi; "

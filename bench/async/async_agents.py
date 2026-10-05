@@ -15,7 +15,9 @@ with bench/harbor and bench/async on PYTHONPATH (bench/async/README.md).
   (`driver.Theseus.settle`), or at the task's timeout; then every session
   is stopped, the daemon's records read, and the daemon stopped cleanly.
   Its spend is every `provider.call` row in the daemon's ledger, tasks'
-  sessions included.
+  sessions included. The harness sampler runs from before the daemon to
+  after its clean stop, and the efficiency record is the ledger's
+  (`efficiency.theseus_ledger_record`), not the first ask's turn alone.
 - **ClaudeCodeAsync**: Harbor's Claude Code, its command reading stdin from a
   FIFO in the CLI's stream-json input mode (`driver.claude_stdin`), where the
   driver writes the injection; its input is closed once every message is
@@ -41,6 +43,8 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 import driver
+import efficiency as ef
+import sampler as smp
 import theseus_agent as ta
 import theseus_bench as tb
 
@@ -98,8 +102,9 @@ class TheseusAsync(ta.Theseus):
         timeout = float(self._task_timeout(environment))
         report: dict[str, Any] = {"arm": self.name(), "family": meta.get("family"),
                                   "proc_sync_secs": values[("tools", "proc_sync_secs")]}
+        sample_ms = int(os.environ.get("BENCH_SAMPLE_MS", str(smp.INTERVAL_MS)))
         first = asyncio.create_task(self.exec_as_agent(
-            environment, command=tb.daemon_script(ta.BIN, ta.STATE, logs),
+            environment, command=tb.daemon_script(ta.BIN, ta.STATE, logs, ta.SAMPLER, sample_ms),
             env={**env, "THESEUS_BENCH_INSTRUCTION": instruction},
         ))
         session = injected = None
@@ -138,8 +143,10 @@ class TheseusAsync(ta.Theseus):
             first.cancel()
             if injected:
                 injected.cancel()
-            if session:
-                await asyncio.shield(environment.exec(command=trial.finish_script(session), timeout_sec=60))
+            # The finish stops the sampler after the daemon; with no
+            # session there is no finish, and the sampler stops alone.
+            end = trial.finish_script(session, ta.SAMPLER) if session else trial.stop_sampler_script()
+            await asyncio.shield(environment.exec(command=end, timeout_sec=60))
             report["wall_s"] = round(time.monotonic() - started, 3)
             _write(self.logs_dir, report)
 
@@ -164,6 +171,17 @@ class TheseusAsync(ta.Theseus):
             context.cost_usd = s["cost_usd"]
             context.metadata = {**(context.metadata or {}), "spend_from": "ledger",
                                 "provider_calls": s["calls"]}
+        # The efficiency record from the ledger and the sampler, in place of
+        # the inherited one (the first ask's turn alone). Never the trial's
+        # failure.
+        if (self.logs_dir / "theseus-calls.json").exists():
+            report = ta._json(self.logs_dir / driver.REPORT) or {}
+            try:
+                rec = ef.theseus_ledger_record(self.logs_dir, wall_s=report.get("wall_s"))
+                ef.write(self.logs_dir, rec)
+            except Exception as e:  # noqa: BLE001
+                rec = {"schema": ef.SCHEMA, "arm": "theseus", "error": f"{type(e).__name__}: {e}"}
+            context.metadata = ef.metadata(context.metadata, rec)
 
 
 class ClaudeCodeAsync(ClaudeCode):

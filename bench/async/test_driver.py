@@ -28,9 +28,12 @@ sys.path.insert(0, str(HERE.parent / "harbor"))
 
 import asyncbench as ab  # noqa: E402
 import driver  # noqa: E402
+import efficiency as ef  # noqa: E402
+import sampler as smp  # noqa: E402
 import theseus_bench as tb  # noqa: E402
 
 LIB = str(HERE / "tools/asyncbench.py")
+SAMPLER = Path(smp.__file__).resolve()
 
 
 class FakeEnv:
@@ -167,6 +170,13 @@ open(sys.argv[0] + ".answers", "w").write(json.dumps({"answered": answered, "eof
 """
 
 
+def standin(script: str) -> str:
+    """A stand-in's text with this Python as its interpreter, named directly,
+    so its `comm` is its own name, as a real binary's is (through `env` it
+    would be `python3`), and the sampler sorts it by that name."""
+    return script.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
+
+
 def fifo_pids(d: Path, fifo: str) -> set[int]:
     """The FIFO run's processes, by pid: the stand-in CLI (its pid file), its
     tee (whose command line names the run's directory), and the FIFO's
@@ -236,7 +246,7 @@ class ClaudeStdin(unittest.TestCase):
             d = Path(d)
             (d / "bin").mkdir()
             claude = d / "bin/claude"
-            claude.write_text(STANDIN_CLAUDE)
+            claude.write_text(standin(STANDIN_CLAUDE))
             claude.chmod(stat.S_IRWXU)
             log, fifo = d / "claude-code.txt", str(d / "stdin")
             env = {"HARBOR_CLAUDE_CODE_INSTRUCTION_0F": "Train the model.", "HOME": str(d),
@@ -361,6 +371,18 @@ def left_running(*dirs: Path) -> list[str]:
     return out
 
 
+def classes_now(*dirs: Path) -> list[tuple[str, str]]:
+    """The sampler's classes, now, of the processes whose command line names
+    one of `dirs`: (comm, class) each, by the Theseus arm's names."""
+    arm = ef.ARMS["theseus"]
+    t = smp.Tracker(arm["names"], arm["wrapper_args"])
+    procs = smp.read_procs("/proc", lambda st: True)
+    classes = t.classify(procs)
+    marks = [str(d) for d in dirs]
+    return [(p["comm"], classes[pid]) for pid, p in procs.items()
+            if any(m in " ".join(p.get("argv") or []) for m in marks)]
+
+
 def wait_gone(pid: int, secs: float = 10) -> bool:
     """Whether `pid` is gone (or a zombie) within `secs`."""
     deadline = time.monotonic() + secs
@@ -382,15 +404,17 @@ class TheseusTrial(unittest.TestCase):
         for p in (self.bin, self.state, self.logs):
             p.mkdir()
         for name in ("theseus", "theseusd"):
-            (self.bin / name).write_text(STANDIN_THESEUS)
+            (self.bin / name).write_text(standin(STANDIN_THESEUS))
             (self.bin / name).chmod(stat.S_IRWXU)
         self.env = FakeEnv(d, {"STANDIN_DIR": str(d), "THESEUS_CONFIG": "/invented/theseus.toml"})
         self.trial = driver.Theseus(str(self.bin), str(self.state), str(self.logs))
 
     def tearDown(self):
-        """The stand-in daemon told to stop, and waited for by its pid; then
-        nothing of the test's may still run."""
+        """A sampler the test did not stop, stopped; the stand-in daemon told
+        to stop, and waited for by its pid; then nothing of the test's may
+        still run."""
         d = Path(self.tmp.name)
+        subprocess.run(["sh", "-c", self.trial.stop_sampler_script()], timeout=30)
         (d / "shutdown").touch()
         try:
             pid = int((self.state / "theseusd.pid").read_text())
@@ -406,17 +430,27 @@ class TheseusTrial(unittest.TestCase):
         return json.loads((Path(self.tmp.name) / "state.json").read_text())
 
     def daemon(self) -> str:
-        return tb.daemon_script(str(self.bin), str(self.state), str(self.logs))
+        return tb.daemon_script(str(self.bin), str(self.state), str(self.logs), str(SAMPLER), 50)
 
     def test_the_trial_runs_on_its_own_daemon_and_ends_only_when_its_job_has(self):
+        seen: list[tuple[str, str]] = []
+
+        async def look():
+            # The sampler's classes while the driver waits: its polls are outside.
+            while True:
+                seen.extend(classes_now(Path(self.tmp.name)))
+                await asyncio.sleep(0.05)
+
         async def go():
             first = await self.env.exec(self.daemon(), env={"THESEUS_BENCH_INSTRUCTION": "Train the model."})
             session = (await self.env.exec(self.trial.session_command())).stdout.strip()
             asked = await self.env.exec(self.trial.ask_command(session, 2),
                                         env={"ASYNC_MESSAGE": "Also count the tickets."})
+            looking = asyncio.create_task(look())
             ended = await self.trial.settle(self.env, time.monotonic() + 30)
             settled_at, settled_wall = time.monotonic(), time.time()
-            await self.env.exec(self.trial.finish_script(session))
+            looking.cancel()
+            await self.env.exec(self.trial.finish_script(session, str(SAMPLER)))
             return first, session, asked, ended, settled_at, settled_wall
 
         first, session, asked, ended, settled_at, settled_wall = asyncio.run(asyncio.wait_for(go(), 60))
@@ -445,6 +479,19 @@ class TheseusTrial(unittest.TestCase):
         self.assertLess(done.index("stop"), done.index("shutdown"))
         self.assertEqual(json.loads((self.logs / "theseus-calls.json").read_text())["total"], 1)
         self.assertFalse(Path(f"{self.state}/theseus.sock").exists())
+        # The sampler ran around it all, its daemon harness, the driver's polls outside.
+        summary = json.loads((self.logs / smp.SUMMARY).read_text())
+        self.assertEqual(summary["status"], "ok")
+        self.assertGreaterEqual(summary["classes"]["harness"]["processes"], 1)
+        self.assertFalse((self.state / "sampler.pid").exists())
+        self.assertIn(("theseusd", "harness"), seen)
+        self.assertIn(("async-driver", "outside"), seen)
+        self.assertNotIn(("async-driver", "harness"), seen)
+        # The record: the ledger's rows, the sampler's numbers.
+        rec = ef.theseus_ledger_record(self.logs, wall_s=1.0)
+        self.assertEqual((rec["spend_from"], rec["model_calls"], rec["cost_usd"], rec["sampler"]["status"]),
+                         ("ledger", 1, 0.01, "ok"))
+        self.assertIsNotNone(rec["harness"])
 
     def test_settle_waits_for_a_pending_wake_after_the_job(self):
         async def go():
@@ -456,7 +503,7 @@ class TheseusTrial(unittest.TestCase):
         try:
             ended, settled_wall = asyncio.run(asyncio.wait_for(go(), 60))
         finally:
-            subprocess.run(["bash", "-c", self.trial.finish_script("ses_invented")],
+            subprocess.run(["bash", "-c", self.trial.finish_script("ses_invented", str(SAMPLER))],
                            env=self.env.env, timeout=60)
         self.assertEqual(ended, "settled")
         # The job ended at once; the wake was due 1.5 s after settle's first look.
@@ -470,7 +517,7 @@ class TheseusTrial(unittest.TestCase):
         try:
             first = asyncio.run(asyncio.wait_for(go(), 60))
         finally:
-            subprocess.run(["bash", "-c", self.trial.finish_script("ses_invented")],
+            subprocess.run(["bash", "-c", self.trial.finish_script("ses_invented", str(SAMPLER))],
                            env=self.env.env, timeout=60)
         self.assertEqual(first.return_code, 0, first.stderr)
         s = self.standin()
@@ -568,12 +615,38 @@ class EndToEnd(unittest.TestCase):
             self.assertGreaterEqual(len(calls), 4)
             health = (logs / "theseus-health.json").read_text()
             self.assertIn("cgroup", health)
+            # Measured: the sampler ran from before the daemon to after its stop, saw theseusd as the
+            # harness and the driver's polls outside it, and the record is the ledger's.
+            summary = json.loads((logs / smp.SUMMARY).read_text())
+            self.assertEqual(summary["status"], "ok", summary.get("reason"))
+            self.assertIn(("theseusd", "harness"), self.seen)
+            self.assertIn(("async-driver", "outside"), self.seen)
+            self.assertNotIn(("async-driver", "harness"), self.seen)
+            rec = ef.theseus_ledger_record(logs, wall_s=1.0)
+            self.assertEqual((rec["spend_from"], rec["model_calls"], rec["sampler"]["status"]),
+                             ("ledger", len(calls), "ok"))
+            # No task here: the rows are the conversation's answers, each one (the ledger's `total`
+            # is every row of every kind, not the read's).
+            answers = [n for n in json.loads((logs / tb.HISTORY).read_text())["nodes"]
+                       if n["kind"] == "assistant_message"]
+            self.assertEqual(len(calls), len(answers))
+            self.assertGreater(rec["harness"]["cpu_s"], 0)
+            self.assertGreater(rec["harness"]["peak_rss_kb"], 0)
             self.assertEqual(left_running(d), [])
 
     async def trial(self, env, trial, inj, task, logs):
         started = time.monotonic()
+        self.seen: list[tuple[str, str]] = []
+
+        async def look():
+            # The sampler's classes as the trial runs, by the arm's names.
+            while True:
+                self.seen.extend(classes_now(Path(trial.state), Path(trial.bin_dir)))
+                await asyncio.sleep(0.1)
+
+        looking = asyncio.create_task(look())
         first = asyncio.create_task(env.exec(
-            tb.daemon_script(trial.bin_dir, trial.state, trial.logs),
+            tb.daemon_script(trial.bin_dir, trial.state, trial.logs, str(SAMPLER), 100),
             env={"THESEUS_BENCH_INSTRUCTION": (task / "instruction.md").read_text()}, timeout_sec=100))
         session = (await env.exec(trial.session_command())).stdout.strip()
         try:
@@ -585,7 +658,8 @@ class EndToEnd(unittest.TestCase):
             done = await first
             ended = await trial.settle(env, started + 90)
         finally:
-            await env.exec(trial.finish_script(session))
+            looking.cancel()
+            await env.exec(trial.finish_script(session, str(SAMPLER)))
         return done, ended, injected
 
 
@@ -613,6 +687,30 @@ class Agents(unittest.TestCase):
         self.assertEqual(async_agents.TheseusAsync.name(), "theseus-async")
         self.assertEqual(async_agents.ClaudeCodeAsync.name(), "claude-code-async")
         self.assertEqual(async_agents.ClaudeCodeAsync.fifo_path(None), "/tmp/async-claude-stdin")
+
+    def test_theseus_records_its_ledger_not_its_first_turn(self):
+        import async_agents
+        from harbor.models.agent.context import AgentContext
+
+        rows = [{"kind": "provider.call", "data": {"model": "claude-sonnet-5-5", "cost_usd": c,
+                                                   "usage": {"input_tokens": 10, "output_tokens": 5}}}
+                for c in (0.01, 0.0068, 0.009, 0.0075, 0.009)]
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            # The first ask's turn: two calls, $0.0168; the ledger: five, $0.0423.
+            (d / tb.TURN).write_text(json.dumps({"cost_usd": 0.0168, "loops": 2, "model": "claude-sonnet-5-5",
+                                                 "usage": {"input_tokens": 20, "output_tokens": 10}}))
+            (d / tb.EXIT).write_text("0\n")
+            (d / "theseus-calls.json").write_text(json.dumps({"rows": rows, "total": len(rows)}))
+            (d / driver.REPORT).write_text(json.dumps({"wall_s": 42.0}))
+            agent = async_agents.TheseusAsync(logs_dir=d, model_name="anthropic/claude-sonnet-5-5")
+            context = AgentContext()
+            agent.populate_context_post_run(context)
+            rec = json.loads((d / ef.RECORD).read_text())
+            self.assertEqual((rec["spend_from"], rec["model_calls"], rec["cost_usd"]), ("ledger", 5, 0.0423))
+            self.assertEqual((rec["wall_s"], rec["wall_from"]), (42.0, "agent"))
+            self.assertEqual(context.metadata["efficiency"], rec)
+            self.assertEqual(context.cost_usd, 0.0423)
 
 
 if __name__ == "__main__":
