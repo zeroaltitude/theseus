@@ -901,6 +901,13 @@ impl Drop for Outstanding<'_> {
 }
 
 /// What this client can do, as `initialize` declares it.
+///
+/// It watches no files for a server, so it never offers to
+/// (`didChangeWatchedFiles` without dynamic registration, theseus-m9hj): a
+/// server that is offered stops watching for itself, as rust-analyzer does,
+/// and then misses what a job writes (a `git checkout`, `cargo fmt`, a
+/// generator) in every file the client has not opened. The client still
+/// tells a server of its own writes (`Client::file_changed`).
 fn client_capabilities() -> Value {
     json!({
         "general": { "positionEncodings": ["utf-16"] },
@@ -908,7 +915,7 @@ fn client_capabilities() -> Value {
             "configuration": true,
             "workspaceFolders": true,
             "didChangeConfiguration": { "dynamicRegistration": true },
-            "didChangeWatchedFiles": { "dynamicRegistration": true, "relativePatternSupport": true },
+            "didChangeWatchedFiles": { "dynamicRegistration": false },
             "workspaceEdit": {
                 "documentChanges": true,
                 "resourceOperations": ["create", "rename", "delete"],
