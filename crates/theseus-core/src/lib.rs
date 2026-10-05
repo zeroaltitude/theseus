@@ -45,6 +45,7 @@ pub mod mcp_server;
 pub mod memory_pass;
 pub mod narrative;
 pub mod node;
+pub mod node_cache;
 pub mod ontology;
 pub mod outbound;
 pub mod outbox;
@@ -219,5 +220,7 @@ mod tests_tasks;
 mod tests_tender;
 #[cfg(test)]
 mod tests_term;
+#[cfg(test)]
+mod tests_tiering;
 #[cfg(test)]
 mod tests_wakes;

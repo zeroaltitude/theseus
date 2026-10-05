@@ -120,6 +120,11 @@ pub struct MemoryConfig {
     /// a task's first compile, and a compaction.
     #[serde(default = "default_assembled_budget")]
     pub assembled_budget_tokens: u64,
+    /// The heat cache of decoded nodes (step 33), in MB of their records'
+    /// bytes; 0 turns it off. The store's read path: it serves with `mode`
+    /// off too.
+    #[serde(default = "default_node_cache_mb")]
+    pub node_cache_mb: u64,
 }
 
 fn default_budget() -> u64 {
@@ -151,6 +156,12 @@ fn default_summary_profile() -> String {
 fn default_assembled_budget() -> u64 {
     4_000
 }
+fn default_node_cache_mb() -> u64 {
+    crate::node_cache::DEFAULT_MB
+}
+
+/// The largest heat cache, in MB.
+pub const MAX_NODE_CACHE_MB: u64 = 16_384;
 
 /// `summary_profile`'s word for no compaction: the ring drops leading turns.
 pub const SUMMARY_OFF: &str = "off";
@@ -183,6 +194,7 @@ impl Default for MemoryConfig {
             include_external: false,
             summary_profile: default_summary_profile(),
             assembled_budget_tokens: default_assembled_budget(),
+            node_cache_mb: default_node_cache_mb(),
         }
     }
 }
@@ -233,6 +245,13 @@ impl MemoryConfig {
         }
         if self.assembled_budget_tokens == 0 {
             bail!("memory.assembled_budget_tokens = 0: an assembled recall section with no tokens admits nothing");
+        }
+        if self.node_cache_mb > MAX_NODE_CACHE_MB {
+            bail!(
+                "memory.node_cache_mb = {} is over {MAX_NODE_CACHE_MB}: the heat cache holds decoded \
+                 nodes in the daemon's memory",
+                self.node_cache_mb
+            );
         }
         if !(1..=MAX_RECALL_DEADLINE_MS).contains(&self.recall_deadline_ms) {
             bail!(
@@ -345,6 +364,7 @@ mod tests {
         }
         assert!(parse("[memory]\nrecall_after = 1\n").is_err());
         assert_eq!(crate::Config::example().memory.rerank_wait_ms, 200);
+        assert_eq!(crate::Config::example().memory.node_cache_mb, 64);
         assert!(parse("[memory]\narm = \"+rerank\"\n").is_err());
         for (arm, want) in [
             ("none", MemoryArm::None),
@@ -369,6 +389,7 @@ mod tests {
             "session_recall_cap_tokens = 100",
             "summary_profile = \"\"",
             "assembled_budget_tokens = 0",
+            "node_cache_mb = 16385",
         ] {
             let cfg = parse(&format!("[memory]\nmode = \"shadow\"\n{bad}\n")).unwrap();
             assert!(cfg.validate().is_err(), "{bad}");

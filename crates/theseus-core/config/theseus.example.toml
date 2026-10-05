@@ -632,6 +632,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # not fit, rings as before, and the row says why.
 # summary_profile = "session"             # "session", a key of [profiles], or "off"
 # assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (canary and live)
+# Tiering (step 33): decoded nodes stay in a cache shared across turns, so a
+# turn decodes only what no reader decoded before it; past the bound, the
+# coldest go first (the science's decay hints, then the least recently read).
+# It is the store's read path: it serves with mode = "off" too.
+# node_cache_mb = 64                      # MB of the nodes' records it keeps; 0 turns it off
 
 # ---------------------------------------------------------------- lsp
 # Language servers (L2): the lsp tools ask a project's language server where a

@@ -38,6 +38,7 @@ use theseus_store::{
 };
 
 use crate::node::Node;
+use crate::node_cache::NodeCache;
 
 /// The index's projection for a daemon's store (theseus-lv2): the kernel's
 /// terms for each execution and action, and for each session the numbers
@@ -116,6 +117,8 @@ pub struct Store {
     blobs: Arc<crate::blobs::Blobs>,
     /// A turn's handle: its waiting rows and its transcript.
     turn: Option<Arc<TurnState>>,
+    /// Decoded nodes by position, shared by every handle (M6 step 33).
+    cache: Arc<crate::node_cache::NodeCache>,
     /// The session records being written now (theseus-xeo), shared by every
     /// handle on this store.
     sessions: Arc<SessionLocks>,
@@ -301,7 +304,12 @@ impl TurnState {
     /// Commit `records` with the waiting rows in front, as one frame, and
     /// return the positions of `records`. A frame that fails is not written,
     /// so its rows wait again for the next.
-    fn commit(&self, inner: &WalStore, records: &[NewRecord]) -> Result<Vec<u64>> {
+    fn commit(
+        &self,
+        inner: &WalStore,
+        cache: &NodeCache,
+        records: &[NewRecord],
+    ) -> Result<Vec<u64>> {
         #[cfg(test)]
         if self.faults.hit(records) {
             anyhow::bail!("an injected fault: this frame was not written");
@@ -318,7 +326,7 @@ impl TurnState {
                 self.frames
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let positions = positions.split_off(n);
-                self.wrote(records, &positions);
+                self.wrote(records, &positions, cache);
                 Ok(positions)
             }
             Err(e) => {
@@ -336,16 +344,16 @@ impl TurnState {
     /// once may return in the other order (theseus-a60). A node that does not
     /// decode drops the transcript, so the next reader reads it again from
     /// the store.
-    fn wrote(&self, records: &[NewRecord], positions: &[u64]) {
+    fn wrote(&self, records: &[NewRecord], positions: &[u64], cache: &NodeCache) {
         let mut t = self.transcript.lock().unwrap();
         let Some((session, _)) = t.as_ref() else {
             return;
         };
-        let new: Result<Transcript, _> = records
+        let new: Result<Transcript> = records
             .iter()
             .zip(positions)
             .filter(|(r, _)| r.kind == kinds::NODE && r.scope.as_deref() == Some(session))
-            .map(|(r, p)| serde_json::from_slice::<Node>(&r.payload).map(|n| (*p, Arc::new(n))))
+            .map(|(r, p)| cache.node(*p, &r.payload).map(|n| (*p, n)))
             .collect();
         match (new, t.as_mut()) {
             (Ok(new), Some((_, nodes))) => {
@@ -369,12 +377,13 @@ impl TurnState {
 /// (`Kernel::view`).
 struct TurnFrames {
     inner: Arc<WalStore>,
+    cache: Arc<NodeCache>,
     turn: Arc<TurnState>,
 }
 
 impl theseus_store::Store for TurnFrames {
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>> {
-        self.turn.commit(&self.inner, batch)
+        self.turn.commit(&self.inner, &self.cache, batch)
     }
     fn get(&self, position: u64) -> Result<Option<Record>> {
         self.inner.get(position)
@@ -479,6 +488,7 @@ impl Store {
             dir: dir.to_path_buf(),
             blobs: Arc::new(crate::blobs::Blobs::new(dir)),
             turn: None,
+            cache: Arc::default(),
             sessions: Arc::default(),
             tasks: Arc::default(),
             #[cfg(test)]
@@ -586,7 +596,7 @@ impl Store {
     /// Every write: one frame, with a turn's waiting rows in front.
     fn commit(&self, records: &[NewRecord]) -> Result<Vec<u64>> {
         match &self.turn {
-            Some(t) => t.commit(&self.inner, records),
+            Some(t) => t.commit(&self.inner, &self.cache, records),
             None if records.is_empty() => Ok(vec![]),
             None => self.inner.append(records),
         }
@@ -604,6 +614,7 @@ impl Store {
         match &self.turn {
             Some(t) => Arc::new(TurnFrames {
                 inner: self.inner.clone(),
+                cache: self.cache.clone(),
                 turn: t.clone(),
             }),
             None => self.inner.clone(),
@@ -779,11 +790,10 @@ impl Store {
     /// turn reads it once (theseus-qa0). Elsewhere it is read now.
     pub fn transcript(&self, session_id: &str) -> Result<Transcript> {
         let read = || -> Result<Transcript> {
-            Ok(self
-                .session_nodes(session_id)?
-                .into_iter()
-                .map(|(p, n)| (p, Arc::new(n)))
-                .collect())
+            #[cfg(test)]
+            self.reads
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.scan_kept(session_id)
         };
         let Some(turn) = &self.turn else {
             return read();
@@ -807,10 +817,12 @@ impl Store {
         // never read it.
         #[cfg(debug_assertions)]
         {
-            let stored = self.scan_nodes(session_id)?;
+            let stored = self.node_records(session_id)?;
             let kept: Vec<(u64, &str)> = nodes.iter().map(|(p, n)| (*p, n.id.as_str())).collect();
-            let stored: Vec<(u64, &str)> =
-                stored.iter().map(|(p, n)| (*p, n.id.as_str())).collect();
+            let stored: Vec<(u64, &str)> = stored
+                .iter()
+                .map(|r| (r.position, r.key.as_deref().unwrap_or_default()))
+                .collect();
             assert_eq!(
                 kept, stored,
                 "the turn's transcript differs from the store's"
@@ -834,13 +846,47 @@ impl Store {
     }
 
     fn scan_nodes(&self, session_id: &str) -> Result<Vec<(u64, crate::node::Node)>> {
-        let mut out = Vec::new();
-        for r in self.inner.scan_scope(session_id, 0, usize::MAX)? {
-            if r.kind == kinds::NODE {
-                out.push((r.position, r.decode()?));
-            }
-        }
+        Ok(self
+            .scan_kept(session_id)?
+            .into_iter()
+            .map(|(p, n)| (p, Arc::unwrap_or_clone(n)))
+            .collect())
+    }
+
+    /// A session's node records, undecoded: position, id (the key), bytes.
+    fn node_records(&self, session_id: &str) -> Result<Vec<Record>> {
+        let mut out = self.inner.scan_scope(session_id, 0, usize::MAX)?;
+        out.retain(|r| r.kind == kinds::NODE);
         Ok(out)
+    }
+
+    /// A session's nodes through the heat cache (M6 step 33): each one a
+    /// reader decoded before is served by position, and only the rest are
+    /// decoded (and kept).
+    fn scan_kept(&self, session_id: &str) -> Result<Transcript> {
+        self.node_records(session_id)?
+            .into_iter()
+            .map(|r| Ok((r.position, self.cache.node(r.position, &r.payload)?)))
+            .collect()
+    }
+
+    /// The node at `position`, through the heat cache: what a recall's
+    /// source reads. `None` when the record there is not the node `id`.
+    pub fn node_at(&self, position: u64, id: &str) -> Result<Option<Arc<Node>>> {
+        if let Some(n) = self.cache.get(position).filter(|n| n.id == id) {
+            return Ok(Some(n));
+        }
+        match self.inner.get(position)? {
+            Some(r) if r.kind == kinds::NODE && r.key.as_deref() == Some(id) => {
+                Ok(Some(self.cache.node(r.position, &r.payload)?))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// The heat cache of decoded nodes (M6 step 33).
+    pub fn node_cache(&self) -> &Arc<NodeCache> {
+        &self.cache
     }
 
     /// A session's first node, with its WAL position: a task's brief
@@ -855,7 +901,8 @@ impl Store {
             };
             after = last.position;
             if let Some(r) = records.iter().find(|r| r.kind == kinds::NODE) {
-                return Ok(Some((r.position, r.decode()?)));
+                let n = self.cache.node(r.position, &r.payload)?;
+                return Ok(Some((r.position, Arc::unwrap_or_clone(n))));
             }
         }
     }
@@ -865,7 +912,10 @@ impl Store {
         self.inner
             .tail_of_kind(kinds::NODE, n)?
             .iter()
-            .map(|r| Ok((r.position, r.decode()?)))
+            .map(|r| {
+                let n = self.cache.node(r.position, &r.payload)?;
+                Ok((r.position, Arc::unwrap_or_clone(n)))
+            })
             .collect()
     }
 
@@ -876,7 +926,10 @@ impl Store {
     /// A node by its id, with its WAL position.
     pub fn get_node(&self, id: &str) -> Result<Option<(u64, crate::node::Node)>> {
         match self.inner.latest_by_key(kinds::NODE, id)? {
-            Some(r) => Ok(Some((r.position, r.decode()?))),
+            Some(r) => {
+                let n = self.cache.node(r.position, &r.payload)?;
+                Ok(Some((r.position, Arc::unwrap_or_clone(n))))
+            }
             None => Ok(None),
         }
     }
@@ -1056,8 +1109,8 @@ pub(crate) mod tests {
         let pa = store.inner.append(&ra).unwrap();
         let pb = store.inner.append(&rb).unwrap();
         let turn = t.turn.as_ref().unwrap();
-        turn.wrote(&rb, &pb);
-        turn.wrote(&ra, &pa);
+        turn.wrote(&rb, &pb, &store.cache);
+        turn.wrote(&ra, &pa, &store.cache);
         let kept: Vec<(u64, String)> = t
             .transcript("ses_t")
             .unwrap()
@@ -1099,6 +1152,7 @@ pub(crate) mod tests {
             dir: full.path().to_path_buf(),
             blobs: Arc::new(crate::blobs::Blobs::new(full.path())),
             turn: None,
+            cache: Arc::default(),
             sessions: Arc::default(),
             tasks: Arc::default(),
             reads: Default::default(),

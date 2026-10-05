@@ -54,7 +54,7 @@ pub use ontology::{
 pub use parked::parked_lines;
 pub use places::{places_health_line, places_lines};
 pub use sandbox::sandbox_line;
-pub use store::{crash_line, store_reads_line};
+pub use store::{crash_line, node_cache_line, store_lines, store_reads_line};
 pub use task_graph::{task_tree_lines, tree_line};
 pub use tasks::{task_check, task_pieces};
 
@@ -1734,8 +1734,8 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     if let Some(line) = store_history_line(&h.startup) {
         push(o, Tag::Plain, &line);
     }
-    if let Some(line) = store_reads_line(&h.store) {
-        push(o, Tag::Bad, &line);
+    for (tag, line) in store_lines(&h.store) {
+        push(o, tag, &line);
     }
     if let Some(c) = &h.crash {
         let tag = if c.this_start { Tag::Bad } else { Tag::Plain };

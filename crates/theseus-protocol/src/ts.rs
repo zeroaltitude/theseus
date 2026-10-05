@@ -89,7 +89,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
     export! { &cfg;
         Id, Request, Notification, RpcError, Response, Message, HealthResult, Build, SpoolStatus,
         SpoolSweep, DiskStatus, BinaryStatus, StoreStatus, CrashStatus, WebStatus, SecretsStatus,
-        ContextStatus, ConfigStatus,
+        ContextStatus, ConfigStatus, NodeCacheHealth,
         ConfigRestart, SecretFailed, SecretSource, StartupPhase, Tightening, PolicyTightenParams,
         PolicyUntightenParams, TightenResult, ExternalText, ExternalTextInfo, PolicyTrustParams,
         TrustResult, DiscordOrigin, BindingStatus, OutboxStatus,

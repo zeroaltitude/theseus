@@ -179,6 +179,7 @@ export type * from './ModelDelta';
 export type * from './NarrativeLine';
 export type * from './NarrativePart';
 export type * from './NarrativeWatchResult';
+export type * from './NodeCacheHealth';
 export type * from './NodeInfo';
 export type * from './NodeListParams';
 export type * from './NodeListResult';

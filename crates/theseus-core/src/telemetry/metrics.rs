@@ -194,8 +194,21 @@ const TASKS_OPEN: Instrument = Instrument {
     kind: Kind::IntLast,
 };
 
+const NODE_CACHE_BYTES: Instrument = Instrument {
+    name: "theseus.node_cache.bytes",
+    description: "The heat cache of decoded nodes (step 33): the record bytes it holds",
+    unit: "By",
+    kind: Kind::IntLast,
+};
+const NODE_CACHE_READS: Instrument = Instrument {
+    name: "theseus.node_cache.reads",
+    description: "The heat cache's reads, by outcome (hit, miss), its decodes, evictions, and failed rehydrations",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 26] = [
+const INSTRUMENTS: [&Instrument; 28] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -222,6 +235,8 @@ const INSTRUMENTS: [&Instrument; 26] = [
     &JUDGE_DISAGREEMENTS,
     &TASK_CHANGES,
     &TASKS_OPEN,
+    &NODE_CACHE_BYTES,
+    &NODE_CACHE_READS,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -278,6 +293,9 @@ pub(super) struct Metrics {
     /// Every cumulative point's start: the pipeline's.
     start_ns: u64,
     points: BTreeMap<(&'static str, Attrs), Point>,
+    /// The heat cache's totals as last recorded, so each record adds what
+    /// changed since.
+    node_cache: theseus_protocol::NodeCacheHealth,
 }
 
 /// The attributes every turn's points carry.
@@ -306,6 +324,7 @@ impl Metrics {
         Self {
             start_ns,
             points: BTreeMap::new(),
+            node_cache: Default::default(),
         }
     }
 
@@ -428,6 +447,26 @@ impl Metrics {
         }
         if let Some(open) = spans::tasks_open(trace) {
             self.point(&TASKS_OPEN, Vec::new()).int = open;
+        }
+    }
+
+    /// The heat cache's state (step 33): its bytes now, and what it did
+    /// since the last record.
+    pub(super) fn node_cache(&mut self, h: &theseus_protocol::NodeCacheHealth) {
+        self.point(&NODE_CACHE_BYTES, Vec::new()).int = h.bytes;
+        let was = std::mem::replace(&mut self.node_cache, h.clone());
+        for (what, now, before) in [
+            ("hit", h.hits, was.hits),
+            ("miss", h.misses, was.misses),
+            ("decode", h.decodes, was.decodes),
+            ("eviction", h.evictions, was.evictions),
+            ("failed", h.failed, was.failed),
+        ] {
+            let n = now.saturating_sub(before);
+            if n > 0 {
+                let attrs = vec![("theseus.node_cache.outcome", Attr::S(what.into()))];
+                self.add(&NODE_CACHE_READS, attrs, n);
+            }
         }
     }
 

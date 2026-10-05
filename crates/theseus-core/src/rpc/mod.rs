@@ -621,6 +621,11 @@ impl Core {
             cfg.memory.clone(),
             Some(index.clone()),
         ));
+        // The heat cache's bound and the science that orders its eviction
+        // (step 33): the store's read path, with memory off too. It fills as
+        // reads happen, never on the start path.
+        store.node_cache().set_mb(cfg.memory.node_cache_mb);
+        store.node_cache().set_science(memory.science_owned());
         // Builds nothing until its first judgment (FAST).
         let judge = crate::judge::JudgeService::new(
             cfg.judge.clone(),
@@ -1009,6 +1014,7 @@ impl Core {
             refused_records,
             refused_positions: st.map(|s| s.refused_positions).unwrap_or_default(),
             repair: (refused_records > 0).then(|| crate::restore::REPAIR.into()),
+            node_cache: Some(self.store.node_cache().health()),
         }
     }
 
