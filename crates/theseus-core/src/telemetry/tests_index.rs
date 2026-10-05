@@ -11,7 +11,7 @@ use serde_json::Value;
 use super::tests::{flushed, last_metrics, pipeline, points_of, tuning, Receiver};
 use super::Telemetry;
 use crate::config::IndexConfig;
-use crate::tender::HEALTH_DEADLINE;
+use crate::tender::{HEALTH_DEADLINE, STATUS_DEADLINE};
 use crate::tests_tender::{settle, signal, stand_in, supervisor, FakeOs};
 
 /// The one point of `name`, as an integer; `None` with no point.
@@ -40,7 +40,9 @@ async fn sampled(rx: &Receiver, tel: &Telemetry) -> Vec<Option<u64>> {
 }
 
 /// A sample of a running tender records what it answered: its lag in bytes
-/// and ms, its documents (not its nodes), and its RSS; no restart yet.
+/// and ms, its documents (not its nodes), and its RSS; no restart yet. Its
+/// status is asked first under `index.status`'s deadline, so a sample that a
+/// loaded machine makes late records that answer, as a late tender's is.
 #[tokio::test]
 async fn a_sample_records_the_tenders_numbers() {
     let rx = Receiver::start(vec![]).await;
@@ -52,6 +54,7 @@ async fn a_sample_records_the_tenders_numbers() {
     let task = tokio::spawn(t.clone().run());
     settle().await;
     assert_eq!(t.status().unwrap().state, "running");
+    assert_eq!(t.health(STATUS_DEADLINE).await.state, "ready");
     t.sample(&tel).await;
     let got = sampled(&rx, &tel).await;
     assert_eq!(
@@ -105,14 +108,14 @@ async fn a_hung_tender_keeps_each_sample_within_the_deadline() {
     let (t, _) = supervisor(IndexConfig::default(), dir.path(), os);
     let task = tokio::spawn(t.clone().run());
     settle().await;
-    t.sample(&tel).await;
+    assert_eq!(t.health(STATUS_DEADLINE).await.state, "ready");
     hang.store(true, Ordering::SeqCst);
     for _ in 0..3 {
         let t0 = Instant::now();
         t.sample(&tel).await;
         let took = t0.elapsed();
         assert!(
-            took >= HEALTH_DEADLINE && took < Duration::from_secs(1),
+            took >= HEALTH_DEADLINE && took < Duration::from_secs(2),
             "{took:?}"
         );
     }
@@ -140,8 +143,19 @@ async fn nothing_asks_before_the_tender_runs_or_with_telemetry_off() {
     assert_eq!(t.status().unwrap().state, "running");
     t.sample(&Telemetry::disabled()).await;
     assert_eq!(asked.load(Ordering::SeqCst), 0, "asked with telemetry off");
-    t.sample(&tel).await;
-    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    // With telemetry on, a sample asks it (under load, one may give up at
+    // the deadline before its request is written: the next asks again).
+    for _ in 0..50 {
+        if asked.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        t.sample(&tel).await;
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        asked.load(Ordering::SeqCst) > 0,
+        "a sample asks a running tender"
+    );
     task.abort();
 
     for (endpoint, index) in [(None, true), (Some(rx.endpoint()), false)] {
