@@ -26,6 +26,7 @@ const Systems = lazy(() => import('./views/Systems'))
 // Round two: the money river, the boundaries board, and the speed wall, each in its own chunk.
 const Money = lazy(() => import('./views/Money'))
 const Boundaries = lazy(() => import('./views/Boundaries'))
+const Policy = lazy(() => import('./views/Policy'))
 const Speed = lazy(() => import('./views/Speed'))
 const Ontology = lazy(() => import('./views/Ontology'))
 // Jev's judgments (M5 23b).
@@ -60,6 +61,7 @@ const router = createBrowserRouter(
             { path: 'systems', element: wrap(<Systems />) },
             { path: 'money', element: wrap(<Money />) },
             { path: 'boundaries', element: wrap(<Boundaries />) },
+            { path: 'policy', element: wrap(<Policy />) },
             { path: 'speed', element: wrap(<Speed />) },
             { path: 'ontology', element: wrap(<Ontology />) },
             { path: 'judgment', element: wrap(<Judgment />) },

@@ -8,9 +8,9 @@ build.
 
 ## What's here
 
-- `src/views/`: the thirteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
+- `src/views/`: the fourteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
-  `Speed` (the speed wall), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
+  `Speed` (the speed wall), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the category tree, guidance, and topics; it shows
   the present only). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`).
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
@@ -31,6 +31,11 @@ build.
   tree (state, owner, claim, version, a waiting change with its card) and, at `?taskgraph=1` (`&task=<id>`), as a React
   Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads
   `task.list` again (`bindPush`).
+- `src/components/Budgets.tsx` (Money's Budgets panel; its pure parts are `src/lib/budgets.ts`): `budget.list`'s tree,
+  the burn per hour from the history's `provider.call` rows, recent resets, the questions waiting (with `ConfirmCard`),
+  the judge's day and the AWS hands. `src/components/Tightenings.tsx` is the tightenings' list with their undo, shared
+  by Boundaries and Policy. The Ledger's filter, saved filters, export and follow count are `src/lib/ledgerview.ts`;
+  the Policy view's summaries are `src/lib/policyview.ts`.
 - `src/components/`: the call and model-call inspectors, the transcript, the flame chart, the shell, and `brass.tsx`
   (the plank strip and the coin).
 - `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,

@@ -7,10 +7,10 @@
 // - The broker: which program or tool is handed which secret, by name only; and what it withheld.
 // - Places (the place rule): each place and its class, a private channel's start-time read, and the public trees.
 // - Egress (18c, a seam): the hosts sandboxed jobs reach, and the refusals, once 18c records them.
-import { useDeferredValue, useMemo, useState, type ReactNode } from 'react'
+import { useDeferredValue, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { Anchor, CircleCheck, Eye, KeyRound, Link2, Lock, OctagonX, Radar, ShieldCheck, ShieldHalf, Siren, Undo2 } from 'lucide-react'
+import { Anchor, CircleCheck, Eye, KeyRound, Link2, Lock, OctagonX, Radar, ShieldCheck, ShieldHalf, Siren } from 'lucide-react'
 import type { ActionInfo, ConfirmRequest, Health, LedgerEntry, NodeInfo, SandboxHealth, SandboxUsage, SessionInfo } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -20,6 +20,7 @@ import { verdictWords } from '@/lib/verdict'
 import { decimalBytes, givenWords, jobsWords, l1Head, sandboxLine } from '@/lib/sandboxwords'
 import { ago, bytes, clock, cn, ms, short, stamp } from '@/lib/format'
 import { Btn, Empty, Panel, Pill } from '@/components/ui'
+import { Tightenings } from '@/components/Tightenings'
 import { ceilingWords } from '@/lib/ceiling'
 
 type D = Record<string, any>
@@ -194,10 +195,8 @@ function Latch({ holds, rows, title, now, onOpen }: { holds: Health['external_te
 
 // ---------------------------------------------------------------- the gate
 
-function Gate({ confirms, tight, rows, title, now, onOpen }: { confirms: ConfirmRequest[]; tight: Health['tightenings']; rows: LedgerEntry[]; title: (s?: string | null) => string; now: number; onOpen: (sid: string, cid?: string) => void }) {
+function Gate({ confirms, tight, rows, title, now, onOpen, disabled }: { confirms: ConfirmRequest[]; tight: Health['tightenings']; rows: LedgerEntry[]; title: (s?: string | null) => string; now: number; onOpen: (sid: string, cid?: string) => void; disabled?: boolean }) {
   const act = useAct()
-  // What the last undo here did, as the Observatory's policy note said it.
-  const [note, setNote] = useState<string | null>(null)
   const log = rows.filter((r) => r.kind === 'policy.tightened' || r.kind === 'policy.untightened').slice(-6).reverse()
   return (
     <div className="flex flex-col gap-2">
@@ -220,36 +219,7 @@ function Gate({ confirms, tight, rows, title, now, onOpen }: { confirms: Confirm
         </div>
       ))}
       <div className="ship-engraved mt-1 text-[9.5px]">Tightenings · “Make actions like this ask in the future”</div>
-      {note && <div className="flex items-center gap-1.5 px-1 text-[11.5px] text-live"><CircleCheck size={12} /> {note}</div>}
-      {!tight.length && <div className="px-1 text-[12px] text-ink-faint">no tool asks first beyond its configured posture</div>}
-      {tight.map((t) => (
-        <div key={t.tool} className="flex items-center gap-3 rounded-lg px-3 py-1.5 ring-1 ring-line">
-          <Lock size={14} className="text-wait" />
-          <div className="min-w-0 flex-1">
-            <div className="text-[12.5px]"><span className="num text-tool">{t.tool}</span> <span className="text-ink-dim">asks first ({t.posture})</span></div>
-            <div className="num text-[11px] text-ink-faint">
-              pressed by {t.by} via {t.via} · {ago(t.at_ms, now)}
-              {t.session_id && <> · in <button type="button" onClick={() => onOpen(t.session_id!, t.correlation_id ?? undefined)} title={`open the session it was pressed in (${t.session_id})`}
-                className="underline decoration-dotted underline-offset-2 hover:text-live">{title(t.session_id)}</button></>}
-            </div>
-          </div>
-          <Btn tone="ok" onClick={async () => { if (await act('policy.untighten', { tool: t.tool }, `Let ${t.tool} go back to its configured posture?`)) setNote(`${t.tool} is back to what the config says`) }}><Undo2 size={12} /> Undo</Btn>
-        </div>
-      ))}
-      {!!log.length && (
-        <div className="mt-0.5">
-          {log.map((r) => {
-            const d = (r.data ?? {}) as D
-            return (
-              <div key={r.position} className="num flex items-baseline gap-2 py-[1px] text-[11px]">
-                <span className="w-28 shrink-0 text-ink-faint">{stamp(r.at_unix_ms)}</span>
-                <span className={r.kind === 'policy.tightened' ? 'text-wait' : 'text-ok'}>{r.kind === 'policy.tightened' ? 'tightened' : 'undone'}</span>
-                <span className="truncate text-ink-dim">{d.tool} · by {d.by}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      <Tightenings tight={tight} title={title} now={now} onOpen={onOpen} log={log} disabled={disabled} />
     </div>
   )
 }

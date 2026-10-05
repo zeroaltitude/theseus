@@ -6,10 +6,10 @@
 // Every figure is the ledger's: each `provider.call` row's usage and recorded cost. A call's dollars are split by
 // kind at the catalog's rates, then scaled to the cost the call recorded, so the river's sea is exactly what was
 // spent. The range ends at the time machine's moment when it is set, so the river shows the money as it stood then.
-import { useDeferredValue, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useDeferredValue, useMemo } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
 import { Coins, Landmark, PiggyBank, Table2, Timer, Waves } from 'lucide-react'
-import type { ActionInfo, CatalogList, ExecutionInfo, Health, LedgerEntry, SessionInfo } from '@protocol'
+import type { ActionInfo, CatalogList, Health, LedgerEntry, SessionInfo } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useHistoryRows } from '@/lib/history'
@@ -20,6 +20,7 @@ import { ink, type EChartsOption } from '@/lib/chart'
 import { cn, pct, short, stamp, tokens, usd } from '@/lib/format'
 import { Echart } from '@/components/Echart'
 import { Empty, Kpi, Panel, Segmented } from '@/components/ui'
+import { Budgets } from '@/components/Budgets'
 import { Dial, Engraved, Needle, Ticks, arc, polar } from '@/ship/instruments'
 
 // The token kinds, in a fixed order with their validated colours (dark surface; the dataviz validator passes all
@@ -73,12 +74,17 @@ export default function Money() {
   const { rows } = useHistoryRows()
   const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 60_000)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
-  const { data: el } = useRpc<{ executions: ExecutionInfo[] }>('execution.list', undefined, 3000)
   const { data: al } = useRpc<{ actions: ActionInfo[] }>('action.list', { n: 500 }, 3000)
   const { data: h } = useRpc<Health>('health', undefined, 10_000)
-  const [range, setRange] = useState<Range>('all')
-  const [measure, setMeasure] = useState<Measure>('dollars')
-  const [table, setTable] = useState(false)
+  // The river's range, measure, and table live in the address (?range=1h&measure=tokens&table=1).
+  const [params, setParams] = useSearchParams()
+  const range: Range = (RANGES as readonly string[]).includes(params.get('range') ?? '') ? (params.get('range') as Range) : 'all'
+  const measure: Measure = params.get('measure') === 'tokens' ? 'tokens' : 'dollars'
+  const table = params.get('table') === '1'
+  const put = (k: string, v: string | null) => setParams((p) => { if (v) p.set(k, v); else p.delete(k); return p }, { replace: true })
+  const setRange = (r: Range) => put('range', r === 'all' ? null : r)
+  const setMeasure = (m: Measure) => put('measure', m === 'dollars' ? null : m)
+  const setTable = (f: (v: boolean) => boolean) => put('table', f(table) ? '1' : null)
   const prices = useMemo(() => pricing(cat), [cat])
   const title = useMemo(() => new Map((sl?.sessions ?? []).map((s) => [s.session_id, s.title || s.label || short(s.session_id)])), [sl])
 
@@ -108,7 +114,6 @@ export default function Money() {
     return { perHour: last15 * 4, lastHour }
   }, [calls, end])
 
-  const executions = world?.executions ?? el?.executions ?? []
   const reservedBy = useMemo(() => {
     if (world) return world.reserved
     const m = new Map<string, number>()
@@ -135,6 +140,8 @@ export default function Money() {
           hint={inRange.length ? `${tokens(totals.tok / inRange.length)} a call` : undefined} />
       </div>
 
+      <Budgets rows={rows} past={world ? world.t : null} />
+
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_400px]">
         <Panel title={<>The money river · sessions → profiles and models → token kinds → the sea</>} icon={<Waves size={13} />}
           bodyClassName="h-[560px] p-2"
@@ -153,9 +160,6 @@ export default function Money() {
             <div className="num flex flex-col gap-1 text-[12px]">
               <KindKey />
             </div>
-          </Panel>
-          <Panel title={<>Budgets · spent, held, and left</>} icon={<Landmark size={13} />} bodyClassName="max-h-[372px] overflow-auto p-2">
-            <Budgets executions={executions} reserved={reservedBy} title={title} onPick={(sid) => nav(`/session/${sid}`)} />
           </Panel>
         </div>
       </div>
@@ -324,45 +328,5 @@ function PaceDial({ perHour }: { perHour: number }) {
         </g>
       )}
     </Dial>
-  )
-}
-
-/** Each execution's budget: spent in gold, held by calls in flight as an amber pool, and what is left. */
-function Budgets({ executions, reserved, title, onPick }: { executions: ExecutionInfo[]; reserved: Map<string, number>; title: Map<string, string>; onPick: (sid: string) => void }) {
-  const list = useMemo(() => executions
-    .map((e) => ({ e, held: reserved.get(e.execution_id) ?? e.budget.reserved_usd }))
-    .filter(({ e, held }) => e.budget.spent_usd > 0 || held > 0)
-    .sort((a, b) => b.e.budget.spent_usd + b.held - (a.e.budget.spent_usd + a.held)), [executions, reserved])
-  if (!list.length) return <Empty>nothing spent against a budget</Empty>
-  return (
-    <div className="flex flex-col gap-2">
-      {list.map(({ e, held }) => {
-        const lim = Math.max(e.budget.limit_usd, 1e-9)
-        const spentF = Math.min(1, e.budget.spent_usd / lim)
-        const heldF = Math.min(1 - spentF, held / lim)
-        return (
-          <button type="button" key={e.execution_id} onClick={() => onPick(e.session_id)} className="rounded-md px-1.5 py-1 text-left hover:bg-gold/[0.06]">
-            <div className="flex items-baseline gap-2 text-[12px]">
-              <span className="min-w-0 flex-1 truncate text-ink">{title.get(e.session_id) ?? short(e.session_id)}</span>
-              {e.kind === 'task' && <span className="text-[10px] text-ink-faint">task</span>}
-              <span className="num text-[11px] text-ink-dim">{usd(e.budget.spent_usd)} of {usd(e.budget.limit_usd)}</span>
-            </div>
-            <div className="relative mt-1 h-2.5 overflow-hidden rounded-full bg-black/45 shadow-[inset_0_0_0_1px_rgba(176,141,87,0.28)]" role="img"
-              aria-label={`spent ${usd(e.budget.spent_usd)}, held ${usd(held)}, limit ${usd(e.budget.limit_usd)}`}>
-              <div className="absolute inset-y-0 left-0 rounded-l-full" style={{ width: `${spentF * 100}%`, background: 'linear-gradient(90deg,#9c6f23,#d6a548)', boxShadow: '0 0 8px rgba(214,165,72,0.45)' }} />
-              {heldF > 0 && (
-                <div className="absolute inset-y-0" title={`${usd(held)} held by calls in flight`}
-                  style={{ left: `${spentF * 100}%`, width: `${Math.max(heldF * 100, 1.5)}%`, background: 'repeating-linear-gradient(135deg, rgba(251,191,36,0.85) 0 3px, rgba(251,191,36,0.35) 3px 6px)' }} />
-              )}
-            </div>
-            <div className="num mt-0.5 flex gap-3 text-[10.5px] text-ink-faint">
-              {held > 0 && <span className="text-wait">{usd(held)} held</span>}
-              <span>{usd(Math.max(0, e.budget.limit_usd - e.budget.spent_usd - held))} left</span>
-              {e.budget.resets > 0 && <span>{e.budget.resets} reset{e.budget.resets === 1 ? '' : 's'}</span>}
-            </div>
-          </button>
-        )
-      })}
-    </div>
   )
 }
