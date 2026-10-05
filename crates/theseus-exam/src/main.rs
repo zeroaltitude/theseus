@@ -86,7 +86,7 @@ enum Cmd {
         work: PathBuf,
         #[arg(long)]
         out: PathBuf,
-        /// Comma-separated: none, bm25, baseline, oracle.
+        /// Comma-separated: none, bm25, baseline, +activation (M6 32b), oracle.
         #[arg(long, default_value = "none,bm25,baseline,oracle")]
         arms: String,
         #[arg(long, default_value_t = 3)]

@@ -91,6 +91,11 @@ pub(crate) fn edge(store: &Store, kind: graph::EdgeKind, from: &Node, to: &Node,
 
 /// A `memory.labeled` row naming `n`'s entities, as the memory pass writes.
 pub(crate) fn label(store: &Store, n: &Node, about: &[&str]) {
+    store.append(&[labeled(n, about)]).unwrap();
+}
+
+/// The record of `n`'s `memory.labeled` row.
+fn labeled(n: &Node, about: &[&str]) -> NewRecord {
     let row = LedgerRow::new(
         LedgerKind::MemoryLabeled,
         Some(&n.session_id),
@@ -99,10 +104,9 @@ pub(crate) fn label(store: &Store, n: &Node, about: &[&str]) {
                "kind": "fact", "durability": "medium", "volatile": false, "trust": "own",
                "correction": false}),
     );
-    let r = NewRecord::json(kinds::LEDGER, None, &row)
+    NewRecord::json(kinds::LEDGER, None, &row)
         .unwrap()
-        .scoped(&crate::fact::memory::scope(&n.session_id));
-    store.append(&[r]).unwrap();
+        .scoped(&crate::fact::memory::scope(&n.session_id))
 }
 
 /// Every edge out of `n` in `p`, as (neighbour, kind), sorted.
@@ -407,12 +411,16 @@ fn a_common_entity_is_bounded_where_it_could_carry_nothing() {
         .map(|i| user("ses_plover", &format!("plover {i}")))
         .collect();
     put(&store, &nodes.iter().collect::<Vec<_>>());
-    for n in &nodes[..1096] {
-        label(&store, n, &["host:plover.example"]);
-    }
-    for n in &nodes[..1095] {
-        label(&store, n, &["host:dunlin.example"]);
-    }
+    let mut rows: Vec<NewRecord> = nodes[..1096]
+        .iter()
+        .map(|n| labeled(n, &["host:plover.example"]))
+        .collect();
+    rows.extend(
+        nodes[..1095]
+            .iter()
+            .map(|n| labeled(n, &["host:dunlin.example"])),
+    );
+    store.append(&rows).unwrap();
     let proj = Projection::build(&store).unwrap();
     let mut e = Vec::new();
     proj.view(&p, None, &[]).edges(&nodes[0].id, &mut e);

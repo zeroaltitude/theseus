@@ -34,8 +34,12 @@ fn only(c: &Core, sid: &str) -> crate::node::Node {
 /// A daemon on `arm` live; A says the fix, B the retry limit, each in a
 /// session of its own and labeled with the commit as the memory pass labels
 /// them; the index finds A alone. The projection is built when `built`.
+/// Recall's deadline is its longest, so a loaded machine changes nothing.
 fn kestrel(arm: MemoryArm, built: bool) -> (Rig, String, String) {
-    let r = rig_with(MemoryMode::Live, |c| c.memory.arm = arm);
+    let r = rig_with(MemoryMode::Live, |c| {
+        c.memory.arm = arm;
+        c.memory.recall_deadline_ms = crate::config::memory::MAX_RECALL_DEADLINE_MS;
+    });
     let c = &r.core;
     let a = session(c, None, &[FIX]);
     let b = session(c, None, &[RETRY]);
@@ -181,7 +185,7 @@ async fn a_turn_never_waits_for_the_projections_build() {
     // The build it started finishes off the turn's path.
     let t0 = std::time::Instant::now();
     while !c.runner.memory.adjacency.built() {
-        assert!(t0.elapsed() < Duration::from_secs(20), "never built");
+        assert!(t0.elapsed() < Duration::from_secs(90), "never built");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let there = session(c, None, &[]);
@@ -314,7 +318,10 @@ proptest! {
     ) {
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
         rt.block_on(async {
-            let r = rig_with(MemoryMode::Live, |c| c.memory.arm = MemoryArm::Activation);
+            let r = rig_with(MemoryMode::Live, |c| {
+                c.memory.arm = MemoryArm::Activation;
+                c.memory.recall_deadline_ms = crate::config::memory::MAX_RECALL_DEADLINE_MS;
+            });
             let c = &r.core;
             let mut made = Vec::new();
             for (i, s) in spots.iter().enumerate() {

@@ -4,8 +4,8 @@
 //!
 //! 1. **The oracle's notes** are read from the exam's store before any daemon
 //!    serves a copy of it (`render.rs`).
-//! 2. **Prepare.** For each daemon (`none`, `bm25`, `baseline`; `oracle`'s
-//!    cells go to `none`'s): the store copied to
+//! 2. **Prepare.** For each daemon (`none`, `bm25`, `baseline`,
+//!    `+activation`; `oracle`'s cells go to `none`'s): the store copied to
 //!    `<work>/prepared/<arm>/state/store`, its config written from the base
 //!    config (`daemon::config_for`), the daemon started and waited for until
 //!    it serves and its tender holds the whole store (and has embedded it,
@@ -102,7 +102,7 @@ fn aside(p: &Path) -> Result<()> {
 /// The daemons `arms` need, by their `[memory] arm`, in order.
 pub fn daemons_for(arms: &[Arm]) -> Vec<&'static str> {
     let set: BTreeSet<&str> = arms.iter().map(|a| a.daemon()).collect();
-    ["none", "bm25", "baseline"]
+    ["none", "bm25", "baseline", "+activation"]
         .into_iter()
         .filter(|d| set.contains(d))
         .collect()
@@ -296,7 +296,15 @@ mod tests {
 
     #[test]
     fn oracle_shares_nones_daemon_and_each_other_arm_has_its_own() {
-        assert_eq!(daemons_for(&Arm::ALL), ["none", "bm25", "baseline"]);
+        assert_eq!(
+            daemons_for(&Arm::ALL),
+            ["none", "bm25", "baseline", "+activation"]
+        );
+        // `+activation` against `baseline`, at the same budget: a daemon each.
+        assert_eq!(
+            daemons_for(&[Arm::Activation, Arm::Baseline]),
+            ["baseline", "+activation"]
+        );
         assert_eq!(daemons_for(&[Arm::Oracle]), ["none"]);
         assert_eq!(
             daemons_for(&[Arm::Baseline, Arm::Bm25]),

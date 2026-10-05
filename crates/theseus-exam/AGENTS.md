@@ -13,18 +13,21 @@ and `report.rs`, `replay.rs`, `tender.rs` (the retrieval probe). Read by: the ma
 
 - `theseus-exam write-store` puts every item's past into a store as the product writes sessions; its manifest maps
   each item's keyed nodes to their ids and positions.
-- `theseus-exam run` copies that store once per daemon (`none`, `bm25`, `baseline`), writes each config from a base
+- `theseus-exam run` copies that store once per daemon (`none`, `bm25`, `baseline`, and `+activation` when
+  `--arms` names it: M6 32b, its own `[memory] arm`), writes each config from a base
   config (`[memory] mode = "live"` and `arm`; Discord, the web UI and the MCP server off; no index for `none`),
   waits until each tender holds the store, keeps that state as the arm's snapshot, and then, for each run, starts
   fresh daemons from the snapshots, runs that run's cells, and stops them. `oracle`'s cells go to the `none` daemon,
   with the gold after the task.
 - `theseus-exam report --out F` writes the frozen report: each arm's rate with its interval and n, the paired
-  differences, cost per pass, the halves, the decision per feature, and what could not be measured. It names the
+  differences (`+activation − baseline` among them, when the records hold both), cost per pass, the halves, the
+  decision per feature, and what could not be measured. It names the
   digest of `docs/m6-ablation-plan.md`, which it embeds.
 - `theseus-exam replay` (instrument 2) reads a copy of a store's recorded turns (their `recall.shadow` and
   `recall.ran` rows, each query rebuilt to its row's digest), serves another copy with a scratch daemon for its
   tender, recomputes `none`, `bm25` and `baseline` as of each turn through the real pipeline, and scores them against
-  the silver labels.
+  the silver labels. It does not replay `+activation`: that needs the adjacency projection folded only up to each
+  turn.
 - `theseus-exam probe` asks a running tender the exam's tasks directly, per arm of sources and weights.
 
 ## Invariants
@@ -44,7 +47,8 @@ and `report.rs`, `replay.rs`, `tender.rs` (the retrieval probe). Read by: the ma
 ## Tests
 
 - `cargo nextest run -p theseus-exam`. `tests/daemon_reads.rs` serves the written store with this workspace's
-  `theseusd`; `tests/arms.rs` runs a small exam end to end through three real daemons on a stand-in model that
+  `theseusd`; `tests/arms.rs` runs a small exam end to end through four real daemons (`+activation`'s too) on a
+  stand-in model that
   answers from a recall note when its request has one, then replays the baseline daemon's store. Both find `theseusd` beside the test binary (a workspace
   build makes it), or `THESEUS_EXAM_THESEUSD`, and `tests/arms.rs` needs `theseus-index` beside it too.
 

@@ -129,15 +129,16 @@ fn hex(b: &[u8]) -> String {
 }
 
 /// The arms in the report's order.
-pub const ARMS: [&str; 4] = ["none", "bm25", "baseline", "oracle"];
+pub const ARMS: [&str; 5] = ["none", "bm25", "baseline", "+activation", "oracle"];
 
 /// The paired differences the report gives, `b − a`, as `(a, b)`.
-pub const PAIRS: [(&str, &str); 5] = [
+pub const PAIRS: [(&str, &str); 6] = [
     ("none", "baseline"),
     ("none", "bm25"),
     ("none", "oracle"),
     ("bm25", "baseline"),
     ("baseline", "oracle"),
+    ("baseline", "+activation"),
 ];
 
 /// What a difference's interval can say: `gain` when it lies above zero,
@@ -724,6 +725,36 @@ mod tests {
 
     /// Every number below is computed by hand from the fixture, with
     /// t(1) = 12.706, t(3) = 3.1824 and t(5) = 2.5706.
+    /// `+activation` is paired with `baseline`, its one difference, when
+    /// the records hold both.
+    #[test]
+    fn activation_is_paired_with_baseline() {
+        let exam = Exam::parse(EXAM_V2).unwrap();
+        let ids: Vec<&str> = exam
+            .file
+            .items
+            .iter()
+            .filter(|i| !i.held_out)
+            .take(2)
+            .map(|i| i.id.as_str())
+            .collect();
+        let mut rs = Vec::new();
+        for (arm, passes) in [("baseline", [false, true]), ("+activation", [true, true])] {
+            for (k, pass) in passes.iter().enumerate() {
+                rs.push(rec(ids[k], arm, 1, Some(*pass)));
+            }
+        }
+        let md = render(&rs, &exam, "x.jsonl");
+        assert!(
+            md.contains("| `+activation − baseline` | held in | 2 | 50% "),
+            "{md}"
+        );
+        assert!(md.contains("| +activation | "), "{md}");
+        // Without `+activation` cells there is no such row.
+        let md = render(&rs[..2], &exam, "x.jsonl");
+        assert!(!md.contains("+activation"), "{md}");
+    }
+
     #[test]
     fn the_report_reads_as_computed_by_hand() {
         let exam = Exam::parse(EXAM_V2).unwrap();
