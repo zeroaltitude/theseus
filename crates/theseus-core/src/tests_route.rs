@@ -997,3 +997,155 @@ async fn the_panes_carried_routed_profile_runs_only_while_routing_acts() {
     );
     assert!(session(&r.core, &sid).routed.is_none());
 }
+
+/// The note recall finds for every message in the detour tests: an invented
+/// fact in a session of its own, which the stand-in index answers.
+const KEY_NOTE: &str = "Remember: the lock-keeper's spare key hangs behind the tide board.";
+
+/// A rig whose recall is live in front of the model (`[memory] mode =
+/// "live"`, as the owner's install runs it), the stand-in index answering
+/// `KEY_NOTE`'s session for every message, and a verdict's wait long enough
+/// that a loaded machine never makes one late. With the note's node id.
+fn recalling(jev: &FakeJev, n: usize) -> (Rig, String) {
+    let r = rig(Some(jev), n, |c| {
+        c.memory.mode = crate::config::MemoryMode::Live;
+        c.routing.max_wait_ms = 5_000;
+    });
+    let notes = crate::tests_recall::session(&r.core, None, &[KEY_NOTE]);
+    let ask = crate::tests_recall::index_of(&r.core, vec![notes.clone()]);
+    r.core.runner.memory.set_ask(ask);
+    let note = r.core.store.session_nodes(&notes).unwrap()[0].1.id.clone();
+    (r, note)
+}
+
+/// A session's `Recall` nodes.
+fn recall_nodes(core: &Core, sid: &str) -> Vec<crate::node::Node> {
+    let nodes = core.store.session_nodes(sid).unwrap().into_iter();
+    nodes
+        .map(|(_, n)| n)
+        .filter(|n| matches!(n.body, crate::node::Body::Recall { .. }))
+        .collect()
+}
+
+/// The edges into `node`: each `Recall` node's `derived_from` to its source.
+fn edges_into(core: &Core, node: &str) -> usize {
+    let scope = crate::graph::Edge::scope_into(node);
+    let records = core.store.scope_after(&scope, 0).unwrap();
+    records
+        .iter()
+        .filter(|r| r.kind == theseus_store::kinds::EDGE)
+        .count()
+}
+
+/// A request's message that carries the recalled note.
+fn carries_note(m: &Value) -> bool {
+    let m = m.to_string();
+    m.contains("[Recalled by the harness") || m.contains("tide board")
+}
+
+/// A trivial detour's request carries no recall, and the record now says so
+/// (theseus-n7nc): no `Recall` node in the store and no edge into the note,
+/// a reply whose footer counts none, and a `recall.ran` row that says
+/// `detoured`, with what recall admitted and why it went nowhere. Before, the
+/// plan frame wrote the node anyway, and the footer counted a note the model
+/// never saw.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trivial_detour_writes_no_recall_and_its_row_says_detoured() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.95);
+    let (r, note) = recalling(&jev, 1);
+    let thanks = turn(&r.core, None, "thank you!", None).await;
+    let route = thanks.route.as_ref().unwrap();
+    assert_eq!(
+        (thanks.profile.as_str(), route.reason.as_str()),
+        ("glm", "detour")
+    );
+    let sent = &r.zai.requests()[0].messages;
+    assert!(!sent.iter().any(carries_note), "the detour's request");
+    assert_eq!(thanks.recalled, 0, "the footer counts what the model saw");
+    let sid = &thanks.session_id;
+    assert!(recall_nodes(&r.core, sid).is_empty(), "a Recall node");
+    assert_eq!(edges_into(&r.core, &note), 0, "an edge into the note");
+    let rows = crate::tests_recall::recalls(&r.core, sid);
+    assert_eq!(rows.len(), 1, "one recall row");
+    let m = &rows[0];
+    assert_eq!(
+        (m.mode.as_str(), m.outcome.as_str(), m.admitted.len()),
+        ("live", "detoured", 1)
+    );
+    assert!(m.why.as_deref().unwrap().contains("detour"), "{:?}", m.why);
+}
+
+/// The next, non-trivial turn after a detour carries no stale note
+/// (theseus-n7nc): the detour wrote no `Recall` node, so none renders in this
+/// turn's tail after the greeting. Its own recall finds the note, which
+/// nothing in its context holds, and sends it after its own message. Before,
+/// the detour's node surfaced here, right after "thank you!", where it read
+/// as part of the greeting, and kept this turn from admitting the note.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn after_a_detour_the_next_request_carries_no_stale_note() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.95);
+    let (r, _) = recalling(&jev, 1);
+    let thanks = turn(&r.core, None, "thank you!", None).await;
+    assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
+    let sid = thanks.session_id.clone();
+    mode(&jev, "chat", 0.95);
+    let ask = "Where does the lock-keeper keep the spare key?";
+    let next = turn(&r.core, Some(&sid), ask, None).await;
+    let q = &r.claude.requests()[0];
+    let (last, before) = q.messages.split_last().unwrap();
+    assert!(!before.iter().any(carries_note), "a stale note: {before:?}");
+    assert!(carries_note(last), "its own note, after its message");
+    assert_eq!((next.profile.as_str(), next.recalled), ("sonnet", 1));
+    let nodes = recall_nodes(&r.core, &sid);
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].turn_id.as_deref(), Some(next.turn_id.as_str()));
+}
+
+/// A non-trivial routed turn still writes and sends its recall, unchanged
+/// (theseus-n7nc): the row held while routing decided is recorded once the
+/// route is known, and says `ran`. A switch (Opus, compiled again on its
+/// profile) and a verdict that keeps the session's own (Sonnet: the first
+/// compile is the one used) each send the note after the message, write the
+/// `Recall` node and its edge, and count the note in the footer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_routed_turn_still_writes_and_sends_its_recall() {
+    let jev = FakeJev::start().unwrap();
+    let (r, note) = recalling(&jev, 2);
+    for (verdict, profile, model) in [
+        ("sophisticated", "opus", "claude-opus-5-5"),
+        ("chat", "sonnet", "claude-sonnet-5-5"),
+    ] {
+        mode(&jev, verdict, 0.95);
+        let ask = "Where does the lock-keeper keep the spare key?";
+        let res = turn(&r.core, None, ask, None).await;
+        assert_eq!(
+            (res.profile.as_str(), res.recalled),
+            (profile, 1),
+            "{verdict}"
+        );
+        let q = r.claude.requests().pop().unwrap();
+        assert_eq!(q.model, model);
+        let (last, before) = q.messages.split_last().unwrap();
+        assert!(carries_note(last), "{verdict}: the note, after the message");
+        assert!(!before.iter().any(carries_note), "{verdict}");
+        let nodes = recall_nodes(&r.core, &res.session_id);
+        assert_eq!(nodes.len(), 1, "{verdict}: its Recall node");
+        let crate::node::Body::Recall { recall_id, .. } = &nodes[0].body else {
+            unreachable!()
+        };
+        let rows = crate::tests_recall::recalls(&r.core, &res.session_id);
+        assert_eq!(rows.len(), 1, "{verdict}: one recall row");
+        assert_eq!(
+            (rows[0].recall_id.as_str(), rows[0].outcome.as_str()),
+            (recall_id.as_str(), "ran"),
+            "{verdict}"
+        );
+    }
+    assert_eq!(
+        edges_into(&r.core, &note),
+        2,
+        "each turn's node, into the note"
+    );
+}

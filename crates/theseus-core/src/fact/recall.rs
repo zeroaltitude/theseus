@@ -225,6 +225,15 @@ pub fn words(m: &RecallManifest) -> String {
         let why = m.why.as_deref().unwrap_or("it is down");
         return format!("Recall ({}) found no index to ask: {why}.", m.mode);
     }
+    if m.outcome == "detoured" {
+        return format!(
+            "Recall ({}) admitted {} ({}), but the turn took a trivial detour, whose request \
+             carries no recall: none reached the model.",
+            m.mode,
+            narrative::count(m.admitted.len() as u64, "note", "notes"),
+            narrative::count(m.used_tokens, "token", "tokens"),
+        );
+    }
     let sources = if m.sources.is_empty() {
         String::new()
     } else {
@@ -327,5 +336,16 @@ mod tests {
             ..m
         };
         assert!(words(&late).contains("within 250 ms; the turn went on"));
+        // A trivial detour's (theseus-n7nc): admitted, and sent nowhere.
+        let detoured = RecallManifest {
+            mode: "live".into(),
+            outcome: "detoured".into(),
+            ..late
+        };
+        assert_eq!(
+            words(&detoured),
+            "Recall (live) admitted 3 notes (1,140 tokens), but the turn took a trivial detour, \
+             whose request carries no recall: none reached the model."
+        );
     }
 }
