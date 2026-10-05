@@ -130,6 +130,10 @@ impl TurnRunner {
         if !input || target.chosen.is_some() {
             return (target, None);
         }
+        if !Self::same_base(session, &target) {
+            session.routed = None;
+            return (target, None);
+        }
         let mode = self.route_mode(&target, &session.session_id);
         if mode < PackMode::Canary || !self.judge.reachable() {
             session.routed = None;
@@ -143,6 +147,21 @@ impl TurnRunner {
             _ => target,
         };
         (target, Some(mode))
+    }
+
+    /// The turn's base is the one routing moved the session from
+    /// (theseus-0j2.17). `target` is where the message runs without routing:
+    /// the place's profile or the live one, or the profile the pane carried,
+    /// which `turn_submit` reads as the session's `from` when it is only the
+    /// routed one. Compared by the profile's name, as a session unrouted
+    /// follows its profile: a model changed under the name reaches it there.
+    /// A record from before `from` takes the turn's base as it, so it reads
+    /// as before.
+    fn same_base(session: &mut SessionRecord, target: &Target) -> bool {
+        let Some(r) = session.routed.as_mut().filter(|r| r.profile.is_some()) else {
+            return true;
+        };
+        r.from.get_or_insert_with(|| target.profile.clone()) == &target.profile
     }
 
     /// The owner switched the live profile after the session's last turn
@@ -454,6 +473,7 @@ impl TurnRunner {
         if slot.set(target).is_err() {
             anyhow::bail!("a turn routes once");
         }
+        let base = t.target.profile.clone();
         let target = slot.get().expect("set");
         t.target = target;
         t.tc.target = Some(target);
@@ -462,8 +482,17 @@ impl TurnRunner {
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));
-            session.routed.get_or_insert_with(Default::default).profile =
-                Some(target.profile.clone());
+            // The base it was moved from, kept through later switches; a
+            // switch back to it ends the move (theseus-0j2.17).
+            let r = session.routed.get_or_insert_with(Default::default);
+            if r.from.get_or_insert(base) == &target.profile {
+                (r.profile, r.from) = (None, None);
+            } else {
+                r.profile = Some(target.profile.clone());
+            }
+            if session.routed.as_ref() == Some(&Default::default()) {
+                session.routed = None;
+            }
         }
         Ok(())
     }

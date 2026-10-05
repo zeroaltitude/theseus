@@ -326,8 +326,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     acts live for the session (theseus-9yyr, `route_base`): routing off or in shadow, the ladder's rollback, the
     judge off, or Jev unreachable (`JudgeService::reachable`) clear it at the next turn, in the turn's own session
     write, and so does a `profile.use` after the session's last turn began (META `live_profile.switched_ms`
-    against the turn id's time, `crate::id_ms`); the pane's carried profile, when it is the routed one, names
-    nothing (`turn_submit`). Tests: `tests_route.rs`, `routing::tests`, `turn::route_step::tests`.
+    against the turn id's time, `crate::id_ms`). A move keeps its base, `Routed.from` (the profile's name it was
+    first moved from, format 18, theseus-0j2.17): once route.v1 stops acting the turn runs there, and a turn whose
+    base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
+    profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
+    `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
   - **Replay, audit, and backfill** (step 25d, theseus-0j2.14; the owner's runs, each `judge_act(Act::JudgeRun)`
     and in the CLI's `OPERATORS`, each on a `learning` thread at nice 19, routed together by `rpc/judge_runs.rs`).
     `learning/replay.rs` (`Core::judge_replay`, public for the learning loop): a candidate the build does not wire

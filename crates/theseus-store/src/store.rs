@@ -450,7 +450,9 @@ const BULK: usize = 4096;
 /// wrote (theseus-ext.10).
 /// 17 = a message's kept file, `AttachmentContent::File` (a PDF and what was
 /// read of it, by digest), on a user message or a tool result (theseus-c9l6).
-const MANIFEST_FORMAT: u32 = 17;
+/// 18 = a session's routed base, `routed.from`: the profile routing first
+/// moved it from (theseus-0j2.17).
+const MANIFEST_FORMAT: u32 = 18;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
