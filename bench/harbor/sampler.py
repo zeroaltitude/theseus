@@ -10,7 +10,9 @@ Every interval it reads `/proc` and sorts each process into a class:
 - **harness**: its executable's name (`/proc/<pid>/comm`) is in `--names`,
   the arm's harness processes, taken as data;
 - **wrapper**: a harness process whose first argument is a `--wrapper-arg`
-  (Theseus's job wrapper, `theseusd job-wrapper …`), kept apart;
+  (Theseus's job wrapper, `theseusd job-wrapper …`), kept apart. theseusd
+  starts it through `/proc/self/exe`, so its comm is `exe`: such a process
+  is named by its `argv[0]` instead;
 - **work**: whatever descends from a harness or wrapper process and is not
   one, and stays work once it is (an orphan reparented to the container's
   init is still the command's);
@@ -67,6 +69,9 @@ SUMMARY = "sampler.json"
 SAMPLES = "sampler.jsonl"
 READY = "sampler.ready"
 DONE = "sampler.done"
+# The comm of a process started through /proc/self/exe, as theseusd starts
+# its job wrappers (`theseusd job-wrapper …` in its command line).
+EXE = "exe"
 
 
 def parse_stat(text):
@@ -233,7 +238,16 @@ class Tracker:
         self.samples = 0
 
     def wants_cmdline(self, stat):
-        return stat["comm"] in self.names
+        return stat["comm"] in self.names or stat["comm"] == EXE
+
+    @staticmethod
+    def name_of(p):
+        """A process's executable name: its comm, or, for one started
+        through /proc/self/exe (whose comm is `exe`), its argv[0]'s base."""
+        argv = p.get("argv") or []
+        if p["comm"] == EXE and argv:
+            return os.path.basename(argv[0])
+        return p["comm"]
 
     def classify(self, procs):
         """Each pid's class now. A harness name wins (a wrapper by its first
@@ -262,7 +276,7 @@ class Tracker:
         """A process's class from itself alone, or None when its parent says."""
         if p["pid"] in self.ignore:
             return "outside"
-        if p["comm"] in self.names:
+        if self.name_of(p) in self.names:
             argv = p.get("argv") or []
             return "wrapper" if len(argv) > 1 and argv[1] in self.wrapper_args else "harness"
         was = self.known.get((p["pid"], p["starttime"]))

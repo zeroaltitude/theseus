@@ -126,7 +126,8 @@ class Classes(unittest.TestCase):
         p.put(99, "python3", 10, rss=9000)  # the sampler
         p.put(20, "theseus", 10, rss=8000, hwm=8500, utime=4)
         p.put(21, "theseusd", 20, ["theseusd", "--state-dir", "/s"], rss=30000, hwm=31000, utime=10)
-        p.put(30, "theseusd", 21, ["theseusd", "job-wrapper", "--correlation-id", "act_1"],
+        # theseusd starts its wrapper through /proc/self/exe: comm `exe`.
+        p.put(30, "exe", 21, ["theseusd", "job-wrapper", "--correlation-id", "act_1"],
               rss=3000, utime=1)
         p.put(31, "bash", 30, rss=4000, utime=2)
         p.put(32, "cc1", 31, rss=120000, hwm=150000, utime=50)
@@ -205,6 +206,16 @@ class Classes(unittest.TestCase):
         t.observe(read())
         self.assertEqual(t.cpu["work"], 20, "an orphan's new namesake is not the command's")
         self.assertEqual(t.cpu["outside"], 3)
+
+    def test_a_process_started_through_proc_self_exe_is_named_by_its_argv(self):
+        p = self.proc
+        p.put(21, "theseusd", 1, ["/i/bin/theseusd", "--stdio"])
+        p.put(30, "exe", 21, ["theseusd", "job-wrapper", "--spool", "/s"])
+        p.put(31, "exe", 21, ["/i/bin/theseusd", "--stdio"])
+        p.put(32, "exe", 30, ["/usr/bin/some-tool"])
+        procs = sm.read_procs(str(p.root), self.t.wants_cmdline)
+        self.assertEqual(self.t.classify(procs),
+                         {21: "harness", 30: "wrapper", 31: "harness", 32: "work"})
 
     def test_a_harness_name_wins_over_its_parent(self):
         """Claude Code's CLI is `claude` in comm; a subagent it starts is the
