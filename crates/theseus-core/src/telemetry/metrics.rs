@@ -148,6 +148,13 @@ const LSP_REQUEST: Instrument = Instrument {
     unit: "ms",
     kind: Kind::Histogram,
 };
+const FILE_READ: Instrument = Instrument {
+    name: "theseus.file.read.duration",
+    description:
+        "Each file read for a model (theseus-c9l6), by how it came, its type, and its outcome",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
 const JUDGE_CALLS: Instrument = Instrument {
     name: "theseus.judge.calls",
     description:
@@ -195,7 +202,7 @@ const TASKS_OPEN: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 26] = [
+const INSTRUMENTS: [&Instrument; 27] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -215,6 +222,7 @@ const INSTRUMENTS: [&Instrument; 26] = [
     &DURABILITY_SHIPPED,
     &DURABILITY_LAG,
     &LSP_REQUEST,
+    &FILE_READ,
     &JUDGE_CALLS,
     &JUDGE_DURATION,
     &JUDGE_ON_PATH,
@@ -369,6 +377,7 @@ impl Metrics {
             self.provider_calls(t);
             self.wakes(t);
             self.lsp_requests(t);
+            self.files_read(t);
             self.tasks(t);
             self.compactions(t);
         }
@@ -389,6 +398,7 @@ impl Metrics {
         if let Some(t) = f.trace {
             self.tool_calls(t, &attrs);
             self.lsp_requests(t);
+            self.files_read(t);
         }
         self.add(
             &PROVIDER_ERRORS,
@@ -572,6 +582,41 @@ impl Metrics {
         walk(trace, &mut out);
         for (attrs, ms) in out {
             self.record(&LSP_REQUEST, attrs, ms);
+        }
+    }
+
+    /// Each file the turn read for a model (theseus-c9l6): its `file.read`
+    /// span's time, by how it came (an attachment, `fs.read`, `http.fetch`),
+    /// its type, and its outcome.
+    fn files_read(&mut self, trace: &Span) {
+        fn walk(s: &Span, out: &mut Vec<(Attrs, f64)>) {
+            if s.name == "file.read" {
+                let a = |k: &str| {
+                    Attr::S(
+                        s.attrs
+                            .get(k)
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    )
+                };
+                out.push((
+                    sorted(vec![
+                        ("theseus.file.via", a("via")),
+                        ("theseus.file.type", a("media_type")),
+                        ("theseus.outcome", a("outcome")),
+                    ]),
+                    s.duration_us() as f64 / 1000.0,
+                ));
+            }
+            for c in &s.children {
+                walk(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(trace, &mut out);
+        for (attrs, ms) in out {
+            self.record(&FILE_READ, attrs, ms);
         }
     }
 

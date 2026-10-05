@@ -21,6 +21,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   surface shows. Tests: `tests_fallback.rs`.
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching).
+  - **Files given to the model** (theseus-9g2, theseus-c9l6): `attach.rs` and `blobs.rs`. A message's files: text as
+    text (`[tools] max_read_bytes`), an image as an image, and any other file kept whole in the store's blobs up to
+    `[tools] max_attachment_bytes` (32 MiB), a `File`. A PDF is read once, when it arrives, in theseus-files' capped
+    child (`theseus_files::convert`; the turn's `accept_files`, under `theseus_store::blocking`): its pages, its text
+    by page (a JSON blob), and a part of its first pages for each page limit it passes (100, 600) or the request's
+    byte budget (18 MiB). A `file.read` row each, with its span and `theseus.file.read.duration`. The compiler
+    renders a PDF per model (`catalog`'s `pdf`): a `document` block (the whole file, or the largest part the request
+    has room for, with a line saying what was left out), else its text by page (GLM, a PDF the provider refused, one
+    the request has no room for). PDFs are budgeted in render order (`attach::Spend`), so an earlier one never
+    renders differently because of a later one, and the cached prefix holds. `fs.read` and `http.fetch` return a
+    PDF's pages (`theseus_tools::Media::Pdf`), kept the same way (`toolrun::keep_media`). Tests: `attach.rs`'s, and
+    theseusd's `tests/files.rs`, which run the real converter and a turn per model.
   - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the
     clock passed in as `CompileInput.signals`, never read there): a dormancy gap, the tail crossing its soft band,
     a task report or a wake arriving, and a provider cache miss, each against what was written since the model's
@@ -29,6 +41,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `context.compiled` (`signals`). A compile that appended and fired one asks `continue.v1` in shadow
     (`judge/compile.rs`: the dispatch is a spawn, and the turn's trace gets a zero-length `judge` mark naming the
     judgment's id, minted at the dispatch). Tests: `tests_continue.rs`.
+  - **The system header** (`TurnRunner::system_blocks`): the persona, the assembly note (`turn::ASSEMBLY`: what the
+    harness puts in a request, and that a recalled note is no part of the person's message; theseus-fpm2), the tools
+    note, and the profile's text, all static. Harness facts every request needs go there, never into a session's
+    messages.
 - **Places** (the place rule, theseus-nbsh; it replaced 19a's labels on nodes): `places.rs`. Every place a session
   speaks in is private or shared. Private: the CLI and the web UI (no place), a DM with an owner (`Config::owners_for`),
   and a guild channel the binding bound private (its own `private = true`, or, saying nothing, in a guild the bindings
@@ -371,11 +387,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`recall_compiled`), so it renders in the tail as it will once written. It rides the provider call's plan frame
     with a `derived_from` edge to each source (`via = "recall"`, so `node.reach` counts the copy), and its
     `recall.ran` row the turn's next frame: no frame of its own. Its render (`recall/render.rs`) is §2.4's testimony,
-    each item's frozen header and its source's text over the frozen byte range, read by position (cached: sources
-    never change), so the next request begins with the previous one's bytes. Past `session_recall_cap_tokens` of
-    notes in the tail, recall pauses (`paused`) until the next recompile. `memory.label` (`rpc/memory.rs`,
-    `judge_act(Act::Label)`, refused by the CLI inside a job) writes a `memory.label` row scoped `memory`; `wrong`
-    and `stale` drop a node as `labeled_wrong` from a set built after serving (`Core::warm_labels`, `recall/labels.rs`).
+    under a preamble that names the harness as its source and no part of the person's message (it renders in their
+    user turn, after their words: theseus-fpm2), each item's frozen header and its source's text over the frozen byte
+    range, read by position (cached: sources never change), so the next request begins with the previous one's bytes.
+    Past `session_recall_cap_tokens` of notes in the tail, recall pauses (`paused`) until the next recompile.
+    `memory.label` (`rpc/memory.rs`, `judge_act(Act::Label)`, refused by the CLI inside a job) writes a `memory.label`
+    row scoped `memory`; `wrong` and `stale` drop a node as `labeled_wrong` from a set built after serving
+    (`Core::warm_labels`, `recall/labels.rs`).
     Every compilation carries a `BudgetReport` (`Compiled.budget`, stored on a new `Compilation`; the ring's cut as a
     range, a recall's budget drops, an overage); the reply's `TurnSubmitResult.recalled` feeds Discord's
     `🧠 N recalled` footer. Tests: `tests_recall_node.rs`, `recall::render::tests`.

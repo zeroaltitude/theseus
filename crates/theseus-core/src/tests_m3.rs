@@ -4022,7 +4022,8 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
             .find(needle)
             .unwrap_or_else(|| panic!("{needle:?} is not in:\n{system}"))
     };
-    assert!(at(crate::turn::PERSONA) < at("Tools. You act") && at("Tools. You act") < at(&header));
+    assert!(at(crate::turn::PERSONA) < at(crate::turn::ASSEMBLY));
+    assert!(at(crate::turn::ASSEMBLY) < at("Tools. You act") && at("Tools. You act") < at(&header));
     assert!(
         system.ends_with(&format!(
             "{header}\n\nEnd every answer with the word 'Theseus'."
@@ -4192,17 +4193,22 @@ async fn a_context_file_over_the_cap_is_cut_and_marked_as_cut() {
 }
 
 /// A config that names no context files (Eddie's vault config names none)
-/// compiles the system block it always did: the persona and the tools note,
-/// nothing after them. Its manifest and rows carry no `context_files` key,
-/// so a manifest stored before theseus-58a compares equal and appends, and
-/// nothing is read or warned.
+/// compiles the system block it always did: the persona, the assembly note,
+/// and the tools note, nothing after them. Its manifest and rows carry no
+/// `context_files` key, so a manifest stored before theseus-58a compares
+/// equal and appends, and nothing is read or warned.
 #[tokio::test]
 async fn without_context_files_the_system_block_and_manifest_are_unchanged() {
     let r = rig(vec![Scripted::text("hi")]);
     let res = turn(&r.core, None, "hello").await;
     assert_eq!(
         system_of(&r, 0),
-        format!("{}\n\n{}", crate::turn::PERSONA, r.core.tools.system_note())
+        format!(
+            "{}\n\n{}\n\n{}",
+            crate::turn::PERSONA,
+            crate::turn::ASSEMBLY,
+            r.core.tools.system_note()
+        )
     );
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
     let stored = serde_json::to_value(&comps[0].manifest).unwrap();
@@ -4307,8 +4313,9 @@ async fn a_persona_that_names_no_files_adds_nothing_to_the_system_block() {
     assert_eq!(
         system_of(&r, 0),
         format!(
-            "{}\n\n{}\n\n# Context file (system): {sys}\n\nThe operator is Eddie.",
+            "{}\n\n{}\n\n{}\n\n# Context file (system): {sys}\n\nThe operator is Eddie.",
             crate::turn::PERSONA,
+            crate::turn::ASSEMBLY,
             r.core.tools.system_note()
         )
     );
@@ -4841,9 +4848,10 @@ async fn fs_read_of_a_png_returns_an_image_block() {
     assert_eq!(blob_files(&r), 1);
 }
 
-/// An image over 5 MiB is not stored and the model reads the reason.
+/// An image over 5 MiB is not shown: the file is kept whole (theseus-c9l6),
+/// and the model reads why it is not shown.
 #[tokio::test]
-async fn a_six_megabyte_image_is_refused_with_the_reason() {
+async fn a_six_megabyte_image_is_kept_and_not_shown_with_the_reason() {
     let r = rig(vec![Scripted::text("Too big.")]);
     let bytes = crate::attach::tests::png(4000, 3000, 6 * 1024 * 1024);
     let res = submit(
@@ -4855,10 +4863,10 @@ async fn a_six_megabyte_image_is_refused_with_the_reason() {
     assert_eq!(
         last_user_blocks(&r),
         vec![
-            json!({"type": "text", "text": "[Attachment huge.png from discord:eddie, image/png, 6.0 MB: not read: an image over the 5 MiB limit]"})
+            json!({"type": "text", "text": "[File huge.png from discord:eddie, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit]"})
         ]
     );
-    assert_eq!(blob_files(&r), 0);
+    assert_eq!(blob_files(&r), 1, "kept whole");
 }
 
 // ------------------------------------------------- an image the provider refuses (theseus-0s4)

@@ -157,6 +157,7 @@ impl Rig {
                 name: user.1,
                 channel,
                 content,
+                file: None,
             })
             .unwrap()
     }
@@ -329,6 +330,57 @@ async fn a_typed_message_is_a_turn_and_its_reply_answers_it_in_the_channel() {
 /// owner but not one of `#lab`'s users, it is refused and the call keeps
 /// waiting; pressed by ana, Approve is acknowledged, the call runs, the card
 /// says so and loses its buttons, and the reply comes.
+/// Eddie's case (theseus-c9l6): a PDF attached to a typed message is
+/// downloaded from the CDN (the stand-in's), kept whole, and read by the
+/// model as a document block of its own bytes, with its line before it.
+#[tokio::test]
+async fn a_pdf_attached_to_a_typed_message_reaches_the_model_as_a_document() {
+    let provider = Arc::new(FakeProvider::scripted(vec![Scripted::text(
+        "Odile Varnack.",
+    )]));
+    let model = provider.clone();
+    let r = Rig::start_with(move |_, _| model, false, true).await;
+    let pdf = theseus_files::pdf::sample(&["The harbour master is Odile Varnack."]);
+    let path = r.dir.path().join("orders.pdf");
+    std::fs::write(&path, &pdf).unwrap();
+    r.fake
+        .say(&Typed {
+            user: ANA,
+            name: "ana",
+            channel: Some(LAB),
+            content: "Who is the harbour master?",
+            file: Some(&path),
+        })
+        .unwrap();
+    r.until("the reply in #lab", || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.content.contains("Odile Varnack."))
+    })
+    .await;
+    let req = provider.requests().pop().expect("a request");
+    let user = req
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m["role"] == "user")
+        .unwrap();
+    let blocks = user["content"].as_array().unwrap();
+    assert!(
+        blocks[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("[PDF orders.pdf from discord:ana, "),
+        "{blocks:?}"
+    );
+    assert_eq!(blocks[1]["type"], "document");
+    assert_eq!(
+        theseus_core::blobs::decode(blocks[1]["source"]["data"].as_str().unwrap()).unwrap(),
+        pdf
+    );
+    assert_eq!(blocks[2]["text"], "Who is the harbour master?");
+}
+
 #[tokio::test]
 async fn approve_pressed_in_a_private_channel_runs_the_call_and_settles_the_card() {
     let r = Rig::start(write_script, false).await;

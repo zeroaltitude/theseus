@@ -1,0 +1,19 @@
+[package]
+name = "theseus-files"
+description = "Files people give the model, read for it (theseus-c9l6): a PDF's pages counted, cut to a range, and turned to text, each conversion in a child process with a time limit and a memory cap. No store and no model: the core keeps the bytes in its blobs and renders them."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+base64.workspace = true
+libc = "0.2"
+# PDF reading and writing (MIT). Default features off: no rayon, no chrono.
+lopdf = { version = "0.45.0", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

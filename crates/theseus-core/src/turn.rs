@@ -68,6 +68,12 @@ pub use route_step::{LiveSwitched, SWITCHED};
 /// the start of the cached prefix, so it never interpolates anything.
 pub const PERSONA: &str = "You are Theseus, a coding and operations agent working for your operator through a harness that records everything you do. Be direct and concise; lead with what you found or did. When you are unsure, say so plainly.";
 
+/// The assembly note, after the persona: how the harness builds each
+/// request, so the model never takes what the harness added (a recalled
+/// note, a wake, a report) for something the person sent (theseus-fpm2).
+/// Frozen text in the shared header, as the persona is.
+pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it.";
+
 /// What a turn runs against, resolved from a profile plus any raw overrides.
 #[derive(Debug, Clone)]
 pub struct Target {
@@ -700,19 +706,20 @@ impl TurnRunner {
 
     /// The system prompt, as its two blocks (theseus-ev1). The header, which
     /// every session of the profile and their tasks share: the persona, the
-    /// tools paragraph, and the profile's own text. Then the context: each
-    /// context file under its header (theseus-58a), the system level's, then
-    /// the persona's, each header naming its level (theseus-c48); empty
-    /// without files. Deterministic for a config and the files' contents; a
-    /// change is a `system_changed` recompile. Nothing retractable belongs in
-    /// the header (Appendix F, theseus-3nk): it is every session's prefix.
+    /// assembly note (theseus-fpm2), the tools paragraph, and the profile's
+    /// own text. Then the context: each context file under its header
+    /// (theseus-58a), the system level's, then the persona's, each header
+    /// naming its level (theseus-c48); empty without files. Deterministic
+    /// for a config and the files' contents; a change is a `system_changed`
+    /// recompile. Nothing retractable belongs in the header (Appendix F,
+    /// theseus-3nk): it is every session's prefix.
     pub fn system_blocks(
         &self,
         target: &Target,
         files: &[ContextFile],
         place: crate::ceiling::PlaceView,
     ) -> (String, String) {
-        let mut parts = vec![PERSONA.to_string()];
+        let mut parts = vec![PERSONA.to_string(), ASSEMBLY.to_string()];
         let note = self.tools.system_note_for(place);
         if !note.is_empty() {
             parts.push(note);
@@ -1579,11 +1586,7 @@ impl TurnRunner {
         if let Some(p) = prompt {
             self.write_prompt_input(t, session, p, moved.as_ref())?;
         } else if let Some(text) = &input {
-            let files = crate::attach::from_wire(
-                attachments,
-                self.cfg.tools.max_read_bytes,
-                self.store.blobs(),
-            );
+            let files = self.accept_files(t, attachments);
             let first_file = files.first().map(|a| a.name.clone());
             let node = Node::user_with(sid, Some(turn_id), &author, text, files);
             if session.title.is_none() {
@@ -2511,6 +2514,30 @@ impl TurnRunner {
             t.record(&fact::turn::ProviderRefused { resp });
         }
         Ok(node)
+    }
+
+    /// A message's files as its node keeps them (theseus-9g2, theseus-c9l6),
+    /// and a `file.read` row for each file kept. A message with a file's
+    /// bytes waits on the disk and on its PDF's conversion off the runtime's
+    /// workers; one without runs nothing new.
+    fn accept_files(
+        &self,
+        t: &mut Turn<'_>,
+        wire: Vec<theseus_protocol::Attachment>,
+    ) -> Vec<crate::node::Attachment> {
+        let caps = crate::attach::Caps {
+            max_text: self.cfg.tools.max_read_bytes,
+            max_file: self.cfg.tools.max_attachment_bytes,
+        };
+        let blobs = self.store.blobs();
+        let (files, reads) = match wire.iter().any(|w| w.data.is_some()) {
+            true => theseus_store::blocking(|| crate::attach::from_wire(wire, caps, blobs)),
+            false => crate::attach::from_wire(wire, caps, blobs),
+        };
+        for read in &reads {
+            t.record(&fact::tool::FileRead { read });
+        }
+        files
     }
 
     /// A provider's 400 that names an image (theseus-0s4): mark each image it

@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 theseus-core.workspace = true
 theseus-protocol.workspace = true
+theseus-files.workspace = true
 theseus-kernel.workspace = true
 theseus-sandbox.workspace = true
 theseus-discord.workspace = true

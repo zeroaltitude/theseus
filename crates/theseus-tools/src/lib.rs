@@ -112,6 +112,19 @@ pub type AsyncResult = Result<(ToolOutput, Option<External>), ToolFailure>;
 /// An async tool's run, a future on the daemon's runtime (DD5).
 pub type AsyncRun = std::pin::Pin<Box<dyn std::future::Future<Output = AsyncResult> + Send>>;
 
+/// An async run that may give a file for the model to see (theseus-c9l6):
+/// `http.fetch` of a PDF.
+pub type AsyncMediaResult = Result<(ToolOutput, Option<External>, Option<Media>), ToolFailure>;
+
+/// The future of [`AsyncMediaResult`].
+pub type AsyncMediaRun =
+    std::pin::Pin<Box<dyn std::future::Future<Output = AsyncMediaResult> + Send>>;
+
+/// An async run that gives no file, as one that may.
+pub fn with_no_media(run: AsyncRun) -> AsyncMediaRun {
+    Box::pin(async move { run.await.map(|(o, e)| (o, e, None)) })
+}
+
 /// An image a toollet read, for the model to see (`fs.read` of a PNG,
 /// theseus-9g2). The runtime stores its bytes once, in the store's blobs,
 /// and the result node holds the reference.
@@ -121,6 +134,28 @@ pub struct ImageData {
     pub name: String,
     pub info: image::ImageInfo,
     pub bytes: Vec<u8>,
+}
+
+/// A PDF's pages a tool read, for the model to see (theseus-c9l6): the
+/// bytes of those pages alone (the whole file when it read them all), and
+/// what was read of them, their text by page. Stored as an image is.
+#[derive(Debug, Clone)]
+pub struct PdfData {
+    /// The file and its pages, for the line that names them
+    /// (`report.pdf, pages 3–5 of 40`).
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub read: theseus_files::pdf::Read,
+    /// The conversion's time, and whether it ran in the capped child.
+    pub ms: u64,
+    pub capped: bool,
+}
+
+/// A file a tool read for the model to see: an image, or a PDF's pages.
+#[derive(Debug, Clone)]
+pub enum Media {
+    Image(ImageData),
+    Pdf(PdfData),
 }
 
 /// A job for the detached wrapper.
@@ -300,11 +335,11 @@ pub trait Tool: Send + Sync {
     }
     /// `run`, plus an image for the model when the tool read one (only
     /// `fs.read` returns one). The runtime calls this.
-    fn run_with_image(
+    fn run_with_media(
         &self,
         input: &Value,
         ctx: &ToolCtx,
-    ) -> Result<(ToolOutput, Option<ImageData>), ToolFailure> {
+    ) -> Result<(ToolOutput, Option<Media>), ToolFailure> {
         self.run(input, ctx).map(|o| (o, None))
     }
     /// Run as a future on the daemon's runtime (only for `Backend::Async`,
@@ -313,6 +348,11 @@ pub trait Tool: Send + Sync {
         Box::pin(std::future::ready(Err(ToolFailure::new(
             "this tool does not run async",
         ))))
+    }
+    /// `run_async`, and a file for the model to see (theseus-c9l6): only a
+    /// tool that reads one overrides it.
+    fn run_async_with_media(&self, input: &Value, ctx: &ToolCtx) -> AsyncMediaRun {
+        with_no_media(self.run_async(input, ctx))
     }
     /// The job to launch (only for `Backend::Job`).
     fn job(&self, _input: &Value, _ctx: &ToolCtx) -> Result<JobSpec, String> {

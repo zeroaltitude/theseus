@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use theseus_tools::{AsyncResult, Tool, ToolCtx};
+use theseus_tools::{AsyncResult, External, Tool, ToolCtx, ToolOutput};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::fetch::Fetch;
@@ -150,7 +150,11 @@ fn route(path: &str, headers: &BTreeMap<String, String>, port: u16) -> Reply {
         "/page.html" => ok("text/html; charset=utf-8", PAGE.as_bytes()),
         "/plain.txt" => ok("text/plain", b"line one\n  line <two> &amp; three\n"),
         "/data.json" => ok("application/json", br#"{"a": [1, 2], "b": "<c>"}"#),
-        "/doc.pdf" => ok("application/pdf", &[b'%'; 12_400]),
+        "/doc.pdf" => ok(
+            "application/pdf",
+            &theseus_files::pdf::sample(&["Tide table for March", "High water 06:12"]),
+        ),
+        "/odd.pdf" => ok("application/pdf", &[b'%'; 12_400]),
         "/big.txt" => ok("text/plain", &[b'x'; 100_000]),
         "/slow" => Reply {
             delay_ms: 2_000,
@@ -281,6 +285,18 @@ async fn fetch(w: &Arc<Web>, input: Value, approved: bool) -> AsyncResult {
     tool.run_async(&input, &c).await
 }
 
+async fn fetch_media(
+    w: &Arc<Web>,
+    input: Value,
+) -> (ToolOutput, Option<External>, Option<theseus_tools::Media>) {
+    let tool = Fetch(w.clone());
+    let c = ctx(false);
+    tool.plan(&input, &c).expect("the input plans");
+    tool.run_async_with_media(&input, &c)
+        .await
+        .unwrap_or_else(|f| panic!("{input}: {}", f.message))
+}
+
 async fn fetched(w: &Arc<Web>, url: &str) -> (String, Value, String) {
     let (out, ext) = fetch(w, json!({ "url": url }), false)
         .await
@@ -331,7 +347,7 @@ async fn a_page_becomes_text_and_is_marked_external() {
 }
 
 #[tokio::test]
-async fn text_and_json_come_back_as_they_are_and_a_pdf_is_only_named() {
+async fn text_json_and_a_pdf_come_back_and_a_pdf_that_is_not_one_says_so() {
     let s = serve().await;
     let w = web(s.port, WebToolsConfig::default(), true);
     let at = |p: &str| format!("http://site.test:{}{p}", s.port);
@@ -348,18 +364,32 @@ async fn text_and_json_come_back_as_they_are_and_a_pdf_is_only_named() {
         text.ends_with("\n\n{\"a\": [1, 2], \"b\": \"<c>\"}"),
         "{text}"
     );
-    let (text, meta, _) = fetched(&w, &at("/doc.pdf")).await;
-    assert_eq!(
-        text,
-        format!(
-            "GET {} → 200 OK, application/pdf, 12.1 KB: a PDF, which is not read yet.\n",
-            at("/doc.pdf")
-        )
+    // A PDF comes back as its pages, as fs.read returns them (theseus-c9l6),
+    // with the file for the model; one that is not a PDF says why.
+    let (out, ext, media) = fetch_media(&w, json!({"url": at("/doc.pdf"), "pages": "2"})).await;
+    assert!(
+        out.text
+            .ends_with("It is a PDF of 2 pages, 746 bytes: page 2 shown."),
+        "{}",
+        out.text
     );
+    assert_eq!(out.meta["read"], "pdf");
+    assert_eq!(ext.expect("marked external").url, at("/doc.pdf"));
+    let Some(theseus_tools::Media::Pdf(p)) = media else {
+        panic!("the PDF's pages")
+    };
     assert_eq!(
-        (meta["read"].clone(), meta["bytes"].clone()),
-        (json!("no"), json!(0))
+        (p.name.as_str(), p.read.texts.clone()),
+        ("doc.pdf, page 2 of 2", vec!["High water 06:12".to_string()])
     );
+    let (text, meta, _) = fetched(&w, &at("/odd.pdf")).await;
+    assert!(
+        text.ends_with(
+            "It was not read as a PDF (12400 bytes): it is not a PDF (no %PDF- header)."
+        ),
+        "{text}"
+    );
+    assert_eq!(meta["read"], "no");
     // A page that is not there is still a page: its status says so.
     let (text, meta, _) = fetched(&w, &at("/missing")).await;
     assert!(text.starts_with(&format!(

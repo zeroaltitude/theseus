@@ -734,6 +734,7 @@ fn typed_message(r: &mut Rig) -> Result<String, String> {
         name: "ana",
         channel: Some(LAB),
         content: "Reply with exactly one word: ready",
+        file: None,
     })?;
     let typed = r.typed.clone();
     let reply = wait("the reply", || {
@@ -755,6 +756,7 @@ fn ignored(r: &mut Rig) -> Result<String, String> {
         name: "ben",
         channel: Some(LAB),
         content: "Reply with exactly one word: ready",
+        file: None,
     })?;
     // The row names the author as a string, as Discord's ids are.
     let ben = BEN.to_string();
@@ -780,6 +782,7 @@ fn card(r: &mut Rig) -> Result<String, String> {
         name: "ana",
         channel: Some(LAB),
         content: &format!("{WRITE_WORD}: write the proof file."),
+        file: None,
     })?;
     wait("a waiting call", || (r.waiting() == 1).then_some(()))?;
     let card = wait("the card", || r.card_msg())?;

@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 theseus-protocol.workspace = true
+theseus-files.workspace = true
 theseus-store.workspace = true
 theseus-follow = { path = "../theseus-follow" }
 theseus-kernel.workspace = true

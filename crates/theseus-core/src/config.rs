@@ -264,6 +264,12 @@ pub struct ToolsConfig {
     pub result_max_chars: usize,
     #[serde(default = "default_max_read_bytes")]
     pub max_read_bytes: usize,
+    /// The largest file a surface accepts whole (theseus-c9l6): a Discord
+    /// attachment, `theseus ask --attach`. It is kept in the store's blobs,
+    /// and a PDF is read for the model. The default, 32 MiB, is the
+    /// provider's limit on a request that carries a PDF.
+    #[serde(default = "default_max_attachment_bytes")]
+    pub max_attachment_bytes: u64,
     /// Entries a listing, glob, or grep returns.
     #[serde(default = "default_max_entries")]
     pub max_entries: usize,
@@ -350,6 +356,9 @@ fn default_result_max_chars() -> usize {
 fn default_max_read_bytes() -> usize {
     262_144
 }
+fn default_max_attachment_bytes() -> u64 {
+    theseus_files::MAX_FILE_BYTES
+}
 fn default_max_entries() -> usize {
     500
 }
@@ -397,6 +406,7 @@ impl Default for ToolsConfig {
             approve_paths: default_approve_paths(),
             result_max_chars: default_result_max_chars(),
             max_read_bytes: default_max_read_bytes(),
+            max_attachment_bytes: default_max_attachment_bytes(),
             max_entries: default_max_entries(),
             proc_sync_secs: default_proc_sync_secs(),
             proc_timeout_secs: default_proc_timeout_secs(),

@@ -1,4 +1,6 @@
-//! Image bytes, stored once (theseus-9g2).
+//! Image bytes, stored once (theseus-9g2), and every other file a model is
+//! given, with what was made of it: a PDF's text by page and its parts
+//! (theseus-c9l6).
 //!
 //! An image is up to 5 MiB, and a node is a WAL frame that every recovery
 //! and index rebuild reads, so the bytes never go in a node. They go to
@@ -44,10 +46,24 @@ fn is_digest(d: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
+/// The bytes a padded base64 string decodes to.
+pub fn decoded_len(b64: &str) -> u64 {
+    let pad = b64.bytes().rev().take_while(|b| *b == b'=').count();
+    (b64.len() / 4 * 3).saturating_sub(pad) as u64
+}
+
+/// A PDF's text by page, as its blob holds it (theseus-c9l6).
+pub type Texts = Arc<Vec<String>>;
+
+/// Parsed texts the cache may hold: a few PDFs' worth.
+const TEXT_CACHE_ENTRIES: usize = 8;
+
 pub struct Blobs {
     dir: PathBuf,
     /// Most recently used last: (digest, base64).
     cache: Mutex<VecDeque<(String, Arc<str>)>>,
+    /// Most recently used last: (digest, a PDF's texts) (theseus-c9l6).
+    texts: Mutex<VecDeque<(String, Texts)>>,
     /// A test's hold on every write, as a disk under a neighbour's IO holds
     /// a sync (`hold_puts`).
     #[cfg(test)]
@@ -61,6 +77,7 @@ impl Blobs {
         Self {
             dir: store_dir.join("blobs"),
             cache: Mutex::new(VecDeque::new()),
+            texts: Mutex::new(VecDeque::new()),
             #[cfg(test)]
             hold: Mutex::new(None),
         }
@@ -73,6 +90,37 @@ impl Blobs {
         let (tx, rx) = std::sync::mpsc::channel();
         *self.hold.lock().unwrap() = Some(rx);
         tx
+    }
+
+    /// A blob's bytes, when it is there and they match its name.
+    pub fn read(&self, digest: &str) -> Option<Vec<u8>> {
+        if !is_digest(digest) {
+            return None;
+        }
+        let bytes = std::fs::read(self.path(digest)).ok()?;
+        (self::digest(&bytes) == digest).then_some(bytes)
+    }
+
+    /// A PDF's text by page, from the JSON blob a `File` names, read once
+    /// and kept in a small cache: a request renders it on every loop.
+    pub fn texts(&self, digest: &str) -> Option<Texts> {
+        {
+            let mut c = self.texts.lock().unwrap();
+            if let Some(i) = c.iter().position(|(d, _)| d == digest) {
+                let hit = c.remove(i).expect("present");
+                let t = hit.1.clone();
+                c.push_back(hit);
+                return Some(t);
+            }
+        }
+        let parsed: Vec<String> = serde_json::from_slice(&self.read(digest)?).ok()?;
+        let t: Texts = Arc::new(parsed);
+        let mut c = self.texts.lock().unwrap();
+        c.push_back((digest.to_string(), t.clone()));
+        while c.len() > TEXT_CACHE_ENTRIES {
+            c.pop_front();
+        }
+        Some(t)
     }
 
     pub fn dir(&self) -> &Path {

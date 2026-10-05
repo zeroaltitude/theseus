@@ -43,6 +43,10 @@ pub enum Cmd {
         user: u64,
         #[arg(long, default_value = "tester")]
         name: String,
+        /// A file to attach (theseus-c9l6); the fake serves it as Discord's
+        /// CDN would.
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
         text: String,
     },
     /// Press a button on a message the bot posted, as a user.
@@ -134,9 +138,12 @@ pub fn run(cmd: Cmd) -> Result<()> {
             channel,
             user,
             name,
+            file,
             text,
         } => {
-            let body = json!({"channel": channel, "user": user, "name": name, "content": text});
+            let file = file.map(|f| std::path::absolute(&f).unwrap_or(f).display().to_string());
+            let body = json!({"channel": channel, "user": user, "name": name, "content": text,
+                              "file": file});
             print_sent(control(&fake, "POST", "say", &body)?)
         }
         Cmd::Press {

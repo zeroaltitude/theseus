@@ -11,7 +11,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   slash commands and the confirm buttons. `Routes::resolve` finds a message's or an interaction's place.
 - `src/courier.rs`: durable delivery, the binding's side: one lane per place, and one for the operator's notices.
 - `src/render.rs`: a session's events as Discord messages. Pure: events in, messages out.
-- `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments),
+- `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments: a
+  text file as its text, any other file as its bytes up to `[tools] max_attachment_bytes`, 32 MiB, which the core
+  keeps and reads, an image as an image and a PDF page by page; a file over its cap is listed; theseus-c9l6),
   `src/viewers.rs` (who can view a channel), and `src/rpc_client.rs` (the in-process protocol connection).
 - **Places** (the place rule, theseus-nbsh): a `[[channel]]` with `private = true` is a private place (its session
   gets everything); any other guild channel is shared (the public tools alone). The binding tells the core its places

@@ -448,7 +448,9 @@ const BULK: usize = 4096;
 /// and a switch the cache holds back.
 /// 16 = a task's `origin.by_model`, the mark of a task whose layer 1 the model
 /// wrote (theseus-ext.10).
-const MANIFEST_FORMAT: u32 = 16;
+/// 17 = a message's kept file, `AttachmentContent::File` (a PDF and what was
+/// read of it, by digest), on a user message or a tool result (theseus-c9l6).
+const MANIFEST_FORMAT: u32 = 17;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

@@ -91,6 +91,10 @@ pub struct CatalogEntry {
     pub cache_min_tokens: u32,
     #[serde(default)]
     pub vision: bool,
+    /// The model reads a PDF as a `document` block, its pages' text and
+    /// pictures both (theseus-c9l6); any other reads the PDF's text.
+    #[serde(default)]
+    pub pdf: bool,
     /// Where the figures came from.
     #[serde(default)]
     pub source: String,
@@ -243,6 +247,20 @@ pub fn image_tokens(model: &str, width: u32, height: u32) -> u64 {
     (tiles(w) * tiles(h)).min(cap)
 }
 
+/// About how many input tokens `pages` pages of a PDF cost a model besides
+/// their text (theseus-c9l6), for the budget reservation; the provider's
+/// usage is what is charged. The provider reads each page as its text and
+/// as a picture of it; `PDF_PAGE_TOKENS` is the picture's share, and the
+/// text counts at the model's rate for prose.
+pub fn pdf_tokens(model: &str, pages: u32, text_bytes: u64) -> u64 {
+    let rates = TokenRates::of(model);
+    u64::from(pages) * PDF_PAGE_TOKENS + (text_bytes as f64 / rates.text).ceil() as u64
+}
+
+/// A PDF page's picture, in tokens, on Claude's models: measured on Sonnet
+/// 5.5 by the files lane's live check (theseus-c9l6).
+pub const PDF_PAGE_TOKENS: u64 = 1_600;
+
 /// A `[catalog."<id>"]` table in the config. Over a built-in model every
 /// field is optional and replaces only what it names; the template names the
 /// four prices. A model the built-in table lacks needs `provider`,
@@ -283,6 +301,8 @@ pub struct CatalogRow {
     pub cache_min_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vision: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     /// Omitted on a new model: its family's figures ([`TokenRates::of`]).
@@ -350,6 +370,7 @@ impl CatalogRow {
                     refusal_fallback_model: None,
                     cache_min_tokens: 0,
                     vision: false,
+                    pdf: false,
                     source: String::new(),
                     bytes_per_token: TokenRates::default(),
                 }
@@ -374,6 +395,7 @@ impl CatalogRow {
             refusal_fallback_model: r.refusal_fallback_model.or(entry.refusal_fallback_model),
             cache_min_tokens: r.cache_min_tokens.unwrap_or(entry.cache_min_tokens),
             vision: r.vision.unwrap_or(entry.vision),
+            pdf: r.pdf.unwrap_or(entry.pdf),
             source: r.source.unwrap_or_else(|| "config".into()),
             bytes_per_token: r.bytes_per_token.unwrap_or(entry.bytes_per_token),
         })
@@ -414,6 +436,7 @@ fn claude(
         refusal_fallback_model: None,
         cache_min_tokens: cache_min,
         vision: true,
+        pdf: true,
         source: "Claude API reference (2026-06-24 model table; model-migration pricing)".into(),
         bytes_per_token: TokenRates::CLAUDE,
     }
@@ -444,6 +467,9 @@ fn glm(
         refusal_fallback_model: None,
         cache_min_tokens: 0,
         vision: true,
+        // Z.ai's Anthropic-compatible endpoint takes no document blocks:
+        // GLM reads a PDF's text (theseus-c9l6).
+        pdf: false,
         source: "OpenClaw model catalog (models.providers.zai), 2026-09".into(),
         bytes_per_token: TokenRates::GLM,
     }

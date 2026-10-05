@@ -856,3 +856,53 @@ impl Fact for WakeSet<'_> {
         );
     }
 }
+
+/// A file read for a model (theseus-c9l6): an attachment kept when it
+/// arrived, or a PDF a tool read (`file.read`), with its conversion's time
+/// and whether it ran in the capped child.
+pub struct FileRead<'a> {
+    pub read: &'a crate::attach::FileRead,
+}
+
+impl Fact for FileRead<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::FileRead);
+
+    fn row(&self) -> Value {
+        let r = self.read;
+        json!({"via": r.via, "name": r.name, "media_type": r.media_type, "bytes": r.bytes,
+               "digest": r.digest, "pages": r.pages, "parts": r.parts,
+               "text_bytes": r.text_bytes, "outcome": r.outcome(), "why": r.why,
+               "ms": r.ms, "capped": r.capped})
+    }
+
+    fn span(&self, trace: &mut crate::trace::Trace) {
+        let r = self.read;
+        let end = trace.now_us();
+        trace.record(
+            "file.read",
+            "file",
+            end.saturating_sub(r.ms * 1000),
+            end,
+            json!({"via": r.via, "media_type": r.media_type, "bytes": r.bytes,
+                   "pages": r.pages, "outcome": r.outcome(), "capped": r.capped}),
+        );
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let r = self.read;
+        let what = match r.pages {
+            Some(n) => format!(
+                "{}, {}",
+                theseus_files::pdf::count(n),
+                narrative::bytes(r.bytes)
+            ),
+            None => narrative::bytes(r.bytes),
+        };
+        let how = match (&r.why, r.outcome()) {
+            (Some(why), _) => format!("its text was not read: {why}"),
+            (None, "kept") => "kept, not read".to_string(),
+            (None, _) => format!("read in {} ms", r.ms),
+        };
+        say.line(Tool, format!("{} ({what}): {how}.", r.name));
+    }
+}

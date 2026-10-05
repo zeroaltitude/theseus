@@ -122,6 +122,7 @@ ledger_kinds! {
     ExtendProposed = "extend.proposed",
     ExtendRevoked = "extend.revoked",
     ExtendTested = "extend.tested",
+    FileRead = "file.read",
     GlidePosted = "glide.posted",
     GlideRead = "glide.read",
     ImageNotShown = "image.not_shown",

@@ -21,14 +21,50 @@
 //! fail every later request of its session the same way. A 400 that names
 //! an image marks it not shown in the session record (theseus-0s4,
 //! `refused`), and it renders as its line from then on.
+//!
+//! Any other file, up to `[tools] max_attachment_bytes`, is kept whole in
+//! the blobs too (theseus-c9l6), a `File`. A PDF is read when it arrives,
+//! once, in a capped child (`theseus_files::convert`): its pages counted,
+//! its text page by page, and, when one request cannot carry it whole, its
+//! first pages as PDFs of their own, every one a blob the node names. A
+//! model that reads PDFs gets a `document` block (the whole file, or the
+//! largest part the request still has room for, with a line that says what
+//! was left out); any other model, and a PDF the provider refused, its text
+//! by page. A request's PDFs are budgeted in the order they render, so a
+//! later file never changes how an earlier one renders, and the prompt's
+//! cached prefix holds.
 
 use serde_json::{json, Value};
+use theseus_files::pdf;
 use theseus_tools::image;
 
 use crate::blobs::Blobs;
 use crate::narrative;
-use crate::node::{Attachment, AttachmentContent};
+use crate::node::{Attachment, AttachmentContent, FilePart};
 use crate::session::NotShown;
+
+/// The pages one request may carry, from the claude-api reference's
+/// "Document & File Input" (read 2026-10-04): 600, and 100 on a model with a
+/// window of 200K tokens. A PDF over one of them keeps its first pages as a
+/// part of their own for it.
+pub const PAGE_LIMITS: [u32; 2] = [100, 600];
+
+/// The PDF bytes one request carries, all its documents together. The same
+/// reference caps a request at 32 MB; base64 makes these 24 MB of it, which
+/// leaves room for the images and the text.
+pub const DOCUMENT_BUDGET_BYTES: u64 = 18 * 1024 * 1024;
+
+/// The text of one PDF a model reads when it does not read the PDF itself.
+pub const MAX_DOCUMENT_TEXT: usize = 256 * 1024;
+
+/// The most pages a request carries for a model with this window.
+pub fn page_limit(context_window: u64) -> u32 {
+    if context_window <= 200_000 {
+        PAGE_LIMITS[0]
+    } else {
+        PAGE_LIMITS[1]
+    }
+}
 
 /// The longest file name or type a header repeats.
 const MAX_NAME_CHARS: usize = 200;
@@ -101,8 +137,29 @@ pub fn header(a: &Attachment, author: Option<&str>) -> String {
             };
             format!("[Attachment {name}{from}{kind}, {size}: not read: {reason}]")
         }
+        AttachmentContent::File { pages, .. } if is_pdf(a) => match pages {
+            Some(n) => format!("[PDF {name}{from}, {size}, {}]", pdf::count(*n)),
+            None => format!("[PDF {name}{from}, {size}]"),
+        },
+        AttachmentContent::File { unread, .. } => {
+            let kind = if a.media_type.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", clean(&a.media_type))
+            };
+            let why = unread
+                .as_deref()
+                .unwrap_or("only text, images, and PDFs are read");
+            format!("[File {name}{from}{kind}, {size}: kept, not read: {why}]")
+        }
     }
 }
+
+fn is_pdf(a: &Attachment) -> bool {
+    a.media_type == PDF_TYPE
+}
+
+const PDF_TYPE: &str = "application/pdf";
 
 /// The one line an image becomes when it is not shown.
 fn not_shown(a: &Attachment, author: Option<&str>, why: &str) -> String {
@@ -114,11 +171,17 @@ fn not_shown(a: &Attachment, author: Option<&str>, why: &str) -> String {
     )
 }
 
-/// How a request shows images: whether its model has vision, which model
-/// (for the token estimate), where the bytes are, and which images the
-/// provider refused in this session (theseus-0s4), which show as their line.
+/// How a request shows images and PDFs: whether its model has vision and
+/// reads PDFs, how many PDF pages one of its requests carries, which model
+/// (for the token estimate), where the bytes are, and which images and PDFs
+/// the provider refused in this session (theseus-0s4), which show as their
+/// line or their text.
 pub struct Media<'a> {
     pub vision: bool,
+    /// The model reads a PDF as a `document` block (theseus-c9l6).
+    pub pdf: bool,
+    /// The most PDF pages one request carries ([`page_limit`]).
+    pub pdf_pages: u32,
     pub model: &'a str,
     /// A refusal's fallback the request goes to (theseus-7gir.18), whose
     /// thinking goes back too.
@@ -132,12 +195,24 @@ impl Media<'_> {
     pub fn none() -> Media<'static> {
         Media {
             vision: false,
+            pdf: false,
+            pdf_pages: 0,
             model: "",
             also: None,
             blobs: None,
             hidden: &[],
         }
     }
+}
+
+/// What a request's images and PDFs have used so far, in the order they
+/// render: their estimated tokens, and the pages and bytes of the PDFs it
+/// carries (theseus-c9l6). A PDF that no longer fits renders as its text.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Spend {
+    pub tokens: u64,
+    pub pages: u32,
+    pub bytes: u64,
 }
 
 /// What one image renders as: an image block and its estimated tokens, or
@@ -173,8 +248,13 @@ fn show(a: &Attachment, author: Option<&str>, media: &Media) -> Shown {
 }
 
 /// The blocks one attachment puts in a user message, before the typed
-/// text; `tokens` gains what its images are estimated to cost.
-pub fn blocks(a: &Attachment, author: Option<&str>, media: &Media, tokens: &mut u64) -> Vec<Value> {
+/// text; `spend` gains what its images and PDFs are estimated to cost.
+pub fn blocks(
+    a: &Attachment,
+    author: Option<&str>,
+    media: &Media,
+    spend: &mut Spend,
+) -> Vec<Value> {
     let text = |t: String| json!({"type": "text", "text": t});
     match &a.content {
         AttachmentContent::Text { text: body, .. } => {
@@ -183,25 +263,219 @@ pub fn blocks(a: &Attachment, author: Option<&str>, media: &Media, tokens: &mut 
         AttachmentContent::NotRead { .. } => vec![text(header(a, author))],
         AttachmentContent::Image { .. } => match show(a, author, media) {
             Shown::Block(img, t) => {
-                *tokens += t;
+                spend.tokens += t;
                 vec![text(header(a, author)), img]
             }
             Shown::Line(line) => vec![text(line)],
         },
+        AttachmentContent::File { .. } => match document(a, author, media, spend) {
+            (line, Some(block)) => vec![text(line), block],
+            (line, None) => vec![text(line)],
+        },
     }
 }
 
-/// A `tool_result`'s content when its tool returned an image: the text,
-/// then the image block for a vision model; the text and the not-shown line
-/// for any other.
-pub fn tool_content(content: &str, img: &Attachment, media: &Media, tokens: &mut u64) -> Value {
-    match show(img, None, media) {
+/// A `tool_result`'s content when its tool returned an image or a PDF's
+/// pages: the text, then the image or document block for a model that reads
+/// it; the text and the not-shown line, or the pages' text, for any other.
+pub fn tool_content(content: &str, file: &Attachment, media: &Media, spend: &mut Spend) -> Value {
+    if let AttachmentContent::File { .. } = file.content {
+        return match document(file, None, media, spend) {
+            (line, Some(block)) => {
+                json!([{"type": "text", "text": format!("{content}\n{line}")}, block])
+            }
+            (line, None) => Value::String(format!("{content}\n{line}")),
+        };
+    }
+    match show(file, None, media) {
         Shown::Block(block, t) => {
-            *tokens += t;
+            spend.tokens += t;
             json!([{"type": "text", "text": content}, block])
         }
         Shown::Line(line) => Value::String(format!("{content}\n{line}")),
     }
+}
+
+/// What a kept file renders as: its line, and a `document` block when the
+/// model reads PDFs, the provider has not refused it, and the request still
+/// has room for it or for one of its parts; otherwise its line and its text
+/// by page. The choice depends only on the node, the model, its blobs, and
+/// what the PDFs before it in the request used, so a node renders the same
+/// bytes in every request of its session.
+fn document(
+    a: &Attachment,
+    author: Option<&str>,
+    media: &Media,
+    spend: &mut Spend,
+) -> (String, Option<Value>) {
+    let AttachmentContent::File {
+        digest,
+        pages,
+        text,
+        parts,
+        unread,
+    } = &a.content
+    else {
+        return (header(a, author), None);
+    };
+    let line = header(a, author);
+    if !is_pdf(a) {
+        return (line, None);
+    }
+    let refused = media
+        .hidden
+        .iter()
+        .find(|h| h.digest == *digest || parts.iter().any(|p| p.digest == h.digest));
+    let why_text = match (media.pdf, refused) {
+        (false, _) => "this model reads no PDFs".to_string(),
+        (true, Some(h)) => format!("the provider refused it as a document ({})", h.why),
+        (true, None) => match fitting(a.size, *pages, parts, media, spend) {
+            Fit::None => format!(
+                "this request has no room left for it as a document ({} pages and {} a request)",
+                media.pdf_pages,
+                narrative::bytes(DOCUMENT_BUDGET_BYTES)
+            ),
+            fit => match shown(digest, *pages, parts, fit, media, spend, text.as_deref()) {
+                Some((block, said)) => {
+                    let line = match said {
+                        Some(s) => format!("{}; {s}]", line.trim_end_matches(']')),
+                        None => line,
+                    };
+                    return (line, Some(block));
+                }
+                None => "its stored bytes are missing".to_string(),
+            },
+        },
+    };
+    (
+        as_text(
+            &line,
+            &why_text,
+            *pages,
+            text.as_deref(),
+            unread.as_deref(),
+            media,
+        ),
+        None,
+    )
+}
+
+/// Which of a PDF's forms a request still has room for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Fit {
+    Whole,
+    /// The part at this index.
+    Part(usize),
+    None,
+}
+
+fn fitting(size: u64, pages: Option<u32>, parts: &[FilePart], media: &Media, spend: &Spend) -> Fit {
+    let room = |n: u32, bytes: u64| {
+        spend.pages + n <= media.pdf_pages && spend.bytes + bytes <= DOCUMENT_BUDGET_BYTES
+    };
+    // A PDF whose pages could not be counted is sent by its bytes alone; the
+    // provider says if it is too long, and it shows as its text from then on.
+    if room(pages.unwrap_or(0), size) {
+        return Fit::Whole;
+    }
+    match parts.iter().rposition(|p| room(p.last, p.bytes)) {
+        Some(i) => Fit::Part(i),
+        None => Fit::None,
+    }
+}
+
+/// The document block for the form that fits, its pages and bytes added to
+/// `spend`, and the words for what a part left out; `None` when its bytes
+/// are missing.
+fn shown(
+    digest: &str,
+    pages: Option<u32>,
+    parts: &[FilePart],
+    fit: Fit,
+    media: &Media,
+    spend: &mut Spend,
+    text: Option<&str>,
+) -> Option<(Value, Option<String>)> {
+    let (sent, n, bytes, said) = match fit {
+        Fit::Whole => (digest, pages.unwrap_or(0), None, None),
+        Fit::Part(i) => {
+            let p = &parts[i];
+            let total = pages.unwrap_or(p.last);
+            let said = format!(
+                "pages 1–{} shown, as many as one request carries for this model; pages {}–{total} left out",
+                p.last,
+                p.last + 1
+            );
+            (p.digest.as_str(), p.last, Some(p.bytes), Some(said))
+        }
+        Fit::None => return None,
+    };
+    let data = media.blobs.and_then(|b| b.base64(sent))?;
+    let bytes = bytes.unwrap_or(crate::blobs::decoded_len(&data));
+    spend.pages += n;
+    spend.bytes += bytes;
+    let text_bytes = text
+        .and_then(|d| media.blobs.and_then(|b| b.texts(d)))
+        .map_or(0, |t| {
+            t.iter()
+                .take(n.max(1) as usize)
+                .map(String::len)
+                .sum::<usize>()
+        });
+    spend.tokens += crate::catalog::pdf_tokens(media.model, n.max(1), text_bytes as u64);
+    let block = json!({"type": "document", "source": {"type": "base64", "media_type": PDF_TYPE, "data": &*data}});
+    Some((block, said))
+}
+
+/// A PDF as its text, page by page, under its line, which says why it is
+/// not shown as a document; cut at [`MAX_DOCUMENT_TEXT`] with a line that
+/// says where.
+fn as_text(
+    line: &str,
+    why: &str,
+    pages: Option<u32>,
+    text: Option<&str>,
+    unread: Option<&str>,
+    media: &Media,
+) -> String {
+    let head = line.trim_end_matches(']');
+    let texts = text.and_then(|d| media.blobs.and_then(|b| b.texts(d)));
+    let Some(texts) = texts else {
+        let not = match unread {
+            Some(u) => format!("its text could not be read ({u})"),
+            None => "its text is missing".to_string(),
+        };
+        return format!("{head}: not shown, {why}; {not}]");
+    };
+    let mut out = format!(
+        "{head}: its text, page by page, since {why}; a page's pictures, charts, and scanned text are not in it]"
+    );
+    let total = pages.unwrap_or(texts.len() as u32);
+    for (i, t) in texts.iter().enumerate() {
+        let page = if t.trim().is_empty() {
+            format!("\n--- page {} ---\n(no text on this page)", i + 1)
+        } else {
+            format!("\n--- page {} ---\n{t}", i + 1)
+        };
+        if out.len() + page.len() > MAX_DOCUMENT_TEXT {
+            let (kept, _) = cut_to(&page, MAX_DOCUMENT_TEXT.saturating_sub(out.len()));
+            out.push_str(kept);
+            out.push_str(&format!(
+                "\n[cut at {} of its text, in page {} of {total}]",
+                narrative::bytes(MAX_DOCUMENT_TEXT as u64),
+                i + 1
+            ));
+            return out;
+        }
+        out.push_str(&page);
+    }
+    if (texts.len() as u32) < total {
+        out.push_str(&format!(
+            "\n[the text stops at page {} of {total}: the rest was over what one read keeps]",
+            texts.len()
+        ));
+    }
+    out
 }
 
 /// An image a provider's 400 named (theseus-0s4): its blob's digest, the
@@ -237,7 +511,16 @@ pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
         }
     }
     let mut unsure = false;
-    if named.is_empty() && error.to_ascii_lowercase().contains("image") {
+    let lower = error.to_ascii_lowercase();
+    // A PDF the provider could not read is named like an image is
+    // (theseus-c9l6): by its block's path, or by the word alone.
+    let words = |b: &Value| match b["type"].as_str() {
+        Some("document") => lower.contains("pdf") || lower.contains("document"),
+        _ => lower.contains("image"),
+    };
+    if named.is_empty()
+        && (lower.contains("image") || lower.contains("pdf") || lower.contains("document"))
+    {
         let all: Vec<(usize, &Value)> = messages
             .iter()
             .enumerate()
@@ -247,6 +530,7 @@ pub fn refused(messages: &[Value], error: &str) -> Vec<Refused> {
                     .into_iter()
                     .flatten()
                     .flat_map(images_of)
+                    .filter(|b| words(b))
                     .map(move |img| (i, img))
             })
             .collect();
@@ -303,6 +587,27 @@ pub fn digests_in(message: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Image blocks and document blocks in `messages`, those inside tool results
+/// included.
+pub fn media_in(messages: &[Value]) -> (u64, u64) {
+    fn count(blocks: &Value) -> (u64, u64) {
+        blocks.as_array().map_or((0, 0), |bs| {
+            bs.iter()
+                .map(|b| match b.get("type").and_then(Value::as_str) {
+                    Some("image") => (1, 0),
+                    Some("document") => (0, 1),
+                    Some("tool_result") => count(&b["content"]),
+                    _ => (0, 0),
+                })
+                .fold((0, 0), |(i, d), (a, b)| (i + a, d + b))
+        })
+    }
+    messages
+        .iter()
+        .map(|m| count(&m["content"]))
+        .fold((0, 0), |(i, d), (a, b)| (i + a, d + b))
+}
+
 /// An image block's blob digest, from its bytes.
 fn digest_of(img: &Value) -> Option<String> {
     img["source"]["data"]
@@ -311,15 +616,17 @@ fn digest_of(img: &Value) -> Option<String> {
         .map(|bytes| crate::blobs::digest(&bytes))
 }
 
-/// A block's images: itself when it is one, and a tool result's.
+/// A block's images and PDFs (theseus-c9l6): itself when it is one, and a
+/// tool result's.
 fn images_of(b: &Value) -> Vec<&Value> {
+    let media = |c: &Value| c["type"] == "image" || c["type"] == "document";
     match b["type"].as_str() {
-        Some("image") => vec![b],
+        Some("image") | Some("document") => vec![b],
         Some("tool_result") => b["content"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|c| c["type"] == "image")
+            .filter(|c| media(c))
             .collect(),
         _ => vec![],
     }
@@ -406,14 +713,60 @@ pub fn store_image(bytes: &[u8], blobs: &Blobs) -> Result<(image::ImageInfo, Str
     Ok((info, digest))
 }
 
-/// The node's attachments from the wire's, in order. Nothing here fails a
-/// turn: whatever cannot be kept becomes a `not_read` with the reason.
+/// What a message's files may hold (theseus-c9l6): the text kept of a text
+/// file (`[tools] max_read_bytes`), and the bytes of any other file kept
+/// whole (`[tools] max_attachment_bytes`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Caps {
+    pub max_text: usize,
+    pub max_file: u64,
+}
+
+/// One file read for a model (theseus-c9l6): an attachment kept when it
+/// arrived, or a PDF a tool read, for its `file.read` row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileRead {
+    /// `attachment`, `fs.read`, or `http.fetch`.
+    pub via: &'static str,
+    pub name: String,
+    pub media_type: String,
+    pub bytes: u64,
+    pub digest: String,
+    pub pages: Option<u32>,
+    /// Its first pages, kept as parts of their own.
+    pub parts: usize,
+    pub text_bytes: u64,
+    /// Why its text was not read, when it was not.
+    pub why: Option<String>,
+    /// The conversion's time, and whether it ran in the capped child.
+    pub ms: u64,
+    pub capped: bool,
+}
+
+impl FileRead {
+    /// `read`, `kept` (a type not read yet), or `unread`.
+    pub fn outcome(&self) -> &'static str {
+        match (&self.why, self.media_type == PDF_TYPE) {
+            (Some(_), _) => "unread",
+            (None, true) => "read",
+            (None, false) => "kept",
+        }
+    }
+}
+
+/// The node's attachments from the wire's, in order, and what was read of
+/// each file kept. Nothing here fails a turn: whatever cannot be kept
+/// becomes a `not_read` with the reason. A message with a file to keep
+/// blocks on the disk and on the PDF's conversion: call it in a blocking
+/// section.
 pub fn from_wire(
     list: Vec<theseus_protocol::Attachment>,
-    max_text: usize,
+    caps: Caps,
     blobs: &Blobs,
-) -> Vec<Attachment> {
-    list.into_iter()
+) -> (Vec<Attachment>, Vec<FileRead>) {
+    let mut reads = Vec::new();
+    let files = list
+        .into_iter()
         .map(|w| {
             let mut a = Attachment {
                 name: w.name,
@@ -428,36 +781,255 @@ pub fn from_wire(
                     reason: clean(&reason),
                 },
                 (None, Some(text), _) => {
-                    let (kept, cut) = cut_to(&text, max_text);
+                    let (kept, cut) = cut_to(&text, caps.max_text);
                     AttachmentContent::Text {
                         text: kept.to_string(),
                         cut,
                     }
                 }
-                (None, None, Some(data)) => {
-                    match crate::blobs::decode(&data)
-                        .map_err(|_| "its data is not valid base64".to_string())
-                        .and_then(|bytes| {
-                            let n = bytes.len() as u64;
-                            store_image(&bytes, blobs).map(|stored| (stored, n))
-                        }) {
-                        Ok(((info, digest), n)) => {
-                            a.media_type = info.media_type.into();
-                            a.size = n;
-                            AttachmentContent::Image {
-                                digest,
-                                width: info.width,
-                                height: info.height,
-                            }
-                        }
-                        Err(reason) => AttachmentContent::NotRead { reason },
+                (None, None, Some(data)) => match crate::blobs::decode(&data) {
+                    Err(_) => AttachmentContent::NotRead {
+                        reason: "its data is not valid base64".into(),
+                    },
+                    Ok(bytes) => {
+                        a.size = bytes.len() as u64;
+                        let (content, read) = keep(&mut a, &bytes, caps.max_file, blobs);
+                        reads.extend(read);
+                        content
                     }
-                }
+                },
                 (None, None, None) => a.content,
             };
             a
         })
-        .collect()
+        .collect();
+    (files, reads)
+}
+
+/// A file's bytes as the node keeps them: an image the models read as an
+/// image, any other file up to `max_file` whole, a PDF read for each model.
+/// Sets the attachment's type to the one its bytes say.
+fn keep(
+    a: &mut Attachment,
+    bytes: &[u8],
+    max_file: u64,
+    blobs: &Blobs,
+) -> (AttachmentContent, Option<FileRead>) {
+    let refused = match image::sniff(bytes) {
+        Some(_) => match store_image(bytes, blobs) {
+            Ok((info, digest)) => {
+                a.media_type = info.media_type.into();
+                return (
+                    AttachmentContent::Image {
+                        digest,
+                        width: info.width,
+                        height: info.height,
+                    },
+                    None,
+                );
+            }
+            Err(why) => Some(why),
+        },
+        None => None,
+    };
+    if bytes.len() as u64 > max_file {
+        let reason = match refused {
+            Some(why) => why,
+            None => format!(
+                "over the {} limit for files ([tools] max_attachment_bytes)",
+                narrative::bytes(max_file)
+            ),
+        };
+        return (AttachmentContent::NotRead { reason }, None);
+    }
+    if pdf::is_pdf(bytes) {
+        a.media_type = PDF_TYPE.into();
+    }
+    match keep_file(bytes, blobs, "attachment", &a.name, &a.media_type) {
+        Ok((mut content, read)) => {
+            // An image the models would refuse is kept, and says why it
+            // is not shown.
+            if let (AttachmentContent::File { unread, .. }, Some(why)) = (&mut content, refused) {
+                *unread = Some(why);
+            }
+            (content, Some(read))
+        }
+        Err(reason) => (AttachmentContent::NotRead { reason }, None),
+    }
+}
+
+/// Keep a file whole in the blobs, and read it if it is a PDF: its pages,
+/// its text page by page, and a part for each page limit it passes, each
+/// part its first pages within [`DOCUMENT_BUDGET_BYTES`]. `Err` only when
+/// it could not be stored; a PDF that could not be read is kept, and says
+/// why.
+pub fn keep_file(
+    bytes: &[u8],
+    blobs: &Blobs,
+    via: &'static str,
+    name: &str,
+    media_type: &str,
+) -> Result<(AttachmentContent, FileRead), String> {
+    let digest = blobs
+        .put(bytes)
+        .map_err(|e| format!("it could not be stored ({e})"))?;
+    let mut read = FileRead {
+        via,
+        name: clean(name),
+        media_type: media_type.into(),
+        bytes: bytes.len() as u64,
+        digest: digest.clone(),
+        pages: None,
+        parts: 0,
+        text_bytes: 0,
+        why: None,
+        ms: 0,
+        capped: false,
+    };
+    let mut content = AttachmentContent::File {
+        digest,
+        pages: None,
+        text: None,
+        parts: Vec::new(),
+        unread: None,
+    };
+    if media_type != PDF_TYPE {
+        return Ok((content, read));
+    }
+    let ask = pdf::Ask {
+        text: true,
+        ..pdf::Ask::default()
+    };
+    let (got, ran) = theseus_files::convert::pdf(bytes, &ask);
+    (read.ms, read.capped) = (ran.ms, ran.capped);
+    let AttachmentContent::File {
+        pages,
+        text,
+        parts,
+        unread,
+        ..
+    } = &mut content
+    else {
+        unreachable!("a file")
+    };
+    match got.and_then(|r| store_texts(&r, blobs).map(|t| (r, t))) {
+        Err(why) => {
+            read.why = Some(why.clone());
+            *unread = Some(why);
+        }
+        Ok((r, (t, n))) => {
+            (*pages, *text) = (Some(r.pages), Some(t));
+            (read.pages, read.text_bytes) = (Some(r.pages), n);
+            *parts = make_parts(bytes, r.pages, blobs, &mut read);
+            read.parts = parts.len();
+        }
+    }
+    Ok((content, read))
+}
+
+/// A read's texts, as the blob a `File` names, and their bytes.
+fn store_texts(r: &pdf::Read, blobs: &Blobs) -> Result<(String, u64), String> {
+    let json = serde_json::to_vec(&r.texts).map_err(|e| e.to_string())?;
+    let n = r.texts.iter().map(String::len).sum::<usize>() as u64;
+    blobs
+        .put(&json)
+        .map(|d| (d, n))
+        .map_err(|e| format!("its text could not be stored ({e})"))
+}
+
+/// A part for each page limit a PDF passes, or for the byte budget: its
+/// first pages, as many as the limit takes, then fewer until the part fits
+/// [`DOCUMENT_BUDGET_BYTES`]. Fewest pages first; a part that could not be
+/// made is left out, and the PDF shows as its text where it does not fit.
+fn make_parts(bytes: &[u8], pages: u32, blobs: &Blobs, read: &mut FileRead) -> Vec<FilePart> {
+    let mut out: Vec<FilePart> = Vec::new();
+    let big = bytes.len() as u64 > DOCUMENT_BUDGET_BYTES;
+    for limit in PAGE_LIMITS {
+        if pages <= limit && !big {
+            continue;
+        }
+        let mut last = pages.min(limit);
+        for _ in 0..3 {
+            if last == 0 || out.iter().any(|p| p.last == last) {
+                break;
+            }
+            let ask = pdf::Ask {
+                pages: Some(pdf::Pages::new(1, last)),
+                part: true,
+                text: false,
+            };
+            let (got, ran) = theseus_files::convert::pdf(bytes, &ask);
+            read.ms += ran.ms;
+            // A part of the whole file is the file itself.
+            let part = match got {
+                Ok(r) => r.part.unwrap_or_else(|| bytes.to_vec()),
+                Err(_) => break,
+            };
+            let n = part.len() as u64;
+            if n > DOCUMENT_BUDGET_BYTES {
+                // Fewer pages, in proportion, and a tenth for slack.
+                let fewer = (u64::from(last) * DOCUMENT_BUDGET_BYTES / n) * 9 / 10;
+                last = (fewer as u32).min(last - 1);
+                continue;
+            }
+            if let Ok(digest) = blobs.put(&part) {
+                out.push(FilePart {
+                    last,
+                    digest,
+                    bytes: n,
+                });
+            }
+            break;
+        }
+    }
+    out.sort_by_key(|p| p.last);
+    out
+}
+
+/// A PDF a tool read (theseus-c9l6): the pages it read, as the result
+/// node keeps them, a `File` whose bytes are those pages alone, with their
+/// text. `name` says which pages of which file.
+pub fn keep_pages(
+    name: String,
+    bytes: &[u8],
+    read: &pdf::Read,
+    via: &'static str,
+    blobs: &Blobs,
+) -> Result<(Attachment, FileRead), String> {
+    let pages = read.range.map_or(read.pages, |r| r.count());
+    let digest = blobs
+        .put(bytes)
+        .map_err(|e| format!("it could not be stored ({e})"))?;
+    let (text, text_bytes) = match store_texts(read, blobs) {
+        Ok((t, n)) => (Some(t), n),
+        Err(_) => (None, 0),
+    };
+    let a = Attachment {
+        name,
+        media_type: PDF_TYPE.into(),
+        size: bytes.len() as u64,
+        content: AttachmentContent::File {
+            digest: digest.clone(),
+            pages: Some(pages),
+            text,
+            parts: Vec::new(),
+            unread: None,
+        },
+    };
+    let r = FileRead {
+        via,
+        name: a.name.clone(),
+        media_type: PDF_TYPE.into(),
+        bytes: a.size,
+        digest,
+        pages: Some(pages),
+        parts: 0,
+        text_bytes,
+        why: None,
+        ms: 0,
+        capped: false,
+    };
+    Ok((a, r))
 }
 
 #[cfg(test)]
@@ -505,7 +1077,7 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let blobs = Blobs::new(dir.path());
         // 'é' is two bytes, so a 5-byte cap cannot keep the third one whole.
-        let got = from_wire(vec![wire("a.txt", Some("ééé"), None)], 5, &blobs);
+        let got = from_wire(vec![wire("a.txt", Some("ééé"), None)], caps(5), &blobs).0;
         assert_eq!(
             got[0].content,
             AttachmentContent::Text {
@@ -519,9 +1091,10 @@ pub(crate) mod tests {
         );
         let whole = from_wire(
             vec![wire("message.txt", Some(&"x".repeat(5_012)), None)],
-            262_144,
+            caps(262_144),
             &blobs,
-        );
+        )
+        .0;
         assert_eq!(
             header(&whole[0], Some("discord:eddie")),
             "[Attachment message.txt from discord:eddie, 5,012 bytes]"
@@ -541,7 +1114,7 @@ pub(crate) mod tests {
             Some("over the limit for text (262,144 bytes)"),
         );
         w.media_type = "application/zip".into();
-        let got = from_wire(vec![w], 262_144, &blobs);
+        let got = from_wire(vec![w], caps(262_144), &blobs).0;
         assert_eq!(
             for_model(&got[0], Some("discord:eddie")),
             "[Attachment dump.zip from discord:eddie, application/zip, 20.0 MB: not read: over the limit for text (262,144 bytes)]"
@@ -551,7 +1124,7 @@ pub(crate) mod tests {
             "see attached\n[Attachment dump.zip from discord:eddie, application/zip, 20.0 MB: not read: over the limit for text (262,144 bytes)]"
         );
         // A name cannot break the header's line.
-        let odd = from_wire(vec![wire("a\nb].txt", Some("t"), None)], 10, &blobs);
+        let odd = from_wire(vec![wire("a\nb].txt", Some("t"), None)], caps(10), &blobs).0;
         assert_eq!(header(&odd[0], None), "[Attachment a b].txt, 1 byte]");
     }
 
@@ -565,9 +1138,10 @@ pub(crate) mod tests {
                 image_wire("shot.png", &bytes),
                 image_wire("again.png", &bytes),
             ],
-            262_144,
+            caps(262_144),
             &blobs,
-        );
+        )
+        .0;
         let digest = crate::blobs::digest(&bytes);
         assert_eq!(
             got[0].content,
@@ -590,13 +1164,16 @@ pub(crate) mod tests {
         // its tokens; for a model without vision, one line.
         let vision = Media {
             vision: true,
+            pdf: true,
+            pdf_pages: 100,
             model: "claude-haiku-4-5",
             also: None,
             blobs: Some(&blobs),
             hidden: &[],
         };
-        let mut tokens = 0;
-        let b = blocks(&got[0], Some("discord:eddie"), &vision, &mut tokens);
+        let mut spend = Spend::default();
+        let b = blocks(&got[0], Some("discord:eddie"), &vision, &mut spend);
+        let tokens = spend.tokens;
         assert_eq!(b.len(), 2);
         assert_eq!(b[1]["type"], "image");
         assert_eq!(b[1]["source"]["media_type"], "image/png");
@@ -605,7 +1182,12 @@ pub(crate) mod tests {
             bytes
         );
         assert!(tokens > 0 && tokens <= 1_568, "{tokens}");
-        let again = blocks(&got[0], Some("discord:eddie"), &vision, &mut 0);
+        let again = blocks(
+            &got[0],
+            Some("discord:eddie"),
+            &vision,
+            &mut Spend::default(),
+        );
         assert_eq!(
             serde_json::to_vec(&again).unwrap(),
             serde_json::to_vec(&b).unwrap(),
@@ -613,19 +1195,21 @@ pub(crate) mod tests {
         );
         let blind = Media {
             vision: false,
+            pdf: false,
+            pdf_pages: 0,
             model: "glm-5.3",
             also: None,
             blobs: Some(&blobs),
             hidden: &[],
         };
-        let mut none = 0;
+        let mut none = Spend::default();
         assert_eq!(
             blocks(&got[0], Some("discord:eddie"), &blind, &mut none),
             vec![
                 json!({"type": "text", "text": "[Image shot.png from discord:eddie, 1,033 bytes: not shown, this model has no vision]"})
             ]
         );
-        assert_eq!(none, 0);
+        assert_eq!(none, Spend::default());
         // An image the provider refused in this session (theseus-0s4): its
         // line, for a vision model too, and no tokens.
         let refused = [NotShown {
@@ -637,14 +1221,14 @@ pub(crate) mod tests {
             hidden: &refused,
             ..vision
         };
-        let mut none = 0;
+        let mut none = Spend::default();
         assert_eq!(
             blocks(&got[0], Some("discord:eddie"), &hiding, &mut none),
             vec![
                 json!({"type": "text", "text": "[Image shot.png from discord:eddie, 1,033 bytes: not shown, the provider refused it (Could not process image)]"})
             ]
         );
-        assert_eq!(none, 0);
+        assert_eq!(none, Spend::default());
     }
 
     /// A request's messages: a user message with a header, an image, and
@@ -742,40 +1326,380 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_image_the_provider_would_refuse_is_listed_with_the_reason() {
+    fn an_image_the_provider_would_refuse_is_kept_and_says_why() {
         let dir = tempfile::tempdir().unwrap();
         let blobs = Blobs::new(dir.path());
         let big = png(4000, 3000, 6 * 1024 * 1024);
         let mut garbled = image_wire("x.png", b"x");
         garbled.data = Some("not base64!".into());
-        let got = from_wire(
+        let (got, reads) = from_wire(
             vec![
                 image_wire("big.png", &big),
                 image_wire("zip.png", b"PK\x03\x04 a zip in disguise"),
                 garbled,
             ],
-            262_144,
+            caps(262_144),
             &blobs,
         );
-        let reasons: Vec<String> = got
-            .iter()
-            .map(|a| match &a.content {
-                AttachmentContent::NotRead { reason } => reason.clone(),
-                other => panic!("{other:?}"),
-            })
-            .collect();
-        assert_eq!(
-            reasons,
-            vec![
-                "an image over the 5 MiB limit",
-                "not an image the models read (PNG, JPEG, GIF, or WebP)",
-                "its data is not valid base64",
-            ]
-        );
-        assert!(!blobs.dir().exists(), "nothing refused was stored");
+        // Since theseus-c9l6 a file the models do not read is kept whole,
+        // and its line says why it is not read.
         assert_eq!(
             header(&got[0], None),
-            "[Attachment big.png, image/png, 6.0 MB: not read: an image over the 5 MiB limit]"
+            "[File big.png, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit]"
         );
+        assert_eq!(
+            header(&got[1], None),
+            "[File zip.png, image/png, 22 bytes: kept, not read: only text, images, and PDFs are read]"
+        );
+        assert_eq!(
+            got[2].content,
+            AttachmentContent::NotRead {
+                reason: "its data is not valid base64".into()
+            }
+        );
+        assert_eq!(
+            reads.iter().map(FileRead::outcome).collect::<Vec<_>>(),
+            vec!["kept", "kept"]
+        );
+        assert_eq!(std::fs::read_dir(blobs.dir()).unwrap().count(), 2);
+        // A file over the cap is listed, never stored.
+        let tiny = Caps {
+            max_text: 262_144,
+            max_file: 10,
+        };
+        let (over, _) = from_wire(
+            vec![image_wire("zip.png", b"PK\x03\x04 a zip in disguise")],
+            tiny,
+            &blobs,
+        );
+        assert_eq!(
+            header(&over[0], None),
+            "[Attachment zip.png, image/png, 22 bytes: not read: over the 10 bytes limit for files ([tools] max_attachment_bytes)]"
+        );
+    }
+
+    pub(crate) fn caps(max_text: usize) -> Caps {
+        Caps {
+            max_text,
+            max_file: theseus_files::MAX_FILE_BYTES,
+        }
+    }
+
+    fn pdf_wire(name: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
+        theseus_protocol::Attachment {
+            name: name.into(),
+            media_type: "application/pdf".into(),
+            size: bytes.len() as u64,
+            data: Some(crate::blobs::encode(bytes)),
+            ..Default::default()
+        }
+    }
+
+    /// A model that reads PDFs (theseus-c9l6), with a request's page limit.
+    fn claude<'a>(blobs: &'a Blobs, pages: u32, hidden: &'a [NotShown]) -> Media<'a> {
+        Media {
+            vision: true,
+            pdf: true,
+            pdf_pages: pages,
+            model: "claude-sonnet-5-5",
+            also: None,
+            blobs: Some(blobs),
+            hidden,
+        }
+    }
+
+    fn glm(blobs: &Blobs) -> Media<'_> {
+        Media {
+            vision: false,
+            pdf: false,
+            pdf_pages: 0,
+            model: "glm-5.3",
+            also: None,
+            blobs: Some(blobs),
+            hidden: &[],
+        }
+    }
+
+    fn harbour() -> Vec<u8> {
+        theseus_files::pdf::sample(&[
+            "The harbour master is Odile Varnack.",
+            "Buoy B-2 is green.",
+            "",
+        ])
+    }
+
+    /// Eddie's case (theseus-c9l6): an attached PDF is kept whole, read
+    /// once, and shown to a model that reads PDFs as a document block of its
+    /// own bytes; the same node renders the same bytes every time.
+    #[test]
+    fn a_pdf_is_kept_read_and_shown_as_a_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let bytes = harbour();
+        let (got, reads) = from_wire(vec![pdf_wire("orders.pdf", &bytes)], caps(262_144), &blobs);
+        let AttachmentContent::File {
+            digest,
+            pages,
+            text,
+            parts,
+            unread,
+        } = &got[0].content
+        else {
+            panic!("{:?}", got[0].content)
+        };
+        assert_eq!(digest, &crate::blobs::digest(&bytes));
+        assert_eq!((*pages, parts.len(), unread.as_deref()), (Some(3), 0, None));
+        let texts = blobs.texts(text.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            *texts,
+            vec![
+                "The harbour master is Odile Varnack.",
+                "Buoy B-2 is green.",
+                ""
+            ]
+        );
+        assert_eq!(reads.len(), 1);
+        assert_eq!(
+            (reads[0].via, reads[0].outcome(), reads[0].pages),
+            ("attachment", "read", Some(3))
+        );
+        let stored = serde_json::to_string(&got[0]).unwrap();
+        assert!(stored.len() < 400, "no bytes in the node: {stored}");
+
+        let media = claude(&blobs, 600, &[]);
+        let mut spend = Spend::default();
+        let b = blocks(&got[0], Some("discord:eddie"), &media, &mut spend);
+        assert_eq!(b.len(), 2, "{b:?}");
+        let size = bytes.len();
+        assert_eq!(
+            b[0]["text"],
+            format!("[PDF orders.pdf from discord:eddie, {size} bytes, 3 pages]")
+        );
+        assert_eq!(b[1]["type"], "document");
+        assert_eq!(b[1]["source"]["media_type"], "application/pdf");
+        assert_eq!(
+            crate::blobs::decode(b[1]["source"]["data"].as_str().unwrap()).unwrap(),
+            bytes
+        );
+        assert_eq!((spend.pages, spend.bytes), (3, size as u64));
+        let text_bytes = "The harbour master is Odile Varnack.Buoy B-2 is green.".len() as u64;
+        assert_eq!(
+            spend.tokens,
+            crate::catalog::pdf_tokens("claude-sonnet-5-5", 3, text_bytes)
+        );
+        let again = blocks(
+            &got[0],
+            Some("discord:eddie"),
+            &media,
+            &mut Spend::default(),
+        );
+        assert_eq!(
+            serde_json::to_vec(&again).unwrap(),
+            serde_json::to_vec(&b).unwrap(),
+            "the same node renders to the same bytes"
+        );
+    }
+
+    /// A model that reads no PDFs (GLM) reads the PDF's text, page by page,
+    /// and is told what the text leaves out.
+    #[test]
+    fn a_pdf_is_its_text_by_page_for_a_model_that_reads_no_pdfs() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let bytes = harbour();
+        let (got, _) = from_wire(vec![pdf_wire("orders.pdf", &bytes)], caps(262_144), &blobs);
+        let mut spend = Spend::default();
+        let b = blocks(&got[0], None, &glm(&blobs), &mut spend);
+        assert_eq!(b.len(), 1);
+        let size = bytes.len();
+        assert_eq!(
+            b[0]["text"],
+            format!(
+                "[PDF orders.pdf, {size} bytes, 3 pages: its text, page by page, since this model reads no PDFs; \
+                 a page's pictures, charts, and scanned text are not in it]\n--- page 1 ---\nThe harbour master is \
+                 Odile Varnack.\n--- page 2 ---\nBuoy B-2 is green.\n--- page 3 ---\n(no text on this page)"
+            )
+        );
+        assert_eq!(spend, Spend::default(), "no document, no tokens of one");
+        // As a tool's result: its text after the tool's.
+        let tool = tool_content(
+            "orders.pdf is a PDF of 3 pages.",
+            &got[0],
+            &glm(&blobs),
+            &mut spend,
+        );
+        assert!(
+            tool.as_str()
+                .unwrap()
+                .contains("--- page 2 ---\nBuoy B-2 is green."),
+            "{tool}"
+        );
+        let native = tool_content(
+            "orders.pdf is a PDF of 3 pages.",
+            &got[0],
+            &claude(&blobs, 600, &[]),
+            &mut spend,
+        );
+        assert_eq!(native[1]["type"], "document", "{native}");
+    }
+
+    /// A request's PDFs are budgeted in the order they render: one the
+    /// request has no room left for is its text, and how an earlier one
+    /// renders never depends on a later one, so the cached prefix holds.
+    #[test]
+    fn pdfs_are_budgeted_in_render_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let first = harbour();
+        let second = theseus_files::pdf::sample(&[
+            "Moorings are free after six.",
+            "Pilots board at the mark.",
+            "Fees: none.",
+        ]);
+        let (got, _) = from_wire(
+            vec![
+                pdf_wire("orders.pdf", &first),
+                pdf_wire("moorings.pdf", &second),
+            ],
+            caps(262_144),
+            &blobs,
+        );
+        // A request that carries four pages: the first PDF fits, the second
+        // does not.
+        let media = claude(&blobs, 4, &[]);
+        let mut spend = Spend::default();
+        let a = blocks(&got[0], None, &media, &mut spend);
+        let b = blocks(&got[1], None, &media, &mut spend);
+        assert_eq!(a[1]["type"], "document");
+        assert_eq!(b.len(), 1);
+        let line = b[0]["text"].as_str().unwrap();
+        assert!(
+            line.contains("its text, page by page, since this request has no room left for it as a document (4 pages and 18.0 MB a request)"),
+            "{line}"
+        );
+        assert!(
+            line.contains("--- page 1 ---\nMoorings are free after six."),
+            "{line}"
+        );
+        assert_eq!(spend.pages, 3);
+        let alone = blocks(&got[0], None, &media, &mut Spend::default());
+        assert_eq!(alone, a, "the first renders as it did alone");
+    }
+
+    /// A PDF over a page limit keeps its first pages as a part of their own
+    /// (theseus-c9l6): a model whose requests carry fewer pages gets the
+    /// part, with a line that says what was left out; one whose requests
+    /// carry it all gets the whole file.
+    #[test]
+    fn a_pdf_over_a_page_limit_shows_its_first_pages_and_says_what_was_left_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let texts: Vec<String> = (1..=120).map(|n| format!("Log page {n}")).collect();
+        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let bytes = theseus_files::pdf::sample(&refs);
+        let (got, reads) = from_wire(vec![pdf_wire("log.pdf", &bytes)], caps(262_144), &blobs);
+        let AttachmentContent::File { parts, .. } = &got[0].content else {
+            panic!()
+        };
+        assert_eq!(parts.iter().map(|p| p.last).collect::<Vec<_>>(), vec![100]);
+        assert_eq!(reads[0].parts, 1);
+        let mut spend = Spend::default();
+        let b = blocks(&got[0], None, &claude(&blobs, 100, &[]), &mut spend);
+        assert_eq!(b[1]["type"], "document");
+        let line = b[0]["text"].as_str().unwrap();
+        assert!(
+            line.ends_with("120 pages; pages 1–100 shown, as many as one request carries for this model; pages 101–120 left out]"),
+            "{line}"
+        );
+        let part = crate::blobs::decode(b[1]["source"]["data"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            theseus_files::pdf::read(&part, &Default::default())
+                .unwrap()
+                .pages,
+            100
+        );
+        assert_eq!(spend.pages, 100);
+        let whole = blocks(
+            &got[0],
+            None,
+            &claude(&blobs, 600, &[]),
+            &mut Spend::default(),
+        );
+        assert_eq!(
+            crate::blobs::decode(whole[1]["source"]["data"].as_str().unwrap()).unwrap(),
+            bytes
+        );
+    }
+
+    /// A PDF the provider refused (theseus-0s4's rule, theseus-c9l6) shows as
+    /// its text from then on; a 400 names it by its block's path, or by the
+    /// word alone.
+    #[test]
+    fn a_pdf_the_provider_refused_is_its_text_from_then_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let bytes = harbour();
+        let (got, _) = from_wire(vec![pdf_wire("orders.pdf", &bytes)], caps(262_144), &blobs);
+        let b = blocks(
+            &got[0],
+            None,
+            &claude(&blobs, 600, &[]),
+            &mut Spend::default(),
+        );
+        let msgs = vec![
+            json!({"role": "user", "content": [b[0].clone(), b[1].clone(), {"type": "text", "text": "who is the harbour master?"}]}),
+        ];
+        let named = refused(
+            &msgs,
+            "invalid_request_error: messages.0.content.1.document.source.base64.data: The PDF specified was not valid.",
+        );
+        assert_eq!(named.len(), 1);
+        assert_eq!(named[0].digest, crate::blobs::digest(&bytes));
+        assert_eq!(named[0].why, "The PDF specified was not valid.");
+        let unnamed = refused(&msgs, "invalid_request_error: Could not process PDF");
+        assert_eq!(unnamed.len(), 1, "the request's only PDF");
+        assert!(refused(&msgs, "invalid_request_error: Could not process image").is_empty());
+        assert_eq!(digests_in(&msgs[0]), vec![crate::blobs::digest(&bytes)]);
+        let hidden = [NotShown {
+            digest: named[0].digest.clone(),
+            why: named[0].why.clone(),
+            at_ms: 1,
+        }];
+        let mut spend = Spend::default();
+        let shown = blocks(&got[0], None, &claude(&blobs, 600, &hidden), &mut spend);
+        assert_eq!(shown.len(), 1);
+        assert!(
+            shown[0]["text"].as_str().unwrap().contains(
+                "since the provider refused it as a document (The PDF specified was not valid.)"
+            ),
+            "{shown:?}"
+        );
+        assert_eq!(spend, Spend::default());
+    }
+
+    /// A PDF that could not be read is kept, and says why; a model that reads
+    /// PDFs still gets it whole, since the provider may read what the
+    /// converter could not.
+    #[test]
+    fn a_pdf_that_could_not_be_read_is_kept_and_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let torn = b"%PDF-1.7 and nothing after it".to_vec();
+        let (got, reads) = from_wire(vec![pdf_wire("torn.pdf", &torn)], caps(262_144), &blobs);
+        assert_eq!(header(&got[0], None), "[PDF torn.pdf, 29 bytes]");
+        assert_eq!(reads[0].outcome(), "unread");
+        let glm_line = blocks(&got[0], None, &glm(&blobs), &mut Spend::default());
+        let line = glm_line[0]["text"].as_str().unwrap();
+        assert!(
+            line.starts_with("[PDF torn.pdf, 29 bytes: not shown, this model reads no PDFs; its text could not be read (it could not be read as a PDF"),
+            "{line}"
+        );
+        let native = blocks(
+            &got[0],
+            None,
+            &claude(&blobs, 600, &[]),
+            &mut Spend::default(),
+        );
+        assert_eq!(native[1]["type"], "document");
     }
 }
