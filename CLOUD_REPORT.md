@@ -1,7 +1,7 @@
 # Cloud report: history-pages (theseus-xo0m, theseus-kym3, theseus-glyw)
 
 Branch `cloud/20261005-history-pages`, from `main` at 60b43fb6 (store format 20). Started 20:22 UTC, done at
-21:55 UTC. Three commits on top of the task's:
+21:40 UTC. Three commits on top of the task's:
 
 - `bbd0cf12` rpc: session.history pages both ways, by after and before (theseus-xo0m, theseus-kym3)
 - `8c9a5411` rpc: node.reach takes a node's short id, and theseus history prints it (theseus-glyw)
