@@ -1,7 +1,7 @@
 # Cloud report: telemetry3 (theseus-kxyc, theseus-6xwq, theseus-qdk5, theseus-gfi4)
 
 Branch `cloud/20261005-telemetry3`, from `main` at 60b43fb6 (store format 20; this branch changes no stored
-record, so no format bump). Started 20:22 UTC, report at about 22:50 UTC (deadline 01:22).
+record, so no format bump). Started 20:22 UTC, report at 22:21 UTC by `date` (deadline 01:22).
 
 | Step | Commit | What |
 |---|---|---|
