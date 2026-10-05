@@ -80,7 +80,7 @@ python3 bench/recall/drive.py --arm theseus --memory-arm baseline --bin-dir targ
 python3 bench/recall/drive.py --arm claude-code \
   --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-cc
 
-# 3. The scores.
+# 3. The scores (and with `--stale retracted`, an old value named only to take it back is no longer stale).
 python3 bench/recall/score.py /tmp/rc-th /tmp/rc-cc --out /tmp/rc-report
 ```
 
@@ -169,8 +169,13 @@ daemon's log.
   and `undefined` when the nearest bucket recalls nothing.
 - **Confident-wrong**: a wrong answer that gives a value of the asked kind (for an abstention, any value) with no
   hedge.
-- **Stale**: a superseded value given, even as history. "It moved from 27340 to 38013" is stale and wrong, because
-  the check wants the old value absent, as theseus-exam's superseded items do.
+- **Stale**: a superseded value given. By default (`--stale strict`) that is so even as history: "It moved from
+  27340 to 38013" is stale and wrong, because the check wants the old value absent, as theseus-exam's superseded
+  items do. With `--stale retracted`, a reply that gives the new value and names the old one only in a sentence
+  that takes it back ("ignore", "no longer", "was … before", "moved from", "replaced", "previously") is right,
+  never stale or confident-wrong, and counted apart, under *Old named*. "The archiver is on port 27340." is stale
+  under both, and "It's 27340, or maybe 38013." wrong under both: nothing there retracts the old value. The report
+  says which rule it scored by.
 - **Cites**: of the right direct answers, those that say where (the script, or that the user said it) and when
   (its date or weekday, or a relative time).
 - **Cost and latency** per probe: its turn's dollars and wall time.

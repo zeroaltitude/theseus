@@ -119,11 +119,11 @@ class Scoring(unittest.TestCase):
         assert ids["p001"][:2] == ("direct", "supersession") and ids["p005"][:3] == ("direct", "compaction", 12)
         assert ids["p008"][3] == "f009" and ids["p003"][0] == "abstention", ids
 
-    def scored(self, compactions, failed=frozenset(), replies=None, meta=None, prog=None):
+    def scored(self, compactions, failed=frozenset(), replies=None, meta=None, stale="strict", prog=None):
         with tempfile.TemporaryDirectory() as d:
             write_run(Path(d) / "r", prog or self.prog, "theseus", compactions, failed, replies, meta)
             run = score.load_run(Path(d) / "r")
-            rows = score.score_run(run)
+            rows = score.score_run(run, stale)
         return {r.probe: r for r in rows}, score.summarize(rows)
 
     def test_each_probe_is_scored_as_worked_by_hand(self):
@@ -194,6 +194,32 @@ class Scoring(unittest.TestCase):
         self.assertFalse(r["p003"].confident_wrong)
         r, _ = self.scored([], replies={"p003": "I can't tell; it's probably 6.13.15."}, prog=old)
         self.assertFalse(r["p003"].correct)
+
+    def test_a_retracted_old_value_is_right_only_under_the_retracted_rule(self):
+        """The live smoke's p001 names 27340 only to take it back."""
+        live = ("The jacana archiver is on port 38013. That's from the side note in the standup. Ignore the "
+                '"27340" I mentioned in my first answer.')
+        r, s = self.scored([], replies={"p001": live})
+        self.assertEqual((r["p001"].correct, r["p001"].stale, r["p001"].old_named), (False, True, False))
+        self.assertEqual(s["stale"], 1)
+        r, s = self.scored([], replies={"p001": live}, stale="retracted")
+        x = r["p001"]
+        self.assertEqual((x.correct, x.stale, x.old_named, x.confident_wrong), (True, False, True, False))
+        self.assertEqual((s["stale"], s["old_named"]), (0, 1))
+        for reply in ("It moved from 27340 to 38013.", "38013 now; 27340 is no longer used.",
+                      "It's 38013. It was 27340 before the move."):
+            r, _ = self.scored([], replies={"p001": reply}, stale="retracted")
+            self.assertTrue(r["p001"].correct and r["p001"].old_named, reply)
+        for stale in ("strict", "retracted"):
+            r, _ = self.scored([], replies={"p001": "The archiver is on port 27340."}, stale=stale)
+            self.assertEqual((r["p001"].correct, r["p001"].stale, r["p001"].confident_wrong), (False, True, True))
+            r, _ = self.scored([], replies={"p001": "It's 27340, or maybe 38013."}, stale=stale)
+            self.assertEqual((r["p001"].correct, r["p001"].stale, r["p001"].old_named), (False, True, False))
+            # A retraction in another sentence does not cover the old value.
+            r, _ = self.scored([], replies={"p001": "It's 38013 or 27340. Ignore my first answer."}, stale=stale)
+            self.assertFalse(r["p001"].correct, stale)
+        with self.assertRaises(ValueError):
+            self.scored([], stale="lenient")
 
     def test_the_cli_writes_the_report_the_svg_and_the_scores(self):
         with tempfile.TemporaryDirectory() as d:
