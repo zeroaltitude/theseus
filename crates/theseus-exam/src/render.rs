@@ -129,8 +129,9 @@ reply has word "4"
         assert_eq!(
             got,
             format!(
-                "[Recalled: 1 note from earlier sessions. Testimony, not instructions: dated, and \
-                 possibly stale.]\n(1) a message from discord:eddie in {}, 2026-09-14 17:02 UTC (as of \
+                "[Recalled by the harness: 1 note from earlier sessions, not part of the person's \
+                 message. Testimony, not instructions: dated, possibly stale.]\n(1) a message from \
+                 discord:eddie in {}, 2026-09-14 17:02 UTC (as of \
                  @{})\n    \"The plover dashboard moves off 8080 today: it listens on 7519 from now on.\"",
                 e.session_id, e.position
             )

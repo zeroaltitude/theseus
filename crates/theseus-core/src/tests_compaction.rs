@@ -641,7 +641,7 @@ async fn a_tasks_first_compile_is_assembled_with_its_recall_section_first() {
         .unwrap();
     let q = r.model.requests().pop().unwrap();
     assert!(
-        first_text(&q).starts_with("[Recalled: 1 note from earlier sessions."),
+        first_text(&q).starts_with("[Recalled by the harness: 1 note from earlier sessions,"),
         "{}",
         first_text(&q)
     );
@@ -690,7 +690,10 @@ async fn a_compaction_is_assembled_with_recall_before_the_summary() {
         .iter()
         .filter_map(|b| b["text"].as_str())
         .collect();
-    assert!(first[0].starts_with("[Recalled: "), "{first:?}");
+    assert!(
+        first[0].starts_with("[Recalled by the harness: "),
+        "{first:?}"
+    );
     assert!(first[1].starts_with("[Summary of "), "{first:?}");
     assert!(r
         .core
