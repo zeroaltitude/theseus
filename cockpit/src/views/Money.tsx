@@ -140,6 +140,8 @@ export default function Money() {
           hint={inRange.length ? `${tokens(totals.tok / inRange.length)} a call` : undefined} />
       </div>
 
+      <Budgets rows={rows} past={world ? world.t : null} />
+
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_400px]">
         <Panel title={<>The money river · sessions → profiles and models → token kinds → the sea</>} icon={<Waves size={13} />}
           bodyClassName="h-[560px] p-2"
@@ -161,7 +163,6 @@ export default function Money() {
           </Panel>
         </div>
       </div>
-      <Budgets rows={rows} past={world ? world.t : null} />
     </div>
   )
 }
