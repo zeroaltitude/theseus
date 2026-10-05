@@ -509,7 +509,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     the profile every source's session last used; disagreeing sources wait), checked deterministically and by
     `citation.v1` (`judge/citation.rs`, a point of its own, `WIRED` in shadow) on the answer's entry
     (`theseus_memory::consolidate::entry`, a leading heading set aside: the node keeps the entry,
-    `synthesis.proposed` the answer whole, `synthesis.checked` the `heading`), and kept as a `Body::Synthesis`
+    `synthesis.proposed` the answer whole, `synthesis.checked` the `heading`; a cluster whose one answer was rejected
+    for its form, `rejected` with no `judgment`, is proposed once more on a later run, `FORM_TRIES`), and kept as a `Body::Synthesis`
     node (store format 18) in the harness session (META `memory.session`, never compiled) with `derived_from`
     edges (`via = "synthesis"`) and `synthesis.proposed`/`.checked`/`.scored` rows (`fact/synthesis.rs`, scope
     `memory`; the day's spend reads back from them). A cluster with external text is never synthesized. Each
