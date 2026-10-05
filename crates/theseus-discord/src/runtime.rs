@@ -2332,7 +2332,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -2654,7 +2654,7 @@ mod tests {
     }
 
     /// `core_with_secrets`, with `tweak` applied to the config first.
-    pub(super) fn core_with(
+    pub(crate) fn core_with(
         dir: &std::path::Path,
         secrets: Arc<theseus_core::secrets::SecretBoard>,
         tweak: impl FnOnce(&mut theseus_core::Config),

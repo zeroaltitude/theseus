@@ -68,6 +68,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   lane's next write never waits on that row's sync.
 - **One lane per place is the only writer of its messages**: posts first, in order, then live progress. A create
   carries a nonce from its message's key, with `enforce_nonce`, so a retry after a crash returns the first message.
+- **A lane's maps are bounded** (theseus-celu.37): `msgs`, `sent` and `sealed` keep the `KEYS_KEPT` keys named most
+  recently (`Lane::touch`; a late live state names its key too), the task board's always. Every insert goes through
+  `touch` (or `seal`), or the bound leaks.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).
