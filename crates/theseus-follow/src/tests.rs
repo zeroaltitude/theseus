@@ -610,3 +610,55 @@ fn a_follower_beside_the_stores_batching_writer_reads_each_record_once_in_order(
     assert_eq!(read.sealed, (1..stats.wal_segments).collect::<Vec<_>>());
     assert_tiled(&wal_dir, &read.spans, stats.wal_segments);
 }
+
+/// A sync that fails cuts its frames back off, and the next frames take
+/// their positions (theseus-ljgm). A follower reads the page cache, so it may
+/// have read the cut frames: it must meet a rewind, never read on past them
+/// as though the log continued, even when the frames written after the cut
+/// are the cut ones' size, and its cursor's offset lands on a frame boundary
+/// with the next position it expects.
+#[test]
+fn a_follower_that_read_frames_since_cut_meets_a_rewind() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = seg(dir.path(), 1);
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    w.append(&[row(1)]).unwrap();
+    let kept = fs::metadata(&path).unwrap().len();
+    w.append(&[row(2)]).unwrap();
+    drop(w);
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    assert_eq!(drain(&mut f, 1 << 20), vec![1, 2]);
+
+    // The cut: frame 2 goes, and two frames of its size follow, so the
+    // cursor's offset is the end of the first, which holds position 2.
+    OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(kept)
+        .unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    w.append(&[row(7)]).unwrap();
+    w.append(&[row(8)]).unwrap();
+    drop(w);
+    assert!(
+        matches!(f.read(1 << 20), Err(FollowError::Rewound(_))),
+        "the frame before the cursor is not the one it read"
+    );
+    assert_eq!(
+        f.cursor().position,
+        2,
+        "the cursor stays where the read began"
+    );
+
+    // Followed again from the start, it reads the log as it is now.
+    let mut f = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    let b = f.read(1 << 20).unwrap();
+    assert_eq!(
+        b.records
+            .iter()
+            .map(|r| r.payload.clone())
+            .collect::<Vec<_>>(),
+        vec![b"row 1".to_vec(), b"row 7".to_vec(), b"row 8".to_vec()]
+    );
+}

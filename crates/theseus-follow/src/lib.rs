@@ -10,6 +10,12 @@
 //!   it is opened again, that the log is still the one it was taken on: a
 //!   restore, or a tail a machine crash lost before its sync, rewrites what
 //!   lies before the cursor ([`FollowError::Rewound`]).
+//! - **A cut is a rewind** (theseus-ljgm): a sync that fails cuts its frames
+//!   back off, and the next frames take their positions. A follower reads the
+//!   page cache, so it may have read the cut ones: each read checks, after it
+//!   reads, that the frame before where it began is still the one it read
+//!   (its header: the length and the crc), so a log cut behind the cursor and
+//!   written again is a rewind, never read on as though it continued.
 //! - **Whole frames only**, checked as recovery checks them
 //!   (`theseus_store::wal::read_frame`): magic, length, crc, and positions in
 //!   sequence. A frame that is not whole at the log's end is one being
@@ -279,11 +285,17 @@ impl WalFollower {
     pub fn read_upto(&mut self, max_bytes: usize, upto: u64) -> Result<Batch, FollowError> {
         let began = self.cursor.clone();
         let mut batch = Batch::default();
-        match self.read_into(max_bytes, upto, &mut batch) {
+        // Checked after the read: a cut behind the cursor before it or while
+        // it read is a rewind, whatever the read made of the bytes after it.
+        match self
+            .read_into(max_bytes, upto, &mut batch)
+            .and_then(|()| self.still_read(&began))
+        {
             Ok(()) => Ok(batch),
             Err(e) => {
+                let rewound = self.still_read(&began).err();
                 self.cursor = began;
-                Err(e)
+                Err(rewound.unwrap_or(e))
             }
         }
     }
@@ -304,6 +316,41 @@ impl WalFollower {
             )));
         }
         Ok((file, len))
+    }
+
+    /// Whether the frame before `c` is still the one it read (theseus-ljgm):
+    /// its header, at the frame's start, holds the length and the crc the
+    /// cursor took. A failed sync's cut, and the frames written after it,
+    /// change them; the frame written again whole would change its crc.
+    fn still_read(&self, c: &Cursor) -> Result<(), FollowError> {
+        let Some(mark) = c.last else {
+            return Ok(());
+        };
+        let gone = || {
+            FollowError::Rewound(format!(
+                "the frame before the cursor (segment {}, offset {}, positions {} to {}) was cut",
+                c.segment, mark.start, mark.first, c.position
+            ))
+        };
+        let file = match File::open(wal::segment_path(&self.dir, c.segment)) {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(gone()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut header = [0u8; wal::FRAME_HEADER];
+        match file.read_exact_at(&mut header, mark.start) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Err(gone()),
+            Err(e) => return Err(e.into()),
+        }
+        let word =
+            |i: usize| u32::from_le_bytes([header[i], header[i + 1], header[i + 2], header[i + 3]]);
+        let end = mark.start + (wal::FRAME_HEADER as u64) + u64::from(word(4));
+        if end == c.offset && word(8) == mark.crc {
+            Ok(())
+        } else {
+            Err(gone())
+        }
     }
 
     fn read_into(
