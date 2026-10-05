@@ -758,6 +758,8 @@ fn summary(recompile: bool) -> ContextCompiled {
         },
         tools: 14,
         nodes_scanned: 11,
+        decoded: 0,
+        stubs: 0,
         context_files: if recompile {
             vec![
                 ContextFileRef {

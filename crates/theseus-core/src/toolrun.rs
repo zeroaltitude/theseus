@@ -1925,9 +1925,17 @@ struct Invalid {
 pub const PLACE_REFUSAL: &str = "place";
 
 /// The last assistant message, and its `tool_use`s with no result yet.
-fn unanswered(nodes: &[(u64, Arc<Node>)]) -> Option<(&Node, Vec<ToolUse>)> {
-    let answered: HashSet<&str> = nodes
+fn unanswered(nodes: &[(u64, crate::stub::Stub)]) -> Option<(&Node, Vec<ToolUse>)> {
+    use crate::stub::Kind;
+    let at = nodes
         .iter()
+        .rposition(|(_, n)| n.kind == Kind::AssistantMessage)?;
+    let last = &nodes[at].1;
+    // A call's result follows the reply that holds it: only what came after
+    // is read, so a long session's earlier results stay stubs (step 33).
+    let answered: HashSet<&str> = nodes[at + 1..]
+        .iter()
+        .filter(|(_, n)| n.kind == Kind::ToolResult)
         .filter_map(|(_, n)| match &n.body {
             Body::ToolResult {
                 tool_use_id,
@@ -1937,10 +1945,6 @@ fn unanswered(nodes: &[(u64, Arc<Node>)]) -> Option<(&Node, Vec<ToolUse>)> {
             _ => None,
         })
         .collect();
-    let (_, last) = nodes
-        .iter()
-        .rev()
-        .find(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))?;
     let Body::AssistantMessage { blocks, .. } = &last.body else {
         return None;
     };

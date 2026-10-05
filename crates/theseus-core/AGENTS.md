@@ -405,6 +405,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   their entries. Never copy the order into it: change `order.rs`, and both follow. Tests: `tests_explain.rs` (every
   tool against the order on a real plan, and against whole turns' recorded gates).
 - **`store.rs`** is the kernel's view of storage: `Store::for_turn`, a session's writes, and the turn's transcript.
+- **Tiering** (M6 step 33, theseus-6fn.13): a turn decodes only what it renders.
+  - `node_cache.rs`: the heat cache, `Arc<Node>` by WAL position, one per store and shared by every handle, so every
+    reader of nodes (a turn's transcript, `session_nodes`, `get_node`, a recall's source by `Store::node_at`) decodes a
+    node once. Bounded by `[memory] node_cache_mb` (64; 0 off) in record bytes; past it, `decay_sweep`'s hints go
+    first, then the coldest by last touch and count. It is the store's read path: it serves with memory off. Health's
+    `store.node_cache`, the metrics `theseus.node_cache.*`.
+  - `stub.rs`: `Transcript` is `Vec<(u64, Stub)>`. A stub has its record's id, kind, origin, turn, and a summary's
+    range's end from a peek that skips the payload; it derefs to its `Node`, decoded at the first touch (or taken from
+    the cache). So **a walk over a whole transcript reads stub fields** (`n.kind`, `n.id`, `n.origin`, `n.turn_id`,
+    `n.summary_last`, `compiler::renderable`, `compaction::is_summary`) **and touches `n.body` only for the nodes it
+    needs**, else it decodes the session. A closure typed `|n: &Node|` over stubs derefs each one: type it `&Stub`.
+    `context.compiled`'s `decoded` and `stubs` say what a compile read and what it left.
 
 ## Where the big things live
 
@@ -534,8 +546,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - `FakeProvider::scripted` scripts a provider's answers. `Parts::for_tests` builds a core around it, and a second
   provider can be inserted into `parts.providers`.
 - `Store::fail_turn_frame` (test-only) fails the first turn frame whose records match, once, as a full disk would.
-- Debug builds assert, at every read, that a turn's kept transcript equals a fresh read of the store. A node written
-  past the turn's handle panics a debug daemon.
+- Debug builds assert, at every read, that a turn's kept transcript equals a fresh read of the store, by positions and
+  record keys, decoding nothing. A node written past the turn's handle panics a debug daemon.
+- `tests_tiering.rs`: the heat cache and stubs through whole turns (decodes fall, every request the same with the cache
+  off, the debug check through a ring and a recompile, a recall source from before a floor); `node_cache::tests`
+  holds eviction by heat under the bound (a property test).
 
 ## Traps
 

@@ -112,10 +112,10 @@ fn run(
     window: Option<u64>,
     now: u64,
 ) -> Compiled {
-    let nodes: Vec<(u64, Arc<Node>)> = nodes
+    let nodes: Vec<(u64, crate::stub::Stub)> = nodes
         .iter()
         .enumerate()
-        .map(|(i, n)| (i as u64 + 1, Arc::new(n.clone())))
+        .map(|(i, n)| (i as u64 + 1, n.clone().into()))
         .collect();
     compile(CompileInput {
         session_id: "s",
@@ -301,14 +301,14 @@ fn a_cache_miss_under_the_same_prefix_fires_and_a_cold_cache_does_not() {
 #[test]
 fn the_signals_change_no_request_and_read_the_clock_they_are_given() {
     let c1 = first();
-    let nodes: Vec<(u64, Arc<Node>)> = [
+    let nodes: Vec<(u64, crate::stub::Stub)> = [
         user("hello", T0),
         answer(&c1.id, 0, 0, T0 + 1000),
         relayed("wake:w7q2", T0 + 900 * MINUTE),
     ]
     .into_iter()
     .enumerate()
-    .map(|(i, n)| (i as u64 + 1, Arc::new(n)))
+    .map(|(i, n)| (i as u64 + 1, n.into()))
     .collect();
     let (sp, catalog) = (spec(), Catalog::builtin());
     let sources = crate::recall::render::Sources::default();

@@ -22,8 +22,6 @@
 //! input, and a later loop sees its tool results, so an input's signals fire
 //! once, at its turn's first compile.
 
-use std::sync::Arc;
-
 use theseus_protocol::signals::CompileSignal;
 
 use crate::catalog::TokenRates;
@@ -60,7 +58,7 @@ pub struct Signals {
 
 /// What `read` reads: the compile's nodes and outcome.
 pub struct Seen<'a> {
-    pub nodes: &'a [(u64, Arc<Node>)],
+    pub nodes: &'a [(u64, crate::stub::Stub)],
     /// The compilation the request was rendered from.
     pub compilation: &'a Compilation,
     pub request: &'a ProviderRequest,
@@ -140,7 +138,11 @@ pub fn read(at: &SignalsAt, seen: &Seen<'_>) -> Signals {
 }
 
 /// The first input since the last answer, against the node before it.
-fn dormancy(at: &SignalsAt, nodes: &[(u64, Arc<Node>)], since: usize) -> Option<CompileSignal> {
+fn dormancy(
+    at: &SignalsAt,
+    nodes: &[(u64, crate::stub::Stub)],
+    since: usize,
+) -> Option<CompileSignal> {
     let k = since
         + nodes[since..]
             .iter()
@@ -190,7 +192,7 @@ fn tail_band(band: f64, window: u64, before: u64, now: u64) -> Option<CompileSig
 }
 
 /// A task's reports and wakes among the nodes written since the last answer.
-fn arrivals(new: &[(u64, Arc<Node>)]) -> Vec<CompileSignal> {
+fn arrivals(new: &[(u64, crate::stub::Stub)]) -> Vec<CompileSignal> {
     let mut reports = Vec::new();
     let mut wakes = Vec::new();
     for (_, n) in new {

@@ -460,12 +460,12 @@ impl TurnRunner {
 
 /// Where a detour's nodes begin: at the person's message `turns` messages
 /// before the newest one (the turn's own), or the session's start.
-pub fn detour_start(nodes: &[(u64, Arc<Node>)], turns: u32) -> usize {
+pub fn detour_start(nodes: &[(u64, crate::stub::Stub)], turns: u32) -> usize {
     let asks: Vec<usize> = nodes
         .iter()
         .enumerate()
         .filter(|(_, (_, n))| {
-            n.origin == crate::node::Origin::Operator && matches!(n.body, Body::UserMessage { .. })
+            n.origin == crate::node::Origin::Operator && n.kind == crate::stub::Kind::UserMessage
         })
         .map(|(i, _)| i)
         .collect();
@@ -550,7 +550,7 @@ mod tests {
             if !op {
                 node.origin = crate::node::Origin::Agent;
             }
-            (0u64, Arc::new(node))
+            (0u64, node.into())
         };
         let nodes = vec![
             n("one", true),

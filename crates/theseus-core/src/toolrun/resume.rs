@@ -35,6 +35,7 @@ impl ToolRuntime {
         };
         let calls: HashMap<&str, &Node> = nodes
             .iter()
+            .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall)
             .filter_map(|(_, n)| match &n.body {
                 Body::ToolCall { tool_use_id, .. } => Some((tool_use_id.as_str(), &**n)),
                 _ => None,

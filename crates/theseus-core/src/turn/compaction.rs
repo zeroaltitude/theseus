@@ -218,7 +218,7 @@ impl TurnRunner {
     fn plan_summary<'n>(
         &self,
         ring: &Compiled,
-        nodes: &'n [(u64, Arc<Node>)],
+        nodes: &'n [(u64, crate::stub::Stub)],
         profile: &str,
         own: Option<Target>,
     ) -> Result<Planned<'n>, Fallback> {
@@ -390,7 +390,7 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         p: &Planned<'_>,
         ring: &Compiled,
-        nodes: &[(u64, Arc<Node>)],
+        nodes: &[(u64, crate::stub::Stub)],
         profile: &str,
         call: Call,
         i: u32,
@@ -591,7 +591,7 @@ struct Done {
 /// What `ring` dropped, past the session's latest summary: the messages to
 /// summarize, the recall notes, and the summary to fold in.
 fn dropped<'n>(
-    nodes: &'n [(u64, Arc<Node>)],
+    nodes: &'n [(u64, crate::stub::Stub)],
     includes: &[String],
     as_of: u64,
 ) -> Result<Range<'n>, String> {
@@ -627,7 +627,7 @@ fn dropped<'n>(
 /// A summary's header: its count, and the dates of its range's first and
 /// last node.
 fn header_of(
-    nodes: &[(u64, Arc<Node>)],
+    nodes: &[(u64, crate::stub::Stub)],
     messages: u64,
     first: u64,
     last: u64,
@@ -803,7 +803,8 @@ mod tests {
     /// after the compile, and nothing the floor already covers.
     #[test]
     fn a_recall_in_the_range_is_dropped_and_the_floor_is_folded() {
-        let user = |t: &str| Arc::new(Node::user("ses_1", Some("turn_1"), "cli", t));
+        let user =
+            |t: &str| -> crate::stub::Stub { Node::user("ses_1", Some("turn_1"), "cli", t).into() };
         let floor = Arc::new(Node::summary(
             "ses_1",
             "turn_1",
@@ -819,12 +820,12 @@ mod tests {
             },
         ));
         let recall = Arc::new(Node::recall("ses_1", "turn_2", "rcl_1", "baseline", vec![]));
-        let nodes: Vec<(u64, Arc<Node>)> = vec![
+        let nodes: Vec<(u64, crate::stub::Stub)> = vec![
             (1, user("a")),
             (2, user("b")),
             (3, user("c")),
-            (4, floor.clone()),
-            (5, recall.clone()),
+            (4, floor.clone().into()),
+            (5, recall.clone().into()),
             (6, user("d")),
             (7, user("e")),
             (9, user("pending")),

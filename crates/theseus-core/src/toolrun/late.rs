@@ -4,7 +4,6 @@
 //! Split from `toolrun.rs` (theseus-5gw9).
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -75,8 +74,18 @@ impl ToolRuntime {
             return Ok((late, records, outputs));
         }
         let nodes = tc.store.transcript(tc.session_id)?;
+        // From the end, by kind: a stub decodes only the results it is
+        // asked about (M6 step 33), and a late result follows its placeholder.
+        let results = |from: usize| {
+            nodes[from..]
+                .iter()
+                .enumerate()
+                .rev()
+                .filter(|(_, (_, n))| n.kind == crate::stub::Kind::ToolResult)
+                .map(move |(i, (_, n))| (from + i, n))
+        };
         for a in jobs {
-            let placeholder = nodes.iter().find_map(|(_, node)| match &node.body {
+            let placeholder = results(0).find_map(|(i, node)| match &node.body {
                 Body::ToolResult {
                     tool_use_id,
                     tool,
@@ -84,13 +93,13 @@ impl ToolRuntime {
                     correlation_id: Some(c),
                     late: false,
                     ..
-                } if c == &a.correlation_id => Some((tool_use_id.clone(), tool.clone())),
+                } if c == &a.correlation_id => Some((i, tool_use_id.clone(), tool.clone())),
                 _ => None,
             });
-            let Some((tool_use_id, tool)) = placeholder else {
+            let Some((at, tool_use_id, tool)) = placeholder else {
                 continue;
             };
-            let already = nodes.iter().any(|(_, node)| matches!(&node.body, Body::ToolResult { tool_use_id: t, late: true, .. } if *t == tool_use_id));
+            let already = results(at + 1).any(|(_, node)| matches!(&node.body, Body::ToolResult { tool_use_id: t, late: true, .. } if *t == tool_use_id));
             if already {
                 continue;
             }
@@ -175,7 +184,7 @@ impl ToolRuntime {
         let nodes: crate::store::Transcript = store
             .session_nodes(session_id)?
             .into_iter()
-            .map(|(pos, n)| (pos, Arc::new(n)))
+            .map(|(pos, n)| (pos, n.into()))
             .collect();
         let (mut out, mut raw) = (Vec::new(), Vec::new());
         let mut write = |at: &Node, r: ResultNode<'_>, job: Option<&Action>| {
@@ -373,7 +382,11 @@ impl ToolRuntime {
 /// `nodes`: what a job's result reads to mark a listed program's
 /// (theseus-b5cl).
 fn call_input<'n>(nodes: &'n crate::store::Transcript, correlation_id: &str) -> Option<&'n Value> {
-    nodes.iter().find_map(|(_, n)| match &n.body {
+    let mut calls = nodes
+        .iter()
+        .rev()
+        .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall);
+    calls.find_map(|(_, n)| match &n.body {
         Body::ToolCall {
             correlation_id: Some(c),
             input,

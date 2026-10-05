@@ -19,7 +19,6 @@
 //!   the turn's next frame.
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
 use theseus_protocol::memory::{BudgetDrop, RecallManifest};
 use theseus_store::NewRecord;
@@ -160,6 +159,9 @@ impl TurnRunner {
             let after = floor.filter(|_| t.recall.assembled).unwrap_or(0);
             for (_, n) in nodes.iter().filter(|(p, _)| *p > after) {
                 in_context.insert(n.id.clone());
+                if n.kind != crate::stub::Kind::Recall {
+                    continue;
+                }
                 if let Body::Recall { items, .. } = &n.body {
                     in_context.extend(items.iter().map(|r| r.node_id.clone()));
                 }
@@ -343,6 +345,7 @@ impl TurnRunner {
         nodes
             .iter()
             .filter(|(p, n)| *p > as_of && section.as_deref() != Some(n.id.as_str()))
+            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall)
             .map(|(_, n)| match &n.body {
                 Body::Recall { items, .. } => items.iter().map(|r| r.tokens).sum(),
                 _ => 0,
@@ -421,12 +424,12 @@ impl TurnRunner {
         if let Some(n) = &t.recall.pending {
             // Once the plan frame wrote it, the transcript holds it.
             if !nodes.iter().any(|(_, m)| m.id == n.id) {
-                nodes.push((PENDING, Arc::new(n.clone())));
+                nodes.push((PENDING, n.clone().into()));
             }
         }
         let recalls = nodes
             .iter()
-            .filter(|(_, n)| matches!(n.body, Body::Recall { .. }));
+            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
         let sources = match recalls.clone().next() {
             Some(_) => self
                 .memory

@@ -352,7 +352,11 @@ fn brief_text(task_session: &str, parent_session: &str, brief: &str) -> String {
 /// call node, is what the parent's contexts carry. None when no call node
 /// names it.
 pub(crate) fn holder_of(nodes: &crate::store::Transcript, correlation_id: &str) -> Option<String> {
-    nodes.iter().rev().find_map(|(_, n)| match &n.body {
+    let mut calls = nodes
+        .iter()
+        .rev()
+        .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall);
+    calls.find_map(|(_, n)| match &n.body {
         Body::ToolCall {
             correlation_id: Some(c),
             assistant_node,

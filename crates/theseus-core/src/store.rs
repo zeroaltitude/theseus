@@ -281,8 +281,9 @@ impl Faults {
     }
 }
 
-/// A session's nodes with their WAL positions, in order (§4.1).
-pub type Transcript = Vec<(u64, Arc<Node>)>;
+/// A session's nodes with their WAL positions, in order (§4.1): each a
+/// stub until a reader touches its node (M6 step 33).
+pub type Transcript = Vec<(u64, crate::stub::Stub)>;
 
 /// What a turn's handle keeps (theseus-qa0).
 #[derive(Default)]
@@ -353,7 +354,10 @@ impl TurnState {
             .iter()
             .zip(positions)
             .filter(|(r, _)| r.kind == kinds::NODE && r.scope.as_deref() == Some(session))
-            .map(|(r, p)| cache.node(*p, &r.payload).map(|n| (*p, n)))
+            .map(|(r, p)| {
+                let n = cache.node(*p, &r.payload)?;
+                Ok((*p, crate::stub::Stub::hydrated(*p, n)))
+            })
             .collect();
         match (new, t.as_mut()) {
             (Ok(new), Some((_, nodes))) => {
@@ -846,11 +850,13 @@ impl Store {
     }
 
     fn scan_nodes(&self, session_id: &str) -> Result<Vec<(u64, crate::node::Node)>> {
-        Ok(self
-            .scan_kept(session_id)?
+        self.node_records(session_id)?
             .into_iter()
-            .map(|(p, n)| (p, Arc::unwrap_or_clone(n)))
-            .collect())
+            .map(|r| {
+                let n = self.cache.node(r.position, &r.payload)?;
+                Ok((r.position, Arc::unwrap_or_clone(n)))
+            })
+            .collect()
     }
 
     /// A session's node records, undecoded: position, id (the key), bytes.
@@ -860,13 +866,19 @@ impl Store {
         Ok(out)
     }
 
-    /// A session's nodes through the heat cache (M6 step 33): each one a
-    /// reader decoded before is served by position, and only the rest are
-    /// decoded (and kept).
+    /// A session's nodes as stubs (M6 step 33): what each record gives
+    /// without a decode, its node decoded at a reader's first touch, or
+    /// served by position from the heat cache when a reader decoded it before.
     fn scan_kept(&self, session_id: &str) -> Result<Transcript> {
         self.node_records(session_id)?
             .into_iter()
-            .map(|r| Ok((r.position, self.cache.node(r.position, &r.payload)?)))
+            .map(|r| {
+                let p = r.position;
+                Ok((
+                    p,
+                    crate::stub::Stub::of_record(r, &self.cache, &self.inner)?,
+                ))
+            })
             .collect()
     }
 

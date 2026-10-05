@@ -115,6 +115,12 @@ impl NodeCache {
         self.slots().map.contains_key(&position)
     }
 
+    /// The node at `position` when it is kept, untouched: what a stub reads
+    /// its fields from at a transcript's read.
+    pub fn peek(&self, position: u64) -> Option<Arc<Node>> {
+        self.slots().map.get(&position).map(|s| s.node.clone())
+    }
+
     /// The node at `position`, touched, when it is kept.
     pub fn get(&self, position: u64) -> Option<Arc<Node>> {
         self.get_at(position, now_ms())

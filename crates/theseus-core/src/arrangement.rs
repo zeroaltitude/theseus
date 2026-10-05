@@ -35,7 +35,6 @@
 //!   text, and renders by reference only.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -286,7 +285,7 @@ fn candidate(n: &Node) -> String {
 /// transcript, leaving out `holder`, the reply that holds the call.
 pub fn resolve(
     input: &Input,
-    nodes: &[(u64, Arc<Node>)],
+    nodes: &[(u64, crate::stub::Stub)],
     holder: Option<&str>,
 ) -> Result<Vec<Piece>, Refused> {
     let sources: Vec<(&Node, String)> = nodes
@@ -419,7 +418,7 @@ fn find<'n>(
 
 /// Operator messages in `nodes` since the session's last task started: after
 /// its last `task.create` whose result was ok.
-pub fn human_messages_since_last_task(nodes: &[(u64, Arc<Node>)]) -> usize {
+pub fn human_messages_since_last_task(nodes: &[(u64, crate::stub::Stub)]) -> usize {
     nodes
         .iter()
         .rev()
@@ -591,9 +590,9 @@ pub fn clip(pieces: usize) -> String {
 mod tests {
     use super::*;
 
-    fn at(mut n: Node, ms: u64) -> (u64, Arc<Node>) {
+    fn at(mut n: Node, ms: u64) -> (u64, crate::stub::Stub) {
         n.created_at_ms = ms;
-        (ms, Arc::new(n))
+        (ms, n.into())
     }
 
     fn reply(text: &str) -> Node {
@@ -651,7 +650,7 @@ mod tests {
 
     /// A short transcript: the keeper's ask, its echo in a reply, and a
     /// file the model read.
-    fn transcript() -> Vec<(u64, Arc<Node>)> {
+    fn transcript() -> Vec<(u64, crate::stub::Stub)> {
         vec![
             at(
                 Node::user(

@@ -63,7 +63,8 @@ pub(super) fn waiting(
         .find(|(_, n)| n.turn_id.as_deref() == Some(turn_id))
         .map(|(p, _)| *p);
     let mut out = Vec::new();
-    for (i, (pos, n)) in nodes.iter().enumerate() {
+    let recalls = nodes.iter().enumerate();
+    for (i, (pos, n)) in recalls.filter(|(_, (_, n))| n.kind == crate::stub::Kind::Recall) {
         let Body::Recall {
             recall_id, items, ..
         } = &n.body
@@ -80,7 +81,7 @@ pub(super) fn waiting(
             .cloned()
             .collect();
         if !left.is_empty() {
-            out.push((i, n.clone(), left));
+            out.push((i, n.node(), left));
         }
     }
     out
@@ -106,7 +107,7 @@ impl MemoryPass {
                     .unwrap_or_default();
                 items.push((r, excerpt));
             }
-            let in_turn = |m: &Node| turn.is_some() && m.turn_id == turn;
+            let in_turn = |m: &crate::stub::Stub| turn.is_some() && m.turn_id == turn;
             let mut ask = String::new();
             let mut reply = Vec::new();
             let mut calls = Vec::new();
