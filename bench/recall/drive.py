@@ -44,8 +44,9 @@ in a throwaway container or VM.
 The run directory, the same for both arms (what `score.py` reads):
 
 - `run.json`: the arm, its memory arm, the model, the progression's digest,
-  the compactions (the turns whose request was compacted), what the stop
-  had to kill, and the totals;
+  the compactions (the turns whose request was compacted), Theseus's
+  `compaction_rows` (each row's outcome, `compaction` or `ring`, and the
+  cut's span), what the stop had to kill, and the totals;
 - `turns.jsonl`: each turn's reply, exit, tokens, dollars and latency;
 - `delivered.json`: each fact's delivery;
 - `progression.json`, a copy, and `workspace/`, the arm's workspace as the
@@ -217,6 +218,19 @@ def _env_without(names) -> dict:
     for n in names:
         env.pop(n, None)
     return env
+
+
+def compaction_row(turn: int, rows: list[dict]) -> dict:
+    """A turn's `context.compacted` rows as run.json keeps them: each one's
+    outcome (`compaction`, a summary in the cut's place, or `ring`, the cut
+    kept with no summary), why the ring ran instead, and the cut's span
+    (its message count and its first and last positions). The scorer's
+    `MOVING_OUTCOMES` says which outcomes move a probe."""
+    cuts = []
+    for x in rows:
+        d = x.get("data") or {}
+        cuts.append({k: d.get(k) for k in ("outcome", "why", "messages", "first", "last")})
+    return {"turn": turn, "outcomes": [c["outcome"] for c in cuts], "cuts": cuts}
 
 
 def strings(v) -> list[str]:
@@ -406,6 +420,7 @@ class Theseus:
         sid, session = None, -1
         transcript: list[str] = []
         sids: list[str] = []
+        run.meta["compaction_rows"] = []
         try:
             seen = {x.get("position") for x in self.compactions()}
             for t in prog.turns:
@@ -432,9 +447,7 @@ class Theseus:
                 seen |= {x.get("position") for x in new}
                 if new:
                     run.meta["compactions"].append(t.index)
-                    run.meta.setdefault("compaction_rows", []).append(
-                        {"turn": t.index, "outcomes": [(x.get("data") or {}).get("outcome") for x in new]}
-                    )
+                    run.meta.setdefault("compaction_rows", []).append(compaction_row(t.index, new))
                 run.turn({
                     "index": t.index, "session": t.session, "session_id": sid, "role": t.role,
                     "reply": v.get("output", ""), "stop": v.get("stop_reason"), "exit": code,

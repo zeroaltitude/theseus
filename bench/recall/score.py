@@ -99,6 +99,13 @@ class ArmRun:
     prog: pg.Progression
 
 
+# A compaction's outcomes in `context.compacted` (theseus-core's
+# fact/compaction.rs): `compaction`, a summary in the cut's place, and
+# `ring`, the cut kept with no summary. Both drop the same leading turns
+# from the request, so both move a probe: what the arm no longer reads is
+# what a summary may or may not keep, and the curve measures that.
+MOVING_OUTCOMES = ("compaction", "ring")
+
 # The stale rules (`--stale`): `strict`, theseus-exam's (a superseded value
 # named anywhere is stale, and wrong); `retracted`, a right answer that
 # names the old value only in a sentence that retracts it.
@@ -108,6 +115,37 @@ RETRACT = (
     r"instead of|used to be|previously|formerly|was\b[^.?!]{0,60}?\bbefore|earlier answer|i was wrong|"
     r"correction|scratch that|not \S+ as i said)\b"
 )
+
+
+def compaction_turns(meta: dict) -> list[int]:
+    """The turns whose request was compacted, by the outcomes that move a
+    probe. A run with each row's outcome (`compaction_rows`) is read by
+    them; one without (an older run, or Claude Code's, whose log shows only
+    a `compact_boundary`) counts every compaction it lists."""
+    rows = meta.get("compaction_rows")
+    if rows is None:
+        return list(meta.get("compactions", []))
+    out = []
+    for r in rows:
+        outs = r.get("outcomes") or [c.get("outcome") for c in r.get("cuts", [])] or ["compaction"]
+        if any(o in MOVING_OUTCOMES for o in outs):
+            out.append(r["turn"])
+    return out
+
+
+def outcome_counts(meta: dict) -> dict[str, int]:
+    """Each outcome's count over the run's compactions: a row without
+    outcomes is a `compaction` (Claude Code's `compact_boundary`)."""
+    rows = meta.get("compaction_rows")
+    counts: dict[str, int] = {}
+    if rows is None:
+        for _ in meta.get("compactions", []):
+            counts["compaction"] = counts.get("compaction", 0) + 1
+        return counts
+    for r in rows:
+        for o in r.get("outcomes") or [c.get("outcome") for c in r.get("cuts", [])] or ["compaction"]:
+            counts[o or "unknown"] = counts.get(o or "unknown", 0) + 1
+    return counts
 
 
 def sentences(text: str) -> list[str]:
@@ -162,8 +200,7 @@ def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
     facts = prog.facts_by_id()
     anchor = facts[p.anchor]
     rec = run.turns.get(p.turn)
-    bucket = pg.bucket_of(prog, anchor.turn, p.turn, list(run.meta.get("compactions", [])),
-                          p.bucket == "supersession")
+    bucket = pg.bucket_of(prog, anchor.turn, p.turn, compaction_turns(run.meta), p.bucket == "supersession")
     since = sum(new_tokens(run.turns.get(i)) for i in range(anchor.turn + 1, p.turn))
     base = dict(arm=run.label, probe=p.id, kind=p.kind, salience=p.salience, value_kind=p.value_kind,
                 carrier=anchor.carrier, planned=p.bucket, bucket=bucket, turns_since=p.turn - anchor.turn, tokens_since=since,
@@ -333,6 +370,18 @@ def _num(x, fmt="{:.0f}") -> str:
     return fmt.format(x)
 
 
+def _compacted_at(meta: dict) -> str:
+    """Each compaction's turn and outcome: "11 (compaction), 25 (ring)"."""
+    rows = meta.get("compaction_rows")
+    if rows is None:
+        return ", ".join(map(str, meta.get("compactions", []))) or "never"
+    out = []
+    for r in rows:
+        outs = r.get("outcomes") or ["compaction"]
+        out.append(f"{r['turn']} ({', '.join(o or 'unknown' for o in outs)})")
+    return ", ".join(out) or "never"
+
+
 def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict") -> str:
     prog = runs[0].prog
     stale_words = {
@@ -353,7 +402,7 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
     for r in runs:
         s = sums[r.label]
         lines.append(
-            f"| {r.label} | {r.meta.get('model')} | {', '.join(map(str, r.meta.get('compactions', []))) or 'never'} | "
+            f"| {r.label} | {r.meta.get('model')} | {_compacted_at(r.meta)} | "
             f"{r.meta.get('delivered')}/{r.meta.get('facts')} | {s['scored']} | {s['undelivered']} | {s['failed']} | "
             f"{_pct(s['recall_accuracy'])} | {_pct(s['abstention_accuracy'])} | {s['confident_wrong']} | "
             f"{s['stale']}/{s['stale_of']} | {_pct(s['cites_where'])} | {_pct(s['cites_when'])} | "
@@ -398,6 +447,14 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
         rows = [x for x in score_cache[r.label] if x.status == "scored" and x.planned == "supersession"]
         lines.append(f"| {r.label} | {sum(1 for x in rows if x.correct)}/{len(rows)} | "
                      f"{sum(1 for x in rows if x.stale)}/{len(rows)} | {sum(1 for x in rows if x.old_named)}/{len(rows)} |")
+    lines += ["", "## Compactions", "",
+              "By outcome: `compaction` wrote a summary in the cut's place, `ring` kept the cut with no summary. "
+              f"Both drop the leading turns, so both move a probe ({', '.join(MOVING_OUTCOMES)}).", "",
+              "| Arm | " + " | ".join(MOVING_OUTCOMES) + " | other |", "|---|" + "---|" * (len(MOVING_OUTCOMES) + 1)]
+    for r in runs:
+        c = outcome_counts(r.meta)
+        other = sum(n for o, n in c.items() if o not in MOVING_OUTCOMES)
+        lines.append(f"| {r.label} | " + " | ".join(str(c.get(o, 0)) for o in MOVING_OUTCOMES) + f" | {other} |")
     lines += ["", "## How to read it", "",
               "- A probe planned in one bucket can land in another: its arm compacted elsewhere than the marks. "
               + "; ".join(f"{r.label}: {sums[r.label]['moved']} moved" for r in runs) + ".",
@@ -486,6 +543,7 @@ def main(argv: list[str] | None = None) -> int:
         rows = score_run(r, a.stale)
         score_cache[r.label] = rows
         sums[r.label] = summarize(rows)
+        sums[r.label]["compactions_by_outcome"] = outcome_counts(r.meta)
         all_rows += rows
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "scores.json").write_text(json.dumps(

@@ -353,8 +353,10 @@ class TheseusDriver(unittest.TestCase):
             self.assertEqual(cfg["memory"], {"mode": "live", "arm": "baseline"})
             # Where it compacted is the ledger's word, whatever the marks say;
             # the scorer measures by it.
-            rows_c = run.get("compaction_rows", [])
+            rows_c = run["compaction_rows"]
             self.assertEqual([r["turn"] for r in rows_c], run["compactions"])
+            for r in rows_c:
+                self.assertEqual(r["outcomes"], [c["outcome"] for c in r["cuts"]], r)
             s = score.summarize(score.score_run(score.load_run(out)))
             self.assertEqual(s["scored"], len(prog.probes))
             self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))

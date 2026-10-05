@@ -111,7 +111,9 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     most 16000. The window is the smallest whose budget holds a session's turns before its mark with 15% to
     spare, and each mark's bulk read crosses it with 15% more. For seed 7 that is 35000 for the smoke (a budget of
     22,154) and 124000 for the full (103,904).
-  - Where it compacted is read from the ledger (`context.compacted`, a summary or a ring) after every turn.
+  - Where it compacted is read from the ledger (`context.compacted`) after every turn, with each row's outcome:
+    `compaction`, a summary in the cut's place, or `ring`, the cut kept with no summary and why (the summary would
+    not fit, or its call failed), and the cut's span (its message count, its first and last positions).
   - The run keeps each session's `history --full` and `memory recalled`. The daemon is stopped cleanly at the end.
     The driver fails if anything is still running that names the run's directory or works inside it (a job
     included).
@@ -147,7 +149,7 @@ scored as a miss.
 ## The run directory
 
 `run.json` holds the arm, the memory arm, the model, the progression's digest, the compactions (the turns whose
-request was compacted), and what the stop had to kill. `turns.jsonl` holds each turn's reply, exit, tokens, dollars
+request was compacted), Theseus's `compaction_rows` (each turn's outcomes and cuts), and what the stop had to kill. `turns.jsonl` holds each turn's reply, exit, tokens, dollars
 and latency. `delivered.json` holds each fact's delivery. `progression.json` is a copy of the progression, and
 `workspace/` is the arm's workspace as the run left it. `raw/` holds each turn's stdout, the transcripts and the
 daemon's log.
@@ -181,6 +183,10 @@ daemon's log.
 - **Cost and latency** per probe: its turn's dollars and wall time.
 - Also: accuracy by probe kind, by how the fact was said (`output`, `error`, `aside`, `remark`, `topic`), and by
   value kind, and how many probes each arm's compactions moved from their planned bucket.
+- **Compactions by outcome**: each arm's `compaction` and `ring` rows, counted apart, and where each fell. Both
+  move a probe: a ring drops the same leading turns as a summary does, only with nothing in their place, so a fact
+  before it is as far from the arm's request either way (`MOVING_OUTCOMES` in `score.py`). Claude Code's
+  `compact_boundary` and a run kept from before the outcomes count as `compaction`.
 
 `score.py` writes `report.md`, `curve.svg` (drawn by hand: incidental solid, central dashed) and `scores.json`.
 

@@ -221,6 +221,32 @@ class Scoring(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.scored([], stale="lenient")
 
+    def test_a_ring_moves_a_probe_as_a_summary_does_and_is_counted_apart(self):
+        """run.json's `compaction_rows` keep each outcome: a ring at 12 cuts
+        p005's fact (5) from its probe's request (12) as a summary would."""
+        rows = [{"turn": 12, "outcomes": ["ring"], "cuts": [{"outcome": "ring", "why": "no summary model",
+                                                             "messages": 20, "first": 3, "last": 40}]},
+                {"turn": 22, "outcomes": ["compaction"], "cuts": [{"outcome": "compaction", "why": None,
+                                                                   "messages": 9, "first": 41, "last": 80}]}]
+        r, _ = self.scored([12, 22], meta={"compaction_rows": rows})
+        self.assertEqual(r["p005"].bucket, "compaction")
+        self.assertEqual(r["p007"].bucket, "compaction")
+        self.assertEqual(score.compaction_turns({"compaction_rows": rows}), [12, 22])
+        self.assertEqual(score.outcome_counts({"compaction_rows": rows}), {"ring": 1, "compaction": 1})
+        # A run with no rows (Claude Code's, an older one) counts its list.
+        self.assertEqual(score.outcome_counts({"compactions": [12]}), {"compaction": 1})
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            write_run(d / "th", self.prog, "theseus", [12, 22], meta={"compaction_rows": rows})
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(score.main([str(d / "th"), "--out", str(d / "rep")]), 0)
+            md = (d / "rep" / "report.md").read_text()
+            self.assertIn("| theseus | m | 12 (ring), 22 (compaction) |", md)
+            self.assertIn("| theseus | 1 | 1 | 0 |", md)
+            j = json.loads((d / "rep" / "scores.json").read_text())
+            self.assertEqual(j["arms"]["theseus"]["compactions_by_outcome"], {"ring": 1, "compaction": 1})
+            self.assertEqual(j["stale_rule"], "strict")
+
     def test_the_cli_writes_the_report_the_svg_and_the_scores(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
