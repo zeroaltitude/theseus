@@ -320,7 +320,7 @@ pub(super) struct ToolCall {
 
 /// One entry per `tool <wire name>` span, with the tool's name, family, and
 /// backend and the call's result, as the turn recorded them (since
-/// theseus-yf1). A span from before has only its wire name, which gives the
+/// theseus-yf1), timed by its span, or a late result by its job's run. A span from before has only its wire name, which gives the
 /// name (`fs_read` → `fs.read`) and the family; its backend and outcome are
 /// `unknown`.
 pub(super) fn tool_calls(node: &Span, out: &mut Vec<ToolCall>) {
@@ -333,7 +333,12 @@ pub(super) fn tool_calls(node: &Span, out: &mut Vec<ToolCall>) {
                 family,
                 backend: text(node, "backend").unwrap_or_else(|| "unknown".into()),
                 outcome: text(node, "result").unwrap_or_else(|| "unknown".into()),
-                ms: node.duration_us() as f64 / 1000.0,
+                // A late result's span is a point at its absorption: its
+                // time is the job's run (theseus-8pei).
+                ms: match node.attrs.get("run_ms").and_then(Value::as_u64) {
+                    Some(run) => run as f64,
+                    None => node.duration_us() as f64 / 1000.0,
+                },
                 name,
             });
         }

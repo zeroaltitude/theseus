@@ -26,8 +26,7 @@ use theseus_kernel::{
     BUDGET_TOOL, PROVIDER_TOOL,
 };
 use theseus_protocol::{
-    BudgetAsk, CacheSummary, ConfirmRequest, ContextCompiled, SessionKind, Span, TurnSubmitResult,
-    Usage,
+    BudgetAsk, CacheSummary, ConfirmRequest, ContextCompiled, SessionKind, TurnSubmitResult, Usage,
 };
 use theseus_store::{frames_written_here, NewRecord};
 
@@ -48,10 +47,13 @@ use crate::session::{title_from, NotShown, SessionRecord, TargetRef, Then};
 use crate::startup::StartupLog;
 use crate::store::{SessionHold, Store};
 use crate::task_graph::tools::Closing;
-use crate::toolrun::{Call, CallOutcome, Ran, ToolRuntime, TurnCtx};
+use crate::toolrun::{Call, CallOutcome, ToolRuntime, TurnCtx};
 use crate::trace::Trace;
 use crate::Config;
 
+mod calls;
+#[cfg(test)]
+pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
 mod fallback_step;
@@ -1839,7 +1841,8 @@ impl TurnRunner {
     /// restart survived). Returns how many nodes that wrote.
     async fn catch_up(&self, t: &mut Turn<'_>, has_input: bool) -> Result<u32> {
         let t0 = t.trace.now_us();
-        let (settled, absorbed) = self.tools.absorb(&t.tc)?;
+        let (settled, late) = self.tools.absorb(&t.tc)?;
+        let absorbed = late.len() as u32;
         // A budget question the kernel queued as a result: approved (the
         // spend was reset), or withdrawn by a raised limit (theseus-3pj).
         // Either way the call that did not fit proceeds.
@@ -1872,6 +1875,15 @@ impl TurnRunner {
         // Its wakes that are due (DD8), last: each is this turn's input, or
         // comes before the input that arrived with it.
         let woke = Self::read_wakes(t)?;
+        // Each call answered here is traced under the continuation's span,
+        // in this turn, as `run_tools` traces its own (theseus-8pei).
+        let mut calls = calls::late_spans(&t.trace, &self.tools, &late);
+        calls.extend(calls::call_spans(
+            &t.trace,
+            &self.tools,
+            &resumed.calls,
+            &resumed.ran,
+        ));
         t.record(&fact::turn::CaughtUp {
             t0,
             settled: settled.len(),
@@ -1881,6 +1893,7 @@ impl TurnRunner {
             raised,
             reported,
             woke,
+            calls,
         });
         t.awaiting = resumed.awaiting;
         t.background = resumed.background;
@@ -2835,9 +2848,7 @@ impl TurnRunner {
             .collect();
         let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;
         t.tool_calls += batch.ran.len() as u32;
-        let aws = self.tools.aws.as_deref();
-        let lsp = self.tools.lsp.as_deref();
-        Self::trace_calls(&mut t.trace, &self.tools, (aws, lsp), uses, &batch.ran);
+        calls::trace_calls(&mut t.trace, &self.tools, uses, &batch.ran);
         let mut answered = 0;
         for r in batch.ran {
             match r.outcome {
@@ -2851,66 +2862,6 @@ impl TurnRunner {
         }
         t.awaiting = batch.awaiting;
         Ok(answered)
-    }
-
-    /// A span per call, in the order the calls ran. The calls of a group that
-    /// ran together sit under one `tools` span, so their spans overlap there.
-    /// Each names its tool, family, and backend (`none` for a tool that is
-    /// not registered), and the call's result, which telemetry's tool metrics
-    /// read (theseus-yf1). An AWS call's requests are spans under its own
-    /// (AWS design §3.8).
-    fn trace_calls(
-        trace: &mut Trace,
-        tools: &crate::toolrun::ToolRuntime,
-        (aws, lsp): (Option<&crate::aws::Aws>, Option<&crate::lsp::Board>),
-        uses: &[ToolUse],
-        ran: &[Ran],
-    ) {
-        let span = |r: &Ran| {
-            let wire = uses[r.index].name.as_str();
-            let tool = tools.tool_by_wire(wire);
-            let tool = tool.as_deref();
-            let mut attrs = json!({"tool_use_id": uses[r.index].id, "outcome": format!("{:?}", r.outcome),
-                "tool": tool.map_or(wire, |t| t.name()),
-                "family": tool.map_or("unknown", |t| t.family()),
-                "backend": tool.map_or("none", |t| t.backend().as_str()),
-                "result": call_result(&r.outcome)});
-            crate::mcp::span_attrs(tool, &mut attrs);
-            Span {
-                name: format!("tool {wire}"),
-                kind: "tool".into(),
-                start_us: trace.at(r.started),
-                end_us: Some(trace.at(r.ended)),
-                attrs,
-                children: aws
-                    .map(|a| a.spans(&uses[r.index].id, |i| trace.at(i)))
-                    .into_iter()
-                    .chain(lsp.map(|l| l.spans(&uses[r.index].id, |i| trace.at(i))))
-                    .flatten()
-                    .chain(crate::judge::gate::marks(&r.judged, |i| trace.at(i)))
-                    .collect(),
-            }
-        };
-        let mut groups: BTreeMap<usize, Vec<Span>> = BTreeMap::new();
-        for r in ran {
-            groups.entry(r.group).or_default().push(span(r));
-        }
-        for (_, mut spans) in groups {
-            if spans.len() == 1 {
-                trace.push(spans.remove(0));
-                continue;
-            }
-            let start_us = spans.iter().map(|s| s.start_us).min().unwrap_or(0);
-            let end_us = spans.iter().filter_map(|s| s.end_us).max();
-            trace.push(Span {
-                name: "tools".into(),
-                kind: "tools".into(),
-                start_us,
-                end_us,
-                attrs: json!({"calls": spans.len(), "together": true}),
-                children: spans,
-            });
-        }
     }
 
     /// The Advancer decides whether the turn continues; the loop's end is
@@ -3051,8 +3002,8 @@ impl TurnRunner {
         session: &mut SessionRecord,
         unused_recompile: Option<Recompile>,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool, Option<SessionHold>)> {
-        let late = match self.tools.absorb(&t.tc) {
-            Ok((_, late)) => late,
+        let late = match self.take_late(&mut t) {
+            Ok(late) => late,
             Err(e) => return Err(Self::fault(t, session, e)),
         };
         // Where the execution waits: only reads, so it is decided before
@@ -3479,17 +3430,6 @@ pub struct TurnError {
     pub tool_calls: u32,
     #[source]
     pub source: anyhow::Error,
-}
-
-/// What became of a call, as its trace span says it (theseus-yf1): its result
-/// node's status, or that it waits for the operator or runs in the
-/// background.
-pub(crate) fn call_result(o: &CallOutcome) -> &'static str {
-    match o {
-        CallOutcome::Done { status } => status.as_str(),
-        CallOutcome::AwaitingConfirm { .. } => "awaiting_confirm",
-        CallOutcome::Background { .. } => "background",
-    }
 }
 
 /// Why a task's turn failed, as its report says it (DD7): the class and the

@@ -102,7 +102,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   under the call's one correlation id, the next launched once one exits 0, the turn's wait held across them so
   the drain never settles the call between two; theseus-7gir.3) and its gate in `toolrun/batch.rs` (`judge`: each
   step as the call alone, the strictest taken), the continuation in `toolrun/resume.rs`, and the results
-  no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). The gate's parts are
+  no call's own run writes (late ones, and a cancel's) in `toolrun/late.rs` (theseus-5gw9). A call's span is
+  built in the turn that answers it (`turn/calls.rs`, theseus-8pei): `run_tools`'s calls in their loop, and the
+  calls `resume` answered (`ResumeOutcome.ran`) and the late results `absorb` took (`LateCall`, a point with the
+  job's `run_ms`) under the continuation's span; the tool metrics count each call once, at its answer. The gate's parts are
   `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), and `peer.rs` (the web UI's other-uid check at accept).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
