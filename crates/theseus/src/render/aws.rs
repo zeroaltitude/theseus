@@ -120,6 +120,9 @@ fn hands_lines(account: &str, h: &theseus_protocol::AwsHandsStatus, now_ms: u64)
             ""
         }
     )];
+    if let Some(r) = &h.runaway {
+        out.push(format!("aws: {account} RUNAWAY: {r}"));
+    }
     if h.reaper_failures > 0 {
         out.push(format!(
             "aws: {account} WARNING: the hands' TTL reaper failed {} time{} since the start; last: {}",

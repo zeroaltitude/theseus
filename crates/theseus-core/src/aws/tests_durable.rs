@@ -95,6 +95,43 @@ pub(super) struct State {
     unprocessed: u32,
     /// Requests of this operation are refused (403) while set.
     pub(super) refuse: Option<String>,
+    /// Each session's inline policy, by the access key it was given.
+    policies: BTreeMap<String, Option<Value>>,
+}
+
+/// Whether a session's inline policy lets it know a key is missing, as S3
+/// decides it: `s3:ListBucket` on the bucket under no condition that needs
+/// `s3:prefix`, which a `GetObject` does not carry (a `StringLike` on it
+/// fails without it; `StringLikeIfExists` passes). Without it, a missing
+/// key is 403, not 404.
+fn lists_without_prefix(policy: &Value) -> bool {
+    let actions = |st: &Value| match &st["Action"] {
+        Value::String(a) => vec![a.clone()],
+        Value::Array(a) => a
+            .iter()
+            .filter_map(Value::as_str)
+            .map(String::from)
+            .collect(),
+        _ => Vec::new(),
+    };
+    policy["Statement"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|st| {
+            st["Effect"] == "Allow"
+                && actions(st)
+                    .iter()
+                    .any(|a| a == "s3:ListBucket" || a == "s3:*")
+                && st["Condition"].as_object().is_none_or(|ops| {
+                    ops.iter().all(|(op, keys)| {
+                        op.ends_with("IfExists")
+                            || keys
+                                .as_object()
+                                .is_none_or(|k| !k.contains_key("s3:prefix"))
+                    })
+                })
+        })
 }
 
 type Reply = (u16, Vec<(String, String)>, Vec<u8>);
@@ -253,17 +290,23 @@ fn answer(s: &mut State, r: &Req, n: usize) -> Reply {
                  <ResponseMetadata><RequestId>req-{n}</RequestId></ResponseMetadata></GetCallerIdentityResponse>"
             ),
         ),
-        "AssumeRole" => xml(
+        "AssumeRole" => {
+            let form = super::tests_c2::form(&String::from_utf8_lossy(&r.body));
+            let policy = form.get("Policy").and_then(|p| serde_json::from_str(p).ok());
+            let key = format!("ASIATEST{n:08}");
+            s.policies.insert(key.clone(), policy);
+            xml(
             n,
             format!(
-                "<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASIATESTEXAMPLE</AccessKeyId>\
+                "<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>{key}</AccessKeyId>\
                  <SecretAccessKey>test-session-secret</SecretAccessKey><SessionToken>test-token</SessionToken>\
                  <Expiration>2099-01-01T00:00:00Z</Expiration></Credentials><AssumedRoleUser>\
                  <Arn>arn:aws:sts::{ACCOUNT}:assumed-role/theseus-owner/theseus-durability</Arn>\
                  <AssumedRoleId>AROATEST:theseus-durability</AssumedRoleId></AssumedRoleUser></AssumeRoleResult>\
                  <ResponseMetadata><RequestId>req-{n}</RequestId></ResponseMetadata></AssumeRoleResponse>"
             ),
-        ),
+        )
+        }
         "PutObject" => {
             if !checked(r) {
                 return s3_error(400, "BadDigest");
@@ -412,7 +455,17 @@ fn answer(s: &mut State, r: &Req, n: usize) -> Reply {
         }
         "GetObject" => {
             let Some((bytes, sha)) = s.objects.get(&r.key()).cloned() else {
-                return s3_error(404, "NoSuchKey");
+                let key = r
+                    .header("authorization")
+                    .and_then(|a| a.split("Credential=").nth(1))
+                    .and_then(|c| c.split('/').next())
+                    .unwrap_or_default();
+                // A session's inline policy decides; the key's own, the
+                // fake's whole account, may list.
+                return match s.policies.get(key) {
+                    Some(Some(p)) if !lists_without_prefix(p) => s3_error(403, "AccessDenied"),
+                    _ => s3_error(404, "NoSuchKey"),
+                };
             };
             let mut headers = vec![
                 ("x-amz-request-id".into(), format!("req-{n}")),
@@ -483,6 +536,7 @@ pub(super) fn layer(fake: &Fake) -> Arc<Aws> {
                 monthly_budget_usd: None,
                 daily_budget_usd: None,
                 hourly_alert_usd: crate::config::default_hourly_alert_usd(),
+                runaway_factor: crate::config::default_runaway_factor(),
                 durability: true,
                 hands_network: None,
             },
@@ -985,6 +1039,7 @@ fn the_tender_session_is_narrowed_to_its_prefix_and_its_rows() {
         monthly_budget_usd: None,
         daily_budget_usd: None,
         hourly_alert_usd: crate::config::default_hourly_alert_usd(),
+        runaway_factor: crate::config::default_runaway_factor(),
         durability: true,
         hands_network: None,
     };

@@ -11,8 +11,9 @@
 //!   Past `hourly_alert_usd` (default $1) it alerts once that hour: an
 //!   `aws.hour.alert` row, a notice where approvals go, and health. The mark
 //!   that it fired is a META record, `aws.hour.alerted.<account>`, so a
-//!   restart in the same hour does not alert again. It alerts only: whether
-//!   it should also refuse is the owner's open question.
+//!   restart in the same hour does not alert again. It alerts only; the one
+//!   refusal is runaway mode's, at `runaway_factor` times a line
+//!   ([`super::runaway`]), which each pass also enters when it holds.
 //! - **The reaper's failures** (`aws.reaper.failed`): the TTL reaper's
 //!   failed invocations come home on the completion queue (its Lambda's
 //!   failure destination); each is a row and a count here, never left for
@@ -39,7 +40,7 @@ pub const ALERTED: &str = "aws.hour.alerted.";
 
 /// How long a group stays in the meter's view after it began: a hand runs
 /// at most 12 hours.
-const LOOK_BACK_MS: u64 = 13 * HOUR_MS;
+pub const LOOK_BACK_MS: u64 = 13 * HOUR_MS;
 
 /// The hour's alert: its row, and its line.
 pub struct HourAlert<'a> {
@@ -114,9 +115,12 @@ pub fn hour_of(now_ms: u64) -> u64 {
 
 /// Every group in the meter's view: open, or begun within its look-back.
 fn groups(core: &Core, now_ms: u64) -> Result<Vec<GroupRecord>> {
-    let from = now_ms.saturating_sub(LOOK_BACK_MS);
-    Ok(core
-        .store
+    groups_from(&core.store, now_ms.saturating_sub(LOOK_BACK_MS))
+}
+
+/// Every group open, or begun at `from` or later.
+pub fn groups_from(store: &crate::store::Store, from: u64) -> Result<Vec<GroupRecord>> {
+    Ok(store
         .inner()
         .latest_with_prefix(kinds::META, PREFIX)?
         .into_iter()
@@ -201,6 +205,7 @@ pub fn refresh(core: &Core, reaper: &Reaper) -> Result<()> {
             alerted = Some(hour);
         }
         st.alerted_hour_unix_ms = alerted.filter(|h| *h == hour);
+        super::runaway::into_health(core, account, now, &mut st);
         let (n, last) = reaper.of(&account.id);
         st.reaper_failures = n;
         st.reaper_last_failure = last;

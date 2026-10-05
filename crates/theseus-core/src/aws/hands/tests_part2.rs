@@ -860,3 +860,228 @@ async fn a_group_is_read_as_cells_and_one_line_that_changes_in_place() {
     assert_eq!(done.groups[0].cells, ["succeeded"; 3]);
     assert_eq!(done.groups[0].settled.as_deref(), Some("met"));
 }
+
+// ------------------------------------------------------------ runaway mode
+
+/// A group of two Lambda hands: its worst case, from a rig of its own.
+async fn two_hands_reserve() -> u64 {
+    let r = rig(calls(json!({"argv": ["true"], "count": 2})));
+    turn(&r.core, "run two").await;
+    let g = record(&r.core, &group_of(&r.core));
+    2 * (g.hand_max_usd * 1e6).ceil() as u64
+}
+
+/// A rig whose hour's line puts a two-hand group at `times` the line,
+/// scripted to call it `calls_n` times, one turn each.
+fn runaway_rig(group: u64, times: f64, calls_n: usize) -> Rig {
+    use crate::provider::Scripted;
+    let input = json!({"argv": ["true"], "count": 2});
+    let mut script = Vec::new();
+    for i in 0..calls_n {
+        script.push(Scripted::tools(
+            "",
+            &[(&format!("t{i}"), "aws_hands_run", input.clone())],
+        ));
+        script.push(Scripted::text("Noted."));
+    }
+    rig_with(script, move |c| {
+        for a in c.aws.accounts.values_mut() {
+            a.hourly_alert_usd = (group as f64 / times).floor() / 1e6;
+        }
+    })
+}
+
+/// The call's result text in the session of `res`.
+fn result_text(core: &crate::Core, res: &theseus_protocol::TurnSubmitResult) -> String {
+    core.store
+        .session_nodes(&res.session_id)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            crate::node::Body::ToolResult { tool, content, .. } if tool == "aws.hands.run" => {
+                Some(content)
+            }
+            _ => None,
+        })
+        .expect("the call's result")
+}
+
+fn notices(core: &crate::Core) -> Vec<String> {
+    core.outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "notice")
+        .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(String::from))
+        .collect()
+}
+
+/// At 9.9 times the hour's line (the group's own worst case counted), a
+/// group runs; the next, at 19.8, is refused with its words, and the
+/// account enters runaway mode with one row and one notice; a third is
+/// refused and says nothing more. A cancel still runs, the running group
+/// settles, health's hands line says it, and the next hour (a later clock)
+/// admits a group again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn runaway_mode_refuses_at_ten_times_the_hours_line() {
+    let group = two_hands_reserve().await;
+    let r = runaway_rig(group, 9.9, 3);
+    let first = turn(&r.core, "run two").await;
+    let g = group_of(&r.core);
+    assert!(rows(&r.core, "aws.runaway").is_empty(), "9.9 times runs");
+    let second = turn(&r.core, "run two more").await;
+    let refused = result_text(&r.core, &second);
+    for words in [
+        "Not run: AWS runaway mode",
+        "this hour",
+        "runaway_factor 10",
+        "hourly_alert_usd",
+        "turns, at",
+        "hourly_alert_usd or runaway_factor",
+        "restarts the daemon",
+    ] {
+        assert!(refused.contains(words), "{words:?} in {refused}");
+    }
+    let row = rows(&r.core, "aws.runaway");
+    assert_eq!(row.len(), 1);
+    assert_eq!(row[0]["line"], "hour");
+    assert_eq!(row[0]["factor"], 10.0);
+    let n = notices(&r.core);
+    assert_eq!(
+        n.iter().filter(|t| t.contains("runaway mode")).count(),
+        1,
+        "{n:?}"
+    );
+    let third = turn(&r.core, "and two more").await;
+    assert!(result_text(&r.core, &third).contains("Not run: AWS runaway mode"));
+    assert_eq!(rows(&r.core, "aws.runaway").len(), 1, "one row");
+    assert_eq!(
+        notices(&r.core)
+            .iter()
+            .filter(|t| t.contains("runaway mode"))
+            .count(),
+        1
+    );
+    // Health's line, at the poller's pass.
+    let aws = r.core.tools.aws.clone().unwrap();
+    let account = aws.account(None).unwrap().clone();
+    r.core.poll_hands_after_serving();
+    until("health's runaway line", || {
+        account.status().hands.is_some_and(|h| h.runaway.is_some())
+    })
+    .await;
+    let h = account.status().hands.unwrap();
+    assert!(h.runaway.unwrap().contains("refused until"));
+    assert!(h.runaway_until_unix_ms.is_some());
+    // The running group finishes and settles.
+    let mut specs = r.state.invoked();
+    specs.sort_by_key(|s| s.index);
+    assert_eq!(specs.len(), 2, "only the first group launched");
+    for s in &specs {
+        r.state.push(signed(s, "succeeded", 0));
+    }
+    until("the group to settle", || {
+        state_of(&r.core, &g) == ActionState::Succeeded
+    })
+    .await;
+    // The next hour admits a group: the mark does not hold, and the hour's
+    // figure starts again.
+    let sink = super::runaway::Sink {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        outbox: &r.core.outbox,
+        rec: r.core.rec(None),
+    };
+    let now = theseus_protocol::now_unix_ms();
+    assert!(sink.admit(&account, group, now).unwrap().is_some());
+    let next = super::watch::hour_of(now) + super::watch::HOUR_MS + 1;
+    assert_eq!(sink.admit(&account, group, next).unwrap(), None);
+    drop(first);
+}
+
+/// Exactly ten times the line refuses the first group, and a cancel in
+/// runaway mode still runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ten_times_refuses_and_a_cancel_still_runs() {
+    let group = two_hands_reserve().await;
+    let r = runaway_rig(group, 10.0, 1);
+    let res = turn(&r.core, "run two").await;
+    assert!(result_text(&r.core, &res).contains("Not run: AWS runaway mode"));
+    assert_eq!(rows(&r.core, "aws.runaway").len(), 1);
+    assert!(r.state.invoked().is_empty(), "nothing launched");
+
+    let r = runaway_rig(group, 9.9, 2);
+    let res = turn(&r.core, "run two").await;
+    let g = group_of(&r.core);
+    let refused = turn(&r.core, "run two more").await;
+    assert!(result_text(&r.core, &refused).contains("Not run: AWS runaway mode"));
+    let stop = r
+        .core
+        .stop_execution(res.execution_id.as_deref().unwrap(), "the CLI")
+        .await
+        .unwrap();
+    assert!(stop.stopped, "a cancel runs in runaway mode");
+    assert!(state_of(&r.core, &g).is_settled());
+}
+
+/// The day's line trips runaway mode the same way, at `runaway_factor`
+/// times `daily_budget_usd` within the local day, and the next day (a later
+/// clock) admits again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_days_line_trips_runaway_mode_the_same_way() {
+    let r = rig_with(vec![], |c| {
+        for a in c.aws.accounts.values_mut() {
+            a.hourly_alert_usd = 100.0;
+            a.daily_budget_usd = Some(1);
+            a.runaway_factor = 2.0;
+        }
+    });
+    let aws = r.core.tools.aws.clone().unwrap();
+    let account = aws.account(None).unwrap().clone();
+    let sink = super::runaway::Sink {
+        kernel: &r.core.kernel,
+        store: &r.core.store,
+        outbox: &r.core.outbox,
+        rec: r.core.rec(None),
+    };
+    let now = theseus_protocol::now_unix_ms();
+    assert_eq!(
+        sink.admit(&account, 1_990_000, now).unwrap(),
+        None,
+        "1.99 times"
+    );
+    let why = sink
+        .admit(&account, 2_000_000, now)
+        .unwrap()
+        .expect("refused");
+    assert!(
+        why.contains("today") && why.contains("daily_budget_usd"),
+        "{why}"
+    );
+    let row = rows(&r.core, "aws.runaway");
+    assert_eq!(row.len(), 1);
+    assert_eq!(row[0]["line"], "day");
+    assert!(
+        sink.admit(&account, 1, now).unwrap().is_some(),
+        "in runaway mode"
+    );
+    let tomorrow = super::runaway::day_of(now) + 25 * super::watch::HOUR_MS;
+    assert_eq!(sink.admit(&account, 1, tomorrow).unwrap(), None);
+    assert_eq!(
+        sink.admit(&account, 0, now).unwrap(),
+        None,
+        "nothing reserved"
+    );
+    // The factor is at least 2, and 10 unless set.
+    let mut cfg = crate::Config::example();
+    cfg.aws = super::tests_hands::account("http://127.0.0.1:9");
+    assert_eq!(
+        cfg.aws.accounts[crate::aws::tests::ACCOUNT].runaway_factor,
+        10.0
+    );
+    cfg.validate().unwrap();
+    for a in cfg.aws.accounts.values_mut() {
+        a.runaway_factor = 1.5;
+    }
+    let e = cfg.validate().unwrap_err().to_string();
+    assert!(e.contains("runaway_factor is 1.5"), "{e}");
+}

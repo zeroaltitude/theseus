@@ -437,7 +437,9 @@ async fn a_corrupted_object_is_refused_by_its_checksum() {
 
 /// A blob a row names that S3 does not hold is said, and the rest is
 /// restored; a segment with no row is a gap, said and not filled: the
-/// restore holds what precedes it.
+/// restore holds what precedes it. The fake answers the missing blob as S3
+/// would the restore's session: 404, since its policy lists without needing
+/// `s3:prefix` (under `StringLike` it is 403, and the restore fails whole).
 #[tokio::test]
 async fn a_missing_blob_and_a_gap_are_said() {
     let fake = Fake::start();
@@ -488,6 +490,12 @@ async fn the_restore_session_only_reads_and_nothing_is_fetched_while_a_daemon_se
     assert_eq!(
         p["Statement"][0]["Resource"],
         format!("arn:aws:s3:::theseus-{ACCOUNT}-us-west-2/durability/theseus-lab/*")
+    );
+    // The list passes without `s3:prefix`, so a missing key is 404 to a
+    // `GetObject` (theseus-mgw.10).
+    assert_eq!(
+        p["Statement"][1]["Condition"],
+        serde_json::json!({"StringLikeIfExists": {"s3:prefix": ["durability/theseus-lab/*"]}})
     );
     assert_eq!(
         p["Statement"][2]["Condition"]["ForAllValues:StringLike"]["dynamodb:LeadingKeys"],

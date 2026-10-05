@@ -20,7 +20,8 @@ pub(crate) mod memory;
 pub(crate) mod routing;
 mod sparse;
 pub use aws::{
-    default_hourly_alert_usd, AwsAccountConfig, AwsConfig, AwsCredentialNames, HandsNetwork,
+    default_hourly_alert_usd, default_runaway_factor, AwsAccountConfig, AwsConfig,
+    AwsCredentialNames, HandsNetwork,
 };
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 // Where the config comes from when nothing names one (theseus-5aqz).

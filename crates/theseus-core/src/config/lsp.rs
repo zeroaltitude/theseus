@@ -15,7 +15,9 @@
 //! L3 (theseus-n88g.9): with `edit_diagnostics` (on), an edit's result
 //! carries its files' errors, waiting up to `edit_wait_ms` for them, where
 //! a server for the file's root is up; a server whose `start_on_edit` is on
-//! (off for every preset: the owner's call) is started for an edit too.
+//! is started for an edit too: on by default for ty, tsgo, and
+//! rust-analyzer ([`crate::lsp::START_ON_EDIT`], theseus-ext.12), off for
+//! the other presets and the operator's own servers unless set.
 
 use std::collections::BTreeMap;
 
@@ -65,9 +67,10 @@ pub struct LspServerConfig {
     pub enabled: bool,
     /// An edit of one of its files starts it, as a call would, when it is
     /// not up: judged at `proc.run`'s posture as any start is. Off: an edit
-    /// carries diagnostics only from a server already up.
-    #[serde(default)]
-    pub start_on_edit: bool,
+    /// carries diagnostics only from a server already up. Unset: on for the
+    /// presets [`crate::lsp::START_ON_EDIT`] names, off for the rest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_on_edit: Option<bool>,
 }
 
 fn yes() -> bool {
@@ -82,7 +85,7 @@ impl Default for LspServerConfig {
             roots: None,
             settings: None,
             enabled: true,
-            start_on_edit: false,
+            start_on_edit: None,
         }
     }
 }
@@ -175,7 +178,8 @@ pub(crate) fn the_templates_lsp_section(l: &LspConfig) {
     assert!(l.edit_diagnostics);
     assert_eq!(l.edit_wait_ms, 1500);
     assert!(l.servers["pyright"].settings.is_some());
-    assert!(l.servers["ty"].start_on_edit);
+    assert_eq!(l.servers["pyright"].start_on_edit, Some(true));
+    assert_eq!(l.servers["rust-analyzer"].start_on_edit, Some(false));
     assert_eq!(
         l.servers["some-server"].extensions.as_deref(),
         Some(&["some".to_string()][..])
@@ -202,12 +206,25 @@ mod tests {
         assert_eq!((d.idle_stop_mins, d.request_timeout_secs), (10.0, 30));
         assert!(d.edit_diagnostics);
         assert_eq!(d.edit_wait_ms, 1500);
-        assert!(crate::lsp::PRESETS.iter().all(|p| !d
-            .servers
-            .get(*p)
-            .cloned()
-            .unwrap_or_default()
-            .start_on_edit));
+        // Unset: on for ty, tsgo, and rust-analyzer, off for the rest.
+        let starts: Vec<(String, bool)> = crate::lsp::Spec::all(&d)
+            .into_iter()
+            .map(|s| (s.name, s.start_on_edit))
+            .collect();
+        let on: Vec<&str> = starts
+            .iter()
+            .filter(|(_, on)| *on)
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert_eq!(on, ["rust-analyzer", "ty", "tsgo"], "{starts:?}");
+        assert_eq!(starts.len(), crate::lsp::PRESETS.len());
+        let off =
+            parse("[lsp]\nenabled = true\n[lsp.servers.rust-analyzer]\nstart_on_edit = false\n")
+                .unwrap()
+                .lsp;
+        assert!(crate::lsp::Spec::all(&off)
+            .iter()
+            .all(|s| s.start_on_edit == (s.name == "ty" || s.name == "tsgo")));
         let cfg = parse("[lsp]\nenabled = true\n").unwrap();
         cfg.validate().unwrap();
         assert!(parse("[lsp]\nidle_stop = 1\n").is_err());

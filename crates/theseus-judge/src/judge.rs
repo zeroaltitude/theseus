@@ -524,7 +524,7 @@ fn lock(m: &Mutex<Breaker>) -> std::sync::MutexGuard<'_, Breaker> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn part(tag: usize, a: &Ask) -> Part {
+pub(crate) fn part(tag: usize, a: &Ask) -> Part {
     Part {
         tag,
         pack: a.pack.clone(),

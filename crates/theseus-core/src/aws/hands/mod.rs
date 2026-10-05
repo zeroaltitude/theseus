@@ -22,6 +22,7 @@
 //!   leaves a group, read once an hour; a bigger group launches in waves.
 //! - [`watch`]: health's hands block, the hour's meter and its alert, and
 //!   the TTL reaper's failures.
+//! - [`runaway`]: runaway-train mode, the one refusal the meters make.
 //! - [`poller`]: the completion queue's long poll, after serving and only
 //!   while a hand is outstanding; each message checked, then settled on the
 //!   kernel's path, or quarantined.
@@ -44,6 +45,7 @@ pub mod network;
 pub mod overdue;
 pub mod poller;
 pub mod quota;
+pub mod runaway;
 pub mod tool;
 pub mod watch;
 

@@ -22,13 +22,21 @@
 //!   memberships, for the `still_member` Nouls. With more than 50 topics,
 //!   the session's own come first, then those with a description, then the
 //!   rest, each part by name; the judgment's context counts what was left
-//!   out. No topic declared, no judgment.
+//!   out. With no topic declared the point still judges (theseus-ext.12):
+//!   the Choice is `new_topic` and `none`, so a session can propose the
+//!   ontology's first topic, and the mark moves as for any judgment.
+//! - **What it reads** (theseus-gky0). The records after the mark. With
+//!   fewer than ten human messages since it, the input reaches back to the
+//!   session's start for the last ten, but only when a topic is declared:
+//!   with none, it takes the human messages since the mark alone, so a
+//!   session with no topic never rereads its history.
 //! - **No mark in a trace.** The decision runs after the turn's last frame,
 //!   outside every turn, so it marks no trace (the convention's "a dispatch
 //!   outside a turn needs no mark"); the id is still minted here, and the
 //!   mark names it.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use serde::{Deserialize, Serialize};
@@ -98,6 +106,9 @@ impl Trigger {
 pub struct Point {
     core: OnceLock<Weak<Core>>,
     deciding: Mutex<HashSet<String>>,
+    /// The session records the decisions have read, all told: what the
+    /// tests count to hold a decision to the records after its mark.
+    read: AtomicU64,
 }
 
 /// A human message: one an operator wrote. A task's brief and report, a
@@ -243,6 +254,12 @@ impl JudgeService {
         self.categorize.core.get()?.upgrade()
     }
 
+    /// The session records `categorize.v1`'s decisions have read since the
+    /// start.
+    pub fn categorize_records_read(&self) -> u64 {
+        self.categorize.read.load(Ordering::Relaxed)
+    }
+
     /// A conversation's turn that the baseline ended with no tool calls:
     /// whether `categorize.v1` judges it is decided in a task of its own.
     /// Returns at once, whatever Jev does.
@@ -287,16 +304,24 @@ impl JudgeService {
         }
         let key = format!("{MARK_PREFIX}{sid}");
         let mark: Option<Mark> = self.store.get_meta(&key).ok().flatten();
-        let after = nodes_after(&self.store, sid, mark.as_ref().map_or(0, |m| m.through))?;
+        let (after, read) = nodes_after(&self.store, sid, mark.as_ref().map_or(0, |m| m.through))?;
+        self.categorize.read.fetch_add(read, Ordering::Relaxed);
         let trigger = due(&after, mark.as_ref())?;
         let o = match core.runner.ontology.held() {
             Some(o) => o,
             None => core.runner.ontology.snapshot(&self.store).ok()?,
         };
         let human_after = after.iter().filter(|(_, n)| is_human(n)).count();
-        let nodes = match human_after >= RECENT {
+        let declared = !candidates(&o, sid).0.is_empty();
+        let nodes = match human_after >= RECENT || !declared {
             true => after,
-            false => self.store.session_nodes(sid).ok()?,
+            false => {
+                let all = self.store.session_nodes(sid).ok()?;
+                self.categorize
+                    .read
+                    .fetch_add(all.len() as u64, Ordering::Relaxed);
+                all
+            }
         };
         let (newest, newest_ms) = nodes
             .iter()
@@ -311,9 +336,6 @@ impl JudgeService {
             .and_then(|s| s.title)
             .unwrap_or_default();
         let (input, left_out) = input(&title, &nodes, &o, sid);
-        if input.candidates.is_empty() {
-            return None;
-        }
         let candidates = input.candidates.len();
         let scrub = ScrubWith(self.scrubber.clone());
         let state = theseus_judge::prepare(&pack, &Input::Categorize(input), &scrub).ok()?;
@@ -359,23 +381,23 @@ impl JudgeService {
     }
 }
 
-/// The session's nodes after `position`, oldest first.
+/// The session's nodes after `position`, oldest first, and how many
+/// records were read for them.
 fn nodes_after(
     store: &crate::store::Store,
     session: &str,
     position: u64,
-) -> Option<Vec<(u64, Node)>> {
+) -> Option<(Vec<(u64, Node)>, u64)> {
     let records = store
         .scope_after(session, position)
         .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the session's records were not read"))
         .ok()?;
-    Some(
-        records
-            .iter()
-            .filter(|r| r.kind == kinds::NODE)
-            .filter_map(|r| Some((r.position, r.decode::<Node>().ok()?)))
-            .collect(),
-    )
+    let nodes = records
+        .iter()
+        .filter(|r| r.kind == kinds::NODE)
+        .filter_map(|r| Some((r.position, r.decode::<Node>().ok()?)))
+        .collect();
+    Some((nodes, records.len() as u64))
 }
 
 /// One `categorize.v1` judgment, in its own task. The service is held only

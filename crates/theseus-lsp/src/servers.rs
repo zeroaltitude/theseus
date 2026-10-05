@@ -123,8 +123,13 @@ pub fn rust_analyzer() -> Preset {
         name: "rust-analyzer",
         argv: argv(&["rust-analyzer"]),
         languages: &["rust"],
-        initialization_options: Value::Null,
-        settings: Value::Null,
+        // Its checks build in `target/rust-analyzer`, never taking cargo's
+        // lock on the agent's own build directory (theseus-ext.12). Its
+        // `workspace/configuration` answer says the same, since that answer
+        // replaces what `initialize` gave: settings of the operator's own
+        // replace these, so they keep `cargo.targetDir` too.
+        initialization_options: json!({ "cargo": { "targetDir": true } }),
+        settings: json!({ "rust-analyzer": { "cargo": { "targetDir": true } } }),
         expects_server_status: true,
         // With a workspace loaded it takes seconds to exit: 2.6 s on this
         // repository's (4.2 GB), so the default 1 s grace killed it.

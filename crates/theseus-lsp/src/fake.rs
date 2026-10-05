@@ -88,6 +88,8 @@ pub struct Seen {
     /// The client's answers to the fake's requests, by method.
     pub answers: BTreeMap<String, Value>,
     pub initialized: bool,
+    /// `initialize`'s `initializationOptions`.
+    pub initialization_options: Value,
     pub shutdown: bool,
     pub exit: bool,
 }
@@ -299,6 +301,10 @@ impl Fake {
     }
 
     fn initialize(&self, params: &Value) -> Value {
+        self.lock().seen.initialization_options = params
+            .get("initializationOptions")
+            .cloned()
+            .unwrap_or(Value::Null);
         self.lock().root = params
             .get("rootUri")
             .and_then(Value::as_str)

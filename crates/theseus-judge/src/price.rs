@@ -32,6 +32,22 @@ pub fn output_allowance(q: &crate::client::Question) -> u64 {
     OUTPUT_PER_QUESTION + OUTPUT_PER_OPTION * options as u64
 }
 
+/// Input tokens a reservation adds for each option of a Choice, beyond its
+/// bytes (theseus-q0rn): Jev bills a Choice's options above their text. A
+/// live `categorize.v1` with 50 topics (52 options) billed 1,798 input
+/// tokens against about 1,400 reserved by bytes alone; with 4 options, 688
+/// against about 780. 10 a option covers the first with room and moves the
+/// second by 40 tokens.
+pub const INPUT_PER_OPTION: u64 = 10;
+
+/// What a reservation adds to one question's input ([`INPUT_PER_OPTION`]).
+pub fn input_allowance(q: &crate::client::Question) -> u64 {
+    match q {
+        crate::client::Question::Choice { options, .. } => INPUT_PER_OPTION * options.len() as u64,
+        _ => 0,
+    }
+}
+
 /// Input tokens Jev bills on every call beyond the request itself. Fitted
 /// on the lane's live calls (2026-09-30): about 260 tokens a call, once per
 /// call however many questions it carries; reserved with room to spare.
@@ -119,17 +135,31 @@ impl JevPrice {
     /// and a Choice's output grows with its options; this covers every live
     /// call the lane made (see the lane report).
     pub fn reserve_micros(&self, request_bytes: usize, output_tokens: u64) -> Micros {
-        let input = CALL_OVERHEAD_TOKENS + (request_bytes as u64).div_ceil(RESERVE_BYTES_PER_TOKEN);
+        self.reserve_tokens(request_bytes, 0, output_tokens)
+    }
+
+    /// [`JevPrice::reserve_micros`], with `input_tokens` more input.
+    pub fn reserve_tokens(
+        &self,
+        request_bytes: usize,
+        input_tokens: u64,
+        output_tokens: u64,
+    ) -> Micros {
+        let input = CALL_OVERHEAD_TOKENS
+            + input_tokens
+            + (request_bytes as u64).div_ceil(RESERVE_BYTES_PER_TOKEN);
         micros_of(&[
             (input, self.input_per_mtok),
             (output_tokens, self.output_per_mtok),
         ])
     }
 
-    /// What a request reserves (see [`JevPrice::reserve_micros`]).
+    /// What a request reserves (see [`JevPrice::reserve_micros`]), with each
+    /// Choice's options' input ([`input_allowance`]).
     pub fn reserve_request(&self, req: &crate::client::Request) -> Micros {
         let output = req.questions.iter().map(|(_, q)| output_allowance(q)).sum();
-        self.reserve_micros(req.body().len(), output)
+        let input = req.questions.iter().map(|(_, q)| input_allowance(q)).sum();
+        self.reserve_tokens(req.body().len(), input, output)
     }
 }
 

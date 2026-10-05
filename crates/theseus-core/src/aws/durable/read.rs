@@ -4,9 +4,9 @@
 //!
 //! The session is the owner role narrowed by an inline policy that only
 //! reads ([`policy`]): `s3:GetObject` under the deployment's prefix,
-//! `s3:ListBucket` on that prefix alone (so a missing object answers 404,
-//! not 403), and `dynamodb:Query` of rows whose partition key starts with
-//! the deployment. Its name is its own, so CloudTrail names the restore.
+//! `s3:ListBucket` (so a missing object answers 404, not 403), and
+//! `dynamodb:Query` of rows whose partition key starts with the deployment.
+//! Its name is its own, so CloudTrail names the restore.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -40,12 +40,19 @@ pub fn policy(account: &str, region: &str, deployment: &str) -> Value {
                 "Action": "s3:GetObject",
                 "Resource": format!("arn:aws:s3:::{b}/{p}*"),
             },
+            // S3 answers a missing key 404 only to a principal that may
+            // list the bucket, judged with the `GetObject`'s own context,
+            // which has no `s3:prefix`: under `StringLike` that is 403, and
+            // the restore could not tell a missing blob from a refusal
+            // (theseus-mgw.10). `IfExists` passes a request without the key,
+            // so a list with no prefix passes too: the session may list the
+            // bucket's key names, never read an object outside its prefix.
             {
                 "Sid": "ListItsPrefix",
                 "Effect": "Allow",
                 "Action": "s3:ListBucket",
                 "Resource": format!("arn:aws:s3:::{b}"),
-                "Condition": {"StringLike": {"s3:prefix": [format!("{p}*")]}},
+                "Condition": {"StringLikeIfExists": {"s3:prefix": [format!("{p}*")]}},
             },
             {
                 "Sid": "ItsIndexRows",

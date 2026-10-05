@@ -19,8 +19,10 @@
 //!   pushed for other files during the wait. A file the bound beat is said
 //!   to be pending: its wait goes on, and what it gets rides on the
 //!   session's next edit or `lsp.*` result ("Diagnostics that arrived since
-//!   an earlier edit:"). Pending waits live in memory, best effort: a
-//!   restart loses them, and a later edit of the file supersedes its own.
+//!   an earlier edit:"), except an `lsp.diagnostics` result that lists the
+//!   file itself (theseus-ext.12), which would say it twice. Pending waits
+//!   live in memory, best effort: a restart loses them, and a later edit of
+//!   the file supersedes its own.
 //! - **The record**: the block rides in the result node, in its
 //!   completion's frame, so no frame is added; the result's `meta.lsp` says
 //!   what was attached, for L5 to count from the record.
@@ -212,7 +214,19 @@ impl Board {
             true => written(tool, meta, ctx),
             false => Vec::new(),
         };
-        let arrived = self.arrived(session, &paths).await;
+        // An `lsp.diagnostics` lists its files as they are now: what
+        // arrived for them since is left out, not said twice.
+        let listed: Vec<PathBuf> = match tool {
+            "lsp.diagnostics" => meta["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(PathBuf::from)
+                .collect(),
+            _ => Vec::new(),
+        };
+        let arrived = self.arrived(session, &paths, &listed).await;
         let now = match edit {
             true => self.after_edit(session, tool_use_id, &paths).await,
             false => None,
@@ -232,8 +246,15 @@ impl Board {
     }
 
     /// What the session's pending waits got since, each taken once; a wait
-    /// for one of `superseded` (files written again now) is dropped.
-    async fn arrived(&self, session: &str, superseded: &[PathBuf]) -> Option<Attached> {
+    /// for one of `superseded` (files written again now) is dropped, and
+    /// one done for a file of `listed` (a result that lists it now) is taken
+    /// unsaid.
+    async fn arrived(
+        &self,
+        session: &str,
+        superseded: &[PathBuf],
+        listed: &[PathBuf],
+    ) -> Option<Attached> {
         let done: Vec<Pending> = {
             let mut all = lock(&self.pending);
             let list = all.get_mut(session)?;
@@ -253,6 +274,9 @@ impl Board {
         };
         let mut files = Vec::new();
         for p in done {
+            if listed.contains(&p.path) {
+                continue;
+            }
             let got = match p.wait.await {
                 Ok(None) => continue,
                 Ok(Some(Ok(d))) => Got::Diagnostics(d),

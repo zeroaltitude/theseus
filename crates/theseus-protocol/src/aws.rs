@@ -208,6 +208,14 @@ pub struct AwsHandsStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub alerted_hour_unix_ms: Option<u64>,
+    /// Runaway mode (theseus-ext.12), while it holds: until when, and in
+    /// words. New AWS actions that reserve are refused until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub runaway_until_unix_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub runaway: Option<String>,
     /// The reaper's failure records taken off the queue since the start, and
     /// the last one's words.
     pub reaper_failures: u32,

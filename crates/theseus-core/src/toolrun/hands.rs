@@ -121,6 +121,18 @@ impl ToolRuntime {
         if let Some(why) = over(reserve.saturating_mul(n as u64))? {
             return fail(&why);
         }
+        // Runaway mode (theseus-ext.12): the meters' figure, current now,
+        // with this group's worst case added, against runaway_factor times
+        // the account's lines.
+        let sink = crate::aws::hands::runaway::Sink {
+            kernel: tc.kernel,
+            store: tc.store,
+            outbox: tc.outbox,
+            rec: tc.rec(),
+        };
+        if let Some(why) = sink.admit(&account, reserve.saturating_mul(n as u64), now)? {
+            return fail(&why);
+        }
         let rec = GroupRecord {
             v: 1,
             group: correlation_id.into(),

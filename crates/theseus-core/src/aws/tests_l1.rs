@@ -100,6 +100,7 @@ fn rig(script: Vec<Scripted>, egress: &[&str]) -> Rig {
             monthly_budget_usd: None,
             daily_budget_usd: None,
             hourly_alert_usd: crate::config::default_hourly_alert_usd(),
+            runaway_factor: crate::config::default_runaway_factor(),
             durability: false,
             hands_network: None,
         },
