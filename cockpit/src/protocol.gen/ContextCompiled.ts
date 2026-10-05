@@ -37,7 +37,20 @@ repairs: Array<string>,
 /**
  * Tools offered.
  */
-tools: number, nodes_scanned: number, context_files?: Array<ContextFileRef>, 
+tools: number, nodes_scanned: number, 
+/**
+ * Of `nodes_scanned`, those this compile read past their stub (M6 step
+ * 33): the nodes its request renders that the turn had not read yet,
+ * each taken from the heat cache or decoded from its record (health's
+ * `store.node_cache` counts which). Absent in rows before it, and when
+ * it read none.
+ */
+decoded?: number, 
+/**
+ * Of `nodes_scanned`, those left stubs, never decoded: before a ring's
+ * cut or a compaction's floor (step 33).
+ */
+stubs?: number, context_files?: Array<ContextFileRef>, 
 /**
  * The persona in play (theseus-c48).
  */

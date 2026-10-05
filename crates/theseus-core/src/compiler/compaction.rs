@@ -19,7 +19,6 @@
 //!   appends to its bytes.
 
 use std::borrow::Cow;
-use std::sync::Arc;
 
 use theseus_protocol::memory::BudgetDrop;
 
@@ -28,7 +27,8 @@ use super::{
     Compiled, RequestSpec,
 };
 use crate::catalog::TokenRates;
-use crate::node::{Body, Node};
+use crate::node::Node;
+use crate::stub::{Kind, Shaped, Stub};
 
 /// The strategy of a compaction's compilation.
 pub const STRATEGY: &str = "compaction";
@@ -52,23 +52,23 @@ pub fn rendered(header: &str, text: &str) -> String {
     format!("{header}\n{text}")
 }
 
-pub(crate) fn is_summary(n: &Node) -> bool {
-    matches!(n.body, Body::Summary { .. })
+pub(crate) fn is_summary(n: &(impl Shaped + ?Sized)) -> bool {
+    n.kind() == Kind::Summary
 }
 
 /// The session's latest summary, with its position, and the position of
-/// the last node of its range.
-pub fn floor(nodes: &[(u64, Arc<Node>)]) -> Option<(&(u64, Arc<Node>), u64)> {
-    nodes.iter().rev().find_map(|e| match &e.1.body {
-        Body::Summary { last, .. } => Some((e, *last)),
-        _ => None,
-    })
+/// the last node of its range: read from the stubs, so it decodes nothing.
+pub fn floor(nodes: &[(u64, Stub)]) -> Option<(&(u64, Stub), u64)> {
+    nodes
+        .iter()
+        .rev()
+        .find_map(|e| e.1.summary_last.map(|last| (e, last)))
 }
 
 /// The nodes a recompile selects from, in position order: the latest
 /// summary (rendered first all the same), and every renderable node after
 /// its range but other summaries. With no summary, every renderable node.
-pub(super) fn visible(nodes: &[(u64, Arc<Node>)]) -> Vec<&(u64, Arc<Node>)> {
+pub(super) fn visible(nodes: &[(u64, Stub)]) -> Vec<&(u64, Stub)> {
     let floor = floor(nodes);
     let after = floor.map_or(0, |(_, last)| last);
     let id = floor.map(|(e, _)| e.1.id.as_str());
@@ -92,7 +92,7 @@ pub(super) fn summaries_first<'n>(prefix: Vec<&'n Node>, recall: Option<&str>) -
     let (mut first, rest): (Vec<&Node>, Vec<&Node>) = prefix
         .into_iter()
         .partition(|n| Some(n.id.as_str()) == recall);
-    let (summaries, rest): (Vec<&Node>, Vec<&Node>) = rest.into_iter().partition(|n| is_summary(n));
+    let (summaries, rest): (Vec<&Node>, Vec<&Node>) = rest.into_iter().partition(is_summary);
     first.extend(summaries);
     first.extend(rest);
     first
@@ -170,13 +170,14 @@ pub fn fits(c: &Compiled) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node::Body;
 
-    fn user(text: &str) -> Arc<Node> {
-        Arc::new(Node::user("ses_1", Some("turn_1"), "cli", text))
+    fn user(text: &str) -> Stub {
+        Node::user("ses_1", Some("turn_1"), "cli", text).into()
     }
 
-    fn summary(first: u64, last: u64) -> Arc<Node> {
-        Arc::new(Node::summary(
+    fn summary(first: u64, last: u64) -> Stub {
+        Stub::from(Node::summary(
             "ses_1",
             "turn_9",
             Body::Summary {
@@ -209,7 +210,7 @@ mod tests {
     /// then what came after its range, never an older summary.
     #[test]
     fn the_latest_summary_is_the_floor() {
-        let nodes: Vec<(u64, Arc<Node>)> = vec![
+        let nodes: Vec<(u64, crate::stub::Stub)> = vec![
             (1, user("a")),
             (2, user("b")),
             (3, user("c")),
@@ -220,7 +221,7 @@ mod tests {
         ];
         let seen: Vec<u64> = visible(&nodes).iter().map(|(p, _)| *p).collect();
         assert_eq!(seen, vec![5, 6, 7]);
-        let none: Vec<(u64, Arc<Node>)> = vec![(1, user("a")), (2, user("b"))];
+        let none: Vec<(u64, crate::stub::Stub)> = vec![(1, user("a")), (2, user("b"))];
         assert_eq!(visible(&none).len(), 2);
         // In the prefix, a summary renders first whatever its position.
         let ordered = summaries_first(vec![&*nodes[4].1, &*nodes[5].1, &*nodes[6].1], None);

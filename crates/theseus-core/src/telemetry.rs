@@ -178,6 +178,15 @@ impl Telemetry {
         }
     }
 
+    /// The heat cache of decoded nodes (step 33), read as a turn ends.
+    pub fn record_node_cache(&self, h: &theseus_protocol::NodeCacheHealth) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .node_cache(h);
+    }
+
     /// A failed turn: its metrics now, and its partial trace, with error
     /// status, to the sender.
     pub fn record_failure(&self, f: &FailedTurn<'_>) {

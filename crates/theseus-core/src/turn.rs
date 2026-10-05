@@ -2060,7 +2060,7 @@ impl TurnRunner {
         let last = nodes
             .iter()
             .rev()
-            .find(|(_, n)| !matches!(n.body, Body::ToolCall { .. }));
+            .find(|(_, n)| n.kind != crate::stub::Kind::ToolCall);
         // Results the model has not read are its next input (theseus-kol). A
         // continuation that finds them was woken to have them read: the turn
         // that wrote them failed or faulted before its model call returned

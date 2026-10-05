@@ -11,6 +11,7 @@ impl TurnRunner {
     /// The images the provider refused in the session render as their line;
     /// `strip` recompiles without the prefix's thinking (theseus-0s4).
     #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) async fn compile_step(
         &self,
         t: &mut Turn<'_>,
@@ -29,6 +30,7 @@ impl TurnRunner {
             None => None,
         };
         let (nodes, sources) = self.recall_view(t, nodes);
+        let read_before = crate::stub::read(&nodes);
         let assembled = t.recall.assembled_id().map(str::to_string);
         let input = CompileInput {
             session_id: sid,
@@ -82,6 +84,8 @@ impl TurnRunner {
             repairs: compiled.repairs.clone(),
             tools: spec.tools.len() as u64,
             nodes_scanned: nodes.len() as u64,
+            decoded: crate::stub::read(&nodes) - read_before,
+            stubs: nodes.len() as u64 - crate::stub::read(&nodes),
             context_files: spec.context_files.clone(),
             persona: spec.persona.clone(),
             // How the compiler sized the request (theseus-f5hf).

@@ -227,6 +227,120 @@ fn parked_session(k: u64) -> Result<(String, Vec<NewRecord>)> {
     ))
 }
 
+/// A session's nodes a frame of `long_session` holds.
+const NODES_PER_FRAME: u64 = 200;
+
+/// One long session (step 33's bench row, theseus-6fn.13): `nodes` nodes of
+/// exchanges in which the model reads a file of `result_bytes` and answers,
+/// five nodes each (the question, the call, its node, the result, the
+/// answer), parked waiting for input as one turn of it would leave it. Its
+/// id, and what was written.
+pub fn long_session(dir: &Path, nodes: u64, result_bytes: usize) -> Result<(String, Generated)> {
+    let t0 = Instant::now();
+    let store = Store::open(dir)?;
+    let (sid, mut parked) = parked_session(0)?;
+    // The parked session's own two nodes give way to the long run.
+    parked.retain(|r| r.kind != kinds::NODE);
+    let (mut records, mut frames) = (parked.len() as u64, 1u64);
+    store.append(&parked)?;
+    let mut frame = Vec::new();
+    for k in 0..nodes {
+        frame.push(exchange_node(&sid, k, result_bytes)?);
+        if frame.len() as u64 == NODES_PER_FRAME || k + 1 == nodes {
+            records += frame.len() as u64;
+            store.append(&frame)?;
+            frames += 1;
+            frame.clear();
+        }
+    }
+    store.checkpoint()?;
+    let wal_bytes = store.stats()?.wal_bytes;
+    Ok((
+        sid,
+        Generated {
+            sessions: 1,
+            records,
+            frames,
+            wal_bytes,
+            ms: t0.elapsed().as_secs_f64() * 1000.0,
+        },
+    ))
+}
+
+/// The `k`th node of a long session's run of exchanges.
+fn exchange_node(sid: &str, k: u64, result_bytes: usize) -> Result<NewRecord> {
+    let (x, step) = (k / 5, k % 5);
+    let turn = format!("trn_long_{x:06}");
+    let call = format!("toolu_long_{x:06}");
+    let cor = format!("cor_long_{x:06}");
+    let usage = json!({"input_tokens": 1800, "output_tokens": 120});
+    let said = |blocks: serde_json::Value| -> Result<Body> {
+        Ok(serde_json::from_value(json!({
+            "kind": "assistant_message", "blocks": blocks, "model": crate::fake_model::MODEL,
+            "provider": "anthropic", "stop_reason": "end_turn", "usage": usage,
+        }))?)
+    };
+    let path = format!("/srv/notes/chapter-{x:04}.md");
+    let node = match step {
+        0 => Node::user(
+            sid,
+            Some(&turn),
+            theseus_core::turn::OPERATOR,
+            &format!(
+                "Exchange {x}: read {path} and tell me what its second section says about the WAL."
+            ),
+        ),
+        1 => {
+            let mut n = Node::assistant(
+                sid,
+                &turn,
+                0,
+                said(json!([{"type": "tool_use",
+                "id": call, "name": "fs_read", "input": {"path": path}}]))?,
+            );
+            n.id = format!("msg_long_{x:06}");
+            n
+        }
+        2 => Node::tool_call(
+            sid,
+            Some(&turn),
+            Some(0),
+            serde_json::from_value(json!({
+                "kind": "tool_call", "tool_use_id": call, "tool": "fs.read", "wire_name": "fs_read",
+                "input": {"path": path}, "assistant_node": format!("msg_long_{x:06}"),
+                "correlation_id": cor,
+            }))?,
+        ),
+        3 => {
+            let line = format!("Chapter {x}: the WAL is a run of checksummed frames, and the index a projection of it. ");
+            let content: String = line
+                .repeat(result_bytes / line.len() + 1)
+                .chars()
+                .take(result_bytes)
+                .collect();
+            Node::tool_result(
+                sid,
+                Some(&turn),
+                Some(0),
+                serde_json::from_value(json!({
+                    "kind": "tool_result", "tool_use_id": call, "tool": "fs.read", "status": "ok",
+                    "is_error": false, "content": content, "correlation_id": cor,
+                    "bytes_total": result_bytes,
+                }))?,
+            )
+        }
+        _ => Node::assistant(
+            sid,
+            &turn,
+            1,
+            said(json!([{"type": "text", "text": format!(
+                "Its second section says the WAL is the truth for chapter {x}, and the index is rebuilt from it."
+            )}]))?,
+        ),
+    };
+    node.record()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

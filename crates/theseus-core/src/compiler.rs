@@ -247,7 +247,7 @@ pub struct CompileInput<'a> {
     pub session_id: &'a str,
     pub current: Option<&'a Compilation>,
     /// Every node of the session with its WAL position, in position order.
-    pub nodes: &'a [(u64, Arc<Node>)],
+    pub nodes: &'a [(u64, crate::stub::Stub)],
     /// The store's last position (the as-of for a new compilation).
     pub last_position: u64,
     pub spec: &'a RequestSpec,
@@ -444,7 +444,7 @@ pub fn estimate(
 /// framing of it and the message after it). The request's last assistant
 /// message must end with the answer's last block.
 pub fn counted_part(
-    nodes: &[(u64, Arc<Node>)],
+    nodes: &[(u64, crate::stub::Stub)],
     c: &Compilation,
     request: &ProviderRequest,
 ) -> Option<(u64, usize)> {
@@ -616,8 +616,8 @@ pub fn manifest_for(
 
 /// Whether a node renders into a request: a call node does not, since its
 /// reply carries the call (`node.reach` counts by the same rule).
-pub(crate) fn renderable(n: &Node) -> bool {
-    !matches!(n.body, Body::ToolCall { .. })
+pub(crate) fn renderable(n: &(impl crate::stub::Shaped + ?Sized)) -> bool {
+    n.kind() != crate::stub::Kind::ToolCall
 }
 
 /// Compile a loop's request. With an ontology walk, the spec an append
@@ -744,7 +744,7 @@ fn compile_with(
                 // triggered the recompile, plus any tool traffic it started.
                 let from = all_renderable
                     .iter()
-                    .rposition(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
+                    .rposition(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
                     .unwrap_or(all_renderable.len());
                 all_renderable[from..]
                     .iter()
@@ -795,16 +795,16 @@ fn compile_with(
             };
             // The ring leaves a summary out with its range (30c): from its
             // first kept message on, it may keep every later one.
-            let seq: Vec<&Node> = all_renderable
+            let seq: Vec<&crate::stub::Stub> = all_renderable
                 .iter()
-                .map(|(_, n)| &**n)
+                .map(|(_, n)| n)
                 .filter(|n| !compaction::is_summary(n))
                 .collect();
             let floored = seq.len() < all_renderable.len();
             let starts: Vec<usize> = seq
                 .iter()
                 .enumerate()
-                .filter(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
+                .filter(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
                 .map(|(i, _)| i)
                 .collect();
             for &cut in starts.iter().skip(usize::from(!floored)) {
@@ -887,7 +887,7 @@ fn request_budget(w: u64, spec: &RequestSpec) -> u64 {
 
 /// The ring's cut (M6 30b, §2.11): the leading nodes it left out, as a range,
 /// and the tokens the estimate says that saved.
-fn ring_cut(dropped: &[&Node], tokens: u64) -> BudgetDrop {
+fn ring_cut(dropped: &[&crate::stub::Stub], tokens: u64) -> BudgetDrop {
     BudgetDrop {
         node_id: None,
         range: dropped
@@ -930,7 +930,7 @@ pub fn render_request(
     spec: &RequestSpec,
     catalog: &Catalog,
     c: &Compilation,
-    nodes: &[(u64, Arc<Node>)],
+    nodes: &[(u64, crate::stub::Stub)],
     (blobs, hidden, retrying, sources): (
         Option<&crate::blobs::Blobs>,
         &[crate::session::NotShown],
@@ -940,7 +940,7 @@ pub fn render_request(
 ) -> Rendered {
     let included: HashSet<&str> = c.includes.iter().map(String::as_str).collect();
     // An assembled prefix's recall section is its, wherever it was written.
-    let section = |n: &Node| c.recall_id.as_deref() == Some(n.id.as_str());
+    let section = |n: &crate::stub::Stub| c.recall_id.as_deref() == Some(n.id.as_str());
     let prefix: Vec<&Node> = nodes
         .iter()
         .filter(|(pos, n)| {
@@ -1437,10 +1437,8 @@ mod tests {
         spec: &RequestSpec,
         last: u64,
     ) -> Compiled {
-        let nodes: Vec<(u64, Arc<Node>)> = nodes
-            .iter()
-            .map(|(p, n)| (*p, Arc::new(n.clone())))
-            .collect();
+        let nodes: Vec<(u64, crate::stub::Stub)> =
+            nodes.iter().map(|(p, n)| (*p, n.clone().into())).collect();
         compile(CompileInput {
             session_id: "s",
             current,
@@ -1690,8 +1688,8 @@ mod tests {
                 ]),
             ));
         }
-        let nodes: Vec<(u64, Arc<Node>)> =
-            nodes.into_iter().map(|(p, n)| (p, Arc::new(n))).collect();
+        let nodes: Vec<(u64, crate::stub::Stub)> =
+            nodes.into_iter().map(|(p, n)| (p, n.into())).collect();
         let c = compile(CompileInput {
             session_id: "s",
             current: None,
@@ -1982,8 +1980,8 @@ mod tests {
         );
         let catalog = Catalog::with_overrides(&rows);
         let sp = two_blocks("claude-opus-5", 4_000, 2_000);
-        let nodes: Vec<(u64, Arc<Node>)> =
-            hi().into_iter().map(|(p, n)| (p, Arc::new(n))).collect();
+        let nodes: Vec<(u64, crate::stub::Stub)> =
+            hi().into_iter().map(|(p, n)| (p, n.into())).collect();
         let c = compile(CompileInput {
             session_id: "s",
             current: None,
@@ -2039,10 +2037,8 @@ mod tests {
         last: u64,
         overflowed: Option<&Overflowed>,
     ) -> Compiled {
-        let nodes: Vec<(u64, Arc<Node>)> = nodes
-            .iter()
-            .map(|(p, n)| (*p, Arc::new(n.clone())))
-            .collect();
+        let nodes: Vec<(u64, crate::stub::Stub)> =
+            nodes.iter().map(|(p, n)| (*p, n.clone().into())).collect();
         compile(CompileInput {
             session_id: "s",
             current,
@@ -2290,10 +2286,8 @@ mod tests {
         last: u64,
         window: u64,
     ) -> Compiled {
-        let nodes: Vec<(u64, Arc<Node>)> = nodes
-            .iter()
-            .map(|(p, n)| (*p, Arc::new(n.clone())))
-            .collect();
+        let nodes: Vec<(u64, crate::stub::Stub)> =
+            nodes.iter().map(|(p, n)| (*p, n.clone().into())).collect();
         compile(CompileInput {
             session_id: "s",
             current,

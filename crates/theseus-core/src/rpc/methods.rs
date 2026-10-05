@@ -856,6 +856,8 @@ impl Core {
         match result {
             Ok(r) => {
                 self.telemetry().record_turn(&r);
+                self.telemetry()
+                    .record_node_cache(&self.store.node_cache().health());
                 Ok(r)
             }
             Err(e) => Err(match e.downcast::<TurnError>() {

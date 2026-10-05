@@ -448,9 +448,9 @@ impl MemoryPass {
             let Some(d) = done.get(sid) else {
                 return Vec::new();
             };
-            let todo: Vec<(u64, Arc<Node>)> = nodes
+            let todo: Vec<(u64, crate::stub::Stub)> = nodes
                 .iter()
-                .filter(|(_, n)| eligible(n) && !d.labeled.contains(&n.id))
+                .filter(|(_, n)| !d.labeled.contains(&n.id) && kept_kind(n.kind) && eligible(n))
                 .cloned()
                 .collect();
             (todo, recalls::waiting(&nodes, &job.turn_id, d))
@@ -818,6 +818,16 @@ pub fn eligible(n: &Node) -> bool {
     }
 }
 
+/// Whether a node of `kind` may be eligible, read from its stub before its
+/// body is (step 33): what `eligible` never keeps stays undecoded.
+fn kept_kind(kind: crate::stub::Kind) -> bool {
+    use crate::stub::Kind;
+    !matches!(
+        kind,
+        Kind::ToolCall | Kind::Recall | Kind::Arrangement | Kind::Synthesis
+    )
+}
+
 /// The labeler's shape of an eligible node, and DD5's flag: a summary's is
 /// its range's, whose external text it may restate.
 fn shape_of(n: &Node, nodes: &Transcript) -> Option<(Shape, bool)> {
@@ -838,8 +848,11 @@ fn shape_of(n: &Node, nodes: &Transcript) -> Option<(Shape, bool)> {
 /// Whether a tool result at a WAL position from `first` to `last` came from
 /// outside (DD5). A folded summary's range holds its own range too.
 fn external_in(nodes: &Transcript, first: u64, last: u64) -> bool {
-    nodes.iter().any(|(p, m)| match &m.body {
-        Body::ToolResult { external, .. } => (first..=last).contains(p) && external.is_some(),
+    let in_range = nodes
+        .iter()
+        .filter(|(p, m)| (first..=last).contains(p) && m.kind == crate::stub::Kind::ToolResult);
+    in_range.into_iter().any(|(_, m)| match &m.body {
+        Body::ToolResult { external, .. } => external.is_some(),
         _ => false,
     })
 }

@@ -25,6 +25,46 @@ pub fn store_reads_line(s: &theseus_protocol::StoreStatus) -> Option<String> {
     })
 }
 
+/// Health's store lines: the refused reads, then the heat cache.
+pub fn store_lines(s: &theseus_protocol::StoreStatus) -> Vec<(super::Tag, String)> {
+    let reads = store_reads_line(s).map(|l| (super::Tag::Bad, l));
+    let cache = s
+        .node_cache
+        .as_ref()
+        .map(|c| (super::Tag::Plain, node_cache_line(c)));
+    reads.into_iter().chain(cache).collect()
+}
+
+/// `node cache: …` (M6 step 33): the heat cache of decoded nodes, what it
+/// holds against its bound, its hit rate, and what it evicted and failed to
+/// read back.
+pub fn node_cache_line(c: &theseus_protocol::NodeCacheHealth) -> String {
+    if c.cap_bytes == 0 {
+        return format!(
+            "node cache: off ([memory] node_cache_mb = 0); {} decoded",
+            plural(c.decodes, "node", "nodes")
+        );
+    }
+    let mb = |b: u64| b as f64 / (1024.0 * 1024.0);
+    let reads = c.hits + c.misses;
+    let rate = match reads {
+        0 => "no reads yet".to_string(),
+        n => format!("{:.0}% hits of {n} reads", c.hits as f64 * 100.0 / n as f64),
+    };
+    let failed = match c.failed {
+        0 => String::new(),
+        n => format!(", {} could not be read back", plural(n, "node", "nodes")),
+    };
+    format!(
+        "node cache: {:.1} of {:.0} MB, {}; {rate}, {} decoded, {} evicted{failed}",
+        mb(c.bytes),
+        mb(c.cap_bytes),
+        plural(c.entries, "node", "nodes"),
+        c.decodes,
+        c.evictions
+    )
+}
+
 /// `crash: …`, the newest crash a start found (Review 2's consideration 1):
 /// when, where it panicked, and its file, which holds the message.
 pub fn crash_line(c: &theseus_protocol::CrashStatus) -> String {
@@ -56,12 +96,37 @@ mod tests {
             refused_records: 3,
             refused_positions: vec![17, 18],
             repair: Some("stop the daemon, then run `theseusd restore --repair`".into()),
+            node_cache: None,
         })
         .unwrap();
         assert_eq!(
             line,
             "store: 3 records skipped by list reads, their frame corrupt (positions 17, 18, …); \
              stop the daemon, then run `theseusd restore --repair`"
+        );
+        let cache = theseus_protocol::NodeCacheHealth {
+            cap_bytes: 64 << 20,
+            bytes: 3 << 20,
+            entries: 812,
+            hits: 950,
+            misses: 50,
+            decodes: 50,
+            evictions: 0,
+            failed: 1,
+        };
+        assert_eq!(
+            node_cache_line(&cache),
+            "node cache: 3.0 of 64 MB, 812 nodes; 95% hits of 1000 reads, 50 decoded, 0 evicted, \
+             1 node could not be read back"
+        );
+        let off = theseus_protocol::NodeCacheHealth {
+            cap_bytes: 0,
+            decodes: 9,
+            ..cache
+        };
+        assert_eq!(
+            node_cache_line(&off),
+            "node cache: off ([memory] node_cache_mb = 0); 9 nodes decoded"
         );
         let mut c = CrashStatus {
             at_unix_ms: 1_790_000_000_000,

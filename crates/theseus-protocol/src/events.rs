@@ -158,6 +158,17 @@ pub struct ContextCompiled {
     /// Tools offered.
     pub tools: u64,
     pub nodes_scanned: u64,
+    /// Of `nodes_scanned`, those this compile read past their stub (M6 step
+    /// 33): the nodes its request renders that the turn had not read yet,
+    /// each taken from the heat cache or decoded from its record (health's
+    /// `store.node_cache` counts which). Absent in rows before it, and when
+    /// it read none.
+    #[serde(default, skip_serializing_if = "crate::is_zero")]
+    pub decoded: u64,
+    /// Of `nodes_scanned`, those left stubs, never decoded: before a ring's
+    /// cut or a compaction's floor (step 33).
+    #[serde(default, skip_serializing_if = "crate::is_zero")]
+    pub stubs: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_files: Vec<ContextFileRef>,
     /// The persona in play (theseus-c48).

@@ -23,6 +23,29 @@ pub struct StoreStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub repair: Option<String>,
+    /// The heat cache of decoded nodes (M6 step 33): absent from a daemon
+    /// before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub node_cache: Option<NodeCacheHealth>,
+}
+
+/// The store's heat cache of decoded nodes (M6 step 33, theseus-6fn.13):
+/// its bound (`[memory] node_cache_mb`; 0 is off), what it holds, and its
+/// counts since the daemon started. A hit is a node served without a decode;
+/// a miss, one decoded; `failed`, a stub whose node could not be read back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct NodeCacheHealth {
+    pub cap_bytes: u64,
+    pub bytes: u64,
+    pub entries: u64,
+    pub hits: u64,
+    pub misses: u64,
+    pub decodes: u64,
+    pub evictions: u64,
+    pub failed: u64,
 }
 
 /// The crash file a start found (Review 2's consideration 1): the release

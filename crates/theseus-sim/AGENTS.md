@@ -27,12 +27,19 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     disk. `--check` fails a plain turn that writes more than `perf::PLAIN_TURN_FRAMES` (5; the floor is 2). Beside them:
     this disk's `fdatasync`, probed before the daemon starts and after it stops (the quieter is used, so the harness's own
     share of a turn reads off as an upper bound), and the daemon's resident memory after the start and after a burst. The scratch daemon has Discord and the web UI off.
+    `--session-nodes N` (step 33, `src/perf/long.rs`) measures turns in one session of N nodes instead, written before
+    the daemon starts (`synth::long_session`: five-node exchanges whose tool results are `--result-bytes`, 8192 by
+    default): each turn's wall time, frames, and the nodes the daemon decoded for it (health's `store.node_cache`
+    `decodes`, read around the turn; a build before tiering has none, and the row says so), and memory with the index
+    tender's. No budget: its frames include the turn that compacts the session.
   - `bench idle`: an idle daemon over a window (30 s): CPU time, wakeups (its threads' voluntary context switches, from
     `src/procfs.rs`), frames written (a quiet daemon writes none), and memory, on an empty store or `--sessions N`.
     `--settle N` waits up to N s (default 60) for the daemon to go quiet before the window begins, and shows the CPU in
     each ten seconds meanwhile, so a daemon that never goes quiet shows whether it is slowing. Measured, no budget yet:
     an empty store is quiet (5 ms of CPU in 30 s, 4.5 wakeups a second), and at 10,000 parked sessions a release build is
-    still at 5.8 % of a core 300 s after its first answer, writing no frames (review 2's S1).
+    still at 5.8 % of a core 300 s after its first answer, writing no frames (review 2's S1). The index tender's memory is
+    read beside the daemon's (the `theseus-index` child), and `--active N` then opens N sessions and runs a turn in each
+    and reads both again: with `--sessions 10000 --active 50`, design M6 §2.10's row (§9: under 1 GB together).
   - `bench size`: the shipped binaries' sizes against §9's 60 MB. Meaningful on a release or install build.
   - `bench history` (`src/history.rs`): each phase's recent runs and headroom, from the CSV every gate appends. The
     other benches' columns (`history::OTHER`) are in the same file, each with its unit.
