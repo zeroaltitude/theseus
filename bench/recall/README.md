@@ -157,6 +157,10 @@ daemon's log.
 - **Correct**: the probe's check holds. That uses the check language: the value present (a whole word; a date in
   the forms people write it), a superseded value absent, and for an abstention, no value of the kind and an
   admission. An indirect probe's check reads its file in the arm's workspace.
+- **An admission** says so in plain words: "I don't know", "I can't tell", "no record", "no matches", "a search
+  found no …", "nothing there pins (says, shows) …", "I'm not able to find", "unable to tell" (`ADMIT` in
+  `progression.py`). The scorer derives an abstention's check from its kind each time it scores, so a run kept from
+  before a change to the rule is scored by today's; a direct or indirect probe keeps its stored check.
 - **The curve**: recall accuracy (direct and indirect) per arm by bucket and salience, with the mean turns and
   tokens since the fact. Each turn's new tokens are its input, cache writes and output. Abstention accuracy has a
   table of its own.

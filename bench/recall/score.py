@@ -121,6 +121,13 @@ def _date_forms(date: str, weekday: str) -> list[str]:
     return [date, f"{mon} {d}", f"{mon[:3]} {d}", f"{d} {mon}", weekday.lower()]
 
 
+def check_of(p: pg.Probe) -> str:
+    """The check a probe is scored by: its own, but an abstention's is
+    derived again from its kind, so a run kept from before a change to the
+    admission rule (`progression.ADMIT`) is scored by today's."""
+    return pg.kind_check(p.value_kind) if p.kind == "abstention" else p.check
+
+
 def score_probe(run: ArmRun, p: pg.Probe) -> Scored:
     prog = run.prog
     facts = prog.facts_by_id()
@@ -139,7 +146,7 @@ def score_probe(run: ArmRun, p: pg.Probe) -> Scored:
         return Scored(status="failed", **base, **blank)
     reply = rec.get("reply") or ""
     root = run.dir / "workspace"
-    correct = checks.passes(p.check, reply, root)
+    correct = checks.passes(check_of(p), reply, root)
     if p.kind == "indirect":
         try:
             text = (root / p.file).read_text(errors="replace")

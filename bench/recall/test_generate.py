@@ -25,7 +25,7 @@ import progression as pg  # noqa: E402
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "d30943acf7bfd1ac"
+SMOKE_7 = "1dd614218e7d91c1"  # theseus-523y: the abstentions' admission widened
 
 
 class Rng(unittest.TestCase):
