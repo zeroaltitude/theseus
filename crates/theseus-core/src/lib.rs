@@ -224,6 +224,8 @@ mod tests_route;
 #[cfg(test)]
 mod tests_route_base;
 #[cfg(test)]
+mod tests_route_cap;
+#[cfg(test)]
 mod tests_route_rows;
 #[cfg(test)]
 mod tests_sandbox;
@@ -241,5 +243,7 @@ mod tests_tasks;
 mod tests_tender;
 #[cfg(test)]
 mod tests_term;
+#[cfg(test)]
+mod tests_thinking_writer;
 #[cfg(test)]
 mod tests_wakes;

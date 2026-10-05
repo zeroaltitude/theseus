@@ -324,7 +324,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
     `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` alone,
     since its compilation is never stored (`tests_route_rows.rs`). The row is `route.decided`
-    (`fact/route.rs`); thinking goes back only to the model that wrote it. `routed` holds only while route.v1
+    (`fact/route.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and a place's
+    profile caps it (`tests_route_cap.rs`). `routed` holds only while route.v1
     acts live for the session (theseus-9yyr, `route_base`): routing off or in shadow, the ladder's rollback, the
     judge off, or Jev unreachable (`JudgeService::reachable`) clear it at the next turn, in the turn's own session
     write, and so does a `profile.use` after the session's last turn began (META `live_profile.switched_ms`
