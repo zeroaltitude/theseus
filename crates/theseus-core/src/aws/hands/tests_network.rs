@@ -39,12 +39,14 @@ pub(super) fn existing_outputs() -> String {
 /// The existing VPC's route tables, as EC2 answers `DescribeRouteTables`:
 /// the first subnet's own table routes out through the VPC's NAT; the
 /// second subnet has no table of its own, so the main one is its, and that
-/// one sends 0.0.0.0/0 to the NAT too, unless `unrouted`.
-pub(super) fn route_tables(unrouted: bool) -> String {
+/// one sends 0.0.0.0/0 to the NAT too, unless `unrouted`, or unless the NAT
+/// was deleted under it and the route is a `blackhole`.
+pub(super) fn route_tables(unrouted: bool, blackhole: bool) -> String {
     let local = "<item><destinationCidrBlock>10.20.0.0/16</destinationCidrBlock>\
                  <gatewayId>local</gatewayId><state>active</state></item>";
     let nat = "<item><destinationCidrBlock>0.0.0.0/0</destinationCidrBlock>\
                <natGatewayId>nat-0a1b2c3d4e5f6075a</natGatewayId><state>active</state></item>";
+    let dead = nat.replace("<state>active</state>", "<state>blackhole</state>");
     let table = |id: &str, routes: String, assoc: String| {
         format!(
             "<item><routeTableId>{id}</routeTableId><vpcId>{VPC}</vpcId>\
@@ -64,6 +66,8 @@ pub(super) fn route_tables(unrouted: bool) -> String {
         "rtb-0a1b2c3d4e5f6074b",
         if unrouted {
             local.to_string()
+        } else if blackhole {
+            format!("{local}{dead}")
         } else {
             format!("{local}{nat}")
         },
@@ -168,4 +172,46 @@ async fn fargate_in_an_existing_vpc_needs_its_routes_and_runs_in_its_subnets() {
         state_of(&r.core, &spec.correlation_id) == ActionState::Succeeded
     })
     .await;
+}
+
+/// A NAT deleted under the main table leaves its 0.0.0.0/0 route as a
+/// `blackhole`: that is no way out, so the subnet is refused, named, and no
+/// `RunTask` is sent (theseus-rx7m).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_blackhole_route_is_no_way_out_and_the_subnet_is_refused() {
+    let r = rig(vec![
+        Scripted::tools(
+            "",
+            &[(
+                "t1",
+                "aws_hands_run",
+                json!({"argv": ["true"], "backend": "fargate"}),
+            )],
+        ),
+        Scripted::text("No route."),
+    ]);
+    r.state.existing.store(true, Ordering::SeqCst);
+    r.state.blackhole.store(true, Ordering::SeqCst);
+    let res = turn(&r.core, "run on fargate").await;
+    let text = r
+        .core
+        .store
+        .session_nodes(&res.session_id)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match &n.body {
+            crate::node::Body::ToolResult { tool, content, .. } if tool == "aws.hands.run" => {
+                Some(content.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        text.contains(&format!(
+            "subnet {SUBNET_B}'s route table (rtb-0a1b2c3d4e5f6074b) sends 0.0.0.0/0 to no NAT gateway"
+        )),
+        "{text}"
+    );
+    assert!(r.state.ran.lock().unwrap().is_empty(), "no RunTask");
+    assert_eq!(r.state.route_reads.lock().unwrap().len(), 1);
 }

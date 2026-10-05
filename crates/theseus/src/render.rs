@@ -2465,6 +2465,7 @@ mod tests {
                     Some("its secret aws_access_key_id did not resolve"),
                 ),
             ],
+            ..Default::default()
         };
         assert_eq!(
             aws_lines(Some(&s), 1_012_000),

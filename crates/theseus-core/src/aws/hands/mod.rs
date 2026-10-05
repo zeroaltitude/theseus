@@ -59,6 +59,8 @@ mod tests_hands;
 mod tests_network;
 #[cfg(test)]
 mod tests_part2;
+#[cfg(test)]
+mod tests_runaway;
 
 /// The hands' state in the daemon: where each account's hands run, read
 /// once, and the poller's wake. Nothing in it is the record: the groups and

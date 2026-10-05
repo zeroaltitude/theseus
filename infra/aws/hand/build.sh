@@ -43,7 +43,10 @@ fi
 
 "$root/scripts/build.sh" --profile release-thin --target "$target" -p theseusd
 bin="${CARGO_TARGET_DIR:-$root/target}/$target/release-thin/theseusd"
-if ! file "$bin" | grep -q 'statically linked'; then
+# `file` says "statically linked" of a static binary, and "static-pie linked" of the
+# static-pie one a Rust musl build makes.
+kind=$(file "$bin")
+if ! grep -qE 'statically linked|static-pie linked' <<<"$kind"; then
     echo "build.sh: $bin is not a static binary" >&2
     exit 1
 fi
@@ -55,8 +58,10 @@ cp "$bin" "$context/theseusd"
 image="theseus/hand:$commit"
 docker build --platform linux/amd64 -t "$image" "$context"
 # The image runs its role: a spec that is not there is its own error, not a crash.
-if docker run --rm --entrypoint /usr/local/bin/theseusd "$image" hand 2>&1 \
-    | grep -q 'THESEUS_HAND is not set'; then
+# `theseusd hand` without its spec prints that and exits 1, so the output is taken first:
+# a pipeline under pipefail would answer with docker's status.
+out=$(docker run --rm --entrypoint /usr/local/bin/theseusd "$image" hand 2>&1 || true)
+if grep -q 'THESEUS_HAND is not set' <<<"$out"; then
     echo "build.sh: $image answers as a hand"
 else
     echo "build.sh: $image does not run theseusd hand" >&2
