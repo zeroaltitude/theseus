@@ -562,6 +562,10 @@ pub struct KernelSection {
     /// floor on a runaway series' turns. At least 1.
     #[serde(default = "default_min_repeat_minutes")]
     pub min_repeat_minutes: u64,
+    /// A task claim's lease, in minutes (39b): the holder's edits renew it.
+    /// At least 1.
+    #[serde(default = "default_task_lease_minutes")]
+    pub task_lease_minutes: u64,
 }
 
 fn default_admission_ceiling() -> u32 {
@@ -582,6 +586,9 @@ fn default_confirm_ttl_secs() -> u64 {
 fn default_min_repeat_minutes() -> u64 {
     5
 }
+fn default_task_lease_minutes() -> u64 {
+    30
+}
 
 impl Default for KernelSection {
     fn default() -> Self {
@@ -594,6 +601,7 @@ impl Default for KernelSection {
             default_deadline_secs: default_deadline_secs(),
             confirm_ttl_secs: default_confirm_ttl_secs(),
             min_repeat_minutes: default_min_repeat_minutes(),
+            task_lease_minutes: default_task_lease_minutes(),
         }
     }
 }
@@ -608,6 +616,11 @@ impl KernelSection {
         .into_iter()
         .filter_map(|(k, set)| set.then_some(k))
         .collect()
+    }
+
+    /// A task claim's lease, in milliseconds: at least a minute.
+    pub fn task_lease_ms(&self) -> u64 {
+        self.task_lease_minutes.max(1) * 60_000
     }
 
     pub fn to_kernel_config(&self) -> theseus_kernel::KernelConfig {
@@ -1771,7 +1784,7 @@ mod tests {
         assert_eq!(cfg.policy.tools["aws.stack.apply"], Posture::Approve);
         assert_eq!(cfg.policy.tools["extend.propose"], Posture::Notify);
         assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
-        assert_eq!(cfg.policy.tools.len(), 48);
+        assert_eq!(cfg.policy.tools.len(), 49);
         // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
         let a = &cfg.aws.accounts["111122223333"];
         assert_eq!(a.credentials, AwsCredentialNames::default());

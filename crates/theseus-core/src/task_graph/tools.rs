@@ -40,8 +40,9 @@ use crate::toolrun::TurnCtx;
 pub const UPDATE: &str = "task.update";
 pub const SPLIT: &str = "task.split";
 pub const CLOSE: &str = "task.close";
-/// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 3] = [UPDATE, SPLIT, CLOSE];
+/// The tools this module and `lease.rs` add, for the template's
+/// `[policy.tools]` list.
+pub const NAMES: [&str; 4] = [UPDATE, SPLIT, CLOSE, super::lease::CLAIM];
 
 /// The most children one split makes, and the longest title.
 pub const MAX_SPLIT: usize = 12;
@@ -548,7 +549,10 @@ pub(crate) fn change(
 }
 
 /// Lock a task and read it, or say why not.
-fn locked<'a>(tc: &TurnCtx<'a>, id: &str) -> Result<(SessionLock<'a>, TaskRecord), String> {
+pub(super) fn locked<'a>(
+    tc: &TurnCtx<'a>,
+    id: &str,
+) -> Result<(SessionLock<'a>, TaskRecord), String> {
     let all = super::all(tc.store).map_err(|e| format!("{e:#}"))?;
     let id = super::resolve(&all, id)?.id.clone();
     let lock = tc.store.lock_task(&id);
@@ -559,7 +563,7 @@ fn locked<'a>(tc: &TurnCtx<'a>, id: &str) -> Result<(SessionLock<'a>, TaskRecord
 }
 
 /// The compare of compare-and-swap, with its refusal recorded.
-fn cas(tc: &TurnCtx<'_>, rec: &TaskRecord, version: u64) -> Result<(), String> {
+pub(super) fn cas(tc: &TurnCtx<'_>, rec: &TaskRecord, version: u64) -> Result<(), String> {
     check(rec, version).map_err(|stale| {
         facts::record(
             &tc.rec(),
@@ -571,24 +575,31 @@ fn cas(tc: &TurnCtx<'_>, rec: &TaskRecord, version: u64) -> Result<(), String> {
 }
 
 /// Run one edit (the harness's side). `approved`: the operator approved the
-/// call, which a layer-1 change needs.
+/// call, which a layer-1 change needs. `lease_ms`: a claim's lease, which
+/// the holder's edit renews (39b).
 pub fn run<'a>(
     tc: &TurnCtx<'a>,
     name: &str,
     input: &Value,
     correlation_id: &str,
-    approved: bool,
+    (approved, lease_ms): (bool, u64),
 ) -> Result<Done<'a>, String> {
     match name {
-        UPDATE => update(tc, input, approved),
-        SPLIT => split(tc, input, correlation_id),
+        UPDATE => update(tc, input, approved, lease_ms),
+        SPLIT => split(tc, input, correlation_id, lease_ms),
         CLOSE => close(tc, input, correlation_id, approved),
+        super::lease::CLAIM => super::lease::claim(tc, input, lease_ms),
         other => Err(format!("{other} is not a task tool")),
     }
 }
 
 /// `task.update`: layer 2 applies; layer 1 only with the operator's yes.
-fn update<'a>(tc: &TurnCtx<'a>, input: &Value, approved: bool) -> Result<Done<'a>, String> {
+fn update<'a>(
+    tc: &TurnCtx<'a>,
+    input: &Value,
+    approved: bool,
+    lease_ms: u64,
+) -> Result<Done<'a>, String> {
     let mut done = Done::default();
     let now = theseus_protocol::now_unix_ms();
     let i = update_in(input)?;
@@ -650,6 +661,7 @@ fn update<'a>(tc: &TurnCtx<'a>, input: &Value, approved: bool) -> Result<Done<'a
     if touches_layer1 {
         rec.proposal = None;
     }
+    super::lease::renew(&mut rec, tc, lease_ms);
     rec.version += 1;
     rec.updated_at_ms = now;
     let verb = if layer1.is_some() {
@@ -675,7 +687,12 @@ fn update<'a>(tc: &TurnCtx<'a>, input: &Value, approved: bool) -> Result<Done<'a
 }
 
 /// `task.split`: children under the task, which moves a version.
-fn split<'a>(tc: &TurnCtx<'a>, input: &Value, correlation_id: &str) -> Result<Done<'a>, String> {
+fn split<'a>(
+    tc: &TurnCtx<'a>,
+    input: &Value,
+    correlation_id: &str,
+    lease_ms: u64,
+) -> Result<Done<'a>, String> {
     let mut done = Done::default();
     let now = theseus_protocol::now_unix_ms();
     let i = split_in(input)?;
@@ -715,6 +732,7 @@ fn split<'a>(tc: &TurnCtx<'a>, input: &Value, correlation_id: &str) -> Result<Do
         })
         .collect();
     let from = rec.version;
+    super::lease::renew(&mut rec, tc, lease_ms);
     rec.version += 1;
     rec.updated_at_ms = now;
     let ids: Vec<&str> = kids.iter().map(|k| k.id.as_str()).collect();
@@ -790,6 +808,8 @@ fn close<'a>(
         Outcome::Abandoned => TaskState::Abandoned,
     };
     rec.proposal = None;
+    // A close ends a claim (39b).
+    rec.claim = None;
     rec.version += 1;
     rec.updated_at_ms = now;
     if i.outcome == Outcome::Abandoned && owners {

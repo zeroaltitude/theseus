@@ -112,6 +112,9 @@ pub async fn drive(core: Arc<Core>) {
         // its card gives (theseus-830), whatever executions the tick reads,
         // which leave out a parked one; the read below takes up its wake.
         core.expire_questions_if_due();
+        // A task claim whose lease lapsed is freed, from the claims kept in
+        // memory (39b).
+        core.free_expired_leases_if_due();
         // The queued executions and those a due time may wake, by their
         // terms: a tick reads none of the parked ones (theseus-lv2).
         let Some(execs) = unlisted.runnable(&core) else {

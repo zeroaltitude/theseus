@@ -123,7 +123,35 @@ pub struct TaskProposal {
     pub at_ms: u64,
 }
 
-/// A task (§2.4). `claim` is 39b's.
+/// A claim's lease on a task (39b, M7 §2.4): the execution that holds it,
+/// its session (how a refusal names it), and when it lapses. The holder's own
+/// edits renew it; a close ends it; past `until_ms` it reads free, and the
+/// due pass clears it (`task.lease_expired`).
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskClaim {
+    /// `exe_…`.
+    pub by: String,
+    pub session: String,
+    pub until_ms: u64,
+}
+
+impl TaskClaim {
+    /// Whether it still holds at `now_ms`: free at `until_ms`, not before.
+    pub fn holds_at(&self, now_ms: u64) -> bool {
+        now_ms < self.until_ms
+    }
+
+    /// How people name its session: the last six characters of its id.
+    pub fn session_short(&self) -> &str {
+        let n = self.session.len();
+        self.session
+            .get(n.saturating_sub(6)..)
+            .unwrap_or(&self.session)
+    }
+}
+
+/// A task (§2.4).
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
@@ -158,6 +186,10 @@ pub struct TaskRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub proposal: Option<TaskProposal>,
+    /// The lease one execution holds on it (39b; format 17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub claim: Option<TaskClaim>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
 }
@@ -173,6 +205,11 @@ impl TaskRecord {
     pub fn short(&self) -> &str {
         let n = self.id.len();
         self.id.get(n.saturating_sub(6)..).unwrap_or(&self.id)
+    }
+
+    /// Its claim, while it holds at `now_ms`.
+    pub fn claim_at(&self, now_ms: u64) -> Option<&TaskClaim> {
+        self.claim.as_ref().filter(|c| c.holds_at(now_ms))
     }
 }
 
@@ -193,8 +230,8 @@ pub struct TaskGetResult {
 }
 
 /// `task.changed`: a task's record after a change, with the verb that made
-/// it (`created`, `updated`, `split`, `closed`, `change_proposed`,
-/// `change_accepted`, `change_declined`, `change_expired`).
+/// it (`created`, `updated`, `split`, `closed`, `claimed`, `lease_expired`,
+/// `change_proposed`, `change_accepted`, `change_declined`, `change_expired`).
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskChanged {

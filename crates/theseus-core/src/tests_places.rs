@@ -351,6 +351,7 @@ pub(crate) const SHARED_TOOLS: &[&str] = &[
     "git_diff",
     "git_log",
     "http_fetch",
+    "task_claim",
     "task_close",
     "task_create",
     "task_split",

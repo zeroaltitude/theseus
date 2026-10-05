@@ -268,6 +268,7 @@ heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue
 default_deadline_secs = 600             # deadline for an action whose tool declares none
 confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid
 min_repeat_minutes = 5                  # the shortest span a repeating wake (wake.at with `every`) may take; at least 1
+task_lease_minutes = 30                 # a task claim's lease (task.claim): the holder's edits renew it, and past it the task is free; at least 1
 
 # ---------------------------------------------------------------- tools
 # Toollets (fs.*, text.diff, git.diff/log, proc.run). The workspace is
@@ -409,6 +410,7 @@ external_programs = ["gh"]              # program names, matched by file name (b
 # "task.update" = "notify"
 # "task.split" = "notify"
 # "task.close" = "notify"
+# "task.claim" = "notify"
 # a wake into this conversation later (DD8): inherits enforcement, so each one
 # set is a notice with its time; its turn spends from this session's limit
 # "wake.at" = "notify"

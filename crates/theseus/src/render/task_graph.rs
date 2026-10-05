@@ -1,12 +1,18 @@
 //! The task graph in `theseus tasks` (M7 39a, theseus-ext.6): every task
 //! record as a tree, each line its id, title, state, owner, deps, and
-//! version, a waiting proposal and the evidence count marked.
+//! version, a waiting proposal, a claim (39b), and the evidence count
+//! marked.
 
 use theseus_protocol::tasks::TaskRecord;
 
 /// The tree, roots oldest first, each child indented under its parent. A
 /// task whose parent is not in `records` is a root.
 pub fn task_tree_lines(records: &[TaskRecord]) -> Vec<String> {
+    task_tree_lines_at(records, theseus_protocol::now_unix_ms())
+}
+
+/// `task_tree_lines` at `now_ms`, which a claim's lease is read against.
+pub fn task_tree_lines_at(records: &[TaskRecord], now_ms: u64) -> Vec<String> {
     if records.is_empty() {
         return vec![];
     }
@@ -31,7 +37,11 @@ pub fn task_tree_lines(records: &[TaskRecord]) -> Vec<String> {
         if !seen.insert(t.id.as_str()) {
             continue;
         }
-        out.push(format!("{}{}", "  ".repeat(depth + 1), tree_line(t)));
+        out.push(format!(
+            "{}{}",
+            "  ".repeat(depth + 1),
+            tree_line_at(t, now_ms)
+        ));
         for c in records
             .iter()
             .filter(|c| c.parent.as_deref() == Some(t.id.as_str()))
@@ -46,6 +56,12 @@ pub fn task_tree_lines(records: &[TaskRecord]) -> Vec<String> {
 /// One task: `tsk_…a1b2c3 "Title" [in_progress] v3 · owner agent · deps … ·
 /// session …d4e5f6 · 2 evidence · a change waits`.
 pub fn tree_line(t: &TaskRecord) -> String {
+    tree_line_at(t, theseus_protocol::now_unix_ms())
+}
+
+/// `tree_line` at `now_ms`: a claim reads `claimed by session …d4e5f6, in
+/// 29m` while its lease holds.
+pub fn tree_line_at(t: &TaskRecord, now_ms: u64) -> String {
     let mut s = format!(
         "{} \"{}\" [{}] v{}",
         t.id,
@@ -68,6 +84,13 @@ pub fn tree_line(t: &TaskRecord) -> String {
     }
     if t.proposal.is_some() {
         s.push_str(" · a change waits for the operator");
+    }
+    if let Some(c) = t.claim_at(now_ms) {
+        s.push_str(&format!(
+            " · claimed by session {}, {}",
+            c.session_short(),
+            super::until_due(c.until_ms, now_ms)
+        ));
     }
     s
 }
@@ -110,5 +133,25 @@ mod tests {
             ]
         );
         assert!(task_tree_lines(&[]).is_empty());
+    }
+
+    /// A claim shows its session and how long its lease has left while it
+    /// holds, and nothing once it lapsed (39b).
+    #[test]
+    fn a_claim_shows_while_its_lease_holds() {
+        let mut t = task("tsk_reef", None, TaskState::Accepted, 2);
+        t.claim = Some(theseus_protocol::tasks::TaskClaim {
+            by: "exe_0000harbour".into(),
+            session: "ses_0000harbour".into(),
+            until_ms: 1_800_000,
+        });
+        assert_eq!(
+            tree_line_at(&t, 60_000),
+            "tsk_reef \"the tsk_reef part\" [accepted] v2 · claimed by session arbour, in 29m"
+        );
+        assert_eq!(
+            tree_line_at(&t, 1_800_000),
+            "tsk_reef \"the tsk_reef part\" [accepted] v2"
+        );
     }
 }

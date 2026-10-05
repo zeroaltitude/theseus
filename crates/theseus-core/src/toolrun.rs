@@ -282,6 +282,8 @@ pub struct ToolRuntime {
     /// (theseus-830): the driver reads the questions only once it has come.
     /// 0 until the driver has read them once; each question asked lowers it.
     pub question_due: std::sync::atomic::AtomicU64,
+    /// The task claims that hold, kept in memory for the due pass (39b).
+    pub leases: crate::task_graph::lease::Leases,
     /// L1 (M4 17b): `[sandbox]`, the class, an L1 job's view, the probe.
     pub sandbox: Arc<Sandbox>,
     /// What a cancel reaches besides jobs, and health's cancel counts (18a).
@@ -422,6 +424,7 @@ impl ToolRuntime {
             disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
             aws: None,
             question_due: Default::default(),
+            leases: crate::task_graph::lease::Leases::new(30 * 60_000),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
@@ -1503,8 +1506,8 @@ impl ToolRuntime {
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
             name if crate::task_graph::tools::is_edit(name) => {
-                let approved = ran_at == Posture::Approve;
-                crate::task_graph::tools::run(tc, name, &call.input, correlation_id, approved)
+                let how = (ran_at == Posture::Approve, self.leases.lease_ms());
+                crate::task_graph::tools::run(tc, name, &call.input, correlation_id, how)
                     .map(|d| edit.take(d))
             }
             other => Err(format!("{other} is not a tool the harness runs")),
@@ -1572,6 +1575,9 @@ impl ToolRuntime {
         records.append(&mut edit.records);
         tc.kernel.accept_completion_with(&c, records)?;
         drop(edit.locks);
+        for (_, c) in &edit.changes {
+            self.leases.note(&c.task);
+        }
         crate::task_graph::tools::announce(tc, &edit.changes);
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })
@@ -2067,6 +2073,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::task_graph::tools::TaskUpdate));
         r.register(Arc::new(crate::task_graph::tools::TaskSplit));
         r.register(Arc::new(crate::task_graph::tools::TaskClose));
+        r.register(Arc::new(crate::task_graph::lease::TaskClaimTool));
         r.register(Arc::new(crate::wake::WakeAt));
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
@@ -2148,6 +2155,7 @@ pub fn build_runtime(
         )),
         aws,
         question_due: Default::default(),
+        leases: crate::task_graph::lease::Leases::new(cfg.kernel.task_lease_ms()),
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),

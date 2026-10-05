@@ -285,6 +285,7 @@ export type * from './TaskCancelParams';
 export type * from './TaskCancelResult';
 export type * from './TaskChanged';
 export type * from './TaskCheck';
+export type * from './TaskClaim';
 export type * from './TaskEvidence';
 export type * from './TaskGetParams';
 export type * from './TaskGetResult';
