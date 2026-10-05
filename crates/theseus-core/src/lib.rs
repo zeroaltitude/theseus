@@ -176,6 +176,8 @@ mod tests_glide;
 #[cfg(test)]
 mod tests_grants;
 #[cfg(test)]
+mod tests_harness;
+#[cfg(test)]
 mod tests_inbound;
 #[cfg(test)]
 mod tests_jobs;

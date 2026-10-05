@@ -17,6 +17,8 @@ pub fn notify_socket_path(core: &Core) -> std::path::PathBuf {
     core.spool.dir().join("notify.sock")
 }
 
+/// Bind the notify socket, take what the spool holds once, then park: a
+/// heartbeat every `heartbeat_ms`, and one for each wrapper's notify.
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 pub async fn run(core: Arc<Core>) {
     let path = notify_socket_path(&core);
@@ -31,7 +33,13 @@ pub async fn run(core: Arc<Core>) {
     let period = Duration::from_millis(core.kernel.config().heartbeat_ms.max(1000));
     let mut tick = tokio::time::interval(period);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    tick.tick().await; // the first tick fires immediately; startup already reconciled
+    // The first tick fires immediately: the bind's heartbeat below is it. The
+    // startup's spool drain ran before serving, and nothing listened here
+    // until now: a job's result spooled between the two had its one notify
+    // refused. Taken here, it waits for no heartbeat (theseus-74lt).
+    tick.tick().await;
+    let c = core.clone();
+    let _ = tokio::task::spawn_blocking(move || c.heartbeat("bind")).await;
     tracing::info!(heartbeat_secs = period.as_secs(), notify = %path.display(), "harness loop parked");
     loop {
         tokio::select! {
