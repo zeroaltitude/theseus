@@ -799,11 +799,16 @@ impl Local {
 /// `unix_ms` in the daemon's time zone (the system's, as `localtime_r` reads
 /// it), or UTC if that fails.
 pub fn local(unix_ms: u64) -> Local {
-    let t = (unix_ms / 1000) as libc::time_t;
     // SAFETY: `localtime_r` writes only the `tm` it is given, which lives
     // on this stack frame; a null return leaves it unread.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let ok = !unsafe { libc::localtime_r(&t, &mut tm) }.is_null();
+    // The seconds take `localtime_r`'s own argument type, inferred, so no
+    // alias is named (musl's `time_t` is deprecated in the libc crate,
+    // theseus-u8ig) and a second count that does not fit takes the UTC path.
+    let ok = match (unix_ms / 1000).try_into() {
+        Ok(t) => !unsafe { libc::localtime_r(&t, &mut tm) }.is_null(),
+        Err(_) => false,
+    };
     if !ok {
         let days = (unix_ms / 86_400_000) as i64;
         let (y, m, d) = civil_from_days(days);
