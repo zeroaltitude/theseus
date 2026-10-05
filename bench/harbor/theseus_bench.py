@@ -2,7 +2,8 @@
 
 - `profile`: the bench profile (`bench/theseus-bench.toml`) with the lines a
   trial sets (the model, the limits, the task's working directory);
-- `run_script` and `stop_script`: the shell a trial's container runs;
+- `run_script` and `stop_script`: the shell a trial's container runs, with
+  the harness sampler around the turn (`sampler.py`, theseus-7gir.12);
 - `ENDS`: what each of `theseus ask`'s exit codes says (theseus-n88g.2,
   `theseus ask --help`).
 
@@ -17,6 +18,9 @@ import shlex
 import tomllib
 from pathlib import Path
 from typing import Any
+
+import efficiency as ef
+import sampler as smp
 
 PROFILE = Path(__file__).resolve().parent.parent / "theseus-bench.toml"
 
@@ -112,7 +116,8 @@ def profile(text: str, values: dict[tuple[str, str], Any]) -> str:
     return result
 
 
-def run_script(bin_dir: str, state: str, logs: str) -> str:
+def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
+               sample_ms: int = smp.INTERVAL_MS) -> str:
     """The trial's one command, run as the task's user, with the instruction
     in `THESEUS_BENCH_INSTRUCTION` (unset before anything else starts).
 
@@ -121,16 +126,28 @@ def run_script(bin_dir: str, state: str, logs: str) -> str:
     session's history is read from the store (the trajectory, and the spend
     of a turn cut short), and the done marker is written. A failure's last
     `theseus:` line goes to stderr, where Harbor reads a failed command's
-    cause, and the command exits with `ask`'s code."""
+    cause, and the command exits with `ask`'s code.
+
+    With `sampler` (its path in the container), the harness sampler
+    (`sampler.py`, theseus-7gir.12) starts before the turn and stops after
+    the history is read, before the done marker; it never fails the run."""
     b, s, lg = (shlex.quote(p) for p in (bin_dir, state, logs))
     spawn = f"{b}/theseus --spawn {b}/theseusd --json"
+    arm = ef.ARMS["theseus"]
+    start = stop = ""
+    if sampler:
+        start = smp.start_script(sampler, logs, state, arm["names"], arm["wrapper_args"],
+                                 sample_ms) + "; "
+        stop = smp.stop_script(logs, state) + "; "
     return (
         'instruction="$THESEUS_BENCH_INSTRUCTION"; unset THESEUS_BENCH_INSTRUCTION; '
         f"rm -f {lg}/{DONE}; "
+        f"{start}"
         f'printf "%s" "$instruction" | {spawn} ask - > {lg}/{TURN} 2> {lg}/{LOG} & '
         f"echo $! > {s}/ask.pid; wait $!; rc=$?; "
         f"echo $rc > {lg}/{EXIT}; "
         f"{spawn} history > {lg}/{HISTORY} 2>> {lg}/{LOG}; "
+        f"{stop}"
         f"touch {lg}/{DONE}; "
         f"if [ $rc -ne 0 ]; then grep '^theseus: ' {lg}/{LOG} | tail -n 1 >&2; fi; "
         "exit $rc"
@@ -140,18 +157,20 @@ def run_script(bin_dir: str, state: str, logs: str) -> str:
 def stop_script(state: str, logs: str, wait_secs: int = 20) -> str:
     """After Harbor's timeout: a SIGTERM to the turn's `theseus`, which
     stops the turn as `/stop` does and its daemon cleanly (exit 9), then a
-    wait for the run's own end (its history read, the done marker). A second
-    SIGTERM, if the first is not done in `wait_secs`, ends it at once (143),
-    and the daemon still stops cleanly."""
+    wait for the run's own end (its history read, the sampler stopped, the
+    done marker). A second SIGTERM, if the first is not done in `wait_secs`,
+    ends it at once (143), and the daemon still stops cleanly. A sampler the
+    run's end did not stop is stopped last."""
     s, lg = shlex.quote(state), shlex.quote(logs)
     wait = (
         f"i=0; while [ ! -e {lg}/{DONE} ] && [ $i -lt {int(wait_secs)} ]; "
         "do sleep 1; i=$((i+1)); done"
     )
     return (
-        f'pid=$(cat {s}/ask.pid 2>/dev/null); [ -n "$pid" ] || exit 0; '
+        f'pid=$(cat {s}/ask.pid 2>/dev/null); if [ -n "$pid" ]; then '
         f'kill -TERM "$pid" 2>/dev/null; {wait}; '
-        f'[ -e {lg}/{DONE} ] || kill -TERM "$pid" 2>/dev/null; {wait}; exit 0'
+        f'[ -e {lg}/{DONE} ] || kill -TERM "$pid" 2>/dev/null; {wait}; fi; '
+        f"{smp.stop_script(logs, state)}; exit 0"
     )
 
 

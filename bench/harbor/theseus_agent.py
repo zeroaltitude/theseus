@@ -27,7 +27,10 @@ key in ANTHROPIC_API_KEY. bench/README.md has the rest.
   (`agent/trajectory.json`, which Harbor's viewer and usage totals read) and
   its tokens and dollars: from the turn's result, or, for a turn cut short,
   summed from the history's model calls, so a timed-out trial keeps its
-  spend.
+  spend. Then its efficiency record (`agent/efficiency.json`, and
+  `metadata["efficiency"]`; `efficiency.py`), with the harness sampler's
+  CPU and memory (`sampler.py`, run around the turn at nice 19, every
+  BENCH_SAMPLE_MS, 250 by default).
 
 Settings, from the environment of `harbor run`: THESEUS_BENCH_MAX_LOOPS
 (200), THESEUS_BENCH_SPEND_LIMIT (2.0 dollars a trial), THESEUS_BENCH_PROC_SYNC
@@ -55,12 +58,15 @@ from harbor.agents.model_connection import ModelConnectionSpec
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+import efficiency as ef
+import sampler as smp
 import theseus_atif as atif
 import theseus_bench as tb
 
 BIN = "/installed-agent/bin"
 STATE = "/installed-agent/state"
 CONFIG = "/installed-agent/theseus.toml"
+SAMPLER = f"{BIN}/sampler.py"
 
 
 class TheseusTurnEnded(NonZeroAgentExitCodeError):
@@ -125,12 +131,13 @@ class Theseus(BaseInstalledAgent):
         await self.exec_as_root(environment, command=f"mkdir -p {BIN} {STATE}")
         for b in ("theseus", "theseusd"):
             await environment.upload_file(src / b, f"{BIN}/{b}")
+        await environment.upload_file(Path(smp.__file__), SAMPLER)
         owner = ""
         if environment.default_user is not None:
             owner = f" && chown {shlex.quote(str(environment.default_user))} {STATE}"
         await self.exec_as_root(
             environment,
-            command=f"chmod 755 {BIN}/theseus {BIN}/theseusd && chmod 700 {STATE}{owner}",
+            command=f"chmod 755 {BIN}/theseus {BIN}/theseusd {SAMPLER} && chmod 700 {STATE}{owner}",
         )
 
     @override
@@ -166,8 +173,9 @@ class Theseus(BaseInstalledAgent):
         }
         logs = self.environment_logs_dir.as_posix()
         try:
+            sample_ms = int(os.environ.get("BENCH_SAMPLE_MS", str(smp.INTERVAL_MS)))
             await self.exec_as_agent(
-                environment, command=tb.run_script(BIN, STATE, logs), env=env
+                environment, command=tb.run_script(BIN, STATE, logs, SAMPLER, sample_ms), env=env
             )
         except asyncio.CancelledError:
             # Harbor's timeout: stop the turn, and let the run's end read its
@@ -235,6 +243,15 @@ class Theseus(BaseInstalledAgent):
             },
             "model": model,
         }
+        # The trial's efficiency record (theseus-7gir.12): tokens by class
+        # and model, dollars, calls, and the harness's CPU and memory apart
+        # from its work. A record that cannot be made never fails the trial.
+        try:
+            rec = ef.theseus_record(self.logs_dir, tb.TURN, tb.HISTORY)
+            ef.write(self.logs_dir, rec)
+        except Exception as e:  # noqa: BLE001
+            rec = {"schema": ef.SCHEMA, "arm": "theseus", "error": f"{type(e).__name__}: {e}"}
+        context.metadata = ef.metadata(context.metadata, rec)
 
 
 def _json(path: Path) -> dict[str, Any] | None:

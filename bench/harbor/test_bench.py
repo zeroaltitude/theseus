@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -20,10 +21,13 @@ import tomllib
 import unittest
 from pathlib import Path
 
+import sampler as smp
 import theseus_atif as atif
 import theseus_bench as tb
 
 REPO = Path(__file__).resolve().parents[2]
+SAMPLER = Path(smp.__file__).resolve()
+BASH = shutil.which("bash") or "bash"
 
 try:
     from harbor.models.trajectories import Trajectory
@@ -88,7 +92,8 @@ class ExitCodes(unittest.TestCase):
 
 
 # A stand-in for `theseus`: `ask` reads the instruction, then answers as
-# STANDIN_ASK says (done, failed, or wait: until a SIGTERM, then stopped);
+# STANDIN_ASK says (done, slow: done after half a second, failed, or wait:
+# until a SIGTERM, then stopped);
 # `history` prints a session with no nodes.
 STANDIN = """#!/bin/sh
 case "$*" in
@@ -97,6 +102,7 @@ case "$*" in
     cat > "$STANDIN_DIR/instruction"
     case "$STANDIN_ASK" in
       done) echo '{"stop_reason": "no_tool_calls"}' ;;
+      slow) sleep 0.5; echo '{"stop_reason": "no_tool_calls"}' ;;
       failed) echo "theseus: the provider is rate limited (rate_limit_error)" >&2; exit 1 ;;
       wait)
         trap 'echo "{\\"stop_reason\\": \\"stopped\\"}"; exit 9' TERM
@@ -120,11 +126,14 @@ class Scripts(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def start(self, ask: str) -> subprocess.Popen:
+    def start(self, ask: str, sampler: bool = False, path: str | None = None) -> subprocess.Popen:
         env = dict(os.environ, STANDIN_DIR=self.tmp.name, STANDIN_ASK=ask,
                    THESEUS_BENCH_INSTRUCTION="Fix the repository's history.")
-        script = tb.run_script(str(self.bin), str(self.state), str(self.logs))
-        return subprocess.Popen(["bash", "-c", "set -o pipefail; " + script], env=env,
+        if path is not None:
+            env["PATH"] = path
+        script = tb.run_script(str(self.bin), str(self.state), str(self.logs),
+                               str(SAMPLER) if sampler else None, 50)
+        return subprocess.Popen([BASH, "-c", "set -o pipefail; " + script], env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def read(self, name: str) -> str:
@@ -164,6 +173,63 @@ class Scripts(unittest.TestCase):
         self.assertEqual(p.returncode, 9)
         self.assertEqual(json.loads(self.read(tb.TURN))["stop_reason"], "stopped")
         self.assertEqual(self.read(tb.EXIT).strip(), "9")
+
+    def summary(self) -> dict:
+        return json.loads(self.read(smp.SUMMARY))
+
+    def test_the_sampler_runs_around_the_turn(self):
+        p = self.start("slow", sampler=True)
+        _, err = p.communicate(timeout=60)
+        self.assertEqual(p.returncode, 0, err)
+        s = self.summary()
+        self.assertEqual((s["status"], s["names"], s["interval_ms"]),
+                         ("ok", ["theseus", "theseusd"], 50))
+        self.assertGreaterEqual(s["classes"]["harness"]["processes"], 1, "the stand-in is seen")
+        self.assertFalse((self.state / "sampler.pid").exists(), "stopped before the done marker")
+        self.assertTrue((self.logs / smp.DONE).exists())
+
+    def test_the_stop_script_stops_the_sampler_on_a_timeout(self):
+        p = self.start("wait", sampler=True)
+        deadline = time.monotonic() + 60
+        while not (self.state / "ask.pid").exists():
+            self.assertLess(time.monotonic(), deadline, "the turn never started")
+            time.sleep(0.02)
+        # The run's end now stops the sampler too (at most 5 s more): the
+        # first SIGTERM's wait is the adapter's own 20 s, so a starved
+        # machine does not reach the second.
+        stop = subprocess.run(["bash", "-c", tb.stop_script(str(self.state), str(self.logs))],
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(stop.returncode, 0, stop.stderr)
+        p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 9)
+        self.assertEqual(self.summary()["status"], "ok")
+        self.assertTrue((self.logs / smp.DONE).exists())
+        self.assertFalse((self.state / "sampler.pid").exists())
+
+    def test_the_stop_script_stops_a_sampler_the_run_left(self):
+        """The run's own end never came (its shell was killed): the stop
+        script still stops the sampler."""
+        r = subprocess.run(["sh", "-c", smp.start_script(str(SAMPLER), str(self.logs),
+                                                         str(self.state), ["theseus"])],
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        stop = subprocess.run(["bash", "-c", tb.stop_script(str(self.state), str(self.logs), 1)],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(stop.returncode, 0, stop.stderr)
+        self.assertEqual(self.summary()["status"], "ok")
+        self.assertTrue((self.logs / smp.DONE).exists())
+
+    def test_an_image_without_python3_still_runs_the_trial(self):
+        tools = Path(self.tmp.name) / "tools"
+        tools.mkdir()
+        for t in ("cat", "rm", "mkdir", "grep", "tail", "touch", "sleep"):
+            os.symlink(shutil.which(t), tools / t)
+        p = self.start("done", sampler=True, path=str(tools))
+        _, err = p.communicate(timeout=60)
+        self.assertEqual(p.returncode, 0, err)
+        self.assertEqual(json.loads(self.read(tb.TURN))["stop_reason"], "no_tool_calls")
+        self.assertEqual(self.summary(), {"status": "unavailable", "reason": "no python3 on PATH"})
+        self.assertTrue((self.logs / tb.DONE).exists())
 
     def test_the_stop_script_with_no_turn_does_nothing(self):
         stop = subprocess.run(["bash", "-c", tb.stop_script(str(self.state), str(self.logs), 1)],
@@ -283,6 +349,7 @@ class Adapter(unittest.TestCase):
         self.assertTrue(theseus_agent.Theseus.capabilities.atif)
         ends = {code for code, end in tb.ENDS.items() if end not in ("done", "failed", "usage", "unreachable")}
         self.assertEqual(set(theseus_agent.ERRORS), ends)
+        self.assertEqual(theseus_agent.SAMPLER, "/installed-agent/bin/sampler.py")
 
 
 if __name__ == "__main__":

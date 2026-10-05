@@ -12,7 +12,11 @@ instruction, and runs the task's tests for a reward. Results are published in
 | `harbor/theseus_agent.py` | The Harbor agent, `-a theseus_agent:Theseus`. |
 | `harbor/theseus_bench.py` | Its parts that need no Harbor: the profile a trial writes, the container's script, and the exit codes. |
 | `harbor/theseus_atif.py` | A session's history as an ATIF trajectory, the format Harbor's viewer and usage totals read. |
-| `harbor/test_bench.py` | Their tests. |
+| `harbor/efficiency.py` | A trial's efficiency record, one shape for every arm: tokens by class and model, dollars, calls, and the harness's CPU and memory apart from its work. |
+| `harbor/sampler.py` | The harness sampler: run in the task's container around the agent, it reads `/proc` and sorts each process into harness, work, or neither. |
+| `harbor/claude_code_agent.py` | Claude Code, measured: `-a claude_code_agent:MeasuredClaudeCode`, Harbor's own adapter with the sampler and the record added. |
+| `harbor/test_*.py` | Their tests. |
+| `report/efficiency.py` | The efficiency report over jobs, one arm each: per-arm numbers, Pareto tables, and three SVG charts. |
 
 ## What you need
 
@@ -58,6 +62,7 @@ The adapter's settings come from the environment of `harbor run`:
 | `THESEUS_BENCH_MAX_LOOPS` | `200` | The model calls one turn may make. |
 | `THESEUS_BENCH_PROC_SYNC` | `900` | How long a command may keep the turn waiting, in seconds. A headless run ends with its turn, so a command left running in the background is never read. |
 | `THESEUS_BENCH_SYSTEM_FILE` | (none) | Extra system text, for an A/B arm. |
+| `BENCH_SAMPLE_MS` | `250` | How often the harness sampler reads `/proc`, in milliseconds (both arms). |
 
 ## How a trial runs, and how it ends
 
@@ -92,6 +97,67 @@ result), `theseus.log` (the CLI's and the daemon's stderr), `theseus-exit.txt`, 
 history in ATIF. The trial's tokens and dollars come from the turn's result. A turn cut short, by a timeout, prints
 none, so its spend is summed from the history: every model call that finished is in the store with its cost.
 
+## Efficiency: what each trial spends
+
+Score alone hides what an arm spends to get it, so every trial of every arm leaves the same record,
+`agent/efficiency.json` (and `metadata["efficiency"]` in the trial's `result.json`), written by
+`harbor/efficiency.py`:
+
+| Field | What it holds |
+|---|---|
+| `tokens` | The four classes, `input` (uncached), `cache_read`, `cache_write`, and `output`, over every model. Harbor's own counters fold the write into `n_input_tokens`; this keeps it apart. |
+| `by_model` | The same per model, with its `cost_usd` and `calls`: a retry is a call, and a refusal's fallback (Sonnet 5.5's is Sonnet 5) bills a second model. |
+| `cost_usd`, `spend_from` | The trial's dollars, and the file they came from. |
+| `model_calls`, `tool_calls` | Theseus: its turn's `provider` spans (each retry and fallback one) and tool calls. Claude Code: its session log's messages, each message id once, and their tool uses. |
+| `wall_s` | The sampler's window. The report takes Harbor's agent execution from `result.json`. |
+| `harness`, `work`, `wrappers` | Each `cpu_s`, `peak_rss_kb` (the largest summed RSS of the class in one sample), and `peak_hwm_kb` (the largest single process's peak). `wrappers` is Theseus's job wrappers, kept apart from both. Null when the sampler did not run. |
+| `container` | The container's cgroup CPU over the window and its `memory.peak`, where they read. |
+| `sampler` | `ok`, `unavailable` (no python3 in the image, or one older than 3.6), `failed`, `running` (it never wrote its last summary), or `missing`; why; its interval, samples, and its own CPU. |
+
+**Where the spend comes from.** Theseus: its turn's result has all four classes; its history's answers split
+them by model, and a turn cut short (a timeout) is its history's answers, as `spend` does. Claude Code: the
+stream-json `result` event's `modelUsage` (Claude Code's own bill, per model, in all four classes, with calls
+the session log does not hold); a timed-out run never prints one, so then the session log, each message once
+with its last usage (the log repeats a message's usage on each content block's line; Harbor's converter also
+counts it once), and then Harbor's trajectory, whose steps keep the write in `metrics.extra`.
+
+**The sampler** (`harbor/sampler.py`, the standard library, Python 3.6 or later, one file) is uploaded at
+install, started at nice 19 before the agent's command, and stopped after it, on Harbor's timeout path too.
+Every `BENCH_SAMPLE_MS` it reads `/proc`: a process whose executable name (`/proc/<pid>/comm`) is the arm's
+is **harness** (Theseus: `theseus` and `theseusd`; Claude Code: `claude`); a Theseus job wrapper (`theseusd
+job-wrapper …`) is apart; whatever descends from them is **work**; the container's own are left out. CPU is
+`utime` and `stime` per process, and a child reaped between two samples is counted from its parent's
+`cutime`. Where the container's cgroup v2 `cpu.stat` reads, its CPU over the window is the total, and the
+work is the total less the harness's, the wrappers', and the rest the samples saw, so a command shorter than
+an interval still counts. Each arm's harness names are data (`ARMS` in `efficiency.py`), so a new arm needs
+only its line. The sampler writes `sampler.jsonl` (a line a sample) and `sampler.json` (its summary) beside
+the agent's files. At 250 ms it costs about 0.3% of a core with 25 processes in the container, and under 1%
+with 90; `sampler.py`'s head says what the method misses.
+
+**Claude Code, measured the same way:**
+
+```bash
+.venv/bin/harbor run -d terminal-bench@2.0 \
+  -a claude_code_agent:MeasuredClaudeCode -m anthropic/claude-sonnet-5-5 \
+  --ak max_budget_usd=2.0 --ak max_turns=200 -o jobs --job-name claude-tb2 -n 4 -k 2
+```
+
+It is Harbor's own `ClaudeCode` with the sampler and the record added: its install, command line, options,
+trajectory, and name are Harbor's, so its results read as Claude Code's.
+
+**The report** reads jobs, one arm each:
+
+```bash
+python3 bench/report/efficiency.py --arm theseus=jobs/theseus-tb2 --arm claude-code=jobs/claude-tb2 --out /tmp/eff
+```
+
+It writes `report.md` (per arm: trials, solved, mean reward, dollars, solved per dollar, tokens per solved
+task by class, the share of input read from the cache, model and tool calls, harness CPU per tool call,
+peak harness RSS, and agent time; then score against dollars, tokens, and harness RAM, one point per arm,
+the Pareto front marked), `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram.svg`, and `trials.csv`. A
+job from before the record reports what it kept: its dollars, the cache write from the arm's own files or
+its trajectory, and CPU and RAM "not sampled".
+
 ## What it costs
 
 Each trial is capped by `THESEUS_BENCH_SPEND_LIMIT`. With Sonnet 5.5, the easy Terminal-Bench tasks cost $0.02 to
@@ -108,9 +174,13 @@ and the cost, go in [`docs/benchmarks.md`](../docs/benchmarks.md). The first ful
 
 ```bash
 python3 -m unittest discover -s bench/harbor                 # the standard library: Harbor's checks skip
-.venv/bin/python -m unittest discover -s bench/harbor         # with Harbor: the ATIF checks and the agent's load
+.venv/bin/python -m unittest discover -s bench/harbor         # with Harbor: the ATIF checks and the agents' load
+python3 -m unittest discover -s bench/report                 # the report, over fixture jobs
 ```
 
 They check the profile a trial writes, the exit codes against `crates/theseus/src/outcome.rs`, the container's
-script against a stand-in `theseus` (a turn that ends, a failure, and a stop after a timeout), and the trajectory
-against Harbor's own ATIF model.
+script against a stand-in `theseus` (a turn that ends, a failure, a stop after a timeout, and the sampler around
+each, with and without python3), and the trajectory against Harbor's own ATIF model; the sampler's parsers and
+classes on fixture `/proc` trees, and on this host's `/proc` a copy of `sh` under a harness name whose busy child
+must land in work; the record from fixture turns, histories, and session logs; and the report over fixture jobs,
+against numbers worked by hand.
