@@ -242,6 +242,13 @@ fn marked(marker: &str) -> Vec<u32> {
         .collect()
 }
 
+/// A process's time on a CPU so far, in nanoseconds: the scheduler's own
+/// count (`/proc/<pid>/stat`'s ticks are sampled, and can jump by two at once).
+fn cpu_ns(pid: u32) -> u64 {
+    let s = std::fs::read_to_string(format!("/proc/{pid}/schedstat")).unwrap();
+    s.split_whitespace().next().unwrap().parse().unwrap()
+}
+
 fn id_of(o: &ToolOutput) -> String {
     o.meta["terminal"].as_str().unwrap().to_string()
 }
@@ -446,16 +453,35 @@ async fn python3s_repl_computes_on_the_screen() {
     .await;
     let text = read_until(&terms, "s1", &id, "15150", d.path()).await;
     assert!(text.contains("|>>> sum(range(101)) * 3\n"), "{text}");
-    // A line that never ends, and Ctrl-C: Python says KeyboardInterrupt.
+    // A line that never ends, and Ctrl-C: Python says KeyboardInterrupt. Each
+    // key goes at the state it is meant for, never after a sleep: a key typed
+    // ahead can land before Python reads it as meant (theseus-1n2y).
+    let pid = terms.get(&id).unwrap().pty.pid();
     call(
         &terms,
         "s1",
         SEND,
-        json!({"terminal": id, "text": "while True: pass\n\n"}),
+        json!({"terminal": id, "text": "while True: pass\n"}),
         d.path(),
     )
     .await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    read_until(&terms, "s1", &id, "while True: pass\n... ", d.path()).await;
+    let before = cpu_ns(pid);
+    call(
+        &terms,
+        "s1",
+        SEND,
+        json!({"terminal": id, "keys": ["Enter"]}),
+        d.path(),
+    )
+    .await;
+    // The loop runs: Python's time on a CPU rises by 20 ms, more than its read
+    // of a line takes.
+    let t0 = Instant::now();
+    while cpu_ns(pid) < before + 20_000_000 {
+        assert!(t0.elapsed() < Duration::from_secs(30), "the loop never ran");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     call(
         &terms,
         "s1",
@@ -465,6 +491,9 @@ async fn python3s_repl_computes_on_the_screen() {
     )
     .await;
     read_until(&terms, "s1", &id, "KeyboardInterrupt", d.path()).await;
+    // The fresh prompt after it: a Ctrl-D typed before Python reads its next
+    // line reaches it as nothing, and Python waits on.
+    read_until(&terms, "s1", &id, "KeyboardInterrupt\n>>> ", d.path()).await;
     // Ctrl-D ends it: the read says its program exited.
     call(
         &terms,
