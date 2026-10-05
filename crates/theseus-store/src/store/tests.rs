@@ -1433,6 +1433,52 @@ fn a_new_stores_own_name_is_synced_with_its_first_frame() {
     assert_eq!(dir_syncs(&s), 1);
 }
 
+/// A found segment vouched for skips the log directory's sync
+/// (theseus-3q29), but only in a store this build's format wrote: one an
+/// older format wrote may hold marks from a build before theseus-c67g, which
+/// synced no found segment's name, so its first frame syncs the log's
+/// directory, once, as its manifest moves to this build's format.
+#[test]
+fn a_store_an_older_format_wrote_syncs_its_logs_name_with_the_first_frame() {
+    let dir = tempfile::tempdir().unwrap();
+    let frame = |v: &str| [NewRecord::json(kinds::LEDGER, None, &v).unwrap()];
+    let dir_syncs = |s: &WalStore| s.inner.wal.dir_syncs();
+    let s = open(dir.path());
+    s.append(&frame("one")).unwrap();
+    s.append(&frame("two")).unwrap();
+    drop(s);
+
+    let s = open(dir.path());
+    assert_eq!(s.recovery().vouched, Some(crate::wal::Vouch::Mark));
+    s.append(&frame("three")).unwrap();
+    assert_eq!(dir_syncs(&s), 0, "vouched for, at this build's format");
+    drop(s);
+
+    let path = dir.path().join("MANIFEST.json");
+    let older = format!(r#"{{"format": {}, "engine": "redb"}}"#, MANIFEST_FORMAT - 1);
+    std::fs::write(&path, &older).unwrap();
+    let s = open(dir.path());
+    assert_eq!(
+        s.recovery().vouched,
+        Some(crate::wal::Vouch::Mark),
+        "the marks vouch, and an older build may have written them"
+    );
+    s.append(&frame("four")).unwrap();
+    assert_eq!(
+        dir_syncs(&s),
+        1,
+        "the log's directory, with the first frame"
+    );
+    assert_eq!(manifest(dir.path())["format"], MANIFEST_FORMAT);
+    s.append(&frame("five")).unwrap();
+    assert_eq!(dir_syncs(&s), 1, "once");
+    drop(s);
+
+    let s = open(dir.path());
+    s.append(&frame("six")).unwrap();
+    assert_eq!(dir_syncs(&s), 0, "the manifest moved: vouched for again");
+}
+
 /// theseus-gt12: the frame that holds the index's checkpoint goes bad on
 /// disk. The tail-only open cannot find that record, so the open checks
 /// every segment and meets the bad frame at the last segment's end. The

@@ -924,6 +924,14 @@ impl Inner {
         };
         let (wal, missing) =
             Wal::open_from(&dir.join("wal"), wal_cfg, cp, at).context("opening WAL")?;
+        // A store an older format wrote may hold marks from a build before
+        // theseus-c67g, which synced no found segment's name: they vouch for
+        // nothing, so its first frame syncs the log's directory, once, as
+        // its manifest moves (theseus-3q29).
+        let mut name_dirs = name_dirs;
+        if behind {
+            name_dirs.push(wal.dir().to_path_buf());
+        }
         wal.sync_with_first_frame(name_dirs);
 
         // Whether the index's terms were whole at its checkpoint: then the

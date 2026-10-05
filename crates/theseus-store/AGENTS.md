@@ -34,7 +34,9 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   open knows a position in the found segment was synced (theseus-3q29): the index's checkpoint, or a frame's mark,
   at or past the segment's first position, says a sync covering its first frame returned Ok, and such a sync syncs
   the pending directories before it returns. `Recovery::vouched` says which; an empty found segment is never
-  vouched for. A file made durable needs its directory synced too. The
+  vouched for. A store whose manifest names an older format (`behind`) syncs the log's directory with its first
+  frame anyway, once, as the manifest moves: its marks may be a build's from before c67g, which synced no found
+  segment's name. A file made durable needs its directory synced too. The
   store's open adds the holder of every directory it created, the store's own included (theseus-gf00), to those the
   first frame's sync makes durable.
 - **A sync that fails takes its frames with it** (theseus-ljgm). Its batch is answered failed, so `Wal::sync` cuts
