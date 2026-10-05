@@ -246,6 +246,12 @@ mod tests_retention;
 #[cfg(test)]
 mod tests_route;
 #[cfg(test)]
+mod tests_route_base;
+#[cfg(test)]
+mod tests_route_cap;
+#[cfg(test)]
+mod tests_route_rows;
+#[cfg(test)]
 mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
@@ -265,6 +271,8 @@ mod tests_tasks;
 mod tests_tender;
 #[cfg(test)]
 mod tests_term;
+#[cfg(test)]
+mod tests_thinking_writer;
 #[cfg(test)]
 mod tests_tiering;
 #[cfg(test)]

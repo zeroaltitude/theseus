@@ -83,6 +83,12 @@ const SAMPLES: &[Sample] = &[
     },
     Sample {
         kind: kinds::SESSION,
+        layout: "a conversation routing moved, at format 15 (M5 25e; unchanged through 20): its routed profile and a switch the cache holds back, before the base it was moved from (21, theseus-0j2.17); by hand, in the layout the build before it (80ef1dea) writes",
+        bytes: r#"{"session_id":"ses_00000000000000000000000000000095","kind":"conversation","label":null,"created_at_unix_ms":1790000000095,"turns":2,"last_turn_id":"turn_00000000000000000000000000000097","usage":{"input_tokens":900,"output_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":600},"execution_id":"exe_00000000000000000000000000000095","compilation_id":"cmp_00000000000000000000000000000096","last_target":{"profile":"opus","provider":"anthropic","model":"claude-opus-5-5"},"last_active_ms":1790000000099,"cost_usd":0.0311,"tool_calls":0,"title":"Weigh two designs for a tide log","routed":{"profile":"opus","hold":{"mode":"routine_coding","profile":"glm53","turn":"turn_00000000000000000000000000000097"}}}"#,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::SESSION,
         layout: "a task's session (DD7, W1): its origin and where it reports, before its arrangement's node (format 9, M5 27; unchanged through 8); the build before theseus-vug.2 (f1fccec) writes it back byte for byte",
         bytes: r#"{"session_id":"ses_00000000000000000000000000000081","kind":"task","label":"task","created_at_unix_ms":1790000000081,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"execution_id":"exe_00000000000000000000000000000081","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":0,"cost_usd":0.0,"tool_calls":0,"title":"Chart the harbour soundings","task":{"parent_session":"ses_lighthouse","parent_execution":"exe_lighthouse","by":"act_00000000000000000000000000000081","target":"discord:dm:42"}}"#,
         kept: Kept::All,

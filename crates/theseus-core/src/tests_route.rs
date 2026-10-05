@@ -20,14 +20,14 @@ use crate::tests_judge::{board, kinds, off, texts};
 use crate::turn::TurnRequest;
 use crate::Config;
 
-struct Rig {
-    core: Arc<Core>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
     /// The `anthropic` provider's fake: sonnet, opus, fable.
-    claude: Arc<FakeProvider>,
+    pub(crate) claude: Arc<FakeProvider>,
     /// The `zai` provider's fake: glm (5.3 Flash) and glm53.
-    zai: Arc<FakeProvider>,
+    pub(crate) zai: Arc<FakeProvider>,
     /// A second rig on the same dir is a restart.
-    dir: Arc<tempfile::TempDir>,
+    pub(crate) dir: Arc<tempfile::TempDir>,
 }
 
 /// Every judge pack but the inbound point's off, so its one call is the
@@ -46,13 +46,13 @@ fn routing_only(c: &mut Config) {
     }
 }
 
-fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = Arc::new(tempfile::tempdir().unwrap());
     rig_on(dir, jev, n, tweak, board())
 }
 
 /// The rig on `dir`'s store, with `secrets` as the board.
-fn rig_on(
+pub(crate) fn rig_on(
     dir: Arc<tempfile::TempDir>,
     jev: Option<&FakeJev>,
     n: usize,
@@ -79,7 +79,7 @@ fn rig_on(
 
 /// A person's message: on the live profile, or on `chosen` as the owner's
 /// choice (`ask -P`).
-async fn turn(
+pub(crate) async fn turn(
     core: &Arc<Core>,
     session: Option<&str>,
     input: &str,
@@ -121,7 +121,7 @@ async fn turn(
         .unwrap()
 }
 
-fn mode(jev: &FakeJev, m: &str, confidence: f64) {
+pub(crate) fn mode(jev: &FakeJev, m: &str, confidence: f64) {
     jev.script(
         "mode",
         Jev::Choice {
@@ -131,14 +131,14 @@ fn mode(jev: &FakeJev, m: &str, confidence: f64) {
     );
 }
 
-fn decided(store: &Store) -> Vec<Value> {
+pub(crate) fn decided(store: &Store) -> Vec<Value> {
     kinds(store, "route.decided")
         .into_iter()
         .map(|r| r.data)
         .collect()
 }
 
-fn session(core: &Core, id: &str) -> SessionRecord {
+pub(crate) fn session(core: &Core, id: &str) -> SessionRecord {
     core.store
         .get_session::<SessionRecord>(id)
         .unwrap()
@@ -146,7 +146,7 @@ fn session(core: &Core, id: &str) -> SessionRecord {
 }
 
 /// Wait (on the runtime's timer) until the `judge:route` scope has `n` rows.
-async fn until_route_rows(store: &Store, n: usize) -> Vec<LedgerRow> {
+pub(crate) async fn until_route_rows(store: &Store, n: usize) -> Vec<LedgerRow> {
     let t0 = Instant::now();
     loop {
         let rows: Vec<LedgerRow> = store
@@ -779,7 +779,7 @@ async fn a_pin_after_a_routed_turn_lands_on_the_ladder() {
 
 /// One request through the protocol server, as a client sends it: its
 /// result.
-async fn call(core: &Arc<Core>, method: &str, params: Value) -> Value {
+pub(crate) async fn call(core: &Arc<Core>, method: &str, params: Value) -> Value {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let (client, server) = tokio::io::duplex(64 * 1024);
     let (sr, sw) = tokio::io::split(server);
@@ -804,7 +804,7 @@ async fn call(core: &Arc<Core>, method: &str, params: Value) -> Value {
 }
 
 /// A board on which Jev's key did not resolve.
-fn keyless() -> Arc<crate::secrets::SecretBoard> {
+pub(crate) fn keyless() -> Arc<crate::secrets::SecretBoard> {
     let b = crate::secrets::SecretBoard::new(["jev_api_key".to_string()], Instant::now());
     b.publish(
         std::collections::BTreeMap::from([(
@@ -819,7 +819,7 @@ fn keyless() -> Arc<crate::secrets::SecretBoard> {
 /// A session routing moved to Opus, and its rig (`n` answers a provider).
 /// The wait for a verdict is long, so a loaded machine never makes one late;
 /// it ends as the verdict lands.
-async fn moved_to_opus(jev: &FakeJev, n: usize) -> (Rig, String) {
+pub(crate) async fn moved_to_opus(jev: &FakeJev, n: usize) -> (Rig, String) {
     mode(jev, "sophisticated", 0.95);
     let r = rig(Some(jev), n, |c| c.routing.max_wait_ms = 5_000);
     let one = turn(
