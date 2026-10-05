@@ -2,13 +2,19 @@
 // its family by its header), the family chips filter by a kind's first segment, the histogram's brush filters by
 // time, search covers kinds, summaries, and payloads, and the list is virtualized. `?view=nodes` lists the store's
 // nodes instead: what was said and done, every session's or one's.
-import { useMemo, useRef, useState } from 'react'
+//
+// The rows are the page's one copy of the ledger (`useHistoryRows`), the whole of it, followed: this view has no loop of
+// its own. The filter lives in the address and can be saved under a name in the browser; `follow` keeps the newest rows
+// in view as they land, and stops while you scroll away; the rows shown can be downloaded as JSON.
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Group, Panel as RPanel, Separator } from 'react-resizable-panels'
-import { Boxes, Layers, ScrollText, Search, X } from 'lucide-react'
+import { Boxes, Download, Layers, ScrollText, Search, Star, X } from 'lucide-react'
 import type { Health, LedgerEntry, NodeInfo, NodeListResult, Tightening } from '@protocol'
-import { useLedger } from '@/lib/derive'
+import { useHistoryRows } from '@/lib/history'
+import { useAsOf } from '@/lib/timemachine'
+import { SAVED_KEY, applySaved, exportName, exportOf, filterOf, filterRows, newerThan, queryOf, readSaved, withSaved, withoutSaved, writeSaved, type Saved } from '@/lib/ledgerview'
 import { useRpc } from '@/lib/rpc'
 import { nodeSummary, summarize } from '@/lib/summary'
 import { clock, cn, short, stamp } from '@/lib/format'
@@ -20,8 +26,6 @@ import { Empty, Panel, Pill, Segmented } from '@/components/ui'
 import { ShouldHaveAsked } from '@/components/ShouldHaveAsked'
 import { Reach } from '@/components/SessionGraph'
 
-const NO_ROWS: LedgerEntry[] = []
-
 export default function Ledger() {
   const nav = useNavigate()
   // The search, the kind and family filters, the session, and the view live in the address
@@ -29,9 +33,10 @@ export default function Ledger() {
   const [params, setParams] = useSearchParams()
   const view = params.get('view') === 'nodes' ? 'nodes' : 'rows'
   const setView = (v: 'rows' | 'nodes') => setParams((p) => { if (v === 'nodes') p.set('view', v); else p.delete('view'); return p }, { replace: true })
-  // Read only what is on screen: the rows only while they are shown.
-  const { data } = useLedger(20_000, 5000, undefined, undefined, view === 'rows')
-  const rows = data?.rows ?? NO_ROWS
+  // One copy of the ledger, followed; the whole of it, not a window.
+  const history = useHistoryRows()
+  const rows = history.rows
+  const asOf = useAsOf((s) => s.t)
   const q = params.get('q') ?? ''
   const kinds = useMemo(() => new Set((params.get('kind') ?? '').split(',').filter(Boolean)), [params])
   const setQ = (v: string) => setParams((p) => { if (v) p.set('q', v); else p.delete('q'); return p }, { replace: true })
@@ -48,8 +53,18 @@ export default function Ledger() {
   const clearSession = () => setParams((p) => { p.delete('session'); return p }, { replace: true })
   const { data: health } = useRpc<Health>('health', undefined, 5000)
   const tightened = useMemo(() => new Map<string, Tightening>((health?.tightenings ?? []).map((t) => [t.tool, t])), [health])
-  const [range, setRange] = useState<[number, number] | null>(null)
-  const [pick, setPick] = useState<LedgerEntry | null>(null)
+  // The time brush (?from=&to=) and the row picked (?row=) are in the address too.
+  const filter = useMemo(() => filterOf(params), [params])
+  const range = filter.range
+  const setRange = (r: readonly [number, number] | null) => setParams((p) => {
+    if (r) { p.set('from', String(Math.round(r[0]))); p.set('to', String(Math.round(r[1]))) } else { p.delete('from'); p.delete('to') }
+    return p
+  }, { replace: true })
+  const follow = params.get('follow') === '1'
+  const setFollow = (on: boolean) => setParams((p) => { if (on) p.set('follow', '1'); else p.delete('follow'); return p }, { replace: true })
+  const pickPos = Number(params.get('row'))
+  const pick = useMemo(() => (Number.isFinite(pickPos) && params.has('row') ? rows.find((r) => r.position === pickPos) ?? null : null), [rows, pickPos, params])
+  const setPick = (r: LedgerEntry | null) => setParams((p) => { if (r) p.set('row', String(r.position)); else p.delete('row'); return p }, { replace: true })
 
   // The families in the rows read, the busiest first.
   const families = useMemo(() => {
@@ -57,17 +72,10 @@ export default function Ledger() {
     for (const r of rows) { const f = ledgerKind(r.kind).family; m.set(f, (m.get(f) ?? 0) + 1) }
     return [...m.entries()].sort((a, b) => b[1] - a[1])
   }, [rows])
-  const inFamily = (r: LedgerEntry) => !family || ledgerKind(r.kind).family === family
-  const filtered = useMemo(() => {
-    const needle = q.toLowerCase()
-    return rows.filter((r) =>
-      (!session || r.session_id === session) &&
-      (!kinds.size || kinds.has(r.kind)) &&
-      (!family || ledgerKind(r.kind).family === family) &&
-      (!range || (r.at_unix_ms >= range[0] && r.at_unix_ms <= range[1])) &&
-      (!needle || r.kind.includes(needle) || (r.session_id ?? '').includes(needle) || summarize(r).toLowerCase().includes(needle) || JSON.stringify(r.data).toLowerCase().includes(needle)),
-    ).reverse()
-  }, [rows, kinds, family, q, range, session])
+  // The search is deferred: a keystroke never waits for the filter to cross the whole ledger.
+  const deferred = useDeferredValue(filter)
+  const filtered = useMemo(() => filterRows(rows, deferred), [rows, deferred])
+  const histRows = useMemo(() => rows.filter((r) => (!kinds.size || kinds.has(r.kind)) && (!family || ledgerKind(r.kind).family === family)), [rows, kinds, family])
 
   const toggle = (k: string) => setKinds((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
 
@@ -81,7 +89,7 @@ export default function Ledger() {
         </Panel>
         <Panel title="Over time · drag the brush to filter" icon={<ScrollText size={13} />} bodyClassName="h-[220px] p-2"
           actions={range ? <button onClick={() => setRange(null)} className="flex items-center gap-1 text-[11px] text-live"><X size={11} /> clear range</button> : null}>
-          <Histogram rows={rows.filter((r) => (!kinds.size || kinds.has(r.kind)) && inFamily(r))} onRange={setRange} />
+          <Histogram rows={histRows} onRange={setRange} />
         </Panel>
       </div>
 
@@ -92,8 +100,19 @@ export default function Ledger() {
         </div>
         {session && <button onClick={clearSession} title="show every session's rows"><Pill tone="live">session {short(session)} <X size={10} /></Pill></button>}
         {[...kinds].map((k) => <button key={k} onClick={() => toggle(k)}><Pill tone={ledgerKind(k).tone}>{k} <X size={10} /></Pill></button>)}
-        <span className="num ml-auto text-[11px] text-ink-faint">{filtered.length.toLocaleString()} of {rows.length.toLocaleString()} rows read · {data?.total?.toLocaleString() ?? '—'} in the ledger</span>
+        <span className="num ml-auto text-[11px] text-ink-faint">
+          {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} rows read · {history.total ? history.total.toLocaleString() : '—'} in the ledger
+          {history.partial && ' · this daemon cannot page: only its newest rows'}{!history.ready && ' · reading…'}
+        </span>
+        <button type="button" onClick={() => setFollow(!follow)} aria-pressed={follow}
+          title="Keep the newest rows in view as they land; scrolling away stops it until you scroll back to the top"
+          className={cn('num rounded-md px-2 py-1 text-[11px] ring-1 ring-inset', follow ? 'bg-live/10 text-live ring-live/40' : 'text-ink-dim ring-line hover:text-ink')}>follow</button>
+        <button type="button" onClick={() => download(exportOf(rows, filter), exportName(filtered.length, Date.now()))} disabled={!filtered.length}
+          title={`Download the ${filtered.length.toLocaleString()} rows shown as JSON`}
+          className="num flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-ink-dim ring-1 ring-inset ring-line hover:text-ink disabled:opacity-40"><Download size={12} /> export {filtered.length.toLocaleString()}</button>
+        {asOf !== null && <Pill tone="wait" title="the ledger as it is now: the time machine's moment does not move it">shows the present</Pill>}
       </div>
+      <SavedFilters query={queryOf(params)} onApply={(sv) => setParams((p) => applySaved(p, sv), { replace: true })} />
       <div className="-mt-1 flex flex-wrap items-center gap-1" title="a family of kinds: every kind whose first segment it is">
         <span className="ship-engraved mr-1 text-[9.5px]">families</span>
         <FamilyChip on={!family} tone="live" onClick={() => setFamily(null)}>all</FamilyChip>
@@ -108,7 +127,7 @@ export default function Ledger() {
         <RPanel defaultSize="60" minSize={420} className="min-h-0">
           <Panel title="Rows" icon={<ScrollText size={13} />} className="h-full" bodyClassName="min-h-0"
             actions={<Segmented value={view} options={['rows', 'nodes'] as const} onChange={setView} />}>
-            <RowList rows={filtered} pick={pick} onPick={setPick} />
+            <RowList rows={filtered} pick={pick} onPick={setPick} follow={follow} onFollow={setFollow} />
           </Panel>
         </RPanel>
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
@@ -135,30 +154,88 @@ export default function Ledger() {
   )
 }
 
-function RowList({ rows, pick, onPick }: { rows: LedgerEntry[]; pick: LedgerEntry | null; onPick: (r: LedgerEntry) => void }) {
+function RowList({ rows, pick, onPick, follow, onFollow }: { rows: LedgerEntry[]; pick: LedgerEntry | null; onPick: (r: LedgerEntry) => void; follow: boolean; onFollow: (on: boolean) => void }) {
   const parent = useRef<HTMLDivElement>(null)
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => parent.current, estimateSize: () => 26, overscan: 20 })
+  // Follow: the list is newest first, so following is staying at the top. A scroll away pauses it (the rows that land
+  // meanwhile are counted); scrolling back to the top goes on. The paused position is the newest row seen.
+  const atTop = useRef(true)
+  const [seen, setSeen] = useState<number | null>(null)
+  const newest = rows.length ? rows[0].position : 0
+  const scrolled = (e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop < 8
+    if (top === atTop.current) return
+    atTop.current = top
+    setSeen(top ? null : newest)
+  }
+  useEffect(() => {
+    if (follow && atTop.current && rows.length) v.scrollToOffset(0)
+  }, [follow, newest, rows.length, v])
+  const behind = seen !== null ? newerThan(rows, seen) : 0
   if (!rows.length) return <Empty>no rows match</Empty>
   return (
-    <div ref={parent} className="h-full overflow-auto">
-      <div style={{ height: v.getTotalSize(), position: 'relative' }}>
-        {v.getVirtualItems().map((it) => {
-          const r = rows[it.index]
-          return (
-            <button key={r.position} onClick={() => onPick(r)}
-              className={cn('absolute left-0 flex w-full items-baseline gap-2 border-b border-line/40 px-3 text-left text-[11.5px] hover:bg-white/[0.03]', pick?.position === r.position && 'bg-live/[0.07]')}
-              style={{ top: 0, height: it.size, transform: `translateY(${it.start}px)`, lineHeight: `${it.size}px` }}>
-              <span className="num w-12 shrink-0 text-right text-ink-faint">{r.position}</span>
-              <span className="num w-[118px] shrink-0 text-ink-faint">{stamp(r.at_unix_ms)}</span>
-              <span className="num w-44 shrink-0 truncate" style={{ color: toneHex[ledgerKind(r.kind).tone] }}>{r.kind}</span>
-              <span className="num w-16 shrink-0 text-[10.5px] text-ink-faint">{r.session_id ? short(r.session_id) : ''}</span>
-              <span className="min-w-0 truncate text-ink-dim">{summarize(r)}</span>
-            </button>
-          )
-        })}
+    <div className="relative h-full">
+      {follow && seen !== null && behind > 0 && (
+        <button type="button" onClick={() => { v.scrollToOffset(0); atTop.current = true; setSeen(null) }}
+          className="num absolute left-1/2 top-1 z-10 -translate-x-1/2 rounded-full bg-live/15 px-3 py-0.5 text-[11px] text-live ring-1 ring-live/40">{behind.toLocaleString()} newer · follow paused · jump to the newest</button>
+      )}
+      <div ref={parent} onScroll={scrolled} className="h-full overflow-auto">
+        <div style={{ height: v.getTotalSize(), position: 'relative' }}>
+          {v.getVirtualItems().map((it) => {
+            const r = rows[it.index]
+            return (
+              <button key={r.position} onClick={() => { onPick(r); if (follow) onFollow(true) }}
+                className={cn('absolute left-0 flex w-full items-baseline gap-2 border-b border-line/40 px-3 text-left text-[11.5px] hover:bg-white/[0.03]', pick?.position === r.position && 'bg-live/[0.07]')}
+                style={{ top: 0, height: it.size, transform: `translateY(${it.start}px)`, lineHeight: `${it.size}px` }}>
+                <span className="num w-12 shrink-0 text-right text-ink-faint">{r.position}</span>
+                <span className="num w-[118px] shrink-0 text-ink-faint">{stamp(r.at_unix_ms)}</span>
+                <span className="num w-44 shrink-0 truncate" style={{ color: toneHex[ledgerKind(r.kind).tone] }}>{r.kind}</span>
+                <span className="num w-16 shrink-0 text-[10.5px] text-ink-faint">{r.session_id ? short(r.session_id) : ''}</span>
+                <span className="min-w-0 truncate text-ink-dim">{summarize(r)}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
+}
+
+/** The filters kept by name in this browser (`localStorage`, which may be absent or full: then they last as long as the
+ *  page does). A saved filter is the address's filter keys as a query; a click puts it back in the address. */
+function SavedFilters({ query, onApply }: { query: string; onApply: (s: Saved) => void }) {
+  const [list, setList] = useState<Saved[]>(() => { try { return readSaved(localStorage.getItem(SAVED_KEY)) } catch { return [] } })
+  const [name, setName] = useState('')
+  const keep = (next: Saved[]) => { setList(next); try { localStorage.setItem(SAVED_KEY, writeSaved(next)) } catch { /* the page's copy stands */ } }
+  return (
+    <div className="-mt-1 flex flex-wrap items-center gap-1" data-saved>
+      <span className="ship-engraved mr-1 text-[9.5px]">saved filters</span>
+      {!list.length && <span className="text-[11px] text-ink-faint">none yet</span>}
+      {list.map((sv) => (
+        <span key={sv.name} className={cn('num inline-flex items-center rounded-md ring-1 ring-inset', sv.query === query ? 'text-live ring-live/40' : 'text-ink-dim ring-line')}>
+          <button type="button" onClick={() => onApply(sv)} title={sv.query || 'no filter'} className="px-1.5 py-0.5 text-[11px] hover:text-ink">{sv.name}</button>
+          <button type="button" onClick={() => { if (window.confirm(`Forget the saved filter “${sv.name}”?`)) keep(withoutSaved(list, sv.name)) }} title="forget it" className="pr-1 text-ink-faint hover:text-fault"><X size={10} /></button>
+        </span>
+      ))}
+      <form className="ml-2 flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); if (name.trim()) { keep(withSaved(list, name, query)); setName('') } }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name this filter" aria-label="name for this filter"
+          className="num w-32 rounded-md bg-white/5 px-1.5 py-0.5 text-[11px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />
+        <button type="submit" disabled={!name.trim()} title="save the filter in the address under this name" className="text-ink-faint hover:text-live disabled:opacity-40"><Star size={12} /></button>
+      </form>
+    </div>
+  )
+}
+
+/** A JSON file made in the browser: nothing is sent anywhere. */
+function download(text: string, name: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function KindMap({ rows, selected, family, onToggle, onFamily }: {
@@ -285,11 +362,13 @@ function Nodes({ session, onClearSession, onView }: { session: string | null; on
   )
 }
 
-function Histogram({ rows, onRange }: { rows: LedgerEntry[]; onRange: (r: [number, number] | null) => void }) {
+function Histogram({ rows, onRange }: { rows: LedgerEntry[]; onRange: (r: readonly [number, number] | null) => void }) {
   const buckets = 90
   const { option, edges } = useMemo(() => {
-    const t0 = Math.min(...rows.map((r) => r.at_unix_ms))
-    const t1 = Math.max(...rows.map((r) => r.at_unix_ms), t0 + 60_000)
+    // A loop, not a spread: the whole ledger is more rows than a call's arguments can hold.
+    let t0 = Infinity, last = -Infinity
+    for (const r of rows) { if (r.at_unix_ms < t0) t0 = r.at_unix_ms; if (r.at_unix_ms > last) last = r.at_unix_ms }
+    const t1 = Math.max(last, t0 + 60_000)
     const size = (t1 - t0) / buckets
     const tones = ['live', 'model', 'tool', 'think', 'wait', 'ok', 'money', 'fault', 'idle'] as const
     const series = Object.fromEntries(tones.map((t) => [t, new Array(buckets).fill(0)])) as Record<string, number[]>
