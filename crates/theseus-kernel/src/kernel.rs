@@ -254,6 +254,10 @@ impl Drop for TurnGuard {
 /// the spool, the job wrapper's pid, an external service.
 pub trait Evidence: Send + Sync {
     fn probe(&self, action: &Action) -> Probe;
+    /// Whether it ran in the kernel's own process, with no evidence outside it: a provider call.
+    fn in_process(&self, action: &Action) -> bool {
+        action.tool == PROVIDER_TOOL
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,6 +420,8 @@ pub struct Kernel {
     /// The transaction this view stages for (`Kernel::frame`), if it is one:
     /// its transitions take no locks, and its commits are staged.
     tx: Option<Arc<Tx>>,
+    /// The in-process calls startup found, an earlier process's (theseus-m9iy).
+    pub(crate) earlier: Arc<Mutex<Vec<CorrelationId>>>,
 }
 
 /// A turn's own results (theseus-l6y): what a turn's view settles for the
@@ -482,6 +488,7 @@ impl Kernel {
             own: None,
             observer: Arc::default(),
             tx: None,
+            earlier: Arc::default(),
         }
     }
 
@@ -503,6 +510,7 @@ impl Kernel {
             own: None,
             observer: self.observer.clone(),
             tx: None,
+            earlier: self.earlier.clone(),
         }
     }
 
@@ -522,6 +530,7 @@ impl Kernel {
             own: self.own.clone(),
             observer: Arc::default(),
             tx: Some(tx),
+            earlier: self.earlier.clone(),
         }
     }
 
@@ -2255,8 +2264,11 @@ impl Kernel {
         let execution = self.action(&c.correlation_id)?.map(|a| a.execution_id);
         let ids: Vec<&str> = execution.iter().map(String::as_str).collect();
         self.frame(&ids, |k| {
-            let settled =
-                |a: &Action| matches!(a.state, ActionState::Succeeded | ActionState::Failed);
+            // A cancelled action whose late completion was taken is taken too.
+            let settled = |a: &Action| {
+                matches!(a.state, ActionState::Succeeded | ActionState::Failed)
+                    || (a.state == ActionState::Cancelled && a.completions_seen >= 1)
+            };
             if take {
                 if let Some(a) = k.action(&c.correlation_id)?.filter(settled) {
                     return Ok(Accepted::Taken {
@@ -2678,6 +2690,7 @@ impl Kernel {
         // a frame stale: `fire_due` decides again from a read under the lock
         // (a cancel may have landed since), and queues it for the driver.
         if due {
+            rep.marked_unknown = self.mark_earlier_calls_unknown()?;
             let execs = self.executions_by(&[terms::one("due")])?;
             for e in execs.iter().filter(|e| crate::wakes::due_now(e, now)) {
                 if let Some(e) = self.fire_due(&e.id)? {
@@ -2693,6 +2706,9 @@ impl Kernel {
             match a.state {
                 ActionState::Dispatched => {
                     if a.deadline_at_ms > now && a.cancel.is_none() {
+                        if !due {
+                            self.note_earlier(&a, evidence);
+                        }
                         continue; // not overdue; event-first, poll only stuck work
                     }
                     match evidence.probe(&a) {

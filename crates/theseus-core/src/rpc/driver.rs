@@ -85,6 +85,21 @@ impl Core {
         }
     }
 
+    /// The provider calls an earlier process left in flight can never
+    /// answer: unknown at the driver's first tick after serving, as due wakes
+    /// wait for it (DD8; theseus-m9iy), so their sessions need not wait out
+    /// their deadline. Startup noted them and wrote nothing.
+    pub fn mark_earlier_calls(&self) {
+        match self.kernel.mark_earlier_calls_unknown() {
+            Ok(marked) if !marked.is_empty() => {
+                tracing::info!(calls = ?marked, "an earlier process's in-process calls are unknown");
+                self.admission.notify_waiters();
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %format!("{e:#}"), "an earlier process's calls"),
+        }
+    }
+
     /// The narrative's line for a job's completion that came from the spool:
     /// its action is read only when the narrative is on.
     fn narrate_spooled(&self, c: &theseus_kernel::Completion) {

@@ -375,6 +375,43 @@ fn a_taken_completion_settles_once_and_its_second_taker_writes_nothing() {
     drop(g);
 }
 
+/// theseus-jnnj: a cancelled job's late completion has two takers too, the
+/// drain and the turn that waited on the job. The first writes the late
+/// arrival; the second finds it taken and writes nothing: one
+/// `completion.late_after_cancel` row, one write.
+#[test]
+fn a_cancelled_jobs_late_completion_taken_twice_writes_one_row() {
+    let w = world();
+    let (s, e, g) = running(&w);
+    let a = dispatched(&w, &g, "proc.run", 50);
+    w.kernel.cancel_execution(&e.id, "eddie").unwrap();
+    drop(g);
+    let tree = Verdict::verified_as(VerifiedBy::Tree, Some(1));
+    w.kernel
+        .cancel_verified(&a.correlation_id, Some(&tree))
+        .unwrap();
+    let c = completion(&a.correlation_id, Outcome::Succeeded, None);
+    let frames = || w.kernel.store().stats().unwrap().frames_appended;
+    let f0 = frames();
+    assert!(matches!(
+        w.kernel.take_completion_with(&c, vec![]).unwrap(),
+        Accepted::LateAfterCancel { .. }
+    ));
+    let p = w.kernel.store().last_position();
+    assert!(matches!(
+        w.kernel.take_completion_with(&c, vec![]).unwrap(),
+        Accepted::Taken { .. }
+    ));
+    assert_eq!(
+        (frames(), w.kernel.store().last_position()),
+        (f0 + 1, p),
+        "one write"
+    );
+    assert_eq!(rows(&w, &s, "completion.late_after_cancel").len(), 1);
+    let a2 = w.kernel.action(&a.correlation_id).unwrap().unwrap();
+    assert_eq!((a2.state, a2.completions_seen), (ActionState::Cancelled, 1));
+}
+
 #[test]
 fn crash_mid_turn_requeues_as_interrupted_and_nothing_else_changes() {
     let w = world();

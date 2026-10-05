@@ -23,11 +23,14 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - `job_wait.rs` (Tier 7.1): the wrapper's wait on its command, asleep until something happens: the command's pidfd
   (an L1 job's init's), and a wake pipe its SIGTERM and SIGCHLD handlers write a byte to, polled with the time left
   before the deadline. It looked every 20 ms before. A spooled completion is taken (`Kernel::take_completion_with`):
-  the drain and the turn waiting on the job both read it, and the second finds it settled and writes nothing.
+  the drain and the turn waiting on the job both read it, and the second finds it settled and writes nothing; a
+  cancelled job's late completion too, once one taker has written its arrival (theseus-jnnj).
 - `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases:
   SIGTERM to every process, the grace, the freeze (SIGSTOP, rescanning until nothing new appears and all read
-  stopped), then SIGKILL and the reap. Each process is signalled through a pidfd checked against its start time.
-  The stop wherever a job has no cgroup.
+  stopped), then SIGKILL and the reap, until each killed process's pidfd says it exited (up to `KILL_WAIT`, 2 s).
+  Each process is signalled through a pidfd checked against its start time. A `children` file can miss a live
+  child, so an empty scan ends a phase only when the caller's reap agrees (`tree::Left`: in a wrapper, a
+  subreaper, `waitpid`'s ECHILD means none is left; theseus-g11i). The stop wherever a job has no cgroup.
 - `spawn.rs` (theseus-ypqg): an L0 command started by its wrapper with `clone3(CLONE_VM | CLONE_VFORK)`, as
   posix_spawn clones, so nothing is copied; the child sets the operator's umask, which std's `Command` could set only
   by `pre_exec`, a fork. With a cgroup, `CLONE_INTO_CGROUP`: born inside, since a move by `cgroup.procs` waits for an
@@ -54,6 +57,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   tenders (the index tender, row 51) are reaped by their pids, a tender's exit reported to its supervisor; an
   `op` is left to tokio; anything else is an orphan.
 - `outbox.rs`: posts that must reach a channel, as actions of their own record kind, `OUTBOX`.
+- `earlier.rs` (theseus-m9iy): an earlier process's in-process calls. Startup's reconcile notes each dispatched
+  provider call (`Evidence::in_process`, by its tool) in memory and writes nothing; the driver's first tick after
+  serving (or the heartbeat) marks them all `outcome_unknown` in one frame, as `in_process_before_restart`.
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
   job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:
@@ -74,8 +80,11 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - **The lock.** A transition that reads an execution, or one of its actions, and writes it back holds that
   execution's lock from the read until its frame is indexed. Never call a transition that locks an execution
   this thread holds: it panics ("locked twice on one thread"), and inside a transaction, so does one of an
-  execution it did not name. Compose in a transaction instead, as `mark_unknown` does. Several executions:
-  `Kernel::lock`, in id order; a task and its parent: `lock_family`. Readers that write nothing take no lock.
+  execution it did not name. Nor take a lock while the thread holds any other: `lock_all` panics ("a lock taken
+  while this thread holds another", theseus-oqxw), so a frame's closure that calls the kernel itself on an
+  execution the frame did not name fails at once instead of deadlocking out of id order. Compose in a transaction
+  instead, as `mark_unknown` does. Several executions: `Kernel::lock`, in id order, in one call; a task and its
+  parent: `lock_family`. Readers that write nothing take no lock.
   A transition's commit waits for the store's writer on the thread that holds its locks, and a wait for a lock
   another thread holds runs in `theseus_store::blocking`: neither holds a runtime worker (theseus-vni9). A lock
   is its thread's, so `ExecLock` is `!Send` (Review 2's R7), and a build-time check beside it fails the build if
@@ -124,7 +133,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - `tests/children.rs` makes its process a subreaper, so it is a test binary of its own: a sweep reaps any child of
   the process, other tests' included.
 - `tests/tree.rs` (`harness = false`, 18a) re-execs itself as a job's wrapper, and as stand-ins for a wrapper from
-  before 18a and a deaf one; each case ends with a `/proc` scan for its own `sleep` marker.
+  before 18a and a deaf one; each case ends with a `/proc` scan for its own `sleep` marker, which holds the run's
+  pid, so a run beside it on the machine is never found (theseus-g11i), and a failure prints the stop's verdict
+  and each process found.
 - `theseus-sim kernel-sim` drives the kernel under seeded faults and races (`--p-race`; 0 is fully
   deterministic) and checks its invariants. A new transition belongs in its random operations.
 - Run this crate's tests as `cargo nextest run --workspace -E 'package(theseus-kernel)'`, never `cargo test -p`,

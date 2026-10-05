@@ -12,6 +12,7 @@ mod cancels;
 pub mod cgroup;
 pub mod children;
 pub mod clock;
+mod earlier;
 pub mod gate;
 pub mod job;
 mod job_egress;
@@ -42,6 +43,8 @@ mod tests;
 #[cfg(test)]
 mod tests_budgets;
 #[cfg(test)]
+mod tests_earlier;
+#[cfg(test)]
 mod tests_frames;
 #[cfg(test)]
 mod tests_place_limit;
@@ -61,6 +64,7 @@ mod tests_tx;
 mod tests_wakes;
 
 pub use clock::{Clock, RealClock, VirtualClock};
+pub use earlier::EARLIER_PROCESS;
 pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{
     Accepted, Cancel, Committed, Ending, Evidence, Kernel, KernelConfig, KernelError, KernelStats,
