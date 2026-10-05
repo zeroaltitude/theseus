@@ -60,6 +60,12 @@ pub struct JobsArgs {
     /// daemon of that size.
     #[arg(long, default_value_t = 0)]
     hold_mb: usize,
+    /// Each L0 job's command born in a cgroup of its own under this
+    /// process's, as a delegated daemon's are (theseus-a5nv). This process's
+    /// cgroup must be delegated: `systemd-run --user --scope -p Delegate=yes
+    /// theseus-sim bench jobs --cgroup`.
+    #[arg(long)]
+    cgroup: bool,
 }
 
 pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
@@ -75,11 +81,17 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
     let mut miss = false;
     // Every page written, so each is resident and mapped.
     let held = vec![1u8; a.hold_mb << 20];
+    let cgroup = job_cgroup(a.cgroup)?;
     println!(
-        "bench jobs: /bin/true through `{} job-wrapper`, {} runs a class, holding {} MB",
+        "bench jobs: /bin/true through `{} job-wrapper`, {} runs a class, holding {} MB{}",
         rig.theseusd.display(),
         a.runs,
-        a.hold_mb
+        a.hold_mb,
+        if a.cgroup {
+            ", each L0 job in a cgroup of its own"
+        } else {
+            ""
+        }
     );
     let ws = rig.ws.clone();
     for class in &a.class {
@@ -102,7 +114,7 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
         };
         let (mut start, mut total, mut notified) = (Vec::new(), Vec::new(), Vec::new());
         for i in 0..a.runs + 2 {
-            let r = one(&rig, l1.clone(), &format!("{class}-{i}"))?;
+            let r = one(&rig, (l1.clone(), cgroup.clone()), &format!("{class}-{i}"))?;
             if i >= 2 {
                 start.extend(r.start);
                 total.push(r.total);
@@ -209,8 +221,29 @@ struct Run {
     notified: f64,
 }
 
-/// One job.
-fn one(rig: &Rig, sandbox: Option<L1>, id: &str) -> Result<Run> {
+/// With `--cgroup`, this process's cgroup readied for jobs, as a delegated
+/// daemon readies its own (theseus-a5nv).
+fn job_cgroup(on: bool) -> Result<Option<theseus_kernel::cgroup::Jobs>> {
+    use theseus_kernel::cgroup;
+    if !on {
+        return Ok(None);
+    }
+    let jobs = cgroup::Jobs {
+        dir: cgroup::own()?,
+        pids_max: cgroup::DEFAULT_PIDS_MAX,
+    };
+    cgroup::ready(jobs.clone())
+        .context("readying this process's cgroup, which must be delegated")?;
+    Ok(Some(jobs))
+}
+
+/// One job, at L0 or in L1, and with `--cgroup` an L0 job's command in a
+/// cgroup of its own.
+fn one(
+    rig: &Rig,
+    (sandbox, cgroup): (Option<L1>, Option<theseus_kernel::cgroup::Jobs>),
+    id: &str,
+) -> Result<Run> {
     let spool = &rig.spool;
     let args = WrapperArgs {
         spool_dir: spool.dir().to_path_buf(),
@@ -227,6 +260,7 @@ fn one(rig: &Rig, sandbox: Option<L1>, id: &str) -> Result<Run> {
         redact: vec![],
         output_max_bytes: job::DEFAULT_OUTPUT_MAX_BYTES,
         sandbox,
+        cgroup,
     };
     let ms = |t0: Instant, at: Instant| (at - t0).as_secs_f64() * 1000.0;
     let t0 = Instant::now();

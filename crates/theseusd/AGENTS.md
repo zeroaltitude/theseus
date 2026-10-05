@@ -20,8 +20,12 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
 - The L1 role (M4 17b): `job-sandbox`, an L1 job's init, dispatched first in `main`, before the umask, clap, and
   tracing. Nothing probes L1 at the start: `check` runs its self-test on demand (`/bin/true` in L1 from the
   check's own process, `Sandbox::self_test`), and health reports the last real L1 launch (theseus-gyin). An L1 job
-  has no cgroup, so the units ask for no `Delegate=` and have no stop hook. `tests/sandbox.rs` runs real L1 jobs,
-  its state dir and socket inside the workspace so the view's hiding is what keeps them out.
+  has no cgroup. `tests/sandbox.rs` runs real L1 jobs, its state dir and socket inside the workspace so the view's
+  hiding is what keeps them out.
+- The units ask for `Delegate=yes` (theseus-a5nv): the daemon stays in its unit's cgroup, readied after serving
+  (`theseus_core::cgroup`), and each L0 job's command is born in a threaded cgroup of its own below it. A restart
+  while a job runs starts as any start does, so there is no stop hook. `tests/cgroup.rs` proves the stop, the cap,
+  and the restart in delegated scopes and units, and skips where there is no user systemd.
 - `hand` (step 40, theseus-mgw.6): a hand, the job wrapper inside AWS, run in the hand image (`infra/aws/hand/`) as
   Lambda's bootstrap or a Fargate task's command, never by hand. It reads no config, store, or secret: its spec (in
   the Lambda event, or `THESEUS_HAND`) is its whole input. Its code is `theseus_core::aws::hands::hand`.

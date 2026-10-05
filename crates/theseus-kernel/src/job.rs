@@ -60,6 +60,10 @@ pub struct WrapperArgs {
     /// An L1 job's view and limits (M4 17b): the command runs below the
     /// sandbox's init, never at L0. `None`: an L0 job.
     pub sandbox: Option<L1>,
+    /// The daemon's delegated cgroup (theseus-a5nv): an L0 job's command is
+    /// born in a cgroup of its own there, with its cap. `None`: no cgroup,
+    /// and a stop finds the job's processes by its tree.
+    pub cgroup: Option<crate::cgroup::Jobs>,
 }
 
 /// An L1 job's view and limits (M4 17b; design §2.2): what the wrapper
@@ -110,6 +114,7 @@ impl std::fmt::Debug for WrapperArgs {
             .field("redact", &self.redact)
             .field("output_max_bytes", &self.output_max_bytes)
             .field("sandbox", &self.sandbox)
+            .field("cgroup", &self.cgroup)
             .finish()
     }
 }
@@ -149,6 +154,12 @@ pub fn spawn_detached(
     if let Some(l1) = &args.sandbox {
         cmd.arg("--sandbox")
             .arg(serde_json::to_string(l1).context("encoding the L1 view")?);
+    }
+    if let Some(cg) = &args.cgroup {
+        cmd.arg("--cgroup")
+            .arg(&cg.dir)
+            .arg("--pids-max")
+            .arg(cg.pids_max.to_string());
     }
     cmd.arg("--").args(&args.argv);
     cmd.env_clear();
@@ -220,6 +231,9 @@ pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
     // What a descendant printed after the report goes through the copy too,
     // to the pipe's end, which comes once the last descendant has gone.
     copier.wait(crate::redact::DRAIN);
+    if let Some(cg) = CGROUP.get() {
+        cg.remove();
+    }
     // A SIGTERM that was not a cancel ends the wrapper by it, as it did
     // before 18a, once its tree is stopped: the daemon still reads a wrapper
     // killed before it reported (theseus-6uo).
@@ -483,6 +497,7 @@ fn run(
     if held > 0 {
         detail["held"] = serde_json::json!(held);
     }
+    cgroup_usage(args, &mut detail);
     detail["duration_ms"] = serde_json::json!(t0.elapsed().as_millis() as u64);
     detail["bytes"] = serde_json::json!(std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0));
     detail["note"] = serde_json::Value::String(note);
@@ -512,66 +527,25 @@ fn run(
 fn run_l0(
     args: &WrapperArgs,
     reap: Reap,
-    (write, err): (std::io::PipeWriter, std::io::PipeWriter),
+    pipes: (std::io::PipeWriter, std::io::PipeWriter),
     t0: Instant,
     detail: &mut serde_json::Value,
 ) -> (Outcome, String) {
-    let mut command = Command::new(&args.argv[0]);
-    command
-        .args(&args.argv[1..])
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(write))
-        .stderr(Stdio::from(err));
-    if let Some(c) = &args.cwd {
-        command.current_dir(c);
-    }
-    // The operator's umask for the command (theseus-wz2). A wrapper process
-    // takes it itself around the spawn: it makes no file meanwhile, so the
-    // spawn needs no `pre_exec`, and std's posix_spawn copies nothing of the
-    // wrapper (theseus-ypqg). A test's thread sets it in the child.
-    let mut restore = None;
-    if let Some(u) = args.umask {
-        use std::os::unix::process::CommandExt;
-        match reap {
-            // SAFETY: umask swaps the process's mask, which is put back below.
-            Reap::Descendants => restore = Some(unsafe { libc::umask(u) }),
-            // SAFETY: umask is async-signal-safe and touches only the child.
-            Reap::Command => unsafe {
-                command.pre_exec(move || {
-                    libc::umask(u);
-                    Ok(())
-                });
-            },
-        }
-    }
-    // A wrapper process has the job's environment as its own, as
-    // `spawn_detached` set it. In process, the command gets it here.
-    if matches!(reap, Reap::Command) {
-        command
-            .env_clear()
-            .envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
-    }
-    let child = command.spawn();
-    if let Some(m) = restore {
-        // SAFETY: the wrapper's own mask back.
-        unsafe { libc::umask(m) };
-    }
-    drop(command);
-    let mut child = match child {
+    let (pid, mut child) = match spawn_l0(args, reap, pipes, detail) {
         Err(e) => {
             detail["spawn_error"] = serde_json::Value::String(e.to_string());
             return (Outcome::Failed, format!("spawn: {e}"));
         }
-        Ok(child) => child,
+        Ok(started) => started,
     };
     let deadline = Duration::from_millis(args.deadline_ms);
     // Asleep between looks until the command exits, a stop or a child's exit
     // pokes the wake pipe, or the deadline comes (7.1).
-    let pidfd = crate::job_wait::pidfd(child.id());
+    let pidfd = crate::job_wait::pidfd(pid);
     loop {
-        let exited = match reap {
-            Reap::Command => child.try_wait(),
-            Reap::Descendants => reap_children(child.id()),
+        let exited = match &mut child {
+            Some(c) => c.try_wait(),
+            None => reap_children(pid),
         };
         match exited {
             Ok(Some(status)) => {
@@ -599,11 +573,11 @@ fn run_l0(
                     // The deadline's stop is the cancel's: the whole tree,
                     // not only the command (theseus-hcc). A thread in a test
                     // process kills its command alone.
-                    let how = match reap {
-                        Reap::Descendants => stop_tree(STOP_GRACE, detail).words(),
-                        Reap::Command => {
-                            let _ = child.kill();
-                            let _ = child.wait();
+                    let how = match &mut child {
+                        None => stop_tree(STOP_GRACE, detail).words(),
+                        Some(c) => {
+                            let _ = c.kill();
+                            let _ = c.wait();
                             "killed".into()
                         }
                     };
@@ -623,16 +597,104 @@ fn run_l0(
     }
 }
 
-/// Stop this wrapper's whole tree (M4 18a; `tree::stop`) and put its verdict
-/// in `detail.stop`: verified by the tree when nothing is left, which is
-/// everything below the wrapper (`scope: descendants`).
+/// The job's cgroup, in a wrapper process whose job has one (theseus-a5nv).
+static CGROUP: std::sync::OnceLock<crate::cgroup::Job> = std::sync::OnceLock::new();
+
+/// What the job's cgroup counted (theseus-a5nv): its CPU time, and the new
+/// processes its cap refused, which its result names.
+fn cgroup_usage(args: &WrapperArgs, detail: &mut serde_json::Value) {
+    if let (Some(cg), Some(jobs)) = (CGROUP.get(), &args.cgroup) {
+        let (cpu_us, refused) = cg.usage();
+        detail["cpu_us"] = serde_json::json!(cpu_us);
+        if refused > 0 {
+            detail["pids_refused"] = serde_json::json!(refused);
+            detail["pids_max"] = serde_json::json!(jobs.pids_max);
+        }
+    }
+}
+
+/// The L0 command's pid, and on a test's thread its `Child`. A wrapper
+/// process starts it by `crate::spawn`, which copies nothing of the wrapper
+/// (theseus-ypqg), in the job's cgroup when it has one (theseus-a5nv); a test's
+/// thread by std, with the job's environment and the operator's umask.
+fn spawn_l0(
+    args: &WrapperArgs,
+    reap: Reap,
+    (write, err): (std::io::PipeWriter, std::io::PipeWriter),
+    detail: &mut serde_json::Value,
+) -> std::io::Result<(u32, Option<std::process::Child>)> {
+    use std::os::fd::AsRawFd;
+    if matches!(reap, Reap::Descendants) {
+        let cgroup = match args
+            .cgroup
+            .as_ref()
+            .map(|j| crate::cgroup::Job::make(j, &args.correlation_id))
+        {
+            Some(Ok(cg)) => Some(CGROUP.get_or_init(|| cg)),
+            Some(Err(e)) => {
+                detail["cgroup_error"] = serde_json::Value::String(e.to_string());
+                None
+            }
+            None => None,
+        };
+        let null = std::fs::File::open("/dev/null")?;
+        let exec = crate::spawn::Exec::new(&args.argv, args.cwd.as_deref())?;
+        let stdio = [null.as_raw_fd(), write.as_raw_fd(), err.as_raw_fd()];
+        let pid =
+            crate::spawn::spawn(&exec, stdio, args.umask, cgroup.map(crate::cgroup::Job::fd))?;
+        return Ok((pid, None));
+    }
+    let mut command = Command::new(&args.argv[0]);
+    command
+        .args(&args.argv[1..])
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(write))
+        .stderr(Stdio::from(err))
+        .env_clear()
+        .envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    if let Some(c) = &args.cwd {
+        command.current_dir(c);
+    }
+    if let Some(u) = args.umask {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: umask is async-signal-safe and touches only the child.
+        unsafe {
+            command.pre_exec(move || {
+                libc::umask(u);
+                Ok(())
+            });
+        }
+    }
+    let child = command.spawn()?;
+    Ok((child.id(), Some(child)))
+}
+
+/// Stop this wrapper's whole job (M4 18a) and put its verdict in
+/// `detail.stop`: by its cgroup when it has one (theseus-a5nv), every process
+/// in it, and then what is left of its tree, a process that moved itself out;
+/// else by its tree (`tree::stop`), everything below the wrapper (`scope:
+/// descendants`). Verified when nothing is left.
 fn stop_tree(grace: Duration, detail: &mut serde_json::Value) -> Verdict {
-    let s = crate::tree::stop(std::process::id(), grace, &mut reap_all);
+    let me = std::process::id();
+    let (s, by, scope) = match CGROUP.get() {
+        Some(cg) => {
+            let mut s = cg.stop(grace, &mut reap_all);
+            let rest = crate::tree::stop(me, Duration::ZERO, &mut reap_all);
+            s.killed += rest.killed;
+            s.survivors.extend(rest.survivors);
+            (s, VerifiedBy::Cgroup, "cgroup")
+        }
+        None => (
+            crate::tree::stop(me, grace, &mut reap_all),
+            VerifiedBy::Tree,
+            "descendants",
+        ),
+    };
     let v = Verdict {
-        verified_by: VerifiedBy::Tree,
+        verified_by: by,
         killed: Some(s.killed),
         survivors: Some(s.survivors.len() as u32),
-        scope: Some("descendants".into()),
+        scope: Some(scope.into()),
         ms: s.ms,
         why: s.why(),
     };
@@ -1331,9 +1393,16 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
     let mut redact = Vec::new();
     let mut output_max_bytes = DEFAULT_OUTPUT_MAX_BYTES;
     let mut sandbox = None;
+    let mut cgroup = None;
+    let mut pids_max = 0;
     let mut argv = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--cgroup" => cgroup = it.next().map(PathBuf::from),
+            "--pids-max" => {
+                let v = it.next().unwrap_or_default();
+                pids_max = v.parse().with_context(|| format!("bad --pids-max {v:?}"))?;
+            }
             "--sandbox" => {
                 let v = it.next().unwrap_or_default();
                 sandbox =
@@ -1389,6 +1458,7 @@ pub fn parse_wrapper_args<I: IntoIterator<Item = String>>(args: I) -> Result<Wra
         redact,
         output_max_bytes,
         sandbox,
+        cgroup: cgroup.map(|dir| crate::cgroup::Jobs { dir, pids_max }),
     })
 }
 
@@ -1426,6 +1496,7 @@ mod tests {
             redact: vec![],
             output_max_bytes: DEFAULT_OUTPUT_MAX_BYTES,
             sandbox: None,
+            cgroup: None,
         };
         run_wrapper(&args).unwrap();
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "out\n");
@@ -1494,6 +1565,7 @@ mod tests {
             redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
             output_max_bytes: DEFAULT_OUTPUT_MAX_BYTES,
             sandbox: None,
+            cgroup: None,
         };
         run_wrapper(&args).unwrap();
         let out = std::fs::read(spool.result_path("act_grant")).unwrap();
@@ -1560,6 +1632,7 @@ mod tests {
             redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
             output_max_bytes: 4096,
             sandbox: None,
+            cgroup: None,
         };
         run_wrapper(&args).unwrap();
         assert!(after.exists(), "the job ran to its end");

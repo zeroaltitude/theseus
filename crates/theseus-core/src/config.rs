@@ -282,6 +282,10 @@ pub struct ToolsConfig {
     /// so. The runtime reads only the file's last 4 MiB.
     #[serde(default = "default_job_output_max_bytes")]
     pub job_output_max_bytes: u64,
+    /// Each L0 job's cgroup's `pids.max` (theseus-a5nv), where the daemon's
+    /// cgroup is delegated: its processes and threads at once. 0: no cap.
+    #[serde(default = "default_job_pids_max")]
+    pub job_pids_max: u64,
     /// `[tools.web]`: `http.fetch` and `web.search` (DD5).
     #[serde(default)]
     pub web: WebToolsConfig,
@@ -361,6 +365,9 @@ fn default_proc_timeout_max_secs() -> u64 {
 fn default_job_output_max_bytes() -> u64 {
     theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES
 }
+fn default_job_pids_max() -> u64 {
+    theseus_kernel::cgroup::DEFAULT_PIDS_MAX
+}
 /// The smallest cap a job's output file may have: a page.
 const MIN_JOB_OUTPUT_MAX_BYTES: u64 = 4096;
 fn default_proc_env() -> Vec<String> {
@@ -396,6 +403,7 @@ impl Default for ToolsConfig {
             proc_timeout_max_secs: default_proc_timeout_max_secs(),
             proc_env: default_proc_env(),
             job_output_max_bytes: default_job_output_max_bytes(),
+            job_pids_max: default_job_pids_max(),
             web: WebToolsConfig::default(),
         }
     }

@@ -985,6 +985,9 @@ async fn after_serving(
     // The MCP servers `[mcp.servers]` attaches (M7 36b), each started now,
     // never before serving: their stored lists were offered from the start.
     core.mcp.start();
+    // The daemon's own cgroup, readied for its jobs if systemd delegated it
+    // (theseus-a5nv): asked once, as late after serving as the tender starts.
+    theseus_core::cgroup::find_after_serving(core.startup_log.clone(), core.cfg.tools.job_pids_max);
     // The harness loop (heartbeat reconciler, wrapper notify socket) and the
     // driver (continuation turns: job results, confirms, restarts). Both
     // write to the disk at once, and a write beside the socket's `bind` can

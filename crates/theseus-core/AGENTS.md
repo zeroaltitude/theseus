@@ -130,6 +130,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   probes at the start, and an L1 job has no cgroup (theseus-gyin). Its facts are `fact/sandbox.rs`; its tests
   `tests_sandbox.rs`, and the daemon's `tests/sandbox.rs` with real L1 jobs. What a call's proposal binds about
   its job is `sandbox::Bound`: its class, and (18c) its egress list.
+- **An L0 job's cgroup** (theseus-a5nv): `cgroup.rs` asks systemd once, 2 s after serving (`systemctl show -p
+  Delegate`), whether the daemon's own cgroup is delegated, and readies it (`theseus_kernel::cgroup::ready`); health's
+  `cgroup` startup phase holds the answer, and `run_job` hands it to each wrapper (`WrapperArgs.cgroup`), whose
+  command is born in a cgroup of its own with `[tools] job_pids_max`. A result whose cap refused processes says so
+  (`toolrun/job.rs`). The daemon's `tests/cgroup.rs` runs them in delegated scopes and units.
 - **Grants in L1** (theseus-w5op; decided by Eddie 2026-10-03, superseding theseus-7y9y): an L1 job takes its
   program's broker grants at its launch, exactly as an L0 job does. The gate's order (`toolrun/order.rs`) runs
   the L1 decision (`sandbox::unbrokered`) through `ToolRuntime::brokered` (decision 15: the stricter of the call's

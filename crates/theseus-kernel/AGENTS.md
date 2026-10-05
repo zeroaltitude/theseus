@@ -4,7 +4,7 @@ The durable kernel (spec §3.2a, §3.15, §3.16; Part II M2): every state transi
 as WAL frames through the `Store` contract. Synchronous and deterministic. Read by theseus-core, theseus-discord,
 theseusd, and theseus-sim.
 
-Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.rs`. Read by: core, discord, theseusd, sim.
+Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.rs`, `outbox.rs`. Read by: core, discord, theseusd, sim.
 
 ## What's here
 
@@ -15,7 +15,7 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
 - `tx.rs`: the kernel transaction (`Kernel::frame`, theseus-0owd): several transitions staged, then one frame.
 - `job.rs`: the job wrapper (detached, durable, cancellable), `job::Stopping`, `holder`, and `wrapper_alive`. The
   daemon spawns it with no `pre_exec`, so by posix_spawn, which copies nothing of the daemon; the wrapper makes its
-  own session as it starts, and takes the operator's umask itself around its command's spawn (theseus-ypqg).
+  own session as it starts (theseus-ypqg).
   Since M4 18a a wrapper catches SIGTERM: the daemon's cancel asks it alone (`ask_to_stop`, by `sigqueue`, the grace
   in the signal's value), and it stops its whole tree, writes its verdict to the spool's `stops/`, and exits with no
   completion. `Stopping` tells it from a wrapper from before 18a by `/proc/<pid>/status`'s `SigCgt`
@@ -27,6 +27,16 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
 - `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases:
   SIGTERM to every process, the grace, the freeze (SIGSTOP, rescanning until nothing new appears and all read
   stopped), then SIGKILL and the reap. Each process is signalled through a pidfd checked against its start time.
+  The stop wherever a job has no cgroup.
+- `spawn.rs` (theseus-ypqg): an L0 command started by its wrapper with `clone3(CLONE_VM | CLONE_VFORK)`, as
+  posix_spawn clones, so nothing is copied; the child sets the operator's umask, which std's `Command` could set only
+  by `pre_exec`, a fork. With a cgroup, `CLONE_INTO_CGROUP`: born inside, since a move by `cgroup.procs` waits for an
+  RCU grace period (8 to 40 ms measured).
+- `cgroup.rs` (theseus-a5nv): an L0 job's cgroup, where the daemon's is delegated: `<daemon's>/job-<id>`, threaded
+  (the daemon stays in its unit's cgroup, which `pids` makes a thread root), with `pids.max`; its `cpu.stat` and
+  refusals go in the completion. A stop: SIGTERM to each process in it, the grace, then `pids.max` 0 and SIGKILL to
+  each until `cgroup.events` says `populated 0` (a threaded cgroup has no `cgroup.kill`), then what is left of the
+  tree. The wrapper removes it at its end; the next daemon's `ready` removes one left empty.
 - `cancels.rs`: a cancel's steps on one action (`cancel_acknowledged`, then `cancel_verified`, `_unsupported`, or
   `_uncertain`), each settle with its `Verdict` (ACTION schema 3).
   `job_l1.rs` (M4 17b): the wrapper's L1 path, when `WrapperArgs.sandbox` is set: the command below
@@ -77,7 +87,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
 - **A wrapper's pid can be reused**, so "alive" is `wrapper_alive(pid, job)`, whose command line names the job. A
   process in the middle of its exec has an empty command line: `holder` counts it as still starting (Item 35).
 - **A cancel's verdict says how it knows** (M4 18a): `termination_verified` only with a means (`pidns`, `tree`,
-  `group`, `task`; `cgroup` is read from old records alone), and `verified_by: none` for a call nothing can stop. A cancelled job writes no
+  `group`, `task`, and `cgroup` for an L0 job's cgroup, theseus-a5nv), and `verified_by: none` for a call nothing
+  can stop. A cancelled job writes no
   completion, so a cancel never races the drain into a `failed` settle; its verdict is `stops/<id>`. A deadline
   uses the cancel's stop, and its verdict rides in the completion's `detail.stop`. A SIGTERM that is not a cancel
   (no `SI_QUEUE`) still ends the wrapper by the signal once its tree is stopped (theseus-6uo).

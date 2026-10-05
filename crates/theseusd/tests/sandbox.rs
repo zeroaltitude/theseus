@@ -760,6 +760,7 @@ fn the_jobs_bench_l1_row() {
                 limits: job::SandboxLimits::default(),
                 ..Default::default()
             }),
+            cgroup: None,
         };
         job::spawn_detached(&theseusd, &[job::WRAPPER_MODE], &spool, &args).unwrap();
         let t0 = Instant::now();

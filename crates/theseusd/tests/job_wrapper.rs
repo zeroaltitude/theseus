@@ -68,6 +68,7 @@ impl Rig {
             redact: vec![],
             output_max_bytes,
             sandbox: None,
+            cgroup: None,
         };
         job::spawn_detached(
             Path::new(env!("CARGO_BIN_EXE_theseusd")),
@@ -709,6 +710,7 @@ impl Rig {
             redact: vec![("INVENTED_GRANT".into(), "invented_grant".into())],
             output_max_bytes: job::DEFAULT_OUTPUT_MAX_BYTES,
             sandbox: None,
+            cgroup: None,
         };
         job::spawn_detached(
             Path::new(env!("CARGO_BIN_EXE_theseusd")),

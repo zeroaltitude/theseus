@@ -182,6 +182,7 @@ impl Rig {
             redact: vec![],
             output_max_bytes: job::DEFAULT_OUTPUT_MAX_BYTES,
             sandbox: None,
+            cgroup: None,
         };
         let me = std::env::current_exe().expect("this binary");
         job::spawn_detached(&me, &[job::WRAPPER_MODE], &self.spool, &args).expect("the wrapper")

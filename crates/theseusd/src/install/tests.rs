@@ -935,14 +935,15 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
     );
     assert_eq!((r.owner(unit), r.mode(unit)), ("ada:ada".into(), 0o644));
     let text = std::fs::read_to_string(r.at(unit)).unwrap();
-    // A stop signals the daemon alone, so its jobs run on; no cgroup is
-    // delegated, and there is no stop hook (theseus-gyin).
+    // A stop signals the daemon alone, so its jobs run on; its cgroup is
+    // delegated to it, for its jobs' own (theseus-a5nv), and there is no stop
+    // hook (theseus-gyin).
     assert!(
         text.contains("\nKillSignal=SIGINT\n") && text.contains("\nKillMode=process\n"),
         "{text}"
     );
     assert!(
-        !text.contains("Delegate=") && !text.contains("ExecStopPost="),
+        text.contains("\nDelegate=yes\n") && !text.contains("ExecStopPost="),
         "{text}"
     );
     assert_eq!(
