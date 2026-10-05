@@ -36,6 +36,7 @@ mod sandbox;
 mod store;
 mod task_graph;
 mod tasks;
+mod web;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
 pub use catalog::catalog_config_lines;
@@ -1704,6 +1705,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     judge::push_health(o, h.judge.as_ref());
     mcp_server::push_health(o, h.mcp_server.as_ref());
     parked::push_health(o, h.tasks.as_ref());
+    web::push_health(o, &h.web);
     if let Some(line) = disk_line(&h.disk) {
         push(o, Tag::Plain, &line);
     }
