@@ -18,6 +18,7 @@ import { ledgerKind, partTone, stateTone, toneHex } from '@/lib/taxonomy'
 import { LiveDot, Spark } from './ui'
 import { DiskAttention } from './DiskSpool'
 import { Coin, PlankStrip } from './brass'
+import { binaryLine, binaryTone } from '@/lib/binary'
 import { diskSummary, diskTone } from '@/lib/disk'
 import { useHistory, useTick } from '@/lib/hooks'
 import { useAsOf } from '@/lib/timemachine'
@@ -228,6 +229,7 @@ function HeartbeatBar() {
           <Dot label="config" tone={stateTone(h?.config?.state)} title={`config ${h?.config?.state ?? '—'} (${h?.config?.source ?? '—'})`} />
           <Dot label="secrets" tone={stateTone(h?.secrets?.state)} title={`secrets ${h?.secrets?.state ?? '—'}`} />
           <Dot label="web" tone={webTone(h?.web)} title={webTitle(h?.web)} />
+          <Dot label="binary" tone={binaryTone(h?.binary)} title={binaryLine(h?.binary)} />
           <Dot label="disk" tone={diskTone(h?.disk)} title={diskSummary(h?.disk)} />
         </div>
         <Indicator label="cache" tone="think" value={usage ? `${(cacheHit * 100).toFixed(0)}%` : '—'} title={usage ? `${tokens(usage.cache_read_input_tokens)} input tokens read from cache` : undefined} />
