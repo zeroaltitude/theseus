@@ -18,6 +18,12 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
   their text (`Media::Pdf`, through theseus-files' capped converter; `pdf_pages`, which `http.fetch` shares;
   theseus-c9l6). A PDF may be 32 MiB, any other file 16. The runtime stores what a tool returns in the blobs
   (`run_with_media`, and `run_async_with_media` for an async tool).
+- **`proc.run`'s `steps`** (theseus-7gir.3): a batch in place of `argv`, exactly one of the two, at most
+  `MAX_STEPS` (16). `Tool::steps` gives each step as the call it would be alone (the gate judges each), and
+  `Tool::jobs` each step's job, every directory checked before the first starts; the plan's `steps` holds each argv.
+- `src/recount.rs`: `fs.patch` rewrites each hunk header's lengths from its body before diffy parses it
+  (theseus-inw), keeping its starts, so diffy still checks the context; an empty line inside a hunk is blank context,
+  and the empty lines that end it are its end unless its header counts them.
 - `src/paths.rs`: path resolution the gate can trust: lexical normalization first, then the symlinks of the longest
   prefix that exists. `src/net.rs`: which addresses are not public (the one classification: the core's resolver
   and L1's proxy both read it, since 18c), and an egress list's entry, `Allow` (`host:port`, a glob on the host).

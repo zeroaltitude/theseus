@@ -45,6 +45,7 @@ mod job;
 mod late;
 pub(crate) mod order;
 mod resume;
+mod steps;
 mod waits;
 
 pub(crate) use late::{announce_cancelled, not_run_results};
