@@ -1253,3 +1253,57 @@ async fn a_lane_after_a_restart_finds_the_pinned_board() {
     assert_eq!(boards(&fake, CHANNEL).len(), 1, "found, not made again");
     assert_eq!(creates(), before, "no create after the restart");
 }
+
+/// A change made by a session the binding does not watch (here a CLI
+/// session's, its notification published as the core publishes one) still
+/// reaches the board of the task's home: the binding hears every
+/// task.changed, and routes it by the task's root origin.
+#[tokio::test]
+async fn a_change_from_an_unwatched_session_reaches_its_homes_board() {
+    use theseus_core::task_graph::{record, NewTask, TaskOrigin, TaskState};
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let _rpc = bind(&core, d.path(), &dm_only()).await;
+    let sid = session(&core);
+    let t = NewTask {
+        id: "tsk_00000000000000000000000000lagoon".into(),
+        title: "Chart the lagoon",
+        objective: "chart the lagoon".into(),
+        acceptance: vec![],
+        parent: None,
+        deps: vec![],
+        session: None,
+        origin: TaskOrigin {
+            session: sid.clone(),
+            principal: "operator".into(),
+            by_model: true,
+        },
+        state: TaskState::Accepted,
+    }
+    .build(theseus_protocol::now_unix_ms());
+    core.store.append(&[record(&t).unwrap()]).unwrap();
+    let changed = theseus_protocol::Event::TaskChanged(theseus_protocol::tasks::TaskChanged {
+        session_id: "ses_0000000000000000000000terminal".into(),
+        verb: "created".into(),
+        task: t,
+    });
+    // The binding's watch of every session is a task of its start's.
+    let c = core.clone();
+    until("the binding hears every session", 10, move || {
+        c.bus.watchers("ses_0000000000000000000000terminal") == 0 && c.bus.watching_all() > 0
+    })
+    .await;
+    core.bus.publish(
+        "ses_0000000000000000000000terminal",
+        &theseus_protocol::Message::from(changed),
+        None,
+    );
+    let f = fake.clone();
+    until("the DM's board", 10, move || {
+        boards(&f, DM)
+            .first()
+            .is_some_and(|m| m.content.contains("Chart the lagoon"))
+    })
+    .await;
+}

@@ -141,6 +141,8 @@ pub fn tasks_here(
     }
     if mine.is_empty() || !of_today.is_empty() {
         out.push(super::tasks(&of_today, now_ms));
+    } else {
+        out.push("-# No task sessions here today.".into());
     }
     out.join("\n")
 }
@@ -243,6 +245,7 @@ mod tests {
             "{t}"
         );
         assert!(!t.contains("other part"), "{t}");
+        assert!(t.ends_with("-# No task sessions here today."), "{t}");
     }
 
     /// The layer-1 card's words (39b): the change, before and after, with

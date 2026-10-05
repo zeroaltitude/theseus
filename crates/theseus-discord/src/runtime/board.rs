@@ -22,6 +22,24 @@ use super::{Place, PlaceMsg, Shared};
 use crate::courier::LaneMsg;
 use crate::render::{self, Buttons, Op};
 
+/// Hear every session's `task.changed` (39b): a change a session the binding
+/// does not watch makes (a CLI session's, a task session's) still reaches its
+/// home's board. `executions.watch` is how a connection hears the wide
+/// notifications; its snapshot is not read. Off the start path, in a task.
+pub(super) fn hear_every_change(shared: &std::sync::Arc<Shared>) {
+    let s = shared.clone();
+    tokio::spawn(async move {
+        let p = theseus_protocol::ExecutionsWatchParams { limit: Some(1) };
+        if let Err(e) = s
+            .rpc
+            .call::<_, serde_json::Value>(theseus_protocol::method::EXECUTIONS_WATCH, p)
+            .await
+        {
+            s.board.error("executions.watch", None, e);
+        }
+    });
+}
+
 /// Hand a change to its home's place, if one routes it.
 pub(super) fn route(shared: &Shared, c: &TaskChanged) {
     let records = theseus_core::task_graph::all(&shared.core.store);

@@ -356,6 +356,7 @@ async fn start_places(
             .await?;
     }
     tokio::spawn(route(shared.clone(), notes));
+    board::hear_every_change(shared);
     // A card whose question closed while the binding was away (a raise at
     // the vault's confirmation, an answer from the CLI) says how, and loses
     // its buttons: a settle each, delivered like any post (theseus-q4v).
