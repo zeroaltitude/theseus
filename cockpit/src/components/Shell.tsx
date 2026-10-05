@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { Command } from 'cmdk'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
+  Activity, BellOff, BellRing, CircleCheck, Coins, Command as CommandIcon, Cpu, Crosshair, Gauge, Gavel, Landmark, Layers, Navigation, OctagonX, Pause, Play, Radio,
   RefreshCw, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, Health, NodeInfo, ProfileList, SessionInfo } from '@protocol'
@@ -30,6 +30,7 @@ const NAV = [
   { to: '/fleet', label: 'Fleet', icon: Layers },
   { to: '/actions', label: 'Actions', icon: ShieldCheck },
   { to: '/boundaries', label: 'Bounds', icon: ShieldHalf },
+  { to: '/policy', label: 'Policy', icon: Gavel },
   { to: '/ledger', label: 'Ledger', icon: ScrollText },
   { to: '/money', label: 'Money', icon: Landmark },
   { to: '/economics', label: 'Economics', icon: Coins },
@@ -40,7 +41,7 @@ const NAV = [
 ] as const
 
 const GO: Record<string, string> = {
-  h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', l: '/ledger', m: '/money', e: '/economics', w: '/speed', j: '/judgment', s: '/systems',
+  h: '/ship', b: '/bridge', f: '/fleet', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', j: '/judgment', s: '/systems',
 }
 
 export function Shell() {
