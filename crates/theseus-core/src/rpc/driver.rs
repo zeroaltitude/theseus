@@ -83,6 +83,11 @@ impl Core {
             Ok(n) => tracing::info!(why, settles = n, "heartbeat: cards whose question closed"),
             Err(e) => tracing::warn!(error = %format!("{e:#}"), "reconciling cards failed"),
         }
+        // Free space that crossed a line is said once (theseus-f337): on the
+        // timer's beat alone, not a wrapper's notice, which come in bursts.
+        if why == "timer" {
+            self.watch_disk();
+        }
     }
 
     /// The provider calls an earlier process left in flight can never

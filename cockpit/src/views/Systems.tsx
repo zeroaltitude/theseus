@@ -16,6 +16,7 @@ import { Startup } from '@/components/instruments'
 import { AwsCard, PhasesCard, PushFields, RecentRows, StoreCard } from '@/components/SystemsCards'
 import { HandsGrid } from '@/components/HandsGrid'
 import { DiskSpoolCard } from '@/components/DiskSpool'
+import { BinaryField, BinaryFault } from '@/components/BinaryCard'
 import { ExtensionsCard } from '@/components/Extensions'
 import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
@@ -36,6 +37,8 @@ export default function Systems() {
   const st = (k.startup ?? {}) as Record<string, any>
   return (
     <div className="columns-1 gap-3 lg:columns-2 2xl:columns-3 [&>*]:mb-3 [&>*]:break-inside-avoid">
+      <BinaryFault binary={h.binary} />
+
       <Card title="Daemon" icon={<Server size={13} />}>
         <Field label="name · version" mono>{h.name} {h.version} · protocol {h.protocol}</Field>
         <Field label="up" mono>{uptime(h.uptime_secs + (now - dataUpdatedAt) / 1000)}</Field>
@@ -48,6 +51,7 @@ export default function Systems() {
         <Field label="catalog" mono>{h.catalog_version ?? '—'}</Field>
         <Field label="narrative" mono>{h.narrative ? 'on' : 'off'}</Field>
         <Field label="turns held · ceiling" mono>{h.kernel.turns_held} / {h.kernel.admission_ceiling}</Field>
+        <BinaryField binary={h.binary} />
         <Field label="tokens in · out" mono>{tokens(h.usage_total.input_tokens + h.usage_total.cache_read_input_tokens + h.usage_total.cache_creation_input_tokens)} · {tokens(h.usage_total.output_tokens)}</Field>
         <Field label="cache read · written" mono>{tokens(h.usage_total.cache_read_input_tokens)} · {tokens(h.usage_total.cache_creation_input_tokens)}</Field>
       </Card>

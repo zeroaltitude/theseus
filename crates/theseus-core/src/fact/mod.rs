@@ -45,6 +45,7 @@ pub mod arrangement;
 pub mod cancel;
 pub mod check;
 pub mod compaction;
+pub mod disk;
 pub mod driver;
 pub mod durability;
 pub mod extend;
@@ -349,6 +350,9 @@ facts![
     answer::QuestionWithdrawn<'static>,
     answer::QuestionExpired<'static>,
     driver::HeartbeatActed<'static>,
+    disk::DiskLow<'static>,
+    disk::DiskBelowFloor<'static>,
+    disk::DiskOk<'static>,
     driver::SpooledCompletion<'static>,
     driver::QuestionCancelled<'static>,
     driver::ExecutionCancelled<'static>,

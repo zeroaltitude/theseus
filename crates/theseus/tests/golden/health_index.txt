@@ -7,6 +7,7 @@ telemetry: off (no [telemetry].otlp_endpoint)
 kernel: accepting · turns held 1/8 · executions [1 running, 2 waiting] · actions [1 planned] · quarantined completions 0 · 1 job wrapper lingers for what its command left running
 children: 1 job wrapper running · 0 adopted orphans · 0 zombies · reaped 7 wrappers, 0 orphans · index tender running (pid 4242, 1 restart)
 index: ready · hybrid · 100 nodes in 151 chunks · through position 1607 · 0 B behind
+web: ok
 broker: no grants
 tokens total: in 120000 out 3400 cache-read 50000 cache-write 1200
 secrets: ready · 1 ready 822 ms after start (service account) [ZED_KEY]

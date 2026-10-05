@@ -775,26 +775,8 @@ async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
 pub async fn catalog(conn: &mut Conn, json: bool) -> Result<()> {
     let v = conn.request(method::CATALOG_LIST, Value::Null).await?;
     output(json, v, |l: CatalogListResult| {
-        println!(
-            "{:<24} {:<10} {:>9} {:>8} {:>7} {:>7} {:>7} {:>7}  {:<9} profiles",
-            "model", "provider", "window", "max out", "$in", "$out", "$c.rd", "$c.wr", "thinking"
-        );
-        for m in &l.models {
-            let e = &m.entry;
-            let num = |k: &str| e.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-            println!(
-                "{:<24} {:<10} {:>9} {:>8} {:>7} {:>7} {:>7} {:>7}  {:<9} {}",
-                m.model,
-                e.get("provider").and_then(Value::as_str).unwrap_or("?"),
-                render::fmt_tokens(num("context_window") as u64),
-                render::fmt_tokens(num("max_output_tokens") as u64),
-                render::fmt_price(num("input_per_mtok")),
-                render::fmt_price(num("output_per_mtok")),
-                render::fmt_price(num("cache_read_per_mtok")),
-                render::fmt_price(num("cache_write_per_mtok")),
-                e.get("thinking").and_then(Value::as_str).unwrap_or("?"),
-                m.profiles.join(",")
-            );
+        for line in render::catalog_table_lines(&l) {
+            println!("{line}");
         }
         eprintln!(
             "[catalog {} · prices are USD per million tokens]",

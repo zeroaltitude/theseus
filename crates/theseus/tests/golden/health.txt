@@ -5,6 +5,7 @@ health
 theseusd 0.0.1 · protocol 0.1 · up 42s · live profile quick (zed/glm-x) · providers [zed, orbit] · sessions 3 · turns 9 · provider errors 1 · ledger rows 2048
 telemetry: off (no [telemetry].otlp_endpoint)
 kernel: accepting · turns held 1/8 · executions [1 running, 2 waiting] · actions [1 planned] · quarantined completions 0 · 1 job wrapper lingers for what its command left running
+web: ok
 broker: no grants
 tokens total: in 120000 out 3400 cache-read 50000 cache-write 1200
 secrets: ready · 1 ready 822 ms after start (service account) [ZED_KEY]

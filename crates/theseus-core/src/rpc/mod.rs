@@ -15,6 +15,7 @@ mod bindings;
 mod budgets;
 mod confirms;
 pub(crate) use confirms::{expired_answer, Act, EXPIRY};
+mod disk_watch;
 mod driver;
 mod explain;
 mod info;
