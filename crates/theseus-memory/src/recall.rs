@@ -15,8 +15,9 @@
 //! place only on private places' sessions. A candidate whose place cannot be
 //! read is dropped by it too.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use crate::fsrs::Retention;
 use crate::science::{MemoryScience, RankCtx, Scored};
 
 /// Where a session speaks, as the core read it.
@@ -133,6 +134,22 @@ pub struct Asker<'a> {
     /// The memory pass's edges among the candidates (31a).
     pub links: &'a [Link],
     pub now_ms: u64,
+    /// The candidates' retention by node (32a), for a science that reads
+    /// it; empty for one that does not, or before the projection is built.
+    pub retention: &'a BTreeMap<String, Retention>,
+}
+
+impl Asker<'_> {
+    /// The rank's context for `kept`: the turn's time, and their retention.
+    pub fn rank_ctx(&self, kept: &[Candidate]) -> RankCtx {
+        RankCtx {
+            now_ms: self.now_ms,
+            retention: kept
+                .iter()
+                .filter_map(|c| Some((c.node_id.clone(), *self.retention.get(&c.node_id)?)))
+                .collect(),
+        }
+    }
 }
 
 /// What a memory pass's edge says of two nodes (31a), as recall reads it.
@@ -329,9 +346,7 @@ pub fn recall(
                 score: c.fused,
             })
             .collect(),
-        &RankCtx {
-            now_ms: asker.now_ms,
-        },
+        &asker.rank_ctx(&kept),
     );
     let mut by_key: std::collections::BTreeMap<String, Candidate> =
         kept.into_iter().map(|c| (c.key(), c)).collect();
@@ -429,6 +444,7 @@ mod tests {
             labeled: &labeled,
             links,
             now_ms: 0,
+            retention: &BTreeMap::new(),
         };
         recall(
             &Baseline {
@@ -630,6 +646,7 @@ mod tests {
             labeled: &labeled,
             links: &links,
             now_ms: 0,
+            retention: &BTreeMap::new(),
         };
         let pack = recall(&v1, &asker, cands(), &p);
         assert_eq!(pack.admitted[0].candidate.node_id, "old");

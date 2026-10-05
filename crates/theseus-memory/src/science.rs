@@ -11,6 +11,8 @@
 //! adjacency projection (row 59, 32b), and `decay_sweep` by tiering (row 60,
 //! 33); the baseline's answers to them are §2.3's table's.
 
+use std::collections::BTreeMap;
+
 use crate::activation::Adjacency;
 use crate::fsrs::Retention;
 use crate::AccessEvent;
@@ -81,10 +83,13 @@ pub struct Scored {
     pub score: f64,
 }
 
-/// What a ranking may weigh beside the scores: the turn's time.
+/// What a ranking may weigh beside the scores: the turn's time, and the
+/// candidates' retention by node (32a; filled by the core for a science
+/// that reads it, else empty).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RankCtx {
     pub now_ms: u64,
+    pub retention: BTreeMap<String, Retention>,
 }
 
 /// §5.1's verbs, each a pure function of its inputs.
@@ -118,6 +123,11 @@ pub trait MemoryScience: Send + Sync {
     /// Whether recall reads the memory pass's edges and prefers the newer
     /// node (31a's "deterministic freshness and provenance rules").
     fn prefers_newer(&self) -> bool;
+    /// Whether `rank` reads the candidates' retention (`RankCtx`), so the
+    /// core fills it from the projection (32a).
+    fn reads_retention(&self) -> bool {
+        false
+    }
 }
 
 /// The baseline (§2.3): no retention model and no activation. It ranks by
@@ -157,7 +167,7 @@ const DAY_MS: f64 = 86_400_000.0;
 
 impl Baseline {
     /// Its parameters as one line: what the digest is of.
-    fn canonical(&self) -> String {
+    pub(crate) fn canonical(&self) -> String {
         let mut c = format!(
             "min_score={};merge_cosine={};supersede_cosine={};idle_days={}",
             self.min_score, self.merge_cosine, self.supersede_cosine, self.idle_days
@@ -247,7 +257,7 @@ impl MemoryScience for Baseline {
 }
 
 /// FNV-1a, 64 bits: a parameter set's digest, stable across builds.
-fn fnv1a(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {
         h ^= u64::from(*b);

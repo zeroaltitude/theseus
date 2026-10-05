@@ -19,6 +19,7 @@ import type { KernelStatus } from "./KernelStatus";
 import type { LspServerStatus } from "./LspServerStatus";
 import type { McpServerHealth } from "./McpServerHealth";
 import type { McpServerStatus } from "./McpServerStatus";
+import type { MemoryHealth } from "./MemoryHealth";
 import type { PlacesHealth } from "./PlacesHealth";
 import type { PushStatus } from "./PushStatus";
 import type { SandboxHealth } from "./SandboxHealth";
@@ -204,6 +205,10 @@ terminals?: Array<TerminalInfo>,
  * The MCP server (step 41b): absent while `[mcp_server]` is off.
  */
 mcp_server?: McpServerHealth, 
+/**
+ * Memory's retention projection (M6 32a): absent while memory is off.
+ */
+memory?: MemoryHealth, 
 /**
  * The language servers (L2): absent when `[lsp]` is off.
  */

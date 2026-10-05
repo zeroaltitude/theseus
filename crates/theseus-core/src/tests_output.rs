@@ -474,8 +474,12 @@ async fn budget(out: &mut String) {
 #[tokio::test]
 async fn the_cores_output_matches_its_golden() {
     let mut out = String::new();
-    conversation(&mut out).await;
-    budget(&mut out).await;
+    // Each half on the heap, as a daemon's turn is a spawned task:
+    // `#[tokio::test]` pins this future on the test thread's 2 MiB stack,
+    // and the halves hold whole turns inline (past 2 MiB in a debug build
+    // at retention's join, theseus-6fn.11).
+    Box::pin(conversation(&mut out)).await;
+    Box::pin(budget(&mut out)).await;
     let got = shapes(&alias(&out));
     if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
         let to = std::env::var("THESEUS_GOLDEN_TO").unwrap_or_else(|_| GOLDEN.to_string());

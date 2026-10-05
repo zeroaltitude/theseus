@@ -38,7 +38,7 @@ use theseus_judge::{
 };
 use theseus_memory::recall::{Asker, Candidate, Link, Params, Place};
 use theseus_memory::rerank::{eligible, reorder, repack};
-use theseus_memory::MemoryScience;
+use theseus_memory::{MemoryScience, Retention};
 use theseus_protocol::memory::RecallRerank;
 use tokio::sync::oneshot;
 
@@ -85,7 +85,10 @@ pub struct Recalled {
     /// newer node, as the recall did.
     pub links: Vec<Link>,
     pub params: Params,
+    /// The turn's arm's science (`Memory::science_for`), and the candidates'
+    /// retention when it reads it (32a): the repack ranks as the recall did.
     pub science: Arc<dyn MemoryScience>,
+    pub retention: BTreeMap<String, Retention>,
     /// What the fused pack admitted, by key (`<node>#<chunk>`).
     pub admitted: Vec<String>,
     pub now_ms: u64,
@@ -100,6 +103,7 @@ impl Recalled {
             labeled: &self.labeled,
             links: &self.links,
             now_ms: self.now_ms,
+            retention: &self.retention,
         }
     }
 }

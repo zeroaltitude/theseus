@@ -339,6 +339,7 @@ impl Core {
             }
         };
         self.runner.judge.export_to(t.clone());
+        self.runner.memory.export_to(t.clone());
         let _ = self.telemetry.set(t);
         out
     }

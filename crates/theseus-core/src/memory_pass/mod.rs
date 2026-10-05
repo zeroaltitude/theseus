@@ -349,6 +349,9 @@ impl MemoryPass {
             let between = self.turns.between(since, &self.timing).await;
             let written = theseus_store::blocking(|| self.store.append(&records));
             drop(between);
+            if let Ok(positions) = &written {
+                self.memory.retention_written(&records, positions);
+            }
             if let Err(e) = written {
                 tracing::warn!(error = %format!("{e:#}"), nodes = units.len(),
                     "memory: the pass's frame was not written; its nodes wait for their sessions' next pass");

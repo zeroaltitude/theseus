@@ -427,6 +427,7 @@ async fn memory_search_runs_the_pipeline_and_writes_nothing() {
             query: "heron".into(),
             session_id: Some(pier.clone()),
             k: None,
+            arm: None,
         })
         .await
         .unwrap();
@@ -439,6 +440,7 @@ async fn memory_search_runs_the_pipeline_and_writes_nothing() {
             query: "x".into(),
             session_id: Some("ses_nobody".into()),
             k: None,
+            arm: None,
         })
         .await
         .is_err());

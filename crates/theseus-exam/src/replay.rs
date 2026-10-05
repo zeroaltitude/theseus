@@ -442,6 +442,8 @@ pub fn pack(turn: &Turn, rec: &Record, index: &mut dyn Index, sources: &[&str]) 
         // The recording keeps no memory-pass edges (31a): no newer-node rule here.
         links: &[],
         now_ms: theseus_protocol::now_unix_ms(),
+        // Nor its retention: the replay recomputes `baseline`'s science.
+        retention: &Default::default(),
     };
     let p = pipeline::recall(
         &Baseline::default(),

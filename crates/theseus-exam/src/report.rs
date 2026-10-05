@@ -2,7 +2,7 @@
 //! the data's window; each arm's pass rate with its interval and n, over
 //! all items and each half; the paired differences, clustered by item
 //! (`baseline − none`, `bm25 − none`, `oracle − none`, `baseline − bm25`,
-//! `oracle − baseline`), each saying `gain`, `loss` or `insufficient`; cost
+//! `oracle − baseline`, `+retention − baseline`), each saying `gain`, `loss` or `insufficient`; cost
 //! per pass and recall's latency; the decision per feature, with the clause
 //! of the plan's rule that decided it; what could not be measured, and why;
 //! then each item. Markdown, written frozen (`freeze`).
@@ -129,15 +129,16 @@ fn hex(b: &[u8]) -> String {
 }
 
 /// The arms in the report's order.
-pub const ARMS: [&str; 4] = ["none", "bm25", "baseline", "oracle"];
+pub const ARMS: [&str; 5] = ["none", "bm25", "baseline", "+retention", "oracle"];
 
 /// The paired differences the report gives, `b − a`, as `(a, b)`.
-pub const PAIRS: [(&str, &str); 5] = [
+pub const PAIRS: [(&str, &str); 6] = [
     ("none", "baseline"),
     ("none", "bm25"),
     ("none", "oracle"),
     ("bm25", "baseline"),
     ("baseline", "oracle"),
+    ("baseline", "+retention"),
 ];
 
 /// What a difference's interval can say: `gain` when it lies above zero,
@@ -440,10 +441,16 @@ pub fn render(records: &[Record], exam: &Exam, source: &str) -> String {
 }
 
 /// The features the rule decides, as `(feature, a, b)`: `baseline` (recall
-/// itself) against `none`, and vectors, `baseline` against `bm25`.
-pub const FEATURES: [(&str, &str, &str); 2] = [
+/// itself) against `none`; vectors, `baseline` against `bm25`; and FSRS-6
+/// retention in the rank, `+retention` against `baseline` (32a).
+pub const FEATURES: [(&str, &str, &str); 3] = [
     ("recall (`baseline` against `none`)", "none", "baseline"),
     ("vectors (`baseline` against `bm25`)", "bm25", "baseline"),
+    (
+        "retention (`+retention` against `baseline`)",
+        "baseline",
+        "+retention",
+    ),
 ];
 
 /// The private family's items that failed under `b` in a run where `a`
@@ -559,7 +566,7 @@ fn unmeasured(o: &mut String, recs: &[Record], arms: &[&str]) {
     if !recs.iter().any(|r| r.held_out) {
         let _ = writeln!(o, "- **The held-out half**: not run in these records, so no feature's sign can be checked against it.");
     }
-    for arm in ["none", "bm25", "baseline", "oracle"] {
+    for arm in ARMS {
         if !arms.contains(&arm) {
             let _ = writeln!(o, "- **`{arm}`**: not run in these records.");
         }

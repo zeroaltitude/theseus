@@ -201,8 +201,15 @@ const TASKS_OPEN: Instrument = Instrument {
     kind: Kind::IntLast,
 };
 
+const RETENTION_NODES: Instrument = Instrument {
+    name: "theseus.memory.retention.nodes",
+    description: "Nodes with an FSRS-6 retention in memory's projection (M6 32a)",
+    unit: "",
+    kind: Kind::IntLast,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 27] = [
+const INSTRUMENTS: [&Instrument; 28] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -230,6 +237,7 @@ const INSTRUMENTS: [&Instrument; 27] = [
     &JUDGE_DISAGREEMENTS,
     &TASK_CHANGES,
     &TASKS_OPEN,
+    &RETENTION_NODES,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -505,6 +513,11 @@ impl Metrics {
 
     /// The durability tender (AWS step 15): what it shipped, or the lag it
     /// closed as it caught up.
+    /// The retention projection's size (M6 32a).
+    pub(super) fn retention(&mut self, nodes: u64) {
+        self.point(&RETENTION_NODES, Vec::new()).int = nodes;
+    }
+
     pub(super) fn durability(&mut self, m: crate::aws::durable::Measure) {
         use crate::aws::durable::Measure;
         match m {

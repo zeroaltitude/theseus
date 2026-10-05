@@ -137,7 +137,7 @@ impl TurnRunner {
             arm: a.arm.as_str(),
             live: a.live,
             experiment: &cfg.experiment,
-            science: &self.memory.science().id().to_string(),
+            science: &self.memory.science_for(a.arm).id().to_string(),
         };
         match t.tc.rec().row(&f) {
             Ok(r) => match t.tc.store.defer(r.scoped(&scope(sid))) {
@@ -150,8 +150,13 @@ impl TurnRunner {
     }
 
     /// The scene of the turn's recall: its place, the nodes its request
-    /// carries (and the sources of the recalls among them), and the labels.
-    pub(super) fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str) -> Scene<'a> {
+    /// carries (and the sources of the recalls among them), the labels, and
+    /// `arm`'s science. An arm that reads retention builds the projection
+    /// when nothing has yet (off the turn's path: this recall ranks without).
+    pub(super) fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str, arm: MemoryArm) -> Scene<'a> {
+        if arm.reads_retention() {
+            crate::recall::retention::warm(&self.memory, &self.store);
+        }
         let mut in_context = BTreeSet::new();
         if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
             // An assembled section's context is what its prefix keeps: past
@@ -183,6 +188,7 @@ impl TurnRunner {
                 .recall
                 .assembled
                 .then(|| self.memory.cfg().assembled_budget_tokens),
+            science: self.memory.science_for(arm),
         }
     }
 
@@ -192,7 +198,7 @@ impl TurnRunner {
     pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
-        let scene = self.scene(t, "shadow");
+        let scene = self.scene(t, "shadow", MemoryArm::Baseline);
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
@@ -203,10 +209,12 @@ impl TurnRunner {
         );
         // What the rerank reads of the scene (32c), taken now: the rest of
         // the scene borrows the turn, which the row and the mark need.
+        let retention = self.memory.retention_of(&*scene.science, &candidates);
         let Scene {
             place,
             in_context,
             labeled,
+            science,
             ..
         } = scene;
         m.arm = self
@@ -235,7 +243,8 @@ impl TurnRunner {
                 candidates,
                 links,
                 params: self.memory.cfg().params(),
-                science: self.memory.science_owned(),
+                science,
+                retention,
                 admitted: m
                     .admitted
                     .iter()
@@ -259,7 +268,7 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let mode = self.memory.cfg().mode.as_str();
-        let mut m = self.recall_reranked(t, mode, &begun, answer).await;
+        let mut m = self.recall_reranked(t, mode, a.arm, &begun, answer).await;
         m.arm = Some(a.arm.as_str().into());
         let cap = self.memory.cfg().session_recall_cap_tokens;
         // An assembled section sits in the prefix: the tail's cap is not its.

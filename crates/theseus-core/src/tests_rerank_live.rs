@@ -427,7 +427,9 @@ async fn no_wait_when_the_breaker_is_open_the_budget_spent_the_judge_off_or_rera
 
 /// Jev as a channel: each decision point goes to the test, which answers
 /// it when it likes.
-struct ChannelJudge(mpsc::UnboundedSender<(DecisionPoint, oneshot::Sender<Vec<Judgment>>)>);
+pub(crate) struct ChannelJudge(
+    pub(crate) mpsc::UnboundedSender<(DecisionPoint, oneshot::Sender<Vec<Judgment>>)>,
+);
 
 impl Judge for ChannelJudge {
     fn judge(&self, point: DecisionPoint) -> BoxFuture<'_, Vec<Judgment>> {
@@ -441,7 +443,7 @@ impl Judge for ChannelJudge {
 
 /// An answered judgment of `point`'s one ask: each note's Noul from `p`, by
 /// its number.
-fn answered(point: &DecisionPoint, p: impl Fn(usize) -> f64) -> Vec<Judgment> {
+pub(crate) fn answered(point: &DecisionPoint, p: impl Fn(usize) -> f64) -> Vec<Judgment> {
     let ask = &point.asks[0];
     let answers = ask
         .asked

@@ -24,6 +24,11 @@ pub struct MemorySearchParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub k: Option<usize>,
+    /// The arm whose sources and science rank it (`[memory] arm`'s names:
+    /// `baseline`, `bm25`, `+retention`); default `baseline`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub arm: Option<String>,
 }
 
 /// `memory.recalls`: a session's recalls, newest last.
@@ -117,6 +122,48 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub rerank: Option<RecallRerank>,
+    /// Under a science that reads retention (`+retention`, M6 32a): the
+    /// projection as the rank read it, `ready`; or why the rank went
+    /// without it, by the fused score alone: `building`, `unbuilt`, `failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub retention: Option<String>,
+}
+
+/// A recalled node's FSRS-6 retention at the recall (M6 32a): what the
+/// `+retention` arm weighed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RecallRetention {
+    /// The chance of recall at the turn's time, 0 to 1.
+    pub retrievability: f64,
+    /// Days until retrievability falls to 0.9.
+    pub stability: f64,
+    /// 1 to 10.
+    pub difficulty: f64,
+    /// The last review, in ms since the epoch.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub last_review_ms: u64,
+}
+
+/// Memory's line in health (M6 32a): the retention projection.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryHealth {
+    /// `[memory] mode` and `arm`.
+    pub mode: String,
+    pub arm: String,
+    /// The retention projection: `unbuilt` (nothing has read it), `building`,
+    /// `ready`, or `failed` (`why` says why).
+    pub retention: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    /// Nodes with a retention, and the events folded into them.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub nodes: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub events: u64,
 }
 
 /// What a live rerank did to a recall (M6 32d): the turn waited at most
@@ -255,6 +302,10 @@ pub struct RecallItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub text: Option<String>,
+    /// Under `+retention` (32a): its node's retention as the rank read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub retention: Option<RecallRetention>,
 }
 
 /// A candidate dropped, and why: `place`, `in_context`, `untrusted`,
@@ -270,6 +321,11 @@ pub struct RecallDrop {
     /// A `budget` drop's tokens.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub tokens: u64,
+    /// Under `+retention` (32a): its node's retention, as for an item, so a
+    /// node a label dropped still shows what the label did to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub retention: Option<RecallRetention>,
 }
 
 fn is_zero(n: &u64) -> bool {

@@ -11,16 +11,19 @@
 //! - [`access`]: what happened to a node, and the review it is;
 //! - [`activation`]: spreading activation over typed edges (step 32b);
 //! - [`rerank`]: the `+rerank` arm's reorder of the top 20 by Jev's answers,
-//!   and the pack it would admit (step 32c).
+//!   and the pack it would admit (step 32c);
+//! - [`retention`]: the `+retention` arm's science, the fused score weighed
+//!   by the node's retrievability (step 32a's wire-in).
 //!
-//! The wire-ins of 32a and 32b add the retention and adjacency projections
-//! and the `+retention` and `+activation` arms.
+//! The core keeps the retention projection (32a's wire-in); 32b's adds the
+//! adjacency projection and the `+activation` arm.
 
 pub mod access;
 pub mod activation;
 pub mod fsrs;
 pub mod recall;
 pub mod rerank;
+pub mod retention;
 pub mod science;
 
 pub use access::{Access, AccessEvent, Durability, Label, Outcome};
@@ -29,4 +32,5 @@ pub use fsrs::{Fsrs6, Grade, ParamsError, Retention, FSRS6_DEFAULT};
 pub use recall::{
     Admitted, Asker, Candidate, Dropped, Link, LinkKind, Pack, Params, Place, Reason,
 };
+pub use retention::RetentionRank;
 pub use science::{Baseline, MemoryScience, ScienceId};

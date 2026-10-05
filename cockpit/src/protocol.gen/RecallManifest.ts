@@ -80,4 +80,10 @@ budget?: BudgetReport,
  * Jev's live rerank (M6 32d), when the turn waited on one: whether
  * its order was used, or why recall's own stood.
  */
-rerank?: RecallRerank, };
+rerank?: RecallRerank, 
+/**
+ * Under a science that reads retention (`+retention`, M6 32a): the
+ * projection as the rank read it, `ready`; or why the rank went
+ * without it, by the fused score alone: `building`, `unbuilt`, `failed`.
+ */
+retention?: string, };
