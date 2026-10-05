@@ -11,6 +11,11 @@
 //!
 //! `--class l1-egress` (18c) gives the L1 job an egress list, so its start
 //! includes the listener's handoff and its end the proxy's stop.
+//!
+//! Each job carries an operator's umask (022), as the daemon's do. `--hold-mb
+//! N` touches N MB before the runs and holds them, as a daemon grown to that
+//! size would (theseus-ypqg): a spawn that copies its spawner's page tables
+//! (a fork) costs more with every megabyte, and one that shares them doesn't.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -46,6 +51,10 @@ pub struct JobsArgs {
     /// gives it only when its settle step found no quiet window.
     #[arg(long, default_value_t = 0)]
     allowance: u32,
+    /// Megabytes this process touches and holds while it dispatches, as a
+    /// daemon of that size.
+    #[arg(long, default_value_t = 0)]
+    hold_mb: usize,
 }
 
 pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
@@ -63,10 +72,13 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
     let home = tmp.path().join("home");
     std::fs::create_dir_all(&home)?;
     let mut miss = false;
+    // Every page written, so each is resident and mapped.
+    let held = vec![1u8; a.hold_mb << 20];
     println!(
-        "bench jobs: /bin/true through `{} job-wrapper`, {} runs a class",
+        "bench jobs: /bin/true through `{} job-wrapper`, {} runs a class, holding {} MB",
         theseusd.display(),
-        a.runs
+        a.runs,
+        a.hold_mb
     );
     for class in &a.class {
         let l1 = match class.as_str() {
@@ -132,6 +144,7 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
             }
         }
     }
+    std::hint::black_box(&held);
     if a.check && miss {
         std::process::exit(1);
     }
@@ -159,7 +172,7 @@ fn one(
             ("PATH".into(), "/usr/bin:/bin".into()),
             ("HOME".into(), home.display().to_string()),
         ],
-        umask: None,
+        umask: Some(0o022),
         redact: vec![],
         output_max_bytes: job::DEFAULT_OUTPUT_MAX_BYTES,
         sandbox,
