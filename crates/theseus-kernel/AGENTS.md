@@ -23,7 +23,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - `job_wait.rs` (Tier 7.1): the wrapper's wait on its command, asleep until something happens: the command's pidfd
   (an L1 job's init's), and a wake pipe its SIGTERM and SIGCHLD handlers write a byte to, polled with the time left
   before the deadline. It looked every 20 ms before. A spooled completion is taken (`Kernel::take_completion_with`):
-  the drain and the turn waiting on the job both read it, and the second finds it settled and writes nothing.
+  the drain and the turn waiting on the job both read it, and the second finds it settled and writes nothing; a
+  cancelled job's late completion too, once one taker has written its arrival (theseus-jnnj).
 - `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases:
   SIGTERM to every process, the grace, the freeze (SIGSTOP, rescanning until nothing new appears and all read
   stopped), then SIGKILL and the reap, until each killed process's pidfd says it exited (up to `KILL_WAIT`, 2 s).

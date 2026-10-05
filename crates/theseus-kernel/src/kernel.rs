@@ -2255,8 +2255,11 @@ impl Kernel {
         let execution = self.action(&c.correlation_id)?.map(|a| a.execution_id);
         let ids: Vec<&str> = execution.iter().map(String::as_str).collect();
         self.frame(&ids, |k| {
-            let settled =
-                |a: &Action| matches!(a.state, ActionState::Succeeded | ActionState::Failed);
+            // A cancelled action whose late completion was taken is taken too.
+            let settled = |a: &Action| {
+                matches!(a.state, ActionState::Succeeded | ActionState::Failed)
+                    || (a.state == ActionState::Cancelled && a.completions_seen >= 1)
+            };
             if take {
                 if let Some(a) = k.action(&c.correlation_id)?.filter(settled) {
                     return Ok(Accepted::Taken {
