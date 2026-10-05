@@ -16,6 +16,7 @@ import io
 import json
 import os
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -178,22 +179,47 @@ class ClaudeCodeDriver(unittest.TestCase):
             run.turns_f.close()
 
 
+def exec_done(p: subprocess.Popen, argv0: str, timeout: float = 10.0) -> None:
+    """Wait until `p` runs `argv0`: between its fork and its exec, its
+    command line is still this process's, and names nothing of the run."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            cmd = Path(f"/proc/{p.pid}/cmdline").read_bytes().split(b"\0", 1)[0].decode()
+        except OSError:
+            cmd = ""
+        if Path(cmd).name == argv0:
+            return
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{p.pid} never ran {argv0} (it runs {cmd!r})")
+        time.sleep(0.01)
+
+
 class LeftRunning(unittest.TestCase):
     def test_a_process_naming_the_run_or_working_in_it_is_found(self):
+        # Each fixture in a session of its own, and its whole group killed:
+        # `sh -c` may fork its `sleep`, and a child that outlives its shell,
+        # caught between its fork and its exec, names the run (theseus-523y).
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             (d / "workspace").mkdir()
-            by_cwd = subprocess.Popen(["sleep", "30"], cwd=d / "workspace")
-            elsewhere = subprocess.Popen(["sleep", "30"], cwd="/")
-            named = subprocess.Popen(["sh", "-c", "sleep 30", str(d / "daemon" / "sock")], cwd="/")
+            by_cwd = subprocess.Popen(["sleep", "30"], cwd=d / "workspace", start_new_session=True)
+            elsewhere = subprocess.Popen(["sleep", "30"], cwd="/", start_new_session=True)
+            named = subprocess.Popen(["sh", "-c", "sleep 30", str(d / "daemon" / "sock")], cwd="/",
+                                     start_new_session=True)
             try:
+                for p, argv0 in ((by_cwd, "sleep"), (elsewhere, "sleep"), (named, "sh")):
+                    exec_done(p, argv0)
                 found = {pid for pid, _ in drive.processes_naming(d)}
                 self.assertIn(by_cwd.pid, found)
                 self.assertIn(named.pid, found)
                 self.assertNotIn(elsewhere.pid, found)
             finally:
                 for p in (by_cwd, elsewhere, named):
-                    p.kill()
+                    try:
+                        os.killpg(p.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                     p.wait()
             self.assertEqual(drive.processes_naming(d), [])
 
