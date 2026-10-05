@@ -14,11 +14,13 @@
 //!   before. Lessons are reserved for 35b (row 63) and admitted nowhere.
 //! - **The check** (`check`) is a pure pass over the request's pieces after
 //!   the compile: a piece its situation does not admit, or a set that does
-//!   not close (a result whose call is absent, a call with no result, an
-//!   assembled `recall_id` whose node is gone), is `Unadmitted`, which the
-//!   turn fails as `context_unadmitted` before anything is sent. A call
-//!   with no recorded result still gets its synthetic one (a repair), as
-//!   before, so the set closes.
+//!   not close (a result whose call is absent, a call with no result), is
+//!   `Unadmitted`, which the turn fails as `context_unadmitted` before
+//!   anything is sent. A call with no recorded result still gets its
+//!   synthetic one (a repair), as before, so the set closes. An assembled
+//!   `recall_id` whose node is not in the session is no piece: nodes are
+//!   never deleted, so that section was never written (its call was never
+//!   dispatched), and the render leaves it out too (theseus-783a).
 //!
 //! The books (P8) will be classes a situation admits: notes and summaries
 //! feed the diary.
@@ -285,18 +287,10 @@ pub fn check(
     task_view: bool,
 ) -> Result<(), Unadmitted> {
     let situation = &compiled.situation;
-    if let Some(id) = compiled.compilation.recall_id.as_deref() {
-        if !nodes.iter().any(|(_, n)| n.id == id) {
-            return Err(Unadmitted {
-                why: "unclosed",
-                piece: format!("recall_section {id}"),
-                detail: format!(
-                    "the compilation renders recall section {id} first in its prefix, and no such \
-                     node is in the session"
-                ),
-            });
-        }
-    }
+    // An assembled `recall_id` with no node is a section never written: its
+    // call was never dispatched (the budget's refusal, a `/stop`, a kernel
+    // error at the dispatch). The render leaves it out, and so does the
+    // check: it is no piece (theseus-783a).
     for p in pieces(compiled, nodes, last_position, task_view) {
         if !admits(situation, p.class, p.new) {
             return Err(Unadmitted {

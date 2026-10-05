@@ -10,8 +10,11 @@
 //! - a recalled item's header names its source's place;
 //! - a recalled item that shows a volatile value says as of when, and
 //!   unverified, and names its source's place;
-//! - a compilation whose assembled recall section is gone does not close:
-//!   the turn fails as `context_unadmitted`, naming it, and nothing is sent.
+//! - a compilation whose assembled recall section was never written (a
+//!   compaction's call not dispatched) is sent without it, as the render
+//!   leaves it out (theseus-783a);
+//! - a piece its situation does not admit fails the turn as
+//!   `context_unadmitted`, naming it, and nothing is sent.
 //!
 //! The index is `tests_recall`'s stand-in.
 
@@ -363,11 +366,13 @@ async fn a_volatile_item_is_as_of_and_unverified() {
     );
 }
 
-/// A compilation whose assembled recall section names a node the session
-/// does not hold does not close: the turn fails as `context_unadmitted`,
-/// naming the section, and sends nothing.
+/// A compilation whose assembled recall section was never written (its
+/// call was never dispatched: the budget's refusal, a `/stop`, or a kernel
+/// error at the dispatch) is sent without the section, as the render leaves
+/// it out: nodes are never deleted, so a `recall_id` with no node is only
+/// ever that (theseus-783a).
 #[tokio::test]
-async fn a_set_that_does_not_close_fails_naming_the_piece() {
+async fn a_section_never_written_is_left_out_and_the_turn_is_sent() {
     let dir = tempfile::tempdir().unwrap();
     let model = Arc::new(FakeProvider::default());
     let core = build(dir.path(), model.clone());
@@ -376,18 +381,174 @@ async fn a_set_that_does_not_close_fails_naming_the_piece() {
     let mut c = current(&core, &sid);
     c.recall_id = Some("rcn_gone".into());
     rewrite(&core, &c);
-    let err = run(&core, &sid, Some("And the fog bell?"))
+    run(&core, &sid, Some("And the fog bell?"))
         .await
-        .expect_err("it does not close");
+        .expect("it is sent");
+    assert!(rows(&core, "context.unadmitted").is_empty());
+    let compiled = rows(&core, "context.compiled");
+    let last = compiled.last().unwrap();
+    assert_eq!(last["decision"], "append", "{last}");
+    assert_eq!(last["situation"]["kind"], "continuation");
+    let reqs = model.requests();
+    assert_eq!(reqs.len(), 2);
+    assert_eq!(
+        reqs[1].messages[..reqs[0].messages.len()],
+        reqs[0].messages[..],
+        "the prefix, with no section"
+    );
+}
+
+/// A piece its situation does not admit fails the turn as
+/// `context_unadmitted`, naming the piece, and nothing is sent: here a
+/// task's arrangement in a conversation's first compile, which no path
+/// writes (an arrangement goes into its task's own session).
+#[tokio::test]
+async fn a_piece_its_situation_does_not_admit_fails_naming_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::default());
+    let core = build(dir.path(), model.clone());
+    let sid = session(&core, &["Draft a note to the harbor master."]);
+    let arr = Node::arrangement(&sid, "test", vec![], false);
+    core.store.append(&[arr.record().unwrap()]).unwrap();
+    let err = run(&core, &sid, Some("Is the lamp lit?"))
+        .await
+        .expect_err("it is not admitted");
     let te = err.downcast_ref::<TurnError>().unwrap();
     assert_eq!(te.class, UNADMITTED_CLASS);
+    let piece = format!("arrangement {}", arr.id);
     let message = format!("{:#}", te.source);
-    assert!(message.contains("recall section rcn_gone"), "{message}");
+    assert!(
+        message.contains(&format!(
+            "a conversation_start compile does not admit {piece}"
+        )),
+        "{message}"
+    );
     assert!(message.contains("Nothing was sent."), "{message}");
-    assert_eq!(model.requests().len(), 1, "no provider call for it");
+    assert!(model.requests().is_empty(), "no provider call");
     let row = rows(&core, "context.unadmitted");
     assert_eq!(row.len(), 1);
-    assert_eq!(row[0]["why"], "unclosed");
-    assert_eq!(row[0]["piece"], "recall_section rcn_gone");
-    assert_eq!(row[0]["situation"]["kind"], "continuation");
+    assert_eq!(row[0]["why"], "not_admitted");
+    assert_eq!(row[0]["piece"], piece);
+    assert_eq!(row[0]["situation"]["kind"], "conversation_start");
+}
+
+const WINDOW: u64 = 40_000;
+
+/// A core whose model has a 40k window, summaries on glm, and recall in
+/// front of the model, recalling `HERON`'s session for every query.
+fn compacting(dir: &Path, model: Arc<FakeProvider>, glm: Arc<FakeProvider>) -> Arc<Core> {
+    let root = dir.join("w");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    cfg.memory.mode = MemoryMode::Live;
+    cfg.memory.summary_profile = "glm".into();
+    cfg.catalog.insert(
+        "claude-sonnet-5-5".into(),
+        crate::catalog::CatalogRow {
+            context_window: Some(WINDOW),
+            max_output_tokens: Some(2_000),
+            ..Default::default()
+        },
+    );
+    let store = Store::open(&dir.join("store")).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model, store);
+    parts.providers.insert("zai".into(), glm);
+    let core = Core::build(parts).unwrap();
+    let src = crate::tests_recall::session(&core, None, &[HERON]);
+    core.runner.memory.set_ask(index_of(&core, vec![src]));
+    core
+}
+
+/// glm's summary, billed as a summary call is.
+fn summary() -> Scripted {
+    Scripted::Billed {
+        usage: theseus_protocol::Usage {
+            input_tokens: 9_000,
+            output_tokens: 40,
+            ..Default::default()
+        },
+        then: Box::new(Scripted::text("Six tides were logged.")),
+    }
+}
+
+/// A message of about `tokens` tokens of prose.
+fn long(tag: &str, tokens: usize) -> String {
+    let mut s = format!("{tag} ");
+    while s.len() < tokens * 4 {
+        s.push_str("the keeper logged the tide and the wind before the lamp was lit. ");
+    }
+    s
+}
+
+/// A compaction whose call is never dispatched (its dispatch frame not
+/// written, as on a full disk; the budget's refusal and a `/stop` at the
+/// dispatch return before that frame too) leaves the session's
+/// compilation naming its assembled section, never written. The next turn
+/// is sent without it, as the render leaves it out (local reviewer R7's
+/// probe, theseus-783a).
+#[tokio::test]
+async fn a_compactions_next_turn_after_its_undispatched_call_is_sent() {
+    // A first core finds the turn that compacts.
+    let dry = tempfile::tempdir().unwrap();
+    let glm = || Arc::new(FakeProvider::scripted(vec![summary()]));
+    let core = compacting(dry.path(), Arc::new(FakeProvider::default()), glm());
+    let sid = session(&core, &[]);
+    let mut at = None;
+    for k in 0..12 {
+        run(&core, &sid, Some(&long(&format!("turn{k}"), 6_000)))
+            .await
+            .unwrap();
+        let last = rows(&core, "context.compiled").pop().unwrap_or_default();
+        if last["strategy"] == "compaction" {
+            at = Some(k);
+            break;
+        }
+    }
+    let at = at.expect("a compaction");
+    drop(core);
+
+    // The same turns again, the compacting turn's own call not dispatched.
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::default());
+    let core = compacting(dir.path(), model.clone(), glm());
+    let sid = session(&core, &[]);
+    for k in 0..at {
+        run(&core, &sid, Some(&long(&format!("turn{k}"), 6_000)))
+            .await
+            .unwrap();
+    }
+    // The turn's own call's dispatch frame: its provider action, with the
+    // assembled section riding in it. The compaction's summary call is a
+    // provider action too, and carries no recall node.
+    core.store.fail_turn_frame(|records| {
+        let call = records.iter().any(|r| {
+            r.kind == kinds::ACTION
+                && serde_json::from_slice::<Value>(&r.payload)
+                    .is_ok_and(|a| a["tool"] == theseus_protocol::PROVIDER_TOOL)
+        });
+        let section = records.iter().any(|r| {
+            r.kind == kinds::NODE && r.key.as_deref().is_some_and(|k| k.starts_with("rcn_"))
+        });
+        call && section
+    });
+    run(&core, &sid, Some(&long(&format!("turn{at}"), 6_000)))
+        .await
+        .expect_err("its call is not dispatched");
+    let c = current(&core, &sid);
+    assert_eq!(c.strategy, "compaction");
+    let section = c.recall_id.clone().expect("an assembled section");
+    let held = core.store.transcript(&sid).unwrap();
+    assert!(
+        !held.iter().any(|(_, n)| n.id == section),
+        "its section was never written"
+    );
+    let sent = model.requests().len();
+    run(&core, &sid, Some("and the wind?"))
+        .await
+        .expect("the next turn is sent");
+    assert_eq!(model.requests().len(), sent + 1);
+    assert!(rows(&core, "context.unadmitted").is_empty());
 }

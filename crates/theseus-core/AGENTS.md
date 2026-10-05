@@ -63,8 +63,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `context.compiled`. `admits` is the table of what each admits, from the code (lessons reserved for 35b): a
     detour admits its window's messages, replies and results, and a task's arrangement among them, never a recall
     or a summary (`compile_detour` leaves those out). `check`, after the compile, fails a piece not admitted, or a
-    set that does not close (a result without its call, a call without its result, an assembled `recall_id` whose
-    node is gone), as `context_unadmitted`, nothing sent. The
+    set that does not close (a result without its call, a call without its result), as `context_unadmitted`, with
+    nothing sent and no retry; it enforces from the first day, with no shadow mode (Eddie, 2026-10-05). An assembled
+    `recall_id` whose node is not in the session is a section never written (its call never dispatched; nodes are
+    never deleted): the render leaves it out, and so does the check (theseus-783a). The
     precedence line (`PRECEDENCE`) follows the persona and the assembly note in the header. Headers written from 35a
     on (§2.11's testimony): an item's names its origin and place (`TurnRunner::place_name`,
     `recall::render::item_header`) and ends `volatile: as of <date>, unverified` when its shown text holds one by the
