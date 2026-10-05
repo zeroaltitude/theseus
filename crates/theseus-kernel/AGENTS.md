@@ -13,7 +13,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `children.rs`, `outbox.
 - `types.rs`: the durable objects (executions, actions, completions, budgets, wakes).
 - `locks.rs`: one writer at a time per execution (theseus-id9).
 - `tx.rs`: the kernel transaction (`Kernel::frame`, theseus-0owd): several transitions staged, then one frame.
-- `job.rs`: the job wrapper (detached, durable, cancellable), `job::Stopping`, `holder`, and `wrapper_alive`.
+- `job.rs`: the job wrapper (detached, durable, cancellable), `job::Stopping`, `holder`, and `wrapper_alive`. The
+  daemon spawns it with no `pre_exec`, so by posix_spawn, which copies nothing of the daemon; the wrapper makes its
+  own session as it starts, and takes the operator's umask itself around its command's spawn (theseus-ypqg).
   Since M4 18a a wrapper catches SIGTERM: the daemon's cancel asks it alone (`ask_to_stop`, by `sigqueue`, the grace
   in the signal's value), and it stops its whole tree, writes its verdict to the spool's `stops/`, and exits with no
   completion. `Stopping` tells it from a wrapper from before 18a by `/proc/<pid>/status`'s `SigCgt`

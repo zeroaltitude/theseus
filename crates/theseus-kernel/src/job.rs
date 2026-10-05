@@ -1,7 +1,8 @@
 //! The job wrapper (§3.16, §7): detached, durable, cancellable.
 //!
-//! `spawn_detached` starts *this binary* in wrapper mode as its own session
-//! (setsid), so its lifetime does not depend on the harness. The wrapper
+//! `spawn_detached` starts *this binary* in wrapper mode, which makes its own
+//! session (setsid) as it starts, so its lifetime does not depend on the
+//! harness. The wrapper
 //! (`run_wrapper_process`) runs the real command, enforces its own deadline, captures
 //! output to the spool's `results/`, writes the `Completion` to the spool
 //! (tmp+rename), then pokes the harness over a Unix socket if one is given.
@@ -155,22 +156,11 @@ pub fn spawn_detached(
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // Spawned as /proc/self/exe, it still shows as theseusd in ps.
-        cmd.arg0("theseusd");
-        // Own session and process group: the harness dying does not take us
-        // with it, and `kill(-pgid)` reaches the whole tree on cancel.
-        unsafe {
-            cmd.pre_exec(|| {
-                if libc::setsid() == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-    }
+    // Spawned as /proc/self/exe, it still shows as theseusd in ps. No
+    // `pre_exec`, so std spawns it by posix_spawn, which copies nothing of
+    // the daemon, whatever its size (theseus-ypqg): the wrapper makes its own
+    // session as it starts (`run_wrapper_process`).
+    std::os::unix::process::CommandExt::arg0(&mut cmd, "theseusd");
     // Registered as this job's wrapper as it is spawned, so the daemon's
     // sweep reaps it by its pid once it exits (theseus-z4b).
     let child = crate::children::spawn(
@@ -204,13 +194,20 @@ pub use theseus_sandbox::Limits as SandboxLimits;
 /// the command's result as `run_wrapper` does, then lingers until no
 /// descendant remains, and only then exits. It kills nothing.
 pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
+    // Its own session and process group, first: the daemon dying does not
+    // take the job with it, and a stop's kill of the group reaches the
+    // command. Made here, since the spawn copied nothing to make it in
+    // (theseus-ypqg); a posix_spawned child leads no group, so it succeeds.
+    // SAFETY: setsid shares no memory.
+    let session = (unsafe { libc::setsid() } == -1)
+        .then(|| format!("setsid: {}", std::io::Error::last_os_error()));
     // The wake pipe before the handlers that write to it (7.1).
     let armed = crate::job_wait::arm();
     // First after it, so the daemon reads this wrapper as one that stops its
     // tree (`catches_sigterm`) from as early as it can (M4 18a).
     let caught = catch_sigterm();
     let subreaper = crate::children::set_subreaper();
-    let errors: Vec<String> = [subreaper.err(), caught.err(), armed.err()]
+    let errors: Vec<String> = [session, subreaper.err(), caught.err(), armed.err()]
         .into_iter()
         .flatten()
         .collect();
@@ -528,14 +525,23 @@ fn run_l0(
     if let Some(c) = &args.cwd {
         command.current_dir(c);
     }
+    // The operator's umask for the command (theseus-wz2). A wrapper process
+    // takes it itself around the spawn: it makes no file meanwhile, so the
+    // spawn needs no `pre_exec`, and std's posix_spawn copies nothing of the
+    // wrapper (theseus-ypqg). A test's thread sets it in the child.
+    let mut restore = None;
     if let Some(u) = args.umask {
         use std::os::unix::process::CommandExt;
-        // SAFETY: umask is async-signal-safe and touches only the child.
-        unsafe {
-            command.pre_exec(move || {
-                libc::umask(u);
-                Ok(())
-            });
+        match reap {
+            // SAFETY: umask swaps the process's mask, which is put back below.
+            Reap::Descendants => restore = Some(unsafe { libc::umask(u) }),
+            // SAFETY: umask is async-signal-safe and touches only the child.
+            Reap::Command => unsafe {
+                command.pre_exec(move || {
+                    libc::umask(u);
+                    Ok(())
+                });
+            },
         }
     }
     // A wrapper process has the job's environment as its own, as
@@ -546,6 +552,10 @@ fn run_l0(
             .envs(args.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     }
     let child = command.spawn();
+    if let Some(m) = restore {
+        // SAFETY: the wrapper's own mask back.
+        unsafe { libc::umask(m) };
+    }
     drop(command);
     let mut child = match child {
         Err(e) => {

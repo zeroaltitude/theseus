@@ -468,8 +468,8 @@ fn a_cancel_leaves_a_process_that_took_the_wrappers_pid_alone() {
 /// execs `argv` for real (theseus-mi6a). A real exec reads so for about 0.1
 /// ms after its spawn returns, from its switch to the new image until it sets
 /// the image's arguments; this one holds that state open. Forked from a
-/// thread of its own, it leads its own session and process group, as
-/// `spawn_detached` makes a wrapper, unmaps the pages that hold the
+/// thread of its own, it leads its own session and process group, as a
+/// wrapper makes itself (theseus-ypqg), unmaps the pages that hold the
 /// arguments it inherited, so that its command line reads empty, and waits
 /// on a pipe. Everything it uses after the fork is made before it.
 ///

@@ -118,10 +118,14 @@ fn main() {
 /// A wrapper from before 18a, or a deaf one: a subreaper that runs the
 /// command in its own process group and waits for every child. The older
 /// one dies at the first SIGTERM; the deaf one catches it and does nothing.
+/// Each leads its own session, as the daemon that started an older wrapper
+/// made it (by `pre_exec`, before theseus-ypqg).
 fn stand_in(wa: &WrapperArgs, deaf: bool) -> ! {
     extern "C" fn ignore(_: libc::c_int) {}
-    // SAFETY: a subreaper, and for the deaf one a handler that does nothing.
+    // SAFETY: its own session, a subreaper, and for the deaf one a handler
+    // that does nothing.
     unsafe {
+        libc::setsid();
         libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
         if deaf {
             libc::signal(libc::SIGTERM, ignore as *const () as libc::sighandler_t);
