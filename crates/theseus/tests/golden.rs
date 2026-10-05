@@ -1113,6 +1113,8 @@ fn health_says_where_the_push_stands() {
     h["push"] = json!({"seeded": true, "seed_us": 38_400, "board": 212, "questions": 1,
                        "watchers": 2, "events": 340, "waiting": 1, "lost": 865,
                        "position": 48213});
+    // One-hour cache writes are named after the total (theseus-xiaz).
+    h["usage_total"]["cache_creation_1h_input_tokens"] = json!(300);
     golden(
         "health_push",
         &run(&["health"], vec![step("health", h.clone())]),

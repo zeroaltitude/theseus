@@ -8,7 +8,7 @@ kernel: accepting · turns held 1/8 · executions [1 running, 2 waiting] · acti
 web: ok
 push: 2 watchers · 1 waiting · board 212 · 1 question · 340 events · lost 865 · at position 48213 · seeded in 38.4 ms
 broker: no grants
-tokens total: in 120000 out 3400 cache-read 50000 cache-write 1200
+tokens total: in 120000 out 3400 cache-read 50000 cache-write 1200 (1h 300)
 secrets: ready · 1 ready 822 ms after start (service account) [ZED_KEY]
 discord: connected (as Clerk) · 4 in · 6 sent · 2 edits · 1 presses · 0 ignored · 0 errors · #lab → ses_q7f3k2, DM ana → no session
 tightened (should have asked): proc.run (by the CLI, 06:31:40.250Z) · undo: theseus policy untighten <tool>
