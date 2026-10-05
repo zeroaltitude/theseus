@@ -54,7 +54,9 @@ async fn rpc_as(core: &Arc<Core>, client: Client, method: &str, params: Value) -
     let out = loop {
         let l = lines.next_line().await.unwrap().unwrap();
         if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
-            break r.result.unwrap_or_else(|| panic!("{method}: {:?}", r.error));
+            break r
+                .result
+                .unwrap_or_else(|| panic!("{method}: {:?}", r.error));
         }
     };
     cw.shutdown().await.unwrap();
@@ -112,6 +114,9 @@ async fn a_recompile_names_its_surface_not_its_label() {
         )
         .await;
         let row = newest(&core, "context.recompile_requested");
-        assert_eq!((row["by"].as_str(), row["strategy"].as_str()), (Some(by), Some("transcript")));
+        assert_eq!(
+            (row["by"].as_str(), row["strategy"].as_str()),
+            (Some(by), Some("transcript"))
+        );
     }
 }

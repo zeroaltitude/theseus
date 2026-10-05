@@ -30,7 +30,8 @@ pub(super) struct Conn<'a> {
 }
 
 impl Conn<'_> {
-    /// Who a cancel names (DD8): the author the request gives (the Discord
+    /// Who a cancel, a profile switch, or a recompile names (DD8, V8
+    /// theseus-cny7): the author the request gives (the Discord
     /// binding gives the person), else the surface (`the CLI`, `the web
     /// UI`), else, on a surface no listener named, the connection's label.
     /// A connection's own label (`sock#13`) names no one a reader knows.
