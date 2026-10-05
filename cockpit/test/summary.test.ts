@@ -32,6 +32,11 @@ test('a provider error says its class and whether it may be tried again', () => 
     'rate_limit transient usage unknown · slow down')
 })
 
+test("a refusal's fallback names the model that refused and the one it goes to (theseus-7gir.18)", () => {
+  assert.equal(summarize(row('provider.fallback', { from: 'claude-sonnet-5-5', to: 'claude-sonnet-5', category: 'cyber', loop: 0, refused: 'msg_1' })),
+    'claude-sonnet-5-5 refused (cyber) · the request goes to claude-sonnet-5, once')
+})
+
 test('a family with no case of its own reads by its outcome', () => {
   assert.equal(summarize(row('action.cancelled', { cancel: 'stopped', duration_ms: 12, execution_state: 'running' })),
     'stopped · 12 ms · execution running')

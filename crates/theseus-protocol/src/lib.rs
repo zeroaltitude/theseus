@@ -2137,6 +2137,10 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub route: Option<route::TurnRoute>,
+    /// A refusal moved the turn to its model's fallback (theseus-7gir.18); absent when none did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub fallback: Option<route::TurnFallback>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

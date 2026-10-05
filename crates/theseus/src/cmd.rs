@@ -116,10 +116,14 @@ pub(crate) async fn stream_turn(
     let r: TurnSubmitResult = serde_json::from_value(result.clone())?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
-    } else if stream {
-        eprintln!("{}", render::status_line(&r));
     } else {
-        println!("{}", r.output);
+        if !stream {
+            println!("{}", r.output);
+        }
+        // A refusal's fallback says so in a line of its own (theseus-7gir.18).
+        if let Some(line) = render::fallback_line(&r) {
+            eprintln!("{line}");
+        }
         eprintln!("{}", render::status_line(&r));
     }
     if let (Some(corr), false) = (&r.awaiting_confirm, json) {
@@ -506,6 +510,9 @@ async fn follow_resumed(
                 if json {
                     println!("{}", serde_json::to_string(&t)?);
                 } else {
+                    if let Some(line) = render::fallback_line(&t) {
+                        eprintln!("{line}");
+                    }
                     eprintln!("{}", render::status_line(&t));
                     if let Some(c) = &t.awaiting_confirm {
                         eprintln!("[parked again: `theseus confirm {c}` or `--decline`]");

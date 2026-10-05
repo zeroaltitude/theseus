@@ -1007,6 +1007,10 @@ pub struct Retries {
     /// The longest one wait.
     #[serde(default = "default_backoff_max_ms")]
     pub backoff_max_ms: u64,
+    /// A refused request is made once more on its model's fallback, the
+    /// catalog's `refusal_fallback_model` (theseus-7gir.18). On by default.
+    #[serde(default = "default_true")]
+    pub refusal: bool,
 }
 
 fn default_backoff_ms() -> u64 {
@@ -1022,6 +1026,7 @@ impl Default for Retries {
             transient: 0,
             backoff_ms: default_backoff_ms(),
             backoff_max_ms: default_backoff_max_ms(),
+            refusal: true,
         }
     }
 }
@@ -1482,6 +1487,21 @@ impl Config {
                 anyhow::bail!(
                     "catalog.\"{id}\" is not a built-in model, so its table needs {}",
                     missing.join(", ")
+                );
+            }
+        }
+        // A refusal's fallback is another priced model of the same provider
+        // (theseus-7gir.18), so its call reserves and settles as any does.
+        let catalog = crate::catalog::Catalog::with_overrides(&self.catalog);
+        for (id, e) in &catalog.entries {
+            let Some(to) = &e.refusal_fallback_model else {
+                continue;
+            };
+            if to == id || catalog.get(to).is_none_or(|f| f.provider != e.provider) {
+                anyhow::bail!(
+                    "catalog.\"{id}\".refusal_fallback_model = {to:?} must name another model of \
+                     the catalog that {} serves",
+                    e.provider
                 );
             }
         }

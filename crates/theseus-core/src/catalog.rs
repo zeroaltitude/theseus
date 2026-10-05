@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-10-01.1";
+pub const BUILTIN_VERSION: &str = "2026-10-04.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -81,6 +81,11 @@ pub struct CatalogEntry {
     /// Server-side refusal fallbacks (`fallbacks: "default"`) are supported.
     #[serde(default)]
     pub refusal_fallbacks: bool,
+    /// The model a refused request is made again on, client-side
+    /// (theseus-7gir.18): once, by the same provider, and the rest of its turn
+    /// runs there. Where the server-side fallback applies, it is used instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal_fallback_model: Option<String>,
     /// Shortest prefix the provider will cache; shorter prefixes silently do not.
     #[serde(default)]
     pub cache_min_tokens: u32,
@@ -291,6 +296,8 @@ pub struct CatalogRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal_fallbacks: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal_fallback_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_min_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vision: Option<bool>,
@@ -360,6 +367,7 @@ impl CatalogRow {
                     thinking: ThinkingMode::None,
                     effort: false,
                     refusal_fallbacks: false,
+                    refusal_fallback_model: None,
                     cache_min_tokens: 0,
                     vision: false,
                     pdf: false,
@@ -384,6 +392,7 @@ impl CatalogRow {
             thinking: r.thinking.unwrap_or(entry.thinking),
             effort: r.effort.unwrap_or(entry.effort),
             refusal_fallbacks: r.refusal_fallbacks.unwrap_or(entry.refusal_fallbacks),
+            refusal_fallback_model: r.refusal_fallback_model.or(entry.refusal_fallback_model),
             cache_min_tokens: r.cache_min_tokens.unwrap_or(entry.cache_min_tokens),
             vision: r.vision.unwrap_or(entry.vision),
             pdf: r.pdf.unwrap_or(entry.pdf),
@@ -424,6 +433,7 @@ fn claude(
         thinking,
         effort: thinking != ThinkingMode::Budget,
         refusal_fallbacks: fallbacks,
+        refusal_fallback_model: None,
         cache_min_tokens: cache_min,
         vision: true,
         pdf: true,
@@ -454,6 +464,7 @@ fn glm(
         thinking: ThinkingMode::None,
         effort: false,
         refusal_fallbacks: false,
+        refusal_fallback_model: None,
         cache_min_tokens: 0,
         vision: true,
         // Z.ai's Anthropic-compatible endpoint takes no document blocks:
@@ -490,11 +501,13 @@ impl Catalog {
             claude(m, 128_000, 5.0, 25.0, 0.50, 6.25, Adaptive, false, 1024),
         );
         // The caching minimum is the reference's 512 (theseus-ev1); the
-        // table said 1,024, Sonnet 5's, until 2026-10-01.
+        // table said 1,024, Sonnet 5's, until 2026-10-01. A refusal goes to
+        // Sonnet 5, as Claude Code's does (Eddie, 2026-10-04, theseus-7gir.18).
         e.insert(
             "claude-sonnet-5-5".into(),
             CatalogEntry {
                 source: "Anthropic Models API and pricing page, 2026-09-28".into(),
+                refusal_fallback_model: Some("claude-sonnet-5".into()),
                 ..claude(m, 128_000, 2.0, 10.0, 0.20, 2.50, Adaptive, false, 512)
             },
         );
@@ -769,6 +782,38 @@ mod tests {
             ThinkingMode::Always
         );
         assert_eq!(c.get("glm-5.3-flash").unwrap().provider, "zai");
+    }
+
+    /// The client-side refusal fallback (theseus-7gir.18): Eddie approved
+    /// Sonnet 5.5's alone, Sonnet 5, kept apart from the provider's own
+    /// (`refusal_fallbacks`), which Fable 5.1 and Opus 5 take; a config table
+    /// can name one for another model.
+    #[test]
+    fn only_sonnet_5_5_names_a_client_side_fallback_and_a_table_can_name_one() {
+        let c = Catalog::builtin();
+        let named: Vec<(&str, &str)> = c
+            .entries
+            .iter()
+            .filter_map(|(id, e)| Some((id.as_str(), e.refusal_fallback_model.as_deref()?)))
+            .collect();
+        assert_eq!(named, [("claude-sonnet-5-5", "claude-sonnet-5")]);
+        assert!(!c.get("claude-sonnet-5-5").unwrap().refusal_fallbacks);
+        let server: Vec<&str> = c
+            .entries
+            .iter()
+            .filter(|(_, e)| e.refusal_fallbacks)
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(server, ["claude-fable-5-1", "claude-opus-5"]);
+        let row = CatalogRow {
+            refusal_fallback_model: Some("claude-opus-5".into()),
+            ..Default::default()
+        };
+        let o: BTreeMap<String, CatalogRow> = [("claude-opus-5-5".to_string(), row)].into();
+        let c = Catalog::with_overrides(&o);
+        let e = c.get("claude-opus-5-5").unwrap();
+        assert_eq!(e.refusal_fallback_model.as_deref(), Some("claude-opus-5"));
+        assert!(c.version.ends_with("+config:1"), "{}", c.version);
     }
 
     /// Which models see images, and what an image is estimated to cost

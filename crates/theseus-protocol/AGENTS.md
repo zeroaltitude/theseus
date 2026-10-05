@@ -32,6 +32,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `arrangement.rs` (M5 27): a task's arrangement as `TaskInfo` carries it, its pieces by reference.
 - `check.rs` (M5 28a): a check task's basis (`TaskCheck`) as `TaskInfo` carries it, and `TaskCheck::line`, the one
   wording every surface shows (`cockpit/src/lib/check.ts` mirrors it).
+- `route.rs`: how routing placed a turn (`TurnRoute`), and a refusal's fallback (`TurnFallback`, theseus-7gir.18) with
+  `TurnFallback::line`, the one wording every surface shows (`cockpit/src/lib/fallback.ts` mirrors it).
 - `ts.rs`: the TypeScript export.
 
 ## Invariants

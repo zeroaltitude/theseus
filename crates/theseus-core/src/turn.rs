@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -54,6 +54,7 @@ use crate::Config;
 
 pub mod compaction;
 mod compile_step;
+mod fallback_step;
 mod inbound_step;
 mod prompt_input;
 mod recall_step;
@@ -347,6 +348,8 @@ struct Turn<'a> {
     recall: recall_step::Recalled,
     /// Routing's verdict and what it moved (M5 25e).
     route: route_step::RouteState,
+    /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
+    fallback: Option<fallback_step::FellBack>,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -460,6 +463,7 @@ impl<'a> Turn<'a> {
             ended: false,
             recall: recall_step::Recalled::default(),
             route: route_step::RouteState::default(),
+            fallback: None,
         }
     }
 
@@ -754,6 +758,7 @@ impl TurnRunner {
             effort: target.effort,
             thinking_display: target.thinking_display,
             refusal_fallbacks: target.refusal_fallbacks,
+            fallback: None,
             first_party: self.first_party(&target.provider),
             cache_ttl: target.cache_ttl,
             conversation_ttl: match kind {
@@ -1446,8 +1451,8 @@ impl TurnRunner {
             .get(&target.provider)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
-        // Where routing moves the turn (25e), for the turn's life.
-        let routed = std::sync::OnceLock::new();
+        // Where routing moves the turn (25e), and a refusal (theseus-7gir.18).
+        let (routed, fell_back) = (OnceLock::new(), OnceLock::new());
         // What this turn runs on is the session's target from the turn's
         // start (theseus-kol): its copy carries it into every session write
         // the turn makes (a recompile's, a failure's, its end's), and an
@@ -1514,7 +1519,13 @@ impl TurnRunner {
         // books the same way before it is returned. The body's `?`s all
         // land here, so no step after a paid loop can skip its spend.
         match self
-            .turn_body(&mut t, &mut session, provider.as_ref(), asked, &routed)
+            .turn_body(
+                &mut t,
+                &mut session,
+                provider.as_ref(),
+                asked,
+                (&routed, &fell_back),
+            )
             .await
         {
             Ok(Next::Finish(force)) => self.finish(t, &mut session, force),
@@ -1535,7 +1546,7 @@ impl TurnRunner {
         session: &mut SessionRecord,
         provider: &dyn Provider,
         asked: Asked,
-        routed: &'a std::sync::OnceLock<Target>,
+        (routed, fallback): (&'a OnceLock<Target>, &'a OnceLock<Target>),
     ) -> Result<Next> {
         let Asked {
             input,
@@ -1746,6 +1757,7 @@ impl TurnRunner {
                     break;
                 }
             };
+            Self::fallback_answered(t, &resp);
             let uses = resp.tool_uses();
             // A call that fit: a later one over the limit asks again.
             t.retry_over_limit = false;
@@ -1790,7 +1802,9 @@ impl TurnRunner {
                 // The retry answered: a later overflow in the turn is its own.
                 retrying = None;
             }
-            run_model = Self::advance(t, &resp, uses.len(), answered, i, window_retry);
+            // A refusal goes once to its model's fallback (theseus-7gir.18).
+            let fell = self.fall_back(t, &mut spec, fallback, (&resp, &node), said_before);
+            run_model = Self::advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             t.last = Some(resp);
             if let Some(f) = window_failed {
                 return Ok(Next::Fail(f));
@@ -2880,16 +2894,16 @@ impl TurnRunner {
     }
 
     /// The Advancer decides whether the turn continues; the loop's end is
-    /// recorded either way. `window_retry`: the answer was cut at the window
-    /// and the call is made again (theseus-9p88), which the overflow's own
-    /// line has said.
+    /// recorded either way. `retry`: the call is made again, an answer cut at
+    /// the window (theseus-9p88) or a refusal's fallback (theseus-7gir.18),
+    /// which the retry's own line has said.
     fn advance(
         t: &mut Turn<'_>,
         resp: &ModelResponse,
         uses: usize,
         answered: u32,
         i: u32,
-        window_retry: bool,
+        retry: bool,
     ) -> bool {
         let advancer = UntilNoToolCalls {
             max_loops: t.target.max_loops,
@@ -2904,7 +2918,7 @@ impl TurnRunner {
         let a0 = t.trace.now_us();
         let decision = if t.awaiting.is_some() {
             Decision::EndTurn("awaiting_confirm".into())
-        } else if window_retry {
+        } else if retry {
             Decision::Continue
         } else if matches!(
             stop,
@@ -2923,7 +2937,7 @@ impl TurnRunner {
             provider_stop_reason: resp.stop_reason.as_deref(),
             uses,
             answered,
-            window_retry,
+            retry,
             a0,
         });
         match decision {
@@ -3035,7 +3049,6 @@ impl TurnRunner {
             },
         };
         t.close_books(session);
-        let target = t.target;
         session.last_target = Some(Self::ran_on(&t));
         let w0 = t.trace.now_us();
         // Only the turn's own fields: a recompile asked meanwhile stays
@@ -3065,9 +3078,9 @@ impl TurnRunner {
                 t.stop_reason.clone()
             },
             provider_stop_reason: last.and_then(|r| r.stop_reason.clone()),
-            model: last.map_or_else(|| target.model.clone(), |r| r.model.clone()),
-            provider: target.provider.clone(),
-            profile: target.profile.clone(),
+            model: last.map_or_else(|| t.target.model.clone(), |r| r.model.clone()),
+            provider: t.target.provider.clone(),
+            profile: t.target.profile.clone(),
             usage: t.usage.clone(),
             elapsed_ms: t.started.elapsed().as_millis() as u64,
             first_token_ms: last.and_then(|r| r.timing.first_token_ms),
@@ -3081,6 +3094,7 @@ impl TurnRunner {
             continuation: t.continuation,
             recalled: t.recall.count,
             route: t.route.result.take(),
+            fallback: t.fallback.as_ref().map(|f| f.fallback.clone()),
         };
         t.record(&fact::turn::TurnBooked {
             result: &result,

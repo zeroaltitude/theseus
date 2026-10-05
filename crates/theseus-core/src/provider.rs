@@ -1165,6 +1165,12 @@ pub enum Scripted {
         usage: Usage,
         then: Box<Scripted>,
     },
+    /// A refusal after these blocks (`stop_reason: refusal`), with the
+    /// `stop_details` category the provider names (theseus-7gir.18).
+    Refused {
+        blocks: Vec<Value>,
+        category: Option<String>,
+    },
 }
 
 impl Scripted {
@@ -1254,12 +1260,17 @@ impl Provider for FakeProvider {
                 billed = Some(usage);
                 next = Some(*then);
             }
+            let mut details = None;
             let (blocks, stop_reason) = match next {
                 Some(Scripted::Fail(e)) => return Err(e.into()),
                 Some(Scripted::Blocks {
                     blocks,
                     stop_reason,
                 }) => (blocks, stop_reason),
+                Some(Scripted::Refused { blocks, category }) => {
+                    details = Some(serde_json::json!({"type": "refusal", "category": category}));
+                    (blocks, "refusal".to_string())
+                }
                 Some(Scripted::Billed { .. }) => unreachable!("one bill per response"),
                 None => (
                     vec![serde_json::json!({"type": "text", "text": self.reply})],
@@ -1295,6 +1306,7 @@ impl Provider for FakeProvider {
                 text,
                 content: blocks,
                 stop_reason: Some(stop_reason),
+                stop_details: details,
                 model: req.model.clone(),
                 message_id: Some(crate::new_id("msg_fake")),
                 request_id: Some("req_fake".into()),

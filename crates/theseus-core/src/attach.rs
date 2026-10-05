@@ -183,6 +183,9 @@ pub struct Media<'a> {
     /// The most PDF pages one request carries ([`page_limit`]).
     pub pdf_pages: u32,
     pub model: &'a str,
+    /// A refusal's fallback the request goes to (theseus-7gir.18), whose
+    /// thinking goes back too.
+    pub also: Option<&'a str>,
     pub blobs: Option<&'a Blobs>,
     pub hidden: &'a [NotShown],
 }
@@ -195,6 +198,7 @@ impl Media<'_> {
             pdf: false,
             pdf_pages: 0,
             model: "",
+            also: None,
             blobs: None,
             hidden: &[],
         }
@@ -1163,6 +1167,7 @@ pub(crate) mod tests {
             pdf: true,
             pdf_pages: 100,
             model: "claude-haiku-4-5",
+            also: None,
             blobs: Some(&blobs),
             hidden: &[],
         };
@@ -1193,6 +1198,7 @@ pub(crate) mod tests {
             pdf: false,
             pdf_pages: 0,
             model: "glm-5.3",
+            also: None,
             blobs: Some(&blobs),
             hidden: &[],
         };
@@ -1396,6 +1402,7 @@ pub(crate) mod tests {
             pdf: true,
             pdf_pages: pages,
             model: "claude-sonnet-5-5",
+            also: None,
             blobs: Some(blobs),
             hidden,
         }
@@ -1407,6 +1414,7 @@ pub(crate) mod tests {
             pdf: false,
             pdf_pages: 0,
             model: "glm-5.3",
+            also: None,
             blobs: Some(blobs),
             hidden: &[],
         }

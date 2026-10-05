@@ -1259,7 +1259,9 @@ fn footer(r: &TurnSubmitResult) -> String {
     } else if !matches!(r.stop_reason.as_str(), "" | "no_tool_calls" | "end_turn") {
         bits.push(format!("stopped: {}", r.stop_reason));
     }
-    format!("-# {}", bits.join(" · "))
+    let fell = r.fallback.as_ref().map(|f| f.line(&r.stop_reason));
+    let fell = fell.map_or(String::new(), |line| format!("-# {line}\n")); // theseus-7gir.18
+    format!("{fell}-# {}", bits.join(" · "))
 }
 
 /// One short line for a tool call: the argument a person would look for.

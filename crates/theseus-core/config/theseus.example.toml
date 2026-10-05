@@ -77,6 +77,10 @@ total_secs = 600                        # the whole call
 transient = 0                           # retries inside a turn; 0: none
 backoff_ms = 2000                       # the wait before the first one
 backoff_max_ms = 30000                  # the longest one wait
+# A request the model refuses is made once more on its catalog entry's
+# refusal_fallback_model (Sonnet 5.5's: Sonnet 5), by the same provider, and the
+# rest of the turn runs there; the reply says so. A refusal there ends the turn.
+refusal = true                          # false: a refusal ends its turn
 
 # ---------------------------------------------------------------- profiles
 # A profile is provider + model + output limit + system prompt. Exactly one is
@@ -526,7 +530,8 @@ run = "notify"                          # a call that starts code: a task, a fun
 #                                       # it; false sends no cache breakpoints. Omitted: true
 # thinking = "adaptive"                 # none | adaptive | always | budget
 # effort = true
-# refusal_fallbacks = false
+# refusal_fallbacks = false             # the provider's own fallback on a refusal (server-side)
+# refusal_fallback_model = "claude-sonnet-5"  # else a refusal goes once to this model ([model.retries] refusal)
 # cache_min_tokens = 1024               # a shorter prefix gets no breakpoint of its own
 # vision = true
 # source = "config"

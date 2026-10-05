@@ -177,6 +177,7 @@ ledger_kinds! {
     ProviderCall = "provider.call",
     ProviderCut = "provider.cut",
     ProviderError = "provider.error",
+    ProviderFallback = "provider.fallback",
     ProviderRefusal = "provider.refusal",
     RecallRan = "recall.ran",
     RecallShadow = "recall.shadow",

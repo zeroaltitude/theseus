@@ -12,7 +12,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
   and the cancel path). A failed turn's retry is the driver's (theseus-ljr); `[model.retries]` can make a transient
   failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; the bench profile's, since a
-  headless run ends with its turn: theseus-7gir.21).
+  headless run ends with its turn: theseus-7gir.21). A refused request goes once to its model's fallback, the catalog's
+  `refusal_fallback_model` (Sonnet 5.5's: Sonnet 5), and the rest of the turn runs there (`turn/fallback_step.rs`,
+  theseus-7gir.18; `[model.retries] refusal`, on by default; the provider's own `refusal_fallbacks` wins where it rides
+  the request, `compiler::server_fallbacks`). The compilation stays the profile model's: the requests name the fallback
+  (`RequestSpec::fallback`), carry both models' thinking, and leave the refused answer out (`replaced_answers`, as a
+  cut one); the session's target stays. A `provider.fallback` row, and the result's `fallback`, whose `line` every
+  surface shows. Tests: `tests_fallback.rs`.
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching).
   - **Files given to the model** (theseus-9g2, theseus-c9l6): `attach.rs` and `blobs.rs`. A message's files: text as

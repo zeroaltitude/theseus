@@ -315,6 +315,7 @@ async fn a_transient_failure_is_retried_inside_its_turn_as_the_config_allows() {
                 transient,
                 backoff_ms: 5,
                 backoff_max_ms: 5,
+                ..Default::default()
             }
         })
     };
