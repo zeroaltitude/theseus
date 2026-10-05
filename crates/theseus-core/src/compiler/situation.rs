@@ -97,11 +97,13 @@ impl Class {
 /// | continuation | the prefix and the tail (its arrangement, summary, and section included), a new recall note |
 /// | recompile | all of it, a new section (a compaction's) and a new note included |
 /// | resume | the manifest's prefix and the tail; no new recall |
-/// | detour | the last exchanges and the message: no recall, summary, arrangement, or task view |
+/// | detour | the last exchanges and the message, a task's arrangement among them: no recall, summary, or task view |
 ///
 /// A conversation's first compile may carry replies, earlier notes, and
 /// a summary: a session whose turns each took a detour (25e) wrote them
-/// but never a compilation of its own.
+/// but never a compilation of its own. A detour's window may hold its
+/// task's arrangement, written after the brief, and it always sent it
+/// (theseus-783a).
 pub fn admits(situation: &Situation, class: Class, new: bool) -> bool {
     use Class::*;
     let common = matches!(class, Inbound | Reply | ToolResult | LateResult | Repair);
@@ -121,7 +123,7 @@ pub fn admits(situation: &Situation, class: Class, new: bool) -> bool {
                 || matches!(class, Arrangement | Summary | TaskView)
                 || (matches!(class, RecallNote | RecallSection) && !new)
         }
-        Situation::Detour => common,
+        Situation::Detour => common || class == Arrangement,
     }
 }
 
@@ -409,7 +411,7 @@ mod tests {
             (ToolResult, false, [true, true, true, true, true, true]),
             (LateResult, false, [true, true, true, true, true, true]),
             (Repair, false, [true, true, true, true, true, true]),
-            (Arrangement, false, [false, true, true, true, true, false]),
+            (Arrangement, false, [false, true, true, true, true, true]),
             (Summary, false, [true, false, true, true, true, false]),
             (
                 RecallSection,

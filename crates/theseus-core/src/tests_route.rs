@@ -2,6 +2,8 @@
 //! `inbound`, live, in the same request as `classify.v1` and `role.v1`, and
 //! the turn it moves, against the fake Jev, with the profiles on two fake
 //! providers (`anthropic` and `zai`), so each request shows where it went.
+//! A detour's request passes 35a's check: its window's arrangement is
+//! admitted and its recall notes left out (theseus-783a).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1151,4 +1153,112 @@ async fn a_routed_turn_still_writes_and_sends_its_recall() {
         2,
         "each turn's node, into the note"
     );
+}
+
+/// A trivial message in a task session detours, and the detour's window
+/// holds the task's arrangement, written after its brief: the detour admits
+/// it, as it always sent it, so the message is answered (theseus-783a; 35a's
+/// check failed it as `context_unadmitted`, local reviewer R7's probe).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trivial_message_in_a_task_session_detours_with_its_arrangement() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 3, |_| {});
+    let parent = turn(
+        &r.core,
+        None,
+        "Start a task that drafts the harbor note.",
+        None,
+    )
+    .await;
+    let sid = task_of(&r.core, &parent.session_id);
+    mode(&jev, "trivial", 0.95);
+    let thanks = turn(&r.core, Some(&sid), "thank you!", None).await;
+    assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
+    let sent = serde_json::to_string(&r.zai.requests()[0].messages).unwrap();
+    assert!(
+        sent.contains("[Arrangement: "),
+        "the detour sends it: {sent}"
+    );
+    assert!(unadmitted(&r.core).is_empty());
+}
+
+/// A detour's window that holds a recall note sends the exchange without
+/// it, and the turn is answered: a detour admits no recall (35a), and
+/// `compile_detour` leaves notes and summaries out of its nodes. Planted
+/// revert 6 of local reviewer R7 (the detour keeping them) fails here.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_detours_window_leaves_its_recall_note_out() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 3, |c| {
+        c.memory.mode = crate::config::MemoryMode::Canary;
+        c.memory.canary_fraction = 1.0;
+    });
+    let heron = crate::tests_recall::session(
+        &r.core,
+        None,
+        &["Remember: the grey heron nests by the old weir at Millbrook."],
+    );
+    r.core
+        .runner
+        .memory
+        .set_ask(crate::tests_recall::index_of(&r.core, vec![heron]));
+    let first = turn(&r.core, None, "Where does the grey heron nest?", None).await;
+    assert_eq!(first.recalled, 1);
+    let recalled = serde_json::to_string(&r.claude.requests()[0].messages).unwrap();
+    assert!(recalled.contains("Recalled by the harness"), "{recalled}");
+    mode(&jev, "trivial", 0.95);
+    let thanks = turn(&r.core, Some(&first.session_id), "thank you!", None).await;
+    assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
+    let sent = serde_json::to_string(&r.zai.requests()[0].messages).unwrap();
+    assert!(
+        sent.contains("Where does the grey heron nest?"),
+        "the last exchange: {sent}"
+    );
+    assert!(
+        !sent.contains("Recalled by the harness"),
+        "no recall: {sent}"
+    );
+    assert!(unadmitted(&r.core).is_empty());
+}
+
+/// A task session under `parent` (whose turn ran), its brief and its
+/// arrangement written as `open_task` writes them.
+fn task_of(core: &Core, parent: &str) -> String {
+    use crate::node::{Node, Origin};
+    let parent_rec = session(core, parent);
+    let mut task = SessionRecord::new(SessionKind::Task, None);
+    task.task = Some(crate::session::TaskOf {
+        parent_session: parent.into(),
+        parent_execution: parent_rec.execution_id.clone().unwrap(),
+        by: "act_brief".into(),
+        target: None,
+        arrangement: None,
+        check: None,
+    });
+    core.store.put_session(&task.session_id, &task).unwrap();
+    let sid = task.session_id;
+    let author = format!("session:{parent}");
+    let brief = Node::relayed(
+        &sid,
+        None,
+        Origin::Agent,
+        &author,
+        "Draft a note to the harbor master.",
+    );
+    let arr = Node::arrangement(&sid, &author, vec![], false);
+    core.store
+        .append(&[brief.record().unwrap(), arr.record().unwrap()])
+        .unwrap();
+    sid
+}
+
+/// The `context.unadmitted` rows.
+fn unadmitted(core: &Core) -> Vec<Value> {
+    let rows: Vec<(u64, LedgerRow)> = core.store.ledger_tail(2000).unwrap();
+    rows.into_iter()
+        .filter(|(_, r)| r.kind == "context.unadmitted")
+        .map(|(_, r)| r.data)
+        .collect()
 }
