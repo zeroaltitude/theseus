@@ -3,7 +3,8 @@ $ theseus watch ses_q7f3k2 --thinking
 session.watch
 --- stdout
 The harbour's table:
-Low water at 14:10.--- stderr
+Low water at 14:10.
+--- stderr
 watching ses_q7f3k2 (Ctrl-C to stop)
   ⟳ context recompile · 9 message(s) · ~1830 tokens
   ⟳ context append · 10 message(s) · ~1990 tokens

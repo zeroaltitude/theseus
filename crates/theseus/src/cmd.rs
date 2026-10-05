@@ -287,6 +287,8 @@ pub async fn watch(
             }
         }
     }
+    // The daemon closed the connection: end a reply's open line (theseus-1n2l).
+    printer.settle();
     Ok(())
 }
 
