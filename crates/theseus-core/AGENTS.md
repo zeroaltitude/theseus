@@ -304,8 +304,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
     is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
     the call waits for a permit rather than being shed. The turn waits for it beside its first compile, at most
-    `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies from the next message), and
-    `routing.rs` decides, purely: the mode's first usable profile under a place's cap, a `trivial` detour (that
+    `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
+    late `trivial` one to none: `routing::carries`, theseus-6n5j), and `routing.rs` decides, purely, at the mode's
+    own bar (`[routing.modes.<mode>] switch_confidence`, else trivial's 0.4, else the section's 0.6:
+    `RoutingConfig::confidence_for`): the mode's first usable profile under a place's cap, a `trivial` detour (that
     turn alone, compiled outside the session's compilation, which it never writes), or a switch of the session's
     `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. A turn whose
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the

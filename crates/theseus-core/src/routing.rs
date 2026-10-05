@@ -16,8 +16,12 @@
 //!   once while the first compile's estimate is under `cold_switch_tokens`,
 //!   above it only when the turn before agreed (a [`Hold`]): the switch
 //!   recompiles, strips the prefix's thinking, and leaves the cache cold.
-//! - **Confidence.** A verdict under `switch_confidence` routes nothing, a
-//!   detour included, and breaks a hold's row.
+//! - **Confidence.** A verdict under its mode's bar routes nothing, a detour
+//!   included, and breaks a hold's row. The bar is the mode's own
+//!   `switch_confidence`, else trivial's 0.4, else the section's 0.6
+//!   (`RoutingConfig::confidence_for`, theseus-6n5j).
+//! - **A late verdict** (one that came after its message's wait) applies to
+//!   the session's next message alone, and a trivial one to none ([`carries`]).
 //! - **The cap.** A place's profile is its default and its cap: a profile
 //!   dearer than it at catalog prices is passed over, and the turn says
 //!   `capped`.
@@ -282,7 +286,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     } else {
         HoldNext::Clear
     };
-    if a.verdict.confidence < cfg.switch_confidence {
+    if a.verdict.confidence < cfg.confidence_for(&a.verdict.mode) {
         return stay(Reason::Unsure, keep_or_clear);
     }
     let picked = pick(cfg.modes.of(&a.verdict.mode), profiles, a.images, a.cap);
@@ -326,6 +330,16 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
             turn: a.verdict.turn.clone(),
         }),
     )
+}
+
+/// Whether a verdict that came after its own message's wait may apply to the
+/// session's next message (theseus-6n5j). A switch's mode is the
+/// conversation's, and the switch it makes outlasts its message anyway, so it
+/// carries; `trivial` is its message's alone ("hi", "thanks"), and its detour
+/// is that turn's alone, so a late trivial verdict never applies to another
+/// message.
+pub fn carries(v: &Verdict) -> bool {
+    v.mode != "trivial"
 }
 
 /// How many turns a switch at `context` tokens takes to pay back its cold
@@ -483,12 +497,65 @@ mod tests {
                 hold: HoldNext::Keep
             }
         );
-        // A detour needs the confidence too.
-        let d = decide(&cfg, &ps, &ask(&verdict("trivial", 0.59), "opus", 10));
+        // A detour needs the confidence too: trivial's own bar, 0.4.
+        let d = decide(&cfg, &ps, &ask(&verdict("trivial", 0.39), "opus", 10));
         assert_eq!(
             (d.profile.as_str(), d.reason, d.detour),
             ("opus", Reason::Unsure, false)
         );
+    }
+
+    /// The greeting of 2026-10-04 23:45 (theseus-6n5j): trivial at 0.45
+    /// stayed on Sonnet under the section's 0.6. Trivial's bar is 0.4, so it
+    /// detours now; the switch modes keep 0.6, and a table's own bar wins.
+    #[test]
+    fn a_trivial_verdict_routes_at_its_own_bar() {
+        let cfg = RoutingConfig::default();
+        let ps = five();
+        let d = decide(&cfg, &ps, &ask(&verdict("trivial", 0.45), "sonnet", 87_000));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.detour, d.switch),
+            ("glm", Reason::Detour, true, false)
+        );
+        let d = decide(&cfg, &ps, &ask(&verdict("trivial", 0.4), "sonnet", 10));
+        assert!(d.detour, "at the bar");
+        let d = decide(&cfg, &ps, &ask(&verdict("trivial", 0.399), "sonnet", 10));
+        assert_eq!((d.reason, d.detour), (Reason::Unsure, false));
+        for m in ["sophisticated", "deep_coding", "routine_coding"] {
+            let d = decide(&cfg, &ps, &ask(&verdict(m, 0.45), "sonnet", 10));
+            assert_eq!((d.reason, d.switch), (Reason::Unsure, false), "{m}");
+        }
+        let mut own = RoutingConfig::default();
+        own.modes.trivial.switch_confidence = Some(0.5);
+        own.modes.sophisticated.switch_confidence = Some(0.4);
+        let d = decide(&own, &ps, &ask(&verdict("trivial", 0.45), "sonnet", 10));
+        assert_eq!(d.reason, Reason::Unsure, "trivial's own bar, raised");
+        let d = decide(
+            &own,
+            &ps,
+            &ask(&verdict("sophisticated", 0.45), "sonnet", 10),
+        );
+        assert_eq!(
+            (d.profile.as_str(), d.switch),
+            ("opus", true),
+            "a switch's own bar"
+        );
+    }
+
+    /// A late verdict carries to the next message, but a trivial one never
+    /// does: its detour is its own message's alone (theseus-6n5j).
+    #[test]
+    fn a_late_trivial_verdict_never_carries() {
+        assert!(!carries(&verdict("trivial", 0.99)));
+        for m in [
+            "chat",
+            "sophisticated",
+            "deep_coding",
+            "routine_coding",
+            "other",
+        ] {
+            assert!(carries(&verdict(m, 0.9)), "{m}");
+        }
     }
 
     #[test]

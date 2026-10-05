@@ -458,6 +458,77 @@ async fn a_late_verdict_applies_from_the_next_message() {
     );
 }
 
+/// The greeting of 2026-10-04 23:45 (theseus-6n5j): route.v1 said trivial
+/// at 0.45, under the section's 0.6, and the turn stayed on Sonnet. Trivial's
+/// bar is 0.4: the same verdict detours, and a switch mode at 0.45 still
+/// routes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_greeting_judged_trivial_at_045_detours() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.45);
+    let r = rig(Some(&jev), 2, |_| {});
+    let hi = turn(&r.core, None, "hey, good evening", None).await;
+    assert_eq!(
+        (
+            hi.profile.as_str(),
+            hi.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("glm", "detour")
+    );
+    let d = decided(&r.core.store);
+    assert_eq!(d[0]["confidence"], 0.45);
+    mode(&jev, "sophisticated", 0.45);
+    let hard = turn(&r.core, Some(&hi.session_id), "Weigh two designs.", None).await;
+    assert_eq!(
+        (
+            hard.profile.as_str(),
+            hard.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("sonnet", "unsure")
+    );
+}
+
+/// A late trivial verdict never applies to a later message (theseus-6n5j):
+/// the first message's verdict, trivial, comes after its wait; the second's
+/// own is late too, and the second stays on the session's own profile, where
+/// a late switch verdict would have moved it (`a_late_verdict_applies_from_
+/// the_next_message`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_trivial_verdict_never_applies_to_the_next_message() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.95);
+    jev.set_mode(FakeMode::Slow(Duration::from_millis(500)));
+    let r = rig(Some(&jev), 2, |_| {});
+    let one = turn(&r.core, None, "thanks!", None).await;
+    assert_eq!(
+        (
+            one.profile.as_str(),
+            one.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("sonnet", "late")
+    );
+    // Its verdict lands while no message waits for it.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    mode(&jev, "sophisticated", 0.95);
+    let two = turn(
+        &r.core,
+        Some(&one.session_id),
+        "Now weigh two designs for the log.",
+        None,
+    )
+    .await;
+    assert_eq!(
+        (
+            two.profile.as_str(),
+            two.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("sonnet", "late"),
+        "{:?}",
+        two.route
+    );
+    assert!(r.zai.requests().is_empty(), "nothing detoured");
+}
+
 /// The owner's choice of a profile within 10 minutes after a routed turn
 /// labels its mode; 11 minutes after does not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

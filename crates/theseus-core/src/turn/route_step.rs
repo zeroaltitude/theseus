@@ -5,7 +5,8 @@
 //! - **Beside the first compile, never before it** ([`beside`]): the call
 //!   started at `inbound`, so the turn compiles on the session's profile,
 //!   then waits at most `[routing] max_wait_ms` more. A verdict later than
-//!   that applies from the next message, and this turn says `late`. The
+//!   that applies to the next message alone, a trivial one to none
+//!   (`routing::carries`, theseus-6n5j), and this turn says `late`. The
 //!   judge off, Jev's breaker open, a slash command, a continuation, a pinned
 //!   turn, or `route.v1` in shadow: no wait.
 //! - **A switch** rebuilds the spec and compiles again on the routed profile;
@@ -314,6 +315,8 @@ impl TurnRunner {
     /// Every message takes the session's late verdict, and keeps it only when
     /// it was asked for `last_turn`, the session's turn just before this one:
     /// a late verdict applies to the next message alone, never to a later one.
+    /// A late trivial verdict applies to none: it was its own message's
+    /// (`routing::carries`, theseus-6n5j).
     fn read_verdict(
         &self,
         t: &Turn<'_>,
@@ -324,7 +327,7 @@ impl TurnRunner {
     ) -> (Option<Verdict>, Option<Reason>) {
         let sid = t.tc.session_id;
         let stale = self.judge.take_late(sid);
-        let late = || stale.filter(|v| Some(v.turn.as_str()) == last_turn);
+        let late = || stale.filter(|v| Some(v.turn.as_str()) == last_turn && routing::carries(v));
         let recorded = match t.target.chosen {
             Some(_) => Reason::Pinned,
             None => Reason::Shadow,
