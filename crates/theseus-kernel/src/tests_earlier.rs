@@ -1,6 +1,9 @@
 //! An earlier process's in-process calls (theseus-m9iy): a provider call in
 //! flight when the process died is unknown at the first tick after the
-//! restart, not at its deadline, and a job is left to its evidence.
+//! restart, not at its deadline, and a job is left to its evidence. Its
+//! reservation is booked as spent (theseus-f3wr).
+
+use serde_json::json;
 
 use crate::earlier::EARLIER_PROCESS;
 use crate::kernel::*;
@@ -11,12 +14,39 @@ fn frames(w: &World) -> u64 {
     w.kernel.store().stats().unwrap().frames_appended
 }
 
+/// A budget's spent, reserved, and held.
+fn money(b: &Budget) -> (Micros, Micros, Micros) {
+    (b.spent_micros, b.reserved_micros, b.held_unknown_micros)
+}
+
+/// The call's one `action.outcome_unknown` row, from the earlier process's
+/// mark, says its cost is its reservation (100), as an estimate, and so does
+/// the action's `detail`.
+fn booked_at_its_reservation(w: &World, session: &str, call: &Action) {
+    let unknown = rows(w, session, "action.outcome_unknown");
+    assert_eq!(unknown.len(), 1);
+    assert_eq!(
+        unknown[0]["producer"],
+        format!("reconciler:{EARLIER_PROCESS}")
+    );
+    assert_eq!(unknown[0]["outcome"], "unknown");
+    assert_eq!(
+        (&unknown[0]["cost_basis"], &unknown[0]["cost_usd"]),
+        (&json!("reservation"), &json!(0.0001)),
+        "the row says its cost is the reservation, as an estimate"
+    );
+    let marked = w.kernel.action(&call.correlation_id).unwrap().unwrap();
+    assert_eq!(marked.state, ActionState::OutcomeUnknown);
+    assert_eq!(marked.detail, Some(json!({"cost_basis": "reservation"})));
+}
+
 /// A provider call and a job, both in flight when the process dies, and a
 /// third session parked on a provider call of its own. The start writes what
 /// it wrote before (the interrupted turn, then its step rows) and marks
 /// nothing; the driver's first tick marks both calls unknown in one frame,
-/// with their own reason; the job stays dispatched; the parked session
-/// wakes; and a second tick writes nothing.
+/// with their own reason, each reservation booked as spent; the job stays
+/// dispatched; the parked session wakes; and a second tick writes nothing,
+/// and books nothing more.
 #[test]
 fn an_earlier_processs_provider_call_is_unknown_at_the_first_tick_and_a_job_is_not() {
     let w = world();
@@ -62,21 +92,17 @@ fn an_earlier_processs_provider_call_is_unknown_at_the_first_tick_and_a_job_is_n
     assert_eq!(state(&call.correlation_id), ActionState::OutcomeUnknown);
     assert_eq!(state(&waited.correlation_id), ActionState::OutcomeUnknown);
     assert_eq!(state(&job.correlation_id), ActionState::Dispatched);
-    let unknown = rows(&w, &s1, "action.outcome_unknown");
-    assert_eq!(unknown.len(), 1);
-    assert_eq!(
-        unknown[0]["producer"],
-        format!("reconciler:{EARLIER_PROCESS}")
-    );
+    booked_at_its_reservation(&w, &s1, &call);
     let e1 = w.kernel.execution(&e1.id).unwrap().unwrap();
     assert_eq!(e1.state, ExecState::Queued);
     assert!(e1.outstanding.is_empty());
     assert_eq!(e1.queued_results, vec![call.correlation_id]);
     assert_eq!(
-        (e1.budget.reserved_micros, e1.budget.held_unknown_micros),
-        (0, 100),
-        "its reservation held as unknown, which a reset leaves as it is"
+        money(&e1.budget),
+        (100, 0, 0),
+        "its reservation booked as spent, nothing held"
     );
+    assert!(e1.budget.reservations.is_empty());
     let e3 = w.kernel.execution(&e3.id).unwrap().unwrap();
     assert_eq!(e3.state, ExecState::Queued, "what waited on the call wakes");
     let e2 = w.kernel.execution(&e2.id).unwrap().unwrap();
@@ -84,6 +110,14 @@ fn an_earlier_processs_provider_call_is_unknown_at_the_first_tick_and_a_job_is_n
 
     assert!(w.kernel.mark_earlier_calls_unknown().unwrap().is_empty());
     assert_eq!(frames(&w), f0 + 1, "a second tick writes nothing");
+    assert!(w
+        .kernel
+        .reconcile(&NoEvidence)
+        .unwrap()
+        .marked_unknown
+        .is_empty());
+    let e1 = w.kernel.execution(&e1.id).unwrap().unwrap();
+    assert_eq!(money(&e1.budget), (100, 0, 0), "and books nothing more");
 }
 
 /// The heartbeat's reconcile marks them too, when the driver has not.
