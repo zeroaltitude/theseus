@@ -446,7 +446,9 @@ const BULK: usize = 4096;
 /// its arrangement node (M5 28a, theseus-vug.3).
 /// 15 = a session's `routed` (M5 25e, theseus-0j2.11): where routing moved it,
 /// and a switch the cache holds back.
-const MANIFEST_FORMAT: u32 = 15;
+/// 16 = a task's `origin.by_model`, the mark of a task whose layer 1 the model
+/// wrote (theseus-ext.10).
+const MANIFEST_FORMAT: u32 = 16;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

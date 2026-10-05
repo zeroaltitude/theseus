@@ -50,6 +50,7 @@ pub mod outbound;
 pub mod outbox;
 pub mod parked;
 pub mod peer;
+pub mod place_warnings;
 pub mod places;
 pub mod policy;
 pub mod provider;
@@ -132,6 +133,8 @@ mod tests_ceilings;
 #[cfg(test)]
 mod tests_check;
 #[cfg(test)]
+mod tests_check_view;
+#[cfg(test)]
 mod tests_compaction;
 #[cfg(test)]
 mod tests_config;
@@ -213,6 +216,8 @@ mod tests_sandbox;
 mod tests_security;
 #[cfg(test)]
 mod tests_task_graph;
+#[cfg(test)]
+mod tests_task_layers;
 #[cfg(test)]
 mod tests_task_wakes;
 #[cfg(test)]

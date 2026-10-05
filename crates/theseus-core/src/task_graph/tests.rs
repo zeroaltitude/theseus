@@ -15,6 +15,7 @@ fn task(id: &str, origin: &str, parent: Option<&str>, state: TaskState) -> TaskR
         origin: TaskOrigin {
             session: origin.into(),
             principal: "operator".into(),
+            by_model: false,
         },
         state,
     }
@@ -161,8 +162,8 @@ fn the_view_shows_open_tasks_and_folds_closed_subtrees() {
     assert!(lines[0].starts_with("[The task graph in this conversation's scope: 1 open, 3 closed."));
     assert_eq!(
         lines[1],
-        "- tsk_aaaa01 \"chart the tsk_aaaa01 soundings\" [accepted] owner agent, deps tsk_bbbb01, \
-         accept: every buoy has a depth, v1"
+        "- tsk_aaaa01 \"chart the tsk_aaaa01 soundings\" [accepted] owner agent, the operator's \
+         objective, deps tsk_bbbb01, accept: every buoy has a depth, v1"
     );
     assert_eq!(
         lines[2],
@@ -239,4 +240,99 @@ fn the_view_is_the_last_block_and_the_breakpoint_sits_before_it() {
     assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
     assert_eq!(blocks[1]["text"], v.text.as_str());
     assert!(blocks[1].get("cache_control").is_none());
+}
+
+/// A check's basis over `ses_maker`, which excludes it (theseus-w8ys).
+fn basis_over_maker() -> theseus_protocol::TaskCheck {
+    theseus_protocol::TaskCheck {
+        checked_task: "ses_maker".into(),
+        checked_short: "maker".into(),
+        report_node: "msg_report".into(),
+        report_at_ms: 1,
+        excluded_sessions: vec!["ses_maker".into()],
+        admitted: vec![],
+        profile: "sonnet".into(),
+        provider: "anthropic".into(),
+        model: "claude-sonnet-5-5".into(),
+        overlaps: vec![],
+        at_ms: 1,
+    }
+}
+
+/// In a check's view, the checked task (with its deps and acceptance), a
+/// task under it, and a record of an excluded session show id, title, and
+/// state alone, counted as `restricted`; the check's own line is whole, and
+/// the parent conversation's view is as `render` always made it.
+#[test]
+fn a_check_sees_the_checked_task_by_title_and_state() {
+    let mut maker = task("tsk_maker", "ses_lighthouse", None, TaskState::Done);
+    maker.session = Some("ses_maker".into());
+    maker.deps = vec!["tsk_tide".into()];
+    let tide = task("tsk_tide", "ses_lighthouse", None, TaskState::Accepted);
+    let mut sub = task(
+        "tsk_sub",
+        "ses_lighthouse",
+        Some("tsk_maker"),
+        TaskState::Accepted,
+    );
+    sub.origin.by_model = true;
+    // The check, under the checked task; another check under its subtask.
+    let mut check = task(
+        "tsk_check",
+        "ses_lighthouse",
+        Some("tsk_maker"),
+        TaskState::InProgress,
+    );
+    check.session = Some("ses_check".into());
+    let mut under_sub = task(
+        "tsk_check2",
+        "ses_lighthouse",
+        Some("tsk_sub"),
+        TaskState::InProgress,
+    );
+    under_sub.session = Some("ses_check2".into());
+    let all = vec![maker, tide, sub.clone(), check.clone(), under_sub];
+    let basis = basis_over_maker();
+
+    let v = view::render_for(&all, "ses_check", Some(&basis)).unwrap();
+    let lines: Vec<&str> = v.text.lines().skip(1).collect();
+    assert_eq!(
+        lines,
+        [
+            "- tsk_maker \"chart the tsk_maker soundings\" [done]",
+            &format!("  - {}", line(&check))
+        ],
+        "{}",
+        v.text
+    );
+    assert_eq!(v.summary.restricted, 1);
+    assert_eq!(
+        v.text.matches("every buoy").count(),
+        1,
+        "the check's own acceptance alone: {}",
+        v.text
+    );
+
+    // A task under the checked one shows bare too.
+    let v = view::render_for(&all, "ses_check2", Some(&basis)).unwrap();
+    assert_eq!(
+        v.text.lines().nth(1).unwrap(),
+        "- tsk_sub \"chart the tsk_sub soundings\" [accepted]",
+        "{}",
+        v.text
+    );
+    assert_eq!(v.summary.restricted, 1);
+
+    // The ids a check sees bare: the checked task's subtree, and the
+    // excluded session's record.
+    let ids = view::restricted_ids(&all, &basis, "ses_check");
+    let mut ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, ["tsk_check2", "tsk_maker", "tsk_sub"], "never its own");
+
+    // The conversation's view is unchanged: whole lines, nothing restricted.
+    let v = view::render_for(&all, "ses_lighthouse", None).unwrap();
+    assert_eq!(v, view::render(&all, "ses_lighthouse").unwrap());
+    assert!(v.text.contains(&line(&sub)), "{}", v.text);
+    assert_eq!(v.summary.restricted, 0);
 }

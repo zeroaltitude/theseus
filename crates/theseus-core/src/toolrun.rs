@@ -1129,6 +1129,10 @@ impl ToolRuntime {
     fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
         let mut proposal = self.proposal_for(tool, &call.input);
         let planned = tool.plan(&call.input, &self.ctx);
+        // Layer 1 guards only the owner's tasks (theseus-ext.10).
+        let planned = planned.map(|p| {
+            crate::task_graph::tools::authority_for(tc.store, tool.name(), &call.input, p)
+        });
         // A glide's places (38b): the one it names must be bound here.
         let glide = (planned.is_ok() && crate::glide::is_glide(tool.name()))
             .then(|| crate::glide::resolve(tc, tool.name(), &call.input));

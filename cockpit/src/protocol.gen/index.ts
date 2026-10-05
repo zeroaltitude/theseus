@@ -220,6 +220,7 @@ export type * from './PlaceExplain';
 export type * from './PlaceInfo';
 export type * from './PlacePublishParams';
 export type * from './PlaceStatus';
+export type * from './PlaceWarning';
 export type * from './PlacesHealth';
 export type * from './Plan';
 export type * from './PolicyExplainParams';

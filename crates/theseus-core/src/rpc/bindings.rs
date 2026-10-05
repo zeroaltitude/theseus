@@ -43,14 +43,8 @@ impl Core {
             tracing::warn!(error = %format!("{e:#}"), "the places' categories were not made");
         }
         // A ceiling's family that names no tool here offers nothing (step
-        // 38a): said, since the file stays valid as tools come and go.
-        for (place, family) in self.unknown_families(&places) {
-            tracing::warn!(
-                place,
-                family,
-                "a place's ceiling names a tool family this daemon has none of"
-            );
-        }
+        // 38a): the binding's start says so, in health too, with the rest of
+        // what it finds (`place_warnings`, theseus-ext.11).
         self.runner.place_rule.bind(places);
     }
 

@@ -156,6 +156,8 @@ pub struct PlaceRule {
     bound: RwLock<Vec<Bound>>,
     /// The guilds the bindings file trusts whole (theseus-rdqg), by id.
     trusted_guilds: RwLock<BTreeSet<String>>,
+    /// What the binding's start found wrong with its places (theseus-ext.11).
+    warnings: RwLock<Vec<theseus_protocol::PlaceWarning>>,
 }
 
 impl PlaceRule {
@@ -214,6 +216,12 @@ impl PlaceRule {
                     || p.target.rsplit(':').next() == Some(to)
             })
             .cloned()
+    }
+
+    /// What the binding's start found wrong with its places, for health:
+    /// this start's alone (`Core::place_warnings`, theseus-ext.11).
+    pub fn warn(&self, warnings: Vec<theseus_protocol::PlaceWarning>) {
+        *self.warnings.write().unwrap() = warnings;
     }
 
     /// Who can view a guild channel bound `private = true`, as the binding
@@ -313,6 +321,7 @@ impl PlaceRule {
         PlacesHealth {
             places,
             public_paths: cfg.places.public_paths.clone(),
+            warnings: self.warnings.read().unwrap().clone(),
         }
     }
 }

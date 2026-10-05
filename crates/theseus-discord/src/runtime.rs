@@ -151,7 +151,7 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
         );
         return;
     }
-    let bindings = match Bindings::load(&path) {
+    let mut bindings = match Bindings::load(&path) {
         Ok(b) => b,
         Err(e) => {
             board.state("failed", Some(format!("{e:#}")));
@@ -163,14 +163,10 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
         s.guilds = bindings.guild_infos();
         s.revision = Some(bindings.revision.clone());
     });
-    if let Err(e) = guilds::check_profiles(&core, &bindings) {
-        board.state("failed", Some(format!("{e:#}")));
-        return;
-    }
     // Each place's class follows from the file (the place rule): told now,
-    // before any message from them is read, with each guild's word.
-    core.trust_guilds(bindings.trusted());
-    core.bind_places(guilds::bound_places(&bindings));
+    // before any message from them is read, with each guild's word; a bad
+    // place fails alone (theseus-ext.11).
+    guilds::tell_core(&core, &mut bindings);
     let Some(token) = bot_token(&core, &cfg.token_secret, &board).await else {
         return;
     };

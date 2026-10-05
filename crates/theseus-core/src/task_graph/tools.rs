@@ -9,14 +9,21 @@
 //! - **Layer 2, the plan** (title, children, deps, owner): applies at once.
 //! - **Layer 3, evidence**: each entry is a node and its identity, and
 //!   `task.close` only appends.
-//! - **Layer 1, the objective and acceptance, and abandoning**: the call's
-//!   plan names the authority (`Plan::authority`), so the gate makes it wait
-//!   at every posture, as the floor does. Asked, its proposal is written on
-//!   the record (`proposed`, `task.change_proposed`); the operator's yes runs
-//!   the call, which applies it in one frame (`task.change_accepted`), and a
-//!   no clears it and leaves the task (`declined`, `task.change_declined`).
+//! - **Layer 1, the objective and acceptance, and abandoning**: the owner's
+//!   on the owner's tasks (`TaskRecord::is_owners`: a task session opened
+//!   with a brief, and every record from before theseus-ext.10). There the
+//!   call's plan names the authority (`Plan::authority`), so the gate makes it
+//!   wait at every posture, as the floor does. Asked, its proposal is written
+//!   on the record (`proposed`, `task.change_proposed`); the operator's yes
+//!   runs the call, which applies it in one frame (`task.change_accepted`),
+//!   and a no clears it and leaves the task (`declined`,
+//!   `task.change_declined`), as an expiry does (`task.change_expired`).
 //!   Who may answer is who may answer any call: the owner, from a private
-//!   place (`judge_act`), and the CLI refuses inside a job.
+//!   place (`judge_act`), and the CLI refuses inside a job. On a task whose
+//!   layer 1 the model wrote (a plan item, a split's child), the harness drops
+//!   the authority before the gate decides (`authority_for`), so the call runs
+//!   at its tool's own posture, and the change applies at once, versioned as
+//!   any edit (`task.updated`, `task.closed`).
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -221,6 +228,48 @@ fn authority_of(name: &str, input: &Value) -> Option<String> {
     }
 }
 
+/// The task a layer-1 call names, when it is the owner's: the one whose
+/// change waits for the operator. None for any other call, a plan item or a
+/// split's child, or a task the call does not name (its run refuses it).
+fn owners_target(store: &crate::store::Store, name: &str, input: &Value) -> Option<TaskRecord> {
+    authority_of(name, input)?;
+    let id = input.get("id")?.as_str()?;
+    let all = super::all(store).ok()?;
+    let t = super::resolve(&all, id).ok()?;
+    t.is_owners().then(|| t.clone())
+}
+
+/// Whether a layer-1 call waits for the operator: it names one of the
+/// owner's tasks, or a task that cannot be read (the safe side).
+fn waits(store: &crate::store::Store, name: &str, input: &Value) -> bool {
+    if authority_of(name, input).is_none() {
+        return false;
+    }
+    let Some(id) = input.get("id").and_then(Value::as_str) else {
+        return true;
+    };
+    match super::all(store) {
+        Ok(all) => super::resolve(&all, id).map_or(true, TaskRecord::is_owners),
+        Err(_) => true,
+    }
+}
+
+/// The harness's word on a task call's plan, before the gate decides
+/// (theseus-ext.10): a layer-1 change to a task the model wrote applies at
+/// once, so its plan names no authority and the call runs at its tool's own
+/// posture. The owner's tasks keep it.
+pub fn authority_for(
+    store: &crate::store::Store,
+    name: &str,
+    input: &Value,
+    mut plan: Plan,
+) -> Plan {
+    if plan.authority.is_some() && !waits(store, name, input) {
+        plan.authority = None;
+    }
+    plan
+}
+
 fn id_schema() -> Value {
     json!({"type": "string", "description": "The task's id (tsk_…), as the task graph shows it."})
 }
@@ -240,9 +289,10 @@ impl Tool for TaskUpdate {
     fn description(&self) -> &'static str {
         "Edit a task in the task graph. Name the `version` you read; if the task changed since, \
          the edit is refused with the task as it is now, and you read it again. `title`, `deps` \
-         (the tasks it waits on), and `owner` apply at once. `objective` and `acceptance` are the \
-         operator's: a change to either becomes a proposal that waits for the operator's yes, \
-         and nothing changes until then."
+         (the tasks it waits on), and `owner` apply at once. On a task the task graph marks \
+         \"the operator's objective\", `objective` and `acceptance` are the operator's: a change \
+         to either becomes a proposal that waits for the operator's yes, and nothing changes \
+         until then. On any other task (a plan item, a split's child) they apply at once."
     }
 
     fn input_schema(&self) -> Value {
@@ -257,8 +307,8 @@ impl Tool for TaskUpdate {
                         "title": {"type": "string"},
                         "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on, replacing the list."},
                         "owner": {"type": "string", "description": "`agent`, or a person."},
-                        "objective": {"type": "string", "description": "A proposal: waits for the operator."},
-                        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "A proposal, one line each: waits for the operator."}
+                        "objective": {"type": "string", "description": "On the operator's task, a proposal that waits for the operator."},
+                        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "One line each. On the operator's task, a proposal that waits for the operator."}
                     },
                     "additionalProperties": false
                 }
@@ -366,8 +416,9 @@ impl Tool for TaskClose {
     fn description(&self) -> &'static str {
         "Close a task: `done` with its evidence (each an identity, such as `commit:<sha>` or \
          `job:<id>`, and its node when you have one), or `abandoned`. Evidence is only ever \
-         added. Abandoning is the operator's: it waits for the operator's yes. Name the \
-         `version` you read; a stale one is refused with the task as it is now."
+         added. Abandoning a task the task graph marks \"the operator's objective\" is the \
+         operator's: it waits for the operator's yes; any other task's applies at once. Name \
+         the `version` you read; a stale one is refused with the task as it is now."
     }
 
     fn input_schema(&self) -> Value {
@@ -551,7 +602,10 @@ fn update<'a>(tc: &TurnCtx<'a>, input: &Value, approved: bool) -> Result<Done<'a
             rec.state.as_str()
         ));
     }
-    let layer1 = i.patch.layer1();
+    // A plan item's layer 1 is the model's: it applies at once
+    // (theseus-ext.10); the owner's waits for the operator's yes.
+    let touches_layer1 = i.patch.layer1().is_some();
+    let layer1 = i.patch.layer1().filter(|_| rec.is_owners());
     if layer1.is_some() && !approved {
         return Err(format!(
             "Not applied: a change to task {}'s {} is the operator's, and it ran \
@@ -593,7 +647,7 @@ fn update<'a>(tc: &TurnCtx<'a>, input: &Value, approved: bool) -> Result<Done<'a
         rec.acceptance = a;
         fields.push("acceptance");
     }
-    if layer1.is_some() {
+    if touches_layer1 {
         rec.proposal = None;
     }
     rec.version += 1;
@@ -653,6 +707,7 @@ fn split<'a>(tc: &TurnCtx<'a>, input: &Value, correlation_id: &str) -> Result<Do
                 origin: TaskOrigin {
                     session: tc.session_id.into(),
                     principal: principal.clone(),
+                    by_model: true,
                 },
                 state: TaskState::Accepted,
             }
@@ -706,7 +761,8 @@ fn close<'a>(
             rec.state.as_str()
         ));
     }
-    if i.outcome == Outcome::Abandoned && !approved {
+    let owners = rec.is_owners();
+    if i.outcome == Outcome::Abandoned && owners && !approved {
         return Err(format!(
             "Not applied: abandoning task {} is the operator's, and it ran without the \
              operator's yes",
@@ -736,7 +792,7 @@ fn close<'a>(
     rec.proposal = None;
     rec.version += 1;
     rec.updated_at_ms = now;
-    if i.outcome == Outcome::Abandoned {
+    if i.outcome == Outcome::Abandoned && owners {
         let c = change(tc, &rec, Some(from), json!({"fields": "abandon"}));
         done.row(tc, "change_accepted", c)?;
     }
@@ -872,6 +928,7 @@ pub fn create_item<'a>(
         origin: TaskOrigin {
             session: tc.session_id.into(),
             principal: super::principal_of(tc.kernel, tc.execution_id),
+            by_model: true,
         },
         state: TaskState::Accepted,
     }
@@ -895,31 +952,22 @@ pub fn create_item<'a>(
 /// The lock a layer-1 call's proposal is written under, as its question is
 /// asked: the task's, before the execution's.
 pub fn lock_for_call<'a>(tc: &TurnCtx<'a>, name: &str, input: &Value) -> Option<SessionLock<'a>> {
-    authority_of(name, input)?;
-    let id = input.get("id")?.as_str()?;
-    let all = super::all(tc.store).ok()?;
-    let id = super::resolve(&all, id).ok()?.id.clone();
+    let id = owners_target(tc.store, name, input)?.id;
     Some(tc.store.lock_task(&id))
 }
 
 /// A layer-1 call's proposal, written on its task in the frame that asks
 /// its question (`task.change_proposed`): the record (its version
 /// unchanged, since nothing of it changed yet) and the row. None for any
-/// other call, or one whose version is stale already: its run is refused.
+/// other call, a task the model wrote (its change waits for nothing), or
+/// one whose version is stale already: its run is refused.
 pub fn proposed(
     tc: &TurnCtx<'_>,
     name: &str,
     input: &Value,
     card: &str,
 ) -> anyhow::Result<Option<(Vec<NewRecord>, Change)>> {
-    if authority_of(name, input).is_none() {
-        return Ok(None);
-    }
-    let Some(id) = input.get("id").and_then(Value::as_str) else {
-        return Ok(None);
-    };
-    let all = super::all(tc.store)?;
-    let Ok(rec) = super::resolve(&all, id) else {
+    let Some(rec) = owners_target(tc.store, name, input) else {
         return Ok(None);
     };
     let Some(mut rec) = get(tc.store, &rec.id)? else {
@@ -977,6 +1025,27 @@ pub fn declined(
     rec: &crate::fact::Rec<'_>,
     a: &theseus_kernel::Action,
 ) -> anyhow::Result<Option<(Vec<NewRecord>, Change)>> {
+    cleared(store, rec, a, "change_declined")
+}
+
+/// An expired layer-1 question (`task.change_expired`, theseus-ext.10): its
+/// proposal cleared in the expiry's frame, as a decline's is, so the view
+/// never says a change waits when none does. The caller holds the task's
+/// lock (`lock_for_answer`).
+pub fn expired(
+    store: &crate::store::Store,
+    rec: &crate::fact::Rec<'_>,
+    a: &theseus_kernel::Action,
+) -> anyhow::Result<Option<(Vec<NewRecord>, Change)>> {
+    cleared(store, rec, a, "change_expired")
+}
+
+fn cleared(
+    store: &crate::store::Store,
+    rec: &crate::fact::Rec<'_>,
+    a: &theseus_kernel::Action,
+    verb: &str,
+) -> anyhow::Result<Option<(Vec<NewRecord>, Change)>> {
     let Some(p) = &a.proposal else {
         return Ok(None);
     };
@@ -1003,7 +1072,7 @@ pub fn declined(
         from: None,
         detail: json!({"card": a.correlation_id}),
     };
-    let records = vec![record(&t)?, facts::row_of(rec, "change_declined", &c)?];
+    let records = vec![record(&t)?, facts::row_of(rec, verb, &c)?];
     Ok(Some((records, c)))
 }
 

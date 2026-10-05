@@ -89,6 +89,29 @@ pub struct PlacesHealth {
     /// may reach. Empty: a shared place gets no file tools.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub public_paths: Vec<String>,
+    /// What the binding's last start found wrong with its places
+    /// (theseus-ext.11): a place left unbound, a ceiling's unknown tool
+    /// family, a spend limit below one call.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<PlaceWarning>,
+}
+
+/// One thing the binding's start found wrong with a place (theseus-ext.11),
+/// said in health, in the log, and as a `place.warned` row.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaceWarning {
+    /// `discord:channel:<id>` or `discord:dm:<user id>`.
+    pub place: String,
+    /// `#lab`, `DM @eddie`.
+    pub name: String,
+    /// `unbound` (its ceiling names a profile the config lacks: only it is
+    /// left unbound), `unknown_family` (a ceiling's tool family this daemon
+    /// has no tool of), or `limit_below_call` (its spend limit is below one
+    /// call's output reservation on its profile).
+    pub kind: String,
+    /// The sentence that says it, with its figures.
+    pub detail: String,
 }
 
 /// One place and its class.

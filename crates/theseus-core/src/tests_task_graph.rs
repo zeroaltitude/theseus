@@ -34,11 +34,14 @@ const TARGET: &str = "discord:dm:42";
 /// answers one is answered with text.
 type Next = Arc<Mutex<Vec<(String, String, Value)>>>;
 
-struct Model {
+pub(crate) struct Model {
     next: Next,
-    requests: Mutex<Vec<ProviderRequest>>,
+    pub(crate) requests: Mutex<Vec<ProviderRequest>>,
     /// A task's own turns answer with this.
     report: String,
+    /// While set, a task's own turns wait before answering, so the task
+    /// stays open (theseus-ext.10).
+    pub(crate) hold_tasks: std::sync::atomic::AtomicBool,
 }
 
 fn answers_a_call(req: &ProviderRequest) -> bool {
@@ -74,7 +77,11 @@ impl Provider for Model {
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
             self.requests.lock().unwrap().push(req.clone());
-            let answer = if first_user(req).starts_with("[Task ") {
+            let task = first_user(req).starts_with("[Task ");
+            while task && self.hold_tasks.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let answer = if task {
                 Scripted::text(&self.report)
             } else if answers_a_call(req) {
                 Scripted::text("Done.")
@@ -97,14 +104,14 @@ impl Provider for Model {
     }
 }
 
-struct Rig {
-    core: Arc<Core>,
-    model: Arc<Model>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) model: Arc<Model>,
     next: Next,
     _dir: tempfile::TempDir,
 }
 
-fn rig_on(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig_on(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config)) -> Rig {
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = Config::example();
@@ -119,6 +126,7 @@ fn rig_on(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config)) -> Rig {
         next: next.clone(),
         requests: Mutex::default(),
         report: "Charted every buoy in the outer harbour.".into(),
+        hold_tasks: std::sync::atomic::AtomicBool::new(false),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     core.runner.place_rule.bind_one(crate::places::BoundPlace {
@@ -136,18 +144,18 @@ fn rig_on(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config)) -> Rig {
     }
 }
 
-fn rig() -> Rig {
+pub(crate) fn rig() -> Rig {
     rig_on(tempfile::tempdir().unwrap(), |_| {})
 }
 
-fn session(core: &Arc<Core>) -> String {
+pub(crate) fn session(core: &Arc<Core>) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place(PLACE, &rec.session_id).unwrap();
     rec.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -172,7 +180,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
 impl Rig {
     /// The next turn's calls: (wire name, input) each, each with an id of
     /// its own.
-    fn calls(&self, calls: &[(&str, Value)]) {
+    pub(crate) fn calls(&self, calls: &[(&str, Value)]) {
         static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         *self.next.lock().unwrap() = calls
             .iter()
@@ -183,15 +191,15 @@ impl Rig {
             .collect();
     }
 
-    fn task(&self, id: &str) -> TaskRecord {
+    pub(crate) fn task(&self, id: &str) -> TaskRecord {
         graph::get(&self.core.store, id).unwrap().unwrap()
     }
 
-    fn tasks(&self) -> Vec<TaskRecord> {
+    pub(crate) fn tasks(&self) -> Vec<TaskRecord> {
         graph::all(&self.core.store).unwrap()
     }
 
-    fn by_title(&self, title: &str) -> TaskRecord {
+    pub(crate) fn by_title(&self, title: &str) -> TaskRecord {
         self.tasks().into_iter().find(|t| t.title == title).unwrap()
     }
 }
@@ -206,7 +214,7 @@ fn nodes(core: &Core, sid: &str) -> Vec<Node> {
 }
 
 /// Each result of `tool` in a session, in order: its status and content.
-fn results(core: &Core, sid: &str, tool: &str) -> Vec<(ResultStatus, String)> {
+pub(crate) fn results(core: &Core, sid: &str, tool: &str) -> Vec<(ResultStatus, String)> {
     nodes(core, sid)
         .into_iter()
         .filter_map(|n| match n.body {
@@ -221,7 +229,7 @@ fn results(core: &Core, sid: &str, tool: &str) -> Vec<(ResultStatus, String)> {
         .collect()
 }
 
-fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
+pub(crate) fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
     core.store
         .ledger_tail::<LedgerRow>(100_000)
         .unwrap()
@@ -231,7 +239,7 @@ fn rows(core: &Core, kind: &str) -> Vec<LedgerRow> {
         .collect()
 }
 
-async fn until(what: &str, mut f: impl FnMut() -> bool) {
+pub(crate) async fn until(what: &str, mut f: impl FnMut() -> bool) {
     let t0 = Instant::now();
     while !f() {
         assert!(t0.elapsed() < Duration::from_secs(20), "no {what} in 20 s");
@@ -251,7 +259,7 @@ fn versions(core: &Core, id: &str) -> Vec<TaskRecord> {
         .collect()
 }
 
-fn plan(title: &str) -> (&'static str, Value) {
+pub(crate) fn plan(title: &str) -> (&'static str, Value) {
     ("task_create", json!({"title": title}))
 }
 
@@ -449,9 +457,10 @@ fn from_a_guild() -> Answerer {
     }
 }
 
-/// A change to a task's acceptance is a proposal that waits for the
-/// operator, at every posture (`task.update` is open here): written on the
-/// task with its card, the task unchanged. A shared place's answer is
+/// A change to the owner's task's acceptance (a task session opened with a
+/// brief and its arrangement, held open here) is a proposal that waits for
+/// the operator, at every posture (`task.update` is open here): written on
+/// the task with its card, the task unchanged. A shared place's answer is
 /// refused and the proposal stays; the operator's yes applies it in one
 /// frame (`task.change_accepted`), and the next turn's view shows it. A no
 /// leaves the task as it was (`task.change_declined`).
@@ -463,13 +472,19 @@ async fn a_layer_one_change_waits_and_accept_applies_it_and_decline_leaves_it() 
     });
     let c = &r.core;
     let s = session(c);
+    r.model
+        .hold_tasks
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     r.calls(&[(
         "task_create",
-        json!({"title": "Chart the outer harbour", "acceptance": ["a chart exists"]}),
+        json!({"brief": "Chart every buoy of the outer harbour and report the depths.",
+               "title": "Chart the outer harbour", "acceptance": ["a chart exists"],
+               "arrangement": {"pieces": [{"quote": QUOTE, "role": "objective"}]}}),
     )]);
-    turn(c, &s, "plan it").await;
+    turn(c, &s, ASK).await;
     let t = r.by_title("Chart the outer harbour");
     assert_eq!(t.acceptance, ["a chart exists"]);
+    assert!(t.session.is_some() && t.is_owners(), "{t:?}");
 
     r.calls(&[(
         "task_update",
@@ -549,13 +564,16 @@ async fn a_layer_one_change_waits_and_accept_applies_it_and_decline_leaves_it() 
     turn(c, &s, "drop it").await;
     let q = c.confirm_list().unwrap().pop().unwrap();
     assert!(q.reason.contains("abandoning"), "{}", q.reason);
-    assert_eq!(r.task(&t.id).state, TaskState::Accepted);
+    assert_eq!(r.task(&t.id).state, TaskState::InProgress);
     assert!(r.task(&t.id).proposal.as_ref().is_some_and(|p| p.abandon));
+    r.model
+        .hold_tasks
+        .store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// What the operator says to start a task, and the quote of it (M5 27).
-const ASK: &str = "START: chart every buoy of the outer harbour, please";
-const QUOTE: &str = "chart every buoy of the outer harbour, please";
+pub(crate) const ASK: &str = "START: chart every buoy of the outer harbour, please";
+pub(crate) const QUOTE: &str = "chart every buoy of the outer harbour, please";
 
 /// A task session's record is written with its session, `in_progress`, its
 /// objective the arrangement's piece; it reads its execution's state; its
@@ -641,6 +659,7 @@ async fn a_failure_closes_a_task_failed_and_a_cancel_suspends_it() {
         origin: graph::TaskOrigin {
             session: s,
             principal: "operator".into(),
+            by_model: false,
         },
         state: TaskState::InProgress,
     }

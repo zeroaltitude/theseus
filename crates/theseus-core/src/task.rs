@@ -701,6 +701,8 @@ fn graph_record(
         origin: g::TaskOrigin {
             session: tc.session_id.into(),
             principal: g::principal_of(tc.kernel, tc.execution_id),
+            // The owner's: its objective and acceptance are the arrangement's.
+            by_model: false,
         },
         state: g::TaskState::InProgress,
     }

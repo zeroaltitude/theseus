@@ -54,7 +54,9 @@ impl TurnRunner {
         // with nothing left to drop, the turn fails before any call.
         let mut compiled = self.compact(t, compile(input), input, i).await?;
         Self::recall_compiled(t, &mut compiled);
-        let tasks = crate::task_graph::view::attach(&self.store, &self.kernel, sid, &mut compiled);
+        // A check sees the task it checks by title and state (theseus-w8ys).
+        let tasks =
+            crate::task_graph::view::attach(&self.store, &self.kernel, session, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }
