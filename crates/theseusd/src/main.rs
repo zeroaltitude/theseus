@@ -923,16 +923,27 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
         .map(|w| format!("{w}; the vault is the recommended source\n"))
         .unwrap_or_default();
     out(&format!(
-        "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n{outside}{}\nL1: \
-         the self-test {}\n{}\n",
-        st.ready.len(),
-        st.settled_ms.unwrap_or(0),
-        st.method.as_deref().filter(|m| !m.is_empty()).unwrap_or("nothing to fetch"),
-        st.ready.join(", "),
+        "ok: config loaded from {source}; {}\n{outside}{}\nL1: the self-test {}\n{}\n",
+        resolved_words(&st),
         kept.line(),
         theseus_protocol::sandbox::launch_words(&l1),
         theseus_store::pressure::words(state)
     ))
+}
+
+/// `check`'s secrets, from a settled board: how many resolved, in how long,
+/// by what method, and their names.
+fn resolved_words(st: &theseus_protocol::SecretsStatus) -> String {
+    format!(
+        "{} secret(s) resolved in {} ms ({}): {}",
+        st.ready.len(),
+        st.settled_ms.unwrap_or(0),
+        st.method
+            .as_deref()
+            .filter(|m| !m.is_empty())
+            .unwrap_or("nothing to fetch"),
+        st.ready.join(", "),
+    )
 }
 
 /// What runs once the socket answers: the kernel's startup report and the
@@ -1421,6 +1432,33 @@ mod tests {
                 "{word:?} lost from {args:?}"
             );
         }
+    }
+
+    /// `check`'s secrets line from a board a round settled names the round's
+    /// method and its time (theseus-5ihy); a board with nothing to fetch says so.
+    #[test]
+    fn checks_secrets_line_names_the_rounds_method_and_time() {
+        use theseus_core::secrets::{Secret, SecretBoard};
+        let origin = Instant::now() - Duration::from_millis(40);
+        let board = SecretBoard::new(["alpha".to_string(), "beta".to_string()], origin);
+        let results = ["alpha", "beta"]
+            .into_iter()
+            .map(|n| (n.to_string(), Ok(Secret::new(format!("v-{n}-check")))))
+            .collect();
+        board.publish(results, "inject");
+        let line = resolved_words(&board.status());
+        let ms: u64 = line
+            .strip_prefix("2 secret(s) resolved in ")
+            .and_then(|r| r.split(' ').next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("{line}"));
+        assert!(ms >= 40, "{line}");
+        assert!(line.ends_with(" ms (inject): alpha, beta"), "{line}");
+        let empty = SecretBoard::empty();
+        assert_eq!(
+            resolved_words(&empty.status()),
+            "0 secret(s) resolved in 0 ms (nothing to fetch): "
+        );
     }
 
     /// The core knows a serving daemon by its command line (theseus-6uo), so
