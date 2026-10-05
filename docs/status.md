@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-05 13:17 MST. Version 0.0.1; the design document is at v0.82._
+_Updated 2026-10-05 13:21 MST. Version 0.0.1; the design document is at v0.82._
 
 This page changes with every step that lands. The [README](../README.md) stays the same and links here. For the
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
@@ -13,11 +13,12 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
 
 - Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
 - **The model for each message, picked by Jev.** `route.v1` reads each message's interaction mode as it arrives and
-  picks its model from the operator's routing table, waiting at most 200 ms beside the first compile: a greeting or a
-  thank-you goes to the small model, deep coding and hard reasoning to Opus 5.5, and so on. A routed session keeps its
+  picks its model from the operator's routing table, waiting at most 300 ms beside the first compile (his setting; 200
+  by default): a greeting or a thank-you goes to Haiku, chat stays on the session's own model, deep coding goes to Opus
+  5.5, the most sophisticated work to Fable, and routine coding to GLM-5.3. A routed session keeps its
   move only while `route.v1` acts, and `profile.use` moves it back (Items 139 and
-  150). A request the model refuses is retried once on its fallback, Sonnet 5 for Sonnet 5.5,
-  and every surface says so (Item 154).
+  150). A request the model refuses is retried once on its fallback, Sonnet 5 for Sonnet 5.5
+  (and, in his config, Opus 5 for Opus 5.5), and every surface says so (Item 154).
 - **Fast replies.** A greeting's reply shows on Discord as its model streams, the verdicts a turn waits on land
   inside their wait, and a trivial message routes to the small model from a 0.4 bar (Item 158). A trivial
   detour sends no recall and writes none (Item 161).
@@ -27,8 +28,8 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
   cockpit's Judgment section (Items 105, 119, 120,
   121, 122 and 126). Three are live:
   - `route.v1`, above;
-  - `rerank.v1`: Jev's order of recall goes in front of the model, waited for at most 200 ms, with a breaker of its
-    own (Items 128 and 141);
+  - `rerank.v1`: Jev's order of recall goes in front of the model, waited for at most 300 ms (his setting; 200 by
+    default), with a breaker of its own (Items 128 and 141);
   - `security.v3`'s notices: after a call the gate let through that Jev is at least 90 % sure was risky, a notice to
     the owner's DM alone, never on the call's path, with `security.v1`'s brake (Item 142).
 
@@ -42,7 +43,8 @@ As installed on the operator's daemon on October 5 at 13:07 (install #4; the sto
   sessions; a private one draws on every session), on the `baseline` arm, with `rerank.v1`'s order (Items
   99, 112 and 160). The memory pass after each turn labels
   what was said and links duplicates and corrections, with `memory.v1` and `attribution.v1` in shadow (Item
-  136). A long session is compacted into summaries with a floor, on the session's own model, and its
+  136). A long session is compacted into summaries with a floor, on GLM-5.3 Flash by his routing
+  table (the session's own model by default), and its
   context is assembled as recall, then the summary, then the tail (Item 131); the system header
   says how a request was assembled (Item 156). A bounded node cache means a turn decodes only what
   it reads (Item 162). Retention, activation and consolidation's cited syntheses are built as arms, each
@@ -218,8 +220,9 @@ These are built, tested and installed, and off on the operator's daemon until he
   no hand yet: its stack and image wait for the operator's go (theseus-ongv).
 - **The durability tender and restore from S3:** the tender ships the store's synced frames and blobs to the
   foundation's bucket and table, and `theseusd restore --from s3://…` rebuilds a store from them (Items
-  108, 123 and 171). Off on the operator's daemon; their
-  live checks on the account wait for him.
+  108, 123 and 171). Both passed a live check on the account
+  on October 4, which found the tender's 403 on a missing object, fixed since; the tender is off on the operator's
+  daemon, and the fixes' own live checks wait for him.
 - **The MCP server** on loopback (`[mcp_server]`, off by default).
 - **Memory's measured arms:** `+retention`, `+activation` and `+synthesis`, each off unless `[memory] arm` names it,
   and consolidation's nightly writer (off: `synth_limit_usd_per_day = 0`, until theseus-8edz).
@@ -234,8 +237,8 @@ These are built, tested and installed, and off on the operator's daemon until he
 - **The v1 soak.** v1 comes after at least seven days of the operator's daily use with no serious bug (a serious one
   restarts the count), with every speed target met and each of B5's losses explained or fixed: about October 13 at
   the earliest (his rule of October 4, 22:09).
-- **With the operator:** the AWS live checks (the hands' stack and image, the durability tender's and restore's checks,
-  the runaway brake's); what a crashed call's held money does (theseus-f3wr); whether a trusted guild answers in every
+- **With the operator:** the AWS live checks (the hands' stack and image, the runaway brake's, and the October 5
+  fixes' checks); what a crashed call's held money does (theseus-f3wr); whether a trusted guild answers in every
   channel, unbound (theseus-yzhv); and the other items the morning notes list for him.
 
 ## The roadmap
@@ -404,8 +407,8 @@ spine's last rows (26b, 26c, 35a and 35b) run beside that soak. This pass did no
 - The terminal UI loads a session's newest 200 messages.
 - With no params, `session.list` and `execution.list` still read every record: about 140 to 180 ms at 10,000
   sessions. The other polled reads page through the index.
-- The AWS hands, the durability tender and restore from S3 are built and installed, but wait for their stack and
-  their live checks on the account; until a hand runs, the runaway brake has not been seen live (theseus-ongv).
+- The AWS hands are built and installed, but wait for their stack and their live checks on the account; until a hand
+  runs, the runaway brake has not been seen live (theseus-ongv). The durability tender is off on the operator's daemon.
 - A sandboxed command holds a granted secret for its whole run, and can't ask for one it didn't get at its start.
   It has no memory limit, as an ordinary command has none.
 - A daemon run as root refuses sandboxed commands, since Linux exempts root from the process limit L1 sets. Run it
