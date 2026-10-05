@@ -57,6 +57,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   tenders (the index tender, row 51) are reaped by their pids, a tender's exit reported to its supervisor; an
   `op` is left to tokio; anything else is an orphan.
 - `outbox.rs`: posts that must reach a channel, as actions of their own record kind, `OUTBOX`.
+- `earlier.rs` (theseus-m9iy): an earlier process's in-process calls. Startup's reconcile notes each dispatched
+  provider call (`Evidence::in_process`, by its tool) in memory and writes nothing; the driver's first tick after
+  serving (or the heartbeat) marks them all `outcome_unknown` in one frame, as `in_process_before_restart`.
 - `spool.rs` (completions on disk, one sync each: a start finishes a rename a crash cut short, and takes a
   completion its action settled already as a no-op, theseus-yxiv), `redact.rs` (granted secrets withheld from a
   job's output), `stops.rs` (the soft stop), `tasks.rs` (task executions and their carve), `wakes.rs`, `repeat.rs` (a repeating wake's series:

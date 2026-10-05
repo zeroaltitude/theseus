@@ -102,6 +102,8 @@ pub async fn drive(core: Arc<Core>) {
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tracing::info!("continuation driver parked");
     let mut unlisted = Unlisted::default();
+    // An earlier process's provider calls, unknown at the first tick (theseus-m9iy).
+    core.mark_earlier_calls();
     loop {
         tokio::select! {
             _ = tick.tick() => {}
