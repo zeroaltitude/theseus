@@ -20,6 +20,7 @@ use theseus_index::{Config, OpenError};
 #[derive(Parser)]
 #[command(
     name = "theseus-index",
+    version,
     about = "The index tender (M6 steps 29b and 29c), and a client for its socket"
 )]
 struct Cli {
