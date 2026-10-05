@@ -448,12 +448,27 @@ async fn sources_whose_sessions_disagree_wait() {
 }
 
 /// No consolidation frame lands inside a turn: while a turn runs, its frame
-/// waits, and it is written after.
+/// waits, and it is written after; both the frame that opens the harness
+/// session and a synthesis's own.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_frame_lands_inside_a_turn() {
+    frames_wait_for_the_turn(false).await;
+}
+
+/// The same with the harness session open already: the synthesis's own
+/// frame waits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_synthesis_frame_lands_inside_a_turn() {
+    frames_wait_for_the_turn(true).await;
+}
+
+async fn frames_wait_for_the_turn(session_open: bool) {
     let r = rig(MemoryMode::Shadow, None, |_| {});
     let c = &r.core;
     kestrel(c).await;
+    if session_open {
+        c.open_memory_session().unwrap();
+    }
     r.model
         .script
         .lock()
@@ -643,4 +658,30 @@ async fn a_live_synthesis_turn_admits_it_and_a_shared_place_never_does() {
         .dropped
         .iter()
         .any(|d| d.node_id == id && d.reason == "place"));
+}
+
+/// A call that fails is booked at its reservation, its row says so, and its
+/// cluster waits for the next run, which proposes it again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_call_leaves_its_cluster_for_the_next_run() {
+    let r = rig(MemoryMode::Shadow, None, |_| {});
+    let c = &r.core;
+    kestrel(c).await;
+    r.model.script.lock().unwrap().push_back(Scripted::Fail(
+        crate::provider::ProviderError::Server {
+            status: 529,
+            message: "overloaded".into(),
+        },
+    ));
+    let out = consolidate(c, false).await;
+    assert_eq!(out.clusters[0].outcome, "failed", "{out:?}");
+    assert!(out.clusters[0].cost_usd > 0.0, "booked at its reservation");
+    assert_eq!(rows(c, LedgerKind::SynthesisProposed).len(), 1);
+    assert!(syntheses(c).is_empty());
+    let again = consolidate(c, true).await;
+    assert_eq!(again.clusters.len(), 1, "{again:?}");
+    assert!(
+        again.spent_today_usd > 0.0,
+        "the day's spend read back from its row"
+    );
 }

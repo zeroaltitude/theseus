@@ -22,6 +22,9 @@
 //!   one frame, written only between turns, through the memory pass's
 //!   writer handshake (`memory_pass::turns`, which counts its writers).
 //!   A dry run writes nothing.
+//! - **Where it runs.** The plan (the rows read, the clusters, their
+//!   sources) on a `learning` thread at nice 19; the calls and the frames'
+//!   waits on the runtime, as tasks, never a thread blocked on it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -101,21 +104,33 @@ impl Core {
         self.consolidate_now(dry, "operator").await
     }
 
-    /// Consolidation now, on a `learning` thread at nice 19.
+    /// Consolidation now: its plan (the rows, the clusters, their sources)
+    /// on a `learning` thread at nice 19; then each cluster's calls and
+    /// frames on the runtime, so a stop during a wait between turns ends the
+    /// run as any task's, never a blocked thread's.
     pub async fn consolidate_now(
         self: &Arc<Self>,
         dry: bool,
         trigger: &'static str,
     ) -> anyhow::Result<MemoryConsolidateResult> {
         let core = Arc::downgrade(self);
-        let rt = tokio::runtime::Handle::current();
-        let rx = crate::learning::tender::on_low_thread(move || match core.upgrade() {
-            Some(c) => c.consolidate_run(&rt, dry, trigger),
-            None => Err(anyhow::anyhow!(
-                "the daemon stopped before consolidation ran"
-            )),
+        let rx = crate::learning::tender::on_low_thread(move || {
+            let t0 = std::time::Instant::now();
+            let plan = match core.upgrade() {
+                Some(c) => c.consolidate_plan(dry),
+                None => Err(anyhow::anyhow!(
+                    "the daemon stopped before consolidation ran"
+                )),
+            };
+            // The nightly run keeps to about 5% of a core: its thread sleeps
+            // 19 times as long as it worked, as the learning tender's does.
+            if trigger == "nightly" {
+                std::thread::sleep(t0.elapsed() * 19);
+            }
+            plan
         })?;
-        rx.await.context("consolidation's thread ended")?.1
+        let plan = rx.await.context("consolidation's thread ended")?.1?;
+        self.consolidate_run(plan, trigger).await
     }
 
     /// The newest recall rows, by kind through the store's pages.
@@ -180,7 +195,9 @@ impl Core {
         self.store.get_meta::<String>(MEMORY_SESSION)
     }
 
-    fn open_memory_session(&self) -> anyhow::Result<String> {
+    /// The harness session, opened now if it is not: callers hold the
+    /// pass's writer guard (`open_memory_session_between`).
+    pub(crate) fn open_memory_session(&self) -> anyhow::Result<String> {
         if let Some(id) = self.memory_session()? {
             return Ok(id);
         }
@@ -190,11 +207,10 @@ impl Core {
             opened_from: None,
         })?;
         self.store.put_meta(MEMORY_SESSION, &rec.session_id)?;
-        // Every arm but `+synthesis` leaves it out from now on.
+        // Every arm but `+synthesis` leaves it out from now on: a first
+        // read finds it by its META key, and a read made before it learns it
+        // as its first synthesis is kept (`Memory::kept_synthesis`).
         self.runner.memory.syntheses(&self.store);
-        self.runner
-            .memory
-            .kept_synthesis(&rec.session_id, "", false);
         Ok(rec.session_id)
     }
 
@@ -236,26 +252,24 @@ impl Core {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
-    fn consolidate_run(
-        &self,
-        rt: &tokio::runtime::Handle,
-        dry: bool,
-        trigger: &str,
-    ) -> anyhow::Result<MemoryConsolidateResult> {
-        let _rt = rt.enter();
+    /// The run's plan, read and computed off the runtime: the recall rows,
+    /// the day's spend, the clusters, and each one's sources and profile.
+    fn consolidate_plan(&self, dry: bool) -> anyhow::Result<Plan> {
         let cfg = self.runner.memory.cfg().clone();
         let now = theseus_protocol::now_unix_ms();
         let rows = self.recall_rows()?;
         let proposed = self.synthesis_rows(LedgerKind::SynthesisProposed, None)?;
         let midnight = crate::learning::local_midnight(now);
-        let mut spent: Micros = proposed
+        let spent: Micros = proposed
             .iter()
             .filter(|r| r.at_unix_ms >= midnight)
             .map(|r| usd_to_micros(r.data["cost_usd"].as_f64().unwrap_or(0.0)))
             .sum();
+        // A cluster is done once a synthesis of it was written: a call that
+        // failed (its row has no text) leaves it for the next run.
         let done: BTreeSet<String> = proposed
             .iter()
+            .filter(|r| r.data["text"].as_str().is_some_and(|t| !t.is_empty()))
             .filter_map(|r| r.data["cluster"].as_str().map(str::to_string))
             .collect();
         // Where each admitted node is, and the nodes that are never sources.
@@ -278,6 +292,7 @@ impl Core {
             .collect();
         let (clusters, skipped) = pure::clusters(&co, &excluded, &done);
         let limit = usd_to_micros(cfg.synth_limit_usd_per_day);
+        let mut todo = Vec::new();
         let mut r = MemoryConsolidateResult {
             dry_run: dry,
             recalls: rows.len() as u64,
@@ -320,10 +335,42 @@ impl Core {
                 r.clusters.push(report);
                 continue;
             }
-            match self.synthesize(
-                rt, &c, &sources, &profile, report, &mut spent, limit, trigger, &rows,
-            )? {
-                Step::Skip(why) => skip(&mut r, why),
+            todo.push((c, sources, profile, report));
+        }
+        r.spent_today_usd = micros_to_usd(spent);
+        Ok(Plan {
+            result: r,
+            todo,
+            rows,
+            spent,
+            limit,
+            now,
+        })
+    }
+
+    /// The plan's clusters, each synthesized, checked, and written between
+    /// turns, until the day's limit.
+    async fn consolidate_run(
+        &self,
+        plan: Plan,
+        trigger: &str,
+    ) -> anyhow::Result<MemoryConsolidateResult> {
+        let Plan {
+            result: mut r,
+            todo,
+            rows,
+            mut spent,
+            limit,
+            now,
+        } = plan;
+        for (c, sources, profile, report) in todo {
+            let step = self
+                .synthesize(
+                    &c, &sources, &profile, report, &mut spent, limit, trigger, &rows,
+                )
+                .await?;
+            match step {
+                Step::Skip(why) => *r.skipped.entry(why.to_string()).or_default() += 1,
                 Step::Stop(why) => {
                     r.stopped = Some(why);
                     break;
@@ -332,13 +379,13 @@ impl Core {
             }
         }
         r.spent_today_usd = micros_to_usd(spent);
-        if !dry && trigger == "nightly" {
+        if !r.dry_run && trigger == "nightly" {
             let mark = NewRecord::json(
                 kinds::META,
                 Some(LAST_RUN),
                 &json!({"at_unix_ms": now, "clusters": r.clusters.len()}),
             )?;
-            self.write_between(rt, &[mark])?;
+            self.write_between(&[mark]).await?;
         }
         Ok(r)
     }
@@ -346,9 +393,8 @@ impl Core {
     /// One cluster's synthesis: the call under the day's limit, the checks,
     /// and its frame.
     #[allow(clippy::too_many_arguments)]
-    fn synthesize(
+    async fn synthesize(
         &self,
-        rt: &tokio::runtime::Handle,
         c: &pure::Cluster,
         sources: &[Source],
         profile: &str,
@@ -383,7 +429,7 @@ impl Core {
             )));
         }
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let (text, model, cost) = match rt.block_on(provider.stream_message(&request, &mut quiet)) {
+        let (text, model, cost) = match provider.stream_message(&request, &mut quiet).await {
             Ok(resp) => {
                 let cost = self
                     .runner
@@ -400,7 +446,8 @@ impl Core {
                 report.outcome = "failed".into();
                 report.why = Some(format!("{e:#}"));
                 report.cost_usd = micros_to_usd(need);
-                self.write_failed(rt, c, profile, &target.model, need, trigger)?;
+                self.write_failed(c, profile, &target.model, need, trigger)
+                    .await?;
                 return Ok(Step::Done(report));
             }
         };
@@ -409,14 +456,27 @@ impl Core {
         report.synthesis_id = Some(id.clone());
         report.text = Some(text.clone());
         report.cost_usd = micros_to_usd(cost);
-        let verdict = self.verdict(rt, &id, &text, sources);
+        let verdict = self.verdict(&id, &text, sources).await;
+        let session = match &verdict {
+            Verdict::Checked(_) => Some(self.open_memory_session_between().await?),
+            Verdict::Rejected(..) => None,
+        };
         report.outcome = verdict.word().into();
         report.why = verdict.why();
         let records = self.records(
-            &id, c, &text, profile, &model, cost, trigger, &verdict, rows,
+            &id,
+            c,
+            &text,
+            profile,
+            &model,
+            cost,
+            trigger,
+            &verdict,
+            rows,
+            session.as_deref(),
         )?;
-        self.write_between(rt, &records)?;
-        if let (Verdict::Checked(check), Some(session)) = (&verdict, self.memory_session()?) {
+        self.write_between(&records).await?;
+        if let (Verdict::Checked(check), Some(session)) = (&verdict, session) {
             self.runner
                 .memory
                 .kept_synthesis(&session, &id, check.checked());
@@ -452,18 +512,15 @@ impl Core {
     }
 
     /// The deterministic checks, then Jev's.
-    fn verdict(
-        &self,
-        rt: &tokio::runtime::Handle,
-        id: &str,
-        text: &str,
-        sources: &[Source],
-    ) -> Verdict {
+    async fn verdict(&self, id: &str, text: &str, sources: &[Source]) -> Verdict {
         let sentences = match pure::check(text, sources.len()) {
             Ok(s) => s,
             Err(f) => return Verdict::Rejected(f.to_string(), Vec::new(), None),
         };
-        let session = self.memory_session().ok().flatten().unwrap_or_default();
+        let session = theseus_store::blocking(|| self.memory_session())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         let input = CitationInput {
             sentences: sentences
                 .into_iter()
@@ -474,7 +531,7 @@ impl Core {
                 .collect(),
             sources: sources.iter().map(|s| s.text.clone()).collect(),
         };
-        let checked = rt.block_on(self.runner.judge.check_citations(&session, id, input));
+        let checked = self.runner.judge.check_citations(&session, id, input).await;
         match checked {
             Err(why) => Verdict::Checked(CitationCheck::Unchecked { why }),
             Ok(c) => {
@@ -512,6 +569,7 @@ impl Core {
         trigger: &str,
         verdict: &Verdict,
         rows: &[RecallManifest],
+        session: Option<&str>,
     ) -> anyhow::Result<Vec<NewRecord>> {
         let mut out = Vec::new();
         let key = |mut rec: NewRecord| {
@@ -566,10 +624,9 @@ impl Core {
             unsupported: bad,
         };
         out.push(key(crate::fact::row(&checked, None, None)?));
-        let Verdict::Checked(check) = verdict else {
+        let (Verdict::Checked(check), Some(session)) = (verdict, session) else {
             return Ok(out);
         };
-        let session = self.open_memory_session_between()?;
         let body = Body::Synthesis {
             text: text.to_string(),
             sources: c.nodes.clone(),
@@ -580,7 +637,7 @@ impl Core {
             model: model.to_string(),
             cost_usd: Some(micros_to_usd(cost)),
         };
-        let mut node = Node::synthesis(&session, body);
+        let mut node = Node::synthesis(session, body);
         node.id = id.to_string();
         out.push(node.record()?);
         for s in &c.nodes {
@@ -598,22 +655,20 @@ impl Core {
     }
 
     /// The harness session, opened between turns at the first synthesis.
-    fn open_memory_session_between(&self) -> anyhow::Result<String> {
-        if let Some(id) = self.memory_session()? {
+    async fn open_memory_session_between(&self) -> anyhow::Result<String> {
+        if let Some(id) = theseus_store::blocking(|| self.memory_session())? {
             return Ok(id);
         }
-        let rt = tokio::runtime::Handle::current();
-        let w = rt.block_on(self.runner.pass.writing());
-        let id = self.open_memory_session();
+        let w = self.runner.pass.writing().await;
+        let id = theseus_store::blocking(|| self.open_memory_session());
         drop(w);
         id
     }
 
     /// A failed call's row: its cluster and its cost, so the day's spend
     /// counts it.
-    fn write_failed(
+    async fn write_failed(
         &self,
-        rt: &tokio::runtime::Handle,
         c: &pure::Cluster,
         profile: &str,
         model: &str,
@@ -634,18 +689,14 @@ impl Core {
         };
         let mut rec = crate::fact::row(&f, None, None)?;
         rec.key = Some(id);
-        self.write_between(rt, &[rec.scoped(SCOPE)])
+        self.write_between(&[rec.scoped(SCOPE)]).await
     }
 
     /// One frame, written only between turns (the memory pass's writer
     /// handshake), and its facts announced.
-    fn write_between(
-        &self,
-        rt: &tokio::runtime::Handle,
-        records: &[NewRecord],
-    ) -> anyhow::Result<()> {
-        let w = rt.block_on(self.runner.pass.writing());
-        let written = self.store.append(records);
+    async fn write_between(&self, records: &[NewRecord]) -> anyhow::Result<()> {
+        let w = self.runner.pass.writing().await;
+        let written = theseus_store::blocking(|| self.store.append(records));
         drop(w);
         written?;
         for rec in records {
@@ -658,6 +709,18 @@ impl Core {
         }
         Ok(())
     }
+}
+
+/// A run's plan: what the nice thread read and computed.
+struct Plan {
+    /// The result so far: the skipped, and a dry run's clusters.
+    result: MemoryConsolidateResult,
+    /// Each cluster to synthesize: its sources, its profile, its report.
+    todo: Vec<(pure::Cluster, Vec<Source>, String, SynthesisReport)>,
+    rows: Vec<RecallManifest>,
+    spent: Micros,
+    limit: Micros,
+    now: u64,
 }
 
 /// What became of one cluster.

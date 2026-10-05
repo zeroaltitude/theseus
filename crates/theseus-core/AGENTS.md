@@ -373,7 +373,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - **Consolidation and the `+synthesis` arm** (step 31b, theseus-6fn.10): `consolidate/`. Off every turn
     (`memory.consolidate`, routed with the owner's runs in `rpc/judge_runs.rs`, `judge_act(Act::JudgeRun)`; the
     nightly tender `consolidate/tender.rs` at `[memory] consolidate_hour`, never within 10 minutes of a start;
-    both on a `learning` thread at nice 19), the newest `recall.shadow`/`recall.ran` rows (by kind through the
+    the plan on a `learning` thread at nice 19, the calls and the frames' waits as tasks on the runtime, never a
+    thread blocked on it: a stop mid-wait must not panic it, and the release profile aborts on a panic), the newest `recall.shadow`/`recall.ran` rows (by kind through the
     store's pages) become clusters (`theseus_memory::consolidate`), each written by `synth_profile` (`session`:
     the profile every source's session last used; disagreeing sources wait), checked deterministically and by
     `citation.v1` (`judge/citation.rs`, a point of its own, `WIRED` in shadow), and kept as a `Body::Synthesis`
