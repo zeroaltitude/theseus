@@ -33,6 +33,7 @@ use std::time::{Duration, Instant};
 use common::model::FakeModel;
 use common::Daemon;
 use serde_json::{json, Value};
+use theseus_kernel::job::{ANSWER_WAIT, STOP_GRACE};
 
 /// What the stand-in model asks for: the tool calls for each prompt, by its
 /// start. Set once the rig's paths are known.
@@ -708,9 +709,21 @@ wait
         (Some("cancelled"), Some("termination_verified")),
         "{job}"
     );
+    // The stop's own time, from its signal to its verdict: every process
+    // here dies on SIGTERM, in tens of ms even at nice 19 beside a busy loop
+    // per core, so a stop near its grace (one that waited it out reads 1999
+    // ms) is wrong. The round trip's wall time is the machine's load as well,
+    // so it is held only at the daemon's own deadline, past which the cancel
+    // reads uncertain (theseus-cs71).
+    let ms = v["ms"].as_u64().unwrap();
+    eprintln!("cancel: took {took:?}, the stop's ms {ms}");
     assert!(
-        took < Duration::from_millis(1500),
-        "a verified kill is quick: {took:?}"
+        ms < STOP_GRACE.as_millis() as u64 / 2,
+        "the tree emptied on SIGTERM, well within the grace: {ms} ms: {c}"
+    );
+    assert!(
+        took < STOP_GRACE + ANSWER_WAIT,
+        "the cancel answered within the daemon's wait for its wrapper: {took:?}"
     );
     // A cancel's own stop is expected: once the daemon has reaped the
     // wrapper, there is no `job.wrapper_lost` (theseus-6uo).
