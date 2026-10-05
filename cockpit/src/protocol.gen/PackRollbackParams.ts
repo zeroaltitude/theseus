@@ -3,4 +3,8 @@
 /**
  * `pack.rollback`: the owner moves a pack version down to `rolled_back`.
  */
-export type PackRollbackParams = { pack: string, why?: string, };
+export type PackRollbackParams = { pack: string, why?: string, 
+/**
+ * A reject (25f): the version goes `off`, not `rolled_back`.
+ */
+off: boolean, };

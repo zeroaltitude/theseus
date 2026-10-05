@@ -151,7 +151,8 @@ impl JudgeService {
     /// there (26a): its judgments are marked and recorded `live`, and the
     /// gate hands it the turn's clients.
     pub fn notices_live(&self, session: &str) -> bool {
-        self.mode_for(SECURITY_CANDIDATE, session).mode == PackMode::Live
+        let name = self.placed(SECURITY_CANDIDATE, session);
+        self.mode_for(&name, session).mode == PackMode::Live
     }
 
     /// A gated call, planned and its notice sent: each gate pack that is on
@@ -164,11 +165,14 @@ impl JudgeService {
         let mut asks = Vec::new();
         let mut marks = Vec::new();
         for name in GATE_PACKS {
-            let given = self.mode_for(name, &call.session_id);
+            // The version standing in the root's place (25f); the
+            // judgment's id stays the root's, so a press finds it.
+            let placed = self.placed(name, &call.session_id);
+            let given = self.mode_for(&placed, &call.session_id);
             if !given.on() {
                 continue;
             }
-            let Some(pack) = theseus_judge::pack::by_name(name) else {
+            let Some(pack) = self.pack(&placed) else {
                 continue;
             };
             if !super::sampled(&call.correlation_id, self.cfg.sample_of(name, pack.sample)) {
@@ -177,7 +181,7 @@ impl JudgeService {
             let id = judgment_id(name, &call.correlation_id);
             marks.push(Mark {
                 at: Instant::now(),
-                attrs: json!({"pack": name, "point": "gate", "mode": super::mark::mode_str(given.judge_mode()),
+                attrs: json!({"pack": placed, "point": "gate", "mode": super::mark::mode_str(given.judge_mode()),
                     "judgment": id, "call": call.correlation_id}),
             });
             asks.push((pack, id, given));
@@ -273,8 +277,8 @@ impl JudgeService {
             .ok()?;
         let mut out = Vec::new();
         for (pack, id, given) in asks {
-            let i = match pack.name().as_str() {
-                SECURITY_PACK => Input::Security(v1.clone()),
+            let i = match pack.builder {
+                theseus_judge::pack::Builder::Security => Input::Security(v1.clone()),
                 _ => Input::Security2(SecurityInput {
                     recent_reads: recent_reads(&nodes, &call.tool_use_id),
                     ..v1.clone()
@@ -296,7 +300,7 @@ impl JudgeService {
                 "waited_on_hold": call.waited_on_hold(),
                 "baseline": "posture", "decision": call.posture,
                 "class": if call.task { "task" } else { "tools" },
-                "blob": blob, "on_path_ms": 0,
+                "blob": blob, "on_path_ms": 0, "root": self.root_of(&pack.name()),
             });
             // The ladder's arm in the context, and the mode `at_gate` gave the
             // call (26a): live, canary in a canary's arm, else shadow.

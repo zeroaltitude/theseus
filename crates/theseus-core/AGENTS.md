@@ -379,6 +379,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     question planned on the ladder's own session (META `ladder.session`) and answered by `action.confirm` like an
     extension's ack (`answer_promotion`: the bind or decline and the row in one frame, nothing wakes). Tests:
     `tests_ladder.rs`, `judge::ladder::tests`.
+  - **The learning loop** (step 25f, theseus-0j2.12; design §2.17): `learning/propose.rs` (the run: nightly after
+    the report, and `judge.learn`, the owner's act), with its pure parts in `theseus_judge::propose` (names from
+    v101, the interleaved split below 200 labeled in the window, the text-only check, the threshold re-fit, the
+    decision, the writer's prompt). Learned versions are `pack.version` rows scoped `judge.learn:<id>` beside the
+    `judge.proposal` rows, read by `judge/lineage.rs` (`JudgeService::pack`, `root_of`, `placed`) after serving
+    or at the first judgment, their files `<state>/packs/` derived. Every point asks `placed(root, session)` for
+    the version standing in its root's place, then `mode_for` that version (capped by the root's config line).
+    A move is `Core::promote_learned` (26a's act, citing the proposal). The writer's output is capped
+    (`WRITER_MAX_TOKENS`): the profile's own cap reserves past the day's limit. Tests: `tests_learn_loop.rs`,
+    `theseus_judge::propose::tests`.
 - **Recall** (M6 step 30a, in shadow): `recall.rs` (`Memory`: `[memory]`, the science, and who answers the index's
   query, the tender or a test's stand-in, `Memory::set_ask`; the manifest; `TurnRunner::place_of`, the place rule
   read as `class_of` reads it), `turn/recall_step.rs` (begun as the first loop's model call goes out, read once it

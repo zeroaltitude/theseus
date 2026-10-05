@@ -230,7 +230,7 @@ impl Core {
             asks.push(ask);
         }
         let built = self.runner.judge.jev()?;
-        let mut caller = Caller::new(rt, &built, usd_to_micros(self.cfg.judge.replay_limit_usd));
+        let mut caller = Caller::new(rt, built, usd_to_micros(self.cfg.judge.replay_limit_usd));
         let estimate = caller.estimate(asks.iter())?;
         r.estimate_usd = micros_to_usd(estimate);
         if estimate > caller.limit {

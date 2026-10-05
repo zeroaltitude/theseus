@@ -188,6 +188,8 @@ mod tests_ladder;
 #[cfg(test)]
 mod tests_layouts;
 #[cfg(test)]
+mod tests_learn_loop;
+#[cfg(test)]
 mod tests_learning;
 #[cfg(test)]
 mod tests_lsp;

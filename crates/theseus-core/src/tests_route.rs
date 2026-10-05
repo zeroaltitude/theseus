@@ -697,6 +697,7 @@ async fn a_ladder_rollback_of_route_stops_it_routing() {
             &theseus_protocol::packs::PackRollbackParams {
                 pack: "route.v1".into(),
                 why: None,
+                off: false,
             },
             "cli",
         )
@@ -854,6 +855,7 @@ async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
             &theseus_protocol::packs::PackRollbackParams {
                 pack: "route.v1".into(),
                 why: None,
+                off: false,
             },
             "cli",
         )
@@ -985,6 +987,7 @@ async fn the_panes_carried_routed_profile_runs_only_while_routing_acts() {
             &theseus_protocol::packs::PackRollbackParams {
                 pack: "route.v1".into(),
                 why: None,
+                off: false,
             },
             "cli",
         )

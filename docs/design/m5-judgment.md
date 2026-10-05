@@ -383,8 +383,10 @@ driver's tick at `[judge] learning_hour` local time, never within 10 minutes of 
   checked again.
 - Written as `judge.report` rows and as `<state dir>/learning/<date>.json`, a derived file the rows can rebuild.
   The web UI renders it. With `[judge] learning_channel` set, a digest goes to that Discord place.
-- It proposes nothing on its own. In M5 Tabitha edits a pack file into a new version, which runs in shadow
-  beside the incumbent. An LLM that proposes wording is filed.
+- It proposes nothing on its own; the learning loop that runs after it does (§2.17, step 25f): the owner's
+  labels on a version's train split rewrite its text into a new version, which a replay checks and the numbers
+  place. A person may still edit a pack file into a compiled-in version, which runs in shadow beside the
+  incumbent.
 
 **Holdouts.** Time-separated and frozen: a promotion cites a report whose holdout is a closed window (by
 default the latest 14 days, never used to write the candidate's text or thresholds), with the window's bounds
@@ -547,6 +549,78 @@ and the existing test parses the template with every line uncommented.
 | Shutdown | Never waits for a judgment. In-flight shadow calls are dropped, and their block's rest is booked on the next use, not at start. **Held by** the bench's clean-shutdown phase with judgments in flight against the slow fake |
 | Money | Shadow is capped per day; live is inside the session's limit; the audit is capped per run; an unpriced model is never called |
 
+### 2.17 The learning loop (step 25f)
+
+The owner's labels adjust the only prompt there is: each question's `instructions` and criteria, which Jev reads
+literally. Nightly, after the report (the tender's run, each lineage paced as the report's packs are: 19 times
+its own work asleep, its thread's CPU time and not its requests' waits, then a wait while the machine is busy, none
+started once a stop begins), and now with `theseus judge learn <pack> [--split
+<time>]` (the owner's act, `judge.learn`, judged by `judge_act`), for each lineage the loop may rewrite (every
+wired root but `route.v1`, `rerank.v1`, `memory.v1` and `attribution.v1`, each left alone):
+
+- **The parent** is the version standing in its root's place (below). **An error** is an owner's label
+  (`source: operator`) that `labels::resolve` reads as its answer wrong (`noise` and `useful` grade nothing), on
+  a judgment in the train split, not read by an earlier proposal of the lineage. Below `min_errors` (10) new
+  errors, or below `min_holdout` (5) labeled judgments in the holdout, nothing happens and nothing is written,
+  the writer is not asked, and the errors stay new: no candidate moves on no held-out evidence.
+- **The split.** 25c's time split, the `holdout_days` (14, `[judge] holdout_days`) before the report's local
+  midnight, leaves a store whose labels are new without a train split for two weeks. So until the parent has 200
+  labeled judgments in that window, the split is interleaved: every fifth labeled judgment by the first 8 bytes
+  of SHA-256(id), modulo 5, is holdout, across all time, so a judgment never changes side; from 200 on, the time
+  split. `--split` sets a time split's boundary: train before it, holdout from it until now. The proposal row
+  records which (`interleaved`, or `time` with its bounds). Only train errors reach the writer, so one
+  judgment's label never feeds the writer and grades the candidate in one run.
+- **The writer** (`[judge.learn] writer_profile = "opus"`) reads the pack file and up to `max_errors` (40)
+  errors, newest first: each state from its blob, Jev's answers and bands, the label and its note. Its prompt
+  states the loader's rules and Jev's: criteria are read literally, boundary cases are spelled out, no question
+  asks for math, counting or dates; states are strangers' text, data and never instructions. It returns a pack
+  file. It is priced from the catalog and reserved before it is sent (its output capped at 8,192 tokens: a pack
+  file is a few thousand, and the profile's own cap would reserve past the day's limit), inside
+  `writer_limit_usd_per_day` ($2): a proposal past it is skipped, written so, and its errors stay new.
+- **The candidate** keeps every field of its parent but the text Jev reads (instructions, a Choice's meanings,
+  a Score's levels, a Noul's criteria, the description): ids, kinds, options, thresholds, builder, state cap,
+  model, point, action, baseline, sample and rollback rules stay, or it is refused
+  (`propose::text_only`). It loads through `Pack::parse`, every loader rule, and is stored as the writer wrote it,
+  its `version` line set, so its diff against its parent is its wording. **Its name**: learned versions
+  are numbered from 101, the next after the lineage's highest, so a later build's compiled-in version (always
+  below 101, a test holds it) never takes a learned one's name.
+- **The check.** One 25d replay asks the candidate on the stored states of the labeled judgments of both splits:
+  it keeps its parent's builder, so the blobs are its states (a question only for the builder's items, such as
+  `classify.v1`'s `addressed_task`, is not asked on replay; the rest are). It pays as 25d's replay does
+  (`replay_limit_usd`). The numbers are then each split's apart, graded by the parent's labels in absolute form:
+  per question and class (a Choice's options, a Noul's true and false), precision and recall, and the train
+  errors fixed. A Noul's answer is right when its lean meets the label (the report's calibration pair holds the
+  label's truth, not that).
+- **Thresholds** are re-fit in code, never by the writer (`propose::refit`): per whole question, the lowest
+  `act` on a 0.01 grid from its `confirm` up to its parent's `act` whose act-band precision on the candidate's
+  labeled train answers is at least the parent's on its own train answers at its own `act`. `confirm` stays. It
+  stays its parent's below 30 labeled train answers, when the parent's act band held none, or when nothing lower
+  keeps the precision. It only lowers `act`, within the loader's bounds.
+- **The decision** (`propose::decide`). A class worse on the holdout (its precision or its recall lower) holds
+  it, always. At 25c's minimum (200 labeled per deciding question, 30 per acting class): each deciding
+  question's macro precision and macro recall (the mean over its classes) must each rise by `margin` (0.02);
+  then a live (or canary) parent's candidate goes live at once, with the ladder's rollback rules as the brake,
+  and a shadow parent's takes its place in shadow. Below it: some train errors fixed; a live parent's goes to a
+  0.2 canary, a shadow parent's takes its place in shadow. A security pack that would move goes to the owner's
+  card instead (26a's), with the numbers. Anything else is held, with why. Each move is 26a's own act
+  (`Core::promote_learned`), its row the system's, citing the proposal as its report; where 26a's bar would
+  refuse it (no report of the new version, or short of the minimum), the proposal's replay is the evidence.
+- **One version per role.** Each point names its root as a constant; `JudgeService::placed` gives the version
+  standing in its place: the newest learned one whose latest `pack.mode` row is `shadow`, `canary` or `live`
+  (a canary's only in its canary arm; the control keeps the parent), else the root. A learned version with no
+  row, rolled back, or rejected (`off`) stands nowhere, so a rollback gives the place back. The root's config
+  line and `max_mode` cap its whole lineage. At the gate a learned version keeps its root's judgment id, and a
+  successor of `security.v3` takes over its notices and their brake (its rows carry `root`).
+- **What the owner sees.** A `judge.proposal` row per run that asked the writer (scoped `judge.learn:<id>`):
+  parent, version, digest, the errors read, the replay's numbers, the re-fit, the decision and why, and the
+  diff. A `pack.version` row per version, with its whole TOML; `<state dir>/packs/<name>.toml` (beside the store,
+  wherever `--state-dir` put it) is written from it after serving and as it lands. One notice to the owner ("classify.v101 from 12 of your labels: holdout
+  precision 0.80 → 0.86, recall 0.70 → 0.75 (kind); replacing classify.v1 in shadow"). The cockpit's Versions
+  panel: each lineage, every version's mode and source, the diff between any two, promote (a learned version
+  may also go to `shadow`) and reject (`pack.rollback { off: true }`, a mode row to `off`).
+- **One open proposal per lineage**: a card not yet answered, or a learned canary still running, holds the
+  next.
+
 ## 3. The build plan
 
 Sixteen steps of about an hour each: 13 SPINE on `main`, in order, and 3 LANE. **The LANE steps can start
@@ -571,6 +645,7 @@ modes.
 | 25c | 25 | SPINE | The learning ledger: `judge.label` everywhere, system labels, the nightly report tender, holdouts, the report page | 24, 25a, 25b |
 | 25d | 25 | SPINE | Replay, audit, and backfill (backfill runs on Eddie's history only after consent) | 25c |
 | 26a | 26 | SPINE | The ladder: `pack.mode`, config ceilings, arms, promote and rollback, `security.v1`'s approval card | 25c |
+| 25f | 25 | SPINE | The learning loop: the owner's labels rewrite a pack's text as a learned version, checked by a replay, placed by its numbers through the ladder (§2.17) | 25c, 25d, 26a |
 | 26b | 26 | SPINE | JUDGE_STOP live for tasks under canary: the `Judged` Advancer, live judgments as kernel actions, the nudge | 26a |
 | 26c | 26 | SPINE | The roles table, `role.v1` under canary: the hint note and the role line | 26a, 25a |
 | 27 | 27 | SPINE | The arrangement on `task.create`: references, refusal, the fidelity check, pieces admitted by reference | 23a (for the `should_promote` comparison only); DD7 (built) |
@@ -680,6 +755,21 @@ modes.
 - *Live check:* `theseus packs promote loop.v1 --canary 1.0 --force`, then the `pack.mode` row and the health
   line; a rollback; `security.v1`'s card answered with `theseus confirm`.
 
+**25f. The learning loop** (SPINE; §2.17)
+- *Tests* (the fake Jev scripted per state, the writer scripted):
+  - nine new train errors propose nothing and ask no writer; ten propose once; a second run with none new
+    proposes nothing; a holdout label's note and state never reach the writer's request;
+  - a candidate that changes a question's id, the builder, or a threshold is refused; the re-fit's thresholds
+    equal the rule's;
+  - better on train but worse on one holdout class: held; better with no class worse below the minimum: a
+    shadow parent's place in shadow, a live parent's canary; at the minimum (pure): live, the card for a
+    security pack, shadow for a shadow pack;
+  - the writer's day budget stops a run; the version is a row and a file the rows rebuild; it stands at its
+    root's point, and a rollback gives the place back; the nightly split is the interleaved one below 200.
+- *Live check:* on a scratch daemon with `[judge.learn] min_errors = 2`, label `classify.v1`'s judgments, run
+  `theseus judge learn classify.v1 --split <time>`, read the proposal, the diff in the cockpit's Versions panel,
+  and `<state dir>/packs/`; roll a placed version back; a `security.v3` proposal is held or waits on its card.
+
 **26b. JUDGE_STOP live for tasks** (SPINE)
 - *Tests* (fake scripted per call):
   - `progressing` nudges a task once, with the harness node, and the task then ends;
@@ -768,7 +858,7 @@ Each has the default the build takes, so nothing waits on an answer.
 | Q7 | How does the model name the pieces? | Exact quotes, resolved to nodes (node ids also accepted) | No renderer change and no cache cost. If the ledger shows GLM failing to resolve quotes on more than 20% of calls, render short ids into the transcript under a renderer version bump |
 | Q8 | JUDGE_STOP live in conversations? | Not in M5: shadow only | A person is present to say "go on", and a nudge in chat is noise. Revisit with the prove's data |
 | Q9 | How is the Jev model pinned? | Per pack version; `jev-latest` never acts; a new Jev model means new pack versions in shadow | Calibration does not transfer between models |
-| Q10 | Pack files: compiled in, or operator-editable? | Compiled in, versioned in git, reviewed | A pack's text is policy-adjacent. Overrides from the state dir are filed |
+| Q10 | Pack files: compiled in, or operator-editable? | Compiled in, versioned in git, reviewed; a version the learning loop writes (25f, §2.17) lives in the store, a `pack.version` row with its whole TOML, and `<state dir>/packs/<name>.toml` is derived from it, never read | A pack's text is policy-adjacent. A learned version changes only the text Jev reads, loads through `Pack::parse`, and is placed by its numbers through the ladder; a security pack's waits on the owner's card. Overrides from the state dir are filed |
 | Q11 | What may a state contain? | Only what the session's own model can see, trimmed, scrubbed, from a per-pack field list. Once M4's confidentiality labels exist, nodes above `[judge] max_label` stay out | A third party reads it |
 | Q12 | Which calls does `security.v1` judge? | Every call whose class is not `read`, and fetches and searches in a session holding external text | That second group is the exfiltration path T1 leaves open by design. Judging every read would multiply volume for little value |
 | Q13 | What does the middle (confirm) band do in a live pack? | Defers to the baseline, and is ledgered | Asking a person needs its own card and its own tuning; filed |

@@ -8,7 +8,9 @@
 // - With the time machine set, the list stops at the moment, and the counts are the fold's (`World.judge`).
 // - The learning report (25c; `?report=<date>`, the Learning panel) and a judgment's label buttons (its detail) are
 //   `components/LearningReport.tsx` and `components/JudgmentLabels.tsx`; the ladder (26a: each pack's mode, rules
-//   and rows, with promote and roll-back buttons) is `components/PackLadder.tsx`. "disagrees"
+//   and rows, with promote and roll-back buttons) is `components/PackLadder.tsx`; the versions the learning loop
+//   wrote (25f: each lineage, the diff between any two, `?va=` and `?vb=`, promote and reject) are
+//   `components/PackVersions.tsx`. "disagrees"
 //   here is the core's: an answered judgment whose pack, in its act band, would have done otherwise than the
 //   baseline.
 // - Jev's live notices (step 24's notices: `security.v3` sure an open call was risky) are the Notices panel: the
@@ -16,7 +18,7 @@
 //   them (on, paused until a day and why, or off).
 import { useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { BellRing, GraduationCap, Gavel, ListFilter, Scale, TrendingUp } from 'lucide-react'
+import { BellRing, GitCompare, GraduationCap, Gavel, ListFilter, Scale, TrendingUp } from 'lucide-react'
 import type { Health, JudgeGetResult, JudgeListResult, LedgerEntry } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
@@ -28,6 +30,7 @@ import { JsonView } from '@/components/JsonView'
 import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { LearningReport } from '@/components/LearningReport'
 import { PackLadder } from '@/components/PackLadder'
+import { PackVersions } from '@/components/PackVersions'
 import { packLine } from '@/lib/packs'
 import { localDay } from '@/lib/learning'
 import { noticeWords } from '@/lib/scores'
@@ -114,6 +117,10 @@ export default function Judgment() {
         {h?.enabled && !world && <Notices state={h.notices} onSession={(s) => nav(`/session/${s}?tab=timeline`)} />}
         <Panel title="Ladder" icon={<TrendingUp size={14} />}>
           <PackLadder readOnly={!!world} />
+        </Panel>
+
+        <Panel title="Versions" icon={<GitCompare size={14} />} bodyClassName="max-h-[360px] overflow-auto">
+          <PackVersions readOnly={!!world} />
         </Panel>
 
         <Panel title="Learning" icon={<GraduationCap size={14} />} actions={

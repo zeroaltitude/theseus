@@ -84,6 +84,14 @@ pub struct JudgeConfig {
     /// refused, naming this line.
     #[serde(default)]
     pub backfill_consent: bool,
+    /// The holdout's days (25c's time split): the report's, and the
+    /// learning loop's once a pack has 200 labeled judgments in it (25f).
+    #[serde(default = "holdout_days")]
+    pub holdout_days: u64,
+    /// `[judge.learn]`: the learning loop (M5 25f), where the owner's labels
+    /// rewrite a pack's text.
+    #[serde(default)]
+    pub learn: LearnConfig,
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
@@ -91,6 +99,79 @@ pub struct JudgeConfig {
     /// every compile whether or not the judge is on.
     #[serde(default)]
     pub signals: SignalsConfig,
+}
+
+/// `[judge.learn]` (design §2.17): nightly, after the report, each wired
+/// pack version with `min_errors` new errors on its train split has its
+/// text rewritten by the writer's profile, checked by a replay, and placed
+/// by the numbers. On with the judge; `enabled = false` keeps it off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LearnConfig {
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// The profile that writes the next version's text (a key of
+    /// `[profiles]`).
+    #[serde(default = "writer_profile")]
+    pub writer_profile: String,
+    /// What the writer may spend in a local day, in dollars: a proposal
+    /// that would pass it is skipped and reported.
+    #[serde(default = "writer_limit")]
+    pub writer_limit_usd_per_day: f64,
+    /// New train errors a pack version needs before it is rewritten.
+    #[serde(default = "min_errors")]
+    pub min_errors: u32,
+    /// Labeled holdout judgments a run needs before its writer is asked:
+    /// below it nothing is sent or written and its errors stay new, so no
+    /// candidate moves on no held-out evidence.
+    #[serde(default = "min_holdout")]
+    pub min_holdout: u32,
+    /// The most errors the writer reads, newest first.
+    #[serde(default = "max_errors")]
+    pub max_errors: u32,
+    /// At the minimum sample, precision and recall must each rise by this
+    /// much on every deciding question.
+    #[serde(default = "margin")]
+    pub margin: f64,
+}
+
+impl Default for LearnConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            writer_profile: writer_profile(),
+            writer_limit_usd_per_day: writer_limit(),
+            min_errors: min_errors(),
+            min_holdout: min_holdout(),
+            max_errors: max_errors(),
+            margin: margin(),
+        }
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+fn writer_profile() -> String {
+    "opus".into()
+}
+fn writer_limit() -> f64 {
+    2.0
+}
+fn min_errors() -> u32 {
+    10
+}
+fn min_holdout() -> u32 {
+    5
+}
+fn max_errors() -> u32 {
+    40
+}
+fn margin() -> f64 {
+    0.02
+}
+fn holdout_days() -> u64 {
+    14
 }
 
 /// `[judge.signals]` (design §2.15): where CONTINUE's candidate signals fire.
@@ -191,6 +272,8 @@ impl Default for JudgeConfig {
             replay_limit_usd: replay_limit(),
             audit_limit_usd: audit_limit(),
             backfill_consent: false,
+            holdout_days: holdout_days(),
+            learn: LearnConfig::default(),
             packs: BTreeMap::new(),
             signals: SignalsConfig::default(),
         }
@@ -226,6 +309,21 @@ impl JudgeConfig {
             if !usd.is_finite() || usd < 0.0 {
                 anyhow::bail!("judge.{name} must be zero or more, in dollars");
             }
+        }
+        let l = &self.learn;
+        if !l.writer_limit_usd_per_day.is_finite() || l.writer_limit_usd_per_day < 0.0 {
+            anyhow::bail!("judge.learn.writer_limit_usd_per_day must be zero or more, in dollars");
+        }
+        if l.min_errors == 0 || l.max_errors < l.min_errors {
+            anyhow::bail!(
+                "judge.learn.min_errors must be at least 1, and judge.learn.max_errors at least it"
+            );
+        }
+        if !(0.0..1.0).contains(&l.margin) {
+            anyhow::bail!("judge.learn.margin must be at least 0 and below 1");
+        }
+        if self.holdout_days == 0 {
+            anyhow::bail!("judge.holdout_days must be at least 1");
         }
         if self.learning_hour > 23 {
             anyhow::bail!("judge.learning_hour must be a local hour, 0 to 23");
@@ -306,6 +404,8 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     assert_eq!(j.packs["rerank.v1"].mode, Some(PackMode::Off));
     assert_eq!(j.packs[NOTICES_PACK].notices, Some(true));
     assert_eq!(j.learning_hour, 3);
+    assert_eq!(j.holdout_days, 14);
+    assert_eq!(j.learn, LearnConfig::default());
     j.validate(&cfg.secrets).unwrap();
 }
 

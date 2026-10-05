@@ -165,6 +165,7 @@ impl Core {
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 async move {
+                    let rt = tokio::runtime::Handle::current();
                     let rx = on_idle_thread(move || {
                         use theseus_store::pressure::{quiet_blocking_unless, BOUND};
                         let c = core.upgrade()?;
@@ -172,13 +173,25 @@ impl Core {
                         // never past a stop (theseus-tood).
                         let stopping = || c.outbox.stopping();
                         let mut yielded = Duration::ZERO;
-                        let paced = |took: Duration| {
+                        let mut paced = |took: Duration| {
                             std::thread::sleep(took * 19);
                             yielded += quiet_blocking_unless(BOUND, stopping);
                         };
-                        let r = c.run_learning(theseus_protocol::now_unix_ms(), trigger, paced);
+                        let r =
+                            c.run_learning(theseus_protocol::now_unix_ms(), trigger, &mut paced);
                         // The ladder's rules again, as the backstop (26a).
                         c.runner.judge.ladder().recheck();
+                        // Then the learning loop (25f): each lineage's
+                        // proposal, after the report, each next one
+                        // paced as the packs are.
+                        if r.is_ok() {
+                            let props =
+                                c.learn_nightly(&rt, theseus_protocol::now_unix_ms(), &mut paced);
+                            tracing::info!(
+                                proposals = props.iter().filter(|p| p.decision != "none").count(),
+                                "learning: the loop ran"
+                            );
+                        }
                         Some((r, yielded))
                     });
                     match rx {
@@ -297,5 +310,54 @@ mod tests {
         );
         assert_eq!(policy, libc::SCHED_OTHER);
         assert!(!theseus_store::pressure::this_thread_is_idle());
+    }
+
+    /// A blocking task reached through `block_on` from the nightly run's
+    /// thread starts the pool's thread on that thread, which inherits its
+    /// SCHED_IDLE (theseus-bgg5); spawned on the runtime first, the same call
+    /// starts it on a worker, in SCHED_OTHER.
+    #[test]
+    fn a_pool_thread_started_from_the_idle_thread_keeps_its_policy() {
+        let fresh = || {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .build()
+                .unwrap()
+        };
+        // The fault, as the loop's `rt.block_on(request)` meets it.
+        let rt = fresh();
+        let h = rt.handle().clone();
+        let direct = rt.block_on(async move {
+            on_idle_thread(move || {
+                let _g = h.enter();
+                h.block_on(async { tokio::task::spawn_blocking(proc_policy).await.unwrap() })
+            })
+            .unwrap()
+            .await
+            .unwrap()
+            .1
+        });
+        assert_eq!(
+            direct,
+            libc::SCHED_IDLE,
+            "the pool thread took the idle thread's policy"
+        );
+        // The fix's shape: the request on the runtime, waited for on the
+        // idle thread.
+        let rt = fresh();
+        let h = rt.handle().clone();
+        let spawned = rt.block_on(async move {
+            on_idle_thread(move || {
+                h.block_on(
+                    h.spawn(async { tokio::task::spawn_blocking(proc_policy).await.unwrap() }),
+                )
+                .unwrap()
+            })
+            .unwrap()
+            .await
+            .unwrap()
+            .1
+        });
+        assert_eq!(spawned, libc::SCHED_OTHER, "a worker's child");
     }
 }

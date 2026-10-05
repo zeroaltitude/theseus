@@ -42,4 +42,23 @@ rules: Array<string>,
 /**
  * Its newest `pack.mode` rows, oldest first.
  */
-rows: Array<PackModeRow>, };
+rows: Array<PackModeRow>, 
+/**
+ * `compiled` (in the binary) or `learned` (25f: written by the
+ * learning loop, its text in the store).
+ */
+source: string, 
+/**
+ * A learned version's parent, and the compiled-in version heading its
+ * lineage.
+ */
+parent?: string, root?: string, 
+/**
+ * Whether it stands at its point now (a learned version placed, or a
+ * root no learned version displaces).
+ */
+standing: boolean, 
+/**
+ * The pack file's text, for the diff between versions.
+ */
+text: string, };

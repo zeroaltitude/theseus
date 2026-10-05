@@ -64,8 +64,10 @@ struct Ask {
     share: Option<f64>,
 }
 
-fn ask_of(p: &PackPromoteParams) -> Result<Ask> {
-    if theseus_judge::pack::by_name(&p.pack).is_none() {
+/// A promotion, its pack known (compiled in, or learned: 25f). A learned
+/// version may also go to `shadow`: in its root's place, recording.
+fn ask_of(p: &PackPromoteParams, known: bool, learned: bool) -> Result<Ask> {
+    if !known {
         bail!(
             "this build has no pack {} (packs are named as `loop.v1`)",
             p.pack
@@ -74,6 +76,7 @@ fn ask_of(p: &PackPromoteParams) -> Result<Ask> {
     let to = match p.to.as_str() {
         "canary" => Rung::Canary,
         "live" => Rung::Live,
+        "shadow" if learned => Rung::Shadow,
         other => bail!("a promotion goes to `canary` or `live`, not {other:?}"),
     };
     let share = match (to, p.share) {
@@ -128,6 +131,11 @@ impl Core {
         tokio::task::spawn_blocking(move || {
             if let Some(core) = core.upgrade() {
                 core.runner.judge.ladder().standing(crate::judge::LOOP_PACK);
+                // The learned versions (25f), and their files from their
+                // rows.
+                core.runner
+                    .judge
+                    .write_pack_files(&crate::judge::lineage::state_of(&core.store));
             }
         });
     }
@@ -135,30 +143,55 @@ impl Core {
     /// `pack.list`: every pack this build wires, on the ladder.
     pub fn pack_list(&self) -> PackListResult {
         let cfg = self.runner.judge.config();
-        let l = self.runner.judge.ladder();
-        let packs = l
+        let j = &self.runner.judge;
+        let l = j.ladder();
+        let info = |pack: String, wired: crate::config::PackMode| {
+            let s = l.standing(&pack);
+            let rows = l.rows_of(&pack);
+            let rows = rows[rows.len().saturating_sub(LAST_ROWS)..].to_vec();
+            PackInfo {
+                acts: cfg.mode_of(&pack, s.rung.acts_as()).as_str().into(),
+                mode: s.rung.as_str().into(),
+                share: s.share,
+                wired: wired.as_str().into(),
+                why: s.words(),
+                until_ms: s.until_ms.filter(|_| s.rung == Rung::RolledBack),
+                rules: rules::rules_of(&pack)
+                    .iter()
+                    .map(|r| r.name().to_string())
+                    .collect(),
+                rows,
+                source: "compiled".into(),
+                parent: None,
+                root: None,
+                standing: j.placed(&j.root_of(&pack), "") == pack,
+                text: theseus_judge::pack::EMBEDDED
+                    .iter()
+                    .find(|(n, _)| *n == pack)
+                    .map(|(_, t)| (*t).to_string())
+                    .unwrap_or_default(),
+                pack,
+            }
+        };
+        let mut packs: Vec<PackInfo> = l
             .wired_packs()
             .into_iter()
-            .map(|(pack, wired): (String, crate::config::PackMode)| {
-                let s = l.standing(&pack);
-                let rows = l.rows_of(&pack);
-                let rows = rows[rows.len().saturating_sub(LAST_ROWS)..].to_vec();
-                PackInfo {
-                    acts: cfg.mode_of(&pack, s.rung.acts_as()).as_str().into(),
-                    mode: s.rung.as_str().into(),
-                    share: s.share,
-                    wired: wired.as_str().into(),
-                    why: s.words(),
-                    until_ms: s.until_ms.filter(|_| s.rung == Rung::RolledBack),
-                    rules: rules::rules_of(&pack)
-                        .iter()
-                        .map(|r| r.name().to_string())
-                        .collect(),
-                    rows,
-                    pack,
-                }
-            })
+            .map(|(pack, wired)| info(pack, wired))
             .collect();
+        // Learned versions (25f): off until a row places them.
+        for v in j.lineage().all(&self.store) {
+            let mut p = info(v.name(), crate::config::PackMode::Off);
+            if l.rows_of(&p.pack).iter().all(|r| r.declined) {
+                p.mode = "off".into();
+                p.acts = "off".into();
+                p.why = format!("learned; not placed ({})", v.proposal);
+            }
+            p.source = "learned".into();
+            p.parent = Some(v.parent.clone());
+            p.root = Some(v.root.clone());
+            p.text = v.text.clone();
+            packs.push(p);
+        }
         PackListResult {
             enabled: cfg.enabled,
             max_mode: cfg.max_mode.as_str().into(),
@@ -174,7 +207,7 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<PackPromoteResult> {
         let who = who.into();
-        let ask = ask_of(p)?;
+        let ask = self.ask_of(p)?;
         self.judge_act(
             &who,
             Act::Ladder {
@@ -190,7 +223,7 @@ impl Core {
     /// one short of the bar, with the numbers ("work_state: labeled 37 of
     /// 200"). A security pack's is the owner's card all the same.
     pub fn promote_automatic(&self, p: &PackPromoteParams) -> Result<PackPromoteResult> {
-        let ask = ask_of(p)?;
+        let ask = self.ask_of(p)?;
         let system = Answerer {
             label: rules::SYSTEM.into(),
             surface: crate::approval::Surface::Cli,
@@ -204,6 +237,59 @@ impl Core {
                 row.numbers.as_deref().unwrap_or("no qualifying report")
             );
         }
+        self.promote_with(row)
+    }
+
+    fn ask_of(&self, p: &PackPromoteParams) -> Result<Ask> {
+        let j = &self.runner.judge;
+        let learned = theseus_judge::pack::by_name(&p.pack).is_none();
+        ask_of(p, j.pack(&p.pack).is_some(), learned)
+    }
+
+    /// A learned version's move (25f), the learning loop's: through the
+    /// ladder's own act, citing its proposal. Where 26a's bar would refuse
+    /// it (no report of the new version, or one short of the minimum), the
+    /// proposal's replay is its evidence: the row is the system's, never
+    /// `forced`, its report the proposal, its numbers the replay's. A
+    /// security version's is the owner's card all the same.
+    pub fn promote_learned(
+        &self,
+        pack: &str,
+        to: &str,
+        share: Option<f64>,
+        proposal: &str,
+        why: &str,
+        numbers: &str,
+    ) -> Result<PackPromoteResult> {
+        let ask = self.ask_of(&PackPromoteParams {
+            pack: pack.into(),
+            to: to.into(),
+            share,
+            ..PackPromoteParams::default()
+        })?;
+        let l = self.runner.judge.ladder();
+        let s = l.standing(&ask.pack);
+        // A learned version with no row of its own stands nowhere: off.
+        let placed_before = l.rows_of(&ask.pack).iter().any(|r| !r.declined);
+        let row = PackModeRow {
+            pack: ask.pack.clone(),
+            mode: ask.to.as_str().into(),
+            from: if placed_before {
+                s.rung.as_str()
+            } else {
+                Rung::Off.as_str()
+            }
+            .into(),
+            share: ask.share,
+            who: rules::SYSTEM.into(),
+            by: "learning".into(),
+            via: "learning".into(),
+            why: format!("learned ({proposal}): {why}"),
+            forced: false,
+            numbers: Some(numbers.into()),
+            report: Some(proposal.into()),
+            ..PackModeRow::default()
+        };
         self.promote_with(row)
     }
 
@@ -284,7 +370,7 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<PackModeRow> {
         let who = who.into();
-        if theseus_judge::pack::by_name(&p.pack).is_none() {
+        if self.runner.judge.pack(&p.pack).is_none() {
             bail!("this build has no pack {}", p.pack);
         }
         self.judge_act(
@@ -301,10 +387,15 @@ impl Core {
             .as_deref()
             .map(str::trim)
             .filter(|w| !w.is_empty())
-            .unwrap_or("the owner rolled it back");
+            .unwrap_or(if p.off {
+                "the owner rejected it"
+            } else {
+                "the owner rolled it back"
+            });
+        let to = if p.off { Rung::Off } else { Rung::RolledBack };
         l.write(PackModeRow {
             pack: p.pack.clone(),
-            mode: Rung::RolledBack.as_str().into(),
+            mode: to.as_str().into(),
             from: s.rung.as_str().into(),
             share: s.share,
             who: "owner".into(),

@@ -57,10 +57,12 @@ impl JudgeService {
         if compiled.new_compilation || signals.fired.is_empty() {
             return None;
         }
-        if !self.pack_on(CONTINUE_PACK) {
+        // The version standing in continue.v1's place (25f).
+        let name = self.placed(CONTINUE_PACK, at.session_id);
+        if !self.pack_on(&name) {
             return None;
         }
-        let pack = theseus_judge::pack::by_name(CONTINUE_PACK)?;
+        let pack = self.pack(&name)?;
         let key = format!("{}#{}", at.turn_id, at.loop_index);
         if !sampled(&key, self.cfg.sample_of(CONTINUE_PACK, pack.sample)) {
             return None;

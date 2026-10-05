@@ -151,12 +151,19 @@ impl JudgeService {
             ROUTE_PACK => msg.route,
             _ => self.mode_for(p, &msg.session_id).mode,
         };
+        // Each root, or the learned version standing in its place (25f);
+        // route.v1 is left alone.
         let packs: Vec<(Arc<Pack>, String, PackMode)> = PACKS
             .iter()
-            .map(|p| (p, mode_of(p)))
-            .filter(|(_, m)| *m != PackMode::Off)
-            .filter_map(|(p, m)| Some((theseus_judge::pack::by_name(p)?, m)))
-            .filter(|(p, _)| sampled(&msg.turn_id, self.cfg.sample_of(&p.name(), p.sample)))
+            .map(|root| match *root {
+                ROUTE_PACK => ((*root).to_string(), *root),
+                _ => (self.placed(root, &msg.session_id), *root),
+            })
+            .map(|(p, root)| (mode_of(&p), p, root))
+            .filter(|(m, _, _)| *m != PackMode::Off)
+            .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
+            .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))
+            .map(|(p, m, _)| (p, m))
             .map(|(p, m)| (p, theseus_judge::judge::new_id(), m))
             .collect();
         if packs.is_empty() {

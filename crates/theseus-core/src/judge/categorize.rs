@@ -264,10 +264,12 @@ impl JudgeService {
     /// whether `categorize.v1` judges it is decided in a task of its own.
     /// Returns at once, whatever Jev does.
     pub fn at_exchange_end(&self, end: ExchangeEnd, task: bool) {
-        if task || !self.pack_on(PACK) {
+        // The version standing in categorize.v1's place (25f).
+        let name = self.placed(PACK, &end.session_id);
+        if task || !self.pack_on(&name) {
             return;
         }
-        let Some(pack) = theseus_judge::pack::by_name(PACK) else {
+        let Some(pack) = self.pack(&name) else {
             return;
         };
         if !super::sampled(&end.turn_id, self.cfg.sample_of(PACK, pack.sample)) {

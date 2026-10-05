@@ -390,6 +390,8 @@ facts![
     judge::JudgeReport<'static>,
     judge_runs::JudgeReplayed<'static>,
     judge_runs::JudgeAudited<'static>,
+    judge_runs::PackVersioned<'static>,
+    judge_runs::JudgeProposed<'static>,
     judge_runs::JudgeBackfilled<'static>,
     synthesis::SynthesisProposed<'static>,
     synthesis::SynthesisChecked<'static>,

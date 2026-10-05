@@ -35,9 +35,18 @@ pub fn next_midnight(now: u64) -> u64 {
 }
 
 /// A pack version's rules: its file's, then those its adoption gives its
-/// pack id.
+/// pack id. A learned version (25f) keeps its parent's rules by
+/// construction (`propose::text_only`), so its rules are its lineage's
+/// compiled-in version's: the wired one of its id.
 pub fn rules_of(pack: &str) -> Vec<RollbackRule> {
+    let root = || {
+        crate::judge::WIRED
+            .iter()
+            .find(|(n, _)| id_of(n) == id_of(pack))
+            .and_then(|(n, _)| theseus_judge::pack::by_name(n))
+    };
     let mut out = theseus_judge::pack::by_name(pack)
+        .or_else(root)
         .map(|p| p.rollback.clone())
         .unwrap_or_default();
     for r in adopt::rules(id_of(pack)) {

@@ -715,6 +715,10 @@ enum JudgeCmd {
     /// them in shadow, once each. It sends your history to Jev, so it runs only under your
     /// consent (`[judge] backfill_consent = true`). The operator's alone.
     Backfill(judge_runs::BackfillArgs),
+    /// Run the learning loop for one pack now: your labels on its train split rewrite its
+    /// wording as a new version, a replay checks it, and the numbers place it (or hold it).
+    /// The operator's alone.
+    Learn(judge_runs::LearnArgs),
 }
 
 #[derive(Subcommand, Debug)]

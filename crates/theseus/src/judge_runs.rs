@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 use clap::Args;
 use theseus_client::{render, Conn};
 use theseus_protocol::judge_runs::{
-    JudgeAuditParams, JudgeAuditResult, JudgeBackfillParams, JudgeBackfillResult,
-    JudgeReplayParams, JudgeReplayResult,
+    JudgeAuditParams, JudgeAuditResult, JudgeBackfillParams, JudgeBackfillResult, JudgeLearnParams,
+    JudgeProposal, JudgeReplayParams, JudgeReplayResult,
 };
 use theseus_protocol::method;
 
@@ -118,6 +118,104 @@ pub async fn backfill(conn: &mut Conn, json: bool, a: BackfillArgs) -> Result<()
         .await?;
     output(json, v, |r: JudgeBackfillResult| {
         print(render::judge_backfill_lines(&r));
+        Ok(())
+    })
+}
+
+#[derive(Args, Debug)]
+pub struct LearnArgs {
+    /// The pack version (`classify.v1`), or its id for its one wired version.
+    pack: String,
+    /// The boundary: train before it, holdout from it until now (unix ms, an RFC 3339
+    /// time, a local day, or a duration ago such as `2h`). Without it, the nightly rule.
+    #[arg(long, value_name = "TIME")]
+    split: Option<String>,
+}
+
+/// A proposal in lines: the decision and why, the numbers, the thresholds,
+/// and the diff.
+pub fn proposal_lines(p: &JudgeProposal) -> Vec<String> {
+    let mut out = vec![format!(
+        "{} {} ({}): {} — {}",
+        p.id,
+        p.version.as_deref().unwrap_or(&p.parent),
+        p.trigger,
+        p.decision,
+        p.why
+    )];
+    if !p.said.is_empty() {
+        out.push(format!("  {}", p.said));
+    }
+    let split = match (p.split_start_ms, p.split_end_ms) {
+        (Some(a), Some(b)) => format!("{} [{a}, {b})", p.split),
+        _ => p.split.clone(),
+    };
+    out.push(format!(
+        "  parent {}; split {split}: {} train, {} holdout labeled; {} new errors, {} read",
+        p.parent,
+        p.train,
+        p.holdout,
+        p.new_errors,
+        p.errors.len()
+    ));
+    if let Some(r) = &p.replay {
+        out.push(format!(
+            "  replay {r}: {} train errors fixed, {} broken; writer ${:.4}, replay ${:.4}; {}",
+            p.fixed,
+            p.broken,
+            p.writer_usd,
+            p.replay_usd,
+            if p.sufficient {
+                "at the minimum"
+            } else {
+                "below the minimum"
+            }
+        ));
+    }
+    let n = |x: Option<f64>| x.map_or("n/a".to_string(), |v| format!("{v:.2}"));
+    for q in &p.parent_holdout {
+        let c = p
+            .candidate_holdout
+            .iter()
+            .find(|c| c.question == q.question);
+        out.push(format!(
+            "  {}: precision {} → {}, recall {} → {} ({} labeled)",
+            q.question,
+            n(q.precision),
+            n(c.and_then(|c| c.precision)),
+            n(q.recall),
+            n(c.and_then(|c| c.recall)),
+            q.labeled
+        ));
+    }
+    for t in p.thresholds.iter().filter(|t| t.act != t.act_was) {
+        out.push(format!(
+            "  {}: act {:.2} → {:.2} (re-fit on {} train answers)",
+            t.question, t.act_was, t.act, t.train
+        ));
+    }
+    if let Some(q) = &p.question {
+        out.push(format!(
+            "  your card: theseus confirm {q} --approve (or --decline)"
+        ));
+    }
+    if !p.diff.is_empty() {
+        out.push("  diff:".into());
+        out.extend(p.diff.lines().map(|l| format!("    {l}")));
+    }
+    out
+}
+
+pub async fn learn(conn: &mut Conn, json: bool, a: LearnArgs) -> Result<()> {
+    let p = JudgeLearnParams {
+        pack: a.pack,
+        split: a.split,
+    };
+    let v = conn
+        .request(method::JUDGE_LEARN, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: JudgeProposal| {
+        print(proposal_lines(&r));
         Ok(())
     })
 }

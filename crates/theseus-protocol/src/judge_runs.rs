@@ -237,3 +237,102 @@ pub struct JudgeBackfillResult {
     pub limit_usd: f64,
     pub cost_usd: f64,
 }
+
+/// `judge.learn`'s params (M5 25f): run the learning loop for one pack now,
+/// the owner's act. `split` sets the boundary: train before it, holdout from
+/// it until now (unix ms, an RFC 3339 time, a local day such as
+/// `2026-10-04`, or a duration ago such as `2h`). Without it, the nightly
+/// rule: interleaved below 200 labeled in the window, else the window.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeLearnParams {
+    /// A version (`classify.v1`) or an id (`classify`): its lineage.
+    pub pack: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split: Option<String>,
+}
+
+/// One class's holdout numbers.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LearnClass {
+    pub class: String,
+    pub precision: Option<f64>,
+    pub recall: Option<f64>,
+}
+
+/// One question's holdout numbers on one side.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LearnQuestion {
+    pub question: String,
+    pub labeled: u32,
+    pub classes: Vec<LearnClass>,
+    /// The mean of its classes' precisions, and of their recalls.
+    pub precision: Option<f64>,
+    pub recall: Option<f64>,
+}
+
+/// A threshold the re-fit moved (or kept), per question.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LearnThreshold {
+    pub question: String,
+    pub act_was: f64,
+    pub act: f64,
+    pub confirm: f64,
+    /// Labeled train answers the re-fit read.
+    pub train: u32,
+}
+
+/// One proposal (`judge.proposal`, `prp_…`): what the learning loop did for
+/// one lineage, and why. Also `judge.learn`'s result.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeProposal {
+    pub id: String,
+    /// The lineage's root (`classify.v1`).
+    pub root: String,
+    /// The version whose text was rewritten.
+    pub parent: String,
+    /// The candidate (`classify.v101`), once the writer gave one that loads.
+    pub version: Option<String>,
+    pub sha256: Option<String>,
+    /// `nightly` or `owner`.
+    pub trigger: String,
+    /// `interleaved` or `time`, with the time split's bounds.
+    pub split: String,
+    pub split_start_ms: Option<u64>,
+    pub split_end_ms: Option<u64>,
+    /// The owner's labels the writer read (`lbl_…`), newest first, and
+    /// their judgments.
+    pub errors: Vec<String>,
+    pub error_judgments: Vec<String>,
+    /// New train errors found, of which `errors` the writer read.
+    pub new_errors: u32,
+    /// Labeled judgments on each side.
+    pub train: u32,
+    pub holdout: u32,
+    pub replay: Option<String>,
+    /// Train errors the candidate fixed, and labeled answers it broke.
+    pub fixed: u32,
+    pub broken: u32,
+    pub sufficient: bool,
+    pub parent_holdout: Vec<LearnQuestion>,
+    pub candidate_holdout: Vec<LearnQuestion>,
+    pub thresholds: Vec<LearnThreshold>,
+    /// `live`, `canary`, `shadow`, `card`, `held`, `none` (too few errors),
+    /// `skipped` (a budget, an open proposal), or `refused` (the writer's
+    /// file).
+    pub decision: String,
+    pub why: String,
+    /// A security pack's approval card.
+    pub question: Option<String>,
+    pub writer_model: Option<String>,
+    pub writer_usd: f64,
+    pub replay_usd: f64,
+    /// The candidate's text against its parent's, line by line.
+    pub diff: String,
+    /// The notice's sentence.
+    pub said: String,
+}

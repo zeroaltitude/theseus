@@ -56,6 +56,25 @@ pub struct PackInfo {
     pub rules: Vec<String>,
     /// Its newest `pack.mode` rows, oldest first.
     pub rows: Vec<PackModeRow>,
+    /// `compiled` (in the binary) or `learned` (25f: written by the
+    /// learning loop, its text in the store).
+    #[serde(default)]
+    pub source: String,
+    /// A learned version's parent, and the compiled-in version heading its
+    /// lineage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub root: Option<String>,
+    /// Whether it stands at its point now (a learned version placed, or a
+    /// root no learned version displaces).
+    #[serde(default)]
+    pub standing: bool,
+    /// The pack file's text, for the diff between versions.
+    #[serde(default)]
+    pub text: String,
 }
 
 /// One `pack.mode` row, as the ladder reads it.
@@ -173,4 +192,7 @@ pub struct PackRollbackParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub why: Option<String>,
+    /// A reject (25f): the version goes `off`, not `rolled_back`.
+    #[serde(default)]
+    pub off: bool,
 }

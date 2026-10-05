@@ -143,7 +143,7 @@ enum Ready {
 /// reservation, when its usage is unknown).
 pub(super) struct Caller<'a> {
     rt: &'a tokio::runtime::Handle,
-    built: &'a crate::judge::Built,
+    built: Arc<crate::judge::Built>,
     pub(super) limit: Micros,
     pub(super) spent: Micros,
     /// Every call made, answered or not: each is a row.
@@ -153,7 +153,7 @@ pub(super) struct Caller<'a> {
 impl<'a> Caller<'a> {
     pub(super) fn new(
         rt: &'a tokio::runtime::Handle,
-        built: &'a crate::judge::Built,
+        built: Arc<crate::judge::Built>,
         limit: Micros,
     ) -> Self {
         Self {
@@ -192,12 +192,23 @@ impl<'a> Caller<'a> {
         if self.spent + need > self.limit {
             return None;
         }
+        // On the runtime, waited for here: a blocking pool thread the call
+        // starts (a DNS lookup) is a worker's child, never this low
+        // thread's, whose nice value and SCHED_IDLE it would keep
+        // (theseus-bgg5).
+        let built = self.built.clone();
         let j = self
             .rt
-            .block_on(self.built.jev().judge(DecisionPoint {
-                asks: vec![ask],
-                urgency: Urgency::Shadow,
+            .block_on(self.rt.spawn(async move {
+                built
+                    .jev()
+                    .judge(DecisionPoint {
+                        asks: vec![ask],
+                        urgency: Urgency::Shadow,
+                    })
+                    .await
             }))
+            .ok()?
             .pop()?;
         let unknown = matches!(
             j.outcome,
@@ -369,7 +380,10 @@ impl Core {
                 "name the set: a report (--report rpt_<date>_<pack>) or judgments (--judgments)"
             ),
         };
-        let incumbent = theseus_judge::pack::by_name(&inc_name)
+        let incumbent = self
+            .runner
+            .judge
+            .pack(&inc_name)
             .with_context(|| format!("this build has no pack {inc_name}"))?;
         if incumbent.id != candidate.id {
             bail!(
@@ -457,10 +471,15 @@ impl Core {
         s: &Seen,
     ) -> Result<(theseus_judge::Prepared, String, &'static str), String> {
         let j = &s.judgment;
-        let dynamic = cand
-            .questions
-            .iter()
-            .any(|q| q.options_from.is_some() || q.per.is_some() || q.only_when.is_some());
+        // A learned candidate (25f) keeps its parent's questions and
+        // builder: it is asked on the stored state without the builder's
+        // items (a question only for them is not asked; a Choice drawing
+        // options from them asks its own).
+        let dynamic = !theseus_judge::propose::is_learned(cand.version)
+            && cand
+                .questions
+                .iter()
+                .any(|q| q.options_from.is_some() || q.per.is_some() || q.only_when.is_some());
         if stored_state_differs(cand, &j.state).is_none() && !dynamic {
             let digest = j.context["blob"]
                 .as_str()
@@ -514,6 +533,22 @@ impl Core {
         who: &str,
         via: &str,
     ) -> anyhow::Result<JudgeReplayResult> {
+        self.replay_with(rt, p, candidate, text, who, via)
+            .map(|(r, _)| r)
+    }
+
+    /// The same, with the candidate's answered judgment for each judgment
+    /// of the set, by the incumbent's id: the learning loop (25f) grades
+    /// each split apart.
+    pub(crate) fn replay_with(
+        &self,
+        rt: &tokio::runtime::Handle,
+        p: &JudgeReplayParams,
+        candidate: Arc<Pack>,
+        text: String,
+        who: &str,
+        via: &str,
+    ) -> anyhow::Result<(JudgeReplayResult, BTreeMap<String, Judgment>)> {
         // The judge's first use builds its sink's task on the runtime.
         let _rt = rt.enter();
         let id = crate::new_id("rpl");
@@ -523,7 +558,7 @@ impl Core {
         let ready = self.replay_ready(&mut plan, change, &id);
         // A security candidate's planted-injection set, beside the incumbent.
         let eval_asks = self.eval_asks(&plan, &id);
-        let mut caller = Caller::new(rt, &built, usd_to_micros(self.cfg.judge.replay_limit_usd));
+        let mut caller = Caller::new(rt, built, usd_to_micros(self.cfg.judge.replay_limit_usd));
         let asks = ready
             .iter()
             .filter_map(|(_, r)| match r {
@@ -571,7 +606,11 @@ impl Core {
         let eval = (!eval_asks.is_empty()).then(|| caller.eval(&plan, eval_asks));
         let result = replay_result(&id, &plan, change, &cand_of, estimate, &caller, eval);
         self.write_replay(&plan, &result, &caller.called, who, via)?;
-        Ok(result)
+        let by_id = cand_of
+            .into_iter()
+            .map(|(i, (j, _))| (plan.seen[i].judgment.id.clone(), j))
+            .collect();
+        Ok((result, by_id))
     }
 
     /// Each judgment of the set, ready: its stored answers re-banded, or a
