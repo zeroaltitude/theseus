@@ -383,7 +383,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     match: an arm that ranks its own way adds its line) and `Scene.science`, which `manifest_ranked`, `refill` and
     the rerank's `Recalled` (with its `retention`) read; shadow, a canary's control and a search without an arm use
     `baseline`'s. Under a science that reads retention the manifest's `retention` says the projection's state
-    (`ready`, or why it ranked without), and each admitted item carries its `RecallRetention`. `memory.search`
+    (`ready`, or why it ranked without), and each admitted and dropped item its `RecallRetention`. `memory.search`
     takes `arm`; health's `memory` block and the gauge `theseus.memory.retention.nodes` give its size. Tests:
     `tests_retention.rs`, `recall::retention::tests`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
