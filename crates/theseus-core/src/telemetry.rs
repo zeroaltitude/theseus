@@ -20,6 +20,8 @@ mod spans;
 pub(crate) mod tests;
 #[cfg(test)]
 mod tests_judge;
+#[cfg(test)]
+mod tests_recall;
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -242,6 +242,47 @@ impl Core {
         }
     }
 
+    /// Health's memory block: the mode and arm, and the adjacency
+    /// projection once an arm reads it or a search built it.
+    pub fn memory_health(&self) -> theseus_protocol::memory::MemoryHealth {
+        let memory = &self.runner.memory;
+        let cfg = memory.cfg();
+        let a = &memory.adjacency;
+        let reads = cfg.arm == MemoryArm::Activation
+            && matches!(cfg.mode, MemoryMode::Canary | MemoryMode::Live);
+        let adjacency = match (a.stats(), a.error()) {
+            (Some(st), _) => Some(theseus_protocol::memory::AdjacencyHealth {
+                state: "built".into(),
+                why: None,
+                nodes: st.nodes,
+                edges: st.edges,
+                entities: st.entities,
+                unmapped: st.unmapped,
+                bytes: st.bytes,
+                through: st.through,
+            }),
+            (None, Some(why)) => Some(theseus_protocol::memory::AdjacencyHealth {
+                state: "failed".into(),
+                why: Some(why),
+                ..Default::default()
+            }),
+            (None, None) if a.building() => Some(theseus_protocol::memory::AdjacencyHealth {
+                state: "building".into(),
+                ..Default::default()
+            }),
+            (None, None) if reads => Some(theseus_protocol::memory::AdjacencyHealth {
+                state: "waiting".into(),
+                ..Default::default()
+            }),
+            (None, None) => None,
+        };
+        theseus_protocol::memory::MemoryHealth {
+            mode: cfg.mode.as_str().into(),
+            arm: cfg.arm.as_str().into(),
+            adjacency,
+        }
+    }
+
     fn session_exists(&self, sid: &str) -> Result<(), RpcFailure> {
         match self.store.get_session::<SessionRecord>(sid)? {
             Some(_) => Ok(()),

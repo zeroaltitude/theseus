@@ -66,6 +66,10 @@ impl Adjacent {
         self.built.load(Ordering::Acquire)
     }
 
+    pub fn building(&self) -> bool {
+        self.building.load(Ordering::Acquire)
+    }
+
     pub fn error(&self) -> Option<String> {
         self.error
             .lock()

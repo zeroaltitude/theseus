@@ -1685,6 +1685,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     }
     places::push_health(o, h.places.as_ref());
     judge::push_health(o, h.judge.as_ref());
+    memory::push_health(o, h.memory.as_ref());
     mcp_server::push_health(o, h.mcp_server.as_ref());
     parked::push_health(o, h.tasks.as_ref());
     if let Some(line) = disk_line(&h.disk) {

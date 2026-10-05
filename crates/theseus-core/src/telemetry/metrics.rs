@@ -194,8 +194,22 @@ const TASKS_OPEN: Instrument = Instrument {
     kind: Kind::IntLast,
 };
 
+const ACTIVATE: Instrument = Instrument {
+    name: "theseus.recall.activate_ms",
+    description: "Spreading activation's refresh and spread in a recall (M6 32b), by outcome",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+const ACTIVATED: Instrument = Instrument {
+    name: "theseus.recall.activated",
+    description:
+        "Nodes spreading activation added to a recall's candidates, and those admitted (M6 32b)",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 26] = [
+const INSTRUMENTS: [&Instrument; 28] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -222,6 +236,8 @@ const INSTRUMENTS: [&Instrument; 26] = [
     &JUDGE_DISAGREEMENTS,
     &TASK_CHANGES,
     &TASKS_OPEN,
+    &ACTIVATE,
+    &ACTIVATED,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -371,6 +387,48 @@ impl Metrics {
             self.lsp_requests(t);
             self.tasks(t);
             self.compactions(t);
+            self.activations(t);
+        }
+    }
+
+    /// Spreading activation in the turn's recalls (32b): each spread's time
+    /// by outcome, and the nodes it added and those admitted.
+    fn activations(&mut self, trace: &Span) {
+        fn walk<'a>(s: &'a Span, out: &mut Vec<&'a Span>) {
+            if s.name == "recall.activate" {
+                out.push(s);
+            }
+            for c in &s.children {
+                walk(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(trace, &mut out);
+        for s in out {
+            let n = |k: &str| {
+                s.attrs
+                    .get(k)
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0)
+            };
+            let outcome = s
+                .attrs
+                .get("outcome")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            self.record(
+                &ACTIVATE,
+                vec![("theseus.outcome", Attr::S(outcome))],
+                s.duration_us() as f64 / 1000.0,
+            );
+            for (stage, k) in [("added", "added"), ("admitted", "admitted_added")] {
+                self.add(
+                    &ACTIVATED,
+                    vec![("theseus.recall.stage", Attr::S(stage.into()))],
+                    n(k),
+                );
+            }
         }
     }
 

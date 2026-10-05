@@ -392,8 +392,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     after serving (`Core::warm_activation`), and a turn that finds it unbuilt starts the build and goes on
     (`building`); a search builds it itself. The seam other arms share: `MemoryArm`, `Memory::science_for(arm)`, the
     `Scene`'s `science` (read by `manifest_ranked`, `refill` and the rerank's `Recalled`), and `memory.search`'s
-    `arm` (`theseus memory search --arm`). The manifest's `activation` says what it did. Tests:
-    `tests_activation_arm.rs`.
+    `arm` (`theseus memory search --arm`). The manifest's `activation` says what it did and its share of what was
+    admitted (each item's rank and score are its `sources.activation`); the `recall` span holds a `recall.activate`
+    span, timed in `theseus.recall.activate_ms` by outcome, with its additions in `theseus.recall.activated`
+    (`telemetry/tests_recall.rs`); health's `memory` block (`Core::memory_health`) names the projection's nodes,
+    edges, entities and bytes. Tests: `tests_activation_arm.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

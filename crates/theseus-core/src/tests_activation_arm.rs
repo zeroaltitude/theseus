@@ -115,6 +115,57 @@ async fn activation_admits_what_the_index_did_not_return() {
     assert!(c.memory_search(search("none")).await.is_err());
 }
 
+/// The surfaces (§2.13): the turn's `recall` span holds an `activate` span
+/// with what the spread did, the narrative says it, and health's memory
+/// block names the projection's size; `baseline` shows none of it.
+#[tokio::test]
+async fn the_trace_and_health_show_the_spread() {
+    let (r, _, _) = kestrel(MemoryArm::Activation, true);
+    let c = &r.core;
+    let here = session(c, None, &[]);
+    let res = turn(c, &here, "What fixed the Kestrel relay?").await;
+    fn find<'a>(s: &'a theseus_protocol::Span, name: &str) -> Option<&'a theseus_protocol::Span> {
+        if s.name == name {
+            return Some(s);
+        }
+        s.children.iter().find_map(|c| find(c, name))
+    }
+    let trace = res.trace.as_ref().expect("the turn's trace");
+    let recall = find(trace, "recall").expect("a recall span");
+    let act = find(recall, "recall.activate").expect("an activate span inside it");
+    assert_eq!(act.attrs["outcome"], "ran");
+    assert_eq!(
+        (
+            act.attrs["added"].as_u64(),
+            act.attrs["admitted_added"].as_u64()
+        ),
+        (Some(1), Some(1))
+    );
+    assert!(act.start_us >= recall.start_us);
+    assert_eq!(recall.attrs["activation"], "ran");
+    let line = crate::fact::recall::words(&recalls(c, &here)[0]);
+    assert!(
+        line.contains("activation reached 1 node and added 1, 1 of them admitted"),
+        "{line}"
+    );
+    let h = c.health().memory.expect("health's memory block");
+    assert_eq!((h.mode.as_str(), h.arm.as_str()), ("live", "+activation"));
+    let a = h.adjacency.expect("the projection");
+    assert_eq!(a.state, "built");
+    assert!(
+        a.nodes >= 3 && a.entities == 1 && a.bytes > 0 && a.through > 0,
+        "{a:?}"
+    );
+
+    let (r, _, _) = kestrel(MemoryArm::Baseline, false);
+    let c = &r.core;
+    let here = session(c, None, &[]);
+    let res = turn(c, &here, "What fixed the Kestrel relay?").await;
+    let trace = res.trace.as_ref().unwrap();
+    assert!(find(trace, "recall.activate").is_none());
+    assert_eq!(c.health().memory.unwrap().adjacency, None);
+}
+
 /// A turn never waits for the projection's build: it starts it, goes on
 /// with the index's answer alone, and says so; a later turn spreads.
 #[tokio::test]

@@ -19,6 +19,7 @@ import type { KernelStatus } from "./KernelStatus";
 import type { LspServerStatus } from "./LspServerStatus";
 import type { McpServerHealth } from "./McpServerHealth";
 import type { McpServerStatus } from "./McpServerStatus";
+import type { MemoryHealth } from "./MemoryHealth";
 import type { PlacesHealth } from "./PlacesHealth";
 import type { PushStatus } from "./PushStatus";
 import type { SandboxHealth } from "./SandboxHealth";
@@ -207,4 +208,8 @@ mcp_server?: McpServerHealth,
 /**
  * The language servers (L2): absent when `[lsp]` is off.
  */
-lsp?: Array<LspServerStatus>, };
+lsp?: Array<LspServerStatus>, 
+/**
+ * Recall's mode and arm, and the adjacency projection (M6 32b).
+ */
+memory?: MemoryHealth, };

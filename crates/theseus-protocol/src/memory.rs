@@ -129,6 +129,44 @@ pub struct RecallManifest {
     pub activation: Option<RecallActivation>,
 }
 
+/// Health's memory block (M6): recall's mode and arm, and the adjacency
+/// projection spreading activation walks (32b).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct MemoryHealth {
+    /// `off`, `shadow`, `canary`, or `live`.
+    pub mode: String,
+    /// The arm canary and live sessions get.
+    pub arm: String,
+    /// Absent while no arm reads it and no search has built it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub adjacency: Option<AdjacencyHealth>,
+}
+
+/// The adjacency projection (M6 32b): built after serving, kept current at
+/// each spread.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AdjacencyHealth {
+    /// `built`, `building`, `waiting` (to be built after serving or at the
+    /// first spread), or `failed`.
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    pub nodes: u64,
+    /// Stored edges, each way counted.
+    pub edges: u64,
+    pub entities: u64,
+    /// EDGE records whose kind or route spreads nothing.
+    pub unmapped: u64,
+    /// An estimate of what it holds in memory.
+    pub bytes: u64,
+    /// The WAL position it holds everything through.
+    pub through: u64,
+}
+
 /// What spreading activation did in a recall (M6 32b): its seeds, the nodes
 /// it reached, the index's hits it ranked (each gains its term), and the
 /// nodes it added that the index did not return. An item's rank and score

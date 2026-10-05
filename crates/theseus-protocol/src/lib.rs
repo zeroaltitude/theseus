@@ -607,6 +607,10 @@ pub struct HealthResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub lsp: Option<Vec<lsp::LspServerStatus>>,
+    /// Recall's mode and arm, and the adjacency projection (M6 32b).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub memory: Option<memory::MemoryHealth>,
 }
 
 /// The AWS accounts the config binds (`[aws.accounts.<id>]`).
