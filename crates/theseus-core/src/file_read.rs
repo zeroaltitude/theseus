@@ -170,6 +170,13 @@ fn find(files: &[Attachment], name: &str) -> Result<Found, String> {
         _ => None,
     };
     let kept: Vec<&Attachment> = files.iter().filter(|a| digest_of(a).is_some()).collect();
+    // A model may copy the kind word of a file's line with its name
+    // (`[Audio memo.ogg …]`): without a file of that name, the word goes.
+    let bare = match name.split_once(' ') {
+        Some((word, rest)) if NOUNS.contains(&word) && !kept.iter().any(|a| a.name == name) => rest,
+        _ => name,
+    };
+    let name = bare;
     let hit = kept
         .iter()
         .find(|a| a.name == name)
@@ -205,6 +212,22 @@ fn find(files: &[Attachment], name: &str) -> Result<Found, String> {
         }
     }
 }
+
+/// The words a file's line names its kind with, before its name.
+const NOUNS: &[&str] = &[
+    "PDF",
+    "Notebook",
+    "Document",
+    "Spreadsheet",
+    "Slides",
+    "Book",
+    "Archive",
+    "Audio",
+    "Video",
+    "File",
+    "Image",
+    "Attachment",
+];
 
 /// Where this session's files are saved: `<cwd>/.theseus-files/<session's
 /// last 8 characters>`.
@@ -767,6 +790,11 @@ mod tests {
         assert_eq!(find(&files, "orders.pdf").unwrap().digest, "bbbbbb22");
         assert_eq!(find(&files, "ORDERS.PDF").unwrap().digest, "aaaaaa11");
         assert_eq!(find(&files, "cccccc").unwrap().digest, "cccccc33");
+        assert_eq!(
+            find(&files, "PDF tides.pdf").unwrap().digest,
+            "cccccc33",
+            "the line's kind word"
+        );
         assert_eq!(
             find(&files, "fees.pdf").unwrap_err(),
             "this session has no file named fees.pdf; its files: Orders.pdf, orders.pdf, tides.pdf"

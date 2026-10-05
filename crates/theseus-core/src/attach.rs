@@ -872,6 +872,15 @@ pub fn from_wire(
                 (Some(reason), _, _) => AttachmentContent::NotRead {
                     reason: clean(&reason),
                 },
+                // A notebook or RTF sent as text is read as the document it is
+                // (theseus-c9l6), when it came whole.
+                (None, Some(text), _) if document_text(&a.name, &text) => {
+                    let bytes = text.into_bytes();
+                    a.size = bytes.len() as u64;
+                    let (content, read) = keep(&mut a, &bytes, caps.max_file, blobs);
+                    reads.extend(read);
+                    content
+                }
                 (None, Some(text), _) => {
                     let (kept, cut) = cut_to(&text, caps.max_text);
                     AttachmentContent::Text {
@@ -896,6 +905,13 @@ pub fn from_wire(
         })
         .collect();
     (files, reads)
+}
+
+/// A text attachment that is a document the core reads (theseus-c9l6): a
+/// Jupyter notebook or RTF, by its name or its first bytes.
+fn document_text(name: &str, text: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".ipynb") || lower.ends_with(".rtf") || text.starts_with("{\\rtf")
 }
 
 /// A file's bytes as the node keeps them: an image the models read as an
@@ -1957,6 +1973,31 @@ pub(crate) mod tests {
             .as_str()
             .unwrap()
             .ends_with("[1 of its images are not shown: this model has no vision]"));
+    }
+
+    /// A notebook that came as text (an older client's, or any that reads it
+    /// as UTF-8) is read as the notebook it is, whole.
+    #[test]
+    fn a_notebook_sent_as_text_is_read_as_a_notebook() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let nb = json!({"nbformat": 4, "metadata": {}, "cells": [
+            {"cell_type": "markdown", "source": "Soundings by the launch Petrel."}]});
+        let (got, reads) = from_wire(
+            vec![wire("survey.ipynb", Some(&nb.to_string()), None)],
+            caps(262_144),
+            &blobs,
+        );
+        assert_eq!(got[0].media_type, "application/x-ipynb+json");
+        assert_eq!(reads[0].outcome(), "read");
+        let b = blocks(&got[0], None, &glm(&blobs), &mut Spend::default());
+        assert!(
+            b[0]["text"]
+                .as_str()
+                .unwrap()
+                .ends_with("--- cell 1 (markdown) ---\nSoundings by the launch Petrel."),
+            "{b:?}"
+        );
     }
 
     /// A recording is kept and named with how to hear it: nothing is spent
