@@ -17,10 +17,14 @@ crc32fast = "1"
 redb.workspace = true
 # `blocking`: an append's wait holds no runtime worker (theseus-vni9).
 tokio.workspace = true
+# `pressure`: SCHED_IDLE for a thread that answers no one (theseus-tood).
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
 rand = "0.9"
+# `pressure`'s waits on tokio's paused clock.
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

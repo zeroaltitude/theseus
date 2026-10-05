@@ -69,6 +69,10 @@ pub struct VectorConfig {
     /// embedding code ([`embedder::engine_tag`]). Tests change it to change
     /// the stamp within its space.
     pub engine: String,
+    /// The longest the embedding thread waits between two pieces of work
+    /// while the machine is busy (theseus-tood). Tests give zero: there the
+    /// suite's own load is the pressure.
+    pub yield_bound: Duration,
 }
 
 impl VectorConfig {
@@ -79,6 +83,7 @@ impl VectorConfig {
             spec: ModelSpec::nomic_v1_5(),
             idle_unload: Duration::from_secs(600),
             engine: embedder::engine_tag(),
+            yield_bound: theseus_store::pressure::BOUND,
         }
     }
 
@@ -1507,7 +1512,10 @@ impl Vectors {
     /// The embedding thread: read the files, rebuild the rows, then embed
     /// the backlog, load and unload the model, until stopped. At nice 19
     /// within the tender's 10, so a backfill yields to the tender's own
-    /// queries and ingest.
+    /// queries and ingest; and between two pieces of work it waits while the
+    /// machine is busy (theseus-tood). Not in `SCHED_IDLE`, which can't be
+    /// left: this thread also loads the model a waiting query needs, and
+    /// candle's thread pool takes the policy of the thread that first runs it.
     pub fn run(&self, texts: &dyn Texts) {
         if !self.enabled() {
             return;
@@ -1523,7 +1531,18 @@ impl Vectors {
         }
         while !self.stop.load(Ordering::SeqCst) {
             match self.work_once(texts) {
-                Work::Did => {}
+                Work::Did => {
+                    let yielded = theseus_store::pressure::quiet_blocking_unless(
+                        self.cfg.yield_bound,
+                        || self.stop.load(Ordering::SeqCst),
+                    );
+                    if !yielded.is_zero() {
+                        tracing::debug!(
+                            ?yielded,
+                            "index: the embedding thread waited while the machine was busy"
+                        );
+                    }
+                }
                 Work::Idle(d) => {
                     let k = self.kick.lock().unwrap();
                     let (mut k, _) = self

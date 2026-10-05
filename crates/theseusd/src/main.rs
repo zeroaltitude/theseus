@@ -868,7 +868,9 @@ fn keep_copy(core: &Core, text: &str) {
 /// The secrets from outside the vault are named with their sources
 /// (theseus-n88g.1). Then L1's self-test, on demand (theseus-gyin): `/bin/true`
 /// in L1 over the view a job of a daemon on `state` gets, and its verdict. L1
-/// is not required, so a failed self-test is said, and fails nothing.
+/// is not required, so a failed self-test is said, and fails nothing. Last,
+/// what background work sees here: pressure, and whether the state's disk
+/// honours I/O priorities (theseus-tood).
 async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &Path) -> Result<()> {
     secrets.settle_all().await;
     let st = secrets.status();
@@ -899,13 +901,14 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
         .unwrap_or_default();
     out(&format!(
         "ok: config loaded from {source}; {} secret(s) resolved in {} ms ({}): {}\n{outside}{}\nL1: \
-         the self-test {}\n",
+         the self-test {}\n{}\n",
         st.ready.len(),
         st.settled_ms.unwrap_or(0),
         st.method.as_deref().filter(|m| !m.is_empty()).unwrap_or("nothing to fetch"),
         st.ready.join(", "),
         kept.line(),
-        theseus_protocol::sandbox::launch_words(&l1)
+        theseus_protocol::sandbox::launch_words(&l1),
+        theseus_store::pressure::words(state)
     ))
 }
 

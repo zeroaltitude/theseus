@@ -168,6 +168,7 @@ impl VRig {
             spec: self.spec.clone(),
             idle_unload: Duration::from_secs(600),
             engine: engine.into(),
+            yield_bound: Duration::ZERO,
         };
         c
     }

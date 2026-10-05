@@ -14,6 +14,10 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
 - `store.rs`: the `Store` contract the kernel writes through, and `WalStore`, which composes the WAL and the index,
   with its writer thread. `MANIFEST.json` names the store's one format number (`MANIFEST_FORMAT`).
   `blocking` runs a wait for the disk without holding a runtime worker.
+- `pressure.rs` (theseus-tood): a background pass waits between two chunks while the machine is busy (PSI's
+  `some avg10` at or over the gate's 20 % CPU or 10 % IO, up to `BOUND`; nothing waits without PSI), and
+  `idle_this_thread` puts a thread in `SCHED_IDLE`, one-way, so only one that answers no one and starts no thread
+  others use (a thread inherits its creator's policy). `words` is `theseusd check`'s `background:` line.
 
 ## Invariants
 

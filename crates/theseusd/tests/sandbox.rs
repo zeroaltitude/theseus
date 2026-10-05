@@ -386,6 +386,9 @@ fn check_runs_the_l1_self_test_on_demand() {
         "\nL1: the self-test worked (start "
     };
     assert!(text.contains(want), "{text}\n{err}");
+    // What background work sees here (theseus-tood): pressure, and the state's
+    // disk and whether it honours I/O priorities.
+    assert!(text.contains("\nbackground: "), "{text}\n{err}");
     assert!(
         !path("projects/state").exists(),
         "check wrote the state dir"
