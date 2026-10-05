@@ -24,6 +24,11 @@ pub struct MemorySearchParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub k: Option<usize>,
+    /// The arm whose pipeline to run (`baseline`, `+activation`; M6 32b):
+    /// default `baseline`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub arm: Option<String>,
 }
 
 /// `memory.recalls`: a session's recalls, newest last.
@@ -117,6 +122,45 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub rerank: Option<RecallRerank>,
+    /// Spreading activation's part (M6 32b, the `+activation` arm): what it
+    /// reached, what it added, and why it did not run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub activation: Option<RecallActivation>,
+}
+
+/// What spreading activation did in a recall (M6 32b): its seeds, the nodes
+/// it reached, the index's hits it ranked (each gains its term), and the
+/// nodes it added that the index did not return. An item's rank and score
+/// in it are its `sources.activation`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RecallActivation {
+    /// `ran`, or why it did not: `building` (the projection is built after
+    /// serving), `deadline` (recall's ran out first), `no_hits`, or the
+    /// projection's error.
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    pub seeds: u64,
+    /// The new node's entities the spread read: the query's, as the
+    /// index's hits matched them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entities: Vec<String>,
+    pub reached: u64,
+    /// The index's hits it reached, each gaining its term.
+    pub boosted: u64,
+    /// The reached nodes the index did not return, joined as candidates.
+    pub added: u64,
+    /// Of the admitted items, those it ranked, and those it alone found.
+    pub admitted: u64,
+    pub admitted_added: u64,
+    /// The projection as the spread read it.
+    pub nodes: u64,
+    pub edges: u64,
+    /// The projection's refresh and the spread, and the added nodes' reads.
+    pub took_ms: f64,
 }
 
 /// What a live rerank did to a recall (M6 32d): the turn waited at most

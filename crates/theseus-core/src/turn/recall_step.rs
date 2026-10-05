@@ -91,7 +91,9 @@ impl TurnRunner {
         match assigned {
             Some(a) if a.live => {
                 let begun = self.recall_begin(t, a.arm.sources())?;
-                self.recall_live(t, Some(session), begun, a).await;
+                // On the heap: the turn's own future stays the size it was
+                // before the arms' work (32b) joined this one.
+                Box::pin(self.recall_live(t, Some(session), begun, a)).await;
                 None
             }
             // `live` with arm `none` (the exam's `none` daemon, 34b): today's
@@ -113,10 +115,15 @@ impl TurnRunner {
         };
         let (query, as_of) = query_of(&nodes, t.tc.turn_id)?;
         let deadline = std::time::Duration::from_millis(self.memory.cfg().recall_deadline_ms);
-        Some(
-            self.memory
-                .begin(query, Some(as_of), crate::recall::K, sources, deadline),
-        )
+        let mut begun = self
+            .memory
+            .begin(query, Some(as_of), crate::recall::K, sources, deadline);
+        // The turn's new node seeds a spread (32b).
+        begun.new_node = nodes
+            .iter()
+            .find(|(p, _)| *p == as_of)
+            .map(|(_, n)| n.id.clone());
+        Some(begun)
     }
 
     /// The session's `memory.arm` row, once: its first turn under canary or
@@ -149,22 +156,11 @@ impl TurnRunner {
         t.announce_fact(&f);
     }
 
-    /// The scene of the turn's recall: its place, the nodes its request
-    /// carries (and the sources of the recalls among them), and the labels.
-    pub(super) fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str) -> Scene<'a> {
-        let mut in_context = BTreeSet::new();
-        if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
-            // An assembled section's context is what its prefix keeps: past
-            // a compaction, the summarized range is out of it (30c).
-            let floor = crate::compiler::compaction::floor(&nodes).map(|(_, last)| last);
-            let after = floor.filter(|_| t.recall.assembled).unwrap_or(0);
-            for (_, n) in nodes.iter().filter(|(p, _)| *p > after) {
-                in_context.insert(n.id.clone());
-                if let Body::Recall { items, .. } = &n.body {
-                    in_context.extend(items.iter().map(|r| r.node_id.clone()));
-                }
-            }
-        }
+    /// The scene of the turn's recall under `arm`'s science: its place, the
+    /// nodes its request carries (and the sources of the recalls among
+    /// them), and the labels.
+    pub(super) fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str, arm: MemoryArm) -> Scene<'a> {
+        let in_context = Self::in_context(t);
         let labeled = self
             .memory
             .labeled(&self.store)
@@ -183,7 +179,28 @@ impl TurnRunner {
                 .recall
                 .assembled
                 .then(|| self.memory.cfg().assembled_budget_tokens),
+            science: self.memory.science_for(arm),
+            activation: None,
         }
+    }
+
+    /// The nodes the turn's request carries, and the sources of the recalls
+    /// among them.
+    fn in_context(t: &Turn<'_>) -> BTreeSet<String> {
+        let mut in_context = BTreeSet::new();
+        if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
+            // An assembled section's context is what its prefix keeps: past
+            // a compaction, the summarized range is out of it (30c).
+            let floor = crate::compiler::compaction::floor(&nodes).map(|(_, last)| last);
+            let after = floor.filter(|_| t.recall.assembled).unwrap_or(0);
+            for (_, n) in nodes.iter().filter(|(p, _)| *p > after) {
+                in_context.insert(n.id.clone());
+                if let Body::Recall { items, .. } = &n.body {
+                    in_context.extend(items.iter().map(|r| r.node_id.clone()));
+                }
+            }
+        }
+        in_context
     }
 
     /// Read the index's answer (never past its deadline), run the pipeline,
@@ -192,7 +209,7 @@ impl TurnRunner {
     pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
-        let scene = self.scene(t, "shadow");
+        let scene = self.scene(t, "shadow", MemoryArm::Baseline);
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
@@ -207,6 +224,7 @@ impl TurnRunner {
             place,
             in_context,
             labeled,
+            science,
             ..
         } = scene;
         m.arm = self
@@ -235,7 +253,7 @@ impl TurnRunner {
                 candidates,
                 links,
                 params: self.memory.cfg().params(),
-                science: self.memory.science_owned(),
+                science,
                 admitted: m
                     .admitted
                     .iter()
@@ -259,7 +277,19 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let mode = self.memory.cfg().mode.as_str();
-        let mut m = self.recall_reranked(t, mode, &begun, answer).await;
+        // The arm's own source before the pipeline (32b): activation.
+        let (answer, activation) = Box::pin(self.memory.activated(
+            &self.store,
+            a.arm,
+            &begun,
+            answer,
+            Self::in_context(t),
+            false,
+        ))
+        .await;
+        let mut m = self
+            .recall_reranked(t, mode, a.arm, activation, &begun, answer)
+            .await;
         m.arm = Some(a.arm.as_str().into());
         let cap = self.memory.cfg().session_recall_cap_tokens;
         // An assembled section sits in the prefix: the tail's cap is not its.
@@ -309,7 +339,7 @@ impl TurnRunner {
             _ => self.recall_begin(t, MemoryArm::Baseline.sources())?,
         };
         match assigned {
-            Some(a) if a.live => self.recall_live(t, None, begun, a).await,
+            Some(a) if a.live => Box::pin(self.recall_live(t, None, begun, a)).await,
             _ => self.recall_end(t, begun).await,
         }
         t.recall.pending.as_ref().map(|n| n.id.clone())

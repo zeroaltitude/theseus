@@ -117,6 +117,8 @@ pub fn new_id(prefix: &str) -> String {
 #[cfg(test)]
 mod tests_activation;
 #[cfg(test)]
+mod tests_activation_arm;
+#[cfg(test)]
 mod tests_arrangement;
 #[cfg(test)]
 mod tests_audit;

@@ -29,6 +29,7 @@
 //! recompile. A control session runs `none` live with `baseline` in shadow.
 //! The operator's labels (`labels`) keep a node out as `labeled_wrong`.
 
+pub mod activation;
 pub mod adjacency;
 pub mod labels;
 pub mod render;
@@ -41,12 +42,13 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use theseus_memory::recall::{self as pipeline, Asker, Candidate, Link, LinkKind, Pack, Place};
-use theseus_memory::{Baseline, MemoryScience};
+use theseus_memory::{Activated, Baseline, MemoryScience};
 use theseus_protocol::index::{IndexQueryParams, IndexQueryResult};
 use theseus_protocol::memory::{
     BudgetDrop, BudgetReport, RecallDrop, RecallItem, RecallManifest, RecallTimings,
 };
 
+use crate::config::memory::MemoryArm;
 use crate::config::MemoryConfig;
 use crate::node::{AttachmentContent, Body, Node};
 use crate::store::Transcript;
@@ -68,6 +70,10 @@ pub type Ask = Arc<dyn Fn(IndexQueryParams) -> AskFuture + Send + Sync>;
 pub struct Memory {
     cfg: MemoryConfig,
     science: Baseline,
+    /// The `+activation` arm's science (32b).
+    activated: Arc<Activated>,
+    /// The adjacency projection it spreads over, built after serving.
+    pub(crate) adjacency: Arc<activation::Adjacent>,
     ask: RwLock<Option<Ask>>,
     /// The nodes the operator labeled wrong or stale, once read (`labels`).
     labels: RwLock<Option<BTreeSet<String>>>,
@@ -89,6 +95,8 @@ impl Memory {
         Self {
             cfg,
             science: Baseline::default(),
+            activated: Arc::new(Activated::default()),
+            adjacency: Arc::new(activation::Adjacent::default()),
             ask: RwLock::new(ask),
             labels: RwLock::new(None),
             armed: Mutex::new(BTreeSet::new()),
@@ -174,6 +182,16 @@ impl Memory {
         Arc::new(self.science.clone())
     }
 
+    /// The science an arm runs: `baseline`'s, but for the arms with one of
+    /// their own (32b's `+activation`). Shadow, a canary's control, and a
+    /// search that names no arm run `baseline`.
+    pub fn science_for(&self, arm: MemoryArm) -> Arc<dyn MemoryScience> {
+        match arm {
+            MemoryArm::Activation => self.activated.clone(),
+            MemoryArm::None | MemoryArm::Bm25 | MemoryArm::Baseline => self.science_owned(),
+        }
+    }
+
     /// Ask the index's `sources` (an arm's, `MemoryArm::sources`) for
     /// `query`'s hits as of `as_of`, in a task of its own, bounded by
     /// `deadline`.
@@ -212,6 +230,7 @@ impl Memory {
             query,
             as_of,
             deadline,
+            new_node: None,
         }
     }
 }
@@ -246,6 +265,8 @@ pub struct Begun {
     pub query: String,
     pub as_of: Option<u64>,
     pub deadline: Duration,
+    /// The turn's new node, which seeds a spread at 1.0 (32b).
+    pub new_node: Option<String>,
 }
 
 impl Begun {
@@ -273,6 +294,11 @@ pub struct Scene<'a> {
     /// The pack's tokens when not `[memory] recall_budget_tokens`: an
     /// assembled prefix's recall section (30c), `assembled_budget_tokens`.
     pub budget_tokens: Option<u64>,
+    /// The turn's arm's science (`Memory::science_for`): `baseline` in
+    /// shadow, for a canary's control, and for a search with no arm.
+    pub science: Arc<dyn MemoryScience>,
+    /// What spreading activation did before the pipeline (32b).
+    pub activation: Option<theseus_protocol::memory::RecallActivation>,
 }
 
 impl Memory {
@@ -325,7 +351,8 @@ impl Memory {
         let mut m = RecallManifest {
             recall_id: crate::new_id("rcl"),
             mode: scene.mode.into(),
-            science: self.science.id().to_string(),
+            science: scene.science.id().to_string(),
+            activation: scene.activation.clone(),
             outcome: "ran".into(),
             session_id: scene.session_id.map(str::to_string),
             turn_id: scene.turn_id.map(str::to_string),
@@ -393,7 +420,7 @@ impl Memory {
             .collect();
         m.sources = sources;
         // The memory pass's edges among them, for a science that reads them.
-        let links = if self.science.prefers_newer() {
+        let links = if scene.science.prefers_newer() {
             let ids: BTreeSet<String> = candidates.iter().map(|c| c.node_id.clone()).collect();
             links_of(&ids.into_iter().collect::<Vec<_>>())
         } else {
@@ -411,7 +438,7 @@ impl Memory {
             budget_tokens: m.budget_tokens,
             ..self.cfg.params()
         };
-        let pack = pipeline::recall(&self.science, &asker, candidates.clone(), &params);
+        let pack = pipeline::recall(&*scene.science, &asker, candidates.clone(), &params);
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
         m.timings.pack_ms = ms(t0.elapsed());
@@ -441,7 +468,7 @@ impl Memory {
         };
         let params = self.params_of(m);
         let pack =
-            theseus_memory::rerank::repack(&self.science, &asker, candidates, &params, order);
+            theseus_memory::rerank::repack(&*scene.science, &asker, candidates, &params, order);
         m.drops.clear();
         fill(m, pack, &mut ranks, true);
     }
@@ -512,6 +539,17 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
             tokens: d.tokens,
         })
         .collect();
+    // Activation's share of what was admitted (32b).
+    if let Some(a) = &mut m.activation {
+        let ranked = |i: &&RecallItem| i.sources.contains_key(activation::SOURCE);
+        a.admitted = m.admitted.iter().filter(ranked).count() as u64;
+        a.admitted_added = m
+            .admitted
+            .iter()
+            .filter(ranked)
+            .filter(|i| i.sources.len() == 1)
+            .count() as u64;
+    }
 }
 
 fn ms(d: Duration) -> f64 {

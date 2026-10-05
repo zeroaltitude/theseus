@@ -242,6 +242,7 @@ export type * from './ReachCompilation';
 export type * from './ReachDescendant';
 export type * from './ReachExposure';
 export type * from './ReachTotals';
+export type * from './RecallActivation';
 export type * from './RecallDrop';
 export type * from './RecallItem';
 export type * from './RecallManifest';

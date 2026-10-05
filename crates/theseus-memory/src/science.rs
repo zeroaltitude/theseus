@@ -157,7 +157,7 @@ const DAY_MS: f64 = 86_400_000.0;
 
 impl Baseline {
     /// Its parameters as one line: what the digest is of.
-    fn canonical(&self) -> String {
+    pub(crate) fn canonical(&self) -> String {
         let mut c = format!(
             "min_score={};merge_cosine={};supersede_cosine={};idle_days={}",
             self.min_score, self.merge_cosine, self.supersede_cosine, self.idle_days
@@ -247,7 +247,7 @@ impl MemoryScience for Baseline {
 }
 
 /// FNV-1a, 64 bits: a parameter set's digest, stable across builds.
-fn fnv1a(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {
         h ^= u64::from(*b);

@@ -25,6 +25,9 @@ Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `fsrs.rs`, `activation.rs`,
   (a `Reranked` science). The core's rerank (`judge/rerank.rs`) calls all three, and since 32d a live
   rerank's turn packs again in Jev's order with `repack` too (`Memory::refill`), so the row and the request agree.
 - `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is), `activation.rs` (32b's math).
+- `activated.rs` (32b's wire-in): `Activated`, the `+activation` arm's science: `baseline` in every verb but
+  `activate`, which spreads with its `SpreadParams`; and its numbers as a fusion source (`weight`, its term
+  `weight / (60 + rank)` as the tender fuses, the 10 seeds, the 20 nodes it may add), all in its digest.
 
 ## Invariants
 

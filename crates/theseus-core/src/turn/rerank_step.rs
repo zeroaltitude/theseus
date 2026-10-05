@@ -19,22 +19,27 @@ use std::time::Duration;
 use theseus_protocol::memory::RecallManifest;
 
 use super::{Turn, TurnRunner};
+use crate::config::memory::MemoryArm;
 use crate::config::PackMode;
 use crate::judge::rerank::Recalled;
 use crate::recall::{Answer, Begun, Scene};
 
 impl TurnRunner {
-    /// The manifest of a recall in front of the model, reranked as the arms
-    /// rule says; its items carry their excerpts (the node's ranges).
+    /// The manifest of a recall in front of the model under `arm`'s
+    /// science, reranked as the arms rule says; its items carry their
+    /// excerpts (the node's ranges).
     pub(super) async fn recall_reranked(
         &self,
         t: &mut Turn<'_>,
         mode: &str,
+        arm: MemoryArm,
+        activation: Option<theseus_protocol::memory::RecallActivation>,
         begun: &Begun,
         answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
-        let scene = self.scene(t, mode);
+        let mut scene = self.scene(t, mode, arm);
+        scene.activation = activation;
         if rerank == PackMode::Off {
             return self.memory.manifest(
                 &scene,
@@ -60,6 +65,7 @@ impl TurnRunner {
             in_context,
             labeled,
             budget_tokens,
+            science,
             ..
         } = scene;
         let live = rerank == PackMode::Live;
@@ -74,7 +80,7 @@ impl TurnRunner {
             candidates,
             links: links.clone(),
             params: self.memory.params_of(&m),
-            science: self.memory.science_owned(),
+            science: science.clone(),
             admitted: m
                 .admitted
                 .iter()
@@ -99,6 +105,8 @@ impl TurnRunner {
                 in_context,
                 labeled,
                 budget_tokens,
+                science,
+                activation: None,
             };
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);

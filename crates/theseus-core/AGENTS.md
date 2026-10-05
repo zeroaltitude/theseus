@@ -380,6 +380,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     edge cannot carry a seed over the threshold alone). A node the memory pass never labeled has no entities.
     `Projection::refresh` folds what was written since; the result does not depend on where a fold stopped. Tests:
     `tests_activation.rs`.
+  - **The `+activation` arm** (step 32b): `recall/activation.rs`. `[memory] arm = "+activation"` (canary or live;
+    shadow and a canary's control run `baseline`) asks the index for `baseline`'s sources, then, before the pipeline,
+    spreads (`Memory::activated`, theseus-memory's `Activated` science, which is `baseline` but for `activate`): the
+    turn's new node at 1.0 (`Begun.new_node`; its projection edges and the query's entities the hits matched, the
+    tender asked nothing more) and the top 10 fused hits over the best one's score. The reached nodes are one more
+    ranked source: a reached hit gains `weight / (60 + rank)` and `sources.activation`, and at most 20 of the
+    strongest the index did not return (none the turn holds, none at or after `as_of`, none the index never indexes)
+    join the candidates read from the store, before every filter (the place rule reads them as any candidate). The
+    spread runs on the blocking pool for what is left of the index's deadline (`deadline`); the projection is built
+    after serving (`Core::warm_activation`), and a turn that finds it unbuilt starts the build and goes on
+    (`building`); a search builds it itself. The seam other arms share: `MemoryArm`, `Memory::science_for(arm)`, the
+    `Scene`'s `science` (read by `manifest_ranked`, `refill` and the rerank's `Recalled`), and `memory.search`'s
+    `arm` (`theseus memory search --arm`). The manifest's `activation` says what it did. Tests:
+    `tests_activation_arm.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

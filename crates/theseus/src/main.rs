@@ -618,6 +618,9 @@ enum MemoryCmd {
         /// How many hits to ask the index for (at most 100).
         #[arg(short, long, default_value_t = 40)]
         k: usize,
+        /// The arm whose pipeline to run: bm25, baseline (the default), or +activation.
+        #[arg(long, value_name = "ARM")]
+        arm: Option<String>,
     },
     /// What each of SESSION's turns recalled (canary, live) or would have (shadow), newest last.
     Recalled {

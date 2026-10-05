@@ -857,11 +857,17 @@ pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
         MemorySearchParams, RecallManifest,
     };
     match cmd {
-        MemoryCmd::Search { query, session, k } => {
+        MemoryCmd::Search {
+            query,
+            session,
+            k,
+            arm,
+        } => {
             let p = MemorySearchParams {
                 query: query.join(" "),
                 session_id: session,
                 k: Some(k),
+                arm,
             };
             let v = conn
                 .request(method::MEMORY_SEARCH, serde_json::to_value(&p)?)

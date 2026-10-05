@@ -9,4 +9,9 @@ export type MemorySearchParams = { query: string, session_id?: string,
 /**
  * Hits asked of the index (default 40, at most 100).
  */
-k?: number, };
+k?: number, 
+/**
+ * The arm whose pipeline to run (`baseline`, `+activation`; M6 32b):
+ * default `baseline`.
+ */
+arm?: string, };
