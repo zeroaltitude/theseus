@@ -395,8 +395,13 @@ pub fn estimate(
         Some((n, from)) => {
             let rest = &request.messages[from..];
             // An image's size is not in the request: each new one counts
-            // at the model's most, until the next call counts it.
-            let images = (images_in(rest) * image_cap(&request.model)).min(request.image_tokens);
+            // at the model's most, until the next call counts it. A new PDF
+            // (theseus-c9l6) counts as every image and PDF the request
+            // carries, the safe side, until the next call counts it.
+            let images = match crate::attach::media_in(rest) {
+                (images, 0) => (images * image_cap(&request.model)).min(request.image_tokens),
+                _ => request.image_tokens,
+            };
             // The answer's own message: its framing, and its calls' ids,
             // which its output tokens leave out.
             let calls = request.messages[from - 1]["content"]
@@ -464,22 +469,6 @@ pub fn counted_part(
         .rposition(|m| m["role"] == "assistant")?;
     let last = request.messages[at]["content"].as_array()?.last();
     (last.is_some() && last == blocks.last()).then_some((input + usage.output_tokens, at + 1))
-}
-
-/// Image blocks in `messages`, those inside tool results included.
-fn images_in(messages: &[Value]) -> u64 {
-    fn count(blocks: &Value) -> u64 {
-        blocks.as_array().map_or(0, |bs| {
-            bs.iter()
-                .map(|b| match b.get("type").and_then(Value::as_str) {
-                    Some("image") => 1,
-                    Some("tool_result") => count(&b["content"]),
-                    _ => 0,
-                })
-                .sum()
-        })
-    }
-    messages.iter().map(|m| count(&m["content"])).sum()
 }
 
 /// The most tokens one image costs `model`: its tile cap.
@@ -963,9 +952,12 @@ pub fn render_request(
         .map(|(_, n)| &**n)
         .collect();
     let entry = catalog.get(&spec.model);
-    // The compilation's model decides how its images show (theseus-9g2).
+    // The compilation's model decides how its images and PDFs show
+    // (theseus-9g2, theseus-c9l6).
     let media = Media {
         vision: entry.is_some_and(|e| e.vision),
+        pdf: entry.is_some_and(|e| e.pdf),
+        pdf_pages: entry.map_or(0, |e| crate::attach::page_limit(e.context_window)),
         model: &spec.model,
         blobs,
         hidden,
@@ -1060,7 +1052,7 @@ fn is_thinking(b: &Value) -> bool {
     )
 }
 
-fn tool_result_block(r: &Node, media: &Media, tokens: &mut u64) -> Value {
+fn tool_result_block(r: &Node, media: &Media, spend: &mut crate::attach::Spend) -> Value {
     match &r.body {
         Body::ToolResult {
             tool_use_id,
@@ -1072,8 +1064,9 @@ fn tool_result_block(r: &Node, media: &Media, tokens: &mut u64) -> Value {
             if *is_error {
                 json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": true})
             } else if let Some(img) = image {
-                // An image the tool returned (theseus-9g2).
-                let content = crate::attach::tool_content(content, img, media, tokens);
+                // An image the tool returned (theseus-9g2), or a PDF's pages
+                // (theseus-c9l6).
+                let content = crate::attach::tool_content(content, img, media, spend);
                 json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content})
             } else {
                 json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content})
@@ -1128,7 +1121,8 @@ pub fn render_messages(
     retrying: Option<&str>,
     sources: &crate::recall::render::Sources,
 ) -> Messages {
-    let mut image_tokens = 0u64;
+    // What the request's images and PDFs use, in render order (theseus-c9l6).
+    let mut spend = crate::attach::Spend::default();
     // Each call's result.
     let mut results: HashMap<&str, &Node> = HashMap::new();
     for n in prefix.iter().chain(tail.iter()) {
@@ -1157,7 +1151,7 @@ pub fn render_messages(
             Body::UserMessage { text, attachments } => {
                 // A message of attachments alone has no text block; one
                 // without attachments renders as it always did.
-                let blocks = user_blocks(n, text, attachments, media, &mut image_tokens);
+                let blocks = user_blocks(n, text, attachments, media, &mut spend);
                 push(&mut out, "user", blocks)
             }
             // A task's arrangement reads right after its brief, as the
@@ -1193,7 +1187,7 @@ pub fn render_messages(
                     let rb: Vec<Value> = uses
                         .iter()
                         .map(|u| match results.get(u.id.as_str()) {
-                            Some(r) => tool_result_block(r, media, &mut image_tokens),
+                            Some(r) => tool_result_block(r, media, &mut spend),
                             None => {
                                 repairs.push(u.id.clone());
                                 repaired(&u.id)
@@ -1243,7 +1237,7 @@ pub fn render_messages(
     Messages {
         messages: msgs,
         repairs,
-        image_tokens,
+        image_tokens: spend.tokens,
         tail_from,
     }
 }
@@ -1280,18 +1274,18 @@ pub struct Messages {
     pub tail_from: usize,
 }
 
-/// An operator's message's blocks: each attachment its own (an image, two),
-/// then the typed text (theseus-9g2).
+/// An operator's message's blocks: each attachment its own (an image or a
+/// PDF, two), then the typed text (theseus-9g2, theseus-c9l6).
 fn user_blocks(
     n: &Node,
     text: &str,
     attachments: &[crate::node::Attachment],
     media: &Media,
-    image_tokens: &mut u64,
+    spend: &mut crate::attach::Spend,
 ) -> Vec<Value> {
     let mut blocks: Vec<Value> = attachments
         .iter()
-        .flat_map(|a| crate::attach::blocks(a, n.author.as_deref(), media, image_tokens))
+        .flat_map(|a| crate::attach::blocks(a, n.author.as_deref(), media, spend))
         .collect();
     if !text.is_empty() || attachments.is_empty() {
         blocks.push(json!({"type": "text", "text": text}));

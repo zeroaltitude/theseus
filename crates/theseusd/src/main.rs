@@ -178,6 +178,15 @@ fn main() -> Result<()> {
     {
         std::process::exit(theseus_kernel::mcp_l1::role_main());
     }
+    // A file's conversion (theseus-c9l6): one request on stdin, its answer on
+    // stdout, under the caps its parent set before the exec. First, before
+    // anything else: no config, no runtime, one thread.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|a| a == theseus_files::convert::ROLE)
+    {
+        std::process::exit(theseus_files::convert::role_main());
+    }
     // The start of every startup phase's clock (theseus-qa0).
     let origin = Instant::now();
     // The commit this binary was built from, a constant (theseus-9o5n):
@@ -236,6 +245,13 @@ fn main() -> Result<()> {
     keep_name();
     if cli.cmd.is_none() {
         adopt_children();
+        // Every file's conversion runs in a capped child of this very image
+        // (theseus-c9l6), registered as the daemon's own: nothing runs now.
+        theseus_files::convert::use_child(
+            "/proc/self/exe".into(),
+            spawn_owned,
+            theseus_files::convert::Limits::DEFAULT,
+        );
     }
     let stdio = cli.stdio;
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -699,6 +715,13 @@ fn exec_self(var: &str, value: &str) -> Result<()> {
 /// and so every child, the flag is set again and the children are learned
 /// again: a live child whose command line is a wrapper's is that job's
 /// wrapper, and any other is an orphan.
+/// A converter's child (theseus-c9l6), registered as one its starter waits
+/// for, so the reaper never takes its status.
+fn spawn_owned(cmd: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+    use theseus_kernel::children;
+    children::spawn(children::Kind::Owned, || cmd.spawn(), |c| Some(c.id()))
+}
+
 fn adopt_children() {
     use theseus_kernel::children;
     if let Err(why) = children::adopt() {

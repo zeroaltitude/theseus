@@ -55,8 +55,9 @@ pub struct ProviderRequest {
     /// Other top-level fields (e.g. `fallbacks`).
     #[serde(default)]
     pub extra: BTreeMap<String, Value>,
-    /// What the request's images are estimated to cost (theseus-9g2), set
-    /// by the compiler, which knows their sizes; never sent.
+    /// What the request's images and PDFs are estimated to cost (theseus-9g2,
+    /// theseus-c9l6), set by the compiler, which knows their sizes and pages;
+    /// never sent.
     #[serde(skip)]
     pub image_tokens: u64,
 }
@@ -214,7 +215,9 @@ impl Census {
                 self.opaque += str_len(&b["signature"]);
             }
             Some("redacted_thinking") => self.opaque += str_len(&b["data"]),
-            Some("image") => {}
+            // Media count by what they show (`ProviderRequest::image_tokens`):
+            // an image by its tiles, a PDF by its pages (theseus-c9l6).
+            Some("image") | Some("document") => {}
             Some("tool_use") => {
                 self.ids += 1;
                 self.json += str_len(&b["name"]) + json_len(&b["input"]);
@@ -228,7 +231,7 @@ impl Census {
                             self.blocks += 1;
                             match x.get("type").and_then(Value::as_str) {
                                 Some("text") => self.json += str_len(&x["text"]),
-                                Some("image") => {}
+                                Some("image") | Some("document") => {}
                                 _ => self.json += json_len(x),
                             }
                         }
@@ -275,14 +278,16 @@ fn json_len<T: Serialize + ?Sized>(v: &T) -> u64 {
     serde_json::to_writer(&mut n, v).map_or(0, |_| n.0)
 }
 
-/// Characters of base64 image data in a message's content, tool results
-/// included.
+/// Characters of base64 image and PDF data in a message's content, tool
+/// results included.
 fn base64_chars(content: &Value) -> usize {
     content.as_array().map_or(0, |blocks| {
         blocks
             .iter()
             .map(|b| match b.get("type").and_then(Value::as_str) {
-                Some("image") => b["source"]["data"].as_str().map_or(0, str::len),
+                Some("image") | Some("document") => {
+                    b["source"]["data"].as_str().map_or(0, str::len)
+                }
                 Some("tool_result") => base64_chars(&b["content"]),
                 _ => 0,
             })

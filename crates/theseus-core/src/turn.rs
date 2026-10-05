@@ -1558,11 +1558,7 @@ impl TurnRunner {
         if let Some(p) = prompt {
             self.write_prompt_input(t, session, p, moved.as_ref())?;
         } else if let Some(text) = &input {
-            let files = crate::attach::from_wire(
-                attachments,
-                self.cfg.tools.max_read_bytes,
-                self.store.blobs(),
-            );
+            let files = self.accept_files(t, attachments);
             let first_file = files.first().map(|a| a.name.clone());
             let node = Node::user_with(sid, Some(turn_id), &author, text, files);
             if session.title.is_none() {
@@ -2485,6 +2481,30 @@ impl TurnRunner {
             t.record(&fact::turn::ProviderRefused { resp });
         }
         Ok(node)
+    }
+
+    /// A message's files as its node keeps them (theseus-9g2, theseus-c9l6),
+    /// and a `file.read` row for each file kept. A message with a file's
+    /// bytes waits on the disk and on its PDF's conversion off the runtime's
+    /// workers; one without runs nothing new.
+    fn accept_files(
+        &self,
+        t: &mut Turn<'_>,
+        wire: Vec<theseus_protocol::Attachment>,
+    ) -> Vec<crate::node::Attachment> {
+        let caps = crate::attach::Caps {
+            max_text: self.cfg.tools.max_read_bytes,
+            max_file: self.cfg.tools.max_attachment_bytes,
+        };
+        let blobs = self.store.blobs();
+        let (files, reads) = match wire.iter().any(|w| w.data.is_some()) {
+            true => theseus_store::blocking(|| crate::attach::from_wire(wire, caps, blobs)),
+            false => crate::attach::from_wire(wire, caps, blobs),
+        };
+        for read in &reads {
+            t.record(&fact::tool::FileRead { read });
+        }
+        files
     }
 
     /// A provider's 400 that names an image (theseus-0s4): mark each image it

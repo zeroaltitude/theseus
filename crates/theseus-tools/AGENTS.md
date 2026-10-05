@@ -13,6 +13,11 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
 - `src/fs.rs` (`fs.read`, `write`, `edit`, `patch`, `glob`, `grep`, `list`), `src/git.rs` (`git.diff`, `git.log`,
   through gitoxide, no git CLI), `src/text.rs` (`text.diff`), `src/proc.rs` (`proc.run`, the escape hatch), and
   `src/image.rs`.
+- **What `fs.read` reads**: text with line numbers; an image as an image (`Media::Image`); a PDF as its pages,
+  `pages` (`3`, `3-5`, `21-`), up to 20 a read and the first 20 without one, cut out as a PDF of their own with
+  their text (`Media::Pdf`, through theseus-files' capped converter; `pdf_pages`, which `http.fetch` shares;
+  theseus-c9l6). A PDF may be 32 MiB, any other file 16. The runtime stores what a tool returns in the blobs
+  (`run_with_media`, and `run_async_with_media` for an async tool).
 - `src/paths.rs`: path resolution the gate can trust: lexical normalization first, then the symlinks of the longest
   prefix that exists. `src/net.rs`: which addresses are not public (the one classification: the core's resolver
   and L1's proxy both read it, since 18c), and an egress list's entry, `Allow` (`host:port`, a glob on the host).

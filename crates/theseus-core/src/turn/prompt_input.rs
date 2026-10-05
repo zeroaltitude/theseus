@@ -28,11 +28,7 @@ impl TurnRunner {
             .messages
             .iter()
             .map(|m| {
-                let files = crate::attach::from_wire(
-                    m.files.clone(),
-                    self.cfg.tools.max_read_bytes,
-                    self.store.blobs(),
-                );
+                let files = self.accept_files(t, m.files.clone());
                 Node::prompt_message(sid, Some(turn_id), &prompt.author, &m.text, files)
             })
             .collect();

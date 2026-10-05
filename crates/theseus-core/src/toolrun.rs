@@ -1636,15 +1636,20 @@ impl ToolRuntime {
             let t0 = Instant::now();
             // A terminal's call needs its session (theseus-n88g.4).
             let run = match tool.family() == crate::term::FAMILY {
-                true => self.terms.run(tool.name(), tc.session_id, &input, &ctx),
-                false => t.run_async(&input, &ctx),
+                true => theseus_tools::with_no_media(self.terms.run(
+                    tool.name(),
+                    tc.session_id,
+                    &input,
+                    &ctx,
+                )),
+                false => t.run_async_with_media(&input, &ctx),
             };
             let mut task = tokio::spawn(run);
             let task_id = task.id();
             // A cancel or a stop aborts it (M4 18a).
             let _reachable = self.stops.track(correlation_id, task.abort_handle());
             let outcome = match tokio::time::timeout(deadline, &mut task).await {
-                Ok(Ok(Ok((out, external)))) => Ok((out, None, external)),
+                Ok(Ok(Ok((out, external, media)))) => Ok((out, media, external)),
                 Ok(Ok(Err(f))) => {
                     failed = f.meta;
                     Err(f.message)
@@ -1673,7 +1678,7 @@ impl ToolRuntime {
                 .cpu
                 .spawn(move || {
                     let t0 = Instant::now();
-                    (t.run_with_image(&input, &ctx), t0.elapsed())
+                    (t.run_with_media(&input, &ctx), t0.elapsed())
                 })
                 .await;
             let started = theseus_protocol::now_unix_ms();
@@ -1707,27 +1712,9 @@ impl ToolRuntime {
         let settled = by_cancel.is_none().then_some(status);
         self.lsp_onto(tc, &call.id, tool.name(), settled, &mut text, &mut meta)
             .await;
-        // An image the tool read goes to the blobs once; the node holds the
-        // reference (theseus-9g2).
-        let image =
-            img.and_then(
-                |d| match crate::attach::store_image(&d.bytes, tc.store.blobs()) {
-                    Ok((info, digest)) => Some(crate::node::Attachment {
-                        name: d.name,
-                        media_type: info.media_type.into(),
-                        size: d.bytes.len() as u64,
-                        content: crate::node::AttachmentContent::Image {
-                            digest,
-                            width: info.width,
-                            height: info.height,
-                        },
-                    }),
-                    Err(why) => {
-                        text.push_str(&format!(" It is not shown: {why}."));
-                        None
-                    }
-                },
-            );
+        // An image or a PDF's pages the tool read go to the blobs once; the
+        // node holds the reference (theseus-9g2, theseus-c9l6).
+        let image = img.and_then(|m| Self::keep_media(tc, tool.name(), m, &mut text));
         let node = self.result_node(
             tc,
             ResultNode {
@@ -1792,6 +1779,56 @@ impl ToolRuntime {
         Ok(CallOutcome::Done { status })
     }
 
+    /// A file a tool read, kept in the blobs for its result node: an image,
+    /// or a PDF's pages with their text, whose `file.read` row is written
+    /// here (theseus-c9l6). What could not be kept says so in the result.
+    fn keep_media(
+        tc: &TurnCtx<'_>,
+        tool: &str,
+        media: theseus_tools::Media,
+        text: &mut String,
+    ) -> Option<crate::node::Attachment> {
+        let blobs = tc.store.blobs();
+        let kept = match media {
+            theseus_tools::Media::Image(d) => {
+                crate::attach::store_image(&d.bytes, blobs).map(|(info, digest)| {
+                    crate::node::Attachment {
+                        name: d.name,
+                        media_type: info.media_type.into(),
+                        size: d.bytes.len() as u64,
+                        content: crate::node::AttachmentContent::Image {
+                            digest,
+                            width: info.width,
+                            height: info.height,
+                        },
+                    }
+                })
+            }
+            theseus_tools::Media::Pdf(p) => {
+                let via = if tool == "http.fetch" {
+                    "http.fetch"
+                } else {
+                    "fs.read"
+                };
+                theseus_store::blocking(|| {
+                    crate::attach::keep_pages(p.name, &p.bytes, &p.read, via, blobs)
+                })
+                .map(|(a, mut read)| {
+                    (read.ms, read.capped) = (p.ms, p.capped);
+                    tc.record(&fact::tool::FileRead { read: &read });
+                    a
+                })
+            }
+        };
+        match kept {
+            Ok(a) => Some(a),
+            Err(why) => {
+                text.push_str(&format!(" It is not shown: {why}."));
+                None
+            }
+        }
+    }
+
     /// An in-process result's completion frame, and what the kernel did with
     /// it. A result marked external (DD5) that its session is the first to
     /// read since it was last trusted brings the session's hold in the same
@@ -1826,7 +1863,7 @@ fn failure(
     ResultStatus,
     String,
     Value,
-    Option<theseus_tools::ImageData>,
+    Option<theseus_tools::Media>,
     Option<theseus_tools::External>,
 ) {
     let status = match meta.get("outcome_unknown").and_then(Value::as_bool) {

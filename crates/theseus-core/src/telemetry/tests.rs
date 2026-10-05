@@ -171,7 +171,7 @@ pub(super) fn pipeline(endpoint: &str, headers: Option<&Secret>, t: Tuning) -> T
     tel
 }
 
-async fn flushed(tel: &Telemetry) {
+pub(super) async fn flushed(tel: &Telemetry) {
     assert!(
         tel.flush(Duration::from_secs(10)).await,
         "flushed within 10 s"
@@ -180,7 +180,14 @@ async fn flushed(tel: &Telemetry) {
 
 // ---------------------------------------------------------------- traces
 
-fn s(name: &str, kind: &str, start: u64, end: u64, attrs: Value, children: Vec<Span>) -> Span {
+pub(super) fn s(
+    name: &str,
+    kind: &str,
+    start: u64,
+    end: u64,
+    attrs: Value,
+    children: Vec<Span>,
+) -> Span {
     Span {
         name: name.into(),
         kind: kind.into(),
@@ -435,7 +442,7 @@ fn sample_trace() -> Span {
     t.finish(json!({"outcome": "complete"}))
 }
 
-fn result_with(trace: Span) -> TurnSubmitResult {
+pub(super) fn result_with(trace: Span) -> TurnSubmitResult {
     TurnSubmitResult {
         session_id: "s".into(),
         turn_id: "t1".into(),

@@ -100,6 +100,37 @@ pub enum AttachmentContent {
     },
     /// Not read, and why (too large, a type that is not read, a failed download).
     NotRead { reason: String },
+    /// A file kept whole in the store's blobs by the SHA-256 of its bytes
+    /// (theseus-c9l6): a PDF, which a model that reads PDFs reads as a
+    /// document and any other model as its text. What was made of it when it
+    /// arrived is in the blobs too, by digest, so every later render reads
+    /// the same bytes. `media_type` is the type its bytes say, and `size`
+    /// its bytes.
+    File {
+        digest: String,
+        /// A PDF's pages.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pages: Option<u32>,
+        /// The blob of its text, one string per page (JSON), when it was read.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        /// Its first pages as PDFs of their own, fewest pages first, for a
+        /// request that cannot carry the whole file (`attach::PAGE_LIMITS`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        parts: Vec<FilePart>,
+        /// Why its text was not read when it arrived.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unread: Option<String>,
+    },
+}
+
+/// A file's first pages as a PDF of their own (theseus-c9l6), in the blobs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FilePart {
+    /// It holds pages 1 to `last`.
+    pub last: u32,
+    pub digest: String,
+    pub bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -175,7 +206,9 @@ pub enum Body {
         #[serde(default)]
         meta: Value,
         /// An image the tool returned (`fs.read` of a PNG), stored once in
-        /// the blobs like an attached one (theseus-9g2).
+        /// the blobs like an attached one (theseus-9g2); or a PDF's pages
+        /// (`fs.read` with `pages`, `http.fetch` of a PDF), a `File`
+        /// (theseus-c9l6). The name stays `image`, so older nodes read.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image: Option<Attachment>,
         /// Its text came from outside, from this URL (`http.fetch`,

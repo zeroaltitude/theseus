@@ -24,6 +24,7 @@ members = [
     "crates/theseus-aws",
     "crates/theseus-voice",
     "crates/theseus-tui",
+    "crates/theseus-files",
 ]
 
 # Beyond clippy's defaults, held by the gate's `-D warnings` (theseus-0g4).
@@ -54,6 +55,7 @@ theseus-kernel = { path = "crates/theseus-kernel" }
 theseus-tools = { path = "crates/theseus-tools" }
 theseus-sandbox = { path = "crates/theseus-sandbox" }
 theseus-discord = { path = "crates/theseus-discord" }
+theseus-files = { path = "crates/theseus-files" }
 
 anyhow = "1"
 base64 = "0.22"

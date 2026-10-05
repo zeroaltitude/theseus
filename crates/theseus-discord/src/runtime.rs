@@ -282,7 +282,10 @@ async fn connect(
         notice_embeds: cfg.notice_embeds,
         routes: Mutex::new(Routes::default()),
         files_http: files::client(),
-        max_text: core.cfg.tools.max_read_bytes as u64,
+        caps: files::Caps {
+            max_text: core.cfg.tools.max_read_bytes as u64,
+            max_file: core.cfg.tools.max_attachment_bytes,
+        },
         members_intent: OnceLock::new(),
         lanes: Mutex::new(HashMap::new()),
         voice: voice::Voice::new(&core.cfg.voice, bindings),
@@ -568,8 +571,9 @@ pub(crate) struct Shared {
     routes: Mutex<Routes>,
     /// Downloads a message's attachments (theseus-9g2).
     files_http: reqwest::Client,
-    /// `[tools].max_read_bytes`: the largest text attachment downloaded.
-    max_text: u64,
+    /// The largest text attachment downloaded (`[tools].max_read_bytes`),
+    /// and the largest other file (`[tools].max_attachment_bytes`).
+    caps: files::Caps,
     /// The portal has the Server Members intent on: a listed guild channel's
     /// viewers can be checked (theseus-sgh). Asked on first need.
     members_intent: OnceLock<bool>,
@@ -1179,7 +1183,7 @@ impl Shared {
             let task = tokio::spawn(files::fetch_all(
                 self.files_http.clone(),
                 metas.clone(),
-                self.max_text,
+                self.caps,
             ));
             Pending { metas, task }
         });
@@ -2360,7 +2364,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         notice_embeds: false,
         routes: Mutex::new(Routes::default()),
         files_http: files::client(),
-        max_text: 0,
+        caps: files::Caps::default(),
         members_intent: OnceLock::new(),
         lanes: Mutex::new(HashMap::new()),
         voice: voice::Voice::none(),

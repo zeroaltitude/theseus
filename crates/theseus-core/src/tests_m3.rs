@@ -4778,9 +4778,10 @@ async fn fs_read_of_a_png_returns_an_image_block() {
     assert_eq!(blob_files(&r), 1);
 }
 
-/// An image over 5 MiB is not stored and the model reads the reason.
+/// An image over 5 MiB is not shown: the file is kept whole (theseus-c9l6),
+/// and the model reads why it is not shown.
 #[tokio::test]
-async fn a_six_megabyte_image_is_refused_with_the_reason() {
+async fn a_six_megabyte_image_is_kept_and_not_shown_with_the_reason() {
     let r = rig(vec![Scripted::text("Too big.")]);
     let bytes = crate::attach::tests::png(4000, 3000, 6 * 1024 * 1024);
     let res = submit(
@@ -4792,10 +4793,10 @@ async fn a_six_megabyte_image_is_refused_with_the_reason() {
     assert_eq!(
         last_user_blocks(&r),
         vec![
-            json!({"type": "text", "text": "[Attachment huge.png from discord:eddie, image/png, 6.0 MB: not read: an image over the 5 MiB limit]"})
+            json!({"type": "text", "text": "[File huge.png from discord:eddie, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit]"})
         ]
     );
-    assert_eq!(blob_files(&r), 0);
+    assert_eq!(blob_files(&r), 1, "kept whole");
 }
 
 // ------------------------------------------------- an image the provider refuses (theseus-0s4)

@@ -12,7 +12,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   and `render` (what a terminal shows of answers and events, as lines, each a text with a style tag).
 - `src/main.rs`: the arguments, the connection, and a short `run` that matches the subcommand. A shared file: a lane
   changes it only at its join.
-- `src/cmd.rs`: one function per subcommand, and `output()`. `tui` connects nothing: it execs `theseus-tui`, found
+- `src/cmd.rs`: one function per subcommand, and `output()`. `ask --attach FILE` sends a text file's text and any
+  other file's bytes, up to 32 MiB, for the daemon to keep and read (an image, a PDF; theseus-c9l6). `tui` connects nothing: it execs `theseus-tui`, found
   beside this binary or else on PATH, with `--socket` first and the arguments after it (step 10f).
 - `src/print.rs`: the `Printer`, which writes the library's lines in one of four modes: `Text` (`ask`), `Quiet`
   (`ask --no-stream`), `Watch` (`watch`), and `Json`.

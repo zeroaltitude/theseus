@@ -298,6 +298,9 @@ pub struct Typed<'a> {
     pub name: &'a str,
     pub channel: Option<u64>,
     pub content: &'a str,
+    /// A file attached to it (theseus-c9l6): the fake reads it and serves
+    /// its bytes at the attachment's URL, as Discord's CDN does.
+    pub file: Option<&'a std::path::Path>,
 }
 
 /// A press of a button on a posted message, found by its label or its
@@ -384,6 +387,9 @@ struct State {
     /// The file the guild is read from again at every request (M4 19c), so a
     /// live check can change who can view a channel while a turn runs.
     guild_file: Option<PathBuf>,
+    /// Each typed message's attached file, by its URL's path
+    /// (`attachments/<id>/<name>`): its type and bytes (theseus-c9l6).
+    files: BTreeMap<String, (String, Vec<u8>)>,
 }
 
 pub struct FakeDiscord {
@@ -606,6 +612,15 @@ impl FakeDiscord {
     /// not be sent.
     pub fn say(&self, t: &Typed<'_>) -> Result<String, String> {
         let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
+        let file = match t.file {
+            Some(p) => Some((
+                p.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "file".into()),
+                std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?,
+            )),
+            None => None,
+        };
         let (at, id) = {
             let mut st = self.state.lock().unwrap();
             let at = match t.channel {
@@ -647,7 +662,23 @@ impl FakeDiscord {
             .filter_map(|u| u.parse().ok())
             .map(|u| (u, u == BOT_ID))
             .collect();
-        let d = fake_gateway::message_create(id, at, (t.user, t.name), t.content, &mentioned);
+        let mut d = fake_gateway::message_create(id, at, (t.user, t.name), t.content, &mentioned);
+        if let Some((name, bytes)) = file {
+            let kind = if name.to_ascii_lowercase().ends_with(".pdf") {
+                "application/pdf"
+            } else {
+                "application/octet-stream"
+            };
+            let path = format!("attachments/{id}/{name}");
+            let url = format!("http://{}/{path}", self.addr);
+            d["attachments"] = json!([{"id": (id + 1_000_000).to_string(), "filename": name,
+                "size": bytes.len(), "url": url, "proxy_url": url, "content_type": kind}]);
+            self.state
+                .lock()
+                .unwrap()
+                .files
+                .insert(path, (kind.to_string(), bytes));
+        }
         if !gw.dispatch("MESSAGE_CREATE", d) {
             return Err("no client is connected to the gateway".into());
         }
@@ -763,6 +794,24 @@ impl FakeDiscord {
             return reply(stream, 200, &v);
         }
         match (method.as_str(), segs.as_slice()) {
+            ("GET", ["attachments", ..]) => {
+                let file = self
+                    .state
+                    .lock()
+                    .unwrap()
+                    .files
+                    .get(route.trim_matches('/'))
+                    .cloned();
+                self.record(seen("GET", route, "file"));
+                match file {
+                    Some((kind, bytes)) => reply_bytes(stream, &kind, &bytes),
+                    None => reply(
+                        stream,
+                        404,
+                        &json!({"message": "Unknown attachment", "code": 0}),
+                    ),
+                }
+            }
             ("GET", ["channels", c]) => self.channel_read(stream, route, c),
             ("GET", ["guilds", g, rest @ ..]) => self.guild_read(stream, route, g, rest, &full),
             ("POST" | "PATCH", ["interactions" | "webhooks", ..]) => {
@@ -1160,12 +1209,16 @@ impl FakeDiscord {
             Err(e) => (409, json!({"error": e})),
         };
         let (status, out) = match (method, rest) {
-            ("POST", ["say"]) => sent(self.say(&Typed {
-                user: n("user").unwrap_or(0),
-                name: &s("name"),
-                channel: n("channel"),
-                content: &s("content"),
-            })),
+            ("POST", ["say"]) => {
+                let file = s("file");
+                sent(self.say(&Typed {
+                    user: n("user").unwrap_or(0),
+                    name: &s("name"),
+                    channel: n("channel"),
+                    content: &s("content"),
+                    file: (!file.is_empty()).then(|| std::path::Path::new(&file)),
+                }))
+            }
             ("POST", ["press"]) => sent(self.press(&Pressed {
                 message: &s("message"),
                 button: &s("button"),
@@ -1311,6 +1364,18 @@ fn message_json(m: &Msg) -> Value {
         "mention_everyone": false, "mentions": mentions, "mention_roles": [], "attachments": [], "embeds": [],
         "pinned": false, "type": 0, "nonce": m.nonce,
     })
+}
+
+/// A file's bytes, as a CDN answers them (theseus-c9l6).
+fn reply_bytes(mut stream: TcpStream, kind: &str, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bytes.len()
+    )?;
+    stream.write_all(bytes)?;
+    stream.flush()
 }
 
 fn reply(mut stream: TcpStream, status: u16, body: &Value) -> std::io::Result<()> {
@@ -1577,6 +1642,7 @@ mod tests {
             name: "ana",
             channel: Some(LAB),
             content: &typed,
+            file: None,
         })
         .unwrap();
         let m: twilight_model::channel::Message =
@@ -1617,6 +1683,7 @@ mod tests {
             name: "ana",
             channel: None,
             content: "in the DM",
+            file: None,
         })
         .unwrap();
         let dm: twilight_model::channel::Message =

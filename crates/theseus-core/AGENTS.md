@@ -15,6 +15,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   headless run ends with its turn: theseus-7gir.21).
 - **Context**: `compiler.rs` (manifests, recompiles, the cache layout, the token estimate), `context_files.rs`, and
   `catalog.rs` (each model's window, prices, and caching).
+  - **Files given to the model** (theseus-9g2, theseus-c9l6): `attach.rs` and `blobs.rs`. A message's files: text as
+    text (`[tools] max_read_bytes`), an image as an image, and any other file kept whole in the store's blobs up to
+    `[tools] max_attachment_bytes` (32 MiB), a `File`. A PDF is read once, when it arrives, in theseus-files' capped
+    child (`theseus_files::convert`; the turn's `accept_files`, under `theseus_store::blocking`): its pages, its text
+    by page (a JSON blob), and a part of its first pages for each page limit it passes (100, 600) or the request's
+    byte budget (18 MiB). A `file.read` row each, with its span and `theseus.file.read.duration`. The compiler
+    renders a PDF per model (`catalog`'s `pdf`): a `document` block (the whole file, or the largest part the request
+    has room for, with a line saying what was left out), else its text by page (GLM, a PDF the provider refused, one
+    the request has no room for). PDFs are budgeted in render order (`attach::Spend`), so an earlier one never
+    renders differently because of a later one, and the cached prefix holds. `fs.read` and `http.fetch` return a
+    PDF's pages (`theseus_tools::Media::Pdf`), kept the same way (`toolrun::keep_media`). Tests: `attach.rs`'s, and
+    theseusd's `tests/files.rs`, which run the real converter and a turn per model.
   - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the
     clock passed in as `CompileInput.signals`, never read there): a dormancy gap, the tail crossing its soft band,
     a task report or a wake arriving, and a provider cache miss, each against what was written since the model's

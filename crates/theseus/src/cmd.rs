@@ -1722,13 +1722,16 @@ fn trust_target(held: &[theseus_protocol::ExternalTextInfo], session: &str) -> R
     }
 }
 
-/// The largest file `ask --attach` sends; the daemon caps text further, at
-/// `[tools].max_read_bytes`.
-const MAX_ATTACH_BYTES: u64 = 16 * 1024 * 1024;
+/// The largest file `ask --attach` sends: the daemon's default
+/// `[tools] max_attachment_bytes` (theseus-c9l6), which it applies again; it
+/// caps text further, at `[tools].max_read_bytes`.
+const MAX_ATTACH_BYTES: u64 = 32 * 1024 * 1024;
 
 /// One `--attach` file as `turn.submit` carries it (theseus-9g2): a text
-/// file's text, or the file listed with the reason it was not read. A file
-/// that cannot be opened stops the command, before anything is sent.
+/// file's text, any other file's bytes for the daemon to keep and read (an
+/// image, a PDF; theseus-c9l6), or the file listed with the reason it was
+/// not read. A file that cannot be opened stops the command, before
+/// anything is sent.
 fn attachment_for(path: &std::path::Path) -> Result<theseus_protocol::Attachment> {
     let meta = std::fs::metadata(path).with_context(|| format!("--attach {}", path.display()))?;
     if meta.is_dir() {
@@ -1743,7 +1746,7 @@ fn attachment_for(path: &std::path::Path) -> Result<theseus_protocol::Attachment
         ..Default::default()
     };
     if meta.len() > MAX_ATTACH_BYTES {
-        a.not_read = Some("over the 16 MiB limit for --attach".into());
+        a.not_read = Some("over the 32 MiB limit for --attach".into());
         return Ok(a);
     }
     let bytes = std::fs::read(path).with_context(|| format!("--attach {}", path.display()))?;
@@ -1756,15 +1759,10 @@ fn attachment_for(path: &std::path::Path) -> Result<theseus_protocol::Attachment
         Ok(text) => text.into_bytes(),
         Err(e) => e.into_bytes(),
     };
-    // Not text: its bytes, when an image could be this small. The daemon
-    // reads the type from the bytes and keeps only an image.
-    if bytes.len() as u64 <= theseus_protocol::MAX_IMAGE_BYTES {
-        use base64::Engine as _;
-        a.data = Some(base64::engine::general_purpose::STANDARD.encode(&bytes));
-    } else {
-        a.media_type = "application/octet-stream".into();
-        a.not_read = Some("not a text file, and over the 5 MiB limit for images".into());
-    }
+    // Not text: its bytes. The daemon reads the type from them, keeps an
+    // image as an image and any other file whole, and reads a PDF.
+    use base64::Engine as _;
+    a.data = Some(base64::engine::general_purpose::STANDARD.encode(&bytes));
     Ok(a)
 }
 

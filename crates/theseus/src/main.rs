@@ -399,8 +399,8 @@ struct AskArgs {
     #[arg(long)]
     thinking: bool,
     /// Send a file with the prompt (repeatable), as a Discord attachment is sent: a text
-    /// file's text, labeled with its name, or an image (PNG, JPEG, GIF, WebP, up to 5 MiB);
-    /// anything else is listed with the reason.
+    /// file's text, labeled with its name; an image (PNG, JPEG, GIF, WebP); a PDF, which the
+    /// model reads page by page; or any other file up to 32 MiB, kept for the model.
     #[arg(long = "attach", value_name = "FILE")]
     attach: Vec<PathBuf>,
 }

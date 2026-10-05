@@ -31,6 +31,8 @@ One line each; a crate's key modules and its readers are in its own `AGENTS.md`.
 - `theseus-store`: The keel: a WAL of checksummed atomic frames (the truth), and a redb index rebuilt from it.
 - `theseus-kernel`: The durable kernel: executions, actions, completions, the spool, budgets, locks, tasks, wakes, stops, the outbox's actions, the job wrapper.
 - `theseus-tools`: Toollets: `fs.*`, `git.diff`, `git.log`, `text.diff`, and `proc.run`'s spec.
+- `theseus-files`: Files people give the model, read for it: a PDF's pages, its text by page, and a range of its
+  pages, each conversion in a child with a time limit and a memory cap (theseus-c9l6).
 - `theseus-core`: The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools.
 - `theseus-aws-catalog`, `theseus-aws`: Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1).
 - `theseus-discord`: The Discord binding, in-process; it acts through the protocol.
