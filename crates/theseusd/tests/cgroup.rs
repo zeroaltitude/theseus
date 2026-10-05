@@ -104,6 +104,9 @@ impl Drop for Scope {
             .status();
         let _ = self.holder.kill();
         let _ = self.holder.wait();
+        // Systemd leaves its cgroup when a job's was still there as it
+        // stopped: empty now, it goes.
+        let _ = std::fs::remove_dir(&self.dir);
     }
 }
 
@@ -220,6 +223,13 @@ fn a_job_past_its_cap_is_refused_new_processes_and_its_completion_says_so() {
     assert!(d["pids_refused"].as_u64().unwrap_or(0) > 0, "{d}");
     assert_eq!(d["pids_max"], 10, "{d}");
     assert!(d["cpu_us"].as_u64().is_some(), "{d}");
+    // Its sleepers end within 2 s, and its wrapper then removes its cgroup.
+    let job = scope.dir.join("job-act_cap");
+    wait_for(
+        "the job's cgroup to be removed",
+        Duration::from_secs(20),
+        || (!job.exists()).then_some(()),
+    );
 }
 
 /// The 219 case (theseus-gyin's cut, survey card 5): a unit as `theseusd
@@ -290,6 +300,12 @@ fn a_unit_restarts_while_a_job_lives_in_its_cgroup() {
     );
     let v = job::terminate(&rig.spool, wrapper, "act_alive", Duration::from_millis(300));
     assert!(v.verified(), "{v:?}");
+    let job = jobs.dir.join("job-act_alive");
+    wait_for(
+        "the job's cgroup to be removed",
+        Duration::from_secs(20),
+        || (!job.exists()).then_some(()),
+    );
     drop(stop);
 }
 
@@ -346,11 +362,16 @@ struct Stop(String);
 
 impl Drop for Stop {
     fn drop(&mut self) {
+        let dir = unit_dir(&self.0);
         for verb in ["stop", "reset-failed"] {
             let _ = Command::new("systemctl")
                 .args(["--user", verb, &self.0])
                 .stderr(Stdio::null())
                 .status();
+        }
+        // As a scope's: a cgroup systemd left, now empty.
+        if let Some(d) = dir {
+            let _ = std::fs::remove_dir(d);
         }
     }
 }
