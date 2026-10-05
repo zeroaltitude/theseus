@@ -425,7 +425,13 @@ impl TurnRunner {
         let sid = t.tc.session_id;
         let nodes = t.tc.store.transcript(sid)?;
         let from = detour_start(&nodes, self.cfg.routing.trivial_context_turns);
-        let nodes: Vec<_> = nodes[from..].to_vec();
+        // A detour admits no recall and no summary (35a): its last exchanges
+        // and the message.
+        let nodes: Vec<_> = nodes[from..]
+            .iter()
+            .filter(|(_, n)| !matches!(n.body, Body::Recall { .. } | Body::Summary { .. }))
+            .cloned()
+            .collect();
         let sources = crate::recall::render::Sources::default();
         let mut detour = spec.clone();
         detour.context_text = String::new();
@@ -447,7 +453,12 @@ impl TurnRunner {
             sources: &sources,
             signals: None,
             assembled: None,
+            situation: &crate::compiler::situation::Situation::Detour,
         });
+        let last = self.store.last_position();
+        if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
+            return Ok(Err(f));
+        }
         t.record(&fact::turn::LoopStarted {
             turn_id: t.tc.turn_id,
             index: i,

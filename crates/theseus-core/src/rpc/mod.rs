@@ -657,6 +657,7 @@ impl Core {
             place_rule: Default::default(),
             // Built after serving, by one META scan (theseus-8kk.1).
             ontology: Default::default(),
+            run_compiles: Default::default(),
             judge,
         };
         // Every call that acts goes to the judge at its gate (M5 step 24).

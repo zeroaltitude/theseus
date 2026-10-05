@@ -34,7 +34,9 @@ use theseus_store::{frames_written_here, NewRecord};
 use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
-use crate::compiler::{compile, CompileInput, Compiled, Overflowed, Recompile, RequestSpec};
+use crate::compiler::{
+    compile, situation, CompileInput, Compiled, Overflowed, Recompile, RequestSpec,
+};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::fact::{self, Fact, To};
@@ -59,6 +61,7 @@ mod prompt_input;
 mod recall_step;
 mod rerank_step;
 mod route_step;
+pub(crate) mod situation_step;
 
 /// The persona at the front of every system prompt. Frozen text: it sits at
 /// the start of the cached prefix, so it never interpolates anything.
@@ -137,6 +140,8 @@ pub struct TurnRunner {
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
     /// judges in a task of its own; the turn never waits on it.
     pub judge: Arc<crate::judge::JudgeService>,
+    /// The sessions this run has compiled: the first with nothing new resumes (35a).
+    pub run_compiles: situation::RunCompiles,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's

@@ -219,6 +219,12 @@ const SAMPLES: &[Sample] = &[
         kept: Kept::All,
     },
     Sample {
+        kind: kinds::COMPILATION,
+        layout: "13 (30c, theseus-6fn.4): a compaction's compilation with its budget and an assembled prefix's recall_id (unchanged through 15), before its situation (16, M6 35a); by hand, in the layout the build before 35a (d5a4b80) writes",
+        bytes: r#"{"id":"cmp_00000000000000000000000000000131","schema":1,"session_id":"ses_lighthouse","created_at_ms":1790000000131,"trigger":"overflow","strategy":"compaction","as_of":57,"includes":["sum_00000000000000000000000000000133","msg_00000000000000000000000000000132"],"derived_from":"cmp_00000000000000000000000000000081","manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-10-01","context_window":40000,"strip_thinking":true,"cache":{"caches":true,"min_tokens":2048,"blocks":[{"block":"header","prefix_bytes":9000,"marked":true}]}},"budget":{"limit_tokens":33904,"used_tokens":8012,"dropped":[{"range":{"first":"msg_00000000000000000000000000000081","last":"msg_00000000000000000000000000000131","nodes":14},"reason":"overflow","tokens":21000,"tier":"compaction"}]},"recall_id":"rcn_00000000000000000000000000000134"}"#,
+        kept: Kept::All,
+    },
+    Sample {
         kind: kinds::LEDGER,
         layout: "a row of a kind no build writes now (theseus-w5op): 18d's secret.requested",
         bytes: r#"{"at_unix_ms":1790000000047,"kind":"secret.requested","session_id":"ses_lighthouse","data":{"command":"sh","correlation_id":"act_00000000000000000000000000000047","job":"act_00000000000000000000000000000043","kind":"secret","outcome":"granted","posture":"notify","secret":"github_token","setting":"proc.run ran at notify","why":null}}"#,

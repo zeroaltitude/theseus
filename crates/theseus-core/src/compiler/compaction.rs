@@ -157,6 +157,7 @@ pub fn compact(
         cache: cache_layout(&spec, input.catalog),
         withheld: ring.withheld,
         signals: ring.signals.clone(),
+        situation: ring.situation.clone(),
         request,
     }
 }
