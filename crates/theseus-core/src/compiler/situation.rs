@@ -33,6 +33,13 @@ use crate::node::{Body, Node};
 
 pub use theseus_protocol::Situation;
 
+/// The precedence line (§2.11), after the persona in the system's header:
+/// fixed text, never a model's or a note's. Static, so it costs each
+/// session one `system_changed` recompile, the day it ships.
+pub const PRECEDENCE: &str = "When sources disagree, trust them in this order: what this turn's \
+tools just returned; the operator's current request; the recent conversation; older conversation \
+and summaries; recalled notes, which are dated testimony.";
+
 /// The class of one piece of a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Class {

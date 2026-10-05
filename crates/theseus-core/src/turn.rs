@@ -707,7 +707,7 @@ impl TurnRunner {
         files: &[ContextFile],
         place: crate::ceiling::PlaceView,
     ) -> (String, String) {
-        let mut parts = vec![PERSONA.to_string()];
+        let mut parts = vec![PERSONA.to_string(), situation::PRECEDENCE.to_string()];
         let note = self.tools.system_note_for(place);
         if !note.is_empty() {
             parts.push(note);

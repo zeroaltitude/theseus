@@ -2,6 +2,9 @@
 //! - each compile records its situation on `context.compiled`, and a new
 //!   compilation stores it: a conversation's first compile, then
 //!   continuations;
+//! - the precedence line follows the persona in the system's header, and a
+//!   compilation made before it recompiles once (`system_changed`), then
+//!   appends;
 //! - a resume (a new core on the same store, a turn that brings nothing)
 //!   renders the manifest's prefix byte for byte and recalls nothing;
 //! - a compilation whose assembled recall section is gone does not close:
@@ -17,6 +20,7 @@ use theseus_protocol::{SessionKind, TurnSubmitResult};
 use theseus_store::{kinds, NewRecord};
 
 use crate::bus::EventSink;
+use crate::compiler::situation::PRECEDENCE;
 use crate::compiler::Compilation;
 use crate::config::MemoryMode;
 use crate::node::{Body, Node};
@@ -25,7 +29,7 @@ use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::tests_recall::index_of;
 use crate::turn::situation_step::UNADMITTED_CLASS;
-use crate::turn::{TurnError, TurnRequest};
+use crate::turn::{TurnError, TurnRequest, PERSONA};
 use crate::{Config, Core};
 
 const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook.";
@@ -124,6 +128,46 @@ async fn each_compile_records_its_situation() {
         c.situation,
         Some(crate::compiler::situation::Situation::ConversationStart)
     );
+}
+
+/// The precedence line sits after the persona, in the header every session
+/// of the profile shares. A compilation made before it (its system digest
+/// another) recompiles once, `system_changed`, and the next turn appends.
+#[tokio::test]
+async fn the_precedence_line_costs_one_system_changed_recompile_then_appends() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::default());
+    let core = build(dir.path(), model.clone());
+    let sid = session(&core, &[]);
+    run(&core, &sid, Some("Is the lamp lit?")).await.unwrap();
+    let header = model.requests()[0].system[0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        header.starts_with(&format!("{PERSONA}\n\n{PRECEDENCE}\n\n")),
+        "after the persona: {header}"
+    );
+    assert!(PRECEDENCE.starts_with("When sources disagree, trust them in this order: "));
+    assert!(PRECEDENCE.ends_with("recalled notes, which are dated testimony."));
+
+    // As the build before it wrote the compilation: another header.
+    let mut old = current(&core, &sid);
+    old.manifest.system_digest = "0123456789abcdef".into();
+    old.situation = None;
+    rewrite(&core, &old);
+    run(&core, &sid, Some("And the fog bell?")).await.unwrap();
+    run(&core, &sid, Some("And the tide?")).await.unwrap();
+    let compiled = rows(&core, "context.compiled");
+    assert_eq!(compiled[1]["decision"], "recompile");
+    assert_eq!(compiled[1]["trigger"], "system_changed");
+    assert_eq!(compiled[1]["situation"]["kind"], "recompile");
+    assert_eq!(compiled[1]["situation"]["trigger"], "system_changed");
+    assert_eq!(
+        compiled[2]["decision"], "append",
+        "one recompile, then appends"
+    );
+    assert_eq!(compiled[2]["situation"]["kind"], "continuation");
 }
 
 /// A turn that faults with a call unanswered, a restart, and its
