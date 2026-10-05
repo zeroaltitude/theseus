@@ -46,7 +46,7 @@ use crate::bindings::{snowflake, Bindings, ChannelBinding, DmBinding};
 use crate::courier::{Lane, LaneMsg};
 
 /// How often the file is stat'ed.
-pub(super) const PERIOD: Duration = Duration::from_secs(2);
+pub(crate) const PERIOD: Duration = Duration::from_secs(2);
 
 /// What a stat of the file says moved: its mtime, size, and inode. None when
 /// it cannot be read.
@@ -78,6 +78,9 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
     // What the board says while the file does not load, or what waits for
     // the next start.
     let mut note: Option<String> = None;
+    // The last failure said: a save seen mid-write fails twice alike, and is
+    // said once.
+    let mut said: Option<String> = None;
     loop {
         tick.tick().await;
         let now = stamp(&path).await;
@@ -95,11 +98,18 @@ pub(super) async fn watch(shared: Arc<Shared>, path: PathBuf, mut bound: Binding
                      does: {why}",
                     bound.revision
                 );
-                shared.board.error("bindings file", None, &why);
+                if said.as_ref() != Some(&why) {
+                    shared.board.error("bindings file", None, &why);
+                    said = Some(why);
+                }
                 set(&shared.board, &mut note, Some(n));
             }
-            Ok(new) if new.revision == bound.revision => set(&shared.board, &mut note, None),
+            Ok(new) if new.revision == bound.revision => {
+                said = None;
+                set(&shared.board, &mut note, None);
+            }
             Ok(mut new) => {
+                said = None;
                 let waits = shared.apply(&bound, &mut new).await;
                 set(&shared.board, &mut note, waits);
                 bound = new;

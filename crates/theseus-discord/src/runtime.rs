@@ -60,6 +60,8 @@ mod live;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
+#[cfg(test)]
+pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
 mod voice;
