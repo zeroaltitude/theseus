@@ -23,13 +23,6 @@ leak-timeout = "500ms"
 filter = 'package(theseusd) & test(=a_stdio_daemon_stops_cleanly_on_a_sigterm_or_a_sigint)'
 retries = 2
 #
-# theseus-81ig: 37a's check that a wake series was put back counts what a kernel sim with a
-# raced second thread took, and some runs take no repeating wake (0 put back in 1 run of 6,
-# load 8; lane sparse-config's second gate, 2026-10-03 19:51).
-[[profile.default.overrides]]
-filter = 'package(theseus-sim) & test(=the_kernel_holds_its_invariants_under_seeded_faults)'
-retries = 2
-#
 # theseus-81kk: watch_secrets appends secrets.resolved whenever the secrets settle, so a vault (here
 # a fake op) slowed by a loaded machine can settle after the stop's last checkpoint, and the next
 # start replays that one row (replayed_into_index 1; lane bench-plumbing's gate, 2026-10-03 18:15).

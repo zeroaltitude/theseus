@@ -82,11 +82,26 @@ fn a_store_another_process_holds_is_refused_and_nothing_is_moved() {
     assert!(s.stats().unwrap().index_moved_aside.is_none());
 }
 
+/// The TOTAL line's count before `what`.
+fn count(out: &str, what: &str) -> u64 {
+    let total = out.lines().find(|l| l.starts_with("TOTAL")).unwrap_or("");
+    total
+        .split(what)
+        .next()
+        .and_then(|s| s.rsplit(' ').next())
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0)
+}
+
 /// The kernel under seeded crashes and lost, duplicate, and late completions,
-/// opening executions the way the product does (`open_execution`), with a
-/// share of its turns raced by a second OS thread (theseus-id9): every
+/// opening executions the way the product does (`open_execution`): every
 /// invariant holds after every step. Some calls wait for the operator, and
 /// cancels end some of them unsent (theseus-w98).
+///
+/// The coverage counts are read from a run with no second thread
+/// (`--p-race 0`), which reproduces from its seeds throughout, so each count
+/// is the same on every run (theseus-81ig): a raced run reproduces only up to
+/// its first race, and whether it takes a repeating wake, say, varies.
 #[test]
 fn the_kernel_holds_its_invariants_under_seeded_faults() {
     let out = sim(&[
@@ -97,46 +112,54 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         "2",
         "--steps",
         "300",
+        "--p-race",
+        "0",
     ]);
     assert!(out.contains("all invariants held"), "{out}");
-    let raced: u64 = out
-        .split(" raced turns")
-        .next()
-        .and_then(|s| s.rsplit(' ').next())
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(0);
-    assert!(raced > 0, "no turn was raced: {out}");
-    // The TOTAL line's count before `what`.
     let total = out.lines().find(|l| l.starts_with("TOTAL")).unwrap_or("");
-    let count = |what: &str| -> u64 {
-        total
-            .split(what)
-            .next()
-            .and_then(|s| s.rsplit(' ').next())
-            .and_then(|n| n.parse().ok())
-            .unwrap_or(0)
-    };
+    assert_eq!(count(&out, " raced turns"), 0, "{total}");
     assert!(
-        count(" calls asked the operator") > 0,
+        count(&out, " calls asked the operator") > 0,
         "no call asked: {total}"
     );
     assert!(
-        count(" unsent actions a cancel ended") > 0,
+        count(&out, " unsent actions a cancel ended") > 0,
         "no cancel ended an unsent action: {total}"
-    );
-    // Kernel transactions on the racing thread (theseus-0owd). These two
-    // seeds answer no question; longer runs count the answers, each one
-    // frame with its wake (theseus-jj9f).
-    assert!(
-        count(" of them transactions") > 0,
-        "no racing thread ran a transaction: {total}"
     );
     // Wakes, one-shot and repeating (37a): series put back at their next
     // occurrence, and occurrences a crash passed over.
-    assert!(count(" repeating;") > 0, "no series was set: {total}");
+    assert!(count(&out, " repeating;") > 0, "no series was set: {total}");
     assert!(
-        count(" series put back") > 0,
+        count(&out, " series put back") > 0,
         "no series was put back: {total}"
+    );
+}
+
+/// The same seeds with a share of the turns raced by a second OS thread on
+/// the same execution (theseus-id9): every invariant holds after every step,
+/// however the threads interleave. Only what the seeds fix up to the first
+/// race is counted: that turns were raced, and that the racing thread ran a
+/// kernel transaction (theseus-0owd), which a run's first race always does.
+#[test]
+fn the_kernel_holds_its_invariants_with_raced_turns() {
+    let out = sim(&[
+        "kernel-sim",
+        "--seed",
+        "1",
+        "--seeds",
+        "2",
+        "--steps",
+        "300",
+    ]);
+    assert!(out.contains("all invariants held"), "{out}");
+    let total = out.lines().find(|l| l.starts_with("TOTAL")).unwrap_or("");
+    assert!(
+        count(&out, " raced turns") > 0,
+        "no turn was raced: {total}"
+    );
+    assert!(
+        count(&out, " of them transactions") > 0,
+        "no racing thread ran a transaction: {total}"
     );
 }
 

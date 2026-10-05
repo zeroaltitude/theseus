@@ -1184,7 +1184,21 @@ impl World {
             };
             ops.push(op);
         }
+        // A run's first race always runs a transaction on the racing thread
+        // (theseus-0owd): what the seed fixes before it does not depend on how
+        // threads interleave, so a run's count of them is never zero by chance
+        // (theseus-81ig).
+        if self.rep.races == 1 {
+            ops.push(RaceOp::Frame);
+        }
         self.rep.cancels += ops.iter().filter(|o| matches!(o, RaceOp::Cancel)).count() as u64;
+        if self.p.verbose {
+            eprintln!(
+                "  race {} on {exec_id} at t={}: {ops:?}",
+                self.rep.races,
+                self.now()
+            );
+        }
         let mut calls = Vec::new();
         for _ in 0..self.rng.random_range(0..=4) {
             let finish = match self.rng.random_range(0..3) {
@@ -2177,6 +2191,7 @@ impl World {
 }
 
 /// What the racing thread does to a raced turn's execution (theseus-id9).
+#[derive(Debug)]
 enum RaceOp {
     Cancel,
     /// A job of the execution finished: its completion is spooled, and the
