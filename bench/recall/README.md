@@ -16,6 +16,8 @@ no distance and no indirect probe. This bench drives each arm live, through its 
 | `generate.py` | The generator: a progression from a seed, and the budget. |
 | `drive.py` | The drivers: a progression replayed to Theseus or to Claude Code, each turn kept. |
 | `score.py` | The scorer: every probe checked, each arm's curve, half-life, and the report. |
+| `tokens.py` | Theseus's request estimate, mirrored: the census, the rates, the margin, the budget, the ring. |
+| `standin.py` | A stand-in model that counts each request as the compiler estimates it, for the offline smoke. |
 | `test_*.py` | Their tests. |
 
 Standard library only, everywhere.
@@ -26,8 +28,10 @@ A progression (`progression.json`, format `recall-progression-v1`) is:
 
 - **sessions**: a label and a date. Each session's first turn opens with its date ("It's Monday, 2026-11-09.").
 - **turns**: the user's text, each in a session and a topic block, with the workspace edits the driver makes
-  before sending it (`before`) and the tokens its work is expected to read (`est_tokens`). A turn with `mark` is a
-  compaction mark: a long log read where the script expects the arm's context to fill.
+  before sending it (`before`) and the compiler's estimate of its messages (`est_tokens`: its text, its work's
+  call and result, a reply). A turn with `mark` is a compaction mark: a long log read where the script expects
+  the arm's context to fill. The turn after a mark holds no fact and no probe; where the mark's one read can't
+  cross the budget, it reads more logs (role `bulk`, no mark).
 - **facts**: an id, a subject ("the alder relay's port"), a kind (`port`, `path`, `version`, `host`, `ticket`,
   `date`), its value, its salience, its family, the turn that states it, its source (the script that shows it, or
   `said`), its `marker` (the text whose presence in the arm's transcript proves it arrived), and what it
@@ -88,9 +92,10 @@ python3 bench/recall/score.py /tmp/rc-th /tmp/rc-cc --out /tmp/rc-report
 least one of each kind. `full` is three sessions of 200 turns: two on one day and the third nine days later, ten
 topic blocks each, a mark in each session, and 6 probes in each of the 34 bucket × salience × kind cells (204 in
 all; an abstention has no supersession). The generator prints the counts and an estimate of the tokens and dollars
-per arm at the catalog's price (`--model`). For seed 7 it says about $0.48 an arm for the smoke and about $11 for
-the full. Treat these as a budget, not a measurement: the per-turn tokens and the system prompt's size are
-guesses.
+per arm at the catalog's price (`--model`), each mark's reads with their bounds, and the window and its budget.
+For seed 7 it says about $0.53 an arm for the smoke and about $11.70 for the full. Treat these as a budget, not a
+measurement: the replies' length and the turns' recall notes are guesses, and the system prompt's size is one
+scratch daemon's.
 
 **Run live only in a throwaway container or VM.** Neither arm's tools are confined to the workspace on a bare host.
 Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code runs its shell tool.
@@ -106,11 +111,20 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
   - Each progression session is one `sessions open`, and each turn is one `theseus --json ask -s <id> -`. A CLI
     session has no target, so it is private, and recall draws on every earlier session.
   - Its memory is its recall pass and its compaction's roots. A scratch `[catalog."<model>"] context_window`
-    brings compaction near the marks. The generator picks the window from the compiler's rule: a request may hold
-    the window less the output cap and 4,096 tokens, and the driver sets the cap to a quarter of the window, at
-    most 16000. The window is the smallest whose budget holds a session's turns before its mark with 15% to
-    spare, and each mark's bulk read crosses it with 15% more. For seed 7 that is 35000 for the smoke (a budget of
-    22,154) and 124000 for the full (103,904).
+    brings compaction near the marks. The generator sizes the window and the bulk reads by the compiler's rule,
+    mirrored in `tokens.py` (each constant names its Rust source, and a test reads it there): a request may hold
+    the window less the output cap and 4,096 tokens (the driver sets the cap to a quarter of the window, at most
+    16000); a tool result is JSON at 2.4 bytes a token and text 3.3, with 3 tokens a message, 1 a block and 15 a
+    tool id; from a turn's second call on, the provider's count of the last request stands and only what was
+    written since is estimated; the ring runs when that passes the budget at its upper bound (the estimate × 1.4),
+    and a turn whose newest exchange alone, estimated whole beside the system prompt and tools (13,528 tokens on a
+    scratch daemon of this tree), still passes it fails before any call. So the window is the smallest where the
+    turns before each mark fit at 15% over their estimate, a session with no mark fits whole, each read turn alone
+    stays 10% under the budget with room for a 4,096-token summary beside it, and at 15% under their estimate the
+    reads cross the budget: the mark's own, or, where one read can't do both (the smoke's short first session),
+    up to three more at the turn after the mark. One tool result shows at most 30,000 characters, and `fs_read`
+    numbers each line, so each log fits under that. For seed 7 that is 44000 for the smoke (a budget of 28,904;
+    two logs of about 4,100 tokens, the second at turn 11) and 94000 for the full (73,904).
   - Where it compacted is read from the ledger (`context.compacted`) after every turn, with each row's outcome:
     `compaction`, a summary in the cut's place, or `ring`, the cut kept with no summary and why (the summary would
     not fit, or its call failed), and the cut's span (its message count, its first and last positions).
@@ -127,8 +141,8 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     Theseus's same work, with `--permission-prompts none`.
   - Its memory is its compaction and its memory files (`CLAUDE.md`, its auto-memory). The run keeps both, and its
     session logs.
-  - Compaction: at a window of 100k or more (what `--autocompact` takes, so the full's 124k), `--autocompact` at
-    the progression's window. Below that (the smoke), `/compact` is sent through `-p --resume` after each mark's
+  - Compaction: at a window of 100k or more (what `--autocompact` takes), `--autocompact` at the progression's
+    window. Below that (the smoke, and the full at seed 7's 94k), `/compact` is sent through `-p --resume` after each mark's
     turn (`--cc-compact marks`). Print mode does run it (Claude Code 2.1.289): the session log gains a
     `compact_boundary`, and the session keeps its id. Whether it worked is checked, not assumed: a compaction
     counts only where the log shows a `compact_boundary`, and the run keeps each `/compact`'s result.
@@ -199,15 +213,20 @@ python3 -m unittest discover -s bench/recall
 They cover:
 - **The generator**: determinism (the smoke's digest pinned, the full the same twice, another seed different),
   stratification (every cell filled, each fact before its probe and probed once), and no generated name or value
-  in theseus-exam's `exam-v2.toml`. They also check the prices against `catalog.rs`.
+  in theseus-exam's `exam-v2.toml`. They also check the prices against `catalog.rs`, `tokens.py`'s constants
+  against their Rust sources, and both bounds of every mark, for the smoke and the full at three seeds.
 - **The scorer**, against numbers worked by hand: a known curve's half-life, confident-wrong, stale, citations, an
   abstention, and distance measured where the arm compacted.
 - **The Claude Code driver**, against a stand-in `claude` on PATH: session ids carried, a boundary opening a new
   one, `/compact` after the mark.
-- **The Theseus driver**, end to end on this workspace's binaries (`target/debug`, or `THESEUS_RECALL_BIN_DIR`) and
-  `theseus-sim fake-model --rules` over the smoke, and a turn past its timeout stopped while the next one runs.
-  It is skipped when they are missing, and nothing is left running. The stand-in model reports a few dozen input tokens a call, and Theseus trusts the provider's count, so
-  it never compacts there. The scorer then moves the smoke's compaction probe to `topic_shift`, as it should.
+- **The Theseus driver**, end to end on this workspace's binaries (`target/debug`, or `THESEUS_RECALL_BIN_DIR`):
+  the smoke on `standin.py`, and a turn past its timeout stopped while the next one runs, on `theseus-sim
+  fake-model --rules`. It is skipped when they are missing, and nothing is left running. Theseus trusts the
+  provider's count, and theseus-sim's stand-in reports 40 input tokens a call: on it, a turn's history costs
+  nothing, and a mark that fails live (an overage) passes. `standin.py` reports each request's estimate by the
+  compiler's rule, as a provider's count would come, and does each turn's work as a model would (`fs_read` of a
+  whole log); on it the smoke compacts at the mark or the turn after, every turn exits 0, and a perfect arm scores
+  perfectly.
 
 The real `claude` runs against the same stand-in too: `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>
 ANTHROPIC_API_KEY=stand-in` with `drive.py --arm claude-code`, and rules that name its tools (`Bash`). That checks its

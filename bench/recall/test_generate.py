@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import re
 import sys
 import tempfile
@@ -21,11 +22,12 @@ sys.path.insert(0, str(HERE))
 
 import generate  # noqa: E402
 import progression as pg  # noqa: E402
+import tokens as tk  # noqa: E402
 
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "1dd614218e7d91c1"  # theseus-523y: the abstentions' admission widened
+SMOKE_7 = "07e95754f01394f0"  # theseus-523y: the bulks sized by the compiler's rule
 
 
 class Rng(unittest.TestCase):
@@ -136,23 +138,138 @@ class Stratification(unittest.TestCase):
 
 
 class Window(unittest.TestCase):
-    def test_each_marks_bulk_read_crosses_the_budget_and_nothing_before_it_does(self):
-        """Theseus's request budget is the window less the output cap and
-        4,096: the turns before a mark fit with the margin to spare, and the
-        bulk read crosses it with the margin more."""
+    SEEDS = (7, 11, 12)
+
+    def test_the_request_budget_is_the_compilers(self):
         self.assertEqual(pg.request_budget(35000), 35000 - 8750 - 4096)
         self.assertEqual(pg.request_budget(124000), 124000 - 16000 - 4096)
-        for size, window in (("smoke", 35000), ("full", 124000)):
-            p = generate.build(7, size)
-            self.assertEqual(p.context_window, window, size)
-            budget = pg.request_budget(p.context_window)
-            for m in p.marks():
-                s = p.turns[m].session
-                before = sum(generate.PER_TURN for t in p.session_turns(s) if t.index < m)
-                low, high = before * (1 - generate.MARGIN), before * (1 + generate.MARGIN)
-                self.assertLess(generate.OVERHEAD_TOKENS + high, budget, (size, m))
-                bulk = (p.turns[m].est_tokens - 300) - len(p.turns[m].text) // 4
-                self.assertGreater(generate.OVERHEAD_TOKENS + low + bulk, budget, (size, m))
+
+    def test_each_mark_crosses_the_budget_and_no_read_turn_alone_passes_it(self):
+        """By the compiler's rule (tokens.py), for the smoke and the full at
+        three seeds: the turns before a mark fit at MARGIN over their
+        estimate; each read turn alone, estimated whole beside the system
+        prompt and tools, stays ALONE_MARGIN under the budget at its upper
+        bound (past it, the turn fails as an overage, as the first live
+        smoke's mark did); and at MARGIN under, the reads cross the budget at
+        the mark or the turn after it, which holds nothing else."""
+        rates = generate.PLAN_RATES
+        for size in ("smoke", "full"):
+            for seed in self.SEEDS:
+                p = generate.build(seed, size)
+                budget = pg.request_budget(p.context_window)
+                bounds = generate.bounds_of(p)
+                self.assertEqual([b["mark"] for b in bounds], p.marks())
+                for b in bounds:
+                    at = (size, seed, b["mark"])
+                    m = b["mark"]
+                    self.assertEqual(b["budget"], budget)
+                    self.assertLessEqual(b["fit"], budget, at)
+                    self.assertGreater(b["cross"], budget, at)
+                    self.assertIn(b["cross_at"], (m, m + 1), at)
+                    self.assertLessEqual(b["alone_limit"] * (1 + generate.ALONE_MARGIN), budget + 1, at)
+                    for x in b["alone"]:
+                        self.assertLessEqual(x, b["alone_limit"], at)
+                    for path, nbytes, _ in b["logs"]:
+                        self.assertLessEqual(nbytes, tk.RESULT_MAX_CHARS, (at, path))
+                    # The mark's turn alone, worked from its bytes here.
+                    log = p.workspace[generate.bulk_path(p.marks().index(m))]["content"]
+                    whole = (tk.user_text(p.turns[m].text) + tk.call("fs_read", {"path": generate.bulk_path(
+                        p.marks().index(m))}) + tk.result(tk.fs_read_bytes(log))).tokens(rates)
+                    self.assertEqual(tk.bound(generate.OVERHEAD_TOKENS + whole), b["alone"][0], at)
+                    self.assertLessEqual(tk.bound(generate.OVERHEAD_TOKENS + whole) * (1 + generate.ALONE_MARGIN),
+                                         budget + 1, at)
+                    # The turn after the mark holds nothing but its reads.
+                    self.assertIn(p.turns[m + 1].role, ("filler", "bulk"), at)
+                    self.assertFalse(any(f.turn in (m, m + 1) for f in p.facts), at)
+                    self.assertFalse(any(q.turn in (m, m + 1) for q in p.probes), at)
+                # A session without a mark fits whole.
+                for s in range(len(p.sessions)):
+                    own = p.session_turns(s)
+                    if not any(t.mark for t in own):
+                        total = sum(t.est_tokens for t in own)
+                        self.assertLessEqual(generate.fit_bound(int(total * (1 + generate.MARGIN)),
+                                                                int(own[-1].est_tokens * (1 + generate.MARGIN))),
+                                             budget, (size, seed, s))
+
+    def test_a_turns_estimate_is_its_messages_at_the_rates(self):
+        """A filler that reads a file: its text, the call, the numbered
+        lines, and a reply, each framed (provider.rs's Census)."""
+        p = generate.build(7, "smoke")
+        t = next(t for t in p.turns if t.text.startswith("How many lines are in "))
+        path = t.text.removeprefix("How many lines are in ").rstrip("?")
+        content = p.workspace[path]["content"]
+        js, tx = generate.PLAN_RATES
+        nbytes = sum(7 + len(x) + 1 for x in content.splitlines())
+        want = (math.ceil((len(path) + len('fs_read{"path":""}')) / js + nbytes / js)
+                + math.ceil((len(t.text) + generate.REPLY_BYTES) / tx) + 4 * 3 + 4 * 1 + 2 * 15)
+        self.assertLessEqual(abs(t.est_tokens - want), 2, (t.est_tokens, want))
+
+
+class TheRustRule(unittest.TestCase):
+    """tokens.py's constants, each read from its Rust source, as PRICES is
+    read from the catalog: a change there fails here first."""
+
+    def src(self, rel: str) -> str:
+        return (REPO / "crates" / rel).read_text()
+
+    def test_the_rates_are_the_catalogs(self):
+        src = self.src("theseus-core/src/catalog.rs")
+        for name, (js, tx) in tk.RATES.items():
+            m = re.search(r"pub const " + name + r": TokenRates = TokenRates \{\s*json: ([\d.]+),\s*text: ([\d.]+),",
+                          src)
+            self.assertIsNotNone(m, name)
+            self.assertEqual((float(m.group(1)), float(m.group(2))), (js, tx), name)
+        # `TokenRates::of`: Haiku 4.x the old figures, GLM its own, the rest Claude's.
+        self.assertRegex(src, r'starts_with\("claude-haiku-4"\)\s*\{\s*Self::CLAUDE_OLD')
+        self.assertRegex(src, r'starts_with\("glm-"\)\s*\{\s*Self::GLM')
+        self.assertEqual(tk.rates_of("anthropic/claude-haiku-4-5"), tk.RATES["CLAUDE_OLD"])
+        self.assertEqual(tk.rates_of("claude-sonnet-5-5"), tk.RATES["CLAUDE"])
+
+    def test_the_framing_is_the_providers(self):
+        src = self.src("theseus-core/src/provider.rs")
+        for name in ("MESSAGE_TOKENS", "BLOCK_TOKENS", "ID_TOKENS"):
+            m = re.search(r"pub const " + name + r": u64 = (\d+);", src)
+            self.assertEqual(int(m.group(1)), getattr(tk, name), name)
+        for name in ("OPAQUE_BYTES_PER_TOKEN", "DENSEST_BYTES_PER_TOKEN"):
+            m = re.search(r"const " + name + r": f64 = ([\d.]+);", src)
+            self.assertEqual(float(m.group(1)), getattr(tk, name), name)
+        # A tool result's text, a string or text blocks, is json bytes.
+        self.assertIn('Value::String(s) => self.json += s.len() as u64', src)
+
+    def test_the_margin_the_budget_and_the_ring_are_the_compilers(self):
+        src = self.src("theseus-core/src/compiler.rs")
+        m = re.search(r"pub const MARGIN_PERCENT: u64 = (\d+);", src)
+        self.assertEqual(int(m.group(1)), tk.MARGIN_PERCENT)
+        m = re.search(r"fn request_budget\(w: u64, spec: &RequestSpec\) -> u64 \{\s*w\.saturating_sub\(spec\.max_tokens as "
+                      r"u64\)\s*\.saturating_sub\(([\d_]+)\)", src)
+        self.assertEqual(int(m.group(1).replace("_", "")), tk.HEADROOM)
+        m = re.search(r"let target = budget \* (\d+) / (\d+);", src)
+        self.assertEqual((int(m.group(1)), int(m.group(2))), tk.RING_TARGET)
+        self.assertIn("upper: counted + estimated + (estimated * MARGIN_PERCENT).div_ceil(100),", src)
+        self.assertIn("if est.upper > budget || input.overflowed.is_some() {", src)
+        self.assertEqual(tk.upper(1000, 100), 1140)
+
+    def test_a_tool_results_cap_and_fs_reads_lines_are_the_tools(self):
+        m = re.search(r"fn default_result_max_chars\(\) -> usize \{\s*([\d_]+)\s*\}",
+                      self.src("theseus-core/src/config.rs"))
+        self.assertEqual(int(m.group(1).replace("_", "")), tk.RESULT_MAX_CHARS)
+        self.assertIn('let row = format!("{:>6}\\t{}\\n", i + 1, l);', self.src("theseus-tools/src/fs.rs"))
+        self.assertEqual(tk.FS_READ_PREFIX, len(f"{1:>6}\t"))
+        self.assertEqual(tk.fs_read_bytes("ab\nc\n"), (7 + 3) + (7 + 2))
+
+    def test_the_census_reads_a_request_as_the_provider_does(self):
+        """A request worked by hand: a system block, one tool, and a user
+        text, a call and its result."""
+        req = {"system": [{"type": "text", "text": "x" * 33}], "tools": [{"name": "t"}],
+               "messages": [{"role": "user", "content": "y" * 66},
+                            {"role": "assistant", "content": [{"type": "tool_use", "id": "i", "name": "fs_read",
+                                                               "input": {"path": "a"}}]},
+                            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "i",
+                                                          "content": "z" * 240}]}]}
+        c = tk.census_of_request(req)
+        self.assertEqual((c.json, c.text, c.messages, c.blocks, c.ids),
+                         (len('{"name":"t"}') + len("fs_read") + len('{"path":"a"}') + 240, 99, 4, 3, 2))
+        self.assertEqual(c.tokens(tk.RATES["CLAUDE"]), math.ceil(c.json / 2.4) + 30 + 4 * 3 + 3 + 2 * 15)
 
 
 class Names(unittest.TestCase):
