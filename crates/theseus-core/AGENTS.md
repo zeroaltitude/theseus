@@ -406,6 +406,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   is the last block of a request's last message, the conversation's breakpoint on the block before it; a test's
   stand-in that reads the last user text skips it (`view::is_view`, `view::HEAD`). Facts: `fact/task_graph.rs`.
   Tests: `tests_task_graph.rs`, `task_graph::tests`.
+  - **Claim leases** (39b, theseus-ext.14; `task_graph/lease.rs`, store format 17): `task.claim { id, version }` sets
+    `claim { by, session, until_ms }`, `[kernel] task_lease_minutes` ahead, and moves the version; the holder's
+    edits and its claim again renew it without a version of their own, and a close ends it. A held task refuses
+    another's claim before its version is compared (`blocked: claimed by session … until HH:MM`); another's edit is
+    not held back. The due pass (`Core::free_expired_leases_if_due`, the driver's tick) frees a lapsed claim from
+    `ToolRuntime::leases`, the claims kept in memory (built after serving by `Core::warm_leases`, noted after each
+    edit's frame), never a scan a tick: the record and `task.lease_expired` in one frame, the version kept. A claim
+    past its `until_ms` reads free before that (`claim_at`, `shown`). A change's board is its home's place
+    (`task_graph::home`). Tests: `tests_task_claims.rs`.
+  - **The layer-1 question's change** (39b): `ConfirmRequest.change` (`tools::change_of`: the task, its title, the
+    field, before and after), worded once by `TaskChange::question` for the Discord card, `theseus confirm`, and
+    the cockpit.
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **The operator's two reads** (step 42a, theseus-ext.7): `rpc/budgets.rs` is `budget.list`, each open execution's

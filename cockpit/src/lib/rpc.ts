@@ -83,7 +83,7 @@ export function useRpc<T>(
 }
 
 /** Follow the push (theseus-in3): on every (re)connect watch every execution, and read the pushed reads again when
- * an execution or a question changes, at most every 250 ms. After `events.lost`, the same: everything is read again. */
+ * an execution, a question, or a task record changes, at most every 250 ms. After `events.lost`, the same: everything is read again. */
 export function bindPush(queries: QueryClient) {
   let timer: ReturnType<typeof setTimeout> | null = null
   const again = () => {
@@ -97,7 +97,8 @@ export function bindPush(queries: QueryClient) {
     client.call('executions.watch', { limit: 1 }).then(again).catch(() => {})
   })
   client.onNotify((method) => {
-    if (method === 'execution.changed' || method === 'confirm.requested' || method === 'confirm.resolved' || method === 'events.lost') again()
+    // A task record changed (39b): `task.list`'s records are read again with the rest.
+    if (method === 'execution.changed' || method === 'confirm.requested' || method === 'confirm.resolved' || method === 'task.changed' || method === 'events.lost') again()
   })
 }
 
