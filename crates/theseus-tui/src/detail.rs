@@ -37,6 +37,11 @@ pub struct Detail {
     turns: HashMap<String, String>,
     /// Messages this TUI sent whose `node.written` has not come yet.
     own: u32,
+    /// Another surface's messages being read, in the order their
+    /// `node.written` came: each node's id and its place, the line its text
+    /// goes above (theseus-v6yc). `None`: its place was dropped past `KEPT`,
+    /// so it goes at the end.
+    places: Vec<(String, Option<usize>)>,
 }
 
 impl Detail {
@@ -55,6 +60,7 @@ impl Detail {
     /// what the pane held.
     pub fn history(&mut self, h: &SessionHistoryResult) {
         self.lines.clear();
+        self.places.clear();
         self.open = false;
         self.loaded = true;
         for n in &h.nodes {
@@ -63,12 +69,55 @@ impl Detail {
     }
 
     /// One more node, after the history: an operator's message written by
-    /// another surface.
+    /// another surface. It goes in the place its `node.written` marked, above
+    /// what came after (a reply that streamed while it was read), or at the
+    /// end when nothing marked it.
     pub fn node(&mut self, n: &NodeInfo) {
-        self.close();
-        for l in render::node_lines(n, false) {
-            self.push(l.tag, l.text);
+        let at = self.places.iter().position(|(id, _)| *id == n.node_id);
+        let place = at.and_then(|i| self.places[i].1);
+        let Some(p) = place.filter(|p| *p < self.lines.len()) else {
+            if let Some(i) = at {
+                self.places.remove(i);
+            }
+            self.close();
+            for l in render::node_lines(n, false) {
+                self.push(l.tag, l.text);
+            }
+            return;
+        };
+        let i = at.expect("a place is a mark's");
+        self.places.remove(i);
+        let new: Vec<(Tag, String)> = render::node_lines(n, false)
+            .into_iter()
+            .map(|l| (l.tag, l.text.replace('\t', "    ")))
+            .collect();
+        let k = new.len();
+        self.lines.splice(p..p, new);
+        // The marks after it move down by its lines: a later mark at the same
+        // place too, so the earlier message stays above it.
+        for (j, (_, q)) in self.places.iter_mut().enumerate() {
+            if let Some(q) = q {
+                if *q > p || (*q == p && j >= i) {
+                    *q += k;
+                }
+            }
         }
+        self.trim();
+    }
+
+    /// Another surface's message `node_id` is being read: its place is here,
+    /// after every line so far. The reply's open line closes, so what streams
+    /// next starts below the place, never in a line the message splits.
+    fn mark(&mut self, node_id: &str) {
+        self.close();
+        self.places
+            .push((node_id.to_string(), Some(self.lines.len())));
+    }
+
+    /// The read of `node_id` found no node, or failed: its mark goes, and
+    /// leaves nothing behind.
+    pub fn unmark(&mut self, node_id: &str) {
+        self.places.retain(|(id, _)| id != node_id);
     }
 
     /// The operator's own message, sent from the input line.
@@ -128,12 +177,13 @@ impl Detail {
 
     /// An operator's message was written in the session: false if it is one
     /// this TUI sent (its `you:` line shows it), so only another surface's is
-    /// read.
-    pub fn others_message(&mut self) -> bool {
+    /// read, and its place in the pane is marked now.
+    pub fn others_message(&mut self, node_id: &str) -> bool {
         if self.own > 0 {
             self.own -= 1;
             return false;
         }
+        self.mark(node_id);
         true
     }
 
@@ -162,9 +212,18 @@ impl Detail {
 
     fn push(&mut self, tag: Tag, text: String) {
         self.lines.push((tag, text.replace('\t', "    ")));
+        self.trim();
+    }
+
+    /// The oldest lines past `KEPT` go, and each mark moves up with what it
+    /// stood above; one whose line went goes to the end.
+    fn trim(&mut self) {
         if self.lines.len() > KEPT {
             let extra = self.lines.len() - KEPT;
             self.lines.drain(..extra);
+            for (_, q) in &mut self.places {
+                *q = q.and_then(|q| q.checked_sub(extra));
+            }
         }
     }
 }

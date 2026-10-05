@@ -18,6 +18,8 @@ mod ui;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_order;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

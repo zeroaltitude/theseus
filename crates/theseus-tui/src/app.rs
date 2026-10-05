@@ -368,7 +368,10 @@ impl App {
         if let Some(d) = self.detail.as_mut() {
             d.event(&event);
             if let Event::NodeWritten(n) = &event {
-                if n.kind == "user_message" && n.session_id == d.session_id && d.others_message() {
+                if n.kind == "user_message"
+                    && n.session_id == d.session_id
+                    && d.others_message(&n.node_id)
+                {
                     out.push(Effect::Call(Call {
                         method: method::SESSION_HISTORY,
                         params: json!({ "session_id": n.session_id, "n": 5 }),
@@ -461,14 +464,17 @@ impl App {
                     }
                 }
             }
+            // The node goes in the place its `node.written` marked; a read
+            // that does not find it leaves nothing behind (theseus-v6yc).
             Purpose::Node { session, node } => {
-                if let Ok(h) = serde_json::from_value::<SessionHistoryResult>(v) {
-                    let found = h.nodes.iter().find(|n| n.node_id == node);
-                    if let (Some(n), Some(d)) = (
-                        found,
-                        self.detail.as_mut().filter(|d| d.session_id == session),
-                    ) {
-                        d.node(n);
+                let h = serde_json::from_value::<SessionHistoryResult>(v).ok();
+                let found = h
+                    .as_ref()
+                    .and_then(|h| h.nodes.iter().find(|n| n.node_id == node));
+                if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == session) {
+                    match found {
+                        Some(n) => d.node(n),
+                        None => d.unmark(&node),
                     }
                 }
             }
@@ -519,6 +525,11 @@ impl App {
                     .insert(correlation_id.clone(), e.message.clone());
                 self.flash = Some((Tag::Bad, format!("refused: {}", e.message)));
                 return;
+            }
+        }
+        if let Purpose::Node { session, node } = purpose {
+            if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == *session) {
+                d.unmark(node);
             }
         }
         let what = match purpose {
