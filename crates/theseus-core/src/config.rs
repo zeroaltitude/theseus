@@ -270,6 +270,11 @@ pub struct ToolsConfig {
     /// provider's limit on a request that carries a PDF.
     #[serde(default = "default_max_attachment_bytes")]
     pub max_attachment_bytes: u64,
+    /// The most of one recording `file.read` hears (theseus-c9l6): Deepgram
+    /// bills by the minute (about $0.26 an hour on nova-3), and a longer
+    /// recording is heard to here, which its transcript says.
+    #[serde(default = "default_transcribe_max_minutes")]
+    pub transcribe_max_minutes: u64,
     /// Entries a listing, glob, or grep returns.
     #[serde(default = "default_max_entries")]
     pub max_entries: usize,
@@ -359,6 +364,9 @@ fn default_max_read_bytes() -> usize {
 fn default_max_attachment_bytes() -> u64 {
     theseus_files::MAX_FILE_BYTES
 }
+fn default_transcribe_max_minutes() -> u64 {
+    60
+}
 fn default_max_entries() -> usize {
     500
 }
@@ -407,6 +415,7 @@ impl Default for ToolsConfig {
             result_max_chars: default_result_max_chars(),
             max_read_bytes: default_max_read_bytes(),
             max_attachment_bytes: default_max_attachment_bytes(),
+            transcribe_max_minutes: default_transcribe_max_minutes(),
             max_entries: default_max_entries(),
             proc_sync_secs: default_proc_sync_secs(),
             proc_timeout_secs: default_proc_timeout_secs(),

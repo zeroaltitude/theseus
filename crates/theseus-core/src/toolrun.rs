@@ -278,6 +278,9 @@ pub struct ToolRuntime {
     /// The AWS accounts the config binds, behind the `aws.*` tools (AWS
     /// design §3.5); None when it binds none.
     pub aws: Option<Arc<crate::aws::Aws>>,
+    /// `file.read`'s reader (theseus-c9l6): Deepgram's key and settings, and
+    /// the caps.
+    pub files: Arc<crate::file_read::Reader>,
     /// The earliest a waiting question may expire, in ms since the epoch
     /// (theseus-830): the driver reads the questions only once it has come.
     /// 0 until the driver has read them once; each question asked lowers it.
@@ -422,6 +425,7 @@ impl ToolRuntime {
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
             aws: None,
+            files: Arc::new(crate::file_read::Reader::disabled()),
             question_due: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
@@ -1582,6 +1586,7 @@ impl ToolRuntime {
     /// A toollet computes on a core; an async tool (DD5) waits as a task on
     /// the runtime and holds none.
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     async fn run_inproc(
         &self,
         tc: &TurnCtx<'_>,
@@ -1635,14 +1640,16 @@ impl ToolRuntime {
             let started = theseus_protocol::now_unix_ms();
             let t0 = Instant::now();
             // A terminal's call needs its session (theseus-n88g.4).
-            let run = match tool.family() == crate::term::FAMILY {
-                true => theseus_tools::with_no_media(self.terms.run(
+            let run = match tool.family() {
+                crate::term::FAMILY => theseus_tools::with_no_media(self.terms.run(
                     tool.name(),
                     tc.session_id,
                     &input,
                     &ctx,
                 )),
-                false => t.run_async_with_media(&input, &ctx),
+                // The session's files, found on this task (theseus-c9l6).
+                crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
+                _ => t.run_async_with_media(&input, &ctx),
             };
             let mut task = tokio::spawn(run);
             let task_id = task.id();
@@ -1712,6 +1719,10 @@ impl ToolRuntime {
         let settled = by_cancel.is_none().then_some(status);
         self.lsp_onto(tc, &call.id, tool.name(), settled, &mut text, &mut meta)
             .await;
+        // A transcript file.read made is spend (theseus-c9l6).
+        if tool.family() == crate::file_read::FAMILY && status == ResultStatus::Ok {
+            Self::book_transcript(tc, &meta);
+        }
         // An image or a PDF's pages the tool read go to the blobs once; the
         // node holds the reference (theseus-9g2, theseus-c9l6).
         let image = img.and_then(|m| Self::keep_media(tc, tool.name(), m, &mut text));
@@ -1777,6 +1788,67 @@ impl ToolRuntime {
         }
         Self::announce_end(tc, &node);
         Ok(CallOutcome::Done { status })
+    }
+
+    /// `file.read` (theseus-c9l6): the session's files, found now, and the
+    /// reading in the call's own task. What its session may still spend
+    /// bounds a transcript; a shared place's reading is outside text.
+    fn read_file(
+        &self,
+        tc: &TurnCtx<'_>,
+        input: &Value,
+        ctx: &ToolCtx,
+    ) -> theseus_tools::AsyncMediaRun {
+        let nodes = match tc.store.session_nodes(tc.session_id) {
+            Ok(n) => n,
+            Err(e) => {
+                let why = format!("this session's files could not be read: {e:#}");
+                return Box::pin(std::future::ready(Err(theseus_tools::ToolFailure::new(
+                    why,
+                ))));
+            }
+        };
+        let available = tc
+            .kernel
+            .execution(tc.execution_id)
+            .ok()
+            .flatten()
+            .map_or(u64::MAX, |e| e.budget.available());
+        let shared = tc.class != crate::places::PlaceClass::Private;
+        self.files.run(
+            &nodes,
+            tc.store.blobs_handle(),
+            tc.session_id,
+            ctx,
+            input,
+            (shared, available),
+        )
+    }
+
+    /// A transcript `file.read` made (theseus-c9l6): booked to the turn's
+    /// execution as a voice call's is, with its `speech.transcribed` row.
+    fn book_transcript(tc: &TurnCtx<'_>, meta: &Value) {
+        let Some(sp) = meta.get("speech") else {
+            return;
+        };
+        let (provider, model) = (
+            sp["provider"].as_str().unwrap_or("deepgram"),
+            sp["model"].as_str().unwrap_or(""),
+        );
+        let seconds = sp["seconds"].as_f64().unwrap_or(0.0).max(0.0);
+        let chars = sp["chars"].as_u64().unwrap_or(0) as usize;
+        let Some(price) = crate::catalog::speech_price(provider, model) else {
+            return;
+        };
+        let cost = price.cost_micros(Duration::from_secs_f64(seconds), chars);
+        let data = json!({"provider": provider, "model": model, "seconds": seconds, "chars": chars,
+                          "tool": crate::file_read::READ, "file": meta["file"], "digest": meta["digest"]});
+        if let Err(e) =
+            tc.kernel
+                .book_spend(tc.execution_id, cost, LedgerKind::SpeechTranscribed, data)
+        {
+            tracing::warn!(error = %e, "a transcript's spend could not be booked");
+        }
     }
 
     /// A file a tool read, kept in the blobs for its result node: an image,
@@ -2110,6 +2182,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
+        // The files people gave the session (theseus-c9l6).
+        r.register(Arc::new(crate::file_read::FileRead));
         r
     } else {
         Registry::new()
@@ -2125,6 +2199,24 @@ pub fn build_runtime(
         }
     }
     let notify_socket = spool.as_ref().map(|s| s.dir().join("notify.sock"));
+    // file.read's transcripts go to Deepgram as voice's speech does
+    // (theseus-c9l6).
+    let files = Arc::new(crate::file_read::Reader {
+        secrets: secrets.clone(),
+        hearing: crate::file_read::Hearing {
+            key_secret: cfg.voice.key_secret.clone(),
+            model: cfg.voice.stt_model.clone(),
+            language: cfg.voice.language.clone(),
+            api_base: cfg.voice.api_base.clone(),
+            max_minutes: t.transcribe_max_minutes,
+        },
+        max_file: t.max_attachment_bytes,
+        http: reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(100))
+            .build()
+            .unwrap_or_default(),
+    });
     // A program's name is resolved on the daemon's own PATH (theseus-dcy).
     let broker = Broker::new(&cfg.broker, secrets, std::env::var("PATH").ok());
     // web.search's key: its calls run at no looser a posture than the
@@ -2187,6 +2279,7 @@ pub fn build_runtime(
             cfg.server.disk_floor_mb,
         )),
         aws,
+        files,
         question_due: Default::default(),
         sandbox,
         stops: Default::default(),

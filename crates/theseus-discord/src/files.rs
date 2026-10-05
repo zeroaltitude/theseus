@@ -162,6 +162,18 @@ fn text_media_type(t: &str) -> bool {
         )
 }
 
+/// A text file the core reads as a document (theseus-c9l6): a Jupyter
+/// notebook or RTF, by its name or its type.
+fn read_as_document(name: &str, t: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let ext = lower.rsplit_once('.').map_or("", |(_, e)| e);
+    matches!(ext, "ipynb" | "rtf")
+        || matches!(
+            t,
+            "application/x-ipynb+json" | "application/rtf" | "text/rtf"
+        )
+}
+
 fn text_extension(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     let ext = lower.rsplit_once('.').map_or(lower.as_str(), |(_, e)| e);
@@ -172,6 +184,17 @@ fn text_extension(name: &str) -> bool {
 /// say what it is; the core reads them.
 pub fn plan(f: &FileMeta, caps: Caps) -> Plan {
     let t = f.media_type();
+    // A notebook or an RTF file is text, but the core reads it as a
+    // document, whole: it comes as its bytes, up to the cap for files.
+    if read_as_document(&f.name, &t) {
+        if f.size > caps.max_file {
+            return Plan::Skip(format!(
+                "over the {} limit for files ([tools] max_attachment_bytes)",
+                theseus_core::attach::size_words(caps.max_file)
+            ));
+        }
+        return Plan::Bytes;
+    }
     if text_media_type(&t) || text_extension(&f.name) {
         if f.size > caps.max_text {
             return Plan::Skip(format!(
@@ -346,6 +369,22 @@ mod tests {
         assert_eq!(
             (a.size, a.media_type.as_str()),
             (41_943_040, "application/zip")
+        );
+    }
+
+    /// A notebook and an RTF file are text, but the core reads them as
+    /// documents, so they come as their bytes, past the text cap.
+    #[test]
+    fn a_notebook_and_an_rtf_file_come_as_their_bytes() {
+        let nb = meta("survey.ipynb", Some("application/json"), 300_000);
+        assert_eq!(plan(&nb, MAX), Plan::Bytes);
+        assert_eq!(
+            plan(&meta("letter.rtf", Some("text/rtf"), 10), MAX),
+            Plan::Bytes
+        );
+        assert_eq!(
+            plan(&meta("data.json", Some("application/json"), 10), MAX),
+            Plan::Text
         );
     }
 

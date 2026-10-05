@@ -1,10 +1,13 @@
 # theseus-files
 
 Files people give the model, read for it (theseus-c9l6): a PDF's pages counted, its text extracted page by page,
-and a range of its pages cut out as a PDF of its own. Every conversion runs in a capped child process.
+and a range of its pages cut out as a PDF of its own; Word, Excel, PowerPoint, OpenDocument, EPUB, RTF, and Jupyter
+notebooks read into sections; archives listed and a member read out; ffmpeg and tesseract when present. Every
+conversion runs in a capped child process.
 
-Key modules: `pdf.rs`, `convert.rs`. Read by: theseus-core (`attach.rs`, `web/fetch.rs`), theseus-tools (`fs.read`),
-and theseusd (the converter's role).
+Key modules: `pdf.rs`, `doc.rs`, `archive.rs`, `kind.rs`, `media.rs`, `convert.rs`. Read by: theseus-core
+(`attach.rs`, `file_read.rs`, `web/fetch.rs`), theseus-tools (`docs.rs`, `fs.read`), and theseusd (the converter's
+role).
 
 ## What's here
 
@@ -12,14 +15,27 @@ and theseusd (the converter's role).
   `3-`), and `read(bytes, &Ask) -> Read`: the page count, each page's text, and the pages asked for as a PDF of their
   own (`Ask::part`). Built on `lopdf` (MIT), default features off. `sample(&[text])` makes a small PDF for tests:
   tests build their PDFs with it, never from a committed binary.
+- `src/kind.rs`: what a file is, from its first bytes and, for zips (Office, OpenDocument, EPUB), their members'
+  names; the file's name breaks ties, never the type a sender said. Each kind's media type and noun.
+- `src/doc.rs`: `read(bytes, kind) -> Doc`, sections with labels (`sheet Budget`, `slide 3: Tides`, `cell 4 (code)`,
+  `chapter 2`) and a notebook's output images. Word keeps headings (`#`), lists, and tables; a sheet is a table
+  (` | `), its trailing empty cells and rows dropped, at most 5,000 rows; a slide has its title and notes. Bounds: a
+  zip member unpacks to 64 MiB at most, the text to 8 MiB. `sample_zip` builds test files. `src/xml.rs` is the small
+  XML scanner it reads with (no dependency); `src/archive.rs` lists zips, tars, and gzipped tars as streams, and reads
+  one member out only by a relative path that climbs nowhere (`safe_path`). Dependencies: `zip` (already in the
+  lock; `deflate-flate2` only) and `flate2` (lopdf's too): no crate new to the workspace but lopdf's.
+- `src/media.rs`: ffprobe (a recording's length), ffmpeg (a video's audio, a strip of its frames, a long recording cut
+  to its cap), tesseract (OCR), each found on `PATH` or the usual places and run through `run_capped` with
+  `MEDIA_LIMITS` (90 s, 2 GiB, two threads, an empty environment). An absent tool is said, never a failure.
 - `src/convert.rs`: the one way to run a conversion. `convert::pdf(bytes, &ask)` returns what it made, or why it made
   nothing, in words, and how it ran (`Ran`: its time, and whether it was capped).
   - In a daemon, `theseusd` starts each conversion as a child of its own image in the `files-convert` role
     (`ROLE`), set once before serving by `use_child` with `Limits::DEFAULT`: 30 s of wall clock (then SIGKILL), 1 GiB
-    of address space (`RLIMIT_AS`), CPU time just past the wall clock, no file it may write (`RLIMIT_FSIZE` 0), 16
+    of address space (`RLIMIT_AS`), CPU time just past the wall clock, no file it may write (`RLIMIT_FSIZE` 0), 64
     descriptors, an empty environment, and death with the daemon (`PR_SET_PDEATHSIG`). The child is spawned through
     the daemon's registry of children (`children::spawn`, `Kind::Owned`), so the reaper leaves its status to its
-    waiter. The request and the file's bytes go on its stdin; its answer comes on stdout as JSON.
+    waiter. The request (`Pdf`, `Doc`, `Extract`) and the file's bytes go on its stdin; its answer comes on stdout
+    as JSON. `run_capped` is that runner, for any command: the system tools run through it too.
   - Anywhere else (tests, tools run outside a daemon), a conversion runs in the calling thread, without the caps.
   - Either way the caller blocks: call it from the CPU pool, a blocking task, or `theseus_store::blocking`.
 

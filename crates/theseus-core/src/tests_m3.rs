@@ -4800,7 +4800,7 @@ async fn a_six_megabyte_image_is_kept_and_not_shown_with_the_reason() {
     assert_eq!(
         last_user_blocks(&r),
         vec![
-            json!({"type": "text", "text": "[File huge.png from discord:eddie, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit]"})
+            json!({"type": "text", "text": "[File huge.png from discord:eddie, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit; file_read with save puts it where proc_run can use it]"})
         ]
     );
     assert_eq!(blob_files(&r), 1, "kept whole");

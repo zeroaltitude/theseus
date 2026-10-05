@@ -31,8 +31,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     has room for, with a line saying what was left out), else its text by page (GLM, a PDF the provider refused, one
     the request has no room for). PDFs are budgeted in render order (`attach::Spend`), so an earlier one never
     renders differently because of a later one, and the cached prefix holds. `fs.read` and `http.fetch` return a
-    PDF's pages (`theseus_tools::Media::Pdf`), kept the same way (`toolrun::keep_media`). Tests: `attach.rs`'s, and
-    theseusd's `tests/files.rs`, which run the real converter and a turn per model.
+    PDF's pages (`theseus_tools::Media::Pdf`), kept the same way (`toolrun::keep_media`). Join 2: a Word, Excel,
+    PowerPoint, OpenDocument, EPUB, RTF, or notebook file, and an archive's list, is read into sections when it
+    arrives (`theseus_files::convert::doc`; a JSON `{"sections": …}` blob, `blobs::Section`), and every model reads
+    its text, a vision model its notebook images too; a recording, a video, and any other file are named with how to
+    read them. **`file_read.rs`** (`file.read`): the runtime runs it (`ToolRuntime::read_file`), finding the file
+    among the session's nodes by name or digest: a PDF's other pages, a document's sections, an archive's member
+    saved and read under `<cwd>/.theseus-files/<session's last 8>/`, a recording's transcript through Deepgram
+    (`[voice]`'s key and settings; capped at `[tools] transcribe_max_minutes`; kept by digest in
+    `blobs/derived/`; booked as `speech.transcribed` by `book_transcript`), a video's transcript and frames
+    (ffmpeg), OCR (tesseract), or `save`. In a shared place its result is outside text. Tests: `attach.rs`'s, and
+    theseusd's `tests/files.rs`, which run the real converter, a turn per model, and `file.read` with a stand-in
+    Deepgram.
   - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the
     clock passed in as `CompileInput.signals`, never read there): a dormancy gap, the tail crossing its soft band,
     a task report or a wake arriving, and a provider cache miss, each against what was written since the model's

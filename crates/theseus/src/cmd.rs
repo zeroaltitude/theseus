@@ -1763,6 +1763,17 @@ fn attachment_for(path: &std::path::Path) -> Result<theseus_protocol::Attachment
         return Ok(a);
     }
     let bytes = std::fs::read(path).with_context(|| format!("--attach {}", path.display()))?;
+    // A notebook or an RTF file is text the daemon reads as a document: its
+    // bytes, whole.
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if matches!(ext.as_str(), "ipynb" | "rtf") {
+        use base64::Engine as _;
+        a.data = Some(base64::engine::general_purpose::STANDARD.encode(&bytes));
+        return Ok(a);
+    }
     let bytes = match String::from_utf8(bytes) {
         Ok(text) if !text.as_bytes().iter().take(8192).any(|b| *b == 0) => {
             a.media_type = "text/plain".into();
