@@ -261,6 +261,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark.
   `judge.list` and `judge.get` are `rpc/judge.rs`. Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
   `telemetry/tests_judge.rs`.
+  - **The judgments a turn waits on write nothing before their call** (theseus-otny): route.v1's inbound batch and
+    a live rerank stage their state's blob (`stage_blob`; the sink writes it just before the first row naming it,
+    `write_staged_blobs`) and write the shadow budget's block beside the call (`reserve_beside`, `Beside`), so their
+    syncs (1.4 s each under a neighbour's IO, 2026-10-04: the 3.2 s late verdict) never delay a verdict. A person's
+    message warms Jev's client as it arrives (`warm_on_message`, from `TurnRunner::run`: built, and two `HEAD`s of
+    the judge's path, nothing billed, unless it answered within `theseus_judge::client::POOL_IDLE`, 180 s, under the
+    edge's 200 to 400 s); a try that fails to connect, with nothing answered since, is `jev_unreachable`, and then
+    no turn waits on route or rerank. The fake Jev answers a `HEAD` 405 and counts it as `warmups()`, apart from
+    `connections()`, which stays the calls'.
   - **At the gate** (step 24, `gate.rs`): `security.v1` and `security.v3` in shadow at every call that acts, and at
     a fetch or a search in a holding session (Q12). `ToolRuntime::start` plans the call and sends its notice, then
     `judge_at_gate` makes the choice and the marks, nothing else; the gate's decision never waits on Jev or changes
@@ -305,8 +314,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
     the call waits for a permit rather than being shed. The turn waits for it beside its first compile, at most
     `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
-    late `trivial` one to none: `routing::carries`, theseus-6n5j), and `routing.rs` decides, purely, at the mode's
-    own bar (`[routing.modes.<mode>] switch_confidence`, else trivial's 0.4, else the section's 0.6:
+    late `trivial` one to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
+    (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely, at the
+    mode's own bar (`[routing.modes.<mode>] switch_confidence`, else trivial's 0.4, else the section's 0.6:
     `RoutingConfig::confidence_for`): the mode's first usable profile under a place's cap, a `trivial` detour (that
     turn alone, compiled outside the session's compilation, which it never writes), or a switch of the session's
     `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. A turn whose
@@ -384,8 +394,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     cloned): live, `JudgeService::at_recall_live` dispatches as `at_recall` does and the turn waits at most
     `[memory] rerank_wait_ms` (200; 1 to 600) from the rerank's start, on a oneshot the turn closes when the wait
     ends (`try_recv` takes what was sent before, so `applied` and `late` never both hold); in time and answered,
-    `Memory::refill` packs again in Jev's order. Rerank's breaker open or the day's budget paused is read before the
-    dispatch and not waited on. A `judge` span of kind `wait`, the manifest's `rerank`, and the row's
+    `Memory::refill` packs again in Jev's order. Rerank's breaker open, the day's budget paused, or Jev known
+    unreachable (theseus-otny) is read before the dispatch and not waited on. A `judge` span of kind `wait`, the manifest's `rerank`, and the row's
     `live`/`applied`/`late` say what happened. Rerank has a breaker of its own (`rerank::BREAKER`,
     `JevJudge::with_breaker`): its outcomes move only it; the client, its permits and its shed count stay shared,
     and `breaker_status()` is the shared one's. Per-item answers (`helps.3`, `about` the note's key) take labels of

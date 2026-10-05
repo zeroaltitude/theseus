@@ -81,6 +81,10 @@ pub enum Reason {
     Unsure,
     /// The verdict came after the wait: it applies from the next message.
     Late,
+    /// Jev was known unreachable (its last try failed to connect), so the
+    /// turn did not wait; a verdict that comes applies as a late one
+    /// (theseus-otny).
+    Unreachable,
     /// Jev gave no verdict (down, slow past its call, rate-limited,
     /// malformed, the breaker, the budget).
     NoVerdict,
@@ -100,6 +104,7 @@ impl Reason {
             Reason::CacheHold => "cache_hold",
             Reason::Unsure => "unsure",
             Reason::Late => "late",
+            Reason::Unreachable => "unreachable",
             Reason::NoVerdict => "no_verdict",
             Reason::Pinned => "pinned",
             Reason::Shadow => "shadow",

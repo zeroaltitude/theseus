@@ -11,7 +11,7 @@ export type TurnRoute = {
 mode?: string, 
 /**
  * `verdict`, `detour`, `capped`, `fallback`, `cache_hold`, `unsure`,
- * `late`, `no_verdict`, `pinned`, or `shadow`.
+ * `late`, `unreachable`, `no_verdict`, `pinned`, or `shadow`.
  */
 reason: string, 
 /**

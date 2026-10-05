@@ -240,18 +240,29 @@ impl TurnRunner {
         };
         let mode = t.route.mode.unwrap_or(PackMode::Shadow);
         let live = mode >= PackMode::Canary && !self.judge.breaker_open();
+        // Jev known unreachable (its last try failed to connect, and nothing
+        // has answered since): no verdict will come in time, so the turn
+        // does not wait for one (theseus-otny).
+        let unreachable = live && self.judge.jev_unreachable();
         t.route.defer_persist = live;
         let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
         let compile = self.compile_step(t, session, spec, force, strip, overflow, i);
-        let (compiled, got, waited) = beside(compile, &mut rx, max_wait, live).await;
+        let (compiled, got, waited) =
+            beside(compile, &mut rx, max_wait, live && !unreachable).await;
         t.route.defer_persist = false;
         let compiled = match compiled? {
             Ok(c) => c,
             Err(f) => return Ok(Err(f)),
         };
         let base = t.target.profile.clone();
-        let (verdict, reason) =
-            self.read_verdict(t, got, live, rx, session.last_turn_id.as_deref());
+        let (verdict, reason) = self.read_verdict(
+            t,
+            got,
+            live,
+            rx,
+            session.last_turn_id.as_deref(),
+            unreachable,
+        );
         let decision = match (&verdict, reason) {
             (Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
             _ => None,
@@ -324,6 +335,7 @@ impl TurnRunner {
         live: bool,
         rx: RouteWait,
         last_turn: Option<&str>,
+        unreachable: bool,
     ) -> (Option<Verdict>, Option<Reason>) {
         let sid = t.tc.session_id;
         let stale = self.judge.take_late(sid);
@@ -350,6 +362,7 @@ impl TurnRunner {
                 });
                 match late() {
                     Some(v) => (Some(v), None),
+                    None if unreachable => (None, Some(Reason::Unreachable)),
                     None => (None, Some(Reason::Late)),
                 }
             }

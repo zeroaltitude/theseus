@@ -6,7 +6,9 @@
 //! breaker's moves (`judge.circuit`), the shed count (`judge.shed`, a
 //! minute apart at most), and the shadow budget's record with what was
 //! settled. A crash loses at most a window of rows; their spend is not
-//! lost, since the budget's blocks were written before the calls.
+//! lost, since the budget's blocks were written before the calls, or, for
+//! the judgments a turn waits on, beside them (theseus-otny: a crash inside
+//! that one sync can leave one block's calls unbooked, a cent at most).
 
 use std::sync::Weak;
 use std::time::{Duration, Instant};
@@ -61,8 +63,11 @@ pub async fn run(
 impl JudgeService {
     /// One frame: the batch's rows, the breaker's moves, the shed count, and
     /// the budget's record. Once it is written, each fact's sentences are
-    /// said and each judgment's metrics recorded (23b).
+    /// said and each judgment's metrics recorded (23b). The states a turn's
+    /// judgments left staged are written first, so no row names a blob the
+    /// disk may yet lose (theseus-otny).
     fn write(&self, batch: &[Judgment]) {
+        self.write_staged_blobs(batch);
         let mut records: Vec<NewRecord> = Vec::new();
         for j in batch {
             let (session, turn) = where_of(j);

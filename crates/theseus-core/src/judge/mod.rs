@@ -149,6 +149,10 @@ pub struct JudgeService {
     /// Judgments minted at their dispatch whose rows the sink has not yet
     /// written (or that never went out): a press finds them here first.
     pending: Mutex<HashSet<String>>,
+    /// The states of the judgments a turn waits on, by blob digest, until
+    /// the sink writes each blob just before the first row naming it
+    /// (theseus-otny): its two syncs stay off the call's path.
+    staged_blobs: Mutex<std::collections::HashMap<String, Arc<[u8]>>>,
     /// `categorize.v1`'s point (28b): the core it reads, and its decisions.
     categorize: categorize::Point,
     rerank_deadline: rerank::RerankDeadline,
@@ -216,6 +220,7 @@ impl JudgeService {
             flush,
             prices,
             pending: Mutex::new(HashSet::new()),
+            staged_blobs: Mutex::default(),
             categorize: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
             late: Mutex::default(),
@@ -568,22 +573,132 @@ impl JudgeService {
         if records.is_empty() {
             return granted;
         }
-        match self.store.append(&records) {
-            Ok(_) => {
-                if let Some(n) = self.narrator.get() {
-                    let rec = self.rec(n, None, None);
-                    said.iter().for_each(|s| s.announce(&rec));
-                }
-                granted
-            }
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), "judge: the budget's frame was not written");
+        match self.write_budget(&records, &said) {
+            true => granted,
+            false => {
                 if granted {
                     self.budget.settle(today, need, 0, false, false);
                 }
                 false
             }
         }
+    }
+
+    /// The budget's frame (a new block, a crash's booked rest, the day's
+    /// pause), then its sentences. False: not written.
+    fn write_budget(&self, records: &[theseus_store::NewRecord], said: &[spend::Said]) -> bool {
+        match self.store.append(records) {
+            Ok(_) => {
+                if let Some(n) = self.narrator.get() {
+                    let rec = self.rec(n, None, None);
+                    said.iter().for_each(|s| s.announce(&rec));
+                }
+                true
+            }
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "judge: the budget's frame was not written");
+                false
+            }
+        }
+    }
+
+    /// `reserve`, for a judgment a turn waits on (route.v1's, a live
+    /// rerank's; theseus-otny): the reservation is made in memory at once,
+    /// and its frame, when it asks for one (the first judgment after a
+    /// start, each new block), is left to `Beside::write`, beside the call,
+    /// so the turn's verdict never waits on that sync. Every sink frame
+    /// writes the budget's record too. `None`: paused at the day's limit (its
+    /// frame written now, as `reserve` writes it), and nothing is sent.
+    fn reserve_beside(&self, today: &str, need: theseus_judge::price::Micros) -> Option<Beside> {
+        match self.budget.reserve(&self.store, today, need) {
+            Reserve::Granted(records, said) => Some(Beside { records, said }),
+            Reserve::Paused(records, said) => {
+                if !records.is_empty() {
+                    self.write_budget(&records, &said);
+                }
+                None
+            }
+        }
+    }
+
+    /// A state's blob, for a judgment a turn waits on (theseus-otny): its
+    /// digest now, and the bytes kept until the sink writes the blob, just
+    /// before the first row that names it (`write_staged_blobs`), so its
+    /// two syncs (the file's and its directory's) stay off the call's path.
+    /// A blob already stored is not kept.
+    fn stage_blob(&self, bytes: &[u8]) -> String {
+        let d = crate::blobs::digest(bytes);
+        if !self.store.blobs().path(&d).exists() {
+            self.staged_blobs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(d.clone())
+                .or_insert_with(|| Arc::from(bytes));
+        }
+        d
+    }
+
+    /// Before the sink's frame: every staged blob a row of `batch` names,
+    /// written. One that fails is logged, and its row still names it, as a
+    /// judgment's whose blob was lost.
+    fn write_staged_blobs(&self, batch: &[theseus_judge::Judgment]) {
+        for j in batch {
+            let Some(d) = j.context["blob"].as_str() else {
+                continue;
+            };
+            let staged = self
+                .staged_blobs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(d);
+            if let Some(bytes) = staged {
+                if let Err(e) = self.store.blobs().put(&bytes) {
+                    tracing::warn!(error = %e, blob = %d, "judge: a judged state's blob was not written");
+                }
+            }
+        }
+    }
+
+    /// A person's message arrived (theseus-otny): with the judge on and the
+    /// inbound point or the rerank on, Jev's client is built and two
+    /// connections opened now, unless one answered within its pool's idle
+    /// time, so the message's judgments (route.v1's batch and a live
+    /// rerank, at once) find them open after its admission's frames. The
+    /// warm-up is a HEAD of the judge's path: no key, nothing billed.
+    pub fn warm_on_message(&self) {
+        if !self.cfg.enabled {
+            return;
+        }
+        let on =
+            inbound::PACKS.iter().any(|p| self.pack_on(p)) || self.pack_on(rerank::RERANK_PACK);
+        if !on || self.built.get().is_some_and(|b| b.jev().client().warm()) {
+            return;
+        }
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let me = self.me.clone();
+        rt.spawn(async move {
+            let Some(built) = me.upgrade().and_then(|s| s.built().ok()) else {
+                return;
+            };
+            if let Some((took, warm)) = built.jev().client().warm_up(2).await {
+                tracing::debug!(
+                    ms = took.as_millis() as u64,
+                    warm,
+                    "judge: Jev's connections warmed as a message arrived"
+                );
+            }
+        });
+    }
+
+    /// Whether Jev is known unreachable now (theseus-otny): its last try,
+    /// a call or a warm-up, failed to connect or timed out, and nothing has
+    /// answered since. A turn does not wait for a verdict then.
+    pub fn jev_unreachable(&self) -> bool {
+        self.built
+            .get()
+            .is_some_and(|b| b.jev().client().unreachable())
     }
 
     /// Health's `judge` block: what the config says, the breaker, and
@@ -693,6 +808,29 @@ struct Prepared {
     built: Arc<Built>,
     ask: Ask,
     need: theseus_judge::price::Micros,
+}
+
+/// The shadow budget's frame for a judgment a turn waits on, written beside
+/// its call (`JudgeService::reserve_beside`).
+pub(crate) struct Beside {
+    records: Vec<theseus_store::NewRecord>,
+    said: Vec<spend::Said>,
+}
+
+impl Beside {
+    /// Write it on a blocking thread, beside the call; awaited after the
+    /// call, before the reservation is settled.
+    fn spawn(self, me: &Weak<JudgeService>) -> Option<tokio::task::JoinHandle<()>> {
+        if self.records.is_empty() {
+            return None;
+        }
+        let me = me.clone();
+        Some(tokio::task::spawn_blocking(move || {
+            if let Some(svc) = me.upgrade() {
+                svc.write_budget(&self.records, &self.said);
+            }
+        }))
+    }
 }
 
 /// One `loop.v1` judgment, in its own task. The service is held only
