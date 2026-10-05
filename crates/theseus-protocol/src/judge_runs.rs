@@ -336,3 +336,102 @@ pub struct JudgeProposal {
     /// The notice's sentence.
     pub said: String,
 }
+
+/// `judge.prove`'s params (M5 L3, row 50; design §2.9, "The prove"): the
+/// exit report for `loop.v1`'s canary, from the ledger. A read: it writes
+/// nothing.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeProveParams {
+    /// The first local day of tasks that ended (`2026-10-01`). None: since
+    /// `loop.v1`'s latest move to canary, else everything.
+    #[serde(default)]
+    pub since: Option<String>,
+    /// The last local day (`2026-10-04`), whole. None: up to now.
+    #[serde(default)]
+    pub until: Option<String>,
+    /// Labeled tasks each arm needs before a rate is stated (default 30).
+    #[serde(default)]
+    pub min_tasks: Option<u32>,
+    /// Labeled items each precision, recall, or rate needs (default the
+    /// learning report's per acting class).
+    #[serde(default)]
+    pub min_labeled: Option<u32>,
+    /// Also answer the records, as the generator's JSON lines.
+    #[serde(default)]
+    pub records: bool,
+}
+
+/// `judge.prove`'s result: the generator's report (`theseus_judge::prove`)
+/// over the records the ledger gives, as its JSON and its Markdown.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JudgeProveResult {
+    /// `loop.v1`.
+    pub pack: String,
+    /// The window of task ends read, unix ms; none is open on that side.
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub since_ms: Option<u64>,
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub until_ms: Option<u64>,
+    /// Where the window came from, in words.
+    pub window: String,
+    /// The verdict: `insufficient`, `canary_better`, `canary_worse`, or
+    /// `no_difference`.
+    pub verdict: String,
+    /// The report as the generator's JSON (`theseus_judge::prove::Report`).
+    #[cfg_attr(test, ts(type = "unknown"))]
+    pub report: serde_json::Value,
+    /// The report as the generator's Markdown: what `theseus-judge prove`
+    /// writes over the same records, byte for byte.
+    pub markdown: String,
+    /// Finished tasks read in the window.
+    pub tasks: u32,
+    /// Records by arm (`canary`, `control`).
+    pub arms: std::collections::BTreeMap<String, u32>,
+    /// Tasks left out, by reason (`never_judged`, `no_arm`, `both_arms`,
+    /// `cancelled`, `unreadable`).
+    pub left_out: std::collections::BTreeMap<String, u32>,
+    /// What the records cannot say yet, in words (the nudge's fields).
+    pub notes: Vec<String>,
+    /// Classification's decision quality against its baseline.
+    #[serde(default)]
+    pub classification: Vec<ClassifyQuality>,
+    /// The records, as JSON lines, when asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub records: Option<String>,
+    /// How long the build and the report took.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub elapsed_ms: u64,
+}
+
+/// The prove's classification part (design §2.9): `classify.v1`'s decision
+/// on one question against its baseline's, on the judgments an operator or
+/// an audit labeled. `should_promote`'s baseline is the model's own
+/// `task.create` in that turn, as the system's `task_create` label records it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ClassifyQuality {
+    /// `classify.v1`.
+    pub pack: String,
+    pub question: String,
+    /// Judgments in the window with an operator's or an audit's label on it.
+    pub labeled: u32,
+    /// Of those, the ones whose baseline is recorded: the compared set.
+    pub compared: u32,
+    /// Right on the compared set: Jev's lean, and the baseline's decision.
+    pub jev_right: u32,
+    pub baseline_right: u32,
+    /// The shares right, when `compared` reaches the minimum.
+    #[serde(default)]
+    pub jev_rate: Option<f64>,
+    #[serde(default)]
+    pub baseline_rate: Option<f64>,
+    /// `jev_better`, `baseline_better`, `no_difference` (McNemar's test on
+    /// the pairs where they disagree, at 95%), or `insufficient`.
+    pub verdict: String,
+    /// Set when the sample is short: "compared 3 of 30".
+    #[serde(default)]
+    pub insufficient: Option<String>,
+}

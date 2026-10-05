@@ -219,8 +219,8 @@ pub mod method {
         JUDGE_LABEL = "judge.label",
         LEARNING_REPORT = "learning.report",
         /// The owner's runs over the ledger (M5 25d; `judge_runs`): a candidate replayed, an audit,
-        /// a backfill (only under the owner's consent).
-        JUDGE_REPLAY = "judge.replay", JUDGE_AUDIT = "judge.audit", JUDGE_BACKFILL = "judge.backfill", JUDGE_LEARN = "judge.learn",
+        /// a backfill (only under the owner's consent); and `judge.prove`, the prove's report (L3), a read.
+        JUDGE_REPLAY = "judge.replay", JUDGE_AUDIT = "judge.audit", JUDGE_BACKFILL = "judge.backfill", JUDGE_LEARN = "judge.learn", JUDGE_PROVE = "judge.prove",
         /// The ladder (M5 26a; `packs`): each pack's mode, a read; the owner's promote and rollback.
         PACK_LIST = "pack.list", PACK_PROMOTE = "pack.promote", PACK_ROLLBACK = "pack.rollback",
         /// The gates' bench history on this machine (theseus-1hk), for the

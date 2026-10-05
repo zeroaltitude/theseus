@@ -313,7 +313,7 @@ impl Core {
             method::JUDGE_LIST | method::JUDGE_GET => self.rpc_reads(&req.method, params),
             // The learning ledger (M5 25c): a label, and the report.
             method::JUDGE_LABEL => route(params, |p| self.rpc_judge_label(p, conn)),
-            method::LEARNING_REPORT => reply(self.learning_report(params).await?),
+            m @ (method::LEARNING_REPORT | method::JUDGE_PROVE) => self.rpc_ledger(m, params).await,
             m if super::judge_runs::RUNS.contains(&m) => self.rpc_judge_run(m, params, conn).await,
             m if m.starts_with("pack.") => self.rpc_packs(m, params, conn),
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
