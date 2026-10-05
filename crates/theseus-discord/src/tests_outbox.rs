@@ -225,6 +225,21 @@ async fn replies_queued_while_away_are_posted_in_order() {
     assert_eq!(got, ["one", "two", "three"]);
 }
 
+/// Wait until a first life's core, and with it its store, is gone, before
+/// the second life opens the store: under load a task of the first life's
+/// runtime (the gateway's connect, seen) can still be mid-poll when its
+/// `shutdown_timeout` is up, and the store is then still open.
+fn until_dropped(first: &std::sync::Weak<Core>) {
+    let t0 = Instant::now();
+    while first.strong_count() > 0 {
+        assert!(
+            t0.elapsed() < Duration::from_secs(30),
+            "the first life's core outlived its runtime by 30 s"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 /// A crash between the send and the settle: the create reached Discord and
 /// its answer was lost with the process. After a restart the post goes again
 /// with the same nonce, and Discord (the fake enforcing it) returns the first
@@ -234,11 +249,11 @@ fn a_crash_between_send_and_settle_leaves_one_message() {
     let d = tempfile::tempdir().unwrap();
     let fake = FakeDiscord::start();
     // The first life: the reply's create lands and hangs; the process dies.
-    let first = {
+    let (first, life) = {
         let (dir, fake) = (d.path().to_path_buf(), fake.clone());
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let turn_id = rt.block_on(async {
+            let (turn_id, life) = rt.block_on(async {
                 let core = core_at(&dir, &fake, vec![Scripted::text("Done, once.")], |_| {});
                 let rpc = bind(&core, &dir, &dm_only()).await;
                 let f = fake.clone();
@@ -250,15 +265,16 @@ fn a_crash_between_send_and_settle_leaves_one_message() {
                     f.seen().iter().any(|s| s.outcome == "hung")
                 })
                 .await;
-                r.turn_id
+                (r.turn_id, Arc::downgrade(&core))
             });
             // Every task, and with them the core and its store, dies here.
             rt.shutdown_timeout(Duration::from_secs(2));
-            turn_id
+            (turn_id, life)
         })
         .join()
         .unwrap()
     };
+    until_dropped(&life);
     fake.set_mode(Mode::Up);
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
@@ -311,11 +327,11 @@ fn a_post_for_a_place_no_longer_bound_is_refused_at_the_next_start() {
     );
     // The first life: the channel is bound, and its reply waits while
     // Discord is away.
-    let sid = {
+    let (sid, first) = {
         let (dir, fake, place) = (d.path().to_path_buf(), fake.clone(), place.clone());
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let sid = rt.block_on(async {
+            let (sid, first) = rt.block_on(async {
                 let script = vec![Scripted::text("The tide turns at six.")];
                 let core = core_at(&dir, &fake, script, |_| {});
                 let rpc = bind(&core, &dir, &with_channel).await;
@@ -333,14 +349,15 @@ fn a_post_for_a_place_no_longer_bound_is_refused_at_the_next_start() {
                 let sid = core.outbox.place_session(&place).unwrap().unwrap();
                 ask(&rpc, &sid, "when does the tide turn?").await;
                 assert_eq!(pending(&core), 1, "the reply waits");
-                sid
+                (sid, Arc::downgrade(&core))
             });
             rt.shutdown_timeout(Duration::from_secs(2));
-            sid
+            (sid, first)
         })
         .join()
         .unwrap()
     };
+    until_dropped(&first);
     // The second life: the channel is gone from the bindings file.
     fake.set_mode(Mode::Up);
     let before = fake.seen().len();
