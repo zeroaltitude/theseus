@@ -26,6 +26,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `/extensions` (`runtime/extensions.rs`, M7 43b): the loaded extensions from `extend.list`, ephemeral, each with a
   Revoke button (`ext-revoke:<name>`); the text and a press go through the place (`Control::Extensions`,
   `Control::Revoke`), a press as `extension.revoke` with the presser's ids, which the core judges.
+  Jev's live notices (`runtime/jev.rs`, theseus-0j2.13): the operator lane posts a `jev_notice` to the owner's DM
+  alone (`Lane::owner_dm`: never `to_operator`'s fallback, which may be a shared place) with right / wrong / noise,
+  each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
+  A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
+  the notice and clears its buttons. `judge.noticed` draws nothing in a place.
 - **Guilds and ceilings** (step 38a, theseus-ext.3): `bindings.rs` reads format 1 (a top-level `guild_id`, its
   `private` beside it) and format 2 (a `[[guild]]` each, with its own `private`, and each `[[channel]]` naming its
   `guild`); a file that mixes them is refused, naming the line. `runtime/guilds.rs` tells the core each guild's word

@@ -4,7 +4,7 @@
 //! length the shape budget caps (`scripts/long-files.txt`).
 
 use serde_json::Value;
-use theseus_protocol::judge::{JudgeGetResult, JudgeHealth, JudgeScored};
+use theseus_protocol::judge::{JudgeGetResult, JudgeHealth, JudgeNoticed, JudgeScored};
 use theseus_protocol::{LedgerEntry, Span};
 
 use super::{fmt_time, push, Line, Tag};
@@ -21,6 +21,18 @@ pub(super) fn push_health(o: &mut Vec<Line>, h: Option<&JudgeHealth>) {
 /// judgment lands; a stream can only follow it.
 pub fn scored_line(j: &JudgeScored) -> String {
     format!("  ! notified: {} · {}", j.tool, j.line())
+}
+
+/// Jev's live notice after an open call it was sure was risky (step 24's
+/// notices): `  🔔 notified after it ran: proc.run · Jev: 95% risky (sends
+/// data out 92%) · label it: theseus judge label jdg_… right|wrong|noise`.
+pub fn noticed_line(n: &JudgeNoticed) -> String {
+    format!(
+        "  🔔 notified after it ran: {} · {} · label it: theseus judge label {} right|wrong|noise",
+        n.tool,
+        n.line(),
+        n.judgment
+    )
 }
 
 /// Dollars as a judgment's are: micro-dollars show, so six places.
@@ -70,6 +82,9 @@ pub fn judge_line(h: &JudgeHealth) -> String {
     }
     if !h.key.is_empty() && h.key != "ready" {
         s.push_str(&format!(" · key {}", h.key));
+    }
+    if !h.notices.is_empty() {
+        s.push_str(&format!(" · notices {}", h.notices));
     }
     s
 }

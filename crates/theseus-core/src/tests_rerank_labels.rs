@@ -21,6 +21,7 @@ fn label(c: &Core, jdg: &str, q: Option<&str>, l: Value) -> anyhow::Result<Strin
             question: q.map(str::to_string),
             label: l,
             note: None,
+            discord: None,
         },
         "cli",
     )

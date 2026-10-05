@@ -168,6 +168,8 @@ mod tests_m3;
 #[cfg(test)]
 mod tests_memory_arm;
 #[cfg(test)]
+mod tests_notices;
+#[cfg(test)]
 mod tests_ontology;
 #[cfg(test)]
 mod tests_output;

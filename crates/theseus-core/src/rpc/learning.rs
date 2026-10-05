@@ -40,14 +40,7 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> anyhow::Result<JudgeLabelResult> {
         let who = who.into();
-        let r = self
-            .store
-            .ledger_by_key(&p.judgment)?
-            .with_context(|| format!("no judgment is named {}", p.judgment))?;
-        let row: LedgerRow = r.decode()?;
-        if row.kind != LedgerKind::JudgeCall.as_str() {
-            anyhow::bail!("{} is not a judgment", p.judgment);
-        }
+        let row = self.judgment_row(&p.judgment)?;
         let pack_name = row.data["pack"].as_str().unwrap_or_default().to_string();
         let pack = theseus_judge::pack::by_name(&pack_name)
             .with_context(|| format!("this build has no pack {pack_name}"))?;
@@ -87,7 +80,9 @@ impl Core {
             via: &via,
             weight: 1.0,
             note: p.note.as_deref().unwrap_or(""),
-            correlation_id: row.data["context"]["call"].as_str(),
+            correlation_id: row.data["context"]["call"]
+                .as_str()
+                .or(row.data["correlation_id"].as_str()),
             rule: None,
         };
         let mut rec = fact::row(&f, row.session_id.as_deref(), None)?;
@@ -95,6 +90,19 @@ impl Core {
         self.store
             .append(&[rec.scoped(&super::judge::scope_of(&pack_name))])?;
         self.rec(row.session_id.as_deref()).announce(&f);
+        // v3's notices: a noise label counts toward their brake, and a
+        // noticed judgment's post shows the label.
+        self.runner.judge.after_label(
+            self,
+            &crate::judge::notice::Labeled {
+                pack: &pack_name,
+                judgment: &p.judgment,
+                label: &label,
+                who: &who_s,
+                via: &via,
+                session: row.session_id.as_deref(),
+            },
+        );
         Ok(JudgeLabelResult {
             id,
             judgment: p.judgment.clone(),
@@ -107,12 +115,32 @@ impl Core {
         })
     }
 
+    /// The judgment's `judge.call` row; or, while the judge's sink has not
+    /// written it yet (its window is 2 s), the `tool.notified` row of the
+    /// notice that names it, which carries its pack and call, so a notice's
+    /// label counts the moment the notice is seen.
+    fn judgment_row(&self, judgment: &str) -> anyhow::Result<LedgerRow> {
+        if let Some(r) = self.store.ledger_by_key(judgment)? {
+            let row: LedgerRow = r.decode()?;
+            if row.kind != LedgerKind::JudgeCall.as_str() {
+                anyhow::bail!("{judgment} is not a judgment");
+            }
+            return Ok(row);
+        }
+        let key = crate::judge::notice::notice_key(judgment);
+        match self.store.ledger_by_key(&key)? {
+            Some(r) => Ok(r.decode()?),
+            None => anyhow::bail!("no judgment is named {judgment}"),
+        }
+    }
+
     pub(super) fn rpc_judge_label(
         &self,
         p: JudgeLabelParams,
         conn: Conn<'_>,
     ) -> Result<JudgeLabelResult, RpcFailure> {
-        let who = conn.answerer(None, None);
+        // Only the binding names a press's place, and the core judges it.
+        let who = conn.answerer(None, p.discord.clone());
         self.judge_label(&p, who)
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {

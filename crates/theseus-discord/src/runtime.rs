@@ -53,6 +53,10 @@ use crate::viewers;
 mod audience;
 mod extensions;
 mod guilds;
+mod jev;
+pub(crate) use jev::{
+    buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
+};
 mod prompt;
 mod publish;
 mod voice;
@@ -1253,6 +1257,10 @@ impl Shared {
         }
         match &i.data {
             Some(InteractionData::MessageComponent(c)) => {
+                if let Some(press) = jev::parse(&c.custom_id) {
+                    self.jev_press(&i, press, &who, discord).await;
+                    return;
+                }
                 if let Some(asked) = parse_asked_pick(&c.custom_id, &c.values) {
                     self.should_have_asked(&i, asked, &who, discord).await;
                     return;

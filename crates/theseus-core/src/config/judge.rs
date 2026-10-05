@@ -120,7 +120,15 @@ pub struct JudgePackConfig {
     /// own share when absent).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample: Option<f64>,
+    /// `security.v3`'s live notices (step 24's notices): on by default
+    /// with the judge; `false` keeps v3 in shadow. Refused on any other
+    /// pack.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notices: Option<bool>,
 }
+
+/// The one pack whose line may say `notices`.
+pub const NOTICES_PACK: &str = "security.v3";
 
 fn live() -> PackMode {
     PackMode::Live
@@ -207,6 +215,9 @@ impl JudgeConfig {
                     anyhow::bail!("judge.packs.{name:?}.sample must be between 0 and 1");
                 }
             }
+            if p.notices.is_some() && name != NOTICES_PACK {
+                anyhow::bail!("judge.packs.{name:?}.notices: only {NOTICES_PACK:?} posts notices");
+            }
         }
         Ok(())
     }
@@ -223,6 +234,15 @@ impl JudgeConfig {
             .and_then(|p| p.mode)
             .unwrap_or(PackMode::Live);
         given.min(self.max_mode).min(own)
+    }
+
+    /// Whether `security.v3`'s notices are switched on: its line's
+    /// `notices`, on by default. Its mode still decides ([`Self::mode_of`]).
+    pub fn notices_on(&self) -> bool {
+        self.packs
+            .get(NOTICES_PACK)
+            .and_then(|p| p.notices)
+            .unwrap_or(true)
     }
 
     /// The share of `pack`'s eligible events judged in shadow: its line's,
@@ -248,6 +268,7 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     assert_eq!(j.packs["loop.v1"].sample, Some(0.5));
     assert_eq!(j.signals, SignalsConfig::default());
     assert_eq!(j.packs["rerank.v1"].mode, Some(PackMode::Off));
+    assert_eq!(j.packs[NOTICES_PACK].notices, Some(true));
     assert_eq!(j.learning_hour, 3);
     j.validate(&cfg.secrets).unwrap();
 }
@@ -339,6 +360,15 @@ mod tests {
             let bad = cfg(&format!("[signals]\ntail_band = {band}")).unwrap();
             assert!(bad.validate(&secrets).is_err(), "{band}");
         }
+        let notices = cfg("[packs.\"security.v3\"]\nnotices = false").unwrap();
+        notices.validate(&secrets).unwrap();
+        assert!(!notices.notices_on());
+        assert!(cfg("").unwrap().notices_on(), "on by default");
+        let e = cfg("[packs.\"security.v1\"]\nnotices = true")
+            .unwrap()
+            .validate(&secrets)
+            .unwrap_err();
+        assert!(format!("{e:#}").contains("only \"security.v3\""), "{e:#}");
         let s = cfg("[packs.\"loop.v1\"]\nsample = 0.25").unwrap();
         assert_eq!(s.sample_of("loop.v1", 1.0), 0.25);
         assert_eq!(s.sample_of("security.v1", 1.0), 1.0);

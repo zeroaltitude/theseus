@@ -253,6 +253,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     turn's trace marks it (under the call's span) and a "should have asked" press labels it (`judge.label`, in the
     press's frame) before its row is written. A notified call's score follows its notice as `judge.scored`.
     Tests: `tests_security.rs`.
+  - **v3's live notices** (step 24's notices, theseus-0j2.13; the owner's decision of 2026-10-04): `notice.rs`.
+    `WIRED` gives `security.v3` `live` while `[judge.packs."security.v3"] notices` is on (the default;
+    `JudgeService::given`/`mode`), so its judgments are marked and recorded `live`. When v3, live, answers `risky`
+    act-true for an open call the hold did not make wait (`notice::flagged`), the gate's task posts once the
+    judgments land, never on the call's path: one frame with the post to the owner (`Outbox::stage_to_operator`,
+    kind `jev_notice`, which the Discord courier posts to the owner's DM alone) and its `tool.notified` row
+    (`by: judge`, keyed `notice_<judgment>`, scoped `judge:security`), then `judge.noticed` to the turn's clients.
+    The brake is security.v1's `[[rollback]]` (`learn::check_all` over today's notices and the owner's `noise`
+    labels on v3's judgments, at each notice and each such label, `JudgeService::after_label`): a fired rule
+    writes one `judge.paused` row (`what: "notices"`), a `jev_paused` post and a META mark (`judge.notices`,
+    health's read), and holds notices to the next local day. The first use in a run reads today's rows in
+    `judge:security`. A label on a noticed judgment edits its post (`jev_labeled`), and `judge.label` takes a
+    judgment whose `judge.call` row the sink has not written yet from its notice's row. Health's `notices`.
+    Tests: `tests_notices.rs`.
   - **At an exchange's end** (step 28b, `categorize.rs`): at a private conversation's exchange end (never a shared
     place's, never a task's), `categorize.v1` judges in shadow when 10 human messages arrived since the session's
     last judgment, or the exchange began after 30 minutes' quiet; the decision, off the turn's path, reads the

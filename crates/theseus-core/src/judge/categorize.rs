@@ -239,6 +239,11 @@ impl JudgeService {
         let _ = self.categorize.core.set(Arc::downgrade(core));
     }
 
+    /// The core it was attached to, while it lives (the notices' outbox).
+    pub(crate) fn core(&self) -> Option<Arc<Core>> {
+        self.categorize.core.get()?.upgrade()
+    }
+
     /// A conversation's turn that the baseline ended with no tool calls:
     /// whether `categorize.v1` judges it is decided in a task of its own.
     /// Returns at once, whatever Jev does.

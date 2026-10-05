@@ -194,6 +194,7 @@ async fn without_the_judge_the_deterministic_half_runs_alone() {
                         JudgePackConfig {
                             mode: Some(crate::config::PackMode::Off),
                             sample: None,
+                            notices: None,
                         },
                     );
                 }
@@ -203,6 +204,7 @@ async fn without_the_judge_the_deterministic_half_runs_alone() {
                         JudgePackConfig {
                             mode: None,
                             sample: Some(0.0),
+                            notices: None,
                         },
                     );
                 }

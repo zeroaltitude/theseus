@@ -394,7 +394,8 @@ function step(s: Snap, r: LedgerEntry): void {
       return
     }
     case 'judge.paused':
-      s.judge = { ...s.judge, paused: true }
+      // The notices' pause (step 24's notices) is not the shadow budget's.
+      if (d.what !== 'notices') s.judge = { ...s.judge, paused: true }
       return
     case 'judge.resumed':
       s.judge = { ...s.judge, paused: false }

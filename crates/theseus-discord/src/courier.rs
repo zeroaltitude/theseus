@@ -685,6 +685,9 @@ impl Lane {
                     extra: json!({"place": place}),
                 })
             }
+            // Jev's notices (step 24's notices): the owner's DM alone.
+            "jev_notice" | "jev_paused" => self.jev_post(a, &body).await,
+            "jev_labeled" => Ok(self.jev_labeled(&body)),
             other => Err(SendErr::refused(format!(
                 "a post of kind {other:?} is not one this binding knows"
             ))),
@@ -911,6 +914,87 @@ impl Lane {
         }
     }
 
+    /// A Jev notice, or the notices' pause, in the owner's DM: a notice
+    /// under its judgment's key, with its right / wrong / noise.
+    async fn jev_post(&mut self, a: &Action, body: &Value) -> Result<Plan, SendErr> {
+        let (channel, place) = self.owner_dm().await?;
+        let (content, key, buttons) = match kind_of(a) {
+            "jev_notice" => {
+                let judgment = body["judgment"].as_str().unwrap_or(&a.correlation_id);
+                let t = crate::runtime::jev_notice_text(body);
+                (
+                    t,
+                    format!("jev:{judgment}"),
+                    Buttons::JevLabel(judgment.to_string()),
+                )
+            }
+            _ => {
+                let t = body["text"].as_str().unwrap_or("").to_string();
+                (t, format!("note:{}", a.correlation_id), Buttons::Keep)
+            }
+        };
+        Ok(Plan {
+            writes: vec![Write {
+                key,
+                channel,
+                content: content.clone(),
+                buttons,
+                reply_to: None,
+                message: None,
+                mentions: vec![],
+            }],
+            extra: json!({"place": place, "text": content}),
+        })
+    }
+
+    /// Where a Jev notice goes: the owner's DM, the one approvals go to,
+    /// and nowhere else. It never falls back to the session's place, which
+    /// may be shared: with no such DM it is refused, saying why.
+    async fn owner_dm(&mut self) -> Result<(u64, String), SendErr> {
+        self.shared.open_dm_channels().await?;
+        match self.shared.approval_dm(None) {
+            Some((user, dm)) => Ok((self.shared.dm_channel(user).await?, dm)),
+            None => Err(SendErr::refused(
+                "no DM with the owner takes approvals, and a Jev notice goes nowhere else",
+            )),
+        }
+    }
+
+    /// A noticed judgment was labeled: its notice, edited to say so, its
+    /// buttons gone.
+    fn jev_labeled(&mut self, body: &Value) -> Plan {
+        let notice = body["notice"].as_str().unwrap_or("");
+        let posted = match self.shared.core.kernel.outbox_action(notice) {
+            Ok(Some(c)) if c.state == ActionState::Succeeded => c,
+            _ => return Plan::nothing("its notice was never posted"),
+        };
+        let d = posted.detail.unwrap_or_default();
+        let content = crate::runtime::jev_labeled_text(d["text"].as_str().unwrap_or(""), body);
+        let writes: Vec<Write> = d["messages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|m| {
+                Some(Write {
+                    key: m["key"].as_str()?.to_string(),
+                    channel: m["channel"].as_str()?.parse().ok()?,
+                    content: content.clone(),
+                    buttons: Buttons::Clear,
+                    reply_to: None,
+                    message: Some(m["id"].as_str()?.parse().ok()?),
+                    mentions: vec![],
+                })
+            })
+            .collect();
+        if writes.is_empty() {
+            return Plan::nothing("its notice posted no message");
+        }
+        Plan {
+            writes,
+            extra: json!({"notice": notice}),
+        }
+    }
+
     /// Where an operator's notice goes: the DM approvals go to, else the
     /// place of the session it concerns, when this daemon binds it
     /// (theseus-c3e). A place the bindings file does not name, a session's
@@ -1025,6 +1109,7 @@ impl Lane {
             Buttons::Confirm(corr) => confirm_buttons(corr, false),
             Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
+            Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
             Buttons::Clear | Buttons::Keep => vec![],
         };
         if !comps.is_empty() {
@@ -1077,6 +1162,7 @@ impl Lane {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
             Buttons::ConfirmTrust(corr) => Some(confirm_buttons(corr, true)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
+            Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
             Buttons::Clear => Some(vec![]),
             Buttons::Keep => None,
         };

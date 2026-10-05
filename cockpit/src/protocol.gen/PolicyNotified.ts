@@ -17,6 +17,15 @@ granted: string | null,
  */
 task?: string, 
 /**
+ * Who notified: `judge` for Jev's live notice after an open call
+ * (step 24's notices); none, the gate's `notify` posture.
+ */
+by?: string, 
+/**
+ * The judgment a `by: judge` notice is of (`jdg_…`).
+ */
+judgment?: string, 
+/**
  * `notify`.
  */
 kind: string, 

@@ -42,6 +42,12 @@ pub struct JudgeLabelParams {
     pub label: serde_json::Value,
     #[serde(default)]
     pub note: Option<String>,
+    /// Set by the Discord binding alone (a notice's right / wrong / noise
+    /// press, step 24's notices): the channel and user the press came from,
+    /// which the core judges the label by, as it judges an answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

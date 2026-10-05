@@ -298,6 +298,8 @@ pub mod notify {
         EVENTS_LOST = "events.lost",
         /// A notified call's `security.v1` score, after its notice (M5 24).
         JUDGE_SCORED = "judge.scored",
+        /// `security.v3`'s live notice on an open call it is sure was risky.
+        JUDGE_NOTICED = "judge.noticed",
         /// A task record changed (39a): `tasks::TaskChanged`.
         TASK_CHANGED = "task.changed",
     }

@@ -94,10 +94,21 @@ impl Rig {
         bindings: &str,
         more: &[String],
     ) -> Self {
+        Self::start_tweaked(model, guild, bindings, more, |_| {}).await
+    }
+
+    /// The same, with the config changed by `tweak` before the core builds.
+    async fn start_tweaked(
+        model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
+        guild: Guild,
+        bindings: &str,
+        more: &[String],
+        tweak: impl FnOnce(&mut Config),
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let fake = FakeDiscord::start_with_gateway();
         fake.set_guild(guild);
-        let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()));
+        let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
         let path = dir.path().join("bindings.toml");
         std::fs::write(&path, bindings).unwrap();
         // The continuation driver, as the daemon starts it: an answered
@@ -199,7 +210,12 @@ fn outside(dir: &Path) -> PathBuf {
 }
 
 /// A core over `dir` whose binding talks to `fake` and never to Discord.
-fn core_at(dir: &Path, fake: &FakeDiscord, model: Arc<dyn Provider>) -> Arc<Core> {
+fn core_at(
+    dir: &Path,
+    fake: &FakeDiscord,
+    model: Arc<dyn Provider>,
+    tweak: impl FnOnce(&mut Config),
+) -> Arc<Core> {
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
     let work = dir.join("work");
@@ -218,10 +234,16 @@ fn core_at(dir: &Path, fake: &FakeDiscord, model: Arc<dyn Provider>) -> Arc<Core
     // asks first, so a shared place has a call that waits.
     cfg.places.owner = Some(vec![format!("discord:{ANA}"), format!("discord:{BEN}")]);
     cfg.policy.tools.insert("wake.at".into(), Posture::Approve);
+    tweak(&mut cfg);
     let name = cfg.discord.token_secret.clone();
-    let secrets = SecretBoard::new([name.clone()], Instant::now());
+    let jev = cfg.judge.key_secret.clone();
+    let secrets = SecretBoard::new([name.clone(), jev.clone()], Instant::now());
     secrets.publish(
-        [(name, Ok(Secret::new("fake-token-not-a-secret".into())))].into(),
+        [
+            (name, Ok(Secret::new("fake-token-not-a-secret".into()))),
+            (jev, Ok(Secret::new("jev-test-key-0123456789".into()))),
+        ]
+        .into(),
         "test",
     );
     let store = theseus_core::store::Store::open(&dir.join("store")).unwrap();
@@ -694,4 +716,126 @@ fn place_in(r: &Rig, id: u64) -> theseus_protocol::PlaceInfo {
     let target = format!("discord:channel:{id}");
     let h = r.core.health().places.unwrap();
     h.places.into_iter().find(|p| p.place == target).unwrap()
+}
+
+/// Jev's live notice (step 24's notices, theseus-0j2.13): an open call
+/// `security.v3` is 95% sure was risky gets a notice after it ran, in the
+/// owner's DM alone, with right / wrong / noise. Ana's press of Noise in her
+/// DM labels the whole judgment as hers, and the notice says so and loses
+/// its buttons. A press from a shared channel (a forged copy of the buttons
+/// in `#lab`, bound shared) is refused, and only the presser is told why.
+#[tokio::test]
+async fn a_jev_notice_goes_to_the_owners_dm_and_a_press_there_labels_it() {
+    use theseus_judge::fake::{FakeJev, Scripted as Jev};
+    let jev = FakeJev::start().unwrap();
+    jev.script("risky", Jev::Noul(0.95));
+    let base = jev.base();
+    let model = |_: &Path, _| -> Arc<dyn Provider> {
+        Arc::new(FakeProvider::scripted(vec![
+            Scripted::tools(
+                "",
+                &[(
+                    "r1",
+                    "proc_run",
+                    serde_json::json!({"argv": ["echo", "hi"]}),
+                )],
+            ),
+            Scripted::text("Done."),
+        ]))
+    };
+    let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], move |c| {
+        c.judge.enabled = true;
+        c.judge.api_base = base;
+        c.judge.connect_secs = 1;
+        c.judge.total_secs = 2;
+        c.policy.tools.insert("proc.run".into(), Posture::Open);
+    })
+    .await;
+    r.say((ANA, "ana"), None, "Run echo hi.");
+    let is_notice = |m: &Msg| m.versions[0].contains("notified after it ran");
+    r.until("the notice in ana's DM", || {
+        r.posted(ANA_DM).iter().any(is_notice)
+    })
+    .await;
+    let notice = r.posted(ANA_DM).into_iter().find(is_notice).unwrap();
+    assert!(
+        notice.content.contains("Jev: 95% risky"),
+        "{}",
+        notice.content
+    );
+    let labels: Vec<&str> = notice.buttons.iter().map(|b| b.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        ["Right: it was risky", "Wrong: it was fine", "Noise"]
+    );
+    let judgment = notice
+        .buttons
+        .last()
+        .and_then(|b| b.custom_id.strip_prefix("jev:noise:"))
+        .unwrap()
+        .to_string();
+    assert!(r.posted(LAB).iter().all(|m| !is_notice(m)), "never in #lab");
+
+    // A forged copy of the buttons in #lab, a shared channel: refused.
+    let forged_id = forge(&r, LAB, &judgment).await;
+    let pressed = r.press(&forged_id, "Noise", (ANA, "ana"));
+    r.until("ana is told no", || {
+        r.fake.replies().iter().any(|x| {
+            x.interaction.as_deref() == Some(pressed.as_str())
+                && x.content
+                    .as_deref()
+                    .is_some_and(|c| c.starts_with("🔐 Your label did not count"))
+        })
+    })
+    .await;
+    assert!(r.ledger("judge.label").is_empty(), "nothing was written");
+
+    // Ana's press in her DM counts, as hers.
+    r.press(&notice.id, "Noise", (ANA, "ana"));
+    r.until("the label", || !r.ledger("judge.label").is_empty())
+        .await;
+    let l = &r.ledger("judge.label")[0];
+    assert_eq!(
+        (
+            l["judgment"].as_str(),
+            l["label"].as_str(),
+            l["via"].as_str()
+        ),
+        (Some(judgment.as_str()), Some("noise"), Some("discord:dm"))
+    );
+    assert!(l["who"].as_str().unwrap().contains(&ANA.to_string()), "{l}");
+    r.until("the notice says it", || {
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.id == notice.id && m.content.contains("labeled **noise**"))
+    })
+    .await;
+    let edited = r
+        .posted(ANA_DM)
+        .into_iter()
+        .find(|m| m.id == notice.id)
+        .unwrap();
+    assert!(
+        edited.buttons.is_empty(),
+        "its buttons are gone: {edited:?}"
+    );
+}
+
+/// A message with a Jev notice's Noise button for `judgment`, posted in
+/// `channel` as the bot's, as a forged or stale copy would be. Its id.
+async fn forge(r: &Rig, channel: u64, judgment: &str) -> String {
+    let forged = serde_json::json!({"content": "a forged notice", "components": [{"type": 1,
+        "components": [{"type": 2, "style": 4, "label": "Noise",
+                        "custom_id": format!("jev:noise:{judgment}")}]}]});
+    let url = format!("http://{}/api/v10/channels/{channel}/messages", r.fake.addr);
+    let posted: serde_json::Value = reqwest::Client::new()
+        .post(url)
+        .json(&forged)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    posted["id"].as_str().unwrap().to_string()
 }

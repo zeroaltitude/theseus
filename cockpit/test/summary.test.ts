@@ -23,6 +23,8 @@ test('the gate and its undo: approvals refused, tightenings, notices', () => {
     'fs.write back to notify ([tools] fs.write) · undone by cli via cli · tightened by web')
   assert.equal(summarize(row('tool.notified', { tool: 'fs.read', summary: 'a/b', setting: 'open', granted: 'TOKEN' })),
     'notified · fs.read · a/b · open · 🔑 TOKEN')
+  assert.equal(summarize(row('tool.notified', { tool: 'proc.run', summary: 'run nc', rule: 'Jev: 95% risky', by: 'judge' })),
+    'Jev noticed · proc.run · run nc · Jev: 95% risky')
 })
 
 test('a provider error says its class and whether it may be tried again', () => {

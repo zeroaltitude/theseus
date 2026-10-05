@@ -62,6 +62,7 @@ pub(crate) fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
         JudgePackConfig {
             mode: Some(mode),
             sample: None,
+            notices: None,
         },
     );
 }

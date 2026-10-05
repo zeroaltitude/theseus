@@ -200,6 +200,7 @@ async fn a_label_is_the_operators_from_a_private_place() {
         question: q.map(str::to_string),
         label: l,
         note: Some("it was still going".into()),
+        discord: None,
     };
     let out = c
         .judge_label(&p(Some("work_state"), json!("progressing")), "cli")

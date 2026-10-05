@@ -97,6 +97,7 @@ ledger_kinds! {
     DiscordDisconnected = "discord.disconnected",
     DiscordError = "discord.error",
     DiscordIgnored = "discord.ignored",
+    DiscordLabel = "discord.label",
     DiscordMessageIn = "discord.message.in",
     DiscordMessageOut = "discord.message.out",
     DiscordReady = "discord.ready",

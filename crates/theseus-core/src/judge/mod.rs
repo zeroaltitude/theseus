@@ -24,7 +24,9 @@
 //!   and counted, never queued.
 //! - **At the gate** (step 24, `gate`): `security.v1` and `security.v3` in
 //!   shadow, asked of every call that acts once the gate has decided; the
-//!   call never waits on them.
+//!   call never waits on them. `security.v3` is live as notices (`notice`,
+//!   the owner's decision of 2026-10-04): after an open call it is sure was
+//!   risky, the owner hears of it, under `security.v1`'s brake.
 
 pub mod categorize;
 pub mod compile;
@@ -33,6 +35,7 @@ pub mod inbound;
 pub mod loop_end;
 pub mod mark;
 pub mod memory;
+pub mod notice;
 pub mod rerank;
 pub mod sink;
 pub mod spend;
@@ -61,11 +64,13 @@ pub use mark::Dispatch;
 use spend::{Reserve, ShadowBudget};
 
 /// The packs this build wires in, and the mode the ladder gives each (step
-/// 26a brings the ladder; until then every pack is in shadow).
+/// 26a brings the ladder; until then every pack is in shadow but
+/// `security.v3`, live as notices by the owner's promotion of 2026-10-04,
+/// while `[judge.packs."security.v3"] notices` is on: [`JudgeService::mode`]).
 pub const WIRED: &[(&str, PackMode)] = &[
     (LOOP_PACK, PackMode::Shadow),
     (gate::SECURITY_PACK, PackMode::Shadow),
-    (gate::SECURITY_CANDIDATE, PackMode::Shadow),
+    (gate::SECURITY_CANDIDATE, PackMode::Live),
     (inbound::CLASSIFY_PACK, PackMode::Shadow),
     (inbound::ROLE_PACK, PackMode::Shadow),
     (inbound::ROUTE_PACK, PackMode::Live),
@@ -142,6 +147,9 @@ pub struct JudgeService {
     /// A test's judge in Jev's place for the rerank (a channel for Jev).
     #[cfg(test)]
     rerank_judge: OnceLock<Arc<dyn Judge>>,
+    /// `security.v3`'s notices' brake (`notice`): today's notices and
+    /// noise labels, and a pause.
+    brake: notice::Brake,
     me: Weak<JudgeService>,
     /// Where the judge's facts say their sentences, and their metrics go
     /// (23b): set by the core as it builds, and as its telemetry is built.
@@ -193,6 +201,7 @@ impl JudgeService {
             late: Mutex::default(),
             #[cfg(test)]
             rerank_judge: OnceLock::new(),
+            brake: notice::Brake::default(),
             me: me.clone(),
             narrator: OnceLock::new(),
             telemetry: OnceLock::new(),
@@ -245,6 +254,25 @@ impl JudgeService {
 
     pub fn config(&self) -> &JudgeConfig {
         &self.cfg
+    }
+
+    /// The mode the ladder gives `pack` ([`WIRED`]): `security.v3` is in
+    /// shadow while its notices are switched off.
+    pub fn given(&self, pack: &str) -> PackMode {
+        let given = WIRED
+            .iter()
+            .find(|(p, _)| *p == pack)
+            .map_or(PackMode::Shadow, |(_, m)| *m);
+        match pack == gate::SECURITY_CANDIDATE && !self.cfg.notices_on() {
+            true => given.min(PackMode::Shadow),
+            false => given,
+        }
+    }
+
+    /// What `pack` may do now: the ladder's mode under the config's
+    /// ceilings (`mode_of`).
+    pub fn mode(&self, pack: &str) -> PackMode {
+        self.cfg.mode_of(pack, self.given(pack))
     }
 
     /// The client, the breaker, and the sink's task, on the first judgment.
@@ -517,12 +545,13 @@ impl JudgeService {
                 0,
             ),
         };
+        let notices = self.notices_state();
         JudgeHealth {
             enabled: self.cfg.enabled,
             max_mode: self.cfg.max_mode.as_str().into(),
             packs: WIRED
                 .iter()
-                .map(|(p, given)| format!("{p}: {}", self.cfg.mode_of(p, *given).as_str()))
+                .map(|(p, _)| format!("{p}: {}", self.mode(p).as_str()))
                 .collect(),
             breaker,
             breakers,
@@ -536,6 +565,7 @@ impl JudgeService {
             paused: t.paused,
             shed,
             key,
+            notices,
         }
     }
 }

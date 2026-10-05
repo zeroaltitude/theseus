@@ -1048,7 +1048,10 @@ impl ToolRuntime {
             input: call.input.clone(),
             plan: g.plan.clone(),
         };
-        judge.at_gate(gc, notified.then(|| tc.sink.clone()))
+        // The turn's clients hear a notified call's score, and v3's live
+        // notice on an open one.
+        let told = notified || judge.notices_live();
+        judge.at_gate(gc, told.then(|| tc.sink.clone()))
     }
 
     /// A notify posture runs the call and says so where the operator looks,
@@ -1074,6 +1077,8 @@ impl ToolRuntime {
             granted: g.decision.granted.clone(),
             // A task's notice names the task (DD7).
             task: tc.task.is_some().then(|| crate::task::short(tc.session_id)),
+            by: None,
+            judgment: None,
         })
     }
 

@@ -10,10 +10,13 @@
 //   `components/LearningReport.tsx` and `components/JudgmentLabels.tsx`; promote or rollback are 26a's. "disagrees"
 //   here is the core's: an answered judgment whose pack, in its act band, would have done otherwise than the
 //   baseline.
+// - Jev's live notices (step 24's notices: `security.v3` sure an open call was risky) are the Notices panel: the
+//   newest `tool.notified` rows `by: judge`, read while it is open, each with its label buttons, and health's word on
+//   them (on, paused until a day and why, or off).
 import { useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { GraduationCap, Gavel, ListFilter, Scale } from 'lucide-react'
-import type { Health, JudgeGetResult, JudgeListResult } from '@protocol'
+import { BellRing, GraduationCap, Gavel, ListFilter, Scale } from 'lucide-react'
+import type { Health, JudgeGetResult, JudgeListResult, LedgerEntry } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
 import { useTick } from '@/lib/hooks'
@@ -24,6 +27,7 @@ import { JsonView } from '@/components/JsonView'
 import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { LearningReport } from '@/components/LearningReport'
 import { localDay } from '@/lib/learning'
+import { noticeWords } from '@/lib/scores'
 
 type D = Record<string, any>
 
@@ -104,6 +108,8 @@ export default function Judgment() {
           )}
         </Panel>
 
+        {h?.enabled && !world && <Notices state={h.notices} onSession={(s) => nav(`/session/${s}?tab=timeline`)} />}
+
         <Panel title="Learning" icon={<GraduationCap size={14} />} actions={
           <button className="text-[11px] text-ink-faint hover:text-live" onClick={() => set('report', params.get('report') ? null : localDay(new Date()))}>
             {params.get('report') ? 'hide' : 'show the report'}
@@ -140,6 +146,33 @@ export default function Judgment() {
         {id ? <Detail id={id} /> : <Empty>pick a judgment for its state and answers</Empty>}
       </Panel>
     </div>
+  )
+}
+
+/** Jev's live notices: the newest, each with what it said and its label buttons. */
+function Notices({ state, onSession }: { state: string; onSession: (s: string) => void }) {
+  const { data } = useRpc<{ rows: LedgerEntry[] }>('ledger.tail', { n: 200, kind: 'tool.notified', session_id: null }, 6000)
+  const rows = useMemo(() => (data?.rows ?? []).filter((r) => (r.data as D)?.by === 'judge').reverse().slice(0, 20), [data])
+  return (
+    <Panel title="Notices" icon={<BellRing size={14} />} actions={
+      <Pill tone={state === 'on' ? 'live' : state.startsWith('paused') ? 'wait' : 'idle'} title="security.v3's notices after an open call it is sure was risky">{state || 'not reported'}</Pill>
+    }>
+      {!rows.length ? <Empty>no notice yet</Empty> : rows.map((r) => {
+        const d = r.data as D
+        return (
+          <div key={`${d.judgment}`} className="border-b border-line/60 px-3 py-1.5 text-[11.5px]">
+            <div className="num flex items-baseline gap-3">
+              <span className="shrink-0 text-ink-faint">{stamp(r.at_unix_ms)}</span>
+              <span className="shrink-0 text-tool">{String(d.tool ?? '')}</span>
+              <span className="min-w-0 flex-1 truncate text-wait">{noticeWords({ percent: Number(d.percent ?? 0), reasons: (d.reasons ?? []).map(String) })}</span>
+              {r.session_id && <button className="shrink-0 text-ink-faint hover:text-live" onClick={() => onSession(r.session_id!)}>{short(r.session_id)}</button>}
+            </div>
+            <div className="truncate text-ink-dim">{String(d.summary ?? '')}</div>
+            <JudgmentLabels id={String(d.judgment)} answers={[]} />
+          </div>
+        )
+      })}
+    </Panel>
   )
 }
 

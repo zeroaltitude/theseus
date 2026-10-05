@@ -35,7 +35,7 @@ use crate::web::tests::{serve, web, Server};
 use crate::Config;
 
 /// A board with the Jev key ready, as it is once the secrets settle.
-fn board() -> Arc<SecretBoard> {
+pub(crate) fn board() -> Arc<SecretBoard> {
     let b = SecretBoard::new(["jev_api_key".to_string()], Instant::now());
     b.publish(
         BTreeMap::from([(
@@ -50,8 +50,8 @@ fn board() -> Arc<SecretBoard> {
 /// A model that runs `argv` once per turn: a call when the turn's last
 /// message is the operator's, and `Done.` after its result. A call that
 /// waits ends its turn, so a list of answers would fall out of step.
-struct RunsOnce {
-    argv: Vec<String>,
+pub(crate) struct RunsOnce {
+    pub(crate) argv: Vec<String>,
 }
 
 impl Provider for RunsOnce {
@@ -81,18 +81,18 @@ impl Provider for RunsOnce {
     }
 }
 
-struct Rig {
-    core: Arc<Core>,
-    root: PathBuf,
-    _server: Arc<Server>,
-    _dir: tempfile::TempDir,
-    _work: tempfile::TempDir,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) root: PathBuf,
+    pub(crate) _server: Arc<Server>,
+    pub(crate) _dir: tempfile::TempDir,
+    pub(crate) _work: tempfile::TempDir,
 }
 
 /// A core over a fresh store, its tools rooted at `root` (shared, so two
 /// cores' reasons read alike), the web tools reaching `server`, and the
 /// judge on at `jev` when given. `notify` is the operator's own posture.
-fn core(
+pub(crate) fn core(
     root: &Path,
     server: &Arc<Server>,
     model: Arc<dyn Provider>,
@@ -123,11 +123,15 @@ fn core(
     (Core::build(p).unwrap(), dir)
 }
 
-async fn rig(script: Vec<Scripted>, jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) async fn rig(
+    script: Vec<Scripted>,
+    jev: Option<&FakeJev>,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     rig_with(Arc::new(FakeProvider::scripted(script)), jev, tweak).await
 }
 
-async fn rig_with(
+pub(crate) async fn rig_with(
     model: Arc<dyn Provider>,
     jev: Option<&FakeJev>,
     tweak: impl FnOnce(&mut Config),
@@ -147,7 +151,7 @@ async fn rig_with(
     }
 }
 
-fn session(core: &Core, hold: Option<ExternalText>) -> String {
+pub(crate) fn session(core: &Core, hold: Option<ExternalText>) -> String {
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     rec.external = hold;
     core.store.put_session(&rec.session_id, &rec).unwrap();
@@ -155,7 +159,7 @@ fn session(core: &Core, hold: Option<ExternalText>) -> String {
 }
 
 /// What a session that read a page holds.
-fn a_hold() -> ExternalText {
+pub(crate) fn a_hold() -> ExternalText {
     ExternalText {
         since_ms: 1_700_000_000_000,
         tool: "http.fetch".into(),
@@ -166,9 +170,14 @@ fn a_hold() -> ExternalText {
 }
 
 /// Every notification the turn's connection got, with when it came.
-type Heard = Arc<Mutex<Vec<(Instant, String, Value)>>>;
+pub(crate) type Heard = Arc<Mutex<Vec<(Instant, String, Value)>>>;
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str, heard: Option<&Heard>) -> TurnSubmitResult {
+pub(crate) async fn turn(
+    core: &Arc<Core>,
+    sid: &str,
+    input: &str,
+    heard: Option<&Heard>,
+) -> TurnSubmitResult {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -206,12 +215,12 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str, heard: Option<&Heard>) -
         .unwrap()
 }
 
-fn run(id: &str, argv: &[&str]) -> Scripted {
+pub(crate) fn run(id: &str, argv: &[&str]) -> Scripted {
     Scripted::tools("", &[(id, "proc_run", json!({ "argv": argv }))])
 }
 
 /// The `judge:security` rows of `kind`, decoded.
-fn security_rows(store: &Store, kind: &str) -> Vec<LedgerRow> {
+pub(crate) fn security_rows(store: &Store, kind: &str) -> Vec<LedgerRow> {
     store
         .scope_after("judge:security", 0)
         .unwrap()
@@ -226,7 +235,7 @@ fn security_rows(store: &Store, kind: &str) -> Vec<LedgerRow> {
 }
 
 /// Wait, on the runtime's timer, until `n` gate judgments are recorded.
-async fn until_judged(store: &Store, n: usize) -> Vec<LedgerRow> {
+pub(crate) async fn until_judged(store: &Store, n: usize) -> Vec<LedgerRow> {
     let t0 = Instant::now();
     loop {
         let rows = security_rows(store, "judge.call");
@@ -243,7 +252,7 @@ async fn until_judged(store: &Store, n: usize) -> Vec<LedgerRow> {
 }
 
 /// The session's call of `tool`: its correlation id and the gate's record.
-fn the_call(core: &Core, sid: &str, tool: &str) -> (String, Value) {
+pub(crate) fn the_call(core: &Core, sid: &str, tool: &str) -> (String, Value) {
     core.store
         .session_nodes(sid)
         .unwrap()
@@ -699,11 +708,16 @@ async fn a_judged_tool_loop_keeps_its_frame_budget_and_marks_its_trace() {
         .collect::<Vec<_>>();
     assert_eq!(marks.len(), 2, "{trace}");
     let (call, _) = the_call(&r.core, sid, "fs.write");
-    for (m, pack) in marks.iter().zip([SECURITY_PACK, SECURITY_CANDIDATE]) {
+    // security.v3 is live as notices (step 24's notices); v1 in shadow.
+    for ((m, pack), mode) in marks
+        .iter()
+        .zip([SECURITY_PACK, SECURITY_CANDIDATE])
+        .zip(["shadow", "live"])
+    {
         let a = &m["attrs"];
         assert_eq!(
             (a["pack"].as_str(), a["point"].as_str(), a["mode"].as_str()),
-            (Some(pack), Some("gate"), Some("shadow"))
+            (Some(pack), Some("gate"), Some(mode))
         );
         assert_eq!(a["judgment"], judgment_id(pack, &call).as_str());
         assert_eq!(m["start_us"], m["end_us"], "zero-length");

@@ -374,6 +374,8 @@ facts![
     judge::JudgeCircuit<'static>,
     judge::JudgeShed,
     judge::JudgeScored<'static>,
+    judge::JudgeNotified<'static>,
+    judge::JudgeNoticesPaused<'static>,
     judge::JudgeLabel<'static>,
     judge::ProposalLabel<'static>,
     judge::JudgeReport<'static>,

@@ -1,7 +1,7 @@
 // A notified call's score (`src/lib/scores.ts`, M5 step 24), run by `npm test` with node's own runner.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { scoresOf, scoreWords } from '../src/lib/scores.ts'
+import { noticesOf, scoresOf, scoreWords } from '../src/lib/scores.ts'
 
 const judged = (call: string, risky: number, outcome = 'answered', pack = 'security.v1') =>
   ({ at_unix_ms: 1, kind: 'judge.call', session_id: 's', turn_id: 't', data: {
@@ -18,4 +18,16 @@ test('a push scores its call as it lands, and the row, once written, is the reco
   assert.equal(scoreWords(both.get('act_1')!), 'risk 87% (shadow)')
   assert.equal(both.get('act_2'), undefined, 'a failed judgment has no score')
   assert.equal(both.get('act_3'), undefined, 'only security.v1 scores a notice')
+})
+
+test("Jev's notice: its push as it lands, its row (by: judge) once written, and the gate's own notices are not Jev's", () => {
+  const push = { method: 'judge.noticed', params: { correlation_id: 'act_9', judgment: 'jdg_9', percent: 95, reasons: ['sends data out 92%'] } }
+  const live = noticesOf([], [push])
+  assert.equal(live.get('act_9')!.line, 'Jev: 95% risky (sends data out 92%)')
+  const row = (corr: string, by?: string) => ({ at_unix_ms: 1, kind: 'tool.notified', session_id: 's', turn_id: 't',
+    data: { correlation_id: corr, judgment: `jdg_${corr}`, percent: 91, reasons: [], by } }) as any
+  const both = noticesOf([row('act_1', 'judge'), row('act_2')], [])
+  assert.equal(both.get('act_1')!.line, 'Jev: 91% risky')
+  assert.equal(both.get('act_1')!.judgment, 'jdg_act_1')
+  assert.equal(both.get('act_2'), undefined, "a notify posture's notice is the gate's")
 })
