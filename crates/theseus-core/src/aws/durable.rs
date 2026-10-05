@@ -24,7 +24,8 @@
 //!   before it is sent; a restart that finds it asks S3 for it (by its
 //!   checksum, or a multipart upload's parts) instead of sending it again.
 //! - **The session** `theseus-durability`, whose inline policy ([`policy`])
-//!   allows writing objects under its own prefix, reading them back, and
+//!   allows writing objects under its own prefix, reading them back, listing
+//!   the bucket's key names (so a missing key heads 404, not 403), and
 //!   writing rows whose keys start with its deployment. Nothing else.
 //! - **When**: woken by the WAL's directory (inotify), it waits [`SETTLE`]
 //!   for the writes around it, then ships; a minute's backstop besides. A
@@ -92,10 +93,12 @@ pub fn prefix(deployment: &str) -> String {
 /// The tender session's inline policy (§3.5): objects under its prefix
 /// (`s3:PutObject` covers a multipart upload's create, parts, and
 /// completion; `s3:GetObject` a head), an upload's parts listed or aborted,
-/// and rows whose partition key starts with its deployment.
+/// the bucket listed (so a missing key heads 404), and rows whose partition
+/// key starts with its deployment.
 pub fn policy(tender: &str, account: &str, cfg: &AwsAccountConfig) -> Option<Value> {
     (tender == TENDER).then(|| {
         let (region, deployment) = (&cfg.region, cfg.deployment());
+        let b = bucket(account, region);
         json!({
             "Version": "2012-10-17",
             "Statement": [
@@ -106,9 +109,22 @@ pub fn policy(tender: &str, account: &str, cfg: &AwsAccountConfig) -> Option<Val
                         "s3:PutObject", "s3:GetObject",
                         "s3:ListMultipartUploadParts", "s3:AbortMultipartUpload",
                     ],
-                    "Resource": format!(
-                        "arn:aws:s3:::{}/{}*", bucket(account, region), prefix(deployment)
-                    ),
+                    "Resource": format!("arn:aws:s3:::{b}/{}*", prefix(deployment)),
+                },
+                // The tender heads a key its cursor held in flight at a
+                // crash, and must tell an object S3 never stored from a
+                // refusal: without the list a missing key is 403, which
+                // retries every pass and ships nothing behind it
+                // (theseus-iame). Why `IfExists`: the restore's
+                // `ListItsPrefix` (`read::policy`, theseus-mgw.10).
+                {
+                    "Sid": "ListItsPrefix",
+                    "Effect": "Allow",
+                    "Action": "s3:ListBucket",
+                    "Resource": format!("arn:aws:s3:::{b}"),
+                    "Condition": {"StringLikeIfExists": {
+                        "s3:prefix": [format!("{}*", prefix(deployment))],
+                    }},
                 },
                 {
                     "Sid": "ItsIndexRows",
