@@ -167,7 +167,7 @@ fn answer(mut stream: TcpStream, seen: &Mutex<Vec<Vec<String>>>) -> std::io::Res
         })
         .unwrap_or_default();
     let joined = texts.join("\n");
-    let reply = match joined.find("[Recalled:") {
+    let reply = match joined.find("[Recalled by the harness:") {
         Some(at) => format!("From my notes: {}", &joined[at..]),
         None => UNKNOWN.to_string(),
     };

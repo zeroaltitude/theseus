@@ -68,6 +68,12 @@ pub use route_step::{LiveSwitched, SWITCHED};
 /// the start of the cached prefix, so it never interpolates anything.
 pub const PERSONA: &str = "You are Theseus, a coding and operations agent working for your operator through a harness that records everything you do. Be direct and concise; lead with what you found or did. When you are unsure, say so plainly.";
 
+/// The assembly note, after the persona: how the harness builds each
+/// request, so the model never takes what the harness added (a recalled
+/// note, a wake, a report) for something the person sent (theseus-fpm2).
+/// Frozen text in the shared header, as the persona is.
+pub const ASSEMBLY: &str = "Context. The harness assembles each request: the conversation, its older part perhaps summarized; notes it recalled from earlier sessions, marked as recalled; files the person attached; tool results; and its own notices, such as wakes, task reports, and late results. A recalled note is background the harness chose, not something the person sent. The person sees their own messages and your replies, not the rest of the request, so use a recalled note when it helps, and otherwise don't mention it.";
+
 /// What a turn runs against, resolved from a profile plus any raw overrides.
 #[derive(Debug, Clone)]
 pub struct Target {
@@ -700,19 +706,20 @@ impl TurnRunner {
 
     /// The system prompt, as its two blocks (theseus-ev1). The header, which
     /// every session of the profile and their tasks share: the persona, the
-    /// tools paragraph, and the profile's own text. Then the context: each
-    /// context file under its header (theseus-58a), the system level's, then
-    /// the persona's, each header naming its level (theseus-c48); empty
-    /// without files. Deterministic for a config and the files' contents; a
-    /// change is a `system_changed` recompile. Nothing retractable belongs in
-    /// the header (Appendix F, theseus-3nk): it is every session's prefix.
+    /// assembly note (theseus-fpm2), the tools paragraph, and the profile's
+    /// own text. Then the context: each context file under its header
+    /// (theseus-58a), the system level's, then the persona's, each header
+    /// naming its level (theseus-c48); empty without files. Deterministic
+    /// for a config and the files' contents; a change is a `system_changed`
+    /// recompile. Nothing retractable belongs in the header (Appendix F,
+    /// theseus-3nk): it is every session's prefix.
     pub fn system_blocks(
         &self,
         target: &Target,
         files: &[ContextFile],
         place: crate::ceiling::PlaceView,
     ) -> (String, String) {
-        let mut parts = vec![PERSONA.to_string()];
+        let mut parts = vec![PERSONA.to_string(), ASSEMBLY.to_string()];
         let note = self.tools.system_note_for(place);
         if !note.is_empty() {
             parts.push(note);

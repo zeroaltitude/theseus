@@ -135,7 +135,7 @@ async fn a_canary_turn_puts_its_recall_in_front_of_the_model() {
         let texts = last_texts(&q);
         assert_eq!(texts[0], "Where does the grey heron nest?");
         assert!(
-            texts[1].starts_with("[Recalled: 1 note from earlier sessions."),
+            texts[1].starts_with("[Recalled by the harness: 1 note from earlier sessions,"),
             "{}",
             texts[1]
         );
