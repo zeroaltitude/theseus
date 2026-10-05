@@ -182,6 +182,9 @@ class Format(unittest.TestCase):
             ("3 Nov", True),
             ("Nov 30", False),
             ("2026-11-04", False),
+            ("on November 3rd", True),
+            ("the 3rd of November", True),
+            ("Nov 23rd", False),
         ]:
             self.assertEqual(checks.passes(c, reply), want, reply)
 
@@ -193,12 +196,22 @@ class Format(unittest.TestCase):
             ("It's 23817.", False),
             ("I don't know; maybe 23817?", False),
             ("Port 8080 is common.", False),
+            ("I'm not aware of a cedar relay; it never came up.", True),
+            ("Nothing in our conversation says.", True),
+            ("It's 23817, not 23818.", False),
             # A date's year is not a port.
             ("As of 2026-11-05 I haven't seen it mentioned.", True),
         ]:
             self.assertEqual(checks.passes(c, reply), want, reply)
         self.assertTrue(checks.passes(pg.kind_check("path"), "I couldn't find it: no record under /srv."))
         self.assertFalse(checks.passes(pg.kind_check("path"), "Not sure: /srv/cedar/relay/spool-1.db?"))
+
+    def test_a_version_may_carry_its_v(self):
+        c = pg.value_check("reply", "version", "6.13.15", "6.12.0")
+        self.assertTrue(checks.passes(c, "It pins v6.13.15."))
+        self.assertTrue(checks.passes(c, "6.13.15"))
+        self.assertFalse(checks.passes(c, "6.13.150"))
+        self.assertFalse(checks.passes(c, "v6.13.15, up from v6.12.0"))
 
     def test_each_kinds_values_are_found(self):
         self.assertEqual(pg.find_values("port", "on 127.0.0.1:23817, not 2026-11-03"), ["23817"])

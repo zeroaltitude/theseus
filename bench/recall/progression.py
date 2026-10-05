@@ -87,8 +87,9 @@ HEDGE = (
 )
 ADMIT = (
     r"\b(?:don'?t|do not|didn'?t|did not|can'?t|cannot|couldn'?t|could not|haven'?t|have not|hasn'?t|has not|"
-    r"wasn'?t|was not|never|no)\b[^.?!]{0,80}?\b(?:know|recall|remember|record|records|mention|mentioned|"
-    r"stated|said|told|seen|see|find|found|information|info|idea|sure|aware|specified|given|note|notes)\b"
+    r"wasn'?t|was not|isn'?t|is not|not|never|no|nothing|none)\b[^.?!]{0,80}?\b(?:know|recall|remember|record|"
+    r"records|mention|mentioned|stated|said|told|seen|see|find|found|information|info|idea|sure|aware|specified|"
+    r"given|note|notes|came up|come up|appears|appeared|mentions|says|shows)\b"
     r"|\bnot (?:sure|certain|mentioned|stated|specified|recorded|given|known)\b|\bunknown\b"
     r"|\bno (?:record|mention|information|sign|trace)\b"
 )
@@ -432,12 +433,15 @@ def value_patterns(kind: str, value: str) -> list[str]:
     if kind == "date":
         y, m, d = (int(x) for x in value.split("-"))
         mon = MONTHS[m - 1]
-        alts = [value, f"{mon} {d}", f"{mon[:3]} {d}", f"{mon[:3]}. {d}", f"{d} {mon}", f"{d} {mon[:3]}"]
-        out = []
-        for a in alts:
-            # "nov 3" must not match "nov 30": a word match.
-            out.append(f"word {checks.quote(a)}")
-        return out
+        nth = f"{d}{'th' if 10 <= d % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(d % 10, 'th')}"
+        alts = [value]
+        for day in (str(d), nth):
+            alts += [f"{mon} {day}", f"{mon[:3]} {day}", f"{mon[:3]}. {day}", f"{day} {mon}", f"{day} {mon[:3]}",
+                     f"{day} of {mon}"]
+        # "nov 3" must not match "nov 30": each is a word match.
+        return [f"word {checks.quote(a)}" for a in alts]
+    if kind == "version":
+        return [f"word {checks.quote(value)}", f"word {checks.quote('v' + value)}"]
     return [f"word {checks.quote(value)}"]
 
 
