@@ -18,12 +18,12 @@ use theseus_core::{Config, Core};
 use theseus_sim::fake_discord::{FakeDiscord, Guild, Msg, Pressed, Typed, BOT_ID, DEFAULT_GUILD};
 
 /// Invented people and places.
-const ANA: u64 = 900_000_000_000_000_101;
-const BEN: u64 = 900_000_000_000_000_202;
+pub(crate) const ANA: u64 = 900_000_000_000_000_101;
+pub(crate) const BEN: u64 = 900_000_000_000_000_202;
 const CY: u64 = 900_000_000_000_000_303;
-const LAB: u64 = 900_000_000_000_000_010;
+pub(crate) const LAB: u64 = 900_000_000_000_000_010;
 /// The stand-in's DM channel with `ANA`.
-const ANA_DM: u64 = ANA + 1;
+pub(crate) const ANA_DM: u64 = ANA + 1;
 
 /// `#lab`, where ana may drive Theseus, bound private or shared, and ana's DM.
 fn bindings(lab_private: bool) -> String {
@@ -47,10 +47,10 @@ fn guild(open_lab: bool) -> Guild {
     }
 }
 
-struct Rig {
-    dir: tempfile::TempDir,
-    fake: Arc<FakeDiscord>,
-    core: Arc<Core>,
+pub(crate) struct Rig {
+    pub(crate) dir: tempfile::TempDir,
+    pub(crate) fake: Arc<FakeDiscord>,
+    pub(crate) core: Arc<Core>,
 }
 
 impl Rig {
@@ -88,7 +88,7 @@ impl Rig {
 
     /// The same, on `guild` and the bindings file `bindings`, waiting for
     /// `#lab`, ana's DM, and each place of `more` (`channel:<id>`) to bind.
-    async fn start_on(
+    pub(crate) async fn start_on(
         model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
         guild: Guild,
         bindings: &str,
@@ -136,7 +136,7 @@ impl Rig {
         r
     }
 
-    async fn until(&self, what: &str, f: impl Fn() -> bool) {
+    pub(crate) async fn until(&self, what: &str, f: impl Fn() -> bool) {
         let t0 = Instant::now();
         while !f() {
             assert!(
@@ -150,7 +150,7 @@ impl Rig {
         }
     }
 
-    fn say(&self, user: (u64, &str), channel: Option<u64>, content: &str) -> String {
+    pub(crate) fn say(&self, user: (u64, &str), channel: Option<u64>, content: &str) -> String {
         self.fake
             .say(&Typed {
                 user: user.0,
@@ -174,7 +174,7 @@ impl Rig {
     }
 
     /// What the bot posted in `channel`, in order.
-    fn posted(&self, channel: u64) -> Vec<Msg> {
+    pub(crate) fn posted(&self, channel: u64) -> Vec<Msg> {
         self.fake
             .messages(channel)
             .into_iter()
@@ -189,7 +189,7 @@ impl Rig {
             .find(|m| m.versions[0].contains("**Approve?**"))
     }
 
-    fn ledger(&self, kind: &str) -> Vec<serde_json::Value> {
+    pub(crate) fn ledger(&self, kind: &str) -> Vec<serde_json::Value> {
         let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> =
             self.core.store.ledger_tail(2000).unwrap();
         rows.into_iter()

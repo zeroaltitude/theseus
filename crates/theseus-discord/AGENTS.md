@@ -33,6 +33,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
+- **The bindings file, read live** (`runtime/live.rs`, theseus-ocwt): stat'ed every 2 s, parsed only when its
+  mtime, size or inode moved, acted on only when its revision did. Places diff by key: a removed one loses its
+  routes and actor at once, and its lane is retired (`Shared::retired`), ending between posts and then refusing the
+  rest (`refuse_unbound`); an added one starts as at a start; a changed one is updated in place (routes, actor,
+  lane label), keeping its turn and its lane's messages. A file that does not load changes nothing, and health's
+  detail says why. A guild's invite check and voice channels wait for the next start, and the detail says so.
 - **The task board and `/tasks`** (39b, theseus-ext.14): `runtime/board.rs` routes a `task.changed` to its home's
   place (`theseus_core::task_graph::home`) and sends the tree to the lane as one live upsert under
   `render::BOARD_KEY` (`render/board.rs`); `courier/board.rs` pins it once (a refusal logged once a lane) and, after

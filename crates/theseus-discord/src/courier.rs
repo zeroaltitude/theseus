@@ -71,6 +71,8 @@ pub(crate) enum LaneMsg {
     /// The place has shown a question's call, its tool line sent on before
     /// this: the question's card may follow (theseus-50p).
     Asked(String),
+    /// The place's label, changed by the bindings file (theseus-ocwt).
+    Label(String),
 }
 
 /// Why a call to Discord did not go through.
@@ -332,6 +334,9 @@ impl Lane {
             while let Ok(m) = rx.try_recv() {
                 self.take(m);
             }
+            if self.retires() {
+                break;
+            }
             if self
                 .retry_at
                 .is_some_and(|at| tokio::time::Instant::now() < at)
@@ -348,7 +353,22 @@ impl Lane {
             if self.deliver_posts().await {
                 self.apply_live().await;
             }
+            if self.retires() {
+                break;
+            }
         }
+    }
+
+    /// The bindings file no longer names this lane's place (theseus-ocwt):
+    /// it ends here, between posts, so a post it sent settled as sent, and
+    /// what it had not sent is refused, as a start refuses it.
+    fn retires(&self) -> bool {
+        if !self.shared.lane_retires(&self.target) {
+            return false;
+        }
+        tracing::info!(target = %self.target, "discord: a lane whose place is no longer bound ends");
+        self.shared.refuse_unbound();
+        true
     }
 
     fn take(&mut self, m: LaneMsg) {
@@ -362,6 +382,7 @@ impl Lane {
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => self.anchor = Some(a),
+            LaneMsg::Label(l) => self.label = l,
             LaneMsg::Asked(q) => {
                 self.stream_first |= !self.live.is_empty();
                 self.asked.push_back(q);
@@ -413,6 +434,10 @@ impl Lane {
     /// the next start (theseus-pfv).
     async fn deliver_posts(&mut self) -> bool {
         while !self.shared.core.outbox.stopping() {
+            // Its place is no longer bound: no post is begun (theseus-ocwt).
+            if self.shared.is_retired(&self.target) {
+                return false;
+            }
             let Some(a) = self.shared.core.outbox.next_for(&self.target) else {
                 return true;
             };
