@@ -31,6 +31,7 @@ pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
 mod ontology;
+pub mod packs;
 mod places;
 mod push;
 pub mod route;
@@ -218,6 +219,8 @@ pub mod method {
         /// The owner's runs over the ledger (M5 25d; `judge_runs`): a candidate replayed, an audit,
         /// a backfill (only under the owner's consent).
         JUDGE_REPLAY = "judge.replay", JUDGE_AUDIT = "judge.audit", JUDGE_BACKFILL = "judge.backfill",
+        /// The ladder (M5 26a; `packs`): each pack's mode, a read; the owner's promote and rollback.
+        PACK_LIST = "pack.list", PACK_PROMOTE = "pack.promote", PACK_ROLLBACK = "pack.rollback",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.

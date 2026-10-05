@@ -261,13 +261,13 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
         [
             "loop.v1: shadow",
             "security.v1: shadow",
-            "security.v3: live",
+            "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v1: off",
             "role.v1: off",
-            "route.v1: off",
+            "route.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
             "continue.v1: shadow",
             "categorize.v1: shadow",
-            "rerank.v1: live",
+            "rerank.v1: live (owner: decision of 2026-10-04)",
             "memory.v1: shadow",
             "attribution.v1: shadow"
         ]
@@ -424,13 +424,13 @@ async fn an_off_judge_or_pack_calls_nothing() {
         [
             "loop.v1: off",
             "security.v1: shadow",
-            "security.v3: live",
+            "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v1: off",
             "role.v1: off",
-            "route.v1: off",
+            "route.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
             "continue.v1: shadow",
             "categorize.v1: shadow",
-            "rerank.v1: live",
+            "rerank.v1: live (owner: decision of 2026-10-04)",
             "memory.v1: shadow",
             "attribution.v1: shadow"
         ]

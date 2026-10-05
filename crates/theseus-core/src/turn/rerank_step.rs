@@ -33,7 +33,7 @@ impl TurnRunner {
         begun: &Begun,
         answer: (Answer, Duration),
     ) -> RecallManifest {
-        let rerank = self.judge.rerank_mode();
+        let rerank = self.judge.rerank_mode(t.tc.session_id);
         let scene = self.scene(t, mode);
         if rerank == PackMode::Off {
             return self.memory.manifest(

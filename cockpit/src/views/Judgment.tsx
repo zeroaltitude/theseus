@@ -7,7 +7,8 @@
 // - Its state is in the address: `?pack=`, `?session=`, `?since=` (1h, 24h, 7d), and `?id=` (the judgment open).
 // - With the time machine set, the list stops at the moment, and the counts are the fold's (`World.judge`).
 // - The learning report (25c; `?report=<date>`, the Learning panel) and a judgment's label buttons (its detail) are
-//   `components/LearningReport.tsx` and `components/JudgmentLabels.tsx`; promote or rollback are 26a's. "disagrees"
+//   `components/LearningReport.tsx` and `components/JudgmentLabels.tsx`; the ladder (26a: each pack's mode, rules
+//   and rows, with promote and roll-back buttons) is `components/PackLadder.tsx`. "disagrees"
 //   here is the core's: an answered judgment whose pack, in its act band, would have done otherwise than the
 //   baseline.
 // - Jev's live notices (step 24's notices: `security.v3` sure an open call was risky) are the Notices panel: the
@@ -15,7 +16,7 @@
 //   them (on, paused until a day and why, or off).
 import { useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { BellRing, GraduationCap, Gavel, ListFilter, Scale } from 'lucide-react'
+import { BellRing, GraduationCap, Gavel, ListFilter, Scale, TrendingUp } from 'lucide-react'
 import type { Health, JudgeGetResult, JudgeListResult, LedgerEntry } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useWorld } from '@/lib/world'
@@ -26,6 +27,8 @@ import { Empty, Field, Panel, Pill, Segmented } from '@/components/ui'
 import { JsonView } from '@/components/JsonView'
 import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { LearningReport } from '@/components/LearningReport'
+import { PackLadder } from '@/components/PackLadder'
+import { packLine } from '@/lib/packs'
 import { localDay } from '@/lib/learning'
 import { noticeWords } from '@/lib/scores'
 
@@ -61,7 +64,7 @@ export default function Judgment() {
   const stats = useMemo(() => packStats(shown), [shown])
   const modes = useMemo(() => {
     const m = new Map<string, string>()
-    for (const p of health?.judge?.packs ?? []) { const [name, mode] = p.split(': '); m.set(name, mode) }
+    for (const p of health?.judge?.packs ?? []) { const { pack, mode } = packLine(p); m.set(pack, mode) }
     return m
   }, [health])
   const packs = useMemo(() => [...new Set([...modes.keys(), ...stats.map((s) => s.pack)])].sort(), [modes, stats])
@@ -88,7 +91,7 @@ export default function Judgment() {
                   return (
                     <tr key={p} className={cn('cursor-pointer border-t border-line hover:bg-gold/5', pack === p && 'bg-live/5')} onClick={() => set('pack', pack === p ? null : p)}>
                       <td className="num px-3 py-1.5 text-ink">{p}</td>
-                      <td><Pill tone={modes.get(p) === 'off' ? 'idle' : modes.get(p) === 'shadow' ? 'think' : 'live'}>{modes.get(p) ?? 'not wired'}</Pill></td>
+                      <td><Pill tone={modes.get(p) === 'off' ? 'idle' : modes.get(p) === 'shadow' ? 'think' : modes.get(p) === 'rolled back' ? 'fault' : 'live'}>{modes.get(p) ?? 'not wired'}</Pill></td>
                       <td className="num">{s ? `v${s.version}` : '—'}</td>
                       <td className="num text-right" title={s ? `${s.answered} answered · ${s.failed} failed · ${s.skipped} skipped · ${s.disagrees} disagree` : ''}>{s?.calls ?? 0}</td>
                       <td className="num text-right">{money(s?.costMicros ?? 0)}</td>
@@ -109,6 +112,9 @@ export default function Judgment() {
         </Panel>
 
         {h?.enabled && !world && <Notices state={h.notices} onSession={(s) => nav(`/session/${s}?tab=timeline`)} />}
+        <Panel title="Ladder" icon={<TrendingUp size={14} />}>
+          <PackLadder readOnly={!!world} />
+        </Panel>
 
         <Panel title="Learning" icon={<GraduationCap size={14} />} actions={
           <button className="text-[11px] text-ink-faint hover:text-live" onClick={() => set('report', params.get('report') ? null : localDay(new Date()))}>

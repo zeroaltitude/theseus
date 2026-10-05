@@ -279,6 +279,12 @@ pub enum RollbackRule {
     LabelsPerDay { label: String, count: usize },
     /// More than `max` role switches in one exchange.
     SwitchesPerExchange { max: usize },
+    /// The owner pins another profile on `count` routed turns in one day
+    /// (`route.v1`'s adopted rule, 26a).
+    PinsPerDay { count: usize },
+    /// The pack's own breaker opens `count` times in one day (`rerank.v1`'s
+    /// adopted rule, 26a).
+    OpensPerDay { count: usize },
 }
 
 impl RollbackRule {
@@ -291,6 +297,8 @@ impl RollbackRule {
             RollbackRule::NoticesPerDay { .. } => "notices_per_day",
             RollbackRule::LabelsPerDay { .. } => "labels_per_day",
             RollbackRule::SwitchesPerExchange { .. } => "switches_per_exchange",
+            RollbackRule::PinsPerDay { .. } => "pins_per_day",
+            RollbackRule::OpensPerDay { .. } => "opens_per_day",
         }
     }
 
@@ -306,6 +314,7 @@ impl RollbackRule {
                 min_samples,
             } => *max_ms >= 1 && *min_samples >= 1,
             RollbackRule::LabelsPerDay { label, count } => !label.trim().is_empty() && *count >= 1,
+            RollbackRule::PinsPerDay { count } | RollbackRule::OpensPerDay { count } => *count >= 1,
             RollbackRule::NudgeLoop
             | RollbackRule::OperatorStopWithinNudge
             | RollbackRule::NoticesPerDay { .. }
@@ -344,6 +353,24 @@ pub enum CanaryEvent {
     Label { day: String, label: String },
     /// A role switch.
     RoleSwitch { exchange: String },
+    /// The owner named another profile for a message within 10 minutes
+    /// after a routed turn in its session (`route.v1`'s `pinned` choice).
+    Pinned { day: String },
+    /// The pack's own breaker opened (a `judge.circuit` row naming it).
+    BreakerOpened { day: String },
+}
+
+impl CanaryEvent {
+    /// The local day a per-day event counts toward; none for the others.
+    pub fn day(&self) -> Option<&str> {
+        match self {
+            CanaryEvent::Notice { day }
+            | CanaryEvent::Label { day, .. }
+            | CanaryEvent::Pinned { day }
+            | CanaryEvent::BreakerOpened { day } => Some(day),
+            _ => None,
+        }
+    }
 }
 
 /// A rule that fired, and why, in words for the rollback's notice.
@@ -517,7 +544,35 @@ pub fn check(rule: &RollbackRule, events: &[CanaryEvent]) -> Option<Fired> {
                 ))
             })
         }
+        RollbackRule::PinsPerDay { count } => {
+            per_day(events, *count, |e| matches!(e, CanaryEvent::Pinned { .. })).and_then(
+                |(day, n)| {
+                    fired(format!(
+                        "the owner pinned another profile on {n} routed turns on {day}"
+                    ))
+                },
+            )
+        }
+        RollbackRule::OpensPerDay { count } => per_day(events, *count, |e| {
+            matches!(e, CanaryEvent::BreakerOpened { .. })
+        })
+        .and_then(|(day, n)| fired(format!("its breaker opened {n} times on {day}"))),
     }
+}
+
+/// The day with `count` or more of the events `pick` keeps, and how many.
+fn per_day(
+    events: &[CanaryEvent],
+    count: usize,
+    pick: impl Fn(&CanaryEvent) -> bool,
+) -> Option<(&str, usize)> {
+    let mut per: BTreeMap<&str, usize> = BTreeMap::new();
+    for e in events.iter().filter(|e| pick(e)) {
+        if let Some(day) = e.day() {
+            *per.entry(day).or_default() += 1;
+        }
+    }
+    per.into_iter().find(|(_, n)| *n >= count)
 }
 
 /// Every rule of a pack that fires.
@@ -899,6 +954,35 @@ mod tests {
         let fired = check_all(&[r, RollbackRule::NudgeLoop], &[sw("x"), sw("x"), sw("x")]);
         assert_eq!(fired.len(), 1);
         assert_eq!(fired[0].rule, "switches_per_exchange");
+    }
+
+    /// 26a's adopted rules: `route.v1`'s three pins and `rerank.v1`'s two
+    /// breaker opens in a day fire; one short, or spread over two days,
+    /// does not; and the loader refuses a count of none.
+    #[test]
+    fn the_adopted_rules_fire_on_a_days_pins_and_opens_and_not_on_a_near_miss() {
+        let pins = RollbackRule::PinsPerDay { count: 3 };
+        let pin = |d: &str| CanaryEvent::Pinned { day: d.into() };
+        let f = check(&pins, &[pin("d1"), pin("d1"), pin("d1")]).unwrap();
+        assert_eq!(f.rule, "pins_per_day");
+        assert!(f.why.contains("3 routed turns on d1"), "{}", f.why);
+        assert!(check(&pins, &[pin("d1"), pin("d1")]).is_none());
+        assert!(check(&pins, &[pin("d1"), pin("d1"), pin("d2")]).is_none());
+        let opens = RollbackRule::OpensPerDay { count: 2 };
+        let open = |d: &str| CanaryEvent::BreakerOpened { day: d.into() };
+        let f = check(&opens, &[open("d1"), open("d1")]).unwrap();
+        assert_eq!(f.rule, "opens_per_day");
+        assert!(check(&opens, &[open("d1")]).is_none());
+        assert!(check(&opens, &[open("d1"), open("d2")]).is_none());
+        assert!(
+            check(&opens, &[pin("d1"), pin("d1")]).is_none(),
+            "another event"
+        );
+        assert!(RollbackRule::PinsPerDay { count: 0 }.check().is_err());
+        assert!(RollbackRule::OpensPerDay { count: 0 }.check().is_err());
+        pins.check().unwrap();
+        let r: RollbackRule = toml::from_str("rule = \"pins_per_day\"\ncount = 3").unwrap();
+        assert_eq!(r, pins);
     }
 
     #[test]

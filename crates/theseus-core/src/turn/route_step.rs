@@ -84,11 +84,11 @@ pub async fn beside<F: Future>(
 impl TurnRunner {
     /// `route.v1`'s mode for a turn: `[routing]` over the judge's ladder, and
     /// shadow for a turn whose profile the owner chose.
-    pub(super) fn route_mode(&self, target: &Target) -> PackMode {
+    pub(super) fn route_mode(&self, target: &Target, session: &str) -> PackMode {
         let m = self
             .cfg
             .routing
-            .pack_mode(self.judge.config().mode_of(ROUTE_PACK, PackMode::Live));
+            .pack_mode(self.judge.mode_for(ROUTE_PACK, session).mode);
         match target.chosen {
             Some(_) => m.min(PackMode::Shadow),
             None => m,
@@ -218,6 +218,14 @@ impl TurnRunner {
             &compiled,
             waited,
         );
+        if live {
+            // A routed turn: the owner's pin of another profile within 10
+            // minutes after it counts on route.v1's ladder (26a).
+            let ran = decision
+                .as_ref()
+                .map_or(base.as_str(), |d| d.profile.as_str());
+            self.judge.set_routed(t.tc.session_id, ran);
+        }
         let Some(d) = decision else {
             return Self::keep_first(t, session, compiled);
         };

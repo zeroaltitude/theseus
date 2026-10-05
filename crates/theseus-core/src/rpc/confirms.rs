@@ -53,6 +53,10 @@ impl Core {
             let ttl = self.kernel.config().confirm_ttl_ms;
             return Some(crate::extend::confirm_request(a, session, ttl));
         }
+        if a.tool == super::packs::PROMOTE {
+            let ttl = self.kernel.config().confirm_ttl_ms;
+            return Some(super::packs::promotion_request(a, session, ttl));
+        }
         let (tool, input, gate) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
                 tool,
@@ -148,7 +152,7 @@ impl Core {
         if q.tool == BUDGET_TOOL {
             return Ok(self.budget_confirm(q, &rec));
         }
-        if q.tool == crate::extend::ACK {
+        if q.tool == crate::extend::ACK || q.tool == super::packs::PROMOTE {
             return Ok(self.confirm_request(q, &rec, &[]));
         }
         let Some(id) = node_id else {
@@ -243,10 +247,11 @@ impl Core {
             if asks.is_empty() || !parked {
                 continue;
             }
-            let nodes = if asks
-                .iter()
-                .any(|a| a.tool != BUDGET_TOOL && a.tool != crate::extend::ACK)
-            {
+            let nodes = if asks.iter().any(|a| {
+                a.tool != BUDGET_TOOL
+                    && a.tool != crate::extend::ACK
+                    && a.tool != super::packs::PROMOTE
+            }) {
                 self.store.session_nodes(&rec.session_id)?
             } else {
                 vec![]
@@ -331,6 +336,11 @@ impl Core {
             let done = self.answer_extension(&a, answer, by, &via)?;
             self.admission.notify_waiters();
             return Ok(done);
+        }
+        // A security pack's promotion (M5 26a): the mode, or a declined row;
+        // nothing wakes.
+        if a.tool == super::packs::PROMOTE {
+            return self.answer_promotion(&a, approve, note, by, &via);
         }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
         // bind or the decline, an approval's trust, the answer's row, and the
@@ -516,6 +526,11 @@ impl Core {
             let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
             let answer = crate::extend::answer::Answer::Expired(&why);
             self.answer_extension(a, answer, EXPIRY, EXPIRY)?;
+            return Ok(());
+        }
+        if a.tool == super::packs::PROMOTE {
+            let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+            self.answer_promotion(a, false, Some(&why), EXPIRY, EXPIRY)?;
             return Ok(());
         }
         let fact = fact::answer::QuestionExpired {
@@ -754,6 +769,11 @@ pub(crate) enum Act<'a> {
     /// an audit, or a backfill. Each spends money, and a backfill sends his
     /// history to Jev. `what` names it: `replay of loop.v2`.
     JudgeRun { method: &'static str, what: &'a str },
+    /// A move on the ladder (M5 26a, `pack.promote`, `pack.rollback`): a
+    /// job's process that could roll a pack back could silence security's
+    /// notices, and one that could promote could make Jev act. `what` names
+    /// it: `loop.v1 to canary 0.2`.
+    Ladder { method: &'static str, what: &'a str },
 }
 
 impl Act<'_> {
@@ -770,6 +790,7 @@ impl Act<'_> {
             Act::JudgeLabel { .. } => theseus_protocol::method::JUDGE_LABEL,
             Act::Revoke { .. } => theseus_protocol::method::EXTENSION_REVOKE,
             Act::JudgeRun { method, .. } => method,
+            Act::Ladder { method, .. } => method,
         }
     }
 }

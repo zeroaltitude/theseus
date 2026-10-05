@@ -149,7 +149,7 @@ impl JudgeService {
         }
         let mode_of = |p: &str| match p {
             ROUTE_PACK => msg.route,
-            _ => self.cfg.mode_of(p, PackMode::Shadow),
+            _ => self.mode_for(p, &msg.session_id).mode,
         };
         let packs: Vec<(Arc<Pack>, String, PackMode)> = PACKS
             .iter()
@@ -198,6 +198,56 @@ impl JudgeService {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(session)
+    }
+
+    /// A routed turn of `session` ran on `profile` (route.v1 acting, no pin):
+    /// the owner's pin of another profile within [`CHOSEN_MS`] after it
+    /// counts on route.v1's ladder (26a). Older turns are dropped as each
+    /// lands.
+    ///
+    /// [`CHOSEN_MS`]: crate::learning::system::CHOSEN_MS
+    pub fn set_routed(&self, session: &str, profile: &str) {
+        let now = theseus_protocol::now_unix_ms();
+        let mut m = self.routed.lock().unwrap_or_else(|e| e.into_inner());
+        m.retain(|_, (at, _)| now.saturating_sub(*at) <= crate::learning::system::CHOSEN_MS);
+        m.insert(session.to_string(), (now, profile.to_string()));
+    }
+
+    /// A message of `session` the owner pinned to `profile`: after a routed
+    /// turn of the session on another profile, within
+    /// [`CHOSEN_MS`](crate::learning::system::CHOSEN_MS), it is route.v1's
+    /// ladder event (26a: three in a local day roll it back), once per
+    /// routed turn. Landed off the turn's path: `land` writes a frame.
+    pub fn pinned(&self, session: &str, profile: &str) {
+        let now = theseus_protocol::now_unix_ms();
+        let after_routed = {
+            let mut m = self.routed.lock().unwrap_or_else(|e| e.into_inner());
+            match m.get(session) {
+                Some((at, ran))
+                    if now.saturating_sub(*at) <= crate::learning::system::CHOSEN_MS
+                        && ran != profile =>
+                {
+                    m.remove(session);
+                    true
+                }
+                _ => false,
+            }
+        };
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        if after_routed {
+            let me = self.me.clone();
+            rt.spawn_blocking(move || {
+                if let Some(svc) = me.upgrade() {
+                    let day = svc.today();
+                    svc.land(
+                        ROUTE_PACK,
+                        theseus_judge::learn::CanaryEvent::Pinned { day },
+                    );
+                }
+            });
+        }
     }
 
     /// Whether Jev's breaker is open now: a live verdict would not come, so
@@ -252,10 +302,15 @@ impl JudgeService {
                     context["chosen"] = json!(c);
                 }
             }
-            let jmode = match mode {
-                PackMode::Live => Mode::Live,
-                PackMode::Canary => Mode::Canary,
-                _ => Mode::Shadow,
+            // route.v1 asks in the mode its turn gave it: shadow for a pin or
+            // `[routing]` in shadow, else the ladder's (live, or canary in a
+            // canary's arm); the others in the ladder's. Each records its arm
+            // (26a).
+            let laddered = self.ask_mode(&pack.name(), &mut context);
+            let jmode = match (pack.name() == ROUTE_PACK, mode) {
+                (true, PackMode::Live | PackMode::Canary) => laddered,
+                (true, _) => Mode::Shadow,
+                (false, _) => laddered,
             };
             let mut ask = Ask::new(pack, &state, jmode, context);
             ask.id = Some(id);

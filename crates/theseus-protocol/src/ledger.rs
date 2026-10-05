@@ -164,6 +164,8 @@ ledger_kinds! {
     OntologyCategory = "ontology.category",
     OntologyGuidance = "ontology.guidance",
     OntologyMembership = "ontology.membership",
+    PackEvent = "pack.event",
+    PackMode = "pack.mode",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
     PolicyTightened = "policy.tightened",

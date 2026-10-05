@@ -1050,7 +1050,7 @@ impl ToolRuntime {
         };
         // The turn's clients hear a notified call's score, and v3's live
         // notice on an open one.
-        let told = notified || judge.notices_live();
+        let told = notified || judge.notices_live(tc.session_id);
         judge.at_gate(gc, told.then(|| tc.sink.clone()))
     }
 

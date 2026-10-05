@@ -111,6 +111,7 @@ impl JudgeService {
                     breaker: self.breaker_of(&j.pack),
                 };
                 self.announce(None, None, &circuit);
+                self.count_opened(j, t);
             }
             if let Some(t) = self.telemetry.get() {
                 t.record_judgment(j, crate::fact::judge::disagrees(j));
@@ -127,6 +128,20 @@ impl JudgeService {
     /// shared one.
     fn breaker_of(&self, pack: &str) -> Option<&str> {
         self.built.get()?.judge.inner().breaker_of(pack)
+    }
+
+    /// rerank's own breaker opening counts toward its day brake on the
+    /// ladder (26a: twice in a local day).
+    fn count_opened(&self, j: &Judgment, t: &theseus_judge::breaker::Transition) {
+        if matches!(t, theseus_judge::breaker::Transition::Opened { .. })
+            && self.breaker_of(&j.pack) == Some(super::rerank::BREAKER)
+        {
+            let day = self.today();
+            self.land(
+                &j.pack,
+                theseus_judge::learn::CanaryEvent::BreakerOpened { day },
+            );
+        }
     }
 }
 

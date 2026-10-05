@@ -22,7 +22,11 @@ impl TurnRunner {
         let place = self.outbox.try_target(t.tc.session_id).ok().flatten();
         // route.v1 (25e): live, or shadow for a turn whose profile the
         // owner chose; its verdict's channel waits for the first compile.
-        let route = self.route_mode(t.target);
+        let route = self.route_mode(t.target, t.tc.session_id);
+        // A pin after a routed turn counts on route.v1's ladder (26a).
+        if t.target.chosen.is_some() {
+            self.judge.pinned(t.tc.session_id, &t.target.profile);
+        }
         let images = attachments
             .iter()
             .any(|a| matches!(a.content, AttachmentContent::Image { .. }));

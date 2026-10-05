@@ -32,6 +32,7 @@ pub mod categorize;
 pub mod compile;
 pub mod gate;
 pub mod inbound;
+pub mod ladder;
 pub mod loop_end;
 pub mod mark;
 pub mod memory;
@@ -63,10 +64,12 @@ pub use loop_end::LoopEnd;
 pub use mark::Dispatch;
 use spend::{Reserve, ShadowBudget};
 
-/// The packs this build wires in, and the mode the ladder gives each (step
-/// 26a brings the ladder; until then every pack is in shadow but
-/// `security.v3`, live as notices by the owner's promotion of 2026-10-04,
-/// while `[judge.packs."security.v3"] notices` is on: [`JudgeService::mode`]).
+/// The packs this build wires in, and the line each stands at on the
+/// ladder before a `pack.mode` row of its own (26a): every pack in shadow
+/// but the three the owner put live on 2026-10-04, which the ladder adopts
+/// as his promotions (`ladder::adopt`): `route.v1`, `rerank.v1`, and
+/// `security.v3` as notices while `[judge.packs."security.v3"] notices` is
+/// on ([`crate::config::JudgeConfig::mode_of`]).
 pub const WIRED: &[(&str, PackMode)] = &[
     (LOOP_PACK, PackMode::Shadow),
     (gate::SECURITY_PACK, PackMode::Shadow),
@@ -152,6 +155,10 @@ pub struct JudgeService {
     /// `route.v1` verdicts that came after their turn's wait, by session:
     /// each applies from the session's next message (25e).
     late: Mutex<std::collections::HashMap<String, crate::routing::Verdict>>,
+    /// Each session's last routed turn, when and on what profile: a pin of
+    /// another profile within 10 minutes after it is `route.v1`'s ladder
+    /// event (26a's `pins_per_day`). In memory, as `late` is.
+    routed: Mutex<std::collections::HashMap<String, (u64, String)>>,
     /// A test's judge in Jev's place for the rerank (a channel for Jev).
     #[cfg(test)]
     rerank_judge: OnceLock<Arc<dyn Judge>>,
@@ -163,6 +170,9 @@ pub struct JudgeService {
     /// (23b): set by the core as it builds, and as its telemetry is built.
     narrator: OnceLock<Arc<crate::narrative::Narrator>>,
     telemetry: OnceLock<crate::telemetry::Telemetry>,
+    /// Each pack's mode (26a): read at the first read after serving, then
+    /// kept.
+    ladder: ladder::Ladder,
 }
 
 impl JudgeService {
@@ -194,8 +204,10 @@ impl JudgeService {
         prices: BTreeMap<String, JevPrice>,
     ) -> Arc<Self> {
         let budget = ShadowBudget::new(cfg.shadow_limit_usd_per_day);
+        let ladder = ladder::Ladder::new(store.clone());
         Arc::new_cyclic(|me| Self {
             cfg,
+            ladder,
             store,
             secrets,
             scrubber,
@@ -207,6 +219,7 @@ impl JudgeService {
             categorize: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
             late: Mutex::default(),
+            routed: Mutex::default(),
             #[cfg(test)]
             rerank_judge: OnceLock::new(),
             brake: notice::Brake::default(),
@@ -225,6 +238,73 @@ impl JudgeService {
     /// The narrative the judge's facts speak in (the core's).
     pub fn narrate_to(&self, narrator: Arc<crate::narrative::Narrator>) {
         let _ = self.narrator.set(narrator);
+        let me = self.me.clone();
+        self.ladder.say_to(Arc::new(move |row| {
+            if let Some(svc) = me.upgrade() {
+                svc.announce(None, None, &crate::fact::ladder::PackModeSet { row });
+            }
+        }));
+    }
+
+    /// The ladder (26a): each pack version's mode.
+    pub fn ladder(&self) -> &ladder::Ladder {
+        &self.ladder
+    }
+
+    /// What `pack` does in `session` (26a): off, shadow, or live, and the
+    /// arm its judgment records. Every point asks this one function. The
+    /// ladder's mode under the config's ceiling (`mode_of`: it lowers, never
+    /// raises); a canary acts in its canary arm and judges the control in
+    /// shadow.
+    pub fn mode_for(&self, pack: &str, session: &str) -> ladder::Given {
+        if !self.cfg.enabled {
+            return ladder::Given::OFF;
+        }
+        self.ladder.given(&self.cfg, pack, session)
+    }
+
+    /// Whether `pack` is on at all (`mode_for`, whose `off` is no session's).
+    pub fn pack_on(&self, pack: &str) -> bool {
+        self.mode_for(pack, "").on()
+    }
+
+    /// The mode a judgment of `pack` is asked in, its arm written into its
+    /// context beside the session the context names.
+    pub fn ask_mode(&self, pack: &str, context: &mut serde_json::Value) -> Mode {
+        let session = context["session"].as_str().unwrap_or_default().to_string();
+        let given = self.mode_for(pack, &session);
+        if let Some(o) = context.as_object_mut() {
+            o.insert("pack_arm".into(), json!(given.arm.as_str()));
+        }
+        given.judge_mode()
+    }
+
+    /// Today, the ladder's local day (`2026-10-04`).
+    pub fn today(&self) -> String {
+        spend::local_day(self.ladder.now())
+    }
+
+    /// An operator's label on one of `pack`'s judgments, as its rules count
+    /// it: a label in words (`noise`, `useful`, `wrong role`) only.
+    pub fn land_label(&self, pack: &str, label: &serde_json::Value) {
+        if let Some(l) = label.as_str() {
+            let day = self.today();
+            self.land(
+                pack,
+                theseus_judge::learn::CanaryEvent::Label {
+                    day,
+                    label: l.into(),
+                },
+            );
+        }
+    }
+
+    /// An event `pack`'s rollback rules count (26a): kept, then the rules
+    /// checked. Nothing with the judge off.
+    pub fn land(&self, pack: &str, event: theseus_judge::learn::CanaryEvent) {
+        if self.cfg.enabled {
+            self.ladder.land(pack, event);
+        }
     }
 
     /// The telemetry its metrics go to, once the core has built it.
@@ -262,25 +342,6 @@ impl JudgeService {
 
     pub fn config(&self) -> &JudgeConfig {
         &self.cfg
-    }
-
-    /// The mode the ladder gives `pack` ([`WIRED`]): `security.v3` is in
-    /// shadow while its notices are switched off.
-    pub fn given(&self, pack: &str) -> PackMode {
-        let given = WIRED
-            .iter()
-            .find(|(p, _)| *p == pack)
-            .map_or(PackMode::Shadow, |(_, m)| *m);
-        match pack == gate::SECURITY_CANDIDATE && !self.cfg.notices_on() {
-            true => given.min(PackMode::Shadow),
-            false => given,
-        }
-    }
-
-    /// What `pack` may do now: the ladder's mode under the config's
-    /// ceilings (`mode_of`).
-    pub fn mode(&self, pack: &str) -> PackMode {
-        self.cfg.mode_of(pack, self.given(pack))
     }
 
     /// The client, the breaker, and the sink's task, on the first judgment.
@@ -332,15 +393,22 @@ impl JudgeService {
     /// Whether `loop.v1` judges a turn that ended so, decided before its
     /// last frame (23b): pure, from the config, the pack's sample, and the
     /// turn's id, with the judgment's id minted now. `None`: not judged.
-    pub fn plan_loop_end(&self, stop_reason: &str, turn_id: &str) -> Option<Dispatch> {
-        if stop_reason != "no_tool_calls"
-            || self.cfg.mode_of(LOOP_PACK, PackMode::Shadow) == PackMode::Off
-        {
+    pub fn plan_loop_end(
+        &self,
+        stop_reason: &str,
+        turn_id: &str,
+        session_id: &str,
+    ) -> Option<Dispatch> {
+        if stop_reason != "no_tool_calls" {
+            return None;
+        }
+        let given = self.mode_for(LOOP_PACK, session_id);
+        if !given.on() {
             return None;
         }
         let pack = theseus_judge::pack::by_name(LOOP_PACK)?;
         sampled(turn_id, self.cfg.sample_of(LOOP_PACK, pack.sample))
-            .then(|| Dispatch::new(LOOP_PACK, "loop_end", Mode::Shadow))
+            .then(|| Dispatch::new(LOOP_PACK, "loop_end", given.judge_mode()))
     }
 
     /// Mark the turn's trace with `loop.v1`'s dispatch, when it judges the
@@ -352,7 +420,7 @@ impl JudgeService {
         res: &theseus_protocol::TurnSubmitResult,
         task: bool,
     ) {
-        if let Some(d) = self.plan_loop_end(&res.stop_reason, &res.turn_id) {
+        if let Some(d) = self.plan_loop_end(&res.stop_reason, &res.turn_id, &res.session_id) {
             let class = loop_end::class(task, res.tool_calls);
             d.mark(
                 trace,
@@ -404,7 +472,7 @@ impl JudgeService {
     /// shadow, in a task of its own, as `id` when the turn's trace marked one
     /// (else a fresh id). Returns at once, whatever Jev does.
     pub fn at_loop_end(&self, end: LoopEnd, id: Option<String>) {
-        let Some(d) = self.plan_loop_end("no_tool_calls", &end.turn_id) else {
+        let Some(d) = self.plan_loop_end("no_tool_calls", &end.turn_id, &end.session_id) else {
             return;
         };
         let Some(pack) = theseus_judge::pack::by_name(LOOP_PACK) else {
@@ -449,12 +517,13 @@ impl JudgeService {
             .built()
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
             .ok()?;
-        let context = json!({
+        let mut context = json!({
             "session": end.session_id, "execution": end.execution_id, "turn": end.turn_id,
             "loops": end.loops, "baseline": "until_no_tool_calls", "decision": "no_tool_calls",
             "class": end.class(), "blob": blob, "on_path_ms": 0,
         });
-        let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+        let mode = self.ask_mode(&pack.name(), &mut context);
+        let mut ask = Ask::new(pack, &state, mode, context);
         ask.id = Some(id);
         let need = built
             .judge
@@ -568,10 +637,7 @@ impl JudgeService {
         JudgeHealth {
             enabled: self.cfg.enabled,
             max_mode: self.cfg.max_mode.as_str().into(),
-            packs: WIRED
-                .iter()
-                .map(|(p, _)| format!("{p}: {}", self.mode(p).as_str()))
-                .collect(),
+            packs: self.pack_lines(),
             breaker,
             breakers,
             in_flight,
@@ -586,6 +652,39 @@ impl JudgeService {
             key,
             notices,
         }
+    }
+}
+
+impl JudgeService {
+    /// Health's line per wired pack (26a): its mode, share and why
+    /// (`route.v1: live (owner: decision of 2026-10-04)`), or what the
+    /// config caps it at. Before the ladder's first read, each pack's wired
+    /// line under the config: health never reads the ladder itself.
+    pub fn pack_lines(&self) -> Vec<String> {
+        let loaded = self.cfg.enabled && self.ladder.is_loaded();
+        self.ladder
+            .wired_packs()
+            .iter()
+            .map(|(p, wired)| {
+                if !loaded {
+                    return format!("{p}: {}", self.cfg.mode_of(p, *wired).as_str());
+                }
+                let s = self.ladder.standing(p);
+                let acts = self.cfg.mode_of(p, s.rung.acts_as());
+                if s.why == ladder::WIRED_WHY {
+                    // No row: the wired line under the config, as before 26a.
+                    format!("{p}: {}", acts.as_str())
+                } else if acts == s.rung.acts_as() {
+                    format!("{p}: {}", s.words())
+                } else {
+                    format!(
+                        "{p}: {} (the config's ceiling; on the ladder: {})",
+                        acts.as_str(),
+                        s.words()
+                    )
+                }
+            })
+            .collect()
     }
 }
 

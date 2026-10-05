@@ -137,7 +137,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         memory::BudgetReport, memory::BudgetDrop, memory::BudgetRange, memory::BudgetOverage,
         memory::MemoryLabelParams, memory::MemoryLabelResult,
         sandbox::SandboxHealth, judge::JudgeHealth, judge::JudgeScored, judge::JudgeNoticed, judge::JudgeListParams, judge::JudgeListResult,
-        judge::JudgeGetParams, judge::JudgeGetResult, learning::JudgeLabelParams, learning::JudgeLabelResult,
+        judge::JudgeGetParams, judge::JudgeGetResult, learning::JudgeLabelParams, learning::JudgeLabelResult, packs::PackListResult, packs::PackInfo, packs::PackModeRow, packs::HoldoutBounds, packs::PackPromoteParams, packs::PackPromoteResult, packs::PackRollbackParams,
         learning::LearningReportParams, learning::LearningReport, judge_runs::JudgeReplayParams, judge_runs::ReplayLeftOut, judge_runs::ReplayJudgment, judge_runs::ReplayClassFell, judge_runs::ReplayEvalSide,
         judge_runs::ReplayEval, judge_runs::JudgeReplayResult, judge_runs::JudgeAuditParams, judge_runs::JudgeAuditResult, judge_runs::JudgeBackfillParams, judge_runs::JudgeBackfillResult, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
         signals::CompileSignal, route::TurnRoute, sandbox::SandboxUsage, sandbox::RunningJob, lsp::LspServerStatus,

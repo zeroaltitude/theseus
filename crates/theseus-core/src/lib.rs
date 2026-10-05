@@ -160,6 +160,8 @@ mod tests_judge;
 #[cfg(test)]
 mod tests_judge_surfaces;
 #[cfg(test)]
+mod tests_ladder;
+#[cfg(test)]
 mod tests_layouts;
 #[cfg(test)]
 mod tests_learning;

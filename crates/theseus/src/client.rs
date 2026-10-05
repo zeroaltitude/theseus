@@ -254,10 +254,12 @@ pub fn job_session() -> Option<String> {
 /// category), the answers to Jev's proposals (28b), which write them, a
 /// memory label (M6 30b: `wrong` keeps a node out of every session's
 /// recall), a judgment's label (M5 25c: the learning ledger grades Jev by
-/// it), an extension's revoke (M7 43b: it undoes the owner's ack), and the
+/// it), an extension's revoke (M7 43b: it undoes the owner's ack), the
 /// owner's runs over the learning ledger (M5 25d: a replay, an audit and a
-/// backfill spend money, and a backfill sends his history to Jev).
-pub const OPERATORS: [(&str, &str); 17] = [
+/// backfill spend money, and a backfill sends his history to Jev), and a
+/// move on the ladder (M5 26a: a promotion can make Jev act, and a rollback can
+/// silence security's notices).
+pub const OPERATORS: [(&str, &str); 19] = [
     (method::ACTION_CONFIRM, "theseus confirm"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
@@ -275,6 +277,8 @@ pub const OPERATORS: [(&str, &str); 17] = [
     (method::JUDGE_REPLAY, "theseus judge replay"),
     (method::JUDGE_AUDIT, "theseus judge audit"),
     (method::JUDGE_BACKFILL, "theseus judge backfill"),
+    (method::PACK_PROMOTE, "theseus packs promote"),
+    (method::PACK_ROLLBACK, "theseus packs rollback"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
@@ -363,6 +367,22 @@ mod tests {
         );
         assert!(refuse_in_a_job(method::LEARNING_REPORT, Some("ses_0000aa1b2c3")).is_ok());
         assert!(refuse_in_a_job(method::JUDGE_LIST, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// A job's process cannot move a pack on the ladder (M5 26a): one that
+    /// rolled back security's notices could silence them. The list is a
+    /// read, and goes.
+    #[test]
+    fn a_jobs_process_cannot_promote_or_roll_back_a_pack() {
+        for (m, cmd) in [
+            (method::PACK_PROMOTE, "theseus packs promote"),
+            (method::PACK_ROLLBACK, "theseus packs rollback"),
+        ] {
+            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
+            assert!(e.to_string().starts_with(&format!("{cmd} refused:")), "{e}");
+            assert!(refuse_in_a_job(m, None).is_ok());
+        }
+        assert!(refuse_in_a_job(method::PACK_LIST, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     #[test]

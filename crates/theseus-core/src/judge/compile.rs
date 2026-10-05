@@ -15,12 +15,11 @@ use std::sync::{Arc, Weak};
 
 use serde_json::{json, Value};
 use theseus_judge::builders::{ContinueInput, SignalInput};
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
+use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
 
 use super::{sampled, spend, JudgeService, Prepared, ScrubWith};
 use crate::compiler::Compiled;
-use crate::config::PackMode;
 use crate::node::{Body, Origin};
 
 /// CONTINUE (§2.4), at `compile`.
@@ -58,7 +57,7 @@ impl JudgeService {
         if compiled.new_compilation || signals.fired.is_empty() {
             return None;
         }
-        if self.cfg.mode_of(CONTINUE_PACK, PackMode::Shadow) == PackMode::Off {
+        if !self.pack_on(CONTINUE_PACK) {
             return None;
         }
         let pack = theseus_judge::pack::by_name(CONTINUE_PACK)?;
@@ -129,12 +128,13 @@ impl JudgeService {
             .built()
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
             .ok()?;
-        let context = json!({
+        let mut context = json!({
             "session": a.session_id, "execution": a.execution_id, "turn": a.turn_id,
             "loop": a.loop_index, "baseline": "append", "decision": "append",
             "blob": blob, "on_path_ms": 0,
         });
-        let mut ask = Ask::new(pack, &state, Mode::Shadow, context);
+        let mode = self.ask_mode(&pack.name(), &mut context);
+        let mut ask = Ask::new(pack, &state, mode, context);
         ask.id = Some(a.id);
         let need = built
             .judge

@@ -124,6 +124,24 @@ async fn five_rerank_timeouts_open_reranks_breaker_alone() {
     assert_eq!(circuits.len(), 1, "{circuits:?}");
     assert_eq!(circuits[0].data["breaker"], "rerank");
     assert_eq!(circuits[0].data["transition"]["circuit"], "opened");
+    // Its opening counts on rerank.v1's ladder: one event today (26a's
+    // `opens_per_day`).
+    let day = c.runner.judge.today();
+    let scope = crate::judge::ladder::events_scope("rerank", &day);
+    let opened = || {
+        c.store
+            .scope_after(&scope, 0)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.decode::<LedgerRow>().unwrap().data["event"].clone())
+            .collect::<Vec<Value>>()
+    };
+    let t0 = Instant::now();
+    while opened().is_empty() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "no event");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(opened(), [json!({"event": "breaker_opened", "day": day})]);
     let h = c.health().judge.unwrap();
     assert_eq!(h.breaker, "closed", "the shared breaker");
     assert_eq!(h.breakers.len(), 1);
@@ -235,7 +253,7 @@ async fn a_live_recall_carries_jevs_order_into_the_request() {
         .judge
         .unwrap()
         .packs
-        .contains(&"rerank.v1: live".to_string()));
+        .contains(&"rerank.v1: live (owner: decision of 2026-10-04)".to_string()));
 }
 
 /// A Jev slower than the wait leaves the request byte for byte a judge-off
@@ -508,4 +526,48 @@ async fn the_turn_goes_on_at_the_wait_exactly() {
             "{after_ms} ms: {x}"
         );
     }
+}
+
+/// A ladder rollback of rerank.v1 stops its live order (batch 5's join,
+/// theseus-9j7x): a recall in front of the model keeps recall's own order,
+/// with no wait, its rerank judged in shadow, and health says the pack is
+/// rolled back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_ladder_rollback_of_rerank_stops_its_live_order() {
+    let jev = FakeJev::start().unwrap();
+    jev.script("helps.1", Jev::Noul(0.10));
+    jev.script("helps.2", Jev::Noul(0.30));
+    jev.script("helps.3", Jev::Noul(0.97));
+    let (r, here, _) = heron_rig(&jev, |c| {
+        live(c);
+        c.memory.rerank_wait_ms = 600;
+    });
+    let c = &r.core;
+    c.pack_rollback(
+        &theseus_protocol::packs::PackRollbackParams {
+            pack: "rerank.v1".into(),
+            why: None,
+        },
+        "cli",
+    )
+    .unwrap();
+    let res = turn(c, &here, "Where does the grey heron nest?").await;
+    let m = &recalls(c, &here)[0];
+    assert!(
+        m.rerank.as_ref().is_none_or(|rr| !rr.applied),
+        "{:?}",
+        m.rerank
+    );
+    let mut waits = Vec::new();
+    judge_spans(res.trace.as_ref().unwrap(), "wait", &mut waits);
+    assert!(waits.is_empty(), "no wait: {waits:?}");
+    let rows = until_reranked(&c.store, 1).await;
+    assert_eq!(rows[0].data["mode"], "shadow");
+    let h = c.health().judge.unwrap();
+    assert!(
+        h.packs
+            .contains(&"rerank.v1: rolled back (owner: the owner rolled it back)".to_string()),
+        "{:?}",
+        h.packs
+    );
 }

@@ -80,7 +80,13 @@ pub fn flagged(call: &GateCall, judgments: &[Judgment]) -> Option<JudgeNoticed> 
     }
     let j = judgments
         .iter()
-        .find(|j| j.pack == SECURITY_CANDIDATE && j.mode == Mode::Live && j.actionable())?;
+        // Live, or canary in a canary's arm: the ladder records an acting
+        // canary so (26a).
+        .find(|j| {
+            j.pack == SECURITY_CANDIDATE
+                && matches!(j.mode, Mode::Live | Mode::Canary)
+                && j.actionable()
+        })?;
     let risky = j.answer(RISKY)?;
     if risky.band.band != Band::Act || risky.band.top != Top::Noul(true) {
         return None;
@@ -342,6 +348,10 @@ impl JudgeService {
             self.brake.lock().notices -= 1;
             return;
         }
+        // Each notice posted counts toward security's day brake on the
+        // ladder (26a: more than 30 in a day).
+        let day = self.today();
+        self.land(SECURITY_CANDIDATE, CanaryEvent::Notice { day });
         let f = JudgeNotified {
             notice: &notice,
             noticed: n,
@@ -388,7 +398,12 @@ impl JudgeService {
             Ok(())
         })();
         match written {
-            Ok(()) => self.announce(None, None, &f),
+            Ok(()) => {
+                self.announce(None, None, &f);
+                // The ladder reads this pause as security's day brake (26a,
+                // by its key): read it again now, so it says so today.
+                self.ladder().reload();
+            }
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "judge: the notices' pause was not written")
             }
@@ -399,7 +414,10 @@ impl JudgeService {
     /// owner's `noise` on a v3 judgment counts toward the brake, and a label
     /// on a noticed judgment shows on its post, whose buttons go.
     pub(crate) fn after_label(&self, core: &crate::rpc::Core, label: &Labeled<'_>) {
-        if label.pack != SECURITY_CANDIDATE || self.mode(SECURITY_CANDIDATE) != PackMode::Live {
+        let session = label.session.unwrap_or_default();
+        if label.pack != SECURITY_CANDIDATE
+            || self.mode_for(SECURITY_CANDIDATE, session).mode != PackMode::Live
+        {
             return;
         }
         if *label.label == "noise" {
@@ -444,7 +462,12 @@ impl JudgeService {
     /// `off`. A read at most: the brake's day when this run has one, else
     /// the META mark.
     pub(crate) fn notices_state(&self) -> String {
-        if self.mode(SECURITY_CANDIDATE) != PackMode::Live {
+        // The config's switches first (`mode_of`: the judge, `max_mode`, the
+        // pack's line, `notices`), then the ladder, read only once loaded:
+        // health never reads it itself. A pause today reads as paused,
+        // though the ladder takes it as a day's brake; any other move down
+        // as off (26a).
+        if self.cfg.mode_of(SECURITY_CANDIDATE, PackMode::Live) != PackMode::Live {
             return "off".into();
         }
         let today = spend::local_day(self.brake.now_ms());
@@ -461,9 +484,12 @@ impl JudgeService {
                     .filter(|p| p.day == today),
             }
         };
+        let acts =
+            !self.ladder().is_loaded() || self.ladder().standing(SECURITY_CANDIDATE).rung.acts();
         match paused {
             Some(p) => format!("paused until {}: {}", p.until, p.short),
-            None => "on".into(),
+            None if acts => "on".into(),
+            None => "off".into(),
         }
     }
 

@@ -170,15 +170,15 @@ impl JudgeService {
             .store(d.as_millis() as u64, Ordering::Relaxed);
     }
 
-    /// `rerank.v1`'s mode now: `WIRED`'s, under the config's ceiling and
-    /// its own line. The arms rule (32d): memory's mode decides what
+    /// `rerank.v1`'s mode for `session` now: the ladder's (26a, `mode_for`),
+    /// under the config's ceiling and its own line. The arms rule (32d):
+    /// memory's mode decides what
     /// reaches the model, rerank's whether Jev orders it. A recall in front
     /// of the model is reranked live when this is `live`, in shadow when
     /// `shadow`; one that reaches no model is reranked in shadow, as 32c's;
     /// `off` reranks none.
-    pub fn rerank_mode(&self) -> PackMode {
-        self.cfg
-            .mode_of(RERANK_PACK, super::wired_mode(RERANK_PACK))
+    pub fn rerank_mode(&self, session: &str) -> PackMode {
+        self.mode_for(RERANK_PACK, session).mode
     }
 
     /// A turn's recall ran: `rerank.v1` judges its top 20 in shadow, in a
@@ -186,7 +186,7 @@ impl JudgeService {
     /// id. Returns at once, whatever Jev does; nothing when the pack is off,
     /// the recall is out of its sample, or no candidate passed the filters.
     pub fn at_recall(&self, trace: &mut Trace, recalled: Recalled) {
-        if self.rerank_mode() == PackMode::Off {
+        if self.rerank_mode(&recalled.session_id) == PackMode::Off {
             return;
         }
         let Some((pack, eligible)) = self.rerank_eligible(&recalled) else {
@@ -360,13 +360,21 @@ impl JudgeService {
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
             .map_err(|_| "client")?;
         let live = d.mode == Mode::Live;
-        let context = json!({
+        let mut context = json!({
             "session": r.session_id, "turn": r.turn_id, "recall": r.recall_id,
             "purpose": "recall", "arm": "+rerank", "baseline": "fused", "blob": blob,
             "deadline_ms": self.rerank_deadline().as_millis() as u64,
             "on_path_ms": 0, "live": live,
         });
-        let mut ask = Ask::new(pack, &state, d.mode, context);
+        // The ladder's arm in the context (26a). A shadow rerank stays
+        // shadow; a live one is the ladder's: live, or canary in a canary's
+        // arm.
+        let laddered = self.ask_mode(&pack.name(), &mut context);
+        let mode = match d.mode {
+            Mode::Shadow => Mode::Shadow,
+            _ => laddered,
+        };
+        let mut ask = Ask::new(pack, &state, mode, context);
         ask.id = Some(d.id.clone());
         let need = built
             .judge

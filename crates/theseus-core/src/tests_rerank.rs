@@ -351,7 +351,8 @@ async fn a_fake_jev_reorders_what_would_be_admitted() {
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(h.spend_today_usd, theseus_judge::price::micros_to_usd(cost));
     assert!(
-        h.packs.contains(&"rerank.v1: live".to_string()),
+        h.packs
+            .contains(&"rerank.v1: live (owner: decision of 2026-10-04)".to_string()),
         "{:?}",
         h.packs
     );
@@ -454,7 +455,7 @@ async fn mode_off_calls_nothing() {
         .judge
         .unwrap()
         .packs
-        .contains(&"rerank.v1: off".to_string()));
+        .contains(&"rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))".to_string()));
 }
 
 /// The requests a core's model got, as bytes.

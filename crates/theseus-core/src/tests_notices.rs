@@ -168,10 +168,25 @@ async fn an_open_call_jev_is_sure_was_risky_posts_one_notice_after_it_started() 
     let h = r.core.health().judge.unwrap();
     assert_eq!(h.notices, "on");
     assert!(
-        h.packs.contains(&"security.v3: live".to_string()),
+        h.packs
+            .contains(&"security.v3: live (owner: decision of 2026-10-04)".to_string()),
         "{:?}",
         h.packs
     );
+    // The notice counts on the ladder: one `notice` event today (26a).
+    let day = r.core.runner.judge.today();
+    let scope = crate::judge::ladder::events_scope("security", &day);
+    let events = || {
+        r.core
+            .store
+            .scope_after(&scope, 0)
+            .unwrap()
+            .into_iter()
+            .map(|x| x.decode::<LedgerRow>().unwrap().data["event"].clone())
+            .collect::<Vec<Value>>()
+    };
+    until("the notice's event", || !events().is_empty()).await;
+    assert_eq!(events(), [json!({"event": "notice", "day": day})]);
 
     // Just under the act band: no notice, though `steered` is sure. Only
     // `risky` decides a notice.
@@ -326,8 +341,12 @@ async fn the_31st_notice_of_a_day_trips_the_brake_until_the_next_day() {
     assert!(h.notices.starts_with("paused until "), "{}", h.notices);
     assert!(h.notices.ends_with(": 31 notices today"), "{}", h.notices);
     assert!(!h.paused, "the budget's pause is the budget's alone");
-    // The next local day: the first flagged call posts again.
+    // The next local day: the first flagged call posts again. The ladder
+    // reads the pause as security's day brake by its own clock, so it moves
+    // too (26a).
     c.runner.judge.brake().skew(26 * 3600 * 1000);
+    let next = theseus_protocol::now_unix_ms() + 26 * 3600 * 1000;
+    c.runner.judge.ladder().set_clock(Arc::new(move || next));
     flag(c, 1).await;
     until("a notice the next day", || notices(&c.store).len() == 31).await;
     assert_eq!(c.health().judge.unwrap().notices, "on");
@@ -475,8 +494,11 @@ async fn each_switch_keeps_v3_in_shadow_and_posts_nothing() {
         assert_eq!(v3.data["mode"], "shadow", "switch {i}");
         let h = r.core.health().judge.unwrap();
         assert_eq!(h.notices, "off", "switch {i}");
+        // Shadow: with the ladder's adoption under the config's ceiling once
+        // a judged point read it (`max_mode = "shadow"` reads it nowhere).
         assert!(
-            h.packs.contains(&"security.v3: shadow".to_string()),
+            h.packs.iter().any(|l| l == "security.v3: shadow"
+                || l.starts_with("security.v3: shadow (the config's ceiling; ")),
             "{:?}",
             h.packs
         );
@@ -514,4 +536,43 @@ async fn a_runs_first_noise_label_counts_once() {
     let p = pauses(&core.store);
     assert_eq!(p.len(), 1, "the third trips it");
     assert_eq!(p[0].data["short"], "3 labeled noise today");
+}
+
+/// A ladder rollback of security.v3 stops its notices (batch 5's join,
+/// theseus-9j7x): an open call v3 scores 0.95 risky is judged in shadow and
+/// posts nothing, and health says the pack is rolled back and the notices
+/// off.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_ladder_rollback_of_v3_stops_its_notices() {
+    let jev = FakeJev::start().unwrap();
+    jev.script("risky", Jev::Noul(0.95));
+    let r = rig_with(echoes(), Some(&jev), posture(Posture::Open)).await;
+    r.core
+        .pack_rollback(
+            &theseus_protocol::packs::PackRollbackParams {
+                pack: SECURITY_CANDIDATE.into(),
+                why: None,
+            },
+            "cli",
+        )
+        .unwrap();
+    let sid = session(&r.core, None);
+    turn(&r.core, &sid, "say hi", None).await;
+    let judged = until_judged(&r.core.store, 2).await;
+    settle().await;
+    assert!(notices(&r.core.store).is_empty(), "no notice");
+    assert!(posts(&r.core, "jev_notice").is_empty(), "no post");
+    let v3 = judged
+        .iter()
+        .find(|j| j.data["pack"] == SECURITY_CANDIDATE)
+        .unwrap();
+    assert_eq!(v3.data["mode"], "shadow");
+    let h = r.core.health().judge.unwrap();
+    assert_eq!(h.notices, "off");
+    assert!(
+        h.packs
+            .contains(&"security.v3: rolled back (owner: the owner rolled it back)".to_string()),
+        "{:?}",
+        h.packs
+    );
 }

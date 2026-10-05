@@ -528,3 +528,93 @@ async fn a_late_verdict_applies_to_the_next_message_alone() {
         three.route
     );
 }
+
+/// A ladder rollback of route.v1 stops it routing (batch 5's join,
+/// theseus-9j7x): a hard question stays on the session's own profile, its
+/// verdict recorded in shadow, and health says the pack is rolled back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_ladder_rollback_of_route_stops_it_routing() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "sophisticated", 0.95);
+    let r = rig(Some(&jev), 1, |_| {});
+    r.core
+        .pack_rollback(
+            &theseus_protocol::packs::PackRollbackParams {
+                pack: "route.v1".into(),
+                why: None,
+            },
+            "cli",
+        )
+        .unwrap();
+    let res = turn(
+        &r.core,
+        None,
+        "Weigh two designs for a crash-safe write-ahead log.",
+        None,
+    )
+    .await;
+    assert_eq!(res.profile, "sonnet");
+    assert_eq!(r.claude.requests()[0].model, "claude-sonnet-5-5");
+    assert_eq!(res.route.unwrap().reason, "shadow");
+    let rows = until_route_rows(&r.core.store, 1).await;
+    assert_eq!(rows[0].data["mode"], "shadow");
+    let h = r.core.health().judge.unwrap();
+    assert!(
+        h.packs
+            .contains(&"route.v1: rolled back (owner: the owner rolled it back)".to_string()),
+        "{:?}",
+        h.packs
+    );
+}
+
+/// route.v1's ladder events today: `pinned` ones.
+fn pins(core: &Core) -> usize {
+    let day = core.runner.judge.today();
+    core.store
+        .scope_after(&crate::judge::ladder::events_scope("route", &day), 0)
+        .unwrap()
+        .into_iter()
+        .filter(|r| {
+            let row: LedgerRow = r.decode().unwrap();
+            row.data["event"]["event"] == "pinned"
+        })
+        .count()
+}
+
+/// The owner's pin of another profile within 10 minutes after a routed turn
+/// lands on route.v1's ladder, once (26a's `pins_per_day`; batch 5's join,
+/// theseus-9j7x); a pin in a session with no routed turn before it lands
+/// none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pin_after_a_routed_turn_lands_on_the_ladder() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "deep_coding", 0.95);
+    let r = rig(Some(&jev), 3, |_| {});
+    turn(&r.core, None, "Just rename them.", Some("glm53")).await;
+    let one = turn(
+        &r.core,
+        None,
+        "Why does the reader panic on this frame?",
+        None,
+    )
+    .await;
+    assert_ne!(one.profile, "glm53", "routed elsewhere");
+    turn(
+        &r.core,
+        Some(&one.session_id),
+        "Just rename them.",
+        Some("glm53"),
+    )
+    .await;
+    let t0 = Instant::now();
+    while pins(&r.core) == 0 {
+        assert!(t0.elapsed() < Duration::from_secs(10), "no pin landed");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        pins(&r.core),
+        1,
+        "one pin: the lone session's pin landed none"
+    );
+}

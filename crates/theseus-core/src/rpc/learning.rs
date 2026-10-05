@@ -103,6 +103,9 @@ impl Core {
                 session: row.session_id.as_deref(),
             },
         );
+        // The ladder's rules count a day's labels (26a: `noise`, `wrong role`),
+        // after the notices' brake has read this one.
+        self.runner.judge.land_label(&pack_name, &label);
         Ok(JudgeLabelResult {
             id,
             judgment: p.judgment.clone(),

@@ -967,6 +967,9 @@ async fn after_serving(
     // Recall's labels (M6 30b), by one scan of their scope, so a turn's
     // recall reads them from memory.
     core.warm_labels();
+    // The ladder (M5 26a): each pack's mode, read once the socket answers,
+    // and the adoptions it lacks written then, never on the start path.
+    core.warm_ladder();
     // The index tender (roadmap row 51; M6 §2.2), started once the socket
     // answers, never before, and by the socket daemon alone (`bindings` is
     // its): a `--stdio` daemon serves `store-stdio` for one client.

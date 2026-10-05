@@ -13,10 +13,9 @@ use std::sync::{Arc, Weak};
 
 use serde_json::json;
 use theseus_judge::builders::{AttributionInput, MemoryInput};
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
+use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Pack, Urgency};
 
 use super::{sampled, spend, JudgeService, Prepared, ScrubWith};
-use crate::config::PackMode;
 
 /// What a node is, as memory keeps it.
 pub const MEMORY_PACK: &str = "memory.v1";
@@ -64,7 +63,7 @@ impl JudgeService {
     /// by the node or the recall. Returns at once, whatever Jev does.
     pub fn at_memory_pass(&self, ask: MemoryAsk) {
         let name = ask.pack();
-        if self.cfg.mode_of(name, PackMode::Shadow) == PackMode::Off {
+        if !self.pack_on(name) {
             return;
         }
         let Some(pack) = theseus_judge::pack::by_name(name) else {
@@ -118,7 +117,8 @@ impl JudgeService {
             .ok()?;
         let mut context = context;
         context["blob"] = json!(blob);
-        let ask = Ask::new(pack, &state, Mode::Shadow, context);
+        let mode = self.ask_mode(&pack.name(), &mut context);
+        let ask = Ask::new(pack, &state, mode, context);
         let need = built
             .judge
             .inner()

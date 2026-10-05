@@ -51,6 +51,7 @@ pub mod extend;
 pub mod index;
 pub mod judge;
 pub mod judge_runs;
+pub mod ladder;
 pub mod lsp;
 pub mod mcp;
 pub mod memory;
@@ -383,6 +384,8 @@ facts![
     judge_runs::JudgeReplayed<'static>,
     judge_runs::JudgeAudited<'static>,
     judge_runs::JudgeBackfilled<'static>,
+    ladder::PackModeSet<'static>,
+    ladder::PackEventLanded<'static>,
     mcp::McpStarted,
     mcp::McpReady,
     mcp::McpExited,

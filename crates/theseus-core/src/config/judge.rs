@@ -255,17 +255,21 @@ impl JudgeConfig {
     }
 
     /// What `pack` may do: the lowest of the ladder's mode for it (`given`),
-    /// `max_mode`, and its own line. Off whenever the judge is.
+    /// `max_mode`, and its own line: its `mode`, and for `security.v3` its
+    /// `notices`, whose `false` keeps it in shadow (step 24's notices; read
+    /// here so the ladder's answer, health and the gate agree, 26a). Off
+    /// whenever the judge is.
     pub fn mode_of(&self, pack: &str, given: PackMode) -> PackMode {
         if !self.enabled {
             return PackMode::Off;
         }
-        let own = self
-            .packs
-            .get(pack)
-            .and_then(|p| p.mode)
-            .unwrap_or(PackMode::Live);
-        given.min(self.max_mode).min(own)
+        let line = self.packs.get(pack);
+        let own = line.and_then(|p| p.mode).unwrap_or(PackMode::Live);
+        let notices = match line.and_then(|p| p.notices) {
+            Some(false) => PackMode::Shadow,
+            _ => PackMode::Live,
+        };
+        given.min(self.max_mode).min(own).min(notices)
     }
 
     /// Whether `security.v3`'s notices are switched on: its line's
