@@ -19,6 +19,7 @@ mod driver;
 mod explain;
 mod info;
 pub(crate) mod judge;
+mod judge_prove;
 mod judge_runs;
 pub(crate) mod learning;
 mod mcp;

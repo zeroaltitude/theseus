@@ -143,6 +143,8 @@ export type * from './JudgeLabelResult';
 export type * from './JudgeListParams';
 export type * from './JudgeListResult';
 export type * from './JudgeNoticed';
+export type * from './JudgeProveParams';
+export type * from './JudgeProveResult';
 export type * from './JudgeReplayParams';
 export type * from './JudgeReplayResult';
 export type * from './JudgeScored';

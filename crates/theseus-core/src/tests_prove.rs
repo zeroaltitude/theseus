@@ -3,7 +3,9 @@
 //! records, every field, both arms, and every reason a task is left out;
 //! an open window gives no outcome; fewer than the minimum says
 //! "insufficient" with its counts; and cohorts with known outcomes give the
-//! generator's exact rates per task and per dollar.
+//! generator's exact rates per task and per dollar. `judge.prove` answers
+//! the generator's report over the records it answers, byte for byte, reads
+//! its default window from the canary's move, and writes no frame.
 
 use serde_json::{json, Value};
 use theseus_judge::band::band;
@@ -15,6 +17,7 @@ use theseus_judge::prove::{
 };
 use theseus_judge::{Judgment, Thresholds};
 use theseus_kernel::{ExecState, Execution};
+use theseus_protocol::judge_runs::JudgeProveResult;
 use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
@@ -446,6 +449,97 @@ async fn an_open_window_is_no_outcome_yet() {
     );
 }
 
+/// The method answers the generator's report over the records it gives,
+/// byte for byte as `theseus-judge prove` reads them from the JSON lines it
+/// answers; counts the arms and the tasks left out; writes no frame; and
+/// says "insufficient" with its counts below the minimum.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_method_is_the_generator_over_its_records() {
+    let (r, want) = seeded().await;
+    let c = &r.core;
+    let before = c.store.last_position();
+    let v = c.judge_prove(json!({"records": true})).await.unwrap();
+    assert_eq!(c.store.last_position(), before, "the method wrote a frame");
+    let jsonl = v.records.clone().unwrap();
+    let records = parse_records(&jsonl).unwrap();
+    assert_eq!(records, want);
+    let report = prove(&records, ProveMinimum::default());
+    assert_eq!(
+        v.markdown,
+        markdown(&report),
+        "the report differs from the file's"
+    );
+    assert_eq!(v.report, serde_json::to_value(&report).unwrap());
+    assert_eq!(v.verdict, "insufficient");
+    assert_eq!(
+        v.arms,
+        [("canary".to_string(), 3), ("control".to_string(), 3)].into()
+    );
+    assert_eq!(v.left_out.values().sum::<u32>(), 4);
+    assert_eq!(v.tasks, 10);
+    assert!(v.window.contains("has not moved to canary"), "{}", v.window);
+    let reasons = report.verdict.reasons.join("\n");
+    assert!(
+        reasons.contains("canary: 3 tasks, 3 labeled, 3 successes"),
+        "{reasons}"
+    );
+    assert!(
+        reasons.contains("canary arm: labeled tasks: 3 of 30"),
+        "{reasons}"
+    );
+    assert!(v.notes.iter().any(|n| n.contains("26b")));
+    // Without `records`, none are answered; the minimum is the caller's.
+    let low = c
+        .judge_prove(json!({"min_tasks": 2, "min_labeled": 1}))
+        .await
+        .unwrap();
+    assert_eq!(low.records, None);
+    let JudgeProveResult { report, .. } = low;
+    assert_eq!(report["minimum"]["tasks_per_arm"], 2);
+    assert_ne!(report["verdict"]["kind"], "insufficient");
+}
+
+/// The default window begins at `loop.v1`'s latest move to canary: a task
+/// that ended before it is not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_default_window_is_the_canarys() {
+    let (r, _) = seeded().await;
+    let c = &r.core;
+    let ladder = c.runner.judge.ladder();
+    let row = theseus_protocol::packs::PackModeRow {
+        pack: "loop.v1".into(),
+        mode: "canary".into(),
+        from: "shadow".into(),
+        share: Some(0.5),
+        who: "owner".into(),
+        why: "the prove's test".into(),
+        forced: true,
+        ..Default::default()
+    };
+    // Writes keep the kind's clock moving forward: the move lands after the
+    // seeded rows.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder.write(row).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let v = c.judge_prove(Value::Null).await.unwrap();
+    assert_eq!(v.tasks, 0, "{v:?}");
+    assert!(v.window.contains("move to canary 0.5"), "{}", v.window);
+    let like = c.kernel.execution("exe_a").unwrap().unwrap();
+    let parent = like.parent.clone().unwrap();
+    let like = c.kernel.execution(&parent).unwrap().unwrap();
+    let end = seed(c, &like, &task("late", ExecState::Complete, 1, 1));
+    c.store.append(&[end]).unwrap();
+    let v = c.judge_prove(Value::Null).await.unwrap();
+    assert_eq!(
+        (v.tasks, v.left_out.get("never_judged")),
+        (1, Some(&1)),
+        "{v:?}"
+    );
+    // A day given is the window, whatever the ladder says.
+    let all = c.judge_prove(json!({"since": "2020-01-01"})).await.unwrap();
+    assert_eq!(all.tasks, 11);
+}
+
 // ------------------------------------------------------------ cohorts
 
 fn seen(id: &str, session: &str, arm: &str, work: &str, position: u64) -> Seen {
@@ -574,4 +668,50 @@ fn judge_spend_counts_in_the_whole() {
     );
     let r = &build(&input).records[0];
     assert_eq!((r.spend_micros, r.judge_micros), (9_000, 1_000));
+}
+
+/// The read's time on a store of 10,000 finished tasks, each with a turn,
+/// a judgment, and its end: printed, not held (the owner's machine is the
+/// budgets'). `cargo nextest run -E 'test(ten_thousand)' --run-ignored all
+/// --no-capture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "a timing on a large store, run by hand"]
+async fn ten_thousand_tasks_read_in_time() {
+    let r = rig();
+    let c = &r.core;
+    let res = turn(c, None, "open the parent").await;
+    let like = c
+        .kernel
+        .execution(res.execution_id.as_deref().unwrap())
+        .unwrap()
+        .unwrap();
+    let mut recs = Vec::new();
+    for i in 0..10_000 {
+        let name = format!("n{i:05}");
+        let arm = if i % 2 == 0 { "canary" } else { "control" };
+        recs.push(call_row(&judgment(
+            &format!("jdg_{name}"),
+            "loop.v1",
+            &format!("ses_{name}"),
+            arm,
+            "complete",
+            40,
+        )));
+        let t = task(&name, ExecState::Complete, 100_000, 1);
+        recs.push(seed(c, &like, &t));
+        if recs.len() >= 400 {
+            c.store.append(&recs).unwrap();
+            recs.clear();
+        }
+    }
+    c.store.append(&recs).unwrap();
+    let began = std::time::Instant::now();
+    let v = c.judge_prove(Value::Null).await.unwrap();
+    let took = began.elapsed();
+    assert_eq!(v.arms["canary"] + v.arms["control"], 10_000);
+    println!(
+        "judge.prove over 10,000 tasks: {} ms (its own count: {} ms)",
+        took.as_millis(),
+        v.elapsed_ms
+    );
 }
