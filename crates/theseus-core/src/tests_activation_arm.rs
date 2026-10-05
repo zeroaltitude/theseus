@@ -47,7 +47,7 @@ fn kestrel(arm: MemoryArm, built: bool) -> (Rig, String, String) {
     label(&c.store, &only(c, &b), &[COMMIT]);
     c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
     if built {
-        c.runner.memory.adjacency.build(&c.store).unwrap();
+        c.runner.memory.adjacency.build(&c.store, false).unwrap();
     }
     (r, a, b)
 }
@@ -212,7 +212,7 @@ async fn the_spread_stays_inside_recalls_deadline() {
     let b = session(c, None, &[RETRY]);
     label(&c.store, &only(c, &a), &[COMMIT]);
     label(&c.store, &only(c, &b), &[COMMIT]);
-    c.runner.memory.adjacency.build(&c.store).unwrap();
+    c.runner.memory.adjacency.build(&c.store, false).unwrap();
     let inner = index_of(c, vec![a.clone()]);
     c.runner
         .memory
@@ -347,7 +347,7 @@ proptest! {
                 })
                 .collect();
             c.runner.memory.set_ask(index_of(c, vec![made[0].0.clone()]));
-            c.runner.memory.adjacency.build(&c.store).unwrap();
+            c.runner.memory.adjacency.build(&c.store, false).unwrap();
             turn(c, &me, "the plover notes?").await;
             let m = &recalls(c, &me)[0];
             let act = m.activation.as_ref().unwrap();

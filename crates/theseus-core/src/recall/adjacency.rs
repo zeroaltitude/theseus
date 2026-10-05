@@ -124,31 +124,58 @@ pub struct Projection {
 }
 
 /// A page of a kind's records, folded at a time.
-const PAGE: usize = 4096;
+pub(crate) const PAGE: usize = 4096;
+
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread paced a walk (the tests' count).
+    pub(crate) static PACES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// One pace of the warm build's walk: wait while the machine is busy, and
+/// how long it waited. Only a build calls it; a refresh never does.
+pub(crate) fn pace() -> std::time::Duration {
+    #[cfg(test)]
+    PACES.with(|c| c.set(c.get() + 1));
+    theseus_store::pressure::quiet_blocking(theseus_store::pressure::BOUND)
+}
 
 impl Projection {
     /// Built whole from `store`.
     pub fn build(store: &Store) -> anyhow::Result<Self> {
+        Self::build_paced(store, &mut || {})
+    }
+
+    /// Built whole from `store`, calling `pace` before each page of the walk
+    /// after the first (the warm build waits there while the machine is busy).
+    pub fn build_paced(store: &Store, pace: &mut dyn FnMut()) -> anyhow::Result<Self> {
         let mut p = Self::default();
-        p.refresh(store)?;
+        p.refresh_paced(store, pace)?;
         Ok(p)
     }
 
     /// Fold what `store` holds past [`Stats::through`], up to its last
-    /// position as this call begins.
+    /// position as this call begins. It never waits: a turn calls it inside
+    /// recall's deadline.
     pub fn refresh(&mut self, store: &Store) -> anyhow::Result<()> {
+        self.refresh_paced(store, &mut || {})
+    }
+
+    /// [`Projection::refresh`], calling `pace` before each page of its walk
+    /// after the first.
+    pub fn refresh_paced(&mut self, store: &Store, pace: &mut dyn FnMut()) -> anyhow::Result<()> {
         let upto = store.last_position();
         if upto <= self.through {
             return Ok(());
         }
         let after = self.through;
         let inner = store.inner();
-        for_each(inner.as_ref(), kinds::NODE, after, upto, |r| {
+        for_each(inner.as_ref(), kinds::NODE, after, upto, pace, |r| {
             if let Ok(n) = r.decode::<Node>() {
                 self.node(r.position, &n);
             }
         })?;
-        for_each(inner.as_ref(), kinds::EDGE, after, upto, |r| {
+        for_each(inner.as_ref(), kinds::EDGE, after, upto, pace, |r| {
             if let Ok(e) = r.decode::<Edge>() {
                 self.edge(&e);
             }
@@ -172,6 +199,9 @@ impl Projection {
             // The ledger's tags: this kind's rows alone.
             let mut at = after;
             loop {
+                if at != after {
+                    pace();
+                }
                 let q = Page {
                     after: Some(at),
                     limit: PAGE,
@@ -189,7 +219,7 @@ impl Projection {
         } else {
             // No tags yet (the index's shape is built after serving): every
             // ledger row, read for its kind.
-            for_each(inner.as_ref(), kinds::LEDGER, after, upto, |r| row(r))?;
+            for_each(inner.as_ref(), kinds::LEDGER, after, upto, pace, |r| row(r))?;
         }
         self.through = upto;
         Ok(())
@@ -455,10 +485,14 @@ fn for_each(
     kind: RecordKind,
     after: u64,
     upto: u64,
+    pace: &mut dyn FnMut(),
     mut f: impl FnMut(&Record),
 ) -> anyhow::Result<()> {
     let mut at = after;
     loop {
+        if at != after {
+            pace();
+        }
         let page = store.of_kind_after(kind, at, PAGE)?;
         let Some(last) = page.last() else {
             return Ok(());
