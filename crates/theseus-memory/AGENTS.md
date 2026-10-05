@@ -28,8 +28,10 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   rerank's turn packs again in Jev's order with `repack` too (`Memory::refill`), so the row and the request agree.
 - `consolidate.rs` (step 31b): consolidation's pure half. `clusters` (pairs admitted together in 3 distinct turns,
   components of 3 to 8, none a synthesis or a recall, none synthesized before by digest), `check` (every sentence
-  cites, every cited number is a source, at most 120 words), and `score` (a synthesis scored as its best admitted
-  source, ranked just ahead of it: rows keep no query). `science.rs`'s `WithSyntheses` is the `+synthesis` arm.
+  cites, every cited number is a source, at most 120 words, on `entry`'s text: a leading heading set aside, a
+  Markdown or bold first line of at most 8 words, or a plain first line or sentence of at most 8 uncited words all of
+  which its next sentence restates; a sentence that says something new is never set aside), and `score` (a
+  synthesis scored as its best admitted source, ranked just ahead of it: rows keep no query). `science.rs`'s `WithSyntheses` is the `+synthesis` arm.
 - `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is: the operator's four labels,
   `should_have` graded Easy as `useful` is), `activation.rs` (32b's math).
 - `retention.rs` (32a's wire-in): `RetentionRank`, the `+retention` arm's science: `baseline` in every verb but

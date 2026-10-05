@@ -12,6 +12,10 @@
 //!   sources it cites (`[2]`, `[1][3]`, `[1, 3]`), and the deterministic
 //!   checks: at most [`MAX_WORDS`] words, every sentence cites, every cited
 //!   number names a source of the cluster.
+//! - [`entry`]: a leading heading set aside before the checks (a Markdown
+//!   heading, a wholly bold line, or a short uncited title its next
+//!   sentence restates), so a model's habit of titling an entry costs
+//!   nothing, and a sentence that says something is never dropped.
 //! - [`score`]: would a recall that admitted two or more of a synthesis's
 //!   sources have selected it?
 
@@ -24,6 +28,9 @@ pub const MIN_NODES: usize = 3;
 pub const MAX_NODES: usize = 8;
 /// A synthesis's most words.
 pub const MAX_WORDS: usize = 120;
+/// A heading set aside: at most this many words when it is marked (`#`, or
+/// wholly bold), and when it is a plain title its next sentence restates.
+pub const HEADING_WORDS: usize = 8;
 
 /// One recall's admitted nodes, from its `recall.shadow` or `recall.ran` row.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,6 +238,123 @@ pub fn sentences(text: &str) -> Vec<Sentence> {
     out
 }
 
+/// A synthesis's text, its leading heading set aside: what the checks read,
+/// and what is kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Entry<'a> {
+    /// The heading set aside, as written (its marks and stop kept).
+    pub heading: Option<&'a str>,
+    /// The rest, trimmed.
+    pub text: &'a str,
+}
+
+/// `text` with its leading heading set aside, if it has one. Only its first
+/// line, or its first sentence, can be one, and a heading cites nothing and
+/// has at most [`HEADING_WORDS`] words:
+///
+/// - a first line that is a Markdown heading (`# …`) or wholly bold
+///   (`**…**`, `__…__`): set aside by its form, even with nothing after it
+///   (the entry is then empty, and [`check`] says [`Fault::Empty`]);
+/// - a plain first line ("Kestrel relay", on a line of its own) or first
+///   sentence ("Kestrel relay." on the entry's line), whose every word
+///   appears in the sentence after it: a title restates its subject, and a
+///   sentence that says something new is never set aside.
+///
+/// Anything else is the entry whole.
+pub fn entry(text: &str) -> Entry<'_> {
+    let text = text.trim();
+    let whole = Entry {
+        heading: None,
+        text,
+    };
+    // The first line, when the text has more than one.
+    if let Some((first, rest)) = text.split_once('\n') {
+        let (first, rest) = (first.trim(), rest.trim());
+        if let Some(inner) = marked(first) {
+            if !inner.contains('[') && words(inner).len() <= HEADING_WORDS {
+                return Entry {
+                    heading: Some(first),
+                    text: rest,
+                };
+            }
+        } else if restated(first, rest) {
+            return Entry {
+                heading: Some(first),
+                text: rest,
+            };
+        }
+    } else if let Some(inner) = marked(text) {
+        // The text is only a heading.
+        if !inner.contains('[') && words(inner).len() <= HEADING_WORDS {
+            return Entry {
+                heading: Some(text),
+                text: "",
+            };
+        }
+    }
+    // The first sentence, on the entry's own line: it ends at the first stop
+    // followed by a space, before any citation.
+    let stop = text.char_indices().find_map(|(i, c)| {
+        let next = text[i + c.len_utf8()..].chars().next();
+        (matches!(c, '.' | '!' | '?') && next.is_some_and(char::is_whitespace))
+            .then_some(i + c.len_utf8())
+    });
+    if let Some(end) = stop {
+        let (first, rest) = (text[..end].trim(), text[end..].trim());
+        if restated(first, rest) {
+            return Entry {
+                heading: Some(first),
+                text: rest,
+            };
+        }
+    }
+    whole
+}
+
+/// A Markdown heading's or a wholly bold line's words, without the marks.
+fn marked(line: &str) -> Option<&str> {
+    if let Some(h) = line.strip_prefix('#') {
+        let h = h.trim_start_matches('#');
+        return h.starts_with(' ').then(|| h.trim());
+    }
+    for m in ["**", "__"] {
+        if let Some(inner) = line.strip_prefix(m).and_then(|l| l.strip_suffix(m)) {
+            let inner = inner.trim();
+            return (!inner.is_empty() && !inner.contains(m)).then_some(inner);
+        }
+    }
+    None
+}
+
+/// Whether `first` is a plain title of what follows: it cites nothing, has
+/// at most [`HEADING_WORDS`] words, and each of them appears in `rest`'s
+/// first sentence.
+fn restated(first: &str, rest: &str) -> bool {
+    if first.contains('[') || rest.is_empty() {
+        return false;
+    }
+    let title = words(first);
+    if title.is_empty() || title.len() > HEADING_WORDS {
+        return false;
+    }
+    let Some(next) = sentences(rest).into_iter().next() else {
+        return false;
+    };
+    let next: BTreeSet<String> = words(&next.text).into_iter().collect();
+    title.iter().all(|w| next.contains(w))
+}
+
+/// A line's words, lower case, without the punctuation at their ends.
+fn words(s: &str) -> Vec<String> {
+    s.split_whitespace()
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect()
+}
+
 /// What the deterministic checks found wrong, if anything.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fault {
@@ -264,9 +388,20 @@ impl std::fmt::Display for Fault {
 
 /// The deterministic checks (§2.7): every sentence cites, every cited
 /// number is one of the cluster's `sources`, and the whole is at most
-/// [`MAX_WORDS`] words. The sentences, when it passes.
+/// [`MAX_WORDS`] words. The sentences, when it passes. The core checks an
+/// [`entry`]'s text, its heading set aside.
 pub fn check(text: &str, sources: usize) -> Result<Vec<Sentence>, Fault> {
-    let s = sentences(text);
+    // A marked first line (a Markdown heading, a bold line) is a sentence of
+    // its own, never glued to the next: one [`entry`] did not set aside is
+    // checked as what it is.
+    let s = match text.trim().split_once('\n') {
+        Some((first, rest)) if marked(first.trim()).is_some() => {
+            let mut s = sentences(first);
+            s.extend(sentences(rest));
+            s
+        }
+        _ => sentences(text),
+    };
     if s.iter().all(|s| s.text.is_empty()) {
         return Err(Fault::Empty);
     }
@@ -463,6 +598,114 @@ mod tests {
         assert_eq!(check("  ", 3), Err(Fault::Empty));
         let long = format!("{} [1].", "word ".repeat(121));
         assert_eq!(check(&long, 1), Err(Fault::Long(121)));
+    }
+
+    const BODY: &str = "The Kestrel relay listens on port 7714 [1]. It logs to relay.log [2].";
+
+    /// The entry's text checked, as the core checks it.
+    fn checked(text: &str) -> Result<Vec<Sentence>, Fault> {
+        check(entry(text).text, 3)
+    }
+
+    /// Each form of a leading heading is set aside, and the entry passes:
+    /// the title with a stop on the entry's line (the live one), on a line
+    /// of its own with or without a stop, a Markdown heading, and a wholly
+    /// bold line; the words counted are the entry's.
+    #[test]
+    fn a_leading_heading_is_set_aside() {
+        for (text, heading) in [
+            (format!("Kestrel relay. {BODY}"), "Kestrel relay."),
+            (format!("Kestrel relay.\n{BODY}"), "Kestrel relay."),
+            (format!("Kestrel relay\n{BODY}"), "Kestrel relay"),
+            (format!("Kestrel relay:\n\n{BODY}"), "Kestrel relay:"),
+            (format!("# Kestrel relay\n{BODY}"), "# Kestrel relay"),
+            (
+                format!("## The relay's logs\n\n{BODY}"),
+                "## The relay's logs",
+            ),
+            (format!("**Kestrel relay**\n{BODY}"), "**Kestrel relay**"),
+            (format!("__Kestrel relay__\n{BODY}"), "__Kestrel relay__"),
+        ] {
+            let e = entry(&text);
+            assert_eq!(e.heading, Some(heading), "{text:?}");
+            assert_eq!(e.text, BODY, "{text:?}");
+            let s = checked(&text).unwrap_or_else(|f| panic!("{text:?}: {f}"));
+            assert_eq!(s.len(), 2);
+            assert_eq!(s[0].text, "The Kestrel relay listens on port 7714.");
+        }
+        // An entry with no heading is the entry whole.
+        assert_eq!(
+            entry(BODY),
+            Entry {
+                heading: None,
+                text: BODY
+            }
+        );
+        // The words counted are the entry's: 120 of them pass under a title.
+        let full = format!("# Kestrel relay\n{} [1].", "word ".repeat(120));
+        assert!(checked(&full).is_ok());
+        // A text that is only a marked heading is empty.
+        assert_eq!(checked("# Kestrel relay"), Err(Fault::Empty));
+        assert_eq!(checked("**Kestrel relay**\n"), Err(Fault::Empty));
+    }
+
+    /// What is not a heading keeps today's fault: a short first sentence
+    /// that says something new, a long uncited first sentence, a title
+    /// whose words the next sentence leaves out, a title that cites, an
+    /// uncited sentence past the first, a too-long marked line, and a
+    /// heading-like line that is not first.
+    #[test]
+    fn what_is_not_a_heading_is_still_rejected() {
+        for (text, fault) in [
+            // Short and uncited, but it says something new.
+            (format!("The relay is fast. {BODY}"), Fault::Uncited(1)),
+            (format!("It is retired.\n{BODY}"), Fault::Uncited(1)),
+            // Every word restated, but more than a title's words.
+            (
+                "The Kestrel relay listens on TCP port 7714 now. \
+                 The Kestrel relay listens on TCP port 7714 now [1]."
+                    .to_string(),
+                Fault::Uncited(1),
+            ),
+            // A title of words the next sentence leaves out.
+            (format!("Kestrel gateway. {BODY}"), Fault::Uncited(1)),
+            // An uncited sentence past the first.
+            (
+                format!("Kestrel relay. {BODY} It is fine."),
+                Fault::Uncited(3),
+            ),
+            (
+                "The relay listens on 7714 [1]. Kestrel relay. It logs [2].".to_string(),
+                Fault::Uncited(2),
+            ),
+            // A marked line past a title's words is not set aside.
+            (
+                format!("# The Kestrel relay was moved to a new host in May\n{BODY}"),
+                Fault::Uncited(1),
+            ),
+            // A heading that is not first.
+            (
+                "The relay listens on 7714 [1].\n# Logs\nIt logs to relay.log [2]. Logs end."
+                    .to_string(),
+                Fault::Uncited(3),
+            ),
+            // A heading set aside leaves the rest to the checks.
+            (
+                format!("# Kestrel relay\n{BODY} It restarts [4]."),
+                Fault::Unknown {
+                    sentence: 3,
+                    cited: 4,
+                },
+            ),
+        ] {
+            assert_eq!(checked(&text), Err(fault), "{text:?}");
+        }
+        // A title that cites is not set aside: it is part of its sentence.
+        let cited = format!("Kestrel relay [1]. {BODY}");
+        assert_eq!(entry(&cited).heading, None);
+        assert!(checked(&cited).is_ok());
+        // A plain title alone, with nothing to restate it, is a sentence.
+        assert_eq!(checked("Kestrel relay."), Err(Fault::Uncited(1)));
     }
 
     /// The shadow score: as its best admitted source, ahead of it; none
