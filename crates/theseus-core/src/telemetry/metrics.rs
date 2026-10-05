@@ -208,8 +208,21 @@ const RETENTION_NODES: Instrument = Instrument {
     kind: Kind::IntLast,
 };
 
+const AWS_CALLS: Instrument = Instrument {
+    name: "theseus.aws.calls",
+    description: "AWS requests, by service, operation and outcome (C1; theseus-ku5f)",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const AWS_DURATION: Instrument = Instrument {
+    name: "theseus.aws.duration_ms",
+    description: "AWS request time, by service, operation and outcome (C1; theseus-ku5f)",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 28] = [
+const INSTRUMENTS: [&Instrument; 30] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -238,6 +251,8 @@ const INSTRUMENTS: [&Instrument; 28] = [
     &TASK_CHANGES,
     &TASKS_OPEN,
     &RETENTION_NODES,
+    &AWS_CALLS,
+    &AWS_DURATION,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -386,6 +401,7 @@ impl Metrics {
             self.wakes(t);
             self.lsp_requests(t);
             self.files_read(t);
+            self.aws_requests(t);
             self.tasks(t);
             self.compactions(t);
         }
@@ -407,6 +423,7 @@ impl Metrics {
             self.tool_calls(t, &attrs);
             self.lsp_requests(t);
             self.files_read(t);
+            self.aws_requests(t);
         }
         self.add(
             &PROVIDER_ERRORS,
@@ -630,6 +647,45 @@ impl Metrics {
         walk(trace, &mut out);
         for (attrs, ms) in out {
             self.record(&FILE_READ, attrs, ms);
+        }
+    }
+
+    /// Each AWS request a tool call made (C1): its `aws` span, counted and
+    /// timed by its service, operation, and outcome (`ok`, `unbound`, or
+    /// `error`), wherever it sits in the trace. The AWS error's code stays on
+    /// the span and the row: it is the service's own text, so it makes no
+    /// attribute here, and the series stay as many as the catalog's
+    /// operations (theseus-ku5f).
+    fn aws_requests(&mut self, trace: &Span) {
+        fn walk(s: &Span, out: &mut Vec<(Attrs, f64)>) {
+            if s.kind == "aws" {
+                let a = |k: &str, or: &str| {
+                    Attr::S(
+                        s.attrs
+                            .get(k)
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or(or)
+                            .to_string(),
+                    )
+                };
+                out.push((
+                    sorted(vec![
+                        ("rpc.service", a("rpc.service", "")),
+                        ("rpc.method", a("rpc.method", "")),
+                        ("theseus.outcome", a("status", "unknown")),
+                    ]),
+                    s.duration_us() as f64 / 1000.0,
+                ));
+            }
+            for c in &s.children {
+                walk(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(trace, &mut out);
+        for (attrs, ms) in out {
+            self.add(&AWS_CALLS, attrs.clone(), 1);
+            self.record(&AWS_DURATION, attrs, ms);
         }
     }
 
