@@ -458,6 +458,149 @@ async fn a_late_verdict_applies_from_the_next_message() {
     );
 }
 
+/// The greeting of 2026-10-04 23:45 (theseus-6n5j): route.v1 said trivial
+/// at 0.45, under the section's 0.6, and the turn stayed on Sonnet. Trivial's
+/// bar is 0.4: the same verdict detours, and a switch mode at 0.45 still
+/// routes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_greeting_judged_trivial_at_045_detours() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.45);
+    let r = rig(Some(&jev), 2, |_| {});
+    let hi = turn(&r.core, None, "hey, good evening", None).await;
+    assert_eq!(
+        (
+            hi.profile.as_str(),
+            hi.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("glm", "detour")
+    );
+    let d = decided(&r.core.store);
+    assert_eq!(d[0]["confidence"], 0.45);
+    mode(&jev, "sophisticated", 0.45);
+    let hard = turn(&r.core, Some(&hi.session_id), "Weigh two designs.", None).await;
+    assert_eq!(
+        (
+            hard.profile.as_str(),
+            hard.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("sonnet", "unsure")
+    );
+}
+
+/// A late trivial verdict never applies to a later message (theseus-6n5j):
+/// the first message's verdict, trivial, comes after its wait; the second's
+/// own is late too, and the second stays on the session's own profile, where
+/// a late switch verdict would have moved it (`a_late_verdict_applies_from_
+/// the_next_message`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_trivial_verdict_never_applies_to_the_next_message() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.95);
+    jev.set_mode(FakeMode::Slow(Duration::from_millis(500)));
+    let r = rig(Some(&jev), 2, |_| {});
+    let one = turn(&r.core, None, "thanks!", None).await;
+    assert_eq!(
+        (
+            one.profile.as_str(),
+            one.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("sonnet", "late")
+    );
+    // Its verdict lands while no message waits for it.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    mode(&jev, "sophisticated", 0.95);
+    let two = turn(
+        &r.core,
+        Some(&one.session_id),
+        "Now weigh two designs for the log.",
+        None,
+    )
+    .await;
+    assert_eq!(
+        (
+            two.profile.as_str(),
+            two.route.as_ref().unwrap().reason.as_str()
+        ),
+        ("sonnet", "late"),
+        "{:?}",
+        two.route
+    );
+    assert!(r.zai.requests().is_empty(), "nothing detoured");
+}
+
+/// A person's message warms Jev's connections as it arrives (theseus-otny):
+/// two `HEAD`s of the judge's path, nothing billed, beside the admission's
+/// frames; a message while the client is warm sends none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_warms_jevs_connections_once_while_they_stay_warm() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 2, |_| {});
+    let one = turn(&r.core, None, "What does the manifest hold?", None).await;
+    assert_eq!(one.route.as_ref().unwrap().reason, "verdict");
+    assert_eq!(jev.warmups(), 2, "two connections opened at the message");
+    assert_eq!(jev.connections(), 1, "and one call");
+    turn(&r.core, Some(&one.session_id), "And where is it?", None).await;
+    assert_eq!(jev.warmups(), 2, "warm: no second warm-up");
+    assert_eq!(jev.connections(), 2);
+}
+
+/// route.v1's verdict never waits on its state's blob (theseus-otny): the
+/// blob's two syncs (1.4 s each under a neighbour's IO, 2026-10-04) came
+/// before the call, and made the verdict late. Held here, the verdict still
+/// routes the turn; the sink writes the blob before the row that names it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_verdict_never_waits_on_its_states_blob() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.95);
+    let r = rig(Some(&jev), 1, |_| {});
+    let release = r.core.store.blobs().hold_puts();
+    let thanks = turn(&r.core, None, "thanks!", None).await;
+    assert_eq!(
+        thanks.route.as_ref().unwrap().reason,
+        "detour",
+        "{:?}",
+        thanks.route
+    );
+    drop(release);
+    let rows = until_route_rows(&r.core.store, 1).await;
+    let blob = rows[0].data["context"]["blob"].as_str().unwrap();
+    assert!(
+        r.core.store.blobs().path(blob).exists(),
+        "the blob is written before its row"
+    );
+}
+
+/// Jev known unreachable (theseus-otny): once a try to reach it fails to
+/// connect, and nothing has answered since, a message's turn does not wait
+/// for a verdict that cannot come. (A closed loopback port refuses on most
+/// machines, and drops on this one, so the connect fails one way or the
+/// other within its 1 s timeout.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_does_not_wait_on_an_unreachable_jev() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(Some(&jev), 2, |c| {
+        c.judge.api_base = "http://127.0.0.1:9".into()
+    });
+    let one = turn(&r.core, None, "Say done.", None).await;
+    assert_eq!(one.profile, "sonnet");
+    let t0 = Instant::now();
+    while !r.core.runner.judge.jev_unreachable() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "never unreachable");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let two = turn(&r.core, Some(&one.session_id), "Say done again.", None).await;
+    let d = decided(&r.core.store);
+    assert_eq!(d.len(), 2);
+    assert!(d[1]["wait_ms"].as_u64().unwrap() < 50, "no wait: {}", d[1]);
+    let reason = two.route.as_ref().unwrap().reason.clone();
+    assert!(
+        ["unreachable", "no_verdict"].contains(&reason.as_str()),
+        "{reason}"
+    );
+}
+
 /// The owner's choice of a profile within 10 minutes after a routed turn
 /// labels its mode; 11 minutes after does not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

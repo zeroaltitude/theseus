@@ -16,7 +16,7 @@ pub struct TurnRoute {
     #[cfg_attr(test, ts(optional))]
     pub mode: Option<String>,
     /// `verdict`, `detour`, `capped`, `fallback`, `cache_hold`, `unsure`,
-    /// `late`, `no_verdict`, `pinned`, or `shadow`.
+    /// `late`, `unreachable`, `no_verdict`, `pinned`, or `shadow`.
     pub reason: String,
     /// The profile the session ran on before routing.
     pub from: String,

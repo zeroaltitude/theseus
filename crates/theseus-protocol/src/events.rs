@@ -427,6 +427,9 @@ events! {
     ModelDelta(ModelDelta) = notify::MODEL_DELTA,
     /// A thinking summary as it streams: the same shape as a delta.
     ModelThinking(ModelDelta) = notify::MODEL_THINKING,
+    /// A loop's whole answer as its stream ends, before its settle's frame
+    /// (theseus-ck0n): a delta's shape, its `text` the loop's whole text.
+    ModelAnswered(ModelDelta) = notify::MODEL_ANSWERED,
     ToolProposed(ToolProposed) = notify::TOOL_PROPOSED,
     LoopEnded(LoopEnded) = notify::LOOP_ENDED,
     /// The turn's result, as `turn.submit` returns it.
@@ -480,6 +483,7 @@ impl Event {
             Event::LoopStarted(_)
             | Event::ModelDelta(_)
             | Event::ModelThinking(_)
+            | Event::ModelAnswered(_)
             | Event::LoopEnded(_)
             | Event::ProfileChanged(_)
             | Event::PolicyTightened(_)
@@ -493,7 +497,9 @@ impl Event {
         match self {
             Event::TurnStarted(e) => Some(&e.turn_id),
             Event::LoopStarted(e) => Some(&e.turn_id),
-            Event::ModelDelta(e) | Event::ModelThinking(e) => Some(&e.turn_id),
+            Event::ModelDelta(e) | Event::ModelThinking(e) | Event::ModelAnswered(e) => {
+                Some(&e.turn_id)
+            }
             Event::ToolProposed(e) => Some(&e.turn_id),
             Event::LoopEnded(e) => Some(&e.turn_id),
             Event::TurnEnded(e) => Some(&e.turn_id),

@@ -35,7 +35,8 @@ pub struct RoutingConfig {
     /// it, the cache a switch leaves cold costs more.
     #[serde(default = "cold_switch_tokens")]
     pub cold_switch_tokens: u64,
-    /// A verdict routes only at this confidence or more (detours included).
+    /// A verdict routes only at this confidence or more (detours included),
+    /// unless its mode sets its own bar (`[routing.modes.<mode>]`).
     #[serde(default = "switch_confidence")]
     pub switch_confidence: f64,
     /// Each mode's profiles, in order: the first usable wins.
@@ -74,7 +75,18 @@ pub struct ModeProfiles {
     /// Profile names (or `cheapest`), in order; empty: the session's own.
     #[serde(default)]
     pub profiles: Vec<String>,
+    /// The confidence this mode's verdict needs to route (theseus-6n5j).
+    /// Unset: `[routing] switch_confidence`, except `trivial`, whose bar is
+    /// [`TRIVIAL_CONFIDENCE`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub switch_confidence: Option<f64>,
 }
+
+/// `trivial`'s bar when its table sets none (theseus-6n5j, the owner's
+/// "about 40% for trivial only", 2026-10-04): a wrong trivial call is cheap,
+/// since a detour carries only the last `trivial_context_turns` exchanges to
+/// the trivial profile, for that turn alone.
+pub const TRIVIAL_CONFIDENCE: f64 = 0.4;
 
 /// The modes, in the pack's order.
 pub const MODES: [&str; 5] = [
@@ -106,6 +118,7 @@ fn switch_confidence() -> f64 {
 fn list(names: &[&str]) -> ModeProfiles {
     ModeProfiles {
         profiles: names.iter().map(|s| (*s).to_string()).collect(),
+        switch_confidence: None,
     }
 }
 fn trivial() -> ModeProfiles {
@@ -134,15 +147,20 @@ impl Default for RoutingModes {
 }
 
 impl RoutingModes {
+    /// A mode's table; `other` and any unknown mode are `chat`'s.
+    pub fn table(&self, mode: &str) -> &ModeProfiles {
+        match mode {
+            "trivial" => &self.trivial,
+            "sophisticated" => &self.sophisticated,
+            "deep_coding" => &self.deep_coding,
+            "routine_coding" => &self.routine_coding,
+            _ => &self.chat,
+        }
+    }
+
     /// A mode's profiles; `other` and any unknown mode are `chat`'s.
     pub fn of(&self, mode: &str) -> &[String] {
-        match mode {
-            "trivial" => &self.trivial.profiles,
-            "sophisticated" => &self.sophisticated.profiles,
-            "deep_coding" => &self.deep_coding.profiles,
-            "routine_coding" => &self.routine_coding.profiles,
-            _ => &self.chat.profiles,
-        }
+        &self.table(mode).profiles
     }
 }
 
@@ -173,6 +191,15 @@ impl RoutingConfig {
         if !(c > 0.0 && c <= 1.0) {
             anyhow::bail!("routing.switch_confidence must be above 0 and at most 1");
         }
+        for m in MODES {
+            if let Some(c) = self.modes.table(m).switch_confidence {
+                if !(c > 0.0 && c <= 1.0) {
+                    anyhow::bail!(
+                        "routing.modes.{m}.switch_confidence must be above 0 and at most 1"
+                    );
+                }
+            }
+        }
         if self.max_wait_ms > 5_000 {
             anyhow::bail!(
                 "routing.max_wait_ms must be at most 5000: the turn waits that long for its verdict"
@@ -189,6 +216,17 @@ impl RoutingConfig {
             }
         }
         Ok(())
+    }
+
+    /// The confidence a verdict of `mode` needs to route: its mode's own
+    /// bar, else trivial's [`TRIVIAL_CONFIDENCE`], else the section's
+    /// `switch_confidence` (theseus-6n5j).
+    pub fn confidence_for(&self, mode: &str) -> f64 {
+        let own = self.modes.table(mode).switch_confidence;
+        own.unwrap_or(match mode {
+            "trivial" => TRIVIAL_CONFIDENCE,
+            _ => self.switch_confidence,
+        })
     }
 
     /// What `route.v1` may do: the judge's mode for it, lowered by this
@@ -216,7 +254,13 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
         (200, 2, 30_000)
     );
     assert_eq!(r.switch_confidence, 0.6);
-    assert_eq!(r.modes, RoutingModes::default());
+    for m in MODES {
+        assert_eq!(r.modes.of(m), RoutingModes::default().of(m), "{m}");
+    }
+    // Its one commented bar is trivial's, at the default it documents.
+    assert_eq!(r.modes.trivial.switch_confidence, Some(TRIVIAL_CONFIDENCE));
+    assert_eq!(r.confidence_for("trivial"), TRIVIAL_CONFIDENCE);
+    assert_eq!(r.confidence_for("sophisticated"), 0.6);
     for (p, model) in [
         ("opus", "claude-opus-5-5"),
         ("fable", "claude-fable-5-1"),
@@ -270,8 +314,54 @@ mod tests {
         }
         let empty = cfg("[modes.trivial]\nprofiles = [\" \"]").unwrap();
         assert!(empty.validate(|_| false).is_err());
+        for bad in ["0.0", "1.5", "-0.1"] {
+            let c = cfg(&format!("[modes.chat]\nswitch_confidence = {bad}")).unwrap();
+            let e = c.validate(|_| false).unwrap_err();
+            assert!(
+                format!("{e:#}").contains("routing.modes.chat.switch_confidence"),
+                "{bad}: {e:#}"
+            );
+        }
         let e = cfg("").unwrap().validate(|p| p == CHEAPEST).unwrap_err();
         assert!(format!("{e:#}").contains("reserved"));
+    }
+
+    /// Each mode's bar (theseus-6n5j): trivial's is 0.4 when its table sets
+    /// none, a table naming only its profiles included (the owner's config
+    /// names trivial's profiles); every other mode takes the section's; a
+    /// mode's own bar wins, the section's raised or lowered.
+    #[test]
+    fn each_mode_routes_at_its_own_bar_and_trivial_at_four_tenths() {
+        let d = cfg("").unwrap();
+        assert_eq!(d.confidence_for("trivial"), 0.4);
+        for m in [
+            "chat",
+            "sophisticated",
+            "deep_coding",
+            "routine_coding",
+            "other",
+        ] {
+            assert_eq!(d.confidence_for(m), 0.6, "{m}");
+        }
+        let named = cfg("[modes.trivial]\nprofiles = [\"haiku\", \"glm\"]").unwrap();
+        assert_eq!(named.confidence_for("trivial"), 0.4);
+        let raised = cfg("switch_confidence = 0.8").unwrap();
+        assert_eq!(raised.confidence_for("chat"), 0.8, "the section's bar");
+        assert_eq!(raised.confidence_for("trivial"), 0.4, "trivial's own");
+        let own = cfg(
+            "[modes.trivial]\nswitch_confidence = 0.55\n[modes.sophisticated]\nswitch_confidence = 0.75",
+        )
+        .unwrap();
+        assert_eq!(own.confidence_for("trivial"), 0.55);
+        assert_eq!(own.confidence_for("sophisticated"), 0.75);
+        assert_eq!(own.confidence_for("deep_coding"), 0.6);
+        own.validate(|_| false).unwrap();
+        // An unset bar is left out when the section is written back.
+        let text = toml::to_string(&d).unwrap();
+        assert!(
+            !text.contains("modes.trivial.switch") && !text.contains("0.4"),
+            "{text}"
+        );
     }
 
     #[test]

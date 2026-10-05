@@ -2601,6 +2601,69 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
     assert_eq!(sent, lines.len(), "each line went to the watcher");
 }
 
+/// A loop's whole answer reaches the session's watchers as its stream ends,
+/// before its settle's frame is written (theseus-ck0n). That frame is held
+/// back here, as a disk under a neighbour's IO held one for 1.4 s on
+/// 2026-10-04 while the reply waited behind it: the watcher already has
+/// `model.answered` with the whole text, and nothing of the loop's end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_loops_whole_answer_is_announced_before_its_settles_frame() {
+    const ANSWER: &str = "Good evening! What can I do for you tonight?";
+    let r = rig(vec![Scripted::text(ANSWER)]);
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (reached_tx, reached) = std::sync::mpsc::channel::<()>();
+    let gate = std::sync::Mutex::new(Some((held, reached_tx)));
+    r.core.store.fail_turn_frame(move |records| {
+        let settles = records.iter().any(|rec| {
+            rec.kind == theseus_store::kinds::ACTION
+                && serde_json::from_slice::<Value>(&rec.payload).is_ok_and(|a| {
+                    a["tool"] == theseus_kernel::PROVIDER_TOOL && a["state"] == "succeeded"
+                })
+        });
+        if settles {
+            if let Some((held, reached)) = gate.lock().unwrap().take() {
+                let _ = reached.send(());
+                let _ = theseus_store::blocking(|| held.recv());
+            }
+        }
+        false
+    });
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.core.bus.watch(&rec.session_id, "watcher", tx);
+    let (core, sid) = (r.core.clone(), rec.session_id.clone());
+    let running = tokio::spawn(async move { turn(&core, Some(&sid), "hey, good evening").await });
+    tokio::task::spawn_blocking(move || reached.recv_timeout(Duration::from_secs(20)))
+        .await
+        .unwrap()
+        .expect("the turn reached its settle's frame");
+    let mut methods = Vec::new();
+    let mut answered = None;
+    while let Ok(m) = rx.try_recv() {
+        if let theseus_protocol::Message::Notification(n) = m {
+            if n.method == theseus_protocol::notify::MODEL_ANSWERED {
+                answered = Some(n.params.clone());
+            }
+            methods.push(n.method);
+        }
+    }
+    let a = answered.unwrap_or_else(|| panic!("no model.answered before the settle: {methods:?}"));
+    assert_eq!(
+        (a["text"].as_str(), a["loop_index"].as_u64()),
+        (Some(ANSWER), Some(0))
+    );
+    assert!(
+        !methods
+            .iter()
+            .any(|m| m == theseus_protocol::notify::LOOP_ENDED),
+        "the loop has not ended: {methods:?}"
+    );
+    release.send(()).unwrap();
+    let res = running.await.unwrap();
+    assert_eq!(res.output, ANSWER);
+}
+
 /// A loop with one in-process tool call costs four frames (theseus-qa0): the
 /// provider call's plan and its completion, and the tool call's plan (with
 /// its node) and its completion (with its result). Before, it cost twelve.

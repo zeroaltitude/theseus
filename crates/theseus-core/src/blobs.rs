@@ -113,6 +113,10 @@ pub struct Blobs {
     cache: Mutex<VecDeque<(String, Arc<str>)>>,
     /// Most recently used last: (digest, a PDF's texts) (theseus-c9l6).
     texts: Mutex<VecDeque<(String, Texts)>>,
+    /// A test's hold on every write, as a disk under a neighbour's IO holds
+    /// a sync (`hold_puts`).
+    #[cfg(test)]
+    hold: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
 }
 
 impl Blobs {
@@ -123,7 +127,18 @@ impl Blobs {
             dir: store_dir.join("blobs"),
             cache: Mutex::new(VecDeque::new()),
             texts: Mutex::new(VecDeque::new()),
+            #[cfg(test)]
+            hold: Mutex::new(None),
         }
+    }
+
+    /// Hold every new blob's write until the sender is dropped (a test's
+    /// stand-in for a slow sync, theseus-otny).
+    #[cfg(test)]
+    pub(crate) fn hold_puts(&self) -> std::sync::mpsc::Sender<()> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        *self.hold.lock().unwrap() = Some(rx);
+        tx
     }
 
     /// A blob's bytes, when it is there and they match its name.
@@ -173,6 +188,10 @@ impl Blobs {
         let path = self.path(&d);
         if path.exists() {
             return Ok(d);
+        }
+        #[cfg(test)]
+        if let Some(rx) = self.hold.lock().unwrap().as_ref() {
+            let _ = rx.recv();
         }
         std::fs::create_dir_all(&self.dir)?;
         let tmp = self.dir.join(format!(".{d}.tmp-{}", std::process::id()));

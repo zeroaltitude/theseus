@@ -829,9 +829,14 @@ max_wait_ms = 200                       # the most the first call waits for the 
 trivial_context_turns = 2               # the exchanges a trivial detour carries
 cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
 switch_confidence = 0.6                 # a verdict routes only at this confidence or more
-# Each mode's profiles, in order: the first usable wins. Empty: the session's own.
+# Each mode's profiles, in order: the first usable wins. Empty: the session's own. A
+# mode's switch_confidence is its own bar; unset, it is the one above, except trivial's,
+# 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
+# A verdict that comes after the wait applies to the next message alone, and a trivial
+# one to none.
 # [routing.modes.trivial]
 # profiles = ["cheapest"]
+# switch_confidence = 0.4
 # [routing.modes.chat]
 # profiles = []
 # [routing.modes.sophisticated]

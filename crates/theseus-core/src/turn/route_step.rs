@@ -5,7 +5,8 @@
 //! - **Beside the first compile, never before it** ([`beside`]): the call
 //!   started at `inbound`, so the turn compiles on the session's profile,
 //!   then waits at most `[routing] max_wait_ms` more. A verdict later than
-//!   that applies from the next message, and this turn says `late`. The
+//!   that applies to the next message alone, a trivial one to none
+//!   (`routing::carries`, theseus-6n5j), and this turn says `late`. The
 //!   judge off, Jev's breaker open, a slash command, a continuation, a pinned
 //!   turn, or `route.v1` in shadow: no wait.
 //! - **A switch** rebuilds the spec and compiles again on the routed profile;
@@ -239,18 +240,29 @@ impl TurnRunner {
         };
         let mode = t.route.mode.unwrap_or(PackMode::Shadow);
         let live = mode >= PackMode::Canary && !self.judge.breaker_open();
+        // Jev known unreachable (its last try failed to connect, and nothing
+        // has answered since): no verdict will come in time, so the turn
+        // does not wait for one (theseus-otny).
+        let unreachable = live && self.judge.jev_unreachable();
         t.route.defer_persist = live;
         let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
         let compile = self.compile_step(t, session, spec, force, strip, overflow, i);
-        let (compiled, got, waited) = beside(compile, &mut rx, max_wait, live).await;
+        let (compiled, got, waited) =
+            beside(compile, &mut rx, max_wait, live && !unreachable).await;
         t.route.defer_persist = false;
         let compiled = match compiled? {
             Ok(c) => c,
             Err(f) => return Ok(Err(f)),
         };
         let base = t.target.profile.clone();
-        let (verdict, reason) =
-            self.read_verdict(t, got, live, rx, session.last_turn_id.as_deref());
+        let (verdict, reason) = self.read_verdict(
+            t,
+            got,
+            live,
+            rx,
+            session.last_turn_id.as_deref(),
+            unreachable,
+        );
         let decision = match (&verdict, reason) {
             (Some(v), None) => Some(self.decide_route(t, session, v, compiled.est_tokens)),
             _ => None,
@@ -314,6 +326,8 @@ impl TurnRunner {
     /// Every message takes the session's late verdict, and keeps it only when
     /// it was asked for `last_turn`, the session's turn just before this one:
     /// a late verdict applies to the next message alone, never to a later one.
+    /// A late trivial verdict applies to none: it was its own message's
+    /// (`routing::carries`, theseus-6n5j).
     fn read_verdict(
         &self,
         t: &Turn<'_>,
@@ -321,10 +335,11 @@ impl TurnRunner {
         live: bool,
         rx: RouteWait,
         last_turn: Option<&str>,
+        unreachable: bool,
     ) -> (Option<Verdict>, Option<Reason>) {
         let sid = t.tc.session_id;
         let stale = self.judge.take_late(sid);
-        let late = || stale.filter(|v| Some(v.turn.as_str()) == last_turn);
+        let late = || stale.filter(|v| Some(v.turn.as_str()) == last_turn && routing::carries(v));
         let recorded = match t.target.chosen {
             Some(_) => Reason::Pinned,
             None => Reason::Shadow,
@@ -347,6 +362,7 @@ impl TurnRunner {
                 });
                 match late() {
                     Some(v) => (Some(v), None),
+                    None if unreachable => (None, Some(Reason::Unreachable)),
                     None => (None, Some(Reason::Late)),
                 }
             }

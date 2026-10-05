@@ -30,6 +30,11 @@ pub const MAX_SCORE_LEVELS: usize = 10;
 pub const SUM_TOLERANCE: f64 = 0.02;
 /// A response body longer than this is `malformed` (answers are small).
 pub const MAX_RESPONSE_BYTES: usize = 1 << 20;
+/// How long the client keeps an idle connection open (theseus-otny). Jev's
+/// edge closed one idle for 400 s and kept one idle for 200 s (measured
+/// 2026-10-05), and reqwest's own default, 90 s, dropped every connection
+/// in a conversation's pauses, so the next message paid DNS, TCP and TLS.
+pub const POOL_IDLE: Duration = Duration::from_secs(180);
 
 /// Rough tokens for a text of `bytes` bytes: a quarter, rounded up, as the
 /// rest of Theseus estimates (`ProviderRequest::estimate_tokens`).
@@ -821,6 +826,42 @@ pub struct JevClient {
     key: Arc<dyn KeySource>,
     permits: Arc<Semaphore>,
     shed: ShedMeter,
+    reach: Reach,
+}
+
+/// What the client knows of its connections (theseus-otny), in ms since it
+/// was built, 0 for never: when Jev last answered (any status, a call's or
+/// a warm-up's), when a try last failed to connect, and whether a warm-up
+/// is in flight. reqwest's pool says nothing of what it holds.
+#[derive(Debug)]
+struct Reach {
+    born: Instant,
+    answered: AtomicU64,
+    failed: AtomicU64,
+    warming: std::sync::atomic::AtomicBool,
+}
+
+impl Reach {
+    fn new() -> Self {
+        Self {
+            born: Instant::now(),
+            answered: AtomicU64::new(0),
+            failed: AtomicU64::new(0),
+            warming: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    fn now(&self) -> u64 {
+        self.born.elapsed().as_millis() as u64 + 1
+    }
+
+    fn heard(&self) {
+        self.answered.store(self.now(), Ordering::Relaxed);
+    }
+
+    fn missed(&self) {
+        self.failed.store(self.now(), Ordering::Relaxed);
+    }
 }
 
 impl std::fmt::Debug for JevClient {
@@ -836,6 +877,7 @@ impl JevClient {
         let http = reqwest::Client::builder()
             .user_agent(concat!("theseus-judge/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(config.connect)
+            .pool_idle_timeout(POOL_IDLE)
             .build()?;
         Ok(Self {
             http,
@@ -844,11 +886,53 @@ impl JevClient {
             config,
             key,
             shed: ShedMeter::default(),
+            reach: Reach::new(),
         })
     }
 
     pub fn config(&self) -> &ClientConfig {
         &self.config
+    }
+
+    /// Whether a connection is likely open: Jev answered within the pool's
+    /// idle time, less a margin for a pause that ends as it closes.
+    pub fn warm(&self) -> bool {
+        let a = self.reach.answered.load(Ordering::Relaxed);
+        let open = (POOL_IDLE - Duration::from_secs(10)).as_millis() as u64;
+        a > 0 && self.reach.now().saturating_sub(a) < open
+    }
+
+    /// Whether Jev is known unreachable: the last try failed to connect (or
+    /// its connect timed out), and nothing has answered since.
+    pub fn unreachable(&self) -> bool {
+        let f = self.reach.failed.load(Ordering::Relaxed);
+        f > 0 && f >= self.reach.answered.load(Ordering::Relaxed)
+    }
+
+    /// Open `n` connections now (theseus-otny), unless the client is warm
+    /// or a warm-up is in flight: `n` HEADs of the judge's path at once,
+    /// each under the connect timeout and a second more. No key and no body,
+    /// so nothing is billed (the edge answers 405 and keeps the connection);
+    /// each answer, whatever its status, leaves its connection in the pool
+    /// for the judgments that follow. Returns how long it took, and whether
+    /// the client is warm after it; `None`: nothing was sent.
+    pub async fn warm_up(&self, n: usize) -> Option<(Duration, bool)> {
+        if self.warm() || self.reach.warming.swap(true, Ordering::AcqRel) {
+            return None;
+        }
+        let bound = self.config.connect + Duration::from_secs(1);
+        let one = || async {
+            let head = self.http.head(&self.url).send();
+            match tokio::time::timeout(bound, head).await {
+                Ok(Ok(_)) => self.reach.heard(),
+                Ok(Err(e)) if !e.is_connect() && !e.is_timeout() => {}
+                _ => self.reach.missed(),
+            }
+        };
+        let t0 = Instant::now();
+        futures_util::future::join_all((0..n).map(|_| one())).await;
+        self.reach.warming.store(false, Ordering::Release);
+        Some((t0.elapsed(), self.warm()))
     }
 
     /// Calls in flight now (health).
@@ -982,15 +1066,26 @@ impl JevClient {
         req: &Request,
         key: &str,
     ) -> Result<(u16, BTreeMap<String, String>, Vec<u8>), JevError> {
-        let mut resp = self
+        let sent = self
             .http
             .post(&self.url)
             .bearer_auth(key)
             .header("content-type", "application/json")
             .body(req.body())
             .send()
-            .await
-            .map_err(classify)?;
+            .await;
+        let mut resp = match sent {
+            Ok(r) => {
+                self.reach.heard();
+                r
+            }
+            Err(e) => {
+                if e.is_connect() {
+                    self.reach.missed();
+                }
+                return Err(classify(e));
+            }
+        };
         let status = resp.status().as_u16();
         let headers: BTreeMap<String, String> = resp
             .headers()

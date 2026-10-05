@@ -1046,6 +1046,16 @@ impl TurnRunner {
     pub async fn run(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
         let arrived = req.arrived.unwrap_or_else(Instant::now);
         let continuation = req.input.is_none();
+        // A person's message: Jev's connections open now, beside the
+        // admission's frames, for the judgments its input node will ask
+        // (theseus-otny). A slash command asks none.
+        if req
+            .input
+            .as_deref()
+            .is_some_and(|i| !crate::judge::inbound::slash_command(i))
+        {
+            self.judge.warm_on_message();
+        }
         // Running until this returns, after the turn's last frame: the memory
         // pass writes only between turns (theseus-ms5m).
         let _running = self.pass.turns().begin().await;
@@ -2238,6 +2248,8 @@ impl TurnRunner {
                 t.record(&fact::turn::ModelAnswered {
                     resp: &resp,
                     call_t0,
+                    turn_id: t.tc.turn_id,
+                    loop_index: i,
                 });
                 let node = self.settle_call(t, &action, compiled, &resp, started_ms, i)?;
                 Ok(Called::Answered(Box::new((resp, node))))

@@ -290,13 +290,9 @@ impl JudgeService {
         let mut asks = Vec::with_capacity(packs.len());
         for (pack, id, mode) in packs {
             let state = theseus_judge::prepare(&pack, &input, &scrub).ok()?;
-            // The packs share the state, so this is one blob.
-            let blob = self
-                .store
-                .blobs()
-                .put(state.state.json.as_bytes())
-                .map_err(|e| tracing::warn!(error = %e, "judge: the state's blob was not written; not judged"))
-                .ok()?;
+            // The packs share the state, so this is one blob, which the sink
+            // writes before their rows (theseus-otny).
+            let blob = self.stage_blob(state.state.json.as_bytes());
             let baseline = match pack.name().as_str() {
                 CLASSIFY_PACK => "conversation",
                 ROUTE_PACK => "session_profile",
@@ -328,8 +324,13 @@ impl JudgeService {
             asks.push(ask);
         }
         let need = built.judge.inner().reserve_micros(&asks).unwrap_or(0);
-        self.reserve(today, need)
-            .then_some(Ready { built, asks, need })
+        let beside = self.reserve_beside(today, need)?;
+        Some(Ready {
+            built,
+            asks,
+            need,
+            beside,
+        })
     }
 
     /// The `inbound` input from the session's nodes and its live tasks.
@@ -437,11 +438,13 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
     }
 }
 
-/// The point's asks, ready to send.
+/// The point's asks, ready to send, and the budget's frame to write beside
+/// the call.
 struct Ready {
     built: Arc<Built>,
     asks: Vec<Ask>,
     need: theseus_judge::price::Micros,
+    beside: super::Beside,
 }
 
 /// `route.v1`'s verdict from its judgment: its `mode` answer, when it was
@@ -485,9 +488,18 @@ async fn judge_inbound(
         .await
         .ok()
         .flatten();
-    let Some(Ready { built, asks, need }) = ready else {
+    let Some(Ready {
+        built,
+        asks,
+        need,
+        beside,
+    }) = ready
+    else {
         return;
     };
+    // The budget's frame goes beside the call, never before it
+    // (theseus-otny).
+    let wrote = beside.spawn(&me);
     let t0 = Instant::now();
     let judgments = built.judge.judge(DecisionPoint { asks, urgency }).await;
     tracing::debug!(
@@ -500,6 +512,9 @@ async fn judge_inbound(
             .find(|j| j.pack == ROUTE_PACK)
             .and_then(|j| verdict(j, &turn));
         let _ = tx.send(v);
+    }
+    if let Some(w) = wrote {
+        let _ = w.await;
     }
     let Some(svc) = me.upgrade() else { return };
     // The point settles as one: its reservation, what its judgments cost

@@ -280,16 +280,39 @@ impl Renderer {
                 }
                 vec![Op::Typing]
             }
+            // A loop's first text shows at once, not at the next tick
+            // (theseus-ck0n): the rest of its stream waits for the tick, as
+            // Discord limits a message's edits.
             Event::ModelDelta(d) => {
-                if let Some(t) = self.turn_mut(turn_id) {
-                    t.loops
-                        .entry(d.loop_index)
-                        .or_default()
-                        .text
-                        .push_str(&d.text);
-                    t.dirty = true;
+                let Some(t) = self.turn_mut(turn_id) else {
+                    return vec![];
+                };
+                let lv = t.loops.entry(d.loop_index).or_default();
+                let first = lv.text.trim().is_empty();
+                lv.text.push_str(&d.text);
+                t.dirty = true;
+                if first && !lv.text.trim().is_empty() {
+                    return self.tick();
                 }
                 vec![]
+            }
+            // The loop's whole answer as its stream ends (theseus-ck0n),
+            // shown at once: before the settle's frame and the reply's post,
+            // whose edit only seals it and adds the footer. Its text is the
+            // whole text, so a dropped delta never shows.
+            Event::ModelAnswered(d) => {
+                let Some(t) = self.turn_mut(turn_id) else {
+                    return vec![];
+                };
+                if t.ended {
+                    return vec![];
+                }
+                let lv = t.loops.entry(d.loop_index).or_default();
+                if !d.text.trim().is_empty() {
+                    lv.text.clone_from(&d.text);
+                }
+                t.dirty = true;
+                self.tick()
             }
             Event::ToolProposed(p) => {
                 let decision = p.gate.decision.as_ref();
@@ -1531,6 +1554,49 @@ mod tests {
             fed[0].1
         );
         assert!(!alone[0].1.contains("recalled"), "{}", alone[0].1);
+    }
+
+    /// The stream shows without waiting (theseus-ck0n): a loop's first text
+    /// goes out at once, the rest of its stream at the tick, and its whole
+    /// answer (`model.answered`, sent before the settle's frame) at once, a
+    /// dropped delta mended. Once the turn ended, its post has the text, and
+    /// a late answer sends nothing.
+    #[test]
+    fn a_loops_first_text_and_its_whole_answer_go_out_at_once() {
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        let delta = |r: &mut Renderer, text: &str| {
+            upserts(&r.on_notification(
+                "model.delta",
+                &json!({"turn_id": "t1", "loop_index": 0, "text": text}),
+            ))
+        };
+        assert!(delta(&mut r, "").is_empty(), "no text yet");
+        assert_eq!(
+            delta(&mut r, "Good"),
+            vec![("t1:L0:p0".into(), "Good".into())]
+        );
+        assert!(
+            delta(&mut r, " eve").is_empty(),
+            "the rest waits for the tick"
+        );
+        // A delta the place missed ("ning!") is in the whole answer.
+        let whole = upserts(&r.on_notification(
+            "model.answered",
+            &json!({"turn_id": "t1", "loop_index": 0, "text": "Good evening! How are you?"}),
+        ));
+        assert_eq!(
+            whole,
+            vec![("t1:L0:p0".into(), "Good evening! How are you?".into())]
+        );
+        assert!(r.tick().is_empty(), "nothing more to send");
+        assert!(upserts(&r.on_notification("turn.ended", &ended("t1", None))).is_empty());
+        assert!(r
+            .on_notification(
+                "model.answered",
+                &json!({"turn_id": "t1", "loop_index": 0, "text": "late"}),
+            )
+            .is_empty());
     }
 
     /// A session at its spend limit asks with its own message and buttons

@@ -514,6 +514,49 @@ async fn shadow_is_shed_with_no_free_permit_and_live_waits_to_its_deadline() {
     ));
 }
 
+/// The warm-up (theseus-otny): `n` HEADs at once, no key and no body, each
+/// answer leaving the client warm; a warm client sends none. A call's answer
+/// warms it too.
+#[tokio::test]
+async fn a_warm_up_opens_connections_and_a_warm_client_sends_none() {
+    let fake = FakeJev::start().unwrap();
+    let client = client_for(&fake, 2000, 8);
+    assert!(!client.warm() && !client.unreachable());
+    let (_, warm) = client.warm_up(2).await.expect("sent");
+    assert!(warm);
+    assert_eq!((fake.warmups(), fake.connections()), (2, 0), "no call");
+    assert!(fake.seen().is_empty(), "no body, no key");
+    assert!(client.warm_up(2).await.is_none(), "warm: nothing sent");
+    assert_eq!(fake.warmups(), 2);
+    let cold = client_for(&fake, 2000, 8);
+    let c = cold.call(&discovery_request(), Urgency::Shadow).await;
+    assert!(c.result.is_ok(), "{:?}", c.result);
+    assert!(cold.warm(), "a call's answer warms the client");
+}
+
+/// Unreachable: a try that fails to connect, with no answer since. A
+/// closed loopback port refuses on most machines and drops on this one;
+/// either way the connect fails within its timeout.
+#[tokio::test]
+async fn a_failed_connect_marks_jev_unreachable_until_it_answers() {
+    let client = JevClient::new(
+        ClientConfig {
+            api_base: "http://127.0.0.1:9".into(),
+            connect: Duration::from_secs(1),
+            total: Duration::from_secs(1),
+            max_in_flight: 2,
+        },
+        Arc::new(StaticKey::new(KEY.into())),
+    )
+    .unwrap();
+    let (_, warm) = client.warm_up(1).await.expect("sent");
+    assert!(!warm);
+    assert!(client.unreachable());
+    let c = client.call(&discovery_request(), Urgency::Shadow).await;
+    assert!(c.result.is_err());
+    assert!(client.unreachable(), "still");
+}
+
 #[tokio::test]
 async fn no_key_and_an_oversized_state_send_nothing() {
     struct Unsettled;

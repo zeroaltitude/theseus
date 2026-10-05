@@ -101,4 +101,29 @@ impl Core {
             tracing::warn!(error = %e, kind = kind.as_str(), "binding ledger append failed");
         }
     }
+
+    /// `binding_ledger` for a row on the path a person waits on
+    /// (theseus-ck0n): a message out, before its lane's next write. The row
+    /// is appended on a blocking thread and the lane goes on, so its frame's
+    /// sync (1.4 s under a neighbour's IO, 2026-10-04) never holds the
+    /// reply's next edit; rows queued together share one sync. It still takes
+    /// the store's writer, so a frame queued behind it waits as before
+    /// (a message in, written just before its turn's admission frame, gains
+    /// nothing from this, and stays `binding_ledger`). Outside a runtime it is
+    /// written at once.
+    pub fn binding_ledger_soon(&self, kind: LedgerKind, session_id: Option<&str>, data: Value) {
+        let row = LedgerRow::new(kind, session_id, None, data);
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            if let Err(e) = self.store.append_ledger(&row) {
+                tracing::warn!(error = %e, kind = kind.as_str(), "binding ledger append failed");
+            }
+            return;
+        };
+        let store = self.store.clone();
+        rt.spawn_blocking(move || {
+            if let Err(e) = store.append_ledger(&row) {
+                tracing::warn!(error = %e, kind = kind.as_str(), "binding ledger append failed");
+            }
+        });
+    }
 }

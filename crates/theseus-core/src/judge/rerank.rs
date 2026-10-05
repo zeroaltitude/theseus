@@ -231,8 +231,12 @@ impl JudgeService {
     }
 
     /// Why a live rerank would not be waited on now, read without a write:
-    /// rerank's breaker open, or the day's limit reached.
+    /// Jev known unreachable (theseus-otny), rerank's breaker open, or the
+    /// day's limit reached.
     fn rerank_no_wait(&self) -> Option<&'static str> {
+        if self.jev_unreachable() {
+            return Some("unreachable");
+        }
         if let Some(b) = self.built.get() {
             let open = b
                 .judge
@@ -328,15 +332,16 @@ impl JudgeService {
         w
     }
 
-    /// The blocking half before the call: the state, its blob, and the
-    /// reservation. `Err`: nothing to send, and why (the day's limit is
+    /// The blocking half before the call: the state, its blob (staged for
+    /// the sink), and the reservation (its frame written beside the call,
+    /// theseus-otny). `Err`: nothing to send, and why (the day's limit is
     /// `budget`).
     fn prepare_rerank(
         &self,
         pack: Arc<Pack>,
         d: &Dispatched,
         today: &str,
-    ) -> Result<super::Prepared, &'static str> {
+    ) -> Result<(super::Prepared, super::Beside), &'static str> {
         let r = &d.recalled;
         let input = RerankInput {
             message: r.message.chars().take(MESSAGE_CHARS).collect(),
@@ -353,12 +358,7 @@ impl JudgeService {
         let scrub = ScrubWith(self.scrubber.clone());
         let state =
             theseus_judge::prepare(&pack, &Input::Rerank(input), &scrub).map_err(|_| "state")?;
-        let blob = self
-            .store
-            .blobs()
-            .put(state.state.json.as_bytes())
-            .map_err(|e| tracing::warn!(error = %e, "judge: the rerank's state was not written; not judged"))
-            .map_err(|_| "state")?;
+        let blob = self.stage_blob(state.state.json.as_bytes());
         let built = self
             .built()
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
@@ -385,9 +385,9 @@ impl JudgeService {
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
-        match self.reserve(today, need) {
-            true => Ok(super::Prepared { built, ask, need }),
-            false => Err("budget"),
+        match self.reserve_beside(today, need) {
+            Some(beside) => Ok((super::Prepared { built, ask, need }, beside)),
+            None => Err("budget"),
         }
     }
 }
@@ -493,13 +493,14 @@ async fn judge_rerank(me: Weak<JudgeService>, pack: Arc<Pack>, d: Dispatched) {
     else {
         return;
     };
-    let super::Prepared { built, ask, need } = match prepared {
+    let (super::Prepared { built, ask, need }, beside) = match prepared {
         Ok(p) => p,
         Err(why) => {
             d.hand(Err(why.into()));
             return;
         }
     };
+    let wrote = beside.spawn(&me);
     let urgency = Urgency::live(deadline);
     let t0 = Instant::now();
     #[cfg(test)]
@@ -548,6 +549,9 @@ async fn judge_rerank(me: Weak<JudgeService>, pack: Arc<Pack>, d: Dispatched) {
             o.insert("rerank".into(), rerank);
         }
         built.judge.sink().record(j);
+    }
+    if let Some(w) = wrote {
+        let _ = w.await;
     }
     let Some(svc) = me.upgrade() else { return };
     for j in &judgments {

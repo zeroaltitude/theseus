@@ -15,6 +15,9 @@
 //! | `EchoAuth` | 401 whose body repeats the bearer key, as a careless server might |
 //!
 //! It never keeps the key: only whether a bearer token came, and its length.
+//! A `HEAD`, the client's warm-up (theseus-otny), is answered 405 as Jev's
+//! edge answers it, in every mode but `Down`, and counted apart from calls
+//! ([`FakeJev::warmups`]).
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -77,6 +80,7 @@ struct Shared {
     answer_as: Option<String>,
     seen: Vec<Seen>,
     connections: usize,
+    warmups: usize,
 }
 
 #[derive(Clone)]
@@ -97,6 +101,7 @@ impl FakeJev {
             answer_as: None,
             seen: Vec::new(),
             connections: 0,
+            warmups: 0,
         }));
         let s = shared.clone();
         std::thread::spawn(move || {
@@ -154,9 +159,15 @@ impl FakeJev {
         self.lock().answer_as = model.map(str::to_string);
     }
 
-    /// Connections accepted, every mode included.
+    /// Connections accepted for calls, every mode included; a warm-up's
+    /// `HEAD` is counted apart ([`FakeJev::warmups`]).
     pub fn connections(&self) -> usize {
         self.lock().connections
+    }
+
+    /// The warm-ups' `HEAD`s received (theseus-otny), every mode included.
+    pub fn warmups(&self) -> usize {
+        self.lock().warmups
     }
 
     /// The requests read so far.
@@ -165,19 +176,45 @@ impl FakeJev {
     }
 }
 
+/// The request line, read and counted: a warm-up's `HEAD` apart from calls.
+/// Returns whether it is a warm-up, and the mode the request finds.
+fn counted(r: &mut BufReader<TcpStream>, shared: &Mutex<Shared>) -> Result<(bool, FakeMode)> {
+    let mut first = String::new();
+    r.read_line(&mut first)?;
+    let warmup = first.starts_with("HEAD ");
+    let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+    match warmup {
+        true => s.warmups += 1,
+        false => s.connections += 1,
+    }
+    Ok((warmup, s.mode.clone()))
+}
+
+/// A warm-up's answer, as Jev's edge gives it: 405, its headers read first
+/// so the close sends no reset over the answer.
+fn answer_warmup(r: &mut BufReader<TcpStream>, stream: &mut TcpStream) -> Result<()> {
+    let mut line = String::new();
+    while r.read_line(&mut line)? > 0 && !line.trim_end().is_empty() {
+        line.clear();
+    }
+    let _ = stream.write_all(
+        b"HTTP/1.1 405 Method Not Allowed\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+    );
+    Ok(())
+}
+
 fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
-    let mode = {
-        let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
-        s.connections += 1;
-        s.mode.clone()
-    };
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    let mut r = BufReader::new(stream.try_clone()?);
+    let (warmup, mode) = counted(&mut r, shared)?;
     if mode == FakeMode::Down {
         // Close without a word.
         let _ = stream.shutdown(std::net::Shutdown::Both);
         return Ok(());
     }
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut r = BufReader::new(stream.try_clone()?);
+    if warmup {
+        return answer_warmup(&mut r, &mut stream);
+    }
     let mut len = 0usize;
     let mut bearer: Option<String> = None;
     let mut line = String::new();

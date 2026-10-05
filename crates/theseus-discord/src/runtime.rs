@@ -1940,6 +1940,7 @@ impl Place {
                     match e {
                         CoreEvent::ModelDelta(_)
                         | CoreEvent::ModelThinking(_)
+                        | CoreEvent::ModelAnswered(_)
                         | CoreEvent::ToolProposed(_) => return,
                         CoreEvent::TurnEnded(_) | CoreEvent::TurnFailed(_) => {
                             self.stopped_turn = None
