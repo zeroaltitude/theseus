@@ -366,6 +366,64 @@ fn a_task_and_its_carve_survive_a_crash() {
     assert_eq!(carved(&w, &parent.id, &task.id), Some(30_000));
 }
 
+/// A task's call in flight when the process died is booked at the first
+/// tick after the restart (theseus-f3wr): the task's spend, and its parent's
+/// through the carry, each once. The parent's carve shrinks by what was
+/// booked, so its spend and reservations still add up to what they were, and
+/// a second tick books nothing more.
+#[test]
+fn a_tasks_earlier_call_is_booked_once_in_its_parent_too() {
+    let w = world();
+    let (parent, g, task, _) = with_task(&w, 30_000);
+    let tg = w.kernel.admit(&task.id).unwrap();
+    let paid = dispatched(&w, &tg, PROVIDER_TOOL, 5_000);
+    w.kernel
+        .accept_completion(&completion(
+            &paid.correlation_id,
+            Outcome::Succeeded,
+            Some(4_000),
+        ))
+        .unwrap();
+    let call = dispatched(&w, &tg, PROVIDER_TOOL, 10_000);
+    std::mem::forget((g, tg));
+    let (w, _) = crash(w, KernelConfig::default());
+    let before = exec(&w, &parent.id).budget;
+    assert_eq!(
+        (before.spent_micros, before.reserved_micros),
+        (4_000, 26_000)
+    );
+    assert_eq!(
+        w.kernel.mark_earlier_calls_unknown().unwrap(),
+        vec![call.correlation_id]
+    );
+    let check = |w: &World| {
+        let t = exec(w, &task.id).budget;
+        assert_eq!(
+            (t.spent_micros, t.reserved_micros, t.held_unknown_micros),
+            (14_000, 0, 0),
+            "the task's own spend"
+        );
+        let p = exec(w, &parent.id).budget;
+        assert_eq!(
+            (p.spent_micros, p.held_unknown_micros),
+            (14_000, 0),
+            "the parent's spend, counted once"
+        );
+        assert_eq!(carved(w, &parent.id, &task.id), Some(16_000));
+        assert_eq!(p.reserved_micros, 16_000);
+        assert_eq!(p.available(), before.available(), "nothing counted twice");
+    };
+    check(&w);
+    assert!(w.kernel.mark_earlier_calls_unknown().unwrap().is_empty());
+    assert!(w
+        .kernel
+        .reconcile(&NoEvidence)
+        .unwrap()
+        .marked_unknown
+        .is_empty());
+    check(&w);
+}
+
 // ------------------------------------------------------------ the report's wake (W1)
 
 /// A parent waiting on input, with a task opened with `wake_parent`.

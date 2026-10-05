@@ -1,7 +1,8 @@
 //! An earlier process's in-process calls (theseus-m9iy): a provider call in
 //! flight when the process died is unknown at the first tick after the
 //! restart, not at its deadline, and a job is left to its evidence. Its
-//! reservation is booked as spent (theseus-f3wr).
+//! reservation is booked as spent, which a reset clears, where every other
+//! unknown mark holds it (theseus-f3wr).
 
 use serde_json::json;
 
@@ -118,6 +119,124 @@ fn an_earlier_processs_provider_call_is_unknown_at_the_first_tick_and_a_job_is_n
         .is_empty());
     let e1 = w.kernel.execution(&e1.id).unwrap().unwrap();
     assert_eq!(money(&e1.budget), (100, 0, 0), "and books nothing more");
+}
+
+/// After the mark, a reset frees what the call cost: the spend is back to $0
+/// and the whole limit is room again. Held as unknown, a reset could not free
+/// it (`a_reset_that_cannot_free_what_is_held_unknown_asks_once_and_does_not_loop`).
+#[test]
+fn a_reset_frees_what_an_earlier_processs_call_was_booked() {
+    let w = world();
+    let (_, e, g) = running(&w);
+    let call = dispatched(&w, &g, PROVIDER_TOOL, 40_000);
+    std::mem::forget(g);
+    let (w, _) = crash(w, KernelConfig::default());
+    assert_eq!(
+        w.kernel.mark_earlier_calls_unknown().unwrap(),
+        vec![call.correlation_id]
+    );
+    let booked = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        (
+            booked.budget.spent_micros,
+            booked.budget.held_unknown_micros
+        ),
+        (40_000, 0)
+    );
+    assert_eq!(booked.budget.available(), 60_000);
+    assert_eq!(
+        booked.budget.available_after_reset(),
+        100_000,
+        "a reset can free all of it"
+    );
+
+    let g = w.kernel.admit(&e.id).unwrap();
+    assert_eq!(w.kernel.take_results(&g).unwrap().len(), 1);
+    let q = w.kernel.ask_budget(&g, 90_000).unwrap();
+    let (after, before) = w.kernel.reset_budget(&q.correlation_id, "op").unwrap();
+    assert_eq!(before, 40_000, "the booked call was the spend");
+    assert_eq!(
+        (
+            after.budget.spent_micros,
+            after.budget.reserved_micros,
+            after.budget.held_unknown_micros
+        ),
+        (0, 0, 0)
+    );
+    assert_eq!(after.budget.available(), 100_000, "its room is whole");
+    drop(g);
+}
+
+/// Every other unknown mark holds its reservation as before: a provider call
+/// of this process, overdue with no evidence, may still run, or its cost may
+/// still arrive.
+#[test]
+fn an_overdue_mark_still_holds_its_reservation_as_unknown() {
+    let w = world();
+    let (s, e, g) = running(&w);
+    let call = dispatched(&w, &g, PROVIDER_TOOL, 300);
+    w.clock.advance(61_000);
+    let rep = w.kernel.reconcile(&NoEvidence).unwrap();
+    assert_eq!(rep.marked_unknown, vec![call.correlation_id.clone()]);
+    let e = w.kernel.execution(&e.id).unwrap().unwrap();
+    assert_eq!(
+        (
+            e.budget.spent_micros,
+            e.budget.reserved_micros,
+            e.budget.held_unknown_micros
+        ),
+        (0, 0, 300),
+        "held as unknown, not booked"
+    );
+    let a = w.kernel.action(&call.correlation_id).unwrap().unwrap();
+    assert_eq!((a.state, a.detail), (ActionState::OutcomeUnknown, None));
+    let row = &rows(&w, &s, "action.outcome_unknown")[0];
+    assert_eq!(row["producer"], "reconciler:overdue_no_evidence");
+    assert!(row.get("cost_basis").is_none(), "{row}");
+    assert!(row["cost_usd"].is_null());
+    drop(g);
+}
+
+/// A booked call's outcome learned later (no producer can bring one for a
+/// process that is gone, but a resolution must not count it twice): the
+/// booked estimate stands, nothing held for another call is taken, and only
+/// a cost above the reservation is booked more.
+#[test]
+fn a_booked_calls_late_resolution_counts_it_once() {
+    let w = world();
+    let (_, e, g) = running(&w);
+    let under = dispatched(&w, &g, PROVIDER_TOOL, 500);
+    let over = dispatched(&w, &g, PROVIDER_TOOL, 300);
+    std::mem::forget(g);
+    let (w, _) = crash(w, KernelConfig::default());
+    assert_eq!(w.kernel.mark_earlier_calls_unknown().unwrap().len(), 2);
+    // A call of this process, overdue: held.
+    let g = w.kernel.admit(&e.id).unwrap();
+    let held = dispatched(&w, &g, PROVIDER_TOOL, 700);
+    w.clock.advance(61_000);
+    let rep = w.kernel.reconcile(&NoEvidence).unwrap();
+    assert_eq!(rep.marked_unknown, vec![held.correlation_id.clone()]);
+    let now = |w: &World| money(&w.kernel.execution(&e.id).unwrap().unwrap().budget);
+    assert_eq!(now(&w), (800, 0, 700));
+    let resolve = |c: &Action, cost| {
+        w.kernel
+            .accept_completion(&crate::tests::completion(
+                &c.correlation_id,
+                Outcome::Succeeded,
+                cost,
+            ))
+            .unwrap()
+    };
+    assert!(matches!(
+        resolve(&under, Some(200)),
+        Accepted::ResolvedUnknown { .. }
+    ));
+    assert_eq!(now(&w), (800, 0, 700), "the estimate stands");
+    resolve(&over, Some(450));
+    assert_eq!(now(&w), (950, 0, 700), "the cost above it is booked");
+    resolve(&held, Some(100));
+    assert_eq!(now(&w), (1_050, 0, 0), "a held one resolves as before");
+    drop(g);
 }
 
 /// The heartbeat's reconcile marks them too, when the driver has not.
