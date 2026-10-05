@@ -6,13 +6,17 @@
 //! The push (theseus-in3): `execution.changed`, `confirm.requested`, and
 //! `confirm.resolved` also go to every `executions.watch` subscriber, the
 //! all-session watchers, once to a connection that is both.
+//!
+//! Each notification is serialized once, at the first connection that queues
+//! it, and every other queues the same line (theseus-celu.36): the
+//! requester's, each watcher's, and each all-session watcher's.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use theseus_protocol::{notify, Event, Message};
 
-use crate::outbound::Outbound;
+use crate::outbound::{Note, Outbound};
 
 /// A watcher: its connection id and where its messages go.
 type Watcher = (String, Outbound);
@@ -39,14 +43,6 @@ fn wide(msg: &Message) -> bool {
         ),
         _ => false,
     }
-}
-
-/// A deep copy of a message for one more connection; the measurement counts
-/// it (theseus-celu.36).
-fn copy(msg: &Message) -> Message {
-    #[cfg(test)]
-    crate::outbound::counts::cloned();
-    msg.clone()
 }
 
 impl SessionBus {
@@ -98,8 +94,14 @@ impl SessionBus {
     /// that asked for the turn, which got it directly). The push's
     /// notifications go to the all-session watchers too, once each.
     pub fn publish(&self, session: &str, msg: &Message, except: Option<&str>) {
+        self.deliver(session, &Note::new(msg), except);
+    }
+
+    /// `publish`, of a note the caller may already have queued (a turn's
+    /// sink, to its requester): every queue shares its one line.
+    fn deliver(&self, session: &str, note: &Note<'_>, except: Option<&str>) {
         #[cfg(test)]
-        self.tapped(msg);
+        self.tapped(note.message());
         let mut g = self.subs.lock().unwrap();
         let mut sent = HashSet::new();
         let stream = format!("session:{session}");
@@ -109,15 +111,15 @@ impl SessionBus {
                     return true;
                 }
                 sent.insert(c.clone());
-                tx.notify(copy(msg), &stream)
+                tx.notify(note, &stream)
             });
         }
-        if wide(msg) {
+        if wide(note.message()) {
             self.all.lock().unwrap().retain(|(c, tx)| {
                 if Some(c.as_str()) == except || sent.contains(c) {
                     return true;
                 }
-                tx.notify(copy(msg), "executions")
+                tx.notify(note, "executions")
             });
         }
     }
@@ -127,10 +129,11 @@ impl SessionBus {
     pub fn publish_all(&self, msg: &Message) {
         #[cfg(test)]
         self.tapped(msg);
+        let note = Note::new(msg);
         let mut g = self.subs.lock().unwrap();
         let mut sent = std::collections::HashSet::new();
         for v in g.values_mut() {
-            v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.notify(copy(msg), "policy"));
+            v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.notify(&note, "policy"));
         }
     }
 
@@ -168,14 +171,16 @@ impl EventSink {
         }
     }
 
+    /// To the requester and every watcher, as one line serialized once.
     pub fn send(&self, e: Event) {
         let m = Message::from(e);
+        let note = Note::new(&m);
         if let Some((_, tx)) = &self.direct {
-            tx.notify(copy(&m), &format!("session:{}", self.session_id));
+            tx.notify(&note, &format!("session:{}", self.session_id));
         }
-        self.bus.publish(
+        self.bus.deliver(
             &self.session_id,
-            &m,
+            &note,
             self.direct.as_ref().map(|(c, _)| c.as_str()),
         );
     }

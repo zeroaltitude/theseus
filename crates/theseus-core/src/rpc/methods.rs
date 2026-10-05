@@ -956,10 +956,8 @@ impl Core {
         let changed = self
             .switch_profile(name, conn.client)
             .map_err(RpcFailure::invalid)?;
-        conn.tx.notify(
-            Message::from(theseus_protocol::Event::ProfileChanged(changed.clone())),
-            "policy",
-        );
+        let m = Message::from(theseus_protocol::Event::ProfileChanged(changed.clone()));
+        conn.tx.notify(&crate::outbound::Note::new(&m), "policy");
         Ok(changed)
     }
 

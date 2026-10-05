@@ -474,8 +474,10 @@ async fn budget(out: &mut String) {
 #[tokio::test]
 async fn the_cores_output_matches_its_golden() {
     let mut out = String::new();
-    conversation(&mut out).await;
-    budget(&mut out).await;
+    // Boxed: a debug build's scenario futures are large, and pinned on the
+    // test thread's 2 MiB stack they left it a few KiB (theseus-celu.36).
+    Box::pin(conversation(&mut out)).await;
+    Box::pin(budget(&mut out)).await;
     let got = shapes(&alias(&out));
     if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
         let to = std::env::var("THESEUS_GOLDEN_TO").unwrap_or_else(|_| GOLDEN.to_string());

@@ -102,7 +102,8 @@ impl Narrator {
         };
         if !s.subs.is_empty() {
             let m = Message::from(Event::NarrativeLine(line.clone()));
-            s.subs.retain(|(_, tx)| tx.notify(m.clone(), "narrative"));
+            let note = crate::outbound::Note::new(&m);
+            s.subs.retain(|(_, tx)| tx.notify(&note, "narrative"));
         }
         s.tail.push_back(line);
         while s.tail.len() > self.capacity {

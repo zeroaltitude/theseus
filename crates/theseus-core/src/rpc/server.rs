@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use super::Core;
 use crate::approval::{Answerer, Client, Surface};
-use crate::outbound::{Drain, Outbound};
+use crate::outbound::{Drain, Item, Outbound};
 
 /// The connection a request came in on: who it is, the surface its listener
 /// named, and where its notifications go.
@@ -362,16 +362,16 @@ impl Core {
 /// the bound is for a client that stopped reading.
 const ANSWER_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Write one message, and then, if the queue has drained after dropping
+/// Write one item, and then, if the queue has drained after dropping
 /// notifications, the `events.lost` that says so (theseus-in3). False once
 /// the connection is gone.
 async fn write_one<W: AsyncWrite + Unpin>(
     core: &Core,
     writer: &mut W,
     rx: &mut Drain,
-    m: &Message,
+    item: &Item,
 ) -> bool {
-    if !write_line(writer, m).await {
+    if !write_item(writer, item).await {
         return false;
     }
     match rx.written() {
@@ -392,16 +392,31 @@ async fn write_one<W: AsyncWrite + Unpin>(
     }
 }
 
+/// Write one queued item: a message, serialized here, or a notification's
+/// line, serialized once for every connection (theseus-celu.36) and written
+/// as it is. False once the connection is gone.
+pub(crate) async fn write_item<W: AsyncWrite + Unpin>(writer: &mut W, item: &Item) -> bool {
+    match item {
+        Item::Message(m) => write_line(writer, m).await,
+        Item::Line(line) => write_bytes(writer, line.as_bytes()).await,
+    }
+}
+
 /// Write one message as an NDJSON line and flush it. False once the
 /// connection is gone; a message that does not serialize is skipped.
-pub(crate) async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool {
+async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool {
     #[cfg(test)]
     crate::outbound::counts::serialized();
     let Ok(mut s) = serde_json::to_string(m) else {
         return true;
     };
     s.push('\n');
-    if writer.write_all(s.as_bytes()).await.is_err() {
+    write_bytes(writer, s.as_bytes()).await
+}
+
+/// Write bytes and flush them. False once the connection is gone.
+async fn write_bytes<W: AsyncWrite + Unpin>(writer: &mut W, bytes: &[u8]) -> bool {
+    if writer.write_all(bytes).await.is_err() {
         return false;
     }
     let _ = writer.flush().await;
