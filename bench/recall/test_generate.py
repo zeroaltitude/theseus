@@ -249,6 +249,13 @@ class TheRustRule(unittest.TestCase):
         self.assertIn("if est.upper > budget || input.overflowed.is_some() {", src)
         self.assertEqual(tk.upper(1000, 100), 1140)
 
+    def test_a_summarys_room_is_the_compactions(self):
+        src = self.src("theseus-core/src/turn/compaction.rs")
+        m = re.search(r"pub const SUMMARY_MAX_TOKENS: u32 = (\d+);", src)
+        self.assertEqual(int(m.group(1)), tk.SUMMARY_MAX_TOKENS)
+        # It is written only where it fits beside the ring's kept turns.
+        self.assertIn("if limit > 0 && ring.estimate.upper + u64::from(max_tokens) > limit {", src)
+
     def test_a_tool_results_cap_and_fs_reads_lines_are_the_tools(self):
         m = re.search(r"fn default_result_max_chars\(\) -> usize \{\s*([\d_]+)\s*\}",
                       self.src("theseus-core/src/config.rs"))
