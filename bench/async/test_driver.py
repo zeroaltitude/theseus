@@ -133,21 +133,69 @@ HARBOR_RUN = (
 )
 
 # A stand-in `claude`: each stream-json line on stdin is a turn, answered
-# with a result event; EOF ends it. It keeps what it read.
+# with a result event STANDIN_ANSWER_S after it is read; EOF ends it, and a
+# message still being answered then is cut, never answered. It keeps what it
+# read, when it answered each, and when its input closed, and its pid.
 STANDIN_CLAUDE = """#!/usr/bin/env python3
-import json, sys
+import json, os, queue, sys, threading, time
 args = sys.argv[1:]
 assert "--input-format=stream-json" in args and "--print" in args, args
-seen = []
-for line in sys.stdin:
-    m = json.loads(line)
-    seen.append(m["message"]["content"])
+open(sys.argv[0] + ".pid", "w").write(str(os.getpid()))
+lines, eof = queue.Queue(), []
+def read():
+    for line in sys.stdin:
+        lines.put(line)
+    eof.append(time.monotonic())
+    lines.put(None)
+threading.Thread(target=read, daemon=True).start()
+delay = float(os.environ.get("STANDIN_ANSWER_S", "0"))
+seen, answered = [], []
+while (line := lines.get()) is not None:
+    seen.append(json.loads(line)["message"]["content"])
+    time.sleep(delay)
+    if eof and delay:
+        break  # the input closed while this message was being answered
     print(json.dumps({"type": "assistant", "n": len(seen)}), flush=True)
     # In the real CLI's key order (2.1.288): the result's type is not its first key.
     print(json.dumps({"duration_ms": 1, "type": "result", "subtype": "success", "total_cost_usd": 0.01},
                      separators=(",", ":")), flush=True)
+    answered.append(time.monotonic())
+while not eof:
+    time.sleep(0.01)
 open(sys.argv[0] + ".seen", "w").write(json.dumps(seen))
+open(sys.argv[0] + ".answers", "w").write(json.dumps({"answered": answered, "eof": eof[0]}))
 """
+
+
+def fifo_pids(d: Path, fifo: str) -> set[int]:
+    """The FIFO run's processes, by pid: the stand-in CLI (its pid file), its
+    tee (whose command line names the run's directory), and the FIFO's
+    holder (its pid file, until the run's end removes it)."""
+    pids = set()
+    for f in (d / "bin/claude.pid", Path(fifo + ".holder")):
+        try:
+            pids.add(int(f.read_text().strip()))
+        except (OSError, ValueError):
+            pass
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit() or int(proc.name) == os.getpid():
+            continue
+        try:
+            argv = (proc / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if argv and Path(argv[0].decode(errors="replace")).name == "tee" and str(d).encode() in b" ".join(argv):
+            pids.add(int(proc.name))
+    return pids
+
+
+def stop_pids(pids: set[int]) -> None:
+    """Each of `pids` killed, pass or fail: a FIFO test leaves nothing running."""
+    for pid in pids:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
 
 
 class ClaudeStdin(unittest.TestCase):
@@ -195,6 +243,7 @@ class ClaudeStdin(unittest.TestCase):
                    "PATH": f"{d / 'bin'}:{os.environ['PATH']}"}
             cmd, env = driver.claude_stdin(HARBOR_RUN.format(log=log), env, fifo)
             fake = FakeEnv(d)
+            pids: set[int] = set()
 
             async def go():
                 async def state():
@@ -203,6 +252,7 @@ class ClaudeStdin(unittest.TestCase):
                 run = asyncio.create_task(fake.exec(cmd, env=env, timeout_sec=60))
                 while (await state())[0] == 0:
                     await asyncio.sleep(0.05)
+                pids.update(fifo_pids(d, fifo))
                 first_result = (await state())[0]
                 sent = await fake.exec(driver.send_command(fifo, "Also count the tickets."))
                 mark = (await state())[1]
@@ -215,7 +265,10 @@ class ClaudeStdin(unittest.TestCase):
                 late = await fake.exec(driver.send_command(fifo, "Too late."))
                 return sent, done, late
 
-            sent, done, late = asyncio.run(asyncio.wait_for(go(), 60))
+            try:
+                sent, done, late = asyncio.run(asyncio.wait_for(go(), 60))
+            finally:
+                stop_pids(pids | fifo_pids(d, fifo))
             self.assertEqual(sent.return_code, 0)
             self.assertEqual(done.return_code, 0, done.stdout + done.stderr)
             self.assertEqual(json.loads(Path(str(claude) + ".seen").read_text()),
@@ -226,43 +279,99 @@ class ClaudeStdin(unittest.TestCase):
 
 
 # A stand-in `theseus` (and `theseusd`): a daemon whose first turn leaves a
-# job running. `ask` records its message; `wait --after` on the busy
-# session is the job's completion (its continuation), after STANDIN_JOB_S.
+# job running. The daemon answers `health` only once it is up, after
+# STANDIN_START_S, and exits at `shutdown` or once its directory is gone.
+# `ask` records its message; `wait --after` on the busy session is the job's
+# completion (its continuation), after STANDIN_JOB_S; `wakes` lists one wake
+# due STANDIN_WAKE_S after the first look (1 s) until it is due. Its state
+# is read and written under a lock: the CLI and the daemon run at once.
 STANDIN_THESEUS = r"""#!/usr/bin/env python3
-import json, os, sys, time
+import fcntl, json, os, sys, time
 d = os.environ["STANDIN_DIR"]
 state_path = os.path.join(d, "state.json")
+lock = open(os.path.join(d, "state.lock"), "a")
 def load():
     try: return json.load(open(state_path))
     except FileNotFoundError: return {"position": 1, "outstanding": 0, "asks": [], "calls": []}
-def save(s): json.dump(s, open(state_path, "w"))
+def save(s): json.dump(s, open(state_path + ".new", "w")); os.replace(state_path + ".new", state_path)
+def change(f):
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        s = load(); f(s); save(s); return s
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
 name = os.path.basename(sys.argv[0])
 args = [a for a in sys.argv[1:] if a != "--json"]
-s = load(); s["calls"].append(args); save(s)
+s = change(lambda s: s["calls"].append([name] + args if name == "theseusd" else args))
 if name == "theseusd":
+    time.sleep(float(os.environ.get("STANDIN_START_S", "0")))
+    change(lambda s: s.update(daemon_up_at=time.monotonic()))
     open(os.path.join(d, "daemon.env"), "w").write(json.dumps({k: os.environ.get(k) for k in ("THESEUS_SOCKET", "THESEUS_CONFIG")}))
-    while not os.path.exists(os.path.join(d, "shutdown")): time.sleep(0.05)
+    while os.path.isdir(d) and not os.path.exists(os.path.join(d, "shutdown")): time.sleep(0.05)
     sys.exit(0)
 cmd = args[0]
-def view(): return {"execution_id": "exe_1", "session_id": "ses_invented", "state": "waiting", "outstanding": s["outstanding"],
-                    "queued_results": 0, "waiting_on": {"on": "actions", "correlation_ids": ["cor_1"]} if s["outstanding"] else {"on": "input"},
-                    "position": s["position"]}
-if cmd == "health": print("{}")
-elif cmd == "sessions": print("ses_invented")
+def view(s): return {"execution_id": "exe_1", "session_id": "ses_invented", "state": "waiting", "outstanding": s["outstanding"],
+                     "queued_results": 0, "waiting_on": {"on": "actions", "correlation_ids": ["cor_1"]} if s["outstanding"] else {"on": "input"},
+                     "position": s["position"]}
+if cmd == "health":
+    if not os.path.exists(os.path.join(d, "daemon.env")): sys.exit(1)
+    print("{}")
+elif cmd == "sessions":
+    change(lambda s: s.update(opened_at=time.monotonic()))
+    print("ses_invented")
 elif cmd == "ask":
-    s["asks"].append(sys.stdin.read()); s["outstanding"] = 1 if len(s["asks"]) == 1 else s["outstanding"]; s["position"] += 1; save(s)
+    text = sys.stdin.read()
+    def ask(s):
+        s["asks"].append(text); s["position"] += 1
+        if len(s["asks"]) == 1: s["outstanding"] = 1
+    change(ask)
     print(json.dumps({"stop_reason": "no_tool_calls"}))
-elif cmd == "executions": print(json.dumps({"executions": [view()]}))
-elif cmd == "wakes": print(json.dumps({"wakes": []}))
+elif cmd == "executions": print(json.dumps({"executions": [view(s)]}))
+elif cmd == "wakes":
+    s = change(lambda s: s.setdefault("wake_due", time.time() + float(os.environ.get("STANDIN_WAKE_S", "1"))))
+    due = s["wake_due"]
+    print(json.dumps({"wakes": [{"wake_id": "wak_1", "session_id": "ses_invented", "due_at_ms": int(due * 1000)}] if time.time() < due else []}))
 elif cmd == "wait":
     if "--after" in args and s["outstanding"]:
         time.sleep(float(os.environ.get("STANDIN_JOB_S", "0.5")))
-        s["outstanding"] = 0; s["position"] += 1; s["job_done_at"] = time.monotonic(); save(s)
-    print(json.dumps({"reached": "settled", "already": "--after" not in args, "execution": view(), "confirms": []}))
+        def done(s):
+            s["outstanding"] = 0; s["position"] += 1; s["job_done_at"] = time.monotonic()
+        s = change(done)
+    print(json.dumps({"reached": "settled", "already": "--after" not in args, "execution": view(s), "confirms": []}))
 elif cmd == "ledger": print(json.dumps({"rows": [{"kind": "provider.call", "data": {"cost_usd": 0.01}}], "total": 1}))
 elif cmd == "shutdown": open(os.path.join(d, "shutdown"), "w").close(); print("{}")
 else: print(json.dumps({"cmd": cmd}))
 """
+
+
+def left_running(*dirs: Path) -> list[str]:
+    """The processes, other than this one, whose command line names one of
+    `dirs`: a stand-in left running."""
+    out = []
+    marks = [str(d).encode() for d in dirs]
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit() or int(proc.name) == os.getpid():
+            continue
+        try:
+            cmd = (proc / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if any(m in cmd for m in marks):
+            out.append(proc.name + ": " + cmd.replace(b"\0", b" ").decode(errors="replace"))
+    return out
+
+
+def wait_gone(pid: int, secs: float = 10) -> bool:
+    """Whether `pid` is gone (or a zombie) within `secs`."""
+    deadline = time.monotonic() + secs
+    while time.monotonic() < deadline:
+        try:
+            if Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0] == "Z":
+                return True
+        except (OSError, IndexError):
+            return True
+        time.sleep(0.02)
+    return False
 
 
 class TheseusTrial(unittest.TestCase):
@@ -279,25 +388,38 @@ class TheseusTrial(unittest.TestCase):
         self.trial = driver.Theseus(str(self.bin), str(self.state), str(self.logs))
 
     def tearDown(self):
-        (Path(self.tmp.name) / "shutdown").touch()
+        """The stand-in daemon told to stop, and waited for by its pid; then
+        nothing of the test's may still run."""
+        d = Path(self.tmp.name)
+        (d / "shutdown").touch()
+        try:
+            pid = int((self.state / "theseusd.pid").read_text())
+        except (OSError, ValueError):
+            pid = None
+        if pid is not None:
+            self.assertTrue(wait_gone(pid), "the stand-in daemon did not stop")
+        left = left_running(d)
         self.tmp.cleanup()
+        self.assertEqual(left, [])
 
     def standin(self) -> dict:
         return json.loads((Path(self.tmp.name) / "state.json").read_text())
 
+    def daemon(self) -> str:
+        return tb.daemon_script(str(self.bin), str(self.state), str(self.logs))
+
     def test_the_trial_runs_on_its_own_daemon_and_ends_only_when_its_job_has(self):
         async def go():
-            script = tb.daemon_script(str(self.bin), str(self.state), str(self.logs))
-            first = await self.env.exec(script, env={"THESEUS_BENCH_INSTRUCTION": "Train the model."})
+            first = await self.env.exec(self.daemon(), env={"THESEUS_BENCH_INSTRUCTION": "Train the model."})
             session = (await self.env.exec(self.trial.session_command())).stdout.strip()
             asked = await self.env.exec(self.trial.ask_command(session, 2),
                                         env={"ASYNC_MESSAGE": "Also count the tickets."})
             ended = await self.trial.settle(self.env, time.monotonic() + 30)
-            settled_at = time.monotonic()
+            settled_at, settled_wall = time.monotonic(), time.time()
             await self.env.exec(self.trial.finish_script(session))
-            return first, session, asked, ended, settled_at
+            return first, session, asked, ended, settled_at, settled_wall
 
-        first, session, asked, ended, settled_at = asyncio.run(asyncio.wait_for(go(), 60))
+        first, session, asked, ended, settled_at, settled_wall = asyncio.run(asyncio.wait_for(go(), 60))
         self.assertEqual(first.return_code, 0, first.stderr)
         self.assertEqual(session, "ses_invented")
         self.assertEqual(asked.stdout.strip(), "0")
@@ -309,9 +431,11 @@ class TheseusTrial(unittest.TestCase):
                                   "THESEUS_CONFIG": "/invented/theseus.toml"})
         self.assertEqual(json.loads((self.logs / tb.TURN).read_text())["stop_reason"], "no_tool_calls")
         self.assertEqual((self.logs / tb.EXIT).read_text().strip(), "0")
-        # Settled only once the job its first turn left running had completed, by a wait the daemon owns.
+        # Settled only once the job its first turn left running had completed, by a wait the daemon owns,
+        # and its wake was due.
         self.assertEqual(ended, "settled")
         self.assertGreaterEqual(settled_at, s["job_done_at"])
+        self.assertGreaterEqual(settled_wall, s["wake_due"])
         waits = [c for c in s["calls"] if c[:1] == ["wait"]]
         self.assertTrue(any("--after" in c for c in waits), waits)
         # The finish: each session stopped, the records read, the daemon stopped.
@@ -322,6 +446,37 @@ class TheseusTrial(unittest.TestCase):
         self.assertEqual(json.loads((self.logs / "theseus-calls.json").read_text())["total"], 1)
         self.assertFalse(Path(f"{self.state}/theseus.sock").exists())
 
+    def test_settle_waits_for_a_pending_wake_after_the_job(self):
+        async def go():
+            await self.env.exec(self.daemon(), env={"THESEUS_BENCH_INSTRUCTION": "Train the model."})
+            ended = await self.trial.settle(self.env, time.monotonic() + 30)
+            return ended, time.time()
+
+        self.env.env.update(STANDIN_JOB_S="0", STANDIN_WAKE_S="1.5")
+        try:
+            ended, settled_wall = asyncio.run(asyncio.wait_for(go(), 60))
+        finally:
+            subprocess.run(["bash", "-c", self.trial.finish_script("ses_invented")],
+                           env=self.env.env, timeout=60)
+        self.assertEqual(ended, "settled")
+        # The job ended at once; the wake was due 1.5 s after settle's first look.
+        self.assertGreaterEqual(settled_wall, self.standin()["wake_due"])
+
+    def test_the_daemon_is_asked_for_nothing_before_it_answers_health(self):
+        async def go():
+            return await self.env.exec(self.daemon(), env={"THESEUS_BENCH_INSTRUCTION": "Train the model."})
+
+        self.env.env["STANDIN_START_S"] = "0.5"
+        try:
+            first = asyncio.run(asyncio.wait_for(go(), 60))
+        finally:
+            subprocess.run(["bash", "-c", self.trial.finish_script("ses_invented")],
+                           env=self.env.env, timeout=60)
+        self.assertEqual(first.return_code, 0, first.stderr)
+        s = self.standin()
+        self.assertGreaterEqual(s["opened_at"], s["daemon_up_at"])
+        self.assertEqual(s["asks"], ["Train the model."])
+
     def test_a_wake_pending_keeps_the_trial_open_until_it_is_due(self):
         self.assertTrue(driver.busy({"state": "waiting", "waiting_on": {"on": "due_at", "at_ms": 1}}))
         self.assertTrue(driver.busy({"state": "waiting", "waiting_on": {"on": "execution", "execution_id": "x"}}))
@@ -331,11 +486,11 @@ class TheseusTrial(unittest.TestCase):
 
     def test_a_trial_that_never_settles_ends_at_its_deadline(self):
         async def go():
-            await self.env.exec(tb.daemon_script(str(self.bin), str(self.state), str(self.logs)),
-                                env={"THESEUS_BENCH_INSTRUCTION": "Train the model."})
+            await self.env.exec(self.daemon(), env={"THESEUS_BENCH_INSTRUCTION": "Train the model."})
             t0 = time.monotonic()
             return await self.trial.settle(self.env, t0 + 1.5), time.monotonic() - t0
 
+        # No finish: tearDown stops the daemon (and the sampler) itself.
         self.env.env["STANDIN_JOB_S"] = "5"
         ended, took = asyncio.run(asyncio.wait_for(go(), 60))
         self.assertEqual(ended, "timeout")
@@ -413,6 +568,7 @@ class EndToEnd(unittest.TestCase):
             self.assertGreaterEqual(len(calls), 4)
             health = (logs / "theseus-health.json").read_text()
             self.assertIn("cgroup", health)
+            self.assertEqual(left_running(d), [])
 
     async def trial(self, env, trial, inj, task, logs):
         started = time.monotonic()

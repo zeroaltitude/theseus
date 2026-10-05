@@ -139,7 +139,8 @@ python3 -m unittest discover -s bench/async && python3 -m unittest discover -s b
 The standard library runs them without Harbor or Docker: each family's oracle on this host under a scratch
 `ASYNC_ROOT` at a time scale of 0.01, and a planted wrong effect per family; the ledger's check against an edited
 one; the driver against a fake environment, a stand-in `claude` on the FIFO, and the daemon-mode script under a
-stand-in `theseus`; and the scorer over fixture trials worked by hand. Three more run on request:
+stand-in `theseus` (a daemon that answers health only once it is up, a wake pending after its job, and nothing left
+running after a test); and the scorer over fixture trials worked by hand. Three more run on request:
 
 ```bash
 ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async     # Harbor reads each task; the agents load
