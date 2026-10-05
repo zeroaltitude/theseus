@@ -12,7 +12,7 @@
 //! `theseus_protocol::DiskStatus` says what that misses under WSL.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use theseus_protocol::DiskStatus;
 
@@ -79,6 +79,8 @@ pub struct Disk {
     warn_mb: u64,
     floor_mb: u64,
     probe: RwLock<Arc<dyn Probe>>,
+    /// The state `crossing` last settled on; none until its first read.
+    seen: Mutex<Option<Level>>,
 }
 
 impl Disk {
@@ -89,6 +91,7 @@ impl Disk {
             warn_mb,
             floor_mb,
             probe: RwLock::new(Arc::new(Statvfs)),
+            seen: Mutex::new(None),
         }
     }
 
@@ -128,6 +131,43 @@ impl Disk {
         status
     }
 
+    /// Whether free space has crossed a line since the last call, for the
+    /// heartbeat's timer (theseus-f337). The state held starts unknown, so a
+    /// first read that is not `ok` is a crossing (`left` is none) and an `ok`
+    /// one is not. Space falling takes effect at once; space rising does
+    /// only once it clears the line by its margin ([`margin_mb`]), so free
+    /// space that wobbles at a line is one crossing, not one a beat. An
+    /// unreadable filesystem is no crossing and leaves the state as it was.
+    pub fn crossing(&self) -> Option<Crossing> {
+        let status = self.status();
+        let raw = Level::of(&status.state)?;
+        let mut seen = self.seen.lock().unwrap();
+        let now = match *seen {
+            None => raw,
+            Some(was) => raw.max(self.relaxed(was, status.free_mb)),
+        };
+        let left = seen.replace(now);
+        (left != Some(now) && (left.is_some() || now != Level::Ok)).then_some(Crossing {
+            left,
+            state: now,
+            free_mb: status.free_mb,
+            total_mb: status.total_mb,
+            warn_mb: self.warn_mb,
+            floor_mb: self.floor_mb,
+        })
+    }
+
+    /// `was`, stepped up as far as `free_mb` clears each line by its margin.
+    fn relaxed(&self, mut was: Level, free_mb: u64) -> Level {
+        if was == Level::BelowFloor && free_mb >= self.floor_mb + margin_mb(self.floor_mb) {
+            was = Level::Low;
+        }
+        if was == Level::Low && free_mb >= self.warn_mb + margin_mb(self.warn_mb) {
+            was = Level::Ok;
+        }
+        was
+    }
+
     /// Why a job may not start now: the space under the state dir is below
     /// the floor. `None` above it, with no floor, or when the space cannot be
     /// read: that is logged, and no job is refused for it.
@@ -152,6 +192,53 @@ impl Disk {
             _ => None,
         }
     }
+}
+
+/// How far above a line free space must climb before it counts as back over
+/// it: a twentieth of the line, and at least 32 MB.
+pub fn margin_mb(line_mb: u64) -> u64 {
+    (line_mb / 20).max(32)
+}
+
+/// Where free space stands against the lines, worst last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Level {
+    Ok,
+    Low,
+    BelowFloor,
+}
+
+impl Level {
+    /// Health's state word; none for `unknown`.
+    fn of(state: &str) -> Option<Self> {
+        match state {
+            "ok" => Some(Self::Ok),
+            "low" => Some(Self::Low),
+            "below_floor" => Some(Self::BelowFloor),
+            _ => None,
+        }
+    }
+
+    /// Health's word for it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Low => "low",
+            Self::BelowFloor => "below_floor",
+        }
+    }
+}
+
+/// Free space crossed a line, or came back (`Disk::crossing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Crossing {
+    /// The state it left; none at the first read.
+    pub left: Option<Level>,
+    pub state: Level,
+    pub free_mb: u64,
+    pub total_mb: u64,
+    pub warn_mb: u64,
+    pub floor_mb: u64,
 }
 
 /// A stand-in for `statvfs` that reports what a test sets: no test fills a

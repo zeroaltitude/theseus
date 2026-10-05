@@ -675,6 +675,9 @@ impl Lane {
                     extra: json!({"place": place}),
                 })
             }
+            // Free space under the state dir crossed a line, or came back
+            // (theseus-f337): the owner hears it.
+            "disk" => self.disk_post(&body, corr).await,
             // An MCP server's tools, or a prompt's definition, changed (M7
             // 36b, 36c): the owner hears it.
             "mcp_changed" | "mcp_prompt_changed" => {
@@ -912,6 +915,24 @@ impl Lane {
                 self.target
             ))),
         }
+    }
+
+    /// A disk crossing's post (theseus-f337), where approvals go.
+    async fn disk_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
+        let t = crate::diskwords::disk_note(body);
+        let (channel, place) = self.operator_channel(body).await?;
+        Ok(Plan {
+            writes: vec![Write {
+                key: format!("note:{corr}"),
+                channel,
+                content: t,
+                buttons: Buttons::Keep,
+                reply_to: None,
+                message: None,
+                mentions: vec![],
+            }],
+            extra: json!({"place": place}),
+        })
     }
 
     /// A Jev notice, or the notices' pause, in the owner's DM: a notice

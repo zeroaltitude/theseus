@@ -23,6 +23,7 @@
 
 pub mod bindings;
 mod courier;
+mod diskwords;
 mod files;
 pub mod render;
 pub mod rpc_client;
