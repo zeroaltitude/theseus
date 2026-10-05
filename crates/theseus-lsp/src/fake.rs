@@ -9,9 +9,11 @@
 //!
 //! What it does is scripted by [`Config`]: diagnostics pushed (with or
 //! without versions) or pulled (declared, or registered after
-//! `initialized`), every answer slow, a crash after some requests, `exit`
-//! ignored (as TypeScript 7's server does), and its own requests to the
-//! client (`workspace/configuration`, `client/registerCapability`,
+//! `initialized`), or pulled with a check after each save that pushes (as
+//! rust-analyzer's `cargo check` does: a line holding `CHECK` is its "checked
+//! error"), every answer slow, a crash after some requests, `exit` ignored
+//! (as TypeScript 7's server does), and its own requests to the client
+//! (`workspace/configuration`, `client/registerCapability`,
 //! `window/workDoneProgress/create`, then a progress begun and ended). A
 //! custom request, `fake/seen`, answers what it has seen ([`Seen`]).
 
@@ -37,7 +39,21 @@ pub enum Diagnostics {
     /// Nothing declared at `initialize`; pull registered 200 ms after
     /// `initialized`.
     PullRegistered,
+    /// `diagnosticProvider` declared, as rust-analyzer does, and a check
+    /// after each `didSave`: a progress begun under [`CHECK_TOKEN`], then,
+    /// after `push_delay_ms`, a push for each open document (its `ERROR` and
+    /// `CHECK` lines, with its version then), then the progress's end. A save
+    /// during a check cancels it at once (its end, with no push), and the
+    /// next check begins after the debounce.
+    PullAndCheck,
 }
+
+/// The progress token of [`Diagnostics::PullAndCheck`]'s check.
+pub const CHECK_TOKEN: &str = "fake/check/0";
+
+/// How long after its save a check begins (rust-analyzer's took 60 to 80
+/// ms in the probe: its 50 ms debounce, then the spawn).
+pub const CHECK_DEBOUNCE_MS: u64 = 50;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -49,6 +65,15 @@ pub struct Config {
     pub slow_ms: u64,
     /// Before a push, wait this long (a slow checker).
     pub push_delay_ms: u64,
+    /// `PullAndCheck`: the check's end goes out before its push, and the push
+    /// just before the fake's next answer, as a server that writes both in
+    /// one turn of its loop sends them before it answers what it reads next.
+    pub check_end_first: bool,
+    /// `PullAndCheck`: reports rust-analyzer's `experimental/serverStatus`,
+    /// not quiescent until this long after `initialized`. A save before then
+    /// starts no check; one runs as it becomes quiescent, as rust-analyzer's
+    /// does once its workspace is loaded. 0: no status, ready at once.
+    pub load_ms: u64,
     /// Exit, unanswered, at the request after this many.
     pub crash_after: Option<u32>,
     /// `exit` does nothing; the server runs on with its stdout open.
@@ -66,6 +91,8 @@ impl Default for Config {
             versions: true,
             slow_ms: 0,
             push_delay_ms: 0,
+            check_end_first: false,
+            load_ms: 0,
             crash_after: None,
             ignore_exit: false,
             ask: false,
@@ -110,6 +137,13 @@ struct State {
     slow: HashMap<String, oneshot::Sender<()>>,
     /// The fake's own requests, by id: their methods.
     asked: HashMap<String, String>,
+    /// `PullAndCheck`: the workspace is loaded (`load_ms` passed).
+    loaded: bool,
+    /// The checks asked for so far, and the one whose progress runs.
+    checks: u64,
+    checking: Option<u64>,
+    /// Pushes that go out just before the next answer (`check_end_first`).
+    held: Vec<Value>,
 }
 
 pub struct Fake {
@@ -142,6 +176,7 @@ impl Fake {
         W: AsyncWrite + Unpin + Send + 'static,
     {
         let (out, mut rx) = mpsc::unbounded_channel::<Value>();
+        let loaded = cfg.load_ms == 0;
         let fake = Arc::new(Fake {
             cfg,
             state: Mutex::new(State {
@@ -151,6 +186,10 @@ impl Fake {
                 count: 0,
                 slow: HashMap::new(),
                 asked: HashMap::new(),
+                loaded,
+                checks: 0,
+                checking: None,
+                held: Vec::new(),
             }),
             out,
         });
@@ -254,6 +293,10 @@ impl Fake {
     }
 
     fn reply(&self, id: Value, answer: Result<Value, (i64, String)>) {
+        let held = std::mem::take(&mut self.lock().held);
+        for push in held {
+            self.send(push);
+        }
         self.send(match answer {
             Ok(v) => jsonrpc::response(id, v),
             Err((c, m)) => jsonrpc::error_response(id, c, &m),
@@ -321,7 +364,10 @@ impl Fake {
             "workspaceSymbolProvider": true,
             "renameProvider": true,
         });
-        if self.cfg.diagnostics == Diagnostics::Pull {
+        if matches!(
+            self.cfg.diagnostics,
+            Diagnostics::Pull | Diagnostics::PullAndCheck
+        ) {
             caps["diagnosticProvider"] =
                 json!({ "interFileDependencies": false, "workspaceDiagnostics": false });
         }
@@ -357,7 +403,12 @@ impl Fake {
                     .unwrap_or("");
                 self.set_doc(&uri, version, text.to_string());
             }
-            "textDocument/didSave" => self.lock().seen.saves.push(uri),
+            "textDocument/didSave" => {
+                self.lock().seen.saves.push(uri);
+                if self.cfg.diagnostics == Diagnostics::PullAndCheck && self.lock().loaded {
+                    self.check();
+                }
+            }
             "textDocument/didClose" => {
                 let mut st = self.lock();
                 st.docs.remove(&uri);
@@ -406,6 +457,22 @@ impl Fake {
     }
 
     fn after_initialized(self: &Arc<Self>) {
+        if self.cfg.diagnostics == Diagnostics::PullAndCheck && self.cfg.load_ms > 0 {
+            let status = |quiescent: bool| {
+                jsonrpc::notification(
+                    "experimental/serverStatus",
+                    json!({ "health": "ok", "quiescent": quiescent }),
+                )
+            };
+            self.send(status(false));
+            let me = self.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(me.cfg.load_ms)).await;
+                me.lock().loaded = true;
+                me.send(status(true));
+                me.check();
+            });
+        }
         if self.cfg.diagnostics == Diagnostics::PullRegistered {
             // Later, as ty registers it: after a client may already wait for a push.
             let me = self.clone();
@@ -448,6 +515,64 @@ impl Fake {
             "$/progress",
             json!({ "token": "indexing", "value": { "kind": "begin", "title": "Indexing" } }),
         ));
+    }
+
+    /// A check, as rust-analyzer's `cargo check` after a save: a check that
+    /// runs is cancelled at once (its end goes out, with no push); this one's
+    /// progress begins [`CHECK_DEBOUNCE_MS`] later (a save meanwhile folds
+    /// into it), then, after `push_delay_ms`, a push for each open document,
+    /// then the progress's end.
+    fn check(self: &Arc<Self>) {
+        let mine = {
+            let mut st = self.lock();
+            st.checks += 1;
+            if st.checking.take().is_some() {
+                self.send(progress("end", None));
+            }
+            st.checks
+        };
+        let me = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(CHECK_DEBOUNCE_MS)).await;
+            {
+                let mut st = me.lock();
+                if st.checks != mine {
+                    return;
+                }
+                st.checking = Some(mine);
+                me.send(progress("begin", Some("cargo check")));
+            }
+            tokio::time::sleep(Duration::from_millis(me.cfg.push_delay_ms)).await;
+            let pushes = {
+                let mut st = me.lock();
+                if st.checking != Some(mine) {
+                    return;
+                }
+                st.checking = None;
+                let mut docs: Vec<(&String, &Doc)> = st.docs.iter().collect();
+                docs.sort_by(|a, b| a.0.cmp(b.0));
+                docs.into_iter()
+                    .map(|(uri, doc)| {
+                        let mut items = planted(&doc.text);
+                        items.extend(checked(&doc.text));
+                        let mut p = json!({ "uri": uri, "diagnostics": items });
+                        if me.cfg.versions {
+                            p["version"] = json!(doc.version);
+                        }
+                        jsonrpc::notification("textDocument/publishDiagnostics", p)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            if me.cfg.check_end_first {
+                me.send(progress("end", None));
+                me.lock().held.extend(pushes);
+            } else {
+                for p in pushes {
+                    me.send(p);
+                }
+                me.send(progress("end", None));
+            }
+        });
     }
 
     fn set_doc(self: Arc<Self>, uri: &str, version: i64, text: String) {
@@ -663,17 +788,39 @@ fn range(line: usize, c0: u32, c1: u32) -> Value {
 
 /// A diagnostic at each `ERROR`.
 fn planted(text: &str) -> Vec<Value> {
+    marked(text, "ERROR", "fake", "F1", "planted error")
+}
+
+/// A diagnostic at each `CHECK`: what the check after a save finds.
+fn checked(text: &str) -> Vec<Value> {
+    marked(text, "CHECK", "fake-check", "C1", "checked error")
+}
+
+fn marked(text: &str, mark: &str, source: &str, code: &str, message: &str) -> Vec<Value> {
     let mut out = Vec::new();
     for (n, row) in text.lines().enumerate() {
-        if let Some(i) = row.find("ERROR") {
+        if let Some(i) = row.find(mark) {
             let c0 = crate::position::utf16_column(row, i);
+            let c1 = crate::position::utf16_column(row, i + mark.len());
             out.push(json!({
-                "range": range(n, c0, c0 + 5), "severity": 1, "source": "fake",
-                "code": "F1", "message": "planted error",
+                "range": range(n, c0, c1), "severity": 1, "source": source,
+                "code": code, "message": message,
             }));
         }
     }
     out
+}
+
+/// A `$/progress` of the check's token.
+fn progress(kind: &str, title: Option<&str>) -> Value {
+    let mut value = json!({ "kind": kind });
+    if let Some(t) = title {
+        value["title"] = json!(t);
+    }
+    jsonrpc::notification(
+        "$/progress",
+        json!({ "token": CHECK_TOKEN, "value": value }),
+    )
 }
 
 /// The binary's arguments, parsed into a config.
@@ -690,9 +837,12 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config, Stri
             "--push" => cfg.diagnostics = Diagnostics::Push,
             "--pull" => cfg.diagnostics = Diagnostics::Pull,
             "--pull-registered" => cfg.diagnostics = Diagnostics::PullRegistered,
+            "--pull-and-check" => cfg.diagnostics = Diagnostics::PullAndCheck,
             "--no-versions" => cfg.versions = false,
             "--slow-ms" => cfg.slow_ms = number(args.next(), "--slow-ms")?,
             "--push-delay-ms" => cfg.push_delay_ms = number(args.next(), "--push-delay-ms")?,
+            "--check-end-first" => cfg.check_end_first = true,
+            "--load-ms" => cfg.load_ms = number(args.next(), "--load-ms")?,
             "--crash-after" => {
                 cfg.crash_after =
                     Some(u32::try_from(number(args.next(), "--crash-after")?).unwrap_or(u32::MAX));

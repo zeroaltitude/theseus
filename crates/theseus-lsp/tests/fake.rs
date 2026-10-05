@@ -229,6 +229,263 @@ async fn the_wait_is_bounded_and_says_when_it_ran_out() {
     assert_eq!((d.freshness, d.items.len()), (Freshness::Pushed, 1));
 }
 
+/// A server that checks after a save (rust-analyzer's `cargo check`), as
+/// the fake's `PullAndCheck`: the client knows its check by its token.
+fn checking(root: &Path) -> Options {
+    let mut o = options(root);
+    o.check_token = Some("fake/check/".into());
+    o
+}
+
+fn pull_and_check(push_delay_ms: u64) -> Config {
+    Config {
+        diagnostics: Diagnostics::PullAndCheck,
+        push_delay_ms,
+        ..Config::default()
+    }
+}
+
+/// Each item's source and line, in order.
+fn sources(d: &theseus_lsp::FileDiagnostics) -> Vec<(String, u32)> {
+    d.items
+        .iter()
+        .map(|i| (i.source.clone().unwrap_or_default(), i.range.start.line))
+        .collect()
+}
+
+/// theseus-c6hv: a saved change's diagnostics wait for the check its save
+/// started, and take its pushed list beside the pull's, each item once (the
+/// check also reports the pull's `ERROR`).
+#[tokio::test(start_paused = true)]
+async fn a_saved_change_waits_for_the_check_and_gets_both_lists() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "ERROR one\n");
+    let (c, _e) = in_process(pull_and_check(300), checking(dir.path())).await;
+    c.open(&a).await.unwrap();
+    std::fs::write(&a, "ERROR one\nCHECK two\nCHECK three\n").unwrap();
+    c.file_changed(&a).await.unwrap();
+    let t = tokio::time::Instant::now();
+    let d = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    let waited = t.elapsed();
+    assert_eq!((d.version, d.freshness), (2, Freshness::Pulled));
+    assert_eq!(
+        sources(&d),
+        [
+            ("fake".into(), 0),
+            ("fake-check".into(), 1),
+            ("fake-check".into(), 2)
+        ],
+        "{:?}",
+        d.items
+    );
+    // The check began 50 ms after the save and pushed 300 ms later.
+    assert!(
+        waited >= Duration::from_millis(350) && waited < Duration::from_millis(400),
+        "it waited for the check: {waited:?}"
+    );
+}
+
+/// An unsaved document waits for no check, and neither does a resync after
+/// a save: the change clears the save, so the check running is not for this
+/// text.
+#[tokio::test(start_paused = true)]
+async fn an_unsaved_resync_does_not_wait_for_a_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "ERROR one\n");
+    let (c, _e) = in_process(pull_and_check(300), checking(dir.path())).await;
+    // Opened by the call, and never saved.
+    let t = tokio::time::Instant::now();
+    let d = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(
+        (d.version, d.freshness, d.items.len()),
+        (1, Freshness::Pulled, 1)
+    );
+    assert_eq!(
+        t.elapsed(),
+        Duration::ZERO,
+        "no wait for an unsaved document"
+    );
+    // Saved, so a check runs; then changed on disk by someone else.
+    c.file_changed(&a).await.unwrap();
+    std::fs::write(&a, "ERROR one\nCHECK two\n").unwrap();
+    let t = tokio::time::Instant::now();
+    let d = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(
+        t.elapsed(),
+        Duration::ZERO,
+        "the resync is not saved: no wait"
+    );
+    assert_eq!(
+        (d.version, d.freshness, sources(&d)),
+        (2, Freshness::Pulled, vec![("fake".into(), 0)]),
+        "the pull's list alone"
+    );
+    let s = seen(&c).await;
+    assert_eq!(s["saves"], json!([uri(&a)]), "one save, the file_changed's");
+}
+
+/// A check that runs past the bound: the answer is stale, with the pull's
+/// list; the next call, after the check, has both.
+#[tokio::test(start_paused = true)]
+async fn a_check_past_the_bound_is_stale() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "ERROR one\nCHECK two\n");
+    let (c, _e) = in_process(pull_and_check(3_000), checking(dir.path())).await;
+    c.file_changed(&a).await.unwrap();
+    let t = tokio::time::Instant::now();
+    let d = c.diagnostics(&a, Duration::from_millis(500)).await.unwrap();
+    assert_eq!(t.elapsed(), Duration::from_millis(500), "the bound");
+    assert_eq!(d.freshness, Freshness::Stale);
+    assert_eq!(sources(&d), [("fake".into(), 0)], "what it had: the pull's");
+    let d = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(d.freshness, Freshness::Pulled);
+    assert_eq!(sources(&d), [("fake".into(), 0), ("fake-check".into(), 1)]);
+}
+
+/// A server that runs no check after the save (checks off, here a pull-only
+/// server named with a check token): the wait ends at the grace, with the
+/// pull's list.
+#[tokio::test(start_paused = true)]
+async fn no_check_within_the_grace_returns_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "ERROR one\nCHECK two\n");
+    let cfg = Config {
+        diagnostics: Diagnostics::Pull,
+        ..Config::default()
+    };
+    let (c, _e) = in_process(cfg, checking(dir.path())).await;
+    c.file_changed(&a).await.unwrap();
+    let t = tokio::time::Instant::now();
+    let d = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(t.elapsed(), theseus_lsp::diagnostics::CHECK_GRACE);
+    assert_eq!(
+        (d.freshness, sources(&d)),
+        (Freshness::Pulled, vec![("fake".into(), 0)])
+    );
+}
+
+/// A file the client has not opened, changed: opened and saved, so the
+/// check covers its first edit too (R4's first edit), and its diagnostics
+/// have the check's list.
+#[tokio::test(start_paused = true)]
+async fn a_first_file_changed_opens_and_saves() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "fn total\nCHECK two\n");
+    let (c, _e) = in_process(pull_and_check(100), checking(dir.path())).await;
+    c.file_changed(&a).await.unwrap();
+    assert_eq!(c.open_version(&a), Some(1));
+    let s = seen(&c).await;
+    assert_eq!(s["versions"], json!([[uri(&a), 1]]));
+    assert_eq!(s["saves"], json!([uri(&a)]));
+    assert_eq!(s["watched"], json!([[uri(&a), 1]]), "still told: created");
+    let d = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(
+        (d.version, d.freshness, sources(&d)),
+        (1, Freshness::Pulled, vec![("fake-check".into(), 1)])
+    );
+}
+
+/// A server whose check ends before its push, pushing only just before its
+/// next answer (both written in one turn of its loop): the pull before the
+/// wait was answered first, so the list is asked for again after the end,
+/// and its answer comes after the push.
+#[tokio::test(start_paused = true)]
+async fn a_check_whose_end_comes_before_its_push_still_gets_the_push() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "ERROR one\nCHECK two\n");
+    let cfg = Config {
+        check_end_first: true,
+        ..pull_and_check(100)
+    };
+    let (c, _e) = in_process(cfg, checking(dir.path())).await;
+    c.file_changed(&a).await.unwrap();
+    let d = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(
+        (d.freshness, sources(&d)),
+        (
+            Freshness::Pulled,
+            vec![("fake".into(), 0), ("fake-check".into(), 1)]
+        )
+    );
+}
+
+/// A save of another file while the check runs cancels that check, and
+/// the wait goes on to the next, which covers this file's edit too: what
+/// the cancelled one ended with is not this file's answer.
+#[tokio::test(start_paused = true)]
+async fn a_later_save_during_a_check_waits_for_the_next_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "fn one\nCHECK a\n");
+    let b = write(dir.path(), "b.fake", "fn two\nCHECK b\n");
+    let (c, _e) = in_process(pull_and_check(300), checking(dir.path())).await;
+    c.file_changed(&a).await.unwrap();
+    let t = tokio::time::Instant::now();
+    let waiting = tokio::spawn({
+        let (c, a) = (c.clone(), a.clone());
+        async move { c.diagnostics(&a, Duration::from_secs(5)).await }
+    });
+    // The first check began at 50 ms; b's save cancels it at 100 ms.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    c.file_changed(&b).await.unwrap();
+    let d = waiting.await.unwrap().unwrap();
+    assert_eq!(
+        (d.freshness, sources(&d)),
+        (Freshness::Pulled, vec![("fake-check".into(), 1)])
+    );
+    // The second check began at 150 ms and pushed 300 ms later.
+    assert_eq!(t.elapsed(), Duration::from_millis(450));
+}
+
+/// A save while the server loads its workspace starts no check; the one it
+/// runs once loaded is waited for, as R4's first edit needed: the grace
+/// counts from the server's readiness, not from the save.
+#[tokio::test(start_paused = true)]
+async fn a_save_while_the_server_loads_waits_for_the_check_after_the_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "ERROR one\nCHECK two\n");
+    let cfg = Config {
+        load_ms: 2_000,
+        ..pull_and_check(100)
+    };
+    let mut opts = checking(dir.path());
+    opts.expects_server_status = true;
+    let (c, _e) = in_process(cfg, opts).await;
+    c.file_changed(&a).await.unwrap();
+    let t = tokio::time::Instant::now();
+    let d = c.diagnostics(&a, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(
+        (d.freshness, sources(&d)),
+        (
+            Freshness::Pulled,
+            vec![("fake".into(), 0), ("fake-check".into(), 1)]
+        )
+    );
+    // The load, the check's debounce, and its push.
+    assert_eq!(t.elapsed(), Duration::from_millis(2_150));
+}
+
+/// FAST: nothing changes for a server without a check token. Its saved
+/// change waits for no check, though one runs, and a file it has not opened
+/// is not opened by a change (`a_written_file_is_sent_again_saved_and_watched`).
+#[tokio::test(start_paused = true)]
+async fn a_server_without_a_check_token_waits_for_no_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.fake", "ERROR one\nCHECK two\n");
+    let (c, _e) = in_process(pull_and_check(300), options(dir.path())).await;
+    c.open(&a).await.unwrap();
+    c.file_changed(&a).await.unwrap();
+    let t = tokio::time::Instant::now();
+    let d = c.diagnostics(&a, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(t.elapsed(), Duration::ZERO);
+    assert_eq!(
+        (d.freshness, sources(&d)),
+        (Freshness::Pulled, vec![("fake".into(), 0)])
+    );
+    let fresh = write(dir.path(), "new.fake", "CHECK\n");
+    c.file_changed(&fresh).await.unwrap();
+    assert_eq!(c.open_version(&fresh), None);
+}
+
 #[tokio::test]
 async fn a_dropped_request_is_cancelled_and_a_slow_one_times_out() {
     let dir = tempfile::tempdir().unwrap();

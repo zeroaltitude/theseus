@@ -13,7 +13,11 @@
 //!   and needs rustup's `cargo` first on `PATH` (given an old system cargo it
 //!   sits idle and never loads the workspace): the caller's environment.
 //!   With a large workspace loaded it takes seconds to exit, so its preset
-//!   gives it a longer grace before the kill.
+//!   gives it a longer grace before the kill. Its pull answers with its own
+//!   analysis alone, which by default misses rustc's errors (E0277, E0425):
+//!   those it pushes from `cargo check`, which it runs after a save under
+//!   the progress token `rust-analyzer/flycheck/<n>`, so its preset names
+//!   that token (`check_token`, theseus-c6hv).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -30,6 +34,9 @@ pub struct Preset {
     pub initialization_options: Value,
     pub settings: Value,
     pub expects_server_status: bool,
+    /// The progress token prefix of its after-save check
+    /// (`Options::check_token`).
+    pub check_token: Option<&'static str>,
     /// How long it has to exit after `exit` before the kill.
     pub exit_grace: Duration,
 }
@@ -41,6 +48,7 @@ impl Preset {
         o.initialization_options = self.initialization_options.clone();
         o.settings = self.settings.clone();
         o.expects_server_status = self.expects_server_status;
+        o.check_token = self.check_token.map(String::from);
         o.exit_grace = self.exit_grace;
         o
     }
@@ -66,6 +74,7 @@ pub fn ty() -> Preset {
         initialization_options: Value::Null,
         settings: Value::Null,
         expects_server_status: false,
+        check_token: None,
         exit_grace: Duration::from_secs(1),
     }
 }
@@ -78,6 +87,7 @@ pub fn pyright() -> Preset {
         initialization_options: Value::Null,
         settings: json!({ "python": { "analysis": { "diagnosticMode": "openFilesOnly" } } }),
         expects_server_status: false,
+        check_token: None,
         exit_grace: Duration::from_secs(1),
     }
 }
@@ -100,6 +110,7 @@ pub fn tsgo() -> Preset {
         initialization_options: Value::Null,
         settings: Value::Null,
         expects_server_status: false,
+        check_token: None,
         exit_grace: Duration::from_secs(1),
     }
 }
@@ -114,6 +125,7 @@ pub fn typescript_language_server(tsserver: &str) -> Preset {
         initialization_options: json!({ "tsserver": { "path": tsserver } }),
         settings: Value::Null,
         expects_server_status: false,
+        check_token: None,
         exit_grace: Duration::from_secs(1),
     }
 }
@@ -131,8 +143,36 @@ pub fn rust_analyzer() -> Preset {
         initialization_options: json!({ "cargo": { "targetDir": true } }),
         settings: json!({ "rust-analyzer": { "cargo": { "targetDir": true } } }),
         expects_server_status: true,
+        // The probe's token was `rust-analyzer/flycheck/0`: one per workspace.
+        check_token: Some("rust-analyzer/flycheck/"),
         // With a workspace loaded it takes seconds to exit: 2.6 s on this
         // repository's (4.2 GB), so the default 1 s grace killed it.
         exit_grace: Duration::from_secs(5),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only rust-analyzer checks after a save: its options name the check's
+    /// token, and no other preset's do (theseus-c6hv).
+    #[test]
+    fn only_rust_analyzer_names_a_check_token() {
+        let root = std::path::Path::new("/w");
+        assert_eq!(
+            rust_analyzer().options(root).check_token.as_deref(),
+            Some("rust-analyzer/flycheck/")
+        );
+        let others = [
+            ty(),
+            pyright(),
+            basedpyright(),
+            tsgo(),
+            typescript_language_server(""),
+        ];
+        for p in others {
+            assert_eq!(p.options(root).check_token, None, "{}", p.name);
+        }
     }
 }
