@@ -46,6 +46,7 @@ pub(crate) mod order;
 mod resume;
 mod waits;
 
+pub use late::LateCall;
 pub(crate) use late::{announce_cancelled, not_run_results};
 pub use waits::{JobDone, JobWaits, Waiting};
 
@@ -205,6 +206,7 @@ pub struct Batch {
 }
 
 /// One call of a batch: what became of it, and when it ran.
+#[derive(Debug, Clone)]
 pub struct Ran {
     /// Its place among the calls.
     pub index: usize,
@@ -237,6 +239,42 @@ pub struct ResumeOutcome {
     /// A confirm is still pending and no input superseded it.
     pub awaiting: Option<String>,
     pub background: Vec<String>,
+    /// The calls the continuation answered, or that asked, in the order it
+    /// took them, for their spans under the continuation's (theseus-8pei):
+    /// each `Ran`'s `index` is its call's place here.
+    pub calls: Vec<ToolUse>,
+    pub ran: Vec<Ran>,
+}
+
+impl ResumeOutcome {
+    /// A call the continuation answered alone, since `started`.
+    fn answered(&mut self, call: &ToolUse, outcome: CallOutcome, started: Instant) {
+        let group = self.next_group();
+        self.ran.push(Ran {
+            index: self.calls.len(),
+            outcome,
+            started,
+            ended: Instant::now(),
+            group,
+            judged: Vec::new(),
+        });
+        self.calls.push(call.clone());
+    }
+
+    /// The calls `run_calls` ran for it, with their groups (theseus-a60).
+    fn ran_batch(&mut self, calls: &[ToolUse], ran: Vec<Ran>) {
+        let (index, group) = (self.calls.len(), self.next_group());
+        self.calls.extend_from_slice(calls);
+        self.ran.extend(ran.into_iter().map(|r| Ran {
+            index: index + r.index,
+            group: group + r.group,
+            ..r
+        }));
+    }
+
+    fn next_group(&self) -> usize {
+        self.ran.iter().map(|r| r.group + 1).max().unwrap_or(0)
+    }
 }
 
 pub struct ToolRuntime {

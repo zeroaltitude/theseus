@@ -19,13 +19,25 @@ use crate::fact;
 use crate::node::{Body, Node, ResultStatus};
 use crate::store::Store;
 
+/// A background job's late result, as `absorb` wrote it: the turn traces it
+/// as its call's answer (theseus-8pei).
+#[derive(Debug, Clone)]
+pub struct LateCall {
+    pub tool_use_id: String,
+    /// The call's wire name, as its span is named (`proc_run`).
+    pub wire: String,
+    pub status: ResultStatus,
+    /// The job's run, its dispatch to its settle, in ms.
+    pub run_ms: Option<u64>,
+}
+
 impl ToolRuntime {
     /// Take the settled actions queued for this execution since its last
     /// turn: a background job's real result becomes a late result node, in
     /// the frame that takes it from the queue (theseus-kol), so a crash
-    /// between the two cannot lose it. Returns what was taken, and how many
-    /// late results were written.
-    pub fn absorb(&self, tc: &TurnCtx<'_>) -> Result<(Vec<Action>, u32)> {
+    /// between the two cannot lose it. Returns what was taken, and each late
+    /// result written, for its span (theseus-8pei).
+    pub fn absorb(&self, tc: &TurnCtx<'_>) -> Result<(Vec<Action>, Vec<LateCall>)> {
         // A late result that is outside text (a job that connected out of
         // L1, 18c) brings its session's hold in this frame too.
         let (settled, late, outputs, newly) =
@@ -53,7 +65,38 @@ impl ToolRuntime {
         for a in &outputs {
             self.remove_job_output(a);
         }
-        Ok((settled, late.len() as u32))
+        let calls = late
+            .iter()
+            .zip(&outputs)
+            .filter_map(|(n, a)| self.late_call(n, a));
+        Ok((settled, calls.collect()))
+    }
+
+    /// A late result's call, from its node and its job's action: the job
+    /// ran from its dispatch to its settle, before this turn's trace began.
+    fn late_call(&self, node: &Node, a: &Action) -> Option<LateCall> {
+        let Body::ToolResult {
+            tool_use_id,
+            tool,
+            status,
+            duration_ms,
+            ..
+        } = &node.body
+        else {
+            return None;
+        };
+        let run = a.settled_at_ms.zip(a.dispatched_at_ms);
+        Some(LateCall {
+            tool_use_id: tool_use_id.clone(),
+            wire: self
+                .registry
+                .get(tool)
+                .map_or_else(|| theseus_tools::wire_name(tool), |t| t.wire_name()),
+            status: *status,
+            run_ms: run
+                .map(|(end, start)| end.saturating_sub(start))
+                .or(*duration_ms),
+        })
     }
 
     /// The late results among `settled`: for each job whose call was

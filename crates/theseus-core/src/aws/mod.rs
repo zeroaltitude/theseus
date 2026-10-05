@@ -81,6 +81,8 @@ mod tests_network;
 mod tests_outside;
 #[cfg(test)]
 mod tests_restore;
+#[cfg(test)]
+mod tests_resumed;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
 pub const NAMES: [&str; 16] = [
@@ -255,6 +257,13 @@ impl Aws {
             .iter()
             .map(|r| span(r, &at))
             .collect()
+    }
+
+    /// Whether a call's requests still wait for a trace to take them.
+    #[cfg(test)]
+    pub(crate) fn waits_for_trace(&self, tool_use_id: &str) -> bool {
+        let t = self.traced.lock().unwrap();
+        t.iter().any(|(id, _)| id == tool_use_id)
     }
 }
 

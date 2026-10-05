@@ -339,18 +339,22 @@ pub struct CaughtUp<'a> {
     pub raised: bool,
     pub reported: u32,
     pub woke: u32,
+    /// The spans of the calls answered here: the late results, then the
+    /// calls resumed (theseus-8pei), under the continuation's.
+    pub calls: Vec<theseus_protocol::Span>,
 }
 
 impl Fact for CaughtUp<'_> {
     fn span(&self, trace: &mut Trace) {
         let r = self.resumed;
-        trace.record(
-            "continuation",
-            "tool",
-            self.t0,
-            trace.now_us(),
-            json!({"settled": self.settled, "late_results": self.absorbed, "resumed": r.wrote, "awaiting": r.awaiting, "background": r.background, "budget_reset": self.reset, "limit_raised": self.raised, "task_reports": self.reported, "wakes": self.woke}),
-        );
+        trace.push(theseus_protocol::Span {
+            name: "continuation".into(),
+            kind: "tool".into(),
+            start_us: self.t0,
+            end_us: Some(trace.now_us()),
+            attrs: json!({"settled": self.settled, "late_results": self.absorbed, "resumed": r.wrote, "awaiting": r.awaiting, "background": r.background, "budget_reset": self.reset, "limit_raised": self.raised, "task_reports": self.reported, "wakes": self.woke}),
+            children: self.calls.clone(),
+        });
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
