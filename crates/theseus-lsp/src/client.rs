@@ -95,6 +95,12 @@ pub struct Options {
     /// The server reports readiness with rust-analyzer's
     /// `experimental/serverStatus`, so "ready" waits for `quiescent`.
     pub expects_server_status: bool,
+    /// The work-done progress token prefix of the check the server runs after
+    /// a save, whose errors it pushes (rust-analyzer's `cargo check`,
+    /// `rust-analyzer/flycheck/<n>`). With one, a document not open is opened
+    /// and saved when its file changes, and a saved document's diagnostics
+    /// wait for that check and take its pushed list too (theseus-c6hv).
+    pub check_token: Option<String>,
     /// The longest wait for `initialize`'s answer.
     pub initialize_timeout: Duration,
     /// The longest wait for any other request that names none.
@@ -116,6 +122,7 @@ impl Options {
             initialization_options: Value::Null,
             settings: Value::Null,
             expects_server_status: false,
+            check_token: None,
             initialize_timeout: Duration::from_secs(30),
             request_timeout: Duration::from_secs(30),
             shutdown_timeout: Duration::from_secs(2),
@@ -345,6 +352,10 @@ pub(crate) struct State {
     /// Messages sent so far: a pushed list with no version is fresh for a
     /// change when it arrived after it.
     pub(crate) sent: u64,
+    /// The last `didSave` of any document.
+    pub(crate) last_save: Option<crate::docs::Saved>,
+    /// The after-save checks (`Options::check_token`) begun and ended.
+    pub(crate) checks: crate::diagnostics::Checks,
     /// Registrations by id: method, then options.
     registrations: HashMap<String, (String, Value)>,
     /// `$/cancelRequest`s sent.
@@ -582,6 +593,11 @@ impl Shared {
         let value = params.get("value").cloned().unwrap_or(Value::Null);
         let kind = text(&value, "kind");
         let title = value.get("title").and_then(Value::as_str).map(String::from);
+        let check = self
+            .opts
+            .check_token
+            .as_deref()
+            .is_some_and(|p| token.starts_with(p));
         {
             let mut st = self.lock();
             match kind.as_str() {
@@ -590,9 +606,17 @@ impl Shared {
                     st.readiness
                         .running
                         .insert(token.clone(), title.clone().unwrap_or_default());
+                    if check {
+                        let sent = st.sent;
+                        st.checks.begin(&token, sent);
+                    }
                 }
                 "end" => {
                     st.readiness.running.remove(&token);
+                    if check {
+                        let sent = st.sent;
+                        st.checks.end(&token, sent);
+                    }
                 }
                 _ => {}
             }

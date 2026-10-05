@@ -3,8 +3,9 @@
 //! with status 3.
 //!
 //! ```text
-//! theseus-lsp-fake [--push | --pull | --pull-registered] [--no-versions]
-//!                  [--slow-ms N] [--push-delay-ms N] [--crash-after N]
+//! theseus-lsp-fake [--push | --pull | --pull-registered | --pull-and-check]
+//!                  [--no-versions] [--slow-ms N] [--push-delay-ms N]
+//!                  [--check-end-first] [--load-ms N] [--crash-after N]
 //!                  [--ignore-exit] [--ask]
 //! ```
 
@@ -15,8 +16,9 @@ async fn main() {
     let mut cfg = parse_args(std::env::args().skip(1)).unwrap_or_else(|e| {
         eprintln!("theseus-lsp-fake: {e}");
         eprintln!(
-            "usage: theseus-lsp-fake [--push | --pull | --pull-registered] [--no-versions] \
-             [--slow-ms N] [--push-delay-ms N] [--crash-after N] [--ignore-exit] [--ask]"
+            "usage: theseus-lsp-fake [--push | --pull | --pull-registered | --pull-and-check] \
+             [--no-versions] [--slow-ms N] [--push-delay-ms N] [--check-end-first] [--load-ms N] \
+             [--crash-after N] [--ignore-exit] [--ask]"
         );
         std::process::exit(2)
     });

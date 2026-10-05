@@ -8,7 +8,9 @@
 //! that is gone is closed. So a request never reads a document older than
 //! the file, whoever wrote it. After a write of its own (L3's `fs.write`,
 //! `fs.edit`, `fs.patch`), a caller says so with [`Client::file_changed`],
-//! which also tells the server's file watcher.
+//! which also tells the server's file watcher. For a server that checks
+//! after a save (`Options::check_token`, rust-analyzer), it opens and saves a
+//! file it has not opened, so the check covers that file's first edit too.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -18,6 +20,13 @@ use serde_json::json;
 use crate::client::{Client, Error};
 use crate::types::FileChangeType;
 use crate::uri;
+
+/// A `didSave`: the count of messages sent with it, and when.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Saved {
+    pub(crate) sent: u64,
+    pub(crate) at: tokio::time::Instant,
+}
 
 /// An open document.
 #[derive(Debug, Clone)]
@@ -29,6 +38,8 @@ pub(crate) struct Doc {
     stamp: Option<(SystemTime, u64)>,
     /// The count of messages sent when this version went out.
     pub(crate) sent_at: u64,
+    /// The `didSave` of this version; the next change clears it.
+    pub(crate) saved: Option<Saved>,
 }
 
 /// The language id LSP names a file's language by, from its extension.
@@ -129,6 +140,7 @@ impl Client {
                 text,
                 stamp: Some(stamp),
                 sent_at: sent,
+                saved: None,
             },
         );
         Ok(1)
@@ -168,6 +180,7 @@ impl Client {
             "contentChanges": [{ "text": text }],
         });
         doc.text = text;
+        doc.saved = None;
         if stamp.is_some() {
             doc.stamp = stamp;
         }
@@ -182,7 +195,8 @@ impl Client {
         version
     }
 
-    /// `didSave`, with the text when the server asked for it.
+    /// `didSave`, with the text when the server asked for it. The save is
+    /// kept with the document's version, for the wait on its check.
     pub fn save(&self, path: &Path) -> Result<(), Error> {
         let uri = self.uri(path)?;
         let s = self.shared();
@@ -190,12 +204,22 @@ impl Client {
         let Some(doc) = st.docs.get(&uri) else {
             return Ok(());
         };
+        let version = doc.version;
         let mut params = json!({ "textDocument": { "uri": uri } });
         if st.caps.save_include_text {
             params["text"] = json!(doc.text);
         }
         drop(st);
-        s.send(crate::jsonrpc::notification("textDocument/didSave", params));
+        let sent = s.send(crate::jsonrpc::notification("textDocument/didSave", params));
+        let saved = Saved {
+            sent,
+            at: tokio::time::Instant::now(),
+        };
+        let mut st = s.lock();
+        st.last_save = Some(saved);
+        if let Some(d) = st.docs.get_mut(&uri).filter(|d| d.version == version) {
+            d.saved = Some(saved);
+        }
         Ok(())
     }
 
@@ -237,7 +261,8 @@ impl Client {
 
     /// A file was written (or removed) outside the server's sight: an open
     /// document is sent again and saved, a removed one closed, and the file
-    /// watcher is told either way.
+    /// watcher is told either way. For a server that checks after a save,
+    /// a file not open is opened and saved, so its first edit is checked too.
     pub async fn file_changed(&self, path: &Path) -> Result<(), Error> {
         let _sync = self.shared().sync.lock().await;
         let path = self.abs(path);
@@ -254,6 +279,9 @@ impl Client {
             if exists {
                 self.save(&path)?;
             }
+        } else if exists && self.shared().opts.check_token.is_some() {
+            self.open_locked(&path).await?;
+            self.save(&path)?;
         }
         // A file this client has not seen may still be new to the server:
         // `Created` and `Changed` are both "read it again".

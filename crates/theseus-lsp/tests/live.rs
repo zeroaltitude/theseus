@@ -425,6 +425,81 @@ async fn live_rust_analyzer_sees_a_file_a_job_wrote() {
     assert!(s.shutdown_answered, "{s:?}");
 }
 
+/// rustc's errors reach the client (theseus-c6hv): R4's two edits of a
+/// scratch crate, each as L3 makes it (the file written, `file_changed`,
+/// then `diagnostics`), each with its error from `cargo check`, source
+/// "rustc". rust-analyzer's pull answers neither (its own analysis misses
+/// E0277 and E0425 by default): they come by push, after the save's check.
+/// The first edit's file is not open, and the server is still loading.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs rust-analyzer on PATH or THESEUS_LSP_RUST_ANALYZER, and rustup's cargo first on PATH"]
+async fn live_rust_analyzer_reports_rustcs_errors_after_an_edit() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"crate1\"\nversion = \"0.1.0\"\nedition = \"2021\"\npublish = false\n\n[workspace]\n",
+    )
+    .unwrap();
+    let lib = root.join("src/lib.rs");
+    std::fs::write(&lib, "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n").unwrap();
+    let preset = servers::rust_analyzer();
+    let (server, _proc) = spawn::spawn(&command(&preset), &root, &[], Stdio::null()).unwrap();
+    let (c, _e) = Client::start(server, preset.options(&root))
+        .await
+        .expect("initialize");
+    let edits = [
+        (
+            "pub fn add(a: i32, b: i32) -> i32 {\n    a + \"b\"\n}\n",
+            "E0277",
+        ),
+        (
+            "pub fn add(a: i32, b: i32) -> i32 {\n    a + c\n}\n",
+            "E0425",
+        ),
+    ];
+    for (n, (text, code)) in edits.into_iter().enumerate() {
+        std::fs::write(&lib, text).unwrap();
+        let t = Instant::now();
+        c.file_changed(&lib).await.unwrap();
+        let d = c.diagnostics(&lib, Duration::from_secs(60)).await.unwrap();
+        let shown: Vec<String> = d
+            .items
+            .iter()
+            .map(|i| {
+                format!(
+                    "{}:{} {} [{}] {} ({})",
+                    i.range.start.line + 1,
+                    i.range.start.character + 1,
+                    i.severity.map_or("?", |s| s.name()),
+                    i.code_text().unwrap_or_default(),
+                    i.message.lines().next().unwrap_or_default(),
+                    i.source.clone().unwrap_or_default()
+                )
+            })
+            .collect();
+        println!(
+            "  edit {}: {:?} after {:?} (version {}), {} items: {shown:#?}",
+            n + 1,
+            d.freshness,
+            t.elapsed(),
+            d.version,
+            d.items.len()
+        );
+        assert_eq!(d.freshness, Freshness::Pulled, "edit {}", n + 1);
+        assert!(
+            d.errors()
+                .any(|e| e.code_text().as_deref() == Some(code)
+                    && e.source.as_deref() == Some("rustc")),
+            "edit {}: no {code} from rustc: {shown:?}",
+            n + 1
+        );
+    }
+    let s = c.stop().await;
+    assert!(s.shutdown_answered, "{s:?}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs rust-analyzer and THESEUS_LSP_WORKSPACE; takes minutes and gigabytes"]
 async fn live_rust_analyzer_on_a_workspace() {
