@@ -682,6 +682,7 @@ fn stop_tree(grace: Duration, detail: &mut serde_json::Value) -> Verdict {
             let rest = crate::tree::stop(me, Duration::ZERO, &mut reap_all);
             s.killed += rest.killed;
             s.survivors.extend(rest.survivors);
+            s.unseen |= rest.unseen;
             (s, VerifiedBy::Cgroup, "cgroup")
         }
         None => (
@@ -693,7 +694,7 @@ fn stop_tree(grace: Duration, detail: &mut serde_json::Value) -> Verdict {
     let v = Verdict {
         verified_by: by,
         killed: Some(s.killed),
-        survivors: Some(s.survivors.len() as u32),
+        survivors: Some(s.left()),
         scope: Some(scope.into()),
         ms: s.ms,
         why: s.why(),
@@ -703,13 +704,19 @@ fn stop_tree(grace: Duration, detail: &mut serde_json::Value) -> Verdict {
 }
 
 /// Reap every child that has exited, and nothing more: what a stop waits on
-/// is its tree.
-fn reap_all() {
+/// is its tree. What is left: a wrapper is a subreaper whose children are
+/// its job's alone, so ECHILD means no process of the job is left at all,
+/// and no `/proc` scan can miss what this answer counts (theseus-g11i).
+fn reap_all() -> crate::tree::Left {
     loop {
         let mut status = 0;
         match unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) } {
-            -1 if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) => {}
-            0 | -1 => return,
+            0 => return crate::tree::Left::Some,
+            -1 => match std::io::Error::last_os_error().raw_os_error() {
+                Some(libc::EINTR) => {}
+                Some(libc::ECHILD) => return crate::tree::Left::None,
+                _ => return crate::tree::Left::Unknown,
+            },
             _ => {}
         }
     }
@@ -967,10 +974,11 @@ pub const STOP_GRACE: Duration = Duration::from_secs(2);
 const KILL_WAIT: Duration = Duration::from_millis(500);
 
 /// How long past the grace a wrapper asked to stop its tree has to answer
-/// (M4 18a): its freeze and its kill's wait (`tree::KILL_WAIT`) take up to a
-/// second, and its verdict and exit the rest. Then the daemon kills its
-/// group, and the cancel is uncertain.
-pub const ANSWER_WAIT: Duration = Duration::from_millis(2500);
+/// (M4 18a): its freeze (up to 500 ms) and its kill's wait
+/// (`tree::KILL_WAIT`, 2 s since theseus-g11i) take up to 2.5 s, and its
+/// verdict and exit the rest. Then the daemon kills its group, and the
+/// cancel is uncertain.
+pub const ANSWER_WAIT: Duration = Duration::from_millis(3000);
 
 /// The longest a stop waits between two looks at its jobs.
 const STOP_POLL_MAX: Duration = Duration::from_millis(50);

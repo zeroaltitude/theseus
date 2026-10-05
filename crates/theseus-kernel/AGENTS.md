@@ -26,8 +26,10 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   the drain and the turn waiting on the job both read it, and the second finds it settled and writes nothing.
 - `tree.rs` (18a): a job's process tree, found through each task's `children` file, and stopped in three phases:
   SIGTERM to every process, the grace, the freeze (SIGSTOP, rescanning until nothing new appears and all read
-  stopped), then SIGKILL and the reap. Each process is signalled through a pidfd checked against its start time.
-  The stop wherever a job has no cgroup.
+  stopped), then SIGKILL and the reap, until each killed process's pidfd says it exited (up to `KILL_WAIT`, 2 s).
+  Each process is signalled through a pidfd checked against its start time. A `children` file can miss a live
+  child, so an empty scan ends a phase only when the caller's reap agrees (`tree::Left`: in a wrapper, a
+  subreaper, `waitpid`'s ECHILD means none is left; theseus-g11i). The stop wherever a job has no cgroup.
 - `spawn.rs` (theseus-ypqg): an L0 command started by its wrapper with `clone3(CLONE_VM | CLONE_VFORK)`, as
   posix_spawn clones, so nothing is copied; the child sets the operator's umask, which std's `Command` could set only
   by `pre_exec`, a fork. With a cgroup, `CLONE_INTO_CGROUP`: born inside, since a move by `cgroup.procs` waits for an
@@ -124,7 +126,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - `tests/children.rs` makes its process a subreaper, so it is a test binary of its own: a sweep reaps any child of
   the process, other tests' included.
 - `tests/tree.rs` (`harness = false`, 18a) re-execs itself as a job's wrapper, and as stand-ins for a wrapper from
-  before 18a and a deaf one; each case ends with a `/proc` scan for its own `sleep` marker.
+  before 18a and a deaf one; each case ends with a `/proc` scan for its own `sleep` marker, which holds the run's
+  pid, so a run beside it on the machine is never found (theseus-g11i), and a failure prints the stop's verdict
+  and each process found.
 - `theseus-sim kernel-sim` drives the kernel under seeded faults and races (`--p-race`; 0 is fully
   deterministic) and checks its invariants. A new transition belongs in its random operations.
 - Run this crate's tests as `cargo nextest run --workspace -E 'package(theseus-kernel)'`, never `cargo test -p`,

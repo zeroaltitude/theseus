@@ -131,7 +131,7 @@ impl Job {
     /// starts, and SIGKILL to each until it is empty, up to `tree::KILL_WAIT`.
     /// Each wait is woken by `cgroup.events`. `reap` runs at the end: a zombie
     /// has left the cgroup, but its parent, the wrapper, still reaps it.
-    pub(crate) fn stop(&self, grace: Duration, reap: &mut dyn FnMut()) -> Stopped {
+    pub(crate) fn stop(&self, grace: Duration, reap: &mut dyn FnMut() -> tree::Left) -> Stopped {
         let t0 = Instant::now();
         let mut met = BTreeSet::new();
         self.signal(libc::SIGTERM, &mut met);
@@ -145,7 +145,7 @@ impl Job {
                 empty = self.wait_empty(left.min(Duration::from_millis(50)));
             }
         }
-        reap();
+        let _ = reap();
         let survivors = if empty {
             vec![]
         } else {
@@ -161,6 +161,7 @@ impl Job {
         Stopped {
             killed: met.len() as u32,
             survivors,
+            unseen: false,
             ms: t0.elapsed().as_millis() as u64,
         }
     }

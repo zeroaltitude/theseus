@@ -217,6 +217,15 @@ fn wait_for<T>(what: &str, mut f: impl FnMut() -> Option<T>) -> Result<T, String
     }
 }
 
+/// Case `n`'s marker, the `sleep` argument its scan looks for: 300.180<n>,
+/// then this run's pid, so the scan finds this run's processes only. A
+/// marker shared by every run once let a run's scan find another run's
+/// sleepers, a run of the same case beside it on the machine, while its own
+/// stop had ended its tree (theseus-g11i).
+fn marker_of(n: u32) -> String {
+    format!("300.180{n}{}", std::process::id())
+}
+
 /// Every live process whose command line holds `marker` as an argument. A
 /// zombie's command line is empty, so it is not among them.
 fn with_marker(marker: &str) -> Vec<u32> {
@@ -235,7 +244,16 @@ fn with_marker(marker: &str) -> Vec<u32> {
 /// The scan: no process of the job is left. What it finds is killed, so a
 /// failure leaves nothing behind.
 fn none_left(marker: &str) -> Result<(), String> {
+    none_left_after(marker, "")
+}
+
+/// `none_left`, once the stop has said `said` (its verdict): a failure says
+/// it too, and what each process found was, read before it is killed
+/// (theseus-g11i), so a failure tells a stop that gave up from one whose
+/// scan missed a process and from a test's scan that was wrong.
+fn none_left_after(marker: &str, said: &str) -> Result<(), String> {
     let left = with_marker(marker);
+    let seen: Vec<String> = left.iter().map(|pid| described(*pid)).collect();
     for pid in &left {
         unsafe { libc::kill(*pid as i32, libc::SIGKILL) };
     }
@@ -243,9 +261,42 @@ fn none_left(marker: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "a /proc scan found {marker} still running: {left:?}"
+            "a /proc scan found {marker} still running: {left:?}\n  the stop said: {said}\n  {}",
+            seen.join("\n  ")
         ))
     }
+}
+
+/// A process as `/proc` shows it: its state, start time, parent, and pending
+/// and blocked signals.
+fn described(pid: u32) -> String {
+    let stat = theseus_kernel::tree::stat(pid);
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
+    let field = |k: &str| {
+        status
+            .lines()
+            .find_map(|l| l.strip_prefix(k))
+            .map_or("?", str::trim)
+            .to_string()
+    };
+    format!(
+        "pid {pid}: {stat:?}, SigPnd {}, ShdPnd {}, SigBlk {}, now {} ticks after boot",
+        field("SigPnd:"),
+        field("ShdPnd:"),
+        field("SigBlk:"),
+        ticks_now()
+    )
+}
+
+/// The clock-tick count since boot now, as a start time reads.
+fn ticks_now() -> u64 {
+    let up: f64 = std::fs::read_to_string("/proc/uptime")
+        .ok()
+        .and_then(|s| s.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0.0);
+    // SAFETY: sysconf reads a constant.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64;
+    (up * hz) as u64
 }
 
 /// The wrapper's end, once this process (its parent) has reaped it.
@@ -274,7 +325,7 @@ fn check(ok: bool, what: impl FnOnce() -> String) -> Result<(), String> {
 /// tree, two processes, none left), the wrapper exits cleanly, and a
 /// cancelled job writes no completion.
 fn cancel_stops_the_tree() -> Result<(), String> {
-    let (rig, marker) = (Rig::new(), "300.1801");
+    let (rig, marker) = (Rig::new(), &marker_of(1));
     let wrapper = rig.start(
         "act_tree",
         &format!(
@@ -291,7 +342,7 @@ fn cancel_stops_the_tree() -> Result<(), String> {
     let t0 = Instant::now();
     let v = job::terminate(&rig.spool, wrapper, "act_tree", Duration::from_millis(500));
     let took = t0.elapsed();
-    none_left(marker)?;
+    none_left_after(marker, &format!("{v:?}"))?;
     check(v.verified(), || format!("verified: {v:?}"))?;
     check(v.verified_by == VerifiedBy::Tree, || {
         format!("by the tree: {v:?}")
@@ -332,7 +383,7 @@ fn cancel_stops_the_tree() -> Result<(), String> {
 /// alone, and the wrapper lingered on the rest. Now the deadline uses the
 /// cancel's stop: the whole tree goes, and the completion says how.
 fn deadline_stops_the_tree() -> Result<(), String> {
-    let (rig, marker) = (Rig::new(), "300.1802");
+    let (rig, marker) = (Rig::new(), &marker_of(2));
     let wrapper = rig.start(
         "act_deadline",
         &format!(
@@ -347,10 +398,14 @@ fn deadline_stops_the_tree() -> Result<(), String> {
         rig.spool.read_completion("act_deadline").ok().flatten()
     })?;
     // The scan first: a sleeper left would hold the wrapper in its linger.
-    none_left(marker)?;
+    // A failure says what the stop said.
+    let d = c.detail.clone().unwrap_or_default();
+    none_left_after(
+        marker,
+        &format!("{} (its wrapper: pid {wrapper})", d["stop"]),
+    )?;
     let status = reaped(wrapper)?;
     check(c.outcome == Outcome::Failed, || format!("{c:?}"))?;
-    let d = c.detail.unwrap_or_default();
     check(d["timed_out"] == true, || format!("timed out: {d}"))?;
     let stop = &d["stop"];
     check(
@@ -366,7 +421,7 @@ fn deadline_stops_the_tree() -> Result<(), String> {
 /// SIGTERM: it is stopped by its process group as every job was before, and
 /// the verdict says `group`, counting the wrapper and its command's two.
 fn older_wrapper_by_group() -> Result<(), String> {
-    let (rig, marker) = (Rig::new(), "300.1803");
+    let (rig, marker) = (Rig::new(), &marker_of(3));
     let wrapper = rig.start(
         "act_old",
         &format!("sleep {marker} & echo $! > child.pid; echo $$ > main.pid; exec sleep {marker}"),
@@ -395,7 +450,7 @@ fn older_wrapper_by_group() -> Result<(), String> {
 /// A wrapper that catches SIGTERM and never answers: past the grace and the
 /// answer's wait, its group is killed, and the cancel is uncertain, with why.
 fn deaf_wrapper_uncertain() -> Result<(), String> {
-    let (rig, marker) = (Rig::new(), "300.1804");
+    let (rig, marker) = (Rig::new(), &marker_of(4));
     let wrapper = rig.start(
         "act_deaf",
         &format!("echo $$ > main.pid; exec sleep {marker}"),
@@ -430,7 +485,7 @@ fn deaf_wrapper_uncertain() -> Result<(), String> {
 /// ends by the signal, so the daemon still reads a wrapper killed before it
 /// reported (theseus-6uo).
 fn plain_sigterm() -> Result<(), String> {
-    let (rig, marker) = (Rig::new(), "300.1805");
+    let (rig, marker) = (Rig::new(), &marker_of(5));
     let wrapper = rig.start(
         "act_plain",
         &format!(
@@ -474,7 +529,7 @@ fn plain_sigterm() -> Result<(), String> {
 /// and the wrapper must still stop its tree and end by it at once, not at
 /// its deadline a minute later.
 fn sigterm_on_another_thread() -> Result<(), String> {
-    let (rig, marker) = (Rig::new(), "300.1806");
+    let (rig, marker) = (Rig::new(), &marker_of(6));
     let wrapper = rig.start(
         "act_thread",
         &format!("echo $$ > main.pid; exec sleep {marker}"),
