@@ -2431,6 +2431,10 @@ pub struct ConfirmRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub external_text: Option<ExternalText>,
+    /// The layer-1 task change the call asks for, when it is one (39b).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub change: Option<tasks::TaskChange>,
 }
 
 /// What a budget question asks about (theseus-0sg): the session reached its

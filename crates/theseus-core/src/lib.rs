@@ -238,6 +238,8 @@ mod tests_sandbox;
 #[cfg(test)]
 mod tests_security;
 #[cfg(test)]
+mod tests_task_claims;
+#[cfg(test)]
 mod tests_task_graph;
 #[cfg(test)]
 mod tests_task_layers;

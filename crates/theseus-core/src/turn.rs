@@ -2325,6 +2325,7 @@ impl TurnRunner {
             }),
             task: crate::task::task_ref(session),
             external_text: None,
+            change: None,
         };
         t.record(&fact::turn::BudgetAsked {
             request: &req,

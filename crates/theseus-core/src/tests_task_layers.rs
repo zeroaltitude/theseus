@@ -124,6 +124,13 @@ async fn an_old_records_change_waits_and_its_expiry_clears_the_proposal() {
     assert_eq!(asked.len(), 1, "{asked:?}");
     let q = &asked[0];
     assert!(q.reason.contains("layer 1"), "{}", q.reason);
+    // The question carries the change, before and after (39b).
+    let change = q.change.clone().expect("a layer-1 question's change");
+    assert_eq!(
+        change.question(),
+        "Change the acceptance of tsk_00000000000000000000000000000091 (Chart the harbour \
+         soundings)? Before: every buoy has a depth on the chart After: the pier has a depth too"
+    );
     let waiting = r.task(&old.id);
     assert_eq!(waiting.version, 1);
     assert_eq!(

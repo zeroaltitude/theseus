@@ -21,6 +21,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use serde_json::Value;
 use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
+mod board;
+pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
 pub const PART_LIMIT: usize = 1900;
@@ -42,6 +44,8 @@ pub enum Buttons {
     ShouldHaveAsked(Vec<Asked>),
     /// A Jev notice's right / wrong / noise, for this judgment.
     JevLabel(String),
+    /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
+    Accept(String),
     /// Remove every component.
     Clear,
 }
@@ -883,6 +887,9 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
             ),
             budget: true,
         };
+    }
+    if let Some(c) = &req.change {
+        return board::change_card(req, c, &task, route, elsewhere);
     }
     let line = format!("{task}`{}` {}", req.tool, summarize(&req.tool, &req.input));
     let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });

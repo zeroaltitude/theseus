@@ -198,11 +198,20 @@ pub fn ruled_turn(rules: &[Rule], text: &str) -> Vec<Value> {
     }
 }
 
-/// `calls`, one tool_use block each.
+/// `calls`, one tool_use block each. Each block's id is new, as the API's
+/// are, across turns and across restarts of the stand-in (the time and a
+/// count): a session's later turn reusing an earlier id read as answered,
+/// and an approved call of the later one never ran (39b's live check).
 pub fn calls_turn(calls: &[Call]) -> Vec<Value> {
+    static TURNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = format!(
+        "{:x}{:x}",
+        theseus_protocol::now_unix_ms(),
+        TURNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
     let mut v = vec![start(40)];
     for (i, c) in calls.iter().enumerate() {
-        v.push(json!({"type": "content_block_start", "index": i, "content_block": {"type": "tool_use", "id": format!("toolu_fake_{i}"), "name": c.name, "input": {}}}));
+        v.push(json!({"type": "content_block_start", "index": i, "content_block": {"type": "tool_use", "id": format!("toolu_fake_{n}_{i}"), "name": c.name, "input": {}}}));
         v.push(json!({"type": "content_block_delta", "index": i, "delta": {"type": "input_json_delta", "partial_json": c.input.to_string()}}));
         v.push(json!({"type": "content_block_stop", "index": i}));
     }

@@ -336,6 +336,8 @@ facts![
     task_graph::TaskChangeDeclined<'static>,
     task_graph::TaskChangeExpired<'static>,
     task_graph::TaskStaleRefused<'static>,
+    task_graph::TaskClaimed<'static>,
+    task_graph::TaskLeaseExpired<'static>,
     tool::WakeSet<'static>,
     answer::CallAnswered<'static>,
     answer::WokenByAnswer,

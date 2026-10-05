@@ -23,6 +23,7 @@
 //! - **The view** (`view.rs`): the graph a turn's scope holds, in the
 //!   request's tail.
 
+pub mod lease;
 pub mod tools;
 pub mod view;
 
@@ -30,7 +31,9 @@ use anyhow::Result;
 use theseus_kernel::{ExecState, Execution, Wake};
 use theseus_store::{kinds, NewRecord, Store as _};
 
-pub use theseus_protocol::tasks::{TaskEvidence, TaskOrigin, TaskProposal, TaskRecord, TaskState};
+pub use theseus_protocol::tasks::{
+    TaskClaim, TaskEvidence, TaskOrigin, TaskProposal, TaskRecord, TaskState,
+};
 
 use crate::store::Store;
 
@@ -108,9 +111,13 @@ pub fn state_now(rec: &TaskRecord, exec: Option<&Execution>) -> TaskState {
 }
 
 /// The record as surfaces show it: its state as it reads now.
+/// A claim past its lease reads free, before the due pass clears it (39b).
 pub fn shown(kernel: &theseus_kernel::Kernel, mut rec: TaskRecord) -> TaskRecord {
     let exec = execution_of(&rec).and_then(|id| kernel.execution(&id).ok().flatten());
     rec.state = state_now(&rec, exec.as_ref());
+    if rec.claim_at(kernel.now_ms()).is_none() || rec.state.is_closed() {
+        rec.claim = None;
+    }
     rec
 }
 
@@ -241,6 +248,43 @@ pub fn scope<'a>(tasks: &'a [TaskRecord], session_id: &str) -> Vec<&'a TaskRecor
     out
 }
 
+/// The session whose place a task's changes show in (39b's board): its root
+/// task's origin session, or, when that is a task session (which no place
+/// routes), that task's own home.
+pub fn home(tasks: &[TaskRecord], t: &TaskRecord) -> String {
+    let mut at = t;
+    for _ in 0..32 {
+        let root = root_of(tasks, at);
+        let s = &root.origin.session;
+        match tasks.iter().find(|r| r.session.as_deref() == Some(s)) {
+            Some(own) if own.id != root.id => at = own,
+            _ => return s.clone(),
+        }
+    }
+    at.origin.session.clone()
+}
+
+/// A task's root: the topmost task above it that `tasks` holds.
+pub fn root_of<'a>(tasks: &'a [TaskRecord], t: &'a TaskRecord) -> &'a TaskRecord {
+    let mut at = t;
+    for _ in 0..32 {
+        match at
+            .parent
+            .as_deref()
+            .and_then(|p| tasks.iter().find(|x| x.id == p))
+        {
+            Some(p) => at = p,
+            None => break,
+        }
+    }
+    at
+}
+
+/// The tasks whose home is `session` (its place's board), oldest first.
+pub fn homed<'a>(tasks: &'a [TaskRecord], session: &str) -> Vec<&'a TaskRecord> {
+    tasks.iter().filter(|t| home(tasks, t) == session).collect()
+}
+
 /// How deep a task sits under the scope's roots, for indenting.
 pub fn depth(tasks: &[&TaskRecord], t: &TaskRecord) -> usize {
     let mut d = 0;
@@ -294,6 +338,13 @@ pub fn line(t: &TaskRecord) -> String {
     if t.proposal.is_some() {
         out.push_str(", a change waits for the operator");
     }
+    if let Some(c) = &t.claim {
+        out.push_str(&format!(
+            ", claimed by session {} until {}",
+            c.session_short(),
+            crate::push::hm(c.until_ms)
+        ));
+    }
     out.push_str(&format!(", v{}", t.version));
     out
 }
@@ -344,6 +395,7 @@ impl NewTask<'_> {
             origin: self.origin,
             evidence: vec![],
             proposal: None,
+            claim: None,
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
         }
@@ -373,6 +425,7 @@ pub fn closed_by_report(
     let now = theseus_protocol::now_unix_ms();
     rec.version += 1;
     rec.state = outcome;
+    rec.claim = None;
     rec.updated_at_ms = now;
     rec.evidence.push(TaskEvidence {
         node: report_node.map(String::from),

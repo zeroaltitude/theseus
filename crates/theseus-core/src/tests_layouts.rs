@@ -50,7 +50,19 @@ struct Sample {
 /// theseus-ext.10 (1bb9b9b) writes.
 pub(crate) const TASK_BEFORE_MODEL_MARK: &str = r#"{"id":"tsk_00000000000000000000000000000091","version":1,"title":"Chart the harbour soundings","objective":"chart every buoy of the outer harbour","acceptance":["every buoy has a depth on the chart"],"state":"accepted","deps":[],"owner":"agent","origin":{"session":"ses_lighthouse","principal":"operator"},"evidence":[{"node":"msg_00000000000000000000000000000090","identity":"commit:0a1b2c3d","by":"ses_lighthouse","at_ms":1790000000090}],"created_at_ms":1790000000091,"updated_at_ms":1790000000091}"#;
 
+/// A plan item as format 16 wrote it (theseus-ext.10), before a task's
+/// claim (`claim`, format 19, M7 39b, theseus-ext.14): it reads unclaimed,
+/// free for any session's `task.claim`. By hand, in the layout the build
+/// before 39b (3085f71) writes.
+pub(crate) const TASK_BEFORE_CLAIM: &str = r#"{"id":"tsk_00000000000000000000000000000095","version":2,"title":"Chart the reef","objective":"chart the reef's north edge","acceptance":["every marker has a depth"],"state":"accepted","deps":[],"owner":"agent","origin":{"session":"ses_lighthouse","principal":"operator","by_model":true},"evidence":[],"created_at_ms":1790000000095,"updated_at_ms":1790000000096}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::TASK,
+        layout: "a plan item at format 16 (theseus-ext.10; unchanged through 18): before a task's claim (19, M7 39b)",
+        bytes: TASK_BEFORE_CLAIM,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::TASK,
         layout: "a plan item at format 14 (39a; unchanged through 15): before the model's mark on its origin (16, theseus-ext.10)",

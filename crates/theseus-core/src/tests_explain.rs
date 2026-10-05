@@ -108,6 +108,7 @@ fn input_for(tool: &dyn Tool, open: &Path) -> Value {
         "task.split" => {
             return json!({"id": "tsk_0000tide", "version": 1, "into": ["the ebb", "the flow"]})
         }
+        "task.claim" => return json!({"id": "tsk_0000tide", "version": 1}),
         "task.close" => {
             return json!({"id": "tsk_0000tide", "version": 1, "outcome": "done",
                           "evidence": [{"identity": "commit:0000tide"}]})

@@ -12,6 +12,7 @@ import { call } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { diffLines, previewOf } from '@/lib/toolwords'
 import { ago, cn, ms, short, usd } from '@/lib/format'
+import { changeQuestion } from '@/lib/taskgraph'
 import { JsonView } from './JsonView'
 import { Btn, Pill } from './ui'
 
@@ -79,6 +80,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             {!here && <button onClick={() => nav(`/session/${c.session_id}`)} className="num text-[11px] text-ink-faint hover:text-live">{short(c.session_id)}</button>}
             <span className="num ml-auto text-[11px] text-ink-faint">asked {ago(c.requested_at_ms, now)}{left !== null && c.expires_at_ms ? ` · ${left > 0 ? `${ms(left)} left` : 'expired'}` : ''}</span>
           </div>
+          {c.change && <div className="mt-1 text-[12.5px] font-semibold text-wait">{changeQuestion(c.change)}</div>}
           <div className="mt-1 text-[12.5px] text-ink">{c.reason}</div>
           {c.resource && <div className="num mt-0.5 text-[11.5px] text-ink-dim">{c.resource}</div>}
           {budget && (
@@ -94,7 +96,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
           {!budget && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} /></div>}
           {past !== undefined && <div className="mt-2 text-[11px] text-ink-faint">asked by {c.by}; the log shows how it was answered after this moment</div>}
           {past === undefined && <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <Btn tone="ok" busy={busy === 'yes'} onClick={() => answer('yes', true)}><CircleCheck size={13} /> {budget ? 'Reset to $0 and continue' : 'Approve'}</Btn>
+            <Btn tone="ok" busy={busy === 'yes'} onClick={() => answer('yes', true)}><CircleCheck size={13} /> {budget ? 'Reset to $0 and continue' : c.change ? 'Accept' : 'Approve'}</Btn>
             {c.external_text && <Btn tone="wait" busy={busy === 'trust'} title="Approve this call, and trust the session again: its later calls that act run at their postures, until it reads external text again" onClick={() => answer('trust', true, true)}><ShieldCheck size={13} /> Approve and trust session</Btn>}
             <Btn tone="fault" busy={busy === 'no'} onClick={() => answer('no', false)}><OctagonX size={13} /> {budget ? 'Keep waiting' : 'Decline'}</Btn>
             {!budget && <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note (optional; the model sees it on a decline)"

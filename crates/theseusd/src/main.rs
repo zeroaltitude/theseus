@@ -1003,6 +1003,9 @@ async fn after_serving(
     // The ladder (M5 26a): each pack's mode, read once the socket answers,
     // and the adoptions it lacks written then, never on the start path.
     core.warm_ladder();
+    // The task claims that hold (39b), by one read of the task records, so
+    // the driver's due pass frees a lapsed lease from memory.
+    core.warm_leases();
     // The index tender (roadmap row 51; M6 §2.2), started once the socket
     // answers, never before, and by the socket daemon alone (`bindings` is
     // its): a `--stdio` daemon serves `store-stdio` for one client.

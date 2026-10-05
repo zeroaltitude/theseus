@@ -27,6 +27,10 @@ build.
 - `src/components/Extensions.tsx` (in Systems; its pure parts are `src/lib/extensions.ts`): the loaded extensions
   (M7 43b) from `extend.list`, each with its manifest, digest, files, tests, who acked it, calls, errors, and Revoke
   (`extension.revoke`, confirmed first), then the proposals not loaded.
+- `src/components/TaskGraph.tsx` (in Actions; its pure parts are `src/lib/taskgraph.ts`, M7 39b): the task records as a
+  tree (state, owner, claim, version, a waiting change with its card) and, at `?taskgraph=1` (`&task=<id>`), as a React
+  Flow graph. It shows the present: under the time machine it says so and its acts are off. `task.changed` reads
+  `task.list` again (`bindPush`).
 - `src/components/`: the call and model-call inspectors, the transcript, the flame chart, the shell, and `brass.tsx`
   (the plank strip and the coin).
 - `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,

@@ -123,7 +123,35 @@ pub struct TaskProposal {
     pub at_ms: u64,
 }
 
-/// A task (§2.4). `claim` is 39b's.
+/// A claim's lease on a task (39b, M7 §2.4): the execution that holds it,
+/// its session (how a refusal names it), and when it lapses. The holder's own
+/// edits renew it; a close ends it; past `until_ms` it reads free, and the
+/// due pass clears it (`task.lease_expired`).
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskClaim {
+    /// `exe_…`.
+    pub by: String,
+    pub session: String,
+    pub until_ms: u64,
+}
+
+impl TaskClaim {
+    /// Whether it still holds at `now_ms`: free at `until_ms`, not before.
+    pub fn holds_at(&self, now_ms: u64) -> bool {
+        now_ms < self.until_ms
+    }
+
+    /// How people name its session: the last six characters of its id.
+    pub fn session_short(&self) -> &str {
+        let n = self.session.len();
+        self.session
+            .get(n.saturating_sub(6)..)
+            .unwrap_or(&self.session)
+    }
+}
+
+/// A task (§2.4).
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
@@ -158,6 +186,10 @@ pub struct TaskRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub proposal: Option<TaskProposal>,
+    /// The lease one execution holds on it (39b; format 19).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub claim: Option<TaskClaim>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
 }
@@ -173,6 +205,52 @@ impl TaskRecord {
     pub fn short(&self) -> &str {
         let n = self.id.len();
         self.id.get(n.saturating_sub(6)..).unwrap_or(&self.id)
+    }
+
+    /// Its claim, while it holds at `now_ms`.
+    pub fn claim_at(&self, now_ms: u64) -> Option<&TaskClaim> {
+        self.claim.as_ref().filter(|c| c.holds_at(now_ms))
+    }
+}
+
+/// The layer-1 change a question asks (39b): the task, its title, the field,
+/// and the field before and after; or abandoning it (`field` `abandon`, its
+/// state before). The card on Discord, `theseus confirm`, and the cockpit
+/// word it the one way (`question`).
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskChange {
+    pub task: String,
+    pub title: String,
+    /// `objective`, `acceptance`, `objective and acceptance`, or `abandon`.
+    pub field: String,
+    pub before: String,
+    pub after: String,
+}
+
+impl TaskChange {
+    /// `Change the acceptance of tsk_… (title)? Before: … After: …`, or
+    /// `Abandon tsk_… (title)? Before: accepted After: abandoned`.
+    pub fn question(&self) -> String {
+        let (before, after) = (or_none(&self.before), or_none(&self.after));
+        match self.field.as_str() {
+            "abandon" => format!(
+                "Abandon {} ({})? Before: {before} After: {after}",
+                self.task, self.title
+            ),
+            f => format!(
+                "Change the {f} of {} ({})? Before: {before} After: {after}",
+                self.task, self.title
+            ),
+        }
+    }
+}
+
+fn or_none(s: &str) -> &str {
+    if s.trim().is_empty() {
+        "(none)"
+    } else {
+        s
     }
 }
 
@@ -193,8 +271,8 @@ pub struct TaskGetResult {
 }
 
 /// `task.changed`: a task's record after a change, with the verb that made
-/// it (`created`, `updated`, `split`, `closed`, `change_proposed`,
-/// `change_accepted`, `change_declined`, `change_expired`).
+/// it (`created`, `updated`, `split`, `closed`, `claimed`, `lease_expired`,
+/// `change_proposed`, `change_accepted`, `change_declined`, `change_expired`).
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskChanged {
@@ -227,4 +305,36 @@ pub struct TaskViewSummary {
 
 fn is_zero(n: &u32) -> bool {
     *n == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The card's words (39b): a field's change, before and after, and an
+    /// abandon; an empty side reads `(none)`.
+    #[test]
+    fn a_changes_question_says_the_field_before_and_after() {
+        let mut c = TaskChange {
+            task: "tsk_0000reef".into(),
+            title: "Chart the reef".into(),
+            field: "acceptance".into(),
+            before: "every marker has a depth".into(),
+            after: "every marker has a depth; the chart is signed".into(),
+        };
+        assert_eq!(
+            c.question(),
+            "Change the acceptance of tsk_0000reef (Chart the reef)? Before: every marker has \
+             a depth After: every marker has a depth; the chart is signed"
+        );
+        c.field = "abandon".into();
+        c.before = "accepted".into();
+        c.after = "abandoned".into();
+        assert_eq!(
+            c.question(),
+            "Abandon tsk_0000reef (Chart the reef)? Before: accepted After: abandoned"
+        );
+        c.before = String::new();
+        assert!(c.question().contains("Before: (none)"));
+    }
 }

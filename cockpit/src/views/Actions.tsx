@@ -1,6 +1,6 @@
 // Actions: where the operator acts. Waiting approvals (approve, approve and trust, decline), every tool call's
-// lifecycle (planned → authorized → dispatched → settled), the tools' postures (tighten, untighten), wakes, and the
-// sessions that hold external text (trust). `?execution=` narrows the calls to one execution, as picking one in the
+// lifecycle (planned → authorized → dispatched → settled), the tools' postures (tighten, untighten), wakes, the
+// sessions that hold external text (trust), and the task graph (39b: its records as a tree, `?taskgraph=1` as a graph). `?execution=` narrows the calls to one execution, as picking one in the
 // Observatory's table did.
 import { memo, useDeferredValue, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
@@ -16,12 +16,15 @@ import { ago, cn, ms, short, stamp, usd, clock } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Btn, Empty, Panel, Pill, StatePill } from '@/components/ui'
 import { ConfirmCard, useAct } from '@/components/ConfirmCard'
+import { TaskGraphView, TaskTree } from '@/components/TaskGraph'
 
 export default function Actions() {
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 1500)
   const { data: al } = useRpc<{ actions: ActionInfo[]; total: number }>('action.list', { n: 300 }, 2000)
   const { data: h } = useRpc<Health>('health', undefined, 2000)
   const { data: tl } = useRpc<ToolList>('tool.list', undefined, 5000)
+  // The task graph (39b): the records as they are now, read again on `task.changed`.
+  const { data: tasks } = useRpc<TaskListResult>('task.list', {}, 3000)
   // The time machine: the questions, calls, holds, tasks, and tightenings as they stood at its moment. Nothing in the
   // past can be acted on, so its buttons are off.
   const world = useDeferredValue(useWorld())
@@ -62,6 +65,7 @@ export default function Actions() {
             </Panel>
           )}
           <Tasks past={world ? { t: world.t, tasks: world.tasks } : undefined} />
+          <TaskTree records={tasks?.records ?? []} confirms={cl?.confirms ?? []} past={past} />
 
           <Panel title="Tool postures" icon={<Wrench size={13} />} bodyClassName="max-h-[520px] overflow-auto"
             actions={tl ? <span className="num text-[11px] text-ink-faint" title="proc.run (typed argv) is the only shell path; the shell-fallback ratio is proc.run calls over all calls">roots {tl.roots.join(', ')} · {tl.calls_total} call{tl.calls_total === 1 ? '' : 's'} since start · shell fallback {(tl.shell_fallback_ratio * 100).toFixed(0)}%</span> : null}>
@@ -69,6 +73,7 @@ export default function Actions() {
           </Panel>
         </div>
       </div>
+      <TaskGraphView records={tasks?.records ?? []} past={past} />
     </div>
   )
 }

@@ -122,6 +122,9 @@ pub struct Msg {
     /// Its components as the binding sent them, for a press's payload.
     #[serde(skip)]
     pub components_json: Value,
+    /// Pinned in its channel (39b's board).
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// A button on a message.
@@ -384,6 +387,9 @@ struct State {
     /// The guild's member list answers 403 (M4 19c): who can view a channel
     /// cannot be read.
     refuse_members: bool,
+    /// A pin answers 403, as Discord does a bot without Manage Messages
+    /// (39b): the board stays unpinned.
+    refuse_pins: bool,
     /// The file the guild is read from again at every request (M4 19c), so a
     /// live check can change who can view a channel while a turn runs.
     guild_file: Option<PathBuf>,
@@ -476,6 +482,11 @@ impl FakeDiscord {
     /// (M4 19c): who can view a channel then cannot be read.
     pub fn refuse_members(&self, refuse: bool) {
         self.state.lock().unwrap().refuse_members = refuse;
+    }
+
+    /// Refuse every pin, as Discord does a bot that may not pin (39b).
+    pub fn refuse_pins(&self, refuse: bool) {
+        self.state.lock().unwrap().refuse_pins = refuse;
     }
 
     /// Answer every request this much later.
@@ -654,6 +665,7 @@ impl FakeDiscord {
                 versions: vec![t.content.to_string()],
                 buttons: vec![],
                 components_json: json!([]),
+                pinned: false,
             });
             (at, id)
         };
@@ -826,6 +838,8 @@ impl FakeDiscord {
             }
             ("POST", ["channels", c, "messages"]) => self.create(stream, c, &body, mode),
             ("PATCH", ["channels", c, "messages", m]) => self.edit(stream, c, m, &body),
+            ("PUT", ["channels", c, "messages", "pins", m]) => self.pin(stream, c, m),
+            ("GET", ["channels", c, "messages", "pins"]) => self.pins(stream, route, c),
             _ => {
                 self.record(seen(&method, route, "unknown"));
                 reply(
@@ -884,6 +898,7 @@ impl FakeDiscord {
                         author: BOT_ID.to_string(),
                         buttons: buttons(&body["components"]),
                         components_json: body["components"].clone(),
+                        pinned: false,
                     };
                     st.messages.push(m.clone());
                     (m, "created")
@@ -922,6 +937,63 @@ impl FakeDiscord {
             return Ok(());
         }
         reply(stream, 200, &message_json(&msg))
+    }
+
+    /// Pin a message (39b's board), or refuse it with 403 when told to.
+    fn pin(&self, stream: TcpStream, channel: &str, id: &str) -> std::io::Result<()> {
+        let path = format!("/channels/{channel}/messages/pins/{id}");
+        let found = {
+            let mut st = self.state.lock().unwrap();
+            let refuse = st.refuse_pins;
+            st.messages
+                .iter_mut()
+                .find(|m| m.channel == channel && m.id == id)
+                .map(|m| {
+                    m.pinned |= !refuse;
+                    refuse
+                })
+        };
+        match found {
+            Some(false) => {
+                self.record(Seen {
+                    message_id: Some(id.to_string()),
+                    ..seen("PUT", &path, "pinned")
+                });
+                reply_empty(stream)
+            }
+            Some(true) => {
+                self.record(seen("PUT", &path, "refused"));
+                reply(
+                    stream,
+                    403,
+                    &json!({"message": "Missing Permissions", "code": 50013}),
+                )
+            }
+            None => {
+                self.record(seen("PUT", &path, "unknown"));
+                reply(
+                    stream,
+                    404,
+                    &json!({"message": "Unknown Message", "code": 10008}),
+                )
+            }
+        }
+    }
+
+    /// A channel's pins, the newest first, as Discord lists them.
+    fn pins(&self, stream: TcpStream, route: &str, channel: &str) -> std::io::Result<()> {
+        self.record(seen("GET", route, "read"));
+        let items: Vec<Value> = self
+            .state
+            .lock()
+            .unwrap()
+            .messages
+            .iter()
+            .rev()
+            .filter(|m| m.channel == channel && m.pinned)
+            .map(|m| json!({"pinned_at": "2026-09-30T00:00:00.000000+00:00", "message": message_json(m)}))
+            .collect();
+        reply(stream, 200, &json!({"items": items, "has_more": false}))
     }
 
     fn edit(
@@ -1362,7 +1434,7 @@ fn message_json(m: &Msg) -> Value {
         "author": {"id": m.author, "username": name, "discriminator": "0000", "bot": bot},
         "timestamp": "2026-09-30T00:00:00.000000+00:00", "edited_timestamp": null, "tts": false,
         "mention_everyone": false, "mentions": mentions, "mention_roles": [], "attachments": [], "embeds": [],
-        "pinned": false, "type": 0, "nonce": m.nonce,
+        "pinned": m.pinned, "type": 0, "nonce": m.nonce,
     })
 }
 

@@ -193,6 +193,10 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
             push(&mut out, Tag::Ask, &format!("  $ {}", c.reason));
             budget_answers(&mut out, c);
         }
+        // A layer-1 task change (39b): the question in the card's words.
+        Event::ConfirmRequested(c) if c.change.is_some() => {
+            change_lines(&mut out, c);
+        }
         Event::ConfirmRequested(c) => {
             push(
                 &mut out,
@@ -380,6 +384,30 @@ fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
             ),
         );
     }
+    push(
+        out,
+        Tag::Dim,
+        &format!(
+            "      decline: theseus confirm --decline {}",
+            c.correlation_id
+        ),
+    );
+}
+
+/// A layer-1 task change's question (39b), as the card words it, and how to
+/// accept or decline it.
+fn change_lines(out: &mut Vec<Line>, c: &ConfirmRequest) {
+    let q = c
+        .change
+        .as_ref()
+        .map(|ch| ch.question())
+        .unwrap_or_default();
+    push(out, Tag::Ask, &format!("  ? {q}"));
+    push(
+        out,
+        Tag::Dim,
+        &format!("      accept: theseus confirm {}", c.correlation_id),
+    );
     push(
         out,
         Tag::Dim,
@@ -788,6 +816,10 @@ pub fn confirm_lines(c: &ConfirmRequest) -> Vec<Line> {
             &format!("  $ {} waits for you: {}", c.session_id, c.reason),
         );
         budget_answers(&mut out, c);
+        return out;
+    }
+    if c.change.is_some() {
+        change_lines(&mut out, c);
         return out;
     }
     push(

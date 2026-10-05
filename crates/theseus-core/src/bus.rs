@@ -35,7 +35,10 @@ fn wide(msg: &Message) -> bool {
     match msg {
         Message::Notification(n) => matches!(
             n.method.as_str(),
-            notify::EXECUTION_CHANGED | notify::CONFIRM_REQUESTED | notify::CONFIRM_RESOLVED
+            notify::EXECUTION_CHANGED
+                | notify::CONFIRM_REQUESTED
+                | notify::CONFIRM_RESOLVED
+                | notify::TASK_CHANGED
         ),
         _ => false,
     }
@@ -124,6 +127,11 @@ impl SessionBus {
         for v in g.values_mut() {
             v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.notify(msg.clone(), "policy"));
         }
+    }
+
+    /// How many connections watch every session (`executions.watch`).
+    pub fn watching_all(&self) -> usize {
+        self.all.lock().unwrap().len()
     }
 
     pub fn watchers(&self, session: &str) -> usize {

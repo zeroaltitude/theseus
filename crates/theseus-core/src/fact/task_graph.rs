@@ -1,5 +1,5 @@
-//! The task graph's facts (M7 39a, theseus-ext.6; §2.4's ledger rows but
-//! the lease's): one per verb, each a ledger row, a `task.changed`
+//! The task graph's facts (M7 39a, theseus-ext.6; §2.4's ledger rows, the
+//! lease's with 39b): one per verb, each a ledger row, a `task.changed`
 //! notification with the record after the change, and a narrative line
 //! ("task tsk_x split into 3 (v4 → v5)").
 
@@ -89,6 +89,30 @@ impl Change {
                 "the change to task {} expired unanswered; it stays as it was",
                 t.id
             ),
+            "claimed" => match &t.claim {
+                Some(c) if self.detail["renewed"] == true => format!(
+                    "task {}'s claim by session {} renewed until {}",
+                    t.id,
+                    c.session_short(),
+                    crate::push::hm(c.until_ms)
+                ),
+                Some(c) => format!(
+                    "task {} claimed by session {} until {}",
+                    t.id,
+                    c.session_short(),
+                    crate::push::hm(c.until_ms)
+                ),
+                None => format!("task {} claimed", t.id),
+            },
+            "lease_expired" => format!(
+                "task {}'s claim by session {} lapsed at {}; it is free",
+                t.id,
+                self.detail
+                    .get("session")
+                    .and_then(Value::as_str)
+                    .map_or("?", |s| s.get(s.len().saturating_sub(6)..).unwrap_or(s)),
+                crate::push::hm(count("until_ms"))
+            ),
             "stale_refused" => format!(
                 "an edit of task {} named v{}, and it is at v{}: refused, to be read again",
                 t.id,
@@ -165,4 +189,6 @@ changes! {
     TaskChangeDeclined = LedgerKind::TaskChangeDeclined, "change_declined";
     TaskChangeExpired = LedgerKind::TaskChangeExpired, "change_expired";
     TaskStaleRefused = LedgerKind::TaskStaleRefused, "stale_refused";
+    TaskClaimed = LedgerKind::TaskClaimed, "claimed";
+    TaskLeaseExpired = LedgerKind::TaskLeaseExpired, "lease_expired";
 }
