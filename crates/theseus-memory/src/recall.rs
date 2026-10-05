@@ -12,8 +12,9 @@
 //!
 //! The place rule (theseus-nbsh) is the first filter: a turn in a shared
 //! place draws only on that place's own sessions, and a turn in a private
-//! place only on private places' sessions. A candidate whose place cannot be
-//! read is dropped by it too.
+//! place on any session (m6 §2.15, as the rule was decided; theseus-1is6).
+//! A candidate whose place cannot be read is dropped in a shared place, and
+//! a turn whose own place cannot be read draws on nothing.
 
 use std::collections::BTreeSet;
 
@@ -31,10 +32,11 @@ pub enum Place {
 }
 
 impl Place {
-    /// Whether a turn speaking here may draw on a session speaking at `from`.
+    /// Whether a turn speaking here may draw on a session speaking at `from`:
+    /// a private place on any; a shared place on its own sessions alone.
     pub fn may_draw_on(&self, from: &Place) -> bool {
         match (self, from) {
-            (Place::Private, Place::Private) => true,
+            (Place::Private, _) => true,
             (Place::Shared(here), Place::Shared(there)) => here == there,
             _ => false,
         }
@@ -465,8 +467,6 @@ mod tests {
         second_chunk.chunk = 1;
         let cands = vec![
             cand("ok", "ses_b", Place::Private, 0.9),
-            cand("shared", "ses_lab", lab, 0.9),
-            cand("unknown", "ses_x", Place::Unknown, 0.9),
             cand("seen", "ses_here", Place::Private, 0.9),
             external,
             harness,
@@ -494,8 +494,6 @@ mod tests {
             .collect();
         assert_eq!(admitted, ["ok"]);
         for (node, reason) in [
-            ("shared", Reason::Place),
-            ("unknown", Reason::Place),
             ("seen", Reason::InContext),
             ("ext", Reason::Untrusted),
             ("harness", Reason::Recursion),
@@ -513,11 +511,53 @@ mod tests {
             .dropped
             .iter()
             .any(|d| d.candidate.key() == "ok#1" && d.reason == Reason::InContext));
-        assert_eq!(pack.admitted.len() + pack.dropped.len(), 13);
+        assert_eq!(pack.admitted.len() + pack.dropped.len(), 11);
+        // The place: a shared place draws on its own sessions alone.
+        let there = vec![
+            cand("mine", "ses_lab", lab.clone(), 0.9),
+            cand("private", "ses_b", Place::Private, 0.9),
+            cand("unknown", "ses_x", Place::Unknown, 0.9),
+            cand(
+                "other",
+                "ses_y",
+                Place::Shared("discord:channel:9".into()),
+                0.9,
+            ),
+        ];
+        let placed = run(&lab, &[], there, &p);
+        assert_eq!(placed.admitted.len(), 1);
+        assert_eq!(placed.admitted[0].candidate.node_id, "mine");
+        for node in ["private", "unknown", "other"] {
+            assert_eq!(reason_of(&placed, node), Some(Reason::Place), "{node}");
+        }
         // Every reason this step builds is met above.
         for r in Reason::ALL {
-            assert!(pack.dropped_for(r) > 0, "{}", r.as_str());
+            assert!(
+                pack.dropped_for(r) + placed.dropped_for(r) > 0,
+                "{}",
+                r.as_str()
+            );
         }
+    }
+
+    /// A private place draws on any session: another private place's, a
+    /// shared place's, and one whose place cannot be read (theseus-1is6).
+    #[test]
+    fn a_private_place_draws_on_every_place() {
+        let cands = vec![
+            cand("cli", "ses_a", Place::Private, 0.9),
+            cand(
+                "lab",
+                "ses_b",
+                Place::Shared("discord:channel:7".into()),
+                0.8,
+            ),
+            cand("dm", "ses_c", Place::Shared("discord:dm:3".into()), 0.7),
+            cand("unknown", "ses_d", Place::Unknown, 0.6),
+        ];
+        let pack = run(&Place::Private, &[], cands, &Params::default());
+        assert_eq!(pack.admitted.len(), 4, "{:?}", pack.dropped);
+        assert_eq!(pack.dropped_for(Reason::Place), 0);
     }
 
     /// External text is admitted only when the config says so.
@@ -646,10 +686,12 @@ mod tests {
     }
 
     proptest! {
-        /// The place rule, over generated candidates and places: nothing from
-        /// a private place's session is admitted, or dropped for any reason
-        /// but the place, in a shared place; nothing from one shared place
-        /// in another; and nothing of a place that cannot be read anywhere.
+        /// The place rule, over generated candidates and places, both ways:
+        /// in a shared place, nothing from a private place's session, from
+        /// another shared place, or from a place that cannot be read is
+        /// admitted, and each is dropped for its place alone; a private place
+        /// drops nothing for its place; and a turn whose place cannot be
+        /// read draws on nothing.
         #[test]
         fn the_place_rule_holds_for_every_pack(
             here in place_strategy(),
@@ -674,9 +716,12 @@ mod tests {
                 match (&here, &c.candidate.place) {
                     (Place::Shared(a), Place::Shared(b)) => prop_assert_eq!(a, b),
                     (Place::Shared(_), other) => prop_assert!(false, "a shared place drew on {other:?}"),
-                    (Place::Private, other) => prop_assert_eq!(other, &Place::Private),
+                    (Place::Private, _) => {}
                     (Place::Unknown, other) => prop_assert!(false, "an unknown place drew on {other:?}"),
                 }
+            }
+            if here == Place::Private {
+                prop_assert_eq!(pack.dropped_for(Reason::Place), 0);
             }
         }
     }

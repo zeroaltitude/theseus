@@ -14,8 +14,8 @@ Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `fsrs.rs`, `activation.rs`,
   pass (31a), the retention and adjacency projections (32a, 32b), and tiering (33) read the rest.
 - `recall.rs` (step 30a): the pipeline after the index. Each candidate is dropped by the first filter that takes it,
   in this order, with its reason: `place` (the place rule: a turn in a shared place draws only on that place's own
-  sessions, a private place's only on private places' sessions, and a session whose place cannot be read on
-  neither), `in_context`, `untrusted` (external text, unless `include_external`), `labeled_wrong` (the operator
+  sessions, a private place's on any session (theseus-1is6), and a session whose place cannot be read only in a
+  private place), `in_context`, `untrusted` (external text, unless `include_external`), `labeled_wrong` (the operator
   labeled it wrong or stale; 30b), `recursion` (a harness line or a recall), `threshold`; then the science's rank,
   and a greedy pack under the tokens and items (`budget`). A second chunk of an admitted node is `in_context`. The
   core reads each candidate's place (`TurnRunner::place_of`).
