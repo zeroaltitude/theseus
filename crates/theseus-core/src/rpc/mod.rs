@@ -44,6 +44,8 @@ mod tests_history;
 mod tests_ledger;
 #[cfg(test)]
 mod tests_lists;
+#[cfg(test)]
+mod tests_node_names;
 mod trust;
 
 pub use bindings::BindingBoard;

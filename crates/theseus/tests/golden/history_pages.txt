@@ -3,8 +3,8 @@ $ theseus history ses_q7f3k2 -n 2 --before 5
 session.history
 --- stdout
 ── ses_q7f3k2 · "Tidy the notes" · 3 turn(s) · 4 tool call(s) · $0.0123 · glm-x · waiting
-[06:26:41.234Z] operator: And list them.
-[06:26:43.702Z] glm-x: Two files.
+[06:26:41.234Z] nod·nod_1 operator: And list them.
+[06:26:43.702Z] nod·nod_3 glm-x: Two files.
       ↳  · in 0 out 0
 ── older nodes before position 1: theseus history ses_q7f3k2 --before 1
 --- stderr
@@ -14,8 +14,8 @@ $ theseus history ses_q7f3k2 -n 2 --after 0
 session.history
 --- stdout
 ── ses_q7f3k2 · "Tidy the notes" · 3 turn(s) · 4 tool call(s) · $0.0123 · glm-x · waiting
-[06:26:41.234Z] operator: And list them.
-[06:26:43.702Z] glm-x: Two files.
+[06:26:41.234Z] nod·nod_1 operator: And list them.
+[06:26:43.702Z] nod·nod_3 glm-x: Two files.
       ↳  · in 0 out 0
 ── more nodes after position 3: theseus history ses_q7f3k2 --after 3
 --- stderr

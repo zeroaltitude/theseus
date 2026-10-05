@@ -1,0 +1,8 @@
+$ theseus reach msg·e0f1a2
+--- requests
+node.reach
+--- stdout
+msg_0198d3a0b1c2d3e4f5a6b7c8d9e0f1a2: seen by 1 context in 1 session · first 06:26:40.001Z · last 06:26:40.001Z
+  generation 0 · ses_q7f3k2 · msg_0198d3a0b1c2d3e4f5a6b7c8d9e0f1a2 at 120: 0 compilations, 1 loop · first 06:26:40.001Z · last 06:26:40.001Z
+--- stderr
+--- exit 0

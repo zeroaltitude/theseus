@@ -49,3 +49,15 @@ pub struct SessionHistoryResult {
     #[cfg_attr(test, ts(optional))]
     pub older: Option<u64>,
 }
+
+/// An id as people name it (theseus-glyw), as the cockpit's `short` writes
+/// it (cockpit/src/lib/figures.ts): its prefix, `·`, and its last six
+/// characters (`ses_01a0…61b55e` is `ses·61b55e`). `node.reach` takes it.
+pub fn short_id(id: &str) -> String {
+    let n = id.chars().count();
+    let tail: String = id.chars().skip(n.saturating_sub(6)).collect();
+    match id.split_once('_') {
+        Some((p, _)) if !p.is_empty() => format!("{p}·{tail}"),
+        _ => tail,
+    }
+}

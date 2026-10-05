@@ -248,7 +248,7 @@ pub async fn history(
         let mut out = io::stdout().lock();
         writeln!(out, "{}", render::session_header(&h.session))?;
         for node in &h.nodes {
-            print::lines(&mut out, &render::node_lines(node, full))?;
+            print::lines(&mut out, &render::history::node_lines(node, full))?;
         }
         for c in &h.pending_confirms {
             print::lines(&mut out, &render::confirm_lines(c))?;

@@ -2235,6 +2235,8 @@ pub struct NodeListResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NodeReachParams {
+    /// A node's whole id, or its last 6 or more characters, or the cockpit's
+    /// `msg·a1b2c3`, when one node ends so (theseus-glyw).
     pub node_id: String,
     /// How many generations of copies to follow: 3 by default, at most 16.
     /// 0 answers the node's own session only.

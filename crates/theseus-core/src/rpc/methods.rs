@@ -1207,14 +1207,24 @@ impl Core {
         })
     }
 
-    /// `node.reach` (theseus-n4m, step 12a): see `reach.rs`.
+    /// `node.reach` (theseus-n4m, step 12a): see `reach.rs`. A node is named
+    /// by its whole id, or by its id's end when one node's ends so
+    /// (theseus-glyw, `reach::resolve`).
     pub(super) fn node_reach(
         &self,
         p: theseus_protocol::NodeReachParams,
     ) -> Result<theseus_protocol::NodeReachResult, RpcFailure> {
-        crate::reach::reach(&self.store, &p.node_id, p.max_generations)?.ok_or_else(|| {
-            RpcFailure::new(error_code::NOT_FOUND, format!("no node {:?}", p.node_id))
-        })
+        use crate::reach::Named;
+        if let Some(r) = crate::reach::reach(&self.store, &p.node_id, p.max_generations)? {
+            return Ok(r);
+        }
+        let id = match crate::reach::resolve(&self.store, &p.node_id)? {
+            Named::One(id) => id,
+            Named::Unknown(why) => return Err(RpcFailure::new(error_code::NOT_FOUND, why)),
+            Named::Refused(why) => return Err(RpcFailure::new(error_code::INVALID_PARAMS, why)),
+        };
+        crate::reach::reach(&self.store, &id, p.max_generations)?
+            .ok_or_else(|| RpcFailure::new(error_code::NOT_FOUND, format!("no node {id:?}")))
     }
 
     pub(super) fn action_confirm(
