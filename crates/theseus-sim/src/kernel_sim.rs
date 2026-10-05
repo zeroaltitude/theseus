@@ -89,6 +89,7 @@ use theseus_store::{Store, WalConfig, WalStore};
 
 mod counts;
 mod outbox;
+mod queues;
 mod stops;
 mod tasks;
 mod wakes;
@@ -255,6 +256,8 @@ struct World {
     occurrences: HashMap<String, u32>,
     /// What sim2's checks keep (theseus-celu.35).
     s2: counts::Sim2,
+    /// Every frame that queues an execution holds its row (theseus-2xep).
+    queues: queues::Queues,
 }
 
 /// Executions stored with unit budgets before theseus-0sg, seeded into the
@@ -301,8 +304,15 @@ fn legacy_records() -> Result<Vec<theseus_store::NewRecord>> {
         .collect()
 }
 
-fn new_kernel(store: Arc<dyn Store>, clock: Arc<VirtualClock>, c: KernelConfig) -> Kernel {
-    Kernel::new(store, clock, c).with_legacy_spend(Arc::new(legacy_spend))
+fn new_kernel(
+    store: Arc<dyn Store>,
+    clock: Arc<VirtualClock>,
+    c: KernelConfig,
+    q: &queues::Queues,
+) -> Kernel {
+    let k = Kernel::new(store, clock, c).with_legacy_spend(Arc::new(legacy_spend));
+    k.observe(q.observer());
+    k
 }
 
 /// The store as the daemon opens it: its index keeps the kernel's terms
@@ -357,7 +367,8 @@ pub fn run(p: SimParams) -> Result<SimReport> {
     let spool = Spool::open(&dir.join("spool"))?;
     let store = open_store(&dir, &p)?;
     store.append(&legacy_records()?)?;
-    let kernel = new_kernel(store, clock.clone(), cfg(&p, FIRST_LIMIT));
+    let queues = queues::Queues::default();
+    let kernel = new_kernel(store, clock.clone(), cfg(&p, FIRST_LIMIT), &queues);
     kernel.startup(
         Some(&spool),
         &WrapperEvidence {
@@ -394,6 +405,7 @@ pub fn run(p: SimParams) -> Result<SimReport> {
         fired: HashSet::new(),
         occurrences: HashMap::new(),
         s2: counts::Sim2::default(),
+        queues,
     };
     w.rep.legacy_migrated = w
         .kernel
@@ -485,6 +497,7 @@ impl World {
                 open_store(&self.dir, &self.p)?,
                 self.clock.clone(),
                 c.clone(),
+                &self.queues,
             );
             let ev = WrapperEvidence {
                 spool: self.spool.clone(),
@@ -1829,6 +1842,7 @@ impl World {
         self.check_terms(at, &execs, &actions, &stats)?;
         self.check_wakes(at, &execs)?;
         self.check_tasks(at, &execs)?;
+        self.queues.check(at)?;
         // An execution that was cancelled never runs again (theseus-id9). Read
         // in WAL order, as far as the store has gone: after an execution's
         // `execution.cancelled` row, no turn of it starts and no action of it

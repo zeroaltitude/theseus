@@ -501,17 +501,12 @@ impl Board {
                     let Ok(row) = serde_json::from_slice::<LedgerRow>(payload) else {
                         continue;
                     };
+                    // Every queue writes its row, a result's included
+                    // (theseus-2xep): the why is read from it alone.
                     let id = row.data["execution_id"].as_str();
                     if row.kind == "execution.queued" {
                         if let (Some(id), Some(w)) = (id, row.data["why"].as_str()) {
                             why.insert(id.to_string(), w.to_string());
-                        }
-                    } else if row.kind.starts_with("action.")
-                        && row.data["execution_state"] == "queued"
-                    {
-                        // A job's result queued it: its row is the action's.
-                        if let Some(id) = id {
-                            why.entry(id.to_string()).or_insert_with(|| "result".into());
                         }
                     }
                 }

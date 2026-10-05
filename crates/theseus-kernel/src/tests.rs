@@ -190,9 +190,12 @@ fn full_lifecycle_one_action_one_turn() {
     ));
     let frame_len = w.kernel.store().last_position() - before;
     assert_eq!(
-        frame_len, 4,
-        "completion + action + execution + ledger, one frame"
+        frame_len, 5,
+        "completion + action + execution + the action's row + the queue's, one frame"
     );
+    // Every queue writes its row (theseus-2xep): the completion's says why.
+    let queued = rows(&w, &s, "execution.queued");
+    assert_eq!(queued.last().unwrap()["why"], "result", "{queued:?}");
     let e4 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert!(e4.outstanding.is_empty());
     assert_eq!(e4.queued_results, vec![a.correlation_id]);

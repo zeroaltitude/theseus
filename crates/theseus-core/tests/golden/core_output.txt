@@ -320,8 +320,9 @@ narrate turn session=ses_#1 turn=turn_#25 Turn …#25 ended after # loops in <n>
 narrate session session=ses_#1 turn=turn_#25 Parked until # background job finishes.
 
 -- the heartbeat takes the job's completion
-frame: completion act_#29 · action act_#29 · execution exe_#2 · ledger
+frame: completion act_#29 · action act_#29 · execution exe_#2 · ledger · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.succeeded","session_id":"ses_#1","data":{"correlation_id":"act_#29","cost_usd":null,"duration_ms":#,"execution_id":"exe_#2","execution_state":"queued","outcome":"succeeded","producer":"wrapper:#"}}
+  ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"result"}}
 narrate job session=ses_#1 turn=- Job …#29 (proc.run) finished: succeeded, exit code #; its completion came from the spool.
 
 -- the driver: the late result's turn
