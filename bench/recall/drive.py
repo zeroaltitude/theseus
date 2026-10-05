@@ -194,6 +194,24 @@ def processes_naming(d: Path) -> list[tuple[int, str]]:
     return out
 
 
+def run_group(cmd: list[str], text: str, timeout: float, **kw) -> tuple[str, str, int | None]:
+    """`cmd` with `text` on stdin, in a process group of its own: its stdout,
+    its stderr, and its exit code, or None when it ran past `timeout`, and
+    then the whole group is killed (a tool's children with it)."""
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                         start_new_session=True, **kw)
+    try:
+        out, err = p.communicate(text, timeout=timeout)
+        return out, err, p.returncode
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        out, err = p.communicate()
+        return out or "", (err or "") + "\ntimed out", None
+
+
 def _env_without(names) -> dict:
     env = dict(os.environ)
     for n in names:
@@ -397,14 +415,14 @@ class Theseus:
                     sids.append(sid)
                 pg.apply_before(t, run.workspace)
                 t0 = time.monotonic()
-                try:
-                    r = self.cli("--json", "ask", "-s", sid, "-", input=t.text, timeout=a.turn_timeout)
-                    out, code, err = r.stdout, r.returncode, r.stderr
-                except subprocess.TimeoutExpired as e:
-                    out, code, err = (e.stdout or ""), None, "timed out"
-                    if isinstance(out, bytes):
-                        out = out.decode(errors="replace")
+                out, err, code = run_group(
+                    [str(self.theseus), "--socket", str(self.sock), "--json", "ask", "-s", sid, "-"],
+                    t.text, a.turn_timeout, env=self.env)
                 ms = int((time.monotonic() - t0) * 1000)
+                if code is None:
+                    # The turn goes on in the daemon without its client: stop
+                    # it, as /stop does, so the next turn starts clean.
+                    self.cli("stop", sid, timeout=60)
                 (run.raw / f"t{t.index:04d}.json").write_text(out)
                 try:
                     v = json.loads(out) if out.strip() else {}
@@ -420,7 +438,7 @@ class Theseus:
                 run.turn({
                     "index": t.index, "session": t.session, "session_id": sid, "role": t.role,
                     "reply": v.get("output", ""), "stop": v.get("stop_reason"), "exit": code,
-                    "error": err.strip()[-400:] if code else None, "tokens": _tokens(v.get("usage")),
+                    "error": err.strip()[-400:] if code != 0 else None, "tokens": _tokens(v.get("usage")),
                     "cost_usd": v.get("cost_usd"), "latency_ms": ms, "compacted": bool(new),
                     "tool_calls": v.get("tool_calls"),
                 })
@@ -486,14 +504,7 @@ class ClaudeCode:
         cmd += ["--session-id", sid] if first else ["--resume", sid]
         cmd += self.a.claude_arg
         t0 = time.monotonic()
-        try:
-            r = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=timeout,
-                               cwd=self.run.workspace, env=self.env)
-            out, code = r.stdout, r.returncode
-        except subprocess.TimeoutExpired as e:
-            out, code = e.stdout or "", None
-            if isinstance(out, bytes):
-                out = out.decode(errors="replace")
+        out, _, code = run_group(cmd, text, timeout, cwd=self.run.workspace, env=self.env)
         ms = int((time.monotonic() - t0) * 1000)
         try:
             v = json.loads(out) if out.strip() else {}

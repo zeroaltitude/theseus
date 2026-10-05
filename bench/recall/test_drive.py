@@ -196,6 +196,20 @@ class LeftRunning(unittest.TestCase):
             self.assertEqual(drive.processes_naming(d), [])
 
 
+class Timeouts(unittest.TestCase):
+    def test_a_turn_past_its_timeout_is_killed_with_its_children(self):
+        with tempfile.TemporaryDirectory() as d:
+            t0 = time.monotonic()
+            out, err, code = drive.run_group(["sh", "-c", "echo started; sleep 30 & sleep 30"], "", 0.5, cwd=d)
+            self.assertLess(time.monotonic() - t0, 10)
+            self.assertIsNone(code)
+            self.assertIn("timed out", err)
+            self.assertEqual(out, "started\n")
+            time.sleep(0.2)
+            self.assertEqual(drive.processes_naming(Path(d)), [])
+            self.assertEqual(drive.run_group(["cat"], "x", 5), ("x", "", 0))
+
+
 class TheseusConfig(unittest.TestCase):
     def test_the_daemons_config_is_the_bench_profile_with_the_arm_set(self):
         base = tomllib.loads(drive.PROFILE.read_text())
@@ -258,38 +272,68 @@ def rules_for(prog: pg.Progression) -> list[dict]:
 
 @unittest.skipIf(bin_dir() is None, "no theseus binaries (cargo build --workspace, or THESEUS_RECALL_BIN_DIR)")
 class TheseusDriver(unittest.TestCase):
-    def test_the_smoke_runs_end_to_end_on_a_scratch_daemon_and_leaves_nothing(self):
+    def drive(self, d: Path, prog: pg.Progression, rules: list[dict], timeout: str = "120") -> tuple[int, str, Path]:
+        """`prog` driven through a scratch daemon on the stand-in model."""
         bins = bin_dir()
+        gen = d / "gen"
+        prog.save(gen)
+        (d / "rules.json").write_text(json.dumps(rules))
+        port = free_port()
+        fake = subprocess.Popen([str(bins / "theseus-sim"), "fake-model", "--addr", f"127.0.0.1:{port}",
+                                 "--rules", str(d / "rules.json")],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            deadline = time.monotonic() + 10
+            while True:
+                try:
+                    socket.create_connection(("127.0.0.1", port), 0.2).close()
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(0.05)
+            out = d / "run"
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = drive.main(["--arm", "theseus", "--memory-arm", "baseline", "--bin-dir", str(bins),
+                                 "--progression", str(gen), "--out", str(out), "--turn-timeout", timeout,
+                                 "--api-base", f"http://127.0.0.1:{port}"])
+        finally:
+            fake.kill()
+            fake.wait()
+        return rc, buf.getvalue(), out
+
+    def test_a_turn_past_its_timeout_is_stopped_and_the_next_one_runs(self):
+        # The last turn runs a job that outlasts the turn's timeout, and one
+        # more turn follows it. A recall note may quote a turn's text, and the
+        # stand-in takes the first rule whose text it finds anywhere, so the
+        # turn after the slow one has its own rule first.
+        prog = generate.build(7, "smoke")
+        slow = prog.turns[-1]
+        prog.turns.append(pg.Turn(index=slow.index + 1, session=slow.session, block=slow.block, topic=slow.topic,
+                                  text="Last one: are we done for the day?", role="filler", est_tokens=300))
+        rules = [{"when": prog.turns[-1].text, "text": "We are."},
+                 {"when": slow.text, "calls": [{"name": "proc_run", "input": {"argv": ["sleep", "30"]}}]}]
+        with tempfile.TemporaryDirectory() as d:
+            rc, said, out = self.drive(Path(d), prog, rules + rules_for(prog), timeout="8")
+            self.assertEqual(rc, 0, said)
+            rows = {r["index"]: r for r in map(json.loads, (out / "turns.jsonl").read_text().splitlines())}
+            self.assertIsNone(rows[slow.index]["exit"])
+            self.assertIn("timed out", rows[slow.index]["error"])
+            self.assertEqual([i for i, r in rows.items() if r["exit"] != 0], [slow.index])
+            # It ran, and answered: it carries the stopped call's result, which
+            # the stand-in answers "Done.", as it answers any tool result.
+            self.assertIn(rows[slow.index + 1]["reply"], ("We are.", "Done."))
+            run = json.loads((out / "run.json").read_text())
+            # The stop took its job too: nothing works in the workspace.
+            self.assertEqual(run["left_running"], [])
+
+    def test_the_smoke_runs_end_to_end_on_a_scratch_daemon_and_leaves_nothing(self):
         prog = generate.build(7, "smoke")
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
-            gen = d / "gen"
-            prog.save(gen)
-            (d / "rules.json").write_text(json.dumps(rules_for(prog)))
-            port = free_port()
-            fake = subprocess.Popen([str(bins / "theseus-sim"), "fake-model", "--addr", f"127.0.0.1:{port}",
-                                     "--rules", str(d / "rules.json")],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            try:
-                deadline = time.monotonic() + 10
-                while True:
-                    try:
-                        socket.create_connection(("127.0.0.1", port), 0.2).close()
-                        break
-                    except OSError:
-                        if time.monotonic() > deadline:
-                            raise
-                        time.sleep(0.05)
-                out = d / "run"
-                buf = io.StringIO()
-                with redirect_stdout(buf):
-                    rc = drive.main(["--arm", "theseus", "--memory-arm", "baseline", "--bin-dir", str(bins),
-                                     "--progression", str(gen), "--out", str(out), "--turn-timeout", "120",
-                                     "--api-base", f"http://127.0.0.1:{port}"])
-            finally:
-                fake.kill()
-                fake.wait()
-            self.assertEqual(rc, 0, buf.getvalue())
+            rc, said, out = self.drive(d, prog, rules_for(prog))
+            self.assertEqual(rc, 0, said)
             run = json.loads((out / "run.json").read_text())
             self.assertEqual(run["left_running"], [])
             self.assertEqual(run["killed"], [])
