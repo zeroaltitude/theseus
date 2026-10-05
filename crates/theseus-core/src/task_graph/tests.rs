@@ -336,3 +336,38 @@ fn a_check_sees_the_checked_task_by_title_and_state() {
     assert!(v.text.contains(&line(&sub)), "{}", v.text);
     assert_eq!(v.summary.restricted, 0);
 }
+
+/// A change's board is its home's (39b): a plan item's home is its root's
+/// origin session; a task session's own plan items, which no place routes,
+/// belong to its parent's board.
+#[test]
+fn a_tasks_home_is_its_roots_origin_or_a_task_sessions_parents() {
+    let mut delegated = task(
+        "tsk_000delegate",
+        "ses_lighthouse",
+        None,
+        TaskState::Accepted,
+    );
+    delegated.session = Some("ses_000delegate".into());
+    let reef = task("tsk_reef", "ses_lighthouse", None, TaskState::Accepted);
+    let north = task(
+        "tsk_north",
+        "ses_lighthouse",
+        Some("tsk_reef"),
+        TaskState::Accepted,
+    );
+    let inside = task("tsk_inside", "ses_000delegate", None, TaskState::Accepted);
+    let under = task(
+        "tsk_under",
+        "ses_000delegate",
+        Some("tsk_inside"),
+        TaskState::Accepted,
+    );
+    let elsewhere = task("tsk_buoy", "ses_harbour", None, TaskState::Accepted);
+    let all = vec![delegated, reef, north, inside, under, elsewhere];
+    for t in &all[..5] {
+        assert_eq!(home(&all, t), "ses_lighthouse", "{}", t.id);
+    }
+    assert_eq!(home(&all, &all[5]), "ses_harbour");
+    assert_eq!(homed(&all, "ses_lighthouse").len(), 5);
+}

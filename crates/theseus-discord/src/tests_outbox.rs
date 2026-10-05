@@ -1098,3 +1098,158 @@ async fn a_hands_groups_line_is_one_message_edited_in_place() {
     );
     assert!(a.edits >= 1, "{a:?}");
 }
+
+// ---------------------------------------------------------------- the task board (39b)
+
+use crate::render::{BOARD_HEAD, BOARD_KEY};
+
+/// The board messages in a channel (M7 39b, theseus-ext.14).
+fn boards(fake: &FakeDiscord, channel: u64) -> Vec<Msg> {
+    fake.messages(channel)
+        .into_iter()
+        .filter(|m| m.content.starts_with(BOARD_HEAD))
+        .collect()
+}
+
+fn plan(id: &str, title: &str) -> Scripted {
+    Scripted::tools(
+        "On it.",
+        &[(id, "task_create", serde_json::json!({"title": title}))],
+    )
+}
+
+/// The design's 39b test: the board renders and edits. Two plan items, then
+/// a split and a claim: one board message in the DM, made at the first
+/// change and edited at each later one, its last state the whole tree with
+/// the claim, and pinned.
+#[tokio::test]
+async fn the_board_is_one_message_edited_in_place_and_pinned() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let script = vec![
+        plan("t_reef", "Chart the reef"),
+        Scripted::text("Recorded."),
+        plan("t_buoy", "Paint the buoy"),
+        Scripted::text("Recorded."),
+    ];
+    let core = core_at(d.path(), &fake, script, |c| {
+        c.policy.enforcement = Posture::Open;
+    });
+    let rpc = bind(&core, d.path(), &dm_only()).await;
+    let sid = session(&core);
+    ask(&rpc, &sid, "plan the reef").await;
+    let f = fake.clone();
+    until("the board", 10, move || boards(&f, DM).len() == 1).await;
+    ask(&rpc, &sid, "and the buoy").await;
+    let f = fake.clone();
+    until("the board's second task", 10, move || {
+        boards(&f, DM)
+            .first()
+            .is_some_and(|m| m.content.contains("Paint the buoy"))
+    })
+    .await;
+    let b = &boards(&fake, DM)[0];
+    assert_eq!(boards(&fake, DM).len(), 1, "one board a place");
+    assert!(b.edits >= 1, "edited in place: {b:?}");
+    assert!(b.content.contains("Chart the reef"), "{}", b.content);
+    assert!(
+        b.content
+            .starts_with(&format!("{BOARD_HEAD} · 2 open, 0 closed")),
+        "{}",
+        b.content
+    );
+    let f = fake.clone();
+    until("the board pinned", 10, move || boards(&f, DM)[0].pinned).await;
+}
+
+/// A bot that may not pin: the board is made and edited all the same, and
+/// stays unpinned.
+#[tokio::test]
+async fn a_refused_pin_leaves_the_board_unpinned_and_edited() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    fake.refuse_pins(true);
+    let core = core_at(
+        d.path(),
+        &fake,
+        vec![
+            plan("t_reef", "Chart the reef"),
+            Scripted::text("Recorded."),
+        ],
+        |c| c.policy.enforcement = Posture::Open,
+    );
+    let rpc = bind(&core, d.path(), &dm_only()).await;
+    let sid = session(&core);
+    ask(&rpc, &sid, "plan the reef").await;
+    let f = fake.clone();
+    until("the board", 10, move || boards(&f, DM).len() == 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!boards(&fake, DM)[0].pinned);
+    assert!(
+        fake.seen()
+            .iter()
+            .any(|s| s.method == "PUT" && s.outcome == "refused"),
+        "the pin was asked for"
+    );
+}
+
+/// After a restart the lane's map is empty: its first board write finds the
+/// pinned board among the channel's pins and edits it, and makes no second.
+#[tokio::test]
+async fn a_lane_after_a_restart_finds_the_pinned_board() {
+    use crate::courier::{Lane, LaneMsg};
+    use crate::render::{Buttons, Op};
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let _rpc = bind(&core, d.path(), &dm_only()).await;
+    let shared = crate::runtime::shared_for_tests(&core);
+    let lane = |n: &str| {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let lane = Lane::new(
+            shared.clone(),
+            "discord:test".into(),
+            "channel",
+            format!("#test-{n}"),
+            Some(CHANNEL),
+            None,
+        );
+        tokio::spawn(lane.run(rx));
+        tx
+    };
+    let board = |text: &str| {
+        LaneMsg::Live(Op::Upsert {
+            key: BOARD_KEY.into(),
+            content: format!("{BOARD_HEAD} · {text}"),
+            buttons: Buttons::Keep,
+        })
+    };
+    let first = lane("before");
+    let _ = first.send(board("1 open, 0 closed"));
+    let f = fake.clone();
+    until("the board pinned", 10, move || {
+        boards(&f, CHANNEL).first().is_some_and(|m| m.pinned)
+    })
+    .await;
+    drop(first);
+    // A restart, past the nonce's window: only the pins can find it.
+    fake.set_nonce_window_ms(0);
+    let creates = || {
+        fake.seen()
+            .iter()
+            .filter(|s| s.method == "POST" && s.path == format!("/channels/{CHANNEL}/messages"))
+            .count()
+    };
+    let before = creates();
+    let second = lane("after");
+    let _ = second.send(board("2 open, 0 closed"));
+    let f = fake.clone();
+    until("the board edited", 10, move || {
+        boards(&f, CHANNEL)
+            .first()
+            .is_some_and(|m| m.content.ends_with("2 open, 0 closed"))
+    })
+    .await;
+    assert_eq!(boards(&fake, CHANNEL).len(), 1, "found, not made again");
+    assert_eq!(creates(), before, "no create after the restart");
+}

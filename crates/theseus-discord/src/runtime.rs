@@ -51,6 +51,7 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod audience;
+mod board;
 mod extensions;
 mod guilds;
 mod jev;
@@ -690,6 +691,8 @@ enum PlaceMsg {
     },
     DmChannel(Id<ChannelMarker>),
     Voice(voice::VoiceTurn),
+    /// A task of this place's changed: its board's latest state (39b).
+    Board,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1802,6 +1805,10 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
         let Ok(Some(e)) = CoreEvent::from_notification(&n.method, &n.params) else {
             continue;
         };
+        if let CoreEvent::TaskChanged(c) = &e {
+            board::route(&shared, c);
+            continue;
+        }
         if everywhere(&e) {
             let places: Vec<mpsc::UnboundedSender<PlaceMsg>> = shared
                 .routes
@@ -1997,6 +2004,7 @@ impl Place {
                 self.report();
             }
             PlaceMsg::Voice(t) => self.voice_turn(t),
+            PlaceMsg::Board => self.board(),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
                 let _ = reply.send(text);
@@ -2145,24 +2153,9 @@ impl Place {
                     Err(e) => format!("⚠️ Could not stop: {e}."),
                 }
             }
-            Control::Tasks => {
-                // The tasks that report here (DD7), the newest first.
-                match self
-                    .shared
-                    .rpc
-                    .call::<_, theseus_protocol::TaskListResult>(
-                        theseus_protocol::method::TASK_LIST,
-                        theseus_protocol::TaskListParams {
-                            session_id: None,
-                            target: Some(self.target.clone()),
-                        },
-                    )
-                    .await
-                {
-                    Ok(l) => crate::render::tasks(&l.tasks, theseus_protocol::now_unix_ms()),
-                    Err(e) => format!("⚠️ Could not list the tasks: {e}."),
-                }
-            }
+            // The task graph here, then the tasks that report here today
+            // (39b; DD7).
+            Control::Tasks => self.tasks_here().await,
             Control::Wakes => {
                 // The wakes whose turns post here (DD8), the soonest first.
                 match self

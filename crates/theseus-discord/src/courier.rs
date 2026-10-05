@@ -21,6 +21,8 @@
 //! waits until the place has shown its call (`LaneMsg::Asked`), at most
 //! `CARD_WAIT`; what the place showed before that goes first.
 
+mod board;
+
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -265,6 +267,10 @@ pub(crate) struct Lane {
     /// The place showed a call after live progress came: that progress goes
     /// before the next post.
     pub stream_first: bool,
+    /// The task board was looked for among the pins in this process (39b).
+    pub board_sought: bool,
+    /// A pin of the board was refused, and said so once.
+    pub pin_refused: bool,
 }
 
 impl Lane {
@@ -296,6 +302,8 @@ impl Lane {
             asked: VecDeque::new(),
             held: None,
             stream_first: false,
+            board_sought: false,
+            pin_refused: false,
         }
     }
 
@@ -1191,6 +1199,9 @@ impl Lane {
             }
             let r = match op {
                 Op::Typing => self.typing().await,
+                Op::Upsert { key, content, .. } if key == render::BOARD_KEY => {
+                    self.board(content).await
+                }
                 Op::Upsert {
                     key,
                     content,

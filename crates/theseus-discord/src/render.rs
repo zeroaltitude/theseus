@@ -21,6 +21,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use serde_json::Value;
 use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
+mod board;
+pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
 pub const PART_LIMIT: usize = 1900;
