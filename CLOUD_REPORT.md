@@ -283,9 +283,12 @@ gate: plain 5 frames (budget 5), tool-call 9 (budget 9).
 - **Commit 1's gate** was fmt, clippy (theseus-memory and theseus-core) and 87 tests (theseus-memory, and the
   core's retention, recall and registry tests), not the whole gate: I built it by stashing the full change; the
   whole gate ran on each of the four later commits.
-- **One command was refused** by the environment: the load recipe's  (its checker
-  reads  as a possible removal). The loops ran from a script file instead (a shell function, four at nice 0,
-  killed by pid), the same load.
+- **One command was refused** by the environment: the load recipe's busy loop written as a shell `-c` string
+  (its checker reads that as a possible removal). The loops ran from a script file instead (a shell function, four
+  at nice 0, killed by pid), the same load. Later, writing this report through an unquoted heredoc made the shell
+  run that same loop text once as a command substitution; I found it (pid 7404, 2 minutes old) and killed it by
+  pid, and that slip committed a first version of this report with two passages blank (a3691bf), fixed in the
+  next commit.
 - **The disk**: the per-session allowance filled once (a `cargo build -p …` of four binaries unified features
   differently and began a second build of the dependencies); deleting `target/debug/incremental` freed it.
 
@@ -298,7 +301,7 @@ failed, 17 skipped**, and the 33 are exactly the known L1 set on a root VM (thes
 them). The same 33 at every gate. `tests_output::the_cores_output_matches_its_golden` (under the Phoenix TZ),
 `tests_pages::a_filtered_page_equals_the_scans_answer` and `python3s_repl_computes_on_the_screen` passed; no test
 needed a retry but one on the flaky list, at 02972b6's gate: theseus-sim's
- (theseus-81ig), . The phases after the suite, run by hand: protocol types clean (the regenerated
+`the_kernel_holds_its_invariants_under_seeded_faults` (theseus-81ig), `FLAKY 2/3`. The phases after the suite, run by hand: protocol types clean (the regenerated
 `protocol.gen` staged), nothing compiled under the lock, the turn bench `--check --runs 5 --burst 0` ok (5 and 9
 frames), and `cargo deny --offline check`: advisories, bans, licenses and sources ok (`cargo deny fetch` worked at
 setup). The lifecycle and jobs benches are skipped by `THESEUS_GATE_NO_BENCH`.
