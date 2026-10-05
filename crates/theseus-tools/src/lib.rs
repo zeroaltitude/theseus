@@ -21,6 +21,9 @@ pub mod image;
 pub mod net;
 pub mod paths;
 pub mod proc;
+mod recount;
+#[cfg(test)]
+mod tests_patch;
 pub mod text;
 
 /// Read, write, or run: the protocol's type, since a call's plan carries its
