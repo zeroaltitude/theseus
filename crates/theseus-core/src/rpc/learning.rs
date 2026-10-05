@@ -23,7 +23,7 @@ use super::server::{Conn, RpcFailure};
 use super::{Act, Core};
 use crate::approval::{Answerer, Refusal};
 use crate::fact;
-use crate::learning::{self, labels, report, LabelRow, HOLDOUT_DAYS, LAST_RUN};
+use crate::learning::{self, labels, report, LabelRow, LAST_RUN};
 use crate::ledger::LedgerRow;
 
 /// A report row's key: its local day and pack version.
@@ -42,7 +42,10 @@ impl Core {
         let who = who.into();
         let row = self.judgment_row(&p.judgment)?;
         let pack_name = row.data["pack"].as_str().unwrap_or_default().to_string();
-        let pack = theseus_judge::pack::by_name(&pack_name)
+        let pack = self
+            .runner
+            .judge
+            .pack(&pack_name)
             .with_context(|| format!("this build has no pack {pack_name}"))?;
         let question = p
             .question
@@ -215,7 +218,10 @@ impl Core {
             );
         }
         let date = crate::judge::spend::local_day(now_ms);
-        let window = Window::latest(learning::local_midnight(now_ms), HOLDOUT_DAYS);
+        let window = Window::latest(
+            learning::local_midnight(now_ms),
+            self.cfg.judge.holdout_days,
+        );
         let mut records: Vec<NewRecord> = Vec::new();
         let mut packs: Vec<PackReport> = Vec::new();
         let mut counts = LabelCounts::default();

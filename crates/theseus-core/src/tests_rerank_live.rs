@@ -547,6 +547,7 @@ async fn a_ladder_rollback_of_rerank_stops_its_live_order() {
         &theseus_protocol::packs::PackRollbackParams {
             pack: "rerank.v1".into(),
             why: None,
+            off: false,
         },
         "cli",
     )

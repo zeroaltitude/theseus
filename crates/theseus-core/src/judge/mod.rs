@@ -33,6 +33,7 @@ pub mod compile;
 pub mod gate;
 pub mod inbound;
 pub mod ladder;
+pub mod lineage;
 pub mod loop_end;
 pub mod mark;
 pub mod memory;
@@ -173,6 +174,8 @@ pub struct JudgeService {
     /// Each pack's mode (26a): read at the first read after serving, then
     /// kept.
     ladder: ladder::Ladder,
+    /// Learned versions (25f), read with the ladder, then kept.
+    lineage: lineage::Lineage,
 }
 
 impl JudgeService {
@@ -208,6 +211,7 @@ impl JudgeService {
         Arc::new_cyclic(|me| Self {
             cfg,
             ladder,
+            lineage: lineage::Lineage::default(),
             store,
             secrets,
             scrubber,
@@ -260,7 +264,8 @@ impl JudgeService {
         if !self.cfg.enabled {
             return ladder::Given::OFF;
         }
-        self.ladder.given(&self.cfg, pack, session)
+        let given = self.ladder.given(&self.cfg, pack, session);
+        self.capped_by_root(pack, given)
     }
 
     /// Whether `pack` is on at all (`mode_for`, whose `off` is no session's).
@@ -402,13 +407,15 @@ impl JudgeService {
         if stop_reason != "no_tool_calls" {
             return None;
         }
-        let given = self.mode_for(LOOP_PACK, session_id);
+        // The version standing in loop.v1's place (25f).
+        let name = self.placed(LOOP_PACK, session_id);
+        let given = self.mode_for(&name, session_id);
         if !given.on() {
             return None;
         }
-        let pack = theseus_judge::pack::by_name(LOOP_PACK)?;
+        let pack = self.pack(&name)?;
         sampled(turn_id, self.cfg.sample_of(LOOP_PACK, pack.sample))
-            .then(|| Dispatch::new(LOOP_PACK, "loop_end", given.judge_mode()))
+            .then(|| Dispatch::new(&name, "loop_end", given.judge_mode()))
     }
 
     /// Mark the turn's trace with `loop.v1`'s dispatch, when it judges the
@@ -475,7 +482,7 @@ impl JudgeService {
         let Some(d) = self.plan_loop_end("no_tool_calls", &end.turn_id, &end.session_id) else {
             return;
         };
-        let Some(pack) = theseus_judge::pack::by_name(LOOP_PACK) else {
+        let Some(pack) = self.pack(&d.pack) else {
             return;
         };
         let Ok(rt) = tokio::runtime::Handle::try_current() else {

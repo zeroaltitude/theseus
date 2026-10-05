@@ -542,6 +542,7 @@ async fn a_ladder_rollback_of_route_stops_it_routing() {
             &theseus_protocol::packs::PackRollbackParams {
                 pack: "route.v1".into(),
                 why: None,
+                off: false,
             },
             "cli",
         )

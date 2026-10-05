@@ -139,7 +139,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         sandbox::SandboxHealth, judge::JudgeHealth, judge::JudgeScored, judge::JudgeNoticed, judge::JudgeListParams, judge::JudgeListResult,
         judge::JudgeGetParams, judge::JudgeGetResult, learning::JudgeLabelParams, learning::JudgeLabelResult, packs::PackListResult, packs::PackInfo, packs::PackModeRow, packs::HoldoutBounds, packs::PackPromoteParams, packs::PackPromoteResult, packs::PackRollbackParams,
         learning::LearningReportParams, learning::LearningReport, judge_runs::JudgeReplayParams, judge_runs::ReplayLeftOut, judge_runs::ReplayJudgment, judge_runs::ReplayClassFell, judge_runs::ReplayEvalSide,
-        judge_runs::ReplayEval, judge_runs::JudgeReplayResult, judge_runs::JudgeAuditParams, judge_runs::JudgeAuditResult, judge_runs::JudgeBackfillParams, judge_runs::JudgeBackfillResult, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
+        judge_runs::ReplayEval, judge_runs::JudgeReplayResult, judge_runs::JudgeAuditParams, judge_runs::JudgeAuditResult, judge_runs::JudgeBackfillParams, judge_runs::JudgeBackfillResult, judge_runs::JudgeLearnParams, judge_runs::LearnClass, judge_runs::LearnQuestion, judge_runs::LearnThreshold, judge_runs::JudgeProposal, sandbox::SandboxLaunch, cancel::CancelVerdict, cancel::CancelCount,
         signals::CompileSignal, route::TurnRoute, sandbox::SandboxUsage, sandbox::RunningJob, lsp::LspServerStatus,
         bench::BenchHistoryParams, bench::BenchHistoryResult, bench::BenchRun, bench::BenchPhase, cred::HarnessOnly,
         AwsBudgetStatus, AwsGuardDutyStatus, AwsBootstrapParams, AwsBootstrapStack,

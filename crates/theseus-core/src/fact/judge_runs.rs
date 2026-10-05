@@ -143,3 +143,56 @@ impl Fact for JudgeBackfilled<'_> {
         );
     }
 }
+
+/// A learned version (`pack.version`, M5 25f): its whole TOML, sha256,
+/// parent, root, and the proposal that wrote it. The row holds the version;
+/// `<state dir>/packs/<name>.toml` is derived from it.
+pub struct PackVersioned<'a> {
+    pub learned: &'a crate::judge::lineage::Learned,
+}
+
+impl Fact for PackVersioned<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::PackVersion);
+
+    fn row(&self) -> Value {
+        self.learned.data()
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let l = self.learned;
+        say.line(
+            NarrativePart::Session,
+            format!(
+                "The learning loop wrote {} from {} ({}).",
+                l.name(),
+                l.parent,
+                l.proposal
+            ),
+        );
+    }
+}
+
+/// A proposal (`judge.proposal`, M5 25f): the errors read, the replay's
+/// numbers, the decision and why.
+pub struct JudgeProposed<'a> {
+    pub proposal: &'a theseus_protocol::judge_runs::JudgeProposal,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for JudgeProposed<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeProposal);
+
+    fn row(&self) -> Value {
+        let mut v = serde_json::to_value(self.proposal).unwrap_or(Value::Null);
+        if let Some(o) = v.as_object_mut() {
+            o.insert("who".into(), json!(self.who));
+            o.insert("via".into(), json!(self.via));
+        }
+        v
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(NarrativePart::Session, self.proposal.said.clone());
+    }
+}

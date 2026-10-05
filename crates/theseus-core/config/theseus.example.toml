@@ -766,6 +766,7 @@ learning_hour = 3                       # the local hour of the nightly learning
 replay_limit_usd = 0.5                  # what one `theseus judge replay` (or backfill) may spend; a run whose estimate passes it is refused
 audit_limit_usd = 5.0                   # what one `theseus judge audit` may spend on its model; the run stops before it would pass it
 backfill_consent = false                # true is the owner's consent that `theseus judge backfill` sends recorded history to Jev; agents can't write it
+holdout_days = 14                       # the holdout's days before the report's midnight; the learning loop's split from 200 labeled in it
 # api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
 # A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
 # [judge.packs."loop.v1"]
@@ -779,6 +780,19 @@ backfill_consent = false                # true is the owner's consent that `thes
 # or 3 labeled noise, pauses them until tomorrow; v3 still judges in shadow.
 # [judge.packs."security.v3"]
 # notices = true                        # false keeps security.v3 in shadow (only this pack takes the key)
+# The learning loop (M5 25f): nightly, after the report, a pack version with
+# min_errors new wrong-labels of yours (on its train split, never the holdout) has
+# its wording rewritten by writer_profile, as a new version (classify.v101, …) that
+# keeps every id, option and threshold; a replay checks it, thresholds are re-fit
+# in code, and the numbers place it: live, canary, in shadow, or (security) your
+# card; else held, with why. `theseus judge learn <pack>` runs it now.
+[judge.learn]
+enabled = true                          # on with the judge; false proposes nothing
+writer_profile = "opus"                 # the [profiles] key that writes the next version's text
+writer_limit_usd_per_day = 2.0          # what the writer may spend in a local day; a proposal past it is skipped and reported
+min_errors = 10                         # new train errors a version needs before it is rewritten
+max_errors = 40                         # the most the writer reads, newest first
+margin = 0.02                           # at the minimum sample, precision and recall each up by this on every deciding question
 # CONTINUE's candidate signals, which every compile computes, judge on or off, and
 # context.compiled carries. One that fires at a compile that appends asks continue.v1.
 # [judge.signals]

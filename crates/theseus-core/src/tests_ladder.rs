@@ -182,6 +182,7 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
             &PackRollbackParams {
                 pack: "loop.v1".into(),
                 why: None,
+                off: false,
             },
             stranger(),
         )
@@ -192,6 +193,7 @@ async fn short_of_the_bar_the_system_is_refused_and_the_owner_forces() {
             &PackRollbackParams {
                 pack: "loop.v1".into(),
                 why: Some("too eager".into()),
+                off: false,
             },
             "cli",
         )
@@ -316,6 +318,7 @@ async fn a_security_promotion_is_the_owners_card() {
         &PackRollbackParams {
             pack: "security.v1".into(),
             why: None,
+            off: false,
         },
         "cli",
     )

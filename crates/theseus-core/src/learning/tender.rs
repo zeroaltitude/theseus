@@ -128,12 +128,24 @@ impl Core {
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 async move {
+                    let rt = tokio::runtime::Handle::current();
                     let rx = on_low_thread(move || {
                         let c = core.upgrade()?;
                         let paced = |took: Duration| std::thread::sleep(took * 19);
                         let r = c.run_learning(theseus_protocol::now_unix_ms(), trigger, paced);
                         // The ladder's rules again, as the backstop (26a).
                         c.runner.judge.ladder().recheck();
+                        // Then the learning loop (25f): each lineage's
+                        // proposal, after the report.
+                        if r.is_ok() {
+                            let t0 = std::time::Instant::now();
+                            let props = c.learn_nightly(&rt, theseus_protocol::now_unix_ms());
+                            paced(t0.elapsed());
+                            tracing::info!(
+                                proposals = props.iter().filter(|p| p.decision != "none").count(),
+                                "learning: the loop ran"
+                            );
+                        }
                         Some(r)
                     });
                     match rx {

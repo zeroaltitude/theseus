@@ -83,7 +83,7 @@ pub fn flagged(call: &GateCall, judgments: &[Judgment]) -> Option<JudgeNoticed> 
         // Live, or canary in a canary's arm: the ladder records an acting
         // canary so (26a).
         .find(|j| {
-            j.pack == SECURITY_CANDIDATE
+            (j.pack == SECURITY_CANDIDATE || j.context["root"] == SECURITY_CANDIDATE)
                 && matches!(j.mode, Mode::Live | Mode::Canary)
                 && j.actionable()
         })?;
@@ -242,7 +242,7 @@ fn read_today(store: &crate::store::Store, today: &str) -> Day {
             "tool.notified" | "judge.label" if spend::local_day(row.at_unix_ms) != today => {}
             "tool.notified" if x["by"] == "judge" => d.notices += 1,
             "judge.label"
-                if x["pack"] == SECURITY_CANDIDATE
+                if (x["pack"] == SECURITY_CANDIDATE || learned_v3(x["pack"].as_str()))
                     && x["label"] == "noise"
                     && x["source"] == "operator" =>
             {
@@ -351,7 +351,10 @@ impl JudgeService {
         // Each notice posted counts toward security's day brake on the
         // ladder (26a: more than 30 in a day).
         let day = self.today();
-        self.land(SECURITY_CANDIDATE, CanaryEvent::Notice { day });
+        // Counted on the version standing in v3's place (25f), whose rules
+        // are v3's.
+        let placed = self.placed(SECURITY_CANDIDATE, &n.session_id);
+        self.land(&placed, CanaryEvent::Notice { day });
         let f = JudgeNotified {
             notice: &notice,
             noticed: n,
@@ -415,8 +418,13 @@ impl JudgeService {
     /// on a noticed judgment shows on its post, whose buttons go.
     pub(crate) fn after_label(&self, core: &crate::rpc::Core, label: &Labeled<'_>) {
         let session = label.session.unwrap_or_default();
-        if label.pack != SECURITY_CANDIDATE
-            || self.mode_for(SECURITY_CANDIDATE, session).mode != PackMode::Live
+        let v3_line =
+            label.pack == SECURITY_CANDIDATE || self.root_of(label.pack) == SECURITY_CANDIDATE;
+        if !v3_line
+            || self
+                .mode_for(&self.placed(SECURITY_CANDIDATE, session), session)
+                .mode
+                != PackMode::Live
         {
             return;
         }
@@ -484,8 +492,12 @@ impl JudgeService {
                     .filter(|p| p.day == today),
             }
         };
-        let acts =
-            !self.ladder().is_loaded() || self.ladder().standing(SECURITY_CANDIDATE).rung.acts();
+        let acts = !self.ladder().is_loaded()
+            || self
+                .ladder()
+                .standing(&self.placed(SECURITY_CANDIDATE, ""))
+                .rung
+                .acts();
         match paused {
             Some(p) => format!("paused until {}: {}", p.until, p.short),
             None if acts => "on".into(),
@@ -507,4 +519,15 @@ pub struct Labeled<'a> {
     pub who: &'a str,
     pub via: &'a str,
     pub session: Option<&'a str>,
+}
+
+/// Whether a label's pack is a learned version of v3's line (25f): its name
+/// a learned version of `security` (101 up). v1's learned versions share
+/// the id; their labels' rows carry no root, so a learned security version
+/// counts toward the notices' brake only while it stands in v3's place,
+/// which `JudgeService::after_label` checks as each label lands.
+fn learned_v3(pack: Option<&str>) -> bool {
+    pack.and_then(|p| p.strip_prefix("security.v"))
+        .and_then(|v| v.parse::<u32>().ok())
+        .is_some_and(theseus_judge::propose::is_learned)
 }

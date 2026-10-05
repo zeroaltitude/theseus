@@ -25,6 +25,7 @@ pub mod audit;
 pub mod backfill;
 pub mod items;
 pub mod labels;
+pub mod propose;
 pub mod rebuild;
 pub mod replay;
 pub mod report;
@@ -44,7 +45,7 @@ use crate::store::Store;
 /// The META key of the last run: `{"at_unix_ms", "date", "trigger"}`.
 pub const LAST_RUN: &str = "learning.last_run";
 
-/// The holdout's days.
+/// The holdout's days by default (`[judge] holdout_days`).
 pub const HOLDOUT_DAYS: u64 = 14;
 
 /// A system label's weight; an operator's is 1.0 (design §2.9).

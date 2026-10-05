@@ -552,6 +552,7 @@ async fn a_ladder_rollback_of_v3_stops_its_notices() {
             &theseus_protocol::packs::PackRollbackParams {
                 pack: SECURITY_CANDIDATE.into(),
                 why: None,
+                off: false,
             },
             "cli",
         )

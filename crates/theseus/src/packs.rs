@@ -79,7 +79,11 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: PacksCmd) -> Result<()> {
             })
         }
         PacksCmd::Rollback { pack, why } => {
-            let p = PackRollbackParams { pack, why };
+            let p = PackRollbackParams {
+                pack,
+                why,
+                off: false,
+            };
             let v = conn
                 .request(method::PACK_ROLLBACK, serde_json::to_value(p)?)
                 .await?;

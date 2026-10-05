@@ -14,10 +14,11 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The runs' methods, which `server.rs` routes to [`Core::rpc_judge_run`].
-pub(super) const RUNS: [&str; 3] = [
+pub(super) const RUNS: [&str; 4] = [
     theseus_protocol::method::JUDGE_REPLAY,
     theseus_protocol::method::JUDGE_AUDIT,
     theseus_protocol::method::JUDGE_BACKFILL,
+    theseus_protocol::method::JUDGE_LEARN,
 ];
 
 /// A run's error on the wire: a refusal is `REFUSED`, with who, through
@@ -52,6 +53,10 @@ impl Core {
                 .map(serde_json::to_value),
             theseus_protocol::method::JUDGE_AUDIT => self
                 .judge_audit(parse(params)?, who)
+                .await
+                .map(serde_json::to_value),
+            theseus_protocol::method::JUDGE_LEARN => self
+                .judge_learn(parse(params)?, who)
                 .await
                 .map(serde_json::to_value),
             _ => self
