@@ -8,6 +8,8 @@
 //! - a resume (a new core on the same store, a turn that brings nothing)
 //!   renders the manifest's prefix byte for byte and recalls nothing;
 //! - a recalled item's header names its source's place;
+//! - a recalled item that shows a volatile value says as of when, and
+//!   unverified, and names its source's place;
 //! - a compilation whose assembled recall section is gone does not close:
 //!   the turn fails as `context_unadmitted`, naming it, and nothing is sent.
 //!
@@ -34,6 +36,7 @@ use crate::turn::{TurnError, TurnRequest, PERSONA};
 use crate::{Config, Core};
 
 const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook.";
+const GAUGE: &str = "The Pellworth harbor gauge read 3.2 m at 14:05 today, on firmware v2.4.1.";
 
 /// A core over the store in `dir`, recall in front of the model for every
 /// session.
@@ -294,6 +297,70 @@ async fn a_recalled_items_header_names_its_place() {
         "{header}"
     );
     assert!(header.contains(" UTC (as of @"), "{header}");
+}
+
+/// A recalled item whose shown text holds a volatile value ends its
+/// frozen header `volatile: as of <date>, unverified`; one that holds none
+/// does not. The header names the source's place (35a).
+#[tokio::test]
+async fn a_volatile_item_is_as_of_and_unverified() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::default());
+    let core = build(dir.path(), model.clone());
+    let gauge = session(&core, &[GAUGE]);
+    let heron = session(&core, &[HERON]);
+    let sid = session(&core, &[]);
+    core.runner
+        .memory
+        .set_ask(index_of(&core, vec![gauge.clone(), heron.clone()]));
+    let res = run(
+        &core,
+        &sid,
+        Some("What did the Pellworth gauge read, and where is the heron?"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(res.recalled, 2);
+    let nodes = core.store.session_nodes(&sid).unwrap();
+    let Some(Body::Recall { items, .. }) = nodes
+        .iter()
+        .map(|(_, n)| &n.body)
+        .find(|b| matches!(b, Body::Recall { .. }))
+    else {
+        panic!("a Recall node");
+    };
+    let source = |sid: &str| core.store.session_nodes(sid).unwrap()[0].1.clone();
+    let (g, h) = (source(&gauge), source(&heron));
+    let day = {
+        let (y, m, d) = crate::wake::civil_from_days((g.created_at_ms / 86_400_000) as i64);
+        format!("{y:04}-{m:02}-{d:02}")
+    };
+    let of = |id: &str| {
+        items
+            .iter()
+            .find(|r| r.node_id == id)
+            .unwrap()
+            .header
+            .clone()
+    };
+    let gh = of(&g.id);
+    assert!(
+        gh.ends_with(&format!(", volatile: as of {day}, unverified")),
+        "{gh}"
+    );
+    assert!(
+        gh.starts_with(&format!(
+            "a message from test in {gauge} on the CLI or the web UI, "
+        )),
+        "{gh}"
+    );
+    assert!(!of(&h.id).contains("volatile"), "{}", of(&h.id));
+    let q = model.requests().pop().unwrap();
+    let sent = serde_json::to_string(&q.messages).unwrap();
+    assert!(
+        sent.contains(&format!("volatile: as of {day}, unverified")),
+        "{sent}"
+    );
 }
 
 /// A compilation whose assembled recall section names a node the session

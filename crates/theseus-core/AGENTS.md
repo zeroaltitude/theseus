@@ -21,6 +21,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `context.compiled` (`signals`). A compile that appended and fired one asks `continue.v1` in shadow
     (`judge/compile.rs`: the dispatch is a spawn, and the turn's trace gets a zero-length `judge` mark naming the
     judgment's id, minted at the dispatch). Tests: `tests_continue.rs`.
+  - **Situations** (M6 35a, theseus-3nk.1): `compiler/situation.rs`. What a compile is for: the step tells it from
+    what it holds (`TurnRunner::situation_of`, `turn/situation_step.rs`: no compilation yet is a conversation's or a
+    task's start; a session's first compile in this run, `RunCompiles` in memory, with nothing its turn brought is a
+    resume; else a continuation; a detour its own), and `compile()` settles it (`settle`: a new compilation of its
+    own triggers is a recompile with its trigger). It rides `Compilation.situation` (store format 16) and
+    `context.compiled`. `admits` is the table of what each admits, from the code (lessons reserved for 35b); `check`,
+    after the compile, fails a piece not admitted, or a set that does not close (a result without its call, a call
+    without its result, an assembled `recall_id` whose node is gone), as `context_unadmitted`, nothing sent. The
+    precedence line (`PRECEDENCE`) follows the persona in the header. Headers written from 35a on (§2.11's
+    testimony): an item's names its origin and place (`TurnRunner::place_name`, `recall::render::item_header`) and
+    ends `volatile: as of <date>, unverified` when its shown text holds one by the labeler's rule; a summary's names
+    its positions and model. A frozen header never changes. Tests: `tests_situation.rs`,
+    `compiler::situation::tests`, `recall::render::tests`.
 - **Places** (the place rule, theseus-nbsh; it replaced 19a's labels on nodes): `places.rs`. Every place a session
   speaks in is private or shared. Private: the CLI and the web UI (no place), a DM with an owner (`Config::owners_for`),
   and a guild channel the binding bound private (its own `private = true`, or, saying nothing, in a guild the bindings

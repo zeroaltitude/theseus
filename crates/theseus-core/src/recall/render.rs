@@ -100,6 +100,37 @@ pub fn unplaced(session_id: &str) -> String {
     format!("{session_id} on the CLI or the web UI")
 }
 
+/// The mark that ends a volatile item's frozen header (35a, §2.11):
+/// `volatile: as of 2026-09-30, unverified`, dated by its source. The rule
+/// is the labeler's (`memory_pass::labels::volatile`), the one rule, read
+/// over the text the item shows, with no entities: the tender's extractor
+/// is not asked at recall, and a source written moments ago has no
+/// `memory.labeled` row yet.
+pub fn volatile(n: &Node, shown: &str) -> Option<String> {
+    let why = crate::memory_pass::labels::volatile(shown, &[]);
+    let day = utc(n.created_at_ms);
+    (!why.is_empty()).then(|| format!("volatile: as of {}, unverified", &day[..10]))
+}
+
+/// `n`'s text over `[start, end)`, as its item shows it, without the
+/// cut's marks; empty when the range does not read.
+pub fn shown_text(n: &Node, (start, end): (u32, u32)) -> String {
+    let text = super::text_of(n);
+    text.get(start as usize..end as usize)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// An item's whole frozen header: `header`, ended by the volatile mark
+/// when the text it shows over `chunk` holds a volatile value (35a).
+pub fn item_header(n: &Node, position: u64, place: &str, chunk: (u32, u32)) -> String {
+    let header = header(n, position, place);
+    match volatile(n, &shown_text(n, chunk)) {
+        Some(mark) => format!("{header}, {mark}"),
+        None => header,
+    }
+}
+
 /// `2026-09-30 14:34 UTC`.
 fn utc(ms: u64) -> String {
     let secs = ms / 1000;
@@ -282,6 +313,35 @@ mod tests {
             header(&reply, 18231, "#harbor"),
             "a reply by glm-5.3-flash in #harbor, 2026-09-21 14:14 UTC (as of @18231)"
         );
+    }
+
+    /// A volatile value, by the labeler's rule over the shown text, marks
+    /// its item: as of its source's date, unverified (35a).
+    #[test]
+    fn a_volatile_value_is_as_of_and_unverified() {
+        let mut gauge = Node::user(
+            "ses_weir",
+            None,
+            "cli",
+            "The Pellworth harbor gauge read 3.2 m at 14:05 today, on firmware v2.4.1.",
+        );
+        gauge.created_at_ms = 1_790_000_000_000;
+        let shown = shown_text(&gauge, (0, 40));
+        assert_eq!(shown, "The Pellworth harbor gauge read 3.2 m at");
+        assert_eq!(volatile(&gauge, &shown), None, "nothing volatile shown");
+        let all = shown_text(&gauge, (0, 73));
+        assert_eq!(
+            volatile(&gauge, &all).as_deref(),
+            Some("volatile: as of 2026-09-21, unverified")
+        );
+        let heron = Node::user("ses_weir", None, "cli", "The heron nests by the weir.");
+        assert_eq!(volatile(&heron, "The heron nests by the weir."), None);
+        assert_eq!(
+            item_header(&gauge, 42, "#harbor", (0, 73)),
+            "a message from cli in #harbor, 2026-09-21 14:13 UTC (as of @42), \
+             volatile: as of 2026-09-21, unverified"
+        );
+        assert!(!item_header(&gauge, 42, "#harbor", (0, 40)).contains("volatile"));
     }
 
     /// An item recalled before 35a renders the header it was frozen with,

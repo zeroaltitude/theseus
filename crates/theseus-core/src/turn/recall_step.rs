@@ -369,9 +369,11 @@ impl TurnRunner {
                 continue;
             };
             let excerpt = item.text.as_deref().unwrap_or_default();
+            let chunk = render::frozen_range(&text_of(&source), excerpt);
+            let place = self.place_name(&item.session_id);
             items.push(RecalledRef {
-                chunk: render::frozen_range(&text_of(&source), excerpt),
-                header: render::header(&source, item.position, &self.place_name(&item.session_id)),
+                chunk,
+                header: render::item_header(&source, item.position, &place, chunk),
                 ..probe
             });
         }
