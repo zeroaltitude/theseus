@@ -1231,7 +1231,7 @@ fn task_of(core: &Core, parent: &str) -> String {
     let mut task = SessionRecord::new(SessionKind::Task, None);
     task.task = Some(crate::session::TaskOf {
         parent_session: parent.into(),
-        parent_execution: parent_rec.execution_id.clone().unwrap(),
+        parent_execution: parent_rec.execution_id.unwrap(),
         by: "act_brief".into(),
         target: None,
         arrangement: None,

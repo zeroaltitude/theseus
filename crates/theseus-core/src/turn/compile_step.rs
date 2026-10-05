@@ -11,7 +11,6 @@ impl TurnRunner {
     /// The images the provider refused in the session render as their line;
     /// `strip` recompiles without the prefix's thinking (theseus-0s4).
     #[allow(clippy::too_many_arguments)]
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) async fn compile_step(
         &self,
         t: &mut Turn<'_>,
