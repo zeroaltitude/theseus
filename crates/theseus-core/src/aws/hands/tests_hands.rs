@@ -58,6 +58,9 @@ pub(super) struct State {
     /// second subnet's route table sends 0.0.0.0/0 nowhere while `unrouted`.
     pub(super) existing: AtomicBool,
     pub(super) unrouted: AtomicBool,
+    /// The main table's NAT route is a `blackhole`: the NAT was deleted
+    /// under it (theseus-rx7m).
+    pub(super) blackhole: AtomicBool,
     /// Each DescribeRouteTables' body.
     pub(super) route_reads: Mutex<Vec<String>>,
 }
@@ -192,6 +195,7 @@ pub(super) fn answer(state: &State, s: &Seen, n: usize) -> Reply {
             state.route_reads.lock().unwrap().push(s.body.clone());
             return xml(super::tests_network::route_tables(
                 state.unrouted.load(Ordering::SeqCst),
+                state.blackhole.load(Ordering::SeqCst),
             ));
         }
         _ => {}
