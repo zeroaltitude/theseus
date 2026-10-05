@@ -625,6 +625,14 @@ fn an_install_list_is_read_from_its_line() {
 
 // ---------------------------------------------------------------- the protocol
 
+/// This crate's directory, with its name as a path names it.
+fn core_dir() -> (String, PathBuf) {
+    (
+        "theseus_core".to_string(),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+    )
+}
+
 /// A core on a fresh store in `dir`: the example config, a fake provider.
 fn core_in(dir: &Path) -> Arc<Core> {
     let store = Store::open(&dir.join("store")).unwrap();
@@ -714,7 +722,7 @@ async fn every_method_has_its_dispatch_arm() {
 #[test]
 fn every_notification_has_its_event_and_a_sender() {
     let events: BTreeMap<&str, &str> = Event::VARIANTS.iter().map(|(v, m)| (*m, *v)).collect();
-    let uses = uses_of(&[PathBuf::from(env!("CARGO_MANIFEST_DIR"))], &["Event"]);
+    let uses = uses_of(&[core_dir()], &[EVENT]);
     let mut problems = Vec::new();
     for name in notify::ALL {
         let variant = events.get(name);
@@ -755,15 +763,7 @@ fn every_notification_has_its_event_and_a_sender() {
 /// every kind by its name, the ones this build no longer writes included.
 #[test]
 fn every_ledger_kind_is_written() {
-    let members = members();
-    let reached = reached(&members);
-    let root = workspace_root();
-    let dirs: Vec<PathBuf> = members
-        .iter()
-        .filter(|m| reached.contains_key(&m.name))
-        .map(|m| root.join(&m.dir))
-        .collect();
-    let uses = uses_of(&dirs, &["LedgerKind"]);
+    let uses = uses_of(&reached_dirs(&members()), &[LEDGER_KIND]);
     let mut problems = Vec::new();
     for k in LedgerKind::ALL {
         let variant = format!("LedgerKind::{k:?}");
@@ -791,25 +791,29 @@ fn every_edge_kind_has_its_reader() {
         .iter()
         .any(|(.., variants)| !variants.is_empty())
     {
-        let members = members();
-        let reached = reached(&members);
-        let root = workspace_root();
-        let dirs: Vec<PathBuf> = members
-            .iter()
-            .filter(|m| reached.contains_key(&m.name))
-            .map(|m| root.join(&m.dir))
-            .collect();
-        uses_of(&dirs, &["EdgeKind"])
+        uses_of(&reached_dirs(&members()), &[EDGE_KIND])
     } else {
         Uses::default()
     };
     let mut problems = Vec::new();
     for (kind, what, ty, variants) in vocabularies {
         for (variant, name) in variants {
-            match (uses.read.get(&format!("{ty}::{variant}")), reserved(kind, name)) {
+            let key = format!("{ty}::{variant}");
+            // A use the scan could not count as theseus-core's (theseus-g7qp).
+            let unowned = uses
+                .unowned
+                .get(&key)
+                .map_or_else(String::new, |(file, why)| {
+                    format!(
+                        " {file} names `{key}`, but {why}, so it counts for nothing: if it means \
+                     theseus-core's, name it there as `graph::{key}` (after `use crate::graph;`)."
+                    )
+                });
+            match (uses.read.get(&key), reserved(kind, name)) {
                 (None, None) => problems.push(format!(
-                    "{what} `{name}` (`{ty}::{variant}`) has no reader: no code the binaries run, its \
-                     tests aside, matches it, binds it in a pattern, or compares it with `==`. {}",
+                    "{what} `{name}` (`{key}`) has no reader: no code the binaries run, its tests \
+                     aside, matches it, binds it in a pattern, or compares it with `==`, naming \
+                     theseus-core's.{unowned} {}",
                     fix(
                         &format!("a reader of `{ty}::{variant}`"),
                         &format!("{kind} {name}"),
@@ -896,16 +900,66 @@ fn print_the_reserved_list() {
 struct Uses {
     built: BTreeMap<String, String>,
     read: BTreeMap<String, String>,
+    /// A use that counts for nothing, since the type it names is not its
+    /// home's, or the scan can't tell (theseus-g7qp): the first file, and why.
+    unowned: BTreeMap<String, (String, &'static str)>,
 }
 
-/// What the code of each crate directory in `dirs`, its tests aside, does with
-/// the variants of `types`. Only a file that names one of them is read as
-/// tokens, so a string or a comment never counts.
-fn uses_of(dirs: &[PathBuf], types: &[&str]) -> Uses {
+/// Where a type the scan counts lives (theseus-g7qp): a use counts only where
+/// the type it names is this one, not another crate's or a private one of the
+/// same name.
+#[derive(Debug, Clone, Copy)]
+struct Home {
+    ty: &'static str,
+    /// Its crate, as a path names it.
+    krate: &'static str,
+    /// The modules of its crate a path may name it through (`""`: the root).
+    modules: &'static [&'static str],
+    /// The file that defines it, from the workspace's root: a bare name there
+    /// is its own.
+    file: &'static str,
+}
+
+const EDGE_KIND: Home = Home {
+    ty: "EdgeKind",
+    krate: "theseus_core",
+    modules: &["graph"],
+    file: "crates/theseus-core/src/graph.rs",
+};
+const EVENT: Home = Home {
+    ty: "Event",
+    krate: "theseus_protocol",
+    modules: &["", "events"],
+    file: "crates/theseus-protocol/src/events.rs",
+};
+const LEDGER_KIND: Home = Home {
+    ty: "LedgerKind",
+    krate: "theseus_protocol",
+    modules: &["", "ledger"],
+    file: "crates/theseus-protocol/src/ledger.rs",
+};
+
+/// The crate directories of the members the binaries reach, each with its
+/// crate's name as a path names it.
+fn reached_dirs(members: &[Member]) -> Vec<(String, PathBuf)> {
+    let reached = reached(members);
     let root = workspace_root();
-    let needles: Vec<String> = types.iter().map(|t| format!("{t}::")).collect();
+    members
+        .iter()
+        .filter(|m| reached.contains_key(&m.name))
+        .map(|m| (m.name.replace('-', "_"), root.join(&m.dir)))
+        .collect()
+}
+
+/// What the code of each crate directory in `dirs` (with its crate's name),
+/// its tests aside, does with the variants of the types `homes` place. Only a
+/// file that names one of them is read as tokens, so a string or a comment
+/// never counts.
+fn uses_of(dirs: &[(String, PathBuf)], homes: &[Home]) -> Uses {
+    let root = workspace_root();
+    let needles: Vec<String> = homes.iter().map(|h| format!("{}::", h.ty)).collect();
     let mut uses = Uses::default();
-    for dir in dirs {
+    for (krate, dir) in dirs {
         for file in code_files(dir) {
             let text = std::fs::read_to_string(&file).unwrap();
             if !needles.iter().any(|n| text.contains(n.as_str())) {
@@ -921,7 +975,7 @@ fn uses_of(dirs: &[PathBuf], types: &[&str]) -> Uses {
                 .unwrap_or(&file)
                 .display()
                 .to_string();
-            uses_in(&without_tests(toks), types, &at, &mut uses);
+            uses_in(&without_tests(toks), homes, krate, &at, &mut uses);
         }
     }
     uses
@@ -1097,29 +1151,249 @@ fn without_tests(toks: Vec<Tok>) -> Vec<Tok> {
     out
 }
 
-/// Records each `<Type>::<Variant>` in `toks`, of `types`, as built or read.
-fn uses_in(toks: &[Tok], types: &[&str], at: &str, uses: &mut Uses) {
-    for (i, tok) in toks.iter().enumerate() {
-        let Tok::Ident(ty) = tok else { continue };
-        if !types.contains(&ty.as_str()) {
+/// Records each `<Type>::<Variant>` in `toks`, of the types `homes` place, as
+/// built or read, where the type it names is its home's (theseus-g7qp): a path
+/// at the site that resolves to the home (`crate::graph::EdgeKind`, or
+/// `graph::EdgeKind` after `use crate::graph;`), a bare name in a file that
+/// imports the home's type by name and no other of that name, or a bare name in
+/// the home's own file. Anything else names another type, or one the scan
+/// can't place, and goes to `unowned` with why. `krate` is the file's crate, as
+/// a path names it. One pass over the tokens: the imports and the sites, then
+/// each site's verdict.
+fn uses_in(toks: &[Tok], homes: &[Home], krate: &str, at: &str, uses: &mut Uses) {
+    let mut imports: Vec<(String, Vec<String>)> = Vec::new();
+    let mut defined: Vec<&str> = Vec::new();
+    let mut sites: Vec<(&Home, String, bool, Vec<String>)> = Vec::new();
+    let mut i = 0;
+    while i < toks.len() {
+        let Tok::Ident(word) = &toks[i] else {
+            i += 1;
+            continue;
+        };
+        if word == "use" {
+            i = use_item(toks, i + 1, krate, &mut imports);
             continue;
         }
+        if matches!(
+            word.as_str(),
+            "enum" | "struct" | "type" | "trait" | "union"
+        ) {
+            if let Some(Tok::Ident(name)) = toks.get(i + 1) {
+                defined.extend(homes.iter().filter(|h| h.ty == name).map(|h| h.ty));
+            }
+            i += 1;
+            continue;
+        }
+        let Some(home) = homes.iter().find(|h| h.ty == word) else {
+            i += 1;
+            continue;
+        };
         let (Some(Tok::Punct(':', true)), Some(Tok::Punct(':', false)), Some(Tok::Ident(variant))) =
             (toks.get(i + 1), toks.get(i + 2), toks.get(i + 3))
         else {
+            i += 1;
             continue;
         };
         // `Type::Assoc::…` names no variant.
-        if matches!(toks.get(i + 4), Some(Tok::Punct(':', true))) {
-            continue;
+        if !matches!(toks.get(i + 4), Some(Tok::Punct(':', true))) {
+            let key = format!("{word}::{variant}");
+            sites.push((home, key, is_read(toks, i, i + 3), prefix_of(toks, i)));
         }
-        let into = if is_read(toks, i, i + 3) {
-            &mut uses.read
-        } else {
-            &mut uses.built
+        i += 1;
+    }
+    for (home, key, read, prefix) in sites {
+        let own = defined.contains(&home.ty);
+        match whose(home, &prefix, krate, at, &imports, own) {
+            Ok(()) => {
+                let into = if read {
+                    &mut uses.read
+                } else {
+                    &mut uses.built
+                };
+                into.entry(key).or_insert_with(|| at.to_string());
+            }
+            Err(why) => {
+                uses.unowned
+                    .entry(key)
+                    .or_insert_with(|| (at.to_string(), why));
+            }
+        }
+    }
+}
+
+/// The path segments before the type at `ty` (`crate`, `graph` in
+/// `crate::graph::EdgeKind`), in order.
+fn prefix_of(toks: &[Tok], ty: usize) -> Vec<String> {
+    let mut prefix = Vec::new();
+    let mut start = ty;
+    while start >= 3
+        && toks[start - 1] == Tok::Punct(':', false)
+        && toks[start - 2] == Tok::Punct(':', true)
+    {
+        let Tok::Ident(seg) = &toks[start - 3] else {
+            break;
         };
-        into.entry(format!("{ty}::{variant}"))
-            .or_insert_with(|| at.to_string());
+        prefix.push(seg.clone());
+        start -= 3;
+    }
+    prefix.reverse();
+    prefix
+}
+
+/// Reads the `use` item whose tree starts at `k` into `imports`, each a local
+/// name and the path it stands for (`crate` as `krate`), and returns the index
+/// past its `;`. A glob imports nothing the scan can see.
+fn use_item(
+    toks: &[Tok],
+    k: usize,
+    krate: &str,
+    imports: &mut Vec<(String, Vec<String>)>,
+) -> usize {
+    let mut k = use_tree(toks, k, krate, Vec::new(), imports);
+    while k < toks.len() {
+        match toks[k] {
+            Tok::Punct(';', _) => return k + 1,
+            Tok::Open(_) => k = close_of(toks, k) + 1,
+            Tok::Close(_) => return k,
+            _ => k += 1,
+        }
+    }
+    k
+}
+
+/// One tree of a `use`, under the path `base`: its leaves into `imports`, and
+/// the index past it.
+fn use_tree(
+    toks: &[Tok],
+    mut k: usize,
+    krate: &str,
+    mut path: Vec<String>,
+    imports: &mut Vec<(String, Vec<String>)>,
+) -> usize {
+    let sep = |k: usize| {
+        toks.get(k) == Some(&Tok::Punct(':', true))
+            && toks.get(k + 1) == Some(&Tok::Punct(':', false))
+    };
+    if path.is_empty() && sep(k) {
+        k += 2;
+    }
+    loop {
+        match toks.get(k) {
+            Some(Tok::Ident(seg)) => {
+                let seg = if path.is_empty() && seg == "crate" {
+                    krate
+                } else {
+                    seg.as_str()
+                };
+                k += 1;
+                if sep(k) {
+                    path.push(seg.to_string());
+                    k += 2;
+                    continue;
+                }
+                let mut alias = None;
+                if matches!(toks.get(k), Some(Tok::Ident(a)) if a == "as") {
+                    if let Some(Tok::Ident(a)) = toks.get(k + 1) {
+                        alias = Some(a.clone());
+                    }
+                    k += 2;
+                }
+                if seg == "self" {
+                    // `{self}`: the module the braces are in.
+                    if let Some(last) = path.last() {
+                        imports.push((alias.unwrap_or_else(|| last.clone()), path));
+                    }
+                } else {
+                    path.push(seg.to_string());
+                    imports.push((alias.unwrap_or_else(|| seg.to_string()), path));
+                }
+                return k;
+            }
+            Some(Tok::Open(Delimiter::Brace)) => {
+                let end = close_of(toks, k);
+                let mut j = k + 1;
+                while j < end {
+                    j = use_tree(toks, j, krate, path.clone(), imports);
+                    while j < end && !matches!(toks[j], Tok::Punct(',', _)) {
+                        j = match toks[j] {
+                            Tok::Open(_) => close_of(toks, j) + 1,
+                            _ => j + 1,
+                        };
+                    }
+                    j += 1;
+                }
+                return end + 1;
+            }
+            // `*`, or what no `use` the scan reads holds.
+            _ => return k + 1,
+        }
+    }
+}
+
+/// Whether a use of `home`'s type with `prefix` before it, in the file `at` of
+/// the crate `krate`, names the home's type, and why not when it doesn't.
+/// `defined`: the file defines a type of that name.
+fn whose(
+    home: &Home,
+    prefix: &[String],
+    krate: &str,
+    at: &str,
+    imports: &[(String, Vec<String>)],
+    defined: bool,
+) -> Result<(), &'static str> {
+    // `[krate, module…]` is the home's crate and one of its modules.
+    let is_home = |path: &[String]| {
+        path.first().is_some_and(|c| c == home.krate)
+            && home.modules.iter().any(|m| {
+                let segs: Vec<&str> = m.split("::").filter(|s| !s.is_empty()).collect();
+                path[1..].iter().map(String::as_str).eq(segs)
+            })
+    };
+    if prefix.is_empty() {
+        if at == home.file {
+            return Ok(());
+        }
+        if defined {
+            return Err("the file defines a type of that name");
+        }
+        let named: Vec<&Vec<String>> = imports
+            .iter()
+            .filter(|(local, _)| local == home.ty)
+            .map(|(_, path)| path)
+            .collect();
+        if named.is_empty() {
+            return Err("the file imports none of that name that the scan can see");
+        }
+        let ours = |p: &&Vec<String>| {
+            p.split_last()
+                .is_some_and(|(last, module)| last == home.ty && is_home(module))
+        };
+        return if named.iter().all(ours) {
+            Ok(())
+        } else {
+            Err("the file imports another type of that name")
+        };
+    }
+    let (first, rest) = prefix.split_first().expect("a prefix");
+    let mut candidates: Vec<Vec<String>> = if first == "crate" {
+        vec![[krate.to_string()]
+            .into_iter()
+            .chain(rest.iter().cloned())
+            .collect()]
+    } else {
+        imports
+            .iter()
+            .filter(|(local, _)| local == first)
+            .map(|(_, path)| path.iter().chain(rest).cloned().collect())
+            .collect()
+    };
+    if candidates.is_empty() {
+        candidates.push(prefix.to_vec());
+    }
+    if candidates.iter().all(|p| is_home(p)) {
+        Ok(())
+    } else {
+        Err("its path names another type of that name, or one the scan can't place")
     }
 }
 
@@ -1192,6 +1466,8 @@ fn is_read(toks: &[Tok], ty: usize, variant: usize) -> bool {
 #[test]
 fn the_scan_tells_a_build_from_a_read_and_skips_tests() {
     let code = r#"
+        use theseus_protocol::{Event, Message};
+        use crate::graph::EdgeKind;
         fn send(sink: &Sink, q: Q) {
             sink.send(Event::Built(Built { x: 1 }));
             let m = Message::from(theseus_protocol::Event::Qualified(q));
@@ -1227,7 +1503,8 @@ fn the_scan_tells_a_build_from_a_read_and_skips_tests() {
     let mut uses = Uses::default();
     uses_in(
         &without_tests(toks),
-        &["Event", "EdgeKind"],
+        &[EVENT, EDGE_KIND],
+        "theseus_core",
         "x.rs",
         &mut uses,
     );
@@ -1255,12 +1532,216 @@ fn the_scan_tells_a_build_from_a_read_and_skips_tests() {
             "Event::OrB",
         ]
     );
-    let whole_file = "#![cfg(test)]\nfn f() { sink.send(Event::InATestFile(1)); }";
+    let whole_file =
+        "#![cfg(test)]\nuse theseus_protocol::Event;\nfn f() { sink.send(Event::InATestFile(1)); }";
     let mut toks = Vec::new();
     flatten(whole_file.parse().unwrap(), &mut toks);
     let mut uses = Uses::default();
-    uses_in(&without_tests(toks), &["Event"], "y.rs", &mut uses);
+    uses_in(
+        &without_tests(toks),
+        &[EVENT],
+        "theseus_core",
+        "y.rs",
+        &mut uses,
+    );
     assert!(uses.built.is_empty(), "{uses:?}");
+}
+
+/// What the scan makes of `code`, a file `at` of the crate `krate`.
+fn scan(code: &str, krate: &str, at: &str, homes: &[Home]) -> Uses {
+    let mut toks = Vec::new();
+    flatten(code.parse().unwrap(), &mut toks);
+    let mut uses = Uses::default();
+    uses_in(&without_tests(toks), homes, krate, at, &mut uses);
+    uses
+}
+
+fn keys<V>(m: &BTreeMap<String, V>) -> Vec<&str> {
+    m.keys().map(String::as_str).collect()
+}
+
+/// A use counts only where the type it names is the home's (theseus-g7qp):
+/// another crate's `EdgeKind`, or a private `Event`, reads and builds nothing.
+#[test]
+fn the_scan_counts_a_use_only_of_the_homes_own_type() {
+    // theseus-memory's own `EdgeKind`, its reads and its builds.
+    let memory = r#"
+        pub enum EdgeKind { DerivedFrom, SameEntity, Neighbour }
+        pub fn weight(k: EdgeKind) -> f32 {
+            match k { EdgeKind::DerivedFrom => 1.0, EdgeKind::SameEntity => 0.5, _ => 0.0 }
+        }
+    "#;
+    let at = "crates/theseus-memory/src/activation.rs";
+    let uses = scan(memory, "theseus_memory", at, &[EDGE_KIND]);
+    assert!(uses.read.is_empty() && uses.built.is_empty(), "{uses:?}");
+    assert_eq!(
+        uses.unowned["EdgeKind::SameEntity"],
+        (at.to_string(), "the file defines a type of that name")
+    );
+    let reexported = "pub use activation::EdgeKind;
+fn f(g: G) { g.link(crate::EdgeKind::Neighbour);                       if k == EdgeKind::SameEntity {} }";
+    let uses = scan(
+        reexported,
+        "theseus_memory",
+        "crates/theseus-memory/src/lib.rs",
+        &[EDGE_KIND],
+    );
+    assert!(uses.read.is_empty() && uses.built.is_empty(), "{uses:?}");
+
+    // The adjacency's shape: theseus-memory's imported and built bare, ours
+    // named through the module.
+    for import in [
+        "use crate::graph;",
+        "use crate::{graph, store::Store};",
+        "use crate::graph::{self, Edge};",
+    ] {
+        let adjacency = format!(
+            r#"
+            use theseus_memory::{{Adjacency, EdgeKind, SpreadParams}};
+            {import}
+            fn kind(e: &Edge) -> Option<EdgeKind> {{
+                Some(match graph::EdgeKind::named(&e.kind)? {{
+                    graph::EdgeKind::DerivedFrom => EdgeKind::DerivedFrom,
+                    graph::EdgeKind::SameEntity => EdgeKind::SameEntity,
+                    graph::EdgeKind::Supersedes => return None,
+                }})
+            }}
+            fn back(k: EdgeKind) -> bool {{ matches!(k, EdgeKind::Neighbour) }}
+            "#
+        );
+        let uses = scan(
+            &adjacency,
+            "theseus_core",
+            "crates/theseus-core/src/recall/adjacency.rs",
+            &[EDGE_KIND],
+        );
+        assert_eq!(
+            keys(&uses.read),
+            [
+                "EdgeKind::DerivedFrom",
+                "EdgeKind::SameEntity",
+                "EdgeKind::Supersedes"
+            ],
+            "{import}: {uses:?}"
+        );
+        assert_eq!(keys(&uses.built), ["EdgeKind::named"], "{import}: {uses:?}");
+        assert_eq!(
+            uses.unowned["EdgeKind::Neighbour"].1, "the file imports another type of that name",
+            "{import}"
+        );
+    }
+}
+
+/// Ours imported inside a function, a path spelled out, and another crate's
+/// path to ours count; `crate::graph` outside theseus-core does not.
+#[test]
+fn the_scan_counts_ours_imported_anywhere_or_named_by_its_path() {
+    // Ours imported inside a function; a path spelled out; another crate's
+    // path to ours.
+    let nested = r#"
+        fn links(e: &Edge) {
+            use crate::graph::{Edge, EdgeKind};
+            match EdgeKind::named(&e.kind) { Some(EdgeKind::SameEntity) => {}, _ => {} }
+        }
+        fn spelled(k: K) -> bool { k == crate::graph::EdgeKind::DerivedFrom }
+    "#;
+    let uses = scan(
+        nested,
+        "theseus_core",
+        "crates/theseus-core/src/recall.rs",
+        &[EDGE_KIND],
+    );
+    assert_eq!(
+        keys(&uses.read),
+        ["EdgeKind::DerivedFrom", "EdgeKind::SameEntity"],
+        "{uses:?}"
+    );
+    let outside = "fn f(k: K) -> bool { k == theseus_core::graph::EdgeKind::Supersedes }
+                   fn g(k: K) -> bool { k == crate::graph::EdgeKind::DerivedFrom }";
+    let uses = scan(
+        outside,
+        "theseusd",
+        "crates/theseusd/src/x.rs",
+        &[EDGE_KIND],
+    );
+    assert_eq!(keys(&uses.read), ["EdgeKind::Supersedes"], "{uses:?}");
+    assert!(
+        uses.unowned.contains_key("EdgeKind::DerivedFrom"),
+        "{uses:?}"
+    );
+}
+
+/// A bare name counts in a file that imports ours by name and no other of
+/// that name, or in the home's own file; a private enum of the same name
+/// counts for nothing.
+#[test]
+fn a_bare_name_counts_only_beside_one_import_of_ours() {
+    // A bare name with no import the scan can see, or beside a second import.
+    let bare = "fn f(k: K) -> bool { k == EdgeKind::SameEntity }";
+    let uses = scan(
+        bare,
+        "theseus_core",
+        "crates/theseus-core/src/x.rs",
+        &[EDGE_KIND],
+    );
+    assert!(uses.read.is_empty(), "{uses:?}");
+    assert_eq!(
+        uses.unowned["EdgeKind::SameEntity"].1,
+        "the file imports none of that name that the scan can see"
+    );
+    let glob = format!(
+        "use crate::graph::*;
+{bare}"
+    );
+    let uses = scan(
+        &glob,
+        "theseus_core",
+        "crates/theseus-core/src/x.rs",
+        &[EDGE_KIND],
+    );
+    assert!(uses.read.is_empty(), "{uses:?}");
+    let two = format!(
+        "use crate::graph::EdgeKind;
+fn g() {{ use theseus_memory::EdgeKind; }}
+{bare}"
+    );
+    let uses = scan(
+        &two,
+        "theseus_core",
+        "crates/theseus-core/src/x.rs",
+        &[EDGE_KIND],
+    );
+    assert!(uses.read.is_empty(), "{uses:?}");
+    // graph.rs itself names its own bare.
+    let uses = scan(bare, "theseus_core", EDGE_KIND.file, &[EDGE_KIND]);
+    assert_eq!(keys(&uses.read), ["EdgeKind::SameEntity"], "{uses:?}");
+
+    // A private enum of the same name (the tender's `Event`) sends nothing;
+    // the protocol's, imported, does.
+    let tender = r#"
+        enum Event { Exited, Stop }
+        fn watch(tx: Tx) { tx.send(Event::Exited); match rx { Event::Stop => {} _ => {} } }
+    "#;
+    let uses = scan(
+        tender,
+        "theseus_core",
+        "crates/theseus-core/src/tender.rs",
+        &[EVENT],
+    );
+    assert!(uses.read.is_empty() && uses.built.is_empty(), "{uses:?}");
+    let sender = "use theseus_protocol::{Event, Message};
+fn f(s: S) { s.send(Event::TurnStarted(t));                   s.send(theseus_protocol::Event::TurnEnded(e)); }";
+    let uses = scan(
+        sender,
+        "theseus_core",
+        "crates/theseus-core/src/turn.rs",
+        &[EVENT],
+    );
+    assert_eq!(
+        keys(&uses.built),
+        ["Event::TurnEnded", "Event::TurnStarted"],
+        "{uses:?}"
+    );
 }
 
 /// A marker's form: a row, a milestone, and a reader.
@@ -1297,7 +1778,7 @@ fn the_registry_sees_the_whole_tree() {
     );
     assert!(method::ALL.len() >= 31 && method::ALL.contains(&method::WAKE_CANCEL));
     assert!(notify::ALL.len() >= 21 && notify::ALL.contains(&notify::NARRATIVE_LINE));
-    let uses = uses_of(&[PathBuf::from(env!("CARGO_MANIFEST_DIR"))], &["Event"]);
+    let uses = uses_of(&[core_dir()], &[EVENT]);
     // `turn.rs`'s, not a test's.
     assert!(
         uses.built["Event::TurnStarted"].ends_with("turn.rs"),
