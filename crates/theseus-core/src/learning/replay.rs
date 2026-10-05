@@ -49,7 +49,7 @@ use theseus_protocol::LedgerKind;
 use theseus_store::NewRecord;
 
 use super::labels::{resolve, truth, Truth};
-use super::report::{answer, graded, pack_report_of};
+use super::report::{self, answer, pack_report_of};
 use super::{read_scope, LabelRow, Seen};
 use crate::fact;
 use crate::ledger::LedgerRow;
@@ -103,7 +103,7 @@ pub fn absolute_labels(
 fn right(labels: &[LabelRow], q: &str, a: &AnswerRecord) -> Option<bool> {
     let l = labels.iter().find(|l| l.question.as_deref() == Some(q))?;
     let t = truth(&l.label, a)?;
-    graded(a, &t).map(|(_, r)| r)
+    report::right(a, &t)
 }
 
 /// Whether the incumbent got a labeled question wrong.

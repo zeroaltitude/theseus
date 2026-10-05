@@ -172,9 +172,12 @@ pub fn question(
     (report, pairs)
 }
 
-/// What a label grades an answer: the probability it gave, and whether its
-/// lean was right. None where the label settles nothing of it (a class
-/// known wrong that its top is not).
+/// What a label grades an answer, as its calibration pair: the probability
+/// it gave, and the label's truth of it. For a Choice or a Level answer
+/// that truth is whether its top was right; for a yes-or-no (Noul) answer
+/// it is the label's yes or no, whatever the answer leaned (`right` says
+/// whether the lean met it). None where the label settles nothing of it (a
+/// class known wrong that its top is not).
 pub(crate) fn graded(a: &AnswerRecord, t: &Truth) -> Option<(f64, bool)> {
     match (&a.band.top, t, &a.answer) {
         (_, Truth::Bool(b), theseus_judge::client::Answer::Noul { noul }) => Some((*noul, *b)),
@@ -184,6 +187,18 @@ pub(crate) fn graded(a: &AnswerRecord, t: &Truth) -> Option<(f64, bool)> {
         (Top::Level(top), Truth::NotLevel(n), _) => (top == n).then(|| (confidence(a), false)),
         _ => None,
     }
+}
+
+/// Whether an answer's lean was right by a label's truth: a Noul is right
+/// when its lean is the truth, a Choice or a Level when its top is. None
+/// where the label settles nothing of it. Replay and the learning loop
+/// count rightness by this one rule.
+pub(crate) fn right(a: &AnswerRecord, t: &Truth) -> Option<bool> {
+    let (_, x) = graded(a, t)?;
+    Some(match a.band.top {
+        Top::Noul(lean) => lean == x,
+        _ => x,
+    })
 }
 
 fn class_label(top: &Top, t: &Truth) -> Option<String> {

@@ -4,8 +4,8 @@
 //! state, fixing and breaking the judgments it should; a thresholds-only
 //! candidate making no call; a state rebuilt when the builder's version
 //! changed, and left out with the reason when it can't be; the run's limit;
-//! and every refusal (a shared place, a wired version, a name under another
-//! text).
+//! a yes-or-no answer graded by its lean; and every refusal (a shared place,
+//! a wired version, a name under another text).
 
 use std::sync::Arc;
 
@@ -188,6 +188,12 @@ pub(crate) fn rows(c: &Core, scope: &str, kind: LedgerKind) -> Vec<LedgerRow> {
 /// (complete, labeled so: right), tern (unlabeled); and the report that
 /// freezes them. Returns the report's id.
 fn seeded(c: &Arc<Core>) -> String {
+    seeded_with(c, &[])
+}
+
+/// `seeded`, with more labels (judgment, question, label) written before the
+/// report freezes them.
+fn seeded_with(c: &Arc<Core>, extra: &[(&str, &str, Value)]) -> String {
     let now = theseus_protocol::now_unix_ms();
     let midnight = crate::learning::local_midnight(now);
     let mut records = Vec::new();
@@ -221,6 +227,14 @@ fn seeded(c: &Arc<Core>) -> String {
             &format!("jdg_{j}"),
             "work_state",
             json!(label),
+        ));
+    }
+    for (j, question, label) in extra {
+        records.push(label_row(
+            &format!("lbl_{j}_{question}"),
+            &format!("jdg_{j}"),
+            question,
+            label.clone(),
         ));
     }
     c.store.append(&records).unwrap();
@@ -348,6 +362,58 @@ async fn a_replay_over_a_frozen_holdout() {
     assert_eq!(errs.judgments, 1);
     assert_eq!(errs.per_judgment[0].judgment, "jdg_heron");
     assert_eq!(errs.fixed, 1);
+}
+
+/// A yes-or-no answer is right when its lean meets the label (theseus-m5az):
+/// gull's incumbent leaned no (0.2) on `announced_unfinished`, labeled yes,
+/// so it is an error, which `errors: true` selects, and the candidate
+/// leaning yes (0.8) fixes it; tern's, leaning no on a no label, is right
+/// on both sides.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_noul_that_leaned_against_its_label_is_an_error_the_candidate_fixes() {
+    let jev = scripted_fake();
+    jev.script_when("gulls", None, "announced_unfinished", Jev::Noul(0.8));
+    jev.script("announced_unfinished", Jev::Noul(0.2));
+    let r = rig(texts(0), &jev, |_| {});
+    let c = &r.core;
+    let report = seeded_with(
+        c,
+        &[
+            ("gull", "announced_unfinished", json!(true)),
+            ("tern", "announced_unfinished", json!(false)),
+        ],
+    );
+    let out = c.judge_replay(params(&report), "cli").await.unwrap();
+    let of = |id: &str| {
+        let j = out.per_judgment.iter().find(|j| j.judgment == id).unwrap();
+        (j.fixed.clone(), j.broken.clone())
+    };
+    let (none, au) = (
+        Vec::<String>::new(),
+        vec!["announced_unfinished".to_string()],
+    );
+    assert_eq!(of("jdg_gull"), (au, none.clone()));
+    assert_eq!(of("jdg_tern"), (none.clone(), none));
+    // heron's work_state fixed and wren's broken, as before; gull's Noul fixed.
+    assert_eq!((out.fixed, out.broken), (2, 1));
+    let errs = c
+        .judge_replay(
+            JudgeReplayParams {
+                errors: true,
+                ..params(&report)
+            },
+            "cli",
+        )
+        .await
+        .unwrap();
+    let mut ids: Vec<&str> = errs
+        .per_judgment
+        .iter()
+        .map(|j| j.judgment.as_str())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!((errs.judgments, ids), (2, vec!["jdg_gull", "jdg_heron"]));
+    assert_eq!(errs.fixed, 2);
 }
 
 /// A candidate that changes only a threshold makes no call: the stored

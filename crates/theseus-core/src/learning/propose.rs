@@ -52,7 +52,7 @@ use theseus_protocol::judge_runs::{
 use theseus_protocol::LedgerKind;
 
 use super::labels::{resolve, truth, Truth};
-use super::report::{answer, graded};
+use super::report::{answer, graded, right};
 use super::{read_scope, LabelRow, Seen};
 use crate::fact;
 use crate::judge::lineage::{self, Learned};
@@ -149,17 +149,6 @@ struct Gathered {
     train: Vec<Seen>,
     holdout: Vec<Seen>,
     cases: Vec<ErrorCase>,
-}
-
-/// Whether an answer's lean was right by a label's truth. `report::graded`
-/// gives a Noul's truth (its calibration pair), not whether its lean met it:
-/// a Noul is right when its lean is the truth.
-fn right(a: &AnswerRecord, t: &Truth) -> Option<bool> {
-    let (_, x) = graded(a, t)?;
-    Some(match a.band.top {
-        Top::Noul(lean) => lean == x,
-        _ => x,
-    })
 }
 
 /// The owner's labels saying a train answer was wrong, in `train`'s order,
