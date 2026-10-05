@@ -5,7 +5,8 @@
 //! "insufficient" with its counts; and cohorts with known outcomes give the
 //! generator's exact rates per task and per dollar. `judge.prove` answers
 //! the generator's report over the records it answers, byte for byte, reads
-//! its default window from the canary's move, and writes no frame.
+//! its default window from the canary's move (a declined move none), and
+//! writes no frame.
 
 use serde_json::{json, Value};
 use theseus_judge::band::band;
@@ -536,6 +537,27 @@ async fn the_default_window_is_the_canarys() {
         (v.tasks, v.left_out.get("never_judged")),
         (1, Some(&1)),
         "{v:?}"
+    );
+    // A declined move to canary moves nothing (theseus-u4t3).
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder
+        .write(theseus_protocol::packs::PackModeRow {
+            pack: "loop.v1".into(),
+            mode: "canary".into(),
+            from: "canary".into(),
+            share: Some(0.2),
+            who: "system".into(),
+            why: "the prove's test: a move the bar declined".into(),
+            declined: true,
+            ..Default::default()
+        })
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let after = c.judge_prove(Value::Null).await.unwrap();
+    assert_eq!(
+        (after.since_ms, after.window.as_str(), after.tasks),
+        (v.since_ms, v.window.as_str(), 1),
+        "{after:?}"
     );
     // A day given is the window, whatever the ladder says.
     let all = c.judge_prove(json!({"since": "2020-01-01"})).await.unwrap();
