@@ -38,19 +38,24 @@ void main() {
 }
 `
 
+// A line every unit of a continuous coordinate, anti-aliased by that coordinate's own derivative (never the derivative
+// of a fract(), which spikes where it wraps and draws false lines).
+const LINE_AT = /* glsl */ `
+float lineAt(float coord, float fw, float w) {
+  float d = abs(fract(coord - 0.5) - 0.5);
+  return 1.0 - smoothstep(w * fw, (w + 1.2) * fw, d);
+}
+`
+
+// The sea's still parts, drawn into the post's cache when the camera moves: the light table, the chart grid, and the
+// compass rose. Its waves and glints are the swell's (SEA_SWELL), drawn over this in the composite.
 export const SEA_FRAG = /* glsl */ `
 uniform vec2 uTarget;
 uniform float uDist;
 uniform vec2 uCenter;
 uniform float uRose;
 varying vec3 vWorld;
-${HASH}
-// A line every unit of a continuous coordinate, anti-aliased by that coordinate's own derivative (never the derivative
-// of a fract(), which spikes where it wraps and draws false lines).
-float lineAt(float coord, float fw, float w) {
-  float d = abs(fract(coord - 0.5) - 0.5);
-  return 1.0 - smoothstep(w * fw, (w + 1.2) * fw, d);
-}
+${LINE_AT}
 float gridAt(vec2 p, float s, float w) {
   vec2 c = p / s;
   vec2 fw = fwidth(c);
@@ -70,11 +75,6 @@ void main() {
   float major = gridAt(p, s1 * 4.0, 0.7);
   vec3 cyan = vec3(0.13, 0.83, 0.93);
   col += cyan * (minor * 0.045 + major * 0.085) * near;
-  // The logo's waves: rows of long sine lines, faint teal (one sine per row, no seams).
-  float ws = 30.0 * exp2(max(0.0, floor(lod)));
-  float wy = (p.y + sin(p.x / ws * 4.2) * ws * 0.11) / ws;
-  float wave = lineAt(wy, fwidth(wy), 0.6);
-  col += vec3(0.24, 0.49, 0.58) * wave * 0.16 * near;
   // An engraved compass rose under the fleet: thirty-two rays and two rings, in old gold.
   vec2 q = p - uCenter;
   float r = length(q);
@@ -94,19 +94,63 @@ void main() {
     float ticks = lineAt(kt, min(fwidth(kt), fwidth(a2 * 128.0)), 0.4) * step(uRose * 0.94, r) * step(r, uRose);
     col += vec3(0.84, 0.65, 0.28) * (rays * 0.045 + rings * 0.07 + ticks * 0.035);
   }
-  // A faint fixed sparkle on the water: stars reflected, from the logo's night. Only once a cell is a few pixels
-  // across (smaller, a dot would spill past its cell and be cut into a dash).
+  gl_FragColor = vec4(col, 1.0);
+}
+`
+
+// The swell (theseus-wp2d): the sea's waves and the stars' glints on the water, as light added at a point of the sea.
+// The post's composite draws it over the sea's cache, finding each pixel's point of the sea from the camera (no
+// texture read), so a frame of the swell alone is one pass. A still swell (Calm, ?swell=0) is added into the sea's
+// cache once instead.
+//
+// - The logo's waves: rows of sine lines, faint teal, alternate rows half a wave apart (one sine, no seams), a few rows
+//   to the screen at every zoom. In Live mode they roll: the crests drift along the rows, one passing every 14 s; a
+//   slower harmonic runs the other way (31 s) and the rows rise and fall out of step (19 s), so the swell never looks
+//   mechanical; and a row's light grows a little as the swell lifts it.
+// - A faint sparkle on the water, stars reflected from the logo's night, glinting each at its own pace (4 to 9 s).
+// - uSwell is the swell's clock in seconds. It runs only in Live mode, and the swell comes up over its first seconds,
+//   so at 0 the sea is the still one (Calm from the start, and ?swell=0).
+// - It runs on every pixel of every frame of the swell, so what the whole screen shares is worked out once, in the
+//   engine: the rows' scale (uWaveScale) and the fade's (uNearScale). Three sines a pixel, and a fourth in a glint's
+//   cell: each costs on a CPU rasteriser.
+export const SEA_SWELL = /* glsl */ `
+uniform vec2 uTarget;
+uniform float uNearScale;
+uniform float uWaveScale;
+uniform float uSwell;
+uniform float uWaves;
+uniform vec3 uCamPos;
+uniform vec3 uRayC;
+uniform vec3 uRayX;
+uniform vec3 uRayY;
+${LINE_AT}
+float seaHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+vec3 seaSwell(vec2 uv) {
+  // The point of the sea under this pixel: the camera's ray through it, to the water (y = 0). Every pixel sees the
+  // water at the Ship's pitches; the clamp only keeps the division safe.
+  vec3 dir = uRayC + (uv.x * 2.0 - 1.0) * uRayX + (uv.y * 2.0 - 1.0) * uRayY;
+  vec2 p = uCamPos.xz + dir.xz * (uCamPos.y / max(-dir.y, 1e-5));
+  float near = smoothstep(2.6, 0.15, length(p - uTarget) * uNearScale);
+  vec2 sp = p * uWaveScale;
+  float rise = smoothstep(0.0, 6.0, uSwell);
+  float lift = sin(sp.y * 0.6 - uSwell * 0.3307);
+  float wy = sp.y + sin(sp.x * 4.2 + sp.y * 3.1415927 - uSwell * 0.4488) * 0.11
+    + rise * (sin(sp.x * 1.7 + sp.y * 0.9 + uSwell * 0.2027) * 0.04 + lift * 0.05);
+  float wave = lineAt(wy, fwidth(wy), 0.6);
+  vec3 col = vec3(0.24, 0.49, 0.58) * wave * 0.16 * (1.0 + rise * 0.14 * lift) * near;
+  // The sparkle shows only once a cell is a few pixels across (smaller, a dot would spill past its cell and be cut
+  // into a dash).
   vec2 cell = floor(p / 9.0);
   float fwp = max(fwidth(p.x), fwidth(p.y));
   float cellPx = 9.0 / max(fwp, 1e-4);
-  float h = hash12(cell);
-  if (h > 0.93 && cellPx > 8.0) {
-    vec2 c = (cell + 0.2 + 0.6 * vec2(hash12(cell + 7.1), hash12(cell + 3.3))) * 9.0;
+  if (seaHash(cell) > 0.93 && cellPx > 8.0) {
+    vec2 c = (cell + 0.2 + 0.6 * vec2(seaHash(cell + 7.1), seaHash(cell + 3.3))) * 9.0;
     float sd = length(p - c);
     float rad = min(0.18 + fwp * 1.2, 1.6);
-    col += vec3(0.91, 0.79, 0.50) * (1.0 - smoothstep(rad * 0.5, rad, sd)) * 0.5 * near * smoothstep(8.0, 18.0, cellPx);
+    float glint = 1.0 + rise * 0.3 * sin(uSwell * (0.7 + seaHash(cell + 5.9) * 0.86) + seaHash(cell + 1.7) * 6.2831853);
+    col += vec3(0.91, 0.79, 0.50) * (1.0 - smoothstep(rad * 0.5, rad, sd)) * 0.5 * near * smoothstep(8.0, 18.0, cellPx) * glint;
   }
-  gl_FragColor = vec4(col, 1.0);
+  return col * uWaves;
 }
 `
 
