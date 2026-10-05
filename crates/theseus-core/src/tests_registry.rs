@@ -9,6 +9,11 @@
 //!   `[package.metadata.theseus] tool = "<what runs it>"`), or its manifest
 //!   says `reserved_for`. It reads the `Cargo.toml` files: `cargo metadata`
 //!   takes most of a second.
+//! - **The install list** (theseus-g7qp). A `tool` is a reader only if it is
+//!   installed: `scripts/build.sh`'s `shipped` names it (and `scripts/setup.sh`'s
+//!   `SHIPPED`, its copy, agrees), or its manifest says why a checkout runs it
+//!   instead (`run_from_tree = "<why>"`). Every root ships, and every shipped
+//!   package is a root or a tool. The scripts are read as text.
 //! - **Methods.** Every `method::*` name has its dispatch arm: a core answers
 //!   it with anything but "method not found".
 //! - **Notifications.** Every `notify::*` name has its `Event`, and every
@@ -132,6 +137,9 @@ struct Member {
     deps: Vec<String>,
     reserved_for: Option<String>,
     tool: Option<String>,
+    /// Why a tool is not installed, and who runs it from the tree instead
+    /// (`run_from_tree = "<why>"`): a tool the install lists leave out says so.
+    run_from_tree: Option<String>,
     has_bin: bool,
     /// What is wrong with its `[package.metadata.theseus]`.
     problems: Vec<String>,
@@ -223,7 +231,8 @@ fn member(root: &Path, dir: &str, shared: &BTreeMap<&str, &str>) -> Member {
         deps.push(built.to_string());
     }
 
-    let (mut reserved_for, mut tool, mut problems) = (None, None, Vec::new());
+    let (mut reserved_for, mut tool, mut run_from_tree) = (None, None, None);
+    let mut problems = Vec::new();
     if let Some(marks) = package.get("metadata").and_then(|m| m.get("theseus")) {
         let Some(marks) = marks.as_table() else {
             panic!("{path}: [package.metadata.theseus] is not a table");
@@ -238,8 +247,10 @@ fn member(root: &Path, dir: &str, shared: &BTreeMap<&str, &str>) -> Member {
             match key.as_str() {
                 "reserved_for" => reserved_for = Some(text.to_string()),
                 "tool" => tool = Some(text.to_string()),
+                "run_from_tree" => run_from_tree = Some(text.to_string()),
                 _ => problems.push(format!(
-                    "{path}: `{key}` under [package.metadata.theseus] is no marker: `reserved_for` or `tool`"
+                    "{path}: `{key}` under [package.metadata.theseus] is no marker: `reserved_for`, \
+                     `tool`, or `run_from_tree`"
                 )),
             }
         }
@@ -257,6 +268,7 @@ fn member(root: &Path, dir: &str, shared: &BTreeMap<&str, &str>) -> Member {
         deps,
         reserved_for,
         tool,
+        run_from_tree,
         has_bin,
         problems,
     }
@@ -345,6 +357,270 @@ fn every_crate_is_read_by_a_binary_or_reserved() {
         }
     }
     fail_on(problems);
+}
+
+// ---------------------------------------------------------------- the install lists
+
+/// The install list (theseus-g7qp): `scripts/build.sh`'s `shipped`, which the
+/// gate's features phase reads, and its copy, `scripts/setup.sh`'s `SHIPPED`.
+const BUILD_SH: (&str, &str) = ("scripts/build.sh", "shipped");
+const SETUP_SH: (&str, &str) = ("scripts/setup.sh", "SHIPPED");
+
+/// The words of the bash array `<name>=(…)` that starts a line of `text`, read
+/// as text (no shell runs): `None` when no line starts it.
+fn shell_list(text: &str, name: &str) -> Option<Vec<String>> {
+    let head = format!("{name}=(");
+    let line = text
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix(&head))?;
+    let (words, _) = line.split_once(')')?;
+    Some(words.split_whitespace().map(str::to_string).collect())
+}
+
+/// The list `(file, name)` names, from the workspace's root: an empty list and
+/// a problem when the file holds none.
+fn install_list((file, name): (&str, &str), problems: &mut Vec<String>) -> Vec<String> {
+    let text = std::fs::read_to_string(workspace_root().join(file)).unwrap_or_default();
+    shell_list(&text, name).unwrap_or_else(|| {
+        problems.push(format!(
+            "{file} has no `{name}=(…)` line: the reader rule's registry test reads the install \
+             list there, so put it back, or change `BUILD_SH`/`SETUP_SH` in tests_registry.rs to \
+             where it is now"
+        ));
+        Vec::new()
+    })
+}
+
+/// What is wrong between the members' markers and the install lists: `build`
+/// from build.sh, `setup` its copy in setup.sh. A root ships; a shipped package
+/// is a root or a tool; a tool ships, or says `run_from_tree` with why.
+fn install_problems(members: &[Member], build: &[String], setup: &[String]) -> Vec<String> {
+    let (b, s) = (BUILD_SH.0, SETUP_SH.0);
+    let mut problems = Vec::new();
+    if build != setup {
+        let alone = |of: &[String], other: &[String]| -> Vec<String> {
+            of.iter()
+                .filter(|p| !other.contains(p))
+                .map(|p| format!("`{p}`"))
+                .collect()
+        };
+        let mut what = Vec::new();
+        for (file, of, other) in [(s, setup, build), (b, build, setup)] {
+            let names = alone(of, other);
+            if !names.is_empty() {
+                what.push(format!("{} only in {file}", names.join(", ")));
+            }
+        }
+        if what.is_empty() {
+            what.push("the same packages in another order".to_string());
+        }
+        problems.push(format!(
+            "{s}'s `{}` ({}) differs from {b}'s `{}` ({}): {}. setup.sh's is a copy of \
+             build.sh's (the gate's features phase reads build.sh's): make it match",
+            SETUP_SH.1,
+            setup.join(" "),
+            BUILD_SH.1,
+            build.join(" "),
+            what.join("; ")
+        ));
+    }
+    let by_name: BTreeMap<&str, &Member> = members.iter().map(|m| (m.name.as_str(), m)).collect();
+    for p in build {
+        let Some(m) = by_name.get(p.as_str()) else {
+            problems.push(format!(
+                "{b}'s `{}` ships `{p}`, which is no workspace member: remove it from that list \
+                 and {s}'s `{}`",
+                BUILD_SH.1, SETUP_SH.1
+            ));
+            continue;
+        };
+        if !ROOTS.contains(&p.as_str()) && m.tool.is_none() {
+            problems.push(format!(
+                "crate `{p}` is shipped ({b}'s `{}`), but is neither a root (`ROOTS` in \
+                 tests_registry.rs) nor a tool: in {}/Cargo.toml, `[package.metadata.theseus] \
+                 tool = \"<what runs it>\"`, or remove it from {b}'s `{}` and {s}'s `{}`",
+                BUILD_SH.1, m.dir, BUILD_SH.1, SETUP_SH.1
+            ));
+        }
+    }
+    for root in ROOTS {
+        if !build.iter().any(|p| p == root) {
+            problems.push(format!(
+                "root `{root}` is not shipped: add it to {b}'s `{}` and {s}'s `{}`, or remove it \
+                 from `ROOTS` in tests_registry.rs",
+                BUILD_SH.1, SETUP_SH.1
+            ));
+        }
+    }
+    for m in members {
+        let (name, path) = (&m.name, format!("{}/Cargo.toml", m.dir));
+        let shipped = build.contains(name);
+        match (&m.tool, &m.run_from_tree, shipped) {
+            (Some(_), None, false) => problems.push(format!(
+                "crate `{name}` says `tool` in {path}, but is not shipped: an installed binary of \
+                 its own is in {b}'s `{}` and {s}'s `{}`, so add it there; or, for a tool run from \
+                 a checkout and never installed, say why in {path}: `run_from_tree = \"<why, and \
+                 who runs it>\"`",
+                BUILD_SH.1, SETUP_SH.1
+            )),
+            (Some(_), Some(_), true) => problems.push(format!(
+                "crate `{name}` is shipped ({b}'s `{}`), so its `run_from_tree` is stale: remove \
+                 it from {path}",
+                BUILD_SH.1
+            )),
+            (None, Some(_), _) => problems.push(format!(
+                "crate `{name}` says `run_from_tree` in {path}, but is no tool: `run_from_tree` \
+                 says why a `tool` is not installed, so add the `tool` or remove it"
+            )),
+            _ => {}
+        }
+    }
+    problems
+}
+
+/// Every tool is installed, or says why it runs from the tree; every root
+/// ships; build.sh's list and setup.sh's copy agree (theseus-g7qp). A `tool`
+/// marker makes a crate its own reader, so the test holds the claim against the
+/// list an install copies.
+#[test]
+fn every_tool_is_installed_or_run_from_the_tree() {
+    let mut problems = Vec::new();
+    let build = install_list(BUILD_SH, &mut problems);
+    let setup = install_list(SETUP_SH, &mut problems);
+    problems.extend(install_problems(&members(), &build, &setup));
+    fail_on(problems);
+}
+
+/// A member built in a test: `tool` and `run_from_tree` as given.
+fn fixture(name: &str, tool: bool, run_from_tree: bool) -> Member {
+    Member {
+        name: name.to_string(),
+        dir: format!("crates/{name}"),
+        deps: Vec::new(),
+        reserved_for: None,
+        tool: tool.then(|| "runs itself".to_string()),
+        run_from_tree: run_from_tree.then(|| "a checkout runs it".to_string()),
+        has_bin: true,
+        problems: Vec::new(),
+    }
+}
+
+/// Each way a marker and the install lists disagree fails, naming the crate,
+/// the file, and the fix.
+#[test]
+fn the_install_lists_fail_each_disagreement() {
+    let list = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+    let mut members = vec![
+        fixture("theseusd", false, false),
+        fixture("theseus", false, false),
+        fixture("quill-tool", true, false),
+        fixture("quill-exam", true, true),
+        fixture("quill-lib", false, false),
+    ];
+    let good = list("theseusd theseus quill-tool");
+    assert_eq!(
+        install_problems(&members, &good, &good),
+        Vec::<String>::new()
+    );
+    members.push(fixture("quill-odd", false, true));
+    let base = "theseusd theseus quill-tool";
+    // (build.sh's list, setup.sh's, what the one problem says)
+    let cases: [(&str, &str, &[&str]); 8] = [
+        // The copy differs: a fourth package in setup.sh's alone, or another order.
+        (
+            base,
+            "theseusd theseus quill-tool quill-lib",
+            &[
+                "scripts/setup.sh",
+                "`quill-lib` only in scripts/setup.sh",
+                "make it match",
+            ],
+        ),
+        (base, "theseus theseusd quill-tool", &["another order"]),
+        // A shipped package that is neither a root nor a tool.
+        (
+            "theseusd theseus quill-tool quill-lib",
+            "theseusd theseus quill-tool quill-lib",
+            &[
+                "crate `quill-lib`",
+                "crates/quill-lib/Cargo.toml",
+                "tool = ",
+            ],
+        ),
+        // A shipped package that is no member.
+        (
+            "theseusd theseus quill-tool quill-gone",
+            "theseusd theseus quill-tool quill-gone",
+            &["`quill-gone`", "no workspace member", "scripts/build.sh"],
+        ),
+        // A root not shipped.
+        (
+            "theseusd quill-tool",
+            "theseusd quill-tool",
+            &["root `theseus`", "scripts/build.sh", "scripts/setup.sh"],
+        ),
+        // A tool neither shipped nor run from the tree.
+        (
+            "theseusd theseus",
+            "theseusd theseus",
+            &[
+                "crate `quill-tool`",
+                "crates/quill-tool/Cargo.toml",
+                "run_from_tree = ",
+            ],
+        ),
+        // A shipped tool that still says it runs from the tree.
+        (
+            "theseusd theseus quill-tool quill-exam",
+            "theseusd theseus quill-tool quill-exam",
+            &[
+                "crate `quill-exam`",
+                "stale",
+                "crates/quill-exam/Cargo.toml",
+            ],
+        ),
+        // `run_from_tree` with no `tool` (quill-odd, in every case but the
+        // first two lists'; here alone).
+        (
+            base,
+            base,
+            &[
+                "crate `quill-odd`",
+                "no tool",
+                "crates/quill-odd/Cargo.toml",
+            ],
+        ),
+    ];
+    for (build, setup, parts) in cases {
+        let mut problems = install_problems(&members, &list(build), &list(setup));
+        // quill-odd's own problem rides along in every case: set it aside.
+        if parts[0] != "crate `quill-odd`" {
+            problems.retain(|p| !p.starts_with("crate `quill-odd`"));
+        }
+        assert_eq!(problems.len(), 1, "{build} / {setup}: {problems:#?}");
+        for part in parts {
+            assert!(
+                problems[0].contains(part),
+                "{part:?} is not in {:?}",
+                problems[0]
+            );
+        }
+    }
+}
+
+/// The install list is read as text: a bash array that starts a line.
+#[test]
+fn an_install_list_is_read_from_its_line() {
+    let list = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(
+        shell_list(
+            "x=1\n  shipped=(a b-c d) # a comment\nSHIPPED=(z)\n",
+            "shipped"
+        ),
+        Some(list("a b-c d"))
+    );
+    assert_eq!(shell_list("x=1\nSHIPPED=(z)\n", "SHIPPED"), Some(list("z")));
+    assert_eq!(shell_list("unshipped=(a)\n", "shipped"), None);
 }
 
 // ---------------------------------------------------------------- the protocol
@@ -605,6 +881,9 @@ fn print_the_reserved_list() {
     println!("\nTools, readers of their own:");
     for m in members.iter().filter(|m| m.tool.is_some()) {
         println!("- `{}`: {}", m.name, m.tool.as_deref().unwrap_or_default());
+        if let Some(why) = &m.run_from_tree {
+            println!("  - run from the tree, not installed: {why}");
+        }
     }
 }
 
