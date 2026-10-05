@@ -6641,10 +6641,12 @@ name = "theseus-files"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "libc",
  "lopdf",
  "serde",
  "serde_json",
+ "zip",
 ]
 
 [[package]]
@@ -8370,6 +8372,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
 dependencies = [
  "crc32fast",
+ "flate2",
  "indexmap",
  "memchr",
  "typed-path",

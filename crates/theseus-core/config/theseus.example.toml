@@ -303,6 +303,7 @@ approve_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "~/.config/op", "~/.openclaw-1p
 result_max_chars = 30000                # characters of a result the model sees (head and tail kept)
 max_read_bytes = 262144                 # cap on one fs.read
 max_attachment_bytes = 33554432         # the largest attached file kept whole (a PDF is read for the model; 32 MiB)
+transcribe_max_minutes = 60             # the most of one recording file_read hears (Deepgram, about $0.26 an hour)
 max_entries = 500                       # cap on fs.list / fs.glob / fs.grep entries
 proc_sync_secs = 60                     # a turn waits this long for proc.run, then it continues in the background
 proc_timeout_secs = 600                 # default proc.run timeout

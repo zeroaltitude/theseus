@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::doc;
+use crate::kind::Kind;
 use crate::pdf;
 
 /// The argument that makes `theseusd` the converter.
@@ -75,7 +77,19 @@ pub fn in_child() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
-    Pdf { ask: pdf::Ask },
+    Pdf {
+        ask: pdf::Ask,
+    },
+    /// A document's sections (`doc::read`).
+    Doc {
+        kind: Kind,
+    },
+    /// An archive's member, at most `max` bytes (`archive::extract`).
+    Extract {
+        kind: Kind,
+        member: String,
+        max: u64,
+    },
 }
 
 /// A conversion's answer: what it made, or why it made nothing.
@@ -83,7 +97,16 @@ pub enum Request {
 #[serde(rename_all = "snake_case")]
 pub enum Answer {
     Pdf(pdf::Read),
+    Doc(doc::Doc),
+    Member(Member),
     Refused(String),
+}
+
+/// An archive member's bytes, base64 on the wire.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Member {
+    #[serde(with = "crate::doc::b64")]
+    pub bytes: Vec<u8>,
 }
 
 /// How one conversion went, for its row and its metric.
@@ -96,30 +119,66 @@ pub struct Ran {
 
 /// Read a PDF as `ask` says, under the caps. `Err` says why in words.
 pub fn pdf(bytes: &[u8], ask: &pdf::Ask) -> (Result<pdf::Read, String>, Ran) {
+    let (answer, ran) = convert(&Request::Pdf { ask: ask.clone() }, bytes);
+    let out = match answer {
+        Ok(Answer::Pdf(r)) => Ok(r),
+        Ok(Answer::Refused(why)) | Err(why) => Err(why),
+        Ok(_) => Err("the converter answered something else".into()),
+    };
+    (out, ran)
+}
+
+/// Read a document into its sections, under the caps.
+pub fn doc(bytes: &[u8], kind: Kind) -> (Result<doc::Doc, String>, Ran) {
+    let (answer, ran) = convert(&Request::Doc { kind }, bytes);
+    let out = match answer {
+        Ok(Answer::Doc(d)) => Ok(d),
+        Ok(Answer::Refused(why)) | Err(why) => Err(why),
+        Ok(_) => Err("the converter answered something else".into()),
+    };
+    (out, ran)
+}
+
+/// Read one member out of an archive, at most `max` bytes, under the caps.
+pub fn extract(bytes: &[u8], kind: Kind, member: &str, max: u64) -> (Result<Vec<u8>, String>, Ran) {
+    let req = Request::Extract {
+        kind,
+        member: member.into(),
+        max,
+    };
+    let (answer, ran) = convert(&req, bytes);
+    let out = match answer {
+        Ok(Answer::Member(m)) => Ok(m.bytes),
+        Ok(Answer::Refused(why)) | Err(why) => Err(why),
+        Ok(_) => Err("the converter answered something else".into()),
+    };
+    (out, ran)
+}
+
+/// One conversion, in the child when a daemon named one.
+fn convert(req: &Request, bytes: &[u8]) -> (Result<Answer, String>, Ran) {
     let t0 = Instant::now();
-    let req = Request::Pdf { ask: ask.clone() };
     let (answer, capped) = match CHILD.get() {
-        Some(c) => (in_a_child(c, &req, bytes), true),
-        None => (Ok(answer(&req, bytes)), false),
+        Some(c) => (in_a_child(c, req, bytes), true),
+        None => (Ok(answer(req, bytes)), false),
     };
     let ran = Ran {
         ms: t0.elapsed().as_millis() as u64,
         capped,
     };
-    let out = match answer {
-        Ok(Answer::Pdf(r)) => Ok(r),
-        Ok(Answer::Refused(why)) | Err(why) => Err(why),
-    };
-    (out, ran)
+    (answer, ran)
 }
 
 /// The conversion itself, wherever it runs.
 fn answer(req: &Request, bytes: &[u8]) -> Answer {
+    let refused = Answer::Refused;
     match req {
-        Request::Pdf { ask } => match pdf::read(bytes, ask) {
-            Ok(r) => Answer::Pdf(r),
-            Err(why) => Answer::Refused(why),
-        },
+        Request::Pdf { ask } => pdf::read(bytes, ask).map_or_else(refused, Answer::Pdf),
+        Request::Doc { kind } => doc::read(bytes, *kind).map_or_else(refused, Answer::Doc),
+        Request::Extract { kind, member, max } => {
+            crate::archive::extract(bytes, *kind, member, *max)
+                .map_or_else(refused, |b| Answer::Member(Member { bytes: b }))
+        }
     }
 }
 
@@ -141,7 +200,7 @@ fn caps(limits: Limits) -> std::io::Result<()> {
     set(libc::RLIMIT_CPU, limits.timeout.as_secs() + 5)?;
     set(libc::RLIMIT_FSIZE, 0)?;
     set(libc::RLIMIT_CORE, 0)?;
-    set(libc::RLIMIT_NOFILE, 16)?;
+    set(libc::RLIMIT_NOFILE, 64)?;
     // SAFETY: prctl with these arguments only sets this process's own
     // death signal: it dies when the daemon does.
     unsafe {
@@ -152,33 +211,51 @@ fn caps(limits: Limits) -> std::io::Result<()> {
 
 fn in_a_child(c: &ChildRunner, req: &Request, bytes: &[u8]) -> Result<Answer, String> {
     let mut cmd = Command::new(&c.exe);
-    cmd.arg(ROLE)
-        .env_clear()
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.arg(ROLE).env_clear();
     if cfg!(debug_assertions) {
         if let Ok(p) = std::env::var(PROBE_ENV) {
             cmd.env(PROBE_ENV, p);
         }
     }
-    let limits = c.limits;
+    let mut input = serde_json::to_vec(req).expect("a request serializes");
+    input.push(b'\n');
+    input.extend_from_slice(bytes);
+    let out = run_capped(&mut cmd, &input, c.limits)?;
+    serde_json::from_slice(&out)
+        .map_err(|e| format!("the converter's answer could not be read ({e})"))
+}
+
+/// Run `cmd` under `limits` (theseus-c9l6): the converter's child, or a
+/// system tool (`media`). It starts through the daemon's spawn when one was
+/// named, gets `input` on its stdin, and is killed at its time; its stdout is
+/// read to its end, bounded. Its stdout, or why it gave none, in words.
+pub fn run_capped(cmd: &mut Command, input: &[u8], limits: Limits) -> Result<Vec<u8>, String> {
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     // SAFETY: `caps` makes only calls that are safe between fork and exec.
     unsafe {
         cmd.pre_exec(move || caps(limits));
     }
-    let mut child =
-        (c.spawn)(&mut cmd).map_err(|e| format!("the converter could not start ({e})"))?;
+    let program = std::path::Path::new(cmd.get_program())
+        .file_name()
+        .map_or_else(
+            || "the converter".to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+    let spawned = match CHILD.get() {
+        Some(c) => (c.spawn)(cmd),
+        None => cmd.spawn(),
+    };
+    let mut child = spawned.map_err(|e| format!("{program} could not start ({e})"))?;
     let mut stdin = child.stdin.take().expect("piped");
     let mut stdout = child.stdout.take().expect("piped");
     let mut stderr = child.stderr.take().expect("piped");
-    let mut head = serde_json::to_vec(req).expect("a request serializes");
-    head.push(b'\n');
-    let body = bytes.to_vec();
+    let body = input.to_vec();
     // The writer and the readers each on a thread of their own: a child
     // that answers before it has read everything never deadlocks the pipe.
     let writer = std::thread::spawn(move || {
-        let _ = stdin.write_all(&head).and_then(|()| stdin.write_all(&body));
+        let _ = stdin.write_all(&body);
     });
     let errs = std::thread::spawn(move || {
         let mut e = Vec::new();
@@ -208,9 +285,7 @@ fn in_a_child(c: &ChildRunner, req: &Request, bytes: &[u8]) -> Result<Answer, St
     let errs = errs.join().unwrap_or_default();
     let status = status?;
     if status.success() {
-        let out = out.map_err(|e| format!("the converter's answer could not be read ({e})"))?;
-        return serde_json::from_slice(&out)
-            .map_err(|e| format!("the converter's answer could not be read ({e})"));
+        return out.map_err(|e| format!("{program}'s answer could not be read ({e})"));
     }
     Err(died(status, &errs, limits))
 }

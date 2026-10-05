@@ -12,6 +12,10 @@ base64.workspace = true
 libc = "0.2"
 # PDF reading and writing (MIT). Default features off: no rayon, no chrono.
 lopdf = { version = "0.45.0", default-features = false }
+# Office, OpenDocument, EPUB, and zip archives: already in the lock; inflate
+# through flate2, which lopdf brings too. A gzipped tar through flate2.
+zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2"] }
+flate2 = "1"
 serde.workspace = true
 serde_json.workspace = true
 

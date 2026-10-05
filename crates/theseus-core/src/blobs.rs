@@ -52,8 +52,57 @@ pub fn decoded_len(b64: &str) -> u64 {
     (b64.len() / 4 * 3).saturating_sub(pad) as u64
 }
 
-/// A PDF's text by page, as its blob holds it (theseus-c9l6).
-pub type Texts = Arc<Vec<String>>;
+/// A kept file's text by section, as its blob holds it (theseus-c9l6): a
+/// PDF's pages (a JSON list of strings, each `page N`), or a document's
+/// sections with their labels and images (`{"sections": [...]}`).
+pub type Texts = Arc<Vec<Section>>;
+
+/// One section of a kept file's text.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Section {
+    pub label: String,
+    pub text: String,
+    /// Its images (a notebook cell's outputs), each a blob.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<SectionImage>,
+}
+
+/// An image a section holds, stored in the blobs.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SectionImage {
+    pub digest: String,
+    pub media_type: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A document's sections as their blob holds them.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Sections {
+    pub sections: Vec<Section>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cut: Option<String>,
+}
+
+/// A text blob's sections, in either of its shapes.
+fn parse_texts(bytes: &[u8]) -> Option<Vec<Section>> {
+    if let Ok(pages) = serde_json::from_slice::<Vec<String>>(bytes) {
+        return Some(
+            pages
+                .into_iter()
+                .enumerate()
+                .map(|(i, text)| Section {
+                    label: format!("page {}", i + 1),
+                    text,
+                    images: Vec::new(),
+                })
+                .collect(),
+        );
+    }
+    serde_json::from_slice::<Sections>(bytes)
+        .ok()
+        .map(|s| s.sections)
+}
 
 /// Parsed texts the cache may hold: a few PDFs' worth.
 const TEXT_CACHE_ENTRIES: usize = 8;
@@ -86,8 +135,9 @@ impl Blobs {
         (self::digest(&bytes) == digest).then_some(bytes)
     }
 
-    /// A PDF's text by page, from the JSON blob a `File` names, read once
-    /// and kept in a small cache: a request renders it on every loop.
+    /// A kept file's text by section, from the JSON blob a `File` names,
+    /// read once and kept in a small cache: a request renders it on every
+    /// loop.
     pub fn texts(&self, digest: &str) -> Option<Texts> {
         {
             let mut c = self.texts.lock().unwrap();
@@ -98,8 +148,7 @@ impl Blobs {
                 return Some(t);
             }
         }
-        let parsed: Vec<String> = serde_json::from_slice(&self.read(digest)?).ok()?;
-        let t: Texts = Arc::new(parsed);
+        let t: Texts = Arc::new(parse_texts(&self.read(digest)?)?);
         let mut c = self.texts.lock().unwrap();
         c.push_back((digest.to_string(), t.clone()));
         while c.len() > TEXT_CACHE_ENTRIES {
@@ -169,6 +218,27 @@ impl Blobs {
             }
         }
         Some(b64)
+    }
+
+    /// What was read of a blob on request (a recording's transcript), kept
+    /// beside the blobs by its digest and `what`: `<blobs>/derived/<digest>.<what>`.
+    pub fn derived(&self, digest: &str, what: &str) -> Option<Vec<u8>> {
+        if !is_digest(digest) {
+            return None;
+        }
+        std::fs::read(self.dir.join("derived").join(format!("{digest}.{what}"))).ok()
+    }
+
+    /// Keep what was read of a blob on request, written whole or not at all.
+    pub fn put_derived(&self, digest: &str, what: &str, bytes: &[u8]) -> std::io::Result<()> {
+        if !is_digest(digest) {
+            return Err(std::io::Error::other("not a digest"));
+        }
+        let dir = self.dir.join("derived");
+        std::fs::create_dir_all(&dir)?;
+        let tmp = dir.join(format!(".{digest}.{what}.tmp-{}", std::process::id()));
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, dir.join(format!("{digest}.{what}")))
     }
 
     /// How many blobs the cache holds (tests).

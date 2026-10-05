@@ -429,7 +429,7 @@ async fn pdf_pages(
         .unwrap_or_else(|| got.url.host_str().unwrap_or("the PDF").to_string());
     let bytes = got.body.clone();
     let read = tokio::task::spawn_blocking(move || {
-        theseus_tools::fs::pdf_pages("It", file, bytes, pages.as_deref(), "http_fetch")
+        theseus_tools::docs::pdf_pages("It", file, bytes, pages.as_deref(), "http_fetch")
     })
     .await
     .map_err(|e| ToolFailure::new(format!("the PDF's reading stopped: {e}")))??;

@@ -13,8 +13,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    image, parse, Access, Cores, ImageData, Media, PdfData, Plan, Resource, Retry, Tool, ToolClass,
-    ToolCtx, ToolFailure, ToolOutput,
+    image, parse, Access, Cores, ImageData, Media, Plan, Resource, Retry, Tool, ToolClass, ToolCtx,
+    ToolFailure, ToolOutput,
 };
 
 const MAX_LINE_CHARS: usize = 2000;
@@ -86,7 +86,7 @@ fn not_regular(t: fs::FileType) -> Option<&'static str> {
 /// is opened without blocking and checked again once open, so one swapped in
 /// after the first check is refused too. Without `follow`, a symlink is
 /// refused as well, even one swapped in after the caller looked.
-fn open_regular(path: &Path, follow: bool) -> Result<(fs::File, fs::Metadata), Unread> {
+pub(crate) fn open_regular(path: &Path, follow: bool) -> Result<(fs::File, fs::Metadata), Unread> {
     use std::os::unix::fs::OpenOptionsExt;
     let meta = if follow {
         fs::metadata(path)
@@ -234,17 +234,12 @@ struct ReadArgs {
     pages: Option<String>,
 }
 
-/// The most PDF pages one read returns, as Claude Code's Read does: a read
-/// of more, or of a longer PDF without `pages`, returns this many and says
-/// how to read on.
-pub const PDF_PAGES_PER_READ: u32 = 20;
-
 impl Tool for Read {
     fn name(&self) -> &'static str {
         "fs.read"
     }
     fn description(&self) -> &'static str {
-        "Read a file. A text file comes back with line numbers (`   12\\tline`): use it before editing a file and whenever you need a file's current contents, and pass offset/limit to page through a long one. An image (PNG, JPEG, GIF, WebP) comes back as an image. A PDF comes back as its pages, up to 20 at a time: pass pages (\"3\", \"3-5\", \"21-\") to choose them; a model that reads PDFs sees each page whole, scans and charts included, and any other reads their text. Other binary files are reported, not returned."
+        "Read a file. A text file comes back with line numbers (`   12\\tline`): use it before editing a file and whenever you need a file's current contents, and pass offset/limit to page through a long one. An image (PNG, JPEG, GIF, WebP) comes back as an image. A PDF comes back as its pages, up to 20 at a time: pass pages (\"3\", \"3-5\", \"21-\") to choose them; a model that reads PDFs sees each page whole, scans and charts included, and any other reads their text. A document (Word .docx, Excel .xlsx, PowerPoint .pptx, OpenDocument .odt/.ods/.odp, EPUB, RTF, a Jupyter notebook .ipynb) comes back as its text by section (sheets as tables, slides with titles and notes, cells with outputs), and an archive (zip, tar, tar.gz) as its list; pages counts sections. Other binary files are reported, not returned."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -299,7 +294,7 @@ impl Tool for Read {
             )));
         }
         // A PDF may be as large as an attached one (theseus-c9l6).
-        let cap = match meta.len() > MAX_FILE_BYTES && starts_as_pdf(&path) {
+        let cap = match meta.len() > MAX_FILE_BYTES && crate::docs::starts_as_pdf(&path) {
             true => theseus_files::MAX_FILE_BYTES,
             false => MAX_FILE_BYTES,
         };
@@ -349,11 +344,16 @@ impl Tool for Read {
             ));
         }
         if theseus_files::pdf::is_pdf(&bytes) {
-            return read_pdf(&path, bytes, a.pages.as_deref());
+            return crate::docs::read_pdf(&path, bytes, a.pages.as_deref());
+        }
+        if let Some(out) =
+            crate::docs::read_doc(&path, &bytes, a.pages.as_deref(), ctx.max_read_bytes)?
+        {
+            return Ok((out, None));
         }
         if a.pages.is_some() {
             return Err(ToolFailure::new(format!(
-                "{} is not a PDF; pages is for a PDF (use offset/limit for lines)",
+                "{} is not a PDF or a document; pages is for those (use offset/limit for lines)",
                 path.display()
             )));
         }
@@ -435,116 +435,6 @@ impl Tool for Read {
             last + 1 - first
         )
     }
-}
-
-/// Whether a file's first bytes say PDF.
-fn starts_as_pdf(path: &Path) -> bool {
-    use std::io::Read as _;
-    open_regular(path, true).is_ok_and(|(f, _)| {
-        let mut head = Vec::with_capacity(1024);
-        f.take(1024).read_to_end(&mut head).is_ok() && theseus_files::pdf::is_pdf(&head)
-    })
-}
-
-/// A PDF's pages as a tool returns them (theseus-c9l6): the pages asked for
-/// (`pages`), or the first [`PDF_PAGES_PER_READ`], read in the capped
-/// converter. The model gets those pages cut out as a PDF of their own, with
-/// their text for a model that reads no PDFs; the result says which pages of
-/// how many, and how to read on with `again` (the tool's wire name). `what`
-/// names the file in the result (`/w/report.pdf`, `It`), and `file` in the
-/// line under it (`report.pdf`). A PDF that could not be read says why, and
-/// gives no file.
-pub fn pdf_pages(
-    what: &str,
-    file: String,
-    bytes: Vec<u8>,
-    pages: Option<&str>,
-    again: &str,
-) -> Result<(ToolOutput, Option<Media>), ToolFailure> {
-    use theseus_files::pdf::{self, Pages};
-    let asked = pages
-        .map(Pages::parse)
-        .transpose()
-        .map_err(ToolFailure::new)?;
-    let first = asked.map_or(1, |p| p.first);
-    let last = asked.map_or(u32::MAX, |p| p.last);
-    let range = Pages::new(
-        first,
-        last.min(first.saturating_add(PDF_PAGES_PER_READ - 1)),
-    );
-    let ask = pdf::Ask {
-        pages: Some(range),
-        part: true,
-        text: true,
-    };
-    let (got, ran) = theseus_files::convert::pdf(&bytes, &ask);
-    let size = bytes.len();
-    let read = match got {
-        Ok(r) => r,
-        Err(why) => {
-            return Ok((
-                ToolOutput {
-                    text: format!("{what} was not read as a PDF ({size} bytes): {why}."),
-                    meta: json!({"bytes": size, "pdf": true, "not_read": why}),
-                },
-                None,
-            ))
-        }
-    };
-    let total = read.pages;
-    let got = read.range.unwrap_or(Pages::new(1, total));
-    let whole = got.first == 1 && got.last == total;
-    let mut text = format!(
-        "{what} is a PDF of {}, {size} bytes: {} shown.",
-        pdf::count(total),
-        if whole {
-            "every page".to_string()
-        } else {
-            got.words()
-        }
-    );
-    if got.last < total {
-        let next = Pages::new(got.last + 1, (got.last + PDF_PAGES_PER_READ).min(total));
-        text.push_str(&format!(
-            " Pages {}–{total} are not shown: {again} with pages=\"{}-{}\" reads on.",
-            got.last + 1,
-            next.first,
-            next.last
-        ));
-    }
-    let name = match whole {
-        true => file,
-        false => format!("{file}, {} of {total}", got.words()),
-    };
-    let meta =
-        json!({"bytes": size, "pdf": true, "pages": total, "from": got.first, "to": got.last});
-    let mut read = read;
-    let part = read.part.take().unwrap_or(bytes);
-    Ok((
-        ToolOutput { text, meta },
-        Some(Media::Pdf(PdfData {
-            name,
-            bytes: part,
-            read,
-            ms: ran.ms,
-            capped: ran.capped,
-        })),
-    ))
-}
-
-/// `fs.read` of a PDF: [`pdf_pages`], its meta naming the path.
-fn read_pdf(
-    path: &Path,
-    bytes: Vec<u8>,
-    pages: Option<&str>,
-) -> Result<(ToolOutput, Option<Media>), ToolFailure> {
-    let file = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.display().to_string());
-    let (mut out, media) = pdf_pages(&path.display().to_string(), file, bytes, pages, "fs_read")?;
-    out.meta["path"] = json!(path);
-    Ok((out, media))
 }
 
 /// A row's number in `fs.read`'s output (`    12\tline`), if `line` is a
@@ -1876,94 +1766,6 @@ mod tests {
             out.text
         );
         assert_eq!(out.meta["not_shown"], "an image over the 5 MiB limit");
-    }
-
-    /// `fs.read` of a PDF (theseus-c9l6): the pages asked for, cut out as a
-    /// PDF of their own with their text; the first 20 when none are asked
-    /// for; a range past the end, and pages of a file that is not a PDF,
-    /// refused with words.
-    #[test]
-    fn reading_a_pdf_returns_its_pages_and_says_how_to_read_on() {
-        let d = tempfile::tempdir().unwrap();
-        let c = ctx(&d);
-        let texts: Vec<String> = (1..=25).map(|n| format!("Ledger page {n}")).collect();
-        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
-        std::fs::write(
-            d.path().join("ledger.pdf"),
-            theseus_files::pdf::sample(&refs),
-        )
-        .unwrap();
-        let (out, media) = Read
-            .run_with_media(&json!({"path": "ledger.pdf", "pages": "3-5"}), &c)
-            .unwrap();
-        assert!(
-            out.text.contains("is a PDF of 25 pages") && out.text.contains("pages 3–5 shown."),
-            "{}",
-            out.text
-        );
-        assert!(
-            out.text.contains("fs_read with pages=\"6-25\" reads on"),
-            "{}",
-            out.text
-        );
-        assert_eq!(
-            (out.meta["pages"].as_u64(), out.meta["from"].as_u64()),
-            (Some(25), Some(3))
-        );
-        let Some(Media::Pdf(p)) = media else {
-            panic!("the pages")
-        };
-        assert_eq!(p.name, "ledger.pdf, pages 3–5 of 25");
-        assert_eq!(
-            p.read.texts,
-            vec!["Ledger page 3", "Ledger page 4", "Ledger page 5"]
-        );
-        let part = theseus_files::pdf::read(&p.bytes, &Default::default()).unwrap();
-        assert_eq!(part.pages, 3, "the part holds those pages alone");
-
-        // No pages: the first 20, and how to read on.
-        let (out, media) = Read
-            .run_with_media(&json!({"path": "ledger.pdf"}), &c)
-            .unwrap();
-        assert!(out.text.contains("pages 1–20 shown"), "{}", out.text);
-        let Some(Media::Pdf(p)) = media else {
-            panic!("the pages")
-        };
-        assert_eq!(p.read.texts.len(), 20);
-
-        // A short PDF whole: its own bytes, every page.
-        std::fs::write(
-            d.path().join("note.pdf"),
-            theseus_files::pdf::sample(&["one", "two"]),
-        )
-        .unwrap();
-        let (out, media) = Read
-            .run_with_media(&json!({"path": "note.pdf"}), &c)
-            .unwrap();
-        assert!(out.text.ends_with("every page shown."), "{}", out.text);
-        let Some(Media::Pdf(p)) = media else {
-            panic!("the pages")
-        };
-        assert_eq!((p.name.as_str(), p.read.texts.len()), ("note.pdf", 2));
-
-        let (out, media) = Read
-            .run_with_media(&json!({"path": "note.pdf", "pages": "9"}), &c)
-            .unwrap();
-        assert!(media.is_none());
-        assert!(
-            out.text.ends_with(
-                "was not read as a PDF (716 bytes): it has 2 pages so page 9 is past its end."
-            ),
-            "{}",
-            out.text
-        );
-        std::fs::write(d.path().join("a.txt"), "plain").unwrap();
-        let e = Read
-            .run_with_media(&json!({"path": "a.txt", "pages": "1"}), &c)
-            .unwrap_err();
-        assert!(e
-            .message
-            .ends_with("is not a PDF; pages is for a PDF (use offset/limit for lines)"));
     }
 
     /// What a cut left out of a read is rows, by number (theseus-46v): the

@@ -133,7 +133,16 @@ struct Rig {
 
 impl Rig {
     fn start() -> Self {
-        let model = FakeModel::start(|_| vec![]);
+        Self::start_with(|_| vec![], |_| {})
+    }
+
+    /// A daemon whose model calls `calls` gives for a turn's prompt, its
+    /// config changed by `tweak`.
+    fn start_with(
+        calls: impl Fn(&str) -> Vec<(&'static str, Value)> + Send + Sync + 'static,
+        tweak: impl FnOnce(&mut toml::Table),
+    ) -> Self {
+        let model = FakeModel::start(calls);
         let dir = tempfile::tempdir().unwrap();
         let path = |p: &str| dir.path().join(p);
         for d in ["bin", "projects"] {
@@ -158,6 +167,8 @@ impl Rig {
                 .unwrap()
                 .insert("api_base".into(), model.base.clone().into());
         }
+        table(&mut t, "policy").insert("enforcement".into(), "notify".into());
+        tweak(&mut t);
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         let log = std::fs::File::create(path("theseusd.log")).unwrap();
         let daemon = Daemon::spawn(
@@ -228,16 +239,203 @@ impl Rig {
         let s = self
             .call("session.open", json!({"label": profile}))
             .unwrap();
-        let data = theseus_core::blobs::encode(file);
+        self.submit(
+            s["session_id"].as_str().unwrap(),
+            profile,
+            "Who is the harbour master?",
+            Some((name, file)),
+        )
+    }
+
+    /// A turn in session `sid` on `profile`, with `file` attached when given.
+    fn submit(&self, sid: &str, profile: &str, input: &str, file: Option<(&str, &[u8])>) -> Value {
+        let attachments: Vec<Value> = file
+            .into_iter()
+            .map(|(name, bytes)| {
+                json!({"name": name, "media_type": "application/octet-stream", "size": bytes.len(),
+                       "data": theseus_core::blobs::encode(bytes)})
+            })
+            .collect();
         self.call(
             "turn.submit",
-            json!({"session_id": s["session_id"], "input": "Who is the harbour master?",
-                   "profile": profile, "author": "test",
-                   "attachments": [{"name": name, "media_type": "application/pdf",
-                                    "size": file.len(), "data": data}]}),
+            json!({"session_id": sid, "input": input, "profile": profile, "author": "test",
+                   "attachments": attachments}),
         )
         .unwrap()
     }
+}
+
+/// The content of the last tool result the model was sent.
+fn last_tool_result(model: &FakeModel) -> String {
+    let reqs = model.requests();
+    let last = reqs.last().expect("a request");
+    let blocks = last["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|m| m["role"] == "user")
+        .and_then(|m| m["content"].as_array().cloned())
+        .unwrap_or_default();
+    let r = blocks
+        .iter()
+        .find(|b| b["type"] == "tool_result")
+        .unwrap_or_else(|| panic!("no tool result: {blocks:?}"));
+    match &r["content"] {
+        Value::String(s) => s.clone(),
+        Value::Array(a) => a
+            .iter()
+            .filter_map(|b| b["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        other => other.to_string(),
+    }
+}
+
+/// What the stand-in Deepgram was sent: each request's path, type, key, and
+/// length.
+type Heard = std::sync::Arc<std::sync::Mutex<Vec<(String, String, String, usize)>>>;
+
+/// A stand-in for Deepgram's pre-recorded endpoint: every request answered
+/// with one transcript of a 42-second recording.
+fn fake_deepgram(transcript: &'static str) -> (String, Heard) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen: Heard = Default::default();
+    let kept = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut r = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            r.read_line(&mut line).unwrap();
+            let path = line.split_whitespace().nth(1).unwrap_or("").to_string();
+            let (mut kind, mut key, mut len) = (String::new(), String::new(), 0usize);
+            loop {
+                let mut h = String::new();
+                if r.read_line(&mut h).unwrap() == 0 || h == "\r\n" {
+                    break;
+                }
+                let (k, v) = h.split_once(':').unwrap_or(("", ""));
+                match k.to_ascii_lowercase().as_str() {
+                    "content-type" => kind = v.trim().into(),
+                    "authorization" => key = v.trim().into(),
+                    "content-length" => len = v.trim().parse().unwrap_or(0),
+                    _ => {}
+                }
+            }
+            let mut body = vec![0u8; len];
+            std::io::Read::read_exact(&mut r, &mut body).unwrap();
+            kept.lock().unwrap().push((path, kind, key, len));
+            let answer = json!({"metadata": {"duration": 42.0},
+                "results": {"channels": [{"alternatives": [{"transcript": transcript}]}]}})
+            .to_string();
+            let mut w = stream;
+            let _ = write!(
+                w,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                answer.len()
+            );
+        }
+    });
+    (base, seen)
+}
+
+/// Join 2 (theseus-c9l6): `file.read` reads a document's sections, reads an
+/// archive's member out under the working directory, and hears a recording
+/// through Deepgram once, booked as a voice call's speech is; the second
+/// read of it is the kept transcript, with no new request.
+#[test]
+fn file_read_reads_sections_a_member_and_a_recording_heard_once() {
+    let (base, heard) = fake_deepgram("Moor at the outer mark after six.");
+    let r = Rig::start_with(
+        // The prompt is the turn's last user text, its files' lines included.
+        |prompt| {
+            let p = prompt.lines().last().unwrap_or("");
+            match p {
+                "Read the rules." => {
+                    vec![("file_read", json!({"name": "rules.docx", "pages": "1"}))]
+                }
+                "Read the log." => vec![(
+                    "file_read",
+                    json!({"name": "logs.zip", "member": "logs/tide.log"}),
+                )],
+                "Hear the memo." | "Hear it again." => {
+                    vec![("file_read", json!({"name": "memo.ogg"}))]
+                }
+                _ => vec![],
+            }
+        },
+        move |t| {
+            fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
+                t.entry(key)
+                    .or_insert_with(|| toml::Value::Table(Default::default()))
+                    .as_table_mut()
+                    .unwrap()
+            }
+            table(t, "voice").insert("api_base".into(), base.into());
+            table(t, "secrets").insert(
+                "deepgram_api_key".into(),
+                "op://Test/deepgram_api_key/credential".into(),
+            );
+        },
+    );
+    let s = r.call("session.open", json!({"label": "files"})).unwrap();
+    let sid = s["session_id"].as_str().unwrap();
+    let docx = theseus_files::doc::sample_zip(&[
+        ("[Content_Types].xml", "<Types/>"),
+        (
+            "word/document.xml",
+            r#"<w:document><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Harbour rules</w:t></w:r></w:p></w:body></w:document>"#,
+        ),
+    ]);
+    r.submit(
+        sid,
+        "sonnet",
+        "Read the rules.",
+        Some(("rules.docx", &docx)),
+    );
+    let got = last_tool_result(&r.model);
+    assert!(got.contains("--- text ---\n# Harbour rules"), "{got}");
+
+    let zip = theseus_files::doc::sample_zip(&[("logs/tide.log", "high water 06:12")]);
+    r.submit(sid, "sonnet", "Read the log.", Some(("logs.zip", &zip)));
+    let got = last_tool_result(&r.model);
+    assert!(got.contains("high water 06:12"), "{got}");
+    let short: String = sid.chars().skip(sid.chars().count() - 8).collect();
+    let saved = r.dir.path().join(format!(
+        "projects/.theseus-files/{short}/logs.zip.d/logs/tide.log"
+    ));
+    assert_eq!(std::fs::read_to_string(&saved).unwrap(), "high water 06:12");
+
+    let ogg = b"OggS\x00\x02 a recording, by its first bytes".to_vec();
+    r.submit(sid, "sonnet", "Hear the memo.", Some(("memo.ogg", &ogg)));
+    let got = last_tool_result(&r.model);
+    assert!(
+        got.contains("Transcript of memo.ogg (0:42), by Deepgram nova-3")
+            && got.contains("Moor at the outer mark"),
+        "{got}"
+    );
+    r.submit(sid, "sonnet", "Hear it again.", None);
+    let got = last_tool_result(&r.model);
+    assert!(got.contains("heard before; no new charge"), "{got}");
+    let seen = heard.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "heard once: {seen:?}");
+    let (path, kind, key, len) = &seen[0];
+    assert!(path.starts_with("/v1/listen?model=nova-3"), "{path}");
+    assert_eq!(
+        (kind.as_str(), key.as_str(), *len),
+        ("audio/ogg", "Token test-secret-value-0000", ogg.len())
+    );
+    // The transcript is spend, booked as a voice call's is.
+    let rows = r
+        .call("ledger.tail", json!({"kind": "speech.transcribed", "n": 5}))
+        .unwrap();
+    let rows = rows["rows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (&rows[0]["data"]["tool"], &rows[0]["data"]["seconds"]),
+        (&json!("file.read"), &json!(42.0))
+    );
 }
 
 /// The blocks of the last user message of the last request the model got.

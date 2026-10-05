@@ -597,6 +597,12 @@ impl Store {
         &self.blobs
     }
 
+    /// The blobs, for a future that outlives the call that started it
+    /// (`file.read`, theseus-c9l6).
+    pub fn blobs_handle(&self) -> Arc<crate::blobs::Blobs> {
+        self.blobs.clone()
+    }
+
     /// The same store as the kernel's `Store` trait object (one WAL, one
     /// index). On a turn's handle, the kernel's frames carry the turn's
     /// waiting rows.

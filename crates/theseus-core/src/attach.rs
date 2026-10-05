@@ -35,6 +35,7 @@
 //! cached prefix holds.
 
 use serde_json::{json, Value};
+use theseus_files::kind::Kind;
 use theseus_files::pdf;
 use theseus_tools::image;
 
@@ -142,15 +143,27 @@ pub fn header(a: &Attachment, author: Option<&str>) -> String {
             None => format!("[PDF {name}{from}, {size}]"),
         },
         AttachmentContent::File { unread, .. } => {
-            let kind = if a.media_type.is_empty() {
+            let kind = Kind::of_media_type(&a.media_type);
+            let typed = if a.media_type.is_empty() {
                 String::new()
             } else {
                 format!(", {}", clean(&a.media_type))
             };
-            let why = unread
-                .as_deref()
-                .unwrap_or("only text, images, and PDFs are read");
-            format!("[File {name}{from}{kind}, {size}: kept, not read: {why}]")
+            match (kind, unread) {
+                (_, Some(why)) => format!(
+                    "[File {name}{from}{typed}, {size}: kept, not read: {why}; file_read with save puts it where proc_run can use it]"
+                ),
+                (Kind::Audio, None) => format!(
+                    "[Audio {name}{from}{typed}, {size}: not transcribed yet; file_read gives its transcript (Deepgram, about $0.26 an hour of audio)]"
+                ),
+                (Kind::Video, None) => format!(
+                    "[Video {name}{from}{typed}, {size}: not read yet; file_read gives its transcript and a strip of its frames]"
+                ),
+                (k, None) if k.has_text() => format!("[{} {name}{from}, {size}]", k.noun()),
+                (_, None) => format!(
+                    "[File {name}{from}{typed}, {size}: kept, not read; file_read with save puts it where proc_run can use it]"
+                ),
+            }
         }
     }
 }
@@ -268,11 +281,87 @@ pub fn blocks(
             }
             Shown::Line(line) => vec![text(line)],
         },
-        AttachmentContent::File { .. } => match document(a, author, media, spend) {
+        AttachmentContent::File { .. } if is_pdf(a) => match document(a, author, media, spend) {
             (line, Some(block)) => vec![text(line), block],
             (line, None) => vec![text(line)],
         },
+        AttachmentContent::File { .. } => doc_blocks(a, author, media, spend),
     }
+}
+
+/// The most images of one document's sections a request shows (a
+/// notebook's outputs); the rest are named.
+pub const MAX_DOC_IMAGES: usize = 8;
+
+/// A kept file that is not a PDF: a document's line and its text by section
+/// (every model reads it), then its sections' images for a model with
+/// vision; a recording, a video, an archive's member, or any other file is
+/// its line, which says how to read it.
+fn doc_blocks(
+    a: &Attachment,
+    author: Option<&str>,
+    media: &Media,
+    spend: &mut Spend,
+) -> Vec<Value> {
+    let line = header(a, author);
+    let AttachmentContent::File { text, unread, .. } = &a.content else {
+        return vec![json!({"type": "text", "text": line})];
+    };
+    let kind = Kind::of_media_type(&a.media_type);
+    if !kind.has_text() || unread.is_some() {
+        return vec![json!({"type": "text", "text": line})];
+    }
+    let Some(texts) = text
+        .as_deref()
+        .and_then(|d| media.blobs.and_then(|b| b.texts(d)))
+    else {
+        let head = line.trim_end_matches(']');
+        return vec![json!({"type": "text", "text": format!("{head}: its text is missing]")})];
+    };
+    let mut out = line;
+    let mut images: Vec<&crate::blobs::SectionImage> = Vec::new();
+    let mut named = 0usize;
+    for (i, s) in texts.iter().enumerate() {
+        let piece = format!("\n--- {} ---\n{}", s.label, s.text);
+        if out.len() + piece.len() > MAX_DOCUMENT_TEXT {
+            let (kept, _) = cut_to(&piece, MAX_DOCUMENT_TEXT.saturating_sub(out.len()));
+            out.push_str(kept);
+            out.push_str(&format!(
+                "\n[cut at {} of its text, in section {} of {}: file_read with pages reads on]",
+                narrative::bytes(MAX_DOCUMENT_TEXT as u64),
+                i + 1,
+                texts.len()
+            ));
+            break;
+        }
+        out.push_str(&piece);
+        for img in &s.images {
+            if media.vision && images.len() < MAX_DOC_IMAGES {
+                images.push(img);
+            } else {
+                named += 1;
+            }
+        }
+    }
+    if named > 0 {
+        out.push_str(&format!(
+            "\n[{} of its images are not shown{}]",
+            named,
+            if media.vision {
+                ""
+            } else {
+                ": this model has no vision"
+            }
+        ));
+    }
+    let mut blocks = vec![json!({"type": "text", "text": out})];
+    for img in images {
+        if let Some(data) = media.blobs.and_then(|b| b.base64(&img.digest)) {
+            spend.tokens += crate::catalog::image_tokens(media.model, img.width, img.height);
+            blocks.push(json!({"type": "image", "source": {"type": "base64", "media_type": img.media_type, "data": &*data}}));
+        }
+    }
+    blocks
 }
 
 /// A `tool_result`'s content when its tool returned an image or a PDF's
@@ -280,6 +369,9 @@ pub fn blocks(
 /// it; the text and the not-shown line, or the pages' text, for any other.
 pub fn tool_content(content: &str, file: &Attachment, media: &Media, spend: &mut Spend) -> Value {
     if let AttachmentContent::File { .. } = file.content {
+        if !is_pdf(file) {
+            return Value::String(format!("{content}\n{}", header(file, None)));
+        }
         return match document(file, None, media, spend) {
             (line, Some(block)) => {
                 json!([{"type": "text", "text": format!("{content}\n{line}")}, block])
@@ -419,7 +511,7 @@ fn shown(
         .map_or(0, |t| {
             t.iter()
                 .take(n.max(1) as usize)
-                .map(String::len)
+                .map(|s| s.text.len())
                 .sum::<usize>()
         });
     spend.tokens += crate::catalog::pdf_tokens(media.model, n.max(1), text_bytes as u64);
@@ -452,10 +544,10 @@ fn as_text(
     );
     let total = pages.unwrap_or(texts.len() as u32);
     for (i, t) in texts.iter().enumerate() {
-        let page = if t.trim().is_empty() {
+        let page = if t.text.trim().is_empty() {
             format!("\n--- page {} ---\n(no text on this page)", i + 1)
         } else {
-            format!("\n--- page {} ---\n{t}", i + 1)
+            format!("\n--- page {} ---\n{}", i + 1, t.text)
         };
         if out.len() + page.len() > MAX_DOCUMENT_TEXT {
             let (kept, _) = cut_to(&page, MAX_DOCUMENT_TEXT.saturating_sub(out.len()));
@@ -744,9 +836,9 @@ pub struct FileRead {
 }
 
 impl FileRead {
-    /// `read`, `kept` (a type not read yet), or `unread`.
+    /// `read`, `kept` (a recording, a video, or a type not read), or `unread`.
     pub fn outcome(&self) -> &'static str {
-        match (&self.why, self.media_type == PDF_TYPE) {
+        match (&self.why, Kind::of_media_type(&self.media_type).has_text()) {
             (Some(_), _) => "unread",
             (None, true) => "read",
             (None, false) => "kept",
@@ -842,8 +934,19 @@ fn keep(
         };
         return (AttachmentContent::NotRead { reason }, None);
     }
-    if pdf::is_pdf(bytes) {
-        a.media_type = PDF_TYPE.into();
+    let members = match bytes.starts_with(b"PK") {
+        true => theseus_files::doc::zip_members(bytes),
+        false => Vec::new(),
+    };
+    let kind = theseus_files::kind::sniff(bytes, &a.name, &members);
+    match kind.media_type() {
+        Some(t) => a.media_type = t.into(),
+        None if matches!(kind, Kind::Audio | Kind::Video) => {
+            if let Some(t) = theseus_files::kind::av_media_type(bytes, &a.name) {
+                a.media_type = t.into();
+            }
+        }
+        None => {}
     }
     match keep_file(bytes, blobs, "attachment", &a.name, &a.media_type) {
         Ok((mut content, read)) => {
@@ -893,7 +996,11 @@ pub fn keep_file(
         parts: Vec::new(),
         unread: None,
     };
-    if media_type != PDF_TYPE {
+    let kind = Kind::of_media_type(media_type);
+    if kind != Kind::Pdf {
+        if kind.has_text() {
+            read_doc(bytes, kind, blobs, &mut content, &mut read);
+        }
         return Ok((content, read));
     }
     let ask = pdf::Ask {
@@ -925,6 +1032,64 @@ pub fn keep_file(
         }
     }
     Ok((content, read))
+}
+
+/// A document's sections, read in the capped child, as the blob a `File`
+/// names, with its images stored as blobs of their own.
+fn read_doc(
+    bytes: &[u8],
+    kind: Kind,
+    blobs: &Blobs,
+    content: &mut AttachmentContent,
+    read: &mut FileRead,
+) {
+    let (got, ran) = theseus_files::convert::doc(bytes, kind);
+    (read.ms, read.capped) = (ran.ms, ran.capped);
+    let AttachmentContent::File { text, unread, .. } = content else {
+        return;
+    };
+    let stored = got.map(|d| crate::blobs::Sections {
+        sections: d
+            .sections
+            .into_iter()
+            .map(|s| crate::blobs::Section {
+                label: s.label,
+                text: s.text,
+                images: s
+                    .images
+                    .iter()
+                    .filter_map(|p| {
+                        let (info, digest) = store_image(&p.bytes, blobs).ok()?;
+                        Some(crate::blobs::SectionImage {
+                            digest,
+                            media_type: info.media_type.into(),
+                            width: info.width,
+                            height: info.height,
+                        })
+                    })
+                    .collect(),
+            })
+            .collect(),
+        cut: d.cut,
+    });
+    let put = stored.and_then(|s| {
+        let n = s.sections.iter().map(|x| x.text.len()).sum::<usize>() as u64;
+        let json = serde_json::to_vec(&s).map_err(|e| e.to_string())?;
+        blobs
+            .put(&json)
+            .map(|d| (d, n))
+            .map_err(|e| format!("its text could not be stored ({e})"))
+    });
+    match put {
+        Ok((d, n)) => {
+            *text = Some(d);
+            read.text_bytes = n;
+        }
+        Err(why) => {
+            read.why = Some(why.clone());
+            *unread = Some(why);
+        }
+    }
 }
 
 /// A read's texts, as the blob a `File` names, and their bytes.
@@ -1345,11 +1510,15 @@ pub(crate) mod tests {
         // and its line says why it is not read.
         assert_eq!(
             header(&got[0], None),
-            "[File big.png, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit]"
+            "[File big.png, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit; file_read with save puts it where proc_run can use it]"
         );
-        assert_eq!(
-            header(&got[1], None),
-            "[File zip.png, image/png, 22 bytes: kept, not read: only text, images, and PDFs are read]"
+        // A zip that is not one is kept, and says why it was not read.
+        assert!(
+            header(&got[1], None).starts_with(
+                "[File zip.png, application/zip, 22 bytes: kept, not read: it could not be read as a zip"
+            ),
+            "{}",
+            header(&got[1], None)
         );
         assert_eq!(
             got[2].content,
@@ -1359,7 +1528,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             reads.iter().map(FileRead::outcome).collect::<Vec<_>>(),
-            vec!["kept", "kept"]
+            vec!["kept", "unread"]
         );
         assert_eq!(std::fs::read_dir(blobs.dir()).unwrap().count(), 2);
         // A file over the cap is listed, never stored.
@@ -1451,13 +1620,14 @@ pub(crate) mod tests {
         assert_eq!((*pages, parts.len(), unread.as_deref()), (Some(3), 0, None));
         let texts = blobs.texts(text.as_deref().unwrap()).unwrap();
         assert_eq!(
-            *texts,
+            texts.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
             vec![
                 "The harbour master is Odile Varnack.",
                 "Buoy B-2 is green.",
                 ""
             ]
         );
+        assert_eq!(texts[1].label, "page 2");
         assert_eq!(reads.len(), 1);
         assert_eq!(
             (reads[0].via, reads[0].outcome(), reads[0].pages),
@@ -1701,5 +1871,131 @@ pub(crate) mod tests {
             &mut Spend::default(),
         );
         assert_eq!(native[1]["type"], "document");
+    }
+
+    fn file_wire(name: &str, media_type: &str, bytes: &[u8]) -> theseus_protocol::Attachment {
+        theseus_protocol::Attachment {
+            name: name.into(),
+            media_type: media_type.into(),
+            size: bytes.len() as u64,
+            data: Some(crate::blobs::encode(bytes)),
+            ..Default::default()
+        }
+    }
+
+    /// Join 2 (theseus-c9l6): a Word file, known by its members whatever its
+    /// sender said, is read into its text when it arrives, and every model
+    /// reads that text, a heading marked as one.
+    #[test]
+    fn a_word_document_is_read_when_it_arrives_and_every_model_reads_its_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let docx = theseus_files::doc::sample_zip(&[
+            ("[Content_Types].xml", "<Types/>"),
+            (
+                "word/document.xml",
+                r#"<w:document><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Harbour rules</w:t></w:r></w:p><w:p><w:r><w:t>Moorings are free after six.</w:t></w:r></w:p></w:body></w:document>"#,
+            ),
+        ]);
+        let (got, reads) = from_wire(
+            vec![file_wire("rules.docx", "application/octet-stream", &docx)],
+            caps(262_144),
+            &blobs,
+        );
+        assert_eq!(
+            got[0].media_type,
+            theseus_files::kind::Kind::Docx.media_type().unwrap()
+        );
+        assert_eq!((reads[0].outcome(), reads[0].via), ("read", "attachment"));
+        let size = docx.len();
+        for media in [glm(&blobs), claude(&blobs, 600, &[])] {
+            let b = blocks(
+                &got[0],
+                Some("discord:eddie"),
+                &media,
+                &mut Spend::default(),
+            );
+            assert_eq!(b.len(), 1);
+            assert_eq!(
+                b[0]["text"],
+                format!("[Document rules.docx from discord:eddie, {size} bytes]\n--- text ---\n# Harbour rules\n\nMoorings are free after six.")
+            );
+        }
+    }
+
+    /// A notebook's cells are its sections, and its output images are shown
+    /// to a model with vision, after its text, as images.
+    #[test]
+    fn a_notebooks_output_images_are_shown_to_a_model_with_vision() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let png = png(64, 32, 10);
+        let nb = json!({"nbformat": 4, "metadata": {}, "cells": [
+            {"cell_type": "code", "source": "plot()", "outputs": [
+                {"output_type": "display_data", "data": {"text/plain": "<Figure>", "image/png": crate::blobs::encode(&png)}}]}]});
+        let (got, _) = from_wire(
+            vec![file_wire("survey.ipynb", "", nb.to_string().as_bytes())],
+            caps(262_144),
+            &blobs,
+        );
+        let mut spend = Spend::default();
+        let b = blocks(&got[0], None, &claude(&blobs, 600, &[]), &mut spend);
+        assert_eq!(b.len(), 2, "{b:?}");
+        assert!(b[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("--- cell 1 (code) ---\nplot()\n[output]\n<Figure>"));
+        assert_eq!(b[1]["type"], "image");
+        assert_eq!(
+            crate::blobs::decode(b[1]["source"]["data"].as_str().unwrap()).unwrap(),
+            png
+        );
+        assert!(spend.tokens > 0);
+        let blind = blocks(&got[0], None, &glm(&blobs), &mut Spend::default());
+        assert_eq!(blind.len(), 1);
+        assert!(blind[0]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("[1 of its images are not shown: this model has no vision]"));
+    }
+
+    /// A recording is kept and named with how to hear it: nothing is spent
+    /// until the model asks (file.read). An archive is its list.
+    #[test]
+    fn a_recording_waits_to_be_asked_for_and_an_archive_is_its_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let ogg = b"OggS\x00\x02 a voice message, not really".to_vec();
+        let zip = theseus_files::doc::sample_zip(&[("logs/tide.log", "high 06:12")]);
+        let (got, reads) = from_wire(
+            vec![
+                file_wire("voice-message.ogg", "audio/ogg", &ogg),
+                file_wire("logs.zip", "application/zip", &zip),
+            ],
+            caps(262_144),
+            &blobs,
+        );
+        assert_eq!(
+            reads.iter().map(FileRead::outcome).collect::<Vec<_>>(),
+            vec!["kept", "read"]
+        );
+        let audio = blocks(
+            &got[0],
+            None,
+            &claude(&blobs, 600, &[]),
+            &mut Spend::default(),
+        );
+        assert_eq!(
+            audio[0]["text"],
+            format!("[Audio voice-message.ogg, audio/ogg, {} bytes: not transcribed yet; file_read gives its transcript (Deepgram, about $0.26 an hour of audio)]", ogg.len())
+        );
+        let list = blocks(&got[1], None, &glm(&blobs), &mut Spend::default());
+        assert!(
+            list[0]["text"]
+                .as_str()
+                .unwrap()
+                .ends_with("--- contents: 1 files ---\nlogs/tide.log  (10 bytes)"),
+            "{list:?}"
+        );
     }
 }
