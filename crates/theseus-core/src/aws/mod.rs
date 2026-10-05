@@ -36,6 +36,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use theseus_aws::catalog::Catalog;
 use theseus_aws::{Attribution, Call, CallError, Client, ClientConfig, Credentials, Output};
 use theseus_protocol::{AwsAccountStatus, AwsStatus, Span};
 use theseus_tools::{AwsBinding, AwsRequest, Tool};
@@ -53,6 +54,7 @@ pub mod external;
 pub mod hands;
 pub mod inventory;
 pub mod logs;
+pub mod policy_keys;
 pub mod s3;
 pub mod secret;
 pub mod session;
@@ -142,6 +144,9 @@ pub struct Aws {
     shows: stack::Shows,
     /// Where hands run, and the completion poller's wake (§3.3).
     pub hands: hands::Hands,
+    /// The `[policy.aws]` keys that name no service or operation, found
+    /// after serving (`check_policy_keys`).
+    unknown_policy: Mutex<Vec<String>>,
 }
 
 impl Aws {
@@ -161,6 +166,7 @@ impl Aws {
             traced: Mutex::default(),
             shows: stack::Shows::default(),
             hands: hands::Hands::default(),
+            unknown_policy: Mutex::default(),
         }))
     }
 
@@ -215,10 +221,40 @@ impl Aws {
         json!({"accounts": out})
     }
 
+    /// Check each `[policy.aws]` key naming a service or an operation
+    /// against the catalog (theseus-snhr), after serving: an operation's key
+    /// decodes its service, so the work runs off the runtime's workers. Each
+    /// key that can never match is kept for health and warned of once.
+    /// Returns them.
+    pub async fn check_policy_keys(&self, keys: Vec<String>) -> Vec<String> {
+        let found = tokio::task::spawn_blocking(move || {
+            Catalog::embedded().map(|c| policy_keys::unknown(c, keys.iter().map(String::as_str)))
+        })
+        .await;
+        let found = match found {
+            Ok(Ok(found)) => found,
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "aws: the catalog did not load; [policy.aws] keys were not checked");
+                return Vec::new();
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "aws: the [policy.aws] check did not finish");
+                return Vec::new();
+            }
+        };
+        for (key, why) in &found {
+            tracing::warn!(key = %key, %why, "aws: [policy.aws] key matches no call, so its line never applies");
+        }
+        let keys: Vec<String> = found.into_iter().map(|(k, _)| k).collect();
+        *self.unknown_policy.lock().unwrap() = keys.clone();
+        keys
+    }
+
     /// Each account as health shows it.
     pub fn status(&self) -> AwsStatus {
         AwsStatus {
             accounts: self.accounts.values().map(|a| a.status()).collect(),
+            unknown_policy_keys: self.unknown_policy.lock().unwrap().clone(),
         }
     }
 

@@ -28,14 +28,34 @@ pub fn aws_lines(s: Option<&theseus_protocol::AwsStatus>, now_ms: u64) -> Vec<St
     let Some(s) = s else {
         return Vec::new();
     };
-    s.accounts
+    let mut lines: Vec<String> = s
+        .accounts
         .iter()
         .flat_map(|a| {
             let mut lines = vec![aws_account_line(a, now_ms)];
             lines.extend(aws_tended_lines(a, now_ms));
             lines
         })
-        .collect()
+        .collect();
+    if !s.unknown_policy_keys.is_empty() {
+        let keys: Vec<String> = s
+            .unknown_policy_keys
+            .iter()
+            .map(|k| format!("\"{k}\""))
+            .collect();
+        lines.push(format!(
+            "aws: [policy.aws] {} {} no service or operation, so {}; the call falls to its \
+             class's line or `enforcement`",
+            keys.join(", "),
+            if keys.len() == 1 { "names" } else { "name" },
+            if keys.len() == 1 {
+                "its line never applies"
+            } else {
+                "their lines never apply"
+            },
+        ));
+    }
+    lines
 }
 
 /// Dollars from cents: `1234` is `$12.34`.
@@ -290,7 +310,29 @@ fn aws_account_line(a: &theseus_protocol::AwsAccountStatus, now_ms: u64) -> Stri
 
 #[cfg(test)]
 mod tests {
-    use theseus_protocol::{AwsBootstrapResult, AwsBootstrapStack};
+    use theseus_protocol::{AwsBootstrapResult, AwsBootstrapStack, AwsStatus};
+
+    /// Keys of `[policy.aws]` that match nothing are named in health's `aws:`
+    /// lines (theseus-snhr), and no line says anything when there are none.
+    #[test]
+    fn unknown_policy_keys_are_named() {
+        let mut s = AwsStatus::default();
+        assert!(super::aws_lines(Some(&s), 0).is_empty());
+        s.unknown_policy_keys = vec!["ec2:TerminateInstance".into(), "cloudformaton".into()];
+        let lines = super::aws_lines(Some(&s), 0);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("\"ec2:TerminateInstance\", \"cloudformaton\" name no service")
+                && lines[0].contains("their lines never apply"),
+            "{lines:?}"
+        );
+        s.unknown_policy_keys = vec!["s3:ListBuckts".into()];
+        let lines = super::aws_lines(Some(&s), 0);
+        assert!(
+            lines[0].contains("\"s3:ListBuckts\" names no service"),
+            "{lines:?}"
+        );
+    }
 
     /// A stopped bootstrap's re-plan (theseus-oszz): an existing stack says
     /// what it lacks, and the policy the apply sets; a stack with nothing to

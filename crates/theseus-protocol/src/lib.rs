@@ -614,6 +614,10 @@ pub struct HealthResult {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AwsStatus {
     pub accounts: Vec<AwsAccountStatus>,
+    /// `[policy.aws]` keys that name no service or operation in the catalog,
+    /// so they never match; absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown_policy_keys: Vec<String>,
 }
 
 /// One AWS account: whether its key is bound, and its calls. The key is

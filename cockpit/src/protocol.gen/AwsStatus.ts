@@ -4,4 +4,9 @@ import type { AwsAccountStatus } from "./AwsAccountStatus";
 /**
  * The AWS accounts the config binds (`[aws.accounts.<id>]`).
  */
-export type AwsStatus = { accounts: Array<AwsAccountStatus>, };
+export type AwsStatus = { accounts: Array<AwsAccountStatus>, 
+/**
+ * `[policy.aws]` keys that name no service or operation in the catalog,
+ * so they never match; absent when there are none.
+ */
+unknown_policy_keys?: Array<string>, };

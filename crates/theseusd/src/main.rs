@@ -1024,9 +1024,21 @@ async fn after_serving(
     // §3.10). Its calls fail closed until it passes.
     if let Some(aws) = core.tools.aws.clone() {
         let log = core.startup_log.clone();
+        // `[policy.aws]`'s keys against the catalog (theseus-snhr): the
+        // loader checked their form alone. Each key that names no service
+        // or operation is warned of, once, and named in health.
+        let keys: Vec<String> = core.cfg.policy.aws.keys().cloned().collect();
         tokio::spawn(async move {
             let phase = log.begin("aws.check", true, Instant::now());
-            log.end(phase, aws.check_all().await);
+            let began = Instant::now();
+            let unknown = aws.check_policy_keys(keys).await;
+            let policy_ms = began.elapsed().as_millis() as u64;
+            let mut detail = aws.check_all().await;
+            detail["policy_check_ms"] = policy_ms.into();
+            if !unknown.is_empty() {
+                detail["unknown_policy_keys"] = unknown.into();
+            }
+            log.end(phase, detail);
         });
         // The budget's reconcile and reads, and GuardDuty's usage (C2), each
         // once its account's check has passed.
