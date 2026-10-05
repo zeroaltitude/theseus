@@ -669,7 +669,8 @@ impl Metrics {
     /// Each provider call's time, and its first token's when it had one, by
     /// the provider and model its span recorded (theseus-yf1: the SDK
     /// exporter's had no attributes; theseus-8u02: the first token was the
-    /// result's, the last call's alone, with the turn's attributes).
+    /// result's, the last call's alone, with the turn's attributes). A failed
+    /// call's time also carries its `error.type` (theseus-lmhp).
     fn provider_calls(&mut self, trace: &Span) {
         let mut calls = Vec::new();
         spans::provider_calls(trace, &mut calls);
@@ -681,9 +682,16 @@ impl Metrics {
             if let Some(m) = c.model {
                 attrs.push((semconv::GEN_AI_REQUEST_MODEL, Attr::S(m)));
             }
-            let attrs = sorted(attrs);
+            // A first token is the call's own, whatever came after it, so
+            // it stays in the model's one series; the call's time splits by
+            // `error.type`, so a 404 in 150 ms never lands among the answers.
+            let mut attrs = sorted(attrs);
             if let Some(ft) = c.first_token_ms {
                 self.record(&FIRST_TOKEN, attrs.clone(), ft);
+            }
+            if let Some(e) = c.error_type {
+                attrs.push((semconv::ERROR_TYPE, Attr::S(e)));
+                attrs = sorted(attrs);
             }
             self.record(&PROVIDER_CALL, attrs, c.ms);
         }
