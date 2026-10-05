@@ -28,7 +28,9 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   `appending` while you append: the writer needs it shared.
 - **A segment's name is as durable as its frames** (theseus-xprd). A roll syncs the segment it leaves; the `sync`
   that makes a new segment's first frame durable then syncs the log's directory before it returns, and a new
-  log's first sync syncs the directory holding the log too. A file made durable needs its directory synced too. The
+  log's first sync syncs the directory holding the log too. An open that appends to a last segment it found syncs
+  the log's directory with its first frame as well, once (theseus-c67g): that segment's creator may have died
+  before its own sync did, and ext4's ordered mode hiding it is no promise of POSIX's. A file made durable needs its directory synced too. The
   store's open adds the holder of every directory it created, the store's own included (theseus-gf00), to those the
   first frame's sync makes durable.
 - **The version rule: one format number** (P5b; Part III F4a; theseus-ptx1, Tier 7's 7.9 as Eddie amended it). Any

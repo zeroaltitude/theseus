@@ -1397,7 +1397,8 @@ fn a_redb_index_that_fails_another_way_is_left_and_refused() {
 /// when they are new; the manifest's write syncs the store's directory, but
 /// nothing syncs the directory that holds its name. The first frame's sync
 /// does: the holder of each directory the open made, besides the log's own
-/// two (its directory, and the store's). A store opened again made nothing.
+/// two (its directory, and the store's). A store opened again made nothing,
+/// and syncs only the log's directory, for the segment it appends to.
 #[test]
 fn a_new_stores_own_name_is_synced_with_its_first_frame() {
     let root = tempfile::tempdir().unwrap();
@@ -1425,10 +1426,11 @@ fn a_new_stores_own_name_is_synced_with_its_first_frame() {
     );
     drop(s);
 
-    // A store that exists made no name: its next frame syncs none.
+    // A store that exists made no name: its next frame syncs only the log's
+    // directory, for the segment it found (theseus-c67g).
     let s = open(&root.path().join("store"));
     s.append(&frame()).unwrap();
-    assert_eq!(dir_syncs(&s), 0);
+    assert_eq!(dir_syncs(&s), 1);
 }
 
 /// theseus-gt12: the frame that holds the index's checkpoint goes bad on

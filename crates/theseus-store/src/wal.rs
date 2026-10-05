@@ -27,6 +27,9 @@
 //! durable as its frames (theseus-xprd): the `sync` that makes a new
 //! segment's first frame durable also syncs the log's directory before it
 //! returns, and a new log's first sync also syncs the directory holding it.
+//! An open that appends to a segment it found syncs the log's directory with
+//! its first frame too (theseus-c67g): the segment's creator may have died
+//! before it did.
 //!
 //! On recovery, the first frame that fails (short, bad magic, bad crc) ends
 //! the log. A bad frame followed by good bytes in an earlier segment is
@@ -316,8 +319,9 @@ pub struct Wal {
     /// returned Ok covered.
     synced: std::sync::atomic::AtomicU64,
     /// Directories that hold a name no sync has made durable yet: the log's
-    /// own, once a segment is created in it, and the one that holds the log,
-    /// once open created the log's directory. The next `sync` syncs each
+    /// own, once a segment is created in it or an open finds the segment it
+    /// appends to (theseus-c67g), and the one that holds the log, once open
+    /// created the log's directory. The next `sync` syncs each
     /// after its fdatasync and before it returns, so no frame is reported
     /// durable while a power loss could still lose its segment's name
     /// (theseus-xprd).
@@ -355,9 +359,12 @@ pub fn segment_path(dir: &Path, n: u32) -> PathBuf {
 }
 
 /// The segment an open appends to: the last, or segment 1, created, in a log
-/// with none. With it, the directories holding the names that open created,
-/// which the first frame's sync makes durable (theseus-xprd): segment 1's,
-/// and the log directory's own when the open created that too.
+/// with none. With it, the directories whose names the first frame's sync
+/// makes durable (theseus-xprd): segment 1's, and the log directory's own
+/// when the open created that too. A last segment found is synced into the
+/// log's directory too (theseus-c67g): the process that created it may have
+/// died before the sync of its first frame synced its name, and this one
+/// never creates it, so nothing else would sync that name until a roll.
 fn append_segment(
     dir: &Path,
     last: Option<u32>,
@@ -369,7 +376,7 @@ fn append_segment(
             .read(true)
             .open(segment_path(dir, seg))?;
         let len = f.metadata()?.len();
-        return Ok((seg, f, len, Vec::new()));
+        return Ok((seg, f, len, vec![dir.to_path_buf()]));
     }
     let f = OpenOptions::new()
         .create(true)
@@ -1961,11 +1968,58 @@ mod tests {
         }
         assert_eq!(wal.segment_count(), 4);
         drop(wal);
-        // A log opened again creates no name until it rolls.
+        // A log opened again creates no name until it rolls, but syncs the
+        // name of the segment it appends to once, with its first frame: the
+        // process that created it may have died before it did (theseus-c67g).
         let wal = Wal::open(&dir, cfg).unwrap();
+        assert_eq!(dir_syncs(&wal), 0, "the open syncs nothing");
         wal.append(&[rec(kinds::LEDGER, None, &[3u8; 64])]).unwrap();
-        assert_eq!(dir_syncs(&wal), 0);
+        assert_eq!(dir_syncs(&wal), 1, "the found segment's name, once");
+        wal.append(&[rec(kinds::LEDGER, None, &[3u8; 64])]).unwrap();
+        assert_eq!(dir_syncs(&wal), 1, "and not again");
         assert_eq!(wal.recovery().records, 10);
+    }
+
+    /// A segment whose creator died before its first frame's sync is synced
+    /// into the log's directory by the next process to sync a frame in it
+    /// (theseus-c67g): an open that finds a last segment puts the log's
+    /// directory in the first sync, once, and only the log's own.
+    #[test]
+    fn an_open_that_finds_its_last_segment_syncs_its_name_with_the_first_frame() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("wal");
+        let dir_syncs = |w: &Wal| w.dir_syncs.load(std::sync::atomic::Ordering::Relaxed);
+        // The creator writes and dies before any sync: its segment exists,
+        // and nothing synced the log's directory.
+        let wal = Wal::open(&dir, WalConfig::default()).unwrap();
+        wal.write(&[rec(kinds::LEDGER, None, b"unsynced")]).unwrap();
+        assert_eq!(dir_syncs(&wal), 0);
+        drop(wal);
+        assert_eq!(list_segments(&dir).unwrap(), vec![1]);
+        let wal = Wal::open(&dir, WalConfig::default()).unwrap();
+        assert_eq!(
+            *wal.unsynced_dirs.lock().unwrap(),
+            vec![dir],
+            "the log's directory, not the one holding it"
+        );
+        wal.write(&[rec(kinds::LEDGER, None, b"one")]).unwrap();
+        wal.sync().unwrap();
+        assert_eq!(
+            dir_syncs(&wal),
+            1,
+            "synced before the first frame is durable"
+        );
+        wal.write(&[rec(kinds::LEDGER, None, b"two")]).unwrap();
+        wal.sync().unwrap();
+        assert_eq!(dir_syncs(&wal), 1, "once an open");
+        drop(wal);
+        // An open that creates segment 1 in a directory it finds: that one
+        // name, as before.
+        let fresh = parent.path().join("fresh");
+        fs::create_dir(&fresh).unwrap();
+        let wal = Wal::open(&fresh, WalConfig::default()).unwrap();
+        wal.append(&[rec(kinds::LEDGER, None, b"first")]).unwrap();
+        assert_eq!(dir_syncs(&wal), 1);
     }
 
     #[test]
