@@ -2,9 +2,9 @@ $ theseus catalog
 --- requests
 catalog.list
 --- stdout
-model                    provider      window  max out     $in    $out   $c.rd   $c.wr  thinking  profiles
-glm-x                    zed             200K      16K     0.6     2.2    0.11       -  none      quick,cheap
-orbit-5                  orbit             1M      64K       3      15     0.3    3.75  adaptive  
+model                    provider      window  max out     $in    $out   $c.rd   $c.wr   $c.1h  thinking  profiles
+glm-x                    zed             200K      16K     0.6     2.2    0.11       -       -  none      quick,cheap
+orbit-5                  orbit             1M      64K       3      15     0.3    3.75       6  adaptive  
 --- stderr
 [catalog 2026-09-30 · prices are USD per million tokens]
 --- exit 0

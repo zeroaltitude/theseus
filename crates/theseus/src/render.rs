@@ -39,7 +39,7 @@ mod tasks;
 mod web;
 pub use aws::{aws_call_line, aws_lines, bootstrap_lines};
 pub use cancel::{cancels_line, verdict_lines};
-pub use catalog::catalog_config_lines;
+pub use catalog::{cache_write_words, catalog_config_lines, catalog_table_lines};
 pub use index::{index_hits_lines, index_line, index_status_lines, tender_words};
 pub use judge::{judge_line, judge_log_lines, judge_show_lines};
 pub use judge_runs::{judge_audit_lines, judge_backfill_lines, judge_replay_lines};
@@ -1730,7 +1730,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
             h.usage_total.input_tokens,
             h.usage_total.output_tokens,
             h.usage_total.cache_read_input_tokens,
-            h.usage_total.cache_creation_input_tokens,
+            cache_write_words(&h.usage_total),
         ),
     );
     if let Some(line) = config_line(&h.config) {

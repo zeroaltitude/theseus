@@ -1508,7 +1508,8 @@ fn catalog_prints_windows_and_prices() {
          "profiles": ["quick", "cheap"]},
         {"model": "orbit-5", "entry": {"provider": "orbit", "context_window": 1000000,
             "max_output_tokens": 64000, "input_per_mtok": 3.0, "output_per_mtok": 15.0,
-            "cache_read_per_mtok": 0.3, "cache_write_per_mtok": 3.75, "thinking": "adaptive"},
+            "cache_read_per_mtok": 0.3, "cache_write_per_mtok": 3.75,
+            "cache_write_1h_per_mtok": 6.0, "thinking": "adaptive"},
          "profiles": []}]});
     golden(
         "catalog",
