@@ -142,6 +142,8 @@ mod tests_backfill;
 #[cfg(test)]
 mod tests_books;
 #[cfg(test)]
+mod tests_budget_loop;
+#[cfg(test)]
 mod tests_budgets;
 #[cfg(test)]
 mod tests_cancel;
