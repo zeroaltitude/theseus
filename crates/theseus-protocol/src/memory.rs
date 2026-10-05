@@ -321,6 +321,11 @@ pub struct RecallDrop {
     /// A `budget` drop's tokens.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub tokens: u64,
+    /// Under `+retention` (32a): its node's retention, as for an item, so a
+    /// node a label dropped still shows what the label did to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub retention: Option<RecallRetention>,
 }
 
 fn is_zero(n: &u64) -> bool {

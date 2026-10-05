@@ -510,9 +510,9 @@ impl Memory {
         self.retention_for(science, candidates).0
     }
 
-    /// Under a science that reads retention, each admitted item's: its
-    /// retrievability at the turn's time, stability, difficulty and last
-    /// review (none for a node without one).
+    /// Under a science that reads retention, each admitted and dropped
+    /// item's: its retrievability at the turn's time, stability, difficulty
+    /// and last review (none for a node without one).
     fn retention_items(
         &self,
         science: &dyn MemoryScience,
@@ -524,13 +524,19 @@ impl Memory {
             return;
         }
         let fsrs = self.retention.fsrs();
-        for item in &mut m.admitted {
-            item.retention = retention.get(&item.node_id).map(|r| RecallRetention {
+        let of = |node: &str| {
+            retention.get(node).map(|r| RecallRetention {
                 retrievability: fsrs.retrievability_at(r, now_ms),
                 stability: r.stability,
                 difficulty: r.difficulty,
                 last_review_ms: r.last_review_ms,
-            });
+            })
+        };
+        for item in &mut m.admitted {
+            item.retention = of(&item.node_id);
+        }
+        for drop in &mut m.dropped {
+            drop.retention = of(&drop.node_id);
         }
     }
 
@@ -599,6 +605,7 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
             reason: d.reason.as_str().into(),
             fused: d.candidate.fused,
             tokens: d.tokens,
+            retention: None,
         })
         .collect();
 }

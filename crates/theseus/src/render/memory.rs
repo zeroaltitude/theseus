@@ -265,6 +265,17 @@ fn drop_lines(o: &mut Vec<Line>, m: &RecallManifest) {
             Tag::Dim,
             &format!("  dropped {n} for {reason}: {}{more}", nodes.join(", ")),
         );
+        // Under `+retention`, what each shown drop's node holds (a label's
+        // effect included).
+        for d in m.dropped.iter().filter(|d| &d.reason == reason).take(6) {
+            if let Some(r) = &d.retention {
+                push(
+                    o,
+                    Tag::Dim,
+                    &format!("      {}#{}: {}", d.node_id, d.chunk, retention_words(r)),
+                );
+            }
+        }
     }
 }
 

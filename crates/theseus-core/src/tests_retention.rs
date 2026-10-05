@@ -406,6 +406,15 @@ async fn equal_fused_scores_order_by_retention() {
         .1
         .clone();
     assert!(req.contains(&crate::recall::text_of(&second_text)), "{req}");
+    // Labeled stale: a same-day Again lowers its stability, and the search
+    // drops it as `labeled_wrong`, its retention on the drop.
+    label(c, &second, "stale");
+    let m = c.memory_search(search(Some("+retention"))).await.unwrap();
+    let d = m.dropped.iter().find(|d| d.node_id == second).unwrap();
+    assert_eq!(d.reason, "labeled_wrong");
+    let after = d.retention.as_ref().expect("the drop's retention");
+    assert!(after.stability < rr.stability, "{after:?} after {rr:?}");
+    assert_eq!(m.admitted[0].node_id, first);
 }
 
 /// The repack in Jev's order keeps the arm's science: Jev answers both
