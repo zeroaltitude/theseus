@@ -41,6 +41,14 @@ fn wide(msg: &Message) -> bool {
     }
 }
 
+/// A deep copy of a message for one more connection; the measurement counts
+/// it (theseus-celu.36).
+fn copy(msg: &Message) -> Message {
+    #[cfg(test)]
+    crate::outbound::counts::cloned();
+    msg.clone()
+}
+
 impl SessionBus {
     /// Watch every session's executions and questions (`executions.watch`),
     /// replacing an earlier watch of the same connection.
@@ -101,7 +109,7 @@ impl SessionBus {
                     return true;
                 }
                 sent.insert(c.clone());
-                tx.notify(msg.clone(), &stream)
+                tx.notify(copy(msg), &stream)
             });
         }
         if wide(msg) {
@@ -109,7 +117,7 @@ impl SessionBus {
                 if Some(c.as_str()) == except || sent.contains(c) {
                     return true;
                 }
-                tx.notify(msg.clone(), "executions")
+                tx.notify(copy(msg), "executions")
             });
         }
     }
@@ -122,7 +130,7 @@ impl SessionBus {
         let mut g = self.subs.lock().unwrap();
         let mut sent = std::collections::HashSet::new();
         for v in g.values_mut() {
-            v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.notify(msg.clone(), "policy"));
+            v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.notify(copy(msg), "policy"));
         }
     }
 
@@ -163,7 +171,7 @@ impl EventSink {
     pub fn send(&self, e: Event) {
         let m = Message::from(e);
         if let Some((_, tx)) = &self.direct {
-            tx.notify(m.clone(), &format!("session:{}", self.session_id));
+            tx.notify(copy(&m), &format!("session:{}", self.session_id));
         }
         self.bus.publish(
             &self.session_id,

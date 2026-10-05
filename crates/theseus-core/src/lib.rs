@@ -202,6 +202,8 @@ mod tests_places;
 #[cfg(test)]
 mod tests_push;
 #[cfg(test)]
+mod tests_push_once;
+#[cfg(test)]
 mod tests_reach;
 #[cfg(test)]
 mod tests_recall;

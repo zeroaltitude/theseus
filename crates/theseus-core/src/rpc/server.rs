@@ -394,7 +394,9 @@ async fn write_one<W: AsyncWrite + Unpin>(
 
 /// Write one message as an NDJSON line and flush it. False once the
 /// connection is gone; a message that does not serialize is skipped.
-async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool {
+pub(crate) async fn write_line<W: AsyncWrite + Unpin>(writer: &mut W, m: &Message) -> bool {
+    #[cfg(test)]
+    crate::outbound::counts::serialized();
     let Ok(mut s) = serde_json::to_string(m) else {
         return true;
     };

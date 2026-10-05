@@ -167,6 +167,31 @@ impl Drain {
     }
 }
 
+/// What the measurement counts (theseus-celu.36, `tests_push_once`): a
+/// notification's serializations and deep copies, on this thread.
+#[cfg(test)]
+pub(crate) mod counts {
+    use std::cell::Cell;
+
+    thread_local! {
+        static SERIALIZED: Cell<u64> = const { Cell::new(0) };
+        static CLONED: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub fn serialized() {
+        SERIALIZED.with(|c| c.set(c.get() + 1));
+    }
+
+    pub fn cloned() {
+        CLONED.with(|c| c.set(c.get() + 1));
+    }
+
+    /// The serializations and copies since the last take.
+    pub fn take() -> (u64, u64) {
+        (SERIALIZED.with(|c| c.take()), CLONED.with(|c| c.take()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

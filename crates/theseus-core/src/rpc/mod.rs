@@ -33,6 +33,8 @@ mod proposals;
 mod publish;
 mod server;
 #[cfg(test)]
+pub(crate) use server::write_line;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_ledger;
