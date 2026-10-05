@@ -56,6 +56,7 @@ mod calls;
 pub(crate) use calls::call_result;
 pub mod compaction;
 mod compile_step;
+mod end_step;
 mod fallback_step;
 mod inbound_step;
 mod prompt_input;
@@ -1199,7 +1200,8 @@ impl TurnRunner {
         let reported = std::sync::Mutex::new(None);
         // Its record closes in that frame too (39a), under its lock.
         let (lock, closing) = Closing::new(&frames.store, task_of.as_ref(), &failure_sink);
-        let ended = frames.kernel.end_turn_with(guard, end, |e| {
+        // A late result's wake rides in the end's frame (theseus-6qwr).
+        let ended = end_step::end_and_wake(&frames.kernel, guard, end, rewake, |e| {
             let Some(task) = task_of.as_ref().filter(|_| e.state.is_terminal()) else {
                 return Ok(vec![]);
             };
@@ -1221,6 +1223,10 @@ impl TurnRunner {
             *reported.lock().unwrap() = Some(post);
             Ok(records)
         });
+        let (ended, woke) = match ended {
+            Ok((e, woke)) => (Ok(e), woke),
+            Err(e) => (Err(e), false),
+        };
         drop(lock);
         let closed = closing.end();
         // A cancel that landed while the turn ran left the calls it was making
@@ -1349,10 +1355,9 @@ impl TurnRunner {
             }
             rec.record(&fact::turn::TurnFailureTold { failed: &failed });
         }
-        if rewake && stopped.is_none() {
-            // A background result landed while the turn ran; the model has not
-            // read it yet, so the driver takes another turn.
-            let _ = self.kernel.wake(&exec_id, "late_result");
+        // A background result landed while the turn ran, which the model
+        // has not read: the end's frame queued it for the driver's next turn.
+        if woke {
             rec.record(&fact::turn::WokenAgain);
         }
         if let Some((f, then, _)) = &run {
