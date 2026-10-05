@@ -17,6 +17,10 @@
 //!   compilation stay as they were.
 //! - **Recorded** as one `route.decided` row, in the turn's next frame, and
 //!   on the turn's result (`TurnSubmitResult.route`).
+//! - **A detour sends no recall** (theseus-n7nc): the turn's pending
+//!   `Recall` node rides nothing, the reply's footer counts none, and the
+//!   recall's row, held until the route is known, says `detoured`
+//!   (`TurnRunner::recall_routed`).
 //! - **Only while it acts** (theseus-9yyr): a session routing moved runs
 //!   there while `route.v1` acts live for it, and goes back to its own
 //!   profile, its `routed` cleared, once it does not, or once the owner
@@ -52,6 +56,14 @@ pub(super) struct RouteState {
     pub(super) keeps: Option<TargetRef>,
     /// What the turn's result says.
     pub(super) result: Option<TurnRoute>,
+}
+
+impl RouteState {
+    /// Routing has the turn's route to decide: the inbound point asked
+    /// `route.v1`, and the first compile has not read its verdict yet.
+    pub(super) fn deciding(&self) -> bool {
+        self.wait.is_some() || self.defer_persist
+    }
 }
 
 /// What came of the wait.
@@ -215,8 +227,10 @@ impl TurnRunner {
     }
 
     /// The loop's compile, routed: on the first loop of a turn that asked
-    /// `route.v1`, the compile, the wait beside it, and the decision; on a
-    /// detour's later loops, the detour's compile; else the compile.
+    /// `route.v1`, the compile, the wait beside it, and the decision, then
+    /// what the turn's recall becomes (`recall_routed`: a detour sends none,
+    /// theseus-n7nc); on a detour's later loops, the detour's compile; else
+    /// the compile.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn compile_routed<'a>(
         &self,
@@ -233,11 +247,36 @@ impl TurnRunner {
         if t.route.keeps.is_some() {
             return self.compile_detour(t, session, spec, i);
         }
-        let Some(mut rx) = t.route.wait.take().filter(|_| i == 0) else {
+        let Some(rx) = t.route.wait.take().filter(|_| i == 0) else {
             return self
                 .compile_step(t, session, spec, force, strip, overflow, i)
                 .await;
         };
+        let compiled = self
+            .compile_first(
+                t, session, spec, provider, slot, force, strip, overflow, i, rx,
+            )
+            .await;
+        Self::recall_routed(t);
+        compiled
+    }
+
+    /// The first loop's compile, the wait for the verdict beside it, and the
+    /// decision: the first compile kept, a switch's compile, or a detour's.
+    #[allow(clippy::too_many_arguments)]
+    async fn compile_first<'a>(
+        &self,
+        t: &mut Turn<'a>,
+        session: &mut SessionRecord,
+        spec: &mut RequestSpec,
+        provider: &mut Option<Arc<dyn Provider>>,
+        slot: &'a OnceLock<Target>,
+        force: Option<Recompile>,
+        strip: Option<&'static str>,
+        overflow: Option<&Overflowed>,
+        i: u32,
+        mut rx: RouteWait,
+    ) -> Result<Result<Compiled, Failure>> {
         let mode = t.route.mode.unwrap_or(PackMode::Shadow);
         let live = mode >= PackMode::Canary && !self.judge.breaker_open();
         // Jev known unreachable (its last try failed to connect, and nothing
@@ -486,7 +525,9 @@ impl TurnRunner {
 
     /// A detour's request: the persona and the profile's own header, and the
     /// last `trivial_context_turns` exchanges with the message, compiled
-    /// outside the session's compilation, which it never writes.
+    /// outside the session's compilation, which it never writes. It reads the
+    /// transcript without `recall_view`, so the turn's recall reaches no
+    /// request, and `recall_routed` drops it.
     fn compile_detour(
         &self,
         t: &mut Turn<'_>,

@@ -17,6 +17,10 @@
 //!   the new compilation leaves it out of its prefix, since its position
 //!   comes after the compilation's `as_of`. The `recall.ran` row rides in
 //!   the turn's next frame.
+//! - **A trivial detour** (theseus-n7nc): while routing has the turn's route
+//!   to decide, the row waits for it (`recall_routed`). A detour's request
+//!   carries no recall, so its node rides nothing, the reply's footer counts
+//!   none, and its row says `detoured`.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -52,6 +56,10 @@ pub(crate) struct Recalled {
     /// compile, or a compaction. Its pack takes `assembled_budget_tokens`,
     /// and the new compilation renders it first in its prefix.
     pub assembled: bool,
+    /// The `recall.ran` rows of recalls made while routing had the turn's
+    /// route to decide, with their times: recorded once it is known
+    /// (`recall_routed`, theseus-n7nc).
+    pub held: Vec<(RecallManifest, u64, u64)>,
 }
 
 impl Recalled {
@@ -67,6 +75,10 @@ impl Recalled {
 /// The position a pending `Recall` node renders at: after every node, as
 /// the plan frame will write it.
 const PENDING: u64 = u64::MAX;
+
+/// Why a detoured recall reached no request (theseus-n7nc).
+const DETOURED: &str =
+    "route.v1 judged the message trivial, and the detour's request carries no recall";
 
 impl TurnRunner {
     /// The first loop's recall. In front of the model, it is read now and
@@ -287,10 +299,45 @@ impl TurnRunner {
         for item in &mut m.admitted {
             item.text = None;
         }
+        let t1 = t.trace.now_us();
+        // A trivial detour would send none of it: the row waits for the
+        // route (theseus-n7nc).
+        if t.route.deciding() {
+            t.recall.held.push((m, t0, t1));
+            return;
+        }
+        Self::record_ran(t, &m, t0, t1);
+    }
+
+    /// The route is known (theseus-n7nc). A trivial detour's request carried
+    /// no recall (`compile_detour` reads no `recall_view`), so its node rides
+    /// nothing, the reply's footer counts none, and its row says `detoured`.
+    /// Then the rows held while routing decided are recorded.
+    pub(super) fn recall_routed(t: &mut Turn<'_>) {
+        if t.route.keeps.is_some() {
+            if let Some(Body::Recall { recall_id, .. }) = t.recall.pending.take().map(|n| n.body) {
+                let mut held = t.recall.held.iter_mut();
+                if let Some((m, ..)) = held.find(|(m, ..)| m.recall_id == recall_id) {
+                    m.outcome = "detoured".into();
+                    m.why = Some(DETOURED.into());
+                }
+            }
+            t.recall.rides.clear();
+            t.recall.drops.clear();
+            t.recall.count = 0;
+        }
+        for (m, t0, t1) in std::mem::take(&mut t.recall.held) {
+            Self::record_ran(t, &m, t0, t1);
+        }
+    }
+
+    /// A recall's `recall.ran` row, for the turn's next frame, with its span
+    /// and its line.
+    fn record_ran(t: &mut Turn<'_>, m: &RecallManifest, t0: u64, t1: u64) {
         let f = RecallRan {
-            manifest: &m,
+            manifest: m,
             t0,
-            t1: t.trace.now_us(),
+            t1,
         };
         defer_row(t, &f);
         t.announce_fact(&f);
