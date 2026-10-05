@@ -9,8 +9,8 @@ the copies, and a test holds them to this file.
 
     asyncbench.py tool NAME ARGS...   a family's tool (the bin wrappers)
     asyncbench.py check FAMILY        the verifier: reward.json, the ledger copied
-    asyncbench.py await --tool T --kind K --timeout S
-                                      block until the ledger has that record
+    asyncbench.py await --tool T --kind K --timeout S [--count N]
+                                      block until the ledger has N such records
     asyncbench.py inject --message M --trigger JSON
                                       the driver's injection, as a ledger record
 
@@ -221,6 +221,8 @@ class Step:
 
     def __init__(self, tool: str, step: str, lo: float, hi: float, **fields: Any):
         self.tool, self.step = tool, step
+        self.children: list[subprocess.Popen] = []
+        self.stopping = False
         self.duration = round(_rng.uniform(lo, hi), 3)
         self.sleep = self.duration * scale()
         signal.signal(signal.SIGTERM, self._stopped)
@@ -228,6 +230,16 @@ class Step:
                             sleep=self.sleep, **fields)
 
     def _stopped(self, *_: Any) -> None:
+        # A stop passes to the step's children, and waits for them, as a
+        # well-behaved parent's does; a second SIGTERM meanwhile is the same stop.
+        if self.stopping:
+            return
+        self.stopping = True
+        for c in self.children:
+            with contextlib.suppress(ProcessLookupError):
+                c.terminate()
+        for c in self.children:
+            c.wait()
         append("stopped", self.tool, self.step, signal="SIGTERM")
         sys.exit(143)
 
@@ -373,13 +385,12 @@ def tool_migrate(args: list[str]) -> int:
     if args:
         return _usage("usage: migrate")
     s = Step("migrate", "migrate", *DURATIONS["migrate"], role="main")
-    workers = [
-        subprocess.Popen([sys.executable, os.path.abspath(__file__), "tool", "migrate-worker", str(i)])
-        for i in range(1, MIGRATE_WORKERS + 1)
-    ]
+    for i in range(1, MIGRATE_WORKERS + 1):
+        s.children.append(subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), "tool", "migrate-worker", str(i)]))
     print("migrating: 2 workers started", flush=True)
     s.wait()
-    for w in workers:
+    for w in s.children:
         w.wait()
     s.end()
     append("effect", "migrate", "migrate", migrated=True)
@@ -604,11 +615,11 @@ def check(family: str) -> dict[str, Any]:
 # ---------------------------------------------------------------- the driver's side
 
 
-def await_record(tool: str, kind: str, timeout: float) -> dict[str, Any] | None:
-    """Block until the ledger holds a `kind` record of `tool`, or `timeout`
-    seconds pass; print it as JSON. The ledger is read when it changes size,
-    checked every 0.1 s: the container has no inotify in the standard
-    library."""
+def await_record(tool: str, kind: str, timeout: float, count: int = 1) -> dict[str, Any] | None:
+    """Block until the ledger holds `count` `kind` records of `tool`, or
+    `timeout` seconds pass; return the last of them. The ledger is read when
+    it changes size, checked every 0.1 s: the container has no inotify in the
+    standard library."""
     deadline = time.monotonic() + timeout
     seen = -1
     while True:
@@ -618,9 +629,9 @@ def await_record(tool: str, kind: str, timeout: float) -> dict[str, Any] | None:
             size = 0
         if size != seen:
             seen = size
-            for r in read():
-                if r["kind"] == kind and r["tool"] == tool:
-                    return r
+            found = [r for r in read() if r["kind"] == kind and r["tool"] == tool]
+            if len(found) >= count:
+                return found[count - 1]
         if time.monotonic() >= deadline:
             return None
         time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
@@ -633,7 +644,7 @@ def main(argv: list[str]) -> int:
         return 0 if check(argv[1])["reward"] == 1 else 1
     if argv[:1] == ["await"]:
         a = dict(zip(argv[1::2], argv[2::2]))
-        r = await_record(a["--tool"], a["--kind"], float(a["--timeout"]))
+        r = await_record(a["--tool"], a["--kind"], float(a["--timeout"]), int(a.get("--count", "1")))
         print(json.dumps(r))
         return 0 if r else 4
     if argv[:1] == ["inject"]:

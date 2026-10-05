@@ -39,7 +39,7 @@ class Trial:
     """One family's scratch root: its files, the oracle's or a planted
     script run on it, and its verifier's result."""
 
-    def __init__(self, family: str):
+    def __init__(self, family: str, scale: str = SCALE):
         self.family = family
         self.task = TASKS / family
         self.dir = tempfile.TemporaryDirectory()
@@ -51,7 +51,7 @@ class Trial:
         self.env = dict(
             os.environ,
             ASYNC_ROOT=str(self.root),
-            ASYNC_TIME_SCALE=SCALE,
+            ASYNC_TIME_SCALE=scale,
             PATH=f"{self.task / 'environment/async/bin'}:{os.environ['PATH']}",
         )
 
@@ -59,7 +59,9 @@ class Trial:
         path = self.task / "solution/solve.sh"
         if script is not None:
             path = self.root / "planted.sh"
-            path.write_text("#!/bin/bash\nset -uo pipefail\nAPP=\"$ASYNC_ROOT/app\"\n" + script)
+            path.write_text("#!/bin/bash\nset -uo pipefail\nAPP=\"$ASYNC_ROOT/app\"\n"
+                            f"AWAIT=\"python3 {self.task / 'environment/async/lib/asyncbench.py'} await\"\n"
+                            + script)
         return subprocess.run(["bash", str(path)], env=self.env, capture_output=True, text=True,
                               timeout=60)
 
@@ -134,8 +136,10 @@ class Oracles(unittest.TestCase):
 
     def test_the_oracles_overlap_their_slow_steps(self):
         """The oracles run the ideal schedule: parallel's six digests overlap,
-        and contention never runs more than 2 deposits, nor 2 on one account."""
-        t = Trial("parallel")
+        and contention never runs more than 2 deposits, nor 2 on one account.
+        A larger time scale, so the steps outlast the processes' starts under
+        load."""
+        t = Trial("parallel", "0.2")
         try:
             t.run()
             rec = t.ledger()
@@ -144,7 +148,7 @@ class Oracles(unittest.TestCase):
             self.assertLess(max(starts), min(ends))
         finally:
             t.close()
-        t = Trial("contention")
+        t = Trial("contention", "0.2")
         try:
             t.run()
             rec = t.ledger()
@@ -163,8 +167,8 @@ class Oracles(unittest.TestCase):
 class Plants(unittest.TestCase):
     """A planted wrong effect per family, and the problem the check names."""
 
-    def planted(self, family: str, script: str, problem: str, **env: str) -> None:
-        t = Trial(family)
+    def planted(self, family: str, script: str, problem: str, scale: str = SCALE, **env: str) -> None:
+        t = Trial(family, scale)
         try:
             t.run(script)
             got = t.check(**env)
@@ -185,8 +189,9 @@ wait; grep -v foxtrot "$APP/all" > "$APP/digests.txt"
 
     def test_interrupt_with_the_long_job_abandoned(self):
         self.planted("interrupt", """
-train-model > /dev/null 2>&1 &
+train-model > /dev/null 2>&1 & pid=$!
 ticket-count | sed -n 's/^open tickets: //p' > "$APP/tickets.txt"
+$AWAIT --tool train-model --kind start --timeout 60 > /dev/null; kill -KILL "$pid"
 echo 9000 > "$APP/score.txt"
 """, "train-model never finished")
 
@@ -200,20 +205,24 @@ until ingest 1 > /dev/null; do :; done
         """The parent killed alone: its two workers live on."""
         self.planted("cancel", """
 migrate > /dev/null 2>&1 & pid=$!
-sleep 0.5; kill -KILL "$pid"; wait "$pid"
+$AWAIT --tool migrate --kind start --count 3 --timeout 60 > /dev/null; kill -KILL "$pid"; wait "$pid"
 """, "2 of the migration's processes still run")
 
     def test_contention_with_a_lost_update(self):
+        """Two deposits to one account, the second started while the first
+        sleeps: at this scale a deposit sleeps 8 to 15 s."""
         self.planted("contention", """
-deposit acct-north 10 & deposit acct-north 5 & wait
-deposit acct-south 20; deposit acct-east 30; deposit acct-west 40; deposit acct-south 7
+deposit acct-north 10 & $AWAIT --tool deposit --kind start --timeout 60 > /dev/null
+deposit acct-north 5 & wait
 for a in acct-north acct-south acct-east acct-west; do echo "$a $(balance "$a")"; done > "$APP/balances.txt"
-""", "acct-north holds")
+""", "acct-north holds", scale="1")
 
     def test_contention_with_more_calls_at_once_than_the_service_allows(self):
         self.planted("contention", """
-deposit acct-north 10 & deposit acct-south 20 & deposit acct-east 30 & wait
-""", "a violation: more than 2 deposits at once")
+deposit acct-north 10 & deposit acct-south 20 &
+$AWAIT --tool deposit --kind start --count 2 --timeout 60 > /dev/null
+deposit acct-east 30; wait
+""", "a violation: more than 2 deposits at once", scale="1")
 
 
 class Ledger(unittest.TestCase):

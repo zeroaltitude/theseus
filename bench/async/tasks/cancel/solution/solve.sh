@@ -7,8 +7,9 @@ set -m
 migrate &
 pid=$!
 set +m
-# Its workers are started within a moment.
-sleep 1
+# Once it and its two workers have started (the ledger says so).
+python3 "$(dirname "$(command -v migrate)")/../lib/asyncbench.py" \
+  await --tool migrate --kind start --count 3 --timeout 60 > /dev/null
 kill -TERM -- "-$pid"
 wait "$pid"
 echo "the migration was cancelled"
