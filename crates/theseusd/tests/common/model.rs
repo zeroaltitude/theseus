@@ -99,7 +99,8 @@ impl FakeModel {
     }
 
     /// Decline the next `n` requests as a model does: a short text that
-    /// ends with the `refusal` stop reason, a 200 answer.
+    /// ends with the `refusal` stop reason and its `stop_details` (category
+    /// `cyber`, as b5's were), a 200 answer.
     pub fn decline_next(&self, n: u32) {
         *self.seen.refusals.lock().unwrap() += n;
     }
@@ -193,7 +194,7 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
         declines
     };
     let events = if declines {
-        text_turn_ending(model, "I can't help with that.", "refusal")
+        declined(model)
     } else if carries_tool_result(&req) {
         text_turn(model, "Done.")
     } else {
@@ -266,6 +267,16 @@ fn tool_turn(model: &str, calls: &[(&'static str, Value)]) -> Vec<Value> {
 
 fn text_turn(model: &str, text: &str) -> Vec<Value> {
     text_turn_ending(model, text, "end_turn")
+}
+
+/// A refusal, as the API streams one: its stop reason and its details.
+fn declined(model: &str) -> Vec<Value> {
+    let mut v = text_turn_ending(model, "I can't help with that.", "refusal");
+    let details =
+        json!({"type": "refusal", "category": "cyber", "explanation": "declined (stand-in)"});
+    let n = v.len();
+    v[n - 2]["delta"]["stop_details"] = details;
+    v
 }
 
 fn text_turn_ending(model: &str, text: &str, stop_reason: &str) -> Vec<Value> {

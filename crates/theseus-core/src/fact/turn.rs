@@ -745,8 +745,8 @@ impl Fact for LoopCut<'_> {
 }
 
 /// The Advancer decided whether the turn continues, and the loop ended
-/// (`loop.ended`). `window_retry`: the answer was cut at the window and the
-/// call is made again, which the overflow's own line has said.
+/// (`loop.ended`). `retry`: the call is made again, which the retry's own
+/// line has said.
 pub struct LoopEnded<'a> {
     pub turn_id: &'a str,
     pub outcome: &'a LoopOutcome,
@@ -757,7 +757,9 @@ pub struct LoopEnded<'a> {
     /// The calls the model asked for, and how many have an answer.
     pub uses: usize,
     pub answered: u32,
-    pub window_retry: bool,
+    /// The call is made again: an answer cut at the window (theseus-9p88),
+    /// or a refusal's fallback (theseus-7gir.18). Its own fact says so.
+    pub retry: bool,
     /// When the Advancer began deciding, on the trace's clock.
     pub a0: u64,
 }
@@ -795,7 +797,7 @@ impl Fact for LoopEnded<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
         let i = self.outcome.loop_index;
         match self.decision {
-            Decision::Continue if self.window_retry => {}
+            Decision::Continue if self.retry => {}
             Decision::Continue => say.line(
                 Loop,
                 format!(
@@ -1066,7 +1068,8 @@ impl Fact for ProviderCall<'_> {
     }
 }
 
-/// The model refused, and the turn ends (`provider.refusal`).
+/// The model refused (`provider.refusal`): the turn ends, or goes once to
+/// the model's fallback (`FellBack`, theseus-7gir.18).
 pub struct ProviderRefused<'a> {
     pub resp: &'a ModelResponse,
 }
@@ -1079,9 +1082,53 @@ impl Fact for ProviderRefused<'_> {
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
+        let category = self
+            .resp
+            .stop_details
+            .as_ref()
+            .and_then(|d| d["category"].as_str());
         say.line(
             Model,
-            format!("{} refused; the turn ends.", self.resp.model),
+            match category {
+                Some(c) => format!("{} refused ({c}).", self.resp.model),
+                None => format!("{} refused.", self.resp.model),
+            },
+        );
+    }
+}
+
+/// A refused request goes once to its model's fallback, and the rest of the
+/// turn runs there (`provider.fallback`, theseus-7gir.18): the model that
+/// refused, the one it goes to, the refusal's category, and the refused
+/// answer, which the fallback's requests leave out.
+pub struct FellBack<'a> {
+    pub from: &'a str,
+    pub to: &'a str,
+    pub category: Option<&'a str>,
+    pub loop_index: Option<u32>,
+    pub refused: &'a str,
+}
+
+impl Fact for FellBack<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderFallback);
+
+    fn row(&self) -> Value {
+        json!({"from": self.from, "to": self.to, "category": self.category, "loop": self.loop_index, "refused": self.refused})
+    }
+
+    fn span(&self, trace: &mut Trace) {
+        let attrs = json!({"from": self.from, "to": self.to, "category": self.category});
+        trace.mark("fallback", "mark", attrs);
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Model,
+            format!(
+                "The request goes to {} instead, once, by the same provider, and the rest of \
+                 the turn runs there ([model.retries] refusal).",
+                self.to
+            ),
         );
     }
 }
@@ -1614,7 +1661,12 @@ impl Fact for TurnBooked<'_> {
 
     fn row(&self) -> Value {
         let result = self.result;
-        json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "cost_usd": result.cost_usd, "tool_calls": result.tool_calls, "session_usage": self.session_usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model, "awaiting_confirm": result.awaiting_confirm, "continuation": result.continuation, "late_results": self.late})
+        let mut row = json!({"loops": result.loops, "stop_reason": result.stop_reason, "usage": result.usage, "cost_usd": result.cost_usd, "tool_calls": result.tool_calls, "session_usage": self.session_usage, "elapsed_ms": result.elapsed_ms, "first_token_ms": result.first_token_ms, "provider": result.provider, "model": result.model, "awaiting_confirm": result.awaiting_confirm, "continuation": result.continuation, "late_results": self.late});
+        // A refusal's fallback (theseus-7gir.18): only a turn that had one says.
+        if let Some(f) = &result.fallback {
+            row["fallback"] = json!(f);
+        }
+        row
     }
 
     fn span(&self, trace: &mut Trace) {

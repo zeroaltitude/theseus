@@ -221,6 +221,9 @@ pub struct RequestSpec {
     pub effort: Option<Effort>,
     pub thinking_display: ThinkingDisplay,
     pub refusal_fallbacks: bool,
+    /// A refusal's fallback for the rest of the turn (theseus-7gir.18): the
+    /// model its requests name, and the refused answer they leave out.
+    pub fallback: Option<(String, String)>,
     /// The provider is Anthropic's own API (server-side fallbacks exist only there).
     pub first_party: bool,
     /// The profile's cache TTL, on the system blocks' breakpoints.
@@ -964,9 +967,11 @@ pub fn render_request(
         .collect();
     let entry = catalog.get(&spec.model);
     // The compilation's model decides how its images show (theseus-9g2).
+    let fallback = spec.fallback.as_ref().map(|(m, r)| (&m[..], &r[..]));
     let media = Media {
         vision: entry.is_some_and(|e| e.vision),
         model: &spec.model,
+        also: fallback.map(|f| f.0),
         blobs,
         hidden,
     };
@@ -976,7 +981,7 @@ pub fn render_request(
         c.manifest.strip_thinking,
         &spec.provider,
         &media,
-        retrying,
+        retrying.or(fallback.map(|f| f.1)),
         sources,
     );
     let (messages, repairs, image_tokens, tail_from) = (
@@ -988,6 +993,8 @@ pub fn render_request(
 
     let mut betas = Vec::new();
     let mut extra = std::collections::BTreeMap::new();
+    // A fallback's request is one that model takes (theseus-7gir.18).
+    let entry = fallback.map_or(entry, |f| catalog.get(f.0));
     let thinking = match entry.map(|e| e.thinking) {
         Some(ThinkingMode::Always) | Some(ThinkingMode::Adaptive) => {
             let always = entry.map(|e| e.thinking) == Some(ThinkingMode::Always);
@@ -1007,10 +1014,7 @@ pub fn render_request(
         (Some(true), Some(e)) => Some(json!({"effort": e})),
         _ => None,
     };
-    if spec.refusal_fallbacks
-        && spec.first_party
-        && entry.map(|e| e.refusal_fallbacks).unwrap_or(false)
-    {
+    if server_fallbacks(spec, entry) {
         betas.push(BETA_FALLBACKS.to_string());
         extra.insert("fallbacks".to_string(), Value::String("default".into()));
     }
@@ -1032,7 +1036,7 @@ pub fn render_request(
         .collect();
     let conversation_ttl = spec.conversation_ttl.min(spec.cache_ttl);
     let req = ProviderRequest {
-        model: spec.model.clone(),
+        model: fallback.map_or(spec.model.as_str(), |f| f.0).to_string(),
         max_tokens: spec.max_tokens,
         system,
         messages,
@@ -1051,6 +1055,14 @@ pub fn render_request(
         repairs,
         tail_from,
     }
+}
+
+/// The provider's own refusal fallback rides the request (`fallbacks:
+/// "default"`): the profile asks for it, the provider is Anthropic's API, and
+/// the model takes it; never on a fallback's request (theseus-7gir.18).
+pub fn server_fallbacks(spec: &RequestSpec, entry: Option<&crate::catalog::CatalogEntry>) -> bool {
+    let takes = entry.is_some_and(|e| e.refusal_fallbacks);
+    spec.refusal_fallbacks && spec.first_party && spec.fallback.is_none() && takes
 }
 
 fn is_thinking(b: &Value) -> bool {
@@ -1178,7 +1190,7 @@ pub fn render_messages(
                 // another model (M5 25e) carries none back either.
                 let strip = (in_prefix && strip_prefix_thinking)
                     || wrote != provider
-                    || wrote_model != media.model;
+                    || (wrote_model != media.model && media.also != Some(wrote_model));
                 let bl: Vec<Value> = if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
                 } else {
@@ -1299,11 +1311,10 @@ fn user_blocks(
     blocks
 }
 
-/// The answers cut at the window that a later call replaced (theseus-9p88):
-/// `retrying`, the one the request being rendered replaces, and each that a
-/// later answer of its own turn followed. A turn makes that later call only
-/// to replace it, so the rule needs no record of its own, and a session
-/// from before it has no such answer.
+/// The answers cut at the window (theseus-9p88), or refused (theseus-7gir.18),
+/// that a later call replaced: `retrying`, the one the request being rendered
+/// replaces, and each that a later answer of its own turn followed. A turn
+/// makes that call only to replace it, so the rule needs no record of its own.
 fn replaced_answers<'n>(
     nodes: impl Iterator<Item = &'n Node>,
     retrying: Option<&'n str>,
@@ -1321,7 +1332,8 @@ fn replaced_answers<'n>(
         if let Some(cut) = open.remove(turn) {
             replaced.extend(cut);
         }
-        if stop_reason.as_deref() == Some(crate::provider::WINDOW_EXCEEDED) {
+        let stop = stop_reason.as_deref().unwrap_or_default();
+        if stop == crate::provider::WINDOW_EXCEEDED || stop == "refusal" {
             open.entry(turn).or_default().push(n.id.as_str());
         }
     }
@@ -1350,6 +1362,7 @@ mod tests {
             effort: Some(Effort::High),
             thinking_display: ThinkingDisplay::Summarized,
             refusal_fallbacks: true,
+            fallback: None,
             first_party: true,
             cache_ttl: CacheTtl::FiveMinutes,
             conversation_ttl: CacheTtl::FiveMinutes,

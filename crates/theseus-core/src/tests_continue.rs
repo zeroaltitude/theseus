@@ -46,6 +46,7 @@ fn spec() -> RequestSpec {
         effort: Some(Effort::High),
         thinking_display: ThinkingDisplay::Summarized,
         refusal_fallbacks: true,
+        fallback: None,
         first_party: true,
         cache_ttl: CacheTtl::FiveMinutes,
         conversation_ttl: CacheTtl::FiveMinutes,

@@ -120,6 +120,9 @@ fn not_shown(a: &Attachment, author: Option<&str>, why: &str) -> String {
 pub struct Media<'a> {
     pub vision: bool,
     pub model: &'a str,
+    /// A refusal's fallback the request goes to (theseus-7gir.18), whose
+    /// thinking goes back too.
+    pub also: Option<&'a str>,
     pub blobs: Option<&'a Blobs>,
     pub hidden: &'a [NotShown],
 }
@@ -130,6 +133,7 @@ impl Media<'_> {
         Media {
             vision: false,
             model: "",
+            also: None,
             blobs: None,
             hidden: &[],
         }
@@ -587,6 +591,7 @@ pub(crate) mod tests {
         let vision = Media {
             vision: true,
             model: "claude-haiku-4-5",
+            also: None,
             blobs: Some(&blobs),
             hidden: &[],
         };
@@ -609,6 +614,7 @@ pub(crate) mod tests {
         let blind = Media {
             vision: false,
             model: "glm-5.3",
+            also: None,
             blobs: Some(&blobs),
             hidden: &[],
         };

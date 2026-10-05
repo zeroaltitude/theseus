@@ -31,8 +31,8 @@ build.
   (the plank strip and the coin).
 - `src/lib/`: `rpc.ts` and `hooks.ts` (the connection and its queries), `derive.ts`, `summary.ts`, `format.ts`,
   `money.ts` (the catalog's rates and a call's split by token kind), `verdict.ts` (18a's verdicts in words), and
-  `calm.ts` (calm mode), `scores.ts` (a notified call's `risk N% (shadow)`, M5 24), `sandboxwords.ts` (L1 in
-  the CLI's words), `drafts.ts` (what was sent and not yet written), and `ontology.ts` (the category tree's
+  `calm.ts` (calm mode), `scores.ts` (a notified call's `risk N% (shadow)`, M5 24), `fallback.ts` (a refusal's
+  fallback in theseus-protocol's words, theseus-7gir.18), `sandboxwords.ts` (L1 in the CLI's words), `drafts.ts` (what was sent and not yet written), and `ontology.ts` (the category tree's
   order, and what a session's next compile would change).
 - `src/protocol.ts`: the protocol client, imported as `@protocol`. It re-exports the protocol's types,
   `src/protocol.gen/`, which theseus-protocol's test writes from the Rust ones: never edit them by hand.

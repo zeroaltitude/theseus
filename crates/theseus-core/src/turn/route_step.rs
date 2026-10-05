@@ -414,11 +414,14 @@ impl TurnRunner {
     }
 
     /// Where the session's record says it runs: its own target through a
-    /// detour, else the turn's.
+    /// detour, where it ran before a refusal's fallback (theseus-7gir.18),
+    /// else the turn's.
     pub(super) fn ran_on(t: &Turn<'_>) -> TargetRef {
+        let before = t.fallback.as_ref().map(|f| f.ran_on.clone());
         t.route
             .keeps
             .clone()
+            .or(before)
             .unwrap_or_else(|| TargetRef::from(t.target))
     }
 

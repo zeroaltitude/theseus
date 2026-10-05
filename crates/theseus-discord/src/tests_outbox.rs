@@ -1098,3 +1098,35 @@ async fn a_hands_groups_line_is_one_message_edited_in_place() {
     );
     assert!(a.edits >= 1, "{a:?}");
 }
+
+/// A reply its model's fallback answered after a refusal says so above its
+/// footer (theseus-7gir.18), in the line every surface shows.
+#[test]
+fn a_reply_a_fallback_answered_says_so_above_its_footer() {
+    let mut result = TurnSubmitResult {
+        turn_id: "t1".into(),
+        loops: 2,
+        stop_reason: "no_tool_calls".into(),
+        model: "claude-sonnet-5".into(),
+        provider: "anthropic".into(),
+        profile: "sonnet".into(),
+        elapsed_ms: 4200,
+        ..Default::default()
+    };
+    let plain = crate::render::reply_parts("t1", &[(1, "Four.".into())], Some(&result));
+    assert_eq!(
+        plain[0].1,
+        "Four.\n-# sonnet · claude-sonnet-5 · 2 loops · 4.2 s"
+    );
+    result.fallback = Some(theseus_protocol::route::TurnFallback {
+        from: "claude-sonnet-5-5".into(),
+        to: "claude-sonnet-5".into(),
+        category: Some("cyber".into()),
+        answered: true,
+    });
+    let parts = crate::render::reply_parts("t1", &[(1, "Four.".into())], Some(&result));
+    assert_eq!(
+        parts[0].1,
+        "Four.\n-# Sonnet 5.5 declined (cyber); Sonnet 5 answered.\n-# sonnet · claude-sonnet-5 · 2 loops · 4.2 s"
+    );
+}
