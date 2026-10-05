@@ -892,6 +892,17 @@ fn u64_of(v: &Value) -> u64 {
     v.as_str().unwrap().parse().unwrap()
 }
 
+/// The one attribute the old exporter never wrote: a failed provider call's
+/// `error.type`, which the GenAI conventions add (theseus-lmhp). The dump
+/// stays as it was; its picture is compared without it.
+fn without_error_type(attrs: Value) -> Value {
+    let mut a = attrs;
+    if let Some(list) = a.as_array_mut() {
+        list.retain(|kv| kv[0] != "error.type");
+    }
+    a
+}
+
 /// Our posted spans in the old dump's normal form.
 fn picture_of_spans(spans: &[Value]) -> Vec<Value> {
     let label = |id: &Value| {
@@ -913,7 +924,7 @@ fn picture_of_spans(spans: &[Value]) -> Vec<Value> {
                 "kind": match s["kind"].as_i64() { Some(1) => "Internal", Some(3) => "Client", _ => "?" },
                 "start_ns": u64_of(&s["startTimeUnixNano"]),
                 "end_ns": u64_of(&s["endTimeUnixNano"]),
-                "attributes": typed_attrs(&s["attributes"]),
+                "attributes": without_error_type(typed_attrs(&s["attributes"])),
                 "dropped_attributes": s.get("droppedAttributesCount").cloned().unwrap_or(json!(0)),
                 "events": s.get("events").and_then(Value::as_array).map(|e| e.iter().map(|e| json!({
                     "name": e["name"],

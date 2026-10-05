@@ -19,6 +19,10 @@ mod spans;
 #[cfg(test)]
 pub(crate) mod tests;
 #[cfg(test)]
+mod tests_aws;
+#[cfg(test)]
+mod tests_calls;
+#[cfg(test)]
 mod tests_files;
 #[cfg(test)]
 mod tests_judge;

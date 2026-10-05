@@ -233,8 +233,21 @@ const NODE_CACHE_READS: Instrument = Instrument {
     kind: Kind::IntSum,
 };
 
+const AWS_CALLS: Instrument = Instrument {
+    name: "theseus.aws.calls",
+    description: "AWS requests, by service, operation and outcome (C1; theseus-ku5f)",
+    unit: "",
+    kind: Kind::IntSum,
+};
+const AWS_DURATION: Instrument = Instrument {
+    name: "theseus.aws.duration_ms",
+    description: "AWS request time, by service, operation and outcome (C1; theseus-ku5f)",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 32] = [
+const INSTRUMENTS: [&Instrument; 34] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -267,6 +280,8 @@ const INSTRUMENTS: [&Instrument; 32] = [
     &ACTIVATED,
     &NODE_CACHE_BYTES,
     &NODE_CACHE_READS,
+    &AWS_CALLS,
+    &AWS_DURATION,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -419,6 +434,7 @@ impl Metrics {
             self.wakes(t);
             self.lsp_requests(t);
             self.files_read(t);
+            self.aws_requests(t);
             self.tasks(t);
             self.compactions(t);
             self.activations(t);
@@ -482,6 +498,7 @@ impl Metrics {
             self.tool_calls(t, &attrs);
             self.lsp_requests(t);
             self.files_read(t);
+            self.aws_requests(t);
         }
         self.add(
             &PROVIDER_ERRORS,
@@ -728,6 +745,45 @@ impl Metrics {
         }
     }
 
+    /// Each AWS request a tool call made (C1): its `aws` span, counted and
+    /// timed by its service, operation, and outcome (`ok`, `unbound`, or
+    /// `error`), wherever it sits in the trace. The AWS error's code stays on
+    /// the span and the row: it is the service's own text, so it makes no
+    /// attribute here, and the series stay as many as the catalog's
+    /// operations (theseus-ku5f).
+    fn aws_requests(&mut self, trace: &Span) {
+        fn walk(s: &Span, out: &mut Vec<(Attrs, f64)>) {
+            if s.kind == "aws" {
+                let a = |k: &str, or: &str| {
+                    Attr::S(
+                        s.attrs
+                            .get(k)
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or(or)
+                            .to_string(),
+                    )
+                };
+                out.push((
+                    sorted(vec![
+                        ("rpc.service", a("rpc.service", "")),
+                        ("rpc.method", a("rpc.method", "")),
+                        ("theseus.outcome", a("status", "unknown")),
+                    ]),
+                    s.duration_us() as f64 / 1000.0,
+                ));
+            }
+            for c in &s.children {
+                walk(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(trace, &mut out);
+        for (attrs, ms) in out {
+            self.add(&AWS_CALLS, attrs.clone(), 1);
+            self.record(&AWS_DURATION, attrs, ms);
+        }
+    }
+
     /// Each wake the turn took (37a), counted by whether it repeats, and
     /// how late it was taken.
     fn wakes(&mut self, trace: &Span) {
@@ -764,7 +820,8 @@ impl Metrics {
     /// Each provider call's time, and its first token's when it had one, by
     /// the provider and model its span recorded (theseus-yf1: the SDK
     /// exporter's had no attributes; theseus-8u02: the first token was the
-    /// result's, the last call's alone, with the turn's attributes).
+    /// result's, the last call's alone, with the turn's attributes). A failed
+    /// call's time also carries its `error.type` (theseus-lmhp).
     fn provider_calls(&mut self, trace: &Span) {
         let mut calls = Vec::new();
         spans::provider_calls(trace, &mut calls);
@@ -776,9 +833,16 @@ impl Metrics {
             if let Some(m) = c.model {
                 attrs.push((semconv::GEN_AI_REQUEST_MODEL, Attr::S(m)));
             }
-            let attrs = sorted(attrs);
+            // A first token is the call's own, whatever came after it, so
+            // it stays in the model's one series; the call's time splits by
+            // `error.type`, so a 404 in 150 ms never lands among the answers.
+            let mut attrs = sorted(attrs);
             if let Some(ft) = c.first_token_ms {
                 self.record(&FIRST_TOKEN, attrs.clone(), ft);
+            }
+            if let Some(e) = c.error_type {
+                attrs.push((semconv::ERROR_TYPE, Attr::S(e)));
+                attrs = sorted(attrs);
             }
             self.record(&PROVIDER_CALL, attrs, c.ms);
         }

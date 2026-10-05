@@ -22,6 +22,7 @@ pub(super) mod semconv {
     pub const GEN_AI_RESPONSE_FINISH_REASONS: &str = "gen_ai.response.finish_reasons";
     pub const GEN_AI_USAGE_INPUT_TOKENS: &str = "gen_ai.usage.input_tokens";
     pub const GEN_AI_USAGE_OUTPUT_TOKENS: &str = "gen_ai.usage.output_tokens";
+    pub const ERROR_TYPE: &str = "error.type";
 }
 
 /// Kinds that become events on their parent span, so a turn is a handful of spans.
@@ -180,6 +181,11 @@ fn gen_ai(attrs: &Value) -> Vec<KeyValue> {
             }),
         ));
     }
+    // A call that failed names its class, as the GenAI conventions ask
+    // (theseus-lmhp); a refusal is an answer and has none.
+    if let Some(e) = error_type(attrs) {
+        out.push(KeyValue::string(ERROR_TYPE, e));
+    }
     if let Some(u) = attrs.get("usage") {
         if let Some(n) = u.get("input_tokens").and_then(Value::as_i64) {
             out.push(KeyValue::new(GEN_AI_USAGE_INPUT_TOKENS, AnyValue::int(n)));
@@ -189,6 +195,12 @@ fn gen_ai(attrs: &Value) -> Vec<KeyValue> {
         }
     }
     out
+}
+
+/// The class a provider call's span closed with (`ModelCallFailed`): a
+/// `stopped` call is one, since it never answered.
+fn error_type(attrs: &Value) -> Option<&str> {
+    attrs.get("error").and_then(Value::as_str)
 }
 
 /// Error status, with a message, for a span that failed: its outcome says
@@ -266,6 +278,8 @@ pub(super) struct ProviderCall {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub ms: f64,
+    /// The class the call failed with, none for an answered call.
+    pub error_type: Option<String>,
     /// From the span's start to its `first_token` mark, when it has one.
     pub first_token_ms: Option<f64>,
 }
@@ -281,6 +295,7 @@ pub(super) fn provider_calls(node: &Span, out: &mut Vec<ProviderCall>) {
             provider: text(node, "provider"),
             model: text(node, "model"),
             ms: node.duration_us() as f64 / 1000.0,
+            error_type: error_type(&node.attrs).map(str::to_string),
             first_token_ms: node
                 .children
                 .iter()
