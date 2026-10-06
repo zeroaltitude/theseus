@@ -14,7 +14,7 @@ use twilight_model::id::Id;
 use super::super::tests::core_scripted;
 use super::super::{Place, PlaceMsg};
 use super::tests::{heard, joined, place, EDDIE, LOUNGE};
-use super::{pump, VoicePlace};
+use super::{pump, VoicePlace, FRAMING};
 
 /// A call in the lounge on a session of a core whose model answers
 /// `replies` in turn: the place, its mailbox, the engine's events into
@@ -404,4 +404,26 @@ async fn the_cut_and_resumed_rows_carry_their_session_and_fields() {
         "{}",
         status.line()
     );
+}
+
+/// The framing line leads every voice turn's input, a line of its own,
+/// ahead of the heard line when there is one.
+#[tokio::test]
+async fn the_framing_line_leads_every_voice_turns_input() {
+    let d = tempfile::tempdir().unwrap();
+    let mut l = lounge(d.path(), &["One.", "Two."]);
+    let first = l.turn(0, vec![], vec![heard("What changed?")]).await;
+    assert_eq!(first, format!("{FRAMING}\n🎙️ What changed?"));
+    let second = l
+        .turn(
+            1,
+            vec![cut(0, CutWhy::Superseded, 2, 0, 0)],
+            vec![heard("And then?")],
+        )
+        .await;
+    let lines: Vec<&str> = second.lines().collect();
+    assert_eq!(lines[0], FRAMING);
+    assert!(lines[1].starts_with("[Voice: your reply to"), "{second}");
+    assert_eq!(lines[2], "🎙️ And then?");
+    assert!(FRAMING.chars().count() < 300);
 }

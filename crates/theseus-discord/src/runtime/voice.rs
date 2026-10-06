@@ -64,6 +64,12 @@ mod tests_heard;
 
 use notes::Notes;
 
+/// Before every voice turn's input (theseus-rkvl): its reply is heard, not
+/// read.
+pub(crate) const FRAMING: &str = "[Voice call: they hear your reply, they don't read it. Answer \
+     in one to three short sentences of plain speech: no lists, tables, code, markdown or long \
+     numbers. If you were cut off, don't assume they heard the rest.]";
+
 /// How long a join may take: songbird's own connect, then DAVE's handshake.
 const JOIN_WAIT: Duration = Duration::from_secs(20);
 
@@ -580,8 +586,8 @@ impl Place {
             .filter(|c| c.serial == t.serial)
             .and_then(|c| c.notes.line(&t.utterances));
         let input = match line {
-            Some(line) => format!("{line}\n{said}"),
-            None => said,
+            Some(line) => format!("{FRAMING}\n{line}\n{said}"),
+            None => format!("{FRAMING}\n{said}"),
         };
         let author = match one {
             true => format!("discord:{}", names[0]),
@@ -1338,7 +1344,7 @@ mod tests {
             .iter()
             .find(|n| n.kind == "user_message" || n.text.contains("What changed"))
             .expect("the input node");
-        assert_eq!(input.text, "🎙️ What changed today?");
+        assert_eq!(input.text, format!("{FRAMING}\n🎙️ What changed today?"));
         assert_eq!(input.author.as_deref(), Some("discord:eddie"));
         // The place's text has the transcript.
         let posts = posts(&core, &p.target);
