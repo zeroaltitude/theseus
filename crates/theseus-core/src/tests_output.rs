@@ -763,7 +763,7 @@ impl Mask {
         for d in &self.dirs {
             s = s.replace(d.as_str(), "<dir>");
         }
-        durations(&digests(&s))
+        offsets(&durations(&digests(&s)))
     }
 }
 
@@ -889,6 +889,63 @@ fn a_durations_unit_is_masked_with_it() {
         assert_eq!(durations(a), durations(b), "{a} / {b}");
     }
     assert_eq!(durations("in 950 ms, 12 rows"), "in <n>, 12 rows");
+}
+
+/// A local time's UTC offset (`13:05:07 -07:00`, `wake::Local::full`): its
+/// sign is the machine's time zone's, as its digits are, so it is `±`, and the
+/// golden reads alike east of UTC, west of it, and on it (theseus-ig6n).
+fn offsets(s: &str) -> String {
+    let cs: Vec<char> = s.chars().collect();
+    let digit = |i: usize| cs.get(i).is_some_and(char::is_ascii_digit);
+    let is = |i: usize, c: char| cs.get(i) == Some(&c);
+    cs.iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            let offset = matches!(c, '+' | '-')
+                && i >= 7
+                && is(i - 7, ':')
+                && is(i - 4, ':')
+                && digit(i - 3)
+                && digit(i - 2)
+                && is(i - 1, ' ')
+                && digit(i + 1)
+                && digit(i + 2)
+                && is(i + 3, ':')
+                && digit(i + 4)
+                && digit(i + 5);
+            if offset {
+                '±'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// West of UTC, on it, and east of it read alike (theseus-ig6n), and a sign
+/// that is no offset's stays.
+#[test]
+fn a_local_times_offset_is_masked_with_its_sign() {
+    let at = |off: &str| {
+        offsets(&format!(
+            "Set wake for 2026-10-06 13:05:07 {off} (in 20 s)."
+        ))
+    };
+    assert_eq!(
+        at("-07:00"),
+        "Set wake for 2026-10-06 13:05:07 ±07:00 (in 20 s)."
+    );
+    assert_eq!(at("+00:00"), at("-07:00").replace("07:00 (", "00:00 ("));
+    assert_eq!(at("+09:00"), at("-07:00").replace("07:00 (", "09:00 ("));
+    for kept in [
+        "2026-10-06",
+        "a - b",
+        "x +1",
+        "12:30 -07:00",
+        "12:30:15 -7:00",
+    ] {
+        assert_eq!(offsets(kept), kept);
+    }
 }
 
 /// Every id's uuid tail (32 hex digits after `_`) becomes `#n`, numbered by
