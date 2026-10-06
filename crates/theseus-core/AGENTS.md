@@ -223,6 +223,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   handle has finished; anything else is unsupported. Each verdict lands on its action, in health's `cancels` and
   the metric `theseus.cancel` (both from `Stops::count`, theseus-qdk5), and as a fact (`fact/cancel.rs`). An aborted call's result waits for the cancel's verdict (`after_abort`). Its test is
   `tests_cancel.rs`; the daemon's are `tests/job_wrapper.rs`, `tests/sandbox.rs` (L1), and `tests/tasks.rs`.
+  A job's last steps wait for its stop's end (theseus-dwoj): `stop_backends` stops, then `Stopped::write_verdicts`
+  writes each job's acknowledgement, verdict and fact's row in one frame, and a cancel's sweep of its unanswered calls
+  joins that frame (`answer_after_cancel_with`), so a cancel of a running job is two frames, the cancel's and that one
+  (theseusd's `tests/cancel_frames.rs`). A crash between them leaves the action `requested`, which every reader takes
+  as `acknowledged`.
 - **Terminals** (theseus-n88g.4): `term/`. `term.open`, `term.send`, `term.read`, `term.close`: a program on a pty
   (libc's `posix_openpt`; its child through `children::spawn`, `setsid`, the pty its controlling terminal), read as
   a screen by `term/vt.rs`, a small VT model whose module doc says what it leaves out. Async tools whose run needs

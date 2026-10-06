@@ -137,9 +137,27 @@ pub struct Ended {
     pub backend: &'static str,
     pub verdict: Verdict,
     pub written: bool,
+    /// Its fact's row rode in the frame that wrote its last step
+    /// (theseus-dwoj): recording it announces the rest.
+    pub row: bool,
 }
 
 impl Ended {
+    /// A call the stop reached, with its verdict: the one its action holds,
+    /// or `seen`, a job's whose action an earlier step had settled. `row`:
+    /// its fact's row rode in its step's frame.
+    fn of(a: Action, seen: Option<Verdict>, backend: &'static str, row: bool) -> Option<Self> {
+        let written = seen.is_none();
+        let verdict = seen.or_else(|| a.verdict.clone())?;
+        Some(Self {
+            action: a,
+            backend,
+            verdict,
+            written,
+            row,
+        })
+    }
+
     /// The cancel's state, as health and the facts name it.
     fn state(&self) -> &'static str {
         match self.action.cancel {
@@ -154,14 +172,100 @@ impl Ended {
         wire(&self.action, &self.verdict)
     }
 
-    /// Its fact, on `rec`'s channels.
+    /// Its fact, on `rec`'s channels: every one but the row when the row
+    /// rode in its step's frame.
     pub fn record(&self, rec: &fact::Rec<'_>) {
+        fn on<F: fact::Fact>(rec: &fact::Rec<'_>, f: &F, row: bool) {
+            if row {
+                rec.announce(f);
+            } else {
+                rec.record(f);
+            }
+        }
         let (action, verdict) = (&self.action, &self.verdict);
         match self.state() {
-            "verified" => rec.record(&fact::cancel::CancelVerified { action, verdict }),
-            "unsupported" => rec.record(&fact::cancel::CancelUnsupported { action, verdict }),
-            _ => rec.record(&fact::cancel::CancelUncertain { action, verdict }),
+            "verified" => on(
+                rec,
+                &fact::cancel::CancelVerified { action, verdict },
+                self.row,
+            ),
+            "unsupported" => on(
+                rec,
+                &fact::cancel::CancelUnsupported { action, verdict },
+                self.row,
+            ),
+            _ => on(
+                rec,
+                &fact::cancel::CancelUncertain { action, verdict },
+                self.row,
+            ),
         }
+    }
+}
+
+/// A stop whose backends have ended (`ToolRuntime::stop_backends`): the calls
+/// whose steps it wrote, each job's verdict still to write, and every call
+/// it was asked to stop.
+pub(crate) struct Stopped {
+    ended: Vec<Ended>,
+    jobs: Vec<(String, Verdict)>,
+    to_kill: Vec<String>,
+}
+
+impl Stopped {
+    /// The executions whose jobs' verdicts are still to write: what a frame
+    /// that writes them names.
+    pub(crate) fn executions(&self, kernel: &Kernel) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .jobs
+            .iter()
+            .filter_map(|(corr, _)| kernel.action(corr).ok().flatten())
+            .map(|a| a.execution_id)
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    /// Each stopped job's last steps, on `k`, a transaction's view: its
+    /// acknowledgement and its verdict (verified or uncertain), and, when
+    /// `rows`, its fact's row, so a cancel's steps on one job are one frame
+    /// with the rest of the transaction (theseus-dwoj). A job whose action
+    /// settled meanwhile keeps that; its verdict is still said. Each job's
+    /// steps are a transaction of their own inside, so one that fails takes
+    /// back only itself. Nothing is counted here: `stopped` counts what the
+    /// frame wrote.
+    pub(crate) fn write_verdicts(&self, k: &Kernel, rows: bool) -> Vec<Ended> {
+        let mut ended = Vec::new();
+        for (corr, v) in &self.jobs {
+            let backend = job_backend(v);
+            let Ok(Some(a)) = k.action(corr) else {
+                continue;
+            };
+            if a.state.is_settled() {
+                ended.extend(Ended::of(a, Some(v.clone()), backend, false));
+                continue;
+            }
+            let steps = k.frame(&[a.execution_id.as_str()], |k| {
+                k.cancel_acknowledged(corr)?;
+                let a = if v.verified() {
+                    k.cancel_verified(corr, Some(v))?
+                } else {
+                    k.cancel_uncertain(corr, v)?
+                };
+                if rows {
+                    k.stage(&verdict_row(&a).into_iter().collect::<Vec<_>>())?;
+                }
+                Ok(a)
+            });
+            match steps {
+                Ok(a) => ended.extend(Ended::of(a, None, backend, rows)),
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), correlation_id = %corr, "a stopped job's verdict was not written");
+                }
+            }
+        }
+        ended
     }
 }
 
@@ -247,13 +351,37 @@ impl ToolRuntime {
     /// worker is held meanwhile. A job whose wrapper still runs is stopped
     /// even when its action has settled; a call its own completion settled
     /// keeps that, and its stop writes nothing.
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+    ///
+    /// Each job's last steps, its acknowledgement and its verdict, are
+    /// written once its stop has ended, with its fact's row when `rows`,
+    /// and every job's in one frame (theseus-dwoj).
     pub(crate) async fn terminate_all(
         &self,
         kernel: &Kernel,
         store: &crate::store::Store,
         to_kill: &[String],
+        rows: bool,
     ) -> Vec<Ended> {
+        let stopped = self.stop_backends(kernel, store, to_kill).await;
+        let ids = stopped.executions(kernel);
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let written = kernel.frame(&ids, |k| Ok(stopped.write_verdicts(k, rows)));
+        let more = written.unwrap_or_else(|e| {
+            tracing::warn!(error = %format!("{e:#}"), "a stop's verdicts were not written");
+            Vec::new()
+        });
+        self.stopped(stopped, more)
+    }
+
+    /// Stop the backends of the actions a cancel or a stop told to stop:
+    /// what each call's stop wrote, and each job's verdict, which its
+    /// action does not hold yet (`write_verdicts`).
+    pub(crate) async fn stop_backends(
+        &self,
+        kernel: &Kernel,
+        store: &crate::store::Store,
+        to_kill: &[String],
+    ) -> Stopped {
         let mut ended = Vec::new();
         let (mut jobs, mut tasks) = (Vec::new(), Vec::new());
         let open = |corr: &str| matches!(kernel.action(corr), Ok(Some(a)) if !a.state.is_settled());
@@ -261,13 +389,12 @@ impl ToolRuntime {
             .stop_hands_first(kernel, store, to_kill, &mut ended)
             .await;
         for corr in &to_kill {
-            let is_open = open(corr);
             if let Some(pid) = self.spool.as_ref().and_then(|s| s.read_pid(corr)) {
-                if is_open {
-                    let _ = kernel.cancel_acknowledged(corr);
-                }
+                // Its acknowledgement waits for its verdict's frame: a crash
+                // before it leaves the cancel `requested`, which every reader
+                // takes as the cancel it is (theseus-dwoj).
                 jobs.push((pid, corr.clone()));
-            } else if !is_open {
+            } else if !open(corr) {
             } else if let Some(task) = self.stops.take(corr) {
                 let _ = kernel.cancel_acknowledged(corr);
                 task.abort();
@@ -332,30 +459,31 @@ impl ToolRuntime {
             };
             wait_for_jobs(stopping.as_ref(), wait, tasks.is_empty()).await;
         }
-        for (corr, v) in stopping
+        let jobs = stopping
             .iter()
             .flat_map(theseus_kernel::job::Stopping::verdicts)
-        {
-            let backend = job_backend(&v);
-            if !open(corr) {
-                if let Ok(Some(a)) = kernel.action(corr) {
-                    self.settled(&mut ended, a, Some(v), backend);
-                }
-                continue;
-            }
-            let a = if v.verified() {
-                kernel.cancel_verified(corr, Some(&v))
-            } else {
-                kernel.cancel_uncertain(corr, &v)
-            };
-            if let Ok(a) = a {
-                self.settled(&mut ended, a, None, backend);
-            }
+            .map(|(corr, v)| (corr.to_string(), v))
+            .collect();
+        Stopped {
+            ended,
+            jobs,
+            to_kill,
         }
-        // A turn waiting on a job this stopped hears at once (W1, 7.1).
-        for corr in &to_kill {
+    }
+
+    /// The stop's end, once its verdicts are written (`more`): every call it
+    /// ended, `more` counted now, since its frame may have been built twice
+    /// (`answer_after_cancel_with`). A turn waiting on a job it stopped hears
+    /// at once (W1, 7.1).
+    pub(crate) fn stopped(&self, stopped: Stopped, more: Vec<Ended>) -> Vec<Ended> {
+        for e in &more {
+            self.count_cancel(e);
+        }
+        for corr in &stopped.to_kill {
             self.job_waits.wake(corr);
         }
+        let mut ended = stopped.ended;
+        ended.extend(more);
         ended
     }
 
@@ -458,20 +586,17 @@ impl ToolRuntime {
         seen: Option<Verdict>,
         backend: &'static str,
     ) {
-        let written = seen.is_none();
-        let Some(verdict) = seen.or_else(|| a.verdict.clone()) else {
-            return;
-        };
-        let e = Ended {
-            action: a,
-            backend,
-            verdict,
-            written,
-        };
-        if written {
-            self.stops.count(backend, e.state());
+        if let Some(e) = Ended::of(a, seen, backend, false) {
+            self.count_cancel(&e);
+            ended.push(e);
         }
-        ended.push(e);
+    }
+
+    /// Count a call the stop reached when this stop's step wrote it.
+    fn count_cancel(&self, e: &Ended) {
+        if e.written {
+            self.stops.count(e.backend, e.state());
+        }
     }
 }
 

@@ -530,7 +530,7 @@ impl ToolRuntime {
     /// the `job.stopped_at_launch` row is what says the job was stopped.
     async fn stop_launched(&self, tc: &TurnCtx<'_>, correlation_id: &str, pid: u32) {
         let ended = self
-            .terminate_all(tc.kernel, tc.store, &[correlation_id.to_string()])
+            .terminate_all(tc.kernel, tc.store, &[correlation_id.to_string()], false)
             .await;
         for e in ended.iter().filter(|e| e.written) {
             e.record(&tc.rec());
