@@ -1165,6 +1165,11 @@ pub enum Scripted {
         usage: Usage,
         then: Box<Scripted>,
     },
+    /// `then`, billed with what `usage` makes of the request it answers.
+    BilledBy {
+        usage: fn(&ProviderRequest) -> Usage,
+        then: Box<Scripted>,
+    },
     /// A refusal after these blocks (`stop_reason: refusal`), with the
     /// `stop_details` category the provider names (theseus-7gir.18).
     Refused {
@@ -1256,9 +1261,16 @@ impl Provider for FakeProvider {
             }
             let mut next = self.script.lock().unwrap().pop_front();
             let mut billed = None;
-            if let Some(Scripted::Billed { usage, then }) = next {
-                billed = Some(usage);
-                next = Some(*then);
+            match next {
+                Some(Scripted::Billed { usage, then }) => {
+                    billed = Some(usage);
+                    next = Some(*then);
+                }
+                Some(Scripted::BilledBy { usage, then }) => {
+                    billed = Some(usage(req));
+                    next = Some(*then);
+                }
+                _ => {}
             }
             let mut details = None;
             let (blocks, stop_reason) = match next {
@@ -1271,7 +1283,9 @@ impl Provider for FakeProvider {
                     details = Some(serde_json::json!({"type": "refusal", "category": category}));
                     (blocks, "refusal".to_string())
                 }
-                Some(Scripted::Billed { .. }) => unreachable!("one bill per response"),
+                Some(Scripted::Billed { .. } | Scripted::BilledBy { .. }) => {
+                    unreachable!("one bill per response")
+                }
                 None => (
                     vec![serde_json::json!({"type": "text", "text": self.reply})],
                     self.stop_reason.clone(),

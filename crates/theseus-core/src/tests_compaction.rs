@@ -13,6 +13,8 @@
 //! - `session`, the default, summarizes on the session's own model: glm is
 //!   never asked; a turn submitted on glm's model for one message summarizes
 //!   on glm, and the next turn is the session's own again;
+//! - the summary's call is reserved on the estimate's upper bound, so a
+//!   provider that counts more than the estimate settles within it;
 //! - the newest exchange alone past the window fails the turn before any
 //!   call (`context_overage`), and nothing retries it.
 //! - the assembled strategy (recall live, a stand-in index): a task's first
@@ -844,4 +846,68 @@ async fn summary_profile_session_follows_a_one_message_override() {
     let q = r.model.requests().pop().unwrap();
     assert_eq!(q.model, "claude-sonnet-5-5");
     assert!(!is_summary(&q));
+}
+
+/// What a provider that counts 25 % more input than the estimate's
+/// `tokens`, and writes all `max_tokens`, bills a summary call.
+fn over_the_estimate(q: &ProviderRequest) -> Usage {
+    let rates = crate::catalog::Catalog::builtin()
+        .get(GLM)
+        .unwrap()
+        .bytes_per_token;
+    let est = crate::compiler::estimate(q, rates, None);
+    Usage {
+        input_tokens: (est.tokens * 125).div_ceil(100),
+        output_tokens: u64::from(q.max_tokens),
+        ..Default::default()
+    }
+}
+
+/// The summary's call is reserved on the estimate's upper bound
+/// (theseus-6fn.8): a provider that counts its input 25 % over the
+/// estimate's tokens and writes the most it may settles within the
+/// reservation, read from the row as `settled_as_reserved` reads it.
+#[tokio::test]
+async fn the_summary_is_reserved_on_the_estimates_upper_bound() {
+    let r = rig(
+        vec![],
+        vec![Scripted::BilledBy {
+            usage: over_the_estimate,
+            then: Box::new(Scripted::text("The keeper logged six tides.")),
+        }],
+    );
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    let row = &rows(&r.core, "context.compacted")[0];
+    assert_eq!(row["outcome"], "compaction", "{row}");
+    let asked = r.glm.requests();
+    assert_eq!(asked.len(), 1);
+    let billed = over_the_estimate(&asked[0]);
+    assert_eq!(
+        row["input_tokens"].as_u64(),
+        Some(billed.input_tokens),
+        "{row}"
+    );
+    assert_eq!(
+        row["summary_tokens"].as_u64(),
+        Some(billed.output_tokens),
+        "{row}"
+    );
+    let settled = row["settled_micros"].as_u64().unwrap();
+    let reserved = row["reserved_micros"].as_u64().unwrap();
+    println!(
+        "billed {} in and {} out: settled {settled} micros, reserved {reserved}",
+        billed.input_tokens, billed.output_tokens
+    );
+    assert!(
+        settled <= reserved,
+        "settled {settled} past reserved {reserved}"
+    );
+    let actions = r.core.kernel.actions().unwrap();
+    let call = actions
+        .iter()
+        .find(|a| a.correlation_id == row["correlation_id"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(call.reserved_micros, reserved);
+    assert_eq!(call.state, ActionState::Succeeded);
 }
