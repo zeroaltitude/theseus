@@ -42,6 +42,8 @@ mod tests;
 #[cfg(test)]
 mod tests_history;
 #[cfg(test)]
+mod tests_imported;
+#[cfg(test)]
 mod tests_ledger;
 #[cfg(test)]
 mod tests_lists;

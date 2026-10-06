@@ -1074,3 +1074,64 @@ async fn an_imported_session_does_not_end_the_task_briefs_walk() {
     );
     assert_eq!(read.tasks, 2, "both task sessions are read past the import");
 }
+
+/// The task-brief walk steps over imported sessions by key, their records
+/// unread (theseus-7087, at imported-skip's join): a learning read past an
+/// import of 300 sessions reads what one past an import of 1 reads, and
+/// both read the two task sessions born before the import.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_task_briefs_walk_reads_no_imported_record() {
+    async fn read_past(imported: usize) -> (u64, usize) {
+        let r = rig(texts(8), |_| {});
+        let c = &r.core;
+        let js = loop_history(c).await;
+        let lines: Vec<theseus_protocol::import::ImportLine> = (0..imported)
+            .map(|i| {
+                let mut ep = json!({
+                    "format": 1, "import_tag": "walk-2026-08",
+                    "episode_id": format!("ep_{:064x}", 0xbee6_0000_u64 + i as u64),
+                    "source": "wiki", "agent": "main",
+                    "place": {"kind": "dm", "name": "dm-0", "id": null},
+                    "as_of": {"start": "2026-08-01T10:00:00Z", "end": "2026-08-01T10:05:00Z"},
+                    "labels": {"sensitivity": "personal", "partner": null, "topic": ["walk"],
+                               "book_hint": "diary", "credential_redacted": false},
+                    "summary": null,
+                    "messages": [{"idx": 0, "time": "2026-08-01T10:00:00Z", "author": "wren",
+                                  "integrity": "operator", "text": format!("An old note, {i}."),
+                                  "unit": format!("unit-{i}"), "sha256": "ab".repeat(32)}],
+                });
+                ep["hash"] = json!(crate::import::episode::hash_of(&ep));
+                theseus_protocol::import::ImportLine {
+                    line: i as u64 + 1,
+                    text: ep.to_string(),
+                }
+            })
+            .collect();
+        for chunk in lines.chunks(500) {
+            let p = theseus_protocol::import::ImportEpisodesParams {
+                file: "walk.jsonl".into(),
+                lines: chunk.to_vec(),
+            };
+            let got = crate::import::write::import_batch(&c.store, &p, "cli").unwrap();
+            assert_eq!(got.imported as usize, chunk.len(), "{got:?}");
+        }
+        let now = theseus_protocol::now_unix_ms();
+        let recs: Vec<NewRecord> = js.iter().map(|j| call_row(j, now)).collect();
+        c.store.append(&recs).unwrap();
+        let before = theseus_store::records_read_here();
+        let (_, read) = c.run_learning_read(now, "on_demand", |_| {}).unwrap();
+        (theseus_store::records_read_here() - before, read.tasks)
+    }
+    let (one, tasks_one) = read_past(1).await;
+    let (many, tasks_many) = read_past(300).await;
+    assert_eq!(
+        (tasks_one, tasks_many),
+        (2, 2),
+        "both task sessions are read past either import"
+    );
+    assert!(one > 0, "the read counts its records on this thread");
+    assert_eq!(
+        many, one,
+        "300 imported sessions add no record to the read ({one} past 1)"
+    );
+}

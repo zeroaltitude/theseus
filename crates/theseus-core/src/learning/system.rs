@@ -390,28 +390,27 @@ impl Core {
         })
     }
 
-    /// The sessions created at `from` or after, newest first, by the
-    /// index's births; all of them while it keeps none.
+    /// The live sessions created at `from` or after, newest first, by the
+    /// index's births; every live one while it keeps none. An imported
+    /// session is born at its import with its episode's old time
+    /// (theseus-0lrr.6): never a task's, and never the walk's end, so the
+    /// walk steps over it by key, its record unread (theseus-7087).
     fn sessions_from(&self, from: u64) -> anyhow::Result<Vec<SessionRecord>> {
         use theseus_store::Store as _;
         let mut out = Vec::new();
         let mut before = None;
         loop {
-            let newest =
-                self.store
-                    .inner()
-                    .newest_keys(theseus_store::kinds::SESSION, before, 64)?;
+            let newest = self.store.inner().newest_keys_where(
+                theseus_store::kinds::SESSION,
+                before,
+                64,
+                &|k| !crate::import::is_imported(k),
+            )?;
             let Some((born, more)) = newest else {
-                return self.store.list_sessions();
+                return self.store.live_sessions();
             };
             for (_, r) in &born {
                 let rec: SessionRecord = r.decode()?;
-                // An imported session is born at its import with its
-                // episode's old time (theseus-0lrr.6): never a task's, and
-                // never the walk's end.
-                if rec.imported.is_some() {
-                    continue;
-                }
                 if rec.created_at_unix_ms < from {
                     return Ok(out);
                 }
