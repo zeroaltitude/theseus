@@ -184,8 +184,8 @@ Harbor's, so its results read as Pi's. It adds:
 same spend and turn caps where its harness has them. Pi has neither, and the arm adds none inside it: it takes
 `max_budget_usd` and `max_turns` as Claude Code does, passes neither to Pi, and records them in the trial's
 `limits`, with `over_budget` (its dollars passed the cap) and `over_turns` (its answers passed it, as Claude
-Code's `--max-turns` counts turns). Such a trial ran on past where the others would have stopped, and its reward
-counts.
+Code's `--max-turns` counts turns). Such a trial ran on past where the others would have stopped; its reward
+counts, and the report says how many there were.
 
 | | Theseus | Claude Code | Pi |
 |---|---|---|---|
@@ -202,7 +202,8 @@ counts.
 **The report** reads jobs, one arm each:
 
 ```bash
-python3 bench/report/efficiency.py --arm theseus=jobs/theseus-tb2 --arm claude-code=jobs/claude-tb2 --out /tmp/eff
+python3 bench/report/efficiency.py --arm theseus=jobs/theseus-tb2 --arm claude-code=jobs/claude-tb2 \
+  --arm pi=jobs/pi-tb2 --out /tmp/eff
 ```
 
 It writes `report.md` (per arm: trials, solved, mean reward, dollars, solved per dollar, tokens per solved
@@ -210,7 +211,8 @@ task by class, the share of input read from the cache, model and tool calls, har
 peak harness RSS, and agent time; then score against dollars, tokens, and harness RAM, one point per arm,
 the Pareto front marked), `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram.svg`, and `trials.csv`. A
 job from before the record reports what it kept: its dollars, the cache write from the arm's own files or
-its trajectory, and CPU and RAM "not sampled".
+its trajectory, and CPU and RAM "not sampled". When an arm's records carry `limits` (Pi's), the table adds a
+row of its trials past the others' caps.
 
 ## What it costs
 
