@@ -521,6 +521,11 @@ impl Tender {
         removed: &mut Vec<String>,
     ) -> anyhow::Result<()> {
         let (mut skipped, mut undecodable) = (0u64, 0u64);
+        // Nodes this batch indexed, uncommitted: a later record of one with
+        // nothing to index (a tombstone) must take it out too, which
+        // `holds`, reading only what is committed, does not see. A rebuild
+        // meets a node and its tombstone in one batch (theseus-0lrr.6).
+        let mut fresh: HashSet<String> = HashSet::new();
         for r in records {
             match r.kind {
                 kinds::NODE => match extract(&r.payload) {
@@ -530,6 +535,7 @@ impl Tender {
                             .writer
                             .replace(r.position, place, &e)
                             .with_context(|| format!("indexing node {}", e.node_id))?;
+                        fresh.insert(e.node_id.clone());
                         if self.shared.vectors.enabled() {
                             nodes.retain(|n| n.node_id != e.node_id);
                             nodes.push(NodeChunks {
@@ -552,7 +558,10 @@ impl Tender {
                         if let Some(i) = earlier {
                             nodes.remove(i);
                         }
-                        if earlier.is_some() || self.shared.engine.holds(&node_id)? {
+                        if earlier.is_some()
+                            || fresh.remove(&node_id)
+                            || self.shared.engine.holds(&node_id)?
+                        {
                             self.writer.delete_node(&node_id);
                             removed.push(node_id);
                             step.removed += 1;

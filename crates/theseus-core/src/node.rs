@@ -34,6 +34,10 @@ pub enum Origin {
     /// A message an MCP server's prompt gave (M7 36c): the operator chose
     /// the prompt, the server wrote its words.
     Mcp,
+    /// A message of the operator's past history, brought in by `import`
+    /// (theseus-0lrr.6): its body says from where (`Body::Imported`'s
+    /// source, unit and digest) and whose words they were (its integrity).
+    Import,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -299,6 +303,44 @@ pub enum Body {
         #[serde(default)]
         cost_usd: Option<f64>,
     },
+    /// One message of an imported episode (theseus-0lrr.6), in its imported
+    /// session, which never takes a turn. Its node's origin is `import`, its
+    /// author the episode's (`eddie`, `agent:main`, `person:<name>`,
+    /// `tool`, `outside`), and its `created_at_ms` the message's own time.
+    Imported {
+        text: String,
+        /// Whose words they were: the operator's, an agent's, or outside
+        /// text, which the index marks external, so recall keeps it out
+        /// unless the config admits external text, and frames it as such.
+        integrity: crate::import::Integrity,
+        /// The episode's source (`openclaw-store`, `wiki`).
+        source: String,
+        /// The source's own id of the message, and its text's sha256.
+        unit: String,
+        sha256: String,
+        /// Its place in the episode, from 0.
+        idx: u32,
+    },
+    /// An imported episode's summary (theseus-0lrr.6), citing its messages
+    /// by node id: `cites[0]` is the message the pipeline numbered first.
+    ImportedSummary {
+        text: String,
+        cites: Vec<String>,
+        /// The model that wrote it.
+        model: String,
+    },
+    /// A tombstone (§5.6's erasure marker; theseus-0lrr.6): the node's
+    /// payload, gone. Written under the node's own id, origin and time,
+    /// after the record it erases, so the newest record of the id is this
+    /// one; the index's follower drops a node it meets as a tombstone
+    /// (nothing to index), and a rebuild does the same.
+    Erased {
+        /// The kind of body it replaced (`imported`).
+        was: String,
+        at_ms: u64,
+        /// The receipt: what ordered it (`import.erase of openclaw-2026-10`).
+        why: String,
+    },
 }
 
 /// One source a `Recall` node renders: where it is, the byte range of its
@@ -508,6 +550,36 @@ impl Node {
         n
     }
 
+    /// A message of an imported episode (theseus-0lrr.6): origin `import`,
+    /// its id given (the import's ids are its episode's, so a retry writes
+    /// the same ones), its time the message's own.
+    pub fn imported(id: String, session_id: &str, author: &str, at_ms: u64, body: Body) -> Self {
+        Self {
+            id,
+            schema: SCHEMA,
+            session_id: session_id.into(),
+            turn_id: None,
+            loop_index: None,
+            origin: Origin::Import,
+            author: Some(author.into()),
+            created_at_ms: at_ms,
+            body,
+        }
+    }
+
+    /// This node's tombstone (§5.6): the same id, session, origin, author
+    /// and time, its body an erasure marker.
+    pub fn erased(&self, at_ms: u64, why: &str) -> Self {
+        Self {
+            body: Body::Erased {
+                was: self.kind_str().to_string(),
+                at_ms,
+                why: why.to_string(),
+            },
+            ..self.clone()
+        }
+    }
+
     pub fn record(&self) -> Result<NewRecord> {
         Ok(NewRecord::json(kinds::NODE, Some(&self.id), self)?.scoped(&self.session_id))
     }
@@ -522,6 +594,9 @@ impl Node {
             Body::Arrangement { .. } => "arrangement",
             Body::Summary { .. } => "summary",
             Body::Synthesis { .. } => "synthesis",
+            Body::Imported { .. } => "imported",
+            Body::ImportedSummary { .. } => "imported_summary",
+            Body::Erased { .. } => "erased",
         }
     }
 
@@ -569,6 +644,11 @@ impl Node {
             Body::Synthesis { text, check, .. } => {
                 format!("[synthesis, {}] {text}", check.as_str())
             }
+            Body::Imported {
+                text, integrity, ..
+            } => format!("[imported, {}] {text}", integrity.as_str()),
+            Body::ImportedSummary { text, .. } => format!("[imported summary] {text}"),
+            Body::Erased { was, why, .. } => format!("[erased {was}: {why}]"),
         };
         let s = s.replace('\n', " ");
         if s.chars().count() > max {

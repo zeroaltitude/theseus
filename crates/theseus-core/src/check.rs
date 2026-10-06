@@ -552,8 +552,11 @@ pub fn working_text(n: &Node) -> Option<String> {
         }
         Body::ToolCall { input, .. } => strings(input, &mut parts),
         Body::ToolResult { content, .. } => parts.push(content),
-        Body::Summary { text, .. } | Body::Synthesis { text, .. } => parts.push(text),
-        Body::Arrangement { .. } | Body::Recall { .. } => return None,
+        Body::Summary { text, .. }
+        | Body::Synthesis { text, .. }
+        | Body::Imported { text, .. }
+        | Body::ImportedSummary { text, .. } => parts.push(text),
+        Body::Arrangement { .. } | Body::Recall { .. } | Body::Erased { .. } => return None,
     }
     let t = parts.join("\n");
     (!t.trim().is_empty()).then_some(t)

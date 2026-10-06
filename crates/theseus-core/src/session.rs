@@ -76,6 +76,12 @@ pub struct SessionRecord {
     /// stack (`tests_output`'s golden overflowed it once `from` came).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routed: Option<Box<crate::routing::Routed>>,
+    /// An imported session's provenance (theseus-0lrr.6, `import`): the
+    /// episode it came from and its labels. Such a session is closed and
+    /// read-only: it never takes a turn. Absent in every other record, and
+    /// in records written before it (store format 23). Boxed, as `routed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported: Option<Box<crate::import::ImportedFrom>>,
 }
 
 /// An image the provider refused (theseus-0s4).
@@ -249,6 +255,7 @@ impl SessionRecord {
             failing: None,
             not_shown: Vec::new(),
             routed: None,
+            imported: None,
         }
     }
     /// What a turn writes into the stored record (theseus-xeo): the fields it

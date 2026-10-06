@@ -233,10 +233,13 @@ fn hit_of(n: &Node, position: u64, rank: usize, a: f32, sci: &Activated) -> Opti
             (None, false)
         }
         Body::ToolResult { tool, external, .. } => (Some(tool.clone()), external.is_some()),
+        Body::Imported { integrity, .. } => (None, *integrity == crate::import::Integrity::Outside),
+        Body::ImportedSummary { .. } => (None, false),
         Body::ToolCall { .. }
         | Body::Recall { .. }
         | Body::Arrangement { .. }
-        | Body::Synthesis { .. } => return None,
+        | Body::Synthesis { .. }
+        | Body::Erased { .. } => return None,
     };
     let text = text_of(n);
     if text.trim().is_empty() {
@@ -248,6 +251,7 @@ fn hit_of(n: &Node, position: u64, rank: usize, a: f32, sci: &Activated) -> Opti
         Origin::Tool => "tool",
         Origin::Harness => "harness",
         Origin::Mcp => "mcp",
+        Origin::Import => "import",
     };
     Some(IndexHit {
         node_id: n.id.clone(),

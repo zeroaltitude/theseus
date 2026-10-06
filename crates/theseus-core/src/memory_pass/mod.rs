@@ -810,8 +810,13 @@ pub fn eligible(n: &Node) -> bool {
         Body::ToolCall { .. }
         | Body::Recall { .. }
         | Body::Arrangement { .. }
-        | Body::Synthesis { .. } => false,
-        Body::Summary { .. } => !text_of(n).trim().is_empty(),
+        | Body::Synthesis { .. }
+        | Body::Erased { .. } => false,
+        // The operator's past history (theseus-0lrr.6): labeled as any
+        // message is, when the pass reads an imported session.
+        Body::Summary { .. } | Body::Imported { .. } | Body::ImportedSummary { .. } => {
+            !text_of(n).trim().is_empty()
+        }
         Body::UserMessage { .. } | Body::AssistantMessage { .. } | Body::ToolResult { .. } => {
             n.origin != Origin::Harness && !text_of(n).trim().is_empty()
         }
@@ -824,7 +829,7 @@ fn kept_kind(kind: crate::stub::Kind) -> bool {
     use crate::stub::Kind;
     !matches!(
         kind,
-        Kind::ToolCall | Kind::Recall | Kind::Arrangement | Kind::Synthesis
+        Kind::ToolCall | Kind::Recall | Kind::Arrangement | Kind::Synthesis | Kind::Erased
     )
 }
 
@@ -838,10 +843,16 @@ fn shape_of(n: &Node, nodes: &Transcript) -> Option<(Shape, bool)> {
         Body::Summary { first, last, .. } => {
             Some((Shape::Summary, external_in(nodes, *first, *last)))
         }
+        Body::Imported { integrity, .. } => Some((
+            Shape::Message,
+            *integrity == crate::import::Integrity::Outside,
+        )),
+        Body::ImportedSummary { .. } => Some((Shape::Message, false)),
         Body::ToolCall { .. }
         | Body::Recall { .. }
         | Body::Arrangement { .. }
-        | Body::Synthesis { .. } => None,
+        | Body::Synthesis { .. }
+        | Body::Erased { .. } => None,
     }
 }
 

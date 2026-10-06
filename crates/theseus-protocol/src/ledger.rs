@@ -130,6 +130,8 @@ ledger_kinds! {
     GlidePosted = "glide.posted",
     GlideRead = "glide.read",
     ImageNotShown = "image.not_shown",
+    ImportBatch = "import.batch",
+    ImportErased = "import.erased",
     IndexTender = "index.tender",
     JobNotStarted = "job.not_started",
     JobRefused = "job.refused",

@@ -39,6 +39,7 @@ pub mod github;
 pub mod glide;
 pub mod graph;
 pub mod harness;
+pub mod import;
 pub mod judge;
 pub mod learning;
 pub mod ledger;

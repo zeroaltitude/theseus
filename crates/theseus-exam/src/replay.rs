@@ -108,6 +108,9 @@ fn kind_of(b: &Body) -> &'static str {
         Body::Arrangement { .. } => "arrangement",
         Body::Summary { .. } => "summary",
         Body::Synthesis { .. } => "synthesis",
+        Body::Imported { .. } => "imported",
+        Body::ImportedSummary { .. } => "imported_summary",
+        Body::Erased { .. } => "erased",
     }
 }
 

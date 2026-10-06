@@ -226,8 +226,8 @@ impl Core {
             Body::Recall { .. } => (n.preview(80), String::new(), recall_detail(n), 0),
             // A compaction's summary (30c): its testimony, and its range.
             Body::Summary { .. } => summary_info(n),
-            // Consolidation's synthesis (31b): its text, its sources and check.
-            Body::Synthesis { .. } => synthesis_info(n),
+            // Consolidation's synthesis (31b), and the import's (theseus-0lrr.6).
+            _ => later_info(n),
         };
         theseus_protocol::NodeInfo {
             node_id: n.id.clone(),
@@ -274,6 +274,43 @@ fn synthesis_info(n: &Node) -> (String, String, Value, u64) {
                "profile": profile, "model": model, "cost_usd": cost_usd}),
         0,
     )
+}
+
+/// An imported node (theseus-0lrr.6): its text and where it came from; a
+/// summary's citations; a tombstone's receipt (§5.6), and what it replaced.
+/// With a synthesis, `node_info`'s last arm, so it stays within clippy's
+/// length.
+fn later_info(n: &Node) -> (String, String, Value, u64) {
+    match &n.body {
+        // Consolidation's synthesis (31b): its text, its sources and check.
+        Body::Synthesis { .. } => synthesis_info(n),
+        Body::Imported {
+            text,
+            integrity,
+            source,
+            unit,
+            sha256,
+            idx,
+        } => (
+            text.clone(),
+            String::new(),
+            json!({"integrity": integrity.as_str(), "source": source, "unit": unit, "sha256": sha256, "idx": idx}),
+            text.len() as u64,
+        ),
+        Body::ImportedSummary { text, cites, model } => (
+            text.clone(),
+            String::new(),
+            json!({"cites": cites, "model": model}),
+            text.len() as u64,
+        ),
+        Body::Erased { was, at_ms, why } => (
+            n.preview(80),
+            String::new(),
+            json!({"was": was, "at_ms": at_ms, "why": why}),
+            0,
+        ),
+        _ => (n.preview(80), String::new(), Value::Null, 0),
+    }
 }
 
 /// A compaction's summary (M6 30c): its testimony as its text, and its

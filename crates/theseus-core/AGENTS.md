@@ -547,6 +547,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     its writers). The arms' seam: `Memory::science_for(arm)` and `Scene.science`; every arm but `+synthesis`
     leaves the harness session out before the index's top k (`Memory::begin`'s `exclude_sessions`), and the
     pipeline drops a synthesis as `arm` or `unchecked` (`MemoryScience::synthesis`). Tests: `tests_consolidate.rs`.
+- **The import** (theseus-0lrr.6, the soul migration): `import/`. An outside pipeline's episode files (JSON Lines,
+  format 1: `import/episode.rs`, every field from the format's lists and the hash over Python's canonical JSON, both
+  string forms, `py_float`) become **imported sessions**: a `SessionRecord` with `imported` (`ImportedFrom`: tag,
+  episode, hash, source, agent, place and labels as recorded facts, triage, as-of; store format 23), its id the
+  episode's (`ses_ep<64 hex>`, `session_id_of`), its record scoped `import:<tag>`. It has no execution, and
+  `turn.submit` refuses it (`import::refusal`), so it never takes a turn or reaches a compile but as recall's
+  testimony; `session.list` leaves it out (`rpc/pages.rs` skips it by key). Its place is private whatever place
+  the episode names (`TurnRunner::place_of` reads the id), so a shared place never recalls it. Each message is a
+  node of origin `import` (`Body::Imported`: source, unit, sha256, integrity; `created_at_ms` the message's own
+  time), the summary a `Body::ImportedSummary` citing its messages' ids; outside integrity is external to the index,
+  so recall keeps it out (`untrusted`) unless `[memory] include_external`, and its header names it outside text.
+  `import.episodes` (`import/write.rs`) takes one batch of a file's lines in one frame (cut past 4,000 records or
+  8 MiB), with the tags' counts (META `import.tag.<tag>`) and an `import.batch` row, on the blocking pool, one import
+  or erase at a time; an episode imported before is skipped, the same id with another hash rejected, an erased one
+  not imported again, and a line that does not read named by its number. `import.erase` tombstones a tag (each node
+  written again under its id, origin and time with `Body::Erased`, the session's `erased` receipt, an
+  `import.erased` row), then asks a running tender's `index.forget`; the follower drops a tombstoned node as it
+  reads it, at a rebuild too; `session.history` and `node.list` show an imported node by its newest record
+  (`import::shown`), so an erased one is its tombstone. The WAL's earlier frames still hold the payloads: §5.6's
+  erasure in place is not built. `import.list` reads the tags' META records. The owner's acts (`judge_act(Act::Import)`; the CLI's
+  `OPERATORS`). `theseus import openclaw|erase|list`. Tests: `import/tests.rs`, theseus-index's `tests_import.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,
   whitespace runs as one space, at least 20 characters, exactly one node; the reply holding the call and earlier

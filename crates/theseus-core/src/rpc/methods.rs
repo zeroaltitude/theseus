@@ -396,6 +396,7 @@ impl Core {
             Some(page) => page,
             None => {
                 let mut all: Vec<SessionRecord> = self.store.list_sessions()?;
+                all.retain(|r| r.imported.is_none());
                 all.sort_by_key(|r| std::cmp::Reverse(r.created_at_unix_ms));
                 all.truncate(n);
                 (all, None)
@@ -530,6 +531,8 @@ impl Core {
         Ok(self
             .sessions_by_activity()?
             .iter()
+            // Imported sessions are the import's to list (theseus-0lrr.6).
+            .filter(|r| r.imported.is_none())
             .map(|r| self.session_info(r, &pending))
             .collect())
     }
@@ -788,6 +791,10 @@ impl Core {
                 "input is empty",
             ));
         }
+        // An imported session takes no turn (theseus-0lrr.6).
+        if let Some(why) = p.session_id.as_deref().and_then(crate::import::refusal) {
+            return Err(RpcFailure::new(error_code::REFUSED, why));
+        }
         // An MCP server's prompt (36c): asked first, so a refusal (a shared
         // place, a missing argument, a server that is down) leaves no
         // session and no node behind.
@@ -1022,6 +1029,10 @@ impl Core {
         } else {
             Some(self.card_nodes(&p.session_id, &mine)?)
         };
+        // An imported node by its newest record, once (soul-import, theseus-0lrr.6): the
+        // page's cursors were taken from the page as read (history-pages, theseus-xo0m).
+        let mut page = page;
+        page.nodes = crate::import::shown(&self.store, std::mem::take(&mut page.nodes))?;
         let known = cards.as_deref().unwrap_or(&page.nodes);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, known)));
         Ok(theseus_protocol::SessionHistoryResult {
@@ -1203,6 +1214,7 @@ impl Core {
                 nodes
             }
         };
+        let nodes = crate::import::shown(&self.store, nodes)?;
         Ok(theseus_protocol::NodeListResult {
             nodes: nodes
                 .iter()

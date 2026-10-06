@@ -30,10 +30,13 @@ fn number(b: &Body) -> usize {
         Body::Arrangement { .. } => 5,
         Body::Summary { .. } => 6,
         Body::Synthesis { .. } => 7,
+        Body::Imported { .. } => 8,
+        Body::ImportedSummary { .. } => 9,
+        Body::Erased { .. } => 10,
     }
 }
 
-const VARIANTS: usize = 8;
+const VARIANTS: usize = 11;
 
 fn sample(i: usize) -> Node {
     match i {
@@ -122,6 +125,55 @@ fn sample(i: usize) -> Node {
                 cost_usd: None,
             },
         ),
+        8..=10 => import_sample(i),
+        _ => unreachable!(),
+    }
+}
+
+/// The import's three bodies (theseus-0lrr.6): a message, a summary citing
+/// it, and another message's tombstone.
+fn import_sample(i: usize) -> Node {
+    match i {
+        8 => Node::imported(
+            "imp_wren_0".into(),
+            SID,
+            "wren",
+            1_746_194_591_000,
+            Body::Imported {
+                text: "the wren sings at dawn".into(),
+                integrity: crate::import::Integrity::Operator,
+                source: "wiki".into(),
+                unit: "u0".into(),
+                sha256: "ab".repeat(32),
+                idx: 0,
+            },
+        ),
+        9 => Node::imported(
+            "imp_wren_summary".into(),
+            SID,
+            "summary:m",
+            1_746_194_592_000,
+            Body::ImportedSummary {
+                text: "A wren's dawn song.".into(),
+                cites: vec!["imp_wren_0".into()],
+                model: "m".into(),
+            },
+        ),
+        10 => Node::imported(
+            "imp_wren_1".into(),
+            SID,
+            "wren",
+            1_746_194_593_000,
+            Body::Imported {
+                text: "wrens nest low".into(),
+                integrity: crate::import::Integrity::Outside,
+                source: "wiki".into(),
+                unit: "u1".into(),
+                sha256: "cd".repeat(32),
+                idx: 1,
+            },
+        )
+        .erased(1_790_000_000_000, "import.erase of reef-2026"),
         _ => unreachable!(),
     }
 }
@@ -138,6 +190,9 @@ fn expected(i: usize) -> Kind {
         Kind::Arrangement,
         Kind::Summary,
         Kind::Synthesis,
+        Kind::Imported,
+        Kind::ImportedSummary,
+        Kind::Erased,
     ][i]
 }
 

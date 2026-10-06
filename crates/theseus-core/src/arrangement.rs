@@ -225,7 +225,10 @@ pub fn text_of(n: &Node) -> Option<String> {
         | Body::Arrangement { .. }
         | Body::Recall { .. }
         | Body::Summary { .. }
-        | Body::Synthesis { .. } => return None,
+        | Body::Synthesis { .. }
+        | Body::Imported { .. }
+        | Body::ImportedSummary { .. }
+        | Body::Erased { .. } => return None,
     };
     (!t.trim().is_empty()).then_some(t)
 }
@@ -259,6 +262,8 @@ fn who(origin: Origin, author: Option<&str>) -> String {
         (Origin::Harness, None) => "the harness".into(),
         (Origin::Mcp, Some(a)) => format!("an MCP prompt ({a})"),
         (Origin::Mcp, None) => "an MCP prompt".into(),
+        (Origin::Import, Some(a)) => format!("an import ({a})"),
+        (Origin::Import, None) => "an import".into(),
     }
 }
 
@@ -269,6 +274,7 @@ fn origin_str(o: Origin) -> &'static str {
         Origin::Tool => "tool",
         Origin::Harness => "harness",
         Origin::Mcp => "mcp",
+        Origin::Import => "import",
     }
 }
 

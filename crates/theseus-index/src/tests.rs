@@ -204,9 +204,31 @@ fn synthesis_node() -> Node {
     )
 }
 
-#[test]
-fn the_extractor_covers_every_body_variant() {
-    let samples = vec![
+/// An imported message (theseus-0lrr.6), as the import writes it.
+pub(crate) fn imported_node(
+    session: &str,
+    idx: u32,
+    integrity: theseus_core::import::Integrity,
+) -> Node {
+    Node::imported(
+        theseus_core::import::node_id_of(session, idx),
+        session,
+        "wren",
+        1_746_194_591_000,
+        Body::Imported {
+            text: "the tide log moved to the shed".into(),
+            integrity,
+            source: "wiki".into(),
+            unit: format!("u{idx}"),
+            sha256: "ab".repeat(32),
+            idx,
+        },
+    )
+}
+
+/// One node of each kind the index takes, through the core's constructors.
+fn samples() -> Vec<Node> {
+    vec![
         Node::user_with(
             "ses_1",
             None,
@@ -251,43 +273,73 @@ fn the_extractor_covers_every_body_variant() {
         // A compaction's summary (M6 30c): its text, never its header.
         summary_node(),
         synthesis_node(),
-    ];
-    for node in samples {
+        imported_node("ses_ep01", 0, theseus_core::import::Integrity::Outside),
+        Node::imported(
+            "imp_01_summary".into(),
+            "ses_ep01",
+            "summary:m",
+            9,
+            Body::ImportedSummary {
+                text: "the shed holds the tide log".into(),
+                cites: vec!["imp_01_0".into()],
+                model: "m".into(),
+            },
+        ),
+    ]
+}
+
+/// What the extractor gives `node`, by its body's row of the table.
+fn holds_its_row(node: &Node, e: &crate::extract::Extracted) {
+    assert_eq!(e.node_id, node.id);
+    assert_eq!(e.kind, node.kind_str());
+    match &node.body {
+        Body::UserMessage { .. } => {
+            assert_eq!(
+                e.text,
+                "the port is 7433\n\nnotes.txt\n\nattached words\n\nshot.png"
+            );
+            assert_eq!(e.origin, "operator");
+            assert_eq!(e.author.as_deref(), Some("cli"));
+        }
+        Body::AssistantMessage { .. } => {
+            assert_eq!(e.text, "Reading the file.");
+            assert_eq!(e.origin, "agent");
+        }
+        Body::ToolCall { .. } => {
+            assert_eq!(e.text, "cargo build -p theseus-index");
+            assert_eq!(e.tool.as_deref(), Some("proc.run"));
+        }
+        Body::ToolResult { .. } => {
+            assert_eq!(e.text, "fetched words");
+            assert!(e.external);
+            assert_eq!(e.origin, "tool");
+        }
+        Body::Summary { .. } => assert_eq!(e.text, "the harbour opens at six"),
+        Body::Synthesis { .. } => assert_eq!(e.text, "The relay on 7714 [1]."),
+        // The operator's past history (theseus-0lrr.6): outside text is
+        // external.
+        Body::Imported { .. } => {
+            assert_eq!(e.text, "the tide log moved to the shed");
+            assert_eq!(e.origin, "import");
+            assert!(e.external);
+        }
+        Body::ImportedSummary { .. } => assert_eq!(e.text, "the shed holds the tide log"),
+        Body::Erased { .. } => unreachable!("a tombstone is skipped, below"),
+        // Below: a recall is never indexed again.
+        Body::Recall { .. } => unreachable!("a recall is skipped"),
+        Body::Arrangement { .. } => unreachable!("an arrangement is skipped, below"),
+    }
+}
+
+#[test]
+fn the_extractor_covers_every_body_variant() {
+    for node in samples() {
         let record = node.record().unwrap();
         let got = extract(&record.payload).unwrap();
         let Extract::Index(e) = got else {
             panic!("{} was skipped", node.kind_str());
         };
-        assert_eq!(e.node_id, node.id);
-        assert_eq!(e.kind, node.kind_str());
-        match &node.body {
-            Body::UserMessage { .. } => {
-                assert_eq!(
-                    e.text,
-                    "the port is 7433\n\nnotes.txt\n\nattached words\n\nshot.png"
-                );
-                assert_eq!(e.origin, "operator");
-                assert_eq!(e.author.as_deref(), Some("cli"));
-            }
-            Body::AssistantMessage { .. } => {
-                assert_eq!(e.text, "Reading the file.");
-                assert_eq!(e.origin, "agent");
-            }
-            Body::ToolCall { .. } => {
-                assert_eq!(e.text, "cargo build -p theseus-index");
-                assert_eq!(e.tool.as_deref(), Some("proc.run"));
-            }
-            Body::ToolResult { .. } => {
-                assert_eq!(e.text, "fetched words");
-                assert!(e.external);
-                assert_eq!(e.origin, "tool");
-            }
-            Body::Summary { .. } => assert_eq!(e.text, "the harbour opens at six"),
-            Body::Synthesis { .. } => assert_eq!(e.text, "The relay on 7714 [1]."),
-            // Below: a recall is never indexed again.
-            Body::Recall { .. } => unreachable!("a recall is skipped"),
-            Body::Arrangement { .. } => unreachable!("an arrangement is skipped, below"),
-        }
+        holds_its_row(&node, &e);
     }
     // A `Recall` node (M6 30b), through the core's own serialization: its
     // text is its sources', so it is skipped.
@@ -300,6 +352,13 @@ fn the_extractor_covers_every_body_variant() {
     let arrangement = Node::arrangement("ses_1", "session:ses_0", vec![], false);
     assert!(matches!(
         extract(&arrangement.record().unwrap().payload).unwrap(),
+        Extract::Skip { .. }
+    ));
+    // A tombstone (§5.6) has nothing to index.
+    let erased = imported_node("ses_ep01", 0, theseus_core::import::Integrity::Operator)
+        .erased(10, "import.erase of reef-2026");
+    assert!(matches!(
+        extract(&erased.record().unwrap().payload).unwrap(),
         Extract::Skip { .. }
     ));
     // A call whose input is never indexed: a write's content.

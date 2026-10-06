@@ -791,6 +791,11 @@ pub(crate) enum Act<'a> {
     /// notices, and one that could promote could make Jev act. `what` names
     /// it: `loop.v1 to canary 0.2`.
     Ladder { method: &'static str, what: &'a str },
+    /// The import (theseus-0lrr.6, `import.episodes`, `import.erase`): a job's
+    /// process that could import could plant memories, and one that could
+    /// erase could take the owner's away. `what` names it: `the erase of
+    /// <tag>`.
+    Import { method: &'static str, what: &'a str },
 }
 
 impl Act<'_> {
@@ -808,6 +813,7 @@ impl Act<'_> {
             Act::Revoke { .. } => theseus_protocol::method::EXTENSION_REVOKE,
             Act::JudgeRun { method, .. } => method,
             Act::Ladder { method, .. } => method,
+            Act::Import { method, .. } => method,
         }
     }
 }

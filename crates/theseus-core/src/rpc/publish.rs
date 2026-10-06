@@ -132,6 +132,10 @@ impl Core {
                     ),
                     Body::Summary { text, .. } => (format!("the summary {id}"), text.clone()),
                     Body::Synthesis { text, .. } => (format!("the synthesis {id}"), text.clone()),
+                    Body::Imported { text, .. } | Body::ImportedSummary { text, .. } => {
+                        (format!("the imported {id}"), text.clone())
+                    }
+                    Body::Erased { .. } => bail!("{id} was erased: it has nothing to publish"),
                     Body::Recall { .. } => bail!(
                         "{id} is a recall, which copies nothing of its own: publish its sources"
                     ),

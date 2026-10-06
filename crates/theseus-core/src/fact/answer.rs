@@ -177,7 +177,8 @@ impl ActRefused<'_> {
             | Act::JudgeLabel { .. }
             | Act::Revoke { .. }
             | Act::JudgeRun { .. }
-            | Act::Ladder { .. } => None,
+            | Act::Ladder { .. }
+            | Act::Import { .. } => None,
         }
     }
 }
@@ -208,7 +209,8 @@ impl Fact for ActRefused<'_> {
             | Act::Label { what }
             | Act::JudgeLabel { what }
             | Act::JudgeRun { what, .. }
-            | Act::Ladder { what, .. } => {
+            | Act::Ladder { what, .. }
+            | Act::Import { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
@@ -261,6 +263,11 @@ impl Fact for ActRefused<'_> {
                 Act::Ladder { what, .. } => format!(
                     "A move on the ladder, {what}, from {} through {}, did not count: {}. \
                      Nothing was written.",
+                    r.who, r.via, r.why
+                ),
+                Act::Import { what, .. } => format!(
+                    "The import's {what}, from {} through {}, did not count: {}. Nothing was \
+                     written.",
                     r.who, r.via, r.why
                 ),
                 Act::JudgeLabel { what } => format!(

@@ -22,6 +22,7 @@ mod gate;
 mod hands;
 mod health;
 mod history;
+pub mod import;
 pub mod index;
 pub mod judge;
 pub mod judge_runs;
@@ -225,6 +226,8 @@ pub mod method {
         JUDGE_REPLAY = "judge.replay", JUDGE_AUDIT = "judge.audit", JUDGE_BACKFILL = "judge.backfill", JUDGE_LEARN = "judge.learn", JUDGE_PROVE = "judge.prove",
         /// The ladder (M5 26a; `packs`): each pack's mode, a read; the owner's promote and rollback.
         PACK_LIST = "pack.list", PACK_PROMOTE = "pack.promote", PACK_ROLLBACK = "pack.rollback",
+        /// The import (theseus-0lrr.6; `import`): a batch of episodes; a tag's erase, the owner's; the tags, a read.
+        IMPORT_EPISODES = "import.episodes", IMPORT_ERASE = "import.erase", IMPORT_LIST = "import.list",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits
         /// (`bench::BenchHistoryResult`). A read of the gate's CSV.
