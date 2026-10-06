@@ -9,7 +9,7 @@
 //! the start path, and the commit path pays one load until something watches.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -200,6 +200,10 @@ pub struct Push {
     events: AtomicU64,
     /// Notifications every connection's backlog cap dropped (9c).
     pub lost: Arc<AtomicU64>,
+    /// The backlog cap a new connection takes: `outbound::BACKLOG_CAP`,
+    /// which a test may lower, so that a few hundred events overflow it and
+    /// a loaded machine runs the lag prove in seconds (theseus-0u6g).
+    pub backlog_cap: AtomicUsize,
     /// `session.wait` calls parked now, and each connection's (9c).
     waits: Mutex<HashMap<String, usize>>,
     /// Ends the thread that applies frames: a stop sends `None`
@@ -216,6 +220,7 @@ impl Default for Push {
             seed_us: AtomicU64::new(0),
             events: AtomicU64::new(0),
             lost: Arc::default(),
+            backlog_cap: AtomicUsize::new(crate::outbound::BACKLOG_CAP),
             waits: Mutex::default(),
             applier: Mutex::default(),
         }

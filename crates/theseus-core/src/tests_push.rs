@@ -1015,28 +1015,53 @@ async fn a_closed_connection_ends_its_waits_and_one_holds_at_most_64() {
 }
 
 /// The lag prove (design `stage2` §3.2): a client that stops reading while
-/// 5,000 events pass. Its queue reaches the cap, what comes after is dropped
-/// and counted, and once it reads again it drains and hears one
-/// `events.lost` naming the stream. Its re-snapshot then equals a fresh
+/// more events pass than its cap holds. Its queue reaches the cap, what comes
+/// after is dropped and counted, and once it reads again it drains and hears
+/// one `events.lost` naming the stream. Its re-snapshot then equals a fresh
 /// client's, and health counts what was lost.
+///
+/// The cap is the test's, 256, with 400 events (theseus-0u6g): at
+/// `BACKLOG_CAP`'s 4,096 and 5,000 events its work, 5,000 sessions opened and
+/// their 5,000 notices queued and read, took about 7 s on an idle machine and
+/// past nextest's 120 s at nice 19 beside busy loops. The rule is the cap's,
+/// whatever its size; `outbound`'s tests hold it at `BACKLOG_CAP` itself, and
+/// this test that a connection takes `BACKLOG_CAP` unless set.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_client_that_stops_reading_hears_what_it_lost_and_catches_up() {
-    const EVENTS: usize = 5000;
+    const CAP: usize = 256;
+    const EVENTS: usize = 400;
     let r = rig_full(vec![], false, true);
+    assert_eq!(
+        r.core
+            .push
+            .backlog_cap
+            .load(std::sync::atomic::Ordering::Relaxed),
+        crate::outbound::BACKLOG_CAP
+    );
+    r.core
+        .push
+        .backlog_cap
+        .store(CAP, std::sync::atomic::Ordering::Relaxed);
     let mut slow = Raw::connect(&r.core, "slow", 16 * 1024);
     let snap = slow
         .call(1, method::EXECUTIONS_WATCH, json!({"limit": 10_000}))
         .await;
     assert_eq!(snap.result.unwrap()["total"], 0);
     // It stops reading. Each new session is one frame and one event.
+    let t0 = std::time::Instant::now();
     for _ in 0..EVENTS {
         r.core.open_session(SessionOpenParams::default()).unwrap();
     }
+    let opened = t0.elapsed();
     let last = last_kernel_position(&r.core);
-    until("the board applied every frame", || {
-        r.core.push.status(0).position >= last
-    })
-    .await;
+    // The board's own feed, not a poll with a clock a starved runtime outlasts.
+    r.core
+        .push
+        .feed()
+        .wait_for(|&p| p >= last)
+        .await
+        .expect("the board's feed");
+    let applied = t0.elapsed();
     assert!(
         r.core.push.status(0).lost > 0,
         "the cap dropped some: {:?}",
@@ -1060,10 +1085,14 @@ async fn a_client_that_stops_reading_hears_what_it_lost_and_catches_up() {
         }
     };
     let dropped = lost["dropped"].as_u64().unwrap() as usize;
-    eprintln!("lag prove: {changed} execution.changed, then events.lost {lost}");
+    eprintln!(
+        "lag prove: {changed} execution.changed, then events.lost {lost}; opened in {opened:?}, \
+         applied at {applied:?}, drained at {:?}",
+        t0.elapsed()
+    );
     assert_eq!(lost["streams"], json!(["executions"]));
     assert!(
-        dropped > 0 && changed >= crate::outbound::BACKLOG_CAP - 16,
+        dropped > 0 && changed >= CAP - 16,
         "{changed} then {dropped}"
     );
     assert_eq!(changed + dropped, EVENTS, "every event came or was counted");

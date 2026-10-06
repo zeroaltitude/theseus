@@ -5,7 +5,7 @@
 //!
 //! - Every message queued counts until the connection's writer has written
 //!   it.
-//! - Past `BACKLOG_CAP` queued, a notification is dropped and counted, with
+//! - Past `BACKLOG_CAP` queued (a test's connection may set a lower cap), a notification is dropped and counted, with
 //!   its stream, and so is every later one until the writer has drained the
 //!   queue. Responses always go.
 //! - Once drained, the writer sends one `events.lost { dropped, streams }`,
@@ -84,8 +84,9 @@ struct Shared {
     lost: Mutex<(u64, BTreeSet<String>)>,
     /// Every connection's dropped notifications, for health.
     total: Arc<AtomicU64>,
-    /// A queue with no writer (a test's raw channel) is never capped.
-    capped: bool,
+    /// Its cap: `BACKLOG_CAP` for a connection's (a test's may be lower),
+    /// and none for a queue with no writer (a test's raw channel).
+    cap: usize,
 }
 
 /// Where a queue's items go: a connection's writer, or a raw channel whose
@@ -111,13 +112,19 @@ pub struct Drain {
 
 /// A connection's queue: `total` counts what every connection drops.
 pub fn channel(total: Arc<AtomicU64>) -> (Outbound, Drain) {
+    channel_capped(total, BACKLOG_CAP)
+}
+
+/// A connection's queue with its cap: `BACKLOG_CAP`, or the lower one a
+/// test sets (`Push::backlog_cap`), so a few hundred events overflow it.
+pub fn channel_capped(total: Arc<AtomicU64>, cap: usize) -> (Outbound, Drain) {
     let (tx, rx) = unbounded_channel();
     let shared = Arc::new(Shared {
         queued: AtomicUsize::new(0),
         dropping: AtomicBool::new(false),
         lost: Mutex::default(),
         total,
-        capped: true,
+        cap,
     });
     (
         Outbound {
@@ -140,7 +147,7 @@ impl From<UnboundedSender<Message>> for Outbound {
                 dropping: AtomicBool::new(false),
                 lost: Mutex::default(),
                 total: Arc::default(),
-                capped: false,
+                cap: usize::MAX,
             }),
         }
     }
@@ -201,10 +208,9 @@ impl Outbound {
             return false;
         }
         let s = &self.shared;
-        let room = || {
-            !s.dropping.load(Ordering::Acquire) && s.queued.load(Ordering::Acquire) < BACKLOG_CAP
-        };
-        if !s.capped || room() {
+        let room =
+            || !s.dropping.load(Ordering::Acquire) && s.queued.load(Ordering::Acquire) < s.cap;
+        if room() {
             return self.queue_note(note);
         }
         let mut lost = s.lost.lock().unwrap();
