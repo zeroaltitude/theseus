@@ -426,7 +426,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     promotion. `rpc/packs.rs` is `pack.list`, `pack.promote` and `pack.rollback` (`judge_act(Act::Ladder)`; short
     of `promote::bar` the owner's row is `forced`, the system's refused); a `security.*` promotion is a card, its
     question planned on the ladder's own session (META `ladder.session`) and answered by `action.confirm` like an
-    extension's ack (`answer_promotion`: the bind or decline and the row in one frame, nothing wakes). Tests:
+    extension's ack (`answer_promotion`: the bind or decline and the row in one frame, nothing wakes). A promotion's
+    `said` names a learned version standing ahead of the one moved, where the move judges nowhere or only in a
+    canary's control arm, and its rollback (`rpc/packs_ahead.rs`, theseus-nwa5): said, never refused. Tests:
     `tests_ladder.rs`, `judge::ladder::tests`.
   - **The learning loop** (step 25f, theseus-0j2.12; design §2.17): `learning/propose.rs` (the run: nightly after
     the report, and `judge.learn`, the owner's act), with its pure parts in `theseus_judge::propose` (names from

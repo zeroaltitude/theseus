@@ -567,7 +567,7 @@ async fn the_default_window_is_the_canarys() {
 
 /// A learned version of loop.v1, `loop.v101`, in its lineage: its
 /// `pack.version` row, read back by the next read of the lineage.
-fn learned_loop(c: &Core) {
+pub(crate) fn learned_loop(c: &Core) {
     let text = include_str!("../../theseus-judge/packs/loop.v1.toml").replacen(
         "version = 1",
         "version = 101",
