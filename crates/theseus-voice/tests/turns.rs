@@ -1610,3 +1610,79 @@ async fn leaving_while_held_cuts_once_and_resumes_nothing() {
     assert!(only(&seen, resumed).is_empty());
     assert_eq!(starts(&played), [(ms(1200), len(S1), true)]);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_report_cut_by_words_and_waiting_at_the_calls_end_is_cut() {
+    // The report plays from 0.1 s; the owner's words from 1.2 s cut it in its
+    // second sentence, at 2.5 s, and it waits for the next pause. His turn is
+    // still in flight at 4 s, when the call ends: the report is cut there,
+    // heard to its first sentence (theseus-qrwx).
+    let r1 = "The deploy finished.";
+    let r2 = "All forty checks passed on the first try.";
+    let report = "The deploy finished. All forty checks passed on the first try. Nothing else.";
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 9000).say(OWNER, 1200, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(OWNER, "hold on, what's that"));
+    let answer: Answer = Box::new(|_, _| (ms(10_000), "Sure.".into()));
+    let (seen, _) = call_leaving(io, speech, answer, vec![(ms(100), report)], ms(4000)).await;
+    let ended: Vec<_> = only(&seen, cuts)
+        .into_iter()
+        .filter(|(_, e)| {
+            matches!(
+                e,
+                Event::Cut {
+                    why: CutWhy::CallEnded,
+                    ..
+                }
+            )
+        })
+        .collect();
+    assert_eq!(
+        ended,
+        [(
+            ms(4000),
+            Event::Cut {
+                what: Spoken::Report,
+                why: CutWhy::CallEnded,
+                sentences: 3,
+                heard: 1,
+                into: Duration::ZERO,
+                last_heard: Some(r1.into()),
+                cut: r2.into(),
+            }
+        )]
+    );
+    assert_eq!(
+        only(&seen, cuts).len(),
+        3,
+        "the words' cut and barge-in first"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_report_never_begun_is_cut_at_the_calls_end() {
+    // The report comes at 2 s, while the owner's turn is in flight; the call
+    // ends at 4 s, before any pause (theseus-qrwx).
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 9000).io;
+    let speech = Arc::new(StandInSpeech::new());
+    let answer: Answer = Box::new(|_, _| (ms(10_000), "Sure.".into()));
+    let report = "The backup finished. It took an hour.";
+    let (seen, played) = call_leaving(io, speech, answer, vec![(ms(2000), report)], ms(4000)).await;
+    assert!(played.is_empty());
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            ms(4000),
+            Event::Cut {
+                what: Spoken::Report,
+                why: CutWhy::CallEnded,
+                sentences: 2,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "The backup finished.".into(),
+            }
+        )]
+    );
+}

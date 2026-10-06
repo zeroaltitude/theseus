@@ -28,8 +28,9 @@
 //!   cut at their transcript; so does a failed transcription, and a hold's
 //!   transcript still due 3 s after its utterance closed (`transcript_bound`,
 //!   theseus-aq4t), which is then dropped. A report cut
-//!   by words comes back at the next pause from its cut sentence. The
-//!   session still has the whole text.
+//!   by words comes back at the next pause from its cut sentence; one still
+//!   waiting when the call ends is cut there (theseus-qrwx). The session
+//!   still has the whole text.
 //! - **The floor's bound.** A reply that has waited 8 s for the floor, or a
 //!   hold for its utterances to close, held only by open utterances, has each
 //!   one's audio so far transcribed once (`floor_bound`, theseus-aq4t): a
@@ -1090,10 +1091,30 @@ impl Engine {
         }
     }
 
-    /// The call is over: whatever is still queued goes unsaid.
+    /// The call is over: whatever is still queued goes unsaid, and so does
+    /// each report still waiting for a pause, sent back by a cut or never
+    /// begun (theseus-qrwx).
     fn call_ended(&mut self, now: Instant) {
         if !self.queue.is_empty() {
             self.cut(CutWhy::CallEnded, now);
+        }
+        for report in std::mem::take(&mut self.reports) {
+            let Some(cut) = report.sentences.first() else {
+                continue;
+            };
+            let last_heard = match report.first {
+                0 => None,
+                _ => self.said.get(&Spoken::Report).cloned(),
+            };
+            self.emit(Event::Cut {
+                what: Spoken::Report,
+                why: CutWhy::CallEnded,
+                sentences: report.count,
+                heard: report.first,
+                into: Duration::ZERO,
+                last_heard,
+                cut: cut.clone(),
+            });
         }
     }
 
