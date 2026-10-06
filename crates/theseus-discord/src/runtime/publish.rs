@@ -82,7 +82,7 @@ mod tests {
     use theseus_protocol::DiscordOrigin;
     use twilight_model::id::Id;
 
-    use super::super::tests::{core_with, place_for_tests, EDDIE};
+    use super::super::tests::{core_with, place_for_tests, OWNER};
     use super::super::Control;
     use super::PublishAsk;
 
@@ -96,7 +96,7 @@ mod tests {
         };
         const LAB: u64 = 314_159_265_358_979_323;
         let origin = Some(DiscordOrigin {
-            user_id: EDDIE.to_string(),
+            user_id: OWNER.to_string(),
             channel_id: LAB.to_string(),
             guild_id: Some("900000000000000001".into()),
         });
@@ -132,7 +132,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
             c.discord.rest_proxy = Some("127.0.0.1:9".into());
-            c.places.owner = Some(vec![format!("discord:{EDDIE}")]);
+            c.places.owner = Some(vec![format!("discord:{OWNER}")]);
         });
         core.bind_places(vec![theseus_core::places::BoundPlace {
             target: format!("discord:channel:{LAB}"),
@@ -151,7 +151,7 @@ mod tests {
             .unwrap();
         let (mut place, _rx) = place_for_tests(&core, &sid);
         let answer = place
-            .control(Control::Publish(Box::new(ask)), "discord:eddie")
+            .control(Control::Publish(Box::new(ask)), "discord:zeroaltitude")
             .await;
         assert!(answer.starts_with("⚠️ Not published: "), "{answer}");
         let published = core

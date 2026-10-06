@@ -108,7 +108,7 @@ mcp-prompts' own fix, so a no-op on this main); `prompt: None` in the branch's t
 06:11. theseus-ext.5 closed. It released extensions-load (43b, Item 133), launched at 06:12, which had
 to add acked extensions to the catalog itself.
 
-**Eddie's call** (the 9am review's decision 2, 2026-10-04 09:34, "Take your recommendation"): option (a). The trial
+**The owner's call** (the 9am review's decision 2, 2026-10-04 09:34, "Take your recommendation"): option (a). The trial
 keeps running before the ack, with the hosts the model asked for, at `extend.propose`'s own posture, and the notice
 names the hosts; under default trust that is no more than a `proc.run` at the same posture. Two small fixes, filed as
 theseus-ext.9: the buttons read Load and Don't load, and L1's view gets `python3`.
@@ -127,7 +127,7 @@ runs as the operator, not root, so its L1 trials run.
 - The design's web view of a proposal (the frozen files, a diff against the version it would replace, the tests, Load
   and Decline) is a list of what the cockpit should show, not built; reading the frozen files needs a read method.
 
-**Known gaps.** The trial runs before the ack with the model's own host list (kept by Eddie, above). On this machine
+**Known gaps.** The trial runs before the ack with the model's own host list (kept by the owner, above). On this machine
 L1's view had `/usr/bin/python3.12` but no `python3` (linuxbrew's, outside the view), so a proposal of `["python3",
 "server.py"]` failed its trial here, as the report's own live check would have (theseus-ext.9). A second proposal of
 the same name and digest overwrites the manifest's question while the older one still waits; two proposals of one
@@ -249,7 +249,7 @@ made eleven twelve) and raised theseus-protocol's lib.rs ceiling from 2,636 to 2
 77.1, inside the last 16 joins' 66.4 to 89.8: the turn's added work is one config check with the judge off). Pushed
 06:52; theseus-0j2.4 closed.
 
-**The install** (14:09, at bddfd407, install #1). Eddie's `/etc/theseus/theseus.toml` turned `[judge]` on (every pack
+**The install** (14:09, at bddfd407, install #1). The owner's `/etc/theseus/theseus.toml` turned `[judge]` on (every pack
 in shadow, as configured), so from then on his own turns carry marks and the Judgment section reads his judgments.
 Health after the restart: the config from `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready, judge on, lsp
 on, startup 73.1 ms; the store went from format 6 to 14 on start.
@@ -272,7 +272,7 @@ owes `on_path_ms {pack, class}` and the errors' key in its telemetry row (§2.13
 **Why.** M5's design puts `security.v1` at the gate: every call whose class is not `read`, and a web fetch or search
 in a session that holds external text (the exfiltration path T1 leaves open by design), judged after the gate decides
 and never delaying the dispatch (`docs/design/m5-judgment.md` §2.4). Item 95 had added `security.v3` (`steered`
-deciding beside `risky`) as a candidate, and Eddie's 23:24 call on 2026-10-03 kept it in shadow to gather data through
+deciding beside `risky`) as a candidate, and the owner's 23:24 call on 2026-10-03 kept it in shadow to gather data through
 the soak. Step 24 wires both packs to the gate in shadow, lets an operator's "should have asked" press label them, and
 shows the score on the notices a call already posts (§2.8b).
 
@@ -359,7 +359,7 @@ answers, and rows land up to 2 s after a judgment (the sink's window): the hashe
 2. **What `class` means:** 23b's metrics, `judge show` and the cockpit's p50 and p95 read a judgment's
    `context.class` as the turn's workload class, and 24 wrote the tool's class there (`run`, `read`). Now `class` is
    the workload class (`tools`, or `task`) and the tool's is `tool_class`. A choice of names in a durable row, put to
-   Eddie: at 10:21 (decision 5) he kept `tool_class`.
+   the owner: at 10:21 (decision 5) he kept `tool_class`.
 3. The other three: `TurnRequest.prompt: None` in the new test's helper (main's 36c added the field); the marks test
    counts the gate's two beside 23b's loop mark (`left: 3, right: 2` before); the gate's lines became a sub-bullet of
    23b's "The judge" in theseus-core's guide.
@@ -374,7 +374,7 @@ after main's AWS and LSP children. theseus-protocol's lib.rs ceiling rose from 2
 fdatasync 13.7 ms against 6.5), and the gate's own rerun passed every line under its strict budget; turn frames 5 and
 9. Pushed 07:04; theseus-0j2.5 closed.
 
-**The install** (14:09, at bddfd407, install #1): with `[judge]` on in Eddie's config, `security.v1` and `security.v3`
+**The install** (14:09, at bddfd407, install #1): with `[judge]` on in the owner's config, `security.v1` and `security.v3`
 judge his gated calls in shadow from then on. Health after the restart: the config from `/etc/theseus/theseus.toml`,
 9 secrets ready, discord ready, judge on (every pack shadow), lsp on, startup 73.1 ms; the store from format 6 to 14
 on start.
@@ -391,7 +391,7 @@ was gated, so a call gated in the same loop as a web read is recorded, and sent 
 dispatched-not-written set is in memory, so a crash loses it with the rows it names. A judgment whose prepare fails
 (budget paused, client not built) leaves its mark naming an id no row will carry. The state build reads the session's
 nodes whole, off the call's path. Cost: two Jev calls per acting call (about $0.0002), so the $1 day covers about
-5,000 acting calls. Eddie's decision 5 (10:21) made the notices live with the design's brake: the security-notices
+5,000 acting calls. The owner's decision 5 (10:21) made the notices live with the design's brake: the security-notices
 session, Item 142.
 
 ### Item 121. `classify.v1` and `role.v1` at inbound, in shadow, one request per message (theseus-0j2.6; roadmap row 40, step 25a; the fifth cloud batch's classify-role session, launched 01:42 and fired 01:45 from 3add3f53, Opus 5.5; ff5479d9; reviewed 05:53 to 06:19 by local reviewer R2, third of its stack, one join fix redone 06:26 to 06:29; joined 07:14 at 2cba6c51, a signed merge onto 701f0ea6, by the batch-5 harvest wake; installed 14:09 at bddfd407, install #1)
@@ -471,11 +471,11 @@ busy allowance (cold start to the first health answer p95 84.4 ms against 57.1 s
 16.6 from Terminal-Bench's containers; the history records the strict verdict, a miss; the branch changes no start or
 stop code); turn frames 5 and 9. Pushed 07:14; theseus-0j2.6 closed.
 
-**The install** (14:09, at bddfd407, install #1): with `[judge]` on, Eddie's messages are classified and their role
+**The install** (14:09, at bddfd407, install #1): with `[judge]` on, the owner's messages are classified and their role
 guessed in shadow from then on. Health after the restart: the config from `/etc/theseus/theseus.toml`, 9 secrets
 ready, discord ready, judge on (every pack shadow), lsp on, startup 73.1 ms; the store from format 6 to 14 on start.
 
-**Eddie's calls.** At 11:00 (decision 8, "Take your recommendations") he kept the twelve seed roles.
+**The owner's calls.** At 11:00 (decision 8, "Take your recommendations") he kept the twelve seed roles.
 
 **Divergences.** The place kind is inferred from the place or the client label, not the connection's surface, so
 Discord voice reads as `discord_dm` or `discord_channel`, like typed text (naming `voice` needs a `TurnRequest` field).
@@ -569,7 +569,7 @@ CPU pressure 99 % during the bench; fdatasync 6.9 ms): no cost the bench can see
 compile with the judge off and this gate is their measure. A frozen A/B would put a precise number on it; none was
 run. Pushed 07:25; theseus-0j2.7 closed, and the learning ledger (25c) launched from this main.
 
-**The install** (14:09, at bddfd407, install #1): the signals ride on every `context.compiled` row of Eddie's daemon,
+**The install** (14:09, at bddfd407, install #1): the signals ride on every `context.compiled` row of the owner's daemon,
 and with `[judge]` on `continue.v1` judges his appends in shadow. Health after the restart: the config from
 `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready, judge on (every pack shadow), lsp on, startup 73.1 ms; the
 store from format 6 to 14 on start.
@@ -671,7 +671,7 @@ it reads until "42" and asserts quiet, and under load the shell's next prompt la
 reports it rightly, so the test races (filed as theseus-y6zr, fixed at Item 126). Run 2, exit 0 at
 07:40:26: 2,203 of 2,203, every lifecycle line under its strict budget. Pushed 07:40; theseus-mgw.10 closed.
 
-**The install** (14:09, at bddfd407, install #1): `theseusd restore --from s3://…` is in Eddie's binary; nothing runs
+**The install** (14:09, at bddfd407, install #1): `theseusd restore --from s3://…` is in the owner's binary; nothing runs
 it until a restore. Health after the restart: the config from `/etc/theseus/theseus.toml`, 9 secrets ready, discord
 ready, judge on (every pack shadow), lsp on, startup 73.1 ms; the store from format 6 to 14 on start.
 
@@ -681,7 +681,7 @@ otherwise). A gap restores the prefix before it, said in the output, rather than
 names the staging path, not the URL, and not the gap. A corrupt sealed object refuses the whole restore, even where
 its tails might tile it.
 
-**Known gaps.** **The live check on the account waits for Eddie** (under a cent): a probe config ships a few turns,
+**Known gaps.** **The live check on the account waits for the owner** (under a cent): a probe config ships a few turns,
 then restores into a fresh state dir; R1 adds one step, to delete one blob object under the probe's own prefix first,
 since the session's `s3:ListBucket` carries an `s3:prefix` condition and S3 may answer a missing key with 403, not 404,
 so a missing blob or tail would fail the whole restore instead of being said (the fix would be `StringLikeIfExists`;
@@ -692,9 +692,9 @@ timeline's tail begins stitches in; an epoch in the tail rows would close it. A 
 still leaves `<state>/durability/` in place, so its `blobs.shipped` can skip blobs. Blobs are fetched one at a time.
 theseus-core's guide and `durable.rs`'s module comment owe the corrections above.
 
-### Item 124. 34b's wire-in: each exam daemon's `[memory] arm`, the four-arm exam over the real recall pipeline, its report and the replay; and the first honest exam on GLM (theseus-6fn.5; roadmap row 55; the fifth cloud batch's memory-arm session, launched 02:59 and fired 03:03 from 760553f7, recall-node's join, Opus 5.5; a5630773, d9356d4c and a676f827; reviewed 05:30 to 06:24 by local reviewer R1; joined 07:50 at 7d0c9534, a signed merge onto cc81333d, by the batch-5 harvest wake; the GLM exam run 11:44 to about 13:04 under Eddie's decision 9, reviewed 13:45; installed 14:09 at bddfd407, install #1)
+### Item 124. 34b's wire-in: each exam daemon's `[memory] arm`, the four-arm exam over the real recall pipeline, its report and the replay; and the first honest exam on GLM (theseus-6fn.5; roadmap row 55; the fifth cloud batch's memory-arm session, launched 02:59 and fired 03:03 from 760553f7, recall-node's join, Opus 5.5; a5630773, d9356d4c and a676f827; reviewed 05:30 to 06:24 by local reviewer R1; joined 07:50 at 7d0c9534, a signed merge onto cc81333d, by the batch-5 harvest wake; the GLM exam run 11:44 to about 13:04 under the owner's decision 9, reviewed 13:45; installed 14:09 at bddfd407, install #1)
 
-**Why.** The memory exam (34a, Part III Item 80) measured recall through a stand-in for it; Eddie's 6.2 pick on the
+**Why.** The memory exam (34a, Part III Item 80) measured recall through a stand-in for it; the owner's 6.2 pick on the
 cut-list made the arm a scratch daemon's `[memory] arm`, one daemon per arm, so the exam measures the real recall
 pipeline and gives M6 its first honest report (roadmap row 55). Recall itself was 30a and 30b (Item 99,
 Item 112).
@@ -767,7 +767,7 @@ fields).
   the store; an interval touching zero deciding a gain. A stand-in run again: 144 cells, 0 errors, about 24 s; gold
   admitted `bm25` 17, `baseline` 18 (most likely each daemon's index of the cells it served); the frozen report refused
   a second `--out`. Under `timeout 900` a clean run **exited 1**, the wrapper counted as a leftover (theseus-qiiq).
-- **The first honest exam, on GLM** (glm-5.3-flash), run under Eddie's standing go for paid checks (decision 9,
+- **The first honest exam, on GLM** (glm-5.3-flash), run under the owner's standing go for paid checks (decision 9,
   11:26), with theseus-qiiq settled in how it ran (a scratch base config, never a copy of a real one; a script file,
   not under `timeout`; the Vectors line watched): the held-in half 3 runs and the held-out half once, **576 cells, 5
   errors** (2 GLM first-byte timeouts, 3 turns with no end in 300 s), **$0.87** of a $5 cap, no daemon left.
@@ -793,7 +793,7 @@ exhaustively (E0004); it takes the arm main's own `Node::kind_str` has, `"arrang
 cold-start outlier (p95 131.7 ms; the branch adds nothing to the start path), and its rerun passed every line
 strictly; turn frames 5 and 9, plain p50 78.6 ms, tool-call 177.9 ms. Pushed 07:50; theseus-6fn.5 closed.
 
-**The install** (14:09, at bddfd407, install #1). Eddie's config set `[memory] mode = "live"` with arm `baseline`, so
+**The install** (14:09, at bddfd407, install #1). The owner's config set `[memory] mode = "live"` with arm `baseline`, so
 his turns recall live through the arm's sources from then on (the exam binary itself is a tool, never installed).
 Health after the restart: the config from `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready, judge on, lsp
 on, startup 73.1 ms; the store from format 6 to 14 on start; `theseus memory search` ran on `baseline@8bc51e97` while
@@ -917,7 +917,7 @@ Item 132), launched 08:20.
 among the steps. Health after the restart: the config from `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready,
 judge on, lsp on, startup 73.1 ms.
 
-**Eddie's calls.** At 10:38 (decision 6, "Take your recommendation"), option (b): layer 1 (a task's objective and
+**The owner's calls.** At 10:38 (decision 6, "Take your recommendation"), option (b): layer 1 (a task's objective and
 acceptance, and abandoning it) asks only for tasks the owner created or whose objective and acceptance came from his
 brief; the model's own plan items change freely, still versioned and visible; an expired proposal is cleared as a
 decline is; the view's O(N) scan waits for an index. Batched for the review-smalls cloud row (smalls-tasks,
@@ -1035,12 +1035,12 @@ line inside the strict budgets; turn plain p50 84.3 ms and tool-call 179.8 ms, i
 turn code (plain 72.5 to 89.0 ms from cc81333d to 78d749cb; the exchange-end point returns at once with the judge
 off); frames 5 and 9. Pushed 08:33; theseus-vug.1 and theseus-y6zr closed.
 
-**The install** (14:09, at bddfd407, install #1): with `[judge]` on, Eddie's private conversations get a
+**The install** (14:09, at bddfd407, install #1): with `[judge]` on, the owner's private conversations get a
 `categorize.v1` judgment once topics exist, and health carries `tasks.parked`. Health after the restart: the config
 from `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready, judge on, lsp on, startup 73.1 ms; the store from
 format 6 to 14 on start.
 
-**Eddie's calls.** The two-facts naming (`JudgeLabel` and `ProposalLabel`) was put to him at 9am and stands. At 11:00
+**The owner's calls.** The two-facts naming (`JudgeLabel` and `ProposalLabel`) was put to him at 9am and stands. At 11:00
 (decision 8, "Take your recommendations") he chose `new_topic` discovery on an empty ontology, with theseus-gky0 (read
 only what is new) and theseus-q0rn (the reservation's estimate), batched for the review-smalls cloud rows and
 built in Item 147.
@@ -1141,12 +1141,12 @@ cloud VM too, which went the other way there); the test now waits for the store 
 at most 5 s): 3 of 3. `CLOUD_TASK.md` and `CLOUD_REPORT.md` dropped. Its gate: 2,255 of 2,255, lifecycle strict, turn
 plain p50 76.5 ms and tool-call 175.2 ms (main's level), frames 5 and 9. Pushed 08:45; theseus-n88g.9 closed.
 
-**The install** (14:09, at bddfd407, install #1). Eddie's `/etc/theseus/theseus.toml` turned `[lsp]` on, so his edits
+**The install** (14:09, at bddfd407, install #1). The owner's `/etc/theseus/theseus.toml` turned `[lsp]` on, so his edits
 in a private place carry their files' errors where a server is up. Health after the restart: the config from
 `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready, judge on, lsp on, startup 73.1 ms; the store from format 6
 to 14 on start.
 
-**Eddie's calls.** At 11:00 (decision 8, "Take your recommendations. Add rust to the list of autostarted language
+**The owner's calls.** At 11:00 (decision 8, "Take your recommendations. Add rust to the list of autostarted language
 servers"): `start_on_edit` on for ty, TypeScript 7 (tsgo) and rust-analyzer, rust-analyzer with its own target dir
 (`cargo.targetDir = true`) so its checks never take the agent's build lock (it used 4.2 GB on Theseus's own repository)
 and `idle_stop_mins` (10) to free it; R1's point taken (an `lsp.diagnostics` right after an edit does not repeat the
@@ -1254,12 +1254,12 @@ shadow recall, and the bench runs memory and the judge off, so the harvest read 
 frozen builds to decide if the next gate stayed up (overnight decision 21); learning-ledger's gate at 09:48 read 77.0
 and 173.7, main's level again, and no A/B was needed. Pushed 09:06; theseus-6fn.3 closed.
 
-**The install** (14:09, at bddfd407, install #1). Eddie's config runs memory `live` on arm `baseline`, so only a canary's
+**The install** (14:09, at bddfd407, install #1). The owner's config runs memory `live` on arm `baseline`, so only a canary's
 control would run the shadow recall this arm follows: his turns write no rerank rows until 32d. Health after the
 restart: the config from `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready, judge on (every pack shadow), lsp
 on, startup 73.1 ms; the store from format 6 to 14 on start.
 
-**Eddie's calls.** At 10:11 (decision 4, "Take your recommendation"), option (c): the rerank goes live, behind three
+**The owner's calls.** At 10:11 (decision 4, "Take your recommendation"), option (c): the rerank goes live, behind three
 conditions in one cloud row, theseus-6fn.7 (32d, rerank-live, Item 141): theseus-mm4a's test first, the
 rerank's own breaker, a bounded live rerank in recall's live path, and the ledger grading `rerank.v1`'s per-item answers
 with a system label from his memory labels ("Live reinforcement learning is exciting").

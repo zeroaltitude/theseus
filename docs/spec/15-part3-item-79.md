@@ -6,7 +6,7 @@ three installs: at 16:35 at 777f1e2 (Items 79 to 81), at 18:52 at d9b0931 (Items
 (Items 86 to 96). Every join was a plain merge (Item 73's note): a fast-forward, or a signed merge commit whose second
 parent is the branch's head, so a branch's commits keep their ids. From 20:24 most joins were made by join wakes:
 one-shot scheduled runs, each holding a lock queued behind the joins ahead of it, and each merging, gating and pushing
-one branch, so the joins stayed one at a time on `main` while the lanes and the cloud sessions worked on. Eddie asked
+one branch, so the joins stayed one at a time on `main` while the lanes and the cloud sessions worked on. The owner asked
 for cloud sessions at scale: up to about eight at a time (12:28), "Let's continue to use cloud sessions too" (18:41),
 the caps raised (19:31), and sixteen at once, tried once (19:41), beside six local lanes. At 21:00 he held new batches
 while the account might be swapped, and the running sessions were harvested. At 23:24 he said joins may be batched.
@@ -16,7 +16,7 @@ Claude run stopped at once. Each stopped run was relaunched from its worktree an
 gates ran on. Each Item's heading gives its own runs and times.
 
 **Why.** Item 78 joined C2 with its bootstrap unapplied: the apply is the first write to the operator's account, and it
-waited on two answers from Eddie. He gave them at 14:20: lean (`TrailKey=aws-managed`, no trail key of its own), with
+waited on two answers from the owner. He gave them at 14:20: lean (`TrailKey=aws-managed`, no trail key of its own), with
 the alerts to an address of his. The apply ran from a scratch daemon of the installed build, with the operator's key,
 and it found two bugs the fakes could not show.
 
@@ -34,7 +34,7 @@ and it found two bugs the fakes could not show.
   fails it; `infra/aws/check.sh` clean, 32 rule tests ok. Its gate on `main` passed at 14:35:07; pushed at 14:37. v0.80
   was cut before it and left it to this Item.
 - **The repair by hand** (14:43). The bootstrap changes an existing foundation only in a floor session of that same
-  role, so it could not apply its own fix. Tabitha made one `UPDATE` change set of `theseus-foundation` from ad1e02f's
+  role, so it could not apply its own fix. Tabitha/Claude made one `UPDATE` change set of `theseus-foundation` from ad1e02f's
   template, every parameter `UsePreviousValue` and the tags untouched, signed with the key as the create was, and
   checked before it ran that its one change was `OwnerRole`'s `AssumeRolePolicyDocument`, a `Modify` with no
   replacement. `UPDATE_COMPLETE` at 14:43:19; a tagged owner session was then minted to check it.
@@ -45,7 +45,7 @@ and it found two bugs the fakes could not show.
 - **14:54, the third** (plan at 14:52: the foundation and the posture `none`, the relay a create).
   `theseus-posture-relay` was made in us-east-1, with its stack policy and termination protection. All three stacks
   were up, but the foundation and the posture had neither guard: the apply set them only on stacks it had changed.
-  One read Tabitha signed with the key at about 14:51 (a `DescribeStacks`) was likely an alert, by the posture's
+  One read Tabitha/Claude signed with the key at about 14:51 (a `DescribeStacks`) was likely an alert, by the posture's
   root-of-trust rule.
 
 **The `c2-resume` lane** (theseus-oszz; 1c45838 on 7a31fba, and fcda1e7, a merge of `main` at 662e27c).
@@ -98,11 +98,11 @@ plan: the foundation and the posture `none`, each with its stack policy and term
 posture's policy without `TrailKmsKey`, the relay `none`. The apply (16:34:43) exited 0 in 2 s; a plan after it said
 there was nothing to do; owner-session reads showed both stacks protected, each with a policy. theseus-oszz closed.
 
-**The alerts' email** (theseus-crbk, 15:27 to 15:50). Eddie confirmed the subscription several times, and each time it
+**The alerts' email** (theseus-crbk, 15:27 to 15:50). The owner confirmed the subscription several times, and each time it
 was unsubscribed again. The topic listed the email subscription as deleted, and CloudTrail held no `Unsubscribe` by any
 principal: it went through the unauthenticated unsubscribe link that every SNS email carries, which CloudTrail does
 not record. The likely cause, a hypothesis, is a mail scanner following the links. From the confirmation email's token,
-which Eddie pasted at 15:48, the subscription was confirmed again with `--authenticate-on-unsubscribe true` in an owner
+which the owner pasted at 15:48, the subscription was confirmed again with `--authenticate-on-unsubscribe true` in an owner
 session: `ConfirmationWasAuthenticated` is true, so only the account can unsubscribe it. A CLI step for every operator,
 `theseus aws confirm-alerts <token>`, was filed as theseus-9p40; the cloud's aws-curated session built it, and it
 joined on 2026-10-04 at 00:00, after this record (v0.82).
@@ -111,18 +111,18 @@ joined on 2026-10-04 at 00:00, after this record (v0.82).
 81) and docs v0.80). `install-main.sh` exit 0, the store backed up first, the unit unchanged. Health: the config
 confirmed by the vault in 1,035 ms, 8 secrets ready in 996 ms, Discord ready, the index ready, the places line
 unchanged, the L1 self-test 6.1 ms in `theseusd check`, the cockpit's entry answering, and nothing at WARN or above in
-the journal. **The account bound** when Eddie pasted the template's C2 lines (his `[aws.accounts.<id>]` with
+the journal. **The account bound** when the owner pasted the template's C2 lines (his `[aws.accounts.<id>]` with
 `owner_role`, and `[broker.programs.aws]`) and the daemon restarted onto them at 17:15: health says the account signs
 with role sessions, and jobs get short-lived AWS sessions.
 
 **Divergences.** The bootstrap could not repair its own owner role, and the repair was made by hand with the key; the
-recovery is written down, and whether the bootstrap should learn it is Eddie's (theseus-ps12, P2). Each stack's policy
+recovery is written down, and whether the bootstrap should learn it is the owner's (theseus-ps12, P2). Each stack's policy
 is computed, not the file as written. The bootstrap took four applies, not one: three to make the stacks, and one to
 set two stacks' guards.
 
 **What it costs.** The C2 report's estimate stands: about $0.08 to $0.10 a month at this account's activity. Cost
 Explorer is a day behind, so theseus-xsoq measures it from 2026-10-04, and again when GuardDuty's 30-day trial ends.
-At 17:22 Eddie chose that the $50 budget counts the whole account, its other services included (theseus-mhvb).
+At 17:22 the owner chose that the $50 budget counts the whole account, its other services included (theseus-mhvb).
 
 **Known gaps.** theseus-ps12 (above). S3's account-level Block Public Access and EBS encryption by default stay the
 by-hand step 4 of `bootstrap.md`; this record has no line saying they were set. The design's write checks, and the
@@ -130,14 +130,14 @@ hands' reservations with the day's and the hour's tripwires, are still to come (
 
 ### Item 80. The third cloud batch's first four joins: one exam, Jev's `security.v2` in shadow, the cockpit's parity with the Observatory, and the WAL's open refusing rot under the checkpoint (theseus-celu.13, .18, .14 and .15, for theseus-vm3n.4, theseus-605, theseus-vm3n.6 and theseus-gt12; Claude cloud sessions fired 2026-10-03 13:00 from a59b7c1; reviewed 15:05 to 16:17 by the batch-3 harvest wake; joined as the signed merges dc3387f (15:33), 662e27c (15:46), 2633d3b (16:07) and 2285fea (16:17); installed 16:35 at 777f1e2)
 
-**Why.** At 12:28 Eddie asked for up to about eight cloud workers at a time on isolatable work, continuously. The third
+**Why.** At 12:28 the owner asked for up to about eight cloud workers at a time on isolatable work, continuously. The third
 batch was seven sessions, fired at 13:00 from a59b7c1: wakes-repeat (row 64, 37a), exam-trims (the cut-list's 6.2),
 obs-parity (6.4's parity check and its ports), wal-rot (theseus-gt12), ledger-reads (6.3's server half, with
 theseus-96w2 and theseus-tphr), load-flakes (five gate flakes), and jev-security (theseus-605). The harvest wake
 (automation 6722a223, from 15:00) reviewed and joined four, here; it held three for the spine's store and defence steps,
 and they are Items 84, 87 and 91.
 
-**How these joins were made.** Each is a plain merge (Eddie, 13:18): a signed merge commit whose second parent is the
+**How these joins were made.** Each is a plain merge (the owner, 13:18): a signed merge commit whose second parent is the
 cloud branch's head, so the session's commits keep their ids and GitHub shows the branch merged; `CLOUD_REPORT.md` is
 removed in the merge, and the cloud branch deleted. From about 14:30 the machine's Claude login was in another
 organisation than the routines, so the wake could not read their logs, and read each session's done-ness from its
@@ -188,14 +188,14 @@ crate the daemon does not link).
   file-laundered injection, whose `risky` read 0.55 against a confirm line of 0.60 (steered 0.83), and two edge calls on
   benign cases. The review re-ran two plants: `DecodingScrub`'s second pass off fails the secret test, and a new host
   never stated fails the host test and the eval's goldens.
-- **What it left.** theseus-ibm3: the laundered injection does not reach v2's deciding question. Eddie chose its option
+- **What it left.** theseus-ibm3: the laundered injection does not reach v2's deciding question. The owner chose its option
   A at 17:22 (`steered` decides beside `risky`, above a high bar set from shadow data); Item 95 builds it.
 
 **obs-parity** (theseus-vm3n.6, the first of its two steps; Sonnet 5.5; 1de1451, 72c3f14, a90f346 and 69c7a98; 25
 files, +1,408 −246, all under `cockpit/`).
 - **The inventory.** Every element of the Observatory (`web/src`: the shell, the transcript, the timing tree, the
   Observatory's panels, the narrative, the disk and spool card, the AWS card, the sandbox section), with its file and
-  line, and where the cockpit shows it. It was Eddie's condition for retiring the Observatory.
+  line, and where the cockpit shows it. It was the owner's condition for retiring the Observatory.
 - **What it ported.** Ledger rows read in words, every kind the Observatory named (`summary.ts`, `figures.ts`); one
   confirm card for the session deck and Actions (a write's or a patch's preview as a diff, the budget question's words
   and buttons, approve and trust); in the session deck, the asks inline, the live thinking, text and running tools from
@@ -234,7 +234,7 @@ files, +1,408 −246, all under `cockpit/`).
   and checked that it never refuses an open `main` accepted.
 - **What it left.** Rot after the last checkpoint, and any bad last frame with no index (a full replay, a restore), are
   still cut. The session proposed a synced mark in each frame's header, 8 bytes, which changes the frame's encoding.
-  Eddie approved the format bump at 17:14 (theseus-7nfj), and Item 92 builds it.
+  The owner approved the format bump at 17:14 (theseus-7nfj), and Item 92 builds it.
 
 **The joins and their gates.**
 
@@ -250,7 +250,7 @@ files, +1,408 −246, all under `cockpit/`).
 in the daemon.
 
 **Divergences.** exam-trims kept the stemmer and the tokenizers (above). jev-security added `safe` beside `risky`,
-which the brief did not ask for, and left `risky` deciding. obs-parity's gaps were left for Eddie to accept or ask for.
+which the brief did not ask for, and left `risky` deciding. obs-parity's gaps were left for the owner to accept or ask for.
 wal-rot proved its rule from the checkpoint, where the brief had asked for a rule from the batch's bound, which does not
 exist.
 
@@ -259,7 +259,7 @@ inputs) and the file provenance its laundering facts read are not built. The rot
 
 ### Item 81. The `smalls1` lane: settle's bar at three quarters of the cores, a private address's card in a shared place, herdr's prompt race, and the "should have asked" widget's words (theseus-lf1n, theseus-94a6, theseus-jhie; 2026-10-03 15:19 to 16:04; 9a5b64d, 1f1b829, 783a616, a823287 and e1b6944 on 7a31fba, with `main` merged in at 79643a7 and 08fbee4; reviewed 16:20 to 16:21; joined 16:31 as the signed merge 0c150e1 and the web's words, 777f1e2; installed 16:35 at 777f1e2)
 
-**Why.** Four small items Eddie decided that afternoon. At 14:20, "Your pick is good" on the gate-mode lane's
+**Why.** Four small items the owner decided that afternoon. At 14:20, "Your pick is good" on the gate-mode lane's
 recommendation for settle's quiet bar (Item 75's known gap), and "Leave it to the approver" on theseus-94a6 (a shared
 place is offered `http.fetch`, so an approved fetch of a private address brings that page into a conversation others
 can read), with the card saying so. At 14:53, the "should have asked" widget's words: "It should say 'Should I have
@@ -332,7 +332,7 @@ Approve dialog and the Actions view show it whole), and a Discord select option'
 
 ### Item 82. Tier 7's store: one store format number, an open that makes nothing durable, and an output golden of shapes (theseus-ptx1, with theseus-6a7o; the simplification cut-list's 7.9 as amended, 7.7, and 7.4; spine, in a worktree; 2026-10-03 15:01 to 16:22; 11dbe52, 3dcdd29 and 5471e38 on ad1e02f; reviewed 16:49 to 16:51; joined 16:56 at fb612d9, a signed merge; installed 18:52 at d9b0931)
 
-**Why.** The core reviewer's G2, G1 and H1, approved by Eddie at 14:20 with 7.9 amended. Each new stored field cost a
+**Why.** The core reviewer's G2, G1 and H1, approved by the owner at 14:20 with 7.9 amended. Each new stored field cost a
 schema bump, a literal test, and three golden rewrites (R8 was sized S and landed at 1,764 lines; M4 bumped four kinds
 within days), to guard a downgrade that a single number guards as well. Every start paid durable redb commits that a
 crash simply redoes. The output golden had been rewritten 12 times in 22 hours, 94.6 % of its changed lines only
@@ -340,7 +340,7 @@ digits, and sat on the flaky list.
 
 **What landed.**
 - **One format number** (§6, P5b, F4a). `MANIFEST_FORMAT` is 4. Any step that adds a field to a stored record, or
-  changes the encoding, bumps it (Eddie's amendment: simpler to follow than "when data would be lost"); an older binary
+  changes the encoding, bumps it (the owner's amendment: simpler to follow than "when data would be lost"); an older binary
   refuses the newer store, and the installer's `check_manifest` still asks first. The per-kind machinery is gone:
   `kinds::SCHEMAS`, the manifest's per-kind marks, `mark()` on every append, the open's per-kind check of the WAL's
   tail, `NewRecord.schema`, R8's `tests_schemas` (773 lines) and its 1,097-line golden, and the eight literal old-layout
@@ -412,7 +412,7 @@ it after serving would leave a crash window in which this build's first frame si
 
 ### Item 83. Voice with Deepgram: the crate back, speech both ways, the wire-in, and speech as spend (theseus-drrs, with theseus-yl5w; rows 77 and 78; the `voice2` lane; 2026-10-03 15:19 to 16:48; ea93602, 53136c9, 0ec1f8c and 97a4634 on 7a31fba, with `main` merged in three times; reviewed 16:50 to 16:52; joined 17:08 at 1d11949, a signed merge; installed 18:52 at d9b0931, and on since 23:38)
 
-**Why.** Eddie chose Deepgram for speech to text and synthesis at 14:20 (one key, in the vault), so voice returned to
+**Why.** The owner chose Deepgram for speech to text and synthesis at 14:20 (one key, in the vault), so voice returned to
 v1, and with it the engine that tier0 had parked (Item 72's crate). He decided its licence at 15:26 (theseus-yl5w:
 MPL-2.0 for songbird's seven crates, by name; §1).
 
@@ -431,7 +431,7 @@ MPL-2.0 for songbird's seven crates, by name; §1).
   taking the one the presser is in, and bounded at 20 s.
 - **Speech as spend.** About $0.31 to $1.15 of speech an hour of conversation, most of it synthesis (Aura-2 at about
   $0.030 per 1,000 characters; nova-3 at about $0.0043 a minute). The prices are assumed from Deepgram's published
-  rates; Eddie, 17:14: keep them, with a note to confirm (theseus-zue5).
+  rates; the owner, 17:14: keep them, with a note to confirm (theseus-zue5).
 - **Nothing before serving.** `Voice::new` builds a struct; songbird's manager is built with the gateway's shard,
   after serving, and its driver starts at a `/join`.
 
@@ -448,7 +448,7 @@ MPL-2.0 for songbird's seven crates, by name; §1).
 - **Live join.** In the operator's private test voice channel (16:31), songbird played a 7.16 s Deepgram greeting to
   its end, and Discord accepted DAVE over voice gateway v4 (its key package, external sender and pending group in
   davey's log). A scratch daemon registered `/join` and `/leave`, bound the channel as a private place, and showed
-  `voice: ready`. The daemon's own `/join`, with a person speaking, is Eddie's test, written for him
+  `voice: ready`. The daemon's own `/join`, with a person speaking, is the owner's test, written for him
   (`conversation-test.md`).
 - **The lane's gates:** each commit's, 1,724, 1,749, 1,760 and 1,774 passed; the lifecycle bench before the last
   commit, alone under the lock at normal priority, ok in 10.1 s (cold start p95 29.3 ms of 57).
@@ -460,7 +460,7 @@ missed on one cold-start outlier (p95 65.6 ms, with a p50 of 29.3), and its reru
 `main` reads without voice; a plain turn 5 frames; pushed 17:08:09. theseus-drrs and theseus-yl5w closed.
 
 **The install** (18:52, at d9b0931), with voice off until the operator's note turned it on. **Voice went on at
-23:38.** Eddie pasted the sparse note (Item 90) at about 23:37, with `[voice] enabled = true` and the Deepgram key's
+23:38.** The owner pasted the sparse note (Item 90) at about 23:37, with `[voice] enabled = true` and the Deepgram key's
 reference, and the bindings file that names his test voice channel as a private voice place moved into place. The
 daemon restarted onto them (23:38:01), and health at 23:39 read 9 secrets, the Deepgram key among them, 10 slash
 commands, and `voice: ready`. His own `/join` test is next.
@@ -477,7 +477,7 @@ commands, and `voice: ready`. His own `/join` test is next.
 | `[catalog."deepgram:nova-3"] usd_per_minute` rows | `SPEECH_PRICES` in `catalog.rs`, beside the token tables, not configurable | Prices in the code's catalog, never only in the template |
 | The utterance opens at its first loud frame (44a) | It opens with the frames of the 200 ms before (`Config::pre_roll`) | The live round trip lost "Theseus" without it |
 
-A health warning about other viewers of the test voice channel was planned; Eddie (17:14) decided that every channel
+A health warning about other viewers of the test voice channel was planned; the owner (17:14) decided that every channel
 in his guild is private regardless of who else can view it, with no viewer warning (Item 89).
 
 **Known gaps.** The VAD's threshold on the operator's real microphone (his test); streaming synthesis, if the first
@@ -509,7 +509,7 @@ numbers with one store format number.
   missed while the daemon was down` or `, due …, N late` as they apply; one-shot text is unchanged. `wake.fired` carries
   `every`, `occurrence`, `missed` and `next_due_at_ms` for a series only, so one-shot rows are unchanged.
 - **The hold.** A repeating `wake.at` set in a session holding external text waits for the operator's approval, and a
-  one-shot one keeps its exemption (§3.9; Eddie, 2026-09-30, T1b): `external::exempt(class, tool, input)` exempts
+  one-shot one keeps its exemption (§3.9; the owner, 2026-09-30, T1b): `external::exempt(class, tool, input)` exempts
   `wake.at` only when its input has no `every`. It fails closed: any non-null `every`, even an invalid one, is held. A
   series runs unattended for as long as it repeats; a one-shot wake runs once, in a turn of the same held session.
 - **The surfaces** (826e6b0). `WakeInfo` gains `every`, `occurrence` and `next` (a display string in the daemon's
@@ -529,7 +529,7 @@ the old schema were dropped. One way, as Item 82's is: once written, the store i
 refuses it.
 
 **Numbering after missed occurrences**, joined as built: the next occurrence's number follows the schedule
-(`occurrence + 1 + missed`, so #4 with two missed is followed by #7), where the design said `occurrence + 1`. Eddie,
+(`occurrence + 1 + missed`, so #4 with two missed is followed by #7), where the design said `occurrence + 1`. The owner,
 17:14: "Built seems right, adjust the design to match"; M7 §2.2 now says so.
 
 **How it is proven.**
@@ -573,7 +573,7 @@ and an "ended" mark), are not built; the cockpit can sum a series' turns from th
 
 ### Item 85. Tier 7's defences, lighter: act on the config copy, approvals from private places, and the CLI's speed bump (theseus-zmgb; the simplification cut-list's Tier 7, 7.5, 7.6 and 7.8; the `t7-defences` lane; 2026-10-03 15:01 to 18:26, stopped from outside at 17:43 and resumed from the tree at 17:50; a53a79a, 3db7987, a37faf8 and 382dbc4 on ad1e02f, with five merges of `main`, the last d9b0931 on 1abf099; reviewed 18:30 to 18:32; joined 18:48 at d9b0931, a fast-forward; installed 18:52 at d9b0931)
 
-**Why.** Eddie's picks at 14:20 ("Your pick is good"), under the default-trust principle (§2): visibility first, no rigid
+**Why.** The owner's picks at 14:20 ("Your pick is good"), under the default-trust principle (§2): visibility first, no rigid
 guardrails. Each of the three defended against the operator's own agent with more machinery than its threat earned.
 The vault act-gate held every acting method until the vault confirmed the config copy: a gate in eight places, two
 states with a retry loop, an error code, and coupling into the kernel. The `[approval]` matrix judged users by channels
@@ -619,7 +619,7 @@ from a private place, and a job doesn't answer its own approval.
   joined, every plant failed again, and the bound-DM plant failed voice's `/join` from a DM too.
 - **A live check** (16:44 to 16:48) on a scratch daemon of 7.8's build, with the operator's config note behind a fake
   vault and the fake Discord on a fresh state dir: the places line exactly as before (`places: private: CLI, web, DM
-  @eddie · shared: #openclaw (public tools only)`) with his `[approval]` lines retired and no `[places] owner`; the
+  @zeroaltitude · shared: #openclaw (public tools only)`) with his `[approval]` lines retired and no `[places] owner`; the
   CLI's approval counting; an answer pressed in a shared channel refused; the CLI refusing `confirm` and `rpc
   action.confirm` with `THESEUS_SESSION` set, nothing reaching the daemon; an edited copy refused at the start, which
   exec'd in place and read the vault first; a changed note restarting the daemon in place; and the vault down, held.
@@ -655,7 +655,7 @@ places line was unchanged.
 **Known gaps.** Filed P3, post-v1: theseus-wj8n (the trace's kernel helpers lost their only reader; they go with the
 subreaper, §F9), theseus-gfcz (the copy's digest lives in the store the copy itself names, so an edited copy that also
 points `[server] state_dir` at a store prepared with a matching digest acts; a light check by design), and theseus-p7v6
-(`theseusd config` cannot say the digest no longer matches; the next start finds it). Accepted, as Eddie was told:
+(`theseusd config` cannot say the digest no longer matches; the next start finds it). Accepted, as the owner was told:
 approvers besides the owner are gone; a viewer added to a private channel after the start goes unseen until the next
 start; the CLI's check is a speed bump (a job that strips `THESEUS_SESSION`, or speaks to the socket or the web UI's
 WebSocket itself, is not refused at L0; L1, whose view hides the socket and the loopback, is the boundary); and a

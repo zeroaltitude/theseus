@@ -837,14 +837,14 @@ pub fn bench_config(model: &str, state: &Path, sock: &Path, projects: &Path) -> 
     let server = table(&mut t, "server");
     server.insert("state_dir".into(), state.display().to_string().into());
     server.insert("socket".into(), sock.display().to_string().into());
-    // The binding runs, as Eddie's does, and nothing it sends leaves the
+    // The binding runs, as the owner's does, and nothing it sends leaves the
     // machine: the continuation driver must not wait for it (theseus-q4v).
     let discord = table(&mut t, "discord");
     discord.insert("enabled".into(), true.into());
     discord.insert("rest_proxy".into(), NOWHERE.into());
     discord.insert("gateway_proxy".into(), format!("ws://{NOWHERE}").into());
     table(&mut t, "web").insert("enabled".into(), false.into());
-    // The index tender runs, as Eddie's does (M6 §2.12: the bench runs with
+    // The index tender runs, as the owner's does (M6 §2.12: the bench runs with
     // it configured, and the start path must not move), on BM25 alone: the
     // model's files are never where it looks, so no bench loads 500 MB.
     table(&mut t, "index").insert(

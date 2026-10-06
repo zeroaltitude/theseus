@@ -202,7 +202,7 @@ mod tests {
         let p = path(Some(d.path()));
         assert_eq!(p, d.path().join("config.last-good.toml"));
         assert!(read(&p, REF).unwrap().is_none(), "none yet");
-        let text = format!("# Eddie's note\n{NOTE}");
+        let text = format!("# zeroaltitude's note\n{NOTE}");
         write(&p, REF, &text).unwrap();
         let mode = std::fs::metadata(&p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);

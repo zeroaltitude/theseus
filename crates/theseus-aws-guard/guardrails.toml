@@ -2,7 +2,7 @@
 #
 # Theseus's gate reads it before an AWS call or a stack applies, and asks at the floor when an entry
 # hits. AWS reads it too, as the deny-only session guards (`theseus-guard-limits`,
-# `theseus-guard-iac`) and, once Eddie holds an Organization, as SCPs. Everything AWS-side is
+# `theseus-guard-iac`) and, once the owner holds an Organization, as SCPs. Everything AWS-side is
 # generated from this file; nothing is written by hand.
 #
 # An entry:
@@ -538,7 +538,7 @@ operations = [
     "ec2:CreateKeyPair", "ec2:ImportKeyPair",
 ]
 scp = "deny"
-note = "So rotating the root-of-trust key then needs Eddie's management account, to lift the SCP for the rotation."
+note = "So rotating the root-of-trust key then needs the owner's management account, to lift the SCP for the rotation."
 [[guardrail.template]]
 types = ["AWS::IAM::User", "AWS::IAM::AccessKey", "AWS::EC2::KeyPair"]
 
@@ -628,7 +628,7 @@ operations = [
 iam = ["organizations:CreateOrganization", "organizations:AcceptHandshake", "organizations:LeaveOrganization"]
 direct = true
 scp = "deny"
-note = "An Organization is Eddie's to hold: Theseus never makes, joins, or leaves one. AWS-side only those three need denying: a member account can make no other change, and without CreateOrganization the account never becomes a management account."
+note = "An Organization is the owner's to hold: Theseus never makes, joins, or leaves one. AWS-side only those three need denying: a member account can make no other change, and without CreateOrganization the account never becomes a management account."
 
 [[guardrail]]
 name = "account-contacts"

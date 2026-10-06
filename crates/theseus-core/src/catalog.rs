@@ -1,4 +1,4 @@
-//! The model catalog (spec Part II P5, decided with Eddie 2026-09-26): per model,
+//! The model catalog (spec Part II P5, decided with the owner 2026-09-26): per model,
 //! the serving provider, context window, output ceiling, prices, and the
 //! capabilities that change how a request is built. A versioned table: prices
 //! and limits cannot self-update (the provider's models endpoint lists ids, not
@@ -113,7 +113,7 @@ fn yes() -> bool {
 /// provider's count (the tokens lane, 2026-10-01). A tokenizer reads JSON,
 /// code, and command output far more densely than prose. On Sonnet 5.5 the
 /// 15 tool schemas, with the provider's tool prompt, ran 2.5 bytes a token,
-/// a Rust file read by a tool 2.32, the tool results in Eddie's DM 1.76 to
+/// a Rust file read by a tool 2.32, the tool results in the owner's DM 1.76 to
 /// 2.84 (2.4 typically), and prose 3.35; chars/4 read them all at 4. A
 /// figure is the typical one: the compiler's estimate allows for denser
 /// content by its margin (`compiler::MARGIN_PERCENT`), and counts on the
@@ -502,7 +502,7 @@ impl Catalog {
         );
         // The caching minimum is the reference's 512 (theseus-ev1); the
         // table said 1,024, Sonnet 5's, until 2026-10-01. A refusal goes to
-        // Sonnet 5, as Claude Code's does (Eddie, 2026-10-04, theseus-7gir.18).
+        // Sonnet 5, as Claude Code's does (the owner, 2026-10-04, theseus-7gir.18).
         e.insert(
             "claude-sonnet-5-5".into(),
             CatalogEntry {
@@ -618,7 +618,7 @@ pub enum SpeechUnit {
     ThousandChars,
 }
 
-/// Deepgram's pay-as-you-go list prices, as best known (2025's), until Eddie
+/// Deepgram's pay-as-you-go list prices, as best known (2025's), until the owner
 /// confirms them against his account: nova-3 and nova-2 pre-recorded speech
 /// to text about $0.0043 a minute, Aura-2 about $0.030 per 1,000 characters,
 /// and Aura (the first) $0.015.
@@ -784,7 +784,7 @@ mod tests {
         assert_eq!(c.get("glm-5.3-flash").unwrap().provider, "zai");
     }
 
-    /// The client-side refusal fallback (theseus-7gir.18): Eddie approved
+    /// The client-side refusal fallback (theseus-7gir.18): the owner approved
     /// Sonnet 5.5's alone, Sonnet 5, kept apart from the provider's own
     /// (`refusal_fallbacks`), which Fable 5.1 and Opus 5 take; a config table
     /// can name one for another model.
@@ -1072,7 +1072,7 @@ mod tests {
     }
 
     /// The figures against the provider's counts of whole first requests
-    /// (theseus-f5hf; the tokens lane's live check, 2026-10-01): Eddie's 15
+    /// (theseus-f5hf; the tokens lane's live check, 2026-10-01): the owner's 15
     /// tools and header with a small context file, the same with 6.5 KB of
     /// prose in it, the same again as a tool loop's first call, and with no
     /// tools; on Sonnet 5.5, then on GLM-5.3 Flash. Each estimate is within

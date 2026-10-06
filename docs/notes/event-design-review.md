@@ -1,6 +1,6 @@
 # Review: replacing the harness loop with an all-webhook event design
 
-_Tabitha, 2026-09-24. Eddie's proposal: eliminate the harness loop outside the tool loop. The harness always goes quiet. Every tool, call, process, scheduled job, and network wait is wrapped so that its completion arrives as a webhook to a minimal REST receiver owned by the gateway, which correlates it to a channel and acts. "We don't call Bash, we call ReturnWebHookResponse(Bash)."_
+_Tabitha/Claude, 2026-09-24. The owner's proposal: eliminate the harness loop outside the tool loop. The harness always goes quiet. Every tool, call, process, scheduled job, and network wait is wrapped so that its completion arrives as a webhook to a minimal REST receiver owned by the gateway, which correlates it to a channel and acts. "We don't call Bash, we call ReturnWebHookResponse(Bash)."_
 
 ## 1. Verdict up front
 

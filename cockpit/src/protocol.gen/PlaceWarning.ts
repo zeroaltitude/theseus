@@ -10,7 +10,7 @@ export type PlaceWarning = {
  */
 place: string, 
 /**
- * `#lab`, `DM @eddie`.
+ * `#lab`, `DM @zeroaltitude`.
  */
 name: string, 
 /**

@@ -5,7 +5,7 @@
 //!
 //! - **The class** is chosen at plan time, at most one way, toward L1:
 //!   `[sandbox] default`, then `l1_argv`, then the model's `sandbox: true`.
-//!   `sandbox: false` overrides neither (Eddie's decision 2, 2026-10-02).
+//!   `sandbox: false` overrides neither (the owner's decision 2, 2026-10-02).
 //! - **L1's posture is notify** (decision 1): an L1 job can reach nothing
 //!   (no capabilities, no network, scratch writes, and Theseus's floor and
 //!   the approve list's paths covered in its view), so neither the floor nor
@@ -61,7 +61,7 @@ impl Class {
     }
 }
 
-/// `[sandbox]` (design §2.12; Eddie's decisions 2 and 3).
+/// `[sandbox]` (design §2.12; the owner's decisions 2 and 3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SandboxConfig {
@@ -224,7 +224,7 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
 /// egress list, whose hosts beyond `[sandbox] egress` make it wait (18c). L1
 /// runs at notify: the floor and the approve lists guard what an L1 job
 /// cannot reach, so neither is asked. The operator's own word about the
-/// tool still is (Eddie, 2026-10-02, theseus-jfs6): a `[policy.tools]` line
+/// tool still is (the owner, 2026-10-02, theseus-jfs6): a `[policy.tools]` line
 /// for it, or a tightening, that asks makes an L1 call wait too, so the model
 /// cannot step around it with `sandbox: true`. The inherited
 /// `[policy].enforcement` is not that word, and never makes L1 wait. The

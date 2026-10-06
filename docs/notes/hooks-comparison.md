@@ -1,6 +1,6 @@
 # Hook systems compared: Claude Agent SDK, "Bedrock" (Strands SDK, AgentCore Gateway, Bedrock Agents), OpenClaw
 
-_Tabitha, 2026-09-24. Sources: code.claude.com hooks reference and SDK hooks page; strandsagents.com hook-events reference and `strands.hooks.events` API (harness-sdk repo); AWS AgentCore Gateway interceptor types page; Bedrock Agents Lambda parser page; OpenClaw `docs/plugins/hooks/*` in the integration checkout._
+_Tabitha/Claude, 2026-09-24. Sources: code.claude.com hooks reference and SDK hooks page; strandsagents.com hook-events reference and `strands.hooks.events` API (harness-sdk repo); AWS AgentCore Gateway interceptor types page; Bedrock Agents Lambda parser page; OpenClaw `docs/plugins/hooks/*` in the integration checkout._
 
 "Bedrock hooks" is three different things, and they sit at three different layers:
 

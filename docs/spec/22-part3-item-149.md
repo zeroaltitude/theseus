@@ -1,5 +1,5 @@
 # The Ship of Theseus, chapter 22: Part III, A4's Items 149 to 158 ([index](README.md))
-### Item 149. Card 2: a job's wrapper and its L0 command spawn without a fork, so a job's start no longer grows with the daemon's size (theseus-ypqg; the Linux survey's card 2, theseus-779n, one of the picks Eddie approved with the survey's review at 15:19; the `linux-jobs` lane, spawned 2026-10-04 17:55, in a worktree, on origin as `lane/linux-jobs`; 01a90846 and bff95fef on d5a4b808, with card 5's two commits after them on the lane; reviewed 19:53 by the DM thread; joined 20:18 at 3c85ecee, a signed merge of bff95fef alone onto 4cef410c (b5's docs, merged first), by the card-2 joiner; installed 21:22 at 645769d2, install #3)
+### Item 149. Card 2: a job's wrapper and its L0 command spawn without a fork, so a job's start no longer grows with the daemon's size (theseus-ypqg; the Linux survey's card 2, theseus-779n, one of the picks the owner approved with the survey's review at 15:19; the `linux-jobs` lane, spawned 2026-10-04 17:55, in a worktree, on origin as `lane/linux-jobs`; 01a90846 and bff95fef on d5a4b808, with card 5's two commits after them on the lane; reviewed 19:53 by the DM thread; joined 20:18 at 3c85ecee, a signed merge of bff95fef alone onto 4cef410c (b5's docs, merged first), by the card-2 joiner; installed 21:22 at 645769d2, install #3)
 
 **Why.** The Linux survey (theseus-779n, reviewed 15:19) found three spawn paths in the daemon that each passed a
 `pre_exec` closure to std's `Command`: `setsid()` in the daemon's spawn of every job wrapper, `umask()` in the
@@ -10,7 +10,7 @@ write-protects its every page. The survey measured std's two paths at 0.58 again
 0.97 against 41.72 ms at 1 GB, and a fork leaves a tax behind it: after one fork, rewriting 1 GB took 351 ms and
 262,145 faults, against 123 ms after a `posix_spawn`. `children::spawn` holds the child registry's lock across the
 spawn, so every spawn in the daemon queued behind the slowest fork. The card's modified goal: the same session and
-group semantics, with a spawn cost that does not depend on the daemon's size. Eddie approved picks 1 to 4 and 6 as
+group semantics, with a spawn cost that does not depend on the daemon's size. The owner approved picks 1 to 4 and 6 as
 recommended (the survey's review, 15:19), card 2 among them.
 
 **What landed** (two commits; the merge 5 files, +61 −32; production −3 lines and tests +1 by the lane's
@@ -83,15 +83,15 @@ wrapper's `setsid`); it closed at batch 7's kernel-fixes join (Item 173).
 
 ### Item 150. Routing's sticky state, and three of b5's harness losses: a routed session keeps its move only while `route.v1` acts, and the bench profile gets its model's whole output, open private addresses and a transient failure's retry inside its turn (theseus-9yyr item 1, theseus-7gir.19, .20 and .21; the `route-bench-fixes` lane, in a worktree from 3085f71a, one lane with two joins; 6e59dac0, then 4f8c7c56, 7e7ef6b8 and 7c77c698; joined first at 645769d2, a signed merge onto 3c85ecee made 20:56 and pushed after its gate (21:04:43), then at 42a8222f, a signed merge onto e6378de8 made 21:32 and pushed after its gate (21:43:02), both by the lane itself; reviewed 21:46 by the DM thread; the route fix installed 21:22 at 645769d2, install #3; the bench fixes installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
-**Why.** Two sets of fixes in one lane, the route fix first, since routing went live on Eddie's daemon at 20:00
+**Why.** Two sets of fixes in one lane, the route fix first, since routing went live on the owner's daemon at 20:00
 (install #2). **The route fix.** R3's review of `route.v1` (Item 139) filed theseus-9yyr (P2, raised to P1 with
-Eddie's routing decision of 18:02): `route_base` ran every unpinned message of a routed session on `session.routed.profile`, whatever
+the owner's routing decision of 18:02): `route_base` ran every unpinned message of a routed session on `session.routed.profile`, whatever
 `[routing]`, `[judge]`, the ladder or Jev said afterwards, so a session routing had moved stayed moved with routing
 off, in shadow, rolled back, or with Jev unreachable. The lane found a second sticky path R3 had not named: the CLI
 pane (`theseus watch --interactive`) carries the profile the last turn ran on with each message (`carried: true`,
 theseus-nu3z), which after a switch is the routed one. **The bench fixes.** b5's loss analysis (theseus-7gir.1,
 reviewed 19:53) put five of b5's six strong losses on mechanical causes and filed four fixes; three were the
-harness's own and came here, the fourth (.18, the refusal fallback) waited for Eddie (Item 154):
+harness's own and came here, the fourth (.18, the refusal fallback) waited for the owner (Item 154):
 - **.19, the output cap.** `bench/theseus-bench.toml` capped output at 32,000 tokens twice, so regex-chess and
   schemelike-metacircular-eval ended on `stop_reason: max_tokens` (exit 8) in all of arm A's four and arm B's two
   trials, where Claude Code, with the catalog's 128,000, solved both.
@@ -132,7 +132,7 @@ harness's own and came here, the fourth (.18, the refusal fallback) waited for E
   - **.19** (4f8c7c56): the bench profile names no `max_output_tokens`, so a call asks for its model's catalog
     maximum, 128,000 for Sonnet 5.5, as Claude Code does; the adapter's model choice carries its own cap.
   - **.20** (7e7ef6b8): `[policy] private_addresses = "ask" | "open"`. `ask`, the default, is the rule as it was, so
-    a config without the key (Eddie's) behaves as before; `open` judges a private address as any other, leaving it to
+    a config without the key (the owner's) behaves as before; `open` judges a private address as any other, leaving it to
     the tool's posture. `http.fetch`'s own guard below the gate follows the knob (`Web.private`): under `open` it
     reaches private hosts, follows private hops and uses the unchecked client. `policy.explain` lists the condition
     only when it asks. The template documents the key, commented; the bench profile sets it open.
@@ -203,12 +203,12 @@ operator. The existing route tests are timing-fragile under IO pressure: with a 
   notes say a held-out rerun is owed, with .19's spend warning. The worktree, the branch and the lane's 23 GB target
   were removed.
 - **The review** (the DM thread, 21:46, accepted): the route fix as above ("no pin, per 25e"); for the bench fixes,
-  Eddie's daemon's defaults unchanged (`private_addresses` asks, no retries).
+  the owner's daemon's defaults unchanged (`private_addresses` asks, no retries).
 
 **The install.** The route fix went in at install #3 (21:22:21 to 21:22:30, at 645769d2, with card 2 and b5's docs:
 Item 149), the one install the night allowed: health ok, `route.v1`, `rerank.v1` and `security.v3` live, 9
 secrets ready, discord ready; startup serving at 417 ms with two lanes compiling (neighbour IO; 29.1 ms at install
-#2). Eddie had run no turn since 20:00 (turns 30), so `route.v1` had no live decision yet. The bench fixes change no
+#2). The owner had run no turn since 20:00 (turns 30), so `route.v1` had no live decision yet. The bench fixes change no
 default of his daemon; they were installed 2026-10-05 13:07 at 60b43fb6, install #4. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
 **Divergences.** "Clear" rather than "ignore" for a routed session once routing stops acting (the lane's choice, for
@@ -217,9 +217,9 @@ issue's option 1 (a config key) and `.21`'s the same; the lane changed only the 
 issue asked, and left the spend rule to the DM thread.
 
 **Known gaps.**
-- **theseus-17jn** (9yyr's item 2, P2, waiting for Eddie): while `route.v1` acts, `chat`, `other` and a fallback
+- **theseus-17jn** (9yyr's item 2, P2, waiting for the owner): while `route.v1` acts, `chat`, `other` and a fallback
   resolve to `Ask.base`, which for a routed session is its routed profile, so it stays where routing last put it (the
-  cache-warm reading of 25e's "else the session's own"). The morning notes' section 31 settled it as built, for Eddie
+  cache-warm reading of 25e's "else the session's own"). The morning notes' section 31 settled it as built, for the owner
   to overrule.
 - **theseus-0j2.17** (P2): a routed session following its base when the live profile or its place's profile changes,
   and a pane's `-P` profile coming back after routing (the lane's item 3), taken up by batch 7's route-gaps row.
@@ -228,7 +228,7 @@ issue asked, and left the spend rule to the DM thread.
 
 ### Item 151. linux-io: a job's completion takes one sync, background passes wait while the machine is busy, and language servers watch their own files (theseus-yxiv, theseus-tood and theseus-m9hj, the Linux survey's cards 1, 4 and 6, with the cause of theseus-c6hv; the `linux-io` lane, a subagent of the DM thread, branched from 3c85ecee once card 2 had joined, in a worktree; ab94330e, b334e485 and 6e46cd05; joined 21:32 at e6378de8, a signed merge onto 645769d2 made 21:23:00, by the lane itself; reviewed 21:46 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
-**Why.** Three more of the Linux survey's cards (theseus-779n, reviewed 15:19, when Eddie approved picks 1 to 4 and 6
+**Why.** Three more of the Linux survey's cards (theseus-779n, reviewed 15:19, when the owner approved picks 1 to 4 and 6
 as recommended):
 - **Card 1, one sync instead of two.** A job's wrapper wrote `<id>.json.tmp`, fsynced it, renamed it, then fsynced
   the spool directory: two syncs before it poked the daemon, with the daemon's WAL write a third. At the gate's 6.5 ms
@@ -330,7 +330,7 @@ The brief also gave the lane theseus-c6hv, R4's finding that rust-analyzer gave 
   `cargo check` (flycheck), versioned, about 150 ms after a `didSave`. Two more parts of the gap: a check runs only after
   a save, and `file_changed` saved only an open file; and the edit's wait pulled right after the save, before the check
   began. The fix, about 120 lines with tests, was designed in the issue's notes at 20:52 and became its own lane
-  (Item 153); until it landed, Eddie's `[lsp.servers.rust-analyzer] start_on_edit = false` stayed.
+  (Item 153); until it landed, the owner's `[lsp.servers.rust-analyzer] start_on_edit = false` stayed.
 - A trap, now in theseus-lsp's `AGENTS.md`: under `cargo nextest`, rustup's `rust-analyzer` proxy inherits
   `RUSTUP_TOOLCHAIN` (the pinned 1.98.1, which has no rust-analyzer), so the live tests' server exits at once; point
   `THESEUS_LSP_RUST_ANALYZER` at the stable toolchain's binary.
@@ -366,7 +366,7 @@ sync and its rename; the kill-9 stand-in covers it. Two possible follow-ups, not
 on a SCHED_IDLE thread of its own (rayon's pool built from a normal thread first), and whether rayon's workers already
 inherit nice 19 from that thread. `theseusd check`'s line says "background" twice (a wording nit).
 
-### Item 152. Card 5, the light job cgroup: each L0 job in a threaded cgroup of its own where the daemon's is delegated, born inside by `clone3`, with a process cap and an exact stop (theseus-a5nv; the Linux survey's card 5, approved by Eddie at 15:14 on a budget of about 250 to 300 production lines, and taken as built at 22:12 at 520; the `linux-jobs` lane, spawned 2026-10-04 17:55, in a worktree; c3b25a1c and 20c7f106 on card 2's bff95fef; reviewed 19:53 by the DM thread and held for Eddie's call; joined 22:41 at 23fb7f37, a signed merge onto 42a8222f made 22:21, by the card-5 joiner; the join reviewed 22:50 and 23:20 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4, the unit taking `Delegate=yes`)
+### Item 152. Card 5, the light job cgroup: each L0 job in a threaded cgroup of its own where the daemon's is delegated, born inside by `clone3`, with a process cap and an exact stop (theseus-a5nv; the Linux survey's card 5, approved by the owner at 15:14 on a budget of about 250 to 300 production lines, and taken as built at 22:12 at 520; the `linux-jobs` lane, spawned 2026-10-04 17:55, in a worktree; c3b25a1c and 20c7f106 on card 2's bff95fef; reviewed 19:53 by the DM thread and held for the owner's call; joined 22:41 at 23fb7f37, a signed merge onto 42a8222f made 22:21, by the card-5 joiner; the join reviewed 22:50 and 23:20 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4, the unit taking `Delegate=yes`)
 
 **Why.** The sandbox trims of 2026-10-03 (Tier 4.3, Item 77) cut L1's delegated cgroup, about 800 lines across four
 crates: a daemon moved into a leaf, `memory` and `pids` for the jobs, a `cgroup-release` stop hook, and the
@@ -375,7 +375,7 @@ to cgroup ...: Device or resource busy"). Since then L0, the default class, had 
 wrapper's tree walk (SIGTERM, a SIGSTOP freeze rescanning for up to 500 ms, SIGKILL), and L1 relied on its pid
 namespace and `RLIMIT_NPROC`, from which root is exempt (theseus-pv6i). The survey's card 5 proposed a light cgroup:
 `Delegate=yes` on the unit and nothing else, an exact O(1) stop and a process cap for every job, L0 included, with no
-memory controller (the part that needs the leaf), at about 250 lines with tests. Eddie approved it at 15:14 "on the
+memory controller (the part that needs the leaf), at about 250 lines with tests. The owner approved it at 15:14 "on the
 condition it is lightweight and its weight is paid for by its utility": about 250 to 300 production lines, no new unit
 hooks, job start within its target.
 
@@ -454,7 +454,7 @@ about 320. L1 jobs get no cgroup: they keep their pid namespace's stop and `RLIM
 - **Lane gates**: card 5's first run passed all 2,450 tests and failed only its check that the regenerated cockpit type
   was staged, then green in 386 s, frames 5 and 9; the cleanup commit green in 390 s, leaving no test cgroup behind.
 
-**Eddie's call** (asked as 2 of 5 in the walk-through he asked for at 21:56, with the morning notes' sections 30 and
+**The owner's call** (asked as 2 of 5 in the walk-through he asked for at 21:56, with the morning notes' sections 30 and
 31): take it as built at 520 lines; move the process instead of the custom spawn (−150 lines, +16 ms p50 and up to 40
 ms on every L0 start: not FAST); or drop the cap (−50 lines, loses the cap and a root daemon's). At 22:12, "A please":
 as built, all four abilities (the exact stop, a restart with a job running, the per-job process cap, the health line)
@@ -515,7 +515,7 @@ raised). The warm (22:17:19 to 22:20:47) clean. **No join fix.**
 processes and threads · <the unit's cgroup>`. Until then it had said `cgroup: none … not delegated`, and jobs ran as
 before. Restarts with jobs running are safe (no 219/CGROUP). Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
-**Divergences.** 520 production lines against the 250 to 300 budget, taken as built by Eddie: the two premises above,
+**Divergences.** 520 production lines against the 250 to 300 budget, taken as built by the owner: the two premises above,
 not extras, made the weight. Threaded job cgroups and a stop loop in place of domain cgroups and `cgroup.kill`; a spawn
 of the daemon's own in place of a move by `cgroup.procs`. The cgroup is `job-<id>` beside the daemon, not the survey's
 `jobs/<corr>`. A cgroup that cannot be made falls back to none, with `cgroup_error` in the detail; a clone into the
@@ -534,12 +534,12 @@ few lines.
   totals.
 - The survey's card 5 needs correcting on both premises (the lane's note for theseus-779n).
 
-### Item 153. lsp-checks: rust-analyzer's compiler errors reach the harness, a saved document waiting for the check after its save (theseus-c6hv; local reviewer R4's finding at batch 5's smalls-tools review, its cause found by lane linux-io, its design the issue's note of 20:52; the `lsp-checks` lane, 2026-10-04 21:47 to 22:52, in a worktree; 21c73294; joined 22:49 at 7ad8a8bd, a signed merge onto 23fb7f37 made 22:42:17, by the lane itself, queued behind card 5's join; reviewed 23:20 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4, with Eddie's `start_on_edit = false` for rust-analyzer taken out)
+### Item 153. lsp-checks: rust-analyzer's compiler errors reach the harness, a saved document waiting for the check after its save (theseus-c6hv; local reviewer R4's finding at batch 5's smalls-tools review, its cause found by lane linux-io, its design the issue's note of 20:52; the `lsp-checks` lane, 2026-10-04 21:47 to 22:52, in a worktree; 21c73294; joined 22:49 at 7ad8a8bd, a signed merge onto 23fb7f37 made 22:42:17, by the lane itself, queued behind card 5's join; reviewed 23:20 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4, with the owner's `start_on_edit = false` for rust-analyzer taken out)
 
 **Why.** R4, reviewing batch 5's smalls-tools, saw rust-analyzer give no diagnostics through Theseus at all, on main
 and on the branch alike: an edit making `a + "b"` (E0277) and one making `a + c` (E0425) both read "no errors" and "no
 diagnostics" (filed as theseus-c6hv, 17:53). Install #2 therefore set `[lsp.servers.rust-analyzer] start_on_edit =
-false` in Eddie's config, "until theseus-c6hv". Lane linux-io found the cause (Item 151): rust-analyzer
+false` in the owner's config, "until theseus-c6hv". Lane linux-io found the cause (Item 151): rust-analyzer
 declares pull diagnostics, so `Client::diagnostics` took the pull path and never read pushed lists; its pull carries
 only its own analysis, which reports neither error, and rustc's errors come only by push, from its `cargo check`
 (flycheck), versioned, about 150 ms after a `didSave`. Two more parts of the gap: a check runs only after a save, and
@@ -631,11 +631,11 @@ tool call 159.0 ms p50 (card 5's gate 74.3 and 153.9; the bench runs with `[lsp]
 2,520 passed in 261 s. Pushed 22:49:55; theseus-c6hv closed with the hash and a note; the worktree, target and branch
 removed. **The review** (the DM thread, 23:20, accepted): "rust-analyzer's pushed rustc diagnostics merge into
 lsp.diagnostics and the edit's wait (a check token, the save's version, the grace from server readiness, the last save
-of any file, a re-pull after a check ends; first edit of an unopened file opens and saves it)"; Eddie's
+of any file, a re-pull after a check ends; first edit of an unopened file opens and saves it)"; the owner's
 `start_on_edit = false` comes out at install #4 (its plan of 23:20).
 
 **The install** (2026-10-05 13:07 at 60b43fb6, install #4). No store format change and no new key. Install #4 removed `[lsp.servers.rust-analyzer] start_on_edit = false` from
-Eddie's config (theseus-c6hv fixed), so the preset starts rust-analyzer on an edit again. What he was told first: on a large workspace most
+the owner's config (theseus-c6hv fixed), so the preset starts rust-analyzer on an edit again. What he was told first: on a large workspace most
 edits will say `pending`, since most checks run past the edit's 1.5 s wait, and the errors ride on the session's next
 edit or `lsp.*` result (L3's existing path); and rust-analyzer costs what it did before, about 4.2 GB resident on this
 repository (`idle_stop_mins` frees it), its `cargo check` building in `target/rust-analyzer` (theseus-ext.12). The fix
@@ -646,13 +646,13 @@ adds a check only for the first edit of a file the client had not opened. Health
 **Known gaps.** A pending edit's own result is left out of a following `lsp.diagnostics` that lists the file itself
 (theseus-ext.12). rust-analyzer's memory and its check's build directory, as before.
 
-### Item 154. The refusal fallback: a request Sonnet 5.5 refuses is made once more on Sonnet 5, inside its turn, and every surface says so (theseus-7gir.18; b5's loss analysis, and Eddie's "A" of 2026-10-04 22:32; the `refusal-fallback` lane, a subagent of the DM thread, spawned 22:34, in a worktree; 0ea9e50e; joined 23:53 at e6f90af3, a signed merge onto 7ad8a8bd made 23:38, by the lane itself; on main's first-parent line it is the second parent of 80ef1dea, lane files' merge of `main`, which main fast-forwarded to; reviewed 2026-10-05 00:21 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
+### Item 154. The refusal fallback: a request Sonnet 5.5 refuses is made once more on Sonnet 5, inside its turn, and every surface says so (theseus-7gir.18; b5's loss analysis, and the owner's "A" of 2026-10-04 22:32; the `refusal-fallback` lane, a subagent of the DM thread, spawned 22:34, in a worktree; 0ea9e50e; joined 23:53 at e6f90af3, a signed merge onto 7ad8a8bd made 23:38, by the lane itself; on main's first-parent line it is the second parent of 80ef1dea, lane files' merge of `main`, which main fast-forwarded to; reviewed 2026-10-05 00:21 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
 **Why.** b5's loss analysis (theseus-7gir.1, reviewed 19:53) found three tasks Theseus lost on a provider refusal:
 Sonnet 5.5 declined a request on cyber grounds (`stop_reason: refusal`, `stop_details.category: cyber`), the turn
 ended (exit 7 headless), and Claude Code, which falls back to Sonnet 5 on a refusal, solved all three. Theseus's
 catalog marked the provider's own server-side fallback (`fallbacks: "default"`) only for Fable 5.1 and Opus 5, so
-Sonnet 5.5 needed a client-side one. It was Eddie's product call (the original goal: every turn on the chosen model),
+Sonnet 5.5 needed a client-side one. It was the owner's product call (the original goal: every turn on the chosen model),
 asked as 3 of 5 in the walk-through of 21:56 (the morning notes' sections 30 and 31). At 22:32 he chose "A": a refused
 request is retried once on Sonnet 5, as Claude Code does, the reply says so and the log records it; no prompt change.
 
@@ -747,12 +747,12 @@ the rest of that turn, `[model.retries] refusal = true` by default, the `provide
 on every surface.
 
 **The install** (2026-10-05 13:07 at 60b43fb6, install #4). No store format change; one new key, `[model.retries] refusal`, on when absent.
-Nothing to configure for Sonnet 5.5. Eddie was told after the review,
+Nothing to configure for Sonnet 5.5. The owner was told after the review,
 and offered Opus 5.5 to Opus 5 by config at install #4 unless he objected; he did not, and install #4 added
 `[catalog."claude-opus-5-5"] refusal_fallback_model = "claude-opus-5"` to his config. The provider-side fallbacks for
 the 5.5 models get a live probe in the held-out rerun (theseus-7gir.22), which also adds b5's three refusal tasks. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
-**Divergences.** Per turn, not per session as Claude Code's is. Client-side, as Eddie chose; the lane changed neither
+**Divergences.** Per turn, not per session as Claude Code's is. Client-side, as the owner chose; the lane changed neither
 model's server-side flag. No metric of its own (the provider calls' spans and metrics already carry each call's
 model).
 
@@ -765,9 +765,9 @@ server-side alternative (the provider's `fallbacks: "default"`, listed for Opus 
 retrying `cyber` and `frontier_llm` declines but not `bio`, `reasoning_extraction` or `general_harms`) wants a live
 probe before anyone flips its flag.
 
-### Item 155. Files: Theseus reads the files people give it, PDFs natively for Claude and as text for GLM, then Office files, notebooks, EPUB, RTF, archives, recordings, video and the text in pictures; store format 17 (theseus-c9l6; Eddie's 22:53 "I attached a PDF for Theseus and he couldn't read it. We want him to understand a wide range of files as you do."; the `files` lane, a subagent of the DM thread, spawned 2026-10-04 22:56, in a worktree, in two joins; join 1: e71e96cd (00:41) on 7ad8a8bd and 80ef1dea (00:53), the lane's signed merge of `main` for refusal-fallback, which main fast-forwarded to, pushed 01:11; join 2: 44eacbaf and ff87839c, with 68353d80 merging `main` again, joined at 198e2229, a signed merge onto faaa9df6 made 02:11, pushed 02:24, by the lane itself; reviewed 02:51 by the DM thread; store format 16 to 17 at join 1; installed 2026-10-05 13:07 at 60b43fb6, install #4)
+### Item 155. Files: Theseus reads the files people give it, PDFs natively for Claude and as text for GLM, then Office files, notebooks, EPUB, RTF, archives, recordings, video and the text in pictures; store format 17 (theseus-c9l6; the owner's 22:53 "I attached a PDF for Theseus and he couldn't read it. We want him to understand a wide range of files as you do."; the `files` lane, a subagent of the DM thread, spawned 2026-10-04 22:56, in a worktree, in two joins; join 1: e71e96cd (00:41) on 7ad8a8bd and 80ef1dea (00:53), the lane's signed merge of `main` for refusal-fallback, which main fast-forwarded to, pushed 01:11; join 2: 44eacbaf and ff87839c, with 68353d80 merging `main` again, joined at 198e2229, a signed merge onto faaa9df6 made 02:11, pushed 02:24, by the lane itself; reviewed 02:51 by the DM thread; store format 16 to 17 at join 1; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
-**Why.** At 22:53 a PDF Eddie attached in his Theseus DM was not read: the Discord binding downloaded text and images
+**Why.** At 22:53 a PDF the owner attached in his Theseus DM was not read: the Discord binding downloaded text and images
 only and listed every other attachment by name, and `http.fetch` skipped PDFs. The DM thread spawned the lane at
 22:56, PDFs first and then the wide range, to install once join 1 landed and to tell him when PDFs worked.
 
@@ -876,7 +876,7 @@ digest, off the runtime's workers. The start path gains only a `OnceLock` set.
   read): "Conversions run once per digest in a capped child (30 s, 1 GiB, no writes)"; 8 plants, all caught; new keys
   defaulted; audio transcribed only on `file_read`. Follow-ups filed: theseus-lv2u, theseus-qgsv, theseus-w68l.
 
-**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Install #4 moved Eddie's store from format 16 to 20 at its first write (17 is this join's;
+**The install** (2026-10-05 13:07 at 60b43fb6, install #4). Install #4 moved the owner's store from format 16 to 20 at its first write (17 is this join's;
 two syncs before serving), after the install's backup, since an older binary refuses the store after that (`setup.sh`
 makes no backup). Both new keys are defaulted, and his config needs no edit; transcripts use `[voice]`'s Deepgram key and
 settings, which his config already has. ffmpeg, ffprobe and tesseract are found in Homebrew's prefix, though the user
@@ -894,9 +894,9 @@ XML is read by the lane's own small scanner, and tar by hand, rather than by new
 - **theseus-w68l** (P3): a PDF's scanned pages have no OCR on GLM. No page renderer ships (no poppler; PyMuPDF is
   Python); Claude reads them natively. A Rust page rasterizer would be the follow-up.
 
-### Item 156. Context honesty: the system header says how a request is assembled, and recall's preamble names the harness (theseus-fpm2, its context half; Eddie's ask of 2026-10-04 23:55; the `context-honesty` lane, a subagent of the DM thread, Opus 5.5, spawned 23:57, in a worktree; 83f326df on e6f90af3; joined 2026-10-05 01:23 at 0ade7d68, a signed merge onto 80ef1dea (lane files' join 1) made 01:11:33, by the lane itself; reviewed 01:41 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
+### Item 156. Context honesty: the system header says how a request is assembled, and recall's preamble names the harness (theseus-fpm2, its context half; the owner's ask of 2026-10-04 23:55; the `context-honesty` lane, a subagent of the DM thread, Opus 5.5, spawned 23:57, in a worktree; 83f326df on e6f90af3; joined 2026-10-05 01:23 at 0ade7d68, a signed merge onto 80ef1dea (lane files' join 1) made 01:11:33, by the lane itself; reviewed 01:41 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
-**Why.** At 23:45 on 2026-10-04 Eddie's greeting in his Theseus DM was answered with a narration of the notes recall
+**Why.** At 23:45 on 2026-10-04 the owner's greeting in his Theseus DM was answered with a narration of the notes recall
 had admitted to it, as if they had come in with his message: recall had packed notes about another of the operator's
 projects into his greeting's turn, and the model took them for part of what he sent. At 23:55 he asked that
 Theseus's system prompt explain that its context is dynamically assembled, so it stops narrating recall as "came in
@@ -951,7 +951,7 @@ a greeting) was to wait for batch 6's memory joins. The persona was three senten
   nothing built; Sonnet 5.5 live, `[memory] mode = "live"`, arm `baseline`, the judge off so there was no detour and
   no rerank; the base arm main's e6f90af3 binaries, `strings` showing the old preamble and no assembly note; about
   $0.15 in all). A greeting continuing the booking app's session, with recall admitting six notes about the kiln
-  scheduler, as the incident's notes were admitted to Eddie's greeting: **main's build mentioned the notes and set them
+  scheduler, as the incident's notes were admitted to the owner's greeting: **main's build mentioned the notes and set them
   aside in 3 of 3 runs** ("The recalled notes are all about [the kiln scheduler] … I'm not using them here, since they
   don't affect [the booking app]"), the incident's pattern; **this build in 0 of 3**, each reply going straight to the
   booking app's two rules. A word check (the kiln project's name, recalled, note(s), kiln, 7811, "came along", "with
@@ -959,7 +959,7 @@ a greeting) was to wait for batch 6's memory joins. The persona was three senten
   port the kiln scheduler listens on these days) was still answered from it on both builds, 7811, the lane's adding
   "That comes from a recalled note, not from anything I checked." The lane's greetings were also shorter, 223 to 298
   output tokens against 406 to 459 ($0.0067 to $0.0075 a greeting against $0.0085 to $0.0090).
-- **The caveat, told to Eddie at about 01:55** (the morning notes' section 34). In a brand-new session, where the
+- **The caveat, told to the owner at about 01:55** (the morning notes' section 34). In a brand-new session, where the
   recalled notes are the only context, both builds still brought them up (the lane 2 of 2 runs: "My notes from earlier
   sessions say you've been working on [the kiln scheduler] … Are we picking [it] back up tonight?"; the base 1 of 1);
   the new build calls them its own notes from earlier sessions, which is accurate, and neither says they came with the
@@ -1152,16 +1152,16 @@ a daemon without the arm (CPU on the pass's task; a `phase()` check first would 
 unpaced, as `warm_labels` is: R5 left a PSI wait out at the join, since the walk has no stop handle and a wait could hold
 a clean stop; if stores grow, page it with `quiet_blocking_unless` and a stop check. The replay (instrument 2) still
 recomputes only `none`, `bm25` and `baseline`; `+retention` there needs the projection folded only up to each turn.
-R5's recommendations for Eddie, each how the code works now: keep 0.5; accept `should_have` graded Easy; accept that a
+R5's recommendations for the owner, each how the code works now: keep 0.5; accept `should_have` graded Easy; accept that a
 node with no retention keeps its fused score.
 
-### Item 158. Lane speed: a greeting's reply shows as its model streams, the verdicts it waits on land inside their wait, and trivial routes at 0.4 (theseus-6n5j, theseus-otny and theseus-ck0n; Eddie's 23:53 latency items; the `speed` lane, a subagent of the DM thread, 2026-10-04 23:55 to 2026-10-05 02:37, from e6f90af3; 932a3bf8, 8a681c3b and 7e9704ce, with `main` merged in at 783333dc; joined by the lane at 02:36 at a9442c81, a signed merge onto 198e2229; reviewed 02:53 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
+### Item 158. Lane speed: a greeting's reply shows as its model streams, the verdicts it waits on land inside their wait, and trivial routes at 0.4 (theseus-6n5j, theseus-otny and theseus-ck0n; the owner's 23:53 latency items; the `speed` lane, a subagent of the DM thread, 2026-10-04 23:55 to 2026-10-05 02:37, from e6f90af3; 932a3bf8, 8a681c3b and 7e9704ce, with `main` merged in at 783333dc; joined by the lane at 02:36 at a9442c81, a signed merge onto 198e2229; reviewed 02:53 by the DM thread; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
-**Why.** At 23:45 on 2026-10-04 Eddie sent his Theseus DM a greeting. The reply took 5.4 s on Sonnet and cost $0.22.
+**Why.** At 23:45 on 2026-10-04 the owner sent his Theseus DM a greeting. The reply took 5.4 s on Sonnet and cost $0.22.
 Its turn trace put the time in three places: route.v1's verdict came late (Jev's call read about 3.2 s from the
 message), so the greeting stayed on Sonnet; the reply's text waited for Discord's 1.2 s edit tick; and the whole reply
 waited for the settle's frame to be synced (1.38 s on the night's disk). And the section's 0.6 bar would have kept it on
-the session's model even in time: on the lane's rig, greetings judged trivial at 0.51 to 0.57 stayed on Sonnet. Eddie at 23:53 approved the config half (the Sonnet cache TTL at
+the session's model even in time: on the lane's rig, greetings judged trivial at 0.51 to 0.57 stayed on Sonnet. The owner at 23:53 approved the config half (the Sonnet cache TTL at
 1 h, both Jev waits at 300 ms, applied by the DM thread at 23:55) and "please do file and begin the fixes" for the code
 half: this lane.
 
@@ -1238,7 +1238,7 @@ ms (daemon p50 52.0), the tool-call turn 9 frames at 157.2, at fdatasync p50 6.4
 branch and target deleted; the done line 02:37:04; the three issues closed with the hash. Main's 203 GB build folder
 was moved aside 3 s after this gate exited, at the first quiet moment (theseus-x10i).
 
-**The install** (2026-10-05 13:07 at 60b43fb6, install #4). No config edit and no store format change: trivial's 0.4 comes from code, so Eddie's
+**The install** (2026-10-05 13:07 at 60b43fb6, install #4). No config edit and no store format change: trivial's 0.4 comes from code, so the owner's
 greetings go to Haiku from this install on, and his replies show on Discord as they stream. Detour-recall
 (Item 161) ships with it, since every greeting now detours. Health after the restart (13:07:43): `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 29.1 ms with builds beside it, `cgroup: delegated`, `route.v1`, `rerank.v1` and `security.v3` live, memory live on the `baseline` arm, Discord ready, and no error or warning in the journal; the store from format 16 to 20 at its first write, after the install's backup.
 
@@ -1251,7 +1251,7 @@ binding's frames take the store's one writer between them; fewer frames is C6/S5
 2). The rerank was not exercised live (a fresh store has nothing to recall); its path has the same fix. Follow-ups:
 theseus-qjd6 (the telemetry test's retry); theseus-s55d (Jev over HTTP/2 kept warm by pings; it would move every
 reqwest client in the workspace, the providers' included, so the DM thread's view is not worth it now) and theseus-ht8b
-(a binding's rows riding the turn's next frame, which folds into C6/S5, and a filesystem of the store's own, Eddie's
-machine and his call), both waiting for Eddie. A late switch verdict still carries to the next message alone; letting
+(a binding's rows riding the turn's next frame, which folds into C6/S5, and a filesystem of the store's own, the owner's
+machine and his call), both waiting for the owner. A late switch verdict still carries to the next message alone; letting
 it set the hold rather than switch was considered and not built.
 

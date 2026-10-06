@@ -15,8 +15,8 @@ quality*; only a canary shows *trajectory quality*.
 
 | Instrument | Question it answers | Unit | When it has data | Weight in the verdict |
 |---|---|---|---|---|
-| **The memory exam** (new) | Can this feature help, and how much, on tasks like Eddie's? | A scripted task whose success needs something from an earlier session, run under every arm, paired | The day it is built: a scratch daemon, a cheap model, a few dollars a run | Headroom and regression; decides only together with the canary |
-| **Shadow recall** on Eddie's daemon | Does retrieval find what the turn needed? | Each real turn: what every arm *would* have recalled, never shown | From the install of step 30a | Diagnostic only (§5.5a: "retrieval agreement alone is not a success metric") |
+| **The memory exam** (new) | Can this feature help, and how much, on tasks like the owner's? | A scripted task whose success needs something from an earlier session, run under every arm, paired | The day it is built: a scratch daemon, a cheap model, a few dollars a run | Headroom and regression; decides only together with the canary |
+| **Shadow recall** on the owner's daemon | Does retrieval find what the turn needed? | Each real turn: what every arm *would* have recalled, never shown | From the install of step 30a | Diagnostic only (§5.5a: "retrieval agreement alone is not a success metric") |
 | **The live canary** | Did the work go better? | A session, sticky to one arm, at equal budget | Weeks of traffic, so in v1's soak, as M5's prove is | The verdict |
 
 **The headroom test comes first** (step 34a, moved to the front; it needs no M6 code and can be built now):
@@ -66,7 +66,7 @@ marked experimental").
 | Background work | No tenders. The store-verify thread reads the WAL after serving at about 5% of a core. `children::spawn` registers every child (Z1). `after_serving` holds startup work behind the socket (F1) | The index tender, a child process of the same binary |
 | Labels | T1's hold on a session that read external text. M4 plans `Label { integrity, readers }` and `covers(readers, audience)` | Recall filters on them |
 | Judgment | None. M5 plans the Jev client, `judge.*` rows, sticky canaries, a nightly report | `memory.v1`, rerank, and citation checks through M5's client |
-| **Data** | **Eddie's store is 1.4 MB: 105 nodes in 21 sessions** (counted read-only at 15:35) | There is no corpus yet. M6 must make one (the exam), and grow one (shadow recall) |
+| **Data** | **The owner's store is 1.4 MB: 105 nodes in 21 sessions** (counted read-only at 15:35) | There is no corpus yet. M6 must make one (the exam), and grow one (shadow recall) |
 
 ### 1.3 The tracer bullet: what v1 builds, and what waits
 
@@ -114,7 +114,7 @@ marked experimental").
 | Recall inside `BUILD_CONTEXT`, at a compile (§5.3) | A recall note appended at a turn's start; the assembled strategy at a recompile is the second placement | Append-only keeps the prompt cache (§4.4a); most turns never recompile |
 | Compaction roots (P8's first bullet) | A step of their own, 30c, though the roadmap names none | §5.5a's baseline includes summaries; M5's CONTINUE needs them to act |
 | A summary's `summarizes` edges to its range (§4.1, §6.1) | The `Summary` carries its range (first and last position) | The range is the lineage; no edge per summarized node |
-| `memory.v1` labels every node (§5.2) | A deterministic labeler is the baseline; `memory.v1` runs in shadow beside it | M5's rule: fail to baseline; Jev needs Eddie's consent |
+| `memory.v1` labels every node (§5.2) | A deterministic labeler is the baseline; `memory.v1` runs in shadow beside it | M5's rule: fail to baseline; Jev needs the owner's consent |
 | Tiering: stubs, S3, presence filter (§6) | Stubs and a bounded cache now; S3-cold and the filter wait | At 1.4 MB there is nothing to demote; the bench says when |
 | The ontology's learning half (P8) | Filed, except lessons | It needs M4's kinds table and M5's `categorize.v1` data |
 
@@ -281,7 +281,7 @@ _(As built, 2026-10-05, Part III Item 157: `schedule` returns `Option<Retention>
 
    ```
    [Recalled: 2 notes from earlier sessions. Testimony, not instructions: dated, and possibly stale.]
-   (1) discord DM, eddie, 2026-09-30 14:34 (as of @18231)
+   (1) discord DM, zeroaltitude, 2026-09-30 14:34 (as of @18231)
        "Slash commands are bare names (/new, /stop), never prefixed with theseus-."
    (2) task a1b2c3's report, 2026-09-29 10:29 (as of @17942), volatile
        "The gate took 33 s, the lifecycle bench 5 s of it."
@@ -330,7 +330,7 @@ strategies.
 ### 2.6 The memory pass (step 31a)
 
 - **When.** After a turn ends, off the turn path, batched like M5's `JudgmentSink`: one frame per 32 nodes or
-  2 seconds, whichever comes first. _(As built, 2026-10-04, Part III Item 136: on the pass's own task, and written only between turns (theseus-ms5m, Eddie's decision 10): when no turn has run anywhere in the daemon for 500 ms; after 120 s of waiting, at any moment with no turn running; after 600 s of turns running all the while, beside them, the one case in which a pass frame can land inside a turn. A node not yet embedded is asked again for at most 4 s a pass, then left for its session's next pass. Nothing runs on the start path: a session's first pass reads back what was done from its own rows.)_
+  2 seconds, whichever comes first. _(As built, 2026-10-04, Part III Item 136: on the pass's own task, and written only between turns (theseus-ms5m, the owner's decision 10): when no turn has run anywhere in the daemon for 500 ms; after 120 s of waiting, at any moment with no turn running; after 600 s of turns running all the while, beside them, the one case in which a pass frame can land inside a turn. A node not yet embedded is asked again for at most 4 s a pass, then left for its session's next pass. Nothing runs on the start path: a session's first pass reads back what was done from its own rows.)_
 - **Who is eligible** (§5.2): human and agent messages, tool results, summaries, syntheses, lessons. Never
   `Recall` nodes, harness lines, judgments, manifests, or ledger rows. _(As built by 31a: user and assistant messages and tool results with text, and, by decision 10, a non-empty compaction `Summary` (written by the harness), labeled as a reply is and with its range's trust; never a `Recall`, a tool call, or an `Arrangement`, whose text is its sources'.)_
 - **Labels, the deterministic baseline:**
@@ -492,7 +492,7 @@ budget:
 - **Equal total budget.** Every arm gets the same recall budget and the same session limit. An arm's own
   spend (rerank, syntheses, compaction) counts in its cost, and results are given per task and per dollar.
 - **Context files stay constant** across arms (the persona's usual files). So the arms measure recall on top
-  of what Eddie already curates by hand, which is the real incumbent.
+  of what the owner already curates by hand, which is the real incumbent.
 
 **Instrument 1: the memory exam** (34a, then each step adds its items).
 - **An item** is three parts:
@@ -517,16 +517,16 @@ budget:
   | needs nothing | A task that needs nothing from the past | Recall does not hurt |
 
 - **The committed exam is synthetic**, modelled on the kinds of knowledge in the agents' operating notes for this repo, whose gotchas
-  are exactly what a builder needs to remember. A private exam from Eddie's own sessions, kept outside the
+  are exactly what a builder needs to remember. A private exam from the owner's own sessions, kept outside the
   repository, waits for his OK (§4).
 - **40 items** to start, **half held out** (never used to tune a threshold or a word), 3 repeats per item and
   arm, analysed clustered by item.
-- A cheap profile (GLM) while iterating, Eddie's daily profile for a report, spend capped by `--limit-usd`.
+- A cheap profile (GLM) while iterating, the owner's daily profile for a report, spend capped by `--limit-usd`.
   The headroom run (2 arms × 40 × 3 on GLM) costs a few dollars; a full sweep, $10 to $30.
 - **Output:** a frozen report (the step's report), and a JSON line per run (arm, item, pass, tokens,
   cost, latency).
 
-**Instrument 2: shadow diagnostics** (from 30a, on Eddie's daemon).
+**Instrument 2: shadow diagnostics** (from 30a, on the owner's daemon).
 - Every turn records what its arm would have admitted. ~~`theseus-sim ablate replay --store <copy>`~~ `theseus-exam replay` (34b) recomputes
   every arm over the recorded turns, with `as_of`, so no later node answers, and with FSRS and activation
   folded only up to the turn. The replay cannot see the future. _(Since 31a, 2026-10-04, Part III Item 136: the exam's replay (memory-arm's, in `theseus-exam`) reads no memory-pass links, since its recording keeps none, so it scores baseline without the newer-node rule until the recording keeps the pass's edges.)_
@@ -545,7 +545,7 @@ budget:
   test); recall's latency and tokens.
 - It never decides alone.
 
-**Instrument 3: the canary** (from 30b, once Eddie pastes `mode = "canary"`).
+**Instrument 3: the canary** (from 30b, once the owner pastes `mode = "canary"`).
 - **Sticky per session:** `hash(session, experiment)` picks the arm, recorded once as `memory.arm`. Per
   session, not per turn, because memory's effect builds within a session.
 - The other sessions are **control**: `none` live, with `baseline` in shadow, so they add diagnostics at no
@@ -577,7 +577,7 @@ report says which data came under which.
 3. **Otherwise off by default,** and marked experimental in the spec. "Insufficient" counts as otherwise.
 
 **What the numbers can say.** Moving task success from 70% to 85% (two-sided 5%, power 80%) takes about 120
-sessions per arm. Eddie's traffic gives tens a week, so the chain's reports will honestly say "insufficient"
+sessions per arm. The owner's traffic gives tens a week, so the chain's reports will honestly say "insufficient"
 for the canary, and the verdict comes in v1's soak, as M5's does. The exam's paired design is what gives an
 early signal, because each item runs under every arm.
 
@@ -636,7 +636,7 @@ early signal, because each item runs under every arm.
   | Resume after restart | exactly the manifest's prefix, rebuilt byte for byte; no new recall until new inbound |
 
   A candidate may require another (a tool result requires its call, as today). The set must close, or the
-  compile fails naming the missing piece. _(As built 2026-10-05, 35a; Part III Item 183: the situation is a closed set, `conversation_start`, `task_start`, `continuation`, `recompile {trigger}`, `resume` and `detour` (and `unknown` for a newer daemon's value), decided by the turn with no new read, settled by the compiler, stored on the compilation and carried on `context.compiled`. The table admits what the code admits, which is more than the rows above in two: a conversation's first compile also admits replies, earlier notes, a summary and the task view, since a detoured turn persists no compilation (theseus-5s8j), and a resume admits the prefix's written notes and section. A task's first compile admits the brief, its arrangement, the task view and a new assembled section; a continuation everything in its prefix and tail, plus a new note; any recompile everything but lessons; a detour messages, replies, results, late results, repairs and its window's arrangement, never a `Recall` or `Summary` node. The check after the compile fails a piece its situation does not admit, or a set that does not close (a result without its call, a call without its result), with class `context_unadmitted`, before anything is sent, with a `context.unadmitted` row and no retry, enforcing from the first day (Eddie, 2026-10-05 12:17: no shadow mode and no config key). A recall section the compilation names but that was never written (its call never dispatched) is left out, as the render leaves it, and is no failure (theseus-783a). A late result needs no call. Lessons are admitted nowhere until 35b.)_
+  compile fails naming the missing piece. _(As built 2026-10-05, 35a; Part III Item 183: the situation is a closed set, `conversation_start`, `task_start`, `continuation`, `recompile {trigger}`, `resume` and `detour` (and `unknown` for a newer daemon's value), decided by the turn with no new read, settled by the compiler, stored on the compilation and carried on `context.compiled`. The table admits what the code admits, which is more than the rows above in two: a conversation's first compile also admits replies, earlier notes, a summary and the task view, since a detoured turn persists no compilation (theseus-5s8j), and a resume admits the prefix's written notes and section. A task's first compile admits the brief, its arrangement, the task view and a new assembled section; a continuation everything in its prefix and tail, plus a new note; any recompile everything but lessons; a detour messages, replies, results, late results, repairs and its window's arrangement, never a `Recall` or `Summary` node. The check after the compile fails a piece its situation does not admit, or a set that does not close (a result without its call, a call without its result), with class `context_unadmitted`, before anything is sent, with a `context.unadmitted` row and no retry, enforcing from the first day (the owner, 2026-10-05 12:17: no shadow mode and no config key). A recall section the compilation names but that was never written (its call never dispatched) is left out, as the render leaves it, and is no failure (theseus-783a). A late result needs no call. Lessons are admitted nowhere until 35b.)_
 - **Precedence** is one fixed line in the system block, static and so cache-safe (it costs one
   `system_changed` recompile the day it ships): "When sources disagree, trust them in this order: what this
   turn's tools just returned; the operator's current request; the recent conversation; older conversation and
@@ -668,7 +668,7 @@ early signal, because each item runs under every arm.
 | Backfill | CPU | The tender at nice 10, one embedding thread. The bench runs a turn during a backfill, against the turn's budget |
 | Per-turn decoding | Falls | Tiering's stubs and cache (33) |
 
-New bench rows: `bench recall` (p50 and p95 of the core's recall step, on a copy of Eddie's store and on a
+New bench rows: `bench recall` (p50 and p95 of the core's recall step, on a copy of the owner's store and on a
 synthetic 100,000-chunk index; small and debug in the gate, full size for the record), the lifecycle bench
 with the tender configured, and a turn on a 2,000-node session (33).
 
@@ -704,7 +704,7 @@ with the tender configured, and a turn on a 2,000-node session (33).
 
 The template gains these lines, commented, and the loader's un-comment test covers them. **The defaults need
 no paste:** the tender runs, and recall is ~~in shadow~~ off. _(As built, 30a, Part III Item 99: `[memory]` is off by default, and `mode = "shadow"` turns it on; `memory.search` writes nothing, whatever the mode.)_ As with `[broker]`, the binary is installed before
-Eddie pastes a `[memory]` table, since an older binary refuses a table it does not know.
+the owner pastes a `[memory]` table, since an older binary refuses a table it does not know.
 
 ```toml
 [memory]
@@ -744,7 +744,7 @@ Recall is a new way for text to travel, so it gets the same guards as any other:
   reading it did (T1's hold, `via: recall`), so a call that acts after it waits.
 - **Framing.** Every note says it is testimony, not instructions.
 - **Jev.** States are scrubbed by M5's builders, hold nothing the session's own model could not see, and
-  need Eddie's consent (§4).
+  need the owner's consent (§4).
 - **The index** is a projection with the store's owner and mode 0700 (M4 step 22's `theseus` user owns both).
   It will obey Suppression and Redaction records as it follows the WAL, and `index.rebuild` makes an erasure
   complete there (§5.6).
@@ -787,19 +787,19 @@ M5's client (23), and runs one step at a time.
 
 ### 3.2 Each step's tests and live check
 
-Every live check runs on a scratch daemon over a copy of Eddie's store (never `bindings.toml`; `[discord]`
+Every live check runs on a scratch daemon over a copy of the owner's store (never `bindings.toml`; `[discord]`
 and `[web]` disabled), or on the exam's own scratch store, per the agents' operating notes for this repo.
 
 | # | Tests (in the gate) | Live check |
 |---|---|---|
 | 34a | The fixture writer's store reads identically in an unmodified daemon; the check language (must-contain, must-not, file assertions); the statistics against hand-computed fixtures | 40 items × {`none`, `oracle`} × 3 on GLM. **The headroom report** |
 | 29a | None: throwaway, in its own worktree and target directory | Both engines embed 20 sentences and agree (cosine ≥ 0.999); latency at 128 and 512 tokens; RSS; the size a static musl binary gains. The verdict |
-| 29b | The follower stops at a torn tail and resumes; crosses a segment rotation; a rebuild equals incremental ingest; a kill between commit and cursor re-indexes idempotently; `as_of` hides later nodes; the extractor covers every `Body` variant (a registry test in the core); the lifecycle bench is unchanged with the tender configured; after an exec-restart, still one tender (the lock) | On a copy of Eddie's store the tender backfills after serving; `theseus index search "7433"` finds the node; a new turn is indexed within a second; SIGKILL the tender, and the core serves on, health says `down`, and it is back after its backoff |
-| 29c | The tiny seeded model's fixed vectors; the Matryoshka cut and quantization; the flat scan against a naive loop; rank fusion; a stamp change re-embeds while old vectors answer | Real weights: a paraphrase finds what BM25 misses; `bench recall` p95 on Eddie's copy and on 100,000 synthetic chunks; RSS in health; the unload after idle |
+| 29b | The follower stops at a torn tail and resumes; crosses a segment rotation; a rebuild equals incremental ingest; a kill between commit and cursor re-indexes idempotently; `as_of` hides later nodes; the extractor covers every `Body` variant (a registry test in the core); the lifecycle bench is unchanged with the tender configured; after an exec-restart, still one tender (the lock) | On a copy of the owner's store the tender backfills after serving; `theseus index search "7433"` finds the node; a new turn is indexed within a second; SIGKILL the tender, and the core serves on, health says `down`, and it is back after its backoff |
+| 29c | The tiny seeded model's fixed vectors; the Matryoshka cut and quantization; the flat scan against a naive loop; rank fusion; a stamp change re-embeds while old vectors answer | Real weights: a paraphrase finds what BM25 misses; `bench recall` p95 on the owner's copy and on 100,000 synthetic chunks; RSS in health; the unload after idle |
 | 30a | Each filter's reason; ~~**the audience property test**~~ **the place property test** (as built, over generated stores through a real turn; Part III Item 99); a stalled tender (the turn goes on, the row says `deadline`); shadow writes no frame and changes no request byte (the digest with memory off equals the digest in shadow) | Ask about a fact from another session; `theseus memory recalled` shows what would have been admitted, and the request's digest is unchanged |
 | 30b | The render's golden bytes; the next request begins with the previous request's bytes; the `Recall` node rides the provider call's plan frame (the frame test unchanged); EDGE scoped `in:<source>`; `node.reach` counts it; NODE 3 reads NODE 2 (a reader test); an older binary refuses the store (F4a's pattern); a `wrong` label excludes; the arm is sticky and recorded; the ring's cut in the `BudgetReport` | Canary at fraction 1: the model answers from a recalled note, the fake Discord shows the footer, and `memory label … wrong` keeps the note out next time |
 | 30c | Compaction replaces the ring on overflow; the summary's range; the ring as fallback when the summary fails; `context_overage`; the assembled prefix of a task's first compile; a compaction rebuilt byte for byte from its manifest | A session driven past a small window: a summary is written, the next turn appends to it, and its cost is in the ledger |
-| 34b | ~~The arm override is refused without the flag;~~ A daemon runs the arm its config names; replay's leakage test (a node written after a turn never appears in its recall); the silver-label extractors on fixtures | The exam over four arms; the replay over Eddie's shadow rows; **the first report**, honest about n |
+| 34b | ~~The arm override is refused without the flag;~~ A daemon runs the arm its config names; replay's leakage test (a node written after a turn never appears in its recall); the silver-label extractors on fixtures | The exam over four arms; the replay over the owner's shadow rows; **the first report**, honest about n |
 | 31a | Eligibility and recursion exclusion; the labeler's rules, table-driven; the gate's thresholds make the right edges; attribution on fixtures; at most one frame per 32 nodes or 2 s; shadow judgments with a fake Jev | The operator corrects an earlier fact: a `supersedes` edge; after a recall is used, its `memory.used` rows |
 | 31b | Clusters from co-recall rows; the checker (a fake Jev) rejects an unsupported sentence; a synthesis's label is the meet of its sources'; nothing shown in shadow (digests unchanged); spend capped | On the exam's store, where co-recall is dense: `theseus memory consolidate` proposes, checks, and scores; the Observatory lists the results |
 | 32a | R(S, S) = 0.9; R falls with time; Good raises stability and Again lowers it; difficulty stays in [1, 10]; a hand-computed golden table; the rebuilt projection equals the incremental one; exposure without use changes nothing | The exam under `+retention` against `baseline`; retention per node in the Observatory |
@@ -814,7 +814,7 @@ and `[web]` disabled), or on the exam's own scratch store, per the agents' opera
 
 | M6 needs | From | Until it lands |
 |---|---|---|
-| Labels and the audience rule (`covers`) | M4 step 19 | Recall only into sessions whose whole audience is the owner (the CLI, the web UI, Eddie's DM) |
+| Labels and the audience rule (`covers`) | M4 step 19 | Recall only into sessions whose whole audience is the owner (the CLI, the web UI, the owner's DM) |
 | Integrity labels | M4 step 20 | DD5's `external` flag and T1's hold |
 | A `theseus` user owning the store | M4 step 22 | The index follows the store's owner, whoever it is |
 | The WAL follower | M4 step 15 | 29b builds it, and step 15 reuses it |
@@ -822,17 +822,17 @@ and `[web]` disabled), or on the exam's own scratch store, per the agents' opera
 | The Jev client, judgment rows | M5 step 23 | Deterministic halves only; `memory.v1`, rerank, and citation checks wait |
 | The canary ladder, sticky arms, the nightly report | M5 steps 25 and 26 | A minimal sticky assignment in 30b |
 | The kinds table, topics | M4 step 21 | Lessons scoped by persona and path only |
-| Real coding trajectories | Step 5b, the dogfood pilot | The canary waits for Eddie's own traffic |
+| Real coding trajectories | Step 5b, the dogfood pilot | The canary waits for the owner's own traffic |
 
 And M6 gives one back: 30c is what lets M5's CONTINUE act, since M5 keeps it in shadow until the compaction
 and assembled strategies exist. Until CONTINUE is live, 30c's triggers stay deterministic.
 
 **How the data grows while the chain works** (M5's pattern): install 30a as soon as it is reviewed, with
-recall in shadow on Eddie's daemon by default. From then on every turn adds diagnostics, and co-recall data
+recall in shadow on the owner's daemon by default. From then on every turn adds diagnostics, and co-recall data
 for consolidation, before any feature is shown to the model. The chain never waits for data: a step that
 needs a canary uses `canary_fraction = 1` on a scratch daemon.
 
-## 4. What it needs from Eddie
+## 4. What it needs from the owner
 
 Nothing here stops the chain: each item has a default, and the build goes on without an answer.
 
@@ -857,7 +857,7 @@ And one standing default he may overturn: **memory science stays off by default 
 | 1 | Recall as a note in the tail each turn, or only at a recompile? | A note in the tail; the assembled strategy at recompiles as the second placement (30c) | Appending keeps the prompt cache; most turns never recompile |
 | 2 | candle or tract? | The 29a spike decides; lean candle (safetensors, f16) | Both are pure Rust; the numbers decide |
 | 3 | f16 or int8 weights? | f16, and int8 if §9's RSS target misses | Quality first, within the budget |
-| 4 | A flat scan or HNSW? | Flat, until the scan's p95 passes 10 ms | Exact, simple, and fast at Eddie's scale |
+| 4 | A flat scan or HNSW? | Flat, until the scan's p95 passes 10 ms | Exact, simple, and fast at the owner's scale |
 | 5 | The tender as a child process or a thread? | A child process (§6, P11) | RSS, crash isolation, `nice` |
 | 6 | What readers does an unlabeled, pre-M4 node have? | `Owner` | Never wider than today's rule (its own session), yet his owner-only sessions can use their history |
 | 7 | May external text be recalled? | Not by default; an arm may, and then it latches the session | T1's rule stays the floor |
@@ -868,7 +868,7 @@ And one standing default he may overturn: **memory science stays off by default 
 | 12 | Recall's budget and threshold? | 1,500 tokens, 6 items, 12,000 per session; admit an item only when two sources rank it in their top 10, or it matches an exact entity. Calibrated in shadow (34b) | Quiet by default: most turns in a live thread need nothing |
 | 13 | Recall on wakes and task reports? | Yes, with their text as the query; never on harness notices | They start turns that may need the past |
 | 14 | Is compaction M6's? | Yes: step 30c | §5.5a's baseline and M5's CONTINUE need it |
-| 15 | Is re-supply a decision metric? | Reported, and it can be the "gain" in rule 2, but never decides alone | It is the most visible sign of memory to Eddie, but it is not in P8's list |
+| 15 | Is re-supply a decision metric? | Reported, and it can be the "gain" in rule 2, but never decides alone | It is the most visible sign of memory to the owner, but it is not in P8's list |
 | 16 | The precedence line: in the system block? | Yes, a static line | One recompile per session, once; cache-safe after |
 | 17 | Where do syntheses and lessons live? | The harness session `sys:memory` | Every node needs a session; this one is never compiled |
 | 18 | The exam's grader? | Deterministic checks first; a strong model, blind to the arm, only for free text | Honest, repeatable, and cheap |

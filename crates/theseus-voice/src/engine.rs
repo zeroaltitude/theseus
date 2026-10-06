@@ -10,8 +10,9 @@
 //!   was heard as (`heard_as`, by the rules in `heard.rs`): over Theseus's
 //!   speech, a sound with no words, Theseus's own sentence heard back, a
 //!   "yeah", or a "go on" is no turn.
-//! - **Send.** A reply is split at sentence ends and synthesized one sentence
-//!   at a time, one ahead of what's playing, so its first audio starts after
+//! - **Send.** A reply is made speakable (`speakable`: no markdown, a table
+//!   or code block one sentence that points to the text channel, theseus-rkvl)
+//!   and split at sentence ends, and synthesized one sentence at a time, one ahead of what's playing, so its first audio starts after
 //!   its first sentence. A reply or report begins only on the floor: while a
 //!   listed speaker talks it waits, and if their utterance is words it is
 //!   superseded (a `Cut`) and their words are the next turn. So is a reply
@@ -47,7 +48,7 @@ use tokio::time::{sleep_until, Instant};
 use crate::audio::{Audio, FRAME};
 use crate::heard::{classify, HeardAs, Overlap};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
-use crate::sentences::sentences;
+use crate::sentences::speakable;
 use crate::speech::{Speech, SpeechError, Synthesis, Transcript, Usage, ACKNOWLEDGMENT};
 use crate::vad::{Closed, Vad, VadSettings};
 
@@ -524,7 +525,7 @@ impl Engine {
                 Step::Done(done) => self.done(done, now),
                 Step::Command(Some(Command::Reply { turn, text })) => self.reply(turn, &text, now),
                 Step::Command(Some(Command::Report { text })) => {
-                    let sentences = sentences(&text);
+                    let sentences = speakable(&text);
                     self.reports.push_back(QueuedReport {
                         count: sentences.len(),
                         first: 0,
@@ -1039,7 +1040,7 @@ impl Engine {
 
     fn reply(&mut self, turn: TurnId, text: &str, now: Instant) {
         let ended = self.turn.take_if(|t| t.id == turn);
-        let sentences = sentences(text);
+        let sentences = speakable(text);
         if sentences.is_empty() {
             return;
         }

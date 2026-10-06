@@ -41,5 +41,5 @@ voice = false                      # true for a voice channel: /join from a priv
 
 [[dm]]
 user = "000000000000000000"        # who may talk to Theseus in direct messages
-name = "eddie"
+name = "zeroaltitude"
 # [dm.ceiling]                     # a DM's ceiling, as a channel's

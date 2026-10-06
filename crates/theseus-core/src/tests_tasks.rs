@@ -575,13 +575,16 @@ async fn a_cancel_stops_the_task_and_reports_once() {
     r.entered.recv().await.unwrap();
     let res = r
         .core
-        .task_cancel_by(&crate::task::short(&task.session_id), "discord:eddie")
+        .task_cancel_by(
+            &crate::task::short(&task.session_id),
+            "discord:zeroaltitude",
+        )
         .await
         .unwrap();
     assert_eq!(res.task.state, "cancelled");
     let again = r
         .core
-        .task_cancel_by(&task.session_id, "discord:eddie")
+        .task_cancel_by(&task.session_id, "discord:zeroaltitude")
         .await
         .unwrap();
     assert_eq!(again.task.state, "cancelled");
@@ -593,7 +596,7 @@ async fn a_cancel_stops_the_task_and_reports_once() {
     assert_eq!(reports.len(), 1, "reported once");
     let body = crate::outbox::body_of(&reports[0]);
     assert_eq!(body["outcome"], "cancelled");
-    assert_eq!(body["reason"], "cancelled by discord:eddie");
+    assert_eq!(body["reason"], "cancelled by discord:zeroaltitude");
     let t = exec(&r.core, &task.id);
     assert_eq!(t.state, ExecState::Cancelled);
     let p = exec(&r.core, &task.parent.clone().unwrap());
@@ -610,7 +613,7 @@ async fn a_cancel_stops_the_task_and_reports_once() {
     assert_eq!(nodes.len(), 1);
     match &nodes[0].body {
         Body::UserMessage { text, .. } => {
-            assert!(text.contains("cancelled by discord:eddie"), "{text}")
+            assert!(text.contains("cancelled by discord:zeroaltitude"), "{text}")
         }
         other => panic!("{other:?}"),
     }
@@ -842,7 +845,7 @@ async fn a_cancelled_task_with_wake_parent_wakes_nothing() {
     let task = only_task(&r.core, &parent);
     r.entered.recv().await.unwrap();
     r.core
-        .task_cancel_by(&task.session_id, "discord:eddie")
+        .task_cancel_by(&task.session_id, "discord:zeroaltitude")
         .await
         .unwrap();
     r.model.gate.add_permits(1);
@@ -891,7 +894,7 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
     let stop = r
         .core
         .kernel
-        .stop_execution(&eid, "discord:eddie")
+        .stop_execution(&eid, "discord:zeroaltitude")
         .unwrap()
         .unwrap();
     assert!(stop.turn_running, "{stop:?}");
@@ -921,12 +924,12 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
     assert!(
         not_run
             .1
-            .contains("stopped this turn (/stop, by discord:eddie)"),
+            .contains("stopped this turn (/stop, by discord:zeroaltitude)"),
         "{}",
         not_run.1
     );
     // It says who stopped it, so the surfaces show a stop (theseus-4uw).
-    assert_eq!(not_run.2["stopped_by"], "discord:eddie");
+    assert_eq!(not_run.2["stopped_by"], "discord:zeroaltitude");
     let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
     assert!(!root.join("a.txt").exists(), "nothing was written");
     assert!(
@@ -949,7 +952,7 @@ async fn a_stop_halts_the_turn_and_the_next_message_continues_the_session() {
     let seen = serde_json::to_string(&req.messages).unwrap();
     assert!(seen.contains("FIRST write a file"), "{seen}");
     assert!(seen.contains("I will write it."), "{seen}");
-    assert!(seen.contains("/stop, by discord:eddie"), "{seen}");
+    assert!(seen.contains("/stop, by discord:zeroaltitude"), "{seen}");
     assert_eq!(posts(&r.core, "reply").len(), 1);
 }
 
@@ -966,7 +969,7 @@ fn the_cut_is_booked_at_the_spend(core: &Core, sid: &str, spent_micros: u64) {
             &cut[0]["output_chars"]
         ),
         (
-            &json!("discord:eddie"),
+            &json!("discord:zeroaltitude"),
             &json!(true),
             &json!(true),
             &json!(0)
@@ -1016,7 +1019,11 @@ async fn a_stop_cuts_the_models_call_and_books_an_estimate() {
     let first = tokio::spawn(async move { turn(&core, &s, "FIRST write a file").await });
     r.entered.recv().await.unwrap();
     let eid = parent_exec(&r.core, &sid).id;
-    let stop = r.core.stop_execution(&eid, "discord:eddie").await.unwrap();
+    let stop = r
+        .core
+        .stop_execution(&eid, "discord:zeroaltitude")
+        .await
+        .unwrap();
     assert!(stop.stopped && stop.turn_running, "{stop:?}");
     // The turn ends with no permit from the gate: the call was cut.
     let res = tokio::time::timeout(Duration::from_secs(10), first)
@@ -1166,7 +1173,11 @@ async fn a_stop_declines_a_waiting_approval_and_the_next_turn_hears_it() {
     let res = turn(&r.core, &sid, "FIRST write a file").await;
     let q = res.awaiting_confirm.clone().expect("it asks");
     let eid = parent_exec(&r.core, &sid).id;
-    let stop = r.core.stop_execution(&eid, "discord:eddie").await.unwrap();
+    let stop = r
+        .core
+        .stop_execution(&eid, "discord:zeroaltitude")
+        .await
+        .unwrap();
     assert!(stop.stopped && !stop.turn_running, "{stop:?}");
     assert_eq!(stop.declined, vec![q.clone()]);
     let settles: Vec<_> = posts(&r.core, "settle")
@@ -1188,7 +1199,7 @@ async fn a_stop_declines_a_waiting_approval_and_the_next_turn_hears_it() {
     assert_eq!(second.output, "Understood: not written.");
     let req = r.model.requests.lock().unwrap().last().cloned().unwrap();
     let seen = serde_json::to_string(&req.messages).unwrap();
-    assert!(seen.contains("stopped by discord:eddie"), "{seen}");
+    assert!(seen.contains("stopped by discord:zeroaltitude"), "{seen}");
     // Its not-run result says who stopped it, so the surfaces show a stop,
     // not a cancel (theseus-4uw).
     let meta = r
@@ -1207,7 +1218,7 @@ async fn a_stop_declines_a_waiting_approval_and_the_next_turn_hears_it() {
             _ => None,
         })
         .expect("the call's not-run result");
-    assert_eq!(meta["stopped_by"], "discord:eddie");
+    assert_eq!(meta["stopped_by"], "discord:zeroaltitude");
     let root = std::path::PathBuf::from(r.core.cfg.tools.projects_dir.clone().unwrap());
     assert!(!root.join("a.txt").exists());
 }

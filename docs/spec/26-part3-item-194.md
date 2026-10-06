@@ -117,7 +117,7 @@ direct callers write it too. `TurnEnd::Requeue` keeps no why. A cancel during a 
 logs one `warn`, where the old `let _ =` was silent.
 
 **Known gaps.** theseus-0u6g (P2, filed by R20): the lagging-client test times out under the load recipe, on main as
-on the branch (it passed in all three of stack R's gates, 5.6 to 5.8 s). R20's "For Eddie", each recommended and none
+on the branch (it passed in all three of stack R's gates, 5.6 to 5.8 s). R20's "For the owner", each recommended and none
 filed: let `run` use the stop `end_and_wake` reads (the outer `stopped` read still has its window for the failure run,
 `StoppedAtStep` and the failed notice's class: words, not state; P3); skip the nested wake when the end left the
 execution terminal (one `is_terminal()` check), so the `warn` stays for the unexpected; leave `TurnEnd::Requeue` without
@@ -242,7 +242,7 @@ it). The budget row's `decision` is `{"decision": "budget"}`, not `Decision::End
 notification. The hands path no longer sends a `loop.ended`. The mark closes a reply's open line, so a reply mid-line
 when another surface's message arrives goes on below it.
 
-**Known gaps.** R20's "For Eddie", each recommended: a one-line follow-up in `cockpit/src/lib/summary.ts` for the new
+**Known gaps.** R20's "For the owner", each recommended: a one-line follow-up in `cockpit/src/lib/summary.ts` for the new
 row's line (say "before its call" when there is no stop reason); accept the mark closing the open line, the budget
 decision's shape and the hands path's silence. A musl `cargo check --target x86_64-unknown-linux-musl -p theseus-core`
 catches libc differences (a struct literal of a libc type breaks there); better still a CI step, since main's static
@@ -360,7 +360,7 @@ closed with the hash, theseus-xva3 left open. The store stays at format 22.
 
 **The install** (2026-10-06, restart 10:12:34 at 21bf5454, install #6). A start no longer syncs `store/wal` when the
 index's checkpoint or a mark vouches for the found segment. Install #6's build is format 23 (soul-import,
-Item 201) and Eddie's store was 22, so by the close's rule its first start under that build syncs the
+Item 201) and the owner's store was 22, so by the close's rule its first start under that build syncs the
 directory once and later starts skip it (not measured on his daemon). No config key or protocol type.
 Health after the restart: `theseusd check` exit 0, 9 secrets ready 1.05 s after the start, startup serving at 45.3 ms
 (store 4.6, kernel 36.9 ms; load 11 to 19, not a quiet reading), Discord ready, the judge's live packs `security.v3`,
@@ -375,18 +375,18 @@ a test holds it. On a behind store `Recovery::vouched` still reports `Mark` (it 
 store syncs anyway.
 
 **Known gaps.** theseus-xva3 (P3), R21's finding: fix after the join, by syncing the log's directory inside
-`upgrade_manifest` (the same cost, one directory fsync on the first start after an upgrade). Not a blocker; Eddie's
+`upgrade_manifest` (the same cost, one directory fsync on the first start after an upgrade). Not a blocker; the owner's
 store is not exposed (every start since install #4 ran c67g). A quiet-machine re-run of the A/B, and a slow-sync run
 beside a writer on the same mount (which would show main paying the flush every time), were left optional.
 
-### Item 197. Crash hold: an earlier process's in-flight provider call is booked as spent at its reservation when the restart marks it unknown, so a reset frees it, where main held it for good (theseus-f3wr; Eddie's decision of 2026-10-05 13:12, tactic A; the eighth cloud batch's crash-hold session, the DM thread's own sixteenth row, fired 2026-10-05 13:21 from 60b43fb6, Opus 5.5, its report at about 14:35; ca9c1be5, b22e0c91 and f7c76bcb; reviewed 22:15 to 23:26 by local reviewer R21, stack S, and accepted with the stack at 23:52; joined 2026-10-06 01:22 at fc96e2da, a signed merge onto 9a7faa87 with crash-hold's resolve script for queue-frames' block, by the stack-S joiner; installed 10:12 at 21bf5454, install #6)
+### Item 197. Crash hold: an earlier process's in-flight provider call is booked as spent at its reservation when the restart marks it unknown, so a reset frees it, where main held it for good (theseus-f3wr; the owner's decision of 2026-10-05 13:12, tactic A; the eighth cloud batch's crash-hold session, the DM thread's own sixteenth row, fired 2026-10-05 13:21 from 60b43fb6, Opus 5.5, its report at about 14:35; ca9c1be5, b22e0c91 and f7c76bcb; reviewed 22:15 to 23:26 by local reviewer R21, stack S, and accepted with the stack at 23:52; joined 2026-10-06 01:22 at fc96e2da, a signed merge onto 9a7faa87 with crash-hold's resolve script for queue-frames' block, by the stack-S joiner; installed 10:12 at 21bf5454, install #6)
 
 **Why.** theseus-m9iy (Item 173) settles a provider call an earlier process had in flight as `outcome_unknown` at the
 driver's first tick after a restart (reason `in_process_before_restart`). Its reservation was then held unknown
 (`hold_reservation_in` moves it into `held_unknown_micros`), and nothing could free it: no completion will come, and a
 reset leaves held money alone (§3.10, Item 54). So each crash with a call in flight shrank the session's room for good,
 and a session that needed that room was stuck until its limit was raised. theseus-f3wr (filed 2026-10-05 08:02,
-waiting for Eddie) asked whether to book it as spent instead. **Eddie, 13:12:** "follow your recommendation": tactic A,
+waiting for the owner) asked whether to book it as spent instead. **The owner, 13:12:** "follow your recommendation": tactic A,
 an earlier process's in-flight call is booked as spent at its unknown mark, the reservation as an estimate, for the
 earlier-process reason only. The request reached the provider before the crash and may have been charged, and no
 completion can bring its cost.
@@ -491,7 +491,7 @@ the journal; the store from format 22 to 23 at its first write, after the instal
 script once cut two existing tests from `tests_earlier.rs` while rewriting another; they were put back unchanged from
 main before either commit, and the second gate ran on the final tree.
 
-**Known gaps.** R21's "For Eddie", each recommended: (1) `interrupted_by_restart` holds no money today (a tool's plan
+**Known gaps.** R21's "For the owner", each recommended: (1) `interrupted_by_restart` holds no money today (a tool's plan
 reserves 0), so leave it, and book it as the earlier-process mark does if a tool ever reserves (a test that a tool
 call's plan reserves 0 would make that visible); (2) **an earlier process's call already overdue at the start is still
 held for good** (startup's reconcile marks it `overdue_no_evidence` before serving; a provider call's deadline is 600
@@ -503,7 +503,7 @@ ledger summary prints the row's `cost_usd` as a cost, not an estimate; (4) keep 
 (each restart that cuts a call books its worst case, $1.31 on Sonnet 5.5 at 128,000 output tokens, which the reset
 clears); a later refinement could book what the stream reported so far.
 
-### Item 198. Durability on: each durability session lists only its own prefix (`ListItsPrefix` under `StringLike`), health's text and the cockpit's AWS card show the tender's state, and at install #6 the S3 backup went on for Eddie's daemon (theseus-bfk9 and theseus-9ai1, with theseus-2fnx; Eddie's "Yes" of 2026-10-05 17:35; a cloud row the DM thread launched at 17:37 after reviewing the batch-7 AWS live checks, fired 17:39 from c4f79e9f, Opus 5.5, its report at about 18:35; b8297bc8, b2758865 and 33ace03e; reviewed 22:23 to 23:26 by local reviewer R21, stack S, and accepted with the stack at 23:52; joined 2026-10-06 01:40 at fdb592b1, a signed merge onto fc96e2da, by the stack-S joiner; probed live with the joined policies at 08:10 and run on a scratch daemon 08:12 to 08:37; installed 10:12 at 21bf5454, install #6, with `durability = true`)
+### Item 198. Durability on: each durability session lists only its own prefix (`ListItsPrefix` under `StringLike`), health's text and the cockpit's AWS card show the tender's state, and at install #6 the S3 backup went on for the owner's daemon (theseus-bfk9 and theseus-9ai1, with theseus-2fnx; the owner's "Yes" of 2026-10-05 17:35; a cloud row the DM thread launched at 17:37 after reviewing the batch-7 AWS live checks, fired 17:39 from c4f79e9f, Opus 5.5, its report at about 18:35; b8297bc8, b2758865 and 33ace03e; reviewed 22:23 to 23:26 by local reviewer R21, stack S, and accepted with the stack at 23:52; joined 2026-10-06 01:40 at fdb592b1, a signed merge onto fc96e2da, by the stack-S joiner; probed live with the joined policies at 08:10 and run on a scratch daemon 08:12 to 08:37; installed 10:12 at 21bf5454, install #6, with `durability = true`)
 
 **Why.** Two findings of the batch-7 AWS live checks on the operator's own account (theseus-2xdt), both owed before
 durability could go on:
@@ -519,7 +519,7 @@ durability could go on:
   `oldest_unshipped_unix_ms`, counts, the error) reached only `theseus --json health`; `theseus health`, the TUI and the
   cockpit rendered nothing, so a failing tender was invisible.
 
-**Eddie, 2026-10-05 17:35:** "Yes" to turning durability (the S3 backup) on at install #6, after bfk9's fix; at 17:41
+**The owner, 2026-10-05 17:35:** "Yes" to turning durability (the S3 backup) on at install #6, after bfk9's fix; at 17:41
 the DM thread added 9ai1 as the second precondition, and filed theseus-2fnx (P1) for the config change, which waited
 on this row's join and a live probe of the joined policies.
 
@@ -581,7 +581,7 @@ an existing key).
 - **After the join, on the operator's own account** (the DM thread, 2026-10-06). The probe with the joined policies
   (`durable.rs` and `durable/read.rs` byte-identical at c112dcc9 and fdb592b1), each inline in a session minted as the
   daemon mints it: **12 of 12 passed on real S3** at 08:10 (a missing key's HEAD 404 and GET `NoSuchKey`; lists with no
-  prefix, with `durability/` and with Eddie's deployment's prefix refused; its own prefix allowed). Then a scratch
+  prefix, with `durability/` and with the owner's deployment's prefix refused; its own prefix allowed). Then a scratch
   daemon on the joined build a1bcbee2, 08:12 to 08:37, **passed all five steps**: `caught_up` with every WAL byte
   shipped; a restore giving the same session and history; health's text agreeing with `--json` on all 11 fields;
   CloudTrail showing the minted tender and restore sessions with `ListItsPrefix` under `StringLike`; a teardown to 0
@@ -607,15 +607,15 @@ the hash; theseus-2fnx noted and left open for the probe and the install. The st
 
 **The install** (2026-10-06, restart 10:12:34 at 21bf5454, install #6; theseus-2fnx). The installed `theseusd` embeds
 21bf5454, which contains fdb592b1. The install's config step (a precheck script: every `[secrets]` value asserted a
-vault reference before and after, the one account table's deployment required to be Eddie's, the result checked with
-tomllib, written by temp and rename) added **`durability = true`** to Eddie's account table, with consolidation's limit
+vault reference before and after, the one account table's deployment required to be the owner's, the result checked with
+tomllib, written by temp and rename) added **`durability = true`** to the owner's account table, with consolidation's limit
 (Item 188); a second run changed nothing. **Durability came on and caught up:** at 13 and 31 s after
 the restart health read `shipping · nothing shipped yet` (its first pass shipped the whole store), and at 10:13:18
 `caught_up · shipped to position 5,732 · nothing unshipped`, since the start 1 tail, 207 blobs, 1,493 rows, 5,298,704
 bytes: the open WAL segment's 5,016,582 bytes plus the store's 207 blob files' 282,122 (the brief had expected the WAL
 alone; the scratch runs had no blobs). S3 held the same: 208 versions, no delete marker, one tail covering bytes 0 to
-5,016,582 with no gap or overlap; CloudTrail showed the tender's session with source identity Eddie's deployment and
-`ListItsPrefix` under `StringLike`. **The restore drill matched**: Eddie's prefix restored with the installed binaries
+5,016,582 with no gap or overlap; CloudTrail showed the tender's session with source identity the owner's deployment and
+`ListItsPrefix` under `StringLike`. **The restore drill matched**: the owner's prefix restored with the installed binaries
 into a scratch directory under a deployment of its own (never his, so nothing could ship into his prefix), 1 segment,
 2,087 frames, 5,732 records, in 20.2 s; a daemon on it with no AWS account bound read 6 sessions with the same ids and
 332 history nodes with the same ids and positions as his, every compared field equal; the scratch directory was then
@@ -629,7 +629,7 @@ install's backup. Rollback: remove the line and restart. The budget read after a
 **Divergences.** None from the brief. Health prints the tender in two lines, not one. The TUI has no durability line
 (the task left the TUI alone).
 
-**Known gaps.** R21's "For Eddie", each recommended: keep health's two lines; the TUI's durability line, a small
+**Known gaps.** R21's "For the owner", each recommended: keep health's two lines; the TUI's durability line, a small
 follow-up in the CLI's words; nits for a later polish: the lag mixes units at small ages ("lag 7 s: … written 0 min
 ago"), and the card's `to` field cuts the destination at its width. The fake's IAM judge covers what the policies use
 and does not model `Deny`, `NotAction` or `GetObject`'s own resource scope; the live probe is the real judge.
@@ -753,7 +753,7 @@ cloud's 4-core VM; R25's host shows them too tight beside builds (theseus-ufe5).
 
 **Known gaps.** theseus-ufe5 (P3): a floor timed as the share is (an average, not a least), and the sampler held
 against F5 in one interleaved loop rather than a constant; until then rerun SamplerCost or InANamespace alone when it
-fails beside a build. R25's "For Eddie", each recommended: keep `cost_usd` with the cut estimates, and for the cancel
+fails beside a build. R25's "For the owner", each recommended: keep `cost_usd` with the cut estimates, and for the cancel
 family publish `billed_usd` and `cut_cost_usd` beside it, saying that Claude Code's record carries no estimate for a
 request its interrupt cut; leave paging the ledger (`truncated` marks a trial past 1000 calls, and `theseus rpc
 ledger.tail` with `after` pages today should one get there); write the async docs when the async results are
@@ -860,12 +860,12 @@ closed at a1bcbee2.
 `OVERHEAD_TOKENS` stays 13,700 for the tests' default.
 
 **Known gaps.** theseus-qryz (P3: the four false rights, the two-old-value false stales, R1b's untested half) and
-theseus-tqa3 (P3: the lower bound, and R6b). R25's "For Eddie", each recommended: keep the cushion of 50 and add the
+theseus-tqa3 (P3: the lower bound, and R6b). R25's "For the owner", each recommended: keep the cushion of 50 and add the
 lower bound (`plan_misses` at planned − 50 too, the driver refusing more than 50 off either way); **generate a
 published run at the measured overhead** (measure the build that will run, free, and generate at it; at 13,599 the full
 seed-7 plan is digest cb4f3c43b746d1bd, window 94000, marks 120/320/520, 228 facts and 204 probes, $11.75 estimated);
 publish strict as the headline, with `retracted` beside it only after theseus-qryz; and **run recall's full after this
-join** (Eddie's 2026-10-05 16:43 go): strict's scores don't change with it, but the overhead guard stops a $12-to-$16
+join** (the owner's 2026-10-05 16:43 go): strict's scores don't change with it, but the overhead guard stops a $12-to-$16
 run at its first turn if the daemon's prompt grew past its plan, instead of ringing its marks. The full runs were left for
 a quiet machine (the chain log, 2026-10-06 08:34).
 
@@ -937,7 +937,7 @@ more than one step.
   real episodes (the join fix); one line's date is no real date, which the importer rightly refuses (the pipeline's to
   fix). Then **all of the real files, about 21,000 episodes, through a scratch daemon in 55.7 s** (debug, BM25 only),
   that one line rejected and none for the hash, `health` answering beside it at p50 26.3 ms.
-- **Live, a dozen real episodes** (scratch daemons, the stand-in model, nothing of Eddie's): imported, then 12 skipped
+- **Live, a dozen real episodes** (scratch daemons, the stand-in model, nothing of the owner's): imported, then 12 skipped
   on a second run; none in `theseus sessions`; a turn on one refused. A private recall admitted only imported items,
   each header at the message's own time to the minute, a null-named place read by its kind. **A shared place** (a CLI
   session tied to a shared channel by a probe) admitted nothing, every imported candidate dropped for `place`. **The
@@ -972,7 +972,7 @@ memory (70.0 MB) sat slightly above the five gates before it while the daemon's 
 theseus-0lrr.6 closed. **The store moved from format 22 to 23.**
 
 **The install** (2026-10-06, restart 10:12:34 at 21bf5454, install #6). `theseus import openclaw|list|erase` is on
-Eddie's daemon; **nothing was imported at the install**. His store moved from format 22 to 23 at the build's first
+the owner's daemon; **nothing was imported at the install**. His store moved from format 22 to 23 at the build's first
 write, after the install's backup, and an older build now refuses it, so the backup is the way back. The real import is
 the operator's later step; R24's order: the pipeline's bad line fixed, a backup, a run into a scratch or copied store
 first (an erased episode cannot be imported again), then the import, about a minute, with theseus-7087 landed first.
@@ -986,28 +986,28 @@ origin with those fields in the body (`Origin` is `Copy`, stored in every node).
 again. The index's `EXTRACTOR_VERSION` is not bumped (no store held such a node; a bump rebuilds every index).
 
 **Known gaps.** theseus-7087 (P2), before the real import or right after (the cockpit polls the whole list every 3 s);
-theseus-autz (P3), stop-aware frames as theseus-1o8i made for other paced work. R24's "For Eddie", each recommended:
+theseus-autz (P3), stop-aware frames as theseus-1o8i made for other paced work. R24's "For the owner", each recommended:
 **an erase hides, it does not delete**: the payloads stay in the WAL, in backups and in what the durability tender
 shipped, until §5.6's in-place redaction is built, which must come before any erase must be final; **a `Recall` node
 written before an erase** can still render the erased source in that one session (fix with §5.6); an erased episode
 cannot be imported again under any tag (ids are content-derived), so import into a scratch store first; keep the strict
 hash; show imported sessions apart in health's count; add `derived_from` edges for a summary's cites with B2, and before
 B2 mark a summary external when its episode had outside messages; the cockpit's views of tags and the three node kinds;
-**every private place recalls the import**, an MCP client's session included, so keep `/mcp` local until Eddie decides
+**every private place recalls the import**, an MCP client's session included, so keep `/mcp` local until the owner decides
 which surfaces may; and expect the vector index's embedding backlog after a full import (only BM25 was measured).
 
-### Item 202. Voice turns: in a voice call a barge-in holds the reply until the words over it decide (a wordless sound, an echo, a backchannel or "go on" resumes the cut sentence from its held audio; words cut it), and a reply waits for the floor (theseus-9ln5 and theseus-kpa7; the voice lane's designs 1 and 5; Eddie's "yes" of 2026-10-05 22:29; a cloud row the DM thread launched at 22:30, fired 22:33 from acf26214, Opus 5.5, its report at 23:45; 74750d9d, 751789d5, 141d19d1 and c2fe6f7a; reviewed 2026-10-06 01:24 to 01:52 and, after the account's weekly limit stopped it, 08:09 to 08:43 by local reviewer R27, stack B9-voice, and accepted at 09:06, its join placed early in the queue; joined 09:37 at f33f0eca, a signed merge onto 79be3213, by the B9-voice joiner; installed 10:12 at 21bf5454, install #6)
+### Item 202. Voice turns: in a voice call a barge-in holds the reply until the words over it decide (a wordless sound, an echo, a backchannel or "go on" resumes the cut sentence from its held audio; words cut it), and a reply waits for the floor (theseus-9ln5 and theseus-kpa7; the voice lane's designs 1 and 5; the owner's "yes" of 2026-10-05 22:29; a cloud row the DM thread launched at 22:30, fired 22:33 from acf26214, Opus 5.5, its report at 23:45; 74750d9d, 751789d5, 141d19d1 and c2fe6f7a; reviewed 2026-10-06 01:24 to 01:52 and, after the account's weekly limit stopped it, 08:09 to 08:43 by local reviewer R27, stack B9-voice, and accepted at 09:06, its join placed early in the queue; joined 09:37 at f33f0eca, a signed merge onto 79be3213, by the B9-voice joiner; installed 10:12 at 21bf5454, install #6)
 
-**Why.** Eddie's voice call of 2026-10-05 (21:02 to 21:06), as the voice lane (theseus-vk84) counted it from the
+**Why.** The owner's voice call of 2026-10-05 (21:02 to 21:06), as the voice lane (theseus-vk84) counted it from the
 ledger: **166 sentences composed, 40 heard whole (24 %), 7 cut, 119 never said; 5 of the 7 barge-ins were set off by
 wordless sounds** (sounds whose transcripts came back empty), and each cleared the whole queue, later replies
 included; and the session recorded every reply as spoken, so later turns built on text he never heard. The engine's
 `barge_in` cleared the queue at the 300 ms stop and bumped the synthesis generation, though the sound's transcript
 later came back empty and never became a turn. `play_next` started a clip as soon as its audio was
 ready, so Theseus talked over a speaker still mid-sentence, and a thought split by a short pause was answered by its
-first half. The lane mined a private voice codebase for behaviours only, never its code (Eddie, 21:45 and 21:53), and
+first half. The lane mined a private voice codebase for behaviours only, never its code (the owner, 21:45 and 21:53), and
 wrote seven designs, each Theseus's own in the engine's terms; Design 1 (hold, then decide; theseus-9ln5) and Design 5
-(the floor; theseus-kpa7) are this row. Eddie said "yes" to launching it at 22:29.
+(the floor; theseus-kpa7) are this row. The owner said "yes" to launching it at 22:29.
 
 **What landed** (`crates/theseus-voice`: `engine.rs` (1,247 lines), the new `heard.rs` and `tests/turns.rs`, `lib.rs`,
 the crate's AGENTS.md; in theseus-discord only `pump`'s match and the tests' `heard()`; the merge 7 files, +1,833 −107;
@@ -1119,7 +1119,7 @@ turn bench runs with Discord off; an A/B of 79be3213 against f33f0eca in one hol
 words decide: a wordless sound, an echo, a backchannel or "go on" resumes the cut sentence from its held audio; words
 cut it; replies wait for the floor; a thought split by a pause gets one answer; `voice.barge_in` rows come at the
 commit, so health's barge-in count is real cuts. No config key, store format, protocol type or package. The install
-removed the voice debug logging drop-in from the night before, so the journal is at its default level. Eddie's live
+removed the voice debug logging drop-in from the night before, so the journal is at its default level. The owner's live
 check (the report's seven steps and R27's four) waits until after theseus-3ug0 and 1cz8, which became the voice-echo
 task (Item 215). Health after the restart: `theseusd check` exit 0, 9 secrets ready 1.05 s after the start,
 startup serving at 45.3 ms (store 4.6, kernel 36.9 ms; load 11 to 19, not a quiet reading), Discord ready, **voice
@@ -1134,7 +1134,7 @@ the hold's rules. Any listed speaker's words contend for a waiting reply, not on
 transcription over a reply that has not begun supersedes it, with no turn. The backchannel list is exactly the task's
 ("Mm-hmm" passes; "mhmm" does not).
 
-**Known gaps.** R27's "For Eddie", each recommended: join, then fix **theseus-3ug0** and **theseus-1cz8** (P2) together
+**Known gaps.** R27's "For the owner", each recommended: join, then fix **theseus-3ug0** and **theseus-1cz8** (P2) together
 in one small follow-up before the live check, since both drop a real answer in silence where main made it a turn (an
 echo a near-whole, in-order copy: at least 3 words, 80 % of them in one contiguous run; echo-prone only after two echo
 verdicts; a reply that has not begun counts as the tail; a wider backchannel list, "mhmm", "oh, okay"); **theseus-aq4t**
@@ -1262,7 +1262,7 @@ is the largest and shares `tests_prove.rs` with the fifth).
 **The join** (stack L, the branch alone). The first joiner took the lock `cloud-learning-fixes-join` at 01:28:17,
 queued behind the bench stack, soul-import and durability-on, and was stopped at 01:52 by the account's weekly limit
 with nothing merged; the DM thread re-armed the locks at 08:05:42, and the relaunched joiner resumed at 08:08. A lock
-the DM thread placed ahead of it at 09:05 for voice-turns (Eddie's voice priority) held it until 09:37:26: 1 h 29 min
+the DM thread placed ahead of it at 09:05 for voice-turns (the owner's voice priority) held it until 09:37:26: 1 h 29 min
 in the queue. Its `take-2.sh` read the store format from origin/main, where the first holder's had fixed it at 22,
 since soul-import had moved main to 23. R22's dry run on each new main (a1bcbee2, 79be3213, then f33f0eca at 09:37:44)
 was clean, with no file changed on both sides since the base. The merge at 09:37:59 onto f33f0eca: no conflict, no
@@ -1287,10 +1287,10 @@ before the install over-counted rightness on five of loop.v1's six questions, so
 The nightly learning loop always used this rule, so its proposals, holds, placements and rollbacks do not move, and a
 version already placed is judged the same. `theseus judge audit` sends its requests on the runtime. `theseus judge
 prove` leaves a task a learned loop version judged out as `learned_version` and names its placement; no learned loop
-version stood on Eddie's daemon on 2026-10-05, so nothing reads differently until the loop places one. Health after
+version stood on the owner's daemon on 2026-10-05, so nothing reads differently until the loop places one. Health after
 the restart: `theseusd check` exit 0; secrets 9 ready 1.05 s; startup serving at 45.3 ms (store 4.6, kernel 36.9 ms;
 the load 11 to 19, not a quiet reading); Discord ready; the judge's live packs as before; memory live on the `baseline`
-arm; voice ready; `cgroup: delegated`; the unit active, `NRestarts` 0; no error or warning in the journal. Eddie's
+arm; voice ready; `cgroup: delegated`; the unit active, `NRestarts` 0; no error or warning in the journal. The owner's
 store moved from format 22 to 23 at its first write, after the install's backup (soul-import's bump, Item
 201).
 
@@ -1298,7 +1298,7 @@ store moved from format 22 to 23 at its first write, after the install's backup 
 line names only the latest placement and a count, not each one. vh67's "a turn in each session" is the loop end's own
 decision, `plan_loop_end`, not whole turns.
 
-**Known gaps.** R22's "For Eddie", each recommended: keep the mixed rule; keep the one-line window and fix
+**Known gaps.** R22's "For the owner", each recommended: keep the mixed rule; keep the one-line window and fix
 theseus-clbx (P3: name the placement standing when the window opens); theseus-nwa5 (P2): `pack.promote` of a root
 warns while a learned version of its lineage stands in shadow, naming it, and §2.17's next revision decides whether a
 shadow learned version should record beside an acting root rather than displace it; theseus-fner (P3), the nice

@@ -48,7 +48,7 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   their writer may have answered them. Followers meet the cut as a rewind (theseus-follow checks the frame behind
   its cursor after each read). An index write that fails after a good sync still fails its batch, and its frames,
   durable, come back at the next open: not yet fixed.
-- **The version rule: one format number** (P5b; Part III F4a; theseus-ptx1, Tier 7's 7.9 as Eddie amended it). Any
+- **The version rule: one format number** (P5b; Part III F4a; theseus-ptx1, Tier 7's 7.9 as the owner amended it). Any
   step that adds a field to a stored record (nested ones included), or changes the frame or record encoding, bumps
   `MANIFEST_FORMAT`, so an older binary refuses the newer store. It lands with the reader for the layout it replaces
   (serde defaults, or a reader such as `Execution::from_stored`) and adds a sample of that layout, as literal bytes

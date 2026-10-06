@@ -1,7 +1,7 @@
 //! Review 2's H3 (theseus-wz2): Theseus's state is its operator's alone. The
 //! daemon runs under umask 077, so what it creates has no group or other
 //! bits; the state dir, the store, and the spool are made 0700, and when an
-//! older build left them open (Eddie's: 0775, 0755, 0755) they are tightened
+//! older build left them open (the owner's: 0775, 0755, 0755) they are tightened
 //! at start.
 
 mod common;

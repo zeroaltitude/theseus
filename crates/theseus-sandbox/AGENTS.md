@@ -25,7 +25,7 @@ server in L1, M7 43a).
   its memory not at all, as an L0 job's is not.
 - `egress.rs` (18b, wired at 18c): the job's `Proxy` on the listener the init hands over. `Proxy::decide` makes each
   `CONNECT`'s `Outcome` a value (tunnel, or refuse with a status and why) before the proxy acts. Nothing reads inside a
-  tunnel: credentials as stand-ins, which would have ended TLS here, were dropped for v1 (theseus-gh7, Eddie
+  tunnel: credentials as stand-ins, which would have ended TLS here, were dropped for v1 (theseus-gh7, the owner
   2026-10-03), so a secret a job holds is contained by the list alone. `Running::finish` stops it once the job has ended,
   ending any tunnel a server holds open so every one is recorded; `Summary` is the completion's `detail.egress`
   (one entry per host reached, one per refusal). `Allow` (the list's entries) lives in `theseus_tools::net`.

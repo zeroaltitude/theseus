@@ -22,9 +22,10 @@ hears: Array<string>,
 since_ms?: number, 
 /**
  * Since the start: calls joined, utterances transcribed, sentences
- * synthesized, barge-ins, failed calls.
+ * synthesized, barge-ins, stops that resumed (theseus-qb8o), failed
+ * calls.
  */
-joins: number, utterances: number, sentences: number, barge_ins: number, failures: number, 
+joins: number, utterances: number, sentences: number, barge_ins: number, resumes: number, failures: number, 
 /**
  * The speech heard, and the characters spoken.
  */

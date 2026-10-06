@@ -2,6 +2,6 @@
 
 export type ExecutionCancelParams = { execution_id: string, 
 /**
- * Who asked, as a label in the ledger (e.g. `discord:eddie`). Default: the connection.
+ * Who asked, as a label in the ledger (e.g. `discord:zeroaltitude`). Default: the connection.
  */
 author?: string, };

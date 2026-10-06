@@ -272,7 +272,7 @@ mod tests {
     use theseus_protocol::extend::{ExtendListResult, ExtendLoadedInfo};
     use theseus_protocol::DiscordOrigin;
 
-    use super::super::tests::{core_with, place_for_tests, EDDIE};
+    use super::super::tests::{core_with, place_for_tests, OWNER};
     use super::super::Control;
     use super::{buttons, revoke_of, text};
 
@@ -334,7 +334,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
             c.discord.rest_proxy = Some("127.0.0.1:9".into());
-            c.places.owner = Some(vec![format!("discord:{EDDIE}")]);
+            c.places.owner = Some(vec![format!("discord:{OWNER}")]);
         });
         // A loaded extension, as an ack records it.
         core.store
@@ -359,11 +359,13 @@ mod tests {
         let sid = rec.session_id.clone();
         core.store.put_session(&sid, &rec).unwrap();
         let (mut place, _rx) = place_for_tests(&core, &sid);
-        let listed = place.control(Control::Extensions, "discord:eddie").await;
+        let listed = place
+            .control(Control::Extensions, "discord:zeroaltitude")
+            .await;
         assert!(listed.contains("🧩 **wordcount** `3f2a1c`"), "{listed}");
         let from = |guild: Option<&str>, channel: u64| {
             Some(DiscordOrigin {
-                user_id: EDDIE.to_string(),
+                user_id: OWNER.to_string(),
                 channel_id: channel.to_string(),
                 guild_id: guild.map(str::to_string),
             })
@@ -371,7 +373,7 @@ mod tests {
         let shared = place
             .control(
                 Control::Revoke("wordcount".into(), from(Some("900000000000000001"), LAB)),
-                "discord:eddie",
+                "discord:zeroaltitude",
             )
             .await;
         assert!(
@@ -379,16 +381,20 @@ mod tests {
             "{shared}"
         );
         assert!(shared.contains("shared"), "{shared}");
-        let still = place.control(Control::Extensions, "discord:eddie").await;
+        let still = place
+            .control(Control::Extensions, "discord:zeroaltitude")
+            .await;
         assert!(still.contains("**wordcount**"), "{still}");
         let dm = place
             .control(
-                Control::Revoke("wordcount".into(), from(None, EDDIE + 1)),
-                "discord:eddie",
+                Control::Revoke("wordcount".into(), from(None, OWNER + 1)),
+                "discord:zeroaltitude",
             )
             .await;
         assert!(dm.starts_with("🧩 Revoked **wordcount** `3f2a1c`"), "{dm}");
-        let gone = place.control(Control::Extensions, "discord:eddie").await;
+        let gone = place
+            .control(Control::Extensions, "discord:zeroaltitude")
+            .await;
         assert!(gone.starts_with("No extension is loaded."), "{gone}");
     }
 }

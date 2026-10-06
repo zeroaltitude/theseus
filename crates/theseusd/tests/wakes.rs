@@ -98,7 +98,7 @@ impl Rig {
         std::fs::write(
             path("state/bindings.toml"),
             format!(
-                "guild_id = \"314159265358979323\"\n[[dm]]\nuser = \"{USER}\"\nname = \"eddie\"\n"
+                "guild_id = \"314159265358979323\"\n[[dm]]\nuser = \"{USER}\"\nname = \"zeroaltitude\"\n"
             ),
         )
         .unwrap();

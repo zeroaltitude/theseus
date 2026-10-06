@@ -305,7 +305,7 @@ pub enum Body {
     },
     /// One message of an imported episode (theseus-0lrr.6), in its imported
     /// session, which never takes a turn. Its node's origin is `import`, its
-    /// author the episode's (`eddie`, `agent:main`, `person:<name>`,
+    /// author the episode's (`zeroaltitude`, `agent:main`, `person:<name>`,
     /// `tool`, `outside`), and its `created_at_ms` the message's own time.
     Imported {
         text: String,

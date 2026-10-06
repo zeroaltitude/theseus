@@ -6,7 +6,7 @@ _Beads theseus-zaz, under the v1 epic theseus-s1t. Written by Tabitha/Claude on 
 recut's brief. Sources: the v1 roadmap, the chain's
 queue file, the six designs ([aws-toolset](aws-toolset.md), [stage2](stage2-operator-surfaces.md), [m4](m4-boundaries.md), [m5](m5-judgment.md), [m6](m6-memory.md), and [m7](m7-surface.md)), the agents' operating notes for the repo, and read-only looks at the repo (`main` at
 1353a83), Beads, and this machine. Docs only: nothing was built, run, filed, or sent. Every time and duration here
-is an estimate unless it says "measured". The five phase designs were still under Tabitha's review while this was
+is an estimate unless it says "measured". The five phase designs were still under Tabitha/Claude's review while this was
 written. If her review re-marks a step, the counts change but the shape does not._
 
 **Status: written section by section; the last line marks the document complete.**
@@ -20,20 +20,20 @@ written. If her review re-marks a step, the counts change but the shape does not
 4. A timeline estimate
 5. What starts now
 6. Conflicts found across the designs, and how to resolve each
-7. Eddie's answers still needed
+7. The owner's answers still needed
 8. Appendix: where the step counts come from
 
 ## 0. The answer on one screen
 
 - **The shape.** One spine on `main`, one step at a time, as the chain runs today. Beside it, **three Rust lanes
   and one light lane**. Each lane has its own worktree, `CARGO_TARGET_DIR`, and sccache, and runs at nice 19 and
-  idle I/O with 4 jobs. Memory and Tabitha's review time set that limit. Cores and the 8-agent cap don't.
+  idle I/O with 4 jobs. Memory and Tabitha/Claude's review time set that limit. Cores and the 8-agent cap don't.
 - **The honest size.** The six designs cut the old plan's 42 steps into **about 106 hour-sized slots**. Lanes
   take 29.5 of them off the critical path, and **the spine carries 76.5**.
 - **When (an estimate).** The build completes around **Oct 4, 22:00** at the brief's 1.3 hours a slot, or
   **Oct 5, 17:00** at 1.55 hours a slot, the chain's measured pace over the last 37 hours. One step at a time,
   the same scope would end Oct 6 or 7. The old figure of "about 55 hours" undercounted. v1 then closes after
-  Eddie's two-week soak, around Oct 19 or 20.
+  the owner's two-week soak, around Oct 19 or 20.
 - **The spine is the bottleneck, not the lanes.** The 32.5 lane-steps need only about 16 hours of three lanes.
   What shortens the plan is less spine:
   - the memory headroom test, which could save about 5 slots;
@@ -44,8 +44,8 @@ written. If her review re-marks a step, the counts change but the shape does not
     review 2's proposals;
   - B. Stage 2: the protocol push, with the TUI and herdr as lanes;
   - C. M4, then E. M5, then F. M6, then G. M7;
-  - D. AWS floats: it enters when Eddie's go and its lanes allow.
-- **Starts today, with nothing needed from Eddie:**
+  - D. AWS floats: it enters when the owner's go and its lanes allow.
+- **Starts today, with nothing needed from the owner:**
   1. M6's memory exam and headroom test;
   2. the L1 sandbox crate;
   3. the Jev client crate;
@@ -58,7 +58,7 @@ written. If her review re-marks a step, the counts change but the shape does not
   - the WAL follower and the canary arms were each planned twice, and are now built once;
   - AWS's durability tender left out `blobs/`;
   - M5 waited on AWS, and now follows M4.
-- **What only Eddie can unblock** (none of it stops the spine):
+- **What only the owner can unblock** (none of it stops the spine):
   1. a "go" for the three offline AWS lanes;
   2. the go-ahead for the first writes to his AWS account;
   3. consent to send session content to TypeSafe;
@@ -68,8 +68,8 @@ written. If her review re-marks a step, the counts change but the shape does not
 ## 1. The shape
 
 **The spine** is the build chain on `main`, one step at a time, exactly as today:
-- a subagent builds the step. Then Tabitha reruns the gate, builds release, checks it live, installs it, folds
-  [the spec](../the-ship-of-theseus.md), updates Beads and the queue, and messages Eddie;
+- a subagent builds the step. Then Tabitha/Claude reruns the gate, builds release, checks it live, installs it, folds
+  [the spec](../the-ship-of-theseus.md), updates Beads and the queue, and messages the owner;
 - a step is spine when it touches the kernel, the store, the core's gate or turn loop, or the protocol, or a
   shared entry file: the CLI's `main.rs` (3,194 lines), the daemon's role dispatch, or `scripts/gate.sh`.
 
@@ -105,7 +105,7 @@ Rust: YAML, web, docs, or a short spike. Why (measured at 16:27 unless marked):
   - A fourth heavy lane risks swap and the OOM killer.
   - The WSL VM, capped at 24 GB on a 32 GB host, has died several times this month from host-side causes, host
     memory pressure among them. Each death takes every lane and the spine with it.
-- **Review is the other limit.** Tabitha reviews every step: about 30 minutes per spine step and 15 per lane
+- **Review is the other limit.** Tabitha/Claude reviews every step: about 30 minutes per spine step and 15 per lane
   step. At this load that is about 40 to 45% of her time, and more lanes would make review the bottleneck.
 - **CPU: 16 cores.** The spine's gate runs at full priority. Three lanes × 4 niced jobs use only idle cycles.
   More jobs would add cache and memory-bandwidth contention to the bench, and would never speed the spine.
@@ -135,13 +135,13 @@ counts half. The blocks:
 | A. Stage 1's remainder | 4b to 8, plus review 2 | 11.5 | none |
 | B. Stage 2: the operator's surfaces | 9 to 13 | 8 | cache, TUI, herdr |
 | C. M4 Boundaries | 17 to 22 | 11 | sandbox, disclosure, ontology, installer |
-| D. AWS (floats on Eddie) | 14 to 16, 40, and AWS in L1 | 7.5 | the three AWS lanes (P1 to P4) |
+| D. AWS (floats on the owner) | 14 to 16, 40, and AWS in L1 | 7.5 | the three AWS lanes (P1 to P4) |
 | E. M5 Judgment | 23 to 28 | 13.5 | judge |
 | F. M6 Memory | 29 to 35 | 10 | exam, index, math |
 | G. M7 Surface | 36 to 39, 41 to 45 | 15 | MCP, web tabs, voice |
 
 - **A, B, and C run in this order.** E, F, and G follow C.
-- **D floats.** It takes the spine's next slot once its lanes have landed and Eddie has given the go (§7). The
+- **D floats.** It takes the spine's next slot once its lanes have landed and the owner has given the go (§7). The
   spine never waits for it. It is drawn after C here.
 - **Fillers.** If a lane or an answer is late, these need neither and keep the spine busy: 13a, 18a's L0 half,
   37a, 37b, and 38a (after T1b).
@@ -186,21 +186,21 @@ counts half. The blocks:
 | 18 | 18a: cancellation verified per backend (the tree stop, the pid namespace, ~~the cgroup~~ (gone with the sandbox trims, theseus-gyin), `verified_by`) | hcc, 7ve | 1 | 17b; w98 (batch 1). Its L0 half can run earlier, as a filler |
 | 19 | 18c: egress wired in; a result that connected out is external (since the sandbox trims, theseus-gyin, 2026-10-03: only one that reached a host beyond the operator's list). **Joins 18b** | 20f (its L1 half) | 1 | 17b; 18b |
 | 20 | 18d: credential brokering under L1: the per-job socket, `cred.request`, and a `kind: aws` seam with no AWS code in it (removed by theseus-w5op, 2026-10-03: an L1 job takes its grants at launch) | 7ve | 1 | 17b; 18c |
-| 21 | ~~19a: labels on nodes, the audience, the compile filter with placeholders~~ **Replaced by the place rule** (theseus-nbsh; Eddie, 2026-10-03, the cut-list's Tier 2): every place is private or shared, a shared place gets the public tools alone, and the owner publishes into it. 19a's labels were built on 2026-10-02 and removed | 7ve, nbsh | 1 | T1 and F4a (done) |
+| 21 | ~~19a: labels on nodes, the audience, the compile filter with placeholders~~ **Replaced by the place rule** (theseus-nbsh; the owner, 2026-10-03, the cut-list's Tier 2): every place is private or shared, a shared place gets the public tools alone, and the owner publishes into it. 19a's labels were built on 2026-10-02 and removed | 7ve, nbsh | 1 | T1 and F4a (done) |
 | 22 | ~~19b's join: the disclosure simulator, and its short run in the gate~~ Built on 2026-10-02, and removed with the labels (theseus-nbsh) | 7ve | 0.5 | the disclosure lane |
 | 23 | ~~19c: graduation, and `may_leave` in the outbox~~ Built on 2026-10-02, and removed with the labels: graduation is the owner's publish (theseus-nbsh) | 3vu | 1 | 19a |
-| 24 | ~~20a: integrity by labels (T1's hold becomes the latch), origin `external`, `external_programs`; d64 built here~~ **Replaced by the integrity lane** (theseus-b5cl; Eddie, 2026-10-03, the cut-list's Tier 1.1): T1's latch stays as it is, per session, fed by DD5's own `external` marker. The lane adds its two cheap pieces: `[policy] external_programs` (`["gh"]` by default), whose `proc.run` output is outside text, and a job's session, `THESEUS_SESSION`, which the CLI sends as `opened_from`, so a session that a holding session's job opens or sends a turn to holds it too (d64, built here). No labels feed the latch, and there is no `external` origin | b5cl, d64 | 0 (a lane) | — |
-| 25 | ~~20b: file hashes and fomites (`via: file`)~~ **Dropped** (theseus-b5cl; Eddie, 2026-10-03), with the Advisory (theseus-3vu's quarantine levels). Laundering through files is Jev's: `security.v1` (row 39) | — | 0 | — |
+| 24 | ~~20a: integrity by labels (T1's hold becomes the latch), origin `external`, `external_programs`; d64 built here~~ **Replaced by the integrity lane** (theseus-b5cl; the owner, 2026-10-03, the cut-list's Tier 1.1): T1's latch stays as it is, per session, fed by DD5's own `external` marker. The lane adds its two cheap pieces: `[policy] external_programs` (`["gh"]` by default), whose `proc.run` output is outside text, and a job's session, `THESEUS_SESSION`, which the CLI sends as `opened_from`, so a session that a holding session's job opens or sends a turn to holds it too (d64, built here). No labels feed the latch, and there is no `external` origin | b5cl, d64 | 0 (a lane) | — |
+| 25 | ~~20b: file hashes and fomites (`via: file`)~~ **Dropped** (theseus-b5cl; the owner, 2026-10-03), with the Advisory (theseus-3vu's quarantine levels). Laundering through files is Jev's: `security.v1` (row 39) | — | 0 | — |
 | 26 | 21b: the ontology wired in: records, the snapshot, the compile walk, the CLI, the ~~Observatory~~ cockpit (the cut-list's 6.4). **Joins 21a**. **Done 2026-10-04** (theseus-8kk.1; Part III Item 100; store format 7); the cockpit's view is 21c | 8kk | 1 | the ontology lane; ~~19a~~ (its labels were removed, theseus-nbsh) |
 | 27 | 21c's join: the ~~web UI's~~ cockpit's Ontology view (the cut-list's 6.4: the cockpit replaces the Observatory). **Done 2026-10-04** (theseus-8kk.2; Part III Item 111) | 8kk | 0.5 | 21c (lane) |
-| 28 | 22b: the job host, `RemoteLauncher`, `[control_plane]`. **Joins 22a**. _Moves after v1 (Eddie, 2026-10-03 15:26, taking the recommendation)._ | 7ve | 1 | the installer lane; 18a |
+| 28 | 22b: the job host, `RemoteLauncher`, `[control_plane]`. **Joins 22a**. _Moves after v1 (the owner, 2026-10-03 15:26, taking the recommendation)._ | 7ve | 1 | the installer lane; 18a |
 
-**D. AWS** ([AWS design](aws-toolset.md); theseus-mgw). Floats on Eddie's go; drawn here after C.
+**D. AWS** ([AWS design](aws-toolset.md); theseus-mgw). Floats on the owner's go; drawn here after C.
 
 | # | Step | Ids | Slots | Waits on |
 |---|---|---|---|---|
 | 29 | C1 = 14a: the bound account; `aws.call` for reads, `aws.describe`, `aws.whoami`, `aws.s3.list`. **Joins P1 and P2** | mgw | 1 | P1, P2; the SCP conversation (renewed 16:18; its default holds until he answers) |
-| 30 | C2 = 14b: stacks, `theseus aws bootstrap`, the owner role, writes, the budget. **Joins P3 and P4**. **Done 2026-10-03** (theseus-nyzn; Eddie's go-ahead at 11:24, with a cap under $1 a month: the lean posture), joined and installed; Eddie cleared the bootstrap's apply at 14:20, lean | mgw | 1 | C1; P3, P4; **Eddie's go-ahead for the first writes to his account** |
+| 30 | C2 = 14b: stacks, `theseus aws bootstrap`, the owner role, writes, the budget. **Joins P3 and P4**. **Done 2026-10-03** (theseus-nyzn; the owner's go-ahead at 11:24, with a cap under $1 a month: the lean posture), joined and installed; the owner cleared the bootstrap's apply at 14:20, lean | mgw | 1 | C1; P3, P4; **the owner's go-ahead for the first writes to his account** |
 | 31 | C3 = 14c: the curated tools, the reaper in report mode, AWS text marked external (by DD5's own `external` marker, as a fetch is: 20a was dropped, theseus-b5cl). **Done 2026-10-04** (theseus-mgw.5, with theseus-9p40's `confirm-alerts` and the daily CloudTrail cross-check; Part III Item 97) | mgw | 1 | C2 |
 | 32 | 15: the durability tender: WAL segments **and `blobs/`** to S3, index rows to DynamoDB, on the index lane's WAL follower. **Done 2026-10-04** (theseus-mgw.7; Part III Item 108): in the daemon, through the follower crate, with the open segment's tails | mgw | 1 | C2; the WAL follower (§6, conflict 3) |
 | 33 | 16: ~~`theseus restore --from s3://…`~~ `theseusd restore --from s3://…`. **Done 2026-10-04** (theseus-mgw.10; Part III Item 123) | mgw | 1 | 15 |
@@ -208,7 +208,7 @@ counts half. The blocks:
 | 35 | 40, part 1: the hand role and image, `aws.hands.run` on Lambda and Fargate, the SQS poller. **Done 2026-10-04** (theseus-mgw.6; Part III Item 107): the role is `theseusd hand` | mgw | 1 | C2; P4's hands stacks |
 | 36 | 40, part 2: cancellation per backend, the TTL reaper, budget reservations, the grid; the `kill -9` prove. **Done 2026-10-04** (theseus-mgw.11; Part III Item 116) | mgw | 1 | 40, part 1 |
 
-- The AWS design sizes step 40 as one slice. Its wire list reads as two, so this plan counts two. _(A third piece came beside them, with no row of its own: step 40's network, hands in an existing VPC and never a NAT of their own (theseus-mgw.9, on Eddie's condition of 2026-10-03 23:24), built 2026-10-04: Part III Item 134. Its live check waits for the owner.)_
+- The AWS design sizes step 40 as one slice. Its wire list reads as two, so this plan counts two. _(A third piece came beside them, with no row of its own: step 40's network, hands in an existing VPC and never a NAT of their own (theseus-mgw.9, on the owner's condition of 2026-10-03 23:24), built 2026-10-04: Part III Item 134. Its live check waits for the owner.)_
 
 **E. M5 Judgment** ([M5 design](m5-judgment.md); theseus-0j2, vug)
 
@@ -216,7 +216,7 @@ counts half. The blocks:
 |---|---|---|---|---|
 | 37 | 23a: the wire-in: `[judge]`, `JudgeService`, the sink, the shadow budget, `loop.v1` in shadow. **Joins L1 and L2**. **Done 2026-10-04** (theseus-0j2.1; Part III Item 105), with the turn bench's quiet config turning the judge off (theseus-0j2.3) | 0j2 | 1 | the judge lane; block C (decision 16: Jev after M4), not D (§6, conflict 11) |
 | 38 | 23b: the surfaces: trace marks, `judge` spans, `judge.list` and `get`, the Observatory's Judgment section. **Done 2026-10-04** (theseus-0j2.4; Part III Item 119), the section in the cockpit | 0j2 | 1 | 23a |
-| 39 | 24: `security.v1` in shadow at the gate; T1's floor tests unchanged. It is the integrity path for text laundered through files, since 20b was dropped (theseus-b5cl): "If it's failing, we boost its context for good classification" (Eddie, 2026-10-03). **Done 2026-10-04** in shadow, `security.v1` with `security.v3` (theseus-0j2.5; Part III Item 120) | 0j2 | 1 | 23a |
+| 39 | 24: `security.v1` in shadow at the gate; T1's floor tests unchanged. It is the integrity path for text laundered through files, since 20b was dropped (theseus-b5cl): "If it's failing, we boost its context for good classification" (the owner, 2026-10-03). **Done 2026-10-04** in shadow, `security.v1` with `security.v3` (theseus-0j2.5; Part III Item 120) | 0j2 | 1 | 23a |
 | 40 | 25a: `classify.v1` and `role.v1` at inbound. **Done 2026-10-04** (theseus-0j2.6; Part III Item 121) | 0j2 | 1 | 23a |
 | 41 | 25b: CONTINUE's candidate signals, `continue.v1` in shadow. **Done 2026-10-04** (theseus-0j2.7; Part III Item 122) | 0j2 | 1 | 23a |
 | 42 | 25c: the learning ledger, the nightly report tender, holdouts. **Done 2026-10-04** (theseus-0j2.9; Part III Item 129) | 0j2 | 1 | 24, 25a, 25b |
@@ -236,9 +236,9 @@ counts half. The blocks:
 | 51 | 29b's wire-in: the `Tender` child kind, the spawn after serving, health's `index`, `theseus index status` and `search`. **Joins the index lane** | 6fn | 0.5 | the index lane (29b's crate) |
 | 52 | 30a: `theseus-memory`'s trait and baseline; the recall step, in shadow; `[memory]`; `memory.search`. **Joins the math lane** (the crate's first code). **Done 2026-10-04** (theseus-6fn.1; Part III Item 99) | 6fn | 1 | 29b; 19a |
 | 53 | 30b: the `Recall` node; `derived_from` EDGEs in 12a's convention; the `BudgetReport`; canary and live on 26a's arms. **Done 2026-10-04** (theseus-6fn.2; Part III Item 112) | 6fn, 3nk | 1 | 30a; 12a; 26a |
-| 54 | 30c: compaction roots, `context_overage`, the assembled strategy (what lets M5's CONTINUE act). **Done 2026-10-04** (theseus-6fn.4; Part III Item 131; store format 13), the summary on the session's own model by default (Eddie's decision 3) | 6fn | 1 | 30b |
+| 54 | 30c: compaction roots, `context_overage`, the assembled strategy (what lets M5's CONTINUE act). **Done 2026-10-04** (theseus-6fn.4; Part III Item 131; store format 13), the summary on the session's own model by default (the owner's decision 3) | 6fn | 1 | 30b |
 | 55 | 34b's wire-in: ~~`turn.submit`'s `memory_arm`~~ the exam's scratch daemon's `[memory] arm`, one daemon per arm (the cut-list's 6.2, Part III Item 80). **Joins the exam lane**; the first honest report. **Done 2026-10-04** (theseus-6fn.5; Part III Item 124), and the first honest report run on GLM the same day | 6fn | 0.5 | 34b (lane) |
-| 56 | 31a: the memory pass, attribution, `memory.v1` in shadow. **29c joins here**, if not before. **Done 2026-10-04** (theseus-6fn.6, with Eddie's decision 10's three fixes; Part III Item 136) | 6fn | 1 | 30b; 29c; 23a |
+| 56 | 31a: the memory pass, attribution, `memory.v1` in shadow. **29c joins here**, if not before. **Done 2026-10-04** (theseus-6fn.6, with the owner's decision 10's three fixes; Part III Item 136) | 6fn | 1 | 30b; 29c; 23a |
 | 57 | 31b: consolidation, `Synthesis` nodes, the `+synthesis` arm | 6fn | 1 | 31a |
 | 58 | 32a's wire-in: FSRS-6's retention projection, the `+retention` arm, on the math lane's code | 6fn | 0.5 | 31a |
 | 59 | 32b's wire-in: activation's adjacency projection, the `+activation` arm | 6fn | 0.5 | 31a; 12a |
@@ -247,7 +247,7 @@ counts half. The blocks:
 | 62 | 35a: situations, the precedence line, testimony, volatile values as of a time | 3nk | 1 | 30c |
 | 63 | 35b: lessons | 3nk | 0.5 | 30b; 35a |
 
-- 34c, the full sweep and the second report, is a lane at the end (§3). Its spec fold is Tabitha's.
+- 34c, the full sweep and the second report, is a lane at the end (§3). Its spec fold is Tabitha/Claude's.
 
 **G. M7 Surface** ([M7 design](m7-surface.md); theseus-ext)
 
@@ -258,7 +258,7 @@ counts half. The blocks:
 | 66 | 36b: MCP tools in turns: the `&str` change, `McpBoard`, `[mcp.servers]`, `theseus-sim fake-mcp`; servers in L1. **Joins 36a**. **Done 2026-10-04** (theseus-ext.1; Part III Item 106), servers at L0 until 43a | ext | 1.5 (M7's biggest) | the MCP lane (36a); 17b |
 | 67 | 36c: MCP prompts: `/prompt`, `theseus prompt`, the web picker. **Done 2026-10-04** (theseus-ext.4; Part III Item 115) | ext | 1 | 36b |
 | 68 | 38a: bindings format 2: many guilds, per-place ceilings. **Done 2026-10-04** (theseus-ext.3; Part III Item 117) | ext | 1 | e89 (T1b) |
-| 69 | 38b: gliding: `channel.post` and `channel.read`, on the place rule. _19a's labels were removed with the place rule (Part III Item 76), and Eddie chose the redesign on 2026-10-04: into a private place a glide always may, and a read from a shared place is outside text; out of a private place, or between two shared places, it asks first, as `/publish` does (M7 §2.3, rewritten; theseus-ypy0)._ **Done 2026-10-04** (21683c9c; Part III Item 140). | ext | 1 | 38a |
+| 69 | 38b: gliding: `channel.post` and `channel.read`, on the place rule. _19a's labels were removed with the place rule (Part III Item 76), and the owner chose the redesign on 2026-10-04: into a private place a glide always may, and a read from a shared place is outside text; out of a private place, or between two shared places, it asks first, as `/publish` does (M7 §2.3, rewritten; theseus-ypy0)._ **Done 2026-10-04** (21683c9c; Part III Item 140). | ext | 1 | 38a |
 | 70 | 39a: the `TASK` record kind, three layers, CAS, the tools; 27's arrangement kept. **Done 2026-10-04** (theseus-ext.6; Part III Item 125; store format 12) | ext | 1 | 37b; 27 |
 | 71 | 39b: claim leases, the board, `/tasks`, the web task graph | ext | 1 | 39a |
 | 72 | 41b: the MCP server's wire-in: `[mcp_server]`, `Surface::Mcp`. **Joins 41a**. **Done 2026-10-04** (theseus-ext.2; Part III Item 110) | ext | 1 | 41a (lane); 9c; d64 (a job's session and `opened_from`, in the integrity lane, theseus-b5cl) |
@@ -266,12 +266,12 @@ counts half. The blocks:
 | 74 | 42b's join: the Budgets, Ledger, and Policy tabs | ext | 0.5 | 42b (lane) |
 | 75 | 43a: `extend.propose`: freeze, start in L1, test, the ack card. **Done 2026-10-04** (theseus-ext.5; Part III Item 118) | ext | 1 | 36b; 17b |
 | 76 | 43b: load on ack, restart, revoke, `/extensions`. **Done 2026-10-04** (theseus-ext.8; Part III Item 133) | ext | 1 | 43a |
-| 77 | 44b: the voice wire-in: `/join`, utterances into turns. **Joins 44a**. **Done 2026-10-03** (theseus-drrs; Part III Item 83): a voice channel is a place of its own | ext | 1 | the voice lane; 38a; a test voice channel for its live check (Eddie) |
-| 78 | 45b: speech as spend. **Joins 45a**. **Done 2026-10-03** (theseus-drrs; Part III Item 83), with 45a's Deepgram | ext | 1 | 45a (Eddie's providers and keys); 44b; M5's latency table |
+| 77 | 44b: the voice wire-in: `/join`, utterances into turns. **Joins 44a**. **Done 2026-10-03** (theseus-drrs; Part III Item 83): a voice channel is a place of its own | ext | 1 | the voice lane; 38a; a test voice channel for its live check (the owner) |
+| 78 | 45b: speech as spend. **Joins 45a**. **Done 2026-10-03** (theseus-drrs; Part III Item 83), with 45a's Deepgram | ext | 1 | 45a (the owner's providers and keys); 44b; M5's latency table |
 
 - M7 puts 37a and 37b before 36b, against the roadmap's numbering: they are small, and need only T1b.
 - Store schema bumps (ACTION in 18a and 18d, NODE and COMPILATION in 19a, 21b, and 30b, EXECUTION in 37a) take
-  the next free version when they land, each with its reader and an old-layout test, and a snapshot of Eddie's
+  the next free version when they land, each with its reader and an old-layout test, and a snapshot of the owner's
   store before the install (F4a's rule).
 
 ## 3. The lanes
@@ -280,15 +280,15 @@ counts half. The blocks:
 the spine row in §2 where the lane joins. Weight: **H** is a heavy Rust build, **L** a light lane (YAML, web,
 docs, or a short spike).
 
-**Can start now, with no answer from Eddie** (in the order §5 gives)
+**Can start now, with no answer from the owner** (in the order §5 gives)
 
 | Lane | Steps, in order | Depends on | Joins (row) | W |
 |---|---|---|---|---|
 | **exam** (M6) | 34a: the memory exam (40 items, half held out) and the headroom test, `none` against `oracle` → later 34b, the harness over the real pipeline → 34c, the full sweep and the second report | 34a: nothing. 34b: 30b. 34c: all of M6 | 34b's wire-in (55); 34c ends M6 | H |
 | **sandbox** (M4) | 17a: `theseus-sandbox` (namespaces, the view, seccomp, the init; one contract test per clause) → 18b: the egress proxy, in the same crate | nothing; 18b follows 17a's API | 17b (17), 18c (19) | H |
 | **judge** (M5) | L1: `theseus-judge` (client, breaker, bands, batching, the fake) and `theseus-sim jev-probe` → L2: the six packs and `learn.rs` (calibration, holdouts, arms, rollback rules) → later L3: `theseus judge prove` (_L3's generator built 2026-10-04 as `theseus-judge prove`, Part III Item 101; its join, the CLI's command over the ledger, is row 50_) | nothing (synthetic states only, so no consent needed); L3 after L2 and 26b's data | 23a (37); L3's join (50) | H |
-| **cache** (stage2) | 13b: caching, part 1: measure first (the Observatory's figures, the byte-identical header test, the Z.ai probe, the 1-hour TTL's break-even from Eddie's ledger) | nothing | 13c (14) | L |
-| **voice** (M7) | 44a's spike (songbird, twilight 0.17, DAVE, a static libopus: a verdict) → 44a's engine, `theseus-voice` (the seam, the pipeline, stand-ins) → later 45a: the chosen speech providers | spike: nothing. The engine's live check: a test voice channel. 45a: Eddie's providers and keys | 44b (77), 45b (78) | L, then H |
+| **cache** (stage2) | 13b: caching, part 1: measure first (the Observatory's figures, the byte-identical header test, the Z.ai probe, the 1-hour TTL's break-even from the owner's ledger) | nothing | 13c (14) | L |
+| **voice** (M7) | 44a's spike (songbird, twilight 0.17, DAVE, a static libopus: a verdict) → 44a's engine, `theseus-voice` (the seam, the pipeline, stand-ins) → later 45a: the chosen speech providers | spike: nothing. The engine's live check: a test voice channel. 45a: the owner's providers and keys | 44b (77), 45b (78) | L, then H |
 | **index** (M6) | 29a's spike (candle against tract for Nomic v1.5, static musl: a verdict) → 29b: `theseus-index` (the WAL follower, the extractor, tantivy, the tender's socket, `index.query`) → 29c: embeddings (the engine 29a picked, int8 flat scan, rank fusion) | nothing. The weights (about 275 MB) are fetched once, outside a build session (the provenance trap) | 29b's wire-in (51); 29c in 31a (56) | H |
 | **math** (M6) | 32a and 32b's math: FSRS-6 and spreading activation as pure functions in `theseus-memory`, from the published algorithms (Vestige is AGPL: never its source) | nothing | 30a (52), as the crate's first code; used by 32a and 32b's wire-ins | L |
 | **ontology** (M4) | 21a: `theseus-ontology` (the kinds table, validation, `chain` and `intent_line`, the seed rows) → later 21c: the web UI's Ontology view | 21a: nothing. 21c: 21b's protocol | 21b (26); 21c's join (27) | H, then L |
@@ -304,19 +304,19 @@ docs, or a short spike).
 | **disclosure** (M4) | 19b: `theseus-sim disclosure`, with a planted bug that must fail | 19a (21) | 19b's join (22) | H |
 | **web tabs** (M7) | 42b: the Budgets, Ledger, and Policy tabs in `web/` | 42a (73) | 42b's join (74) | L |
 
-**Start after Eddie says go** (the AWS design's parallel slices; all offline: no account writes, and only
+**Start after the owner says go** (the AWS design's parallel slices; all offline: no account writes, and only
 read-only live calls)
 
 | Lane | Steps, in order | Depends on | Joins (row) | W |
 |---|---|---|---|---|
-| **aws-client** | P1: `theseus-aws-catalog`, from the local AWS CLI's botocore models (no network fetch) → P2: `theseus-aws`, the client (six protocols, SigV4, endpoints, retries, pagination) | Eddie's go | C1 (29) | H |
-| **aws-guard** | P3: `theseus-aws-guard` (`guardrails.toml`, the evaluator, the template scanner, the guard and SCP generators) | Eddie's go; its catalog test once P1 lands | C2 (30) | H |
-| **aws-infra** | P4: `infra/aws/`, the foundation, posture, and hands CloudFormation templates (`cfn-lint`, `ValidateTemplate`) | Eddie's go | C2 (30) | L |
+| **aws-client** | P1: `theseus-aws-catalog`, from the local AWS CLI's botocore models (no network fetch) → P2: `theseus-aws`, the client (six protocols, SigV4, endpoints, retries, pagination) | The owner's go | C1 (29) | H |
+| **aws-guard** | P3: `theseus-aws-guard` (`guardrails.toml`, the evaluator, the template scanner, the guard and SCP generators) | The owner's go; its catalog test once P1 lands | C2 (30) | H |
+| **aws-infra** | P4: `infra/aws/`, the foundation, posture, and hands CloudFormation templates (`cfn-lint`, `ValidateTemplate`) | The owner's go | C2 (30) | L |
 
 - **The lanes are not the bottleneck.** 32.5 lane-steps at about 1.5 hours each (niced), three at a time, is
   about 16 hours of wall-clock, against about 100 for the spine. No spine step waits on a lane. A lane that
   starts today lands long before the step that consumes it. A lane that waits on a spine step (the TUI, 19b, 21c,
-  34b, 42b, L3) joins a row or two later, while the spine moves on. The exceptions are Eddie's: AWS, and voice's
+  34b, 42b, L3) joins a row or two later, while the spine moves on. The exceptions are the owner's: AWS, and voice's
   live checks.
 - **What the slack buys:** three lanes, not more, so reviews and memory stay safe; spikes first, since their
   answers reshape the plan (§4).
@@ -327,7 +327,7 @@ read-only live calls)
 18:30 tonight), and it uses two rates:
 - **1.3 hours a slot**, the brief's figure;
 - **1.55 hours a slot**, measured: the chain landed 24 reviewed steps in the 37.2 hours from 2026-09-29 02:52
-  to 2026-09-30 16:05. That pace already includes an abort, a WSL crash, and Eddie's conversations.
+  to 2026-09-30 16:05. That pace already includes an abort, a WSL crash, and the owner's conversations.
 
 **The first finding is about size, not order.** The old plan counted 42 steps, one per roadmap line: about 55
 hours. The six designs cut the same scope into hour-sized steps, and it comes to **about 106 slots** (§8): the
@@ -340,10 +340,10 @@ hours. The six designs cut the same scope into hour-sized steps, and it comes to
 | A. Stage 1's remainder | 11.5 | 11.5 | Oct 1, 09:30 | Oct 1, 12:20 | the spine |
 | B. Stage 2 | 8 | 19.5 | Oct 1, 19:50 | Oct 2, 00:45 | the spine; the TUI's join lands 1 to 2 hours later (lane-bound) |
 | C. M4 | 11 | 30.5 | Oct 2, 10:10 | Oct 2, 17:45 | the spine |
-| D. AWS | 7.5 | 38 | Oct 2, 20:00 | Oct 3, 05:25 | **Eddie**: with no go, D moves to the end, or out of v1 |
+| D. AWS | 7.5 | 38 | Oct 2, 20:00 | Oct 3, 05:25 | **The owner**: with no go, D moves to the end, or out of v1 |
 | E. M5 | 13.5 | 51.5 | Oct 3, 13:30 | Oct 4, 02:20 | the spine |
 | F. M6 | 10 | 61.5 | Oct 4, 02:30 | Oct 4, 17:50 | the spine |
-| G. M7 | 15 | 76.5 | Oct 4, 22:00 | Oct 5, 17:05 | the spine; voice's last two rows need Eddie's providers |
+| G. M7 | 15 | 76.5 | Oct 4, 22:00 | Oct 5, 17:05 | the spine; voice's last two rows need the owner's providers |
 
 **Compared with the serial plans**
 
@@ -354,12 +354,12 @@ hours. The six designs cut the same scope into hour-sized steps, and it comes to
 | **The designed scope, spine plus lanes** | **76.5** | **99 h: Oct 4, 22:00** | **119 h: Oct 5, 17:05** |
 
 - **Lanes save about 28%**: 29.5 slots move off the critical path, about 1.6 to 1.9 days.
-- **After the build**, v1's exit is Eddie's two-week soak, so v1 closes around **Oct 19 to 20**. M5's and M6's
+- **After the build**, v1's exit is the owner's two-week soak, so v1 closes around **Oct 19 to 20**. M5's and M6's
   proves take their data from the soak.
 - **The spine is the bottleneck, not the lanes** (§3). More lanes won't shorten it; less spine will.
 
 **What could stretch it**
-- **Eddie's answers.**
+- **The owner's answers.**
   - The AWS go (P1, P3, P4) and C2's first writes. Without them, D's 7.5 slots never enter, and v1's AWS part
     waits for him. Late, they cost nothing until D is all that's left. _(Answered 2026-10-03: the go at 11:24, with
     a cap under $1 a month, and C2's bootstrap at 14:20.)_
@@ -380,14 +380,14 @@ hours. The six designs cut the same scope into hour-sized steps, and it comes to
 - **Future fix batches: none are counted.** F4a's and F4b's reviews alone filed 9 follow-ups. Expect a batch
   every 10 to 15 steps: about 5 to 8 more slots.
 - **Store schema bumps** (six steps in M4, M6, and M7, plus the first EDGE in 12a and the `TASK` kind in 39a)
-  each need a snapshot of Eddie's store before the install: minutes each.
+  each need a snapshot of the owner's store before the install: minutes each.
 
 **What could shorten it**
 - **M6's headroom test (34a, which can start today).** If `oracle` is about equal to `none`, memory isn't what
   these tasks lack, and M6 files about 8 of its steps: about 5 spine slots, 6 to 8 hours.
 - **The DAVE spike (44a).** If songbird can't join Discord's encrypted voice, voice moves past v1: 2 spine
   slots, and the voice lane.
-- **Stage 2's scope.** If herdr isn't in Eddie's daily stack, park 11b (and its join). If the web UI on his
+- **Stage 2's scope.** If herdr isn't in the owner's daily stack, park 11b (and its join). If the web UI on his
   phone is enough, stop the TUI after 10d.
 - **A second spine**, running D and G beside E and F once C has landed. It would cut the critical path by about
   a quarter, but it doubles merge risk and the review load, and a few of G's steps wait on E's (39a on 27). Not
@@ -395,20 +395,20 @@ hours. The six designs cut the same scope into hour-sized steps, and it comes to
 
 ## 5. What starts now
 
-**Before the first lane (Tabitha, once, a few minutes):**
+**Before the first lane (Tabitha/Claude, once, a few minutes):**
 - finish the review of the lane's design (the five phase designs' reviews started at 16:14 and 16:15);
 - create `~/projects/theseus-wt/` and `~/.cache/theseus-target/`, and set `SCCACHE_CACHE_SIZE=40G`;
 - write the lane recipe once (§1), so that every lane brief carries it by reference;
 - file a Beads issue per lane under theseus-zaz, and claim it with `bd update <id> --claim` before the spawn.
 
-**Start today, in this order. None needs an answer from Eddie.**
+**Start today, in this order. None needs an answer from the owner.**
 
 1. **exam: 34a, the memory exam and the headroom test** (heavy slot 1).
    - *Why first:* it is the cheapest step in the plan with the biggest lever. Its answer can file about 8 of M6's
      steps, or say that retrieval, not retention, is where M6 should spend (§4). It needs no M6 code.
    - *Its gate:* the exam's own tests (the fixture writer's store reads identically in an unmodified daemon; the
      check language; the statistics against hand-computed fixtures), and **the headroom report**: 40 items ×
-     {`none`, `oracle`} × 3 runs on GLM, with a $30 cap. Tabitha reads the report the day it lands. The code
+     {`none`, `oracle`} × 3 runs on GLM, with a $30 cap. Tabitha/Claude reads the report the day it lands. The code
      joins later, in 34b's wire-in (row 55).
 2. **sandbox: 17a, then 18b** (heavy slot 2).
    - *Why:* M4's first spine step (17b) consumes it. MCP's servers (36b) and self-extension (43) run in L1 too. Its
@@ -434,18 +434,18 @@ hours. The six designs cut the same scope into hour-sized steps, and it comes to
    - *13b's why:* 13c consumes it in about a day (row 14), and it measures before anything changes.
      *Its gate:* the header is byte-identical across two sessions, and across a session and its task; the web
      build; the Z.ai probe (two identical GLM calls: are cache reads reported?); and a read-only pass over a copy
-     of Eddie's ledger for the 1-hour TTL's break-even. Joins in 13c.
+     of the owner's ledger for the 1-hour TTL's break-even. Joins in 13c.
 
 **Then, as slots free, in this order:**
 - **index** (29a's spike, then 29b's crate, then 29c): fetch the Nomic weights once, outside a build session,
   pinned by SHA-256.
 - **ontology** (21a).
-- **installer** (22a). Its container check uses Docker with the design's limits, unless Eddie says no.
+- **installer** (22a). Its container check uses Docker with the design's limits, unless the owner says no.
 - **MCP** (36a, then 41a).
 - **math** (32a and 32b's math).
 - **When 10a lands** (about Oct 1, 14:40 to 18:30): **TUI**, then **herdr**. They go ahead of any
   not-yet-started lane above, since Stage 2's joins come first.
-- **When Eddie says go on AWS:** **aws-client** (P1, then P2) and **aws-guard** (P3) take the next two heavy
+- **When the owner says go on AWS:** **aws-client** (P1, then P2) and **aws-guard** (P3) take the next two heavy
   slots, and **aws-infra** (P4) the light slot, ahead of everything not yet started. P1 builds from the local
   AWS CLI's botocore models, so no build session fetches anything.
 
@@ -453,8 +453,8 @@ hours. The six designs cut the same scope into hour-sized steps, and it comes to
 - rebased onto `main`, with `Cargo.lock` regenerated and its crate a workspace member;
 - the whole gate in its own target dir: fmt, clippy with `-D warnings`, the tests, deny, the web build, and the
   lifecycle bench within §9;
-- its live check, and Tabitha's light review for each step;
-- at the join, the deep review: the live check through a scratch daemon over a copy of Eddie's store, the
+- its live check, and Tabitha/Claude's light review for each step;
+- at the join, the deep review: the live check through a scratch daemon over a copy of the owner's store, the
   install, and the spec folded.
 
 ## 6. Conflicts found across the designs
@@ -468,7 +468,7 @@ filed twice.
    - *Resolution:* a version is assigned on `main` when its step lands, never in a design. In this order 19a
      lands first, 21b takes COMPILATION 4, and 30b takes NODE 4 and COMPILATION 5. ACTION 3 and 4 (18a, 18d)
      and EXECUTION 3 (37a) don't collide today, but follow the same rule. Every brief says "the next free
-     version", with its reader, an old-layout test, and a snapshot of Eddie's store before the install.
+     version", with its reader, an old-layout test, and a snapshot of the owner's store before the install.
 2. **The EDGE record, resumed by three designs.** Stage 2's 12a writes the first EDGE since theseus-hco
    (`derived_from` on the report route, with a reverse scope). M4's 20a carries integrity labels on "the same
    edge". M6's 30b writes recall edges, plans `same_entity`, `supersedes`, and `contradicts`, and bumps EDGE to 2
@@ -479,7 +479,7 @@ filed twice.
      the same convention, and a new field is a serde default, not a new schema.
 3. **The WAL follower, built twice.** AWS's step 15 ships WAL segments to S3. M6's 29b builds a WAL follower
    "unless M4's step 15 built it first" (step 15 is in the AWS design, not M4's).
-   - *Resolution:* build it once, in the index lane, which starts today (step 15 waits on Eddie). Keep it free of
+   - *Resolution:* build it once, in the index lane, which starts today (step 15 waits on the owner). Keep it free of
      tantivy and candle (a module of its own, or a small crate), so step 15 reuses it without the search engine.
 4. **`blobs/` left out of the durability tender.** M5's risks ask the tender to ship `blobs/` (images already
    live there, and judgments add state blobs). The AWS design's step 15 ships only WAL segments and index rows.
@@ -493,7 +493,7 @@ filed twice.
 6. **`task.create`, changed by two designs.** M5's 27 adds the arrangement (references, refusal, the fidelity
    check) to DD7's tool. M7's 39a turns it into one tool that records every task, and opens a session only with
    `brief` (M7's question 12).
-   - *Resolution:* 27 lands first. 39a extends the same tool and keeps 27's refusal cases in its tests. Eddie
+   - *Resolution:* 27 lands first. 39a extends the same tool and keeps 27's refusal cases in its tests. The owner
      gets one heads-up about his daily `task.create` flow, at 27's install.
 7. **The audience rule, built twice.** M7's 38b builds a subset rule for gliding, to be "later replaced" by
    M4's labels. M6 falls back to owner-only recall until 19a exists.
@@ -503,25 +503,25 @@ filed twice.
 8. **Three new sources of external text.** AWS's C3 marks AWS data-plane reads external (its question 4). M7's
    36b marks MCP results external. M4's 20a moves T1's hold onto integrity labels, with an `external` origin.
    - *Resolution:* after 20a, a source sets the `external` origin label rather than calling T1's hold directly,
-     and C3's and 36b's briefs say so. If Eddie's go brings C3 in before 20a, 20a's brief carries AWS reads over.
-   - *Since theseus-b5cl (Eddie, 2026-10-03):* 20a is dropped. A source marks its results with DD5's `external`,
+     and C3's and 36b's briefs say so. If the owner's go brings C3 in before 20a, 20a's brief carries AWS reads over.
+   - *Since theseus-b5cl (the owner, 2026-10-03):* 20a is dropped. A source marks its results with DD5's `external`,
      as `http.fetch` does, and T1's hold follows. C3's and 36b's briefs say so.
 9. **theseus-d64, planned twice.** The roadmap puts it in fix batch 2. M4 builds it in 20a, on labels (a
    session opened from a job's process takes the job session's hold, through J1's trace). M7's 41b needs it.
    - *Resolution:* build it once, in 20a, and drop it from batch 2. The gap is P3, and stays open about a day
      longer.
-   - *Since theseus-b5cl (Eddie, 2026-10-03):* built in the integrity lane instead. Every job carries its session
+   - *Since theseus-b5cl (the owner, 2026-10-03):* built in the integrity lane instead. Every job carries its session
      in `THESEUS_SESSION`, and the CLI sends it as `opened_from`. A job can strip its environment, so this is a
      light guard under default trust, not a boundary.
 10. **AWS credentials inside L1, designed twice.** The AWS design gives an L1 job an AWS session through the
     `aws` program grant, in steps 17 and 18. M4 routes AWS credentials through 18d's per-job socket
     (`kind: aws`).
-    - *Resolution:* 18d builds the socket and a `kind: aws` seam with no AWS code, so M4 never waits on Eddie's
+    - *Resolution:* 18d builds the socket and a `kind: aws` seam with no AWS code, so M4 never waits on the owner's
       AWS go. A half-slot step, 18e, puts the AWS job session behind it once both 18d and C2 are in.
-    - *Since theseus-w5op (Eddie, 2026-10-03):* 18d's socket is gone, and an L1 job takes its grants at launch,
+    - *Since theseus-w5op (the owner, 2026-10-03):* 18d's socket is gone, and an L1 job takes its grants at launch,
       as an L0 job does. 18e gives the AWS job session the same way, as the AWS design's program grant first said.
 11. **M5 waits for "Stage 3 done".** M5's 23a lists Stage 3 (the roadmap's order, decision 16). Stage 3 holds
-    AWS, which waits on Eddie, so Stage 4 would idle behind his answer.
+    AWS, which waits on the owner, so Stage 4 would idle behind his answer.
     - *Resolution:* M5's spine follows M4's, not AWS's. Decision 16 ("Jev late") still holds: Jev acts in the
       product only after M4's boundaries.
 12. **LANE steps that touch the same shared file.**
@@ -550,10 +550,10 @@ filed twice.
     proposes "an index of open actions". F4a's follow-up theseus-lv2 (P2) is that index.
     - *Resolution:* one piece of work. If 9b's seed on the 10,000-session store passes 250 ms, lv2 goes first.
 
-## 7. Eddie's answers still needed
+## 7. The owner's answers still needed
 
 Collected from all six designs and the roadmap, and deduplicated. **Five of them block something.** None stops
-the spine: it always has other work, every step takes its default, and Eddie can overturn a default later.
+the spine: it always has other work, every step takes its default, and the owner can overturn a default later.
 
 **These block something**
 1. **A "go" for the AWS offline lanes P1, P3, and P4**: the catalog, the guardrails, and the templates. They

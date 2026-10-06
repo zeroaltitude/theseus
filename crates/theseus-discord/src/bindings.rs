@@ -400,7 +400,7 @@ mod tests {
             "a channel is shared unless bound private"
         );
         assert_eq!(b.channel[0].ceiling, None, "the ceiling is commented");
-        assert_eq!(b.dm[0].label(), "DM @eddie");
+        assert_eq!(b.dm[0].label(), "DM @zeroaltitude");
         assert_eq!(b.revision.len(), 12);
     }
 

@@ -11,7 +11,7 @@
 //! of the categories a session is in ([`Ontology::compose`]), and its
 //! manifest records what it used.
 //!
-//! The two guardrails Eddie confirmed (2026-09-27) are in this crate's code:
+//! The two guardrails the owner confirmed (2026-09-27) are in this crate's code:
 //! - *Given versus interpreted*: a given kind's memberships are facts read
 //!   from the session's place. They are never stored, and setting one is an
 //!   input error; only interpreted kinds take API writes.

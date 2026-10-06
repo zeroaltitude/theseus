@@ -223,7 +223,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use super::super::tests::{core_with, slash, EDDIE, MALLORY};
+    use super::super::tests::{core_with, slash, MALLORY, OWNER};
     use super::super::{shared_for_tests, start_places};
     use super::*;
 
@@ -239,11 +239,11 @@ mod tests {
         Bindings::parse(&format!(
             "[[guild]]\nid = \"{HOME}\"\nname = \"home\"\nprivate = true\n\
              [[guild]]\nid = \"{AWAY}\"\n\
-             [[channel]]\nguild = \"{HOME}\"\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{EDDIE}\"]\nmention_only = false\n\
+             [[channel]]\nguild = \"{HOME}\"\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{OWNER}\"]\nmention_only = false\n\
              [channel.ceiling]\nposture_floor = \"approve\"\n\
-             [[channel]]\nguild = \"{AWAY}\"\nid = \"{PIER}\"\nname = \"pier\"\nusers = [\"{EDDIE}\", \"{MALLORY}\"]\n\
+             [[channel]]\nguild = \"{AWAY}\"\nid = \"{PIER}\"\nname = \"pier\"\nusers = [\"{OWNER}\", \"{MALLORY}\"]\n\
              [channel.ceiling]\ntools = [\"web\"]\nspend_limit_usd = 1\n\
-             [[dm]]\nuser = \"{EDDIE}\"\nname = \"eddie\"\n"
+             [[dm]]\nuser = \"{OWNER}\"\nname = \"zeroaltitude\"\n"
         ))
         .unwrap()
     }
@@ -282,7 +282,7 @@ mod tests {
             [
                 ("#lab".into(), Some(HOME.into()), true),
                 ("#pier".into(), Some(AWAY.into()), true),
-                ("DM @eddie".into(), None, false),
+                ("DM @zeroaltitude".into(), None, false),
             ]
         );
         let bound: Vec<serde_json::Value> = core
@@ -330,7 +330,7 @@ mod tests {
         for (guild, channel, label) in [(HOME, LAB, "(#lab)"), (AWAY, PIER, "(#pier)")] {
             shared
                 .clone()
-                .on_interaction(slash(Some(guild), channel, EDDIE, "status"))
+                .on_interaction(slash(Some(guild), channel, OWNER, "status"))
                 .await;
             let t0 = Instant::now();
             while !said(label) {
@@ -346,7 +346,7 @@ mod tests {
         let before = fake.replies().len();
         shared
             .clone()
-            .on_interaction(slash(Some(AWAY), ELSEWHERE, EDDIE, "status"))
+            .on_interaction(slash(Some(AWAY), ELSEWHERE, OWNER, "status"))
             .await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(fake.replies().len(), before);
@@ -358,11 +358,11 @@ mod tests {
     fn one_bad() -> Bindings {
         Bindings::parse(&format!(
             "[[guild]]\nid = \"{AWAY}\"\n\
-             [[channel]]\nguild = \"{AWAY}\"\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{EDDIE}\"]\nmention_only = false\n\
+             [[channel]]\nguild = \"{AWAY}\"\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{OWNER}\"]\nmention_only = false\n\
              [channel.ceiling]\nprofile = \"nosuch\"\n\
-             [[channel]]\nguild = \"{AWAY}\"\nid = \"{PIER}\"\nname = \"pier\"\nusers = [\"{EDDIE}\"]\nmention_only = false\n\
+             [[channel]]\nguild = \"{AWAY}\"\nid = \"{PIER}\"\nname = \"pier\"\nusers = [\"{OWNER}\"]\nmention_only = false\n\
              [channel.ceiling]\ntools = [\"web\", \"nosuch\"]\nspend_limit_usd = 1\n\
-             [[dm]]\nuser = \"{EDDIE}\"\nname = \"eddie\"\n"
+             [[dm]]\nuser = \"{OWNER}\"\nname = \"zeroaltitude\"\n"
         ))
         .unwrap()
     }
@@ -392,7 +392,7 @@ mod tests {
         // warning with its reason, beside #pier's two.
         let st = core.bindings.all().pop().unwrap();
         let labels: Vec<&str> = st.places.iter().map(|p| p.label.as_str()).collect();
-        assert_eq!(labels, ["#pier", "DM @eddie"]);
+        assert_eq!(labels, ["#pier", "DM @zeroaltitude"]);
         let h = core.runner.place_rule.health(&core.cfg);
         assert_eq!(h.warnings, warned);
         let kinds: Vec<(&str, &str)> = h
@@ -446,11 +446,11 @@ mod tests {
         let dm_channel = ELSEWHERE;
         for (guild, channel, label) in [
             (Some(AWAY), PIER, "(#pier)"),
-            (None, dm_channel, "(DM @eddie)"),
+            (None, dm_channel, "(DM @zeroaltitude)"),
         ] {
             shared
                 .clone()
-                .on_interaction(slash(guild, channel, EDDIE, "status"))
+                .on_interaction(slash(guild, channel, OWNER, "status"))
                 .await;
             let t0 = Instant::now();
             while !said(label) {
@@ -465,7 +465,7 @@ mod tests {
         let before = fake.replies().len();
         shared
             .clone()
-            .on_interaction(slash(Some(AWAY), LAB, EDDIE, "status"))
+            .on_interaction(slash(Some(AWAY), LAB, OWNER, "status"))
             .await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(fake.replies().len(), before, "#lab is not bound");

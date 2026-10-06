@@ -35,7 +35,7 @@ pub use engine::{
 };
 pub use heard::HeardAs;
 pub use io::{ClipId, Frame, Heard, PlayLog, Played, Speaker, VoiceIo, WavIo};
-pub use sentences::sentences;
+pub use sentences::{sentences, speakable, CODE, TABLE};
 pub use speech::{
     Speech, SpeechError, SpeechFuture, StandInSpeech, Synthesis, Transcript, Usage, ACKNOWLEDGMENT,
 };

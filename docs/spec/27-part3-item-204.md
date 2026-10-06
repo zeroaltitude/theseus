@@ -86,7 +86,7 @@ restart 26.2 / 27.1; binary swap 46.2 / 52.6; restore 133.1 / 141.5; the daemon'
 start p50 6.15 ms; turn frames 5 and 9, plain p50 75.6 ms, tool call 147.5 ms. Pushed 10:32:41, the branch deleted,
 done line 10:32:49; theseus-ubp7 closed with the hash. The store stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On Eddie's daemon a secret printed JSON-escaped (any of its characters: serde's and
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On the owner's daemon a secret printed JSON-escaped (any of its characters: serde's and
 Python's `json.dumps` forms, `\/`, `\u` escapes, Rust's `{:?}`) is withheld before the model and the WAL, where the
 build before let it through. No config key; nothing to do. The two open encodings (theseus-nlvx, theseus-cjyt) stay
 open on his daemon as before. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
@@ -193,7 +193,7 @@ deleted, done line 10:43:19; the six issues closed with the hash. The store stay
 row where an edit's server start raised the posture and an `lsp_start` condition naming the servers (it also names
 servers that are not installed). No config key; the gate itself is unchanged. The MCP ceilings' live check needs
 bound places, so R26 left it for install time with the owner's bindings. After install #7's restart (13:03:47; its
-report), `theseus policy explain --tool fs.edit` on Eddie's daemon carried the `lsp_start` condition naming
+report), `theseus policy explain --tool fs.edit` on the owner's daemon carried the `lsp_start` condition naming
 rust-analyzer, ty and tsgo at his `notify` enforcement, and `--tool lsp.diagnostics` listed the `lsp` layer: t2xr's
 line, with R26's note standing (servers named whether or not they are installed). Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
 
@@ -307,7 +307,7 @@ Across the stack's three gates the end stood within 1.6 ms of its base on both t
 and cold start p50 back at 21.9 to 22.7 ms, so the chain log (11:02) lowered theseus-ccux, the cold-start creep of the
 three gates before, to P3: most likely load. The store stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On Eddie's daemon a decline reaches the model at once and ends its batch's waits: once
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On the owner's daemon a decline reaches the model at once and ends its batch's waits: once
 a call of a batch is declined (his no, an expired card, or a confirmation no longer valid), each later call that would
 ask is answered "Not run: an earlier call in this batch was declined." with no card, so he sees no second card and the
 model hears every result at once; calls that need no answer still run. An approved call runs even when its id repeats
@@ -317,7 +317,7 @@ an earlier answered call's. No config key. Health after the restart (13:03:47): 
 built 6i0's first fix, a decline ending the later waits, which the issue allowed, so its close stands (the tools
 joiner's finding 2; the chain log, 11:02, says the DM thread's brief had described it wrongly). The not-run status is `Cancelled`. Repeated ids are keyed, not refused.
 
-**Known gaps.** R26's "For Eddie", each recommended: keep the broad trigger (any `Declined`, an expiry included: under
+**Known gaps.** R26's "For the owner", each recommended: keep the broad trigger (any `Declined`, an expiry included: under
 the narrow one, the operator's own no only, the next card would wait its full time again, the bug itself), and add a
 test of an expiry or an invalid confirmation ending a batch, which none covers; one card for a whole batch, not now.
 theseus-r4hn (P2) and theseus-1znq (P3), open. theseus-core's AGENTS.md "Tool calls" bullet (`toolrun/calls.rs`, the
@@ -466,7 +466,7 @@ judge pair's gate on 6496ce34 then confirmed (cold 22.6, swap 51.6, restore 143.
 11:07:08, the branch deleted, done line 11:07:17; theseus-ocwt, celu.37 and 8phq closed with the hash. The store stays
 at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). Eddie's daemon re-reads its Discord bindings file every 2 s, so a place added or
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). The owner's daemon re-reads its Discord bindings file every 2 s, so a place added or
 removed binds or unbinds with no restart: a re-added place posts no second bind notice; a removed place's post in
 flight settles as sent and its later posts are refused; a file that does not load changes nothing and health's line
 says why; a new guild's invite check and the voice channels still wait for a restart. A lane keeps its newest 256 keys.
@@ -479,7 +479,7 @@ waits for a restart. Health after the restart (13:03:47): `theseusd check` exit 
 A changed place is updated in place. The bound is recency (newest 256), not pruning at the settle, and covers `msgs`
 too. The session found and guarded a pre-existing two-life race in its tests; its daemon-side root is filed.
 
-**Known gaps.** R23's "For Eddie", each recommended: keep the re-add's silence, the refused reply of a removed place
+**Known gaps.** R23's "For the owner", each recommended: keep the re-add's silence, the refused reply of a removed place
 and the 2 s constant (theseus-sn2z's fix, acting on a stamp only once it has held a tick, costs one more period);
 retry a failed live bind each tick and say so on the board (theseus-u6v6); keep the guild check and the voice channels
 waiting for a restart, with the board saying so until then (theseus-btt4); take theseus-6809 (P2) next in the discord
@@ -565,14 +565,14 @@ back in range on discord-live's code confirmed that gate's high reads as the dis
 11:19:53), both branches deleted, done line 11:20:13; theseus-02vo, bhn2, daiz and fi5n closed with fb1133dc. The whole
 one-gate stack took 12 min 43 s from the queue's clear to the done line. The store stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). Tests, plus one recorded field: on Eddie's daemon inbound judgment rows carry
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). Tests, plus one recorded field: on the owner's daemon inbound judgment rows carry
 `context.class` `unknown` (or `task` for a task's message) and compile rows the loop end's class, and an OTLP
 collector's `theseus.judge.calls` counts them under those classes. No config key. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
 
 **Divergences.** Inbound's class is `unknown` by design, not the turn's: the turn has not run when inbound judges.
 "Only after its frame" is held by agreement, not order.
 
-**Known gaps.** R28's "For Eddie", each recommended: write sub-cent amounts in the pause line with their digits (a
+**Known gaps.** R28's "For the owner", each recommended: write sub-cent amounts in the pause line with their digits (a
 polish, not filed); rerank.v1's class, a P3 after soul-import (not filed); a task turn's `task` class stays held by the
 unit test alone. The one 764.5 ms outlier of the unbudgeted post-in-flight phase was filed nowhere on one sample; the
 next gate (B9-memtel's, Item 210) read that phase at 71.7 / 79.9 ms.
@@ -681,18 +681,18 @@ fix, the no-bump decision and the additive protocol change. The pair's gate on i
 208). Pushed (origin/main d28bfc4b at 11:19:53), the branch deleted, done line 11:20:13;
 theseus-wse2, b8e2, e1ei, cf5c and 6jos closed with d28bfc4b. The store stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On Eddie's daemon `judge.list` pages back from the newest call row: the cockpit prints
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On the owner's daemon `judge.list` pages back from the newest call row: the cockpit prints
 "N of M+" and `theseus judge log` writes the floor as `M+`. The notices' brake reads today's rows. The first learning
 run after the install finds no `through`, walks everything once as before and writes it; later runs read only
 judgments whose windows are still open. The false-completion rule's task-brief walk steps over imported sessions, so
 sessions `theseus import` writes will not end it. No config key; an older client reads `more` as absent. After install
-#7's restart (13:03:47; its report), `theseus judge log -n 3` on Eddie's daemon ended "(3 of 4+ judgments in …)": the
+#7's restart (13:03:47; its report), `theseus judge log -n 3` on the owner's daemon ended "(3 of 4+ judgments in …)": the
 floor, as the join fix writes it. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
 
 **Divergences.** `matched` became a floor when `more`, not an exact count. The brake needed no dated position mark.
 The CLI's floor and the imported-session skip came in at the join, by R28's join fix, not in the branch.
 
-**Known gaps.** R28's "For Eddie", each recommended: keep cf5c's 1 h margin and classify's 24 h window; no bump, with
+**Known gaps.** R28's "For the owner", each recommended: keep cf5c's 1 h margin and classify's 24 h window; no bump, with
 a sentence for the root AGENTS.md's version rule (a key inside an untyped META value that every reader reads as
 optional, and whose absence means "start over", needs no bump), not written at the join; the rare pack filter that
 walks a whole tag waits for a store change (a `judge.call` row tagged by its scope; the cockpit never filters by
@@ -782,10 +782,10 @@ stays 23)). Nothing in `turn.rs`, `recall.rs`, the memory pass or soul-import's 
   tool call −6.0 ms, noise in the stack's favour; the lifecycle differences followed the CPU PSI (both arms missed
   budgets under that load), and none of the stack's code runs before serving.
 
-**What the review found.** theseus-ps9i (P3, for Eddie): a turn's own call is still reserved on the estimate's
+**What the review found.** theseus-ps9i (P3, for the owner): a turn's own call is still reserved on the estimate's
 `tokens`, where the summary's now takes `upper`; on Sonnet 5.5, +0.6 % on a 70k append turn and +5.4 % on a 100k cold
 one at the default 128k cap, +2.7 % and +22 % at a 16k cap. A reservation is released at settlement, so the only cost
-is that a turn near the day's limit is refused a little sooner. The DM thread settled it for Eddie unless he objects:
+is that a turn near the day's limit is refused a little sooner. The DM thread settled it for the owner unless he objects:
 yes, as a batch-10 task (the chain log, 11:03).
 
 **The join** (B9-memtel: one lock, two plain merges, one gate). The joiner, spawned at 11:02, took
@@ -811,7 +811,7 @@ start p50 6.12 ms; turn frames 5 and 9, plain p50 75.7 ms, tool call 156.9 ms. P
 6fn.8 closed with a8f4b27c. The stack took 12 minutes from the lock's clear to green on a quiet machine. The store
 stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On Eddie's daemon a search during the paced warm build answers `building` at once,
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On the owner's daemon a search during the paced warm build answers `building` at once,
 which matters only once `[memory] arm = "+activation"` is named; his config stays `baseline`. A compaction's summary
 reserves its input on the estimate's upper bound (in R30's live check about 4,060 tokens instead of 2,900: 1,608 µ$
 reserved instead of 1,435, against 1,483 settled), released at settlement. No config key. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
@@ -819,7 +819,7 @@ reserved instead of 1,435, against 1,483 settled), released at settlement. No co
 **Divergences.** e21m is held by a count, `Adjacent::paces`, not a namespace. 6fn.14 checks `building()`, not
 `try_lock`. x875's restart is a second Core over the same store, not a cleared cache.
 
-**Known gaps.** R30's "For Eddie", each recommended: the turn's own reservation on `upper` (theseus-ps9i, given to
+**Known gaps.** R30's "For the owner", each recommended: the turn's own reservation on `upper` (theseus-ps9i, given to
 batch 10's budget-upper task with xd6l); 6fn.14's residual race, leave it (microseconds wide, only at a warm build's
 start, bounded by main's 2 s); `Adjacent::paces` in health, no (a lifetime total; each build's line logs its own).
 theseus-9o2o, main's warm-build stop flake, open, given to the same task. A panic in the warm fold would leave searches answering `building`
@@ -865,7 +865,7 @@ tests by name; with memory-tests' run, exactly R30's build of the whole queue le
 merge **2bf9e7d3** (a8f4b27c and 36b8be96), 11:25:23; its gate, 2,980 of 2,980, ok. Pushed 11:32:29, the branch
 deleted, done line 11:32:42; theseus-qqhd and fk0g closed with 2bf9e7d3. The store stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). Tests only: nothing changes on Eddie's daemon. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). Tests only: nothing changes on the owner's daemon. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
 
 **Known gaps.** theseus-xd6l (P3): `Core::build`'s pipeline branch hands the judge and the stops their telemetry but
 not memory, so a core built with a pipeline (every test core, theseus-discord's runtime tests) never records the
@@ -948,12 +948,12 @@ of it the cancel row. Pushed (origin/main d279767f at 11:59:12), the three branc
 twelve issues closed, theseus-23wh, ig6n, t2yb and vbju with 2e592804. The stack ran end to end in 21 min 44 s. The
 store stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). Tests only: nothing changes on Eddie's daemon. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). Tests only: nothing changes on the owner's daemon. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
 
 **Divergences.** The golden's wait is a 20 s wake and a sleep by the kernel's clock, not a faster poll: the failure
 was a transcript of another shape, not a slow poll. The zone is masked, not pinned.
 
-**Known gaps.** R29's "For Eddie", each recommended and adopted by the DM thread (11:33): keep the golden's 20 s wake
+**Known gaps.** R29's "For the owner", each recommended and adopted by the DM thread (11:33): keep the golden's 20 s wake
 (not 10); the lasting fix is a clock seam in `Parts`, so the wait becomes a step (theseus-agve, P3). The
 `TZ=America/Phoenix` pin lives in no script of the repository, only in the briefs, the cloud preambles' gate line and
 the joiners' scripts, and may leave them now. A same-named test in `tests_inbound` may carry the same 3 s bound (not
@@ -1035,7 +1035,7 @@ test). The signed merge **857ab09a** (2e592804 and 583f0747), 11:45:30. Its gate
 Pushed 11:59:12, the branch deleted, done line 11:59:31; theseus-biy3, zvpl, 490i and 3urn closed with 857ab09a. The
 store stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On Eddie's daemon a routed turn's trace root, and with it every point of the turn's
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). On the owner's daemon a routed turn's trace root, and with it every point of the turn's
 metrics, names the profile, provider and model it ran on, for a switch or a detour (route.v1 is live there); an OTLP
 collector's `theseus.turns` series by model moves accordingly. A switched turn's stored compilation keeps its recall
 drops. No config key. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
@@ -1043,7 +1043,7 @@ drops. No config key. Health after the restart (13:03:47): `theseusd check` exit
 **Divergences.** Lateness is made by a held fake, released by the test, not by a delay. A failed routed turn's count
 was left to theseus-udzb, outside route's files.
 
-**Known gaps.** R29's "For Eddie", adopted (12:31): theseus-udzb with the next telemetry row; theseus-y9p4 before
+**Known gaps.** R29's "For the owner", adopted (12:31): theseus-udzb with the next telemetry row; theseus-y9p4 before
 anything else touches `recall_compiled`; both given to batch 10's core-gaps task. When judge-turn-cost joins, run
 `route-tests/resolve.py` at whichever of the two joins second. theseus-core's AGENTS.md Routing bullet (490i's root,
 3urn's drops, biy3's rig wait and `Held`) and its test list, owed by the review, were not written at the join.
@@ -1150,7 +1150,7 @@ stack's gate on it: 2,989 of 2,989, ok, the stop test passing there (5.8 s), and
 ms against its 250 ms budget**, between R29's quiet and loaded readings. Pushed 11:59:12, the branch deleted, done line
 11:59:31; theseus-xbtr, hohs, nh1k and grxh closed with d279767f. The store stays at format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). Eddie's daemon serves the socket, whose stop already dropped the runtime, so the
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). The owner's daemon serves the socket, whose stop already dropped the runtime, so the
 `--stdio` fix changes nothing there; a `theseus --spawn` client's `--stdio` daemon now closes its store before it
 ends. The lifecycle bench's `cancel` row is the gate's, not the daemon's. No config key. Health after the restart (13:03:47): `theseusd check` exit 0, 9 secrets ready 1.02 s after the start, startup serving at 21.5 ms (at load 11 to 16), `cgroup: delegated`, the judge's live packs as before (`security.v3`, `route.v1`, `rerank.v1`), memory live on the `baseline` arm, voice ready, Discord ready, and no error or warning in the journal; no config change, the store at format 23, the S3 backup caught up again from 13:04:00, and no budget held.
 
@@ -1265,7 +1265,7 @@ more than twice its p50) came in 17 of 191 gates since 10-02, not new, and these
 time and slowest frame to be printed (the chain log, 12:51). 12 min from the take to the done line. The store stays at
 format 23.
 
-**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). In a voice call on Eddie's daemon, an either/or answer, an answer that reuses its
+**The install** (installed 2026-10-06 13:03 at f589d9cb, install #7). In a voice call on the owner's daemon, an either/or answer, an answer that reuses its
 question's words, and a "yes" on a question's last word are turns again; one false echo verdict no longer costs a
 speaker their stop; "mhmm", "gotcha" and "oh okay" no longer cut a reply. To watch live (R31): a "yeah" said while a
 reply synthesizes or waits for the floor now supersedes it (as one said while the model prepares already did); an
@@ -1277,7 +1277,7 @@ The session did not choose among its three proposals for the 3-word residual. A 
 begun stays `Saying { sentence: 0 }`, though its overlap is now the tail (left to stay out of voice-heard's area;
 voice-heard's note reads only `Preparing`, so no note is wrong).
 
-**Known gaps.** R31's "For Eddie", each recommended and adopted by the DM thread (12:33): keep 80 %, measured also over
+**Known gaps.** R31's "For the owner", each recommended and adopted by the DM thread (12:33): keep 80 %, measured also over
 the sentences joined in play order; keep 3 words as the floor for a run found anywhere, with the 2-word head-run rule,
 not 4 words; keep two verdicts (per speaker and per call); keep all the added backchannels (a hummed "mm-mm", a no, is a
 backchannel through the old list's `mm`, worth treating as words later). theseus-j2ut (P2: fix it before any

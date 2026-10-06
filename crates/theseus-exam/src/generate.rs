@@ -15,7 +15,7 @@
 //! [item.generate.vars]         # each session draws one value of each
 //! box = ["canary", "perf"]
 //! [[item.generate.node]]
-//! who = "eddie"
+//! who = "zeroaltitude"
 //! text = "Is the replay worker on {box} still up?"
 //! [[item.generate.node]]
 //! who = "theseus"
@@ -215,7 +215,7 @@ places = ["discord DM", "cli"]
 [vars]
 box = ["canary", "perf", "qa"]
 [[node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Is the replay worker on {box} up? (#{i}, {date})"
 [[node]]
 who = "tool"

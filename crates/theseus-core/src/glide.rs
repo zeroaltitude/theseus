@@ -1,5 +1,5 @@
 //! Gliding (M7 step 38b, theseus-ypy0): a conversation reaches across the
-//! operator's places, on the place rule (Eddie, 2026-10-04: "Gliding with the
+//! operator's places, on the place rule (the owner, 2026-10-04: "Gliding with the
 //! place rule: yes!"). Its first design rested on 19a's confidentiality
 //! labels, which the place rule replaced on 2026-10-03.
 //!
@@ -20,7 +20,7 @@
 //!   owner's answer from a private place counts, as for `/publish`. A post
 //!   out of a private place into a shared one is recorded as a publish is,
 //!   with a `place.published` row.
-//! - **A place** is named by its label (`#deploys`, `DM @eddie`) or its key
+//! - **A place** is named by its label (`#deploys`, `DM @zeroaltitude`) or its key
 //!   (`channel:<id>`, `dm:<user id>`); one this daemon is not bound to fails
 //!   as "not a place Theseus is bound to".
 //! - **Seen in**: the rows `glide.posted` and `glide.read` (from, to, the
@@ -76,7 +76,7 @@ struct ReadInput {
 fn post_input(input: &Value) -> Result<PostInput, String> {
     let i: PostInput = parse(input)?;
     if i.to.trim().is_empty() {
-        return Err("`to` is empty: name a place, such as #deploys or DM @eddie".into());
+        return Err("`to` is empty: name a place, such as #deploys or DM @zeroaltitude".into());
     }
     if i.text.trim().is_empty() {
         return Err("the text is empty: say what to post".into());
@@ -93,7 +93,7 @@ fn post_input(input: &Value) -> Result<PostInput, String> {
 fn read_input(input: &Value) -> Result<ReadInput, String> {
     let i: ReadInput = parse(input)?;
     if i.from.trim().is_empty() {
-        return Err("`from` is empty: name a place, such as #ops or DM @eddie".into());
+        return Err("`from` is empty: name a place, such as #ops or DM @zeroaltitude".into());
     }
     match i.last {
         Some(0) => Err("`last` is 0: ask for one message at least".into()),
@@ -115,7 +115,7 @@ impl Tool for ChannelPost {
 
     fn description(&self) -> &'static str {
         "Post a message into another place Theseus is bound to: a Discord channel or DM, named by \
-         its label (`#deploys`, `DM @eddie`) or its key (`channel:<id>`, `dm:<user id>`). Use it \
+         its label (`#deploys`, `DM @zeroaltitude`) or its key (`channel:<id>`, `dm:<user id>`). Use it \
          for \"post this summary to #deploys\". It posts once, in that place's order, as \
          Theseus's message, with a line naming this session. The place rule decides who must \
          agree: into a private place (the operator's DM, a channel bound private) it runs at its \
@@ -130,7 +130,7 @@ impl Tool for ChannelPost {
             "properties": {
                 "to": {
                     "type": "string",
-                    "description": "The place to post into: its label, such as #deploys or DM @eddie, or its key, such as channel:<id>."
+                    "description": "The place to post into: its label, such as #deploys or DM @zeroaltitude, or its key, such as channel:<id>."
                 },
                 "text": {
                     "type": "string",
@@ -183,7 +183,7 @@ impl Tool for ChannelRead {
     fn description(&self) -> &'static str {
         "Bring another place's recent conversation into this one: its last `last` messages (20 by \
          default, at most 100), people's and Theseus's, oldest first, as one result marked \
-         `borrowed from <place>`. Name the place by its label (`#ops`, `DM @eddie`) or its key \
+         `borrowed from <place>`. Name the place by its label (`#ops`, `DM @zeroaltitude`) or its key \
          (`channel:<id>`, `dm:<user id>`). Use it for \"what did we decide in #ops?\". What a \
          shared place's people wrote is outside text: once you read it, a call that acts waits \
          for the operator. Reading a private place from a shared one, or one shared place from \
@@ -196,7 +196,7 @@ impl Tool for ChannelRead {
             "properties": {
                 "from": {
                     "type": "string",
-                    "description": "The place to read: its label, such as #ops or DM @eddie, or its key, such as channel:<id>."
+                    "description": "The place to read: its label, such as #ops or DM @zeroaltitude, or its key, such as channel:<id>."
                 },
                 "last": {
                     "type": "integer",

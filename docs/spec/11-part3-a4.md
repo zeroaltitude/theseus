@@ -1,17 +1,17 @@
 # The Ship of Theseus, chapter 11: Part III, A4 (M3.6 Daily Driver) and Items 1 to 20 ([index](README.md))
 ## A4. M3.6 Daily Driver (theseus-5jl)
 
-_P5d's items, each recorded when its review ends. Items 1 to 4 run before M3.5 (P5d, Order). The milestone closes when its prove passes: Eddie carries his daily Discord work on Theseus end to end._
+_P5d's items, each recorded when its review ends. Items 1 to 4 run before M3.5 (P5d, Order). The milestone closes when its prove passes: the owner carries his daily Discord work on Theseus end to end._
 
 ### Item 1. Budgets in dollars (theseus-0sg, theseus-woy; 2026-09-29, 00:55–01:55; cb824c7, fdf4813, d6183d1)
 
-**Why it moved up.** Eddie's Discord DM ended `budget_exhausted` at about $0.42 on 2026-09-29 at 00:05; its session's recorded cost is $0.4216.
+**Why it moved up.** The owner's Discord DM ended `budget_exhausted` at about $0.42 on 2026-09-29 at 00:05; its session's recorded cost is $0.4216.
 - Its execution had opened under the old limit of 1,000,000 units, and a limit was fixed when an execution opened.
 - After 15 turns and 28 tool calls it had spent 877,683 units, most of them cache reads counted at full weight. At Sonnet 5's prices a cache read costs $0.20 per million tokens and an output token $10, and units weighed them the same.
 - The next call needed 172,068 units (Sonnet 5.5's 128 K output ceiling plus about 44 K of input), and 112,317 were left.
-- The place rebound Eddie to a fresh session, which started with an empty conversation.
+- The place rebound the owner to a fresh session, which started with an empty conversation.
 
-Eddie decided the design at 00:09 (§3.13, where his words are).
+The owner decided the design at 00:09 (§3.13, where his words are).
 
 **What exists.**
 - **The catalog in micro-dollars** (cb824c7).
@@ -45,32 +45,32 @@ Eddie decided the design at 00:09 (§3.13, where his words are).
   - in the kernel: a call over the limit waits, and an approved reset continues; a declined question keeps waiting, and new input asks again; a reset approved before the turn parks still continues; cancelling a budget wait closes its question, and terminal stays terminal; an execution that ends closes its open question; executions stored with unit budgets serve in dollars;
   - in the core: a session at its limit asks, and an approved reset makes the waiting call; a declined reset keeps waiting, and the next message asks again; the frame budget still holds at 17;
   - in the catalog: a call's reservation and cost in micro-dollars match the prices, and the template equals the built-in table;
-  - in the config: Eddie's vault config, with its unit budget, loads with one warning.
-- **Live** (Tabitha, 01:51–01:53; a release build on a scratch daemon over a copy of Eddie's store; `spend_limit_usd = 0.002`, and the glm profile capped at 2,048 output tokens, so one reservation is about $0.0014):
+  - in the config: the owner's vault config, with its unit budget, loads with one warning.
+- **Live** (Tabitha/Claude, 01:51–01:53; a release build on a scratch daemon over a copy of the owner's store; `spend_limit_usd = 0.002`, and the glm profile capped at 2,048 output tokens, so one reservation is about $0.0014):
   - Startup warned twice: once for the retired unit keys, and once for the 12 built-in models without a `[catalog]` table.
-  - Eddie's old exhausted DM execution read in dollars and stayed `budget_exhausted`, at $0.4216, showing "before dollars: 877683 of 1000000 units".
+  - The owner's old exhausted DM execution read in dollars and stayed `budget_exhausted`, at $0.4216, showing "before dollars: 877683 of 1000000 units".
   - Turn 1 (GLM, `fs.list`) ran 2 loops and 1 tool call, for $0.0008.
   - Turn 2 asked: "This session has spent $0.0008 of its $0.002 limit. Reset its spend to $0 and continue?" Its `budget.asked` row reads spent $0.000814, needed $0.001431, limit $0.002.
   - `theseus confirm` approved it. The `budget.reset` row reads by `sock#7`, spent before $0.000814, resets 1. The resumed turn ran `fs.list` and answered after 2 loops, for $0.0003.
   - Afterwards the session's lifetime cost was $0.0011, the sum of both turns, so the reset lowered nothing. The execution showed $0.0003 since the reset.
-- **The run.** The subagent's run was aborted ("CLI run aborted") at about 01:42. It had pushed cb824c7 and fdf4813 and left the web half staged. Tabitha finished the step in review, from 01:48 to 01:55: she committed the web half (d6183d1), reran the gate, ran the live check, and wrote the report. Installed at 01:53.
+- **The run.** The subagent's run was aborted ("CLI run aborted") at about 01:42. It had pushed cb824c7 and fdf4813 and left the web half staged. Tabitha/Claude finished the step in review, from 01:48 to 01:55: she committed the web half (d6183d1), reran the gate, ran the live check, and wrote the report. Installed at 01:53.
 
 **Follow-ups.**
 - theseus-kks. A call whose reservation is larger than the whole limit never fits after a reset, so the question would come back after each approval. It cannot happen at $100 with today's models, whose largest reservation is about $3, but a tiny test limit reaches it. The question should say so and name the fixes: raise the limit, or lower `max_output_tokens`.
-- An unpriced model is now refused. That is a hard stop where A3 had it run, and Eddie may prefer that it ask.
+- An unpriced model is now refused. That is a hard stop where A3 had it run, and the owner may prefer that it ask.
 - `theseus executions` prints limits to two decimals, so a $0.002 test limit shows as "$0.00".
-- Discord's question was not exercised live, because a second daemon must not bind the bot token while Eddie's runs. `render.rs` tests cover it.
-- Eddie's note needs the new template: `narrative = true` at the top, `spend_limit_usd = 100.0` in place of the unit keys, and the twelve `[catalog]` tables.
-- A session keeps the limit it opened with. A dollar-era execution stores its limit (`Budget::new` at open), and only a unit-era record takes the configured limit when it is read, so a changed `spend_limit_usd` reaches new sessions only. That includes a long-lived Discord place. Verified in the code at review, 02:50. It is held for Eddie whether an open session should follow the config.
+- Discord's question was not exercised live, because a second daemon must not bind the bot token while the owner's runs. `render.rs` tests cover it.
+- The owner's note needs the new template: `narrative = true` at the top, `spend_limit_usd = 100.0` in place of the unit keys, and the twelve `[catalog]` tables.
+- A session keeps the limit it opened with. A dollar-era execution stores its limit (`Budget::new` at open), and only a unit-era record takes the configured limit when it is read, so a changed `spend_limit_usd` reaches new sessions only. That includes a long-lived Discord place. Verified in the code at review, 02:50. It is held for the owner whether an open session should follow the config.
 
 **Divergence from Parts I and II.**
 
 | Planned | Actual | Why | Disposition |
 |---|---|---|---|
-| An unknown model runs with a startup warning and its cost unknown (A3; P5's catalog bullet) | A model priced neither in the config nor in the built-in table is refused as `unpriced` | Under a dollar limit, nothing may run unpriced | Held for Eddie: he may prefer that it ask (theseus-kks) |
+| An unknown model runs with a startup warning and its cost unknown (A3; P5's catalog bullet) | A model priced neither in the config nor in the built-in table is refused as `unpriced` | Under a dollar limit, nothing may run unpriced | Held for the owner: he may prefer that it ask (theseus-kks) |
 | A reserved control and cleanup budget, so that reaching a ceiling never prevents a cancel (§3.13; P4) | Retired | Nothing at the limit ends work or refuses a cancel | Part I §3.13 amended |
-| Reaching the limit ends the execution as `budget_exhausted` (§3.15; the M2 kernel) | The session waits and asks for a reset. Nothing new ends `budget_exhausted`, and old ones stay ended | Eddie's decision, 00:09 | Part I §1, §2, §3.13, and §3.15 amended |
-| Money budgets land together with provider-safe caching (§4.5; theseus-ev1) | Money budgets landed first | Eddie's DM hit its unit limit in real use | Provider-safe caching stays scheduled (theseus-ev1); built in two parts, Item 16's cache lane and Item 29 |
+| Reaching the limit ends the execution as `budget_exhausted` (§3.15; the M2 kernel) | The session waits and asks for a reset. Nothing new ends `budget_exhausted`, and old ones stay ended | The owner's decision, 00:09 | Part I §1, §2, §3.13, and §3.15 amended |
+| Money budgets land together with provider-safe caching (§4.5; theseus-ev1) | Money budgets landed first | The owner's DM hit its unit limit in real use | Provider-safe caching stays scheduled (theseus-ev1); built in two parts, Item 16's cache lane and Item 29 |
 
 ### Item 2. The workspace: context files and roots (theseus-58a; 2026-09-29, 01:55–02:15; 76e7d35, a29e9f7)
 
@@ -96,13 +96,13 @@ Eddie decided the design at 00:09 (§3.13, where his words are).
   - the stat cache's hit, miss, and racy reread.
 
   The frame budget holds: a plain turn writes 17 frames or fewer.
-- **Live**, on a scratch daemon over a copy of Eddie's store:
+- **Live**, on a scratch daemon over a copy of the owner's store:
   - GLM ended an answer with "Theseus", which only a context file asked for, with no tool call;
   - after the file was edited to "Ithaca", the next turn recompiled once (`system_changed`) and ended with "Ithaca";
   - the turn after that appended.
 
-  Eddie's vault config loads under the new binary with the same single warning as before.
-- **Review** (02:26). The gate reran at 176 tests. Tabitha's own check on the release build, over a store copy, got a GLM answer that ended with "Ithaca", a rule only the context file stated, and the manifest's digest equals `sha256sum` of the file. Installed at 02:24.
+  The owner's vault config loads under the new binary with the same single warning as before.
+- **Review** (02:26). The gate reran at 176 tests. Tabitha/Claude's own check on the release build, over a store copy, got a GLM answer that ended with "Ithaca", a rule only the context file stated, and the manifest's digest equals `sha256sum` of the file. Installed at 02:24.
 
 **Divergence from Parts I and II.**
 
@@ -111,14 +111,14 @@ Eddie decided the design at 00:09 (§3.13, where his words are).
 | An edit recompiles "on the next loop" (the step's brief) | On the next turn's first loop. The system block is fixed for a turn | A recompile inside a tool loop strips the prefix's thinking between a tool call and its result | Kept |
 | `context_files = []` on a profile in the template | Set at `[model]`. On the profile the line is commented | A live `[]` on a profile hides the `[model]` default | Kept |
 | A stat of mtime and size per compile | Size, mtime, and inode per turn, plus the two-second racy reread | The inode catches an atomic replace, and the racy rule a same-size edit within one timestamp tick | Kept |
-| With `~/.openclaw/workspace` and `~/reports` in `roots`, a spec session's reads and edits need no confirm (usage audit §6, item 2; P5d) | Not proven live in this step. Roots are unchanged A3 code, covered by the gate's root tests, and the template now shows the example | Eddie chooses his roots. It belongs to the exit test's config, which needs no code | Held for the exit test |
+| With `~/.openclaw/workspace` and `~/reports` in `roots`, a spec session's reads and edits need no confirm (usage audit §6, item 2; P5d) | Not proven live in this step. Roots are unchanged A3 code, covered by the gate's root tests, and the template now shows the example | The owner chooses his roots. It belongs to the exit test's config, which needs no code | Held for the exit test |
 
 **Known gaps.**
 - ~~An edit to a context file re-caches the whole session. The system block leads the cached prefix, so the next turn writes the session's entire context to the cache, and the prefix loses its thinking blocks. At the DM's measured 391 k tokens per call, one edit costs about $1 at Sonnet 5.5's cache-write price. If it bites, the files get their own later cache breakpoint, with the provider-safe caching work (theseus-ev1).~~ Closed by Item 29: the files are a block of their own, so an edit rewrites only it and what follows.
 - The reads are synchronous file calls under the turn lock. A hung network mount would hang the turn, as it would any fs tool.
 - Relative paths are refused at load.
 
-**Open, held for Eddie.**
+**Open, held for the owner.**
 - Which files and roots go in his note.
 - Whether a mid-turn edit should take effect within the turn.
 
@@ -136,8 +136,8 @@ Eddie decided the design at 00:09 (§3.13, where his words are).
   - with it on, the old card test still holds;
   - thirty notified `proc.run` calls in one loop render as one tool message, one create and 56 edits of 1,883 bytes, with no other message;
   - a core turn of thirty notified commands gives thirty `tool.notified` rows, each carrying the setting the renderer reads;
-  - Eddie's `[discord]` shape loads unchanged, with the embeds off.
-- **Live.** Discord was not exercised, because one bot token means one daemon, and Eddie's holds it. On a scratch daemon over a copy of his store, one notified `proc.run` wrote its `tool.notified` row with `setting = "enforcement = notify"`. Eddie's vault note loads under the new binary with only the known budget-units warning.
+  - The owner's `[discord]` shape loads unchanged, with the embeds off.
+- **Live.** Discord was not exercised, because one bot token means one daemon, and the owner's holds it. On a scratch daemon over a copy of his store, one notified `proc.run` wrote its `tool.notified` row with `setting = "enforcement = notify"`. The owner's vault note loads under the new binary with only the known budget-units warning.
 - **Review** (02:47). The gate reran at 180 tests.
 
 **Divergence from Parts I and II.**
@@ -151,7 +151,7 @@ Eddie decided the design at 00:09 (§3.13, where his words are).
 
 ### Item 4. Attachments and images (theseus-9g2; 2026-09-29, 03:18–03:50; 7bcfd9a, 48fd2c8)
 
-**Why.** Of Eddie's 332 DM messages in 30 days, 7 carried an attachment: 6 `text/plain` (Discord turns a long
+**Why.** Of the owner's 332 DM messages in 30 days, 7 carried an attachment: 6 `text/plain` (Discord turns a long
 paste into `message.txt`) and 1 PNG. The binding listed attachments by name and size and never read them, so
 Theseus silently missed every long paste.
 
@@ -189,8 +189,8 @@ Theseus silently missed every long paste.
   - the Discord planner and entry function, with bytes and no network;
   - the sniffer, the blobs, and restore.
 
-  The frame budget holds at 17, and Eddie's vault config loads unchanged.
-- **Live** (03:47–03:50, debug build on a scratch daemon over a copy of Eddie's store; about $0.02 in all):
+  The frame budget holds at 17, and the owner's vault config loads unchanged.
+- **Live** (03:47–03:50, debug build on a scratch daemon over a copy of the owner's store; about $0.02 in all):
   - Haiku answered a fact that only a 5,000-character attached note held.
   - Haiku read "TEAL HERON 77" from a headless-Chrome PNG, and the one blob is named for the PNG's SHA-256.
   - GLM-5.3 quoted the "no vision" line.
@@ -198,9 +198,9 @@ Theseus silently missed every long paste.
     and in `tool_result`s.
   - A 20 MB archive was listed as not read, with the reason.
 
-  Discord was not exercised, because one bot token means one daemon, and Eddie's holds it.
+  Discord was not exercised, because one bot token means one daemon, and the owner's holds it.
 - **The runs.** The first run (02:52–03:01) was marked external by the provenance plugin after it used web tools and a probe of z.ai, so exec and write were refused. It stopped without changing anything and left its findings, and run 2 built from them with no web tools.
-- **Review** (04:22). The gate reran at 204 tests. Tabitha's own check on the release build, over a store copy: `glm-5.3-flash` answered from a 4,878-character attached note and read "AMBER FALCON 58" from a headless-Chrome screenshot, the one blob is named its SHA-256, and `glm-5.3` got the "no vision" line. Installed at 04:22.
+- **Review** (04:22). The gate reran at 204 tests. Tabitha/Claude's own check on the release build, over a store copy: `glm-5.3-flash` answered from a 4,878-character attached note and read "AMBER FALCON 58" from a headless-Chrome screenshot, the one blob is named its SHA-256, and `glm-5.3` got the "no vision" line. Installed at 04:22.
 
 **Divergence from Parts I and II.**
 
@@ -212,7 +212,7 @@ Theseus silently missed every long paste.
 | One `vision` flag, true for every GLM row (the catalog as it stood) | `glm-5.3` and `glm-5.2` false | OpenClaw's table marks them text-only; `glm-5.3` answered a PNG with empty text | Kept; a `[catalog]` table can override |
 
 **Known gaps.**
-- Blobs are never collected, and redaction (§5.6) does not reach them. At Eddie's rate of one image a month,
+- Blobs are never collected, and redaction (§5.6) does not reach them. At the owner's rate of one image a month,
   this costs nothing yet.
 - An image the provider rejects fails every later request of its session (theseus-0s4). The sniffer checks the header, the
   size, and the sides, but not the pixels. `/new` in Discord, or a new message and then `recompile fresh`,
@@ -221,20 +221,20 @@ Theseus silently missed every long paste.
   missing.
 - The web UI shows an image's header line, not the image.
 - The first turn of every session after install recompiles once as `tools_changed`, with its thinking stripped.
-  For Eddie's DM that is about $1 of cache writes, once.
+  For the owner's DM that is about $1 of cache writes, once.
 - A coalesced Discord batch from several authors labels its files "from discord", not per author.
 
-**Open, held for Eddie.**
+**Open, held for the owner.**
 - Whether PDFs should be read (as text, or as document blocks).
 - Whether the "no vision" line should instead route the turn to a vision profile.
 
 ### Items 1 and 2, follow-ups: the limit follows the config, and context files by persona (theseus-3pj, theseus-c48; 2026-09-29, 22:10–22:53; 430d291, 68cb127)
 
-**Why.** Eddie accepted both on 2026-09-29 at 09:21, and the second again at 09:39.
+**Why.** The owner accepted both on 2026-09-29 at 09:21, and the second again at 09:39.
 - A dollar-era execution kept the limit it opened with, so a changed `spend_limit_usd` reached only new
   sessions, and never the long-lived Discord place. Since F1b, a changed note restarts the daemon onto it,
   so "I changed the limit and restarted" had to mean what it says.
-- Item 2's `context_files` hung on profiles. Eddie wants a system level that every session gets, plus a
+- Item 2's `context_files` hung on profiles. The owner wants a system level that every session gets, plus a
   persona's files, with the persona chosen by default until Jev chooses one from an ontology.
 
 **What exists.**
@@ -249,7 +249,7 @@ Theseus silently missed every long paste.
     Observatory summary of the row.
 - **Context files in two levels** (§4.4).
   - `[context] files`, `[personas.<name>] files`, and `[context] default_persona`.
-  - `[model] context_files` and the profile field are removed. Eddie's note used neither, checked by key
+  - `[model] context_files` and the profile field are removed. The owner's note used neither, checked by key
     name.
   - The headers name the level, and the manifest and the row record each file's persona.
   - Health's `context`, a `theseus health` line, and an Observatory line with a level column.
@@ -269,17 +269,17 @@ Theseus silently missed every long paste.
 served from an unconfirmed copy. Over 40 seeds × 300 steps: 497 changes, 327 rewrites, and 15 waits let
 proceed. Four throwaway breaks were each caught, by the kernel tests and by the simulator.
 
-Live, over a copy of Eddie's store and his real note through a shim `op`:
+Live, over a copy of the owner's store and his real note through a shim `op`:
 - a GLM turn's manifest listed the scratch system file, then the persona draft;
 - a lower limit made the session's next turn ask;
 - a raise restarted the daemon onto the note, and the session went on without a reset.
 
-**Reviewed** (Tabitha, 2026-09-29, 23:18 to 23:25).
+**Reviewed** (Tabitha/Claude, 2026-09-29, 23:18 to 23:25).
 - The gate rerun passed: 369 tests, and all four bench phases within budget.
-- On the release build, over a fresh copy of Eddie's store, with a file config:
+- On the release build, over a fresh copy of the owner's store, with a file config:
   - Health said `context: 1 file at the system level · persona theseus (1 file)`.
   - A GLM turn's compilation listed the system file, then the persona draft, with the report's digests
-    (`3ede0c7e…`, `7e3c050e…`). The answer knew Eddie from the persona draft. It did not end with the
+    (`3ede0c7e…`, `7e3c050e…`). The answer knew the owner from the persona draft. It did not end with the
     system file's "Ithaca" this time, which is the model's instruction-following: the file was in the
     block.
   - A limit lowered from $1 to $0.50 across a restart gave five `budget.limit_changed` rows, $1.0 → $0.5,
@@ -311,7 +311,7 @@ Live, over a copy of Eddie's store and his real note through a shim `op`:
 ### Item 5. `http.fetch` and `web.search` (theseus-yd6; 2026-09-30, 01:10–01:46 and 02:14–02:36; acb16f4, 28ac9d3)
 
 **Why.** In 30 days the DM made 59 `web_fetch`, 36 `web_search`, and 29 `curl` calls (the usage audit,
-section 6). Eddie chose the Brave Search API on 2026-09-29.
+section 6). The owner chose the Brave Search API on 2026-09-29.
 
 **What exists.**
 - **Async tools.**
@@ -362,9 +362,9 @@ section 6). Eddie chose the Brave Search API on 2026-09-29.
   exec, edit, and write was refused. Run 2 continued from the tree, and wrote every file with the Write
   and Edit tools.
 
-**Reviewed** (Tabitha, 2026-09-30, 02:40 to 02:47).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 02:40 to 02:47).
 - The gate rerun passed: 402 tests, and all four bench phases within budget (cold start p95 46.5 ms).
-- On the release build, over a fresh copy of Eddie's store, with `proc.run` and the write tools pinned
+- On the release build, over a fresh copy of the owner's store, with `proc.run` and the write tools pinned
   to `approve`:
   - one GLM response made two fetches, of the `HashMap` and `Vec` pages (196 KB and 953 KB). They were
     dispatched 7 ms apart and succeeded at 262 and 311 ms, so they ran together. Both answers were
@@ -376,14 +376,14 @@ section 6). Eddie chose the Brave Search API on 2026-09-29.
     else;
   - the Brave key's value was in none of the copy's state files, the log, or the CLI's output. The
     control matched.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - Installed at 02:46.
 - **Taken at review:**
   - **Web text can now steer a session that acts at `notify`.** A page's text reaches the model, and in
-    Eddie's config `proc.run` and the write tools run at `notify`. Until provenance labels (§3.9) and
+    the owner's config `proc.run` and the write tools run at `notify`. Until provenance labels (§3.9) and
     Jev exist, a deterministic rule closes the gap: once a session has read external text, a call that
     acts waits for approval, until the operator clears it. Filed as theseus-9bp, and added to the chain
-    before Eddie's end-to-end test.
+    before the owner's end-to-end test.
   - The runtime's "the full output is stored" is wrong for an in-process result, which stores nothing.
     It predates DD5. Filed as theseus-46v.
 
@@ -455,13 +455,13 @@ FAST's start path.
   kept.
 - The lifecycle bench now runs the binding, with its token resolving after 1000 ms. The driver starts at
   p50 41 ms, before the token.
-- The step's live check (04:02–04:18), on a copy of Eddie's store: a reply posted once after the fake came
+- The step's live check (04:02–04:18), on a copy of the owner's store: a reply posted once after the fake came
   back, and one message after a `kill -9` (tries `hung, hung, deduped`).
 
-**Reviewed** (Tabitha, 2026-09-30, 04:40 to 04:47).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 04:40 to 04:47).
 - The gate rerun passed: 420 tests, and every bench phase within budget (cold start p95 38.3 ms; the driver
   started at p50 41.1 ms, before the binding's token resolved).
-- On the release build, over a fresh copy of Eddie's store, with the binding on a fake REST (port 9472) and
+- On the release build, over a fresh copy of the owner's store, with the binding on a fake REST (port 9472) and
   a gateway that never connected, and a scratch bindings file that binds a DM with a user who does not
   exist:
   - the bind notice went out through the outbox;
@@ -475,7 +475,7 @@ FAST's start path.
     once, and nothing was pending;
   - **nothing reached Discord.** The daemon's connections went to 127.0.0.1 (24), api.github.com (2, the
     startup token check), and api.z.ai (2, the turns). No Discord host name was in the log.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - Installed at 04:46.
 - **Taken at review:**
   - The labeled possible copy after a long outage stays, rather than a lookup of recent messages first,
@@ -507,7 +507,7 @@ FAST's start path.
 
 ### Item 7. Task sessions (theseus-qn2, with theseus-xeo; 2026-09-30, 04:49–06:03; 795ed91, 625dde3, 5b44ff5, 9610b2e, 3b0b20d)
 
-**Why.** 43% of all tool calls in the audit's 30 days ran in delegated sessions. Eddie's daily pattern is
+**Why.** 43% of all tool calls in the audit's 30 days ran in delegated sessions. The owner's daily pattern is
 "go do this long thing and tell me when it's done", while he keeps talking.
 
 **What exists.**
@@ -552,7 +552,7 @@ FAST's start path.
   - 2 for theseus-xeo, the filed race and the lock;
   - 4 in Discord, and 2 against the real daemon (a `kill -9` while a task's job runs, and a cancel that
     kills a real job).
-- The step's live check (05:53–06:00), on a copy of Eddie's store:
+- The step's live check (05:53–06:00), on a copy of the owner's store:
   - a GLM turn started a task that ran `scripts/gate.sh`, and a second question was answered meanwhile;
   - the report posted once, and the parent quoted it;
   - a `kill -9` during a second task's gate run: the task finished after the restart, in 3 turns, and
@@ -561,16 +561,16 @@ FAST's start path.
     refused by J1's guard, correctly. 3b0b20d makes that test skip its operator's part inside a job, as
     `job_approval.rs` does.
 - **The run.** A clean WSL shutdown at 06:03:36 (a WSL update) ended the run while it wrote the report's
-  last four sections. Its commits were all pushed, and Tabitha wrote those sections at review.
+  last four sections. Its commits were all pushed, and Tabitha/Claude wrote those sections at review.
 
-**Reviewed** (Tabitha, 2026-09-30, 08:28 to 08:40).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 08:28 to 08:40).
 - **The first gate rerun failed one test**, `theseus-tools git::tests::diff_and_log_against_a_real_repository`,
   in 60 s: "gpg failed to sign the data". Its fixture builds a repository with the git CLI and inherited
   the operator's global `commit.gpgsign = true`, and the reboot had left the gpg-agent locked. This is not
   DD7's fault, and it predates DD7. Fixed at review in 94d184d: the fixture sets
   `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, and passes in 49 ms with the agent still
   locked. The gate then passed: 445 tests, and every bench phase within budget.
-- On the release build of 94d184d, over a fresh copy of Eddie's store, with the binding on a fake REST
+- On the release build of 94d184d, over a fresh copy of the owner's store, with the binding on a fake REST
   (port 9473) and a gateway that never connected:
   - **A task that reports.** A GLM turn in the bound session called `task.create` with a $0.50 budget and
     a brief to run `git log --oneline -3`, and returned in 22.5 s. The task ran one turn, spent $0.0007 of
@@ -585,12 +585,12 @@ FAST's start path.
     $0.000995, which makes $0.002439. The parent's execution said $0.002442 spent, and $0 reserved once
     both tasks had ended;
   - nothing reached Discord: the connections went to 127.0.0.1, api.z.ai, and api.github.com.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - Installed at 08:38.
 - **Taken at review:**
   - A cancel's author on Discord reads as the connection's label (`sock#13`). DD8, which touches
     `/cancel` for wakes, makes it name the surface or the person.
-  - Whether a finished task should start a parent turn is put to Eddie as a later `wake_parent` option
+  - Whether a finished task should start a parent turn is put to the owner as a later `wake_parent` option
     (the report's section 13).
 
 **Divergence from the brief and the issue.** The report's section 14 has the table:
@@ -638,7 +638,7 @@ conversation: "check the build in 10 minutes".
   through the real driver, and 8 unit tests of the tool's parsing and text; 2 against the real daemon
   with the fake Discord REST (a wake's reply posted once, and a `kill -9` with 9 s down, then a late wake,
   once); 2 in Discord; and 1 in the CLI. The frame budget test holds 8.
-- The step's live check (09:26–09:45), on a copy of Eddie's store:
+- The step's live check (09:26–09:45), on a copy of the owner's store:
   - "Remind me in one minute to check the build" set a 60 s wake, and the daemon was restarted 11 s later.
     The wake's turn started 60.0 s after the wake was set, ran a real `cargo check`, and its reply posted
     once under its wake line;
@@ -649,10 +649,10 @@ conversation: "check the build in 10 minutes".
 - The step found and fixed three things live: startup's write before serving, a doubled full stop in the
   tool's result, and a due time printed without its seconds.
 
-**Reviewed** (Tabitha, 2026-09-30, 10:00 to 10:07).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 10:00 to 10:07).
 - The gate rerun passed: 473 tests, and every bench phase within budget (cold start p95 37.9 ms). The
   step's own last gate had passed cold start at 56.7 ms against 57, on a busy machine.
-- On the release build of 4c6b72c, over a fresh copy of Eddie's store, with the binding on a fake REST
+- On the release build of 4c6b72c, over a fresh copy of the owner's store, with the binding on a fake REST
   (port 9475):
   - a GLM turn in the bound session, "Remind me in 20 seconds to stretch", set a wake due 10:05:08;
   - **down across the due time.** I stopped the daemon at 10:05:00 and restarted it at 10:05:53. The
@@ -665,7 +665,7 @@ conversation: "check the build in 10 minutes".
   - **listing and cancelling.** A two-hour wake showed in `theseus wakes`. `theseus cancel beeee4`
     cleared it, the list was empty, and the `wake.cancelled` row said `the CLI`;
   - nothing reached Discord: the connections went to 127.0.0.1, api.z.ai, and api.github.com.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - Installed at 10:06.
 - **Taken at review:**
   - `/cancel`'s option stays `id`, since it names a task or a wake, and a wake keeps waiting while an
@@ -700,7 +700,7 @@ conversation: "check the build in 10 minutes".
 
 ### Item 9. W1: a task can wake its parent, and `/stop` only halts (theseus-lji; 2026-09-30, 10:09–11:02; 2975183, 426e2b7)
 
-**Why.** Eddie, 2026-09-30, answering DD7's two questions. First, a finished task should be able to
+**Why.** The owner, 2026-09-30, answering DD7's two questions. First, a finished task should be able to
 start the conversation's next turn, as an opt-in: "Yes!" Second, `/stop` should only halt the work and
 keep the conversation, while `/new` alone starts fresh: "Yes!" His rule for controls is one command, one
 effect.
@@ -724,15 +724,15 @@ effect.
   driver, and the notice's unit test); 2 in Discord (a place's `/stop` and `/new` over a real core); 2
   against the real daemon with the fake Discord REST (a report's turn, and a stop that kills a real
   job); and 1 in the CLI. The frame budget test holds 8.
-- The step's live check (10:54–10:58), on a copy of Eddie's store with the binding on a fake REST: a task
+- The step's live check (10:54–10:58), on a copy of the owner's store with the binding on a fake REST: a task
   with `wake_parent` ran `git log`, and the parent's turn started by itself 14 ms after the task's end
   frame; a task without it reported, and no turn followed in 45 s; `theseus stop` during a `sleep 45` job
   killed it, and the next message continued the same execution.
 - Discord's `/stop` itself was not run live, since the gateway is not faked. The binding's test drives it.
 
-**Reviewed** (Tabitha, 2026-09-30, 11:30 to 11:37).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 11:30 to 11:37).
 - The gate rerun passed: 496 tests, and every bench phase within budget (cold start p95 42.2 ms).
-- On the release build of 426e2b7, over a fresh copy of Eddie's store, with the binding on a fake REST
+- On the release build of 426e2b7, over a fresh copy of the owner's store, with the binding on a fake REST
   (port 9477):
   - the bind notice names `/stop`'s new meaning: "halts what I am doing and keeps the conversation";
   - **a task that wakes its parent.** A GLM turn started task `8ec704`, with `wake_parent` and $0.30, to
@@ -747,7 +747,7 @@ effect.
   - **the conversation went on.** The next question ran in the same session and the same execution as the
     first turn, and GLM answered from its history that the sleep "was stopped by the CLI";
   - nothing reached Discord: the connections went to 127.0.0.1, api.z.ai, and api.github.com.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - Installed at 11:35.
 - **Taken at review:**
   - A stop keeps the session's pending wakes, as it keeps its tasks: one command, one effect.
@@ -777,11 +777,11 @@ effect.
 
 ### Item 10. T1: after a session reads external text, a call that acts waits (theseus-9bp; 2026-09-30, 11:39–12:27; 822f127, 41e8fa5)
 
-**Why.** This came from DD5's review. Since DD5, a page's text reaches the model, and in Eddie's config
+**Why.** This came from DD5's review. Since DD5, a page's text reaches the model, and in the owner's config
 `proc.run` and the writers run at `notify`. So an injection in a page could steer the model into running
 a command, with only a notice after the fact. OpenClaw's provenance plugin closes this path for OpenClaw
 sessions. Theseus has no provenance labels yet, and Jev's `security.v1` is M5. T1 is the interim,
-deterministic floor, and it landed before Eddie's end-to-end test.
+deterministic floor, and it landed before the owner's end-to-end test.
 
 **What exists** (§3.9, External text).
 - **The hold** (`theseus-core/src/external.rs`): `SessionRecord.external` (since when, the tool, the
@@ -807,7 +807,7 @@ deterministic floor, and it landed before Eddie's end-to-end test.
   a config test, and a CLI test. The core tests cover the same turn and the next, trust, a read keeping
   its posture, a job's process refused, a restart, a clean session unchanged, approve with trust, a
   task, a report's turn, and a wake's turn. The frame budget test holds 8.
-- The step's live check (12:19–12:22) ran on a copy of Eddie's store with his note, with Discord and the
+- The step's live check (12:19–12:22) ran on a copy of the owner's store with his note, with Discord and the
   web UI off:
   - a GLM turn fetched the `Option` page (200, 248,029 bytes), and `proc.run echo hi` waited, with the
     reason word for word;
@@ -817,7 +817,7 @@ deterministic floor, and it landed before Eddie's end-to-end test.
   - beyond the brief, a hold survived a restart, and `theseus confirm --trust` approved a waiting run and
     trusted the session in one answer.
 
-**Reviewed** (Tabitha, 2026-09-30, 12:47 to 13:05).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 12:47 to 13:05).
 - **The gate rerun.** The first rerun's lifecycle bench missed twice, right after the test run's
   writeback: cold start p95 was 62.2 ms, then 74.6 ms, against 57, and the store phase's p95 was about
   50 ms. On a quiet disk, the bench alone passed (cold start p95 41.6 ms). The full gate then passed with
@@ -830,7 +830,7 @@ deterministic floor, and it landed before Eddie's end-to-end test.
   - `task::create` reads the parent's hold without the lock. The one race is a fetch that completes in
     the same response as the `task.create`, and that call was written before the page was seen, so a
     clean child is correct.
-- **A live check on the release build of 41e8fa5,** over a fresh copy of Eddie's store, with his note.
+- **A live check on the release build of 41e8fa5,** over a fresh copy of the owner's store, with his note.
   Discord and the web UI were off, and the Brave key's reference was added, because his note has none.
   - **A search gives the hold, and the allow list waits.** A GLM turn ran `web.search` (a notice), and
     then `ls`, which his allow list runs `open`. `ls` waited: "this session read external text
@@ -847,7 +847,7 @@ deterministic floor, and it landed before Eddie's end-to-end test.
     `open`, from the allow list, with no notice.
   - Outbound connections went to api.github.com, api.z.ai, and the Brave search API. Nothing reached
     Discord.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - Installed at 12:57.
 - **Taken at review:**
   - **A job the operator approves can open a clean session.** It can run `theseus ask` over the socket,
@@ -857,7 +857,7 @@ deterministic floor, and it landed before Eddie's end-to-end test.
   - **Cosmetic** (theseus-qiy, P3, fix batch 2): a search's hold names the search API's address rather
     than the query; health gives the hold's time in UTC while the reason uses local time; and a trust
     through an approval names the connection (`sock#32`), not the surface.
-  - **Eddie's open questions, with the defaults the chain keeps.**
+  - **The owner's open questions, with the defaults the chain keeps.**
     - Reads keep their posture, so a fetch's URL can still carry data out, and its notice names the URL.
     - `wake.at` waits in a holding session.
     - There is no Discord `/trust`: the card's button, the CLI, and the Observatory clear a hold.
@@ -868,7 +868,7 @@ deterministic floor, and it landed before Eddie's end-to-end test.
 |---|---|---|---|
 | "every call whose class is not `Read` waits … It is a tightening, so the stricter posture wins" | Applied after the whole order, the allow list included, as a granted secret's posture is | An allow-list prefix is the easiest way through for a page that steers the model | Keep |
 | "A fetch, then `proc.run` in the same turn: it waits" | From the next model call on; a call in the fetch's own response keeps its posture | That call was written before the model saw the page (F3 gates a response's calls first) | Keep |
-| — | `wake.at` and `task.create` wait too | Both act (a write, a run), and the rule covers every class but `Read` | Keep; Eddie's question 2 |
+| — | `wake.at` and `task.create` wait too | Both act (a write, a run), and the rule covers every class but `Read` | Keep; the owner's question 2 |
 | Discord: "a button on the first such confirm, or a slash command" | A third button, **Approve + trust session**, on every confirm the rule raises | The operator learns of the rule on that card, and each later one offers the same | Keep; no `/trust` |
 | The CLI: `theseus policy trust <session>` | That, and `theseus confirm --trust <id>` | The card's button, for symmetry | Keep |
 | "a `session.external_read` ledger row" per session | One per hold: a session that is trusted and then reads again writes another | "A later external read taints the session again" | Keep |
@@ -887,7 +887,7 @@ deterministic floor, and it landed before Eddie's end-to-end test.
 
 ### Item 11. T1b: `wake.at` keeps its posture after web text, a Discord `/trust`, and interactions that route as messages do (theseus-q4t, theseus-e89; 2026-09-30, 16:08–16:36; 9362474, 3aa72a8)
 
-**Why.** Eddie's answers to T1's three questions (2026-09-30, 14:25 to 14:34): fetches in a holding
+**Why.** The owner's answers to T1's three questions (2026-09-30, 14:25 to 14:34): fetches in a holding
 session keep their posture; `wake.at` is exempt; and a Discord command clears the conversation's hold,
 named `/trust` ("I think it's fine, I am over-worrying"). theseus-e89 came from his question at 14:42,
 whether a test channel on the same bot could isolate a scratch daemon instead of a second bot: an
@@ -921,28 +921,28 @@ unbound guild channel acted on his DM, and an unbound daemon answered every inte
   command reaches the DM's place; a listed user's `/trust` carries its ids; an unlisted user is
   refused). Five were extended: the rule's unit test, `a_wakes_turn_follows_the_rule`, the command
   list, the bind notice, and the parse. The lifecycle bench passed (cold start p95 28.1 ms).
-- The step's live check (16:26–16:32), on a copy of Eddie's store with Discord and the web UI off: a GLM
+- The step's live check (16:26–16:32), on a copy of the owner's store with Discord and the web UI off: a GLM
   turn fetched the `Option` page and then set a two-minute wake, with no wait (`wake.at`'s notice has its
   own setting, `enforcement = notify`); `proc.run echo hi` waited with the hold's reason and was
   declined; the wake fired at 16:30:40, and its turn's `proc.run echo woke` waited with the same reason;
   `theseus policy trust` cleared the live hold (`session.trusted`, by the CLI).
 - On real Discord, a scratch daemon on a fresh state dir bound only `#theseus-test`: the log registered
   7 commands, and the bind notice naming `/trust` posted there.
-  Eddie's daemon was not running. A bot cannot press, so the presses wait for Eddie.
-- Eddie's unchanged note loads under the new binary.
+  The owner's daemon was not running. A bot cannot press, so the presses wait for the owner.
+- The owner's unchanged note loads under the new binary.
 
 **Divergence from the brief and the issue.**
 
 | Planned | Actual | Why | Disposition |
 |---|---|---|---|
 | `/trust`'s description: "Trust this conversation again after it read web text: its calls that change things stop waiting for approval" | "… its calls that change things stop waiting" | 108 characters; Discord refuses a description over 100 | Keep |
-| The name `/theseus-trust` (the issue) | `/trust` | Eddie, 14:34 | Keep |
+| The name `/theseus-trust` (the issue) | `/trust` | The owner, 14:34 | Keep |
 | "Clears the hold … through `Core::trust_session`" | Through `policy.trust` on the binding's connection, which ends in `Core::trust_session` | The connection names the surface, so only the binding can name a Discord user; the same path as the CLI's | Keep |
 | — | A typed `/trust` works too | The other controls work typed | Keep |
 | — | "Nothing to trust" is read from `session.list` before the trust | Its own reply, and nothing written | Keep |
 | — | The narrative's line names `/trust` | It lists the ways to trust again (it named no reminder) | Keep |
 | — | An ignored interaction is not counted in the binding's `interactions` | As a message in a place that is not ours is not counted | Keep |
-| "A scratch daemon over a copy of Eddie's store" for the live check | Part 2 (real Discord) on a fresh state dir | The operator lane can fall back to a copied session's place, his DM (theseus-c3e) | Keep; theseus-c3e |
+| "A scratch daemon over a copy of the owner's store" for the live check | Part 2 (real Discord) on a fresh state dir | The operator lane can fall back to a copied session's place, his DM (theseus-c3e) | Keep; theseus-c3e |
 
 **Known gaps.**
 - ~~The operator lane falls back to a session's place even where the daemon binds nothing, so a
@@ -951,9 +951,9 @@ unbound guild channel acted on his DM, and an unbound daemon answered every inte
   them through `place_for_tests` and `on_interaction`.
 - A card already waiting when `/trust` clears the hold keeps waiting; its Approve runs it.
 - Registering commands is global to the app, so a scratch daemon's list replaces the installed
-  build's until Eddie's daemon next starts.
+  build's until the owner's daemon next starts.
 
-**Reviewed** (Tabitha, 2026-09-30, 17:03 to 17:11).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 17:03 to 17:11).
 - **The gate rerun.** The first rerun failed one test, `versions::a_start_at_once_after_a_stop_waits_for_the_store`,
   with "the connection closed" at a shutdown. That was theseus-ur0, the lost stop answer, under load 9 from
   the parallel lanes' builds. It passed 5 of 5 alone, and the second full rerun passed: 525 tests, with every
@@ -962,10 +962,10 @@ unbound guild channel acted on his DM, and an unbound daemon answered every inte
 - **Reading the code.** `on_interaction` now finds a guild interaction's place by its channel alone, and a
   DM's by its user's DM binding. It answers nothing in a place it does not bind, and still refuses an unlisted
   user in a place it does. Two new tests cover the routing and `/trust` under `[approval]`.
-- **A live check on the release build of 3aa72a8**, over a copy of Eddie's store (Discord and the web UI off,
+- **A live check on the release build of 3aa72a8**, over a copy of the owner's store (Discord and the web UI off,
   glm live). A GLM turn fetched the `String` page, and then set a 30-minute wake: it was set at once, with no
   approval, while health listed the session as holding external text. The test wake was then cancelled.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - **Installed at 17:10** from 3aa72a8.
 - **Taken at review:** theseus-ur0 (P1, the gate's flake under the lanes' load) goes with theseus-kol in fix
   batch 1's head. theseus-c3e (P3) keeps Discord-enabled scratch daemons on fresh stores.
@@ -1010,7 +1010,7 @@ first step after T1b.
   its test failed as the bug did. The frame budget still holds 5.
 - Stress, release, under 8 busy loops: 0 of 201 stop answers lost on 13adef6, against 26 of 201 on T1b's
   build. The versions test passed 20 of 20 under the same load.
-- The step's live check, on a copy of Eddie's store with the live profile at `default` (Sonnet):
+- The step's live check, on a copy of the owner's store with the live profile at `default` (Sonnet):
   - a SIGKILLed `-P glm` job's restart and late result both ran on glm, and GLM answered "Exit code 0.";
   - Sonnet then answered in the same session, with GLM's thinking dropped;
   - with glm's profile and provider removed from the config, the cut tool loop (GLM's `thinking` and
@@ -1035,7 +1035,7 @@ first step after T1b.
 - The fallback for a vanished profile takes the live profile's `max_output_tokens`, which could exceed the
   session model's ceiling. Left as is, since it needs both.
 
-**Reviewed** (Tabitha, 2026-09-30, 18:09 to 18:20).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 18:09 to 18:20).
 - **The gate rerun** at be71fdc, with the lanes paused: 535 tests, lifecycle OK. It passed first time.
 - **Reading the code.**
   - ur0's writer drains everything queued before the flush ask, and the answer is queued first, on the same
@@ -1044,7 +1044,7 @@ first step after T1b.
   - B compares each node's recorded provider. `provider` is a required field of `assistant_message`, so an
     old session's thinking stays with its own provider.
   - C's frame keeps the queue and the node together.
-- **A live check on the release build of be71fdc**, over a fresh copy of Eddie's store (Discord and the web
+- **A live check on the release build of be71fdc**, over a fresh copy of the owner's store (Discord and the web
   UI off; the live profile `default`, Sonnet). An `ask -P glm` turn ran `sleep 20` through `proc.run`, and
   the daemon was SIGKILLed 3 s into the job and restarted.
   - The ledger shows three `turn.started` rows (the input, the restart's continuation, and the late
@@ -1052,7 +1052,7 @@ first step after T1b.
     `provider.error`.
   - GLM answered "Exit code 0 — reviewed."
   - Ten `theseus shutdown`s, each followed at once by a start, lost no answer and failed no start.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - **Installed at 18:18** from be71fdc.
 - **Taken at review:**
   - theseus-ljr is raised to P1 and goes into fix batch 1's rest, since a recurring 400 would now post a
@@ -1063,7 +1063,7 @@ first step after T1b.
 ### Item 13. Hardening H1 to H4, the first code lane's join (theseus-70f, theseus-s68, theseus-wz2, theseus-skc; 2026-09-30, lane 16:32–17:40, join 18:21–18:35; 40818db, a60f4e6, 44300da, 5b13509)
 
 **Why.** Review 2 (theseus-zaz, 15:24) named four security findings with concrete repros:
-- H1: any web page in Eddie's browser could drive the web UI, by DNS rebinding or by a WebSocket from
+- H1: any web page in the owner's browser could drive the web UI, by DNS rebinding or by a WebSocket from
   another origin.
 - H2: one fetched page with multibyte text after a raw element's end tag aborted the daemon.
 - H3: the store and raw job output were world-readable.
@@ -1114,11 +1114,11 @@ joined here through a spine step.
   - Every fix's test was proved against a revert of the fix (`revert.py`). For example, without H1 a rebound
     `Host` got `200 OK` and a foreign `Origin` got `101`. Without H4, the diff showed an outside file's
     secret.
-  - The lane's live check, on a copy of Eddie's store: a WebSocket probe went 12 of 12 (foreign `Host` 403;
+  - The lane's live check, on a copy of the owner's store: a WebSocket probe went 12 of 12 (foreign `Host` 403;
     foreign, null, https, or missing `Origin` 403; the UI's own page 101, and `health` over it).
     `web.refused` rows were at once and then a minute later, matching health's counts. The state dir and
     store went 0775/0755 to 0700 at start.
-- **The join** (Tabitha):
+- **The join** (Tabitha/Claude):
   - `lane/hardening` rebased onto f6b68eb (docs v0.64). Commits 1 to 3 applied cleanly. Commit 4 (H3)
     conflicted in `toolrun.rs`'s `absorb`, which be71fdc had rewritten so a late result's node rides in the
     frame that takes it from the queue. Resolved by collecting each absorbed job's raw output path in
@@ -1133,7 +1133,7 @@ joined here through a spine step.
 | Planned | Actual | Why | Disposition |
 |---|---|---|---|
 | H1: a per-start token for the web UI (review 2's option) | `Host` and `Origin` checks, no token | A token from the same server reaches exactly the clients that pass both checks; the real boundary is the peer's uid | Keep; theseus-3qf |
-| H1: default `[web] enabled` to false in the interim (review 2) | Left on | With both checks in, the default can stay; Eddie's call if he wants it off | Keep |
+| H1: default `[web] enabled` to false in the interim (review 2) | Left on | With both checks in, the default can stay; the owner's call if he wants it off | Keep |
 | H3: tighten the store's directories | Directories tightened at start; files that already exist keep their bits | The 0700 directories leave other users no path to them; a store made since has none | Keep |
 | H3: raw job output deleted or swept | Deleted once absorbed; output no result absorbs is not swept | The common path is clean; the rest needs a sweep by action state | theseus-2ij, built in Item 25 |
 | — | `git.diff` also refuses tree paths that climb out (`..`, absolute) | Found while reviewing the fix: a fetched tree can hold one | Keep |
@@ -1150,13 +1150,13 @@ joined here through a spine step.
   the built app is unaffected).~~ Closed by the `secfix` lane and the cockpit (Items 22 and 23).
 - Health's `web` section is in the JSON only; the CLI's text summary and the web UI don't show it yet. The
   cockpit shows it (Item 23); the CLI and the Observatory still don't (theseus-jxau).
-- The panic policy (unwind, or abort under a supervisor) is still Eddie's call, from review 2.
+- The panic policy (unwind, or abort under a supervisor) is still the owner's call, from review 2.
 
-**Reviewed** (Tabitha, 2026-09-30, from 17:52: the report; the join from 18:21).
+**Reviewed** (Tabitha/Claude, 2026-09-30, from 17:52: the report; the join from 18:21).
 - The lane's report was read in full. The fixes, their reverts, and the property tests' finds are as
   described.
 - The join's conflict was resolved as above, and the whole gate passed on the joined tree.
-- **A live check on the release build of 5b13509**, over a fresh copy of Eddie's store (Discord off; the web
+- **A live check on the release build of 5b13509**, over a fresh copy of the owner's store (Discord off; the web
   UI on at 7436; `proc_sync_secs = 2`):
   - At start, the state dir went 0775 to 0700 and the store 0755 to 0700, each with its `tightened` log
     line. The spool was made 0700.
@@ -1165,24 +1165,24 @@ joined here through a spine step.
     as a late result (a `tool.late_result` row). Its continuation ran on glm and answered "Exit code 0 —
     joined." Afterwards the spool's `results/` was empty: the merged `absorb` deleted the raw output.
   - No `provider.error`.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - **`main` fast-forwarded** to 5b13509 and pushed. `lane/hardening` was force-pushed with a lease, since it
   was rebased.
 - **Installed at 18:34** from 5b13509: the binaries the live check ran.
-- When Eddie's daemon next starts on this build, it tightens `~/.theseus` and its store to 0700, once, with
+- When the owner's daemon next starts on this build, it tightens `~/.theseus` and its store to 0700, once, with
   a log line each.
 
 ### Item 14. The dogfood pilot: Theseus builds theseus-kks itself (theseus-14s, theseus-kks; 2026-09-30, 21:21–22:51; d10294f)
 
-**Why.** Eddie, 2026-09-30 15:17: "It would be fantastic to start developing theseus on theseus -- very on
-brand". The re-cut made the pilot spine row 2: Theseus builds one small fix to itself, and Tabitha reviews it as
-any step. At 19:37 Eddie decided its isolation: the builder runs as him, in the same general context, with the
+**Why.** The owner, 2026-09-30 15:17: "It would be fantastic to start developing theseus on theseus -- very on
+brand". The re-cut made the pilot spine row 2: Theseus builds one small fix to itself, and Tabitha/Claude reviews it as
+any step. At 19:37 the owner decided its isolation: the builder runs as him, in the same general context, with the
 same approvals and notifications as a normal agent. So the pilot has no second user and no sandbox.
 
 **What exists.**
 - **The pilot's harness**, which is not product code:
   - A builder daemon: the installed build (5b13509), with its own state dir (`~/.theseus-builder`), socket,
-    and worktree (`lane/pilot`), bound only to `#theseus-test`, with Eddie's posture unchanged.
+    and worktree (`lane/pilot`), bound only to `#theseus-test`, with the owner's posture unchanged.
   - A `theseus-dev` persona: the agents' operating notes for the repo, plus a short "How you work here". 52 KB.
   - A profile `opus` on `claude-opus-5-5`, and `spend_limit_usd = 40`.
   - A runner (an OpenClaw subagent) set it up, sent the step brief as the first message of the channel's
@@ -1226,7 +1226,7 @@ same approvals and notifications as a normal agent. So the pilot has no second u
 | Planned | Actual | Why | Disposition |
 |---|---|---|---|
 | The step's live check, by the builder | Not done by the builder; done at review | Its scratch writes outside its roots needed approval, and the cards notified nobody | theseus-9j9 (P1); theseus-2tw (a scratch root for a builder) |
-| Approvals answered by Eddie in the channel | None answered; both declined after 30 minutes | `allowed_mentions` is empty on a card | theseus-9j9 |
+| Approvals answered by the owner in the channel | None answered; both declined after 30 minutes | `allowed_mentions` is empty on a card | theseus-9j9 |
 | kks's behaviour after an approval: the brief left it to the builder | One retry, then `over_limit` | It keeps the kernel's invariant that reservations fit the limit, and an approval after a config change is useful | Keep |
 
 **Known gaps.**
@@ -1241,12 +1241,12 @@ same approvals and notifications as a normal agent. So the pilot has no second u
   - theseus-lqk: `max_loops` (40) parks a builder's step;
   - theseus-8wm: notices flood the channel;
   - ~~theseus-ewi: `proc.run` may write outside the roots under `notify` while `fs.write` asks (a decision for
-    Eddie);~~ decided and built in Item 55;
+    the owner);~~ decided and built in Item 55;
   - theseus-inw: `fs.patch` rejects a hunk whose header counts are off.
 - **The persona's nextest wording** ("`-j 4`") led to one failed command. The next pilot's persona says
   `--build-jobs 4 --test-threads 4`.
 
-**Reviewed** (Tabitha, 2026-09-30, 23:15 to 23:26).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 23:15 to 23:26).
 - **Reading the code.**
   - `retry_over_limit` comes only from a settled, approved budget question whose own proposal says
     `needed > limit`. A raise that withdraws the question is not an approval, so it doesn't set the flag.
@@ -1254,7 +1254,7 @@ same approvals and notifications as a normal agent. So the pilot has no second u
     wake follows (the pattern of theseus-ljr). The builder's test holds the execution at `Waiting` on input.
   - A question asked before this build has no `args.call`, and renders the generic remedy.
 - **The live check the builder could not run.** It used the release build of d10294f, on a fresh state dir
-  under `/tmp`, with Eddie's note (Discord and the web UI off) and `spend_limit_usd = 0.002`.
+  under `/tmp`, with the owner's note (Discord and the web UI off) and `spend_limit_usd = 0.002`.
   - The question read: "This session is waiting on the call to claude-sonnet-5-5, which alone reserves $1.29:
     more than its whole $0.002 limit, so resetting its spend to $0 cannot make it fit. Raise `[kernel]
     spend_limit_usd` above $1.29, or lower `max_output_tokens` under `[profiles.sonnet]` (now 128,000)." It
@@ -1265,7 +1265,7 @@ same approvals and notifications as a normal agent. So the pilot has no second u
   - Nothing was waiting for confirmation. Twelve seconds later there were still two turns, and the execution
     was `waiting` with nothing queued: no loop.
 - **The gate rerun** at d10294f on `main` (23:22 to 23:24, the lanes paused): 562 tests, lifecycle OK.
-- Eddie's unchanged note loads under the new binary: 8 secrets resolved.
+- The owner's unchanged note loads under the new binary: 8 secrets resolved.
 - **`main` fast-forwarded** to d10294f and pushed. **Installed at 23:24** from d10294f: the binaries the live
   check ran.
 - **The verdict on more builders:** yes for the coding. Not yet for unattended steps with a live check, until
@@ -1314,10 +1314,10 @@ same approvals and notifications as a normal agent. So the pilot has no second u
     park; the 529's backoff kept);
   - 9j9: `tests_outbox` with the fake Discord's notification model;
   - 0s4: five `tests_m3` turn tests and the parser's tests.
-- The live checks, on release builds and fresh state dirs from Eddie's note:
+- The live checks, on release builds and fresh state dirs from the owner's note:
   - ljr: a model the provider does not serve failed twice and parked, with no third attempt 5 min 41 s
     later, and the next message answered;
-  - 9j9: a card in `#theseus-test` pinged Eddie once (Discord's answer: `mentions` = his id alone), and
+  - 9j9: a card in `#theseus-test` pinged the owner once (Discord's answer: `mentions` = his id alone), and
     the footer, tool line, and reply mentioned no one;
   - 0s4, on Sonnet 5.5: Anthropic refused a PNG with a valid header and corrupt pixel data with a 400,
     "Could not process image", which names no block. The image was hidden, the call was made again, and
@@ -1346,10 +1346,10 @@ same approvals and notifications as a normal agent. So the pilot has no second u
 - Theseus rebuilds `messages` from its nodes for every request, and has never run preserved thinking's
   three-step check. An account created on or after 2026-08-31 would see any rendering drift as a 400
   (theseus-3za, P2).
-- An image's retry takes a loop index, so it can run one call past `max_loops` (40 in Eddie's note)
+- An image's retry takes a loop index, so it can run one call past `max_loops` (40 in the owner's note)
   (theseus-6hk, P3).
 
-**Reviewed** (Tabitha, 2026-10-01, 02:32 to 02:53).
+**Reviewed** (Tabitha/Claude, 2026-10-01, 02:32 to 02:53).
 - **Reading the code.**
   - ljr: `Failing::after` decides from the run so far. A turn that settled nothing parks at once. A call the
     provider answered with an error counts as settled, so a 529 on a turn's first call still backs off. An
@@ -1361,26 +1361,26 @@ same approvals and notifications as a normal agent. So the pilot has no second u
   - 0s4: a 400 that names no block falls back to the images after the model's last answer, and only when
     its text says "image". A lone image with nothing newer hides itself; older images with nothing newer
     hide nothing. The marks reach the store at once, one per digest, each with an `image.not_shown` row.
-- **The live check**, on the release build of 8ed512f, over a copy of Eddie's store (Discord and the web UI
+- **The live check**, on the release build of 8ed512f, over a copy of the owner's store (Discord and the web UI
   off, its own socket and state dir):
   - d10294f and 8ed512f list the same five sessions, and each session's history is byte-identical under
     both.
   - One Sonnet 5.5 turn on 8ed512f ($0.0129) wrote a session record at schema 4, and a restart read it back.
   - d10294f then refused the copy: "holds session records (kind 1) at schema 4, and this build reads session
     records up to schema 2: install the newer theseusd".
-  - `theseusd check` on Eddie's note: 8 secrets resolved, and the GitHub token is ok.
+  - `theseusd check` on the owner's note: 8 secrets resolved, and the GitHub token is ok.
 - **The gate rerun** at 8ed512f on `main` (02:43 to 02:44): 584 tests, lifecycle OK in 7.0 s.
-- **Eddie's store was copied** to `~/.theseus-backups/store-pre-fb1b-20261001-024659` before the install. It
+- **The owner's store was copied** to `~/.theseus-backups/store-pre-fb1b-20261001-024659` before the install. It
   is the only rollback.
 - **Installed at 02:50** from 8ed512f, which the step had already pushed to `main`.
 - **Part I** now says what the three fixes do: §3.15's bounded retries, a card's answerers in the Discord
   binding, and the refused image in attachments.
-- **Builders.** With 9j9 in, a builder's card now reaches Eddie. theseus-2tw (a scratch root for a builder's
+- **Builders.** With 9j9 in, a builder's card now reaches the owner. theseus-2tw (a scratch root for a builder's
   live check) is what still stands between a builder and an unattended step, and the friction batch takes it.
 
 ### Item 16. The first merge batch: ten lanes on `main` ahead of their readers (theseus-zaz.18; 2026-10-01 02:58 to 03:18; 1fe9c0e to abf01c5)
 
-**Why.** Eddie, 2026-10-01 00:00: "merge and dismiss branches once done". The lane recipe's rule 3 now merges a
+**Why.** The owner, 2026-10-01 00:00: "merge and dismiss branches once done". The lane recipe's rule 3 now merges a
 lane as soon as it is reviewed. It no longer waits for the spine step that reads it.
 
 **What landed.** One lane at a time, in this order. Each was rebased onto `main` and gated on `main`'s own tree.
@@ -1444,7 +1444,7 @@ the vectors.
 
 **Left open.** `lane/aws-client` (P1's catalog is committed; P2, the client, is still running).
 
-**Reviewed** (Tabitha, 2026-10-01, 02:56 to 03:24). The batch is this review: each lane was read when its report
+**Reviewed** (Tabitha/Claude, 2026-10-01, 02:56 to 03:24). The batch is this review: each lane was read when its report
 landed (Items 12 to 14's dates), its join is above, and its gate log is in `~/reports/theseus-merge/`.
 
 ### Item 17. Fix batch 1, part 3: a first open a kill can't brick, a tear that respects durability, and a
@@ -1485,7 +1485,7 @@ cancel that cancels everything (theseus-0b8, theseus-4x6, theseus-w98; 2026-10-0
   - a second process holding the store, refused;
   - the crash test: seeds 3, 7, and 11, loops of 40 and of 30 × 8 restarts, and six runs at once with 32
     kills inside the first open;
-  - live, on a copy of Eddie's store with a 37-byte partial header for its index:
+  - live, on a copy of the owner's store with a 37-byte partial header for its index:
     - the file is moved aside and the index rebuilt from 1,490 records;
     - `theseus sessions` and all five histories are byte-identical to the copy with its index intact;
     - a second daemon beside it refuses after 3 s, as before, and moves nothing.
@@ -1519,12 +1519,12 @@ cancel that cancels everything (theseus-0b8, theseus-4x6, theseus-w98; 2026-10-0
 - ~~theseus-ni5: the never-asked planned call (the kernel API only).~~ Built in Item 54.
 - theseus-2fs: the sandbox lane's flaky `clause_10` test.
 - ~~theseus-2qt: a cancel, and a turn that ends its execution, scan every action in the store
-  (`open_actions`), as a stop already did. That costs little on Eddie's store (62 actions), and grows
+  (`open_actions`), as a stop already did. That costs little on the owner's store (62 actions), and grows
   with the store.~~ Built in Item 46.
-- An execution an older build cancelled may still hold a planned call that counts as waiting. Eddie's
+- An execution an older build cancelled may still hold a planned call that counts as waiting. The owner's
   store holds none.
 
-**Reviewed** (Tabitha, 2026-10-01, 04:31 to 04:40).
+**Reviewed** (Tabitha/Claude, 2026-10-01, 04:31 to 04:40).
 - **Reading the code.**
   - `move_aside`: it takes the file's lock, and checks that the name still names the locked inode. A file of 320
     bytes or more that starts with redb's magic is a database and stays. Anything else is renamed, never
@@ -1534,7 +1534,7 @@ cancel that cancels everything (theseus-0b8, theseus-4x6, theseus-w98; 2026-10-0
     a turn.
 - **The gate rerun** at 69c1e7e (04:32 to 04:34; it first waited for the vectors lane's gate to release the
   shared lock): 950 tests, lifecycle OK in 7.0 s.
-- **A second live check**, on the release build, over fresh copies of Eddie's store:
+- **A second live check**, on the release build, over fresh copies of the owner's store:
   - an empty `index.redb` is recreated by redb itself, with nothing moved and every history identical;
   - 100 zero bytes are moved aside and rebuilt, with every history identical;
   - the installed 8ed512f then serves the rebuilt copy, so rolling back still opens a store this build
@@ -1542,7 +1542,7 @@ cancel that cancels everything (theseus-0b8, theseus-4x6, theseus-w98; 2026-10-0
 - **What stays as it was.** A redb file that is a database but `Corrupted` (cut below its layout, bad commit
   slots) is still refused, and its recovery is still `theseusd restore` from the WAL directory. The lane's
   crash loops never made one: 32 kills inside a first open under load, each moved and rebuilt.
-- **Eddie's store was copied** to `~/.theseus-backups/store-pre-fb1c-20261001-043807`, and the build **installed
+- **The owner's store was copied** to `~/.theseus-backups/store-pre-fb1c-20261001-043807`, and the build **installed
   at 04:38** from 69c1e7e. No layout changed, so the copy is a precaution, not the only rollback.
 
 ### Item 18. Two more lanes on `main`: the AWS client, and `theseusd install`, proved as root (theseus-mgw.2, theseus-7hh; 2026-10-01, merged 04:41 and 04:43; f3b2eeb, fcf833c)
@@ -1572,7 +1572,7 @@ only for fix batch 1's last step (Item 17), which held `main`.
 - **Filed:** theseus-fln (P3). The catalog generator should find the models beside the `aws` on PATH, and the
   guard's model tests could read the embedded catalog.
 
-**The installer's review** (04:33 to 04:42). Eddie ruled out Docker for its proof, so the real `--separate` ran
+**The installer's review** (04:33 to 04:42). The owner ruled out Docker for its proof, so the real `--separate` ran
 on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:58).
 - **Reading the code that runs as root.**
   - Every deletion is one planned file, an empty directory (never recursive), or a socket.
@@ -1643,14 +1643,14 @@ on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:
     start sent nothing; with the default the post stayed dispatched and was sent again once.
 - ez3: `restore::tests::a_restore_syncs_every_copy_and_directory_before_it_reports` (dropping one sync fails
   it); `strace` of the real binary: 6 `fsync`s against the baseline's 2; live, a restore of a copy of
-  Eddie's WAL (1490 records) whose 5 sessions and their histories (105 nodes) equal the copy's, over the
+  the owner's WAL (1490 records) whose 5 sessions and their histories (105 nodes) equal the copy's, over the
   protocol. The syncs cost about 15 to 20 ms (release, quiet).
 - l0d: `redact::tests` (every split of a value across two reads, every read size from 1 to 97 over a long
   run with two values, one the start of the other, against one pass over the whole); `job::tests` and two
   wrapper-process tests (a value split across writes, and a descendant printing it after the report);
   `broker::a_program_that_prints_its_granted_secret_leaves_it_nowhere` (the spool file while the job runs,
   the store, the log, and every surface). With nothing withheld all four job tests fail. Live, a scratch
-  config granted Eddie's GitHub token to a stub that prints it split across two writes: 0 occurrences in
+  config granted the owner's GitHub token to a stub that prints it split across two writes: 0 occurrences in
   the spool file while the job ran (its 85 bytes held the mark), and 0 in the WAL, the index, eight
   surfaces, the log, and the CLI's output after it, counted by value. The pipe costs a one-line job
   nothing measurable and a 32 MiB one about 40 ms; a job without a grant keeps its old path.
@@ -1672,27 +1672,27 @@ on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:
 
 **Known gaps.**
 - ~~theseus-4xa (P2): the default 50 ms grace settles only a write near its end; real Discord takes 250 to
-  400 ms; Eddie's call.~~ Eddie kept 50 ms (2026-10-01 14:38).
-- ~~theseus-ndw: the lifecycle bench never has a post in flight, so the gate does not hold the grace.~~ Built in Item 46: the bench's `inflight` phase measures it, and its budget waits on Eddie (theseus-fsug).
+  400 ms; the owner's call.~~ The owner kept 50 ms (2026-10-01 14:38).
+- ~~theseus-ndw: the lifecycle bench never has a post in flight, so the gate does not hold the grace.~~ Built in Item 46: the bench's `inflight` phase measures it, and its budget waits on the owner (theseus-fsug).
 - ~~theseus-p7q: `--stdio` has no signal arm.~~ Built in Item 54.
 - theseus-rnx: the PTY path, when built, must withhold granted values the same way.
 - ~~theseus-26r: rare 300 to 900 ms clean stops in debug, unquiet, not seen in the quiet release A/B.~~ Found in Item 46: the machine's writeback, in one of the stop's two waits on the disk.
 - The installer's units keep `KillSignal=SIGINT`: no longer needed, harmless, right for an older binary.
 - `theseusd restore` still needs 1Password access to start, though it reads no secret.
 
-**Reviewed** (Tabitha, 2026-10-01, 07:31 to 07:36).
+**Reviewed** (Tabitha/Claude, 2026-10-01, 07:31 to 07:36).
 - **Reading the report against the code:** the signal arms registered once before the loop; `Core::stopping_on`
   and `finish_stop`; the grace counted from the stop's start; the restore's `Durable` trait and its order of
   syncs; the wrapper's pipe and `Redactor`, with jobs without a grant on their old path.
 - **The gate rerun** at 5914183: 1,068 tests, lifecycle OK in 7.3 s.
-- **A live check of the stop**, on the release build, over a copy of Eddie's store:
+- **A live check of the stop**, on the release build, over a copy of the owner's store:
   - SIGTERM: exit 0 in 32 ms, socket gone, the next start replayed nothing and repaired nothing, and
     `server.stopping {"signal":"SIGTERM"}` was in the ledger;
   - SIGINT: the same, in 26 ms.
-- **Eddie's store was copied** to `~/.theseus-backups/store-pre-fb2a-20261001-073547`, and the build **installed at
+- **The owner's store was copied** to `~/.theseus-backups/store-pre-fb2a-20261001-073547`, and the build **installed at
   07:35** from 5914183. No layout changed.
-- **The grace's default** (theseus-4xa) is Eddie's call. Tabitha recommended keeping 50 ms and §9's budget, since a
-  post the stop cuts off is sent again under its nonce and Discord returns the first one. Eddie kept 50 ms
+- **The grace's default** (theseus-4xa) is the owner's call. Tabitha/Claude recommended keeping 50 ms and §9's budget, since a
+  post the stop cuts off is sent again under its nonce and Discord returns the first one. The owner kept 50 ms
   (2026-10-01 14:38: "50ms!").
 
 ### Item 20. Vectors, voice, and two small fixes on `main` (theseus-nz8, theseus-3xn, theseus-2fs, theseus-fln; 2026-10-01, merged 07:39 to 07:43; 648239e, 3a0a567, 128b3f6)
@@ -1713,7 +1713,7 @@ on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:
   - `RAYON_NUM_THREADS` and `CANDLE_NUM_THREADS` are set before any thread starts.
   - The pinned hashes match the fetch's manifest; the model's was also checked against Hugging Face's LFS hash.
   - Weights are refused before use when wrong.
-- **Live, on a copy of Eddie's store:**
+- **Live, on a copy of the owner's store:**
   - 536 MiB with the model loaded, 11 MiB once it unloads;
   - a load answers 0.53 s after `index.warm`;
   - a query embeds in p50 74 ms, p95 86 to 94 ms;
@@ -1743,7 +1743,7 @@ on this machine, with sudo (his word, 2026-09-30 23:45), then was torn down (23:
 - **What 44b inherits:**
   - songbird plays only Opus as configured, so the lane added symphonia's PCM;
   - songbird receives no audio unless its manager is the crate's `manager()`.
-- **The live join waits** for Eddie's private test voice channel.
+- **The live join waits** for the owner's private test voice channel.
 
 **The smallfix lane's review.**
 - 2fs: under 32 busy loops, the old test failed 27 of 50 runs; the fixed one passed 50 of 50, and 200 of 200

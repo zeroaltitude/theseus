@@ -1,6 +1,6 @@
 # Theseus: technical overview
 
-_My first agent harness, be gentle._ (Eddie)
+_My first agent harness, be gentle._ (the owner)
 
 This was the repository's README until 2026-10-01; the new README is the plain-language introduction. This
 overview covers the core as built through M3: the protocol, the store, the kernel, and the tool loop. Everything
