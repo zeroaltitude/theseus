@@ -23,16 +23,20 @@ use crate::tests_lsp::{lsp_config, project, InProcess};
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
-struct Rig {
-    core: Arc<Core>,
-    work: PathBuf,
-    spawner: Arc<InProcess>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) work: PathBuf,
+    pub(crate) spawner: Arc<InProcess>,
     _dir: tempfile::TempDir,
 }
 
 /// A core with `[lsp]` on over the fake (as `fake`, `cfg` its script),
 /// answering with `script`, its config changed by `tweak`.
-fn rig(script: Vec<Scripted>, fake: FakeConfig, tweak: impl FnOnce(&mut Config, &Path)) -> Rig {
+pub(crate) fn rig(
+    script: Vec<Scripted>,
+    fake: FakeConfig,
+    tweak: impl FnOnce(&mut Config, &Path),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let work = project(dir.path());
     let mut cfg = Config::example();
@@ -65,7 +69,7 @@ fn rig(script: Vec<Scripted>, fake: FakeConfig, tweak: impl FnOnce(&mut Config, 
 }
 
 /// A session, posting to `place` when given.
-fn session(core: &Core, place: Option<&str>) -> String {
+pub(crate) fn session(core: &Core, place: Option<&str>) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     if let Some(p) = place {
@@ -74,7 +78,7 @@ fn session(core: &Core, place: Option<&str>) -> String {
     r.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -100,7 +104,7 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
 }
 
 /// A call's result as its session stores it: its text and its meta.
-fn result_of(core: &Core, sid: &str, id: &str) -> (String, Value) {
+pub(crate) fn result_of(core: &Core, sid: &str, id: &str) -> (String, Value) {
     core.store
         .session_nodes(sid)
         .unwrap()
@@ -118,7 +122,7 @@ fn result_of(core: &Core, sid: &str, id: &str) -> (String, Value) {
 }
 
 /// An `fs.edit` call, then the model's last word.
-fn edit(id: &str, path: &str, old: &str, new: &str) -> Vec<Scripted> {
+pub(crate) fn edit(id: &str, path: &str, old: &str, new: &str) -> Vec<Scripted> {
     vec![
         Scripted::tools(
             "Editing.",
@@ -367,17 +371,11 @@ async fn the_block_adds_no_frame() {
     assert!(!result_of(&r.core, &sid, "e2").0.contains("Errors after"));
     open(&r, &["b.fake"]).await;
     // `open` started the server, whose `lsp.ready` row lands after the call
-    // returns (`lsp::readiness`): count from a still store.
-    let mut last = frames(&r);
-    for _ in 0..50 {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let now = frames(&r);
-        if now == last {
-            break;
-        }
-        last = now;
-    }
+    // returns (`lsp::readiness`), on the board's own task, however late the
+    // machine runs it: wait for that row itself, and count the turn's alone.
+    until_ledgered(&r.core, "lsp.ready").await;
     let before = frames(&r);
+    let rows_before = ledger_kinds(&r.core).len();
     turn(&r.core, &sid, "with").await;
     let with = frames(&r) - before;
     assert!(result_of(&r.core, &sid, "e3")
@@ -385,8 +383,31 @@ async fn the_block_adds_no_frame() {
         .contains("Errors after this edit"));
     assert!(
         with <= without,
-        "with the block {with} frames, without {without}"
+        "with the block {with} frames, without {without}; the turn's rows: {:?}",
+        &ledger_kinds(&r.core)[rows_before..]
     );
+}
+
+/// The ledger's row kinds, oldest first.
+fn ledger_kinds(core: &Core) -> Vec<String> {
+    core.store
+        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .map(|(_, r)| r.kind)
+        .collect()
+}
+
+/// Wait, on the real clock, for a row of `kind` to be in the ledger.
+async fn until_ledgered(core: &Core, kind: &str) {
+    let t0 = std::time::Instant::now();
+    while !ledger_kinds(core).iter().any(|k| k == kind) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "no {kind} row in 60 s"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 /// `[lsp.servers.fake] start_on_edit`: with no server up, an edit's gate
