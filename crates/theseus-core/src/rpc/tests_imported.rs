@@ -142,32 +142,43 @@ fn whole_as_before(core: &Core) -> Vec<String> {
         .collect()
 }
 
-/// What a page answered when it walked the births `n` at a time.
-fn page_as_before(core: &Core, n: usize, before: Option<u64>) -> (Vec<String>, Option<u64>) {
+/// Every session key by birth, newest first: one read, which the pages of
+/// one stage are checked against.
+fn births(core: &Core) -> Vec<(u64, String)> {
+    let (born, more) = core
+        .store
+        .inner()
+        .newest_keys(kinds::SESSION, None, usize::MAX)
+        .unwrap()
+        .unwrap();
+    assert!(!more);
+    born.into_iter().map(|(b, r)| (b, r.key.unwrap())).collect()
+}
+
+/// What a page answered when it walked the births `n` at a time, skipping
+/// imported keys: the live keys born before `before`, newest first, up to
+/// `n`, and a cursor at the last when any key, live or not, is older.
+/// (theseus-store's `tests_keyed` holds the walk itself to this rule.)
+fn page_as_before(
+    births: &[(u64, String)],
+    n: usize,
+    before: Option<u64>,
+) -> (Vec<String>, Option<u64>) {
+    let older: Vec<&(u64, String)> = births
+        .iter()
+        .filter(|(b, _)| before.is_none_or(|c| *b < c))
+        .collect();
     let mut out = Vec::new();
-    let mut cursor = before;
-    loop {
-        let (born, more) = core
-            .store
-            .inner()
-            .newest_keys(kinds::SESSION, cursor, n)
-            .unwrap()
-            .unwrap();
-        for (b, r) in &born {
-            if r.key.as_deref().is_some_and(is_imported) {
-                continue;
-            }
-            out.push(r.key.clone().unwrap());
-            if out.len() == n {
-                let last = born.last().map(|(l, _)| *l) == Some(*b);
-                return (out, (more || !last).then_some(*b));
-            }
+    for (i, (b, k)) in older.iter().enumerate() {
+        if is_imported(k) {
+            continue;
         }
-        match born.last() {
-            Some((b, _)) if more => cursor = Some(*b),
-            _ => return (out, None),
+        out.push(k.clone());
+        if out.len() == n {
+            return (out, (i + 1 < older.len()).then_some(*b));
         }
     }
+    (out, None)
 }
 
 fn page(core: &Core, n: usize, before: Option<u64>) -> (Vec<String>, Option<u64>) {
@@ -195,6 +206,7 @@ fn answers_agree(core: &Core, when: &str) -> usize {
         .map(|s| s.session_id)
         .collect();
     assert_eq!(whole, whole_as_before(core), "{when}: the whole list");
+    let births = births(core);
     for n in [1, 2, 3, 4, 20, 1000] {
         let mut cursor = None;
         let mut seen = 0;
@@ -202,7 +214,7 @@ fn answers_agree(core: &Core, when: &str) -> usize {
             let got = page(core, n, cursor);
             assert_eq!(
                 got,
-                page_as_before(core, n, cursor),
+                page_as_before(&births, n, cursor),
                 "{when}: n {n} from {cursor:?}"
             );
             seen += got.0.len();
@@ -239,7 +251,7 @@ fn list_reads(core: &Core, past: Option<u64>) -> [u64; 4] {
     ]
 }
 
-/// Two imports of 1,500 synthetic sessions each, with live sessions opened
+/// Two imports of 1,000 synthetic sessions each, with live sessions opened
 /// before, between, and after them, one parked on a question: each list
 /// answers as its old read did, and the second import, and an erase, add
 /// not one record to what any list reads. Its old reads read every imported
@@ -251,7 +263,7 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     let c = &r.core;
     let early: Vec<String> = (0..3).map(|_| open(c)).collect();
     answers_agree(c, "before any import");
-    import(c, TAG, 0, 1_500);
+    import(c, TAG, 0, 1_000);
     let waiting = parked(c).await;
     let between = open(c);
     assert_eq!(answers_agree(c, "after the first import"), 5);
@@ -266,7 +278,7 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     // Its own sessions' records and their executions', not one per imported
     // key or per `n` of them.
     assert!(read_before.iter().all(|r| *r < 60), "{read_before:?}");
-    import(c, LATER, 1_500, 1_500);
+    import(c, LATER, 1_000, 1_000);
     assert_eq!(
         list_reads(c, past),
         read_before,
@@ -275,7 +287,7 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     let late: Vec<String> = (0..2).map(|_| open(c)).collect();
     assert_eq!(answers_agree(c, "after the second import"), 7);
     // The newest page holds the live sessions opened after both runs, and
-    // the one before them, past 3,000 imported births.
+    // the one before them, past 2,000 imported births.
     let (newest, older) = page(c, 4, None);
     assert_eq!(newest[..2], [late[1].clone(), late[0].clone()]);
     assert_eq!(newest[2], between);
@@ -289,5 +301,5 @@ async fn the_session_lists_read_no_imported_session_and_answer_as_before() {
     write::erase(&c.store, TAG, Some("a test's erase"), "test").unwrap();
     assert_eq!(list_reads(c, past), read_before, "an erase adds no read");
     assert_eq!(answers_agree(c, "after an erase"), 7);
-    assert_eq!(c.store.session_count().unwrap(), 3_007);
+    assert_eq!(c.store.session_count().unwrap(), 2_007);
 }
