@@ -171,7 +171,9 @@ fn rusts_debug_form_is_caught_where_it_shares_jsons_escapes() {
 }
 
 /// What `scrub` costs on 64 KB outputs with ten board values, three of which
-/// change when escaped (theseus-ubp7). Run in a release build:
+/// change when escaped (theseus-ubp7): plain text, pretty JSON, ~7,800
+/// escapes, a few escapes, JSON inside a JSON string, and base64 wrapped by
+/// `\n` escapes (theseus-nlvx, theseus-cjyt). Run in a release build:
 /// `cargo test --profile release-thin -p theseus-core --lib scrub_cost -- --ignored --nocapture`.
 #[test]
 #[ignore = "a timing, run by hand in a release build"]
@@ -219,11 +221,44 @@ fn scrub_cost() {
             "{{\"path\": \"C:\\\\Users\\\\inventor\\\\{i}\", \"msg\": \"caf\\u00e9\\n\\t\\\"ok\\\"\"}}\n"
         )
     });
+    // A few escapes in plain text: one quoted line every 8 KB or so.
+    let few = fill(&|i| {
+        if i % 128 == 0 {
+            format!("line {i}: {{\"msg\": \"a \\\"quoted\\\" word\\tand a tab\"}}\n")
+        } else {
+            format!("line {i}: the quick brown fox jumps over the lazy dog, again\n")
+        }
+    });
+    // JSON inside a JSON string: every escape is left after the first decode.
+    let twice = fill(&|i| {
+        let inner = serde_json::json!({
+            "path": format!("C:\\Users\\inventor\\{i}"), "msg": "caf\u{e9} \"ok\"\n",
+        });
+        let outer = serde_json::json!({ "doc": serde_json::to_string(&inner).unwrap() });
+        format!("{}\n", serde_json::to_string(&outer).unwrap())
+    });
+    // A file's base64 as GitHub's contents API returns it: `\n` every 60.
+    let wrapped = {
+        use base64::Engine as _;
+        let bytes: Vec<u8> = (0..48 * 1024u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8)
+            .collect();
+        let enc = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let lines: Vec<&str> = enc
+            .as_bytes()
+            .chunks(60)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect();
+        serde_json::json!({ "name": "blob.bin", "content": lines.join("\n") }).to_string()
+    };
     assert!(!pretty.contains('\\') && slashed.matches('\\').count() > 5_000);
     for (what, text) in [
         ("plain text", &plain),
         ("pretty JSON", &pretty),
         ("backslashes", &slashed),
+        ("a few escapes", &few),
+        ("twice escaped", &twice),
+        ("base64 by \\n", &wrapped),
     ] {
         let started = std::time::Instant::now();
         for _ in 0..CALLS {

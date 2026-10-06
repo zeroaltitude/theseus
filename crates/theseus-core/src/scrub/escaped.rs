@@ -70,8 +70,12 @@ pub(super) fn spans<'a>(
             }
         }
         // Base64 wrapped by escaped line breaks, or holding PHP's `\/`
-        // (theseus-cjyt): only a run with one of this level's escapes inside
-        // it, since the level before read every other run as it is.
+        // (theseus-cjyt): only when an escape joins base64 to base64, and
+        // then only a run with one of this level's escapes inside it, since
+        // the level before read every other run as it is.
+        if !escapes.iter().any(|e| joins(decoded.as_bytes(), e)) {
+            continue;
+        }
         let inside = |run: std::ops::Range<usize>| {
             let k = escapes.partition_point(|e| e.dec < run.start);
             escapes.get(k).is_some_and(|e| e.dec < run.end)
@@ -82,6 +86,20 @@ pub(super) fn spans<'a>(
         }
     }
     out
+}
+
+/// Whether an escape stands for a line break or a base64 character between
+/// base64 characters, as `\n` does in wrapped base64 in a JSON string and `\/`
+/// does in PHP's: a run the raw text broke there may go on in the decoded.
+fn joins(decoded: &[u8], e: &Escape) -> bool {
+    let run = |c: &u8| super::is_base64(*c) || *c == b'=';
+    let c = decoded[e.dec];
+    (matches!(c, b'\n' | b'\r') || run(&c))
+        && e.dec > 0
+        && (run(&decoded[e.dec - 1]) || decoded[e.dec - 1] == b'\r')
+        && decoded
+            .get(e.dec_end)
+            .is_some_and(|n| run(n) || matches!(n, b'\n'))
 }
 
 /// Whether the byte at `i` is the letter of an escape: after an odd count of
