@@ -260,6 +260,8 @@ mod tests_security;
 #[cfg(test)]
 mod tests_situation;
 #[cfg(test)]
+mod tests_stack;
+#[cfg(test)]
 mod tests_steps;
 #[cfg(test)]
 mod tests_stub_kinds;

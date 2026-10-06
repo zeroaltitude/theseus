@@ -636,6 +636,17 @@ struct Failure {
     source: anyhow::Error,
 }
 
+/// `f`'s future, built in this frame and moved to the heap (theseus-b4sf):
+/// its caller's poll frame keeps only the closure and a pointer, where an
+/// awaited call would keep a slot the size of the future at opt-level 0.
+fn boxed<F: std::future::Future>(f: impl FnOnce() -> F) -> std::pin::Pin<Box<F>> {
+    Box::pin(f())
+}
+
+/// What `run_inner` hands `run`: the result, how the turn ends, whether a
+/// late result wakes it again, and the session's hold.
+type Inner = (TurnSubmitResult, TurnEnd, bool, Option<SessionHold>);
+
 impl TurnRunner {
     /// Resolve what a turn runs against. Precedence: raw `provider`/`model`
     /// overrides > the named `profile` > the live profile.
@@ -1052,9 +1063,20 @@ impl TurnRunner {
             .map(|(_, by)| by.clone())
     }
 
+    /// One turn, its future on the heap (theseus-b4sf): at opt-level 0 a
+    /// caller's poll frame keeps a slot the size of each future it builds
+    /// (a turn's was 160 KiB), so this returns a box, not the future.
+    pub fn run(
+        &self,
+        req: TurnRequest,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<TurnSubmitResult>> + Send + '_>>
+    {
+        Box::pin(self.run_body(req))
+    }
+
     #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-    pub async fn run(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
+    async fn run_body(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
         let arrived = req.arrived.unwrap_or_else(Instant::now);
         let continuation = req.input.is_none();
         // A person's message: Jev's connections open now, beside the
@@ -1445,14 +1467,26 @@ impl TurnRunner {
     /// One turn under the lock (§3.3): catch up on what happened while no
     /// turn ran, write the input, run loops while the model has something new
     /// to read, then book the turn and decide where the execution waits.
-    async fn run_inner(
+    /// Its future is boxed, as `run`'s is (theseus-b4sf).
+    fn run_inner<'s>(
+        &'s self,
+        guard: &'s TurnGuard,
+        frames: &'s Frames,
+        req: TurnRequest,
+        arrived: Instant,
+        waits: Waits,
+    ) -> std::pin::Pin<Box<impl std::future::Future<Output = Result<Inner>> + Send + 's>> {
+        boxed(move || self.run_inner_body(guard, frames, req, arrived, waits))
+    }
+
+    async fn run_inner_body(
         &self,
         guard: &TurnGuard,
         frames: &Frames,
         req: TurnRequest,
         arrived: Instant,
         waits: Waits,
-    ) -> Result<(TurnSubmitResult, TurnEnd, bool, Option<SessionHold>)> {
+    ) -> Result<Inner> {
         let TurnRequest {
             mut session,
             input,
@@ -1546,15 +1580,11 @@ impl TurnRunner {
         // turn reports (`fail`), and any other error, a fault, which `fault`
         // books the same way before it is returned. The body's `?`s all
         // land here, so no step after a paid loop can skip its spend.
-        match self
-            .turn_body(
-                &mut t,
-                &mut session,
-                provider.as_ref(),
-                asked,
-                (&routed, &fell_back),
-            )
-            .await
+        match boxed(|| {
+            let fork = (&routed, &fell_back);
+            self.turn_body(&mut t, &mut session, provider.as_ref(), asked, fork)
+        })
+        .await
         {
             Ok(Next::Finish(force)) => self.finish(t, &mut session, force),
             Ok(Next::Fail(f)) => Err(Self::fail(t, &mut session, f)),
@@ -1587,7 +1617,7 @@ impl TurnRunner {
         let (sid, turn_id, target) = (t.tc.session_id, t.tc.turn_id, t.target);
 
         // 1. What happened while no turn was running.
-        let caught_up = self.catch_up(t, input.is_some()).await?;
+        let caught_up = boxed(|| self.catch_up(t, input.is_some())).await?;
         // Where the turn's words go, now that it has taken its wakes and
         // reports: their place, when the session's own has moved on.
         let here = self.view_of(sid);
@@ -1809,7 +1839,7 @@ impl TurnRunner {
                 Self::stopped(t, &by);
                 break;
             }
-            let answered = self.run_tools(t, &resp, &uses, &node, i).await?;
+            let answered = boxed(|| self.run_tools(t, &resp, &uses, &node, i)).await?;
             // An answer cut at the window (theseus-9p88): none of its calls
             // ran, and the call is made once more on a ring, which leaves the
             // cut answer out; so does the reply. A retry cut too fails the turn.
