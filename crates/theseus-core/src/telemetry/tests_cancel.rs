@@ -256,3 +256,68 @@ async fn a_cancel_nothing_reaches_is_counted_unsupported() {
     );
     assert_eq!(health[0].state, "unsupported");
 }
+
+/// The daemon's path (theseus-qqhd): the parts bring no pipeline, and the
+/// config names the receiver's endpoint, so `install_telemetry` builds the
+/// exporter after serving (`build_telemetry`) and hands it to the stops
+/// there. The metric is health's count of the one cancel.
+#[tokio::test]
+async fn a_daemons_exporter_counts_the_cancels_health_counts() {
+    let rx = Receiver::start(vec![]).await;
+    let server = serve().await;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    cfg.tools.proc_sync_secs = 1;
+    cfg.policy.enforcement = Posture::Notify;
+    cfg.telemetry.otlp_endpoint = Some(rx.endpoint());
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let model = Arc::new(Model {
+        url: format!("http://site.test:{}/hang", server.port),
+    });
+    let core = Core::build(crate::rpc::Parts {
+        toollets: web(server.port, WebToolsConfig::default(), true).tools(),
+        telemetry: None,
+        ..crate::rpc::Parts::for_tests(cfg, model, store)
+    })
+    .unwrap();
+    assert!(
+        !core.telemetry().enabled(),
+        "nothing is built before serving"
+    );
+    core.clone().install_telemetry().await;
+    assert!(core.telemetry().enabled(), "the exporter is built");
+
+    turn(&core, "run the tide script").await.unwrap();
+    let job = action_of(&core, "proc.run", theseus_kernel::ActionState::Dispatched).await;
+    core.cancel_execution_judged(&job.execution_id, "test")
+        .await
+        .unwrap();
+    let health: Vec<(String, String, u64)> = core
+        .health()
+        .cancels
+        .into_iter()
+        .map(|c| (c.backend, c.state, c.n))
+        .collect();
+    assert_eq!(health.len(), 1, "health counts the cancel: {health:?}");
+    flushed(core.telemetry()).await;
+    let metrics = last_metrics(&rx.got());
+    let mut points: Vec<(String, String, u64)> = points_of(&metrics, "theseus.cancel")
+        .into_iter()
+        .map(|p| {
+            let a = attrs_of(p);
+            let n = p["asInt"].as_str().unwrap().parse().unwrap();
+            (
+                a["theseus.cancel.backend"].clone(),
+                a["theseus.cancel.state"].clone(),
+                n,
+            )
+        })
+        .collect();
+    points.sort();
+    assert_eq!(points, health, "the daemon's metric is health's count");
+}
