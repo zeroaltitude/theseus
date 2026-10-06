@@ -58,6 +58,12 @@ use twilight_util::builder::command::{ChannelBuilder, CommandBuilder};
 use super::{Place, PlaceMsg, Shared};
 use crate::bindings::Bindings;
 
+mod notes;
+#[cfg(test)]
+mod tests_heard;
+
+use notes::Notes;
+
 /// How long a join may take: songbird's own connect, then DAVE's handshake.
 const JOIN_WAIT: Duration = Duration::from_secs(20);
 
@@ -107,6 +113,8 @@ struct Call {
     waiting: VecDeque<VoiceTurn>,
     /// Why it ended, when it did not end on a `/leave`.
     dropped: Option<String>,
+    /// What the next voice turn is told about the last (theseus-qb8o).
+    notes: Notes,
 }
 
 /// A turn of utterances from the call, for the voice place.
@@ -456,6 +464,7 @@ impl Place {
             own: HashSet::new(),
             waiting: VecDeque::new(),
             dropped: None,
+            notes: Notes::default(),
         });
         update(shared, |s| {
             s.state = "joined".into();
@@ -552,7 +561,7 @@ impl Place {
             self.say(&format!("🎙️ **{name}**: {}", u.text), None);
         }
         let one = names.iter().all(|n| *n == names[0]);
-        let input = t
+        let said = t
             .utterances
             .iter()
             .zip(&names)
@@ -562,6 +571,18 @@ impl Place {
             })
             .collect::<Vec<_>>()
             .join("\n\n");
+        // What the last turn left unheard, before what was said now.
+        let line = voice
+            .call
+            .lock()
+            .unwrap()
+            .as_mut()
+            .filter(|c| c.serial == t.serial)
+            .and_then(|c| c.notes.line(&t.utterances));
+        let input = match line {
+            Some(line) => format!("{line}\n{said}"),
+            None => said,
+        };
         let author = match one {
             true => format!("discord:{}", names[0]),
             false => "discord".into(),
@@ -698,6 +719,7 @@ async fn pump(
     while let Some(e) = events.recv().await {
         match e {
             Event::Turn { id, utterances } => {
+                with_call(&shared, serial, |c| c.notes.turn(id, &utterances));
                 let tx = shared
                     .routes
                     .lock()
@@ -714,6 +736,7 @@ async fn pump(
                 }
             }
             Event::Utterance(u) => {
+                with_call(&shared, serial, |c| c.notes.heard(&u));
                 update(&shared, |s| {
                     s.utterances += 1;
                     s.heard_ms += u.length.as_millis() as u64;
@@ -766,8 +789,11 @@ async fn pump(
                 json!({"speaker": speaker.0.to_string(), "place": place.label}),
             ),
             Event::Failed { what, error } => failed(&shared, serial, &place, &what, &error),
+            Event::Cut { .. } => {
+                with_call(&shared, serial, |c| c.notes.cut(&e));
+            }
             // voice-heard writes their rows.
-            Event::Resumed { .. } | Event::Cut { .. } => {}
+            Event::Resumed { .. } => {}
             Event::Acknowledged { .. } | Event::Speaking { .. } | Event::Spoke { .. } => {}
         }
     }
@@ -787,6 +813,20 @@ async fn pump(
         }
         let why = call.dropped.clone().unwrap_or_else(|| "ended".into());
         ended(&shared, &call, &why, "the connection");
+    }
+}
+
+/// `f` on call `serial`, while it is the one joined.
+fn with_call(shared: &Shared, serial: u64, f: impl FnOnce(&mut Call)) {
+    if let Some(c) = shared
+        .voice
+        .call
+        .lock()
+        .unwrap()
+        .as_mut()
+        .filter(|c| c.serial == serial)
+    {
+        f(c);
     }
 }
 
@@ -979,8 +1019,8 @@ mod tests {
     use super::*;
     use crate::bindings::Bindings;
 
-    const EDDIE: u64 = 100_000_000_000_000_042;
-    const LOUNGE: u64 = 123_456_789_012_345_678;
+    pub(super) const EDDIE: u64 = 100_000_000_000_000_042;
+    pub(super) const LOUNGE: u64 = 123_456_789_012_345_678;
 
     /// The bindings: a private voice channel with Eddie, and a shared one.
     fn bindings() -> Bindings {
@@ -1001,7 +1041,7 @@ mod tests {
     }
 
     /// The test place of `core`, its shared state's voice from `bindings`.
-    fn place(core: &Arc<Core>, sid: &str) -> (Place, mpsc::UnboundedReceiver<PlaceMsg>) {
+    pub(super) fn place(core: &Arc<Core>, sid: &str) -> (Place, mpsc::UnboundedReceiver<PlaceMsg>) {
         let (mut place, rx) = place_for_tests(core, sid);
         let mut shared = Arc::try_unwrap(place.shared).ok().expect("the test's own");
         shared.voice = Voice::new(&core.cfg.voice, &bindings());
@@ -1086,7 +1126,7 @@ mod tests {
     }
 
     /// A call, as a join leaves it, for a place whose engine is `commands`.
-    fn joined(p: &Place, commands: mpsc::UnboundedSender<Command>) {
+    pub(super) fn joined(p: &Place, commands: mpsc::UnboundedSender<Command>) {
         *p.shared.voice.call.lock().unwrap() = Some(Call {
             serial: 1,
             channel: LOUNGE,
@@ -1099,10 +1139,11 @@ mod tests {
             own: HashSet::new(),
             waiting: VecDeque::new(),
             dropped: None,
+            notes: Notes::default(),
         });
     }
 
-    fn heard(text: &str) -> Utterance {
+    pub(super) fn heard(text: &str) -> Utterance {
         Utterance {
             speaker: Speaker(EDDIE),
             started: Duration::ZERO,
