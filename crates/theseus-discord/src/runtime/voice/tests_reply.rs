@@ -1,12 +1,13 @@
 //! What a voice turn's end says aloud, and when the next one goes
 //! (theseus-ved2, theseus-b6vz, theseus-nthu): a turn queued behind a failed
-//! one, a turn held for the operator, and a stopped turn.
+//! one, a turn held for the operator, a stopped turn, and an old call's late
+//! events.
 
 use std::time::Duration;
 
 use serde_json::json;
 use theseus_core::provider::Scripted;
-use theseus_voice::{Command, TurnId};
+use theseus_voice::{Command, CutWhy, Event, Spoken, TurnId};
 
 use super::super::{Control, PlaceMsg};
 use super::tests::heard;
@@ -164,4 +165,70 @@ async fn a_turn_failed_as_stopped_ends_its_voice_turn_in_silence() {
         [reply(1, FAILED_TURN)],
         "a new turn is not stopped"
     );
+}
+
+/// An old call's late events never reach the next call's notes
+/// (theseus-nthu): `pump` writes only to the call of its own serial.
+#[tokio::test]
+async fn an_old_calls_late_events_never_reach_the_next_calls_notes() {
+    let d = tempfile::tempdir().unwrap();
+    let mut l = lounge_scripted(
+        d.path(),
+        vec![Scripted::text("One."), Scripted::text("Two.")],
+    );
+    l.place.voice_turn(voice_turn(0, "What changed today?"));
+    l.submit_done().await;
+    // The next call (serial 2) is joined while call 1's pump still runs.
+    l.place
+        .shared
+        .voice
+        .call
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .serial = 2;
+    l.events
+        .send(Event::Cut {
+            what: Spoken::Reply(TurnId(0)),
+            why: CutWhy::Words,
+            sentences: 4,
+            heard: 1,
+            into: Duration::from_millis(500),
+            last_heard: Some("It was quiet.".into()),
+            cut: "The deploy went out.".into(),
+        })
+        .unwrap();
+    // The row is written (the pump read the event), and the notes stay clean.
+    let deadline = std::time::Instant::now() + WAIT;
+    while l.rows("voice.cut").await.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the pump read the cut"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    l.place.voice_turn(VoiceTurn {
+        serial: 2,
+        turn: TurnId(0),
+        utterances: vec![heard("And now?")],
+    });
+    l.submit_done().await;
+    let history: theseus_protocol::SessionHistoryResult = l
+        .place
+        .shared
+        .rpc
+        .call(
+            theseus_protocol::method::SESSION_HISTORY,
+            json!({"session_id": l.sid}),
+        )
+        .await
+        .unwrap();
+    let last = history
+        .nodes
+        .iter()
+        .rev()
+        .find(|n| n.text.contains("And now?"))
+        .expect("the second input");
+    assert!(!last.text.contains("[Voice: "), "{}", last.text);
 }
