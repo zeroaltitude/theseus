@@ -6,6 +6,8 @@
 // - Sessions from one place (a Discord DM, a channel, the web UI, the CLI) sail together, as a formation.
 // - Every node is a light along its vessel's keel, in order: messages and model calls on the keel, each tool call an
 //   oar out to its side, with its result at the blade.
+// - Each turn is a bench (a thwart across the deck), stern to bow, oldest to newest (theseus-hnof): a ship grows a
+//   bench for every turn, and a turn's tool calls are the oars of its bench.
 //
 // Positions are deterministic and stable: a vessel keeps its slot when others arrive, so the map never reshuffles
 // under the operator's eye. `asOf` is the seam for the time machine (a later round): it shows the fleet as it was.
@@ -35,6 +37,10 @@ export interface Light {
   l1?: boolean
   /** A job that runs now: a turning gear. */
   running?: boolean
+  /** A call that waits for the operator's answer (confirm.list names its correlation id): its blade is amber. */
+  waiting?: boolean
+  /** Its turn's bench, an index into `ShipModel.benches`; -1 for a node with no turn. */
+  bench: number
   /** A sandboxed job a cancel or a stop verified gone (18a): its shield collapses. The time the job settled; the
    *  engine animates a collapse that comes while the page is open and draws an older one collapsed. */
   collapsedAt?: number
@@ -85,6 +91,10 @@ export interface Vessel {
   flareAt: number
   /** Client time it opened while the page watched (ms), for its flare; 0 for what was there before. */
   born: number
+  /** Its benches (turns), stern to bow: indices into `ShipModel.benches`. */
+  benches: number[]
+  /** The bench of the turn running now, or -1. */
+  activeBench: number
   /** Planks: one per turn (up to 36 drawn), gold for the turns of the last hour. */
   planks: number
   goldPlanks: number
@@ -94,6 +104,37 @@ export interface Vessel {
   heading: number
   length: number
   beam: number
+}
+
+/** A turn, drawn as a bench across its vessel's deck: the message that started it, its model calls on the keel, and its
+ *  tool calls as the bench's oars. */
+export interface Bench {
+  vessel: number
+  turnId: string
+  /** 1-based, in the session's order. */
+  n: number
+  /** Local x of its middle, and its half-width along the keel. */
+  x: number
+  half: number
+  /** Its first node's time and its last's. */
+  at: number
+  end: number
+  /** Model calls, tool calls, failed results. */
+  models: number
+  calls: number
+  failed: number
+  /** The model calls' cost in dollars. */
+  cost: number
+  model?: string
+  /** The message that started it, and who wrote it. */
+  preview: string
+  author?: string
+  /** The turn runs now (its session works on it), or one of its jobs does. */
+  running: boolean
+  /** One of its calls waits for the operator. */
+  waiting: boolean
+  /** Its lights, indices into `ShipModel.lights`. */
+  lights: number[]
 }
 
 export interface Tether {
@@ -126,6 +167,7 @@ export interface Formation {
 export interface ShipModel {
   vessels: Vessel[]
   lights: Light[]
+  benches: Bench[]
   tethers: Tether[]
   currents: Current[]
   formations: Formation[]
@@ -165,6 +207,9 @@ export interface ShipInput {
   /** Correlation ids of jobs a cancel verified gone (18a's verdicts) → the time each settled. */
   cancelled?: Map<string, number>
   reach: ReachLink[]
+  /** Session id → the turn it runs now (turn.started, until turn.ended or turn.failed). A session that works with none
+   *  known runs its newest turn. */
+  active?: Map<string, string>
   now: number
   /** The time machine's seam: show only what existed at this instant (unix ms). Undefined is live. */
   asOf?: number
@@ -292,6 +337,8 @@ export function buildModel(input: ShipInput): ShipModel {
       streaming: (input.streaming.get(s.session_id) ?? 0) > now - 4000,
       flareAt: input.failedAt.get(s.session_id) ?? 0,
       born: input.bornSessions.get(s.session_id) ?? 0,
+      benches: [],
+      activeBench: -1,
       planks: Math.max(1, s.turns),
       goldPlanks: recentTurns.size,
       x: 0, z: 0, heading: 0, length: len, beam: hullBeam(len),
@@ -306,51 +353,93 @@ export function buildModel(input: ShipInput): ShipModel {
     v.depth = d
   }
 
-  // Lights.
+  // Lights, by turn: each turn a bench, stern to bow. A bench is as wide as its stations (every node but a result
+  // that rides its call's oar), with a gap between benches, so a turn reads as one group.
   const lights: Light[] = []
+  const benches: Bench[] = []
   const lightById = new Map<string, number>()
+  const waitingCalls = new Set(input.confirms.map((c) => c.correlation_id))
   let l1Count = 0
   let extCount = 0
   for (const v of vessels) {
     const nodes = nodesBy.get(v.id) ?? []
     const vi = byId.get(v.id)!
-    // Stations: every node but a result whose call is on board (a result rides its call's oar).
     const callByUse = new Map<string, NodeInfo>()
     for (const n of nodes) {
       if (n.kind !== 'tool_call') continue
       const u = str((n.detail as D | null)?.tool_use_id)
       if (u) callByUse.set(u, n)
     }
-    const stations = nodes.filter((n) => {
-      if (n.kind !== 'tool_result') return true
+    const rides = (n: NodeInfo) => {
+      if (n.kind !== 'tool_result') return false
       const u = str((n.detail as D | null)?.tool_use_id)
-      return !u || !callByUse.has(u)
-    })
+      return !!u && callByUse.has(u)
+    }
+    // Turns in order of their first node; a node with no turn rides the bench before it.
+    const turnKey: string[] = []
+    let prev = ''
+    for (const n of nodes) { prev = n.turn_id ?? prev; turnKey.push(prev) }
     const half = v.length / 2
     const margin = Math.min(2.2, v.length * 0.12)
     const span = v.length - 2 * margin
-    const callSide = new Map<string, number>()
-    const callPos = new Map<string, { x: number; z: number }>()
-    let oar = 0
-    const station = new Map<string, number>()
-    stations.forEach((n, i) => station.set(n.node_id, stations.length <= 1 ? 0 : -half + margin + (span * i) / (stations.length - 1)))
+    const GAP = 1.1
+    // Units along the keel: a station each, and a gap where the turn changes.
+    const unitOf = new Map<string, number>()
+    let u = 0
+    let lastTurn: string | null = null
+    nodes.forEach((n, i) => {
+      if (rides(n)) return
+      if (lastTurn !== null && turnKey[i] !== lastTurn) u += GAP
+      lastTurn = turnKey[i]
+      unitOf.set(n.node_id, u)
+      u += 1
+    })
+    const total = Math.max(1, u - 1)
+    const xAt = (unit: number) => (u <= 1 ? 0 : -half + margin + (span * unit) / total)
     const resultFailed = new Map<string, boolean>()
     for (const n of nodes) {
       if (n.kind !== 'tool_result') continue
       const d = (n.detail ?? {}) as D
-      const u = str(d.tool_use_id)
-      if (u) resultFailed.set(u, d.is_error === true || (str(d.status) !== undefined && str(d.status) !== 'ok'))
+      const ru = str(d.tool_use_id)
+      if (ru) resultFailed.set(ru, d.is_error === true || (str(d.status) !== undefined && str(d.status) !== 'ok'))
     }
-    for (const n of nodes) {
+    // The benches.
+    const benchOf = new Map<string, number>()
+    const firstUnit = new Map<string, number>()
+    const lastUnit = new Map<string, number>()
+    nodes.forEach((n, i) => {
+      const k = turnKey[i]
+      const un = unitOf.get(n.node_id)
+      if (un === undefined) return
+      if (!firstUnit.has(k)) firstUnit.set(k, un)
+      lastUnit.set(k, un)
+    })
+    const vb: number[] = []
+    for (const [k, f] of firstUnit) {
+      const l = lastUnit.get(k) ?? f
+      const x0 = xAt(f - 0.5)
+      const x1 = xAt(l + 0.5)
+      benchOf.set(k, benches.length)
+      vb.push(benches.length)
+      benches.push({
+        vessel: vi, turnId: k, n: vb.length, x: (x0 + x1) / 2, half: Math.max(0.3, (x1 - x0) / 2),
+        at: Infinity, end: 0, models: 0, calls: 0, failed: 0, cost: 0, preview: '', running: false, waiting: false, lights: [],
+      })
+    }
+    v.benches = vb
+    let oar = 0
+    const callSide = new Map<string, number>()
+    const callPos = new Map<string, { x: number; z: number }>()
+    nodes.forEach((n, i) => {
       const kind = kindOf(n.kind)
-      if (!kind) continue
+      if (!kind) return
       const d = (n.detail ?? {}) as D
       const cid = str(d.correlation_id)
       const use = str(d.tool_use_id)
       // A call's node records its class in the gate's decision (NODE schema 4); the job rows and pushes are the fallback
       // for a node from before, so a call older than the newest 2,000 job rows keeps its shield.
       const l1 = (kind === 'call' && str((d.decision as D | undefined)?.class) === 'l1') || (!!cid && input.l1.has(cid))
-      let lx = station.get(n.node_id) ?? 0
+      let lx = xAt(unitOf.get(n.node_id) ?? 0)
       let lz = 0
       let ox: number | undefined
       let oz: number | undefined
@@ -369,7 +458,12 @@ export function buildModel(input: ShipInput): ShipModel {
       const external = kind === 'result' && d.external != null && d.external !== false
       if (l1) l1Count++
       if (external) extCount++
-      lightById.set(n.node_id, lights.length)
+      const bi = benchOf.get(turnKey[i]) ?? -1
+      const failed = kind === 'result' ? resultFailed.get(use ?? '') ?? false : kind === 'call' && use ? resultFailed.get(use) : undefined
+      const running = !!cid && input.jobsRunning.has(cid)
+      const waiting = kind === 'call' && !!cid && waitingCalls.has(cid)
+      const li = lights.length
+      lightById.set(n.node_id, li)
       lights.push({
         id: n.node_id,
         sessionId: v.id,
@@ -380,10 +474,11 @@ export function buildModel(input: ShipInput): ShipModel {
         tool: str(d.tool),
         toolUseId: use,
         correlationId: cid,
-        failed: kind === 'result' ? resultFailed.get(use ?? '') ?? false : kind === 'call' && use ? resultFailed.get(use) : undefined,
+        failed,
         external,
         l1,
-        running: !!cid && input.jobsRunning.has(cid),
+        running,
+        ...(waiting ? { waiting } : {}),
         ...(l1 && cid && input.cancelled?.has(cid) ? { collapsedAt: input.cancelled.get(cid) } : {}),
         model: str(d.model),
         cost: typeof d.cost_usd === 'number' ? d.cost_usd : undefined,
@@ -392,8 +487,26 @@ export function buildModel(input: ShipInput): ShipModel {
         lx, lz, ly: kind === 'model' ? 0.35 : kind === 'user' ? 0.3 : 0.2,
         ox, oz,
         born: input.born.get(n.node_id) ?? 0,
+        bench: bi,
       })
-    }
+      if (bi >= 0) {
+        const b = benches[bi]
+        b.lights.push(li)
+        b.at = Math.min(b.at, n.at_unix_ms)
+        b.end = Math.max(b.end, n.at_unix_ms)
+        if (kind === 'model') { b.models++; b.cost += typeof d.cost_usd === 'number' ? d.cost_usd : 0; b.model ??= str(d.model) }
+        if (kind === 'call') b.calls++
+        if (kind === 'result' && failed) b.failed++
+        if (kind === 'user' && !b.preview) { b.preview = previewOf(n, kind); b.author = n.author }
+        if (running) b.running = true
+        if (waiting) b.waiting = true
+      }
+    })
+    // The turn running now: the one the pushes named, or, for a vessel that works, its newest.
+    const act = input.active?.get(v.id)
+    const ab = act !== undefined ? benchOf.get(act) : v.rig === 'sail' && vb.length ? vb[vb.length - 1] : undefined
+    v.activeBench = ab ?? -1
+    if (ab !== undefined) benches[ab].running = true
   }
 
   // Tethers: each task to its parent.
@@ -438,7 +551,7 @@ export function buildModel(input: ShipInput): ShipModel {
   if (!vessels.length) Object.assign(bounds, { minX: -40, maxX: 40, minZ: -30, maxZ: 30 })
 
   return {
-    vessels, lights, tethers, currents, formations, bounds, byId, lightById,
+    vessels, lights, benches, tethers, currents, formations, bounds, byId, lightById,
     stats: {
       sessions: vessels.length,
       nodes: lights.length,

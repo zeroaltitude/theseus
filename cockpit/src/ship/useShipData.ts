@@ -40,6 +40,10 @@ export interface ShipData {
   past?: World
   /** The selected vessel's currents come from its newest `read` nodes of `total`, when it has more than that. */
   reachCap?: { read: number; total: number }
+  /** The calls in flight and settled (action.list), or the fold's at the time machine's moment: the watch reads them. */
+  actions?: ActionInfo[]
+  /** The questions waiting for the operator (confirm.list), or the fold's. */
+  confirms?: ConfirmRequest[]
 }
 
 const NONE = new Map<string, number>()
@@ -59,6 +63,8 @@ interface Live {
   streaming: Map<string, number>
   failedAt: Map<string, number>
   reports: Map<string, number>
+  /** Session id → the turn it runs now (turn.started, until turn.ended or turn.failed): its bench rows. */
+  active: Map<string, string>
   knownSessions: Set<string> | null
   bornSessions: Map<string, number>
   arrivals: number[]
@@ -73,7 +79,7 @@ interface Live {
 
 const fresh = (): Live => ({
   nodes: new Map(), known: null, born: new Map(), l1: new Set(), running: new Set(), streaming: new Map(), failedAt: new Map(),
-  reports: new Map(), knownSessions: null, bornSessions: new Map(), arrivals: [], reach: [], reachOf: null, progress: 0, now: Date.now(),
+  reports: new Map(), active: new Map(), knownSessions: null, bornSessions: new Map(), arrivals: [], reach: [], reachOf: null, progress: 0, now: Date.now(),
 })
 
 /** Merge nodes into the store; ids the first read did not have arrived live (their flare). */
@@ -191,7 +197,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
           break
         case 'turn.started':
           if (sid && typeof p.turn_id === 'string') turnSession.current.set(p.turn_id, sid)
-          store.setState((s) => ({ arrivals: arrive(s) }))
+          store.setState((s) => ({ arrivals: arrive(s), active: sid && typeof p.turn_id === 'string' ? withMap(s.active, sid, p.turn_id) : s.active }))
           break
         case 'model.delta': {
           const s0 = typeof p.turn_id === 'string' ? turnSession.current.get(p.turn_id) : undefined
@@ -217,10 +223,16 @@ export function useShipLive(selected: string | undefined, world: World | null): 
           }))
           break
         case 'turn.ended':
-          if (sid) store.setState((s) => ({ streaming: s.streaming.has(sid) ? withMap(s.streaming, sid, undefined) : s.streaming, arrivals: arrive(s) }))
+          if (sid) store.setState((s) => ({
+            streaming: s.streaming.has(sid) ? withMap(s.streaming, sid, undefined) : s.streaming, arrivals: arrive(s),
+            active: s.active.get(sid) === p.turn_id ? withMap(s.active, sid, undefined) : s.active,
+          }))
           break
         case 'turn.failed':
-          if (sid) store.setState((s) => ({ failedAt: withMap(s.failedAt, sid, Date.now()), streaming: withMap(s.streaming, sid, undefined), arrivals: arrive(s) }))
+          if (sid) store.setState((s) => ({
+            failedAt: withMap(s.failedAt, sid, Date.now()), streaming: withMap(s.streaming, sid, undefined), arrivals: arrive(s),
+            active: s.active.has(sid) ? withMap(s.active, sid, undefined) : s.active,
+          }))
           break
         case 'execution.changed': {
           const v = p as unknown as ExecutionView
@@ -388,9 +400,10 @@ export function useShipLive(selected: string | undefined, world: World | null): 
       reserved,
       cancelled,
       reach: st.reach,
+      active: st.active,
       now: st.now,
     })
-  }, [world, sl, el, tl, cl, jobs, al, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.now])
+  }, [world, sl, el, tl, cl, jobs, al, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now])
 
   const tpm = useMemo(() => {
     if (!calls) return null
@@ -408,6 +421,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
   return {
     model, progress: st.progress, reachCap: !world && st.reachOf && st.reachOf.total > st.reachOf.read ? st.reachOf : undefined, health, profiles, tpm: world ? world.gauges.tpm : tpm, arrivals: world ? 0 : st.arrivals.length,
     synthetic: false, error: st.error, ...(world ? { past: world } : {}),
+    actions: world ? world.actions : al?.actions, confirms: world ? world.confirms : cl?.confirms,
   }
 }
 

@@ -296,6 +296,10 @@ void main() {
   }
 
   float hot = vRig > 0.5 ? 1.0 : 0.45;
+  // Far out, a hull is a few dozen pixels: its glow would swallow its shape, so the glow comes up as the hull grows on
+  // screen (theseus-hnof), and the rail's colour carries the state.
+  float hullPx = vL / max(aa, 1e-4);
+  hot *= mix(0.28, 1.0, smoothstep(70.0, 260.0, hullPx));
   col += ec * edge * 1.15 + ec * glow * 0.42 * hot;
   alpha = max(alpha, edge * 0.95 + glow * 0.55 * hot);
 
@@ -403,7 +407,7 @@ void main() {
   // Rings (the L1 shield, external text, a running gear) need room around the core.
   float ringed = max(max(bit(aFlags, 1.0), bit(aFlags, 2.0)), bit(aFlags, 4.0));
   float s = aSize * (1.0 + ringed * 1.3) * (1.0 + flare * 2.6 * (1.0 - uCalm * 0.7)) * (1.0 + bit(aFlags, 16.0) * 1.4);
-  float dim = bit(b.z, 16.0);
+  float dim = max(bit(b.z, 16.0), bit(aFlags, 32.0));
   float px = s * uScale / -mv.z;
   gl_PointSize = clamp(px, 2.2 * uPixel, 72.0 * uPixel);
   // A light smaller than the smallest point we draw gives only its share of the light: far out, a keel of fifty
@@ -414,6 +418,7 @@ void main() {
   vFade *= mix(0.22, 1.0, smoothstep(40.0 * uPixel, 180.0 * uPixel, hullPx));
   vColor = aColor * (1.0 - dim * 0.75);
   vFlags = aFlags;
+  if (aSize <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; }
   // y: a verified cancel's time (the shield collapses over it); below zero, collapsed before the page loaded.
   vAge = vec2(age, aTimes.y > 0.0 ? uTime - aTimes.y : aTimes.y < 0.0 ? 1e6 : -1.0);
   vRing = ringed;
@@ -599,6 +604,9 @@ void main() {
   gl_Position = projectionMatrix * mv;
   gl_PointSize = clamp((0.5 + age * 0.9) * uScale / -mv.z, 1.4 * uPixel, 16.0 * uPixel);
   vA = pow(1.0 - age, 1.6) * 0.7;
+  // A wake shows once its hull is big enough to have one (theseus-hnof): far out it only blurs the hull.
+  float hullPx = L * uScale / max(1.0, -(viewMatrix * vec4(a.x, 0.0, a.y, 1.0)).z);
+  vA *= smoothstep(60.0 * uPixel, 200.0 * uPixel, hullPx);
 }
 `
 
@@ -680,5 +688,238 @@ void main() {
   float a = (core + halo * 0.6) * vA;
   if (a < 0.01) discard;
   gl_FragColor = vec4(vColor * min(1.0, core + halo * 0.7) * vA, a);
+}
+`
+
+// ---------------------------------------------------------------- oars (every tool call; theseus-hnof)
+//
+// One instanced quad an oar, from its oarlock (the call, on the hull) to past its blade (the result): a thin shaft and a
+// paddle at the end. The blade's colour is the result: green ok, rose failed, magenta when it carried text from the web,
+// amber while the call waits for the operator, an open outline while it is pending, and a turning brass gear while its
+// job runs. While its turn runs, the bench's oars row (a slow stroke, out of step by side); an oar that arrives grows
+// out from the hull. Calm stills both.
+// aState: x the call's arrival (s), y the result's arrival (s), z the stroke's phase, w flags:
+//   1 its turn runs (it rows), 2 failed, 4 pending, 8 waits for the operator, 16 external text, 32 a job running,
+//   64 dimmed by an overlay, 128 highlighted, 256 sandboxed (L1).
+
+export const OAR_VERT = /* glsl */ `
+${VESSEL_COMMON}
+uniform float uScale;
+uniform float uPixel;
+attribute float aIdx;
+attribute vec4 aEnds;    // pivot x, z; tip x, z (local)
+attribute vec3 aColor;
+attribute vec4 aState;
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vFlags;
+varying float vLen;
+varying float vW;
+varying float vFade;
+varying float vResult;
+void main() {
+  vec4 a = vRow(aIdx, 0.0);
+  vec4 b = vRow(aIdx, 1.0);
+  vec2 piv = aEnds.xy;
+  vec2 d = aEnds.zw - piv;
+  float flags = aState.w;
+  // The stroke: a sweep about the oarlock, aft and back, both sides together (mirrored), with the blade dipping.
+  float rowing = bit(flags, 1.0) * (1.0 - uCalm);
+  float side = sign(d.y + 1e-5);
+  float ph = uTime * 2.6 + aState.z;
+  float ang = rowing * 0.30 * sin(ph) * side;
+  float c = cos(ang); float s = sin(ang);
+  d = vec2(d.x * c - d.y * s, d.x * s + d.y * c);
+  // An oar that arrives while we watch grows out from the hull.
+  float grow = aState.x > 0.0 ? smoothstep(0.0, 1.0, clamp((uTime - aState.x) / 0.6, 0.0, 1.0)) : 1.0;
+  grow = mix(grow, 1.0, uCalm);
+  d *= max(grow, 0.02);
+  float len = length(d);
+  vec2 dir = d / max(len, 1e-4);
+  vec2 nrm = vec2(-dir.y, dir.x);
+  float B = b.x;
+  float w = clamp(B * 0.17, 0.3, 0.95);
+  float over = w * 0.35;
+  // position.xy in [-0.5, 0.5]: x along the oar (pivot to past the tip), y across.
+  float t = position.x + 0.5;
+  vec2 p = piv + dir * (t * (len + over)) + nrm * (position.y * w);
+  float lift = 0.18 + rowing * 0.12 * max(0.0, cos(ph));
+  vec3 world = toWorld(a, vec3(p.x, lift, p.y));
+  gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+  vUv = vec2(t * (len + over), position.y * w);
+  vLen = len;
+  vW = w;
+  vFlags = flags;
+  vColor = aColor;
+  vResult = aState.y > 0.0 ? uTime - aState.y : 1e6;
+  // Oars come up as their vessel grows on screen: far out, the rail and the rig say enough.
+  float hullPx = a.w * uScale / max(1.0, -(viewMatrix * vec4(a.x, 0.0, a.y, 1.0)).z);
+  vFade = smoothstep(50.0 * uPixel, 190.0 * uPixel, hullPx);
+  float dim = max(bit(b.z, 16.0), bit(flags, 64.0));
+  vFade *= 1.0 - dim * 0.78;
+}
+`
+
+export const OAR_FRAG = /* glsl */ `
+uniform float uTime;
+uniform float uCalm;
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vFlags;
+varying float vLen;
+varying float vW;
+varying float vFade;
+varying float vResult;
+float bit(float flags, float b) { return mod(floor(flags / b + 0.001), 2.0); }
+void main() {
+  float along = vUv.x;
+  float across = vUv.y;
+  float bladeLen = min(vLen * 0.42, vW * 2.4);
+  float bladeStart = vLen + vW * 0.35 - bladeLen;
+  // The shaft: a thin brass line from the oarlock to the blade.
+  float sw = vW * 0.07;
+  float fa = fwidth(across) + 1e-5;
+  float shaft = (1.0 - smoothstep(sw - fa, sw + fa, abs(across))) * step(0.0, along) * step(along, bladeStart + vW * 0.1);
+  vec3 brass = vec3(0.80, 0.64, 0.38);
+  vec3 col = brass * 0.55 * shaft;
+  float alpha = shaft * 0.85;
+  // The blade: a paddle, rounded at its end.
+  vec2 q = vec2((along - bladeStart) / bladeLen, across / (vW * 0.5));
+  float inBladeX = step(0.0, q.x);
+  float r = length(vec2(max(q.x - 0.62, 0.0) / 0.38, q.y));
+  float edgeD = max(1.0 - r, 0.0);
+  float bladeSd = r - 1.0;
+  float fb = fwidth(bladeSd) + 1e-4;
+  float blade = (1.0 - smoothstep(-fb, fb, bladeSd)) * inBladeX;
+  float rim = (1.0 - smoothstep(fb * 0.5, fb * 2.2, abs(bladeSd))) * inBladeX;
+  float pending = bit(vFlags, 4.0);
+  float waiting = bit(vFlags, 8.0);
+  float job = bit(vFlags, 32.0);
+  vec3 c = vColor;
+  float fill = pending > 0.5 ? 0.0 : 0.5;
+  if (waiting > 0.5) fill = 0.42 + 0.3 * (0.5 + 0.5 * sin(uTime * 2.4)) * (1.0 - uCalm);
+  if (job > 0.5) {
+    // A job running: the blade is a brass gear, turning.
+    vec2 g = vec2((along - (bladeStart + bladeLen * 0.5)) / (bladeLen * 0.5), across / (vW * 0.5));
+    float gr = length(g);
+    float ga = atan(g.y, g.x) + uTime * 1.6 * (1.0 - uCalm);
+    float teeth = step(0.5, fract(ga / 6.2831853 * 9.0));
+    float gear = 1.0 - smoothstep(0.04, 0.12, abs(gr - (0.72 + teeth * 0.16)));
+    float hub = 1.0 - smoothstep(0.18, 0.26, gr);
+    vec3 gc = vec3(1.0, 0.8, 0.36);
+    col += gc * (gear + hub * 0.6);
+    alpha = max(alpha, max(gear, hub * 0.8));
+  } else {
+    col += c * (blade * fill + rim * 1.05);
+    alpha = max(alpha, blade * max(fill, 0.08) + rim * 0.95);
+    // A failed result: a cross on the blade.
+    if (bit(vFlags, 2.0) > 0.5) {
+      vec2 xq = vec2((q.x - 0.55) * bladeLen, q.y * vW * 0.5) / (vW * 0.32);
+      float xd = min(abs(xq.x - xq.y), abs(xq.x + xq.y)) * 0.7071;
+      float cross = (1.0 - smoothstep(0.06, 0.16, xd)) * step(max(abs(xq.x), abs(xq.y)), 0.75) * blade;
+      col = mix(col, vec3(1.0, 0.92, 0.9), cross);
+      alpha = max(alpha, cross);
+    }
+    // Pending: an open blade with a light running out along the shaft to it.
+    if (pending > 0.5 && waiting < 0.5) {
+      float run = fract(uTime * 0.6) * (1.0 - uCalm);
+      float dot1 = exp(-pow((along / max(vLen, 1e-3) - run) * 9.0, 2.0)) * shaft * 2.0;
+      col += vec3(0.13, 0.83, 0.93) * dot1;
+      alpha = max(alpha, dot1);
+    }
+  }
+  // A result that just came back: the blade flashes, and a light runs back along the shaft to the hull.
+  if (vResult < 1.6 && uCalm < 0.5) {
+    float f = exp(-vResult * 2.2);
+    float back = clamp(1.0 - vResult / 0.8, 0.0, 1.0);
+    float runBack = exp(-pow((along / max(vLen, 1e-3) - back) * 8.0, 2.0)) * shaft * step(vResult, 0.8);
+    col += vec3(1.0, 0.95, 0.8) * (blade * f + runBack * 1.6);
+    alpha = max(alpha, max(blade * f, runBack));
+  }
+  // Highlighted (flown to, or the inspector's): a bright outline.
+  if (bit(vFlags, 128.0) > 0.5) {
+    col += vec3(1.0, 0.96, 0.88) * rim * 1.2;
+    alpha = max(alpha, rim);
+  }
+  // Sandboxed (L1): the shaft wears verdigris.
+  if (bit(vFlags, 256.0) > 0.5) col = mix(col, vec3(0.42, 1.0, 0.88) * 0.8, shaft * 0.7);
+  col *= vFade;
+  alpha *= vFade;
+  if (alpha < 0.01) discard;
+  gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
+}
+`
+
+// ---------------------------------------------------------------- marks on a bench (theseus-hnof)
+//
+// A small sign at a bench's starboard rail that stays: a rose pennant where its turn had a failure (a failed tool call,
+// or the turn failed), an amber lamp where a call of it waits for the operator, and a violet spark, for a few seconds,
+// where its turn recalled memory. aMark: x kind (0 pennant, 1 lamp, 2 recall), y arrival (s), z dimmed.
+
+export const MARK_VERT = /* glsl */ `
+${VESSEL_COMMON}
+uniform float uScale;
+uniform float uPixel;
+attribute float aIdx;
+attribute vec3 aMark;
+varying float vKind;
+varying float vAge;
+varying float vFade;
+void main() {
+  vec4 a = vRow(aIdx, 0.0);
+  vec4 b = vRow(aIdx, 1.0);
+  vKind = aMark.x;
+  vAge = aMark.y > 0.0 ? uTime - aMark.y : 1e6;
+  vec4 mv = viewMatrix * vec4(toWorld(a, position), 1.0);
+  gl_Position = projectionMatrix * mv;
+  float s = clamp(b.x * 0.42, 0.7, 1.6);
+  if (vKind > 1.5) s *= 1.0 + 1.5 * exp(-vAge * 1.5);
+  gl_PointSize = clamp(s * uScale / -mv.z, 6.0 * uPixel, 40.0 * uPixel);
+  float hullPx = a.w * uScale / max(1.0, -(viewMatrix * vec4(a.x, 0.0, a.y, 1.0)).z);
+  vFade = smoothstep(60.0 * uPixel, 200.0 * uPixel, hullPx) * (1.0 - max(bit(b.z, 16.0), aMark.z) * 0.75);
+  if (vKind > 1.5) vFade *= clamp(1.0 - (vAge - 4.0) / 2.0, 0.0, 1.0);
+}
+`
+
+export const MARK_FRAG = /* glsl */ `
+uniform float uTime;
+uniform float uCalm;
+varying float vKind;
+varying float vAge;
+varying float vFade;
+void main() {
+  vec2 uv = gl_PointCoord * 2.0 - 1.0;
+  uv.y = -uv.y;
+  vec3 col = vec3(0.0);
+  float a = 0.0;
+  if (vKind < 0.5) {
+    // A pennant: a pole and a swallow-tailed flag, rose.
+    float pole = (1.0 - smoothstep(0.05, 0.11, abs(uv.x + 0.55))) * step(-0.9, uv.y) * step(uv.y, 0.85);
+    vec2 f = vec2(uv.x + 0.5, uv.y - 0.38);
+    float wave = 0.06 * sin(f.x * 6.0 + uTime * 3.0 * (1.0 - uCalm));
+    float inFlag = step(0.0, f.x) * step(f.x, 1.25) * step(abs(f.y + wave) , 0.42 * (1.0 - f.x / 1.6));
+    float notch = step(1.0 - abs(f.y + wave) * 1.4, f.x * 0.82);
+    float flag = inFlag * (1.0 - notch * 0.0);
+    col = vec3(0.95, 0.85, 0.7) * pole * 0.8 + vec3(1.0, 0.36, 0.44) * flag;
+    a = max(pole * 0.85, flag);
+  } else if (vKind < 1.5) {
+    // A lamp: amber, swinging gently while it waits.
+    float r = length(uv - vec2(0.0, 0.05 * sin(uTime * 2.0) * (1.0 - uCalm)));
+    float core = 1.0 - smoothstep(0.22, 0.42, r);
+    float halo = exp(-r * r * 3.0) * (0.55 + 0.25 * sin(uTime * 2.4) * (1.0 - uCalm));
+    col = vec3(1.0, 0.77, 0.15) * (core + halo);
+    a = core + halo * 0.7;
+  } else {
+    // Memory recalled: a violet spark that rings out and fades.
+    float r = length(uv);
+    float ring = 1.0 - smoothstep(0.0, 0.1, abs(r - clamp(vAge / 1.4, 0.2, 0.95)));
+    float core = (1.0 - smoothstep(0.1, 0.35, r)) * exp(-vAge * 0.4);
+    col = vec3(0.75, 0.6, 1.0) * (ring + core);
+    a = max(ring * 0.9, core);
+  }
+  col *= vFade;
+  a *= vFade;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
 }
 `

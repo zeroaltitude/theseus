@@ -53,6 +53,21 @@ export default function SessionDeck() {
 
   const turns = useMemo(() => turnRows(rows), [rows])
   const turnMap = useMemo(() => new Map(turns.map((t) => [t.turn_id, t])), [turns])
+  // `?turn=` (from the Ship's bench, theseus-hnof): the transcript opens at that turn, outlined once.
+  const [deckParams] = useSearchParams()
+  const turnLink = deckParams.get('turn')
+  const turnShown = useRef<string | null>(null)
+  useEffect(() => {
+    if (!turnLink || !hist || turnShown.current === turnLink) return
+    const t = window.setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-turn="${CSS.escape(turnLink)}"]`)
+      if (!el) return
+      turnShown.current = turnLink
+      el.scrollIntoView({ block: 'start' })
+      el.dataset.linked = '1'
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [turnLink, hist])
   const traces = useMemo(() => {
     const m = new Map<string, Span>()
     for (const r of rows ?? []) if (r.kind === 'turn.trace' && r.turn_id) m.set(r.turn_id, r.data as Span)

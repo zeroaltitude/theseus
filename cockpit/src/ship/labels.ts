@@ -1,31 +1,35 @@
-// The Ship's labels (theseus-logs): engraved nameplates under the vessels, the places' names on their mooring rings,
-// and, close in, a tag on each light. HTML over the canvas, so text stays crisp and legible; placed imperatively
-// each frame the camera moves, greedily so no two overlap (the more important wins).
+// The Ship's labels (theseus-logs; plain words, theseus-hnof): nameplates under the vessels, the places' names on their
+// harbour rings, a label on each turn's bench once a vessel is drawn big, and, close in, a tag on each oar and message.
+// HTML over the canvas, so text stays crisp and legible; placed imperatively each frame the camera moves, greedily so
+// no two overlap (the more important wins). Every label says what its shape is in plain words: "session", "task",
+// "turn 12", "fs.read · failed".
 import type { ShipEngine } from './engine'
-import type { Light, ShipModel, Vessel } from './model'
+import type { Bench, Light, ShipModel, Vessel } from './model'
+import { authorWord, count, outcome, stateWord, vesselNoun } from './words'
 
-const RIG_WORD: Record<Vessel['rig'], string> = { anchor: 'at anchor', sail: 'under sail', lantern: 'lantern lit', flare: 'flare up' }
-
+/** A vessel's state for its plates and cards: the plain word, then the sea word. */
 export function rigWords(v: Vessel): string {
-  const a = v.attention?.label
-  if (v.rig === 'flare') return `flare up · ${v.state}`
-  if (v.rig === 'lantern') return a && a !== 'needs you' ? `lantern lit · ${a}` : 'lantern lit · waits for you'
-  if (v.rig === 'sail') return a && a !== 'working' ? `under sail · ${a}` : 'under sail'
-  return a && !['ready', 'idle'].includes(a) ? `at anchor · ${a}` : RIG_WORD.anchor
+  const s = stateWord(v)
+  return s.word
 }
 
 export function usdShort(n: number): string {
   return n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : n < 1 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`
 }
 
-function tagText(l: Light): string | null {
-  if (l.kind === 'call') return l.tool ?? 'tool'
-  if (l.kind === 'model') return (l.model ?? 'model').replace(/^claude-/, '')
-  if (l.kind === 'user') return l.author ? l.author.replace(/^[a-z]+:/, '@') : 'operator'
-  if (l.external) return 'external text'
-  // A sandboxed job a cancel verified gone (18a): stopped, not failed.
-  if (l.collapsedAt !== undefined) return 'stopped · verified'
-  if (l.failed) return 'failed'
+/** A tag's words: an oar says its tool and how it went; a message says who wrote it; a model call names its model only
+ *  when it is the first of its bench (the bench's label says the rest). */
+function tagText(m: ShipModel, l: Light, i: number, results: Map<string, number>): string | null {
+  if (l.kind === 'call') {
+    const o = outcome(l, !!l.toolUseId && results.has(l.toolUseId))
+    return o.word === 'ok' ? (l.tool ?? 'tool') : `${l.tool ?? 'tool'} · ${o.word}`
+  }
+  if (l.kind === 'user') return authorWord(l.author)
+  if (l.kind === 'model') {
+    const b = l.bench >= 0 ? m.benches[l.bench] : undefined
+    const first = b?.lights.find((k) => m.lights[k].kind === 'model')
+    return first === i ? (l.model ?? 'model').replace(/^claude-/, '') : null
+  }
   return null
 }
 
@@ -40,12 +44,24 @@ function sizeOf(el: HTMLElement): { w: number; h: number } {
   return s
 }
 
+function benchText(b: Bench, wide: boolean): string {
+  const head = `turn ${b.n}`
+  if (b.waiting) return `${head} · waits for you`
+  if (b.running) return `${head} · working`
+  if (b.failed) return `${head} · ${b.failed} failed`
+  if (!wide) return head
+  return b.calls ? `${head} · ${count(b.calls, 'tool call')}` : head
+}
+
 export class LabelLayer {
   private root: HTMLElement
   private plates = new Map<string, HTMLDivElement>()
   private forms = new Map<string, HTMLDivElement>()
   private tags: HTMLDivElement[] = []
+  private benchTags: HTMLDivElement[] = []
   private model: ShipModel | null = null
+  /** Each oar's result, by its tool_use id: an index into the model's lights. */
+  private results = new Map<string, number>()
 
   constructor(root: HTMLElement) {
     this.root = root
@@ -53,6 +69,8 @@ export class LabelLayer {
 
   setModel(m: ShipModel) {
     this.model = m
+    this.results = new Map()
+    m.lights.forEach((l, i) => { if (l.kind === 'result' && l.toolUseId) this.results.set(l.toolUseId, i) })
     const seen = new Set<string>()
     for (const v of m.vessels) {
       seen.add(v.id)
@@ -60,18 +78,22 @@ export class LabelLayer {
       if (!el) {
         el = document.createElement('div')
         el.className = 'ship-plate'
-        el.innerHTML = '<div class="ship-plate-title"></div><div class="ship-plate-sub"><i></i><span></span></div>'
+        el.innerHTML = '<div class="ship-plate-kind"></div><div class="ship-plate-title"></div><div class="ship-plate-sub"><i></i><span></span></div>'
         this.root.appendChild(el)
         this.plates.set(v.id, el)
       }
+      const st = stateWord(v)
       el.dataset.rig = v.rig
+      el.dataset.tone = st.tone
       el.dataset.task = v.kind === 'task' ? '1' : ''
       el.dataset.hold = v.hold ? '1' : ''
-      const title = el.firstElementChild as HTMLElement
-      const t = v.kind === 'task' && v.taskShort ? `${v.title} · task ${v.taskShort}` : v.title
-      if (title.textContent !== t) { title.textContent = t; sizes.delete(el) }
-      const sub = el.lastElementChild!.lastElementChild as HTMLElement
-      const s = `${rigWords(v)} · ${v.nodes} ${v.nodes === 1 ? 'light' : 'lights'} · ${usdShort(v.cost)}${v.hold ? ' · chained' : ''}`
+      const kind = el.children[0] as HTMLElement
+      const k = v.kind === 'task' ? `task${v.taskShort ? ` ${v.taskShort}` : ''}` : 'session'
+      if (kind.textContent !== k) { kind.textContent = k; sizes.delete(el) }
+      const title = el.children[1] as HTMLElement
+      if (title.textContent !== v.title) { title.textContent = v.title; sizes.delete(el) }
+      const sub = el.children[2].lastElementChild as HTMLElement
+      const s = `${st.word} · ${count(v.turns, 'turn')} · ${usdShort(v.cost)}${v.hold ? ' · holds web text' : ''}`
       if (sub.textContent !== s) { sub.textContent = s; sizes.delete(el) }
     }
     for (const [id, el] of this.plates) if (!seen.has(id)) { el.remove(); this.plates.delete(id) }
@@ -82,11 +104,19 @@ export class LabelLayer {
       if (!el) {
         el = document.createElement('div')
         el.className = 'ship-formation'
+        el.innerHTML = '<span class="ship-formation-name"></span><span class="ship-formation-sub"></span>'
         this.root.appendChild(el)
         this.forms.set(f.key, el)
       }
-      const t = `${f.label} · ${f.members.length}`
-      if (el.textContent !== t) { el.textContent = t; sizes.delete(el) }
+      // The harbour's sessions, and the tasks in tow of them.
+      let tasks = 0
+      const towing = (i: number, d: number) => { for (const v of m.vessels) if (v.parentId === m.vessels[i].id && d < 8) { tasks++; towing(m.byId.get(v.id)!, d + 1) } }
+      for (const i of f.members) towing(i, 0)
+      const name = el.children[0] as HTMLElement
+      const sub = el.children[1] as HTMLElement
+      if (name.textContent !== f.label) { name.textContent = f.label; sizes.delete(el) }
+      const t = ` · ${count(f.members.length, 'session')}${tasks ? ` · ${count(tasks, 'task')}` : ''}`
+      if (sub.textContent !== t) { sub.textContent = t; sizes.delete(el) }
     }
     for (const [k, el] of this.forms) if (!fseen.has(k)) { el.remove(); this.forms.delete(k) }
   }
@@ -115,6 +145,36 @@ export class LabelLayer {
     const H = this.root.clientHeight
     this.measureReserved()
     const taken: Rect[] = [...this.reserved]
+    // Plates: the selected and hovered first, then the biggest on screen.
+    const cand: { i: number; px: number; x: number; y: number }[] = []
+    m.vessels.forEach((v, i) => {
+      const now = e.vesselNow(i)
+      const ppu = e.pixelsPerUnit(now.x, now.z)
+      const len = v.length * ppu
+      const below = v.beam / 2 + 1.6 + v.beam * 0.55
+      const p = e.project(now.x, 0, now.z + below)
+      // Waiting for you and failed come before size: they are what the operator looks for.
+      const pri = i === selected ? 1e9 : i === hovered ? 1e8 : len + (v.rig === 'lantern' ? 5e6 : v.rig === 'flare' ? 4e6 : v.rig === 'sail' ? 3e6 : 0)
+      if (p.on && p.x > -80 && p.x < W + 80 && p.y > -20 && p.y < H + 20 && (len > 44 || i === selected || i === hovered || v.rig === 'lantern' || v.rig === 'flare')) cand.push({ i, px: pri, x: p.x, y: p.y })
+    })
+    cand.sort((a, b) => b.px - a.px)
+    const shown = new Set<number>()
+    // The plates that matter most (selected, hovered, waiting, failed, working) go down before the harbours' names; the
+    // rest after them.
+    const placePlate = (c: { i: number; px: number; x: number; y: number }) => {
+      const el = this.plates.get(m.vessels[c.i].id)!
+      el.style.display = ''
+      const { w, h } = sizeOf(el)
+      const r = { x0: c.x - w / 2, y0: c.y, x1: c.x + w / 2, y1: c.y + h }
+      if (c.px < 1e8 && taken.some((t) => overlaps(t, r))) { el.style.display = 'none'; return }
+      taken.push(r)
+      shown.add(c.i)
+      el.style.transform = `translate(${c.x}px, ${c.y}px) translate(-50%, 0)`
+      el.dataset.on = c.i === selected ? 'selected' : c.i === hovered ? 'hovered' : ''
+    }
+    const top = cand.slice(0, 60)
+    for (const c of top) if (c.px >= 3e6) placePlate(c)
+
     // Places: on their ring's north side, while the ring is a size worth naming; the biggest first, and none over
     // another.
     const order = [...m.formations].sort((a, b) => b.members.length - a.members.length || a.key.localeCompare(b.key))
@@ -136,32 +196,53 @@ export class LabelLayer {
       }
       if (!show) el.style.display = 'none'
     }
-    // Plates: the selected and hovered first, then the biggest on screen.
-    const cand: { i: number; px: number; x: number; y: number }[] = []
+    for (const c of top) if (c.px < 3e6) placePlate(c)
+    m.vessels.forEach((v, i) => { if (!shown.has(i)) this.plates.get(v.id)!.style.display = 'none' })
+
+    // Benches: once a vessel is drawn big, each turn's label above its port rail ("turn 12 · working"), while they are
+    // far enough apart to read; the running, waiting and failed turns first.
+    let usedB = 0
     m.vessels.forEach((v, i) => {
       const now = e.vesselNow(i)
       const ppu = e.pixelsPerUnit(now.x, now.z)
-      const len = v.length * ppu
-      const below = v.beam / 2 + 1.6 + v.beam * 0.55
-      const p = e.project(now.x, 0, now.z + below)
-      const pri = i === selected ? 1e9 : i === hovered ? 1e8 : len
-      if (p.on && p.x > -80 && p.x < W + 80 && p.y > -20 && p.y < H + 20 && (len > 54 || i === selected || i === hovered)) cand.push({ i, px: pri, x: p.x, y: p.y })
+      if (v.length * ppu < 520 || !v.benches.length) return
+      const c = Math.cos(now.heading)
+      const s = Math.sin(now.heading)
+      const list = [...v.benches].sort((a, b) => {
+        const A = m.benches[a]; const B = m.benches[b]
+        const w = (x: Bench) => (x.waiting ? 4 : 0) + (x.running ? 3 : 0) + (x.failed ? 2 : 0)
+        return w(B) - w(A) || B.n - A.n
+      })
+      for (const bi of list) {
+        if (usedB >= 80) break
+        const b = m.benches[bi]
+        const lz = -v.beam * 0.5 - 0.4
+        const p = e.project(now.x + b.x * c - lz * s, 0.2, now.z + b.x * s + lz * c)
+        if (!p.on || p.x < 0 || p.x > W || p.y < 0 || p.y > H) continue
+        const wide = b.half * 2 * ppu > 120
+        const text = benchText(b, wide)
+        const width = 10 + text.length * 6.4
+        const r = { x0: p.x - width / 2, y0: p.y - 20, x1: p.x + width / 2, y1: p.y - 4 }
+        if (taken.some((q) => overlaps(q, r))) continue
+        taken.push(r)
+        let el = this.benchTags[usedB]
+        if (!el) {
+          el = document.createElement('div')
+          el.className = 'ship-bench'
+          this.root.appendChild(el)
+          this.benchTags.push(el)
+        }
+        if (el.textContent !== text) el.textContent = text
+        el.dataset.state = b.waiting ? 'waiting' : b.running ? 'running' : b.failed ? 'failed' : ''
+        el.style.display = ''
+        el.style.transform = `translate(${p.x}px, ${p.y - 20}px) translate(-50%, 0)`
+        usedB++
+      }
     })
-    cand.sort((a, b) => b.px - a.px)
-    const shown = new Set<number>()
-    for (const c of cand.slice(0, 60)) {
-      const el = this.plates.get(m.vessels[c.i].id)!
-      el.style.display = ''
-      const { w, h } = sizeOf(el)
-      const r = { x0: c.x - w / 2, y0: c.y, x1: c.x + w / 2, y1: c.y + h }
-      if (c.px < 1e8 && taken.some((t) => overlaps(t, r))) { el.style.display = 'none'; continue }
-      taken.push(r)
-      shown.add(c.i)
-      el.style.transform = `translate(${c.x}px, ${c.y}px) translate(-50%, 0)`
-      el.dataset.on = c.i === selected ? 'selected' : c.i === hovered ? 'hovered' : ''
-    }
-    m.vessels.forEach((v, i) => { if (!shown.has(i)) this.plates.get(v.id)!.style.display = 'none' })
-    // Tags on the lights of a vessel drawn big, while they are far enough apart to read.
+    for (let k = usedB; k < this.benchTags.length; k++) this.benchTags[k].style.display = 'none'
+
+    // Tags on the oars and messages of a vessel drawn big, while they are far enough apart to read. An oar's tag sits
+    // at its blade, where its result is.
     let used = 0
     const want: { l: Light; x: number; y: number; text: string }[] = []
     m.vessels.forEach((v, i) => {
@@ -169,22 +250,31 @@ export class LabelLayer {
       const ppu = e.pixelsPerUnit(now.x, now.z)
       if (v.length * ppu < 900 || !v.nodes) return
       const spacing = (v.length * 0.76 * ppu) / Math.max(1, v.nodes * 0.62)
-      if (spacing < 20) return
+      if (spacing < 16) return
+      const c = Math.cos(now.heading)
+      const s = Math.sin(now.heading)
       for (let k = 0; k < m.lights.length; k++) {
         const l = m.lights[k]
-        if (l.vessel !== i) continue
-        const text = tagText(l)
+        if (l.vessel !== i || l.kind === 'result') continue
+        const text = tagText(m, l, k, this.results)
         if (!text) continue
-        const w = e.lightWorldNow(k)
-        if (!w) continue
-        const p = e.project(w.x, w.y, w.z)
+        let x = l.lx
+        let z = l.lz
+        if (l.kind === 'call') {
+          const ri = l.toolUseId ? this.results.get(l.toolUseId) : undefined
+          const r = ri !== undefined ? m.lights[ri] : undefined
+          const side = Math.sign(l.lz) || 1
+          x = r ? r.lx : l.lx - (v.beam * 0.55) * 0.42
+          z = r ? r.lz : side * (v.beam * 0.5 + Math.max(1.1, v.beam * 0.55))
+        }
+        const p = e.project(now.x + x * c - z * s, 0.2, now.z + x * s + z * c)
         if (!p.on || p.x < 0 || p.x > W || p.y < 0 || p.y > H) continue
         want.push({ l, x: p.x, y: p.y, text })
       }
     })
     for (const t of want) {
       if (used >= 160) break
-      const width = Math.min(150, 7 + t.text.length * 6.2)
+      const width = Math.min(190, 7 + t.text.length * 6.2)
       const r = { x0: t.x + 6, y0: t.y - 17, x1: t.x + 6 + width, y1: t.y - 3 }
       if (taken.some((q) => overlaps(q, r))) continue
       taken.push(r)
@@ -197,7 +287,7 @@ export class LabelLayer {
       }
       el.textContent = t.text
       el.dataset.kind = t.l.kind
-      el.dataset.flag = t.l.external ? 'external' : t.l.failed ? 'failed' : t.l.l1 ? 'l1' : ''
+      el.dataset.flag = t.l.waiting ? 'waiting' : t.l.failed ? 'failed' : t.l.running ? 'running' : t.l.l1 ? 'l1' : ''
       el.style.display = ''
       el.style.transform = `translate(${t.x + 6}px, ${t.y - 17}px)`
       used++
@@ -209,6 +299,8 @@ export class LabelLayer {
     for (const el of this.plates.values()) el.remove()
     for (const el of this.forms.values()) el.remove()
     for (const el of this.tags) el.remove()
+    for (const el of this.benchTags) el.remove()
   }
 }
 
+export { vesselNoun }

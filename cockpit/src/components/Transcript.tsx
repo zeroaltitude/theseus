@@ -98,7 +98,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
         // for you; after a stop or a failure it never runs, so it is not shown.
         const waits = running || g.items.some((it) => it.kind === 'tool' && !!asking?.has((it.node.detail as D | null)?.correlation_id))
         return (
-          <section key={`${g.turn_id}-${gi}`} className="relative">
+          <section key={`${g.turn_id}-${gi}`} className="relative" data-turn={g.turn_id ?? undefined}>
             <div className="sticky top-0 z-10 -mx-4 mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap border-y border-line bg-hull px-4 py-1 shadow-[0_6px_12px_-8px_rgba(0,0,0,0.8)]">
               <span className="panel-title">turn {gi + 1}</span>
               {t && <>
