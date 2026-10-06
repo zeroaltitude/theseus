@@ -162,7 +162,8 @@ python3 -m unittest discover -s bench/async && python3 -m unittest discover -s b
 ```
 
 The standard library runs them without Harbor or Docker: each family's oracle on this host under a scratch
-`ASYNC_ROOT` at a time scale of 0.01, and a planted wrong effect per family; the ledger's check against an edited
+`ASYNC_ROOT` at a time scale of 0.01, with a `TMPDIR` of its own that it must leave empty (an oracle removes what it
+makes), and a planted wrong effect per family; the ledger's check against an edited
 one; the driver against a fake environment, a stand-in `claude` on the FIFO, and the daemon-mode script under a
 stand-in `theseus` (a daemon that answers health only once it is up, a wake pending after its job, the sampler
 around it all, and nothing left running after a test); and the scorer over fixture trials worked by hand. Three more run on request:

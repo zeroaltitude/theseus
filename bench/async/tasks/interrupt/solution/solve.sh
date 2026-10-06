@@ -5,6 +5,7 @@
 set -euo pipefail
 APP="${ASYNC_ROOT:-}/app"
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 train-model > "$out/train" &
 train=$!
 ticket-count | sed -n 's/^open tickets: //p' > "$APP/tickets.txt"

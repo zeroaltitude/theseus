@@ -3,6 +3,7 @@
 set -euo pipefail
 APP="${ASYNC_ROOT:-}/app"
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 pids=()
 for p in alpha bravo charlie delta echo foxtrot; do
   digest "$p" > "$out/$p" &
