@@ -32,8 +32,9 @@
 //!   checksum, or a multipart upload's parts) instead of sending it again.
 //! - **The session** `theseus-durability`, whose inline policy ([`policy`])
 //!   allows writing objects under its own prefix, reading them back, listing
-//!   the bucket's key names (so a missing key heads 404, not 403), and
-//!   writing rows whose keys start with its deployment. Nothing else.
+//!   the key names under its own prefix (so a missing key there heads 404,
+//!   not 403), and writing rows whose keys start with its deployment.
+//!   Nothing else.
 //! - **When**: woken by the WAL's directory (inotify), it waits [`SETTLE`]
 //!   for the writes around it, then ships; a minute's backstop besides. A
 //!   failed pass is tried again after a backoff that doubles to a minute,
@@ -100,8 +101,8 @@ pub fn prefix(deployment: &str) -> String {
 /// The tender session's inline policy (§3.5): objects under its prefix
 /// (`s3:PutObject` covers a multipart upload's create, parts, and
 /// completion; `s3:GetObject` a head), an upload's parts listed or aborted,
-/// the bucket listed (so a missing key heads 404), and rows whose partition
-/// key starts with its deployment.
+/// the bucket listed under its prefix (so a missing key there heads 404),
+/// and rows whose partition key starts with its deployment.
 pub fn policy(tender: &str, account: &str, cfg: &AwsAccountConfig) -> Option<Value> {
     (tender == TENDER).then(|| {
         let (region, deployment) = (&cfg.region, cfg.deployment());
@@ -122,14 +123,19 @@ pub fn policy(tender: &str, account: &str, cfg: &AwsAccountConfig) -> Option<Val
                 // crash, and must tell an object S3 never stored from a
                 // refusal: without the list a missing key is 403, which
                 // retries every pass and ships nothing behind it
-                // (theseus-iame). Why `IfExists`: the restore's
-                // `ListItsPrefix` (`read::policy`, theseus-mgw.10).
+                // (theseus-iame). S3 judges a HEAD or GET of a missing key
+                // on the implied `s3:ListBucket` with `s3:prefix` set to the
+                // object's own key, so a missing key under the prefix heads
+                // 404. A list that names no prefix carries none, and
+                // `StringLike` refuses it: the session lists only its own
+                // prefix (theseus-bfk9; `StringLikeIfExists` let it list the
+                // whole bucket's key names).
                 {
                     "Sid": "ListItsPrefix",
                     "Effect": "Allow",
                     "Action": "s3:ListBucket",
                     "Resource": format!("arn:aws:s3:::{b}"),
-                    "Condition": {"StringLikeIfExists": {
+                    "Condition": {"StringLike": {
                         "s3:prefix": [format!("{}*", prefix(deployment))],
                     }},
                 },

@@ -4,7 +4,8 @@
 //!
 //! The session is the owner role narrowed by an inline policy that only
 //! reads ([`policy`]): `s3:GetObject` under the deployment's prefix,
-//! `s3:ListBucket` (so a missing object answers 404, not 403), and
+//! `s3:ListBucket` under that prefix (so a missing object there answers
+//! 404, not 403), and
 //! `dynamodb:Query` of rows whose partition key starts with the deployment.
 //! Its name is its own, so CloudTrail names the restore.
 
@@ -40,19 +41,19 @@ pub fn policy(account: &str, region: &str, deployment: &str) -> Value {
                 "Action": "s3:GetObject",
                 "Resource": format!("arn:aws:s3:::{b}/{p}*"),
             },
-            // S3 answers a missing key 404 only to a principal that may
-            // list the bucket, judged with the `GetObject`'s own context,
-            // which has no `s3:prefix`: under `StringLike` that is 403, and
-            // the restore could not tell a missing blob from a refusal
-            // (theseus-mgw.10). `IfExists` passes a request without the key,
-            // so a list with no prefix passes too: the session may list the
-            // bucket's key names, never read an object outside its prefix.
+            // S3 judges a GET or HEAD of a missing key on the implied
+            // `s3:ListBucket` with `s3:prefix` set to the object's own key:
+            // allowed, `NoSuchKey` (404); refused, `AccessDenied` (403),
+            // and the restore could not tell a missing blob from a refusal
+            // (theseus-mgw.10). A list that names no prefix carries none,
+            // so `StringLike` refuses it: the session lists only the key
+            // names under its own prefix (theseus-bfk9).
             {
                 "Sid": "ListItsPrefix",
                 "Effect": "Allow",
                 "Action": "s3:ListBucket",
                 "Resource": format!("arn:aws:s3:::{b}"),
-                "Condition": {"StringLikeIfExists": {"s3:prefix": [format!("{p}*")]}},
+                "Condition": {"StringLike": {"s3:prefix": [format!("{p}*")]}},
             },
             {
                 "Sid": "ItsIndexRows",

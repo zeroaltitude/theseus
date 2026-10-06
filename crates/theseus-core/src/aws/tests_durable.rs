@@ -99,12 +99,12 @@ pub(super) struct State {
     policies: BTreeMap<String, Option<Value>>,
 }
 
-/// Whether a session's inline policy lets it know a key is missing, as S3
-/// decides it: `s3:ListBucket` on the bucket under no condition that needs
-/// `s3:prefix`, which a `GetObject` does not carry (a `StringLike` on it
-/// fails without it; `StringLikeIfExists` passes). Without it, a missing
-/// key is 403, not 404.
-fn lists_without_prefix(policy: &Value) -> bool {
+/// Whether a session's inline policy allows `s3:ListBucket` on the bucket
+/// for a request whose `s3:prefix` is `prefix` (None: it carries none), as
+/// IAM judges it: a condition on a key the request lacks fails, unless its
+/// operator ends `IfExists`. A list that names no prefix carries none, so
+/// `StringLike` refuses it and `StringLikeIfExists` admits it.
+pub(super) fn may_list(policy: &Value, prefix: Option<&str>) -> bool {
     let actions = |st: &Value| match &st["Action"] {
         Value::String(a) => vec![a.clone()],
         Value::Array(a) => a
@@ -113,6 +113,33 @@ fn lists_without_prefix(policy: &Value) -> bool {
             .map(String::from)
             .collect(),
         _ => Vec::new(),
+    };
+    let values = |v: &Value| match v {
+        Value::String(s) => vec![s.clone()],
+        Value::Array(a) => a
+            .iter()
+            .filter_map(Value::as_str)
+            .map(String::from)
+            .collect(),
+        _ => Vec::new(),
+    };
+    let holds = |op: &str, keys: &Value| {
+        let (base, if_exists) = match op.strip_suffix("IfExists") {
+            Some(b) => (b, true),
+            None => (op, false),
+        };
+        keys.as_object().is_some_and(|keys| {
+            keys.iter().all(|(k, want)| {
+                let got = if k == "s3:prefix" { prefix } else { None };
+                let Some(got) = got else { return if_exists };
+                let want = values(want);
+                match base {
+                    "StringLike" => want.iter().any(|w| like(w, got)),
+                    "StringEquals" => want.iter().any(|w| w == got),
+                    _ => false,
+                }
+            })
+        })
     };
     policy["Statement"]
         .as_array()
@@ -123,20 +150,34 @@ fn lists_without_prefix(policy: &Value) -> bool {
                 && actions(st)
                     .iter()
                     .any(|a| a == "s3:ListBucket" || a == "s3:*")
-                && st["Condition"].as_object().is_none_or(|ops| {
-                    ops.iter().all(|(op, keys)| {
-                        op.ends_with("IfExists")
-                            || keys
-                                .as_object()
-                                .is_none_or(|k| !k.contains_key("s3:prefix"))
-                    })
-                })
+                && st["Condition"]
+                    .as_object()
+                    .is_none_or(|ops| ops.iter().all(|(op, keys)| holds(op, keys)))
         })
 }
 
-/// Whether the request's signer may be told a key is missing: a session's
-/// inline policy decides; the key's own, the fake's whole account, may list.
-/// A `GetObject` and a `HeadObject` alike.
+/// IAM's `StringLike`: `*` any run of characters, `?` any one.
+fn like(pattern: &str, s: &str) -> bool {
+    match pattern.chars().next() {
+        None => s.is_empty(),
+        Some('*') => {
+            let rest = &pattern[1..];
+            s.char_indices()
+                .map(|(i, _)| i)
+                .chain([s.len()])
+                .any(|i| like(rest, &s[i..]))
+        }
+        Some(c) => s.chars().next().is_some_and(|d| {
+            (c == '?' || c == d) && like(&pattern[c.len_utf8()..], &s[d.len_utf8()..])
+        }),
+    }
+}
+
+/// Whether the request's signer may be told a key is missing, as real S3
+/// decides it: a HEAD or GET of a missing key is judged on the implied
+/// `s3:ListBucket` with `s3:prefix` set to the object's own key (allowed:
+/// 404; refused: 403). A session's inline policy decides; the key's own,
+/// the fake's whole account, may list.
 fn may_know_missing(s: &State, r: &Req) -> bool {
     let key = r
         .header("authorization")
@@ -144,7 +185,7 @@ fn may_know_missing(s: &State, r: &Req) -> bool {
         .and_then(|c| c.split('/').next())
         .unwrap_or_default();
     match s.policies.get(key) {
-        Some(Some(p)) => lists_without_prefix(p),
+        Some(Some(p)) => may_list(p, Some(&r.key())),
         _ => true,
     }
 }
@@ -1151,8 +1192,9 @@ fn the_tender_session_is_narrowed_to_its_prefix_and_its_rows() {
         st[0]["Resource"],
         format!("arn:aws:s3:::theseus-{ACCOUNT}-us-west-2/durability/theseus-lab/*")
     );
-    // The list, on the bucket, passes without `s3:prefix`, so a missing key
-    // heads 404 (theseus-iame), and with one only under its own prefix.
+    // The list, on the bucket, only under its own prefix: a missing key
+    // there heads 404 (theseus-iame), and a list that names no prefix is
+    // refused (theseus-bfk9).
     assert_eq!(st[1]["Action"], "s3:ListBucket");
     assert_eq!(
         st[1]["Resource"],
@@ -1160,9 +1202,8 @@ fn the_tender_session_is_narrowed_to_its_prefix_and_its_rows() {
     );
     assert_eq!(
         st[1]["Condition"],
-        json!({"StringLikeIfExists": {"s3:prefix": ["durability/theseus-lab/*"]}})
+        json!({"StringLike": {"s3:prefix": ["durability/theseus-lab/*"]}})
     );
-    assert!(lists_without_prefix(&p));
     assert_eq!(
         st[2]["Resource"],
         format!("arn:aws:dynamodb:us-west-2:{ACCOUNT}:table/theseus-durability")

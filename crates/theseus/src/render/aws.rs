@@ -63,8 +63,8 @@ fn dollars(cents: u64) -> String {
     format!("${}.{:02}", cents / 100, cents % 100)
 }
 
-/// What signs an account's calls, its budget, GuardDuty's usage, and the
-/// reconcile (C2): a line each, when known.
+/// What signs an account's calls, its budget, GuardDuty's usage, the
+/// reconcile (C2), and the durability tender: a line each, when known.
 fn aws_tended_lines(a: &theseus_protocol::AwsAccountStatus, now_ms: u64) -> Vec<String> {
     let ago = |t: u64| format!("{} min ago", now_ms.saturating_sub(t) / 60_000);
     let mut lines = Vec::new();
@@ -105,10 +105,83 @@ fn aws_tended_lines(a: &theseus_protocol::AwsAccountStatus, now_ms: u64) -> Vec<
     if let Some(r) = &a.reconcile {
         lines.push(format!("aws: {} the budget's reconcile: {r}", a.account));
     }
+    if let Some(d) = &a.durability {
+        lines.extend(durability_lines(&a.account, d, now_ms));
+    }
     if let Some(h) = &a.hands {
         lines.extend(hands_lines(&a.account, h, now_ms));
     }
     lines
+}
+
+/// The durability tender's line (step 15, theseus-9ai1): its state (and
+/// why), the position shipped and when, the lag, then the counts since the
+/// start and where it ships. `failing` and `stopped` read loud, as
+/// GuardDuty's warning does: the store is not being shipped off the machine.
+fn durability_lines(
+    account: &str,
+    d: &theseus_protocol::AwsDurabilityStatus,
+    now_ms: u64,
+) -> Vec<String> {
+    let plural =
+        |n: u64, one: &str| format!("{} {one}{}", thousands(n), if n == 1 { "" } else { "s" });
+    let state = match (d.state.as_str(), d.error.as_deref()) {
+        ("failing", e) => format!(
+            "WARNING: durability failing: {} (it retries)",
+            e.unwrap_or("no message")
+        ),
+        ("stopped", e) => format!(
+            "WARNING: durability stopped: {} (it will not retry; the store is not shipped \
+             off the machine)",
+            e.unwrap_or("no message")
+        ),
+        // A waiting tender's reason reads on: `waiting for the start to settle`.
+        ("waiting", Some(e)) => format!("durability waiting {e}"),
+        (s, Some(e)) => format!("durability {s}: {e}"),
+        (s, None) => format!("durability {s}"),
+    };
+    let shipped = match (d.shipped_to_position, d.last_shipped_unix_ms) {
+        (n, Some(t)) => format!(
+            "shipped to position {}, {} min ago",
+            thousands(n),
+            now_ms.saturating_sub(t) / 60_000
+        ),
+        (0, None) => "nothing shipped yet".to_string(),
+        (n, None) => format!("shipped to position {} (before this start)", thousands(n)),
+    };
+    let lag = match d.oldest_unshipped_unix_ms {
+        Some(t) => format!(
+            "lag {}: the oldest record not yet shipped was written {} min ago",
+            seconds(d.lag_ms),
+            now_ms.saturating_sub(t) / 60_000
+        ),
+        None => "nothing unshipped".to_string(),
+    };
+    vec![
+        format!("aws: {account} {state} · {shipped} · {lag}"),
+        format!(
+            "aws: {account} durability since the start: {}, {}, {}, {}, {} · to s3://{}/{} \
+             and the table {}",
+            plural(d.segments, "segment"),
+            plural(d.tails, "tail"),
+            plural(d.blobs, "blob"),
+            plural(d.rows, "row"),
+            plural(d.bytes, "byte"),
+            d.bucket,
+            d.prefix,
+            d.table
+        ),
+    ]
+}
+
+/// A span in seconds, or minutes past two of them: `45 s`, `3 min`.
+fn seconds(ms: u64) -> String {
+    let secs = ms / 1000;
+    if secs < 120 {
+        format!("{secs} s")
+    } else {
+        format!("{} min", secs / 60)
+    }
 }
 
 /// Health's hands block (step 40 part 2): the hands running by backend, the
@@ -310,7 +383,137 @@ fn aws_account_line(a: &theseus_protocol::AwsAccountStatus, now_ms: u64) -> Stri
 
 #[cfg(test)]
 mod tests {
-    use theseus_protocol::{AwsBootstrapResult, AwsBootstrapStack, AwsStatus};
+    use theseus_protocol::{
+        AwsAccountStatus, AwsBootstrapResult, AwsBootstrapStack, AwsDurabilityStatus, AwsStatus,
+    };
+
+    const NOW: u64 = 1_800_000_000_000;
+
+    /// An account with the tender in `state`, and what it has shipped.
+    fn tended(state: &str, error: Option<&str>) -> AwsAccountStatus {
+        AwsAccountStatus {
+            account: "111122223333".into(),
+            region: "us-west-2".into(),
+            state: "bound".into(),
+            durability: Some(AwsDurabilityStatus {
+                state: state.into(),
+                bucket: "theseus-111122223333-us-west-2".into(),
+                prefix: "durability/theseus-lab/".into(),
+                table: "theseus-durability".into(),
+                shipped_to_position: 1234,
+                last_shipped_unix_ms: Some(NOW - 3 * 60_000),
+                segments: 2,
+                tails: 1,
+                blobs: 0,
+                rows: 1500,
+                bytes: 2_097_152,
+                error: error.map(String::from),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn durability(a: &AwsAccountStatus) -> Vec<String> {
+        super::aws_tended_lines(a, NOW)
+            .into_iter()
+            .filter(|l| l.contains("durability"))
+            .collect()
+    }
+
+    /// Health's durability line (theseus-9ai1): caught up, it says what is
+    /// shipped and when, nothing unshipped, the counts, and where.
+    #[test]
+    fn a_caught_up_tender_says_what_it_shipped_and_where() {
+        let lines = durability(&tended("caught_up", None));
+        assert_eq!(
+            lines,
+            [
+                "aws: 111122223333 durability caught_up · shipped to position 1,234, 3 min ago \
+                 · nothing unshipped",
+                "aws: 111122223333 durability since the start: 2 segments, 1 tail, 0 blobs, \
+                 1,500 rows, 2,097,152 bytes · to s3://theseus-111122223333-us-west-2/\
+                 durability/theseus-lab/ and the table theseus-durability",
+            ]
+        );
+    }
+
+    /// Waiting, its reason reads on, and the exposure since the oldest
+    /// record not yet shipped is said.
+    #[test]
+    fn a_waiting_tender_says_why_and_its_lag() {
+        let mut a = tended(
+            "waiting",
+            Some("for the WAL's sync: position 1240 is written, not yet synced"),
+        );
+        let d = a.durability.as_mut().unwrap();
+        d.oldest_unshipped_unix_ms = Some(NOW - 150_000);
+        d.lag_ms = 150_000;
+        let lines = durability(&a);
+        assert_eq!(
+            lines[0],
+            "aws: 111122223333 durability waiting for the WAL's sync: position 1240 is \
+             written, not yet synced · shipped to position 1,234, 3 min ago · lag 2 min: the \
+             oldest record not yet shipped was written 2 min ago"
+        );
+        assert!(!lines[0].contains("WARNING"), "{lines:?}");
+        let mut a = tended("waiting", Some("for the start to settle"));
+        let d = a.durability.as_mut().unwrap();
+        (d.shipped_to_position, d.last_shipped_unix_ms) = (0, None);
+        let lines = durability(&a);
+        assert!(
+            lines[0].starts_with(
+                "aws: 111122223333 durability waiting for the start to settle · nothing shipped yet"
+            ),
+            "{lines:?}"
+        );
+    }
+
+    /// `failing` and `stopped` read loud, with their error, as GuardDuty's
+    /// warning does: a tender that does not ship must not look as if it did.
+    #[test]
+    fn a_failing_or_stopped_tender_reads_loud_with_its_error() {
+        let lines = durability(&tended("failing", Some("s3 PutObject: AccessDenied")));
+        assert!(
+            lines[0].starts_with(
+                "aws: 111122223333 WARNING: durability failing: s3 PutObject: AccessDenied \
+                 (it retries) · shipped to position 1,234"
+            ),
+            "{lines:?}"
+        );
+        let lines = durability(&tended("stopped", Some("the cursor is past the WAL's end")));
+        assert!(
+            lines[0].starts_with(
+                "aws: 111122223333 WARNING: durability stopped: the cursor is past the WAL's \
+                 end (it will not retry"
+            ),
+            "{lines:?}"
+        );
+        for s in ["caught_up", "shipping", "waiting"] {
+            assert!(
+                !durability(&tended(s, None))[0].contains("WARNING"),
+                "{s} is not loud"
+            );
+        }
+    }
+
+    /// No status (durability off, or no account): no line.
+    #[test]
+    fn no_durability_status_no_line() {
+        let mut a = tended("caught_up", None);
+        a.durability = None;
+        assert!(durability(&a).is_empty());
+        let s = AwsStatus {
+            accounts: vec![tended("caught_up", None)],
+            ..Default::default()
+        };
+        let all = super::aws_lines(Some(&s), NOW);
+        assert_eq!(
+            all.iter().filter(|l| l.contains(" durability ")).count(),
+            2,
+            "{all:?}"
+        );
+    }
 
     /// Keys of `[policy.aws]` that match nothing are named in health's `aws:`
     /// lines (theseus-snhr), and no line says anything when there are none.

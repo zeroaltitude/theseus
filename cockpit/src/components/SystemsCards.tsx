@@ -3,8 +3,9 @@
 // binding's recent traffic, and the approval channels' recent rows.
 import { Link } from 'react-router'
 import { Cloud, Rocket, ScrollText } from 'lucide-react'
-import type { AwsStatus, Health, LedgerEntry, StartupPhase } from '@protocol'
+import type { AwsDurabilityStatus, AwsStatus, Health, LedgerEntry, StartupPhase } from '@protocol'
 import { ago, clock, us } from '@/lib/format'
+import { durabilityView } from '@/lib/durability'
 import { summarize } from '@/lib/summary'
 import { phaseOutcome, startFigures, storeLines } from '@/lib/startupwords'
 import { Empty, Field, Panel, Pill } from './ui'
@@ -52,11 +53,30 @@ export function AwsCard({ aws, now }: { aws?: AwsStatus; now: number }) {
             {a.hands && <Field label="hands" mono>{a.hands.running_lambda + a.hands.running_fargate} running ({a.hands.running_lambda} Lambda, {a.hands.running_fargate} Fargate), ${(a.hands.reserved_micros / 1e6).toFixed(2)} reserved</Field>}
             {a.hands && <Field label="this hour" mono><span className={a.hands.alerted_hour_unix_ms !== undefined ? 'text-wait' : ''}>${(a.hands.hour_micros / 1e6).toFixed(2)} of its ${(a.hands.hour_line_micros / 1e6).toFixed(2)} line{a.hands.alerted_hour_unix_ms !== undefined ? ': past it, alerted' : ''}</span></Field>}
             {a.hands && a.hands.reaper_failures > 0 && <Field label="TTL reaper"><span className="text-fault">failed {a.hands.reaper_failures}×: {a.hands.reaper_last_failure}</span></Field>}
+            {a.durability && <DurabilityFields d={a.durability} now={now} />}
           </div>
         )
       })}
       <div className="mt-1 text-[11px] text-ink-faint">An account&rsquo;s key is checked after serving: until STS names this account for it, no call of the account signs.</div>
     </Panel>
+  )
+}
+
+const TONE_TEXT: Record<string, string> = { ok: 'text-ink-dim', idle: 'text-ink-dim', wait: 'text-wait', fault: 'text-fault' }
+
+/** The durability tender (theseus-9ai1): its state, why, what it shipped and when, its lag, its counts, and where it
+ *  ships, in the CLI's words. Failing and stopped read loud: the store is then not shipped off the machine. */
+function DurabilityFields({ d, now }: { d: AwsDurabilityStatus; now: number }) {
+  const v = durabilityView(d, now)
+  return (
+    <div className="mt-1" title="the store's WAL, blobs and index rows shipped to S3 and DynamoDB, in the tender's own session">
+      <div className="flex items-center gap-2"><span className="panel-title">durability</span><Pill tone={v.tone}>{v.label}</Pill></div>
+      {v.error && <div className={`break-words text-[12px] ${TONE_TEXT[v.tone] ?? 'text-ink-dim'}`}>{v.error}</div>}
+      <Field label="shipped" mono>{v.shipped}</Field>
+      <Field label="lag" mono>{v.lag}</Field>
+      <Field label="since the start" mono>{v.counts}</Field>
+      <Field label="to" mono>{v.where}</Field>
+    </div>
   )
 }
 
