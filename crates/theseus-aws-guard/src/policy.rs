@@ -10,7 +10,7 @@
 //! - `theseus-boundary`: allow-all less every guard, every hand role's permissions boundary (a boundary
 //!   has to allow, so it cannot be the deny-only guard itself). A role has one boundary, so it is one
 //!   policy, compacted to fit.
-//! - `theseus-scp-guardrails` (and on): the guardrails as SCPs, for Eddie's management account. Nothing
+//! - `theseus-scp-guardrails` (and on): the guardrails as SCPs, for the owner's management account. Nothing
 //!   here applies them.
 
 use std::collections::BTreeMap;

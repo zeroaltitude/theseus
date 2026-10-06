@@ -230,13 +230,13 @@ mod tests {
     #[test]
     fn an_answerer_names_its_place_and_an_unknown_surface_why() {
         use Surface::{Cli, Discord, Unnamed, Web};
-        let eddie = "271828182845904523";
+        let owner = "271828182845904523";
         assert_eq!(answerer(Cli, None).via(), "cli");
         assert_eq!(answerer(Web, None).via(), "web");
-        assert_eq!(answerer(Discord, discord(eddie, None)).via(), "discord:dm");
-        let guild = answerer(Discord, discord(eddie, Some("314159265358979323")));
+        assert_eq!(answerer(Discord, discord(owner, None)).via(), "discord:dm");
+        let guild = answerer(Discord, discord(owner, Some("314159265358979323")));
         assert_eq!(guild.via(), "discord:444444444444444444");
-        assert_eq!(guild.who(), format!("discord:{eddie} (x)"));
+        assert_eq!(guild.who(), format!("discord:{owner} (x)"));
         for a in [answerer(Cli, None), answerer(Web, None), guild] {
             assert_eq!(a.unknown(), None, "{a:?}");
         }
@@ -244,7 +244,7 @@ mod tests {
         assert!(why(answerer(Unnamed, None)).contains("never a private place"));
         assert!(why(answerer(Surface::Mcp, None)).contains("never an approval surface"));
         assert!(why(answerer(Discord, None)).contains("named no channel and user"));
-        assert!(why(answerer(Cli, discord(eddie, None)))
+        assert!(why(answerer(Cli, discord(owner, None)))
             .starts_with("only the Discord binding can name a Discord channel and user"));
     }
 
@@ -254,7 +254,12 @@ mod tests {
             parse_user("discord:271828182845904523"),
             Ok(271_828_182_845_904_523)
         );
-        for bad in ["eddie", "discord:eddie", "discord:12", "271828182845904523"] {
+        for bad in [
+            "zeroaltitude",
+            "discord:zeroaltitude",
+            "discord:12",
+            "271828182845904523",
+        ] {
             assert!(
                 parse_user(bad)
                     .unwrap_err()

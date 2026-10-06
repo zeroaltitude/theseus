@@ -1080,7 +1080,7 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
 
 /// A store the previous binary wrote, whose executions carry unit budgets
 /// (theseus-0sg): one ended `budget_exhausted` at 877,683 of 1,000,000
-/// units, as Eddie's Discord session did on 2026-09-29 for $0.45; one ended
+/// units, as the owner's Discord session did on 2026-09-29 for $0.45; one ended
 /// the same way whose session spent its whole $100; and one waits on input.
 /// It serves at once. `session.list`, `session.history`, and
 /// `execution.list` answer, each read in dollars at the configured limit
@@ -1135,7 +1135,7 @@ async fn a_store_with_unit_budgets_serves_and_its_sessions_list_and_read() {
                 &open.session_id,
                 r#""state":"waiting","wake":{"on":"input"},"budget":{"limit":20000000,"spent":154321,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#,
             ),
-            crate::node::Node::user(&open.session_id, Some("turn_old"), "discord:eddie", "hello")
+            crate::node::Node::user(&open.session_id, Some("turn_old"), "discord:zeroaltitude", "hello")
                 .record()
                 .unwrap(),
         ])
@@ -1708,7 +1708,7 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
                 profile: None,
                 provider: None,
                 model: None,
-                author: Some("discord:eddie".into()),
+                author: Some("discord:zeroaltitude".into()),
                 attachments: vec![],
                 reply_to: None,
                 opened_from: None,
@@ -1730,7 +1730,7 @@ async fn narrative_watch_streams_a_turn_and_refuses_when_off() {
     for (part, needle) in [
         (NarrativePart::Session, "opened (conversation)"),
         (NarrativePart::Session, "has a spend limit of $100."),
-        (NarrativePart::Turn, "started by discord:eddie"),
+        (NarrativePart::Turn, "started by discord:zeroaltitude"),
         (NarrativePart::Turn, "2 characters of input"),
         (NarrativePart::Turn, "ended after 1 loop"),
         (NarrativePart::Session, "Parked until the next input"),

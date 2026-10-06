@@ -122,7 +122,7 @@ files, +4,857 −58 against 96d01de; no new dependency, Cargo.lock and `package-
   resource returned by both regions.
 - **A version delete is a plain write.** The two permanent version deletes in the foundation bucket were notified,
   not asked, since the guard list does not count `DeleteObject` with a `VersionId` as destructive, and the durability
-  tender keeps its snapshots in that bucket. Filed as theseus-wand; Eddie decided at 23:24 to build it (§3.25 has
+  tender keeps its snapshots in that bucket. Filed as theseus-wand; the owner decided at 23:24 to build it (§3.25 has
   carried the decision since v0.81).
 - In the cloud's gates: theseus-sim's seeded-faults test failed 3 of 6 suite runs ("no series was put back", a
   coverage assertion of the repeating wakes), filed as theseus-81ig and fixed in batch 7 (Item 170); the core's
@@ -519,7 +519,7 @@ synthetic records before any canary data exists.
   completions per USD [1.228, 1.772] against 1.000 [0.686, 1.314], the difference +0.500 [+0.085, +0.915].
 - Not run under load: a pure function, with no timing or concurrency.
 
-**The join** (the harvest wake 7379d0cc; Eddie at 23:24 on 2026-10-03: joins may be batched, "whatever improves our
+**The join** (the harvest wake 7379d0cc; the owner at 23:24 on 2026-10-03: joins may be batched, "whatever improves our
 efficiency"). Three cloud branches joined under one gate: judge-prove at 038b889c on d953dd4c, install-smalls at
 3dee91df on 038b889c, gate-speed at f1fccecf on 3dee91df. The chain log's 00:58 line says each was "its own signed
 merge on d953dd4"; git shows them chained, each on the one before. No conflict here; `CLOUD_REPORT.md` removed; the
@@ -786,7 +786,7 @@ stop the same way (the driver's `driver.started`, the index tender's rows); the 
 not make the store refuse every append after its close checkpoint, since that would drop kernel records such as a
 job's completion.
 
-**Known gaps.** The question for Eddie, whether "drop late rows" should extend to `driver.started` and the index
+**Known gaps.** The question for the owner, whether "drop late rows" should extend to `driver.started` and the index
 tender's rows (facts a start writes again anyway), stayed open in the review. theseus-1m3s is open: run the reaping
 test at load 30 until it fails and read the printed line (an io error from the write other than `EPIPE` means treating
 any write error from an exited child as the broken pipe; a reaped or missing child means the reaper's). `Rig::settled`
@@ -906,7 +906,7 @@ Jev's price went beside the speech prices.
   ones were shed, and the batched frame landed inside a measured tool-call turn. The cloud had run only `bench turn
   --runs 5 --burst 0`, plain turns, which never saw it. Main reset to 1431fa7b; the merge parked on a local branch;
   filed theseus-0j2.3 (P1).
-- **The decision** (the DM thread, 00:58; overnight decision 1 for Eddie's review): option (a), the turn bench's quiet
+- **The decision** (the DM thread, 00:58; overnight decision 1 for the owner's review): option (a), the turn bench's quiet
   config turns the judge off as it does Discord, and the lifecycle bench keeps it on. With Jev unreachable the bench
   never measured a judged turn either way, only a turn whose background judge was failing; (a) keeps the turn bench
   strict about the turn's own frames. The harvest had leaned (b), leaving the judge's frames out of the count, "because
@@ -1201,7 +1201,7 @@ reservations, quotas) followed as hands-cancel (Item 116).
   `result.json`, sent a signed envelope (`succeeded 0 hand:lambda req-smoke-1`) and answered the runtime API.
   `hadolint` and `shellcheck` exit 0.
 
-**The review** (offline). Eddie's condition for the live check (2026-10-03 23:24) was that hands reuse an existing
+**The review** (offline). The owner's condition for the live check (2026-10-03 23:24) was that hands reuse an existing
 NAT gateway of another of the operator's projects. The branch cannot take an existing VPC: the hands stacks always make
 their own (`theseus-hands-network.yaml`), and `launch.rs` reads only that stack's outputs. The harvest filed
 **theseus-mgw.9** (hands on an existing network), and the live check waited for it (overnight decision 5). A nit, not a
@@ -1223,7 +1223,7 @@ theseus-celu.28. Batch 5's hands-cancel launched on its done line.
 
 **The install** (install #1, 2026-10-04 14:09, at bddfd407). The poller runs only with an `[aws]` account bound, and
 only while a group is open. The branch's own live check never ran as written; hands first ran on the account in
-hands-cancel's paid live check before the install (11:20 to 13:45, under Eddie's decision 9 at 11:26: 23 Lambda
+hands-cancel's paid live check before the install (11:20 to 13:45, under the owner's decision 9 at 11:26: 23 Lambda
 hands for $0.0117, everything torn down after; Item 116), which found this step's `build.sh` failing its
 own two checks on a good image (theseus-i7bz: Rust's musl target links static-pie, which `file` does not call
 "statically linked", and `set -o pipefail` takes `docker run`'s status in the image check).

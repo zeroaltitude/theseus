@@ -120,10 +120,13 @@ async fn basics(client: &Client, fake: Option<&Fake>) {
     let r = client.call_tool("image", json!({})).await.unwrap();
     assert!(r.text_for_model().contains("[image, image/png"));
 
-    let args = BTreeMap::from([("name".to_string(), "Eddie".to_string())]);
+    let args = BTreeMap::from([("name".to_string(), "zeroaltitude".to_string())]);
     let p = client.get_prompt("greet", &args).await.unwrap();
     assert_eq!(p.messages[0].role, "user");
-    assert_eq!(p.messages[0].content.as_model_text(), "Say hello to Eddie.");
+    assert_eq!(
+        p.messages[0].content.as_model_text(),
+        "Say hello to zeroaltitude."
+    );
     client.ping().await.unwrap();
 
     if let Some(fake) = fake {

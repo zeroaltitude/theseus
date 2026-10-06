@@ -1,7 +1,7 @@
 //! A Theseus job cannot answer for the operator from its own shell
 //! (theseus-zmgb), with the real `theseusd`, its real job wrappers, and the
 //! real `theseus` CLI. A stand-in for the Messages API asks for the tool
-//! calls. Every job here runs under `notify`, as Eddie's posture has it, so
+//! calls. Every job here runs under `notify`, as the owner's posture has it, so
 //! nothing but the answer itself is in the way:
 //! - a job's `theseus confirm`, and its double-forked grandchild's, before and
 //!   after the job's main process has exited, are refused by the CLI, since

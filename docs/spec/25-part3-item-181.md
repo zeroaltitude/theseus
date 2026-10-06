@@ -89,7 +89,7 @@ files, +689 −52; no package, protocol type or config key).
 on, while its `route` and `provider.call` spans say the routed one, so a switched or detoured turn's `theseus.turns`
 point pairs the routed profile with the base's model. **theseus-3urn (P3, main's; the report's "Left, and
 uncertain"):** a switch's routed compile runs `recall_compiled` again after the first compile took the recall's
-`drops`, so the stored compilation's budget names none. **For Eddie, each recommended and joined as built:** `Routed.from`
+`drops`, so the stored compilation's budget names none. **For the owner, each recommended and joined as built:** `Routed.from`
 stored rather than derived (deriving it from the ledger would add a read to each routed turn's start); the `profile.use`
 change accepted and said in the docs; the deferred rows accepted (no reader depends on the order: R14 read the
 cockpit's lists and chart and the CLI's watch); a detour's loop with no `context.compiled` accepted (the context chart
@@ -115,7 +115,7 @@ from the config copy 22.5 / 23.1; clean shutdown 31.4 / 47.8; SIGKILL then resta
 done line 14:06:03; theseus-0j2.17, d13v and g1gl closed with the hash. **The store went from format 20 to 21.**
 
 **The install** (2026-10-05 16:48 at c4f79e9f, install #5, with situations (Item 183), whose format 22
-followed this one's 21: Eddie's store went from 20 to 22 at the first write, after the install's backup, and install
+followed this one's 21: the owner's store went from 20 to 22 at the first write, after the install's backup, and install
 #4's build would refuse it, so a rollback is the backup). No config key; after `profile.use`, a routed `-P` pane runs on
 its `-P` profile. Health after the restart (16:48:09): check exit 0, 9 secrets ready 1.03 s after the start, startup
 serving at 43.2 ms (store 8.4, kernel 31.0 ms, inside the 50 ms budget, the load 8 from the build that had just ended),
@@ -231,7 +231,7 @@ the branch deleted; done line 14:21:15. theseus-t7ra closed with the hash; **the
 and 3 ("a sender or reader in code that never runs, a never-true target cfg") and left open. The store stays at
 format 21.
 
-**The install** (2026-10-05 16:48 at c4f79e9f, install #5). Nothing on Eddie's daemon: test code, one clap attribute
+**The install** (2026-10-05 16:48 at c4f79e9f, install #5). Nothing on the owner's daemon: test code, one clap attribute
 and the exam's manifest metadata. Install #4's `theseus-index` exited 2 on `--version`; install #6's read printed
 `theseus-index 0.0.1` (chain log, 10-06 10:20). Health after the restart (16:48:09): check exit 0, 9 secrets ready
 1.03 s after the start, startup serving at 43.2 ms (store 8.4, kernel 31.0 ms, the load 8 from the build), Discord
@@ -244,7 +244,7 @@ marker key in its own manifest, as `reserved_for` is, rather than a table in the
 comment names (plant 4's finding; no effect on what counts).
 
 **Known gaps.** theseus-g7qp keeps holes 1 (a sender or reader in code that never runs, such as a pub fn nobody calls)
-and 3 (a target cfg that is never true), P3. R15's "For Eddie", each recommended and kept as built: imports are
+and 3 (a target cfg that is never true), P3. R15's "For the owner", each recommended and kept as built: imports are
 counted per file, not per scope (two imports of different types under one name make every bare name in the file count
 for nothing, which fails closed with a message; no non-test file does so today); `self::` and `super::` paths are not
 resolved (they count for nothing; none is used that way today); `run_from_tree` accepted. Root AGENTS.md was at
@@ -252,7 +252,7 @@ resolved (they count for nothing; none is used that way today); `run_from_tree` 
 counts only where the type is ours.") or nothing; the `*` arm's comment may be reworded at a docs commit ("`::*` never
 gets here: it records the module before it, which adds no type"), or never.
 
-### Item 183. Situations: what a compile is for, a compiler input with a table of what each admits and a check that fails a turn before anything is sent, enforcing from day one with its two false positives fixed; the precedence line, testimony headers and volatile values as of a date (theseus-3nk.1, with theseus-783a; M6 step 35a, roadmap row 62; the sixth cloud batch's situations session, fired 2026-10-04 18:08 from d5a4b808, Opus 5.5, its report at about 20:00; babe497a, 2286a2cb, 93f72549 and 4fc7e91b; reviewed 2026-10-05 00:03 to 01:58 by local reviewer R7, stack J, and not accepted as built (two false positives, theseus-783a); Eddie's decision of 12:17, enforce from day one; the `situations` lane, a subagent of the DM thread, spawned 12:20 and relaunched at about 13:09 after the account's weekly limit, with the two fixes c91306ff and b096fcce and seven join fixes over its merge onto main and three merges of main into the lane; joined 14:33 at c4f79e9f, a signed merge onto ae1202af, by the lane; reviewed 14:51 by the DM thread; store format 21 to 22; installed 2026-10-05 16:48 at c4f79e9f, install #5)
+### Item 183. Situations: what a compile is for, a compiler input with a table of what each admits and a check that fails a turn before anything is sent, enforcing from day one with its two false positives fixed; the precedence line, testimony headers and volatile values as of a date (theseus-3nk.1, with theseus-783a; M6 step 35a, roadmap row 62; the sixth cloud batch's situations session, fired 2026-10-04 18:08 from d5a4b808, Opus 5.5, its report at about 20:00; babe497a, 2286a2cb, 93f72549 and 4fc7e91b; reviewed 2026-10-05 00:03 to 01:58 by local reviewer R7, stack J, and not accepted as built (two false positives, theseus-783a); the owner's decision of 12:17, enforce from day one; the `situations` lane, a subagent of the DM thread, spawned 12:20 and relaunched at about 13:09 after the account's weekly limit, with the two fixes c91306ff and b096fcce and seven join fixes over its merge onto main and three merges of main into the lane; joined 14:33 at c4f79e9f, a signed merge onto ae1202af, by the lane; reviewed 14:51 by the DM thread; store format 21 to 22; installed 2026-10-05 16:48 at c4f79e9f, install #5)
 
 **Why.** M6's step 35a (m6 §2.11, "Never silently thinner, testimony, precedence"). `compile()` had no idea what a
 compile was for: its trigger string (`new_session`, `system_changed`, …) appeared only after the fact, and nothing
@@ -361,7 +361,7 @@ twice on main, each reproduced through the whole core (theseus-783a, P1): **a tr
 detoured with the task's `Arrangement` in its window and failed, where main sent it; and **after a compaction whose
 call was never dispatched**, the persisted compilation named a node never written, so every later turn of the session
 failed as `unclosed recall_section` until something recompiled it. R7 recommended a week in shadow, with the fixes in
-either way. **Eddie chose enforcement from the first day** (12:17: "either way, we're responding to possible failures.
+either way. **The owner chose enforcement from the first day** (12:17: "either way, we're responding to possible failures.
 At least with A, the failures come straight to the user. Also, I trust your fixes."): no shadow mode and no config key.
 Also **join fix 1**, needed whatever the check did: the merged debug turn future overflowed the golden's 2 MiB test
 stack (frame size, not recursion), so the compile step's future is boxed at its three awaits in `compile_routed` and the
@@ -389,7 +389,7 @@ Its gate (14:28:22 to 14:33:37, ok): **2,819 of 2,819** (1 slow, 21 skipped); li
 149.7); fdatasync p50 6.6 ms. Pushed 14:33:44; done line 14:33:48; theseus-783a and theseus-3nk.1 closed with the hash.
 **The store went from format 21 to 22.**
 
-**The install** (2026-10-05 16:48 at c4f79e9f, install #5, the join's own commit). Eddie's store went to format 22 at
+**The install** (2026-10-05 16:48 at c4f79e9f, install #5, the join's own commit). The owner's store went to format 22 at
 the start's first write, after the install's backup; an older build then refuses it, so a rollback is the backup. Each
 existing session's first turn after the install was one `system_changed` recompile, a full-price write of its prefix,
 then appends as before (context-honesty's note had paid its own at install #4: the second and last of the pair). The
@@ -656,14 +656,14 @@ stays strict until it is fixed. theseus-dp3y (P3): the smoke's plan has no room 
 checks no realized bound; the drive should check its daemon's real overhead against the plan. `REPLY_BYTES` (400) and
 `MARGIN` are guesses (live replies averaged 521 bytes): R16's call was to run the full as planned and budget about $16
 an arm, not $11.77, then set `REPLY_BYTES` from its turns. A recall bin dir needs all four binaries, `theseus-index`
-included. The full runs (recall on Theseus first, about $12 to $16 an arm and 1.5 to 3 hours) were Eddie's GO of 16:43,
+included. The full runs (recall on Theseus first, about $12 to $16 an arm and 1.5 to 3 hours) were the owner's GO of 16:43,
 held by the DM thread for a quiet machine.
 
 ### Item 187. Memory checks: the adjacency projection's warm build paced by pressure and never past a clean stop, with tests for retention's shadow rule, activation's additions and a stub's kind (theseus-3edq, theseus-cn0b, theseus-syxg and theseus-q0qe, with theseus-1o8i by join fix 1; the known gaps of Items 157, 159 and 162; the eighth cloud batch's memory-checks session, fired 2026-10-05 13:22 from 60b43fb6, Sonnet 5.5, its report at 14:28; 1a0df0a8, 7234b0d3, 1aa3876b and 39835348; reviewed 17:00 to 18:10 by local reviewer R17, stack M, and accepted with join fix 1, the DM thread's step line at 18:53; joined 19:06 at 85862603, a signed merge onto ca58d80f, by the stack-M joiner; installed 2026-10-06 10:12 at 21bf5454, install #6)
 
 **Why.** Four gaps from the memory joins. **theseus-3edq (P2, Item 159):** the adjacency projection's build walked
 every page with no pressure pace; its page walk is shared with `refresh`, which runs inside a turn's deadline and must
-never wait, so the build needed a pace of its own before `+activation` meets Eddie's store. **theseus-cn0b (P2, Item
+never wait, so the build needed a pace of its own before `+activation` meets the owner's store. **theseus-cn0b (P2, Item
 157):** nothing held that a shadow turn never asks retention's projection (R5's plant, a turn under any arm building
 it, passed the suite). **theseus-syxg (P2, Item 159):** nothing held that activation's additions skip what the turn
 already holds. **theseus-q0qe (P2, Item 162):** nothing held that `stub::Kind::of` agrees with the peek's kind for every
@@ -738,12 +738,12 @@ then restart 48.0 / 55.6; binary swap 95.3 / 105.3); L1 start p50 8.45 ms; turn 
 19:06:20; the branch deleted; done line 19:06:35. theseus-3edq, cn0b, syxg, q0qe and 1o8i closed with the hash; e21m
 open. The store stays at format 22.
 
-**The install** (2026-10-06 10:12 at 21bf5454, install #6). Nothing changes on Eddie's daemon at the install: the paced
+**The install** (2026-10-06 10:12 at 21bf5454, install #6). Nothing changes on the owner's daemon at the install: the paced
 build runs only under `[memory] arm = "+activation"` in canary or live, and his config runs `baseline`. With 1o8i
 closed, naming `+activation` later is his call. Health after the restart (10:12:34): check exit 0, 9 secrets ready
 1.05 s after the start, startup serving at 45.3 ms (store 4.6, kernel 36.9 ms, at a load of 11 to 19, not a quiet
 reading), Discord ready, the judge's live packs as before, memory live on the `baseline` arm, voice ready, `cgroup:
-delegated`, the unit active with NRestarts 0, and no error or warning in the journal; Eddie's store went from format 22
+delegated`, the unit active with NRestarts 0, and no error or warning in the journal; the owner's store went from format 22
 to 23 at the first write (soul-import's, Item 201), after the backup.
 
 **Divergences.** A search's own build is never paced (a person waits on it, and a pace would only make it time out
@@ -753,7 +753,7 @@ prompt pointed at an older pacing pattern.
 **Known gaps.** theseus-e21m (P3): no test holds that `Ask::run` passes `false`. A search during a paced warm build
 answers `deadline` after its whole recall deadline: R17 noted it on 1o8i, which join fix 1 closed, so the batch-9 writer
 filed theseus-6fn.14 and the batch-8 harvest wake 3 filed theseus-zv4x (its duplicate); both were taken by batch 9's
-memory-tests (Item 210), with e21m. R17's "For Eddie", each recommended: a shadow daemon on `+retention`
+memory-tests (Item 210), with e21m. R17's "For the owner", each recommended: a shadow daemon on `+retention`
 should not warm the retention projection at startup (no shadow turn reads it, and the warm walks every memory row for
 no reader; one condition in `Core::warm_retention`, not changed); keep `+activation` unnamed until 1o8i is closed (it
 is); leave `warm_labels` unpaced. Not measured: the retention warm on a store with memory rows (`synth-store` writes
@@ -765,7 +765,7 @@ not yet say the warm build waits while the machine is busy, never past a stop.
 **Why.** Consolidation's live check with GLM and Jev (Item 160) found glm-5.3-flash heading its entry with a title
 ("Kestrel relay. The Kestrel relay is a service that listens on port 7714 [1]. …"): the deterministic check rejected it
 as "sentence 1 cites no source" before Jev was asked, and the cluster was never proposed again (theseus-8edz, P2). So
-install #4 set `[memory] synth_limit_usd_per_day = 0` on Eddie's config by his 12:03 call, and consolidation's nightly
+install #4 set `[memory] synth_limit_usd_per_day = 0` on the owner's config by his 12:03 call, and consolidation's nightly
 writer stayed off until 8edz was fixed. The session found more forms: a title with no stop on its own line ("Kestrel
 relay", "# Kestrel relay", "**Kestrel relay**") was glued to the next sentence, passed when that sentence cited, and
 stayed glued in the stored text; and a long Markdown heading ("# The Kestrel relay was moved to a new host in May") was
@@ -846,9 +846,9 @@ ms, tool call 9 frames, 167.0 ms (under gaming mode). Pushed 19:18:31; the branc
 theseus-8edz closed with the hash. The store stays at format 22.
 
 **The install** (2026-10-06 10:12 at 21bf5454, install #6). With 8edz fixed, consolidation's nightly writer went back
-on: the install's config set `[memory] synth_limit_usd_per_day = 0.50` (from 0; Eddie, 2026-10-06 09:16: "50 cents a day
+on: the install's config set `[memory] synth_limit_usd_per_day = 0.50` (from 0; the owner, 2026-10-06 09:16: "50 cents a day
 is perfect"), with hour 4 and `synth_profile = "session"` as before. R17's costing: no past form rejections exist on
-Eddie's store (install #4 shipped consolidation at a limit of 0, which stops before any call and writes no row), so a
+the owner's store (install #4 shipped consolidation at a limit of 0, which stops before any call and writes no row), so a
 night is one call per new cluster, each reserving at most about $0.025 on Opus 5.5 and typically spending under $0.01,
 so $0.50 covers at least about 20 syntheses, each then judged by `citation.v1` in shadow; under `arm baseline` no
 synthesis is shown to a model. The install's dry run read "0 clusters from 24 recalls · $0.0000 of $0.50 spent today".
@@ -860,7 +860,7 @@ journal; the store from format 22 to 23 at the first write (soul-import's), afte
 **Divergences.** Of the issue's three parts, (a) and (b) were built and (c) was not, as the brief said. The proposed row
 keeps the answer whole while the node keeps the entry, with the checked row's `heading` saying why they differ. A long
 Markdown heading now fails `Uncited(1)` (a tightening, accepted), and by R17's reading so does a second heading under the
-first. Past form rejections are proposed once more after the upgrade (none exist on Eddie's store). A heading-only answer
+first. Past form rejections are proposed once more after the upgrade (none exist on the owner's store). A heading-only answer
 is rejected `Empty` and gets its one retry.
 
 **Known gaps.** The dry-run test's wait narrows the snapshot race rather than closing it: a shadow `judge.call` landing
@@ -1001,7 +1001,7 @@ config key, store format or package).
   lag 0 and 0, `restarts` 0 and `rss_bytes` 580,517,888, health's own number. After SIGKILL to the tender: running again
   within 2 s with a new pid, and the next post `theseus.index.restarts` 1. **The `l1` label, live:** on a second unit
   with `Delegate=yes` the same L0 cancel was "verified: cgroup, 1 process", and health and the metric both said `l1`
-  (theseus-7ydh, P2): Eddie's `theseusd.service` is delegated, so his health already read `l1` for every L0 cancel.
+  (theseus-7ydh, P2): the owner's `theseusd.service` is delegated, so his health already read `l1` for every L0 cancel.
 - **FAST** (the whole stack against c4f79e9f, frozen debug builds, one hold, palindrome order): turn frames 5 and 9 on
   both arms, plain p50 80.6 against 80.8 ms, tool call 172.7 against 170.1; lifecycle with no budget missed, cold start
   25.1 against 22.6 ms. Nothing on the start or turn path: the sampler starts after serving and only with an endpoint and
@@ -1194,7 +1194,7 @@ when the session ran (`recall_live` and the golden's two halves already were). T
 conversation's 30 s wake wait.
 
 **Known gaps.** theseus-2kyc (P2): tests_stack misses the entry's box alone; R20's fix is a size test (`run`'s result a
-fat pointer, 16 bytes, against about 8 KiB unboxed) and a corrected doc. R20's "For Eddie", each recommended: join as
+fat pointer, 16 bytes, against about 8 KiB unboxed) and a corrected doc. R20's "For the owner", each recommended: join as
 is; leave `run_inproc`'s 170 KiB poll frame (toolrun.rs at 2,494 lines, best done with C6's reshaping) and
 `compile_routed` (now 2 KB) unboxed; leave the margin test's 30 s wake wait (the golden's timing under starvation, on
 main too); if a later step brings a debug daemon near its 2 MiB, `thread_stack_size(8 << 20)` under
@@ -1319,7 +1319,7 @@ or package. Health after the restart: `theseusd check` exit 0, 9 secrets ready 1
 at 45.3 ms (store 4.6, kernel 36.9 ms; load 11 to 19, not a quiet reading), Discord ready, the judge's live packs
 `security.v3`, `route.v1` and `rerank.v1` as before, memory live on the `baseline` arm, voice ready, `cgroup:
 delegated`, the unit active with NRestarts 0, and no error or warning in the journal; the store from format 22 to 23 at
-its first write, after the install's backup. The install's restore drill read Eddie's history whole with `--after`
+its first write, after the install's backup. The install's restore drill read the owner's history whole with `--after`
 paging to compare it, node for node.
 
 **Divergences.** `ledger.tail`'s cursors, which the brief listed, were already on main; the session paged
@@ -1330,7 +1330,7 @@ paging to compare it, node for node.
 (R19's suggested test needs no counter: payloads made unreadable while the index keeps their keys); **theseus-zf8e**,
 the cursors come from the decoded nodes, not the store page's `first` and `last`, which count a refused frame, so a page
 made only of refused frames ends a walk early; **theseus-8obx**, `ledger.tail`'s `older` with both cursors (the
-report's own observation, confirmed). R19's "For Eddie", each recommended: accept the page of 200 for a cursor without
+report's own observation, confirmed). R19's "For the owner", each recommended: accept the page of 200 for a cursor without
 `n`, `NOT_FOUND` for an end under 6 characters, and the TUI's pane without ids until kym3's TUI half; fix 8obx (one
 line, history's rule: `before` alone) before the TUI pages back, and zf8e with it, adding one line to
 `without_a_cursor_the_answer_is_todays` (an old client's whole read after its 300 more nodes); carry `-n` into the

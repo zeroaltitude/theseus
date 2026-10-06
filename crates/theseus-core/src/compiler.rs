@@ -128,7 +128,7 @@ pub struct BlockBreakpoint {
 /// under `min_tokens` × this can never reach the minimum, so its breakpoint
 /// is dropped; any other is placed. Claude's tokenizers read this JSON at
 /// about 2.6 bytes a token (Sonnet 5.5) to 3.1 (Haiku 4.5), and prose at
-/// about 4. The compiler's chars/4 estimate would not do: on Eddie's config
+/// about 4. The compiler's chars/4 estimate would not do: on the owner's config
 /// it put the header, tools included, at about 3,350 tokens, which Sonnet
 /// 5.5 counted at 5,045 and Haiku 4.5 at just under its 4,096 minimum (the
 /// cache2 lane's live check, 2026-10-01). Under chars/4 a header that grew
@@ -322,7 +322,7 @@ impl Overflowed {
 /// How far the bytes part of an estimate may run low, in percent of itself
 /// (theseus-f5hf). The ring allows for it: it rings when the counted part
 /// plus the bytes part × (1 + this) passes the window less the output cap
-/// and the headroom. The worst measured: in Eddie's DM an 11 KB tool result
+/// and the headroom. The worst measured: in the owner's DM an 11 KB tool result
 /// read at 1.76 bytes a token against Sonnet 5.5's figure of 2.4, and the
 /// request's new part came to ×1.36 its estimate.
 pub const MARGIN_PERCENT: u64 = 40;
@@ -447,7 +447,7 @@ pub fn estimate(
 /// nothing is written mid-call (a turn writes its input before its first
 /// call, and tool results and late results between calls). The provider
 /// counted that request's input, and the answer re-enters as input at its
-/// output tokens, thinking included (Eddie's DM: to within the 6 tokens of
+/// output tokens, thinking included (the owner's DM: to within the 6 tokens of
 /// framing of it and the message after it). The request's last assistant
 /// message must end with the answer's last block.
 pub fn counted_part(
@@ -2432,7 +2432,7 @@ mod tests {
         assert_eq!(c.estimate.method, EstimateMethod::Bytes);
     }
 
-    /// Recorded counts: each loop of Eddie's DM on Sonnet 5.5 (2026-10-01),
+    /// Recorded counts: each loop of the owner's DM on Sonnet 5.5 (2026-10-01),
     /// as the provider counted it, against the estimate from the loop
     /// before's count. Each row: the last request's count and its answer's
     /// output tokens and calls; then the bytes of tool output, or of a

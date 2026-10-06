@@ -456,7 +456,7 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
     }
 }
 
-/// The slash commands every place answers, one effect each (Eddie's rule):
+/// The slash commands every place answers, one effect each (the owner's rule):
 /// `/stop` halts this session's own work and keeps the conversation (W1),
 /// `/new` alone starts a fresh session, `/trust` clears its hold on web text
 /// (T1b), and `/cancel` names a task (DD7) or a pending wake (DD8), by one
@@ -1626,7 +1626,7 @@ fn parse_asked_pick(custom_id: &str, values: &[String]) -> Option<Asked> {
 }
 
 /// What a "should have asked" press says it does, on the menu's options and a
-/// notice card's button (Eddie, 2026-10-03 14:53).
+/// notice card's button (the owner, 2026-10-03 14:53).
 const ASK_IN_FUTURE: &str = "Make actions like this ask in the future";
 
 /// The one "Should I have asked?" menu on a tool message: an option per
@@ -2508,7 +2508,14 @@ pub(crate) mod tests {
         ));
         assert!(addressed("<@&42> hi", &[], &[role], None, bot, &[role]));
         assert!(addressed("thanks", &[], &[], Some(bot), bot, &[role]));
-        assert!(!addressed("@Tabitha hi", &[7], &[], None, bot, &[role]));
+        assert!(!addressed(
+            "@Tabitha/Claude hi",
+            &[7],
+            &[],
+            None,
+            bot,
+            &[role]
+        ));
         assert!(!addressed("hi all", &[], &[9], Some(7), bot, &[role]));
         assert_eq!(
             strip_mentions("<@1618033988749894848>  run the tests", bot, &[role]),
@@ -2744,7 +2751,7 @@ pub(crate) mod tests {
             key: "dm:42".into(),
             target: "discord:dm:42".into(),
             kind: "dm",
-            label: "eddie".into(),
+            label: "zeroaltitude".into(),
             channel: None,
             users: vec![42],
             mention_only: false,
@@ -2929,7 +2936,7 @@ pub(crate) mod tests {
             .unwrap();
         assert!(first.awaiting_confirm.is_some(), "it asks first");
         let (mut place, mut rx) = place_for_tests(&core, &sid);
-        let answer = place.control(Control::Stop, "discord:eddie").await;
+        let answer = place.control(Control::Stop, "discord:zeroaltitude").await;
         assert_eq!(
             answer,
             "⏹️ Stopped this session's work (0 running action(s) told to stop). The \
@@ -2939,7 +2946,7 @@ pub(crate) mod tests {
         assert!(core.kernel.pending_confirms().unwrap().is_empty());
         // The next message continues it.
         place.submit(vec![Inbound {
-            author: "eddie".into(),
+            author: "zeroaltitude".into(),
             author_id: 42,
             text: "SECOND never mind".into(),
             files: None,
@@ -2961,7 +2968,7 @@ pub(crate) mod tests {
             core.store.get_session(&sid).unwrap().unwrap();
         assert_eq!(rec.turns, 2, "both turns in the one session");
         // `/new` alone starts a fresh one.
-        let answer = place.control(Control::New, "discord:eddie").await;
+        let answer = place.control(Control::New, "discord:zeroaltitude").await;
         assert_ne!(place.session_id, sid);
         assert!(answer.starts_with("🆕 New session"), "{answer}");
         assert_eq!(
@@ -3030,7 +3037,7 @@ pub(crate) mod tests {
                 guild_id: None,
             })
         };
-        let r = send_tighten(&rpc, &pick, "discord:eddie", dm()).await;
+        let r = send_tighten(&rpc, &pick, "discord:zeroaltitude", dm()).await;
         let t = r.as_ref().unwrap();
         assert_eq!(
             (t.tool.as_str(), t.posture.as_str(), t.changed),
@@ -3038,7 +3045,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             (t.tightening.by.as_str(), t.tightening.via.as_str()),
-            ("discord:eddie", "discord:dm")
+            ("discord:zeroaltitude", "discord:dm")
         );
         assert_eq!(core.health().tightenings[0].tool, "proc.run");
         assert_eq!(
@@ -3046,16 +3053,16 @@ pub(crate) mod tests {
             "🔒 `proc.run` asks first from now on. Undo it from the cockpit's Actions view, or \
              `theseus policy untighten proc.run`."
         );
-        let again = send_tighten(&rpc, &pick, "discord:eddie", dm()).await;
+        let again = send_tighten(&rpc, &pick, "discord:zeroaltitude", dm()).await;
         assert_eq!(
             tightened_reply("proc.run", &again),
-            "🔒 `proc.run` already asks first: tightened by discord:eddie."
+            "🔒 `proc.run` already asks first: tightened by discord:zeroaltitude."
         );
         let bad = Asked {
             tool: "fs.read".into(),
             correlation_id: Some("act_nope".into()),
         };
-        let e = send_tighten(&rpc, &bad, "discord:eddie", dm()).await;
+        let e = send_tighten(&rpc, &bad, "discord:zeroaltitude", dm()).await;
         assert_eq!(
             tightened_reply("fs.read", &e),
             "⚠️ Could not tighten `fs.read`: no call act_nope"
@@ -3071,8 +3078,8 @@ pub(crate) mod tests {
         );
     }
 
-    /// Eddie's user id, and a user of a place who is not the owner.
-    pub(super) const EDDIE: u64 = 271_828_182_845_904_523;
+    /// The owner's user id, and a user of a place who is not the owner.
+    pub(super) const OWNER: u64 = 271_828_182_845_904_523;
     pub(super) const MALLORY: u64 = 222_222_222_222_222_222;
 
     /// Give `sid` a hold on web text, as a fetch leaves one (theseus-9bp);
@@ -3104,7 +3111,7 @@ pub(crate) mod tests {
         let d = tempfile::tempdir().unwrap();
         let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
             c.discord.rest_proxy = Some("127.0.0.1:9".into());
-            c.places.owner = Some(vec![format!("discord:{EDDIE}")]);
+            c.places.owner = Some(vec![format!("discord:{OWNER}")]);
         });
         let rec = theseus_core::session::SessionRecord::new(
             theseus_protocol::SessionKind::Conversation,
@@ -3142,11 +3149,11 @@ pub(crate) mod tests {
         };
 
         let answer = place
-            .control(Control::Trust(dm(EDDIE)), "discord:eddie")
+            .control(Control::Trust(dm(OWNER)), "discord:zeroaltitude")
             .await;
         assert!(
             answer.starts_with(
-                "Trusted again by discord:eddie: this conversation no longer holds web text (it \
+                "Trusted again by discord:zeroaltitude: this conversation no longer holds web text (it \
                  had read http.fetch https://example.test/page, at "
             ),
             "{answer}"
@@ -3158,7 +3165,7 @@ pub(crate) mod tests {
         assert!(held().is_none());
         let trusted = rows("session.trusted");
         assert_eq!(trusted.len(), 1);
-        let who = format!("discord:{EDDIE} (discord:eddie)");
+        let who = format!("discord:{OWNER} (discord:zeroaltitude)");
         assert_eq!(
             (
                 trusted[0]["via"].as_str(),
@@ -3168,7 +3175,7 @@ pub(crate) mod tests {
             ),
             (
                 Some("discord:dm"),
-                Some("discord:eddie"),
+                Some("discord:zeroaltitude"),
                 Some(who.as_str()),
                 Some("policy.trust")
             )
@@ -3177,7 +3184,7 @@ pub(crate) mod tests {
         // A second press: nothing to trust, and nothing written.
         let before = ledger().len();
         let answer = place
-            .control(Control::Trust(dm(EDDIE)), "discord:eddie")
+            .control(Control::Trust(dm(OWNER)), "discord:zeroaltitude")
             .await;
         assert_eq!(
             answer,
@@ -3210,8 +3217,8 @@ pub(crate) mod tests {
         // Typed as a message, it answers in the place, as its author.
         place
             .handle(PlaceMsg::Inbound(Inbound {
-                author: "eddie".into(),
-                author_id: EDDIE,
+                author: "zeroaltitude".into(),
+                author_id: OWNER,
                 text: "/trust".into(),
                 files: None,
                 message: Id::new(7),
@@ -3233,7 +3240,7 @@ pub(crate) mod tests {
             .collect();
         assert!(
             said.iter()
-                .any(|t| t.starts_with("Trusted again by discord:eddie: ")),
+                .any(|t| t.starts_with("Trusted again by discord:zeroaltitude: ")),
             "{said:?}"
         );
     }
@@ -3254,7 +3261,7 @@ pub(crate) mod tests {
             "version": 1,
             "authorizing_integration_owners": {},
             "channel": {"id": channel.to_string(), "type": if guild.is_some() { 0 } else { 1 }},
-            "user": {"id": user.to_string(), "username": if user == EDDIE { "eddie" } else { "mallory" },
+            "user": {"id": user.to_string(), "username": if user == OWNER { "zeroaltitude" } else { "mallory" },
                      "discriminator": "0", "avatar": null},
             "data": {"id": "1000000000000000003", "name": command, "type": 1, "options": []},
         });
@@ -3286,9 +3293,9 @@ pub(crate) mod tests {
         let (ch_tx, mut ch_rx) = mpsc::unbounded_channel();
         {
             let mut r = shared.routes.lock().unwrap();
-            r.by_dm_user.insert(EDDIE, dm_tx);
+            r.by_dm_user.insert(OWNER, dm_tx);
             r.by_channel.insert(BOUND, ch_tx);
-            r.users.insert(BOUND, vec![EDDIE]);
+            r.users.insert(BOUND, vec![OWNER]);
         }
         // Each answer to an interaction is a POST to its callback.
         let answered = || {
@@ -3318,7 +3325,7 @@ pub(crate) mod tests {
         for cmd in ["stop", "trust"] {
             shared
                 .clone()
-                .on_interaction(slash(Some(GUILD), UNBOUND, EDDIE, cmd))
+                .on_interaction(slash(Some(GUILD), UNBOUND, OWNER, cmd))
                 .await;
         }
         assert!(dm_rx.try_recv().is_err() && ch_rx.try_recv().is_err());
@@ -3337,13 +3344,16 @@ pub(crate) mod tests {
         let h = tokio::spawn(shared.clone().on_interaction(slash(
             None,
             444_444_444_444_444_444,
-            EDDIE,
+            OWNER,
             "status",
         )));
         let got = tokio::time::timeout(Duration::from_secs(10), dm_rx.recv())
             .await
             .unwrap();
-        assert_eq!(control(got), (Control::Status, "discord:eddie".into()));
+        assert_eq!(
+            control(got),
+            (Control::Status, "discord:zeroaltitude".into())
+        );
         h.await.unwrap();
 
         // A bound channel's reaches its place, and `/trust` carries who
@@ -3351,20 +3361,20 @@ pub(crate) mod tests {
         let h = tokio::spawn(shared.clone().on_interaction(slash(
             Some(GUILD),
             BOUND,
-            EDDIE,
+            OWNER,
             "trust",
         )));
         let got = tokio::time::timeout(Duration::from_secs(10), ch_rx.recv())
             .await
             .unwrap();
         let origin = DiscordOrigin {
-            user_id: EDDIE.to_string(),
+            user_id: OWNER.to_string(),
             channel_id: BOUND.to_string(),
             guild_id: Some(GUILD.into()),
         };
         assert_eq!(
             control(got),
-            (Control::Trust(Some(origin)), "discord:eddie".into())
+            (Control::Trust(Some(origin)), "discord:zeroaltitude".into())
         );
         h.await.unwrap();
         assert_eq!((answered(), commands()), (3, 2));

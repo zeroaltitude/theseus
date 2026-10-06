@@ -3,7 +3,7 @@
 
 M3.5 (P5b) runs as these steps:
 - F1: serve first, and the lifecycle bench.
-- F1b: start from a last-known-good copy of the config note (theseus-2fo, accepted by Eddie 2026-09-29).
+- F1b: start from a last-known-good copy of the config note (theseus-2fo, accepted by the owner 2026-09-29).
 - F2: fewer frames and one transcript read per turn.
 - F3: parallel tool calls (theseus-a60).
 - F4, in two steps:
@@ -19,7 +19,7 @@ Beside them, in the same chain:
 - Z1: the daemon reaps its job wrappers, and adopts a job's orphans (theseus-z4b).
 - B1: the secret broker (theseus-dcy), with theseus-6uo.
 
-Eddie's order (2026-09-29) is:
+The owner's order (2026-09-29) is:
 1. F1, F2, F1b, and F3;
 2. then the native OTel exporter, the self-approval fix, and the secret broker;
 3. then the Daily Driver's items 5 to 8, before his end-to-end testing.
@@ -29,7 +29,7 @@ F4 comes after that.
 ### Step F1. Serve first, and the lifecycle bench in the gate (theseus-qa0; 2026-09-29, 08:54–09:18 and 09:49–10:52; 10c35c4, 269642f, 36e2173, 460a35b)
 
 **Why.** Cold start took 1.3 s to the first `health` answer, and 1.0 s of it was `op read`s before the
-store opened (A3, lifecycle timings). Eddie made FAST a primary goal on 2026-09-27 (§2).
+store opened (A3, lifecycle timings). The owner made FAST a primary goal on 2026-09-27 (§2).
 
 **What exists.**
 - **Serve first.** Secrets resolve in the background into a board:
@@ -67,13 +67,13 @@ The frame-budget test holds at 17. Release, at 460a35b:
 | Store | Cold p50 / p95 | Shutdown p50 / p95 | Kill p50 / p95 |
 |---|---|---|---|
 | empty | 17.2 / 31.3 ms | 33.5 / 44.9 ms | 36.3 / 56.1 ms |
-| Eddie's copy | 18.4 / 21.7 ms | 33.6 / 38.7 ms | 35.3 / 45.4 ms |
+| The owner's copy | 18.4 / 21.7 ms | 33.6 / 38.7 ms | 35.3 / 45.4 ms |
 | 10,000 sessions | 124.7 / 142.7 ms | 22.5 / 34.4 ms | 147.0 / 154.3 ms |
 
-With Eddie's config and real secrets, the first answer took 1 075–1 104 ms before and 18.3–18.7 ms
+With the owner's config and real secrets, the first answer took 1 075–1 104 ms before and 18.3–18.7 ms
 after, with `secrets: resolving` at each. A GLM turn sent at once waited 1.32 s for its key and then ran.
 
-**Review** (11:18–11:21). The gate reran at 256 tests, with LIFECYCLE OK (cold p95 24.6 ms of 50, shutdown 49.2 of 100, kill 45.1 of 150). Tabitha's own check on the release build, over a store copy, with Eddie's real secrets: the first `health` answer came at 20–21 ms warm (57 ms on the copy's first open), with `secrets: resolving`. A GLM turn sent right after the start showed `secrets.wait 1.02 s` in its trace, then answered, and health then said `ready · 7 ready 1071 ms after start (inject)`. Installed at 11:21. The first run (08:54–09:18) was killed when an abort in its parent DM session cascaded to it; its uncommitted work was backed up, and the second run continued from the tree.
+**Review** (11:18–11:21). The gate reran at 256 tests, with LIFECYCLE OK (cold p95 24.6 ms of 50, shutdown 49.2 of 100, kill 45.1 of 150). Tabitha/Claude's own check on the release build, over a store copy, with the owner's real secrets: the first `health` answer came at 20–21 ms warm (57 ms on the copy's first open), with `secrets: resolving`. A GLM turn sent right after the start showed `secrets.wait 1.02 s` in its trace, then answered, and health then said `ready · 7 ready 1071 ms after start (inject)`. Installed at 11:21. The first run (08:54–09:18) was killed when an abort in its parent DM session cascaded to it; its uncommitted work was backed up, and the second run continued from the tree.
 
 **Divergence from Parts I and II.**
 
@@ -83,9 +83,9 @@ after, with `secrets: resolving` at each. A GLM turn sent at once waited 1.32 s 
 | References resolve concurrently through `op read` (§3.19) | One `op inject` for every reference; `op read` per reference only after a failed injection | Measured: the same wall time, a sixth of the CPU, one process | Keep |
 | Resolution happens once at startup (§3.19) | Once, then again for what failed, at 5 s doubling to 60 s | The process no longer exits on a failure, so it must fetch again | Keep |
 | The bench has five phases (P5b) | Three; binary swap and restore are F4's | A swap under load needs F4's upgrade path | Built in F4b: swap and restore |
-| Nothing on the path to serving waits on the network (§2) | When the config is `op://` (Eddie's), the note is read before serving: about 1 s | Everything after it needs the config | Built in step F1b (theseus-2fo): the daemon starts from a last-known-good copy of the note, and nothing acts until the vault confirms it |
+| Nothing on the path to serving waits on the network (§2) | When the config is `op://` (the owner's), the note is read before serving: about 1 s | Everything after it needs the config | Built in step F1b (theseus-2fo): the daemon starts from a last-known-good copy of the note, and nothing acts until the vault confirms it |
 | Store open grows with the WAL tail, never with history (§9) | `Wal::open` reads and checks every segment: 47 ms at 10,000 sessions | Since M1 | F4, with the versioned readers (theseus-8ni) |
-| The gate measures §9 on every commit (P5b) | On debug binaries and an empty store; Eddie's store and 10,000 sessions are release bench runs | A release build takes 3 min, and debug is never faster than release | Keep; revisit if a debug-only slowdown fails the gate |
+| The gate measures §9 on every commit (P5b) | On debug binaries and an empty store; the owner's store and 10,000 sessions are release bench runs | A release build takes 3 min, and debug is never faster than release | Keep; revisit if a debug-only slowdown fails the gate |
 
 **Known gaps carried forward:**
 - health, the heartbeat's reconcile, and the driver's 500 ms tick each read every execution, and health
@@ -120,7 +120,7 @@ Part III A3b).
   The second commit's dump is byte-identical to the first's.
 - `kernel-sim` (18 seeds, 105 crashes, every invariant held) and `crash-test` (zero committed records
   lost).
-- A copy of Eddie's store was read under the old and the new binaries: every session list, history, and
+- A copy of the owner's store was read under the old and the new binaries: every session list, history, and
   confirm list identical. A GLM tool turn wrote 13 frames where it would have written 30, and the old
   binary reads its session identically.
 
@@ -133,9 +133,9 @@ Release, medians of three interleaved rounds:
 | plain, 200-node session | 135.7 ms | 65.9 ms | 17 → 8 | 2 → 1 |
 | two loops, 200-node session | 235.8 ms | 104.6 ms | 29 → 12 | 4 → 1 |
 
-**Reviewed** (Tabitha, 2026-09-29, 12:23 to 12:31).
+**Reviewed** (Tabitha/Claude, 2026-09-29, 12:23 to 12:31).
 - The gate rerun passed: 262 tests, with the bench's cold start at p95 35.4 ms against 50.
-- On the release build, over a fresh copy of Eddie's store, the old and the new binaries gave identical
+- On the release build, over a fresh copy of the owner's store, the old and the new binaries gave identical
   output: the session list, and all five histories, as text and as JSON.
 - A GLM turn with one `fs_read` wrote 13 frames, and a plain follow-up turn wrote 8. Each outbox (plan,
   authorize, dispatch) was one fsync of about 7 ms.
@@ -151,7 +151,7 @@ Release, medians of three interleaved rounds:
 |---|---|---|---|
 | Each node and row is written in the frame of the kernel transition that produced it (§4.6) | Nodes, yes; observability rows ride in the turn's next frame | FAST: each frame is an fdatasync | §4.6 amended |
 | The review: `turn.ended`, `turn.trace`, and the session write in one frame | `turn.ended` and `turn.trace` ride with `end_turn`'s frame | The trace times the session write; the count is the same | Keep |
-| The review: `take_results` returns early when nothing is queued (one frame) | It always did; the plain turn's `results_consumed` frame consumes the provider call's own queue entry | Dropping the entry changes what a fault leaves | Drop it, with an explicit wake on a fault (Tabitha at review): theseus-l6y, with F4 |
+| The review: `take_results` returns early when nothing is queued (one frame) | It always did; the plain turn's `results_consumed` frame consumes the provider call's own queue entry | Dropping the entry changes what a fault leaves | Drop it, with an explicit wake on a fault (Tabitha/Claude at review): theseus-l6y, with F4 |
 | The review: `plan_and_dispatch`, with the provider call as its first user | Also every tool call the policy runs | A loop with one tool: 12 frames → 4 | Keep |
 | The review: push each node the turn writes onto the list | The turn's handle adds every node its frames write, from the bytes written | No writer can forget one; a debug build checks the list at each read | Keep |
 | Per-turn harness overhead under 5 ms (§9) | About 58 ms for a plain turn: 8 fdatasyncs of about 7 ms | The disk | Recorded; theseus-l6y takes a plain turn to about 5 frames |
@@ -169,10 +169,10 @@ cache, which is not built.
 
 ### Step F1b. Start from a last-known-good copy of the config note (theseus-2fo; 2026-09-29, 12:33–13:39; 98bce09, 06b8d53, 2b654d4, 6299536)
 
-**Why.** Eddie's daemon runs as a bare `theseusd`, so its config is the vault note, read with one `op read`
+**Why.** The owner's daemon runs as a bare `theseusd`, so its config is the vault note, read with one `op read`
 (about 1.0 s) before anything else. F1 moved every secret behind the socket, which left the note as the last
-network wait on the start path. Everything after it needs the config, so it could not simply move. Eddie
-accepted the fix on 2026-09-29 at 11:52 ("That's perfect in practice"). Tabitha's refinements made the vault
+network wait on the start path. Everything after it needs the config, so it could not simply move. The owner
+accepted the fix on 2026-09-29 at 11:52 ("That's perfect in practice"). Tabitha/Claude's refinements made the vault
 the only authority.
 
 **What exists.**
@@ -216,7 +216,7 @@ the only authority.
 The bench's `vault` phase on an empty store, release: p50 17.5–19.2 ms and p95 27.8–42.3 ms over three runs,
 with every first answer `confirming`.
 
-With Eddie's real note, through a shim `op` that turned the web UI and Discord off:
+With the owner's real note, through a shim `op` that turned the web UI and Discord off:
 - A first start with no copy answered in 1,094 ms. Three starts from the copy answered in 18.2, 20.2, and
   21.5 ms, and the vault confirmed each 1.02–1.05 s after its spawn.
 - A GLM turn sent at a start waited 1.01 s at the gate (`config.wait`), then ran.
@@ -225,9 +225,9 @@ With Eddie's real note, through a shim `op` that turned the web UI and Discord o
 - A comment-only change confirmed, with no restart.
 - An unreachable vault held, said why, refused an acting method after 30 s, and confirmed on its fifth read.
 
-**Reviewed** (Tabitha, 2026-09-29, 14:03 to 14:13).
+**Reviewed** (Tabitha/Claude, 2026-09-29, 14:03 to 14:13).
 - The gate rerun passed: 280 tests, and all four bench phases within budget (from the copy, p95 25.0 ms).
-- On the release build, with Eddie's real note through Tabitha's own shim, and an empty scratch state dir:
+- On the release build, with the owner's real note through Tabitha/Claude's own shim, and an empty scratch state dir:
   - a first start answered in 1,065 ms ("read before serving … there was no copy yet"), and kept a 0600
     copy of 13,781 bytes under its reference line;
   - the next start answered in 31 ms, saying `confirming`. A GLM turn sent at once waited 1.02 s at the gate
@@ -248,15 +248,15 @@ With Eddie's real note, through a shim `op` that turned the web UI and Discord o
 |---|---|---|---|
 | Resolution happens once at startup, and again on an explicit `config.reload` (§3.19) | No `config.reload`; a restart is the reload, triggered by the vault's answer or by the operator | A config the process holds in memory is the config it started with; a restart is routine (§3.22) and cheap | §3.19 amended |
 | The config note is read before serving (§3.19, F1) | Served from the last-known-good copy; the vault is read behind the socket, and nothing acts until it confirms | FAST (§2), with the vault as the only authority | §3.19 amended |
-| The issue's first proposal: "restart to apply" (a stale copy keeps serving) | The daemon restarts itself onto the vault's version; a restarted one that finds another change holds | Tabitha's refinement: nothing may act on a file an agent can write | Keep |
+| The issue's first proposal: "restart to apply" (a stale copy keeps serving) | The daemon restarts itself onto the vault's version; a restarted one that finds another change holds | Tabitha/Claude's refinement: nothing may act on a file an agent can write | Keep |
 | The brief: clients waiting at the gate see their connection close | Each is answered first with `config_unconfirmed` (state `restarting`: "send this again once it answers"), then its connection closes | A stdio client would otherwise wait forever, and a socket client learns why | Keep |
 | The brief's list of methods that act (7) | 8: `session.open` too | It writes a session and opens an execution whose spend limit is the config's | Keep |
 | Kernel startup writes depend on no config value that decides policy (the brief's expectation) | One did: the unit-budget migration's dollar limit | Since theseus-0sg | Fixed: refused under an unconfirmed config, and read from the vault first |
-| The Discord DM after a restart | Implemented (2b's approval-DM path, one call), not proven live | A scratch daemon cannot bind while Eddie's holds the bot token | Prove at Eddie's next restart onto a changed note |
+| The Discord DM after a restart | Implemented (2b's approval-DM path, one call), not proven live | A scratch daemon cannot bind while the owner's holds the bot token | Prove at the owner's next restart onto a changed note |
 
 **Known gaps.**
 - The Observatory's config line was not seen in a browser, because the live checks kept the web UI off
-  while Eddie's daemon held port 7433.
+  while the owner's daemon held port 7433.
 - A job that can write the copy can hold the daemon, but never make it act. That is a denial of service,
   not an escalation, and L1's sandbox (M4) takes the write away.
 - The restart's 100 ms grace is a delay, not a handshake.
@@ -265,7 +265,7 @@ With Eddie's real note, through a shim `op` that turned the web UI and Discord o
 
 ### Step F3. Parallel tool calls (theseus-a60; 2026-09-29, 14:15–15:10; a579f63, d421e1b, 59b3d9f)
 
-**Why.** Eddie, 2026-09-28 23:57: "the most performant way to run trivially parallelizable tasks is to avoid os
+**Why.** The owner, 2026-09-28 23:57: "the most performant way to run trivially parallelizable tasks is to avoid os
 threads and use truly async code." A response's tool calls ran one after another, so five reads and two greps
 took the sum of their times. In-process toollets ran on tokio's blocking pool, bounded only by its 512
 threads.
@@ -300,7 +300,7 @@ threads.
   - its records, notifications, frames, and history reorder only inside the batch.
 - **The simulators:** `kernel-sim` (22 seeds, 746 crashes, 83 of them inside a batch, every invariant held),
   and `crash-test`.
-- **A copy of Eddie's store** under the old and the new binaries, with GLM turns. The old binary reads the
+- **A copy of the owner's store** under the old and the new binaries, with GLM turns. The old binary reads the
   new binary's session byte for byte.
 
 | Measure (release) | Before | After |
@@ -310,9 +310,9 @@ threads.
 | the same, in the benchmark: a full scan / the walk alone | 284 ms / 82 ms | 114 ms / 82 ms |
 | 32 CPU-bound calls in 4 sessions on 16 cores: most at once | | 15–16, never more |
 
-**Reviewed** (Tabitha, 2026-09-29, 15:17 to 15:25).
+**Reviewed** (Tabitha/Claude, 2026-09-29, 15:17 to 15:25).
 - The gate rerun passed: 291 tests, and all four bench phases within budget.
-- On the release build, over a fresh copy of Eddie's store, a GLM response of four `fs.read`s and one
+- On the release build, over a fresh copy of the owner's store, a GLM response of four `fs.read`s and one
   `fs.grep`:
   - ran its five calls together, under one 69.0 ms `tools` span, each call about 41 ms;
   - answered right: the `stable` channel, and 3 files for the grep, as `grep -rl` says;
@@ -322,7 +322,7 @@ threads.
 - **At review, the kernel's lost update (section 6 of the report) was filed as theseus-id9 (P1)**, and put
   next in the chain, before the OTel step. Concurrency makes the race likelier, and task sessions and wakes
   will add writers.
-- **F3's two decisions for Eddie, taken at review as engineering calls:**
+- **F3's two decisions for the owner, taken at review as engineering calls:**
   - one plan frame per group joins theseus-l6y (F4);
   - a tightening pressed mid-batch applies from the next response, which is the right grain for a
     response that was gated as a whole.
@@ -390,7 +390,7 @@ report found it, and it was filed at F3's review (P1) and put before the OTel st
   - Five runs held: 38 seeds, 145 crashes, and 614 raced turns, with fsync on in one run and every turn
     raced in another.
   - Without the lock, every seed group failed within a few steps.
-- **Live, over a copy of Eddie's store.** GLM turns of seven reads, four of them FIFOs that hold the batch
+- **Live, over a copy of the owner's store.** GLM turns of seven reads, four of them FIFOs that hold the batch
   open:
   - a cancel while the batch ran ended `cancelled`, stayed so across a restart, and left nothing
     dispatched;
@@ -409,13 +409,13 @@ report found it, and it was filed at F3's review (P1) and put before the OTel st
 Load was 3.6 to 5.5, with other sessions compiling. The differences go both ways, and each is inside the
 spread of its own rounds.
 
-**Reviewed** (Tabitha, 2026-09-29, 16:18 to 16:26).
+**Reviewed** (Tabitha/Claude, 2026-09-29, 16:18 to 16:26).
 - **The first gate rerun failed on one bench run.** Clean shutdown had p95 148.3 ms against 100 + 4, with
   p50 a normal 38.3 ms, while 1.3 GB of dirty pages from other sessions' builds were being written back.
   Four standalone bench runs right after passed at about 50 ms, and the gate passed after a `sync`: 300
   tests, with shutdown p95 50.9 ms. So the bench measured the machine's writeback, not K1. The fix, a
   `sync` before the bench and a second run before a miss fails the gate, goes into the OTel step.
-- **Tabitha's own race, on the release build, over a fresh copy of Eddie's store.**
+- **Tabitha/Claude's own race, on the release build, over a fresh copy of the owner's store.**
   - Seven reads, four held by FIFOs.
   - The FIFOs were released and `theseus executions cancel` sent at once. The cancel landed in the burst,
     after the first FIFO completion, and asked 3 calls to stop.
@@ -444,7 +444,7 @@ spread of its own rounds.
 
 ### Step O1. OTel without the SDK: a native OTLP exporter in every build (theseus-hee, theseus-gi7; 2026-09-29, 16:27–17:20; 6ad89a2, e7d8495, b51252f, 5240563)
 
-**Why.** Eddie, 2026-09-29, 08:52: "I'd like it built in by default, but 19 crates is surprising"; and at 09:21,
+**Why.** The owner, 2026-09-29, 08:52: "I'd like it built in by default, but 19 crates is surprising"; and at 09:21,
 "let's do cheaper otel". The exporter was the `otel` cargo feature, off by default, over the OpenTelemetry SDK:
 19 crates, among them prost and a second reqwest (0.13) with its own rustls stack and aws-lc.
 
@@ -486,7 +486,7 @@ spread of its own rounds.
   temporality, or id encoding; SIGPIPE's default; a panic or a `bail!` before a stop. The temporality probe
   failed only once the tests wrote OTLP's enum values out, instead of reading the code's own constants.
 - A 100 ms sleep on the start path still failed the gate, on both runs.
-- **Live, on the release build** over a copy of Eddie's store, with his note and a local receiver:
+- **Live, on the release build** over a copy of the owner's store, with his note and a local receiver:
   - a GLM tool turn's spans arrived with the trace's durations to the tenth of a millisecond, and the
     metrics after one interval;
   - with the receiver stopped, the next turn ran unchanged, and health counted 7 batches dropped, with the
@@ -499,12 +499,12 @@ spread of its own rounds.
 | release `theseusd` | 19,702,816 B, or 23,942,128 B with the exporter | 19,830,208 B with the exporter |
 | a clean shutdown with telemetry on, after a turn (release) | | 27.1 ms (24.9 ms off) |
 
-**Reviewed** (Tabitha, 2026-09-29, 17:48 to 17:54).
+**Reviewed** (Tabitha/Claude, 2026-09-29, 17:48 to 17:54).
 - The gate rerun passed: 322 tests, and all four bench phases within budget. The gate has no
   `--features otel` run left.
 - `theseusd`'s normal dependency tree was counted by name: 281 names, the same as before this step. None of
   them is opentelemetry, prost, or aws-lc.
-- On the release build (19,830,208 B), over a fresh copy of Eddie's store, with `otlp_endpoint` pointed at a
+- On the release build (19,830,208 B), over a fresh copy of the owner's store, with `otlp_endpoint` pointed at a
   local receiver:
   - a GLM tool turn posted one trace (12,862 B of JSON, 7 spans), whose durations match `--trace` (turn
     11,560.8 ms, the tool 14.0 ms);
@@ -514,7 +514,7 @@ spread of its own rounds.
 - Installed at 17:54.
 - **Filed at review** as theseus-yf1, all small, with no consumer yet: the histogram bounds past 10 s; tool
   metrics by family, backend, and outcome, with a duration; the served model in `gen_ai.response.model`;
-  failed continuations counted; and the provider-call histogram's empty attributes, which Tabitha found
+  failed continuations counted; and the provider-call histogram's empty attributes, which Tabitha/Claude found
   live and which the SDK exporter had too. All five were built in the telemetry lane (Item 26).
 
 **Divergence from Parts I and II, and from the brief.**
@@ -522,7 +522,7 @@ spread of its own rounds.
 | Planned | Actual | Why | Disposition |
 |---|---|---|---|
 | OTLP over HTTP/protobuf (§3.20) | OTLP/HTTP with the JSON encoding | JSON needs no protobuf library, and the Collector's receiver takes it | §3.20 amended; a hand-written protobuf encoder is the fallback for a receiver that won't |
-| The exporter is the `otel` build feature, off by default (§3.20, theseus-0g4) | In every build, with no feature and no added crate | Eddie, 2026-09-29 | §3.20 amended |
+| The exporter is the `otel` build feature, off by default (§3.20, theseus-0g4) | In every build, with no feature and no added crate | The owner, 2026-09-29 | §3.20 amended |
 | §3.20's table: root attributes `theseus.turn_id`, `theseus.session_id`, `theseus.profile` | The root's attributes as recorded (`turn_id`, `session_id`, `profile`, …), as the SDK exporter emitted them | The same picture, so a dashboard built on it still works | Table corrected |
 | §3.20's table: `theseus.tool.calls` by family, tool, backend, and outcome, and `theseus.tool.duration_ms` | By tool, with the turn's attributes; no duration | Neither exporter had them (A3 recorded it) | Table corrected; theseus-yf1, built in Item 26 |
 | The SDK's batching (2,048 spans, a 5 s delay) and its blocking `force_flush` inside `shutdown` | One post per turn, a queue of 64, and a flush after the serving loop, bounded at 1 s | Simpler, and a stop never blocks a task | Keep |
@@ -531,7 +531,7 @@ spread of its own rounds.
 
 **Known gaps.**
 - Vendors' acceptance of OTLP JSON (Honeycomb, Datadog, Tempo, ADOT) was checked only against a local
-  receiver. Eddie's first real endpoint will tell.
+  receiver. The owner's first real endpoint will tell.
 - `opentelemetry-proto` 0.33 reads `asInt` only as a number, so a receiver built on that crate's serde would
   refuse our sums. Ours follow the protobuf JSON mapping.
 - No gzip.
@@ -540,7 +540,7 @@ spread of its own rounds.
 
 **Why.** At L0 a `proc.run` job runs as the operator's own user. So it could reach the CLI socket and the
 loopback web UI, and answer an approval its own session waited on, whenever `cli` or `web` was a trusted
-channel, which is the default. This was found in the 2b part 1 review, and Eddie accepted the peer-pid check
+channel, which is the default. This was found in the 2b part 1 review, and the owner accepted the peer-pid check
 on 2026-09-29 at 09:21.
 
 **What exists.**
@@ -591,17 +591,17 @@ exited. Without the trace, all six act tests failed.
 | a judged act's trace: the operator's CLI / a job's process | 62.5 / 21.6 µs | 105.4 / 24.2 µs |
 | a judged web act's owner lookup (120 processes, 1,153 fds) | 3.08 ms | 3.58 ms |
 
-**Reviewed** (Tabitha, 2026-09-29, 19:18 to 19:29).
+**Reviewed** (Tabitha/Claude, 2026-09-29, 19:18 to 19:29).
 - The gate rerun passed: 346 tests, and all four bench phases within budget.
-- On the release build, over a fresh copy of Eddie's store, with `[approval] channels = ["cli"]`:
+- On the release build, over a fresh copy of the owner's store, with `[approval] channels = ["cli"]`:
   - `theseus policy tighten fs.write` made a GLM turn's write wait.
   - A second GLM session was asked to approve it with `proc.run`. It declined twice on its own judgment, and
     once investigated the binary's strings. When it ran `theseus confirm --approve`, the daemon refused it:
     "from a Theseus job's process (job act_…, pid 3452497, theseus)", exit 1, a 46 µs trace, and
     `approval.refused` with `from_job` in the ledger.
-  - Tabitha's own `theseus confirm --approve` from her shell then counted, with a 126 µs trace, and the file
+  - Tabitha/Claude's own `theseus confirm --approve` from her shell then counted, with a 126 µs trace, and the file
     was written.
-- **Eddie restarted his daemon at 18:50** (pid 3431665), on the O1 build. Every check kept to its own socket
+- **The owner restarted his daemon at 18:50** (pid 3431665), on the O1 build. Every check kept to its own socket
   and state dir, and never touched his.
 - Installed at 19:28.
 - **Taken at review:**
@@ -635,11 +635,11 @@ exited. Without the trace, all six act tests failed.
 
 **Why.**
 - The daemon spawned each job's wrapper and forgot it. Every wrapper that exited stayed a zombie child of
-  `theseusd` until the daemon exited, and an exec restart (F1b) kept them. Eddie's daemon runs about 160 jobs
+  `theseusd` until the daemon exited, and an exec restart (F1b) kept them. The owner's daemon runs about 160 jobs
   a day. J1 found this.
 - A job could kill its own wrapper (`kill -9 $PPID`). Its processes then went to init, out of the
   parent-chain walk's reach, and an orphan's `theseus confirm` counted. This was J1's one hole before M4.
-- The first run was cancelled at 19:32, two minutes in and before any change, so that Eddie could restart
+- The first run was cancelled at 19:32, two minutes in and before any change, so that the owner could restart
   the OpenClaw gateway. It was relaunched at 20:30.
 
 **What exists.**
@@ -682,7 +682,7 @@ Throwaway runs:
 - without the subreaper, the orphan approved the call;
 - with `op` unregistered, the sweep took tokio's children, and every `op read` failed with `ECHILD`.
 
-Live, on a copy of Eddie's store:
+Live, on a copy of the owner's store:
 - 20 GLM turns with a job each left no zombie.
 - A GLM job ran a script that killed its own wrapper. The orphan it left went to the daemon, and its `theseus
   confirm --approve` was refused with the new reason, after an 82 µs trace. The operator's own answer then
@@ -695,9 +695,9 @@ Live, on a copy of Eddie's store:
 
 The lifecycle bench is unchanged within its noise: cold start p50 18.9 ms, against the parent's 18.7.
 
-**Reviewed** (Tabitha, 2026-09-29, 21:48 to 21:55).
+**Reviewed** (Tabitha/Claude, 2026-09-29, 21:48 to 21:55).
 - The gate rerun passed: 356 tests, and all four bench phases within budget.
-- On the release build, over a fresh copy of Eddie's store:
+- On the release build, over a fresh copy of the owner's store:
   - five GLM turns each ran a `proc.run` job, and each answered with its own echo;
   - the daemon then had 0 zombie children by a `/proc` scan;
   - health said `subreaper: true`, `reaped_wrappers: 5`, `zombies: 0`.
@@ -730,7 +730,7 @@ The lifecycle bench is unchanged within its noise: cold start p50 18.9 ms, again
 
 **Why.**
 - `op` ran 125 times in the audit's 30 days (55 in the DM), and the floor makes each one wait for approval.
-  Eddie accepted the broker on 2026-09-29 at 09:39: "we don't want to continuously query op anyway, so this
+  The owner accepted the broker on 2026-09-29 at 09:39: "we don't want to continuously query op anyway, so this
   might get broader use."
 - Z1's two follow-ups (theseus-6uo) were folded in, since both touch job spawning.
 - The first run started at 23:27 and was ended at 23:36 by a gateway stop, while it was still reading. It
@@ -775,9 +775,9 @@ The lifecycle bench is unchanged within its noise: cold start p50 18.9 ms, again
 - `a_job_that_kills_its_wrapper_…`: one `job.wrapper_lost`, and the action unknown at once. A cancel's
   kill gives none.
 
-**Reviewed** (Tabitha, 2026-09-30, 01:01 to 01:07).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 01:01 to 01:07).
 - The gate rerun passed: 382 tests, and all four bench phases within budget (cold start p50 36.3 ms).
-- On the release build, over a fresh copy of Eddie's store, with his note and the grant, and a shim `op`
+- On the release build, over a fresh copy of the owner's store, with his note and the grant, and a shim `op`
   that logs each run:
   - a GLM turn's `["gh", "api", "user", "--jq", ".login"]` answered `zeroaltitude`, notified with
     `🔑 gh got GH_TOKEN`, and never waited;
@@ -789,14 +789,14 @@ The lifecycle bench is unchanged within its noise: cold start p50 18.9 ms, again
   - the token's value was in none of the 6 files under the copy's state (the WAL segment, `index.redb`,
     the manifest, and the three jobs' spool outputs), and in neither the log nor the CLI's output. The
     control matched.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - Installed at 01:06.
 - **Taken at review:**
   - The raw spool output keeps what a program prints (`gh auth token`). Filed as a follow-up: the wrapper
     redacts its own granted values from its output file.
   - DD5 adds one comment under the template's `[broker]`: a granted program passes its variable to what it
     runs (gh's extensions and shell aliases, or a hook), so the posture is the control.
-  - Put to Eddie: gh's stored login authenticates any job's gh, broker or not, and whether
+  - Put to the owner: gh's stored login authenticates any job's gh, broker or not, and whether
     `github_token` should stay `notify`.
 
 **Divergence from Parts I and II, and from the brief.**
@@ -857,17 +857,17 @@ a second time to replay its tail (theseus-8ni).
     repairing nothing;
   - 1 in the CLI.
 - Numbers (release, p50):
-  - the store phase at 10,000 sessions went 63.2 → 10.1 ms, and on Eddie's copy 21.4 → 7.2 ms;
+  - the store phase at 10,000 sessions went 63.2 → 10.1 ms, and on the owner's copy 21.4 → 7.2 ms;
   - M3.5's exit test on 10,000 parked sessions meets every §9 phase: cold start 121.7 ms of 250,
     from the copy 112.7, clean shutdown 24.8 of 100, and SIGKILL then restart 138.6 of 350.
   - A clean stop now pays redb's close: 23.3 → 36.9 ms on the empty store, within its 100 ms.
-- The step's live check, on a copy of Eddie's store:
+- The step's live check, on a copy of the owner's store:
   - the sessions read identically under T1 and the new build;
   - `session.open` marked the store format 3;
   - T1 then refused it, and left every file byte-identical;
   - the new build served it again.
 
-**Reviewed** (Tabitha, 2026-09-30, 14:00 to 14:12).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 14:00 to 14:12).
 - The gate rerun passed on the first try: 519 tests, cold start p95 33.3 ms (T1's was 41.2), and a clean
   shutdown p50 of 35.7 ms.
 - **Reading the code.**
@@ -886,7 +886,7 @@ a second time to replay its tail (theseus-8ni).
     same seed, 25 × 4, with zero committed records lost.
 - **The kernel simulator**, 30 seeds × 1,500 steps with half the turns raced by a second thread (`--p-race
   0.5`): 129 injected crashes, 540 raced turns, and no deadlock or broken invariant.
-- **A live check on the release build of 6d3df58**, over a fresh copy of Eddie's store with his note:
+- **A live check on the release build of 6d3df58**, over a fresh copy of the owner's store with his note:
   - the first start served in 27.7 ms: no repair, 20 records replayed, and the 1 MB history checked
     after serving in 0.7 ms;
   - a GLM turn ran `sleep 25` through `proc.run`, and the daemon was SIGKILLed while the job ran. The
@@ -895,9 +895,9 @@ a second time to replay its tail (theseus-8ni).
     restart's placeholder and then as `exit 0`;
   - after a clean stop, the next start served in 17.0 ms: store phase 7.1 ms, no repair, nothing
     replayed, and the manifest at format 3.
-- Eddie's unchanged note loads under the new binary.
-- **Installed at 14:09**, after a snapshot of Eddie's store (format 2) at
-  `~/reports/theseus-f4a/eddie-store-pre-f4a/`. His store becomes format 3 at its first new session
+- The owner's unchanged note loads under the new binary.
+- **Installed at 14:09**, after a snapshot of the owner's store (format 2) in
+  `~/reports/theseus-f4a/`. His store becomes format 3 at its first new session
   record, and T1 or older cannot open it after that, so a rollback is `theseusd restore --from` that copy.
 - **Taken at review:**
   - **A continuation runs on the live profile** (theseus-kol, P2, pre-existing: T1's build does the
@@ -969,7 +969,7 @@ already open". F2 left four frame merges (theseus-l6y), with a plain turn at 8 f
   - kernel-sim with new invariants: a turn's own result is never queued, and a two-in-one action is never
     found authorized-only;
   - the crash test.
-- **The step's live check**, on a copy of Eddie's store with his note:
+- **The step's live check**, on a copy of the owner's store with his note:
   - a swap from the installed build to this one, mid-way through a GLM turn's `sleep 20` job, took 56.9 ms to
     the new build's first answer, 14.5 ms of it waiting for the lock;
   - the wrapper survived, and the new daemon accepted the job's result, which the next turn read;
@@ -980,10 +980,10 @@ Release, p50 / p95 (ms):
 
 | Store | Cold | Vault | Shutdown | Kill | Swap | Restore |
 |---|---|---|---|---|---|---|
-| Eddie's copy (1.24 MB) | 19.6 / 22.1 | 19.3 / 23.9 | 31.7 / 37.1 | 35.0 / 60.6 | 48.2 / 49.8 | 82.5 / 105.0 |
+| The owner's copy (1.24 MB) | 19.6 / 22.1 | 19.3 / 23.9 | 31.7 / 37.1 | 35.0 / 60.6 | 48.2 / 49.8 | 82.5 / 105.0 |
 | 10,000 sessions (36.5 MB) | 113.3 / 119.4 | 120.1 / 133.1 | 26.2 / 44.2 | 143.0 / 176.0 | 138.7 / 150.7 | 342.2 / 386.2 |
 
-**Reviewed** (Tabitha, 2026-09-30, 16:00 to 16:06).
+**Reviewed** (Tabitha/Claude, 2026-09-30, 16:00 to 16:06).
 - **The gate rerun passed on the first try**: 523 tests, and all six phases within budget. Swap p95 was
   76.2 ms of 202, and cold p95 31.1.
 - **Reading the code.** `defer_session`'s lock span:
@@ -992,7 +992,7 @@ Release, p50 / p95 (ms):
   - `end_turn`'s closure only reads and stages outbox records;
   - the order stays session, then execution;
   - the hold releases its lock on drop, and flushes what waits first.
-- **A live check on the release build of 27e1237, over a fresh copy of Eddie's store with his note**
+- **A live check on the release build of 27e1237, over a fresh copy of the owner's store with his note**
   (Discord and the web UI off, and glm live, for theseus-kol). It went through the upgrade path, with T1:
   - on the installed F4a build, a GLM turn fetched a page. Its `proc.run echo f4b-review` waited, because the
     hold raised it to approve;
@@ -1004,9 +1004,9 @@ Release, p50 / p95 (ms):
     session write rode in the turn's last frame;
   - **`theseus shutdown`, then an immediate start, 5 times: 5 of 5 served**, each waiting 6.6 to 14.1 ms for
     the lock, with no repair.
-- Eddie's unchanged note loads under the new binary.
+- The owner's unchanged note loads under the new binary.
 - **Installed at 16:05** from 27e1237. The format is unchanged since F4a (format 3), and his store, still
-  format 2 as of this review, is snapshotted at `~/reports/theseus-f4a/eddie-store-pre-f4a/`.
+  format 2 as of this review, is snapshotted in `~/reports/theseus-f4a/`.
 - **M3.5 (theseus-qa0) closed.** Every §9 lifecycle budget is met at p95, on both stores, and the gate fails
   a commit that misses one. A store in the previous format serves at once (F4a). What stays open is filed:
   theseus-lv2, ur0, ez3, byu, and ef0.
@@ -1033,7 +1033,7 @@ one, and a store in the previous format serves at once (F4a). Restore is measure
 **Known gaps.**
 - A stop's answer can be lost, so `theseus shutdown` fails though the daemon stopped (theseus-ur0).
 - A restore does not sync its copies (theseus-ez3).
-- Restore's budget (theseus-byu). _(Item 46 built the index in bulk and proposed a budget, which waits on Eddie's call: theseus-fsug.)_
+- Restore's budget (theseus-byu). _(Item 46 built the index in bulk and proposed a budget, which waits on the owner's call: theseus-fsug.)_
 - `confirm.list`'s read, and a confirm continuation's two frames (theseus-ef0).
 - ~~O(open) reads (theseus-lv2, F4a's), which are most of the 10,000-session swap's 139 ms.~~ Built in Item 46.
 

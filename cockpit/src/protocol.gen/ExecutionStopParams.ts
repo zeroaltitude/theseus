@@ -9,7 +9,7 @@
  */
 export type ExecutionStopParams = { execution_id: string, 
 /**
- * Who asked, as a label in the ledger (e.g. `discord:eddie`). Default:
+ * Who asked, as a label in the ledger (e.g. `discord:zeroaltitude`). Default:
  * the surface.
  */
 author?: string, };

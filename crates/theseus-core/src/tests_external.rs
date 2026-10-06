@@ -95,7 +95,7 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.tools.proc_sync_secs = 10;
-    // Eddie's posture: the writers and proc.run inherit notify.
+    // The owner's posture: the writers and proc.run inherit notify.
     cfg.policy.enforcement = Posture::Notify;
     cfg
 }

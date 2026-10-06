@@ -244,7 +244,7 @@ pub(crate) struct Lane {
     pub target: String,
     /// "dm", "channel", or "operator".
     pub kind: &'static str,
-    /// As a card names the place: `#general`, `DM @eddie`.
+    /// As a card names the place: `#general`, `DM @zeroaltitude`.
     pub label: String,
     pub channel: Option<u64>,
     pub dm_user: Option<u64>,

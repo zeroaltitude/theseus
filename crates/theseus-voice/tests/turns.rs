@@ -13,7 +13,7 @@ use theseus_voice::{
 };
 use tokio::time::{sleep, sleep_until, Instant};
 
-const EDDIE: Speaker = Speaker(101);
+const OWNER: Speaker = Speaker(101);
 const ROBIN: Speaker = Speaker(202);
 
 /// A long first sentence, so there's time to talk over it.
@@ -76,7 +76,7 @@ async fn call(
     answer: Answer,
     reports: Vec<(Duration, &'static str)>,
 ) -> (Vec<(Duration, Event)>, Vec<Played>) {
-    let mut config = Config::new([EDDIE, ROBIN]);
+    let mut config = Config::new([OWNER, ROBIN]);
     config.acknowledge_after = Duration::from_secs(60);
     call_with(config, io, speech, answer, reports).await
 }
@@ -183,10 +183,10 @@ fn saying(sentence: usize, text: &str) -> Option<Over> {
     })
 }
 
-/// Eddie asks from 0 to 0.5 s: his turn is at 1.2 s, and its reply's first
+/// The owner asks from 0 to 0.5 s: his turn is at 1.2 s, and its reply's first
 /// sentence plays from 1.2 s.
 fn asked(dir: &Path, length: u64) -> Lines<'_> {
-    Lines::new(dir, length).say(EDDIE, 0, 500)
+    Lines::new(dir, length).say(OWNER, 0, 500)
 }
 
 #[tokio::test(start_paused = true)]
@@ -227,7 +227,7 @@ async fn a_sound_with_no_words_pauses_the_reply_and_it_resumes_from_the_cut_sent
         )]
     );
     assert!(only(&seen, cuts).is_empty(), "{seen:?}");
-    assert_eq!(turns(&seen).len(), 1, "only Eddie's question");
+    assert_eq!(turns(&seen).len(), 1, "only zeroaltitude's question");
     assert!(seen
         .iter()
         .any(|(at, e)| *at == again + len(S1) + len(S2) + len(S3)
@@ -387,11 +387,11 @@ async fn a_yeah_after_a_closing_question_is_a_turn() {
     let reply = "Here is the plan. Should I deploy it now?";
     let end = ms(1200) + len("Here is the plan.") + len("Should I deploy it now?");
     let at = end.as_millis() as u64 + 500;
-    let io = asked(dir.path(), 8000).say(EDDIE, at, 400).io;
+    let io = asked(dir.path(), 8000).say(OWNER, at, 400).io;
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "what's the plan?")
-            .transcript(EDDIE, "Yeah."),
+            .transcript(OWNER, "what's the plan?")
+            .transcript(OWNER, "Yeah."),
     );
     let (seen, played) = call(io, speech, first(reply), vec![]).await;
     assert_eq!(played.len(), 2);
@@ -402,8 +402,8 @@ async fn a_yeah_after_a_closing_question_is_a_turn() {
     assert_eq!(
         turns(&seen),
         [
-            (ms(1200), vec![(EDDIE, "what's the plan?")]),
-            (closed, vec![(EDDIE, "Yeah.")]),
+            (ms(1200), vec![(OWNER, "what's the plan?")]),
+            (closed, vec![(OWNER, "Yeah.")]),
         ]
     );
     let (_, yeah) = utterances(&seen)[1];
@@ -418,11 +418,11 @@ async fn a_yes_begun_on_a_closing_questions_last_word_is_a_turn() {
     let dir = tempfile::tempdir().unwrap();
     let question = "Should I deploy it now?";
     let reply = "Here is the plan. Should I deploy it now?";
-    let io = asked(dir.path(), 8000).say(EDDIE, 3200, 300).io;
+    let io = asked(dir.path(), 8000).say(OWNER, 3200, 300).io;
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "what's the plan?")
-            .transcript(EDDIE, "Yes."),
+            .transcript(OWNER, "what's the plan?")
+            .transcript(OWNER, "Yes."),
     );
     let (seen, played) = call(io, speech, first(reply), vec![]).await;
     assert_eq!(played.len(), 2);
@@ -431,8 +431,8 @@ async fn a_yes_begun_on_a_closing_questions_last_word_is_a_turn() {
     assert_eq!(
         turns(&seen),
         [
-            (ms(1200), vec![(EDDIE, "what's the plan?")]),
-            (ms(4200), vec![(EDDIE, "Yes.")]),
+            (ms(1200), vec![(OWNER, "what's the plan?")]),
+            (ms(4200), vec![(OWNER, "Yes.")]),
         ]
     );
     let (_, yes) = utterances(&seen)[1];
@@ -444,10 +444,10 @@ async fn a_yes_begun_on_a_closing_questions_last_word_is_a_turn() {
 
 #[tokio::test(start_paused = true)]
 async fn a_yeah_after_a_closing_question_with_another_reply_queued_is_a_turn() {
-    // Eddie's turn 0 is at 1.2 s, and Robin's turn 1 at 1.4 s, when turn 0's
+    // The owner's turn 0 is at 1.2 s, and Robin's turn 1 at 1.4 s, when turn 0's
     // reply comes. Synthesis takes 1 s, so the question plays from 3.4 s to
     // 4.665 s, and Robin's reply, sent at 4.0 s, is synthesizing until 5.0
-    // s. Eddie's "Yeah." from 4.9 s answers the question: nothing is being
+    // s. The owner's "Yeah." from 4.9 s answers the question: nothing is being
     // said, so it is a turn (theseus-1cz8), and Robin's reply, which waited
     // for it, is superseded.
     let script: &'static [(u64, &'static str)] = &[
@@ -456,16 +456,16 @@ async fn a_yeah_after_a_closing_question_with_another_reply_queued_is_a_turn() {
     ];
     let dir = tempfile::tempdir().unwrap();
     let io = Lines::new(dir.path(), 9000)
-        .say(EDDIE, 0, 500)
+        .say(OWNER, 0, 500)
         .say(ROBIN, 0, 600)
-        .say(EDDIE, 4900, 400)
+        .say(OWNER, 4900, 400)
         .io;
     let speech = Arc::new(
         StandInSpeech::new()
             .delays(Duration::ZERO, ms(1000))
-            .transcript(EDDIE, "what's the plan?")
+            .transcript(OWNER, "what's the plan?")
             .transcript(ROBIN, "are the logs clean?")
-            .transcript(EDDIE, "Yeah."),
+            .transcript(OWNER, "Yeah."),
     );
     let (seen, played) = call(io, speech, answers(script), vec![]).await;
     let question = "Should I deploy it now?";
@@ -480,9 +480,9 @@ async fn a_yeah_after_a_closing_question_with_another_reply_queued_is_a_turn() {
     assert_eq!(
         turns(&seen),
         [
-            (ms(1200), vec![(EDDIE, "what's the plan?")]),
+            (ms(1200), vec![(OWNER, "what's the plan?")]),
             (ms(1400), vec![(ROBIN, "are the logs clean?")]),
-            (closed, vec![(EDDIE, "Yeah.")]),
+            (closed, vec![(OWNER, "Yeah.")]),
         ]
     );
     let (_, yeah) = utterances(&seen)[2];
@@ -579,13 +579,13 @@ async fn go_on_after_a_stop_plays_on_from_the_cut_sentence() {
     // while it's held, closes at 3.2 s.
     let io = asked(dir.path(), 14_000)
         .say(ROBIN, 1500, 400)
-        .say(EDDIE, 2000, 500)
+        .say(OWNER, 2000, 500)
         .io;
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "tell me about it")
+            .transcript(OWNER, "tell me about it")
             .transcript(ROBIN, "")
-            .transcript(EDDIE, "Go on."),
+            .transcript(OWNER, "Go on."),
     );
     let (seen, played) = call(io, speech, first(three()), vec![]).await;
     assert_eq!(
@@ -740,9 +740,9 @@ async fn a_report_cut_by_words_comes_back_from_its_cut_sentence() {
     let r3 = "Nothing else.";
     assert_eq!(len(r1), ms(1100));
     // The report plays from 0.1 s; its second sentence from 1.2 s, cut by
-    // Eddie's words from then.
-    let io = Lines::new(dir.path(), 9000).say(EDDIE, 1200, 600).io;
-    let speech = Arc::new(StandInSpeech::new().transcript(EDDIE, "hold on, what's that"));
+    // the owner's words from then.
+    let io = Lines::new(dir.path(), 9000).say(OWNER, 1200, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(OWNER, "hold on, what's that"));
     let answer: Answer = Box::new(|_, _| (ms(500), "Sure.".into()));
     let report = "The deploy finished. All forty checks passed on the first try. Nothing else.";
     let (seen, played) = call(io, speech, answer, vec![(ms(100), report)]).await;
@@ -766,14 +766,14 @@ async fn a_report_cut_by_words_comes_back_from_its_cut_sentence() {
             (
                 at,
                 Event::BargeIn {
-                    speaker: EDDIE,
+                    speaker: OWNER,
                     what: Spoken::Report,
                     dropped: 2,
                 }
             ),
         ]
     );
-    // Eddie's turn is answered at 3.0 s; at the pause after, the report
+    // The owner's turn is answered at 3.0 s; at the pause after, the report
     // again from its cut sentence, split once.
     let back = ms(3000) + len("Sure.");
     assert_eq!(
@@ -787,7 +787,7 @@ async fn a_report_cut_by_words_comes_back_from_its_cut_sentence() {
         ]
     );
     let (_, turn) = &turns(&seen)[0];
-    assert_eq!(turn, &[(EDDIE, "hold on, what's that")]);
+    assert_eq!(turn, &[(OWNER, "hold on, what's that")]);
     let over = &utterances(&seen)[0].1.over;
     assert_eq!(
         over,
@@ -1011,11 +1011,11 @@ async fn an_answer_with_its_questions_words_in_the_tail_is_a_turn() {
     let reply = "Here is the plan. Should I deploy it now?";
     let end = ms(1200) + len("Here is the plan.") + len("Should I deploy it now?");
     assert_eq!(end, ms(3400));
-    let io = asked(dir.path(), 8000).say(EDDIE, 3900, 700).io;
+    let io = asked(dir.path(), 8000).say(OWNER, 3900, 700).io;
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "what's the plan?")
-            .transcript(EDDIE, "Yes, deploy it now."),
+            .transcript(OWNER, "what's the plan?")
+            .transcript(OWNER, "Yes, deploy it now."),
     );
     let (seen, played) = call(io, speech, first(reply), vec![]).await;
     assert_eq!(played.len(), 2);
@@ -1023,8 +1023,8 @@ async fn an_answer_with_its_questions_words_in_the_tail_is_a_turn() {
     assert_eq!(
         turns(&seen),
         [
-            (ms(1200), vec![(EDDIE, "what's the plan?")]),
-            (ms(3900 + 700 + 700), vec![(EDDIE, "Yes, deploy it now.")]),
+            (ms(1200), vec![(OWNER, "what's the plan?")]),
+            (ms(3900 + 700 + 700), vec![(OWNER, "Yes, deploy it now.")]),
         ]
     );
     assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Words);
@@ -1040,17 +1040,17 @@ fn answers(by_turn: &'static [(u64, &'static str)]) -> Answer {
 
 #[tokio::test(start_paused = true)]
 async fn a_reply_waits_for_the_speaker_and_is_superseded_by_their_words() {
-    // Eddie asks; his turn is at 1.2 s, and its reply comes at 3.0 s, while
+    // The owner asks; his turn is at 1.2 s, and its reply comes at 3.0 s, while
     // he talks again from 2.5 s to 3.5 s. His utterance closes at 4.2 s.
     let reply = "Here are the logs.";
     let script: &'static [(u64, &'static str)] = &[(1800, "Here are the logs.")];
     let dir = tempfile::tempdir().unwrap();
-    let io = asked(dir.path(), 8000).say(EDDIE, 2500, 1000).io;
+    let io = asked(dir.path(), 8000).say(OWNER, 2500, 1000).io;
     // A cough: the reply plays when it closes.
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "show me the logs")
-            .transcript(EDDIE, ""),
+            .transcript(OWNER, "show me the logs")
+            .transcript(OWNER, ""),
     );
     let (seen, played) = call(io, speech, answers(script), vec![]).await;
     assert_eq!(starts(&played), [(ms(4200), len(reply), false)]);
@@ -1064,11 +1064,11 @@ async fn a_reply_waits_for_the_speaker_and_is_superseded_by_their_words() {
 
     // Words: the reply is never played, and his words are the next turn.
     let dir = tempfile::tempdir().unwrap();
-    let io = asked(dir.path(), 8000).say(EDDIE, 2500, 1000).io;
+    let io = asked(dir.path(), 8000).say(OWNER, 2500, 1000).io;
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "show me the logs")
-            .transcript(EDDIE, "only the errors, I mean"),
+            .transcript(OWNER, "show me the logs")
+            .transcript(OWNER, "only the errors, I mean"),
     );
     let (seen, played) = call(io, speech, answers(script), vec![]).await;
     assert!(played.is_empty(), "{played:?}");
@@ -1089,7 +1089,7 @@ async fn a_reply_waits_for_the_speaker_and_is_superseded_by_their_words() {
     );
     assert_eq!(
         turns(&seen)[1],
-        (ms(4200), vec![(EDDIE, "only the errors, I mean")])
+        (ms(4200), vec![(OWNER, "only the errors, I mean")])
     );
 }
 
@@ -1104,20 +1104,20 @@ async fn a_thought_split_by_a_pause_gets_one_answer() {
     ];
     let dir = tempfile::tempdir().unwrap();
     let io = Lines::new(dir.path(), 9000)
-        .say(EDDIE, 0, 1000)
-        .say(EDDIE, 1800, 1000)
+        .say(OWNER, 0, 1000)
+        .say(OWNER, 1800, 1000)
         .io;
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "Can you make yourself a")
-            .transcript(EDDIE, "tool to order"),
+            .transcript(OWNER, "Can you make yourself a")
+            .transcript(OWNER, "tool to order"),
     );
     let (seen, played) = call(io, speech, answers(script), vec![]).await;
     assert_eq!(
         turns(&seen),
         [
-            (ms(1700), vec![(EDDIE, "Can you make yourself a")]),
-            (ms(4200), vec![(EDDIE, "tool to order")]),
+            (ms(1700), vec![(OWNER, "Can you make yourself a")]),
+            (ms(4200), vec![(OWNER, "tool to order")]),
         ]
     );
     assert_eq!(
@@ -1145,13 +1145,13 @@ async fn a_thought_split_by_a_pause_gets_one_answer() {
     let script: &'static [(u64, &'static str)] = &[(4500, "Here is the first answer.")];
     let dir = tempfile::tempdir().unwrap();
     let io = Lines::new(dir.path(), 9000)
-        .say(EDDIE, 0, 1000)
-        .say(EDDIE, 4000, 1000)
+        .say(OWNER, 0, 1000)
+        .say(OWNER, 4000, 1000)
         .io;
     let speech = Arc::new(
         StandInSpeech::new()
-            .transcript(EDDIE, "what changed today?")
-            .transcript(EDDIE, "and who changed it?"),
+            .transcript(OWNER, "what changed today?")
+            .transcript(OWNER, "and who changed it?"),
     );
     let (seen, played) = call(io, speech, answers(script), vec![]).await;
     assert!(only(&seen, cuts).is_empty(), "{seen:?}");
@@ -1162,8 +1162,8 @@ async fn a_thought_split_by_a_pause_gets_one_answer() {
     assert_eq!(
         turns(&seen),
         [
-            (ms(1700), vec![(EDDIE, "what changed today?")]),
-            (ms(6200), vec![(EDDIE, "and who changed it?")]),
+            (ms(1700), vec![(OWNER, "what changed today?")]),
+            (ms(6200), vec![(OWNER, "and who changed it?")]),
         ]
     );
 }
@@ -1177,7 +1177,7 @@ async fn a_cut_acknowledgment_isnt_said_again() {
     let io = asked(dir.path(), 8000).say(ROBIN, 3240, 400).io;
     let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, ""));
     let answer: Answer = Box::new(|_, _| (ms(3000), "Here you go.".into()));
-    let config = Config::new([EDDIE, ROBIN]);
+    let config = Config::new([OWNER, ROBIN]);
     let (seen, played) = call_with(config, io, speech, answer, vec![]).await;
     let laugh_closed = ms(3240 + 400 + 700);
     assert_eq!(
@@ -1207,7 +1207,7 @@ async fn leaving_with_a_reply_unsaid_cuts_it() {
     let dir = tempfile::tempdir().unwrap();
     let io = asked(dir.path(), 60_000).io;
     let (engine, mut handle) = Engine::new(
-        Config::new([EDDIE]),
+        Config::new([OWNER]),
         Box::new(io),
         Arc::new(StandInSpeech::new()),
     );

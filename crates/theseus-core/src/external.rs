@@ -26,10 +26,10 @@
 //!   patches, `proc.run`, `task.create`), after the whole order of §3.9, the
 //!   allow list included: the stricter posture wins, as a granted secret's
 //!   does. `Read` calls keep their posture, fetches included, so research
-//!   goes on, and each fetch's notice names its URL (Eddie, 2026-09-30). A
+//!   goes on, and each fetch's notice names its URL (the owner, 2026-09-30). A
 //!   wake's turn and a turn that a task's report started are the session's
 //!   own turns, so the hold covers them.
-//! - **`wake.at` keeps its posture** (Eddie, 2026-09-30, T1b): the reminder's
+//! - **`wake.at` keeps its posture** (the owner, 2026-09-30, T1b): the reminder's
 //!   turn runs in this same session, so any call it makes that acts still
 //!   waits. `task.create` still waits: a task spends its own budget and runs
 //!   turns of its own.

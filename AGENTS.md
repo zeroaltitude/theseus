@@ -113,7 +113,7 @@ Each is a requirement, with its spec section.
   generated from it.
 - **Opinionated** (§2, OPINIONATED and NATIVE FIRST). One blessed path and few knobs: no plugin architecture, and no
   hooks (deleted in A3b). A new capability is a native toollet unless a written reason says it can't be. "Ruthlessly
-  remove complexity" (Eddie, A3b).
+  remove complexity" (the owner, A3b).
 - **Jev in the core** (§2, JEV IN THE LOOP; §3.7). Judgments are typed questions inside the loop, recorded with
   their probabilities and outcomes, in shadow before they act. Jev is never the only guard on safety, and the
   deterministic controls (`/stop`, budgets) bypass it.

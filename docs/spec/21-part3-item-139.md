@@ -130,7 +130,7 @@ route's turn path is an `Option` check, a `OnceLock` and two `Option` checks, so
 gate: lane gliding's, on route's code at 16:50, read 85.7 and 185.5 ms with the probe at 7.0 and 6.7, and no A/B was
 needed. Pushed d5ff8489..bf36375f, the cloud branch deleted, the done line 16:35:52, theseus-0j2.11 closed.
 
-**The install** (install #2, 19:59:53 to 20:00:01, at 3085f71a). Eddie decided at 18:02 to add the models and go
+**The install** (install #2, 19:59:53 to 20:00:01, at 3085f71a). The owner decided at 18:02 to add the models and go
 live with route.v1, judging its decisions in the cockpit's Judgment view ("wrong model" three times a day rolls it
 back for the day, and an on-path p95 over 250 ms over 20 too). The install's precheck appended the template's
 `[profiles.opus]`, `[profiles.fable]` and `[profiles.glm53]` to his config, with a backup; `[routing]` stayed at its
@@ -148,10 +148,10 @@ reservation) until 26b's kernel actions. The place cap is proved at the unit lev
 
 **Known gaps.**
 - **theseus-9yyr** (P2, raised to P1 at 18:02): routed state outlived routing being off, and a fallback kept the
-  routed profile. On Eddie's config before install #2 (Sonnet and GLM only), routine coding would have moved a
+  routed profile. On the owner's config before install #2 (Sonnet and GLM only), routine coding would have moved a
   session to GLM-5.3 Flash and a hard question would then have stayed there. Its first item was fixed that evening
   (Item 150); its second, where chat, other and a fallback leave a routed session (the cache-warm
-  stay), is theseus-17jn, settled as built by the DM thread for Eddie to overrule (the morning notes' section 31).
+  stay), is theseus-17jn, settled as built by the DM thread for the owner to overrule (the morning notes' section 31).
 - **theseus-ddbi** (P2, raised to P1 at 18:02): the wait. The morning notes' call: read his real numbers in the
   cockpit before deciding; his 23:53 config raised the bound to 300 ms.
 - theseus-g1gl (P3): the two untested rules above. theseus-d13v (P3): a switched turn records loop 0's
@@ -162,11 +162,11 @@ reservation) until 26b's kernel actions. The place cap is proved at the unit lev
   open a live turn records `shadow`, not `no_verdict`; the detour offers the trivial profile's tools (history may hold
   `tool_use` blocks); the cockpit's session header does not show the route yet.
 
-### Item 140. Gliding on the place rule: `channel.post` and `channel.read`, into a private place always, out of one or between two shared places only once the owner says (theseus-ypy0; step 38b, roadmap row 69; Eddie's "Gliding with the place rule: yes!" of 2026-10-04 15:09; the `gliding` lane, spawned 15:11, in a worktree; b92c5f07 on 9bf8ac35; joined 16:51 at 21683c9c, a signed merge onto bf36375f, by the lane itself; reviewed after the join, 17:52, by the DM thread; installed 20:00 at 3085f71a, install #2)
+### Item 140. Gliding on the place rule: `channel.post` and `channel.read`, into a private place always, out of one or between two shared places only once the owner says (theseus-ypy0; step 38b, roadmap row 69; the owner's "Gliding with the place rule: yes!" of 2026-10-04 15:09; the `gliding` lane, spawned 15:11, in a worktree; b92c5f07 on 9bf8ac35; joined 16:51 at 21683c9c, a signed merge onto bf36375f, by the lane itself; reviewed after the join, 17:52, by the DM thread; installed 20:00 at 3085f71a, install #2)
 
 **Why.** 38b's first design let an execution post into another channel and borrow its history under a subset rule
 built on 19a's labels, and the place rule removed those labels (Item 76), so the step waited on a redesign (Part II's
-P9). At 14:37 Eddie asked what gliding was; the DM thread explained it and proposed a design on the place rule, and
+P9). At 14:37 the owner asked what gliding was; the DM thread explained it and proposed a design on the place rule, and
 at 15:09 he said yes. The rule, in the brief's words: into a private place always; out of a private place asks first,
 as `/publish` does; from one shared place to another asks first, since they are different audiences.
 
@@ -258,7 +258,7 @@ matrix, the tools, the outside-text mark, the publish record and the run's check
 
 **The review** (17:52, the DM thread): the rule matches the 15:09 call, the table test, the three plants and the live
 check were read, and the docs scrub found no new hit. The one choice beyond the brief, both tools offered in shared
-places, lets a shared channel post into the owner's DM unasked; Eddie was told, and the DM thread settled it as built
+places, lets a shared channel post into the owner's DM unasked; the owner was told, and the DM thread settled it as built
 for him to overrule (the morning notes' sections 30 and 31).
 
 **The install** (install #2, 20:00, at 3085f71a; its health as in Item 139).
@@ -270,14 +270,14 @@ where it must (above). An approved glide out of a private place writes publish's
 row of its own (a follow-up, if wanted). The live check ran with the web UI off, so the cockpit's rendering of a
 glide was not seen.
 
-### Item 141. `rerank.v1` live: Jev's order of recall goes in front of the model, waited for at most 200 ms, with a breaker of its own, the owner's labels held out on both paths, and each per-item answer graded (theseus-6fn.7, with theseus-mm4a; step 32d; Eddie's decision 4 of 2026-10-04 10:11; the fifth cloud batch's rerank-live session, fired 11:14 from 802f9135, Opus 5.5; 61ded074, e59a46af, 604188f3 and c4806477; reviewed 14:46 to 15:46 by the local reviewer R3, the second of stack A, with two join fixes; joined 17:03 at 3829c7ea, a signed merge onto 21683c9c, by the batch-5 joiner; no store format change; installed 20:00 at 3085f71a, install #2)
+### Item 141. `rerank.v1` live: Jev's order of recall goes in front of the model, waited for at most 200 ms, with a breaker of its own, the owner's labels held out on both paths, and each per-item answer graded (theseus-6fn.7, with theseus-mm4a; step 32d; the owner's decision 4 of 2026-10-04 10:11; the fifth cloud batch's rerank-live session, fired 11:14 from 802f9135, Opus 5.5; 61ded074, e59a46af, 604188f3 and c4806477; reviewed 14:46 to 15:46 by the local reviewer R3, the second of stack A, with two join fixes; joined 17:03 at 3829c7ea, a signed merge onto 21683c9c, by the batch-5 joiner; no store format change; installed 20:00 at 3085f71a, install #2)
 
 **Why.** Step 32c (Item 128) put `rerank.v1` beside recall in shadow: Jev reordered recall's top twenty
 notes off the turn's path, and the ledger showed what `+rerank` would have admitted. At the 9am review (10:11, "Take
-your recommendation") Eddie chose option (c), live, behind three conditions in one cloud row: theseus-mm4a's test
+your recommendation") the owner chose option (c), live, behind three conditions in one cloud row: theseus-mm4a's test
 first (a note the owner labeled wrong or stale never reaches Jev or the repack), a breaker of rerank's own (so slow
 reranks cannot stop `route.v1` or the security pack), and a bounded live rerank in recall's live path, with recall's
-own order on a miss. Since Eddie wants his labels to count ("Live reinforcement learning is exciting"), the row also
+own order on a miss. Since the owner wants his labels to count ("Live reinforcement learning is exciting"), the row also
 grades `rerank.v1`'s per-item answers, with a system label drawn from his memory labels.
 
 **What landed** (the merge: 44 files, +1,941 −142; with the cloud paperwork 46 files, +2,365 −136; no new package, no
@@ -408,11 +408,11 @@ review and the joiner: the template's `[judge]` words ("the turn never waits for
 bound a wait; "Today eight packs judge"), m6 §2.7, §2.9's table and §2.14, and m5 §2.2 and §2.9 (Part I and the
 design notes, this version).
 
-### Item 142. `security.v3`'s live notices: after an open call Jev is at least 90 % sure was risky, a notice to the owner's DM alone, never on the call's path, with `security.v1`'s brake until the next local day (theseus-0j2.13; step 24's notices; Eddie's decision 5 of 2026-10-04 10:21; the fifth cloud batch's security-notices session, fired 11:21 from 802f9135 by the DM thread, Opus 5.5; 3469ff3d; reviewed 15:46 to 16:41 by the local reviewer R3, the third of stack A, with three join fixes; joined 17:14 at 250ccd23, a signed merge onto 3829c7ea, by the batch-5 joiner; no store format change; installed 20:00 at 3085f71a, install #2)
+### Item 142. `security.v3`'s live notices: after an open call Jev is at least 90 % sure was risky, a notice to the owner's DM alone, never on the call's path, with `security.v1`'s brake until the next local day (theseus-0j2.13; step 24's notices; the owner's decision 5 of 2026-10-04 10:21; the fifth cloud batch's security-notices session, fired 11:21 from 802f9135 by the DM thread, Opus 5.5; 3469ff3d; reviewed 15:46 to 16:41 by the local reviewer R3, the third of stack A, with three join fixes; joined 17:14 at 250ccd23, a signed merge onto 3829c7ea, by the batch-5 joiner; no store format change; installed 20:00 at 3085f71a, install #2)
 
 **Why.** Step 24 (Item 120) put `security.v1` and `security.v3` at the gate in shadow: each acting
 call judged after the gate decides, never delaying it, and nothing told the owner. At the 9am review (10:21, "Take
-your recommendation") Eddie chose option (b), live notices: when v3 is at least 90 % sure that a call the gate allowed
+your recommendation") the owner chose option (b), live notices: when v3 is at least 90 % sure that a call the gate allowed
 was risky, a notice after the call, never delaying it, with right, wrong and noise buttons; the design's brake (more
 than 30 notices a day, or 3 labeled noise in a day, sends them back to shadow); v3 beside v1; and `tool_class` kept.
 
@@ -522,7 +522,7 @@ security's day brake, `flagged` takes a v3 canary as acting in its arm, and each
 an event.
 
 **The install** (install #2, 20:00, at 3085f71a). Health after: `security.v3` live (owner: decision of 2026-10-04), with
-`route.v1` and `rerank.v1`; the owner's DM is bound, so a notice has a place to go. Settled for Eddie by the DM thread
+`route.v1` and `rerank.v1`; the owner's DM is bound, so a notice has a place to go. Settled for the owner by the DM thread
 that night (the morning notes' section 31): the 0.90 line stays until a week of his labels says otherwise.
 
 **Divergences.** A new notification method, `judge.noticed`, against m5 §2.13's "no new notification method": the
@@ -535,9 +535,9 @@ same things (the notices' own and the ladder's adopted rules for pack `security`
 review: m5 §2.7's table row ("`security.v1`'s rules, braking `security.v3`'s notices"), §2.8b (v3 where it says v1),
 §2.13 (`judge.noticed`), and the template's stale `[judge]` sentences.
 
-### Item 143. The Ship's sea rolls gently, always, in Live mode, at 15 frames a second when idle; Calm stays still (theseus-wp2d; Eddie's "A gentle roll always is awesome" of 2026-10-04 14:37; the `cockpit-swell` lane, 14:41 to 17:25, in a worktree; 57927336 on bddfd407; joined 17:23 at 14bcce94, a signed merge onto 250ccd23, by the lane itself; reviewed 17:53 by the DM thread; installed 20:00 at 3085f71a, install #2)
+### Item 143. The Ship's sea rolls gently, always, in Live mode, at 15 frames a second when idle; Calm stays still (theseus-wp2d; the owner's "A gentle roll always is awesome" of 2026-10-04 14:37; the `cockpit-swell` lane, 14:41 to 17:25, in a worktree; 57927336 on bddfd407; joined 17:23 at 14bcce94, a signed merge onto 250ccd23, by the lane itself; reviewed 17:53 by the DM thread; installed 20:00 at 3085f71a, install #2)
 
-**Why.** Item 64's Ship drew only while something moved, so an idle fleet sat on a still sea. At 14:37 Eddie answered
+**Why.** Item 64's Ship drew only while something moved, so an idle fleet sat on a still sea. At 14:37 the owner answered
 "A gentle roll always is awesome": in Live mode the sea rolls, idle included, and Calm stays still. The lane's brief
 asked for the waves to drift and the stars to twinkle, at about 20 frames a second when nothing else moves, with the
 rest of the Ship still moving only when something happens.
@@ -629,7 +629,7 @@ Pushed 250ccd23..14bcce94 at 17:23, the done line 17:23:58, theseus-wp2d closed.
 **The install** (install #2, 20:00, at 3085f71a; its health as in Item 139): the cockpit at `/` rolls in Live
 mode.
 
-**Known gaps.** theseus-yx5i (P3, waiting for Eddie): on a software renderer the idle swell costs 2.4 to 3.7 cores;
+**Known gaps.** theseus-yx5i (P3, waiting for the owner): on a software renderer the idle swell costs 2.4 to 3.7 cores;
 keep it everywhere, or detect SwiftShader or llvmpipe and slow or still the sea there. Settled by the DM thread that
 night for him to overrule (the morning notes' section 31): slow or still it on a software renderer; nothing is built for
 it yet, and the issue still waits for him. theseus-n2hd: the
@@ -638,13 +638,13 @@ While something moves, the swell adds about a fifth to each frame's CPU on Swift
 could about halve that, at the cost of another full-resolution target. A headless page held open costs more in Live
 mode, so screenshot and watch scripts should pass `?swell=0` or `?calm=1` (the cockpit's AGENTS.md says so).
 
-### Item 144. Replay, audit and backfill: a candidate pack version asked over recorded judgments, a pack's judgments labeled by a model profile, and a pack's past points judged under the owner's consent (theseus-0j2.14; step 25d, roadmap row 43; the fifth cloud batch's replay session, its task written by writer M after Eddie's 10:21 approval of the learning loop, fired 11:21 from 802f9135 by the DM thread, Opus 5.5; 3ab2a6f1, 9307a93e, 41dbb922 and 02ca7980; reviewed 14:06 to 14:30 by the local reviewer R4, the first of stack B, with three join fixes; joined 17:45 at d5a4b808, a signed merge onto 14bcce94, by the batch-5 joiner, with two join fixes more; no store format change; installed 20:00 at 3085f71a, install #2)
+### Item 144. Replay, audit and backfill: a candidate pack version asked over recorded judgments, a pack's judgments labeled by a model profile, and a pack's past points judged under the owner's consent (theseus-0j2.14; step 25d, roadmap row 43; the fifth cloud batch's replay session, its task written by writer M after the owner's 10:21 approval of the learning loop, fired 11:21 from 802f9135 by the DM thread, Opus 5.5; 3ab2a6f1, 9307a93e, 41dbb922 and 02ca7980; reviewed 14:06 to 14:30 by the local reviewer R4, the first of stack B, with three join fixes; joined 17:45 at d5a4b808, a signed merge onto 14bcce94, by the batch-5 joiner, with two join fixes more; no store format change; installed 20:00 at 3085f71a, install #2)
 
 **Why.** The learning ledger (step 25c, Item 129) grades each pack against the owner's labels, with a
 frozen holdout. Before a reworded pack replaces its incumbent, M5's design (`docs/design/m5-judgment.md` §2.9) asks
 three things of the record: replay a candidate over the judgments the incumbent made and compare them on the same
 labels; audit a pack with a stronger model's answers as labels of their own weight; and backfill a pack's points from
-history, so a new pack has judgments to grade. At 10:21 Eddie, eager for labels to adjust Jev's prompts, approved the
+history, so a new pack has judgments to grade. At 10:21 the owner, eager for labels to adjust Jev's prompts, approved the
 learning loop (theseus-0j2.12); 25d and the ladder (26a) were its next steps.
 
 **What landed** (four code commits; the merge 49 files, +4,363 −31; with the paperwork 51 files, +4,837 −25; no new
@@ -758,7 +758,7 @@ audit's reservation is held in memory, not as a kernel action, since an audit ha
 consent's digest is sha256 of the running config's JSON, not the owner's note's own bytes.
 
 **Known gaps.** theseus-b7rw (P3, above). Only `loop.v1` rebuilds. The morning notes' section 31 lists, among the small
-defaults the DM thread settled for Eddie to overrule, "replay and audit spend counts in the judge's day budget"; as
+defaults the DM thread settled for the owner to overrule, "replay and audit spend counts in the judge's day budget"; as
 built, the runs keep their own caps and their cost is only in their rows. Docs owed by the review: m5 §2.9's "As built
 (25d)" paragraph (the report gives it whole), §2.15's `[judge]` lines, §2.6's table (the runs' per-run caps), and the
 join's: the memory pass's two builders are unrebuildable; an audit's labels are whole-question.
@@ -910,7 +910,7 @@ bench, `mode_for` answers off at once and reads no ladder. Pushed d5a4b808..d56f
 line 18:26:14, theseus-0j2.15 and theseus-9j7x closed; a note on theseus-289c that the adoptions it foresaw now exist.
 
 **The DM thread's review of the join** (19:22): accepted; the six integration tests (adoption once, the notices' brake by
-key, a pin landing, a rollback stopping route, rerank and v3) 6 of 6 on main. Three integration items went to Eddie:
+key, a pin landing, a rollback stopping route, rerank and v3) 6 of 6 on main. Three integration items went to the owner:
 security has two brakes on the same counts (the notices' own, which fires first, and the ladder's adopted rules for pack
 id `security`, which act only for a security version without notices); a v3 canary now posts in its arm; route's pin
 counts against the profile the routed turn ran on, a trivial detour's included. Settled by the DM thread that night for
@@ -918,7 +918,7 @@ him to overrule (the morning notes' section 31): ladder rollbacks stay per pack 
 
 **The install** (install #2, 20:00, at 3085f71a). The store's first ladder read on the owner's daemon adopted the three:
 health after, `route.v1`, `rerank.v1` and `security.v3` live (owner: decision of 2026-10-04); store format 16; startup
-serving at 29.1 ms. Since 18:02 Eddie judges route.v1's decisions in the cockpit's Judgment view: its adopted rule
+serving at 29.1 ms. Since 18:02 the owner judges route.v1's decisions in the cockpit's Judgment view: its adopted rule
 (three pins a day) is a day's brake, read beside its pack file's own ("wrong model" three times a day; an on-path p95
 over 250 ms over 20).
 
@@ -937,9 +937,9 @@ theseus-0rba (P3, above). Docs owed: m5 §2.5's `pack.mode` row (until, question
 (the adoption, the brakes, where a security card's question lives, every acting point asking the ladder, the notices'
 switch as a ceiling), §2.13 (`theseus packs`, the Ladder panel).
 
-### Item 146. The review's small changes to tasks and places: layer 1 guards only the owner's tasks, a place with a bad ceiling fails alone with its warnings, and a check sees the checked task by title and state; store format 16 (theseus-ext.10, theseus-ext.11 and theseus-w8ys; Eddie's decisions 6 and 7 of 2026-10-04 10:38 and 10:45, and the DM thread's w8ys call; the fifth cloud batch's smalls-tasks session, fired 11:55 from e27405a2 by the DM thread, Opus 5.5; a333d4bb, a07ca47e and 7eef7961; reviewed 15:52 to 17:20 by the local reviewer R4, the last of stack B, with no join fix; joined 19:07 at 0c9edcc2, a signed merge onto d56f3bc0, by the batch-5 joiner, with one comment fixed; store format 15 to 16; installed 20:00 at 3085f71a, install #2)
+### Item 146. The review's small changes to tasks and places: layer 1 guards only the owner's tasks, a place with a bad ceiling fails alone with its warnings, and a check sees the checked task by title and state; store format 16 (theseus-ext.10, theseus-ext.11 and theseus-w8ys; the owner's decisions 6 and 7 of 2026-10-04 10:38 and 10:45, and the DM thread's w8ys call; the fifth cloud batch's smalls-tasks session, fired 11:55 from e27405a2 by the DM thread, Opus 5.5; a333d4bb, a07ca47e and 7eef7961; reviewed 15:52 to 17:20 by the local reviewer R4, the last of stack B, with no join fix; joined 19:07 at 0c9edcc2, a signed merge onto d56f3bc0, by the batch-5 joiner, with one comment fixed; store format 15 to 16; installed 20:00 at 3085f71a, install #2)
 
-**Why.** Three reviews of the morning's joins left a small change each, and Eddie took the recommendations at the 9am
+**Why.** Three reviews of the morning's joins left a small change each, and the owner took the recommendations at the 9am
 review. **Decision 6** (39a, task-record, Item 125; 10:38): layer 1, a task's objective and acceptance and
 abandoning it, asks only for tasks the owner created or whose objective and acceptance came from his brief; the model's
 own plan items change freely, still versioned and visible; and an expired proposal is cleared as a decline is.
@@ -1038,9 +1038,9 @@ today it is the model's `parent`). The cockpit does not show `places.warnings` y
 tasks" (the restricted view, `tasks.restricted`) and "Ceilings", and theseus-discord's "Guilds and ceilings"
 (`tell_core`, `place_warnings.rs`, `place.warned`, `places.warnings`).
 
-### Item 147. The review's small changes to judging, language servers, the restore and the hands: `categorize.v1` on an empty ontology, a Choice's options reserved, three language servers starting on an edit, the restore's list under `StringLikeIfExists`, and AWS runaway-train mode (theseus-ext.12, with theseus-mgw.10's policy, theseus-gky0 and theseus-q0rn; Eddie's decisions 8 and 9 of 2026-10-04 11:00 and 11:26; the fifth cloud batch's smalls-tools session, fired 11:55 from e27405a2 by the DM thread, Opus 5.5; e7232b22, b3967836, ac433e56 and 5a569972; reviewed 14:56 to 16:26 by the local reviewer R4, the third of stack B, with no join fix; a first join's gate red at 18:43 on a kernel test it does not touch, theseus-g11i; re-gated and joined 19:43 at 3085f71a, a signed merge onto 0c9edcc2, by the re-gate joiner; reviewed 19:53 by the DM thread; no store format change; installed 20:00 at 3085f71a, install #2, with `start_on_edit = false` for rust-analyzer)
+### Item 147. The review's small changes to judging, language servers, the restore and the hands: `categorize.v1` on an empty ontology, a Choice's options reserved, three language servers starting on an edit, the restore's list under `StringLikeIfExists`, and AWS runaway-train mode (theseus-ext.12, with theseus-mgw.10's policy, theseus-gky0 and theseus-q0rn; the owner's decisions 8 and 9 of 2026-10-04 11:00 and 11:26; the fifth cloud batch's smalls-tools session, fired 11:55 from e27405a2 by the DM thread, Opus 5.5; e7232b22, b3967836, ac433e56 and 5a569972; reviewed 14:56 to 16:26 by the local reviewer R4, the third of stack B, with no join fix; a first join's gate red at 18:43 on a kernel test it does not touch, theseus-g11i; re-gated and joined 19:43 at 3085f71a, a signed merge onto 0c9edcc2, by the re-gate joiner; reviewed 19:53 by the DM thread; no store format change; installed 20:00 at 3085f71a, install #2, with `start_on_edit = false` for rust-analyzer)
 
-**Why.** The morning's reviews left four small changes outside the task layer, and Eddie took them at the 9am review.
+**Why.** The morning's reviews left four small changes outside the task layer, and the owner took them at the 9am review.
 **Decision 8** (11:00, "Take your recommendations. Add rust to the list of autostarted language servers"): 28b's
 categorize point (Item 126) proposes topics from an empty ontology, reading only what is new
 (theseus-gky0) and reserving for its options (theseus-q0rn); `start_on_edit` on for ty, TypeScript 7 (tsgo) and
@@ -1150,7 +1150,7 @@ park branch deleted. All seven of batch 5's branches were on main. theseus-g11i 
 **The install** (install #2, 19:59:53 to 20:00:01, at 3085f71a, this join's own commit). The precheck added
 `[lsp.servers.rust-analyzer] start_on_edit = false` to the owner's config, with a backup, until theseus-c6hv is fixed:
 ty and tsgo start on an edit, rust-analyzer does not. `runaway_factor` reaches the owner's daemon unset, so 10. Health
-after: store format 16, the three live packs, 9 secrets ready, startup serving at 29.1 ms. Eddie at 18:07, on the brake:
+after: store format 16, the three live packs, 9 secrets ready, startup serving at 29.1 ms. The owner at 18:07, on the brake:
 "defense in depth -- both methods": a worst-case refusal trips runaway mode, and actual spend trips it too, as built.
 
 **Divergences.** Runaway mode's prospective check and its latch (above), decided as built at 18:07. Score levels keep
@@ -1163,10 +1163,10 @@ AGENTS.md (categorize on an empty ontology, the hands' `runaway.rs`, `start_on_e
 (`cargo.targetDir` in both places), m5 §2.12 (categorize, the per-option input), aws-toolset §3.7 (runaway mode) and
 §3.5 / step 16 (the `IfExists` list).
 
-### Item 148. B5: the first full Terminal-Bench 2.0 run, Claude Code 81.5 % and Theseus 71.9 % and 73.6 % on the same model, for $71.60, and the loss analysis behind the fixes (theseus-n88g.5, with theseus-7gir.1; Eddie's go of 2026-10-03 22:58; the `b5` lane, from 079f1dbf, its first agent aborted at 23:24:31 and relaunched at 23:51; the run 2026-10-03 23:21:20 to 2026-10-04 18:07:32, paused by hand 13:37 to 14:09; the docs commit 9c686904; the launch reviewed 00:31, the loss analysis 19:53 and the run 20:13, by the DM thread; joined 20:18 at 4cef410c, a signed merge onto 3085f71a, by the card-2 joiner, under one gate with card 2; docs only, in the tree of install #3, 21:22 at 645769d2)
+### Item 148. B5: the first full Terminal-Bench 2.0 run, Claude Code 81.5 % and Theseus 71.9 % and 73.6 % on the same model, for $71.60, and the loss analysis behind the fixes (theseus-n88g.5, with theseus-7gir.1; the owner's go of 2026-10-03 22:58; the `b5` lane, from 079f1dbf, its first agent aborted at 23:24:31 and relaunched at 23:51; the run 2026-10-03 23:21:20 to 2026-10-04 18:07:32, paused by hand 13:37 to 14:09; the docs commit 9c686904; the launch reviewed 00:31, the loss analysis 19:53 and the run 20:13, by the DM thread; joined 20:18 at 4cef410c, a signed merge onto 3085f71a, by the card-2 joiner, under one gate with card 2; docs only, in the tree of install #3, 21:22 at 645769d2)
 
 **Why.** Item 93 built the benchmark plumbing: the Harbor adapter in the repo, a headless run that says how it ended,
-and the bench profile. Its last line recorded B5 as under way: Eddie had approved the full Terminal-Bench run at 22:58
+and the bench profile. Its last line recorded B5 as under way: the owner had approved the full Terminal-Bench run at 22:58
 on 2026-10-03. B5 measures Theseus against Claude Code on the same model, over the whole of Terminal-Bench 2.0, and
 puts a second Theseus arm beside it with one paragraph of batching advice in its system text, the question theseus-n88g.6
 waited on.
@@ -1193,8 +1193,8 @@ waited on.
 **How it ran.** The driver started at 23:21:20. Three minutes later the lane's first agent was aborted with the DM
 thread's run (23:24:31), before its launch report; the driver and the hourly harvest wake survived it. The relaunched
 agent (23:51) re-tested every path of the harvest check on scratch copies, with every outside command faked, and found
-one bug in its last edit: the done path marked Eddie as told before printing anything, so a missing or hung `bd` would
-have left every later wake silent and Eddie never told. Fixed (the note's call bounded at 20 s, the mark written only
+one bug in its last edit: the done path marked the owner as told before printing anything, so a missing or hung `bd` would
+have left every later wake silent and the owner never told. Fixed (the note's call bounded at 20 s, the mark written only
 once the text is whole), 33 of 33 scenarios passed, and the first live wake (00:24) ran the fixed script. The run was
 paused by hand from 13:37:53 (a `PAUSE` file at 13:32:52) to 14:09:56, around the afternoon's install, and finished at
 18:07:32 with no driver error, no job failed twice, and 32 task images removed by name. Its finish wrote the summary,
@@ -1240,9 +1240,9 @@ none of them the prompt:
   tokens.
 
 **What it led to.** Before the run ended, B6 (theseus-n88g.6, the batching paragraph as the default) was closed as
-superseded by Eddie's no-prompt-tricks rule (16:10); the run's B-against-A evidence went onto theseus-7gir.3, the
+superseded by the owner's no-prompt-tricks rule (16:10); the run's B-against-A evidence went onto theseus-7gir.3, the
 `proc.run` steps array, the non-prompt route to the same saving. Fixes .19 to .21 ran in lane route-bench-fixes
-(Item 150). Eddie's v1 rule at 22:09 ("A") counts each B5 loss, explained or fixed, among v1's
+(Item 150). The owner's v1 rule at 22:09 ("A") counts each B5 loss, explained or fixed, among v1's
 conditions; at 22:32 he chose the refusal fallback ("A": a refused request retried once on Sonnet 5, as Claude Code
 does, the reply saying so and the log recording it; no prompt change), built in lane refusal-fallback
 (Item 154). The held-out rerun (theseus-7gir.22) adds B5's three refusal tasks and matches Claude

@@ -169,7 +169,7 @@ fn run(input: Value) -> Scripted {
     Scripted::tools("", &[("t1", "proc_run", input)])
 }
 
-/// Decision 1 (Eddie, 2026-10-02): an L1 job runs at notify, though the
+/// Decision 1 (the owner, 2026-10-02): an L1 job runs at notify, though the
 /// approve list, a path outside the roots, and the deployment's own posture
 /// would each make it wait at L0; and L0 keeps its postures. Before 17b the
 /// `sandbox` input was refused as unknown, and every call here waited.
@@ -234,7 +234,7 @@ async fn l1_runs_at_notify_where_l0_waits() {
     );
 }
 
-/// The operator's own word about `proc.run` reaches L1 (Eddie, 2026-10-02,
+/// The operator's own word about `proc.run` reaches L1 (the owner, 2026-10-02,
 /// theseus-jfs6): a `[policy.tools]` line that asks, or a "should have
 /// asked" tightening, makes an L1 call wait as it would at L0, so the model
 /// cannot step around it with `sandbox: true`. The call still names L1, so

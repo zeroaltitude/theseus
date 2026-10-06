@@ -147,11 +147,11 @@ tails (`infra/aws/`'s). A first start on an existing store ships its whole histo
 million row writes). Health's CLI and cockpit lines were not drawn (the field is in the health JSON and the generated
 TypeScript).
 
-### Item 109. B4: terminals as tools: `term.open`, `term.send`, `term.read` and `term.close`, a pty per terminal with a model of its screen, closed at a session's end, a cancel, a `/stop` and the daemon's stop (theseus-n88g.4, the worth plan's B4 and Eddie's D7, with theseus-celu.30; the cloud batch 4c's terminal-tools session, fired 2026-10-03 20:00 from d9b0931, Opus 5.5; 7d330f7; reviewed 2026-10-04 00:21 to 00:40 by the batch-4 harvest wake 7379d0cc; joined 02:19 at 60ab73ca, a signed merge onto 4bb5aac9, by the harvest wake b86bd6c2; installed 14:09 at bddfd407, install #1)
+### Item 109. B4: terminals as tools: `term.open`, `term.send`, `term.read` and `term.close`, a pty per terminal with a model of its screen, closed at a session's end, a cancel, a `/stop` and the daemon's stop (theseus-n88g.4, the worth plan's B4 and the owner's D7, with theseus-celu.30; the cloud batch 4c's terminal-tools session, fired 2026-10-03 20:00 from d9b0931, Opus 5.5; 7d330f7; reviewed 2026-10-04 00:21 to 00:40 by the batch-4 harvest wake 7379d0cc; joined 02:19 at 60ab73ca, a signed merge onto 4bb5aac9, by the harvest wake b86bd6c2; installed 14:09 at bddfd407, install #1)
 
 **Why.** `proc.run` is a job with a typed argv, no pty, and stdin from `/dev/null`, so nothing interactive could be
 driven: no REPL, editor, debugger or prompt that asks. The worth plan's tool list (Item 93) named a terminal toolset,
-a pty per session, and Eddie said yes at 17:14 on 2026-10-03 (D7). §3.24's selected set had reserved the need as
+a pty per session, and the owner said yes at 17:14 on 2026-10-03 (D7). §3.24's selected set had reserved the need as
 `proc.session.open/send/close`.
 
 **What the session found.** A toollet's `ToolCtx` does not know its call's session, and a terminal belongs to one. So
@@ -601,7 +601,7 @@ files, +2,236 −147).
   the live check, on a debug build's embedding; the review asked for a release-build measurement before a canary on
   the operator's daemon.
 
-**What the live check found** (theseus-es6f, P3, waiting for Eddie). C's recall also admitted B's question and answer,
+**What the live check found** (theseus-es6f, P3, waiting for the owner). C's recall also admitted B's question and answer,
 and B's answer repeats the labelled claim: a label is per node, and B's answer has no edge to A's note (only B's
 `Recall` node has one). The model did not use it, because B had called the note unverified.
 
@@ -644,12 +644,12 @@ One `BudgetDrop` per item dropped for the budget; other drops stay in the manife
 
 ### Item 113. 27: the arrangement on `task.create`: exact quotes, the refusal, the fidelity check, and store format 9 (theseus-vug.2, roadmap row 47; the cloud batch 5's task-arrangement session, fired 2026-10-04 01:28 from f1fccec, Opus 5.5; 829e3b47; reviewed 03:36 to 03:58 by the batch-5 harvest wake 97fa42b3, with a live check on GLM; joined 04:16 at af6790da, a signed merge onto 760553f7 with five join fixes; installed 14:09 at bddfd407, install #1)
 
-**Why.** Eddie decided on 2026-09-27 that promotion requires an authored arrangement (§3.2a; theseus-vmh, decision 6):
+**Why.** The owner decided on 2026-09-27 that promotion requires an authored arrangement (§3.2a; theseus-vmh, decision 6):
 the conversation's agent holds the discussion, so it names the pieces a task needs (objective, acceptance, design), by
 reference, never paraphrased, and the child's first compilation admits them after its brief. DD7's `task.create`
 (Part III A4, item 7) took a brief alone. M5's design (`docs/design/m5-judgment.md` §2.10) gave step 27 the input,
 the refusal, a deterministic fidelity check and an `Arrangement` node. Overnight it was launched at once, since it has
-no code dependency on Jev's wiring, with a note that it changes how `task.create` works day to day, so Eddie should
+no code dependency on Jev's wiring, with a note that it changes how `task.create` works day to day, so the owner should
 hear of it before an install (the morning notes' decision 6).
 
 **What the session found.**
@@ -755,7 +755,7 @@ test, joined after the branch's base, quotes its ask in an arrangement. **Gate r
 / 51.2 ms); turn plain p50 86.9, tool-call 193.1 ms; frames 5 and 9; pushed 04:15. theseus-vug.2 closed. It released
 task-record (39a, Item 125), launched at 04:16.
 
-**Eddie's call** (the 9am review, 2026-10-04 09:31, "Keep both"): the arrangement stays required on `task.create`, as
+**The owner's call** (the 9am review, 2026-10-04 09:31, "Keep both"): the arrangement stays required on `task.create`, as
 joined; and for theseus-ruir, option (b): keep the trusted mark, but render a piece quoted from an external tool result
 as external.
 
@@ -777,7 +777,7 @@ one way. Every task the operator's model starts now quotes its arrangement.
 **Known gaps.**
 - theseus-ruir (P3, open): a piece quoted from an external tool result can be marked trusted, and the piece does not
   carry the result's `external` mark, so the child reads outside text as settled testimony; the parent's hold still
-  passes to the child, so it is framing, not a gate bypass. Eddie's option (b) is to build.
+  passes to the child, so it is framing, not a gate bypass. The owner's option (b) is to build.
 - Case, punctuation and quote marks must match exactly: a model that turns `'` into `’` misses. If the
   `task.arrangement_refused` rows show the model missing on more than 20% of calls, Q7's fallback applies (short node
   ids in the transcript, under a renderer bump); `short` and `ambiguous` already name node ids, so a retry with
@@ -790,7 +790,7 @@ one way. Every task the operator's model starts now quotes its arrangement.
 **Why.** The worth spike (Item 93) designed LSP tools for Theseus: servers started lazily, a hand-written client,
 read tools and a gated rename, and diagnostics after an edit as the main feature. L1, the client (`theseus-lsp`, Item
 96), merged ahead of its reader. L2 is that reader: the board in `theseus-core` that starts and stops servers, and the
-model's `lsp.*` tools. L3 (diagnostics in an edit's result, Item 127) waited on it. Eddie said yes to
+model's `lsp.*` tools. L3 (diagnostics in an edit's result, Item 127) waited on it. The owner said yes to
 the LSP lane on 2026-10-03 (D1).
 
 **What the session found.**
@@ -912,7 +912,7 @@ enabled`; its servers start at the first call for a file of their language.
 
 **Divergences.**
 - The rename is two tools, `lsp.rename.plan` and `lsp.rename { digest }`, where the brief had one taking the rename's
-  arguments: a seventh tool. Whether it should become one tool with an optional digest is an open question for Eddie.
+  arguments: a seventh tool. Whether it should become one tool with an optional digest is an open question for the owner.
 - The first start is judged once per (server, root) per daemon life: the set is in memory, so a restart judges each
   root's first start again.
 - One commit for five steps.
@@ -1043,7 +1043,7 @@ went through `terminate_all`'s generic path, which marked each hand `unsupported
 met only cancelled the hands not yet launched. The AWS design (`docs/design/aws-toolset.md` §3.3, §3.7, §5's step 40)
 asked for cancellation per backend, a reservation per hand, quotas and waves, an AWS-side reaper whose stops are read,
 and one line per group. Overnight the prompt writers made the hour's spending line alert-only, with whether it should
-also refuse left to Eddie, and had the task check before applying a daily budget, which may cost money (the morning
+also refuse left to the owner, and had the task check before applying a daily budget, which may cost money (the morning
 notes' decision 6).
 
 **What landed** (seven commits; the branch 59 files, +4,384 −121 with its two paperwork files; the merge against
@@ -1120,7 +1120,7 @@ notes' decision 6).
 - **Planted reverts**, 4 of 4 at the review: the running hands not stopped when `until` is met (the session's; 4
   tests fail), a hand reserving nothing (the session's; 3 fail, reserved 0 against 20,001), and two new: the hour
   alerting at every pass (its mark ignored) and a reaped hand left unknown, not failed; each fails its test.
-- **Live, on the account, after the join** (Eddie's standing AWS go, decision 9; a scratch daemon of main at 802f9135,
+- **Live, on the account, after the join** (the owner's standing AWS go, decision 9; a scratch daemon of main at 802f9135,
   which carried this join; the stand-in scripted model, so no model spend; 2026-10-04 11:48 to 11:53). The account had
   no hands stack and no hand image, since part 1's live check had never run, so the check made `theseus-hands`
   (tagged), built and pushed the hand image, and took both down after. Step 1, twenty Lambda hands `until:
@@ -1135,7 +1135,7 @@ notes' decision 6).
   correlation id's `action.succeeded` once, nothing launched twice. **$0.0117** for 23 Lambda hands by the ledger,
   about $0.01 to $0.02 with AWS's small extras; reservations peaked at $0.20. Afterwards no tagged resource was left
   but the deleted cluster's `INACTIVE` record. Not run: Fargate (it needs hands on the account's existing network,
-  theseus-mgw.9) and the daily budget (Eddie's go).
+  theseus-mgw.9) and the daily budget (the owner's go).
 - **FAST:** the startup reconcile probes through `overdue::Evidence`, one string compare per open action; nothing
   calls AWS before serving, and the daily reconcile makes no call unless `daily_budget_usd` is set. The stop path
   reads each listed action once more to find hands, routing nothing without an `[aws]` account. The turn path: one
@@ -1172,7 +1172,7 @@ one way, behind the install's backup. No daily budget is made until `daily_budge
 **Divergences.**
 - The Observatory's grid is the cockpit's Systems view (a cell does not open a hand's log tail, and there is no
   slowest-hands column); there is no `theseus hands` command (`theseus rpc hands.list '{}'`).
-- The hour's line alerts only, by the prompt writers' call; whether it should refuse was left to Eddie.
+- The hour's line alerts only, by the prompt writers' call; whether it should refuse was left to the owner.
 - A group over the session's budget asks through an in-memory hand-off read at the turn's next loop; if the turn ends
   some other way first, the call's result still says it did not run and why.
 - A call's verdict while a Fargate stop is unseen is `outcome_uncertain`, since a settled action is never upgraded;
@@ -1300,7 +1300,7 @@ of 2,134; lifecycle OK (cold start p95 33.2, shutdown 58.8, swap 65.9 ms); jobs 
 format change (the store stayed at 11). theseus-ext.3 closed. It released budgets-policy (42a, Item 130),
 launched at 05:58.
 
-**Eddie's calls** (the 9am review's decision 7, 2026-10-04 10:45, "Take all of these excellent recommendations"):
+**The owner's calls** (the 9am review's decision 7, 2026-10-04 10:45, "Take all of these excellent recommendations"):
 keep a trusted setting per guild, global slash commands, tasks inheriting a place's limits, the `place:` refusal, and a
 removed place keeping its cap; change two: an unknown profile fails only its own place (the reason in health and at
 start), with unknown tool families shown in health, and a warning in health and at start when a place's limit is below
@@ -1316,7 +1316,7 @@ with the per-guild count: the operator's one trusted guild with its two bound ch
   design); the model never sees the tool either way.
 - Slash commands are global; the design's per-guild registration was dropped.
 - `Authority.ceilings` is not written; the ceiling is read with the place's class at each turn.
-- Unknown tool families are only logged, and an unknown `profile` fails the whole binding (both changed by Eddie's
+- Unknown tool families are only logged, and an unknown `profile` fails the whole binding (both changed by the owner's
   decision 7, above).
 
 **Known gaps.** A place whose limit is below one call's reservation can never answer (decision 7's warning, above).

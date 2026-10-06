@@ -847,7 +847,7 @@ pub fn text_of(n: &Node) -> String {
 
 impl TurnRunner {
     /// Where `session_id` speaks, by name, for a recalled item's header (35a):
-    /// its bound place's name (`#harbor`, `DM @eddie`), its target when no
+    /// its bound place's name (`#harbor`, `DM @zeroaltitude`), its target when no
     /// binding names it, or the session itself on the CLI or the web UI. A
     /// shared place recalls only its own sessions (the place rule), so its
     /// headers name no other place.

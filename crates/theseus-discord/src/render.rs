@@ -114,7 +114,7 @@ pub enum Route {
     /// Here: the place is private, so the owner's answer here counts.
     #[default]
     Here,
-    /// To the DM with an owner, `user`, which `dm` names (`DM @eddie`); the
+    /// To the DM with an owner, `user`, which `dm` names (`DM @zeroaltitude`); the
     /// place (`place`, as `#general`) gets a one-line note that says so and
     /// why an answer here would not count (`why`).
     Dm {
@@ -1633,8 +1633,8 @@ mod tests {
         );
         assert_eq!(card.line, "spend reset ($99.48 of the $100 limit)");
         for (closed, want) in [
-            (Closed::new("approved", Some("discord:eddie")), "✅ **Approved** by discord:eddie · spend reset ($99.48 of the $100 limit)"),
-            (Closed::new("declined", Some("discord:eddie")), "❎ **Declined** by discord:eddie · spend reset ($99.48 of the $100 limit); the session keeps waiting, and a new message asks again"),
+            (Closed::new("approved", Some("discord:zeroaltitude")), "✅ **Approved** by discord:zeroaltitude · spend reset ($99.48 of the $100 limit)"),
+            (Closed::new("declined", Some("discord:zeroaltitude")), "❎ **Declined** by discord:zeroaltitude · spend reset ($99.48 of the $100 limit); the session keeps waiting, and a new message asks again"),
             (Closed::new("superseded", None), "⏭️ **Replaced**: a new message came first, and its call asks again if it still does not fit. spend reset ($99.48 of the $100 limit)"),
             // A raise withdraws it (theseus-3pj, the stale card of S1).
             (Closed { how: "withdrawn".into(), by: None, note: Some("the spend limit was raised from $100 to $200".into()) },
@@ -1673,20 +1673,20 @@ mod tests {
         assert!(r
             .on_notification(
                 "confirm.resolved",
-                &json!({"correlation_id": "act_1", "approved": true, "by": "discord:eddie"}),
+                &json!({"correlation_id": "act_1", "approved": true, "by": "discord:zeroaltitude"}),
             )
             .is_empty());
         assert_eq!(
             settled(
-                &Closed::new("approved", Some("discord:eddie")),
+                &Closed::new("approved", Some("discord:zeroaltitude")),
                 &card.line,
                 false
             ),
-            "✅ **Approved** by discord:eddie · `proc.run` cargo test"
+            "✅ **Approved** by discord:zeroaltitude · `proc.run` cargo test"
         );
         let tools = upserts(&r.tick());
         assert!(
-            tools[0].1.contains("approved by discord:eddie"),
+            tools[0].1.contains("approved by discord:zeroaltitude"),
             "{tools:?}"
         );
     }
@@ -1943,12 +1943,13 @@ mod tests {
 
         let ops = r.on_notification(
             "policy.tightened",
-            &json!({"tool": "proc.run", "by": "discord:eddie"}),
+            &json!({"tool": "proc.run", "by": "discord:zeroaltitude"}),
         );
         let (content, buttons) = tool_message(&ops);
         assert!(
-            content
-                .ends_with("\n-# 🔒 `proc.run` asks first from now on: tightened by discord:eddie"),
+            content.ends_with(
+                "\n-# 🔒 `proc.run` asks first from now on: tightened by discord:zeroaltitude"
+            ),
             "{content}"
         );
         assert_eq!(
@@ -2025,7 +2026,7 @@ mod tests {
         );
         let ops = r.on_notification(
             "policy.tightened",
-            &json!({"tool": "proc.run", "by": "discord:eddie"}),
+            &json!({"tool": "proc.run", "by": "discord:zeroaltitude"}),
         );
         let Some(Op::Notice { key, card }) = ops.first() else {
             panic!("{ops:?}")
@@ -2035,11 +2036,15 @@ mod tests {
             card.fields.last(),
             Some(&(
                 "Asks first now".to_string(),
-                "🔒 `proc.run` asks first from now on: tightened by discord:eddie".to_string()
+                "🔒 `proc.run` asks first from now on: tightened by discord:zeroaltitude"
+                    .to_string()
             ))
         );
         let (content, buttons) = tool_message(&ops);
-        assert!(content.contains("tightened by discord:eddie"), "{content}");
+        assert!(
+            content.contains("tightened by discord:zeroaltitude"),
+            "{content}"
+        );
         assert_eq!(buttons, Buttons::Keep);
         let ops = r.on_notification("policy.untightened", &json!({"tool": "proc.run"}));
         let Some(Op::Notice { card, .. }) = ops.first() else {
@@ -2137,7 +2142,7 @@ mod tests {
     fn to_dm(why: &str) -> Route {
         Route::Dm {
             user: 271828182845904523,
-            dm: "DM @eddie".into(),
+            dm: "DM @zeroaltitude".into(),
             place: "#general".into(),
             why: why.into(),
         }
@@ -2165,21 +2170,21 @@ mod tests {
         );
         assert_eq!(
             card_note(&route, &c.line, "with `theseus confirm`").unwrap(),
-            "🔐 Approval for `proc.run` cargo test was asked in DM @eddie: this channel is shared, \
+            "🔐 Approval for `proc.run` cargo test was asked in DM @zeroaltitude: this channel is shared, \
              and an answer counts only from a private place."
         );
         let done = settled(
-            &Closed::new("approved", Some("discord:eddie")),
+            &Closed::new("approved", Some("discord:zeroaltitude")),
             &c.line,
             false,
         );
         assert_eq!(
             done,
-            "✅ **Approved** by discord:eddie · `proc.run` cargo test"
+            "✅ **Approved** by discord:zeroaltitude · `proc.run` cargo test"
         );
         assert_eq!(
-            settled_note(&done, Some("DM @eddie")),
-            "🔐 ✅ **Approved** by discord:eddie · `proc.run` cargo test (in DM @eddie)"
+            settled_note(&done, Some("DM @zeroaltitude")),
+            "🔐 ✅ **Approved** by discord:zeroaltitude · `proc.run` cargo test (in DM @zeroaltitude)"
         );
         // The tool line here says who approved it, as it does for a card here.
         let mut r = Renderer::default();
@@ -2192,11 +2197,11 @@ mod tests {
         );
         r.on_notification(
             "confirm.resolved",
-            &json!({"correlation_id": "act_1", "approved": true, "by": "discord:eddie"}),
+            &json!({"correlation_id": "act_1", "approved": true, "by": "discord:zeroaltitude"}),
         );
         let tools = upserts(&r.tick());
         assert!(
-            tools[0].1.contains("approved by discord:eddie"),
+            tools[0].1.contains("approved by discord:zeroaltitude"),
             "{tools:?}"
         );
     }
@@ -2244,14 +2249,14 @@ mod tests {
         let ops = r.on_notification(
             "tool.ended",
             &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "cancelled", "duration_ms": 2100,
-                    "stopped_by": "discord:eddie", "verified": "verified: process tree, 2 processes"}),
+                    "stopped_by": "discord:zeroaltitude", "verified": "verified: process tree, 2 processes"}),
         );
         let Op::Notice { card, .. } = &ops[0] else {
             panic!("{ops:?}")
         };
         assert_eq!(
             card.fields[2].1,
-            "⏹️ stopped by discord:eddie (verified) · 2100 ms"
+            "⏹️ stopped by discord:zeroaltitude (verified) · 2100 ms"
         );
         // A waiting call the stop declined.
         r.on_notification("tool.proposed", &json!({"turn_id": "t1", "tool_use_id": "u2", "tool": "fs.write",
@@ -2263,7 +2268,7 @@ mod tests {
         r.on_notification("confirm.requested", &serde_json::to_value(write).unwrap());
         r.on_notification(
             "confirm.resolved",
-            &json!({"correlation_id": "act_2", "approved": false, "stopped": true, "by": "discord:eddie"}),
+            &json!({"correlation_id": "act_2", "approved": false, "stopped": true, "by": "discord:zeroaltitude"}),
         );
         r.on_notification(
             "tool.ended",
@@ -2273,11 +2278,11 @@ mod tests {
             upserts(&r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
         let text = &lines[0].1;
         assert!(
-            text.contains("⏹️ `proc.run` sleep 30 · 🔔 notified (enforcement = notify) · stopped by discord:eddie (verified)"),
+            text.contains("⏹️ `proc.run` sleep 30 · 🔔 notified (enforcement = notify) · stopped by discord:zeroaltitude (verified)"),
             "{text}"
         );
         assert!(
-            text.contains("⏹️ `fs.write` a.txt · stopped by discord:eddie"),
+            text.contains("⏹️ `fs.write` a.txt · stopped by discord:zeroaltitude"),
             "{text}"
         );
         assert!(
@@ -2338,7 +2343,7 @@ mod tests {
     fn a_budget_question_for_a_shared_place_goes_to_the_dm_too() {
         let route = Route::Dm {
             user: 7,
-            dm: "DM @eddie".into(),
+            dm: "DM @zeroaltitude".into(),
             place: "#general".into(),
             why: "this channel is shared, and an answer counts only from a private place".into(),
         };
@@ -2362,7 +2367,7 @@ mod tests {
         let said = card_note(&route, &c.line, ELSEWHERE).unwrap();
         assert!(
             said.starts_with(
-                "🔐 Approval for spend reset ($99.48 of the $100 limit) was asked in DM @eddie"
+                "🔐 Approval for spend reset ($99.48 of the $100 limit) was asked in DM @zeroaltitude"
             ),
             "{said}"
         );
@@ -2483,11 +2488,11 @@ mod tests {
         // `/stop` (W1): the question closed, and the conversation goes on.
         assert_eq!(
             settled(
-                &Closed::new("stopped", Some("discord:eddie")),
+                &Closed::new("stopped", Some("discord:zeroaltitude")),
                 "`fs.write` a",
                 false
             ),
-            "⏹️ **Not run**: discord:eddie stopped this session's work · `fs.write` a"
+            "⏹️ **Not run**: discord:zeroaltitude stopped this session's work · `fs.write` a"
         );
         let other = Closed {
             how: "closed".into(),
@@ -2514,7 +2519,7 @@ mod tests {
                 "by": "operator", "requested_at_ms": 0, "expires_at_ms": 60_000}));
             r.on_notification(
                 "confirm.resolved",
-                &json!({"correlation_id": "act_9", "approved": false, "by": "eddie"}),
+                &json!({"correlation_id": "act_9", "approved": false, "by": "zeroaltitude"}),
             );
             r.on_notification(
                 "tool.ended",
@@ -2524,7 +2529,7 @@ mod tests {
             assert!(
                 ops.contains(&(
                     "t1:L0:tools".into(),
-                    "👎 `fs.read` /etc/hosts · declined by eddie".into()
+                    "👎 `fs.read` /etc/hosts · declined by zeroaltitude".into()
                 )),
                 "{status}: {ops:?}"
             );
@@ -2689,10 +2694,13 @@ mod tests {
         let long = report(&body("complete", None), Some(&"word ".repeat(2_000)));
         assert!(long.chars().count() <= DISCORD_LIMIT, "{}", long.len());
         assert!(long.ends_with("-# 3 turns · $0.0123 of $2.50 · 1 min 4 s"));
-        let stopped = report(&body("cancelled", Some("cancelled by discord:eddie")), None);
+        let stopped = report(
+            &body("cancelled", Some("cancelled by discord:zeroaltitude")),
+            None,
+        );
         assert!(
             stopped.starts_with(
-                "⏹️ **Task `a1b2c3` stopped** · Run the gate: cancelled by discord:eddie\n-# 3 turns"
+                "⏹️ **Task `a1b2c3` stopped** · Run the gate: cancelled by discord:zeroaltitude\n-# 3 turns"
             ),
             "{stopped}"
         );

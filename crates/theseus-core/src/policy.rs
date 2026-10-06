@@ -543,7 +543,7 @@ impl ToolPolicy {
     /// list.
     ///
     /// A write outside the roots is not listed: it follows the tool's
-    /// posture, whichever tool makes it (theseus-ewi; Eddie, 2026-09-30: one
+    /// posture, whichever tool makes it (theseus-ewi; the owner, 2026-09-30: one
     /// rule for writes outside the roots). `proc.run`'s commands write
     /// anywhere at theirs, and the gate never guesses what a command does,
     /// so asking for a file tool's write there guarded nothing and taught a
@@ -786,7 +786,7 @@ mod tests {
         }
     }
 
-    /// theseus-ewi (Eddie, 2026-09-30: one rule for writes outside the
+    /// theseus-ewi (the owner, 2026-09-30: one rule for writes outside the
     /// roots): a write outside the roots takes the tool's posture, whether
     /// fs.write makes it or a shell script through proc.run does, so the file
     /// tool no longer asks where the shell never did. A read or a working
@@ -889,7 +889,7 @@ mod tests {
         let (_d, root) = workspace();
         let t = Tightened {
             posture: Posture::Approve,
-            by: "discord:eddie",
+            by: "discord:zeroaltitude",
         };
         let cmd = |argv: Vec<&str>| plan(root.clone(), Access::Exec, Some(argv));
         let run = cmd(vec!["cargo", "test"]);
@@ -902,7 +902,7 @@ mod tests {
                 "the call: proc.run — approve (enforcement = approve)".to_string()
             } else {
                 format!(
-                    "the call: proc.run — approve (tightened by discord:eddie; the config says \
+                    "the call: proc.run — approve (tightened by discord:zeroaltitude; the config says \
                      enforcement = {})",
                     e.as_str()
                 )
@@ -936,7 +936,7 @@ mod tests {
             (now.posture, now.config, now.tightened()),
             (Posture::Approve, Posture::Open, true)
         );
-        assert_eq!(now.setting, "tightened by discord:eddie");
+        assert_eq!(now.setting, "tightened by discord:zeroaltitude");
         assert_eq!(now.config_setting, "[policy.tools] \"proc.run\" = open");
         // Stricter wins whatever the tightening says: one to notify raises an
         // open tool to a notice, and leaves a tool that asks asking.

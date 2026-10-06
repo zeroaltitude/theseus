@@ -24,7 +24,7 @@ backend: string,
 policy: string, 
 /**
  * What chose it: a config setting (`enforcement = notify`), or a
- * tightening (`tightened by discord:eddie`).
+ * tightening (`tightened by discord:zeroaltitude`).
  */
 setting: string, 
 /**

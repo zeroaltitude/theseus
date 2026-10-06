@@ -2587,7 +2587,7 @@ mod tests {
         let t = theseus_protocol::Tightening {
             tool: "proc.run".into(),
             posture: "approve".into(),
-            by: "discord:eddie".into(),
+            by: "discord:zeroaltitude".into(),
             at_ms: 3_600_000,
             correlation_id: Some("act_1".into()),
             ..Default::default()
@@ -2596,7 +2596,7 @@ mod tests {
             "proc.run",
             "approve",
             "notify",
-            "tightened by discord:eddie",
+            "tightened by discord:zeroaltitude",
         );
         run.tightened = Some(t.clone());
         let l = ToolListResult {
@@ -2615,7 +2615,7 @@ mod tests {
         let out = policy_list(&l, &[t.clone(), gone]);
         assert!(
             out.contains(
-                "proc.run     approve  tightened by discord:eddie at 01:00:00.000Z, from act_1 \
+                "proc.run     approve  tightened by discord:zeroaltitude at 01:00:00.000Z, from act_1 \
                  (the config says notify, enforcement = notify)"
             ),
             "{out}"
@@ -2625,7 +2625,7 @@ mod tests {
             "{out}"
         );
         assert!(
-            out.contains("mcp:x/y      approve  tightened by discord:eddie"),
+            out.contains("mcp:x/y      approve  tightened by discord:zeroaltitude"),
             "{out}"
         );
         assert!(out.ends_with("2 tightenings · undo one with `theseus policy untighten <tool>`\n"));
@@ -2643,7 +2643,7 @@ mod tests {
         assert_eq!(
             tightened_line(&r, false),
             "proc.run is back to what the config says: notify (enforcement = notify); the \
-             tightening by discord:eddie is undone"
+             tightening by discord:zeroaltitude is undone"
         );
         assert!(
             tightened_line(&r, true).starts_with("proc.run now asks first: tightened by sock#3")

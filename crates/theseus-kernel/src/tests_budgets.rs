@@ -23,7 +23,7 @@ fn legacy_execution(id: &str, session: &str, rest: &str) -> NewRecord {
         .scoped(session)
 }
 
-/// What the old unit budget left when it ended an execution: Eddie's
+/// What the old unit budget left when it ended an execution: the owner's
 /// Discord session, 2026-09-29.
 const UNITS_EXHAUSTED: &str = r#""state":"budget_exhausted","ended_reason":"action provider.messages needs 172068 units, 112317 available","budget":{"limit":1000000,"spent":877683,"reserved":0,"held_unknown":0,"control_reserve":10000,"reservations":{}}"#;
 
@@ -181,7 +181,7 @@ fn executions_stored_with_unit_budgets_serve_in_dollars() {
     assert_eq!(e.budget.available(), 100 * MICROS_PER_USD - 12_000);
 }
 
-/// Eddie's store as it stands (theseus-3ebd): an earlier build migrated the
+/// The owner's store as it stands (theseus-3ebd): an earlier build migrated the
 /// execution the unit budget ended, writing `budget.migrated` with $0.42 of
 /// $100 spent, and left it `budget_exhausted`. This build's next start
 /// reopens it, once, though there is nothing left to migrate.

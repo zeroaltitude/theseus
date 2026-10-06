@@ -34,7 +34,7 @@ fn a_stop_during_a_turn_refuses_its_next_step_and_parks_it_on_input() {
     let call = dispatched(&w, &g, "provider.messages", 5_000);
     let s = w
         .kernel
-        .stop_execution(&e.id, "discord:eddie")
+        .stop_execution(&e.id, "discord:zeroaltitude")
         .unwrap()
         .expect("it was running");
     assert!(s.turn_running);
@@ -47,7 +47,7 @@ fn a_stop_during_a_turn_refuses_its_next_step_and_parks_it_on_input() {
     assert_eq!(x.state, ExecState::Running, "the turn still holds it");
     assert_eq!(
         x.stopped.as_ref().map(|s| s.by.as_str()),
-        Some("discord:eddie")
+        Some("discord:zeroaltitude")
     );
     assert_eq!(
         w.kernel
@@ -78,7 +78,7 @@ fn a_stop_during_a_turn_refuses_its_next_step_and_parks_it_on_input() {
         "{err:#}"
     );
     assert!(
-        format!("{err}").contains("stopped by discord:eddie"),
+        format!("{err}").contains("stopped by discord:zeroaltitude"),
         "{err}"
     );
     assert!(w.kernel.ask_budget(&g, 1).is_err());
@@ -216,7 +216,7 @@ fn a_stop_keeps_the_sessions_wakes() {
         )
         .unwrap();
     w.kernel
-        .stop_execution(&e.id, "discord:eddie")
+        .stop_execution(&e.id, "discord:zeroaltitude")
         .unwrap()
         .unwrap();
     let err = w
@@ -244,7 +244,7 @@ fn a_stopped_turn_cut_by_a_crash_is_not_resumed() {
     let w = world();
     let (sid, e, g) = running(&w);
     w.kernel
-        .stop_execution(&e.id, "discord:eddie")
+        .stop_execution(&e.id, "discord:zeroaltitude")
         .unwrap()
         .unwrap();
     drop(g);
@@ -258,7 +258,7 @@ fn a_stopped_turn_cut_by_a_crash_is_not_resumed() {
     assert_eq!(x.interrupted, 1);
     assert_eq!(
         rows(&w, &sid, "execution.interrupted")[0]["stopped_by"],
-        "discord:eddie"
+        "discord:zeroaltitude"
     );
 }
 

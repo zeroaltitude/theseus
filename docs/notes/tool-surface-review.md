@@ -1,6 +1,6 @@
 # Tool surface review: what Claude Code, Codex, and OpenClaw expose, and what Theseus keeps
 
-_Tabitha, 2026-09-26. Input to spec §3.24. Evidence: my own tool list as Claude Code 2.1.280; the Codex tool names referenced in OpenClaw's codex plugin source; OpenClaw's `docs/tools` (74 pages) and the tool names registered across `src/agents/tools` and `extensions/*` in the integration checkout._
+_Tabitha/Claude, 2026-09-26. Input to spec §3.24. Evidence: my own tool list as Claude Code 2.1.280; the Codex tool names referenced in OpenClaw's codex plugin source; OpenClaw's `docs/tools` (74 pages) and the tool names registered across `src/agents/tools` and `extensions/*` in the integration checkout._
 
 ## 1. What exists today
 

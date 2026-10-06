@@ -1,6 +1,6 @@
 # Claude Agent SDK / Claude Code hooks — investigation for Theseus
 
-_Tabitha, 2026-09-24. Sources: code.claude.com/docs/en/agent-sdk/hooks, code.claude.com/docs/en/hooks (reference), and the event-name strings embedded in the installed Claude Code 2.1.280 binary (27 events confirmed present)._
+_Tabitha/Claude, 2026-09-24. Sources: code.claude.com/docs/en/agent-sdk/hooks, code.claude.com/docs/en/hooks (reference), and the event-name strings embedded in the installed Claude Code 2.1.280 binary (27 events confirmed present)._
 
 ## 1. What it is
 

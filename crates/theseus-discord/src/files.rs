@@ -388,7 +388,7 @@ mod tests {
         );
     }
 
-    /// Eddie's case (theseus-c9l6): a PDF in a DM is downloaded and passed as
+    /// The owner's case (theseus-c9l6): a PDF in a DM is downloaded and passed as
     /// its bytes, for the core to read.
     #[test]
     fn a_pdf_is_downloaded_and_passed_as_its_bytes() {
