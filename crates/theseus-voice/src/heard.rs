@@ -25,8 +25,10 @@ pub enum Overlap {
     /// While a clip played, during a hold, or in a gap between sentences
     /// still queued: every rule applies.
     Speech,
-    /// Within the echo tail after the last queued sentence ended: checked for
-    /// echo only, since a "yeah" there answers the reply.
+    /// Within the echo tail after the last queued sentence ended, before a
+    /// queued reply began, or begun over the last sentence and closed after
+    /// it ended: checked for echo only, since a "yeah" there answers the
+    /// reply (theseus-1cz8).
     Tail,
     /// Neither: words, or wordless.
     None,

@@ -343,6 +343,9 @@ struct Opening {
     over: Option<Over>,
     overlap: Overlap,
     sentences: Vec<String>,
+    /// It began over the last sentence queued, which had begun: if the queue
+    /// is empty when it closes, it answers what was said (theseus-1cz8).
+    last: bool,
 }
 
 /// A closed utterance, until its turn starts.
@@ -612,11 +615,17 @@ impl Engine {
             match step.closed {
                 Some(Closed::Utterance { first_tick, audio }) => {
                     self.talk_frames.remove(&speaker);
-                    let opening = self.opening.remove(&speaker).unwrap_or(Opening {
+                    let mut opening = self.opening.remove(&speaker).unwrap_or(Opening {
                         over: None,
                         overlap: Overlap::None,
                         sentences: Vec::new(),
+                        last: false,
                     });
+                    // A "yes" begun on a question's last word, closed after
+                    // it ended: the tail's rules, as if begun after it.
+                    if opening.last && self.queue.is_empty() {
+                        opening.overlap = Overlap::Tail;
+                    }
                     self.transcribe(speaker, first_tick, tick, audio, opening);
                 }
                 Some(Closed::Noise) => {
@@ -641,6 +650,11 @@ impl Engine {
             self.recent.pop_front();
         }
         let mut sentences: Vec<String> = self.recent.iter().map(|(_, t)| t.clone()).collect();
+        let tail = match self.recent.is_empty() {
+            true => Overlap::None,
+            false => Overlap::Tail,
+        };
+        let mut last = false;
         let (over, overlap) = match self.queue.front() {
             Some(item) => {
                 if item.clip.is_some() || self.hold.is_some() {
@@ -651,14 +665,17 @@ impl Engine {
                     sentence: item.index,
                     text: item.text.clone(),
                 };
-                (Some(over), Overlap::Speech)
+                // A reply that hasn't begun is no speech to talk over: a
+                // "yeah" now answers what was said (theseus-1cz8).
+                if item.opens && self.hold.is_none() {
+                    (Some(over), tail)
+                } else {
+                    last = self.queue.len() == 1;
+                    (Some(over), Overlap::Speech)
+                }
             }
             None => {
                 let over = self.turn.as_ref().map(|t| Over::Preparing { turn: t.id });
-                let tail = match self.recent.is_empty() {
-                    true => Overlap::None,
-                    false => Overlap::Tail,
-                };
                 (over, tail)
             }
         };
@@ -666,6 +683,7 @@ impl Engine {
             over,
             overlap,
             sentences,
+            last,
         }
     }
 

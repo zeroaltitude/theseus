@@ -372,6 +372,100 @@ async fn a_yeah_after_a_closing_question_is_a_turn() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_yes_begun_on_a_closing_questions_last_word_is_a_turn() {
+    // "Should I deploy it now?" ends at 3.4 s. "Yes." from 3.2 s for 300 ms:
+    // 200 ms over it, too short to stop it, and it closes at 4.2 s, after
+    // the question ended (theseus-1cz8).
+    let dir = tempfile::tempdir().unwrap();
+    let question = "Should I deploy it now?";
+    let reply = "Here is the plan. Should I deploy it now?";
+    let io = asked(dir.path(), 8000).say(EDDIE, 3200, 300).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(EDDIE, "what's the plan?")
+            .transcript(EDDIE, "Yes."),
+    );
+    let (seen, played) = call(io, speech, first(reply), vec![]).await;
+    assert_eq!(played.len(), 2);
+    assert!(played.iter().all(|p| !p.stopped), "{played:?}");
+    assert!(only(&seen, cuts).is_empty() && only(&seen, resumed).is_empty());
+    assert_eq!(
+        turns(&seen),
+        [
+            (ms(1200), vec![(EDDIE, "what's the plan?")]),
+            (ms(4200), vec![(EDDIE, "Yes.")]),
+        ]
+    );
+    let (_, yes) = utterances(&seen)[1];
+    assert_eq!(
+        (yes.over.clone(), yes.heard_as),
+        (saying(1, question), HeardAs::Words)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_yeah_after_a_closing_question_with_another_reply_queued_is_a_turn() {
+    // Eddie's turn 0 is at 1.2 s, and Robin's turn 1 at 1.4 s, when turn 0's
+    // reply comes. Synthesis takes 1 s, so the question plays from 3.4 s to
+    // 4.665 s, and Robin's reply, sent at 4.0 s, is synthesizing until 5.0
+    // s. Eddie's "Yeah." from 4.9 s answers the question: nothing is being
+    // said, so it is a turn (theseus-1cz8), and Robin's reply, which waited
+    // for it, is superseded.
+    let script: &'static [(u64, &'static str)] = &[
+        (200, "Here is the plan. Should I deploy it now?"),
+        (2600, "The logs are clean."),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 9000)
+        .say(EDDIE, 0, 500)
+        .say(ROBIN, 0, 600)
+        .say(EDDIE, 4900, 400)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .delays(Duration::ZERO, ms(1000))
+            .transcript(EDDIE, "what's the plan?")
+            .transcript(ROBIN, "are the logs clean?")
+            .transcript(EDDIE, "Yeah."),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    let question = "Should I deploy it now?";
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(2400), len("Here is the plan."), false),
+            (ms(3400), len(question), false),
+        ]
+    );
+    let closed = ms(4900 + 400 + 700);
+    assert_eq!(
+        turns(&seen),
+        [
+            (ms(1200), vec![(EDDIE, "what's the plan?")]),
+            (ms(1400), vec![(ROBIN, "are the logs clean?")]),
+            (closed, vec![(EDDIE, "Yeah.")]),
+        ]
+    );
+    let (_, yeah) = utterances(&seen)[2];
+    assert_eq!(yeah.heard_as, HeardAs::Words);
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            closed,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(1)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "The logs are clean.".into(),
+            }
+        )]
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn words_over_the_second_of_four_sentences_cut_it() {
     let dir = tempfile::tempdir().unwrap();
     // The first sentence plays from 1.2 s to 2.3 s, and the second from 2.3
