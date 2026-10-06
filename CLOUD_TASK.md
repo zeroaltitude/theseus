@@ -20,7 +20,7 @@ You are a cloud build session for Theseus, a Rust agent harness: this repository
 **Known on this VM, and not yours to fix** unless your task names them (other changes fix them):
 - About 33 L1 tests fail here: theseus-sandbox's contract tests, its bench's `spawn_100`, and theseusd's sandbox tests. The VM runs as root, and L1 refuses a root daemon's job that has no job cgroup (theseus-pv6i).
 - theseus-core's `tests_output::the_cores_output_matches_its_golden` fails under this VM's UTC clock, because two wake lines carry the offset's sign (theseus-ig6n*). The gate line below sets `TZ=America/Phoenix` for it; set the same when you run the suite yourself, and commit only the golden lines your change moves.
-- Under load, these timing tests can fail, and none is on the flaky list: rerun it alone, and name it in the report. Batch 9's sessions (your siblings, below) are fixing the ones marked *; batch 8's timing-flakes, which joins main about now, fixes those marked †: if your clone holds its commits (their subjects name theseus-cs71, ynia, 1n2y and qjd6), those four don't fail.
+- Under load, these timing tests can fail, and none is on the flaky list: rerun it alone, and name it in the report. Batch 9's branches, under review on the owner's machine and joining main today, fix the ones marked *; batch 8's timing-flakes is on main and fixed those marked † (their subjects name theseus-cs71, ynia, 1n2y and qjd6), so those four don't fail on your clone.
   - theseus-core: the output golden's 30 s wait for "wake due" under CPU starvation (theseus-23wh*);
     `tests_m3::parallel::a_cancel_during_a_batch_leaves_no_call_dispatched` (theseus-t2yb*);
     `tests_judge::a_failing_jev_is_recorded_by_its_class_and_changes_no_turn`'s 3 s bound (theseus-vbju*);
@@ -37,44 +37,32 @@ You are a cloud build session for Theseus, a Rust agent harness: this repository
 
 Timing tests also fail here more often than on the owner's 16-core machine. A test on .config/nextest.toml's flaky list that passes on a retry is fine (today: theseusd's stop on a SIGTERM or a SIGINT, theseus-xbtr*, and a clean stop that closes the index). Any other failure is yours to explain.
 
-**What main holds.** You clone main at 4a449460 or later, with store format 22. Your clone has, besides v1's milestones:
-- from the last three days: route.v1, the live rerank, security.v3's notices, replay, the ladder (`pack.mode`, `mode_for`, `pack_arm`), the Linux lanes, the refusal fallback; files (every surface accepts any file); speed (streamed Discord replies, a warm Jev connection, a confidence bar per routing mode); memory (retention, activation, consolidation into cited `Synthesis` nodes, tiering's stubs); the task board and the cockpit's tabs; the learning loop and `theseus judge prove`; the kernel's verified tree kills and caught nested locks; kernel-sim's crashes; the store's cut back to the last good sync and synced-only durability; one serialization per notification; `proc.run`'s steps; health's `web:`, 1-hour cache and disk lines; telemetry's error types, and each tool call counted once at its answer;
-- **since batch 8 launched (60b43fb6):**
-  - route's gaps: a routed session keeps the base it was moved from and follows a change of that base (the live profile, a place's bound profile, a pane's `-P`), and each loop records one `context.compiled` and one `loop.started` (store format 21);
-  - situations: a turn's situation is a compiler input, and a check after each compile fails a turn whose context admits what its situation doesn't, enforcing from day one; the precedence line after the persona; testimony headers (the place, a reply's model, a summary's positions); volatile values shown "as of <date>, unverified" (store format 22);
-  - the reader rule's tool-marker and same-name closures, and `theseus-index --version`;
-  - memory: the adjacency projection's warm build waits between pages while the machine is busy and never past a clean stop (`startup::stop_has_begun`); tests of retention's shadow rule, activation's additions and a stub's kind; a synthesis's leading heading set aside before consolidation's checks and kept off its node, and a cluster rejected for its form proposed again, once;
-  - bench/: the sampler's CPU counted once; both async arms measured end to end (the Theseus record from its ledger, the Claude Code arm on `MeasuredClaudeCode`); the recall bench's bulk reads sized by the compiler's rule, plain abstentions admitted, `--stale retracted` as an option, compactions counted by outcome.
+**What main holds.** You clone main at 79be3213 or later, with **store format 23**. Your clone has, besides v1's milestones and batch 9's base (4a449460: route's gaps, situations, the reader rule's closures, memory's paced warm build and consolidation's heading rule, and bench/'s measured arms):
+- **batch 8's joins (2026-10-05 and 06):**
+  - timing-flakes and telemetry3: four timing tests fixed at their causes; the `theseus.cancel` metric, the index tender's gauges and restarts;
+  - cli-tests and history-pages: health's 1-hour words, `judge prove`'s bytes, `watch`'s last line; `after` and `before` on the history reads, and a node's short id;
+  - turn-stack, queue-frames and smalls: the turn's future boxed at `TurnRunner::run`; a late result's wake in its turn's end frame and a completion's `execution.queued` row; the secrets board's settle race, musl's `time_t`, the TUI's message order, a budget question's `loop.ended`;
+  - wal-mark-skip, crash-hold and durability-on: a start skips the WAL directory's sync when a mark vouches; a crashed call's held reservation booked as spent; the durability sessions list only their prefix, and health's durability line in every surface;
+  - **soul-import (79be3213): `theseus import openclaw|list|erase`, imported sessions with their provenance, erase by tag, recall's provenance; store format 23** (core import/, node.rs's bodies, recall.rs, rpc/import.rs, the index's tender and extract);
+- batch 9's bench stack: the async record's spend and calls, the recall bench's retraction rule and its overhead plan (bench/ only).
 
-**Other changes in flight.** About thirty other changes are being built against `main` or merged into it while you work. Stay out of their areas unless your task needs it. If it does, keep the edit small and say so in the report.
+**Other changes in flight.** About fifteen other changes are reviewed and merging into `main` while you work, one at a time on the owner's machine. Stay out of their areas unless your task needs it. If it does, keep the edit small and say so in the report.
+- learning-fixes (batch 8): replay's yes-or-no rightness, the audit off the low thread, the prove's learned versions (learning/, rpc/judge_prove.rs);
+- discord-live (batch 8): the bindings file read live, the courier's maps bounded (theseus-discord runtime.rs, runtime/live.rs, courier.rs);
+- voice-turns (batch 9): a barge-in held until words decide, the floor, `Cut` and `Resumed` (theseus-voice, and the pump in theseus-discord's runtime/voice.rs);
+- scrub-escaped, gate-tests, approvals-batch (batch 9): the scrubber matches a secret printed JSON-escaped; the gate's layers held by tests; a declined call ends its batch's waits, and a repeated tool-use id no longer reads as answered (core secrets/scrub, toolrun/, approvals; the core golden moves 74 lines);
+- judge-tests, judge-reads, judge-turn-cost (batch 9): judge tests, `judge.list` and the notices' brake reading only what they need, a judge-on turn bench and the ladder's first read off the turn path (theseus-judge, core routing and judge/);
+- core-waits, route-tests, daemon-proofs (batch 9): four core tests fixed at their causes (the golden's wake, its UTC offset mask), route's tests proof against load, a stdio daemon's stop as `drop(rt)`, the lifecycle bench's `cancel` phase;
+- memory-tests, telemetry-tests (batch 9): memory search and telemetry tests.
 
-Batch 8's, merging into `main` one by one before any batch-9 branch (each reviewed on the owner's machine):
-- timing-flakes and telemetry3 (accepted, joining next): four timing tests fixed at their causes (core term/tests.rs, telemetry/tests.rs; theseusd tests/job_approval.rs); the `theseus.cancel` metric, the index tender's gauges and restarts, and two resumed-span tests (core telemetry/, cancel.rs, tender/; one call in theseusd main.rs's `after_serving`);
-- turn-stack, queue-frames, smalls: the turn's future boxed at `TurnRunner::run`; a late result's wake in the turn's end frame and a completion's `execution.queued` row (turn.rs, turn/end_step.rs, push.rs, the kernel's kernel.rs, both goldens, kernel-sim); the secret board's settle race, musl's `time_t`, the TUI's message order, a budget question's `loop.ended` (secrets.rs, wake.rs, fact/turn.rs, theseus-tui, theseusd main.rs);
-- wal-mark-skip, crash-hold, durability-on: a start skips the WAL directory's sync when a mark vouches (theseus-store wal.rs, store.rs); a crashed call's held reservation booked as spent (theseus-kernel earlier.rs, kernel.rs; theseus-sim's fake model); the durability sessions list only their prefix, and health's durability line in every surface (core aws/durable*, the CLI's render/aws.rs, the cockpit's Systems cards);
-- cli-tests, history-pages: health's 1-hour words, `judge prove`'s bytes, `watch`'s last line (crates/theseus cmd.rs and its goldens); `after` and `before` on the ledger and history reads, and a node's short id (the protocol, rpc/methods.rs, rpc/pages.rs, theseus-store's index, the CLI's history);
-- learning-fixes: replay's yes-or-no rightness, the audit off the low thread, the prove's learned versions (learning/, rpc/judge_prove.rs);
-- discord-live: the bindings file read live, and the courier's maps bounded (theseus-discord);
-- soul-import, still being built: `theseus import`, imported sessions with their provenance, erase by tag, and recall's provenance (core import/, node.rs's bodies, recall.rs, rpc/, the index's tender and extract); it bumps the store format.
-
-These are other cloud sessions like you, batch 9, each on its own branch:
-- core-waits: four core tests that fail by the machine's speed or clock, fixed at their causes;
-- route-tests: route's tests proof against load, a second switch's base, a routed turn's model in its metrics, a switched turn's recall drops;
-- daemon-proofs: a stdio daemon's SIGINT stop, the store's page property test, a cancel row in the gate's jobs bench, the MCP sandbox's daemon watch;
-- gate-tests: the gate's layers held through the gate (an edit's language-server start, an extension's floor, a batch's floor step, a ceiling's MCP tools, explain's L3 row);
-- judge-tests: a reservation's sentences, a slow Jev at the compile point, the memory pass's links in a rerank, inbound and compile judgments' workload class;
-- judge-reads: `judge.list`, the notices' brake and the learning ledger read what the answer needs, not all of history;
-- judge-turn-cost: a judge-on turn bench, and the ladder's first read off the turn path;
-- memory-tests: a search's own build unpaced, a search during a warm build answering at once, a recalled source read by position, the summary's profile and reservation;
-- telemetry-tests: the daemon's telemetry path and the index gauges' changes held by tests;
-- scrub-escaped: the scrubber matches a secret printed JSON-escaped;
-- approvals-batch: a declined call ends its batch's waits, and a repeated tool-use id no longer reads as answered;
-- bench-recall-plan: the recall bench's retraction rule and its plan's room for overhead;
-- bench-hygiene: the async record's missing spend and calls, and bench tests that leave nothing behind and hold under load.
+These are other cloud sessions like you, batch 10, each on its own branch:
+- imported-skip: session lists skip imported sessions without reading them (theseus-7087);
+- voice-heard: the next voice turn says what was heard, cut and never said; replies shaped for speech; a failed voice turn said aloud;
+- voice-echo: an echo and a closing "yes" told apart from a real answer in a voice call.
 
 **Shared files, and how to stay mergeable.** Several of those changes add to the same files, so:
-- **The store's format.** The store has one format number, `MANIFEST_FORMAT` (AGENTS.md, "The store's version rule"). If your task adds a field or a variant to a stored record (a new NODE body is one), or a new record kind, bump it by one from main's number as you cloned it (22 on main today; soul-import takes the next at its merge), and add the literal sample of the old layout to theseus-core's tests_layouts.rs, as the rule says. A body variant alone owes no old-layout sample. Others bump it too: the maintainer renumbers at the merge.
-- **Files at or near their line ceiling** (scripts/long-files.txt): at it, crates/theseus-protocol/src/lib.rs (2,727) and crates/theseus-discord/src/render.rs (3,001); near it, crates/theseus/src/render.rs (3,098 of 3,100), crates/theseus-core/src/turn.rs (3,461 of 3,523), crates/theseus-core/src/compiler.rs (2,546 of 2,560), crates/theseus-kernel/src/kernel.rs (3,008 of 3,030), crates/theseus-core/src/config.rs (2,887 of 2,910), crates/theseus-discord/src/runtime.rs (3,453 of 3,500) and crates/theseus-core/src/tests_m3.rs (7,799 of 8,050). A Rust file the list doesn't name fails past 2,500 lines; near that today are theseus-core's toolrun.rs (2,494) and telemetry/tests.rs (2,484), theseus-sim's kernel_sim.rs (2,451), theseus-kernel's tests.rs (2,381) and theseus-store's wal.rs (2,352). Other changes add to them as well. Put new code in new modules: protocol types in a module file of their own, config types under crates/theseus-core/src/config/, compiler code in crates/theseus-core/src/compiler/, turn logic in a module beside turn.rs, tool-run logic in crates/theseus-core/src/toolrun/, tests in a tests_<subject>.rs of their own. In the long files, add only the field, the call, or the `mod` line.
+- **The store's format.** The store has one format number, `MANIFEST_FORMAT` (AGENTS.md, "The store's version rule"). If your task adds a field or a variant to a stored record (a new NODE body is one), or a new record kind, bump it by one from main's number as you cloned it (23 on main today, since soul-import), and add the literal sample of the old layout to theseus-core's tests_layouts.rs, as the rule says. A body variant alone owes no old-layout sample. Others bump it too: the maintainer renumbers at the merge.
+- **Files at or near their line ceiling** (scripts/long-files.txt): at it, crates/theseus-protocol/src/lib.rs (2,715) and crates/theseus-discord/src/render.rs (3,001); near it, crates/theseus/src/render.rs (3,099 of 3,100), crates/theseus-kernel/src/kernel.rs (3,025 of 3,030), crates/theseus-core/src/compiler.rs (2,546 of 2,560), crates/theseus-core/src/config.rs (2,887 of 2,910), crates/theseus-core/src/turn.rs (3,496 of 3,523), crates/theseus-discord/src/runtime.rs (3,453 of 3,500) and crates/theseus-core/src/tests_m3.rs (7,800 of 8,050). A Rust file the list doesn't name fails past 2,500 lines; near that today are theseus-core's toolrun.rs (2,494) and telemetry/tests.rs (2,491), theseus-sim's kernel_sim.rs (2,465), theseus-store's wal.rs (2,430) and theseus-kernel's tests.rs (2,384). Other changes add to them as well. Put new code in new modules: protocol types in a module file of their own, config types under crates/theseus-core/src/config/, compiler code in crates/theseus-core/src/compiler/, turn logic in a module beside turn.rs, tool-run logic in crates/theseus-core/src/toolrun/, tests in a tests_<subject>.rs of their own. In the long files, add only the field, the call, or the `mod` line.
 - **The protocol's TypeScript** is in cockpit/src/protocol.gen/, written from the Rust types by theseus-protocol's test (AGENTS.md says how). Regenerate it if you add or change protocol types; the maintainer regenerates it again at the merge. theseus-protocol's ts.rs type-list test sits at clippy's 100-line limit: add a new type to an existing line, never a new line.
 - **The config.** The owner's config holds only what differs from the defaults, so every new key needs a default. If you add a config section, add it to `theseusd example-config`'s template the way the existing sections are, with its template tests (AGENTS.md).
 - **Python under bench/** imports only the standard library, except where the Harbor adapter already imports Harbor, and the gate doesn't run its tests: run them yourself before each commit (bench/README.md says how), and say so in the report. Harbor 0.23.0 needs Python 3.12 or later: where python3 is older, run Harbor's tests in a venv (`python3.12 -m venv /tmp/hvenv && /tmp/hvenv/bin/pip install harbor==0.23.0`).
@@ -87,7 +75,7 @@ The gate's shape phase fails a Rust file over its line ceiling in scripts/long-f
 - One commit per green sub-step, on the branch named below, created from `main` as you cloned it. Don't merge or rebase onto a newer main; the maintainer merges.
 - The subject is `area: what changed (<issue id>)`, as in `git log`. The body says what changed and why, in plain words. End each message with the trailer `Co-Authored-By: Claude (cloud session, Opus 5.5) <noreply@anthropic.com>`.
 - You can't sign here: commit without `-S`. The maintainer's merge commit is signed.
-- Commit and push each sub-step as soon as it is proved; don't hold commits for the end. Push only your branch, `git push origin HEAD:refs/heads/cloud/20261005-judge-turn-cost`, at every green point, so nothing is lost if the session ends. Never push to main, never force-push, never delete a branch, and open no pull request.
+- Commit and push each sub-step as soon as it is proved; don't hold commits for the end. Push only your branch, `git push origin HEAD:refs/heads/cloud/20261006-judge-sink`, at every green point, so nothing is lost if the session ends. Never push to main, never force-push, never delete a branch, and open no pull request.
 - No new dependencies: Cargo.lock and the package-lock.json files must not gain a package, and bench/'s Python gains no import beyond the standard library and the Harbor its adapter already uses. If the right design needs one, say so in the report instead.
 - Use invented names in fixtures, tests, and commits (AGENTS.md, Item 16). Write nothing about the owner, his machine, his accounts, or anyone else.
 - Don't edit the spec, docs/status.md, the README, docs/benchmarks.md, or docs/design/. The maintainer writes those at review. Where a doc should change, say what and where in the report.
@@ -107,91 +95,80 @@ Then the gate's result, naming each failing test and why. Your final message is 
 **Load:** where your task asks for runs under load, use AGENTS.md's recipe. Priority, not count, makes the load: run the test with `nice -n 19`, and beside it four busy loops at nice 0, each `sh -c 'while :; do :; done' &`. Kill the loops by the pids you started, never by a name pattern.
 
 ---
-## Your task: the judge's cost on the turn path, measured and then cut: a judge-on turn bench with the fake Jev, the sink's frames kept out of turns, and the ladder's first read kept off the turn path (theseus-0j2.8; also theseus-289c)
+## Your task: judge-turn-cost's sink, fixed: drain a backlog between turns without stalling it, and flush at a stop (theseus-s1am, theseus-ych4; also theseus-3bl9)
 
-Branch: `cloud/20261005-judge-turn-cost`. Every commit's subject carries the id of the issue it fixes. Deadline for
-the report: 5 hours after you start.
+Branch: `cloud/20261006-judge-sink`. **It starts from judge-turn-cost's head 54de79da**, not today's main. That is
+branch `cloud/20261005-judge-turn-cost`, cut from main 4a449460 at store format 22. So the preamble's "What main holds"
+is not your base: don't merge or rebase onto main. Your commits go on top of judge-turn-cost's, and the maintainer
+merges the whole branch into main.
 
-**Background.** FAST is the owner's primary goal: serve first, and bound and measure what a turn's path gains. The
-turn and idle benches run with the judge off, because its sink's frame once landed inside a measured tool-call turn
-(trace 9 frames, WAL 10) and failed a join's gate. So the judge's cost per turn on a real daemon is unmeasured, and
-the ladder's first read can still run inside a turn.
+Every commit's subject carries its issue id. Deadline for the report: 3 hours after you start.
 
-**Read first:** theseus-sim's perf.rs (the module doc, `quiet_config`, `scratch`, `until_quiet`, `Driver`,
-`run_turn`, `TurnArgs`) and walcount.rs (`Frame::label`); scripts/gate.sh's `turn_bench`; theseusd's tests/judge.rs
-(the judge at a fake Jev); theseus-judge's Cargo.toml (`fake` has no dependency of its own) and fake.rs;
-theseus-core's judge/sink.rs, judge/mod.rs (`FLUSH_EVERY`, `write_budget`, `Beside`, `judge_loop`, `mode_for`,
-`capped_by_root`, `pack_lines`, `placed`), judge/ladder/ (mod.rs's `with`, `load`, `read_day`, `given`, `land`;
-adopt.rs; rules.rs's `brakes_today`), judge/lineage.rs (`Lineage::with`), rpc/packs.rs (`warm_ladder`),
-memory_pass/turns.rs (theseus-ms5m) and consolidate/run.rs (`writing()`); theseus-core's AGENTS.md.
+**Background.** judge-turn-cost (theseus-0j2.8, theseus-289c) made three changes:
+- it added a turn bench with the judges on (`bench turn --judge`);
+- it moved the judge sink's writes between turns, the FAST win: no judge frame before an answer;
+- it took the ladder's first read off the turn path (289c).
 
-**What the code says** (the code wins; report each difference):
-- Off a judged turn's path the judge writes the sink's frame (its `judge.call` rows, the breaker's moves, the shed
-  count, the budget's META record: up to 32 rows, or `FLUSH_EVERY`, 2 s, after the first), a budget block frame
-  when a reservation passes the last block ($0.01), and each state's blob (a file and its directory synced, which
-  `walcount` never sees). A judgment a turn waits on (route.v1 live, a live rerank) writes its block frame beside
-  the call, inside the turn, by design (theseus-otny).
-- The bench counts a turn's frames from just before its submit to 50 ms of stillness after its answer, against the
-  trace's `attrs.frames`: a judge frame there fails the check, and with turns back to back a sink frame 2 s after a
-  judgment lands inside a later turn. The store has one writer, so a judge frame mid-sync holds a turn's frame.
-- The memory pass writes only between turns (`memory_pass::turns`: none running and none for `QUIET`; a turn that
-  begins meanwhile waits for that frame; bounded by `QUIET_BOUND` and `BUSY_BOUND`), as consolidation does.
-  AGENTS.md: nothing of a judgment rides in a turn's frames but its mark.
-- 289c: `mode_for` → `Ladder::given` → `with`. The first ask loads each pack's scope, today's `pack.event` scopes and
-  the brake's key, and writes the missing adoptions (route.v1, rerank.v1 and security.v3 are wired live: a fresh
-  store's first read writes three `pack.mode` rows), on whatever thread asks, under a std Mutex. `placed` and
-  `capped_by_root` read the lineage the same way (`Lineage::with`), which the issue doesn't name: fix it too. The
-  rollover reads today's event scopes and one key (`brakes_today` reads the brake by its key, not the judge scope).
-  Core tests never run `warm_ladder`, so their first judged point loads the ladder inside its turn.
+The maintainer's reviewer accepted the bench and 289c, and found two defects in the sink, both seen live against main's
+sink:
+- **theseus-s1am (P2): the sink's between-turns clock restarts for every 32-row frame.**
+  `between(Instant::now(), …)` per batch measures each frame's bounds from a fresh clock, where the pass should keep
+  one clock for a backlog. So a busy daemon writes 32 judgments per 120 s, or 600 s beside a turn, while the backlog
+  grows. Live: 32 rows written of 1,551 settled after 180 s of busy turns; main's sink wrote 501+ (labels 8 against
+  895).
+- **theseus-ych4 (P2): a stop doesn't flush the sink.** A settled judgment was gone after a restart, where main kept
+  it. Every settled judgment must be written before the store closes, on the one clean-stop path (theseusd's AGENTS.md:
+  "every clean stop is one path").
+- **theseus-3bl9 (P3): the adoptions test can't tell a between-turns wait from a sleep.** `tests_ladder_unread`'s test
+  looks at 300 ms, and the warm read sleeps 500 ms first. So a plant that drops the warm read's between-turns wait
+  isn't caught.
+
+**Read first:**
+- the root AGENTS.md (FAST, the store's version rule) and theseus-core's AGENTS.md (the judge paragraph), and
+  theseusd's on the stop;
+- the branch's own CLOUD_REPORT.md, the commit "cloud report (not for main)" (judge-turn-cost's report: what step 2
+  built and why);
+- the sink, and where it calls `between` per batch;
+- how the core's other tenders flush at a clean stop;
+- `tests_ladder_unread.rs`;
+- the judge families' tests.
 
 **What to build,** each a green commit:
-1. **theseus-0j2.8: the cost, measured.** `theseus-sim bench turn --judge`: the judge on at theseus-judge's fake
-   Jev, started in-process as `scratch` starts the stand-in model (theseus-sim takes theseus-judge with `fake`, a
-   workspace crate: check that Cargo.lock gains no package). Two configurations: loop.v1 alone (classify, role and
-   route off, as theseusd's judge test), and the packs as wired (route.v1 then waits on the fake's verdict; if the
-   stand-in and the fake can't make a valid routed turn, say why and drop it). Label each frame by what it holds:
-   the turn's (checked against its trace, as today) or the judge's (judge rows and the budget's record only), and
-   say where each judge frame landed (before a turn's answer, after it, between turns). Give the fsync time they add
-   (the disk probe per frame, plus the blob syncs: `strace -f -e trace=fsync,fdatasync`, if the VM has it), beside
-   the judge-off turns' frames and wall p50 and p95. Nothing new is gated (`--check` keeps today's budgets; the
-   judge-on rows go to `--record` under keys of their own). The issue's nit: perf.rs's doc (lines 23-24) and the
-   turn header (line 536) name only Discord and the web UI as off: add the judge.
-2. **theseus-0j2.8: cut, if it costs.** If a judge frame lands before a turn's answer, or the turn's p95 moves with
-   the judge on, the sink writes only between turns, through `memory_pass::turns` as consolidation does: a
-   judgment's row and its facts stay in one frame, said once written, and a press still finds an unwritten judgment
-   in `pending`. Say what now waits longer. Riding a turn's or the kernel's next frame, the issue's other option,
-   breaks the AGENTS.md rule above: say why you chose. Say whether the budget's block frame lands in the next turn
-   too. If no judge frame lands inside a turn, leave the sink alone and report the numbers.
-3. **theseus-289c: before the warm read, a point reads and writes nothing.** Until `warm_ladder` has loaded the
-   ladder and the lineage, `given` answers from the wired line under the config (as `pack_lines` does) and `placed`
-   the root; `with`'s load stays for the warm read, the RPCs and the nightly check.
-   - **Design question:** a stored row can put a pack below its wired line (a rollback, the owner's decision), so
-     the wired line could act live on a pack the owner rolled back. Answer such packs in shadow until the read
-     (never acting on an unread ladder), or from the wired line: decide, and say why.
-   - **The rollover:** in a running process every event since midnight landed through `land`, so a new day can
-     start empty with no read, the notices telling the ladder of a brake they write; or read on the learning
-     tender's timer, as the issue suggests. Say which.
-   - Update AGENTS.md's ladder line ("read once after serving or by the first judgment"), and say which core tests
-     now load the ladder first.
-   - **Test:** a store holding a rollback row; before the warm read, a judged turn (the inbound, compile, gate and
-     loop-end points on) leaves the ladder and the lineage unloaded, writes no `pack.mode` row, and has the judge-off
-     turn's frames; after `warm_ladder`, the rollback applies. A first ask after a local midnight (the ladder's clock
-     set) reads nothing (a test-only count of its reads is fine). Plant: `given` loading as today.
-   - **The bench:** the judge on, a fresh store, a turn submitted at once after serving: no `pack.mode` frame in it.
+1. **s1am: one clock per backlog pass.**
+   - A pass measures its between-turns bounds from its own start, or from the last turn's end, not from each frame.
+     It drains a backlog at about main's rate when no turn runs, and yields to turns as designed. Keep the 32-row
+     frame size or change it, and say why.
+   - **Test:** about 1,500 settled judgments, with turns starting and ending through the pass. The backlog drains
+     within a stated bound near main's sink, and no frame lands inside a turn's window between its start and its
+     answer.
+2. **ych4: a clean stop flushes the sink.** Every settled judgment still in the sink is written before the store
+   closes, in as few frames as it takes, on the same stop path. **Test:** settle N judgments, stop cleanly, restart:
+   all N are there. State what a SIGKILL loses, which is acceptable: say so, don't fix it.
+3. **3bl9: an adoptions test that tells a wait from a sleep.** Hold a turn running across the warm read's 500 ms
+   sleep, and show the read waits for that turn's end.
+4. **Keep "between turns".** The branch's no-frame-before-the-answer test stays green.
 
-**Proof, offline:** step 1's bench, 3 runs of each configuration, with its frame tables; the ladder, lineage,
-learning tender, judge, continue, notices, route and rerank suites; theseusd's judge test; the gate's turn bench
-unchanged. Plants, each naming what fails: step 2's sink writing outside `turns` again (the judge-on bench's frames
-inside turns come back); step 3's plant.
+**Proof, offline:**
+- the new tests, the judge families, theseus-core's suite and the whole workspace suite once (`TZ=America/Phoenix`);
+- `bench turn --judge --runs 30` on a release-thin build: judge frames before the first answer must be 0, with the p50s
+  reported;
+- planted reverts, each naming the test it breaks:
+  - the clock reset per frame again: the backlog test fails;
+  - the stop's flush removed: the restart test fails;
+  - the adoptions wait replaced by a 500 ms sleep: the strengthened test fails;
+  - a judge frame written before the answer: the branch's test fails.
 
-**The live check is the maintainer's,** on the owner's 16-core machine:
-1. `theseus-sim bench turn --judge --runs 30` at step 1's commit and at the head: judge frames before a turn's
-   answer, and the p95.
-2. The gate's turn bench: frames and p50 as on main.
-3. A scratch daemon, the judge on with Jev's key (a few cents, with the owner's go), on a store with a rolled-back
-   pack: `theseus health` at once after the start shows the pre-read lines your rule gives, then the ladder's.
+**FAST:** report the turn bench's frames and p50s with judges on, and the time a stop adds with N judgments pending.
+Nothing goes on the start path.
 
-**Leave alone:** judge-tests, a sibling (`reserve`, `write_budget`, `at_compile`, the points' contexts); judge-reads,
-a sibling (rpc/judge.rs, judge/notice.rs's `read_today`, learning/system.rs); crash-hold (batch 8: theseus-sim's
-fake_model.rs and main.rs's FakeModel doc); queue-frames (batch 8: theseus-sim's kernel_sim); soul-import
-(memory_pass/mod.rs: use `turns`, change nothing there); scripts/gate.sh and its budgets (the maintainer's).
+**The live check is the maintainer's.** Give exact commands and what each should show:
+- a scratch daemon with the judges on and the stand-in model, busy with turns for 3 minutes: judgments settled
+  against written, read the reviewer's way (`judge log`, the label counts);
+- a stop and restart with judgments pending: all present.
+
+**Leave alone:** everything outside the judge sink, its stop path and the two tests. At the merge the maintainer
+resolves theseus-core AGENTS.md's judge paragraph with judge-reads' text (a resolve.py exists). Don't edit it beyond
+what your change needs, and say what you changed.
+
+Its siblings, judge-tests and judge-reads, join main today without judge-turn-cost. route-tests (B9-core) conflicts
+with judge-turn-cost in `tests_route.rs`'s rig; a resolve.py exists for that too.
