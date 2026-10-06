@@ -17,10 +17,17 @@ import type { BenchHistoryResult, BenchRun, Health, LedgerEntry, SessionInfo, Sp
 import { useRpc } from '@/lib/rpc'
 import { useHistoryRows } from '@/lib/history'
 import { quantile } from '@/lib/derive'
-import { axisStyle, ink, type EChartsOption } from '@/lib/chart'
-import { cn, ms, short, stamp } from '@/lib/format'
+import type { EChartsOption } from '@/lib/chart'
+import { cn, ms, pct, short, stamp } from '@/lib/format'
+import { toneHex } from '@/lib/taxonomy'
+import {
+  CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIME_LABELS, TIP_FRAME, barRadius, baseAxis, countTick, msLogTick, msTick,
+  niceScale, numTick, stackTop, valueAxis,
+} from '@/lib/viz'
+import { tip } from '@/lib/viztip'
 import { Echart } from '@/components/Echart'
-import { Empty, Panel, Segmented } from '@/components/ui'
+import { ChartPanel, type LegendItem } from '@/components/ChartPanel'
+import { Segmented } from '@/components/ui'
 import { Dial, Engraved, Needle, Ticks, arc, polar } from '@/ship/instruments'
 
 type D = Record<string, any>
@@ -153,30 +160,41 @@ export default function Speed() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1fr_1fr]">
-        <Panel title="The last start · phases from process start" icon={<Rocket size={13} />} bodyClassName="h-[300px] p-2"
-          actions={<span className="num text-[11px] text-ink-faint">serving at {serving ? ms(serving / 1000) : '—'} · budget 50 ms</span>}>
-          {h ? <Waterfall phases={h.startup} /> : <Empty>reading health…</Empty>}
-        </Panel>
-        <Panel title={<>Every start · serving time, {starts.length} in the record</>} icon={<History size={13} />} bodyClassName="h-[300px] p-2">
-          {starts.length ? <Starts starts={starts} /> : <Empty>no start rows in the record</Empty>}
-        </Panel>
+        <ChartPanel id="start" title="The last start · phases from process start" icon={<Rocket size={13} />} height={300}
+          actions={<span className="num text-[11px] text-ink-faint">serving at {serving ? ms(serving / 1000) : '—'} · budget 50 ms</span>}
+          legend={[{ key: 'fg', label: 'on the way to serving', color: ACCENT, mark: 'rect' }, { key: 'bg', label: 'after serving, in the background', color: OTHER, mark: 'rect' }]}
+          empty={h ? undefined : 'reading health…'} table={phasesTable(h?.startup ?? [])}>
+          {h && <Waterfall phases={h.startup} />}
+        </ChartPanel>
+        <ChartPanel id="starts" title={`Every start · serving time, ${starts.length} in the record`} icon={<History size={13} />} height={300}
+          legend={[{ key: 'in', label: 'within the 50 ms budget', color: toneHex.ok, mark: 'dot' }, { key: 'over', label: 'over the budget', color: toneHex.fault, mark: 'triangle' }]}
+          empty={starts.length ? undefined : 'no start rows in the record'} table={startsTable(starts)}>
+          <Starts starts={starts} />
+        </ChartPanel>
       </div>
 
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1.4fr_1fr]">
-        <Panel title={<>Each turn · harness overhead, the turn less its model and tools · {turns.length} traced</>} icon={<Timer size={13} />} bodyClassName="h-[320px] p-2">
-          {turns.length ? <Overheads turns={turns} title={title} onPick={(sid) => nav(`/session/${sid}`)} /> : <Empty>no turn traces in the record</Empty>}
-        </Panel>
-        <Panel title="The write path · commit latency, one fsync a frame" icon={<HardDrive size={13} />} bodyClassName="h-[320px] p-2"
-          actions={<span className="num text-[11px] text-ink-faint">{commitLine(turns)}</span>}>
-          {turns.length ? <Commits turns={turns} /> : <Empty>no commits traced</Empty>}
-        </Panel>
+        <ChartPanel id="overhead" title={`Each turn · harness overhead, the turn less its model and tools · ${turns.length} traced`} icon={<Timer size={13} />} height={320}
+          legend={PARTS.map((pt) => ({ key: pt, label: PART_WORDS[pt], color: PART_COLORS[pt], mark: 'rect' as const }))}
+          empty={turns.length ? undefined : 'no turn traces in the record'} table={overheadTable(turns, title)}>
+          <Overheads turns={turns} title={title} onPick={(sid) => nav(`/session/${sid}`)} />
+        </ChartPanel>
+        <ChartPanel id="commits" title="The write path · commit latency, one fsync a frame" icon={<HardDrive size={13} />} height={320}
+          empty={turns.length ? undefined : 'no commits traced'} table={commitsTable(turns)}>
+          <div className="flex h-full flex-col">
+            <div className="num px-2 pt-0.5 text-[11px] text-ink-dim">{commitLine(turns)}</div>
+            <div className="min-h-0 flex-auto"><Commits turns={turns} /></div>
+          </div>
+        </ChartPanel>
       </div>
 
-      <Panel title={<>The gates&rsquo; benches · every run&rsquo;s p95 against its limit</>} icon={<GaugeIcon size={13} />} bodyClassName="p-2"
-        actions={<Segmented value={onlyMain} options={['main', 'every branch'] as const} onChange={setOnlyMain} />}>
-        {bh?.exists && runs.length ? <BenchGrid runs={runs} /> : <Empty>{bh?.exists ? 'no run on this filter' : 'No bench history on this machine (the gate appends ~/.cache/theseus/bench-history.csv): the wall shows the live numbers alone.'}</Empty>}
+      <ChartPanel id="benches" title={<>The gates&rsquo; benches · every run&rsquo;s p95 against its limit</>} icon={<GaugeIcon size={13} />}
+        actions={<Segmented value={onlyMain} options={['main', 'every branch'] as const} onChange={setOnlyMain} />}
+        legend={BENCH_LEGEND} table={benchTable(runs)}
+        empty={bh?.exists && runs.length ? undefined : bh?.exists ? 'no run on this filter' : 'No bench history on this machine (the gate appends ~/.cache/theseus/bench-history.csv): the wall shows the live numbers alone.'}>
+        <BenchGrid runs={runs} />
         {!!bh?.skipped.length && <div className="num px-2 pt-1 text-[10.5px] text-ink-faint">{bh.skipped.length} line{bh.skipped.length === 1 ? '' : 's'} left out: {bh.skipped[0]}</div>}
-      </Panel>
+      </ChartPanel>
     </div>
   )
 }
@@ -234,29 +252,62 @@ function Spark({ values, budget }: { values: number[]; budget: number }) {
   )
 }
 
+// ---------------------------------------------------------------- the charts, after the chart method (lib/viz.ts)
+//
+// Below the dials each chart follows the method (theseus-hnof): one scale a plot, clean ticks, thin marks, a status colour
+// only for state and always with a shape and a word, the budget lines solid with their words in the ink, a legend for two
+// series or more, and every chart with its table view.
+
+const C = CHROME.dark
+/** A single series' colour: the first categorical slot. */
+const ACCENT = CATEGORICAL.dark[0]
+/** A turn's harness overhead, part by part, in the categorical slots' order: the disk's commits take the first slot,
+ *  as they do in the commits' histogram beside it. */
+const PARTS = ['commits', 'compile', 'admission', 'rest'] as const
+const PART_WORDS = { commits: 'the disk’s commits', compile: 'compiles', admission: 'admission', rest: 'the rest' } as const
+const PART_COLORS = { commits: CATEGORICAL.dark[0], compile: CATEGORICAL.dark[1], admission: CATEGORICAL.dark[2], rest: CATEGORICAL.dark[3] } as const
+
+/** A budget's line: solid, in the fault tone, its words in the ink beside it, so the colour never carries it alone. */
+function budgetLine(at: { xAxis: number } | { yAxis: number }, words: string, position: 'start' | 'end' | 'insideEndTop') {
+  return { ...at, lineStyle: { color: toneHex.fault, width: 1, type: 'solid' as const }, label: { formatter: words, color: C.secondary, fontSize: 10, fontFamily: FONTS.mono, position } }
+}
+
 // ---------------------------------------------------------------- the start
 
+/** The last start's phases as bars from process start on a log axis: the phases on the way to serving in the accent, the
+ *  ones after it in the de-emphasis gray, the budget and the moment of serving as lines. */
 function Waterfall({ phases }: { phases: StartupPhase[] }) {
   const option = useMemo<EChartsOption>(() => {
     const ps = [...phases].sort((a, b) => Number(a.background) - Number(b.background) || a.start_us - b.start_us)
     const names = ps.map((p) => `${p.background ? '↳ ' : ''}${p.name}`)
     const serving = phases.find((p) => p.name === 'socket')?.end_us
     const end = (p: StartupPhase) => (p.end_us ?? p.start_us) / 1000
+    const vaxis = valueAxis(), axis = baseAxis()
     return {
-      grid: { left: 108, right: 24, top: 10, bottom: 26 },
-      tooltip: { trigger: 'item', formatter: (x: any) => { const p = ps[x.dataIndex]; return `<b>${p.name}</b>${p.background ? ' (after serving)' : ''}<br/>${ms(p.start_us / 1000)} → ${p.end_us === null ? 'running' : ms(end(p))}<br/>${ms(end(p) - p.start_us / 1000)}${p.detail ? `<br/><span style="color:${ink.faint}">${JSON.stringify(p.detail).slice(0, 160)}</span>` : ''}` } },
-      xAxis: { type: 'log', logBase: 10, min: 1, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => ms(v) } },
-      yAxis: { type: 'category', data: names, inverse: true, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, fontFamily: "'JetBrains Mono Variable', monospace", fontSize: 10.5 } },
+      grid: { left: 12, right: 28, top: 22, bottom: 22, containLabel: true },
+      tooltip: {
+        ...TIP_FRAME, trigger: 'item',
+        formatter: (x: any) => {
+          const p = ps[x.dataIndex]
+          if (!p) return ''
+          return tip(p.name, [
+            { value: ms(end(p) - p.start_us / 1000), label: p.background ? 'after serving, in the background' : 'on the way to serving', color: p.background ? OTHER : ACCENT, mark: 'rect' },
+            { value: `${ms(p.start_us / 1000)} → ${p.end_us === null ? 'running' : ms(end(p))}`, label: 'from process start', strong: false },
+          ], p.detail ? JSON.stringify(p.detail).slice(0, 160) : undefined)
+        },
+      },
+      xAxis: { ...vaxis, type: 'log', logBase: 10, min: 1, axisLabel: { ...vaxis.axisLabel, formatter: msLogTick } },
+      yAxis: { type: 'category', data: names, inverse: true, ...axis, axisLine: { show: false }, axisLabel: { ...axis.axisLabel, color: C.secondary, fontSize: 10.5 } },
       series: [
         { type: 'bar', stack: 'w', silent: true, itemStyle: { color: 'transparent' }, data: ps.map((p) => Math.max(1, p.start_us / 1000)) },
         {
           type: 'bar', stack: 'w', barWidth: 10,
-          data: ps.map((p) => ({ value: Math.max(0.05, end(p) - Math.max(1, p.start_us / 1000)), itemStyle: { color: p.background ? '#5b6b80' : '#22d3ee', borderRadius: 3 } })),
+          data: ps.map((p) => ({ value: Math.max(0.05, end(p) - Math.max(1, p.start_us / 1000)), itemStyle: { color: p.background ? OTHER : ACCENT, borderRadius: barRadius(true, 3) } })),
           markLine: {
             silent: true, symbol: 'none',
             data: [
-              { xAxis: 50, lineStyle: { color: '#fb7185', type: 'dashed', width: 1 }, label: { formatter: 'budget 50 ms', color: '#fb7185', fontSize: 10 } },
-              ...(serving ? [{ xAxis: serving / 1000, lineStyle: { color: '#d6a548', width: 1 }, label: { formatter: `serving ${ms(serving / 1000)}`, color: '#d6a548', fontSize: 10, position: 'insideEndTop' as const } }] : []),
+              budgetLine({ xAxis: 50 }, 'budget 50 ms', 'start'),
+              ...(serving ? [{ xAxis: serving / 1000, lineStyle: { color: C.text, width: 1, type: 'solid' as const }, label: { formatter: `serving ${ms(serving / 1000)}`, color: C.secondary, fontSize: 10, fontFamily: FONTS.mono, position: 'start' as const } }] : []),
             ],
           },
         },
@@ -266,52 +317,121 @@ function Waterfall({ phases }: { phases: StartupPhase[] }) {
   return <Echart option={option} />
 }
 
+function phasesTable(phases: StartupPhase[]) {
+  type R = StartupPhase
+  const rows = [...phases].sort((a, b) => Number(a.background) - Number(b.background) || a.start_us - b.start_us)
+  return {
+    caption: 'the last start, phase by phase, from process start', rows, rowKey: (r: R) => `${r.background}:${r.name}`,
+    columns: [
+      { key: 'phase', label: 'phase', cell: (r: R) => r.name },
+      { key: 'when', label: 'when', cell: (r: R) => (r.background ? 'after serving' : 'to serving') },
+      { key: 'from', label: 'from', num: true, cell: (r: R) => ms(r.start_us / 1000) },
+      { key: 'to', label: 'to', num: true, cell: (r: R) => (r.end_us === null ? 'running' : ms(r.end_us / 1000)) },
+      { key: 'took', label: 'took', num: true, cell: (r: R) => (r.end_us === null ? '—' : ms((r.end_us - r.start_us) / 1000)) },
+    ],
+  }
+}
+
+/** Every start's serving time over time, on a log axis: within the budget a dot in the ok tone, over it a triangle in the
+ *  fault tone (shape and colour, and the legend's words). */
 function Starts({ starts }: { starts: { at: number; ms: number }[] }) {
-  const option = useMemo<EChartsOption>(() => ({
-    grid: { left: 46, right: 16, top: 14, bottom: 26 },
-    tooltip: { trigger: 'item', formatter: (x: any) => `${stamp(x.value[0])}<br/>serving at <b>${ms(x.value[1])}</b>` },
-    xAxis: { type: 'time', ...axisStyle, splitLine: { show: false } },
-    yAxis: { type: 'log', logBase: 10, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => ms(v) } },
-    series: [{
-      type: 'scatter', symbolSize: 9,
-      data: starts.map((s) => ({ value: [s.at, Math.max(1, s.ms)], itemStyle: { color: s.ms > 50 ? '#fb7185' : '#22d3ee', borderColor: '#030912', borderWidth: 1 } })),
-      markLine: { silent: true, symbol: 'none', data: [{ yAxis: 50, lineStyle: { color: '#fb7185', type: 'dashed' }, label: { formatter: '50 ms', color: '#fb7185', fontSize: 10 } }] },
-    }],
-  }), [starts])
+  const option = useMemo<EChartsOption>(() => {
+    const vaxis = valueAxis(), axis = baseAxis()
+    return {
+      grid: { left: 12, right: 28, top: 16, bottom: 22, containLabel: true },
+      tooltip: {
+        ...TIP_FRAME, trigger: 'item',
+        formatter: (x: any) => {
+          const s = starts[x.dataIndex]
+          if (!s) return ''
+          const over = s.ms > 50
+          return tip(stamp(s.at), [{ value: ms(s.ms), label: over ? 'serving, over the 50 ms budget' : 'serving, within the 50 ms budget', color: over ? toneHex.fault : toneHex.ok, mark: over ? 'triangle' : 'dot' }])
+        },
+      },
+      xAxis: { type: 'time', ...axis, axisLabel: { ...axis.axisLabel, formatter: TIME_LABELS } },
+      yAxis: { ...vaxis, type: 'log', logBase: 10, axisLabel: { ...vaxis.axisLabel, formatter: msLogTick } },
+      series: [{
+        type: 'scatter', symbolSize: MARK.marker + MARK.ring,
+        data: starts.map((s) => {
+          const over = s.ms > 50
+          return { value: [s.at, Math.max(1, s.ms)], symbol: over ? 'triangle' : 'circle', itemStyle: { color: over ? toneHex.fault : toneHex.ok, borderColor: C.surface, borderWidth: MARK.ring } }
+        }),
+        markLine: { silent: true, symbol: 'none', data: [budgetLine({ yAxis: 50 }, 'budget 50 ms', 'insideEndTop')] },
+      }],
+    }
+  }, [starts])
   return <Echart option={option} />
+}
+
+function startsTable(starts: { at: number; ms: number }[]) {
+  type R = { at: number; ms: number }
+  return {
+    caption: 'every start in the record and its serving time', rows: [...starts].reverse(), rowKey: (r: R) => String(r.at),
+    columns: [
+      { key: 'at', label: 'started', cell: (r: R) => stamp(r.at) },
+      { key: 'ms', label: 'serving at', num: true, cell: (r: R) => ms(r.ms) },
+      { key: 'budget', label: 'the 50 ms budget', cell: (r: R) => (r.ms > 50 ? `over, by ${ms(r.ms - 50)}` : 'within') },
+    ],
+  }
 }
 
 // ---------------------------------------------------------------- turns and commits
 
-const PART_COLORS = { commits: '#8b6cf0', compile: '#3b7fdb', admission: '#b8862c', rest: '#0ea5c6' } as const
-
+/** Each traced turn's harness overhead, a column stacked part by part (a 2 px gap between parts, the top part's end
+ *  rounded), on one scale with the 5 ms budget; a click opens the turn's session. */
 function Overheads({ turns, title, onPick }: { turns: TurnCost[]; title: Map<string, string>; onPick: (sid: string) => void }) {
   const option = useMemo<EChartsOption>(() => {
-    const parts = ['commits', 'compile', 'admission', 'rest'] as const
-    const words = { commits: 'the disk’s commits', compile: 'compiles', admission: 'admission', rest: 'the rest' }
     const xs = turns.map((t) => t.at)
+    const vals = PARTS.map((pt) => turns.map((t) => +t[pt].toFixed(2)))
+    const tops = stackTop(vals)
+    const sc = niceScale(Math.max(5, ...turns.map((t) => PARTS.reduce((a, pt) => a + t[pt], 0))))
+    const vaxis = valueAxis(), axis = baseAxis()
     return {
-      grid: { left: 52, right: 16, top: 30, bottom: 26 },
-      legend: { top: 2, right: 8, textStyle: { color: ink.text, fontSize: 10.5 }, itemWidth: 10, itemHeight: 8, data: parts.map((p) => words[p]) },
+      // The right margin holds the budget's words past the line's end: on this scale the 5 ms line lies on the baseline,
+      // and words inside the plot sat on the last columns.
+      grid: { left: 12, right: 80, top: 14, bottom: 22, containLabel: true },
       tooltip: {
-        trigger: 'axis', axisPointer: { type: 'shadow' },
+        ...TIP_FRAME, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(176,141,87,0.08)' } },
         formatter: (ps: any) => {
-          const t = turns[ps[0]?.dataIndex ?? 0]
+          const t = turns[(Array.isArray(ps) ? ps[0] : ps)?.dataIndex ?? -1]
           if (!t) return ''
-          return `<b>${title.get(t.session ?? '') ?? short(t.session)}</b> · ${stamp(t.at)}<br/>turn ${ms(t.total)}: model ${ms(t.model)}, tools ${ms(t.tools)}<br/>harness <b>${ms(t.harness)}</b>: commits ${ms(t.commits)} (${t.storeSpans.length}), compile ${ms(t.compile)}, admission ${ms(t.admission)}, rest ${ms(t.rest)}`
+          return tip(`${title.get(t.session ?? '') ?? short(t.session)} · ${stamp(t.at)}`, [
+            ...PARTS.map((pt) => ({ value: ms(t[pt]), label: pt === 'commits' ? `${PART_WORDS[pt]} (${t.storeSpans.length})` : PART_WORDS[pt], color: PART_COLORS[pt], mark: 'rect' as const })),
+            { value: ms(t.harness), label: 'the harness, in all' },
+            { value: ms(t.total), label: `the turn: model ${ms(t.model)}, tools ${ms(t.tools)}`, strong: false },
+          ], t.session ? 'a click opens the session' : undefined)
         },
       },
-      xAxis: { type: 'category', data: xs.map((x) => stamp(x)), ...axisStyle, axisLabel: { ...axisStyle.axisLabel, showMaxLabel: true, interval: Math.max(0, Math.floor(xs.length / 6)) } },
-      yAxis: { type: 'value', ...axisStyle, axisLabel: { ...axisStyle.axisLabel, formatter: (v: number) => ms(v) } },
-      series: parts.map((pt, i) => ({
-        name: words[pt], type: 'bar' as const, stack: 'h', barMaxWidth: 18,
-        itemStyle: { color: PART_COLORS[pt], borderColor: '#0a1828', borderWidth: 1, ...(i === parts.length - 1 ? { borderRadius: [3, 3, 0, 0] as [number, number, number, number] } : {}) },
-        data: turns.map((t) => +t[pt].toFixed(2)),
-        ...(i === 0 ? { markLine: { silent: true, symbol: 'none', data: [{ yAxis: 5, lineStyle: { color: '#fb7185', type: 'dashed' as const }, label: { formatter: 'budget 5 ms', color: '#fb7185', fontSize: 10 } }] } } : {}),
+      xAxis: { type: 'category', data: xs.map((x) => stamp(x)), ...axis, axisLabel: { ...axis.axisLabel, showMaxLabel: true, interval: Math.max(0, Math.floor(xs.length / 6)) } },
+      yAxis: { ...vaxis, min: 0, max: sc.max, interval: sc.interval, axisLabel: { ...vaxis.axisLabel, formatter: msTick(sc.interval) } },
+      series: PARTS.map((pt, i) => ({
+        name: PART_WORDS[pt], type: 'bar' as const, stack: 'h', barMaxWidth: 18,
+        itemStyle: { color: PART_COLORS[pt], borderColor: C.surface, borderWidth: MARK.gap / 2 },
+        data: vals[i].map((v, j) => ({ value: v, itemStyle: { borderRadius: tops[j] === i ? barRadius(false) : 0 } })),
+        ...(i === 0 ? { markLine: { silent: true, symbol: 'none' as const, data: [budgetLine({ yAxis: 5 }, 'budget 5 ms', 'end')] } } : {}),
       })),
     }
   }, [turns, title])
   return <Echart option={option} onClick={(x: any) => { const t = turns[x?.dataIndex]; if (t?.session) onPick(t.session) }} />
+}
+
+function overheadTable(turns: TurnCost[], title: Map<string, string>) {
+  type R = TurnCost
+  return {
+    caption: 'each traced turn, its time and its harness overhead part by part', rows: [...turns].reverse(), rowKey: (r: R) => `${r.at}:${r.turn ?? ''}`,
+    columns: [
+      { key: 'at', label: 'when', cell: (r: R) => stamp(r.at) },
+      { key: 'session', label: 'session', cell: (r: R) => title.get(r.session ?? '') ?? short(r.session), title: (r: R) => title.get(r.session ?? '') ?? undefined },
+      { key: 'total', label: 'turn', num: true, cell: (r: R) => ms(r.total) },
+      { key: 'model', label: 'model', num: true, cell: (r: R) => ms(r.model) },
+      { key: 'tools', label: 'tools', num: true, cell: (r: R) => ms(r.tools) },
+      { key: 'harness', label: 'harness', num: true, cell: (r: R) => ms(r.harness) },
+      { key: 'commits', label: 'commits', num: true, cell: (r: R) => `${ms(r.commits)} (${r.storeSpans.length})` },
+      { key: 'compile', label: 'compiles', num: true, cell: (r: R) => ms(r.compile) },
+      { key: 'admission', label: 'admission', num: true, cell: (r: R) => ms(r.admission) },
+      { key: 'rest', label: 'the rest', num: true, cell: (r: R) => ms(r.rest) },
+    ],
+  }
 }
 
 function commitLine(turns: TurnCost[]): string {
@@ -320,22 +440,48 @@ function commitLine(turns: TurnCost[]): string {
   return `${all.length} commits · p50 ${ms(quantile(all, 0.5))} · p95 ${ms(quantile(all, 0.95))}`
 }
 
+/** The commit latencies' bins, in ms: under 0.5, then each edge to the next, then 500 and over. */
+const EDGES = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500]
+const BINS = ['<0.5', ...EDGES.slice(1).map((e, i) => `${EDGES[i]}–${e}`), '≥500']
+
+function commitBins(turns: TurnCost[]): { counts: number[]; n: number } {
+  const all = turns.flatMap((t) => t.storeSpans)
+  const counts = new Array<number>(EDGES.length + 1).fill(0)
+  for (const v of all) { const i = EDGES.findIndex((e) => v < e); counts[i === -1 ? EDGES.length : i]++ }
+  return { counts, n: all.length }
+}
+
+/** The write path's commit latencies as a histogram: one series, the commits' colour, ms bins in order, no rotated words. */
 function Commits({ turns }: { turns: TurnCost[] }) {
   const option = useMemo<EChartsOption>(() => {
-    const all = turns.flatMap((t) => t.storeSpans)
-    const edges = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500]
-    const counts = new Array(edges.length + 1).fill(0)
-    for (const v of all) counts[edges.findIndex((e) => v < e) === -1 ? edges.length : edges.findIndex((e) => v < e)]++
-    const labels = ['<0.5 ms', ...edges.slice(1).map((e, i) => `${edges[i]}–${e} ms`), '≥500 ms']
+    const { counts, n } = commitBins(turns)
+    const sc = niceScale(Math.max(1, ...counts), 4, 1)
+    const vaxis = valueAxis(), axis = baseAxis()
     return {
-      grid: { left: 40, right: 12, top: 14, bottom: 46 },
-      tooltip: { trigger: 'item', formatter: (x: any) => `${labels[x.dataIndex]}: <b>${x.value}</b> commit${x.value === 1 ? '' : 's'}` },
-      xAxis: { type: 'category', data: labels, ...axisStyle, axisLabel: { ...axisStyle.axisLabel, rotate: 35, fontSize: 9.5 } },
-      yAxis: { type: 'value', minInterval: 1, ...axisStyle },
-      series: [{ type: 'bar', barMaxWidth: 26, data: counts.map((n) => ({ value: n, itemStyle: { color: '#8b6cf0', borderRadius: [3, 3, 0, 0] } })) }],
+      grid: { left: 12, right: 24, top: 14, bottom: 22, containLabel: true },
+      tooltip: {
+        ...TIP_FRAME, trigger: 'item',
+        formatter: (x: any) => tip(`${BINS[x.dataIndex]} ms`, [{ value: countTick(x.value), label: `commit${x.value === 1 ? '' : 's'} · ${pct(n ? x.value / n : 0, 1)} of ${n}`, color: PART_COLORS.commits, mark: 'rect' }]),
+      },
+      xAxis: { type: 'category', data: BINS, name: 'ms', nameGap: 6, nameTextStyle: { color: C.muted, fontSize: 10, fontFamily: FONTS.mono }, ...axis, axisLabel: { ...axis.axisLabel, interval: 0, fontSize: 9.5 } },
+      yAxis: { ...vaxis, min: 0, max: sc.max, interval: sc.interval, axisLabel: { ...vaxis.axisLabel, formatter: countTick } },
+      series: [{ type: 'bar', barMaxWidth: MARK.bar, data: counts.map((c) => ({ value: c, itemStyle: { color: PART_COLORS.commits, borderRadius: barRadius(false) } })) }],
     }
   }, [turns])
   return <Echart option={option} />
+}
+
+function commitsTable(turns: TurnCost[]) {
+  const { counts, n } = commitBins(turns)
+  type R = { bin: string; count: number }
+  return {
+    caption: 'the commits by latency', rows: BINS.map((bin, i) => ({ bin, count: counts[i] })), rowKey: (r: R) => r.bin,
+    columns: [
+      { key: 'bin', label: 'latency, ms', cell: (r: R) => r.bin },
+      { key: 'count', label: 'commits', num: true, cell: (r: R) => countTick(r.count) },
+      { key: 'share', label: 'share', num: true, cell: (r: R) => pct(n ? r.count / n : 0, 1) },
+    ],
+  }
 }
 
 // ---------------------------------------------------------------- the benches
@@ -346,6 +492,15 @@ const BENCH_PANELS = [
   { phase: 'turn_plain', word: 'a plain turn, stand-in model', budget: undefined }, { phase: 'frames_plain', word: 'frames a plain turn', budget: 5 },
 ] as const
 
+/** The small multiples' one key: the run's p95 is the series; the gate's limit and the README's budget are lines in their
+ *  status tones; a failed run is a triangle. */
+const BENCH_LEGEND: LegendItem[] = [
+  { key: 'p95', label: 'the run’s p95', color: ACCENT, mark: 'line' },
+  { key: 'limit', label: 'the gate’s limit', color: toneHex.wait, mark: 'line' },
+  { key: 'budget', label: 'the README’s budget', color: toneHex.fault, mark: 'line' },
+  { key: 'missed', label: 'a run that failed', color: toneHex.fault, mark: 'triangle' },
+]
+
 function BenchGrid({ runs }: { runs: BenchRun[] }) {
   return (
     <div className="grid grid-cols-1 gap-2 md:grid-cols-2 2xl:grid-cols-3">
@@ -355,20 +510,52 @@ function BenchGrid({ runs }: { runs: BenchRun[] }) {
 }
 
 function BenchChart({ runs, phase, word, budget }: { runs: BenchRun[]; phase: string; word: string; budget?: number }) {
-  const pts = runs.map((r) => ({ r, p: phaseOf(r, phase) })).filter((x) => x.p)
-  const option = useMemo<EChartsOption>(() => ({
-    grid: { left: 44, right: 10, top: 22, bottom: 22 },
-    title: { text: word, left: 6, top: 0, textStyle: { color: '#d6a548', fontSize: 10.5, fontFamily: "'Cinzel Variable', serif", fontWeight: 700 } },
-    tooltip: { trigger: 'axis', formatter: (ps: any) => { const x = pts[ps[0]?.dataIndex ?? 0]; return x ? `${x.r.label}<br/>${x.r.time}<br/>p50 ${x.p!.p50} · p95 <b>${x.p!.p95}</b>${x.p!.limit ? ` · limit ${x.p!.limit}` : ''}${x.r.passed ? '' : '<br/><span style="color:#fb7185">failed</span>'}` : '' } },
-    xAxis: { type: 'category', data: pts.map((x) => x.r.time.slice(5, 16).replace('T', ' ')), ...axisStyle, axisLabel: { ...axisStyle.axisLabel, fontSize: 9, interval: Math.max(0, Math.floor(pts.length / 4)) } },
-    yAxis: { type: 'value', ...axisStyle, axisLabel: { ...axisStyle.axisLabel, fontSize: 9.5 } },
-    series: [
-      { type: 'line', name: 'p95', data: pts.map((x) => x.p!.p95), symbol: 'none', lineStyle: { color: '#22d3ee', width: 1.6 } },
-      { type: 'line', name: 'limit', data: pts.map((x) => x.p!.limit ?? null), symbol: 'none', step: 'end', lineStyle: { color: '#fbbf24', width: 1, type: 'dashed' } },
-      ...(budget ? [{ type: 'line' as const, name: 'budget', data: pts.map(() => budget), symbol: 'none', lineStyle: { color: '#fb7185', width: 1, type: 'dotted' as const } }] : []),
-      { type: 'scatter', name: 'missed', data: pts.map((x) => (x.r.passed ? null : x.p!.p95)), symbolSize: 6, itemStyle: { color: '#fb7185' } },
-    ],
-  }), [pts, word, budget])
+  const pts = useMemo(() => runs.map((r) => ({ r, p: phaseOf(r, phase) })).filter((x): x is { r: BenchRun; p: NonNullable<ReturnType<typeof phaseOf>> } => !!x.p), [runs, phase])
+  const option = useMemo<EChartsOption>(() => {
+    const frames = phase.startsWith('frames')
+    const sc = niceScale(Math.max(budget ?? 0, ...pts.map((x) => Math.max(x.p.p95, x.p.limit ?? 0))), 3)
+    const fmt = frames ? numTick(sc.interval) : msTick(sc.interval)
+    const vaxis = valueAxis(), axis = baseAxis()
+    return {
+      grid: { left: 8, right: 12, top: 24, bottom: 18, containLabel: true },
+      title: { text: word, left: 8, top: 4, textStyle: { color: C.secondary, fontSize: 11, fontWeight: 500, fontFamily: FONTS.sans } },
+      tooltip: {
+        ...TIP_FRAME, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: C.axis, width: 1, type: 'solid' } },
+        formatter: (ps: any) => {
+          const x = pts[(Array.isArray(ps) ? ps[0] : ps)?.dataIndex ?? -1]
+          if (!x) return ''
+          return tip(x.r.label, [
+            { value: fmt(x.p.p95), label: 'p95', color: ACCENT, mark: 'line' },
+            { value: fmt(x.p.p50), label: 'p50', strong: false },
+            ...(x.p.limit ? [{ value: fmt(x.p.limit), label: 'the gate’s limit', color: toneHex.wait, mark: 'line' as const, strong: false }] : []),
+            ...(x.r.passed ? [] : [{ value: 'failed', label: 'this run', color: toneHex.fault, mark: 'triangle' as const }]),
+          ], x.r.time)
+        },
+      },
+      xAxis: { type: 'category', data: pts.map((x) => x.r.time.slice(5, 16).replace('T', ' ')), ...axis, axisLabel: { ...axis.axisLabel, fontSize: 9, interval: Math.max(0, Math.floor(pts.length / 4)) } },
+      yAxis: { ...vaxis, min: 0, max: sc.max, interval: sc.interval, axisLabel: { ...vaxis.axisLabel, fontSize: 9.5, formatter: fmt } },
+      series: [
+        { type: 'line', name: 'p95', data: pts.map((x) => x.p.p95), symbol: 'none', lineStyle: { color: ACCENT, width: MARK.line, cap: 'round', join: 'round' } },
+        { type: 'line', name: 'limit', data: pts.map((x) => x.p.limit ?? null), symbol: 'none', step: 'end', lineStyle: { color: toneHex.wait, width: 1 } },
+        ...(budget ? [{ type: 'line' as const, name: 'budget', data: pts.map(() => budget), symbol: 'none', lineStyle: { color: toneHex.fault, width: 1 } }] : []),
+        { type: 'scatter', name: 'missed', data: pts.map((x) => (x.r.passed ? null : x.p.p95)), symbol: 'triangle', symbolSize: MARK.marker + MARK.ring, itemStyle: { color: toneHex.fault, borderColor: C.surface, borderWidth: MARK.ring } },
+      ],
+    }
+  }, [pts, phase, word, budget])
   if (!pts.length) return <div className={cn('flex h-[150px] items-center justify-center rounded-md text-[11px] text-ink-faint ring-1 ring-line')}>{word}: no runs</div>
   return <div className="h-[150px] rounded-md ring-1 ring-line"><Echart option={option} /></div>
+}
+
+function benchTable(runs: BenchRun[]) {
+  type R = BenchRun
+  const cell = (r: R, phase: string) => { const p = phaseOf(r, phase); return p ? (phase.startsWith('frames') ? String(p.p95) : ms(p.p95)) : '—' }
+  return {
+    caption: 'every bench run, newest first, with each phase\'s p95', rows: [...runs].reverse(), rowKey: (r: R) => `${r.time}:${r.label}`,
+    columns: [
+      { key: 'time', label: 'run', cell: (r: R) => r.time.slice(0, 16).replace('T', ' ') },
+      { key: 'label', label: 'gate', cell: (r: R) => r.label, title: (r: R) => r.label },
+      { key: 'passed', label: 'passed', cell: (r: R) => (r.passed ? 'yes' : 'failed') },
+      ...BENCH_PANELS.map((b) => ({ key: b.phase, label: `${b.word} p95`, num: true, cell: (r: R) => cell(r, b.phase) })),
+    ],
+  }
 }
