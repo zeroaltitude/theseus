@@ -49,6 +49,7 @@ pub mod disk;
 pub mod driver;
 pub mod durability;
 pub mod extend;
+pub mod import;
 pub mod index;
 pub mod judge;
 pub mod judge_runs;
@@ -401,6 +402,8 @@ facts![
     synthesis::SynthesisProposed<'static>,
     synthesis::SynthesisChecked<'static>,
     synthesis::SynthesisScored<'static>,
+    import::ImportBatch<'static>,
+    import::ImportErased<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,
     mcp::McpStarted,

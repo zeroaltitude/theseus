@@ -17,6 +17,7 @@ mod cmd;
 mod extend;
 mod herdr;
 mod herdr_sync;
+mod import;
 mod interactive;
 mod judge_prove;
 mod judge_runs;
@@ -355,6 +356,13 @@ enum Cmd {
     Packs {
         #[command(subcommand)]
         cmd: Option<packs::PacksCmd>,
+    },
+    /// The operator's past history (theseus-0lrr.6): `import openclaw <file>...` brings episode
+    /// files in as imported sessions, closed and private; `import erase --tag <tag>` and
+    /// `import list`.
+    Import {
+        #[command(subcommand)]
+        cmd: Option<import::ImportCmd>,
     },
     /// The MCP servers the config attaches (M7): each server's state, and its tools with their
     /// postures and classes; `mcp restart <NAME>` starts one again, a failed one included.
@@ -838,6 +846,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Memory { cmd } => cmd::memory(c, json, cmd).await,
         Cmd::Judge { cmd } => cmd::judge(c, json, cmd).await,
         Cmd::Packs { cmd } => packs::run(c, json, cmd.unwrap_or(packs::PacksCmd::List)).await,
+        Cmd::Import { cmd } => import::run(c, json, cmd.unwrap_or(import::ImportCmd::List)).await,
         Cmd::Mcp { cmd } => mcp::run(c, json, cmd).await,
         Cmd::Extend { cmd } => extend::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,

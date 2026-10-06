@@ -396,6 +396,7 @@ impl Core {
             Some(page) => page,
             None => {
                 let mut all: Vec<SessionRecord> = self.store.list_sessions()?;
+                all.retain(|r| r.imported.is_none());
                 all.sort_by_key(|r| std::cmp::Reverse(r.created_at_unix_ms));
                 all.truncate(n);
                 (all, None)
@@ -530,6 +531,8 @@ impl Core {
         Ok(self
             .sessions_by_activity()?
             .iter()
+            // Imported sessions are the import's to list (theseus-0lrr.6).
+            .filter(|r| r.imported.is_none())
             .map(|r| self.session_info(r, &pending))
             .collect())
     }
@@ -787,6 +790,10 @@ impl Core {
                 error_code::INVALID_PARAMS,
                 "input is empty",
             ));
+        }
+        // An imported session takes no turn (theseus-0lrr.6).
+        if let Some(why) = p.session_id.as_deref().and_then(crate::import::refusal) {
+            return Err(RpcFailure::new(error_code::REFUSED, why));
         }
         // An MCP server's prompt (36c): asked first, so a refusal (a shared
         // place, a missing argument, a server that is down) leaves no

@@ -43,6 +43,9 @@ pub enum Kind {
     Arrangement,
     Summary,
     Synthesis,
+    Imported,
+    ImportedSummary,
+    Erased,
 }
 
 impl Kind {
@@ -56,6 +59,9 @@ impl Kind {
             Body::Arrangement { .. } => Kind::Arrangement,
             Body::Summary { .. } => Kind::Summary,
             Body::Synthesis { .. } => Kind::Synthesis,
+            Body::Imported { .. } => Kind::Imported,
+            Body::ImportedSummary { .. } => Kind::ImportedSummary,
+            Body::Erased { .. } => Kind::Erased,
         }
     }
 }

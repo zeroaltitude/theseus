@@ -838,6 +838,10 @@ pub fn text_of(n: &Node) -> String {
         Body::Summary { text, .. } => text.clone(),
         // A synthesis's text is its cited entry (31b).
         Body::Synthesis { text, .. } => text.clone(),
+        // The operator's past history (theseus-0lrr.6), and its summaries.
+        Body::Imported { text, .. } | Body::ImportedSummary { text, .. } => text.clone(),
+        // A tombstone has no text: its payload is gone.
+        Body::Erased { .. } => String::new(),
     }
 }
 
@@ -848,6 +852,9 @@ impl TurnRunner {
     /// shared place recalls only its own sessions (the place rule), so its
     /// headers name no other place.
     pub fn place_name(&self, session_id: &str) -> String {
+        if crate::import::is_imported(session_id) {
+            return crate::import::place_name(&self.store, session_id);
+        }
         let target = self.outbox.try_target(session_id).and_then(|t| match t {
             Some(t) => Ok(Some(t)),
             None => self.outbox.try_wake_target(session_id),
@@ -867,6 +874,11 @@ impl TurnRunner {
     /// its target, or where its wakes and reports answer; `Unknown` when that
     /// cannot be read.
     pub fn place_of(&self, session_id: &str) -> Place {
+        // An imported session is the owner's own history: private, whatever
+        // place its episode names (theseus-0lrr.6).
+        if crate::import::is_imported(session_id) {
+            return Place::Private;
+        }
         let target = self.outbox.try_target(session_id).and_then(|t| match t {
             Some(t) => Ok(Some(t)),
             None => self.outbox.try_wake_target(session_id),

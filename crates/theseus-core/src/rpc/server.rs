@@ -315,7 +315,7 @@ impl Core {
             method::JUDGE_LABEL => route(params, |p| self.rpc_judge_label(p, conn)),
             m @ (method::LEARNING_REPORT | method::JUDGE_PROVE) => self.rpc_ledger(m, params).await,
             m if super::judge_runs::RUNS.contains(&m) => self.rpc_judge_run(m, params, conn).await,
-            m if m.starts_with("pack.") => self.rpc_packs(m, params, conn),
+            m if super::import::prefixed(m) => self.clone().rpc_prefixed(m, params, conn).await,
             method::BENCH_HISTORY => reply(self.bench_history(params).await?),
             method::SANDBOX_USAGE => reply(self.sandbox_usage()),
             method::MCP_LIST => reply(self.mcp.list(&self.tools)),

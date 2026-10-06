@@ -10,6 +10,8 @@
 //! | `Summary` | its text | its testimony header |
 //! | `Synthesis`, `Lesson` | text (once they exist) | |
 //! | `Recall` | | always: recalled text is never indexed again (§5.2) |
+//! | `Imported`, `ImportedSummary` | text; an imported message of `outside` integrity is external (theseus-0lrr.6) | |
+//! | `Erased` | | always: a tombstone's payload is gone, so a node indexed before leaves the index (§5.6) |
 //!
 //! It reads a node's record as a JSON value, so the tender never depends on
 //! `theseus-core`, and a change there never rebuilds the search engine. This
@@ -111,6 +113,15 @@ pub fn extract(payload: &[u8]) -> Result<Extract, ExtractError> {
             external = body.get("external").is_some_and(|e| !e.is_null());
             str_of(body, "content").unwrap_or_default().to_string()
         }
+        // The operator's past history (theseus-0lrr.6): its text, and outside
+        // text marked as such, so recall keeps it out unless admitted.
+        "imported" => {
+            external = str_of(body, "integrity") == Some("outside");
+            str_of(body, "text").unwrap_or_default().to_string()
+        }
+        // A tombstone (§5.6): its payload is gone, so a node indexed before
+        // leaves the index.
+        "erased" => return skip("an erased node: its payload is gone"),
         "recall" => return skip("recalled text is never indexed again"),
         "arrangement" => return skip("a task's arrangement copies nodes indexed already"),
         // A later body (`summary`, `synthesis`, `lesson`): its text.
@@ -348,6 +359,37 @@ mod tests {
         );
         assert!(matches!(
             extract(&node(json!({"kind": "someday", "items": [1]}))).unwrap(),
+            Extract::Skip { .. }
+        ));
+    }
+
+    /// An imported message gives its text, external when its integrity is
+    /// outside; its tombstone gives nothing, so the follower drops the node
+    /// (theseus-0lrr.6).
+    #[test]
+    fn an_imported_message_is_indexed_and_its_tombstone_is_skipped() {
+        let imported = |integrity: &str| {
+            extract(&node(
+                json!({"kind": "imported", "text": "the tide log moved to the shed",
+                "integrity": integrity, "source": "wiki", "unit": "u1", "sha256": "ab", "idx": 0}),
+            ))
+            .unwrap()
+        };
+        let Extract::Index(e) = imported("operator") else {
+            panic!()
+        };
+        assert_eq!(e.text, "the tide log moved to the shed");
+        assert!(!e.external);
+        let Extract::Index(e) = imported("outside") else {
+            panic!()
+        };
+        assert!(e.external, "outside text is external");
+        assert!(matches!(
+            extract(&node(
+                json!({"kind": "erased", "was": "imported", "at_ms": 9,
+                "why": "import.erase of reef-2026"})
+            ))
+            .unwrap(),
             Extract::Skip { .. }
         ));
     }

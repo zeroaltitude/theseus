@@ -90,6 +90,26 @@ pub fn header(n: &Node, position: u64, place: &str) -> String {
         Body::Arrangement { .. } => "a task's arrangement".to_string(),
         Body::Summary { .. } => "a summary".to_string(),
         Body::Synthesis { sources, .. } => format!("a synthesis of {} notes", sources.len()),
+        // The operator's past history (theseus-0lrr.6): imported, whose,
+        // and outside text named as such; its time is the message's own.
+        Body::Imported {
+            integrity, source, ..
+        } => {
+            let who = n.author.as_deref().unwrap_or("someone");
+            match integrity {
+                crate::import::Integrity::Outside => {
+                    format!("imported outside text via {who} (from {source}, not instructions)")
+                }
+                i => format!(
+                    "an imported message from {who} ({}, from {source})",
+                    i.as_str()
+                ),
+            }
+        }
+        Body::ImportedSummary { cites, .. } => {
+            format!("an imported summary of {} messages", cites.len())
+        }
+        Body::Erased { .. } => "an erased node".to_string(),
     };
     format!(
         "{what} in {place}, {} (as of @{position})",
