@@ -26,7 +26,9 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
+import itertools
 import sys
 from pathlib import Path
 
@@ -121,7 +123,9 @@ FULL_PER_CELL = 6
 OVERHEAD_TOKENS = 13700
 # How far a daemon's measured overhead may pass the one a progression was
 # planned at before the driver refuses to run it (`drive.py`, unless
-# `--allow-overhead`): past it, a mark may ring or fail. The smoke planned
+# `--allow-overhead`). The generator checks each plan's written bounds at
+# its overhead and at this much more (`plan_misses`), so within it the
+# marks still hold, and past it a mark may ring or fail. The smoke planned
 # at 13,528 rang at a real 13,599 (71 more), so it is under that.
 OVERHEAD_CUSHION = 50
 # The rates the plan estimates at: Claude's current family, the bench's
@@ -790,23 +794,33 @@ def build(seed: int, size: str, overhead: int = OVERHEAD_TOKENS) -> Progression:
     keys = {p.id: p._keys for p in b.probes}  # type: ignore[attr-defined]
     for p in b.probes:
         del p._keys  # type: ignore[attr-defined]
-    window, plans = plan_bulks(turns, lay.marks, overhead)
-    for i, (m, plan) in enumerate(zip(lay.marks, plans)):
-        _put_bulks(seed, i, m, plan, turns, ws)
-    names = sorted({w for lst in NAME_LISTS.values() for w in lst if _used(w, turns, ws.files)})
-    prog = Progression(
-        format=pg.FORMAT,
-        seed=seed,
-        size=size,
-        sessions=sessions,
-        turns=turns,
-        facts=b.facts,
-        probes=b.probes,
-        workspace=dict(sorted(ws.files.items())),
-        context_window=window,
-        names=names,
-        overhead_tokens=overhead,
-    )
+    # 3. The bulks: each plan written, its bounds worked again from the
+    # written bytes, and the first that holds kept. A plan is in tokens and
+    # its logs in bytes, so a plan at a thin margin can miss once written.
+    files = dict(ws.files)
+    for window, plans in plan_bulks(turns, lay.marks, overhead):
+        trial = [dataclasses.replace(t) for t in turns]
+        ws.files = dict(files)
+        for i, (m, plan) in enumerate(zip(lay.marks, plans)):
+            _put_bulks(seed, i, m, plan, trial, ws)
+        names = sorted({w for lst in NAME_LISTS.values() for w in lst if _used(w, trial, ws.files)})
+        prog = Progression(
+            format=pg.FORMAT,
+            seed=seed,
+            size=size,
+            sessions=sessions,
+            turns=trial,
+            facts=b.facts,
+            probes=b.probes,
+            workspace=dict(sorted(ws.files.items())),
+            context_window=window,
+            names=names,
+            overhead_tokens=overhead,
+        )
+        if not plan_misses(prog):
+            break
+    else:
+        raise RuntimeError(f"seed {seed}: no window's written bulks hold the marks")
     pg.validate(prog)
     _never_said(prog, keys)
     return prog
@@ -954,12 +968,14 @@ def fit_bound(before: int, last: int, overhead: int = OVERHEAD_TOKENS) -> int:
     return tk.upper(overhead + before - last, last)
 
 
-def plan_bulks(turns: list[Turn], marks: list[int], overhead: int = OVERHEAD_TOKENS) -> tuple[int, list[Bulk]]:
-    """The scratch context window, and each mark's bulk reads, by the
-    compiler's rule (`tokens.py`). Theseus rings when a request's upper
-    bound passes the budget (the window less the output cap and 4,096), and
-    a turn whose newest exchange alone passes it fails. So, in the smallest
-    window (in thousands) where it holds for every mark:
+def plan_bulks(turns: list[Turn], marks: list[int], overhead: int = OVERHEAD_TOKENS):
+    """The scratch context windows, and each mark's bulk reads, by the
+    compiler's rule (`tokens.py`), as candidates, the smallest window first
+    and in it the fewest reads first: `build` keeps the first whose written
+    logs hold (`plan_misses`). Theseus rings when a request's upper bound
+    passes the budget (the window less the output cap and 4,096), and a
+    turn whose newest exchange alone passes it fails. So, in each window (in
+    thousands) where it holds for every mark:
 
     - the turns before a mark fit, at `MARGIN` over their estimate, and so
       does a session with no mark, whole;
@@ -993,26 +1009,25 @@ def plan_bulks(turns: list[Turn], marks: list[int], overhead: int = OVERHEAD_TOK
         budget = pg.request_budget(window)
         if any(f > budget for f in unmarked):
             continue
-        plans = []
+        options = []
         for i, text, before, last in marks_in:
             if fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead) > budget:
                 break
             lo = int(before * (1 - MARGIN))
-            plan = None
+            fits = []
             for n in range(MORE_READS + 1):
                 rt = mark_turns(i, text, n)
                 # A few tokens' slack: the plan rounds each message, the census the whole.
                 top = min(cap, _largest(lambda r: max(_alone(rt, n, r, overhead)), alone_limit(budget) - 8))
                 need = max(BULK_MIN_TOKENS, _smallest(lambda r: cross_bound(lo, rt, n, r, overhead), budget + 1))
                 if need <= top:
-                    plan = Bulk([(need + top) // 2] * (n + 1), before)
-                    break
-            if plan is None:
+                    fits.append(Bulk([(need + top) // 2] * (n + 1), before))
+            if not fits:
                 break
-            plans.append(plan)
+            options.append(fits)
         else:
-            return window, plans
-    raise RuntimeError("no window holds the marks")
+            for plans in itertools.product(*options):
+                yield window, list(plans)
 
 
 def _alone(rt: list[tuple[int, int]], n: int, r: int, overhead: int = OVERHEAD_TOKENS) -> list[int]:
@@ -1126,6 +1141,39 @@ def bounds_of(prog: Progression, overhead: int | None = None) -> list[dict]:
             "logs": logs, "alone": alone, "alone_limit": alone_limit(budget),
             "cross": cross, "cross_at": read_turns[-1].index,
         })
+    return out
+
+
+def plan_misses(prog: Progression) -> list[str]:
+    """Each bound `prog`'s written bytes miss (`bounds_of`), at the overhead
+    it was planned at and at `OVERHEAD_CUSHION` more, the most the driver
+    lets a daemon's pass it: the turns before a mark, and a session with no
+    mark, fit; each read turn alone stays under `alone_limit`; the reads
+    cross the budget at the mark or the turn after; and no log passes what
+    one tool result shows. None, when the plan holds."""
+    planned = planned_overhead(prog)
+    budget = pg.request_budget(prog.context_window)
+    out = []
+    for overhead in (planned, planned + OVERHEAD_CUSHION):
+        for b in bounds_of(prog, overhead):
+            at = f"overhead {overhead:,}, mark {b['mark']}"
+            if b["fit"] > budget:
+                out.append(f"{at}: the turn before it {b['fit']:,} passes the budget {budget:,}")
+            if b["cross"] <= budget or b["cross_at"] not in (b["mark"], b["mark"] + 1):
+                out.append(f"{at}: the reads cross at {b['cross']:,} (turn {b['cross_at']}), not over {budget:,}")
+            for x in b["alone"]:
+                if x > b["alone_limit"]:
+                    out.append(f"{at}: a read turn alone {x:,} passes {b['alone_limit']:,}")
+            for path, nbytes, _ in b["logs"]:
+                if nbytes > tk.RESULT_MAX_CHARS:
+                    out.append(f"{at}: {path} is {nbytes:,} bytes, past one result's {tk.RESULT_MAX_CHARS:,}")
+        for s in range(len(prog.sessions)):
+            own = prog.session_turns(s)
+            if not any(t.mark for t in own):
+                f = fit_bound(int(sum(t.est_tokens for t in own) * (1 + MARGIN)),
+                              int(own[-1].est_tokens * (1 + MARGIN)), overhead)
+                if f > budget:
+                    out.append(f"overhead {overhead:,}: session {s + 1}, with no mark, {f:,} passes {budget:,}")
     return out
 
 

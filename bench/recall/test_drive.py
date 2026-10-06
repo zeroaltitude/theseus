@@ -485,12 +485,12 @@ class TheseusDriver(unittest.TestCase):
         """On the counting stand-in, each turn's history costs what it would
         live: the mark (or the turn after it) compacts, and no turn fails
         (theseus-523y: the live smoke's mark was an overage). Planned at the
-        daemon's own overhead, it runs (theseus-dp3y)."""
-        prog = generate.build(7, "smoke")
+        daemon's own overhead, it runs (theseus-dp3y), and its written bounds
+        hold there however thin the plan's margin."""
         real = self.measured()
-        self.assertLessEqual(real, prog.overhead_tokens + generate.OVERHEAD_CUSHION,
+        self.assertLessEqual(real, generate.OVERHEAD_TOKENS + generate.OVERHEAD_CUSHION,
                              "the daemon's system prompt grew past the plan: raise OVERHEAD_TOKENS")
-        prog.overhead_tokens = real
+        prog = generate.build(7, "smoke", real)
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             rc, said, out = self.drive(d, prog, rules_for(prog), counting=True)

@@ -126,7 +126,10 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     stays 10% under the budget with room for a 4,096-token summary beside it, and at 15% under their estimate the
     reads cross the budget: the mark's own, or, where one read can't do both (the smoke's short first session),
     up to three more at the turn after the mark. One tool result shows at most 30,000 characters, and `fs_read`
-    numbers each line, so each log fits under that. For seed 7 that is 45000 for the smoke (a budget of 29,654;
+    numbers each line, so each log fits under that. A plan is in tokens and its logs are written in bytes, so each
+    plan, once written, is worked again from its bytes (`plan_misses`), at its overhead and at `OVERHEAD_CUSHION`
+    more, and one that misses by rounding gives way to the next: more reads in the same window, then the next
+    window. For seed 7 that is 45000 for the smoke (a budget of 29,654;
     two logs of about 4,400 tokens, the second at turn 11) and 94000 for the full (73,904).
   - **The overhead is checked.** After the first turn, before any probe, the driver reads its daemon's first
     `context.compiled` estimate less that turn's user message: the system prompt and tools, as `OVERHEAD_TOKENS`
