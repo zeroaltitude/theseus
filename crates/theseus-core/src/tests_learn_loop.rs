@@ -4,7 +4,8 @@
 //! holdout label's note never reaches the writer; a writer's file that moves
 //! the builder is refused; a candidate worse on one holdout class is held,
 //! one better everywhere below the minimum replaces a shadow parent in
-//! shadow and goes to a live parent's canary; the writer's day budget stops
+//! shadow and goes to a live parent's canary, judging there only in its
+//! canary's arm; the writer's day budget stops
 //! a run; the version is a row and a file the rows rebuild, it stands at its
 //! root's point, and a rollback gives the place back.
 
@@ -374,6 +375,25 @@ async fn a_live_parents_candidate_below_the_minimum_goes_to_the_canary() {
     assert_eq!(row.report.as_deref(), Some(p.id.as_str()));
     assert!(!row.forced && row.who == "system", "{row:?}");
     assert_eq!(row.from, "off", "a learned version stood nowhere before");
+    // The canary's arm judges with it; the control keeps its parent
+    // (theseus-vh67): a turn's loop end in each dispatches its arm's version.
+    let in_arm = |want| {
+        (0..)
+            .map(|i| format!("ses_dock{i}"))
+            .find(|s| theseus_judge::learn::arm(s, "loop.v101", 0.2) == want)
+            .unwrap()
+    };
+    let canary = in_arm(theseus_judge::learn::Arm::Canary);
+    let control = in_arm(theseus_judge::learn::Arm::Control);
+    let j = &c.runner.judge;
+    assert_eq!(j.placed("loop.v1", &canary), "loop.v101");
+    assert_eq!(j.placed("loop.v1", &control), "loop.v1");
+    for (session, want) in [(&canary, "loop.v101"), (&control, "loop.v1")] {
+        let d = j
+            .plan_loop_end("no_tool_calls", &format!("trn_{session}"), session)
+            .unwrap();
+        assert_eq!(d.pack, want, "{session}");
+    }
     // While it runs, the lineage's next run is held: which version is the
     // parent depends on a session's arm.
     seed(c, 10, 10, split);

@@ -21,7 +21,13 @@
 //!   (`never_judged`), one judged only outside a canary (`all`, or before
 //!   26a) is left out (`no_arm`), and one with both is left out
 //!   (`both_arms`). Only `loop.v1`'s judgments count: another version's
-//!   (a candidate in shadow) says nothing of this canary.
+//!   (a candidate in shadow) says nothing of this canary. A learned version
+//!   in loop.v1's lineage (`loop.v101`) judges at the loop point in its
+//!   place (`JudgeService::placed`), so a task it judged was judged, not by
+//!   loop.v1: it is left out as `learned_version`, never `never_judged`
+//!   (theseus-ag0t). So is a task judged by both: its stops were not all
+//!   loop.v1's, and the version that judged its last one may not have been,
+//!   so its outcome is not loop.v1's arm's alone.
 //! - **`stops`**: each of those judgments in the task's arm, oldest first.
 //!   Its `decision` is the one that acted in its arm: the control's is the
 //!   baseline's (`decision` in its context: `no_tool_calls` stops); the
@@ -59,7 +65,7 @@
 //! A cancelled task (a cancel, a `/stop`) is left out (`cancelled`): it was
 //! stopped from outside, so it has no outcome of its own.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context as _;
 use serde_json::Value;
@@ -103,6 +109,9 @@ pub struct Input {
     pub tasks: Vec<Ended>,
     /// `judge:loop`'s scope: its judgments and their labels.
     pub loop_scope: Scope,
+    /// The names of loop.v1's learned versions (its lineage), which judge
+    /// in its place where the ladder placed them.
+    pub learned: Vec<String>,
     /// Every `judge.call`'s cost, by the session its context names.
     pub judge_spend: HashMap<String, Vec<JudgeSpend>>,
     /// `turn.ended` rows, by session.
@@ -121,6 +130,7 @@ pub struct Built {
 /// Why a task is left out.
 pub const CANCELLED: &str = "cancelled";
 pub const NEVER_JUDGED: &str = "never_judged";
+pub const LEARNED_VERSION: &str = "learned_version";
 pub const NO_ARM: &str = "no_arm";
 pub const BOTH_ARMS: &str = "both_arms";
 pub const UNREADABLE: &str = "unreadable";
@@ -131,12 +141,16 @@ pub fn build(input: &Input) -> Built {
     // `loop.v1`'s judgments by the session their context names, oldest
     // first.
     let mut by_session: HashMap<&str, Vec<&Seen>> = HashMap::new();
+    // The sessions a learned version of loop.v1 judged.
+    let mut learned: HashSet<&str> = HashSet::new();
     for seen in input.loop_scope.judgments.values().flatten() {
-        if seen.judgment.pack != LOOP_PACK {
+        let Some(s) = seen.context("session") else {
             continue;
-        }
-        if let Some(s) = seen.context("session") {
+        };
+        if seen.judgment.pack == LOOP_PACK {
             by_session.entry(s).or_default().push(seen);
+        } else if input.learned.contains(&seen.judgment.pack) {
+            learned.insert(s);
         }
     }
     for v in by_session.values_mut() {
@@ -148,7 +162,7 @@ pub fn build(input: &Input) -> Built {
         let judged = by_session
             .get(t.session.as_str())
             .map_or(&[][..], Vec::as_slice);
-        match arm_of_task(t, judged) {
+        match arm_of_task(t, judged, learned.contains(t.session.as_str())) {
             Ok(arm) => out.records.push(record(input, t, judged, arm)),
             Err(why) => count(&mut out, why),
         }
@@ -164,10 +178,14 @@ fn arm_of(s: &Seen) -> Option<ArmName> {
     }
 }
 
-/// The task's arm, or why it is left out.
-fn arm_of_task(t: &Ended, judged: &[&Seen]) -> Result<ArmName, &'static str> {
+/// The task's arm, or why it is left out. `learned`: a learned version of
+/// loop.v1 judged its session.
+fn arm_of_task(t: &Ended, judged: &[&Seen], learned: bool) -> Result<ArmName, &'static str> {
     if t.state == ExecState::Cancelled {
         return Err(CANCELLED);
+    }
+    if learned {
+        return Err(LEARNED_VERSION);
     }
     if judged.is_empty() {
         return Err(NEVER_JUDGED);
@@ -433,6 +451,11 @@ impl Core {
             }
         }
         input.loop_scope = super::read_scope(&self.store, "loop")?;
+        input.learned = self
+            .runner
+            .judge
+            .lineage()
+            .names_of_root(&self.store, LOOP_PACK);
         for t in &input.tasks {
             let mut spend = Vec::new();
             for row in self.ledger_rows(LedgerKind::JudgeCall, Some(&t.session), None, None)? {

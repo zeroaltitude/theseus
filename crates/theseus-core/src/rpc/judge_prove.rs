@@ -61,7 +61,8 @@ impl Core {
     }
 
     /// The window: the days given, else since `loop.v1`'s latest move to
-    /// canary (its `pack.mode` row), else everything.
+    /// canary (its `pack.mode` row), else everything; and, in its line,
+    /// a learned loop version placed inside it (theseus-ag0t).
     fn prove_window(
         &self,
         p: &JudgeProveParams,
@@ -77,17 +78,10 @@ impl Core {
             ),
             None => None,
         };
-        if let Some(d) = p.since.as_deref() {
-            let since = day_start(d)?;
-            return Ok((
-                Some(since),
-                until,
-                format!("tasks that ended since {}", d.trim()),
-            ));
-        }
         // The rows read from their scope, not through the ladder, whose
-        // first load can write the adoption table's rows.
-        let mut moved = None;
+        // first load can write the adoption table's rows. The scope is the
+        // pack id's, so a learned version's rows are here too.
+        let mut rows = Vec::new();
         for r in self
             .store
             .scope_after(&crate::judge::ladder::scope(LOOP_PACK), 0)?
@@ -99,27 +93,39 @@ impl Core {
                 continue;
             }
             if let Ok(m) = serde_json::from_value::<PackModeRow>(row.data) {
-                if m.pack == LOOP_PACK && m.mode == "canary" && !m.declined {
-                    moved = Some((row.at_unix_ms, m));
-                }
+                rows.push((row.at_unix_ms, m));
             }
         }
-        Ok(match moved {
-            Some((at, r)) => (
-                Some(at),
-                until,
-                format!(
-                    "tasks that ended since {LOOP_PACK}'s move to {} on {}",
-                    crate::fact::ladder::mode_words(&r.mode, r.share),
-                    crate::judge::spend::local_day(at)
+        let (since, mut window) = match p.since.as_deref() {
+            Some(d) => (
+                Some(day_start(d)?),
+                format!("tasks that ended since {}", d.trim()),
+            ),
+            None => match rows
+                .iter()
+                .rfind(|(_, m)| m.pack == LOOP_PACK && m.mode == "canary" && !m.declined)
+            {
+                Some((at, r)) => (
+                    Some(*at),
+                    format!(
+                        "tasks that ended since {LOOP_PACK}'s move to {} on {}",
+                        crate::fact::ladder::mode_words(&r.mode, r.share),
+                        crate::judge::spend::local_day(*at)
+                    ),
                 ),
-            ),
-            None => (
-                None,
-                until,
-                format!("every task that ended: {LOOP_PACK} has not moved to canary"),
-            ),
-        })
+                None => (
+                    None,
+                    format!("every task that ended: {LOOP_PACK} has not moved to canary"),
+                ),
+            },
+        };
+        let learned = self
+            .runner
+            .judge
+            .lineage()
+            .names_of_root(&self.store, LOOP_PACK);
+        window.push_str(&learned_placed(&rows, &learned, since, until));
+        Ok((since, until, window))
     }
 
     fn prove_now(&self, p: &JudgeProveParams) -> anyhow::Result<JudgeProveResult> {
@@ -168,4 +174,40 @@ impl Core {
             elapsed_ms: began.elapsed().as_millis() as u64,
         })
     }
+}
+
+/// What the window's line adds when a learned version of loop.v1 was placed
+/// inside it (shadow, a canary, or live; a declined move places nothing):
+/// it judged in loop.v1's place there, so its tasks are left out as
+/// `learned_version`. The latest placement, by name and day, and how many
+/// there were. Nothing when none was.
+fn learned_placed(
+    rows: &[(u64, PackModeRow)],
+    learned: &[String],
+    since: Option<u64>,
+    until: Option<u64>,
+) -> String {
+    let placed: Vec<&(u64, PackModeRow)> = rows
+        .iter()
+        .filter(|(at, m)| {
+            learned.contains(&m.pack)
+                && !m.declined
+                && matches!(m.mode.as_str(), "shadow" | "canary" | "live")
+                && since.is_none_or(|s| *at >= s)
+                && until.is_none_or(|u| *at <= u)
+        })
+        .collect();
+    let Some((at, m)) = placed.last() else {
+        return String::new();
+    };
+    let more = match placed.len() {
+        1 => String::new(),
+        n => format!(", the latest of {n} placements"),
+    };
+    format!(
+        "; a learned version stood in {LOOP_PACK}'s place: {} moved to {} on {}{more}",
+        m.pack,
+        crate::fact::ladder::mode_words(&m.mode, m.share),
+        crate::judge::spend::local_day(*at)
+    )
 }

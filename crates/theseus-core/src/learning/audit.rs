@@ -15,6 +15,10 @@
 //!   before it is sent, and settles at what its usage cost (its reservation,
 //!   when it failed). The run stops before a request would pass `[judge]
 //!   audit_limit_usd`.
+//! - **Off the low thread**: the run reads and writes on its `learning`
+//!   thread at nice 19; each request is sent on the runtime and waited for
+//!   there, so no pool thread it starts takes that thread's priority
+//!   (theseus-bgg5).
 //! - **Written once**: the run's labels and its `judge.audit` row in one
 //!   frame, scoped `judge:<pack id>`, so the report counts them. A run that
 //!   asked nothing (every judgment audited already) writes nothing.
@@ -189,6 +193,24 @@ pub fn sample(seen: &[Seen], seed: u64, n: usize) -> Vec<&Seen> {
     keyed.into_iter().take(n).map(|(_, s)| s).collect()
 }
 
+/// One request, sent on the runtime and waited for here: a blocking pool
+/// thread it starts (a host name's lookup) is a worker's child, never this
+/// low thread's, whose nice value it would keep for life (theseus-bgg5).
+/// The reading of the answer stays on the caller's thread.
+fn send_on_runtime(
+    rt: &tokio::runtime::Handle,
+    provider: &Arc<dyn crate::provider::Provider>,
+    request: ProviderRequest,
+) -> anyhow::Result<crate::provider::ModelResponse> {
+    let provider = provider.clone();
+    rt.block_on(rt.spawn(async move {
+        let mut quiet = |_: crate::provider::Delta<'_>| {};
+        provider.stream_message(&request, &mut quiet).await
+    }))
+    .map_err(anyhow::Error::from)
+    .and_then(|r| r)
+}
+
 /// One label the run writes.
 struct Labeled {
     id: String,
@@ -319,8 +341,8 @@ impl Core {
                 break;
             }
             r.asked += 1;
-            let mut quiet = |_: crate::provider::Delta<'_>| {};
-            match rt.block_on(provider.stream_message(&request, &mut quiet)) {
+            let sent = send_on_runtime(rt, &provider, request);
+            match sent {
                 Ok(resp) => {
                     spent += self
                         .runner

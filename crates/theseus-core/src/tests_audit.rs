@@ -1,7 +1,7 @@
 //! The audit (M5 25d; design §3, "25d"), on seeded stores with a scripted
 //! provider: labels from a seeded sample, answers outside the options
-//! dropped, the per-run cap, a second run writing nothing, and the run the
-//! owner's alone.
+//! dropped, the per-run cap, a second run writing nothing, the run the
+//! owner's alone, and its requests polled off its low thread.
 
 use serde_json::json;
 use theseus_judge::fake::FakeJev;
@@ -219,4 +219,70 @@ async fn an_audit_from_a_shared_place_is_refused() {
         .any(|(_, r)| r.kind == "approval.refused" && r.data["act"] == "judge.audit"));
     assert!(r.fake.requests().is_empty());
     assert!(rows(c, "judge:loop", LedgerKind::JudgeLabel).is_empty());
+}
+
+/// A stand-in provider that answers as the fake does and records the nice
+/// value of each thread that polls its request.
+struct Niced {
+    inner: crate::provider::FakeProvider,
+    nices: std::sync::Mutex<Vec<i32>>,
+}
+
+/// This thread's own nice value (Linux's nice is per thread).
+fn this_threads_nice() -> i32 {
+    // SAFETY: gettid and getpriority on this thread's own id read nothing
+    // but its scheduling priority.
+    unsafe {
+        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
+        libc::getpriority(libc::PRIO_PROCESS, tid)
+    }
+}
+
+impl crate::provider::Provider for Niced {
+    fn name(&self) -> &str {
+        "niced"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a crate::provider::ProviderRequest,
+        on_delta: crate::provider::DeltaSink<'a>,
+    ) -> crate::provider::ProviderFuture<'a> {
+        Box::pin(async move {
+            self.nices.lock().unwrap().push(this_threads_nice());
+            self.inner.stream_message(req, on_delta).await
+        })
+    }
+}
+
+/// The audit's requests are sent on the runtime, never polled on its
+/// `learning` thread at nice 19, so no pool thread a request starts (a host
+/// name's lookup) takes that thread's priority for life (theseus-bgg5). A
+/// request polled by `block_on` on the low thread reads 19; one spawned on
+/// a worker reads the worker's own nice value (the test's, 0 unless the
+/// test itself runs niced), whatever the pool holds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_audits_requests_are_polled_off_its_low_thread() {
+    let base = this_threads_nice();
+    let jev = FakeJev::start().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = crate::tests_judge::judge_config(dir.path(), Some(&jev));
+    for (p, _) in crate::judge::WIRED {
+        cfg.judge
+            .packs
+            .insert((*p).into(), crate::tests_judge::off());
+    }
+    cfg.validate().unwrap();
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let niced = std::sync::Arc::new(Niced {
+        inner: crate::provider::FakeProvider::scripted(vec![audit_answer(); 3]),
+        nices: Default::default(),
+    });
+    let mut p = crate::rpc::Parts::for_tests(cfg, niced.clone(), store);
+    p.secrets = crate::tests_judge::board();
+    let c = &Core::build(p).unwrap();
+    five(c);
+    let out = c.judge_audit(audit(c, 3), "cli").await.unwrap();
+    assert_eq!((out.asked, out.failed, out.labels), (3, 0, 6), "{out:?}");
+    let nices = niced.nices.lock().unwrap().clone();
+    assert_eq!(nices, [base; 3], "each request polled on a worker");
 }

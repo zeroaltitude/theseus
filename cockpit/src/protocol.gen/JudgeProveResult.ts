@@ -41,8 +41,8 @@ tasks: number,
  */
 arms: { [key in string]: number }, 
 /**
- * Tasks left out, by reason (`never_judged`, `no_arm`, `both_arms`,
- * `cancelled`, `unreadable`).
+ * Tasks left out, by reason (`never_judged`, `learned_version`,
+ * `no_arm`, `both_arms`, `cancelled`, `unreadable`).
  */
 left_out: { [key in string]: number }, 
 /**

@@ -5,7 +5,9 @@
 //! "insufficient" with its counts; and cohorts with known outcomes give the
 //! generator's exact rates per task and per dollar. `judge.prove` answers
 //! the generator's report over the records it answers, byte for byte, reads
-//! its default window from the canary's move, and writes no frame.
+//! its default window from the canary's move (a declined move none), names
+//! a learned loop version placed inside it, and writes no frame. A task a
+//! learned loop version judged is left out as `learned_version`.
 
 use serde_json::{json, Value};
 use theseus_judge::band::band;
@@ -537,9 +539,166 @@ async fn the_default_window_is_the_canarys() {
         (1, Some(&1)),
         "{v:?}"
     );
+    // A declined move to canary moves nothing (theseus-u4t3).
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder
+        .write(theseus_protocol::packs::PackModeRow {
+            pack: "loop.v1".into(),
+            mode: "canary".into(),
+            from: "canary".into(),
+            share: Some(0.2),
+            who: "system".into(),
+            why: "the prove's test: a move the bar declined".into(),
+            declined: true,
+            ..Default::default()
+        })
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let after = c.judge_prove(Value::Null).await.unwrap();
+    assert_eq!(
+        (after.since_ms, after.window.as_str(), after.tasks),
+        (v.since_ms, v.window.as_str(), 1),
+        "{after:?}"
+    );
     // A day given is the window, whatever the ladder says.
     let all = c.judge_prove(json!({"since": "2020-01-01"})).await.unwrap();
     assert_eq!(all.tasks, 11);
+}
+
+/// A learned version of loop.v1, `loop.v101`, in its lineage: its
+/// `pack.version` row, read back by the next read of the lineage.
+fn learned_loop(c: &Core) {
+    let text = include_str!("../../theseus-judge/packs/loop.v1.toml").replacen(
+        "version = 1",
+        "version = 101",
+        1,
+    );
+    let pack = theseus_judge::Pack::parse(&text).unwrap();
+    assert_eq!(pack.name(), "loop.v101");
+    let l = crate::judge::lineage::Learned {
+        pack: std::sync::Arc::new(pack),
+        text,
+        parent: "loop.v1".into(),
+        root: "loop.v1".into(),
+        proposal: "prp_heron".into(),
+        at_ms: END,
+    };
+    let mut r = ledger(LedgerKind::PackVersion, None, l.data(), END - 120_000);
+    r.key = Some(crate::judge::lineage::key("loop.v101"));
+    c.store
+        .append(&[r.scoped(&crate::judge::lineage::scope("loop.v1"))])
+        .unwrap();
+    c.runner.judge.lineage().forget();
+}
+
+/// A task judged by a learned version standing in loop.v1's place is left
+/// out as `learned_version`, never `never_judged` (theseus-ag0t); one judged
+/// by both, its stops not all loop.v1's, is left out too; the others are as
+/// before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_task_a_learned_version_judged_is_left_out_as_learned() {
+    let (r, want) = seeded().await;
+    let c = &r.core;
+    learned_loop(c);
+    // e, never judged before: judged by loop.v101 alone.
+    c.store
+        .append(&[call_row(&judgment(
+            "jdg_e1",
+            "loop.v101",
+            "ses_e",
+            "canary",
+            "complete",
+            40,
+        ))])
+        .unwrap();
+    let (input, _) = c.prove_input(None, None).unwrap();
+    assert_eq!(input.learned, ["loop.v101"]);
+    let built = build(&input);
+    assert_eq!(built.records, want, "the others as before");
+    assert_eq!(
+        built.left_out,
+        [
+            ("both_arms".to_string(), 1),
+            ("cancelled".to_string(), 1),
+            ("learned_version".to_string(), 1),
+            ("no_arm".to_string(), 1),
+        ]
+        .into()
+    );
+    // g, judged by loop.v1 in its canary: a learned judgment too leaves it
+    // out.
+    c.store
+        .append(&[call_row(&judgment(
+            "jdg_g3",
+            "loop.v101",
+            "ses_g",
+            "canary",
+            "complete",
+            40,
+        ))])
+        .unwrap();
+    let (input, _) = c.prove_input(None, None).unwrap();
+    let built = build(&input);
+    let left: Vec<TaskRecord> = want.into_iter().filter(|t| t.task != "exe_g").collect();
+    assert_eq!(built.records, left);
+    assert_eq!(built.left_out.get("learned_version"), Some(&2));
+    let v = c.judge_prove(Value::Null).await.unwrap();
+    assert_eq!(v.left_out.get("learned_version"), Some(&2), "{v:?}");
+}
+
+/// The window's line names a learned loop version placed inside the
+/// window, by name and day; with none, or one placed before it, or a
+/// declined move, the line is as before (theseus-ag0t).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_window_names_a_learned_version_placed_inside_it() {
+    let (r, _) = seeded().await;
+    let c = &r.core;
+    learned_loop(c);
+    let plain = "every task that ended: loop.v1 has not moved to canary";
+    assert_eq!(c.judge_prove(Value::Null).await.unwrap().window, plain);
+    let ladder = c.runner.judge.ladder();
+    let row = |pack: &str, mode: &str, declined: bool| theseus_protocol::packs::PackModeRow {
+        pack: pack.into(),
+        mode: mode.into(),
+        from: "shadow".into(),
+        share: (mode == "canary").then_some(0.5),
+        who: "owner".into(),
+        why: "the prove's test".into(),
+        forced: true,
+        declined,
+        ..Default::default()
+    };
+    // A declined move places nothing.
+    ladder.write(row("loop.v101", "live", true)).unwrap();
+    assert_eq!(c.judge_prove(Value::Null).await.unwrap().window, plain);
+    let placed = ladder.write(row("loop.v101", "shadow", false)).unwrap();
+    let today = crate::judge::spend::local_day(placed.at_unix_ms);
+    let v = c.judge_prove(Value::Null).await.unwrap();
+    assert_eq!(
+        v.window,
+        format!(
+            "{plain}; a learned version stood in loop.v1's place: loop.v101 moved to shadow \
+             on {today}"
+        )
+    );
+    ladder.write(row("loop.v101", "canary", false)).unwrap();
+    let v = c.judge_prove(Value::Null).await.unwrap();
+    assert!(
+        v.window.ends_with(&format!(
+            "loop.v101 moved to canary 0.5 on {today}, the latest of 2 placements"
+        )),
+        "{}",
+        v.window
+    );
+    // loop.v1's own canary, after both: the window opens there, and they
+    // are before it.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    ladder.write(row("loop.v1", "canary", false)).unwrap();
+    let v = c.judge_prove(Value::Null).await.unwrap();
+    assert_eq!(
+        v.window,
+        format!("tasks that ended since loop.v1's move to canary 0.5 on {today}")
+    );
 }
 
 // ------------------------------------------------------------ cohorts
