@@ -19,6 +19,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import checks  # noqa: E402
 import generate  # noqa: E402
 import progression as pg  # noqa: E402
 import score  # noqa: E402
@@ -82,8 +83,11 @@ REPLIES = {
 }
 
 
-def write_run(d: Path, prog: pg.Progression, label: str, compactions: list[int], failed: set[str] = frozenset()):
-    """A run directory as drive.py writes it, with REPLIES at the probes."""
+def write_run(d: Path, prog: pg.Progression, label: str, compactions: list[int], failed: set[str] = frozenset(),
+              replies: dict[str, str] | None = None, meta: dict | None = None):
+    """A run directory as drive.py writes it, with REPLIES (and `replies`
+    over them) at the probes, and `meta` in its run.json."""
+    replies = {**REPLIES, **(replies or {})}
     d.mkdir(parents=True)
     pg.materialize(prog, d / "workspace")
     (d / "workspace" / "notes" / "p002.txt").write_text("fix the crash loop (ORI-5419)\n")
@@ -93,7 +97,7 @@ def write_run(d: Path, prog: pg.Progression, label: str, compactions: list[int],
     with (d / "turns.jsonl").open("w") as f:
         for t in prog.turns:
             p = by_turn.get(t.index)
-            reply = REPLIES[p.id] if p else "ok"
+            reply = replies[p.id] if p else "ok"
             bad = p is not None and p.id in failed
             f.write(json.dumps({"index": t.index, "session": t.session, "reply": "" if bad else reply,
                                 "exit": 1 if bad else 0, "cost_usd": 0.01, "latency_ms": 1000,
@@ -101,7 +105,8 @@ def write_run(d: Path, prog: pg.Progression, label: str, compactions: list[int],
     delivered = {f.id: {"delivered": f.id != "f009", "marker": f.marker, "turn": f.turn} for f in prog.facts}
     (d / "delivered.json").write_text(json.dumps(delivered))
     (d / "run.json").write_text(json.dumps({"arm": label, "model": "m", "compactions": compactions,
-                                            "delivered": len(prog.facts) - 1, "facts": len(prog.facts)}))
+                                            "delivered": len(prog.facts) - 1, "facts": len(prog.facts),
+                                            **(meta or {})}))
 
 
 class Scoring(unittest.TestCase):
@@ -114,11 +119,11 @@ class Scoring(unittest.TestCase):
         assert ids["p001"][:2] == ("direct", "supersession") and ids["p005"][:3] == ("direct", "compaction", 12)
         assert ids["p008"][3] == "f009" and ids["p003"][0] == "abstention", ids
 
-    def scored(self, compactions, failed=frozenset()):
+    def scored(self, compactions, failed=frozenset(), replies=None, meta=None, stale="strict", prog=None):
         with tempfile.TemporaryDirectory() as d:
-            write_run(Path(d) / "r", self.prog, "theseus", compactions, failed)
+            write_run(Path(d) / "r", prog or self.prog, "theseus", compactions, failed, replies, meta)
             run = score.load_run(Path(d) / "r")
-            rows = score.score_run(run)
+            rows = score.score_run(run, stale)
         return {r.probe: r for r in rows}, score.summarize(rows)
 
     def test_each_probe_is_scored_as_worked_by_hand(self):
@@ -172,6 +177,75 @@ class Scoring(unittest.TestCase):
         # p007, planned near (fact 20, probe 24), lands past a compaction at 22.
         r, _ = self.scored([22])
         self.assertEqual((r["p007"].planned, r["p007"].bucket), ("near", "compaction"))
+
+    def test_an_old_runs_abstention_is_scored_by_todays_admission(self):
+        """The live smoke's p003: a right abstention the first ADMIT missed
+        (no `tell`; its `no` wants to come before the verb). A run keeps its
+        progression's checks, so the scorer derives an abstention's again
+        from its kind, and a run kept from before scores by today's rule."""
+        said = ("I can't tell. A case-insensitive search for \"lanyard\" across the 20 workspace files found no "
+                "matches, so nothing there pins a lanyard version for veery.")
+        old = pg.Progression.from_json(json.loads(json.dumps(self.prog.to_json())))
+        p3 = next(p for p in old.probes if p.id == "p003")
+        p3.check = p3.check.splitlines()[0] + "\nreply has /\\bno (?:record|mention)\\b/i"
+        self.assertFalse(checks.passes(p3.check, said))
+        r, _ = self.scored([], replies={"p003": said}, prog=old)
+        self.assertTrue(r["p003"].correct)
+        self.assertFalse(r["p003"].confident_wrong)
+        r, _ = self.scored([], replies={"p003": "I can't tell; it's probably 6.13.15."}, prog=old)
+        self.assertFalse(r["p003"].correct)
+
+    def test_a_retracted_old_value_is_right_only_under_the_retracted_rule(self):
+        """The live smoke's p001 names 27340 only to take it back."""
+        live = ("The jacana archiver is on port 38013. That's from the side note in the standup. Ignore the "
+                '"27340" I mentioned in my first answer.')
+        r, s = self.scored([], replies={"p001": live})
+        self.assertEqual((r["p001"].correct, r["p001"].stale, r["p001"].old_named), (False, True, False))
+        self.assertEqual(s["stale"], 1)
+        r, s = self.scored([], replies={"p001": live}, stale="retracted")
+        x = r["p001"]
+        self.assertEqual((x.correct, x.stale, x.old_named, x.confident_wrong), (True, False, True, False))
+        self.assertEqual((s["stale"], s["old_named"]), (0, 1))
+        for reply in ("It moved from 27340 to 38013.", "38013 now; 27340 is no longer used.",
+                      "It's 38013. It was 27340 before the move."):
+            r, _ = self.scored([], replies={"p001": reply}, stale="retracted")
+            self.assertTrue(r["p001"].correct and r["p001"].old_named, reply)
+        for stale in ("strict", "retracted"):
+            r, _ = self.scored([], replies={"p001": "The archiver is on port 27340."}, stale=stale)
+            self.assertEqual((r["p001"].correct, r["p001"].stale, r["p001"].confident_wrong), (False, True, True))
+            r, _ = self.scored([], replies={"p001": "It's 27340, or maybe 38013."}, stale=stale)
+            self.assertEqual((r["p001"].correct, r["p001"].stale, r["p001"].old_named), (False, True, False))
+            # A retraction in another sentence does not cover the old value.
+            r, _ = self.scored([], replies={"p001": "It's 38013 or 27340. Ignore my first answer."}, stale=stale)
+            self.assertFalse(r["p001"].correct, stale)
+        with self.assertRaises(ValueError):
+            self.scored([], stale="lenient")
+
+    def test_a_ring_moves_a_probe_as_a_summary_does_and_is_counted_apart(self):
+        """run.json's `compaction_rows` keep each outcome: a ring at 12 cuts
+        p005's fact (5) from its probe's request (12) as a summary would."""
+        rows = [{"turn": 12, "outcomes": ["ring"], "cuts": [{"outcome": "ring", "why": "no summary model",
+                                                             "messages": 20, "first": 3, "last": 40}]},
+                {"turn": 22, "outcomes": ["compaction"], "cuts": [{"outcome": "compaction", "why": None,
+                                                                   "messages": 9, "first": 41, "last": 80}]}]
+        r, _ = self.scored([12, 22], meta={"compaction_rows": rows})
+        self.assertEqual(r["p005"].bucket, "compaction")
+        self.assertEqual(r["p007"].bucket, "compaction")
+        self.assertEqual(score.compaction_turns({"compaction_rows": rows}), [12, 22])
+        self.assertEqual(score.outcome_counts({"compaction_rows": rows}), {"ring": 1, "compaction": 1})
+        # A run with no rows (Claude Code's, an older one) counts its list.
+        self.assertEqual(score.outcome_counts({"compactions": [12]}), {"compaction": 1})
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            write_run(d / "th", self.prog, "theseus", [12, 22], meta={"compaction_rows": rows})
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(score.main([str(d / "th"), "--out", str(d / "rep")]), 0)
+            md = (d / "rep" / "report.md").read_text()
+            self.assertIn("| theseus | m | 12 (ring), 22 (compaction) |", md)
+            self.assertIn("| theseus | 1 | 1 | 0 |", md)
+            j = json.loads((d / "rep" / "scores.json").read_text())
+            self.assertEqual(j["arms"]["theseus"]["compactions_by_outcome"], {"ring": 1, "compaction": 1})
+            self.assertEqual(j["stale_rule"], "strict")
 
     def test_the_cli_writes_the_report_the_svg_and_the_scores(self):
         with tempfile.TemporaryDirectory() as d:

@@ -31,7 +31,8 @@ progression) and writes `scores.json`, `report.md` and `curve.svg` into
   the nearest bucket recalls nothing.
 - **Confident-wrong**: a wrong answer that gives a value of the asked kind
   (an abstention's: any value) and does not hedge. **Stale**: a superseded
-  value given. **Cites**: a right direct answer that says where (its script
+  value given; with `--stale retracted`, not where the reply names it only
+  to take it back (counted as *old named*, and right). **Cites**: a right direct answer that says where (its script
   or file, or that the user said it) and when (its session's date or
   weekday, or a relative time).
 - **Cost and latency** per probe: its turn's dollars and wall time.
@@ -83,6 +84,9 @@ class Scored:
     tokens_since: int
     cost_usd: float | None
     latency_ms: int | None
+    # Right under `--stale retracted` with the old value named, only where
+    # the reply retracts it ("ignore the 27340"); None off a supersession.
+    old_named: bool | None = None
 
 
 @dataclass
@@ -93,6 +97,69 @@ class ArmRun:
     turns: dict[int, dict]
     delivered: dict[str, dict]
     prog: pg.Progression
+
+
+# A compaction's outcomes in `context.compacted` (theseus-core's
+# fact/compaction.rs): `compaction`, a summary in the cut's place, and
+# `ring`, the cut kept with no summary. Both drop the same leading turns
+# from the request, so both move a probe: what the arm no longer reads is
+# what a summary may or may not keep, and the curve measures that.
+MOVING_OUTCOMES = ("compaction", "ring")
+
+# The stale rules (`--stale`): `strict`, theseus-exam's (a superseded value
+# named anywhere is stale, and wrong); `retracted`, a right answer that
+# names the old value only in a sentence that retracts it.
+STALE_RULES = ("strict", "retracted")
+RETRACT = (
+    r"\b(?:ignore|disregard|no longer|not any ?more|anymore|moved from|replaced|replaces|superseded|"
+    r"instead of|used to be|previously|formerly|was\b[^.?!]{0,60}?\bbefore|earlier answer|i was wrong|"
+    r"correction|scratch that|not \S+ as i said)\b"
+)
+
+
+def compaction_turns(meta: dict) -> list[int]:
+    """The turns whose request was compacted, by the outcomes that move a
+    probe. A run with each row's outcome (`compaction_rows`) is read by
+    them; one without (an older run, or Claude Code's, whose log shows only
+    a `compact_boundary`) counts every compaction it lists."""
+    rows = meta.get("compaction_rows")
+    if rows is None:
+        return list(meta.get("compactions", []))
+    out = []
+    for r in rows:
+        outs = r.get("outcomes") or [c.get("outcome") for c in r.get("cuts", [])] or ["compaction"]
+        if any(o in MOVING_OUTCOMES for o in outs):
+            out.append(r["turn"])
+    return out
+
+
+def outcome_counts(meta: dict) -> dict[str, int]:
+    """Each outcome's count over the run's compactions: a row without
+    outcomes is a `compaction` (Claude Code's `compact_boundary`)."""
+    rows = meta.get("compaction_rows")
+    counts: dict[str, int] = {}
+    if rows is None:
+        for _ in meta.get("compactions", []):
+            counts["compaction"] = counts.get("compaction", 0) + 1
+        return counts
+    for r in rows:
+        for o in r.get("outcomes") or [c.get("outcome") for c in r.get("cuts", [])] or ["compaction"]:
+            counts[o or "unknown"] = counts.get(o or "unknown", 0) + 1
+    return counts
+
+
+def sentences(text: str) -> list[str]:
+    """`text` cut into sentences: at a stop followed by space, and at line
+    breaks (a version's dots have no space after them)."""
+    return [x for x in re.split(r"(?<=[.!?])\s+|\n+", checks.fold(text)) if x.strip()]
+
+
+def retracts_only(text: str, kind: str, old: str) -> bool:
+    """Every sentence of `text` that names `old` retracts it (RETRACT), and
+    at least one names it."""
+    hit = "reply has " + " | ".join(pg.value_patterns(kind, old))
+    named = [x for x in sentences(text) if checks.passes(hit, x)]
+    return bool(named) and all(re.search(RETRACT, x, re.I) for x in named)
 
 
 def load_run(d: Path) -> ArmRun:
@@ -121,25 +188,32 @@ def _date_forms(date: str, weekday: str) -> list[str]:
     return [date, f"{mon} {d}", f"{mon[:3]} {d}", f"{d} {mon}", weekday.lower()]
 
 
-def score_probe(run: ArmRun, p: pg.Probe) -> Scored:
+def check_of(p: pg.Probe) -> str:
+    """The check a probe is scored by: its own, but an abstention's is
+    derived again from its kind, so a run kept from before a change to the
+    admission rule (`progression.ADMIT`) is scored by today's."""
+    return pg.kind_check(p.value_kind) if p.kind == "abstention" else p.check
+
+
+def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
     prog = run.prog
     facts = prog.facts_by_id()
     anchor = facts[p.anchor]
     rec = run.turns.get(p.turn)
-    bucket = pg.bucket_of(prog, anchor.turn, p.turn, list(run.meta.get("compactions", [])),
-                          p.bucket == "supersession")
+    bucket = pg.bucket_of(prog, anchor.turn, p.turn, compaction_turns(run.meta), p.bucket == "supersession")
     since = sum(new_tokens(run.turns.get(i)) for i in range(anchor.turn + 1, p.turn))
     base = dict(arm=run.label, probe=p.id, kind=p.kind, salience=p.salience, value_kind=p.value_kind,
                 carrier=anchor.carrier, planned=p.bucket, bucket=bucket, turns_since=p.turn - anchor.turn, tokens_since=since,
                 cost_usd=(rec or {}).get("cost_usd"), latency_ms=(rec or {}).get("latency_ms"))
-    blank = dict(correct=None, confident_wrong=None, stale=None, hedged=None, cites_where=None, cites_when=None)
+    blank = dict(correct=None, confident_wrong=None, stale=None, hedged=None, cites_where=None, cites_when=None,
+                 old_named=None)
     if p.fact is not None and not run.delivered.get(p.fact, {}).get("delivered"):
         return Scored(status="undelivered", **base, **blank)
     if rec is None or rec.get("exit") not in (0,) or not (rec.get("reply") or "").strip():
         return Scored(status="failed", **base, **blank)
     reply = rec.get("reply") or ""
     root = run.dir / "workspace"
-    correct = checks.passes(p.check, reply, root)
+    correct = checks.passes(check_of(p), reply, root)
     if p.kind == "indirect":
         try:
             text = (root / p.file).read_text(errors="replace")
@@ -147,6 +221,14 @@ def score_probe(run: ArmRun, p: pg.Probe) -> Scored:
             text = ""
     else:
         text = reply
+    old_named = None
+    if p.stale is not None:
+        old_named = False
+        if stale_rule == "retracted" and not correct and retracts_only(text, p.value_kind, p.stale):
+            # The check less its `lacks` line: the new value is there, and
+            # the old one only where the reply takes it back.
+            has = p.check.splitlines()[0]
+            correct = old_named = checks.passes(has, reply, root)
     hedged = re.search(pg.HEDGE, checks.fold(text), re.I) is not None
     values = pg.find_values(p.value_kind, text)
     right = facts[p.fact].value if p.fact else None
@@ -157,6 +239,11 @@ def score_probe(run: ArmRun, p: pg.Probe) -> Scored:
     stale = None
     if p.stale is not None:
         stale = checks.passes(f"reply has " + " | ".join(pg.value_patterns(p.value_kind, p.stale)), text)
+        stale = stale and not old_named
+    if old_named:
+        # The value it retracts is not one it gives.
+        old = "reply has " + " | ".join(pg.value_patterns(p.value_kind, p.stale))
+        wrong = [v for v in wrong if not checks.passes(old, v)]
     cw = (not correct) and bool(wrong) and not hedged
     where = when = None
     if p.kind == "direct" and correct:
@@ -170,11 +257,13 @@ def score_probe(run: ArmRun, p: pg.Probe) -> Scored:
         s = prog.sessions[prog.turns[f.turn].session]
         when = any(checks.has_word(n, x) for x in _date_forms(s.date, s.weekday)) or re.search(WHEN, n) is not None
     return Scored(status="scored", correct=correct, confident_wrong=cw, stale=stale, hedged=hedged,
-                  cites_where=where, cites_when=when, **base)
+                  cites_where=where, cites_when=when, old_named=old_named, **base)
 
 
-def score_run(run: ArmRun) -> list[Scored]:
-    return [score_probe(run, p) for p in run.prog.probes]
+def score_run(run: ArmRun, stale_rule: str = "strict") -> list[Scored]:
+    if stale_rule not in STALE_RULES:
+        raise ValueError(f"the stale rule is one of {', '.join(STALE_RULES)}, not {stale_rule!r}")
+    return [score_probe(run, p, stale_rule) for p in run.prog.probes]
 
 
 # ---- the curve and its half-life
@@ -254,6 +343,7 @@ def summarize(rows: list[Scored]) -> dict:
         "confident_wrong_rate": rate(scored, lambda r: r.confident_wrong),
         "stale": sum(1 for r in sup if r.stale),
         "stale_of": len(sup),
+        "old_named": sum(1 for r in sup if r.old_named),
         "cites_where": rate(direct_ok, lambda r: r.cites_where),
         "cites_when": rate(direct_ok, lambda r: r.cites_when),
         "cost_usd_per_probe": _mean(costs),
@@ -280,13 +370,30 @@ def _num(x, fmt="{:.0f}") -> str:
     return fmt.format(x)
 
 
-def report(runs: list[ArmRun], sums: dict[str, dict]) -> str:
+def _compacted_at(meta: dict) -> str:
+    """Each compaction's turn and outcome: "11 (compaction), 25 (ring)"."""
+    rows = meta.get("compaction_rows")
+    if rows is None:
+        return ", ".join(map(str, meta.get("compactions", []))) or "never"
+    out = []
+    for r in rows:
+        outs = r.get("outcomes") or ["compaction"]
+        out.append(f"{r['turn']} ({', '.join(o or 'unknown' for o in outs)})")
+    return ", ".join(out) or "never"
+
+
+def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict") -> str:
     prog = runs[0].prog
+    stale_words = {
+        "strict": "Stale is strict: a superseded value named anywhere is stale, and the answer wrong.",
+        "retracted": "Stale is `retracted`: a right answer that names the old value only where it retracts it "
+                     "is right, counted under Old named, and not stale.",
+    }[stale_rule]
     lines = [
         "# Incidental recall",
         "",
         f"Progression `{prog.size}`, seed {prog.seed}, digest `{prog.digest()[:16]}`: {len(prog.turns)} turns, "
-        f"{len(prog.facts)} facts, {len(prog.probes)} probes.",
+        f"{len(prog.facts)} facts, {len(prog.probes)} probes. {stale_words}",
         "",
         "| Arm | Model | Compacted at | Delivered | Scored | Undelivered | Failed | Recall | Abstention | "
         "Confident-wrong | Stale | Cites where | Cites when | $/probe | ms/probe |",
@@ -295,7 +402,7 @@ def report(runs: list[ArmRun], sums: dict[str, dict]) -> str:
     for r in runs:
         s = sums[r.label]
         lines.append(
-            f"| {r.label} | {r.meta.get('model')} | {', '.join(map(str, r.meta.get('compactions', []))) or 'never'} | "
+            f"| {r.label} | {r.meta.get('model')} | {_compacted_at(r.meta)} | "
             f"{r.meta.get('delivered')}/{r.meta.get('facts')} | {s['scored']} | {s['undelivered']} | {s['failed']} | "
             f"{_pct(s['recall_accuracy'])} | {_pct(s['abstention_accuracy'])} | {s['confident_wrong']} | "
             f"{s['stale']}/{s['stale_of']} | {_pct(s['cites_where'])} | {_pct(s['cites_when'])} | "
@@ -335,11 +442,19 @@ def report(runs: list[ArmRun], sums: dict[str, dict]) -> str:
         s = sums[r.label]
         lines.append(f"| {r.label} | " + " | ".join(_pct(s["by_kind"][k]) for k in pg.PROBE_KINDS) + " | "
                      + " | ".join(_pct(s["by_carrier"][c]) for c in pg.CARRIERS) + " |")
-    lines += ["", "## Supersession", "", "| Arm | Right | Stale given |", "|---|---|---|"]
+    lines += ["", "## Supersession", "", "| Arm | Right | Stale given | Old named |", "|---|---|---|---|"]
     for r in runs:
         rows = [x for x in score_cache[r.label] if x.status == "scored" and x.planned == "supersession"]
         lines.append(f"| {r.label} | {sum(1 for x in rows if x.correct)}/{len(rows)} | "
-                     f"{sum(1 for x in rows if x.stale)}/{len(rows)} |")
+                     f"{sum(1 for x in rows if x.stale)}/{len(rows)} | {sum(1 for x in rows if x.old_named)}/{len(rows)} |")
+    lines += ["", "## Compactions", "",
+              "By outcome: `compaction` wrote a summary in the cut's place, `ring` kept the cut with no summary. "
+              f"Both drop the leading turns, so both move a probe ({', '.join(MOVING_OUTCOMES)}).", "",
+              "| Arm | " + " | ".join(MOVING_OUTCOMES) + " | other |", "|---|" + "---|" * (len(MOVING_OUTCOMES) + 1)]
+    for r in runs:
+        c = outcome_counts(r.meta)
+        other = sum(n for o, n in c.items() if o not in MOVING_OUTCOMES)
+        lines.append(f"| {r.label} | " + " | ".join(str(c.get(o, 0)) for o in MOVING_OUTCOMES) + f" | {other} |")
     lines += ["", "## How to read it", "",
               "- A probe planned in one bucket can land in another: its arm compacted elsewhere than the marks. "
               + "; ".join(f"{r.label}: {sums[r.label]['moved']} moved" for r in runs) + ".",
@@ -408,6 +523,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("runs", nargs="+", type=Path)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--stale", choices=STALE_RULES, default="strict",
+                    help="strict: a superseded value named anywhere is stale (the default); retracted: not where "
+                         "the reply retracts it")
     a = ap.parse_args(argv)
     runs = [load_run(d) for d in a.runs]
     digests = {r.prog.digest() for r in runs}
@@ -422,15 +540,17 @@ def main(argv: list[str] | None = None) -> int:
     sums = {}
     all_rows = []
     for r in runs:
-        rows = score_run(r)
+        rows = score_run(r, a.stale)
         score_cache[r.label] = rows
         sums[r.label] = summarize(rows)
+        sums[r.label]["compactions_by_outcome"] = outcome_counts(r.meta)
         all_rows += rows
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "scores.json").write_text(json.dumps(
-        {"digest": runs[0].prog.digest(), "arms": sums, "probes": [asdict(x) for x in all_rows]},
+        {"digest": runs[0].prog.digest(), "stale_rule": a.stale, "arms": sums,
+         "probes": [asdict(x) for x in all_rows]},
         indent=1, sort_keys=True) + "\n")
-    (a.out / "report.md").write_text(report(runs, sums))
+    (a.out / "report.md").write_text(report(runs, sums, a.stale))
     (a.out / "curve.svg").write_text(svg(runs, sums))
     for r in runs:
         s = sums[r.label]

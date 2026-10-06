@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import checks  # noqa: E402
 import progression as pg  # noqa: E402
+import tokens as tk  # noqa: E402
 from progression import Edit, Fact, Probe, Progression, Session, Turn  # noqa: E402
 
 # ---- SplitMix64, as theseus-exam's rng.rs (Vigna's splitmix64.c)
@@ -108,9 +109,26 @@ KINDS = ("port", "path", "version", "host", "ticket", "date")
 VALUE_KINDS = KINDS[:-1]  # the kinds an abstention or a supersession asks after
 
 FULL_PER_CELL = 6
-OVERHEAD_TOKENS = 12000  # a guess at each arm's system prompt and tool list
-PER_TURN = 650  # a guess at a turn's tokens: its text, a tool's output, the reply
-MARGIN = 0.15  # how far the per-turn guess may be off and a mark still compact
+# The compiler's estimate of a request's system prompt and tool list on the
+# bench profile at Sonnet 5.5's figures: `context.compiled`'s estimate of a
+# new session's first call, less its user message. On a scratch daemon of
+# 60b43fb6 (27 tools, on standin.py, which counted the same 13,533 for
+# "hi"), 13,528; on c4f79e9f, 13,599 (the precedence line and testimony
+# headers); the first live smoke, an older build, said 12,042
+# (theseus-523y). The plan takes today's and about 100 for growth: the
+# smoke sits at its margins, and a larger prompt than planned leaves its
+# mark's summary no room (a `ring`, not a `compaction`).
+OVERHEAD_TOKENS = 13700
+# The rates the plan estimates at: Claude's current family, the bench's
+# models (catalog.rs, `TokenRates::CLAUDE`).
+PLAN_RATES = tk.RATES["CLAUDE"]
+REPLY_BYTES = 400  # a guess at a reply's text, after a turn's work
+MARGIN = 0.15  # how far the turns' estimate may be off and a mark still compact
+# How far under the request budget a bulk read's turn stays alone, beside
+# the system prompt and tools, at the estimate's upper bound: the ring's
+# last candidate, which past the budget fails the turn as an overage.
+ALONE_MARGIN = 0.10
+BULK_MIN_TOKENS = 1000  # a bulk read is at least this long
 
 # The catalog's prices per million tokens (theseus-core's catalog.rs, the
 # built-in table; test_generate holds this copy to it): input, output, cache
@@ -618,24 +636,51 @@ class Workspace:
         self.put("scripts/lint.sh", sh(f"lint: {3 + r.below(20)} files checked\nlint: {r.below(9)} warnings\n"), True)
         self.put("scripts/test.sh", sh(f"tests: {40 + r.below(200)} passed, 0 failed\n"), True)
 
-    def filler(self) -> tuple[str, int]:
-        """A small task over the workspace, and the bytes its work reads."""
+    def run(self, path: str) -> Work:
+        return Work("proc_run", {"argv": [f"./{path}"]}, len(self.files[path]["content"]))
+
+    def read(self, path: str) -> Work:
+        return Work("fs_read", {"path": path}, tk.fs_read_bytes(self.files[path]["content"]))
+
+    def filler(self) -> tuple[str, "Work"]:
+        """A small task over the workspace, and the work a model does for it."""
         r = self.rng
         k = r.below(6)
         if k == 0:
-            return "Run ./scripts/lint.sh and tell me how many warnings it reports.", 120
+            return "Run ./scripts/lint.sh and tell me how many warnings it reports.", self.run("scripts/lint.sh")
         if k == 1:
-            return "Run ./scripts/test.sh: did everything pass?", 80
+            return "Run ./scripts/test.sh: did everything pass?", self.run("scripts/test.sh")
         if k == 2:
             p, _, _ = r.pick(self.src)
-            return f"How many lines are in {p}?", len(self.files[p]["content"])
+            return f"How many lines are in {p}?", self.read(p)
         if k == 3:
             d = r.pick(self.docs)
-            return f"Summarize docs/{d}.md in two sentences.", len(self.files[f"docs/{d}.md"]["content"])
+            return f"Summarize docs/{d}.md in two sentences.", self.read(f"docs/{d}.md")
         if k == 4:
-            return "Which file under src/ is the largest?", 400
+            return "Which file under src/ is the largest?", Work("fs_list", {"path": "src"}, 400)
         p, fn, _ = r.pick(self.src)
-        return f"What does {fn} in {p} return? One line.", len(self.files[p]["content"])
+        return f"What does {fn} in {p} return? One line.", self.read(p)
+
+
+class Work:
+    """A turn's tool call, as a model makes it, and the bytes of its result
+    (as the tool returns them: `fs_read` numbers its lines)."""
+
+    def __init__(self, tool: str, args: dict, nbytes: int):
+        self.tool, self.args, self.nbytes = tool, args, nbytes
+
+
+def turn_census(text: str, work: "Work | list[Work] | None") -> tk.Census:
+    """A turn's messages as the compiler counts them: the user's text, each
+    work's call and its result, and a reply of REPLY_BYTES."""
+    c = tk.user_text(text)
+    for w in [] if work is None else work if isinstance(work, list) else [work]:
+        c = c + tk.call(w.tool, w.args) + tk.result(w.nbytes)
+    return c + tk.Census(messages=1, blocks=1, text=REPLY_BYTES)
+
+
+def turn_tokens(text: str, work: "Work | list[Work] | None") -> int:
+    return turn_census(text, work).tokens(PLAN_RATES)
 
 
 def sh(output: str, code: int = 0) -> str:
@@ -658,18 +703,26 @@ def noise(rng: Rng, n: int) -> list[str]:
 
 
 def bulk_log(rng: Rng, nbytes: int) -> tuple[str, str]:
-    """A long build log, and its slowest step."""
+    """A long build log whose `fs_read` comes to `nbytes` at most (each line
+    numbered), and its slowest step."""
     lines, size, worst, worst_ms, i = [], 0, "", -1, 0
-    while size < nbytes:
+    while True:
         name = f"{rng.pick(SOURCES)}-{rng.pick(('compile', 'link', 'pack', 'scan', 'sign'))}-{i:04d}"
         ms = 10 + rng.below(4000)
         line = f"step {i:05d} {name} {ms} ms"
+        if size + tk.FS_READ_PREFIX + len(line) + 1 > nbytes:
+            break
         if ms > worst_ms:
             worst, worst_ms = name, ms
         lines.append(line)
-        size += len(line) + 1
+        size += tk.FS_READ_PREFIX + len(line) + 1
         i += 1
     return "\n".join(lines) + "\n", worst
+
+
+def bulk_rng(seed: int, n: int) -> Rng:
+    """The bulk logs' own stream: a bulk resized moves no other turn."""
+    return Rng((seed * 0x9E3779B97F4A7C15 + 0xB0C5 * (n + 1)) & MASK)
 
 
 def build(seed: int, size: str) -> Progression:
@@ -698,8 +751,6 @@ def build(seed: int, size: str) -> Progression:
     ]
     scripts: set[str] = set()
     pending: dict[int, list[Edit]] = {}
-    bulk_n = 0
-    window, bulk_tokens = _window(b, ws)
     for t in range(lay.n):
         s, blk = lay.session(t), lay.block(t)
         ta, tb = b.topics[blk]
@@ -708,28 +759,28 @@ def build(seed: int, size: str) -> Progression:
         before = pending.pop(t, [])
         mark = False
         if role in ("opener", "filler", "free"):
-            text, nbytes = ws.filler()
+            text, work = ws.filler()
             role = "filler" if role == "free" else role
         elif role == "bulk":
-            bulk_n += 1
-            log, _ = bulk_log(rng, bulk_tokens * 4)
-            path = f"logs/build-{bulk_n}.log"
-            ws.put(path, log)
-            text, nbytes, mark = f"Read {path} and tell me which step took longest.", len(log), True
+            # Its log is written once every turn is: its size is the plan's.
+            text, work, mark = f"Read {bulk_path(lay.marks.index(t))} and tell me which step took longest.", None, True
         elif role == "fact":
             fact = b.slot[t][1]
-            text, nbytes, edits = _fact_turn(b, ws, fact, scripts, rng)
+            text, work, edits = _fact_turn(b, ws, fact, scripts, rng)
             if edits:
                 pending.setdefault(t + 1, []).extend(edits)
         else:
             probe = b.slot[t][1]
-            text, nbytes = probe.text, 200
+            text = probe.text
+            work = Work("fs_write", {"path": probe.file, "content": "x" * 60}, 80) if probe.file else None
         if role == "opener":
             d = sessions[s]
             text = f"It's {d.weekday}, {d.date}. {text}"
-        est = (len(text) + nbytes) // 4 + 300
         turns.append(Turn(index=t, session=s, block=blk, topic=topic, text=text, role=role,
-                          est_tokens=est, before=before, mark=mark))
+                          est_tokens=turn_tokens(text, work), before=before, mark=mark))
+    window, plans = plan_bulks(turns, lay.marks)
+    for i, (m, plan) in enumerate(zip(lay.marks, plans)):
+        _put_bulks(seed, i, m, plan, turns, ws)
     for f in b.facts:
         del f._ab  # type: ignore[attr-defined]
     keys = {p.id: p._keys for p in b.probes}  # type: ignore[attr-defined]
@@ -776,7 +827,7 @@ def _fact_turn(b: Builder, ws: Workspace, fact: Fact, scripts: set[str], rng: Rn
     a, bb = fact._ab  # type: ignore[attr-defined]
     d = b._detail(fact.kind, a, bb)
     v = fact.value
-    filler, nbytes = ws.filler()
+    filler, work = ws.filler()
     edits: list[Edit] = []
     if fact.carrier in ("output", "error"):
         verbs = OUT_VERBS if fact.carrier == "output" else ERR_VERBS
@@ -804,9 +855,10 @@ def _fact_turn(b: Builder, ws: Workspace, fact: Fact, scripts: set[str], rng: Rn
             text = f"Run ./{path} and tell me whether it worked."
         fact.source = path
         fact.marker = line if fact.kind == "date" else v
-        return text, len(ws.files[path]["content"]), edits
+        return text, ws.run(path), edits
     if fact.carrier == "topic":
         text = central_text(fact.kind, a, bb, d, v, rng)
+        work = None
     elif fact.carrier == "aside":
         text = f"{filler} (Unrelated, but {said_statement(fact.kind, a, bb, d, v)}.)"
     else:
@@ -814,64 +866,289 @@ def _fact_turn(b: Builder, ws: Workspace, fact: Fact, scripts: set[str], rng: Rn
         text = f"Side note: {who} decided in standup that {said_statement(fact.kind, a, bb, d, v)}. Anyway: {filler}"
     if fact.kind == "date":
         fact.marker = said_statement("date", a, bb, d, v)
-    return text, nbytes, edits
+    return text, work, edits
 
 
-def _window(b: Builder, ws: Workspace) -> tuple[int, int]:
-    """The scratch context window that brings each arm's compaction near the
-    marks, and the bulk read's tokens.
+def bulk_path(i: int, k: int = 0) -> str:
+    """The mark's own log (k 0), and the turn after's (k 1, 2, …: `b`, `c`)."""
+    return f"logs/build-{i + 1}{'' if k == 0 else chr(ord('a') + k)}.log"
 
-    Theseus's compiler lets a request hold the window less the output cap
-    and 4,096 tokens (`request_budget` in compiler.rs), and the driver sets
-    the cap from the window (`progression.output_cap`). So the window is the
-    smallest (in thousands) whose budget holds each session's turns before
-    its mark with `MARGIN` to spare, and each bulk read crosses it by
-    `MARGIN` more: an estimate off by that much either way still compacts at
-    the mark. In the full, the turns after a mark fit beside the bulk read
-    and a summary again; in the smoke they may not, and an arm may compact a
-    second time. The scorer measures by where each arm compacted, so a
-    second compaction moves probes, and the report counts them."""
-    lay = b.lay
-    befores = [(m - lay.session(m) * lay.session_turns) * PER_TURN for m in lay.marks]
-    need = OVERHEAD_TOKENS + max(befores) * (1 + MARGIN) + 2000
-    window = 1000
-    while pg.request_budget(window) < need:
+
+def second_text(paths: list[str]) -> str:
+    """The turn after a mark, where it reads more logs."""
+    if len(paths) == 1:
+        return f"Now read {paths[0]} too: which of its steps took longest?"
+    return f"Now read {', '.join(paths[:-1])} and {paths[-1]} too: which of their steps took longest?"
+
+
+MORE_READS = 3  # the most logs the turn after a mark reads
+
+
+class Bulk:
+    """A mark's plan: each log's result tokens, the mark's own first and the
+    turn after's (where the mark's own read can't cross the budget), and the
+    estimate of the session's turns before the mark."""
+
+    def __init__(self, reads: list[int], before: int):
+        self.reads, self.before = reads, before
+
+    def __repr__(self) -> str:
+        return f"Bulk(reads={self.reads}, before={self.before})"
+
+
+def result_tokens(r: int) -> int:
+    """A tool result message of `r` tokens of content, framed."""
+    return r + tk.MESSAGE_TOKENS + tk.BLOCK_TOKENS + tk.ID_TOKENS
+
+
+def reply_tokens() -> int:
+    return tk.Census(messages=1, blocks=1, text=REPLY_BYTES).tokens(PLAN_RATES)
+
+
+def _read_turn(text: str, paths: list[str]) -> tuple[int, int]:
+    """A read turn's user message and its calls, in tokens."""
+    calls = sum(tk.call("fs_read", {"path": p}).tokens(PLAN_RATES) for p in paths)
+    return tk.user_text(text).tokens(PLAN_RATES), calls
+
+
+def mark_turns(i: int, mark_text: str, n: int) -> list[tuple[int, int]]:
+    """(user message, calls) in tokens: the mark's turn, and with `n` more
+    logs, the turn after's."""
+    out = [_read_turn(mark_text, [bulk_path(i)])]
+    if n:
+        paths = [bulk_path(i, k) for k in range(1, n + 1)]
+        out.append(_read_turn(second_text(paths), paths))
+    return out
+
+
+def cross_bound(before: int, turns: list[tuple[int, int]], n: int, r: int) -> int:
+    """The upper bound at the last read's answer, the reads taken one at a
+    time (the slower crossing): everything before that read's result was
+    counted by the provider, and only that result is estimated."""
+    u1, c1 = turns[0]
+    counted = OVERHEAD_TOKENS + before + u1 + c1
+    if n:
+        u2, c2 = turns[1]
+        counted += result_tokens(r) + reply_tokens() + u2 + c2 + (n - 1) * result_tokens(r)
+    return tk.upper(counted, result_tokens(r))
+
+
+def alone_limit(budget: int) -> int:
+    """The most a read turn's ring candidate may be at its upper bound:
+    `ALONE_MARGIN` under the budget, and room beside it for the compaction's
+    summary (`SUMMARY_MAX_TOKENS`), or the ring keeps its cut unsummarized."""
+    return min(int(budget / (1 + ALONE_MARGIN)), budget - tk.SUMMARY_MAX_TOKENS)
+
+
+def fit_bound(before: int, last: int) -> int:
+    """The upper bound of the last turn before a mark: what came before it
+    counted, its own new part estimated."""
+    return tk.upper(OVERHEAD_TOKENS + before - last, last)
+
+
+def plan_bulks(turns: list[Turn], marks: list[int]) -> tuple[int, list[Bulk]]:
+    """The scratch context window, and each mark's bulk reads, by the
+    compiler's rule (`tokens.py`). Theseus rings when a request's upper
+    bound passes the budget (the window less the output cap and 4,096), and
+    a turn whose newest exchange alone passes it fails. So, in the smallest
+    window (in thousands) where it holds for every mark:
+
+    - the turns before a mark fit, at `MARGIN` over their estimate, and so
+      does a session with no mark, whole;
+    - each read turn alone, estimated whole beside the system prompt and
+      tools, stays `ALONE_MARGIN` under the budget at its upper bound, with
+      room beside it for a compaction's summary (`alone_limit`);
+    - at `MARGIN` under the turns' estimate, the reads cross the budget:
+      what came before counted, the last result at the bound. Where the
+      mark's one read can't do both (a short session before it, or a window
+      the longest session sets), the turn after the mark, which holds
+      nothing, reads up to `MORE_READS` more logs, and the crossing is
+      there, the mark's read counted whole by then.
+
+    Every log is the same size, the middle of what its bounds allow, and a
+    tool result is capped at `RESULT_MAX_CHARS`."""
+    cap = int(tk.RESULT_MAX_CHARS // PLAN_RATES[0]) - 1
+    marks_in = []
+    for i, m in enumerate(marks):
+        s = turns[m].session
+        prior = [t for t in turns if t.session == s and t.index < m]
+        marks_in.append((i, turns[m].text, sum(t.est_tokens for t in prior), prior[-1].est_tokens if prior else 0))
+    # A session with no mark fits whole: it is not meant to compact.
+    unmarked = []
+    for s in sorted({t.session for t in turns} - {turns[m].session for m in marks}):
+        own = [t for t in turns if t.session == s]
+        unmarked.append(fit_bound(int(sum(t.est_tokens for t in own) * (1 + MARGIN)),
+                                  int(own[-1].est_tokens * (1 + MARGIN))))
+    window = 0
+    while window < 2_000_000:
         window += 1000
-    budget = pg.request_budget(window)
-    bulk = int(budget - OVERHEAD_TOKENS - min(befores) * (1 - MARGIN) + 2000)
-    return window, bulk
+        budget = pg.request_budget(window)
+        if any(f > budget for f in unmarked):
+            continue
+        plans = []
+        for i, text, before, last in marks_in:
+            if fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN))) > budget:
+                break
+            lo = int(before * (1 - MARGIN))
+            plan = None
+            for n in range(MORE_READS + 1):
+                rt = mark_turns(i, text, n)
+                # A few tokens' slack: the plan rounds each message, the census the whole.
+                top = min(cap, _largest(lambda r: max(_alone(rt, n, r)), alone_limit(budget) - 8))
+                need = max(BULK_MIN_TOKENS, _smallest(lambda r: cross_bound(lo, rt, n, r), budget + 1))
+                if need <= top:
+                    plan = Bulk([(need + top) // 2] * (n + 1), before)
+                    break
+            if plan is None:
+                break
+            plans.append(plan)
+        else:
+            return window, plans
+    raise RuntimeError("no window holds the marks")
+
+
+def _alone(rt: list[tuple[int, int]], n: int, r: int) -> list[int]:
+    """Each read turn's ring candidate at its answer: the system prompt and
+    tools, its user message, its calls and their results (`r` each),
+    estimated whole, at the upper bound. Past the budget, an overage."""
+    (u1, c1), *rest = rt
+    out = [tk.bound(OVERHEAD_TOKENS + u1 + c1 + result_tokens(r))]
+    for u, c in rest:
+        out.append(tk.bound(OVERHEAD_TOKENS + u + c + n * result_tokens(r)))
+    return out
+
+
+def _smallest(f, target: float) -> int:
+    """The least r ≥ 0 with f(r) ≥ target (f grows with r)."""
+    lo, hi = 0, 1
+    while f(hi) < target:
+        hi *= 2
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if f(mid) >= target:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+def _largest(f, limit: float) -> int:
+    """The greatest r ≥ 0 with f(r) ≤ limit (f grows with r), or -1."""
+    if f(0) > limit:
+        return -1
+    lo, hi = 0, 1
+    while f(hi) <= limit:
+        lo, hi = hi, hi * 2
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if f(mid) <= limit:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def _put_bulks(seed: int, i: int, m: int, plan: Bulk, turns: list[Turn], ws: Workspace) -> None:
+    """A mark's logs into the workspace, and its turns' words and
+    estimates: the more reads, where there are any, at the turn after."""
+    rng = bulk_rng(seed, i)
+    works = []
+    for k, r in enumerate(plan.reads):
+        path = bulk_path(i, k)
+        log, _ = bulk_log(rng, int(r * PLAN_RATES[0]))
+        ws.put(path, log)
+        works.append(Work("fs_read", {"path": path}, tk.fs_read_bytes(log)))
+    t = turns[m]
+    t.est_tokens = turn_tokens(t.text, works[0])
+    if len(works) > 1:
+        t = turns[m + 1]
+        t.text, t.role = second_text([w.args["path"] for w in works[1:]]), "bulk"
+        t.est_tokens = turn_tokens(t.text, works[1:])
 
 
 # ---- the budget
 
 
+def bounds_of(prog: Progression) -> list[dict]:
+    """Each mark's bounds, from the progression's own bytes (its logs, its
+    turns' estimates) by the compiler's rule: the request budget; the turns
+    before the mark (`before`, their estimate) and the last one's bound at
+    `MARGIN` over it (`fit`); each read turn's bound alone beside the
+    system prompt and tools (`alone`, against `alone_limit`); and the bound
+    at the last read's answer at `MARGIN` under the turns' estimate
+    (`cross`), the turn it falls in (`cross_at`)."""
+    budget = pg.request_budget(prog.context_window)
+    out = []
+    for i, m in enumerate(prog.marks()):
+        s = prog.turns[m].session
+        prior = [t for t in prog.turns if t.session == s and t.index < m]
+        before = sum(t.est_tokens for t in prior)
+        last = prior[-1].est_tokens if prior else 0
+        read_turns = [prog.turns[m]] + ([prog.turns[m + 1]] if prog.turns[m + 1].role == "bulk" else [])
+        logs, alone, pieces = [], [], []
+        for k, t in enumerate(read_turns):
+            paths = [bulk_path(i)] if k == 0 else [bulk_path(i, j) for j in range(1, MORE_READS + 1)
+                                                   if bulk_path(i, j) in t.text]
+            u = tk.user_text(t.text).tokens(PLAN_RATES)
+            calls = [tk.call("fs_read", {"path": p}).tokens(PLAN_RATES) for p in paths]
+            results = [tk.result(tk.fs_read_bytes(prog.workspace[p]["content"])).tokens(PLAN_RATES) for p in paths]
+            logs += [(p, tk.fs_read_bytes(prog.workspace[p]["content"]), r) for p, r in zip(paths, results)]
+            whole = tk.user_text(t.text)
+            for p in paths:
+                whole = whole + tk.call("fs_read", {"path": p}) + tk.result(tk.fs_read_bytes(prog.workspace[p]["content"]))
+            alone.append(tk.bound(OVERHEAD_TOKENS + whole.tokens(PLAN_RATES)))
+            pieces.append((u, calls, results))
+        counted = OVERHEAD_TOKENS + int(before * (1 - MARGIN))
+        for k, (u, calls, results) in enumerate(pieces):
+            counted += u + sum(calls) + sum(results)
+            if k < len(pieces) - 1:
+                counted += reply_tokens()
+        cross = tk.upper(counted - results[-1], results[-1])
+        out.append({
+            "mark": m, "budget": budget, "before": before,
+            "fit": fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN))),
+            "logs": logs, "alone": alone, "alone_limit": alone_limit(budget),
+            "cross": cross, "cross_at": read_turns[-1].index,
+        })
+    return out
+
+
+SUMMARY_TOKENS = 2000  # a guess at a compaction summary's length
+
+
 def estimate(prog: Progression, model: str) -> dict:
     """The tokens each arm is expected to read, and their dollars at the
     catalog's price: every model call re-reads the context from the cache,
-    writes what is new, and answers; a compaction at each mark summarizes.
-    An estimate for the budget, not a measurement."""
+    writes what is new, and answers; where a turn's request passes the
+    request budget at its upper bound (the compiler's ring), a summary's
+    call reads the context and the context starts again from it. An
+    estimate for the budget, not a measurement."""
     m = model.split("/", 1)[-1]
     if m not in PRICES:
         raise SystemExit(f"no price for {m!r}: the catalog's models are {', '.join(sorted(PRICES))}")
     pin, pout, pread, pwrite = (x / 1e6 for x in PRICES[m])
+    budget = pg.request_budget(prog.context_window)
     out_tokens = 250
     usd = read = written = 0.0
     ctx = OVERHEAD_TOKENS
     session = -1
+    compactions = 0
     for t in prog.turns:
         if t.session != session:
             session, ctx = t.session, OVERHEAD_TOKENS
             usd += OVERHEAD_TOKENS * pwrite
         calls = 1 if t.role == "probe" else 2
         new = t.est_tokens
+        if tk.upper(ctx, new) > budget:
+            usd += ctx * pin + SUMMARY_TOKENS * pout
+            ctx = OVERHEAD_TOKENS + SUMMARY_TOKENS
+            compactions += 1
         usd += calls * ctx * pread + new * pwrite + calls * out_tokens * pout
         read += calls * ctx
         written += new
         ctx += new
-        if t.mark:
-            usd += ctx * pin + 2000 * pout  # the summary's call
-            ctx = OVERHEAD_TOKENS + 2000
-    return {"model": m, "read_tokens": int(read), "new_tokens": int(written), "usd_per_arm": round(usd, 2)}
+    return {"model": m, "read_tokens": int(read), "new_tokens": int(written), "usd_per_arm": round(usd, 2),
+            "compactions": compactions}
 
 
 def summary(prog: Progression, model: str) -> str:
@@ -885,7 +1162,10 @@ def summary(prog: Progression, model: str) -> str:
         f"sessions: " + ", ".join(f"{s.label} ({s.weekday} {s.date}, {len(prog.session_turns(i))} turns)"
                                   for i, s in enumerate(prog.sessions)),
         f"turns: {len(prog.turns)} (" + ", ".join(f"{k} {v}" for k, v in sorted(roles.items())) + ")",
-        f"compaction marks: turns {', '.join(map(str, prog.marks()))}; scratch context window {prog.context_window}",
+        f"compaction marks: turns {', '.join(map(str, prog.marks()))}; scratch context window {prog.context_window}, "
+        f"a request budget of {pg.request_budget(prog.context_window):,} (the window less its output cap "
+        f"{pg.output_cap(prog.context_window):,} and {tk.HEADROOM:,}); the system prompt and tools estimated at "
+        f"{OVERHEAD_TOKENS:,}",
         f"facts: {len(prog.facts)} (" + ", ".join(
             f"{fam} {sum(1 for f in prog.facts if f.family == fam)}" for fam in pg.FAMILIES[:-1])
         + f"; and needs_nothing, the abstentions' subjects, {sum(1 for p in prog.probes if p.kind == 'abstention')}); "
@@ -896,9 +1176,19 @@ def summary(prog: Progression, model: str) -> str:
     ]
     for c in sorted(cells, key=lambda c: (pg.BUCKETS.index(c[0]), c[1], c[2])):
         lines.append(f"  {c[0]:<12} {c[1]:<10} {c[2]:<10} {cells[c]}")
+    lines.append("bulk reads (the compiler's estimate; its upper bound is the estimate × 1.4):")
+    for b in bounds_of(prog):
+        logs = "; ".join(f"{p} {n:,} bytes, {r:,} tokens" for p, n, r in b["logs"])
+        lines.append(
+            f"  mark {b['mark']}: {logs}. Alone beside the system prompt and tools, bound "
+            f"{', '.join(f'{x:,}' for x in b['alone'])} (at most {b['alone_limit']:,}); the {b['before']:,} "
+            f"before it at {MARGIN:.0%} less, crossing at turn {b['cross_at']} at {b['cross']:,} (over "
+            f"{b['budget']:,}); at {MARGIN:.0%} more, the turn before it {b['fit']:,}"
+        )
     lines.append(
         f"estimate per arm at {e['model']}'s catalog price: {e['read_tokens']:,} tokens read from cache, "
-        f"{e['new_tokens']:,} new, ${e['usd_per_arm']:.2f} (two arms: ${2 * e['usd_per_arm']:.2f})"
+        f"{e['new_tokens']:,} new, {e['compactions']} compactions, ${e['usd_per_arm']:.2f} "
+        f"(two arms: ${2 * e['usd_per_arm']:.2f})"
     )
     return "\n".join(lines)
 

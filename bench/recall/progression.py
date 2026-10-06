@@ -83,15 +83,17 @@ KIND_FLAGS = {"date": "i"}
 HEDGE = (
     r"\b(?:i think|i believe|probably|might|may be|maybe|not sure|unsure|uncertain|possibly|likely|"
     r"if i recall|i guess|guessing|i don'?t know|don'?t recall|do not recall|can'?t find|couldn'?t find|"
-    r"no record|not certain|can'?t confirm|cannot confirm|unclear|i'?m not)\b"
+    r"no record|not certain|can'?t confirm|cannot confirm|unclear|i'?m not|can'?t tell|cannot tell|"
+    r"no match(?:es)?|found no|unable to|not able to)\b"
 )
 ADMIT = (
     r"\b(?:don'?t|do not|didn'?t|did not|can'?t|cannot|couldn'?t|could not|haven'?t|have not|hasn'?t|has not|"
     r"wasn'?t|was not|isn'?t|is not|not|never|no|nothing|none)\b[^.?!]{0,80}?\b(?:know|recall|remember|record|"
-    r"records|mention|mentioned|stated|said|told|seen|see|find|found|information|info|idea|sure|aware|specified|"
-    r"given|note|notes|came up|come up|appears|appeared|mentions|says|shows)\b"
+    r"records|mention|mentioned|stated|said|told|tell|seen|see|find|found|information|info|idea|sure|aware|"
+    r"specified|given|note|notes|came up|come up|appears|appeared|mentions|says|shows|pins|pinned|states)\b"
     r"|\bnot (?:sure|certain|mentioned|stated|specified|recorded|given|known)\b|\bunknown\b"
-    r"|\bno (?:record|mention|information|sign|trace)\b"
+    r"|\bno (?:record|mention|information|sign|trace|match|matches|matching|hits|results)\b"
+    r"|\bfound no\b|\b(?:unable|not able) to (?:find|tell|say|locate|determine|confirm|see)\b"
 )
 
 MONTHS = (

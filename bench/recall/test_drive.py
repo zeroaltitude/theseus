@@ -15,6 +15,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
+import signal
 import socket
 import subprocess
 import sys
@@ -33,6 +35,7 @@ import drive  # noqa: E402
 import generate  # noqa: E402
 import progression as pg  # noqa: E402
 import score  # noqa: E402
+import standin  # noqa: E402
 
 STANDIN = r'''#!/usr/bin/env python3
 # A stand-in `claude -p --output-format json`: its sessions under
@@ -176,22 +179,47 @@ class ClaudeCodeDriver(unittest.TestCase):
             run.turns_f.close()
 
 
+def exec_done(p: subprocess.Popen, argv0: str, timeout: float = 10.0) -> None:
+    """Wait until `p` runs `argv0`: between its fork and its exec, its
+    command line is still this process's, and names nothing of the run."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            cmd = Path(f"/proc/{p.pid}/cmdline").read_bytes().split(b"\0", 1)[0].decode()
+        except OSError:
+            cmd = ""
+        if Path(cmd).name == argv0:
+            return
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{p.pid} never ran {argv0} (it runs {cmd!r})")
+        time.sleep(0.01)
+
+
 class LeftRunning(unittest.TestCase):
     def test_a_process_naming_the_run_or_working_in_it_is_found(self):
+        # Each fixture in a session of its own, and its whole group killed:
+        # `sh -c` may fork its `sleep`, and a child that outlives its shell,
+        # caught between its fork and its exec, names the run (theseus-523y).
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             (d / "workspace").mkdir()
-            by_cwd = subprocess.Popen(["sleep", "30"], cwd=d / "workspace")
-            elsewhere = subprocess.Popen(["sleep", "30"], cwd="/")
-            named = subprocess.Popen(["sh", "-c", "sleep 30", str(d / "daemon" / "sock")], cwd="/")
+            by_cwd = subprocess.Popen(["sleep", "30"], cwd=d / "workspace", start_new_session=True)
+            elsewhere = subprocess.Popen(["sleep", "30"], cwd="/", start_new_session=True)
+            named = subprocess.Popen(["sh", "-c", "sleep 30", str(d / "daemon" / "sock")], cwd="/",
+                                     start_new_session=True)
             try:
+                for p, argv0 in ((by_cwd, "sleep"), (elsewhere, "sleep"), (named, "sh")):
+                    exec_done(p, argv0)
                 found = {pid for pid, _ in drive.processes_naming(d)}
                 self.assertIn(by_cwd.pid, found)
                 self.assertIn(named.pid, found)
                 self.assertNotIn(elsewhere.pid, found)
             finally:
                 for p in (by_cwd, elsewhere, named):
-                    p.kill()
+                    try:
+                        os.killpg(p.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                     p.wait()
             self.assertEqual(drive.processes_naming(d), [])
 
@@ -245,46 +273,70 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+def work_for(text: str) -> list[dict]:
+    """The tool calls a model makes for a turn's words: a script run, each
+    file read with `fs_read` (a bulk log whole, as a model reads it), the
+    listing asked for."""
+    calls = []
+    for m in re.finditer(r"Run (\./scripts/[\w.-]+\.sh)", text):
+        calls.append({"name": "proc_run", "input": {"argv": [m.group(1)]}})
+    for m in re.finditer(r"\b((?:src|docs|logs)/[\w.-]+\.(?:py|md|log))\b", text):
+        calls.append({"name": "fs_read", "input": {"path": m.group(1)}})
+    if "Which file under src/ is the largest?" in text:
+        calls.append({"name": "fs_list", "input": {"path": "src"}})
+    return calls
+
+
+# A model's reply after its work, about REPLY_BYTES long: no value, no
+# admission.
+REPLY = ("That's done: the output above says what it found, and it needs nothing more from me right now. "
+         * 5)[:generate.REPLY_BYTES]
+
+
 def rules_for(prog: pg.Progression) -> list[dict]:
-    """The stand-in model's script for a progression: each fact turn that
-    runs a script runs it, a bulk turn reads its log, and each probe gets a
-    perfect arm's answer. The latest turn's rule comes first, so a recall
-    note that quotes an earlier turn never takes its rule."""
+    """The stand-in model's script for a progression: each turn's work as a
+    model does it (`work_for`), and each probe a perfect arm's answer. The
+    latest turn's rule comes first, so a recall note that quotes an earlier
+    turn never takes its rule."""
     rules = []
     answers = answers_for(prog)
-    facts = prog.facts_by_id()
     for t in prog.turns:
-        if t.role == "fact" and facts and any(f.turn == t.index and f.carrier in ("output", "error") for f in prog.facts):
-            f = next(f for f in prog.facts if f.turn == t.index)
-            rules.append({"when": t.text, "calls": [{"name": "proc_run", "input": {"argv": [f"./{f.source}"]}}]})
-        elif t.role == "bulk":
-            log = t.text.split()[1]
-            rules.append({"when": t.text, "calls": [{"name": "proc_run", "input": {"argv": ["cat", log]}}]})
-        elif t.role == "probe":
+        if t.role == "probe":
             a = answers[t.text]
             if a.get("file"):
                 rules.append({"when": t.text, "calls": [{"name": "fs_write",
                                                          "input": {"path": a["file"], "content": a["content"]}}]})
             else:
                 rules.append({"when": t.text, "text": a["reply"]})
+        elif work_for(t.text):
+            rules.append({"when": t.text, "calls": work_for(t.text)})
     return list(reversed(rules))
 
 
 @unittest.skipIf(bin_dir() is None, "no theseus binaries (cargo build --workspace, or THESEUS_RECALL_BIN_DIR)")
 class TheseusDriver(unittest.TestCase):
-    def drive(self, d: Path, prog: pg.Progression, rules: list[dict], timeout: str = "120") -> tuple[int, str, Path]:
-        """`prog` driven through a scratch daemon on the stand-in model."""
+    def drive(self, d: Path, prog: pg.Progression, rules: list[dict], timeout: str = "120",
+              counting: bool = False) -> tuple[int, str, Path]:
+        """`prog` driven through a scratch daemon on a stand-in model:
+        theseus-sim's, which reports 40 input tokens a call, or with
+        `counting`, `standin.py`'s, which reports the request's estimate."""
         bins = bin_dir()
         gen = d / "gen"
         prog.save(gen)
         (d / "rules.json").write_text(json.dumps(rules))
-        port = free_port()
-        fake = subprocess.Popen([str(bins / "theseus-sim"), "fake-model", "--addr", f"127.0.0.1:{port}",
-                                 "--rules", str(d / "rules.json")],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        fake = counted = None
+        if counting:
+            counted = standin.StandIn(rules, REPLY)
+            base = counted.base
+        else:
+            port = free_port()
+            base = f"http://127.0.0.1:{port}"
+            fake = subprocess.Popen([str(bins / "theseus-sim"), "fake-model", "--addr", f"127.0.0.1:{port}",
+                                     "--rules", str(d / "rules.json")],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             deadline = time.monotonic() + 10
-            while True:
+            while fake is not None:
                 try:
                     socket.create_connection(("127.0.0.1", port), 0.2).close()
                     break
@@ -297,10 +349,13 @@ class TheseusDriver(unittest.TestCase):
             with redirect_stdout(buf):
                 rc = drive.main(["--arm", "theseus", "--memory-arm", "baseline", "--bin-dir", str(bins),
                                  "--progression", str(gen), "--out", str(out), "--turn-timeout", timeout,
-                                 "--api-base", f"http://127.0.0.1:{port}"])
+                                 "--api-base", base])
         finally:
-            fake.kill()
-            fake.wait()
+            if fake is not None:
+                fake.kill()
+                fake.wait()
+            if counted is not None:
+                counted.close()
         return rc, buf.getvalue(), out
 
     def test_a_turn_past_its_timeout_is_stopped_and_the_next_one_runs(self):
@@ -328,11 +383,42 @@ class TheseusDriver(unittest.TestCase):
             # The stop took its job too: nothing works in the workspace.
             self.assertEqual(run["left_running"], [])
 
+    def test_mains_sizing_fails_the_mark_on_the_counting_stand_in_as_it_did_live(self):
+        """The smoke as main sized it (theseus-523y): a 35000 window, and one
+        log of 6,944 tokens at four bytes a token, which `fs_read` shows at
+        its 30,000-character cap. Counted as a provider counts, the mark's
+        turn fails as the first live smoke's did: its newest exchange alone
+        passes the budget. (On theseus-sim's stand-in, 40 tokens a call, the
+        same progression never compacts, and every turn exits 0.)"""
+        prog = generate.build(7, "smoke")
+        prog.context_window = 35000
+        lines, size, i = [], 0, 0
+        while size < 6944 * 4:
+            line = f"step {i:05d} basalt-compile-{i:04d} {10 + (i * 7919) % 4000} ms"
+            lines.append(line)
+            size += len(line) + 1
+            i += 1
+        prog.workspace["logs/build-1.log"] = {"content": "\n".join(lines) + "\n", "executable": False}
+        del prog.workspace["logs/build-1b.log"]
+        after = prog.turns[prog.marks()[0] + 1]
+        after.text, after.role = "How many lines are in src/basalt.py?", "filler"
+        with tempfile.TemporaryDirectory() as d:
+            rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
+            self.assertEqual(rc, 0, said)
+            rows = {r["index"]: r for r in map(json.loads, (out / "turns.jsonl").read_text().splitlines())}
+            mark = rows[prog.marks()[0]]
+            self.assertEqual(mark["exit"], 1, mark)
+            self.assertIn("class=context_overage", mark["error"])
+            self.assertIn("against the 22,154 the window leaves", mark["error"])
+
     def test_the_smoke_runs_end_to_end_on_a_scratch_daemon_and_leaves_nothing(self):
+        """On the counting stand-in, each turn's history costs what it would
+        live: the mark (or the turn after it) compacts, and no turn fails
+        (theseus-523y: the live smoke's mark was an overage)."""
         prog = generate.build(7, "smoke")
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
-            rc, said, out = self.drive(d, prog, rules_for(prog))
+            rc, said, out = self.drive(d, prog, rules_for(prog), counting=True)
             self.assertEqual(rc, 0, said)
             run = json.loads((out / "run.json").read_text())
             self.assertEqual(run["left_running"], [])
@@ -353,11 +439,21 @@ class TheseusDriver(unittest.TestCase):
             self.assertEqual(cfg["memory"], {"mode": "live", "arm": "baseline"})
             # Where it compacted is the ledger's word, whatever the marks say;
             # the scorer measures by it.
-            rows_c = run.get("compaction_rows", [])
+            rows_c = run["compaction_rows"]
             self.assertEqual([r["turn"] for r in rows_c], run["compactions"])
+            mark = prog.marks()[0]
+            self.assertIn(run["compactions"][0], (mark, mark + 1), run["compaction_rows"])
+            # Its summary fit beside the kept turns: a compaction, not a ring.
+            self.assertEqual(rows_c[0]["outcomes"], ["compaction"], rows_c[0])
+            for r in rows_c:
+                self.assertEqual(r["outcomes"], [c["outcome"] for c in r["cuts"]], r)
+                for c in r["cuts"]:
+                    self.assertIn(c["outcome"], score.MOVING_OUTCOMES, r)
+                    self.assertGreater(c["messages"], 0, r)
             s = score.summarize(score.score_run(score.load_run(out)))
             self.assertEqual(s["scored"], len(prog.probes))
             self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
+            self.assertEqual(s["moved"], 0)
 
 
 if __name__ == "__main__":
