@@ -10,7 +10,7 @@ use std::time::Duration;
 use theseus_voice::{
     write_wav, Audio, Command, Config, CutWhy, Engine, Event, Failure, HeardAs, Over, Played,
     Speaker, Speech, SpeechError, SpeechFuture, Spoken, StandInSpeech, Synthesis, Transcript,
-    TurnId, Utterance, WavIo,
+    TurnId, Utterance, WavIo, TABLE,
 };
 use tokio::time::{sleep, sleep_until, Instant};
 
@@ -1905,4 +1905,78 @@ async fn one_echo_each_from_two_speakers_leaves_both_stops_on() {
         ]
     );
     assert_eq!(played[2].ended, Some(ms(5300)), "Robin's stop is on");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_tables_sentence_heard_back_is_an_echo() {
+    // The reply's table is said as one sentence, from 1.805 s; Robin's
+    // microphone carries it back whole from 2.0 s. Against the raw rows it
+    // would be words (theseus-zcxx).
+    let reply = "Here it is.\n| Day | Spend |\n|---|---:|\n| Mon | $4.10 |\nThat's all.";
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 14_000).say(ROBIN, 2000, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, TABLE));
+    let (seen, played) = call(io, speech, first(reply), vec![]).await;
+    let (_, echo) = utterances(&seen)[1];
+    assert_eq!(echo.heard_as, HeardAs::Echo);
+    assert_eq!(
+        echo.over,
+        Some(Over::Saying {
+            what: Spoken::Reply(TurnId(0)),
+            sentence: 1,
+            text: TABLE.into()
+        })
+    );
+    assert_eq!(only(&seen, resumed).len(), 1);
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+    assert_eq!(played.len(), 4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_sentence_heard_back_as_played_is_an_echo_without_its_link_or_emphasis() {
+    // The raw sentence has a link and emphasis; it is played as "See the build
+    // log for the failure today.", and heard back so (theseus-zcxx).
+    let reply = "See [the build log](https://ci.example.test/run/7) for **the failure** today.";
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 10_000).say(ROBIN, 1900, 600).io;
+    let speech =
+        Arc::new(StandInSpeech::new().transcript(ROBIN, "see the build log for the failure today"));
+    let (seen, played) = call(io, speech, first(reply), vec![]).await;
+    assert_eq!(utterances(&seen)[1].1.heard_as, HeardAs::Echo);
+    assert_eq!(turns(&seen).len(), 1);
+    assert!(only(&seen, cuts).is_empty());
+    let said = "See the build log for the failure today.";
+    assert_eq!(starts(&played)[0], (ms(1200), len(said), true));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_cut_quotes_the_sentences_as_they_were_played() {
+    // "Here it is." from 1.2 s, the table's sentence from 1.805 s to 3.785 s,
+    // then "Monday was the most." (raw: "**Monday** was the most."), cut by
+    // Robin's words from 4.0 s (theseus-zcxx).
+    let reply =
+        "Here it is.\n| Day | Spend |\n|---|---:|\n| Mon | $4.10 |\n**Monday** was the most. Done.";
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 9000).say(ROBIN, 4000, 600).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, "and Tuesday?"));
+    let (seen, _) = call(io, speech, first(reply), vec![]).await;
+    let cut = only(&seen, cuts);
+    let (
+        _,
+        Event::Cut {
+            heard,
+            last_heard,
+            cut,
+            why,
+            ..
+        },
+    ) = &cut[0]
+    else {
+        panic!("a cut: {cut:?}")
+    };
+    assert_eq!(
+        (*why, *heard, last_heard.as_deref(), cut.as_str()),
+        (CutWhy::Words, 2, Some(TABLE), "Monday was the most.")
+    );
 }
