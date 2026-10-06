@@ -1789,3 +1789,77 @@ async fn two_words_not_at_the_playing_sentences_head_are_a_turn() {
     assert_eq!(turns(&seen)[1], (ms(2800), vec![(ROBIN, "Monthly view.")]));
     assert_eq!(starts(&played), [(ms(1200), len(question), true)]);
 }
+
+/// The owner's turn 0 is at 1.2 s, and Robin's turn 1 at 1.4 s, when turn 0's
+/// reply comes: "Here is the plan." from 1.4 s, then the question, from
+/// 2.335 s to 3.6 s. The owner's "Yes." from 3.4 s for 300 ms begins on its
+/// last word, too short to stop it, and closes at 4.4 s. Robin's reply comes
+/// `robin` after his turn began.
+async fn yes_with_a_reply_queued(robin: u64) -> Vec<(Duration, Event)> {
+    let script: &'static [(u64, &'static str)] = &[
+        (200, "Here is the plan. Should I deploy it now?"),
+        (0, "The logs are clean."),
+    ];
+    let mut by_turn = script.to_vec();
+    by_turn[1].0 = robin;
+    let by_turn: &'static [(u64, &'static str)] = by_turn.leak();
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 9000)
+        .say(OWNER, 0, 500)
+        .say(ROBIN, 0, 600)
+        .say(OWNER, 3400, 300)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "what's the plan?")
+            .transcript(ROBIN, "are the logs clean?")
+            .transcript(OWNER, "Yes."),
+    );
+    let (seen, played) = call(io, speech, answers(by_turn), vec![]).await;
+    let question = "Should I deploy it now?";
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1400), len("Here is the plan."), false),
+            (ms(1400) + len("Here is the plan."), len(question), false),
+        ]
+    );
+    seen
+}
+
+/// The "Yes." is turn 2, at its close, and Robin's reply, which waited for
+/// it, is superseded.
+fn yes_is_a_turn(seen: &[(Duration, Event)]) {
+    let closed = ms(3400 + 300 + 700);
+    assert_eq!(turns(seen)[2], (closed, vec![(OWNER, "Yes.")]));
+    assert_eq!(utterances(seen)[2].1.heard_as, HeardAs::Words);
+    assert_eq!(
+        only(seen, cuts),
+        [(
+            closed,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(1)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "The logs are clean.".into(),
+            }
+        )]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_yes_on_a_closing_questions_last_word_with_a_reply_queued_before_it_is_a_turn() {
+    // T1 (theseus-q4pc): Robin's reply is queued at 2.4 s, before the "Yes."
+    // began, behind the question.
+    yes_is_a_turn(&yes_with_a_reply_queued(1000).await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_yes_on_a_closing_questions_last_word_with_a_reply_queued_under_it_is_a_turn() {
+    // T2 (theseus-q4pc): Robin's reply is queued at 3.5 s, after the "Yes."
+    // began and before it closed.
+    yes_is_a_turn(&yes_with_a_reply_queued(2100).await);
+}

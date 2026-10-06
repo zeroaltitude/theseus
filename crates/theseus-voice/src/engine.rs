@@ -374,8 +374,9 @@ struct Opening {
     over: Option<Over>,
     overlap: Overlap,
     sentences: Vec<String>,
-    /// It began over the last sentence queued, which had begun: if the queue
-    /// is empty when it closes, it answers what was said (theseus-1cz8).
+    /// It began over its reply's or report's last sentence, which had
+    /// begun: if nothing queued has begun when it closes, it answers what
+    /// was said (theseus-1cz8, theseus-q4pc).
     last: bool,
     /// The sentence playing, begun at most `ECHO_HEAD` before it: a run
     /// from its head is an echo from 2 words (theseus-j2ut).
@@ -700,8 +701,9 @@ impl Engine {
                         self.steady.insert(speaker, tick);
                     }
                     // A "yes" begun on a question's last word, closed after
-                    // it ended: the tail's rules, as if begun after it.
-                    if opening.last && self.queue.is_empty() {
+                    // it ended: the tail's rules, as if begun after it. What
+                    // is queued now hasn't begun (theseus-q4pc).
+                    if opening.last && self.queue.front().is_none_or(|f| f.opens) {
                         opening.overlap = Overlap::Tail;
                     }
                     self.transcribe(speaker, first_tick, tick, audio, opening);
@@ -753,7 +755,9 @@ impl Engine {
                 if item.opens && self.hold.is_none() {
                     (Some(over), tail)
                 } else {
-                    last = self.queue.len() == 1;
+                    // Its own reply's last sentence, whatever is queued
+                    // behind it (theseus-q4pc).
+                    last = item.index + 1 == item.count;
                     (Some(over), Overlap::Speech)
                 }
             }
