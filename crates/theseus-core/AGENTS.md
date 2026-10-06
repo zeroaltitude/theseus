@@ -140,7 +140,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   to DynamoDB, in the session `theseus-durability`, from a cursor in `<state>/durability/` saved after every object,
   so a restart asks S3 instead of sending again). Its tests are `aws/tests.rs` (C1), `aws/tests_c2.rs` (a fake
   CloudFormation with state), `aws/tests_durable.rs` (a fake S3 and DynamoDB with state, binary bodies, and
-  checksums, and a missing key answered 404 or 403 by the session's policy, GET and HEAD alike), `aws/tests_synced.rs`
+  checksums, and a missing key answered 404 or 403 by the session's policy, GET and HEAD alike, judged as real S3
+  judges it: the implied `s3:ListBucket` carries the key as `s3:prefix`), `aws/tests_list_prefix.rs` (`ListItsPrefix`
+  under `StringLike`: each session lists only its own prefix, theseus-bfk9), `aws/tests_synced.rs`
   (only frames the writer synced ship: `Hooks::synced_to`, `Store::synced_to`, theseus-mgw.12), and
   `aws/tests_restore.rs`; `config/aws.rs` holds `[aws]`'s types and checks.
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
