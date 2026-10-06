@@ -121,7 +121,7 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     tool id; from a turn's second call on, the provider's count of the last request stands and only what was
     written since is estimated; the ring runs when that passes the budget at its upper bound (the estimate × 1.4),
     and a turn whose newest exchange alone, estimated whole beside the system prompt and tools (13,599 tokens on a
-    scratch daemon of c4f79e9f; the plan takes 13,700, room for growth), still passes it fails before any call. So the window is the smallest where the
+    scratch daemon of c4f79e9f; the plan takes 13,640, within the cushion of it either way), still passes it fails before any call. So the window is the smallest where the
     turns before each mark fit at 15% over their estimate, a session with no mark fits whole, each read turn alone
     stays 10% under the budget with room for a 4,096-token summary beside it, and at 15% under their estimate the
     reads cross the budget: the mark's own, or, where one read can't do both (the smoke's short first session),

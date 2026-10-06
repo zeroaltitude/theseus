@@ -117,10 +117,12 @@ FULL_PER_CELL = 6
 # 60b43fb6 (27 tools, on standin.py, which counted the same 13,533 for
 # "hi"), 13,528; on c4f79e9f, 13,599 (the precedence line and testimony
 # headers); the first live smoke, an older build, said 12,042
-# (theseus-523y). The plan takes today's and about 100 for growth: the
-# smoke sits at its margins, and a larger prompt than planned leaves its
-# mark's summary no room (a `ring`, not a `compaction`).
-OVERHEAD_TOKENS = 13700
+# (theseus-523y). The plan takes today's and 41 for growth, so the daemon
+# stays inside the cushion (`OVERHEAD_CUSHION`) either way (theseus-tqa3: at
+# 13,700 today's daemon was 101 under, and refused): the smoke sits at
+# its margins, and a larger prompt than planned leaves its mark's summary no
+# room (a `ring`, not a `compaction`).
+OVERHEAD_TOKENS = 13640
 # How far a daemon's measured overhead may be from the one a progression
 # was planned at, over or under, before the driver refuses to run it
 # (`drive.py`, unless `--allow-overhead`). The generator checks each plan's

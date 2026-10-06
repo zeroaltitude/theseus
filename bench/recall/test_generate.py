@@ -28,7 +28,7 @@ import tokens as tk  # noqa: E402
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "a6a203b842f48d21"  # theseus-dp3y: theseus-523y's, with its planned overhead recorded
+SMOKE_7 = "5b54c6e94b52c3ba"  # theseus-tqa3: planned at 13,640, within the cushion of the daemon's 13,599 (a6a203b842f48d21 at 13,700)
 
 
 class Rng(unittest.TestCase):
