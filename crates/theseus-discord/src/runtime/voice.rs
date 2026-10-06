@@ -40,9 +40,9 @@ use theseus_protocol::{DiscordOrigin, LedgerKind, PlaceClass, TurnSubmitParams, 
 use theseus_voice::songbird::shards::TwilightMap;
 use theseus_voice::songbird::Songbird;
 use theseus_voice::{
-    Command, Config as EngineConfig, DeepgramSettings, DeepgramSpeech, Engine, Event, Failure,
-    SongbirdIo, Speaker, Speech, SpeechError, SpeechFuture, Spoken, Synthesis, Transcript, TurnId,
-    Utterance,
+    Command, Config as EngineConfig, CutWhy, DeepgramSettings, DeepgramSpeech, Engine, Event,
+    Failure, HeardAs, Over, SongbirdIo, Speaker, Speech, SpeechError, SpeechFuture, Spoken,
+    Synthesis, Transcript, TurnId, Utterance,
 };
 use tokio::sync::mpsc;
 use twilight_gateway::{Event as Gateway, Intents, Shard};
@@ -742,7 +742,8 @@ async fn pump(
                     s.heard_ms += u.length.as_millis() as u64;
                 });
                 let detail = json!({"speaker": u.speaker.0.to_string(),
-                    "empty": u.text.trim().is_empty()});
+                    "empty": u.text.trim().is_empty(), "heard_as": heard_as(u.heard_as),
+                    "over": over(u.over.as_ref())});
                 book(
                     &shared,
                     &place,
@@ -789,11 +790,7 @@ async fn pump(
                 json!({"speaker": speaker.0.to_string(), "place": place.label}),
             ),
             Event::Failed { what, error } => failed(&shared, serial, &place, &what, &error),
-            Event::Cut { .. } => {
-                with_call(&shared, serial, |c| c.notes.cut(&e));
-            }
-            // voice-heard writes their rows.
-            Event::Resumed { .. } => {}
+            Event::Cut { .. } | Event::Resumed { .. } => held(&shared, serial, &place, &e),
             Event::Acknowledged { .. } | Event::Speaking { .. } | Event::Spoke { .. } => {}
         }
     }
@@ -813,6 +810,44 @@ async fn pump(
         }
         let why = call.dropped.clone().unwrap_or_else(|| "ended".into());
         ended(&shared, &call, &why, "the connection");
+    }
+}
+
+/// A cut or a resumed stop (theseus-qb8o): a cut's note for the next voice
+/// turn, and each one's row on the place's session, its metric, and a
+/// resume's count in health.
+fn held(shared: &Shared, serial: u64, place: &VoicePlace, e: &Event) {
+    let sid = session(shared, place);
+    match *e {
+        Event::Cut {
+            what,
+            why,
+            sentences,
+            heard,
+            into,
+            ..
+        } => {
+            with_call(shared, serial, |c| c.notes.cut(e));
+            let why = cut_why(why);
+            shared.core.binding_ledger(
+                LedgerKind::VoiceCut,
+                sid.as_deref(),
+                json!({"what": spoken(what), "why": why, "sentences": sentences,
+                    "heard": heard, "into_ms": into.as_millis() as u64}),
+            );
+            shared.core.telemetry().record_voice_cut(why);
+        }
+        Event::Resumed { what, why, held } => {
+            update(shared, |s| s.resumes += 1);
+            let why = heard_as(why);
+            shared.core.binding_ledger(
+                LedgerKind::VoiceResumed,
+                sid.as_deref(),
+                json!({"what": spoken(what), "why": why, "held_ms": held.as_millis() as u64}),
+            );
+            shared.core.telemetry().record_voice_resumed(why);
+        }
+        _ => {}
     }
 }
 
@@ -843,6 +878,36 @@ fn spoken(what: Spoken) -> String {
         Spoken::Reply(t) => format!("reply {}", t.0),
         Spoken::Report => "report".into(),
         Spoken::Acknowledgment => "acknowledgment".into(),
+    }
+}
+
+fn cut_why(why: CutWhy) -> &'static str {
+    match why {
+        CutWhy::Words => "words",
+        CutWhy::Superseded => "superseded",
+        CutWhy::CallEnded => "call_ended",
+    }
+}
+
+fn heard_as(h: HeardAs) -> &'static str {
+    match h {
+        HeardAs::Words => "words",
+        HeardAs::Wordless => "wordless",
+        HeardAs::Echo => "echo",
+        HeardAs::Backchannel => "backchannel",
+        HeardAs::Resume => "resume",
+    }
+}
+
+/// What an utterance was said over: a sentence's index in what was being
+/// said, or the turn whose reply was being prepared; null when neither.
+fn over(o: Option<&Over>) -> serde_json::Value {
+    match o {
+        Some(Over::Saying { what, sentence, .. }) => {
+            json!({"saying": spoken(*what), "sentence": sentence})
+        }
+        Some(Over::Preparing { turn }) => json!({"preparing": format!("reply {}", turn.0)}),
+        None => serde_json::Value::Null,
     }
 }
 

@@ -297,3 +297,111 @@ async fn the_line_is_bounded() {
     let notes = line.matches("while you spoke").count() + line.matches("they cut in").count();
     assert!(notes <= 3, "{line}");
 }
+
+impl Lounge {
+    /// The ledger's rows of `kind`, as (session, data), oldest first.
+    async fn rows(&self, kind: &str) -> Vec<(Option<String>, serde_json::Value)> {
+        let tail: theseus_protocol::LedgerTailResult = self
+            .place
+            .shared
+            .rpc
+            .call(
+                theseus_protocol::method::LEDGER_TAIL,
+                theseus_protocol::LedgerTailParams {
+                    n: Some(200),
+                    kind: Some(kind.into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        tail.rows
+            .into_iter()
+            .map(|r| (r.session_id, r.data))
+            .collect()
+    }
+}
+
+/// A cut and a resumed stop are rows on the place's session, with their
+/// fields; a transcription's row says what it was heard as and over; and
+/// health counts the resumes.
+#[tokio::test]
+async fn the_cut_and_resumed_rows_carry_their_session_and_fields() {
+    let d = tempfile::tempdir().unwrap();
+    let mut l = lounge(d.path(), &["One.", "Two."]);
+    l.turn(0, vec![], vec![heard("What changed?")]).await;
+    let mut yeah = heard("Yeah.");
+    yeah.heard_as = HeardAs::Backchannel;
+    yeah.over = Some(Over::Saying {
+        what: Spoken::Reply(TurnId(0)),
+        sentence: 2,
+        text: "The third row is Wednesday's.".into(),
+    });
+    let resumed = Event::Resumed {
+        what: Spoken::Reply(TurnId(0)),
+        why: HeardAs::Backchannel,
+        held: Duration::from_millis(640),
+    };
+    let mut early = heard("Wait.");
+    early.over = Some(Over::Preparing { turn: TurnId(1) });
+    let events = vec![
+        Event::Utterance(yeah),
+        resumed,
+        cut(0, CutWhy::Words, 9, 2, 700),
+        Event::Utterance(early.clone()),
+    ];
+    l.turn(1, events, vec![early]).await;
+    let sid = Some(l.sid.clone());
+    let cuts = l.rows("voice.cut").await;
+    assert_eq!(cuts.len(), 1, "{cuts:?}");
+    assert_eq!(cuts[0].0, sid);
+    assert_eq!(
+        cuts[0].1,
+        json!({"what": "reply 0", "why": "words", "sentences": 9, "heard": 2, "into_ms": 700})
+    );
+    let resumes = l.rows("voice.resumed").await;
+    assert_eq!(resumes.len(), 1, "{resumes:?}");
+    assert_eq!(resumes[0].0, sid);
+    assert_eq!(
+        resumes[0].1,
+        json!({"what": "reply 0", "why": "backchannel", "held_ms": 640})
+    );
+    // The transcriptions' rows are booked off the runtime's workers.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let heard_rows = loop {
+        let rows = l.rows("speech.transcribed").await;
+        if rows.len() >= 2 || std::time::Instant::now() >= deadline {
+            break rows;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(heard_rows.len(), 2, "{heard_rows:?}");
+    assert!(heard_rows.iter().all(|(s, _)| *s == sid));
+    let mut seen: Vec<(String, serde_json::Value)> = heard_rows
+        .iter()
+        .map(|(_, d)| {
+            (
+                d["heard_as"].as_str().unwrap().to_string(),
+                d["over"].clone(),
+            )
+        })
+        .collect();
+    seen.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        seen,
+        [
+            (
+                "backchannel".to_string(),
+                json!({"saying": "reply 0", "sentence": 2})
+            ),
+            ("words".to_string(), json!({"preparing": "reply 1"})),
+        ]
+    );
+    let status = l.place.shared.voice.status();
+    assert_eq!((status.resumes, status.barge_ins), (1, 0));
+    assert!(
+        status.line().contains("· 0 barge-in(s) · 1 resumed ·"),
+        "{}",
+        status.line()
+    );
+}
