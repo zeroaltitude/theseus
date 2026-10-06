@@ -738,3 +738,141 @@ async fn after_an_echo_its_speaker_doesnt_stop_it_and_their_words_cut_late() {
         (cut_at, vec![(ROBIN, "hang on a moment please")])
     );
 }
+
+/// Each turn answered after its own delay, with its own text.
+fn answers(by_turn: &'static [(u64, &'static str)]) -> Answer {
+    Box::new(move |turn, _| {
+        let (delay, text) = by_turn.get(turn.0 as usize).copied().unwrap_or((0, ""));
+        (ms(delay), text.into())
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reply_waits_for_the_speaker_and_is_superseded_by_their_words() {
+    // Eddie asks; his turn is at 1.2 s, and its reply comes at 3.0 s, while
+    // he talks again from 2.5 s to 3.5 s. His utterance closes at 4.2 s.
+    let reply = "Here are the logs.";
+    let script: &'static [(u64, &'static str)] = &[(1800, "Here are the logs.")];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 8000).say(EDDIE, 2500, 1000).io;
+    // A cough: the reply plays when it closes.
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(EDDIE, "show me the logs")
+            .transcript(EDDIE, ""),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    assert_eq!(starts(&played), [(ms(4200), len(reply), false)]);
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+    let (_, cough) = utterances(&seen)[1];
+    assert_eq!(
+        (cough.over.clone(), cough.heard_as),
+        (Some(Over::Preparing { turn: TurnId(0) }), HeardAs::Wordless)
+    );
+
+    // Words: the reply is never played, and his words are the next turn.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 8000).say(EDDIE, 2500, 1000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(EDDIE, "show me the logs")
+            .transcript(EDDIE, "only the errors, I mean"),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    assert!(played.is_empty(), "{played:?}");
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            ms(4200),
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: reply.into(),
+            }
+        )]
+    );
+    assert_eq!(
+        turns(&seen)[1],
+        (ms(4200), vec![(EDDIE, "only the errors, I mean")])
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_thought_split_by_a_pause_gets_one_answer() {
+    // "Can you make yourself a" from 0 to 1 s closes at 1.7 s; "tool to
+    // order" begins 800 ms after its last word and closes at 3.5 s. The
+    // reply to the fragment comes at 4.2 s.
+    let script: &'static [(u64, &'static str)] = &[
+        (2500, "Your message cut off."),
+        (500, "Yes, I can make one."),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 9000)
+        .say(EDDIE, 0, 1000)
+        .say(EDDIE, 1800, 1000)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(EDDIE, "Can you make yourself a")
+            .transcript(EDDIE, "tool to order"),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    assert_eq!(
+        turns(&seen),
+        [
+            (ms(1700), vec![(EDDIE, "Can you make yourself a")]),
+            (ms(4200), vec![(EDDIE, "tool to order")]),
+        ]
+    );
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            ms(4200),
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "Your message cut off.".into(),
+            }
+        )]
+    );
+    // One answer, to the whole.
+    assert_eq!(
+        starts(&played),
+        [(ms(4700), len("Yes, I can make one."), false)]
+    );
+
+    // A new question 3 s after the last word doesn't supersede the answer.
+    let script: &'static [(u64, &'static str)] = &[(4500, "Here is the first answer.")];
+    let dir = tempfile::tempdir().unwrap();
+    let io = Lines::new(dir.path(), 9000)
+        .say(EDDIE, 0, 1000)
+        .say(EDDIE, 4000, 1000)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(EDDIE, "what changed today?")
+            .transcript(EDDIE, "and who changed it?"),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    assert!(only(&seen, cuts).is_empty(), "{seen:?}");
+    assert_eq!(
+        starts(&played),
+        [(ms(6200), len("Here is the first answer."), false)]
+    );
+    assert_eq!(
+        turns(&seen),
+        [
+            (ms(1700), vec![(EDDIE, "what changed today?")]),
+            (ms(6200), vec![(EDDIE, "and who changed it?")]),
+        ]
+    );
+}
