@@ -916,11 +916,22 @@ impl Core {
         te: &TurnError,
     ) {
         self.provider_errors.fetch_add(1, Ordering::Relaxed);
+        // The target the turn ran on is the trace root's: routing moves it
+        // there (theseus-490i), and the given one is the request's, before
+        // routing. A turn that failed before its trace began has only that
+        // one (theseus-udzb).
+        let root = |k: &'static str, given| {
+            te.trace
+                .as_ref()
+                .and_then(|t| t.attrs.get(k))
+                .and_then(Value::as_str)
+                .unwrap_or(given)
+        };
         self.telemetry()
             .record_failure(&crate::telemetry::FailedTurn {
-                profile,
-                provider,
-                model,
+                profile: root("profile", profile),
+                provider: root("provider", provider),
+                model: root("model", model),
                 class: &te.class,
                 transient: te.transient,
                 elapsed_ms: te.elapsed_ms,
