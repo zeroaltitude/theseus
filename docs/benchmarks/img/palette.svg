@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="356" viewBox="0 0 720 356" role="img" aria-labelledby="t-palette t-palette-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-palette">The house palette (light mode)</title>
+<desc id="t-palette-d">Which colour is each arm, in every report?</desc>
+<rect width="720" height="356" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">The house palette (light mode)</text>
+<g><title>theseus: #2a78d6</title>
+<rect x="18.0" y="46.0" width="34" height="30" rx="4" fill="#2a78d6"/>
+</g>
+<text x="62.0" y="58.0" font-size="12" fill="#0b0b0b" font-weight="600">1  theseus</text>
+<text x="62.0" y="73.0" font-size="11" fill="#52514e">Theseus · #2a78d6</text>
+<g><title>claude-code: #eb6834</title>
+<rect x="18.0" y="86.0" width="34" height="30" rx="4" fill="#eb6834"/>
+</g>
+<text x="62.0" y="98.0" font-size="12" fill="#0b0b0b" font-weight="600">2  claude-code</text>
+<text x="62.0" y="113.0" font-size="11" fill="#52514e">Claude Code · #eb6834</text>
+<g><title>theseus-batching: #1baf7a</title>
+<rect x="18.0" y="126.0" width="34" height="30" rx="4" fill="#1baf7a"/>
+</g>
+<text x="62.0" y="138.0" font-size="12" fill="#0b0b0b" font-weight="600">3  theseus-batching</text>
+<text x="62.0" y="153.0" font-size="11" fill="#52514e">Theseus + batching paragraph · #1baf7a</text>
+<g><title>openclaw: #eda100</title>
+<rect x="18.0" y="166.0" width="34" height="30" rx="4" fill="#eda100"/>
+</g>
+<text x="62.0" y="178.0" font-size="12" fill="#0b0b0b" font-weight="600">4  openclaw</text>
+<text x="62.0" y="193.0" font-size="11" fill="#52514e">OpenClaw · #eda100</text>
+<g><title>bm25: #e87ba4</title>
+<rect x="18.0" y="206.0" width="34" height="30" rx="4" fill="#e87ba4"/>
+</g>
+<text x="62.0" y="218.0" font-size="12" fill="#0b0b0b" font-weight="600">5  bm25</text>
+<text x="62.0" y="233.0" font-size="11" fill="#52514e">BM25 · #e87ba4</text>
+<g><title>vector: #008300</title>
+<rect x="18.0" y="246.0" width="34" height="30" rx="4" fill="#008300"/>
+</g>
+<text x="62.0" y="258.0" font-size="12" fill="#0b0b0b" font-weight="600">6  vector</text>
+<text x="62.0" y="273.0" font-size="11" fill="#52514e">vectors · #008300</text>
+<g><title>fused: #4a3aa7</title>
+<rect x="360.0" y="46.0" width="34" height="30" rx="4" fill="#4a3aa7"/>
+</g>
+<text x="404.0" y="58.0" font-size="12" fill="#0b0b0b" font-weight="600">7  fused</text>
+<text x="404.0" y="73.0" font-size="11" fill="#52514e">fused ranks · #4a3aa7</text>
+<g><title>entity: #e34948</title>
+<rect x="360.0" y="86.0" width="34" height="30" rx="4" fill="#e34948"/>
+</g>
+<text x="404.0" y="98.0" font-size="12" fill="#0b0b0b" font-weight="600">8  entity</text>
+<text x="404.0" y="113.0" font-size="11" fill="#52514e">entities · #e34948</text>
+<g><title>none: #898781</title>
+<rect x="360.0" y="126.0" width="34" height="30" rx="4" fill="#898781"/>
+</g>
+<text x="404.0" y="138.0" font-size="12" fill="#0b0b0b" font-weight="600">–  none</text>
+<text x="404.0" y="153.0" font-size="11" fill="#52514e">no memory · #898781</text>
+<g><title>oracle: #52514e</title>
+<rect x="360.0" y="166.0" width="34" height="30" rx="4" fill="#52514e"/>
+</g>
+<text x="404.0" y="178.0" font-size="12" fill="#0b0b0b" font-weight="600">–  oracle</text>
+<text x="404.0" y="193.0" font-size="11" fill="#52514e">oracle · #52514e</text>
+<g><title>other: #898781</title>
+<rect x="360.0" y="206.0" width="34" height="30" rx="4" fill="#898781"/>
+</g>
+<text x="404.0" y="218.0" font-size="12" fill="#0b0b0b" font-weight="600">–  other</text>
+<text x="404.0" y="233.0" font-size="11" fill="#52514e">other arm · #898781</text>
+<g><title>context: #898781</title>
+<rect x="360.0" y="246.0" width="34" height="30" rx="4" fill="#898781"/>
+</g>
+<text x="404.0" y="258.0" font-size="12" fill="#0b0b0b" font-weight="600">–  context</text>
+<text x="404.0" y="273.0" font-size="11" fill="#52514e">context · #898781</text>
+<text x="18.0" y="304.0" font-size="11" fill="#52514e">Status (reserved for good or bad, always with a glyph and a key):</text>
+<g><title>good: #0ca30c</title>
+<circle cx="25.0" cy="324.0" r="6" fill="#0ca30c"/>
+</g>
+<text x="38.0" y="328.0" font-size="11" fill="#52514e">good #0ca30c</text>
+<g><title>warning: #fab219</title>
+<circle cx="147.8" cy="324.0" r="6" fill="#fab219"/>
+</g>
+<text x="160.8" y="328.0" font-size="11" fill="#52514e">warning #fab219</text>
+<g><title>serious: #ec835a</title>
+<circle cx="286.5" cy="324.0" r="6" fill="#ec835a"/>
+</g>
+<text x="299.5" y="328.0" font-size="11" fill="#52514e">serious #ec835a</text>
+<g><title>critical: #d03b3b</title>
+<circle cx="419.8" cy="324.0" r="6" fill="#d03b3b"/>
+</g>
+<text x="432.8" y="328.0" font-size="11" fill="#52514e">critical #d03b3b</text>
+</svg>

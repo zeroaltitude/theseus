@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="483" viewBox="0 0 720 483" role="img" aria-labelledby="t-cost-vs-pass t-cost-vs-pass-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-cost-vs-pass">Pass rate against dollars per trial</title>
+<desc id="t-cost-vs-pass-d">Which arm solved more for its dollars?</desc>
+<rect width="720" height="483" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Pass rate against dollars per trial</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">A. Theseus plain</text>
+<circle cx="164.3" cy="50.0" r="5" fill="#1baf7a"/>
+<text x="179.3" y="54.0" font-size="12" fill="#52514e">B. Theseus + paragraph</text>
+<circle cx="347.7" cy="50.0" r="5" fill="#eb6834"/>
+<text x="362.7" y="54.0" font-size="12" fill="#52514e">C. Claude Code</text>
+<circle cx="25.0" cy="70.0" r="4.5" fill="#fcfcfb" stroke="#52514e" stroke-width="1.6"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">on the Pareto front (none does better on both)</text>
+<line x1="52.3" y1="404.0" x2="692.0" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="408.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">60%</text>
+<line x1="52.3" y1="304.0" x2="692.0" y2="304.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="308.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">70%</text>
+<line x1="52.3" y1="204.0" x2="692.0" y2="204.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="208.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">80%</text>
+<line x1="52.3" y1="104.0" x2="692.0" y2="104.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="46.3" y="108.0" font-size="11" fill="#52514e" text-anchor="end" style="font-variant-numeric: tabular-nums">90%</text>
+<text x="52.3" y="96.0" font-size="11" fill="#52514e">pass rate per trial (Wilson 95%)</text>
+<line x1="123.4" y1="104.0" x2="123.4" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="123.4" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
+<line x1="265.5" y1="104.0" x2="265.5" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="265.5" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.12</text>
+<line x1="407.7" y1="104.0" x2="407.7" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="407.7" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.14</text>
+<line x1="549.8" y1="104.0" x2="549.8" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="549.8" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.16</text>
+<line x1="692.0" y1="104.0" x2="692.0" y2="404.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="692.0" y="420.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.18</text>
+<line x1="52.3" y1="404.0" x2="692.0" y2="404.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="372.1" y="438.0" font-size="12" fill="#52514e" text-anchor="middle">dollars per trial (mean, bootstrap 95%)</text>
+<g><title>A. Theseus plain: 71.9% at $0.14 ($0.140 a trial, 71.9% solved)</title>
+<line x1="234.3" y1="284.9" x2="618.7" y2="284.9" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="411.1" y1="355.0" x2="411.1" y2="224.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="411.1" cy="284.9" r="12" fill="transparent"/>
+<circle cx="411.1" cy="284.9" r="6" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>B. Theseus + paragraph: 73.6% at $0.14 ($0.138 a trial, 73.6% solved)</title>
+<line x1="209.6" y1="268.0" x2="599.2" y2="268.0" stroke="#1baf7a" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="390.9" y1="337.3" x2="390.9" y2="208.8" stroke="#1baf7a" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="390.9" cy="268.0" r="12" fill="transparent"/>
+<circle cx="390.9" cy="268.0" r="6" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<g><title>C. Claude Code: 81.5% at $0.13 ($0.130 a trial, 81.5% solved)</title>
+<line x1="158.0" y1="189.4" x2="538.5" y2="189.4" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="338.0" y1="252.9" x2="338.0" y2="139.2" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="338.0" cy="189.4" r="12" fill="transparent"/>
+<circle cx="338.0" cy="189.4" r="6" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<circle cx="338.0" cy="189.4" r="10" fill="none" stroke="#52514e" stroke-width="1.25"/>
+<text x="421.1" y="276.9" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">A. Theseus plain</text>
+<text x="400.9" y="260.0" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">B. Theseus + paragraph</text>
+<text x="348.0" y="181.4" font-size="11" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke">C. Claude Code</text>
+<text x="18.0" y="460.0" font-size="11" fill="#52514e">Dollars over the priced trials (176, 176, 174). Less to the left and higher is better; the ringed point is on the front.</text>
+</svg>

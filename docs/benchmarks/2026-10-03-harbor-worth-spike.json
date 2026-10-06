@@ -1,0 +1,651 @@
+{
+ "report": "2026-10-03-harbor-worth-spike",
+ "title": "Harbor: can Theseus run public benchmarks at all? The worth spike",
+ "suite": "harbor (terminal-bench@2.0 and swebench-verified samples)",
+ "date": "2026-10-03",
+ "commit": "dc3387f",
+ "arms": [
+  {
+   "key": "theseus",
+   "label": "Theseus"
+  },
+  {
+   "key": "theseus-batching",
+   "label": "Theseus + paragraph"
+  },
+  {
+   "key": "claude-code",
+   "label": "Claude Code 2.1.288"
+  }
+ ],
+ "summary": {
+  "run": {
+   "start_mst": "2026-10-03 15:46",
+   "end_mst": "2026-10-03 16:17",
+   "harbor": "0.23.0",
+   "claude_code": "2.1.288",
+   "model": "anthropic/claude-sonnet-5-5",
+   "theseus_base": "dc3387f",
+   "theseus_spike_commit": "60dfb45"
+  },
+  "per_arm": {
+   "theseus": {
+    "trials": 4,
+    "solved": {
+     "k": 4,
+     "n": 4,
+     "rate": 1.0,
+     "lo": 0.510109,
+     "hi": 1.0
+    },
+    "tb": {
+     "model_calls": 17,
+     "tool_calls": 19,
+     "agent_s": 63.11,
+     "dollars": 0.1214
+    },
+    "all": {
+     "model_calls": 24,
+     "tool_calls": 26,
+     "agent_s": 82.38,
+     "dollars": 0.1671
+    },
+    "setup_s": [
+     0.52,
+     0.6,
+     0.91,
+     0.73
+    ],
+    "trial_s": [
+     52.2,
+     58.9,
+     53.6,
+     137.2
+    ],
+    "cache_read_share_range": [
+     0.7039,
+     0.8383
+    ]
+   },
+   "theseus-batching": {
+    "trials": 3,
+    "solved": {
+     "k": 3,
+     "n": 3,
+     "rate": 1.0,
+     "lo": 0.438503,
+     "hi": 1.0
+    },
+    "tb": {
+     "model_calls": 13,
+     "tool_calls": 11,
+     "agent_s": 47.78,
+     "dollars": 0.1096
+    },
+    "all": {
+     "model_calls": 13,
+     "tool_calls": 11,
+     "agent_s": 47.78,
+     "dollars": 0.1096
+    },
+    "setup_s": [
+     0.62,
+     0.58,
+     0.61
+    ],
+    "trial_s": [
+     36.7,
+     39.3,
+     44.6
+    ],
+    "cache_read_share_range": [
+     0.6465,
+     0.7863
+    ]
+   },
+   "claude-code": {
+    "trials": 4,
+    "solved": {
+     "k": 4,
+     "n": 4,
+     "rate": 1.0,
+     "lo": 0.510109,
+     "hi": 1.0
+    },
+    "tb": {
+     "model_calls": 11,
+     "tool_calls": 9,
+     "agent_s": 37.91,
+     "dollars": 0.1062
+    },
+    "all": {
+     "model_calls": 15,
+     "tool_calls": 12,
+     "agent_s": 48.05,
+     "dollars": 0.14
+    },
+    "setup_s": [
+     272.52,
+     287.78,
+     297.66,
+     279.02
+    ],
+    "trial_s": [
+     307.0,
+     335.6,
+     342.6,
+     392.2
+    ],
+    "cache_read_share_range": [
+     0.8048,
+     0.9264
+    ]
+   }
+  },
+  "pooled_solved": {
+   "k": 11,
+   "n": 11,
+   "rate": 1.0,
+   "lo": 0.741167,
+   "hi": 1.0
+  },
+  "harness_share": {
+   "min": 0.0134,
+   "median": 0.0226,
+   "max": 0.0456,
+   "n": 7
+  },
+  "b5_same_tasks": {
+   "theseus": {
+    "trials": 6,
+    "solved": 6,
+    "calls": 34,
+    "calls_per_trial": 5.6667,
+    "dollars_per_trial": 0.0371,
+    "agent_s_per_trial": 20.79
+   },
+   "theseus-batching": {
+    "trials": 6,
+    "solved": 6,
+    "calls": 27,
+    "calls_per_trial": 4.5,
+    "dollars_per_trial": 0.03704,
+    "agent_s_per_trial": 18.06
+   },
+   "claude-code": {
+    "trials": 6,
+    "solved": 6,
+    "calls": 21,
+    "calls_per_trial": 3.5,
+    "dollars_per_trial": 0.02812,
+    "agent_s_per_trial": 13.75
+   }
+  },
+  "spike_vs_full_run": [
+   {
+    "label": "Calls, Theseus / Claude Code: the 3 tasks",
+    "from": 1.5455,
+    "to": 1.619
+   },
+   {
+    "label": "Calls, Theseus / Claude Code: 89 tasks",
+    "from": 1.5455,
+    "to": 1.046
+   },
+   {
+    "label": "Calls, Theseus / Claude Code: 89, both solved",
+    "from": 1.5455,
+    "to": 1.1763
+   },
+   {
+    "label": "Calls, paragraph / plain: the 3 tasks",
+    "from": 0.7647,
+    "to": 0.7941
+   },
+   {
+    "label": "Calls, paragraph / plain: 89, both solved",
+    "from": 0.7647,
+    "to": 0.8948
+   },
+   {
+    "label": "Dollars, Theseus / Claude Code: the 3 tasks",
+    "from": 1.1434,
+    "to": 1.3193
+   },
+   {
+    "label": "Dollars, Theseus / Claude Code: 89 tasks",
+    "from": 1.1434,
+    "to": 1.079
+   }
+  ],
+  "spike_cost_estimate": {
+   "per_config_attempt": [
+    30,
+    90
+   ],
+   "b5_total": [
+    180,
+    540
+   ],
+   "b5_actual_total": 71.6048,
+   "b5_actual_per_config_attempt": 11.93
+  },
+  "total_dollars": 0.4167
+ },
+ "trials": [
+  {
+   "task": "fix-git",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "theseus",
+   "reward": 1.0,
+   "agent_s": 21.74,
+   "setup_s": 0.52,
+   "trial_s": 52.2,
+   "model_calls": 8,
+   "tool_calls": 11,
+   "dollars": 0.04796,
+   "input": 18,
+   "cache_read": 49102,
+   "cache_write": 9454,
+   "output": 1447,
+   "cache_read_share": 0.8383,
+   "turn_split": {
+    "turn_s": 21.158,
+    "provider_s": 19.12,
+    "tools_s": 1.559,
+    "harness_s": 0.479,
+    "harness_share": 0.0226
+   }
+  },
+  {
+   "task": "prove-plus-comm",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "theseus",
+   "reward": 1.0,
+   "agent_s": 12.46,
+   "setup_s": 0.6,
+   "trial_s": 58.9,
+   "model_calls": 5,
+   "tool_calls": 5,
+   "dollars": 0.03275,
+   "input": 12,
+   "cache_read": 23786,
+   "cache_write": 6992,
+   "output": 1049,
+   "cache_read_share": 0.7725,
+   "turn_split": {
+    "turn_s": 12.002,
+    "provider_s": 11.42,
+    "tools_s": 0.393,
+    "harness_s": 0.189,
+    "harness_share": 0.0158
+   }
+  },
+  {
+   "task": "nginx-request-logging",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "theseus",
+   "reward": 1.0,
+   "agent_s": 28.91,
+   "setup_s": 0.91,
+   "trial_s": 53.6,
+   "model_calls": 4,
+   "tool_calls": 3,
+   "dollars": 0.04066,
+   "input": 10,
+   "cache_read": 19027,
+   "cache_write": 7992,
+   "output": 1685,
+   "cache_read_share": 0.7039,
+   "turn_split": {
+    "turn_s": 28.276,
+    "provider_s": 14.346,
+    "tools_s": 13.551,
+    "harness_s": 0.379,
+    "harness_share": 0.0134
+   }
+  },
+  {
+   "task": "psf__requests-1921",
+   "suite": "SWE-bench Verified",
+   "arm": "theseus",
+   "reward": 1.0,
+   "agent_s": 19.27,
+   "setup_s": 0.73,
+   "trial_s": 137.2,
+   "model_calls": 7,
+   "tool_calls": 7,
+   "dollars": 0.04573,
+   "input": 16,
+   "cache_read": 45715,
+   "cache_write": 9128,
+   "output": 1373,
+   "cache_read_share": 0.8333,
+   "turn_split": {
+    "turn_s": 18.503,
+    "provider_s": 16.387,
+    "tools_s": 1.272,
+    "harness_s": 0.844,
+    "harness_share": 0.0456
+   }
+  },
+  {
+   "task": "fix-git",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "theseus-batching",
+   "reward": 1.0,
+   "agent_s": 16.39,
+   "setup_s": 0.62,
+   "trial_s": 36.7,
+   "model_calls": 6,
+   "tool_calls": 6,
+   "dollars": 0.04534,
+   "input": 14,
+   "cache_read": 38637,
+   "cache_write": 10488,
+   "output": 1136,
+   "cache_read_share": 0.7863,
+   "turn_split": {
+    "turn_s": 15.887,
+    "provider_s": 14.671,
+    "tools_s": 0.806,
+    "harness_s": 0.41,
+    "harness_share": 0.0258
+   }
+  },
+  {
+   "task": "prove-plus-comm",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "theseus-batching",
+   "reward": 1.0,
+   "agent_s": 7.83,
+   "setup_s": 0.58,
+   "trial_s": 39.3,
+   "model_calls": 3,
+   "tool_calls": 2,
+   "dollars": 0.0242,
+   "input": 8,
+   "cache_read": 11496,
+   "cache_write": 6277,
+   "output": 619,
+   "cache_read_share": 0.6465,
+   "turn_split": {
+    "turn_s": 7.322,
+    "provider_s": 6.465,
+    "tools_s": 0.586,
+    "harness_s": 0.272,
+    "harness_share": 0.0371
+   }
+  },
+  {
+   "task": "nginx-request-logging",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "theseus-batching",
+   "reward": 1.0,
+   "agent_s": 23.56,
+   "setup_s": 0.61,
+   "trial_s": 44.6,
+   "model_calls": 4,
+   "tool_calls": 3,
+   "dollars": 0.04003,
+   "input": 10,
+   "cache_read": 19668,
+   "cache_write": 8248,
+   "output": 1546,
+   "cache_read_share": 0.7043,
+   "turn_split": {
+    "turn_s": 23.032,
+    "provider_s": 12.073,
+    "tools_s": 10.639,
+    "harness_s": 0.319,
+    "harness_share": 0.0139
+   }
+  },
+  {
+   "task": "fix-git",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "claude-code",
+   "reward": 1.0,
+   "agent_s": 12.84,
+   "setup_s": 272.52,
+   "trial_s": 307.0,
+   "model_calls": 6,
+   "tool_calls": 5,
+   "dollars": 0.04496,
+   "input": 12,
+   "cache_read": 90735,
+   "cache_write": 7197,
+   "output": 880,
+   "cache_read_share": 0.9264
+  },
+  {
+   "task": "prove-plus-comm",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "claude-code",
+   "reward": 1.0,
+   "agent_s": 7.91,
+   "setup_s": 287.78,
+   "trial_s": 335.6,
+   "model_calls": 3,
+   "tool_calls": 3,
+   "dollars": 0.02832,
+   "input": 6,
+   "cache_read": 41184,
+   "cache_write": 5679,
+   "output": 587,
+   "cache_read_share": 0.8787
+  },
+  {
+   "task": "nginx-request-logging",
+   "suite": "Terminal-Bench 2.0",
+   "arm": "claude-code",
+   "reward": 1.0,
+   "agent_s": 17.16,
+   "setup_s": 297.66,
+   "trial_s": 342.6,
+   "model_calls": 2,
+   "tool_calls": 1,
+   "dollars": 0.03287,
+   "input": 4,
+   "cache_read": 26098,
+   "cache_write": 6324,
+   "output": 1183,
+   "cache_read_share": 0.8048
+  },
+  {
+   "task": "psf__requests-1921",
+   "suite": "SWE-bench Verified",
+   "arm": "claude-code",
+   "reward": 1.0,
+   "agent_s": 10.14,
+   "setup_s": 279.02,
+   "trial_s": 392.2,
+   "model_calls": 4,
+   "tool_calls": 3,
+   "dollars": 0.03385,
+   "input": 8,
+   "cache_read": 58399,
+   "cache_write": 6438,
+   "output": 606,
+   "cache_read_share": 0.9006
+  }
+ ],
+ "figures": [
+  {
+   "name": "calls-by-task",
+   "form": "bars",
+   "orientation": "h",
+   "title": "Model calls per task, one trial each",
+   "question": "How many model calls did each arm make on each task?",
+   "categories": [
+    "fix-git",
+    "prove-plus-comm",
+    "nginx-request-logging",
+    "psf__requests-1921 (SWE-bench)"
+   ],
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "Theseus",
+     "values": [
+      8,
+      5,
+      4,
+      7
+     ]
+    },
+    {
+     "arm": "theseus-batching",
+     "label": "Theseus + paragraph",
+     "values": [
+      6,
+      3,
+      4,
+      null
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.288",
+     "values": [
+      6,
+      3,
+      2,
+      4
+     ]
+    }
+   ],
+   "value": {
+    "label": "model calls",
+    "min": 0,
+    "format": "int"
+   },
+   "labels": "ends",
+   "note": "Every trial solved its task. The paragraph's arm ran the three Terminal-Bench tasks only.",
+   "legend_labels": {
+    "theseus": "Theseus",
+    "theseus-batching": "Theseus + paragraph",
+    "claude-code": "Claude Code"
+   }
+  },
+  {
+   "name": "setup-time",
+   "form": "strip",
+   "title": "Installing the agent in the task's container, every trial",
+   "question": "How long does each harness take to install in a task's container?",
+   "x": {
+    "label": "agent setup, seconds (log scale)",
+    "format": "s",
+    "log": true,
+    "min": 0.3,
+    "max": 600
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "Theseus (both arms)",
+     "values": [
+      0.52,
+      0.6,
+      0.91,
+      0.73,
+      0.62,
+      0.58,
+      0.61
+     ],
+     "tips": [
+      "fix-git, Theseus: 0.52 s",
+      "prove-plus-comm, Theseus: 0.60 s",
+      "nginx-request-logging, Theseus: 0.91 s",
+      "psf__requests-1921, Theseus: 0.73 s",
+      "fix-git, Theseus + paragraph: 0.62 s",
+      "prove-plus-comm, Theseus + paragraph: 0.58 s",
+      "nginx-request-logging, Theseus + paragraph: 0.61 s"
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code",
+     "values": [
+      272.52,
+      287.78,
+      297.66,
+      279.02
+     ],
+     "tips": [
+      "fix-git: 273 s",
+      "prove-plus-comm: 288 s",
+      "nginx-request-logging: 298 s",
+      "psf__requests-1921: 279 s"
+     ]
+    }
+   ],
+   "note": "Harbor's agent-setup phase. Theseus uploads two static binaries; Claude Code installs Node and its CLI.",
+   "legend_labels": {
+    "theseus": "Theseus",
+    "theseus-batching": "Theseus + paragraph",
+    "claude-code": "Claude Code"
+   }
+  },
+  {
+   "name": "spike-against-full-run",
+   "form": "dumbbell",
+   "arm": "theseus",
+   "title": "The spike's ratios, and the same ratios in the full run a day later",
+   "question": "Did the spike's call and dollar ratios hold at full scale?",
+   "x": {
+    "label": "ratio (1.00 = the same)",
+    "format": "x",
+    "min": 0.7,
+    "max": 1.7
+   },
+   "from_label": "the spike, 2026-10-03",
+   "to_label": "the full run, 2026-10-04",
+   "rows": [
+    {
+     "label": "Calls, Theseus / Claude Code: the 3 tasks",
+     "from": 1.5455,
+     "to": 1.619,
+     "tip": "1.55 -> 1.62"
+    },
+    {
+     "label": "Calls, Theseus / Claude Code: 89 tasks",
+     "from": 1.5455,
+     "to": 1.046,
+     "tip": "1.55 -> 1.05"
+    },
+    {
+     "label": "Calls, Theseus / Claude Code: 89, both solved",
+     "from": 1.5455,
+     "to": 1.1763,
+     "tip": "1.55 -> 1.18"
+    },
+    {
+     "label": "Calls, paragraph / plain: the 3 tasks",
+     "from": 0.7647,
+     "to": 0.7941,
+     "tip": "0.76 -> 0.79"
+    },
+    {
+     "label": "Calls, paragraph / plain: 89, both solved",
+     "from": 0.7647,
+     "to": 0.8948,
+     "tip": "0.76 -> 0.89"
+    },
+    {
+     "label": "Dollars, Theseus / Claude Code: the 3 tasks",
+     "from": 1.1434,
+     "to": 1.3193,
+     "tip": "1.14 -> 1.32"
+    },
+    {
+     "label": "Dollars, Theseus / Claude Code: 89 tasks",
+     "from": 1.1434,
+     "to": 1.079,
+     "tip": "1.14 -> 1.08"
+    }
+   ],
+   "note": "The 3 tasks: fix-git, prove-plus-comm, nginx-request-logging (spike: one trial each; full run: two). 89 tasks: per trial; both solved: the task-attempts both arms solved."
+  }
+ ]
+}

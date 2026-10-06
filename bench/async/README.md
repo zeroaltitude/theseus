@@ -147,7 +147,7 @@ OpenClaw (not built yet) fits the same shape: a subclass of its Harbor agent who
   bench/report reads them; a trial whose sampler did not run has no numbers, never zeros.
 - **Cost**: Harbor's, which for Theseus is the sum of its ledger's model calls and its cut calls' estimates.
 
-Results go in [`docs/benchmarks.md`](../../docs/benchmarks.md).
+Every run of it gets its report in [`docs/benchmarks/`](../../docs/benchmarks/README.md) ([`bench/README.md`](../README.md), "Every run gets its report").
 
 ## Public neighbours
 

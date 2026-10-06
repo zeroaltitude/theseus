@@ -194,18 +194,28 @@ class Report(unittest.TestCase):
 
     def test_three_charts_that_parse_one_point_per_arm(self):
         for _, _, _, file in rp.PARETO:
-            root = ET.parse(self.out / file).getroot()
-            self.assertEqual(root.tag, SVG + "svg")
-            circles = root.findall(SVG + "circle")
-            labels = {t.text for t in root.findall(SVG + "text")}
-            want = {"alpha", "beta"} if file == "pareto-ram.svg" else {"alpha", "beta", "gamma"}
-            self.assertEqual(len(circles), len(want), file)
-            self.assertTrue(want <= labels, file)
-            blue = sum(1 for c in circles if c.get("fill") == "#3b6fb6")
-            self.assertEqual(blue, 2, file)
+            for f in (file, file.replace(".svg", "-dark.svg")):
+                root = ET.parse(self.out / f).getroot()
+                self.assertEqual(root.tag, SVG + "svg")
+                dots = [c for c in root.iter(SVG + "circle") if c.get("r") == "6"]
+                rings = [c for c in root.iter(SVG + "circle") if c.get("r") == "10"]
+                labels = {t.text for t in root.iter(SVG + "text")}
+                want = {"alpha", "beta"} if file == "pareto-ram.svg" else {"alpha", "beta", "gamma"}
+                self.assertEqual(len(dots), len(want), f)
+                self.assertTrue(want <= labels, f)
+                self.assertEqual(len(rings), 2, f"{f}: the front, alpha and beta, is ringed")
+                hover = [g.find(SVG + "title").text for g in root.iter(SVG + "g") if g.find(SVG + "title") is not None]
+                for name in want:
+                    self.assertTrue(any(h.startswith(name + ":") for h in hover), f"{f}: {name} has its hover text")
         md = (self.out / "report.md").read_text()
         for _, _, _, file in rp.PARETO:
             self.assertIn(f"({file})", md)
+
+    def test_an_arm_outside_the_palette_is_named_in_the_legend(self):
+        pts = [("theseus", 0.14, 0.72), ("claude-code", 0.13, 0.81), ("pi", 0.10, 0.70)]
+        texts = [t.text for t in ET.fromstring(rp.svg("Score", "dollars", pts, rp.front(pts))).iter(SVG + "text")]
+        self.assertEqual(texts.count("pi"), 2, "its point's label and its legend entry")
+        self.assertNotIn("other arm", texts)
 
     def test_the_command_line_and_the_trials_csv(self):
         out = self.root / "cli"

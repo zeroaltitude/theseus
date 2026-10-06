@@ -1,0 +1,1625 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="295" viewBox="0 0 720 295" role="img" aria-labelledby="t-cost-per-trial t-cost-per-trial-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-cost-per-trial">Dollars per trial, every priced trial</title>
+<desc id="t-cost-per-trial-d">How are each arm's dollars spread over its trials?</desc>
+<rect width="720" height="295" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Dollars per trial, every priced trial</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">A. Theseus plain</text>
+<circle cx="164.3" cy="50.0" r="5" fill="#1baf7a"/>
+<text x="179.3" y="54.0" font-size="12" fill="#52514e">B. Theseus + paragraph</text>
+<circle cx="347.7" cy="50.0" r="5" fill="#eb6834"/>
+<text x="362.7" y="54.0" font-size="12" fill="#52514e">C. Claude Code</text>
+<line x1="481.8" y1="43.0" x2="481.8" y2="57.0" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="496.8" y="54.0" font-size="12" fill="#52514e">median</text>
+<line x1="266.2" y1="78.0" x2="266.2" y2="216.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="396.2" y1="78.0" x2="396.2" y2="216.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="526.2" y1="78.0" x2="526.2" y2="216.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="161.4" y="105.0" font-size="12" fill="#0b0b0b" text-anchor="end">A. Theseus plain</text>
+<g><title>A. Theseus plain: quartiles $0.044, $0.083, $0.17</title>
+<rect x="350.2" y="99.0" width="75.5" height="4" rx="2" fill="#52514e" fill-opacity="0.35"/>
+</g>
+<g><title>A. Theseus plain: $0.0022 (crack-7z-hash (A1): $0.002, not solved)</title>
+<circle cx="180.8" cy="101.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.0023 (crack-7z-hash (A2): $0.002, not solved)</title>
+<circle cx="183.3" cy="109.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.0042 (vulnerable-secret (A1): $0.004, not solved)</title>
+<circle cx="217.3" cy="112.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.0044 (vulnerable-secret (A2): $0.004, not solved)</title>
+<circle cx="219.9" cy="99.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.015 (break-filter-js-from-html (A1): $0.015, not solved)</title>
+<circle cx="287.2" cy="93.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.015 (break-filter-js-from-html (A2): $0.015, not solved)</title>
+<circle cx="287.2" cy="90.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.017 (git-leak-recovery (A2): $0.017, solved)</title>
+<circle cx="297.5" cy="104.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.018 (git-leak-recovery (A1): $0.018, solved)</title>
+<circle cx="298.2" cy="106.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.022 (distribution-search (A1): $0.022, solved)</title>
+<circle cx="310.0" cy="93.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.025 (distribution-search (A2): $0.025, solved)</title>
+<circle cx="318.9" cy="103.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.026 (modernize-scientific-stack (A2): $0.026, solved)</title>
+<circle cx="319.7" cy="107.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.027 (nginx-request-logging (A2): $0.027, solved)</title>
+<circle cx="322.9" cy="109.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.027 (nginx-request-logging (A1): $0.027, solved)</title>
+<circle cx="322.9" cy="91.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.028 (modernize-scientific-stack (A1): $0.028, solved)</title>
+<circle cx="323.3" cy="95.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.029 (chess-best-move (A2): $0.029, solved)</title>
+<circle cx="327.1" cy="99.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.030 (cancel-async-tasks (A2): $0.030, solved)</title>
+<circle cx="327.5" cy="97.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.030 (sqlite-db-truncate (A1): $0.030, solved)</title>
+<circle cx="328.3" cy="92.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.030 (bn-fit-modify (A1): $0.030, solved)</title>
+<circle cx="328.8" cy="106.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.031 (code-from-image (A1): $0.031, solved)</title>
+<circle cx="329.7" cy="105.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.031 (bn-fit-modify (A2): $0.031, solved)</title>
+<circle cx="330.6" cy="94.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.031 (fix-code-vulnerability (A1): $0.031, solved)</title>
+<circle cx="330.8" cy="108.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.032 (code-from-image (A2): $0.032, solved)</title>
+<circle cx="331.0" cy="101.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.032 (prove-plus-comm (A1): $0.032, solved)</title>
+<circle cx="331.4" cy="95.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.032 (chess-best-move (A1): $0.032, solved)</title>
+<circle cx="332.4" cy="102.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.032 (extract-elf (A2): $0.032, solved)</title>
+<circle cx="332.6" cy="106.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.033 (configure-git-webserver (A1): $0.033, solved)</title>
+<circle cx="333.3" cy="103.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.033 (db-wal-recovery (A2): $0.033, solved)</title>
+<circle cx="333.5" cy="92.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.034 (openssl-selfsigned-cert (A1): $0.033, solved)</title>
+<circle cx="334.5" cy="103.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.034 (mteb-retrieve (A2): $0.034, not solved)</title>
+<circle cx="335.5" cy="96.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.034 (log-summary-date-ranges (A2): $0.034, solved)</title>
+<circle cx="336.0" cy="111.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.035 (mteb-retrieve (A1): $0.035, not solved)</title>
+<circle cx="336.3" cy="106.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.035 (cancel-async-tasks (A1): $0.035, solved)</title>
+<circle cx="337.4" cy="109.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.036 (openssl-selfsigned-cert (A2): $0.036, solved)</title>
+<circle cx="337.9" cy="103.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.036 (kv-store-grpc (A2): $0.036, solved)</title>
+<circle cx="338.2" cy="107.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.036 (db-wal-recovery (A1): $0.036, solved)</title>
+<circle cx="338.5" cy="90.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.036 (kv-store-grpc (A1): $0.036, solved)</title>
+<circle cx="339.3" cy="106.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.037 (polyglot-rust-c (A1): $0.037, not solved)</title>
+<circle cx="340.8" cy="99.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.038 (prove-plus-comm (A2): $0.038, solved)</title>
+<circle cx="341.4" cy="91.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.040 (large-scale-text-editing (A1): $0.040, solved)</title>
+<circle cx="345.1" cy="98.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.040 (extract-elf (A1): $0.040, solved)</title>
+<circle cx="345.1" cy="104.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.041 (pytorch-model-recovery (A1): $0.041, solved)</title>
+<circle cx="346.4" cy="109.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.042 (fix-code-vulnerability (A2): $0.042, solved)</title>
+<circle cx="347.4" cy="92.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.043 (build-pmars (A2): $0.043, solved)</title>
+<circle cx="348.6" cy="97.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.044 (configure-git-webserver (A2): $0.044, not solved)</title>
+<circle cx="349.9" cy="111.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.044 (constraints-scheduling (A1): $0.044, solved)</title>
+<circle cx="350.3" cy="91.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.044 (large-scale-text-editing (A2): $0.044, solved)</title>
+<circle cx="350.4" cy="95.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.045 (polyglot-rust-c (A2): $0.045, not solved)</title>
+<circle cx="350.9" cy="103.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.045 (fix-git (A1): $0.045, solved)</title>
+<circle cx="350.9" cy="91.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.045 (regex-log (A2): $0.045, solved)</title>
+<circle cx="351.6" cy="99.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.045 (log-summary-date-ranges (A1): $0.045, solved)</title>
+<circle cx="351.8" cy="92.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.046 (pytorch-model-recovery (A2): $0.046, solved)</title>
+<circle cx="352.4" cy="91.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.046 (build-pmars (A1): $0.046, solved)</title>
+<circle cx="352.5" cy="99.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.046 (hf-model-inference (A2): $0.046, solved)</title>
+<circle cx="352.7" cy="97.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.047 (pypi-server (A2): $0.047, solved)</title>
+<circle cx="353.2" cy="101.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.048 (pypi-server (A1): $0.048, solved)</title>
+<circle cx="354.4" cy="101.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.048 (model-extraction-relu-logits (A2): $0.048, solved)</title>
+<circle cx="354.8" cy="110.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.048 (constraints-scheduling (A2): $0.048, solved)</title>
+<circle cx="354.9" cy="109.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.049 (count-dataset-tokens (A2): $0.049, solved)</title>
+<circle cx="355.8" cy="96.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.049 (sqlite-db-truncate (A2): $0.049, solved)</title>
+<circle cx="356.2" cy="111.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.050 (multi-source-data-merger (A1): $0.050, solved)</title>
+<circle cx="356.7" cy="92.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.050 (password-recovery (A2): $0.050, solved)</title>
+<circle cx="356.7" cy="92.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.050 (sqlite-with-gcov (A2): $0.050, solved)</title>
+<circle cx="357.5" cy="89.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.051 (multi-source-data-merger (A2): $0.051, solved)</title>
+<circle cx="357.6" cy="102.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.051 (sqlite-with-gcov (A1): $0.051, solved)</title>
+<circle cx="358.1" cy="98.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.051 (count-dataset-tokens (A1): $0.051, solved)</title>
+<circle cx="358.8" cy="106.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.052 (install-windows-3.11 (A2): $0.052, not solved)</title>
+<circle cx="359.3" cy="103.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.054 (fix-git (A2): $0.054, solved)</title>
+<circle cx="361.1" cy="110.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.055 (query-optimize (A1): $0.055, not solved)</title>
+<circle cx="362.7" cy="112.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.055 (qemu-alpine-ssh (A2): $0.055, not solved)</title>
+<circle cx="362.7" cy="90.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.056 (regex-log (A1): $0.055, solved)</title>
+<circle cx="363.0" cy="112.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.056 (torch-pipeline-parallelism (A1): $0.056, solved)</title>
+<circle cx="363.5" cy="92.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.060 (mcmc-sampling-stan (A2): $0.060, solved)</title>
+<circle cx="367.3" cy="111.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.060 (polyglot-c-py (A1): $0.060, not solved)</title>
+<circle cx="367.8" cy="94.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.061 (torch-pipeline-parallelism (A2): $0.061, solved)</title>
+<circle cx="367.9" cy="93.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.063 (headless-terminal (A1): $0.063, solved)</title>
+<circle cx="370.0" cy="99.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.063 (merge-diff-arc-agi-task (A2): $0.063, solved)</title>
+<circle cx="370.3" cy="109.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.065 (feal-differential-cryptanalysis (A1): $0.065, solved)</title>
+<circle cx="372.2" cy="89.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.067 (password-recovery (A1): $0.067, solved)</title>
+<circle cx="373.4" cy="105.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.067 (merge-diff-arc-agi-task (A1): $0.067, solved)</title>
+<circle cx="373.9" cy="99.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.068 (headless-terminal (A2): $0.068, solved)</title>
+<circle cx="374.2" cy="95.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.068 (query-optimize (A2): $0.068, solved)</title>
+<circle cx="374.6" cy="104.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.071 (git-multibranch (A1): $0.071, solved)</title>
+<circle cx="376.9" cy="94.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.072 (feal-differential-cryptanalysis (A2): $0.072, solved)</title>
+<circle cx="377.6" cy="97.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.076 (torch-tensor-parallelism (A1): $0.076, solved)</title>
+<circle cx="380.6" cy="108.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.080 (git-multibranch (A2): $0.080, solved)</title>
+<circle cx="383.5" cy="107.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.081 (pytorch-model-cli (A1): $0.081, not solved)</title>
+<circle cx="384.2" cy="107.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.081 (dna-insert (A1): $0.081, not solved)</title>
+<circle cx="384.5" cy="101.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.083 (overfull-hbox (A2): $0.083, solved)</title>
+<circle cx="385.5" cy="101.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.083 (torch-tensor-parallelism (A2): $0.083, solved)</title>
+<circle cx="385.7" cy="100.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.092 (qemu-startup (A2): $0.092, not solved)</title>
+<circle cx="391.8" cy="102.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.093 (sparql-university (A1): $0.094, solved)</title>
+<circle cx="392.4" cy="110.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.094 (tune-mjcf (A1): $0.094, solved)</title>
+<circle cx="392.9" cy="99.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.095 (winning-avg-corewars (A1): $0.095, solved)</title>
+<circle cx="393.1" cy="111.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.096 (caffe-cifar-10 (A1): $0.096, not solved)</title>
+<circle cx="394.0" cy="94.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.096 (mcmc-sampling-stan (A1): $0.096, solved)</title>
+<circle cx="394.1" cy="102.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.097 (polyglot-c-py (A2): $0.097, not solved)</title>
+<circle cx="394.7" cy="90.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.098 (filter-js-from-html (A2): $0.098, not solved)</title>
+<circle cx="395.2" cy="98.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.099 (gcode-to-text (A2): $0.099, solved)</title>
+<circle cx="395.8" cy="102.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.10 (compile-compcert (A1): $0.101, not solved)</title>
+<circle cx="396.7" cy="104.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.10 (largest-eigenval (A2): $0.103, solved)</title>
+<circle cx="398.0" cy="89.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.10 (filter-js-from-html (A1): $0.103, not solved)</title>
+<circle cx="398.1" cy="108.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.10 (tune-mjcf (A2): $0.103, solved)</title>
+<circle cx="398.1" cy="107.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.10 (sparql-university (A2): $0.104, solved)</title>
+<circle cx="398.3" cy="112.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.10 (feal-linear-cryptanalysis (A2): $0.105, solved)</title>
+<circle cx="398.7" cy="91.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.11 (raman-fitting (A2): $0.105, solved)</title>
+<circle cx="399.1" cy="109.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.11 (compile-compcert (A2): $0.109, solved)</title>
+<circle cx="401.1" cy="101.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.11 (pytorch-model-cli (A2): $0.110, not solved)</title>
+<circle cx="401.6" cy="110.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.11 (train-fasttext (A1): $0.111, not solved)</title>
+<circle cx="402.3" cy="110.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.11 (video-processing (A2): $0.114, solved)</title>
+<circle cx="403.4" cy="99.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.12 (qemu-alpine-ssh (A1): $0.116, not solved)</title>
+<circle cx="404.4" cy="97.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.12 (model-extraction-relu-logits (A1): $0.117, solved)</title>
+<circle cx="405.2" cy="95.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.12 (cobol-modernization (A2): $0.119, solved)</title>
+<circle cx="406.0" cy="96.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.12 (rstan-to-pystan (A2): $0.120, solved)</title>
+<circle cx="406.7" cy="103.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.12 (largest-eigenval (A1): $0.121, solved)</title>
+<circle cx="406.8" cy="99.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.12 (llm-inference-batching-scheduler (A1): $0.124, solved)</title>
+<circle cx="408.3" cy="90.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.13 (custom-memory-heap-crash (A2): $0.126, solved)</title>
+<circle cx="409.2" cy="96.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.13 (build-pov-ray (A1): $0.130, solved)</title>
+<circle cx="410.8" cy="107.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.13 (dna-insert (A2): $0.131, not solved)</title>
+<circle cx="411.4" cy="97.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.13 (write-compressor (A2): $0.132, solved)</title>
+<circle cx="411.7" cy="108.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.14 (portfolio-optimization (A1): $0.142, solved)</title>
+<circle cx="416.2" cy="95.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.14 (rstan-to-pystan (A1): $0.143, solved)</title>
+<circle cx="416.3" cy="90.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.15 (custom-memory-heap-crash (A1): $0.145, solved)</title>
+<circle cx="417.3" cy="94.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.15 (portfolio-optimization (A2): $0.145, solved)</title>
+<circle cx="417.3" cy="106.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.16 (sanitize-git-repo (A1): $0.160, solved)</title>
+<circle cx="422.9" cy="108.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.16 (sam-cell-seg (A2): $0.161, not solved)</title>
+<circle cx="422.9" cy="95.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.16 (mailman (A2): $0.163, solved)</title>
+<circle cx="423.8" cy="101.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.16 (build-cython-ext (A2): $0.164, solved)</title>
+<circle cx="424.0" cy="111.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.16 (sanitize-git-repo (A2): $0.164, solved)</title>
+<circle cx="424.1" cy="103.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.16 (gcode-to-text (A1): $0.164, solved)</title>
+<circle cx="424.1" cy="103.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.17 (raman-fitting (A1): $0.166, not solved)</title>
+<circle cx="424.7" cy="111.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.17 (overfull-hbox (A1): $0.166, solved)</title>
+<circle cx="424.8" cy="100.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.17 (video-processing (A1): $0.168, not solved)</title>
+<circle cx="425.5" cy="96.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.17 (build-cython-ext (A1): $0.170, solved)</title>
+<circle cx="426.3" cy="98.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.17 (write-compressor (A1): $0.171, solved)</title>
+<circle cx="426.4" cy="90.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.18 (circuit-fibsqrt (A1): $0.182, solved)</title>
+<circle cx="429.9" cy="101.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.18 (cobol-modernization (A1): $0.182, solved)</title>
+<circle cx="429.9" cy="90.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.18 (extract-moves-from-video (A1): $0.182, not solved)</title>
+<circle cx="430.1" cy="100.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.18 (extract-moves-from-video (A2): $0.183, not solved)</title>
+<circle cx="430.4" cy="112.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.19 (build-pov-ray (A2): $0.187, solved)</title>
+<circle cx="431.4" cy="106.8" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.19 (reshard-c4-data (A2): $0.187, solved)</title>
+<circle cx="431.5" cy="95.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.19 (dna-assembly (A2): $0.187, solved)</title>
+<circle cx="431.5" cy="94.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.19 (mailman (A1): $0.187, solved)</title>
+<circle cx="431.6" cy="100.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.19 (sam-cell-seg (A1): $0.193, not solved)</title>
+<circle cx="433.3" cy="104.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.20 (reshard-c4-data (A1): $0.195, solved)</title>
+<circle cx="433.9" cy="97.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.21 (qemu-startup (A1): $0.210, not solved)</title>
+<circle cx="438.1" cy="110.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.21 (dna-assembly (A1): $0.211, solved)</title>
+<circle cx="438.5" cy="102.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.21 (protein-assembly (A1): $0.213, not solved)</title>
+<circle cx="438.9" cy="104.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.22 (circuit-fibsqrt (A2): $0.220, solved)</title>
+<circle cx="440.6" cy="107.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.22 (llm-inference-batching-scheduler (A2): $0.220, not solved)</title>
+<circle cx="440.8" cy="89.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.25 (protein-assembly (A2): $0.248, solved)</title>
+<circle cx="447.5" cy="89.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.26 (fix-ocaml-gc (A2): $0.256, solved)</title>
+<circle cx="449.2" cy="110.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.27 (adaptive-rejection-sampler (A1): $0.269, not solved)</title>
+<circle cx="452.1" cy="104.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.28 (mteb-leaderboard (A1): $0.284, solved)</title>
+<circle cx="455.1" cy="107.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.28 (financial-document-processor (A1): $0.285, solved)</title>
+<circle cx="455.2" cy="100.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.29 (path-tracing (A1): $0.290, solved)</title>
+<circle cx="456.2" cy="105.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.30 (financial-document-processor (A2): $0.299, solved)</title>
+<circle cx="458.1" cy="111.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.30 (gpt2-codegolf (A2): $0.302, solved)</title>
+<circle cx="458.6" cy="97.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.31 (adaptive-rejection-sampler (A2): $0.307, not solved)</title>
+<circle cx="459.5" cy="109.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.33 (feal-linear-cryptanalysis (A1): $0.329, solved)</title>
+<circle cx="463.5" cy="101.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.35 (regex-chess (A1): $0.346, not solved)</title>
+<circle cx="466.2" cy="102.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.35 (regex-chess (A2): $0.346, not solved)</title>
+<circle cx="466.2" cy="94.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.36 (fix-ocaml-gc (A1): $0.356, solved)</title>
+<circle cx="467.9" cy="103.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.36 (mteb-leaderboard (A2): $0.363, not solved)</title>
+<circle cx="469.0" cy="103.4" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.40 (path-tracing-reverse (A1): $0.397, solved)</title>
+<circle cx="474.0" cy="104.6" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.40 (schemelike-metacircular-eval (A2): $0.402, not solved)</title>
+<circle cx="474.7" cy="98.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.42 (path-tracing-reverse (A2): $0.422, solved)</title>
+<circle cx="477.4" cy="92.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.44 (train-fasttext (A2): $0.444, not solved)</title>
+<circle cx="480.3" cy="104.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.45 (winning-avg-corewars (A2): $0.452, solved)</title>
+<circle cx="481.4" cy="92.3" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.46 (gpt2-codegolf (A1): $0.465, solved)</title>
+<circle cx="482.9" cy="100.0" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.49 (make-mips-interpreter (A2): $0.490, solved)</title>
+<circle cx="485.9" cy="112.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.49 (make-mips-interpreter (A1): $0.492, not solved)</title>
+<circle cx="486.1" cy="97.9" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.49 (schemelike-metacircular-eval (A1): $0.492, not solved)</title>
+<circle cx="486.1" cy="104.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.50 (path-tracing (A2): $0.503, solved)</title>
+<circle cx="487.4" cy="100.1" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $0.52 (install-windows-3.11 (A1): $0.516, not solved)</title>
+<circle cx="488.9" cy="108.7" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $1.44 (make-doom-for-mips (A1): $1.438, not solved)</title>
+<circle cx="546.7" cy="105.5" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: $1.46 (make-doom-for-mips (A2): $1.460, not solved)</title>
+<circle cx="547.5" cy="112.2" r="3.2" fill="#2a78d6" fill-opacity="0.75"/>
+</g>
+<g><title>A. Theseus plain: median $0.083</title>
+<line x1="385.6" y1="87.0" x2="385.6" y2="115.0" stroke="#0b0b0b" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="579.3" y="105.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">median $0.083 · n 176</text>
+<text x="161.4" y="151.0" font-size="12" fill="#0b0b0b" text-anchor="end">B. Theseus + paragraph</text>
+<g><title>B. Theseus + paragraph: quartiles $0.038, $0.072, $0.17</title>
+<rect x="341.4" y="145.0" width="85.7" height="4" rx="2" fill="#52514e" fill-opacity="0.35"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.0045 (vulnerable-secret (B2): $0.004, not solved)</title>
+<circle cx="221.2" cy="144.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.0046 (vulnerable-secret (B1): $0.005, not solved)</title>
+<circle cx="222.4" cy="140.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.015 (break-filter-js-from-html (B1): $0.015, not solved)</title>
+<circle cx="288.4" cy="135.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.015 (break-filter-js-from-html (B2): $0.015, not solved)</title>
+<circle cx="288.4" cy="158.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.015 (crack-7z-hash (B2): $0.015, not solved)</title>
+<circle cx="289.9" cy="138.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.015 (crack-7z-hash (B1): $0.015, not solved)</title>
+<circle cx="290.2" cy="151.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.021 (openssl-selfsigned-cert (B2): $0.020, solved)</title>
+<circle cx="306.8" cy="145.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.021 (mteb-retrieve (B1): $0.021, not solved)</title>
+<circle cx="309.4" cy="142.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.024 (chess-best-move (B1): $0.024, not solved)</title>
+<circle cx="316.1" cy="138.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.025 (openssl-selfsigned-cert (B1): $0.025, solved)</title>
+<circle cx="317.3" cy="156.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.025 (large-scale-text-editing (B2): $0.025, solved)</title>
+<circle cx="318.2" cy="159.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.025 (prove-plus-comm (B2): $0.025, solved)</title>
+<circle cx="318.6" cy="142.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.027 (mteb-retrieve (B2): $0.027, not solved)</title>
+<circle cx="321.7" cy="137.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.027 (log-summary-date-ranges (B2): $0.027, solved)</title>
+<circle cx="322.3" cy="139.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.028 (large-scale-text-editing (B1): $0.028, not solved)</title>
+<circle cx="324.8" cy="147.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.028 (log-summary-date-ranges (B1): $0.028, solved)</title>
+<circle cx="324.8" cy="144.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.029 (multi-source-data-merger (B1): $0.029, solved)</title>
+<circle cx="326.9" cy="150.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.030 (prove-plus-comm (B1): $0.030, solved)</title>
+<circle cx="328.6" cy="146.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.031 (multi-source-data-merger (B2): $0.031, solved)</title>
+<circle cx="330.1" cy="155.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.031 (git-leak-recovery (B1): $0.031, solved)</title>
+<circle cx="330.1" cy="144.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.031 (code-from-image (B2): $0.031, solved)</title>
+<circle cx="330.3" cy="149.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.031 (constraints-scheduling (B1): $0.031, solved)</title>
+<circle cx="330.8" cy="154.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.032 (git-leak-recovery (B2): $0.032, solved)</title>
+<circle cx="331.2" cy="142.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.032 (code-from-image (B1): $0.032, solved)</title>
+<circle cx="331.9" cy="150.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.032 (constraints-scheduling (B2): $0.032, solved)</title>
+<circle cx="332.2" cy="148.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.032 (db-wal-recovery (B1): $0.032, solved)</title>
+<circle cx="332.4" cy="135.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.032 (db-wal-recovery (B2): $0.032, solved)</title>
+<circle cx="332.4" cy="156.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.033 (sqlite-with-gcov (B2): $0.033, solved)</title>
+<circle cx="334.3" cy="151.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.033 (cancel-async-tasks (B2): $0.033, solved)</title>
+<circle cx="334.3" cy="154.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.034 (cancel-async-tasks (B1): $0.034, solved)</title>
+<circle cx="335.2" cy="139.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.034 (sqlite-with-gcov (B1): $0.034, solved)</title>
+<circle cx="335.3" cy="147.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.035 (pypi-server (B2): $0.035, solved)</title>
+<circle cx="336.5" cy="151.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.035 (fix-code-vulnerability (B1): $0.035, solved)</title>
+<circle cx="337.0" cy="137.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.035 (configure-git-webserver (B1): $0.035, not solved)</title>
+<circle cx="337.1" cy="140.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.035 (pypi-server (B1): $0.035, solved)</title>
+<circle cx="337.1" cy="148.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.035 (fix-code-vulnerability (B2): $0.035, solved)</title>
+<circle cx="337.3" cy="154.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.035 (count-dataset-tokens (B2): $0.035, solved)</title>
+<circle cx="337.8" cy="142.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.036 (kv-store-grpc (B2): $0.036, solved)</title>
+<circle cx="338.7" cy="152.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.036 (extract-elf (B1): $0.036, solved)</title>
+<circle cx="339.0" cy="140.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.037 (modernize-scientific-stack (B2): $0.037, solved)</title>
+<circle cx="339.5" cy="141.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.037 (build-pmars (B2): $0.037, not solved)</title>
+<circle cx="339.6" cy="150.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.037 (kv-store-grpc (B1): $0.037, solved)</title>
+<circle cx="339.6" cy="146.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.037 (modernize-scientific-stack (B1): $0.037, solved)</title>
+<circle cx="340.1" cy="151.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.037 (extract-elf (B2): $0.037, solved)</title>
+<circle cx="340.7" cy="156.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.038 (query-optimize (B2): $0.038, solved)</title>
+<circle cx="341.6" cy="138.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.039 (polyglot-c-py (B2): $0.039, not solved)</title>
+<circle cx="342.8" cy="143.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.040 (git-multibranch (B1): $0.040, solved)</title>
+<circle cx="343.9" cy="149.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.040 (hf-model-inference (B1): $0.040, solved)</title>
+<circle cx="344.8" cy="141.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.040 (nginx-request-logging (B1): $0.040, solved)</title>
+<circle cx="345.1" cy="148.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.041 (configure-git-webserver (B2): $0.041, not solved)</title>
+<circle cx="345.3" cy="152.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.041 (fix-git (B1): $0.041, solved)</title>
+<circle cx="345.3" cy="143.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.041 (chess-best-move (B2): $0.041, solved)</title>
+<circle cx="346.2" cy="147.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.041 (hf-model-inference (B2): $0.041, solved)</title>
+<circle cx="346.3" cy="149.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.042 (nginx-request-logging (B2): $0.042, solved)</title>
+<circle cx="347.2" cy="149.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.042 (polyglot-c-py (B1): $0.042, not solved)</title>
+<circle cx="347.4" cy="138.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.043 (git-multibranch (B2): $0.043, solved)</title>
+<circle cx="348.3" cy="149.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.043 (distribution-search (B1): $0.043, solved)</title>
+<circle cx="348.4" cy="150.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.043 (bn-fit-modify (B2): $0.043, solved)</title>
+<circle cx="348.6" cy="144.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.043 (count-dataset-tokens (B1): $0.043, solved)</title>
+<circle cx="348.6" cy="153.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.043 (build-pmars (B1): $0.043, solved)</title>
+<circle cx="348.6" cy="158.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.044 (fix-git (B2): $0.044, solved)</title>
+<circle cx="349.5" cy="152.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.044 (polyglot-rust-c (B2): $0.044, not solved)</title>
+<circle cx="350.0" cy="137.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.044 (torch-tensor-parallelism (B2): $0.044, solved)</title>
+<circle cx="350.0" cy="158.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.044 (qemu-alpine-ssh (B2): $0.044, not solved)</title>
+<circle cx="350.4" cy="157.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.045 (polyglot-rust-c (B1): $0.045, not solved)</title>
+<circle cx="351.0" cy="154.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.046 (torch-tensor-parallelism (B1): $0.046, solved)</title>
+<circle cx="352.9" cy="153.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.047 (password-recovery (B1): $0.047, solved)</title>
+<circle cx="353.8" cy="157.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.048 (distribution-search (B2): $0.048, solved)</title>
+<circle cx="354.3" cy="155.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.049 (merge-diff-arc-agi-task (B2): $0.049, solved)</title>
+<circle cx="355.6" cy="139.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.050 (merge-diff-arc-agi-task (B1): $0.050, solved)</title>
+<circle cx="356.7" cy="150.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.051 (pytorch-model-recovery (B2): $0.051, solved)</title>
+<circle cx="357.9" cy="148.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.052 (model-extraction-relu-logits (B2): $0.052, solved)</title>
+<circle cx="359.7" cy="158.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.053 (query-optimize (B1): $0.053, not solved)</title>
+<circle cx="359.9" cy="149.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.053 (regex-log (B2): $0.053, solved)</title>
+<circle cx="360.4" cy="150.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.053 (pytorch-model-recovery (B1): $0.053, solved)</title>
+<circle cx="360.5" cy="135.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.053 (regex-log (B1): $0.053, solved)</title>
+<circle cx="360.5" cy="136.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.055 (pytorch-model-cli (B1): $0.055, solved)</title>
+<circle cx="362.1" cy="153.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.055 (bn-fit-modify (B1): $0.055, solved)</title>
+<circle cx="362.2" cy="147.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.055 (headless-terminal (B1): $0.055, solved)</title>
+<circle cx="362.3" cy="158.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.062 (headless-terminal (B2): $0.062, solved)</title>
+<circle cx="369.0" cy="153.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.063 (sqlite-db-truncate (B2): $0.063, solved)</title>
+<circle cx="369.9" cy="137.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.064 (feal-differential-cryptanalysis (B1): $0.064, solved)</title>
+<circle cx="371.3" cy="147.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.065 (pytorch-model-cli (B2): $0.065, solved)</title>
+<circle cx="371.5" cy="139.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.065 (torch-pipeline-parallelism (B2): $0.065, solved)</title>
+<circle cx="372.2" cy="137.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.068 (sqlite-db-truncate (B1): $0.068, solved)</title>
+<circle cx="374.4" cy="138.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.068 (feal-differential-cryptanalysis (B2): $0.068, solved)</title>
+<circle cx="374.5" cy="141.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.072 (torch-pipeline-parallelism (B1): $0.072, solved)</title>
+<circle cx="377.5" cy="135.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.072 (password-recovery (B2): $0.072, solved)</title>
+<circle cx="378.1" cy="140.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.072 (mcmc-sampling-stan (B1): $0.072, not solved)</title>
+<circle cx="378.1" cy="147.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.075 (qemu-alpine-ssh (B1): $0.075, not solved)</title>
+<circle cx="380.3" cy="147.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.077 (tune-mjcf (B1): $0.077, solved)</title>
+<circle cx="381.7" cy="136.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.085 (portfolio-optimization (B2): $0.085, solved)</title>
+<circle cx="387.0" cy="151.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.086 (sparql-university (B2): $0.086, solved)</title>
+<circle cx="387.9" cy="141.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.087 (portfolio-optimization (B1): $0.087, solved)</title>
+<circle cx="388.1" cy="152.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.087 (sparql-university (B1): $0.087, solved)</title>
+<circle cx="388.3" cy="147.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.088 (custom-memory-heap-crash (B2): $0.088, solved)</title>
+<circle cx="388.7" cy="139.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.088 (reshard-c4-data (B1): $0.088, solved)</title>
+<circle cx="389.2" cy="141.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.089 (extract-moves-from-video (B1): $0.089, not solved)</title>
+<circle cx="389.6" cy="135.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.089 (gcode-to-text (B1): $0.089, solved)</title>
+<circle cx="389.9" cy="151.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.090 (model-extraction-relu-logits (B1): $0.090, solved)</title>
+<circle cx="390.4" cy="135.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.10 (dna-insert (B1): $0.102, not solved)</title>
+<circle cx="397.0" cy="156.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.10 (filter-js-from-html (B2): $0.103, not solved)</title>
+<circle cx="397.9" cy="155.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.10 (mcmc-sampling-stan (B2): $0.104, not solved)</title>
+<circle cx="398.3" cy="139.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.11 (train-fasttext (B2): $0.106, not solved)</title>
+<circle cx="399.6" cy="145.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.11 (raman-fitting (B1): $0.109, not solved)</title>
+<circle cx="401.3" cy="142.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.11 (reshard-c4-data (B2): $0.109, solved)</title>
+<circle cx="401.3" cy="158.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.11 (feal-linear-cryptanalysis (B1): $0.112, solved)</title>
+<circle cx="402.7" cy="136.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.11 (qemu-startup (B2): $0.115, not solved)</title>
+<circle cx="403.9" cy="156.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.12 (compile-compcert (B2): $0.115, solved)</title>
+<circle cx="404.1" cy="145.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.12 (overfull-hbox (B1): $0.116, solved)</title>
+<circle cx="404.4" cy="145.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.12 (sam-cell-seg (B2): $0.117, not solved)</title>
+<circle cx="405.1" cy="137.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.12 (compile-compcert (B1): $0.121, solved)</title>
+<circle cx="406.8" cy="154.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.12 (build-pov-ray (B2): $0.121, solved)</title>
+<circle cx="407.1" cy="158.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.12 (cobol-modernization (B1): $0.121, solved)</title>
+<circle cx="407.2" cy="151.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.13 (dna-insert (B2): $0.126, not solved)</title>
+<circle cx="409.3" cy="143.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.13 (llm-inference-batching-scheduler (B1): $0.127, solved)</title>
+<circle cx="409.8" cy="150.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.13 (rstan-to-pystan (B1): $0.133, not solved)</title>
+<circle cx="412.5" cy="147.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.13 (write-compressor (B1): $0.134, solved)</title>
+<circle cx="412.5" cy="137.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.13 (gcode-to-text (B2): $0.134, solved)</title>
+<circle cx="412.6" cy="153.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.13 (write-compressor (B2): $0.134, solved)</title>
+<circle cx="412.9" cy="153.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.14 (circuit-fibsqrt (B2): $0.137, solved)</title>
+<circle cx="413.8" cy="151.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.14 (mteb-leaderboard (B1): $0.139, solved)</title>
+<circle cx="414.9" cy="135.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.14 (tune-mjcf (B2): $0.140, solved)</title>
+<circle cx="415.2" cy="140.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.14 (cobol-modernization (B2): $0.141, solved)</title>
+<circle cx="415.5" cy="156.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.14 (qemu-startup (B1): $0.141, not solved)</title>
+<circle cx="415.7" cy="138.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.14 (video-processing (B1): $0.142, solved)</title>
+<circle cx="416.1" cy="145.7" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.14 (custom-memory-heap-crash (B1): $0.143, solved)</title>
+<circle cx="416.4" cy="145.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.15 (sam-cell-seg (B1): $0.153, not solved)</title>
+<circle cx="420.1" cy="153.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.15 (rstan-to-pystan (B2): $0.154, solved)</title>
+<circle cx="420.6" cy="156.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.15 (sanitize-git-repo (B2): $0.154, solved)</title>
+<circle cx="420.7" cy="135.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.16 (filter-js-from-html (B1): $0.163, not solved)</title>
+<circle cx="423.8" cy="158.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.17 (feal-linear-cryptanalysis (B2): $0.173, solved)</title>
+<circle cx="427.0" cy="137.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.17 (build-pov-ray (B1): $0.174, solved)</title>
+<circle cx="427.4" cy="145.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.18 (dna-assembly (B1): $0.175, solved)</title>
+<circle cx="427.9" cy="153.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.18 (build-cython-ext (B1): $0.179, solved)</title>
+<circle cx="428.9" cy="145.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.18 (build-cython-ext (B2): $0.179, solved)</title>
+<circle cx="429.2" cy="153.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.18 (dna-assembly (B2): $0.180, solved)</title>
+<circle cx="429.4" cy="157.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.18 (circuit-fibsqrt (B1): $0.185, solved)</title>
+<circle cx="430.9" cy="155.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.19 (train-fasttext (B1): $0.188, not solved)</title>
+<circle cx="431.9" cy="153.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.19 (video-processing (B2): $0.189, not solved)</title>
+<circle cx="432.0" cy="143.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.19 (raman-fitting (B2): $0.191, not solved)</title>
+<circle cx="432.8" cy="155.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.19 (largest-eigenval (B1): $0.194, solved)</title>
+<circle cx="433.6" cy="146.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.21 (fix-ocaml-gc (B2): $0.206, solved)</title>
+<circle cx="437.1" cy="137.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.21 (largest-eigenval (B2): $0.206, solved)</title>
+<circle cx="437.1" cy="138.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.21 (sanitize-git-repo (B1): $0.210, solved)</title>
+<circle cx="438.0" cy="156.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.22 (protein-assembly (B1): $0.221, solved)</title>
+<circle cx="440.9" cy="150.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.23 (fix-ocaml-gc (B1): $0.228, solved)</title>
+<circle cx="442.8" cy="136.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.23 (overfull-hbox (B2): $0.228, solved)</title>
+<circle cx="442.8" cy="137.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.23 (llm-inference-batching-scheduler (B2): $0.229, solved)</title>
+<circle cx="443.0" cy="146.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.23 (mailman (B1): $0.231, solved)</title>
+<circle cx="443.4" cy="139.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.23 (path-tracing (B1): $0.233, solved)</title>
+<circle cx="444.0" cy="146.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.23 (adaptive-rejection-sampler (B1): $0.233, solved)</title>
+<circle cx="444.1" cy="156.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.26 (path-tracing (B2): $0.260, solved)</title>
+<circle cx="450.1" cy="143.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.27 (adaptive-rejection-sampler (B2): $0.267, not solved)</title>
+<circle cx="451.6" cy="142.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.29 (winning-avg-corewars (B2): $0.294, solved)</title>
+<circle cx="457.2" cy="145.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.30 (mailman (B2): $0.296, solved)</title>
+<circle cx="457.4" cy="139.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.30 (gpt2-codegolf (B2): $0.302, solved)</title>
+<circle cx="458.6" cy="137.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.30 (gpt2-codegolf (B1): $0.305, solved)</title>
+<circle cx="459.1" cy="146.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.31 (protein-assembly (B2): $0.309, not solved)</title>
+<circle cx="459.9" cy="135.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.33 (mteb-leaderboard (B2): $0.327, solved)</title>
+<circle cx="463.1" cy="151.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.33 (regex-chess (B1): $0.331, not solved)</title>
+<circle cx="463.7" cy="148.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.34 (financial-document-processor (B1): $0.345, solved)</title>
+<circle cx="466.1" cy="137.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.35 (winning-avg-corewars (B1): $0.353, solved)</title>
+<circle cx="467.3" cy="142.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.36 (schemelike-metacircular-eval (B2): $0.356, not solved)</title>
+<circle cx="467.8" cy="142.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.38 (path-tracing-reverse (B2): $0.376, solved)</title>
+<circle cx="470.9" cy="154.6" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.39 (make-mips-interpreter (B2): $0.392, solved)</title>
+<circle cx="473.3" cy="140.0" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.39 (extract-moves-from-video (B2): $0.392, not solved)</title>
+<circle cx="473.3" cy="153.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.41 (financial-document-processor (B2): $0.410, solved)</title>
+<circle cx="475.8" cy="148.3" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.41 (make-mips-interpreter (B1): $0.412, solved)</title>
+<circle cx="476.2" cy="149.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.42 (path-tracing-reverse (B1): $0.416, solved)</title>
+<circle cx="476.7" cy="156.9" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.52 (schemelike-metacircular-eval (B1): $0.519, solved)</title>
+<circle cx="489.1" cy="135.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.60 (regex-chess (B2): $0.601, solved)</title>
+<circle cx="497.4" cy="138.1" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.78 (install-windows-3.11 (B2): $0.783, solved)</title>
+<circle cx="512.4" cy="156.2" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $0.80 (install-windows-3.11 (B1): $0.804, not solved)</title>
+<circle cx="513.8" cy="144.4" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $1.24 (make-doom-for-mips (B1): $1.243, not solved)</title>
+<circle cx="538.4" cy="135.5" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: $1.45 (make-doom-for-mips (B2): $1.455, not solved)</title>
+<circle cx="547.3" cy="157.8" r="3.2" fill="#1baf7a" fill-opacity="0.75"/>
+</g>
+<g><title>B. Theseus + paragraph: median $0.072</title>
+<line x1="378.1" y1="133.0" x2="378.1" y2="161.0" stroke="#0b0b0b" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="579.3" y="151.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">median $0.072 · n 176</text>
+<text x="161.4" y="197.0" font-size="12" fill="#0b0b0b" text-anchor="end">C. Claude Code</text>
+<g><title>C. Claude Code: quartiles $0.037, $0.062, $0.13</title>
+<rect x="340.3" y="191.0" width="70.8" height="4" rx="2" fill="#52514e" fill-opacity="0.35"/>
+</g>
+<g><title>C. Claude Code: $0.017 (prove-plus-comm (C1): $0.017, solved)</title>
+<circle cx="296.2" cy="201.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.018 (fix-code-vulnerability (C2): $0.017, solved)</title>
+<circle cx="297.8" cy="184.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.018 (sqlite-with-gcov (C1): $0.018, solved)</title>
+<circle cx="300.4" cy="182.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.018 (mteb-retrieve (C1): $0.019, not solved)</title>
+<circle cx="301.0" cy="197.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.018 (nginx-request-logging (C1): $0.019, solved)</title>
+<circle cx="301.0" cy="194.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.020 (pypi-server (C1): $0.020, solved)</title>
+<circle cx="305.9" cy="202.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.021 (distribution-search (C2): $0.021, solved)</title>
+<circle cx="309.2" cy="201.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.022 (large-scale-text-editing (C1): $0.022, solved)</title>
+<circle cx="311.3" cy="192.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.022 (git-leak-recovery (C1): $0.022, solved)</title>
+<circle cx="312.0" cy="194.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.024 (db-wal-recovery (C2): $0.024, solved)</title>
+<circle cx="315.2" cy="200.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.025 (modernize-scientific-stack (C1): $0.025, solved)</title>
+<circle cx="318.2" cy="195.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.025 (sqlite-with-gcov (C2): $0.025, solved)</title>
+<circle cx="318.2" cy="182.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.026 (kv-store-grpc (C1): $0.026, solved)</title>
+<circle cx="320.6" cy="187.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.027 (extract-elf (C2): $0.027, solved)</title>
+<circle cx="321.5" cy="187.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.027 (openssl-selfsigned-cert (C1): $0.027, solved)</title>
+<circle cx="322.1" cy="195.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.027 (chess-best-move (C2): $0.027, solved)</title>
+<circle cx="322.7" cy="204.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.027 (regex-log (C1): $0.027, solved)</title>
+<circle cx="323.1" cy="182.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.028 (polyglot-c-py (C2): $0.028, not solved)</title>
+<circle cx="325.0" cy="193.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.028 (prove-plus-comm (C2): $0.028, solved)</title>
+<circle cx="325.0" cy="190.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.029 (multi-source-data-merger (C1): $0.029, solved)</title>
+<circle cx="325.4" cy="187.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.029 (nginx-request-logging (C2): $0.029, solved)</title>
+<circle cx="325.8" cy="195.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.030 (hf-model-inference (C2): $0.030, solved)</title>
+<circle cx="327.9" cy="204.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.030 (log-summary-date-ranges (C2): $0.030, solved)</title>
+<circle cx="328.8" cy="190.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.030 (openssl-selfsigned-cert (C2): $0.030, solved)</title>
+<circle cx="328.8" cy="184.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.030 (git-leak-recovery (C2): $0.030, solved)</title>
+<circle cx="329.2" cy="184.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.031 (large-scale-text-editing (C2): $0.031, solved)</title>
+<circle cx="329.7" cy="195.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.032 (constraints-scheduling (C2): $0.031, solved)</title>
+<circle cx="331.0" cy="187.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.032 (db-wal-recovery (C1): $0.032, solved)</title>
+<circle cx="331.0" cy="184.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.032 (chess-best-move (C1): $0.032, not solved)</title>
+<circle cx="331.5" cy="202.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.032 (pypi-server (C2): $0.032, solved)</title>
+<circle cx="332.1" cy="202.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.033 (fix-code-vulnerability (C1): $0.033, solved)</title>
+<circle cx="332.9" cy="203.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.034 (cancel-async-tasks (C2): $0.034, solved)</title>
+<circle cx="334.6" cy="196.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.034 (configure-git-webserver (C2): $0.034, solved)</title>
+<circle cx="335.0" cy="193.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.034 (build-pmars (C2): $0.034, solved)</title>
+<circle cx="335.2" cy="197.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.034 (fix-git (C1): $0.034, solved)</title>
+<circle cx="335.6" cy="191.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.034 (mteb-retrieve (C2): $0.034, not solved)</title>
+<circle cx="335.6" cy="195.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.034 (regex-log (C2): $0.034, solved)</title>
+<circle cx="336.0" cy="196.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.035 (kv-store-grpc (C2): $0.035, solved)</title>
+<circle cx="336.5" cy="193.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.035 (extract-elf (C1): $0.035, solved)</title>
+<circle cx="337.1" cy="202.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.036 (torch-tensor-parallelism (C1): $0.036, solved)</title>
+<circle cx="338.2" cy="196.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.036 (code-from-image (C1): $0.036, solved)</title>
+<circle cx="338.5" cy="201.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.036 (log-summary-date-ranges (C1): $0.036, solved)</title>
+<circle cx="339.2" cy="201.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.036 (code-from-image (C2): $0.037, solved)</title>
+<circle cx="339.3" cy="189.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.037 (bn-fit-modify (C1): $0.037, solved)</title>
+<circle cx="340.2" cy="181.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.037 (git-multibranch (C2): $0.037, solved)</title>
+<circle cx="340.5" cy="197.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.037 (filter-js-from-html (C1): $0.037, not solved)</title>
+<circle cx="340.5" cy="201.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.038 (hf-model-inference (C1): $0.038, solved)</title>
+<circle cx="341.6" cy="201.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.038 (modernize-scientific-stack (C2): $0.038, solved)</title>
+<circle cx="342.2" cy="199.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.040 (merge-diff-arc-agi-task (C1): $0.040, solved)</title>
+<circle cx="344.6" cy="202.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.041 (constraints-scheduling (C1): $0.041, solved)</title>
+<circle cx="345.3" cy="200.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.041 (configure-git-webserver (C1): $0.041, solved)</title>
+<circle cx="345.5" cy="204.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.041 (mteb-leaderboard (C2): $0.041, not solved)</title>
+<circle cx="345.9" cy="196.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.041 (count-dataset-tokens (C1): $0.041, solved)</title>
+<circle cx="346.3" cy="190.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.042 (multi-source-data-merger (C2): $0.041, solved)</title>
+<circle cx="346.6" cy="182.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.042 (headless-terminal (C2): $0.042, solved)</title>
+<circle cx="346.8" cy="184.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.042 (pytorch-model-recovery (C1): $0.042, solved)</title>
+<circle cx="346.8" cy="181.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.042 (fix-git (C2): $0.042, solved)</title>
+<circle cx="347.2" cy="190.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.042 (sqlite-db-truncate (C2): $0.042, solved)</title>
+<circle cx="347.5" cy="187.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.043 (sqlite-db-truncate (C1): $0.042, solved)</title>
+<circle cx="347.9" cy="185.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.043 (cobol-modernization (C1): $0.043, solved)</title>
+<circle cx="348.7" cy="198.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.043 (git-multibranch (C1): $0.043, solved)</title>
+<circle cx="349.0" cy="202.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.045 (distribution-search (C1): $0.045, solved)</title>
+<circle cx="351.0" cy="203.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.045 (polyglot-c-py (C1): $0.045, not solved)</title>
+<circle cx="351.4" cy="192.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.045 (cancel-async-tasks (C1): $0.046, solved)</title>
+<circle cx="351.8" cy="189.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.046 (torch-tensor-parallelism (C2): $0.046, solved)</title>
+<circle cx="352.6" cy="186.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.047 (caffe-cifar-10 (C2): $0.047, not solved)</title>
+<circle cx="353.2" cy="195.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.047 (torch-pipeline-parallelism (C1): $0.047, solved)</title>
+<circle cx="353.5" cy="182.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.047 (pytorch-model-cli (C2): $0.047, solved)</title>
+<circle cx="353.8" cy="189.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.051 (build-pmars (C1): $0.051, solved)</title>
+<circle cx="358.0" cy="190.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.051 (filter-js-from-html (C2): $0.051, not solved)</title>
+<circle cx="358.5" cy="199.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.052 (sam-cell-seg (C2): $0.052, not solved)</title>
+<circle cx="359.5" cy="198.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.053 (sanitize-git-repo (C2): $0.053, solved)</title>
+<circle cx="360.1" cy="184.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.053 (bn-fit-modify (C2): $0.053, solved)</title>
+<circle cx="360.6" cy="190.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.053 (count-dataset-tokens (C2): $0.053, solved)</title>
+<circle cx="360.6" cy="190.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.054 (headless-terminal (C1): $0.054, solved)</title>
+<circle cx="361.2" cy="181.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.054 (pytorch-model-recovery (C2): $0.054, solved)</title>
+<circle cx="361.5" cy="196.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.054 (sanitize-git-repo (C1): $0.054, solved)</title>
+<circle cx="361.9" cy="184.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.056 (query-optimize (C2): $0.056, solved)</title>
+<circle cx="363.5" cy="193.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.057 (tune-mjcf (C2): $0.057, solved)</title>
+<circle cx="364.5" cy="186.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.057 (merge-diff-arc-agi-task (C2): $0.057, solved)</title>
+<circle cx="364.9" cy="189.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.058 (pytorch-model-cli (C1): $0.057, solved)</title>
+<circle cx="365.0" cy="187.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.058 (torch-pipeline-parallelism (C2): $0.058, solved)</title>
+<circle cx="365.8" cy="199.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.059 (sparql-university (C1): $0.059, solved)</title>
+<circle cx="366.6" cy="194.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.061 (gcode-to-text (C1): $0.061, solved)</title>
+<circle cx="368.3" cy="183.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.062 (sam-cell-seg (C1): $0.062, not solved)</title>
+<circle cx="368.9" cy="194.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.062 (password-recovery (C1): $0.062, solved)</title>
+<circle cx="369.1" cy="202.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.062 (model-extraction-relu-logits (C1): $0.062, solved)</title>
+<circle cx="369.5" cy="204.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.063 (reshard-c4-data (C1): $0.063, solved)</title>
+<circle cx="369.8" cy="200.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.065 (polyglot-rust-c (C2): $0.065, not solved)</title>
+<circle cx="371.6" cy="187.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.065 (mcmc-sampling-stan (C2): $0.065, solved)</title>
+<circle cx="372.1" cy="204.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.065 (model-extraction-relu-logits (C2): $0.065, solved)</title>
+<circle cx="372.2" cy="200.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.065 (reshard-c4-data (C2): $0.065, solved)</title>
+<circle cx="372.2" cy="196.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.066 (query-optimize (C1): $0.066, not solved)</title>
+<circle cx="373.0" cy="200.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.066 (custom-memory-heap-crash (C2): $0.066, solved)</title>
+<circle cx="373.1" cy="201.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.068 (password-recovery (C2): $0.068, solved)</title>
+<circle cx="374.7" cy="182.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.069 (write-compressor (C1): $0.069, solved)</title>
+<circle cx="375.0" cy="199.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.070 (portfolio-optimization (C1): $0.070, solved)</title>
+<circle cx="376.3" cy="184.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.072 (raman-fitting (C2): $0.072, solved)</title>
+<circle cx="377.4" cy="202.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.072 (cobol-modernization (C2): $0.072, solved)</title>
+<circle cx="377.6" cy="194.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.073 (portfolio-optimization (C2): $0.073, solved)</title>
+<circle cx="378.1" cy="194.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.073 (train-fasttext (C2): $0.073, not solved)</title>
+<circle cx="378.8" cy="205.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.074 (build-pov-ray (C1): $0.074, solved)</title>
+<circle cx="378.9" cy="198.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.077 (feal-differential-cryptanalysis (C1): $0.077, solved)</title>
+<circle cx="381.6" cy="201.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.079 (write-compressor (C2): $0.079, solved)</title>
+<circle cx="383.0" cy="199.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.082 (feal-differential-cryptanalysis (C2): $0.082, solved)</title>
+<circle cx="385.1" cy="194.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.082 (sparql-university (C2): $0.082, solved)</title>
+<circle cx="385.3" cy="182.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.083 (polyglot-rust-c (C1): $0.083, not solved)</title>
+<circle cx="386.0" cy="199.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.084 (dna-insert (C2): $0.084, not solved)</title>
+<circle cx="386.2" cy="188.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.084 (rstan-to-pystan (C2): $0.084, not solved)</title>
+<circle cx="386.5" cy="195.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.084 (dna-insert (C1): $0.084, not solved)</title>
+<circle cx="386.6" cy="198.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.086 (custom-memory-heap-crash (C1): $0.086, not solved)</title>
+<circle cx="388.0" cy="185.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.087 (video-processing (C2): $0.087, solved)</title>
+<circle cx="388.2" cy="190.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.088 (tune-mjcf (C1): $0.088, solved)</title>
+<circle cx="388.8" cy="195.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.095 (video-processing (C1): $0.095, solved)</title>
+<circle cx="393.1" cy="199.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.095 (llm-inference-batching-scheduler (C1): $0.095, solved)</title>
+<circle cx="393.1" cy="194.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.097 (overfull-hbox (C1): $0.097, solved)</title>
+<circle cx="394.4" cy="201.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.097 (train-fasttext (C1): $0.097, solved)</title>
+<circle cx="394.4" cy="193.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.099 (raman-fitting (C1): $0.099, solved)</title>
+<circle cx="395.4" cy="194.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.10 (circuit-fibsqrt (C2): $0.104, solved)</title>
+<circle cx="398.1" cy="204.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.10 (crack-7z-hash (C1): $0.104, solved)</title>
+<circle cx="398.6" cy="182.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.11 (build-pov-ray (C2): $0.105, solved)</title>
+<circle cx="399.2" cy="190.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.11 (vulnerable-secret (C2): $0.106, solved)</title>
+<circle cx="399.3" cy="189.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.11 (caffe-cifar-10 (C1): $0.109, not solved)</title>
+<circle cx="401.1" cy="188.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.12 (feal-linear-cryptanalysis (C2): $0.116, solved)</title>
+<circle cx="404.3" cy="205.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.12 (mailman (C2): $0.118, solved)</title>
+<circle cx="405.6" cy="187.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.12 (mcmc-sampling-stan (C1): $0.120, solved)</title>
+<circle cx="406.3" cy="189.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.12 (dna-assembly (C2): $0.123, solved)</title>
+<circle cx="407.8" cy="197.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.13 (crack-7z-hash (C2): $0.126, solved)</title>
+<circle cx="409.1" cy="181.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.13 (compile-compcert (C1): $0.126, solved)</title>
+<circle cx="409.3" cy="204.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.13 (build-cython-ext (C1): $0.128, solved)</title>
+<circle cx="410.2" cy="196.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.13 (build-cython-ext (C2): $0.131, solved)</title>
+<circle cx="411.5" cy="189.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.14 (llm-inference-batching-scheduler (C2): $0.136, solved)</title>
+<circle cx="413.4" cy="183.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.14 (vulnerable-secret (C1): $0.136, solved)</title>
+<circle cx="413.4" cy="203.1" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.14 (largest-eigenval (C2): $0.143, solved)</title>
+<circle cx="416.5" cy="199.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.15 (overfull-hbox (C2): $0.147, solved)</title>
+<circle cx="417.9" cy="183.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.15 (dna-assembly (C1): $0.149, solved)</title>
+<circle cx="418.6" cy="187.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.15 (protein-assembly (C1): $0.149, solved)</title>
+<circle cx="418.6" cy="186.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.15 (circuit-fibsqrt (C1): $0.151, solved)</title>
+<circle cx="419.5" cy="198.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.15 (adaptive-rejection-sampler (C1): $0.152, not solved)</title>
+<circle cx="420.0" cy="190.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.16 (fix-ocaml-gc (C1): $0.160, solved)</title>
+<circle cx="422.6" cy="204.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.16 (adaptive-rejection-sampler (C2): $0.160, not solved)</title>
+<circle cx="422.6" cy="196.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.16 (gcode-to-text (C2): $0.164, solved)</title>
+<circle cx="424.2" cy="182.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.19 (protein-assembly (C2): $0.190, solved)</title>
+<circle cx="432.3" cy="188.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.19 (mteb-leaderboard (C1): $0.195, not solved)</title>
+<circle cx="433.8" cy="182.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.20 (rstan-to-pystan (C1): $0.198, solved)</title>
+<circle cx="434.7" cy="181.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.20 (financial-document-processor (C1): $0.199, solved)</title>
+<circle cx="435.0" cy="193.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.20 (feal-linear-cryptanalysis (C1): $0.200, not solved)</title>
+<circle cx="435.2" cy="185.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.20 (compile-compcert (C2): $0.201, not solved)</title>
+<circle cx="435.5" cy="196.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.21 (largest-eigenval (C1): $0.206, solved)</title>
+<circle cx="436.9" cy="203.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.22 (make-mips-interpreter (C1): $0.218, solved)</title>
+<circle cx="440.3" cy="186.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.24 (financial-document-processor (C2): $0.238, solved)</title>
+<circle cx="445.2" cy="191.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.26 (mailman (C1): $0.263, solved)</title>
+<circle cx="450.8" cy="196.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.27 (make-mips-interpreter (C2): $0.267, solved)</title>
+<circle cx="451.7" cy="190.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.27 (break-filter-js-from-html (C2): $0.268, solved)</title>
+<circle cx="451.9" cy="191.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.30 (fix-ocaml-gc (C2): $0.303, solved)</title>
+<circle cx="458.8" cy="185.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.32 (path-tracing-reverse (C1): $0.315, solved)</title>
+<circle cx="461.0" cy="203.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.33 (winning-avg-corewars (C2): $0.325, solved)</title>
+<circle cx="462.7" cy="185.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.34 (gpt2-codegolf (C2): $0.336, solved)</title>
+<circle cx="464.6" cy="184.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.35 (gpt2-codegolf (C1): $0.348, solved)</title>
+<circle cx="466.5" cy="197.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.35 (break-filter-js-from-html (C1): $0.348, solved)</title>
+<circle cx="466.7" cy="200.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.40 (schemelike-metacircular-eval (C1): $0.397, solved)</title>
+<circle cx="474.0" cy="184.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.44 (extract-moves-from-video (C2): $0.439, not solved)</title>
+<circle cx="479.8" cy="194.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.45 (path-tracing-reverse (C2): $0.452, solved)</title>
+<circle cx="481.3" cy="197.3" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.46 (schemelike-metacircular-eval (C2): $0.465, solved)</title>
+<circle cx="482.9" cy="192.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.51 (install-windows-3.11 (C1): $0.506, solved)</title>
+<circle cx="487.7" cy="202.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.52 (regex-chess (C2): $0.523, solved)</title>
+<circle cx="489.6" cy="185.5" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.54 (path-tracing (C2): $0.538, solved)</title>
+<circle cx="491.1" cy="193.8" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.55 (regex-chess (C1): $0.547, solved)</title>
+<circle cx="492.1" cy="201.9" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.59 (path-tracing (C1): $0.590, solved)</title>
+<circle cx="496.4" cy="186.6" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.71 (make-doom-for-mips (C1): $0.713, not solved)</title>
+<circle cx="507.0" cy="191.4" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.79 (make-doom-for-mips (C2): $0.790, not solved)</title>
+<circle cx="512.9" cy="187.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $0.91 (winning-avg-corewars (C1): $0.912, solved)</title>
+<circle cx="521.0" cy="194.7" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $1.12 (extract-moves-from-video (C1): $1.115, solved)</title>
+<circle cx="532.3" cy="198.2" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: $1.12 (install-windows-3.11 (C2): $1.117, not solved)</title>
+<circle cx="532.4" cy="193.0" r="3.2" fill="#eb6834" fill-opacity="0.75"/>
+</g>
+<g><title>C. Claude Code: median $0.062</title>
+<line x1="369.6" y1="179.0" x2="369.6" y2="207.0" stroke="#0b0b0b" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="579.3" y="197.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">median $0.062 · n 174</text>
+<text x="266.2" y="232.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.01</text>
+<text x="396.2" y="232.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
+<text x="526.2" y="232.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$1.00</text>
+<line x1="175.4" y1="216.0" x2="565.3" y2="216.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="370.3" y="250.0" font-size="12" fill="#52514e" text-anchor="middle">dollars per trial (log scale)</text>
+<text x="18.0" y="272.0" font-size="11" fill="#52514e">Dots are trials; the bar is the median and the box the quartiles. The cap was $2.00 a trial in every arm.</text>
+</svg>

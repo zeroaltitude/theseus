@@ -2,8 +2,8 @@
 
 Theseus runs public coding benchmarks through [Harbor](https://github.com/laude-institute/harbor), the harness
 Terminal-Bench 2.0 ships with: Harbor starts each task's container, installs the agent, runs it on the task's
-instruction, and runs the task's tests for a reward. Results are published in
-[`docs/benchmarks.md`](../docs/benchmarks.md) first.
+instruction, and runs the task's tests for a reward. **Every benchmark run ends in a report** in
+[`docs/benchmarks/`](../docs/benchmarks/README.md), published there first ("Every run gets its report", below).
 
 | File | What it is |
 |---|---|
@@ -17,6 +17,9 @@ instruction, and runs the task's tests for a reward. Results are published in
 | `harbor/claude_code_agent.py` | Claude Code, measured: `-a claude_code_agent:MeasuredClaudeCode`, Harbor's own adapter with the sampler and the record added. |
 | `harbor/test_*.py` | Their tests. |
 | `report/efficiency.py` | The efficiency report over jobs, one arm each: per-arm numbers, Pareto tables, and three SVG charts. |
+| `report/draft.py` | The report's drafting tool: a run's outputs (Harbor jobs, the bench history, the recall and async scorers' outputs) in; its data file, CSV, figures and skeleton out ("Every run gets its report"). |
+| `report/charts.py` | The house charts: SVG from declarative specs, in the house palette, each in a light and a dark file, every mark with its hover text. The standard library only. |
+| `report/stats.py` | The statistics every report uses: Wilson intervals, a seeded bootstrap, the exact McNemar test, quantiles. |
 
 ## What you need
 
@@ -154,7 +157,8 @@ python3 bench/report/efficiency.py --arm theseus=jobs/theseus-tb2 --arm claude-c
 It writes `report.md` (per arm: trials, solved, mean reward, dollars, solved per dollar, tokens per solved
 task by class, the share of input read from the cache, model and tool calls, harness CPU per tool call,
 peak harness RSS, and agent time; then score against dollars, tokens, and harness RAM, one point per arm,
-the Pareto front marked), `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram.svg`, and `trials.csv`. A
+the Pareto front marked), `pareto-dollars.svg`, `pareto-tokens.svg`, `pareto-ram.svg` (each with its
+`-dark.svg`, drawn by `report/charts.py`), and `trials.csv`. A
 job from before the record reports what it kept: its dollars, the cache write from the arm's own files or
 its trajectory, and CPU and RAM "not sampled".
 
@@ -164,23 +168,50 @@ Each trial is capped by `THESEUS_BENCH_SPEND_LIMIT`. With Sonnet 5.5, the easy T
 $0.05 a trial. The harder ones take far more turns: a fair guess is $0.30 to $1.00 a task, so **$30 to $90 for the
 full 89 tasks, per configuration and attempt**.
 
-## Where results go
+## Every run gets its report
 
-Harbor writes each job under `-o` (`jobs/<job name>/`): its `result.json`, and each trial's directory with the
-agent's files above and the verifier's output. Published results, with the configuration, the model, the attempts,
-and the cost, go in [`docs/benchmarks.md`](../docs/benchmarks.md). The first full run fills it.
+Every benchmark run, whatever its size (a full run, a held-out rerun, a sample, a live check that paid for model
+calls, an A/B of two builds), ends in a report, and the run is not done until its report is joined:
+
+- **Where:** the run's lane writes `docs/benchmarks/<YYYY-MM-DD>-<suite>[-<slug>].md`, named for the day the run
+  happened, with its figures under `docs/benchmarks/img/<same name>/`, its data file `<same name>.json` beside it
+  (the numbers its tables use and its figures' specs), and a `<same name>.csv` with one row per trial when it has
+  trials. Never raw outputs or transcripts: the trials' own files stay off the public repository.
+- **What:** the sections, the statistics, the figures' rules and the house palette are in
+  [`docs/benchmarks/README.md`](../docs/benchmarks/README.md), "How a report is written". The answer comes first, with
+  its numbers and their intervals; a report says what the run teaches that its tables don't, and says plainly where
+  the run was flawed.
+- **How:** `report/draft.py` drafts it from the run's outputs: the numbers with their intervals, the data file, the
+  CSV, both modes of every figure, and a skeleton with every section in order, its tables filled and its figures
+  placed. The lane writes the narrative, looks at every figure rendered in both modes, and adds the run's row at the
+  top of the index's table. `python3 bench/report/draft.py plot docs/benchmarks/<report>.json` draws a report's
+  figures again from its data file.
+
+```bash
+python3 bench/report/draft.py harbor --suite terminal-bench@2.0 --date <day> --slug <slug> \
+    --arm theseus=jobs/theseus-tb2 --arm claude-code=jobs/claude-tb2 --model anthropic/claude-sonnet-5-5
+python3 bench/report/draft.py history --since <day> --branch main --date <day>     # the gate's speed benches
+python3 bench/report/draft.py recall --scores <scores>/scores.json --date <day>    # bench/recall
+python3 bench/report/draft.py async --date <day> <jobs...>                         # bench/async
+```
+
+`--arm` takes a registry key from `report/charts.py` (`theseus`, `claude-code`, `theseus-batching`, `openclaw`, ...):
+the same arm is the same colour in every report. Harbor writes each job under `-o` (`jobs/<job name>/`): its
+`result.json`, and each trial's directory with the agent's files above and the verifier's output; `--arm` takes a job
+directory, a directory of jobs, or a quoted glob.
 
 ## Tests
 
 ```bash
 python3 -m unittest discover -s bench/harbor                 # the standard library: Harbor's checks skip
 .venv/bin/python -m unittest discover -s bench/harbor         # with Harbor: the ATIF checks and the agents' load
-python3 -m unittest discover -s bench/report                 # the report, over fixture jobs
+python3 -m unittest discover -s bench/report                 # the reports: efficiency, the drafting tool, the charts, the statistics
 ```
 
 They check the profile a trial writes, the exit codes against `crates/theseus/src/outcome.rs`, the container's
 script against a stand-in `theseus` (a turn that ends, a failure, a stop after a timeout, and the sampler around
 each, with and without python3), and the trajectory against Harbor's own ATIF model; the sampler's parsers and
 classes on fixture `/proc` trees, and on this host's `/proc` a copy of `sh` under a harness name whose busy child
-must land in work; the record from fixture turns, histories, and session logs; and the report over fixture jobs,
-against numbers worked by hand.
+must land in work; the record from fixture turns, histories, and session logs; the efficiency report over fixture
+jobs, against numbers worked by hand; the drafting tool over fixture Harbor jobs, a bench history whose header
+changes shape, a recall scorer's output and async trials; and every chart form in both modes, parsed back.

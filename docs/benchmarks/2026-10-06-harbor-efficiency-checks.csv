@@ -1,0 +1,22 @@
+run,run_label,started,arm,task,reward,exception,dollars,model_calls,tool_calls,agent_s,setup_s,trial_s,sampled,harness_cpu_s,harness_rss_mib,harness_processes,work_cpu_s,container_mem_peak_mib,sampler_core_share,sampler_samples,spend_from,version,harness_ms_per_tool_call
+worth,the worth spike,2026-10-03 15:46,theseus,fix-git,1.0,,0.04796,8,11,21.74,0.52,52.2,False,,,,,,,,,theseus 0.0.1,
+worth,the worth spike,2026-10-03 15:48,claude-code,fix-git,1.0,,0.04496,6,5,12.84,272.52,307.0,False,,,,,,,,,2.1.288,
+worth,the worth spike,2026-10-03 16:17,theseus-batching,fix-git,1.0,,0.04534,6,6,16.39,0.62,36.7,False,,,,,,,,,theseus 0.0.1,
+plumbing,the bench plumbing's checks,2026-10-03 18:39,theseus,fix-git,1.0,,0.05352,8,12,21.51,0.58,49.5,False,,,,,,,,,theseus 0.0.1,
+plumbing,the bench plumbing's checks,2026-10-03 18:42,theseus,prove-plus-comm,1.0,,0.0324,5,5,12.54,0.54,55.5,False,,,,,,,,,theseus 0.0.1,
+plumbing,the bench plumbing's checks,2026-10-03 18:40,theseus,fix-git,0.0,AgentTimeoutError,0.03018,5,9,11.9,0.53,29.9,False,,,,,,,,,theseus 0.0.1,
+plumbing,the bench plumbing's checks,2026-10-03 18:44,theseus,fix-git,0.0,AgentTimeoutError,0.02558,4,8,11.92,0.51,29.8,False,,,,,,,,,theseus 0.0.1,
+b5-smoke,the first full run's smoke,2026-10-03 23:15,theseus,fix-git,1.0,,0.05021,9,12,22.39,0.61,41.9,False,,,,,,,,,theseus 0.0.1,
+b5-smoke,the first full run's smoke,2026-10-03 23:15,theseus-batching,fix-git,1.0,,0.04293,5,4,14.73,0.63,33.8,False,,,,,,,,,theseus 0.0.1,
+b5-smoke,the first full run's smoke,2026-10-03 23:15,claude-code,fix-git,1.0,,0.04575,6,5,13.41,132.53,165.5,False,,,,,,,,,2.1.288,
+b5,the first full run,2026-10-04 13:03,theseus,fix-git,1.0,,0.04479,7,6,18.8,0.64,39.9,False,,,,,,,,,theseus 0.0.1,
+b5,the first full run,2026-10-04 13:03,theseus,fix-git,1.0,,0.05369,8,12,19.95,0.65,41.1,False,,,,,,,,,theseus 0.0.1,
+b5,the first full run,2026-10-04 13:03,theseus-batching,fix-git,1.0,,0.04366,6,6,16.65,0.64,38.5,False,,,,,,,,,theseus 0.0.1,
+b5,the first full run,2026-10-04 13:03,theseus-batching,fix-git,1.0,,0.04063,6,5,15.68,0.6,38.1,False,,,,,,,,,theseus 0.0.1,
+b5,the first full run,2026-10-04 12:59,claude-code,fix-git,1.0,,0.03415,6,5,15.82,272.63,315.2,False,,,,,,,,,2.1.288,
+b5,the first full run,2026-10-04 12:59,claude-code,fix-git,1.0,,0.04205,5,4,13.5,269.3,313.8,False,,,,,,,,,2.1.288,
+r11,efficiency review 1,2026-10-05 05:19,theseus,fix-git,1.0,,0.05525,7,13,26.14,2.64,109.4,True,0.33,25.2,2,0.268,80.7,0.00403,99,turn,theseus 0.0.1,25.4
+r11,efficiency review 1,2026-10-05 05:22,claude-code,fix-git,1.0,,0.05364,7,6,16.51,414.08,503.8,True,1.05,241.46,1,0.233,1823.8,0.00169,66,result_event,2.1.288,175.0
+r16,efficiency review 2,2026-10-05 17:22,theseus,fix-git,1.0,,0.05397,8,11,23.87,2.13,57.5,True,0.18,25.21,2,0.185,22.1,0.00204,88,turn,theseus 0.0.1,16.4
+r16,efficiency review 2,2026-10-05 17:22,claude-code,fix-git,1.0,,0.04686,6,5,16.46,219.39,277.2,True,1.97,430.18,2,0.516,1089.7,0.00233,63,result_event,2.1.288,394.0
+r35,the Pi arm's review,2026-10-06 13:48,pi,fix-git,1.0,,0.02886,6,5,15.6,52.17,105.4,True,0.54,125.38,1,0.22,640.3,0.00236,62,session_log,1.0.4,108.0

@@ -1,0 +1,3721 @@
+{
+ "report": "2026-10-04-terminal-bench-first-full-run",
+ "title": "Terminal-Bench 2.0: Theseus against Claude Code on all 89 tasks, the first full run",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-04",
+ "commit": "079f1db",
+ "arms": [
+  {
+   "key": "theseus",
+   "label": "A. Theseus plain"
+  },
+  {
+   "key": "theseus-batching",
+   "label": "B. Theseus + batching paragraph"
+  },
+  {
+   "key": "claude-code",
+   "label": "C. Claude Code 2.1.288"
+  }
+ ],
+ "summary": {
+  "harness_class_tasks_a": [
+   "break-filter-js-from-html",
+   "crack-7z-hash",
+   "hf-model-inference",
+   "install-windows-3.11",
+   "regex-chess",
+   "schemelike-metacircular-eval",
+   "vulnerable-secret"
+  ],
+  "a_vs_c_by_difficulty": {
+   "easy": {
+    "c_better": [],
+    "a_better": [],
+    "sign_p": 1.0,
+    "c_better_no_harness": [],
+    "a_better_no_harness": [],
+    "sign_p_no_harness": 1.0
+   },
+   "medium": {
+    "c_better": [
+     "break-filter-js-from-html",
+     "crack-7z-hash",
+     "hf-model-inference",
+     "pytorch-model-cli",
+     "raman-fitting",
+     "schemelike-metacircular-eval",
+     "vulnerable-secret"
+    ],
+    "a_better": [
+     "chess-best-move",
+     "custom-memory-heap-crash",
+     "mteb-leaderboard",
+     "rstan-to-pystan"
+    ],
+    "sign_p": 0.5488,
+    "c_better_no_harness": [
+     "pytorch-model-cli",
+     "raman-fitting"
+    ],
+    "a_better_no_harness": [
+     "chess-best-move",
+     "custom-memory-heap-crash",
+     "mteb-leaderboard",
+     "rstan-to-pystan"
+    ],
+    "sign_p_no_harness": 0.6875
+   },
+   "hard": {
+    "c_better": [
+     "configure-git-webserver",
+     "extract-moves-from-video",
+     "install-windows-3.11",
+     "llm-inference-batching-scheduler",
+     "make-mips-interpreter",
+     "protein-assembly",
+     "regex-chess",
+     "train-fasttext",
+     "video-processing"
+    ],
+    "a_better": [
+     "feal-linear-cryptanalysis"
+    ],
+    "sign_p": 0.0215,
+    "c_better_no_harness": [
+     "configure-git-webserver",
+     "extract-moves-from-video",
+     "llm-inference-batching-scheduler",
+     "make-mips-interpreter",
+     "protein-assembly",
+     "train-fasttext",
+     "video-processing"
+    ],
+    "a_better_no_harness": [
+     "feal-linear-cryptanalysis"
+    ],
+    "sign_p_no_harness": 0.0703
+   },
+   "all": {
+    "c_better": [
+     "break-filter-js-from-html",
+     "configure-git-webserver",
+     "crack-7z-hash",
+     "extract-moves-from-video",
+     "hf-model-inference",
+     "install-windows-3.11",
+     "llm-inference-batching-scheduler",
+     "make-mips-interpreter",
+     "protein-assembly",
+     "pytorch-model-cli",
+     "raman-fitting",
+     "regex-chess",
+     "schemelike-metacircular-eval",
+     "train-fasttext",
+     "video-processing",
+     "vulnerable-secret"
+    ],
+    "a_better": [
+     "chess-best-move",
+     "custom-memory-heap-crash",
+     "feal-linear-cryptanalysis",
+     "mteb-leaderboard",
+     "rstan-to-pystan"
+    ],
+    "sign_p": 0.0266,
+    "c_better_no_harness": [
+     "configure-git-webserver",
+     "extract-moves-from-video",
+     "llm-inference-batching-scheduler",
+     "make-mips-interpreter",
+     "protein-assembly",
+     "pytorch-model-cli",
+     "raman-fitting",
+     "train-fasttext",
+     "video-processing"
+    ],
+    "a_better_no_harness": [
+     "chess-best-move",
+     "custom-memory-heap-crash",
+     "feal-linear-cryptanalysis",
+     "mteb-leaderboard",
+     "rstan-to-pystan"
+    ],
+    "sign_p_no_harness": 0.424
+   }
+  },
+  "dataset": {
+   "name": "terminal-bench@2.0",
+   "tasks": 89,
+   "difficulty": {
+    "easy": 4,
+    "medium": 55,
+    "hard": 30
+   },
+   "attempts": 2,
+   "trials": 534
+  },
+  "run": {
+   "first_start_mst": "2026-10-03 23:21:20",
+   "last_end_mst": "2026-10-04 18:07:32",
+   "wall_clock_h": 18.77,
+   "paused": "2026-10-04 13:37:53 to 14:09:56 (a VM restart)",
+   "concurrency": "at most 4 trials (2 jobs x 2 attempts)",
+   "theseus_commit": "079f1db",
+   "harbor": "0.23.0",
+   "claude_code": "2.1.288",
+   "model": "anthropic/claude-sonnet-5-5"
+  },
+  "arms": {
+   "A": {
+    "key": "theseus",
+    "label": "A. Theseus plain",
+    "pass_trial": {
+     "k": 128,
+     "n": 178,
+     "rate": 0.719101,
+     "lo": 0.648985,
+     "hi": 0.77996
+    },
+    "pass_attempt": [
+     {
+      "k": 62,
+      "n": 89,
+      "rate": 0.696629,
+      "lo": 0.594629,
+      "hi": 0.782358
+     },
+     {
+      "k": 66,
+      "n": 89,
+      "rate": 0.741573,
+      "lo": 0.641971,
+      "hi": 0.821185
+     }
+    ],
+    "pass_task_bootstrap": {
+     "n": 89,
+     "mean": 0.719101,
+     "lo": 0.629213,
+     "hi": 0.803371,
+     "median": 1.0,
+     "p25": 0.5,
+     "p75": 1.0,
+     "min": 0.0,
+     "max": 1.0
+    },
+    "solved_both": {
+     "k": 59,
+     "n": 89,
+     "rate": 0.662921,
+     "lo": 0.559789,
+     "hi": 0.752572
+    },
+    "solved_either": {
+     "k": 69,
+     "n": 89,
+     "rate": 0.775281,
+     "lo": 0.678226,
+     "hi": 0.849555
+    },
+    "one_attempt_only": [
+     "compile-compcert",
+     "configure-git-webserver",
+     "hf-model-inference",
+     "llm-inference-batching-scheduler",
+     "make-mips-interpreter",
+     "mteb-leaderboard",
+     "protein-assembly",
+     "query-optimize",
+     "raman-fitting",
+     "video-processing"
+    ],
+    "agreement": 0.88764,
+    "dollars_total": 24.724683,
+    "unpriced_trials": 2,
+    "dollars_per_trial": {
+     "n": 176,
+     "mean": 0.140481,
+     "lo": 0.115606,
+     "hi": 0.169691,
+     "median": 0.082858,
+     "p25": 0.044233,
+     "p75": 0.16867,
+     "min": 0.002248,
+     "max": 1.459775
+    },
+    "dollars_per_task": 0.277805,
+    "dollars_per_solved": 0.193162,
+    "solved_per_dollar": 5.177013,
+    "tokens": {
+     "input": 3360,
+     "cache_read": 23970328,
+     "cache_write": 3418903,
+     "output": 1137664
+    },
+    "tokens_per_solved": 222893,
+    "cache_read_share": 0.875066,
+    "calls_per_trial": {
+     "n": 177,
+     "mean": 8.350282,
+     "lo": 7.508475,
+     "hi": 9.265537,
+     "median": 7.0,
+     "p25": 4.0,
+     "p75": 11.0,
+     "min": 0,
+     "max": 45
+    },
+    "answers_per_trial": {
+     "n": 177,
+     "mean": 8.338983,
+     "lo": 7.502825,
+     "hi": 9.248588,
+     "median": 7.0,
+     "p25": 4.0,
+     "p75": 11.0,
+     "min": 0,
+     "max": 45
+    },
+    "agent_secs": {
+     "n": 178,
+     "mean": 244.63223,
+     "lo": 177.785045,
+     "hi": 321.859956,
+     "median": 61.2245,
+     "p25": 28.28075,
+     "p75": 177.2965,
+     "min": 2.797,
+     "max": 3148.216
+    },
+    "agent_hours_total": 12.095705,
+    "trial_secs": {
+     "n": 178,
+     "mean": 321.164281,
+     "lo": 248.496223,
+     "hi": 403.982756,
+     "median": 116.701,
+     "p25": 62.30325,
+     "p75": 250.332,
+     "min": 27.444,
+     "max": 3206.105
+    },
+    "setup_secs": {
+     "n": 178,
+     "mean": 1.012646,
+     "lo": 0.912668,
+     "hi": 1.124099,
+     "median": 0.7245,
+     "p25": 0.61825,
+     "p75": 1.03975,
+     "min": 0.49,
+     "max": 4.234
+    },
+    "classes": {
+     "ok": 157,
+     "refusal": 6,
+     "timeout": 6,
+     "error": 2,
+     "approval_wait": 1,
+     "spend_limit": 2,
+     "turn_cut": 4
+    },
+    "exceptions": {
+     "none": 157,
+     "AgentSafetyRefusalError": 6,
+     "AgentTimeoutError": 6,
+     "RuntimeError": 1,
+     "NonZeroAgentExitCodeError": 1,
+     "TheseusApprovalWaitError": 1,
+     "TheseusSpendLimitError": 2,
+     "TheseusTurnCutError": 4
+    }
+   },
+   "B": {
+    "key": "theseus-batching",
+    "label": "B. Theseus + batching paragraph",
+    "pass_trial": {
+     "k": 131,
+     "n": 178,
+     "rate": 0.735955,
+     "lo": 0.666705,
+     "hi": 0.795236
+    },
+    "pass_attempt": [
+     {
+      "k": 65,
+      "n": 89,
+      "rate": 0.730337,
+      "lo": 0.630034,
+      "hi": 0.811579
+     },
+     {
+      "k": 66,
+      "n": 89,
+      "rate": 0.741573,
+      "lo": 0.641971,
+      "hi": 0.821185
+     }
+    ],
+    "pass_task_bootstrap": {
+     "n": 89,
+     "mean": 0.735955,
+     "lo": 0.651685,
+     "hi": 0.820225,
+     "median": 1.0,
+     "p25": 0.5,
+     "p75": 1.0,
+     "min": 0.0,
+     "max": 1.0
+    },
+    "solved_both": {
+     "k": 60,
+     "n": 89,
+     "rate": 0.674157,
+     "lo": 0.571342,
+     "hi": 0.76256
+    },
+    "solved_either": {
+     "k": 71,
+     "n": 89,
+     "rate": 0.797753,
+     "lo": 0.702803,
+     "hi": 0.868062
+    },
+    "one_attempt_only": [
+     "adaptive-rejection-sampler",
+     "build-pmars",
+     "chess-best-move",
+     "install-windows-3.11",
+     "large-scale-text-editing",
+     "protein-assembly",
+     "query-optimize",
+     "regex-chess",
+     "rstan-to-pystan",
+     "schemelike-metacircular-eval",
+     "video-processing"
+    ],
+    "agreement": 0.876404,
+    "dollars_total": 24.225227,
+    "unpriced_trials": 2,
+    "dollars_per_trial": {
+     "n": 176,
+     "mean": 0.137643,
+     "lo": 0.112127,
+     "hi": 0.166942,
+     "median": 0.072474,
+     "p25": 0.037838,
+     "p75": 0.172942,
+     "min": 0.004466,
+     "max": 1.454671
+    },
+    "dollars_per_task": 0.272194,
+    "dollars_per_solved": 0.184925,
+    "solved_per_dollar": 5.407586,
+    "tokens": {
+     "input": 3274,
+     "cache_read": 24327230,
+     "cache_write": 3245781,
+     "output": 1123878
+    },
+    "tokens_per_solved": 219085,
+    "cache_read_share": 0.882179,
+    "calls_per_trial": {
+     "n": 176,
+     "mean": 8.306818,
+     "lo": 7.227273,
+     "hi": 9.534091,
+     "median": 6.0,
+     "p25": 4.0,
+     "p75": 11.0,
+     "min": 1,
+     "max": 61
+    },
+    "answers_per_trial": {
+     "n": 176,
+     "mean": 8.301136,
+     "lo": 7.227273,
+     "hi": 9.528409,
+     "median": 6.0,
+     "p25": 4.0,
+     "p75": 11.0,
+     "min": 1,
+     "max": 61
+    },
+    "agent_secs": {
+     "n": 178,
+     "mean": 263.210287,
+     "lo": 192.466564,
+     "hi": 344.66661,
+     "median": 67.9345,
+     "p25": 24.9435,
+     "p75": 222.1615,
+     "min": 2.889,
+     "max": 3602.824
+    },
+    "agent_hours_total": 13.014286,
+    "trial_secs": {
+     "n": 178,
+     "mean": 342.12786,
+     "lo": 264.586276,
+     "hi": 429.754056,
+     "median": 112.5925,
+     "p25": 63.23325,
+     "p75": 301.97875,
+     "min": 26.779,
+     "max": 3705.655
+    },
+    "setup_secs": {
+     "n": 178,
+     "mean": 0.919247,
+     "lo": 0.822252,
+     "hi": 1.040276,
+     "median": 0.705,
+     "p25": 0.597,
+     "p75": 0.934,
+     "min": 0.498,
+     "max": 7.474
+    },
+    "classes": {
+     "ok": 162,
+     "refusal": 6,
+     "error": 2,
+     "timeout": 5,
+     "spend_limit": 1,
+     "turn_cut": 2
+    },
+    "exceptions": {
+     "none": 162,
+     "AgentSafetyRefusalError": 6,
+     "RuntimeError": 2,
+     "AgentTimeoutError": 5,
+     "TheseusSpendLimitError": 1,
+     "TheseusTurnCutError": 2
+    }
+   },
+   "C": {
+    "key": "claude-code",
+    "label": "C. Claude Code 2.1.288",
+    "pass_trial": {
+     "k": 145,
+     "n": 178,
+     "rate": 0.814607,
+     "lo": 0.751087,
+     "hi": 0.864834
+    },
+    "pass_attempt": [
+     {
+      "k": 73,
+      "n": 89,
+      "rate": 0.820225,
+      "lo": 0.727749,
+      "hi": 0.886201
+     },
+     {
+      "k": 72,
+      "n": 89,
+      "rate": 0.808989,
+      "lo": 0.715227,
+      "hi": 0.87718
+     }
+    ],
+    "pass_task_bootstrap": {
+     "n": 89,
+     "mean": 0.814607,
+     "lo": 0.735955,
+     "hi": 0.88764,
+     "median": 1.0,
+     "p25": 1.0,
+     "p75": 1.0,
+     "min": 0.0,
+     "max": 1.0
+    },
+    "solved_both": {
+     "k": 68,
+     "n": 89,
+     "rate": 0.764045,
+     "lo": 0.666064,
+     "hi": 0.840176
+    },
+    "solved_either": {
+     "k": 77,
+     "n": 89,
+     "rate": 0.865169,
+     "lo": 0.778961,
+     "hi": 0.921157
+    },
+    "one_attempt_only": [
+     "chess-best-move",
+     "compile-compcert",
+     "custom-memory-heap-crash",
+     "extract-moves-from-video",
+     "feal-linear-cryptanalysis",
+     "install-windows-3.11",
+     "query-optimize",
+     "rstan-to-pystan",
+     "train-fasttext"
+    ],
+    "agreement": 0.898876,
+    "dollars_total": 22.654917,
+    "unpriced_trials": 4,
+    "dollars_per_trial": {
+     "n": 174,
+     "mean": 0.130201,
+     "lo": 0.104878,
+     "hi": 0.1584,
+     "median": 0.062493,
+     "p25": 0.037136,
+     "p75": 0.130371,
+     "min": 0.016973,
+     "max": 1.117117
+    },
+    "dollars_per_task": 0.25455,
+    "dollars_per_solved": 0.156241,
+    "solved_per_dollar": 6.400377,
+    "tokens": {
+     "input": 2843,
+     "cache_read": 35053244,
+     "cache_write": 2691110,
+     "output": 879056
+    },
+    "tokens_per_solved": 266388,
+    "cache_read_share": 0.928632,
+    "calls_per_trial": {
+     "n": 174,
+     "mean": 7.982759,
+     "lo": 6.833333,
+     "hi": 9.293103,
+     "median": 5.0,
+     "p25": 3.0,
+     "p75": 9.0,
+     "min": 2,
+     "max": 68
+    },
+    "answers_per_trial": {
+     "n": 174,
+     "mean": 7.982759,
+     "lo": 6.833333,
+     "hi": 9.293103,
+     "median": 5.0,
+     "p25": 3.0,
+     "p75": 9.0,
+     "min": 2,
+     "max": 68
+    },
+    "agent_secs": {
+     "n": 174,
+     "mean": 244.015621,
+     "lo": 167.119507,
+     "hi": 329.680489,
+     "median": 39.2345,
+     "p25": 18.96275,
+     "p75": 148.954,
+     "min": 7.756,
+     "max": 3600.057
+    },
+    "agent_hours_total": 11.794088,
+    "trial_secs": {
+     "n": 178,
+     "mean": 617.412022,
+     "lo": 529.827487,
+     "hi": 715.999132,
+     "median": 398.961,
+     "p25": 337.71775,
+     "p75": 551.0425,
+     "min": 27.821,
+     "max": 4110.45
+    },
+    "setup_secs": {
+     "n": 178,
+     "mean": 298.420399,
+     "lo": 284.339024,
+     "hi": 312.903817,
+     "median": 299.3825,
+     "p25": 247.31475,
+     "p75": 343.623,
+     "min": 11.648,
+     "max": 690.139
+    },
+    "classes": {
+     "ok": 166,
+     "timeout": 8,
+     "error": 4
+    },
+    "exceptions": {
+     "none": 166,
+     "AgentTimeoutError": 8,
+     "NonZeroAgentExitCodeError": 4
+    }
+   }
+  },
+  "paired": {
+   "AC": {
+    "x": "A",
+    "y": "C",
+    "score_x_better": [
+     "chess-best-move",
+     "custom-memory-heap-crash",
+     "feal-linear-cryptanalysis",
+     "mteb-leaderboard",
+     "rstan-to-pystan"
+    ],
+    "score_y_better": [
+     "break-filter-js-from-html",
+     "configure-git-webserver",
+     "crack-7z-hash",
+     "extract-moves-from-video",
+     "hf-model-inference",
+     "install-windows-3.11",
+     "llm-inference-batching-scheduler",
+     "make-mips-interpreter",
+     "protein-assembly",
+     "pytorch-model-cli",
+     "raman-fitting",
+     "regex-chess",
+     "schemelike-metacircular-eval",
+     "train-fasttext",
+     "video-processing",
+     "vulnerable-secret"
+    ],
+    "sign_p": 0.026604,
+    "either_only_x": [
+     "mteb-leaderboard"
+    ],
+    "either_only_y": [
+     "break-filter-js-from-html",
+     "crack-7z-hash",
+     "extract-moves-from-video",
+     "install-windows-3.11",
+     "pytorch-model-cli",
+     "regex-chess",
+     "schemelike-metacircular-eval",
+     "train-fasttext",
+     "vulnerable-secret"
+    ],
+    "either_mcnemar_p": 0.021484,
+    "diff_points": {
+     "mean": 9.550562,
+     "lo": 3.370787,
+     "hi": 16.292135
+    },
+    "strong_y": [
+     "break-filter-js-from-html",
+     "crack-7z-hash",
+     "pytorch-model-cli",
+     "regex-chess",
+     "schemelike-metacircular-eval",
+     "vulnerable-secret"
+    ],
+    "strong_x": []
+   },
+   "BC": {
+    "x": "B",
+    "y": "C",
+    "score_x_better": [
+     "adaptive-rejection-sampler",
+     "compile-compcert",
+     "custom-memory-heap-crash",
+     "feal-linear-cryptanalysis",
+     "mteb-leaderboard"
+    ],
+    "score_y_better": [
+     "break-filter-js-from-html",
+     "build-pmars",
+     "configure-git-webserver",
+     "crack-7z-hash",
+     "extract-moves-from-video",
+     "large-scale-text-editing",
+     "mcmc-sampling-stan",
+     "protein-assembly",
+     "raman-fitting",
+     "regex-chess",
+     "schemelike-metacircular-eval",
+     "train-fasttext",
+     "video-processing",
+     "vulnerable-secret"
+    ],
+    "sign_p": 0.063568,
+    "either_only_x": [
+     "adaptive-rejection-sampler",
+     "mteb-leaderboard"
+    ],
+    "either_only_y": [
+     "break-filter-js-from-html",
+     "configure-git-webserver",
+     "crack-7z-hash",
+     "extract-moves-from-video",
+     "mcmc-sampling-stan",
+     "raman-fitting",
+     "train-fasttext",
+     "vulnerable-secret"
+    ],
+    "either_mcnemar_p": 0.109375,
+    "diff_points": {
+     "mean": 7.865169,
+     "lo": 1.123596,
+     "hi": 14.606742
+    },
+    "strong_y": [
+     "break-filter-js-from-html",
+     "configure-git-webserver",
+     "crack-7z-hash",
+     "mcmc-sampling-stan",
+     "raman-fitting",
+     "vulnerable-secret"
+    ],
+    "strong_x": [
+     "mteb-leaderboard"
+    ]
+   },
+   "AB": {
+    "x": "A",
+    "y": "B",
+    "score_x_better": [
+     "build-pmars",
+     "chess-best-move",
+     "configure-git-webserver",
+     "large-scale-text-editing",
+     "mcmc-sampling-stan",
+     "raman-fitting",
+     "rstan-to-pystan"
+    ],
+    "score_y_better": [
+     "adaptive-rejection-sampler",
+     "compile-compcert",
+     "hf-model-inference",
+     "install-windows-3.11",
+     "llm-inference-batching-scheduler",
+     "make-mips-interpreter",
+     "mteb-leaderboard",
+     "pytorch-model-cli",
+     "regex-chess",
+     "schemelike-metacircular-eval"
+    ],
+    "sign_p": 0.629059,
+    "either_only_x": [
+     "configure-git-webserver",
+     "mcmc-sampling-stan",
+     "raman-fitting"
+    ],
+    "either_only_y": [
+     "adaptive-rejection-sampler",
+     "install-windows-3.11",
+     "pytorch-model-cli",
+     "regex-chess",
+     "schemelike-metacircular-eval"
+    ],
+    "either_mcnemar_p": 0.726562,
+    "diff_points": {
+     "mean": 1.685393,
+     "lo": -3.370787,
+     "hi": 6.741573
+    },
+    "strong_y": [
+     "pytorch-model-cli"
+    ],
+    "strong_x": [
+     "mcmc-sampling-stan"
+    ]
+   }
+  },
+  "solved_pairs": {
+   "AC": {
+    "cost_usd": {
+     "n": 122,
+     "x": 13.455388,
+     "y": 11.768712,
+     "ratio": 0.874647,
+     "lo": 0.749393,
+     "hi": 1.047398
+    },
+    "calls": {
+     "n": 122,
+     "x": 934,
+     "y": 794,
+     "ratio": 0.850107,
+     "lo": 0.759613,
+     "hi": 0.962083
+    },
+    "answers": {
+     "n": 122,
+     "x": 934,
+     "y": 794,
+     "ratio": 0.850107,
+     "lo": 0.759613,
+     "hi": 0.962083
+    },
+    "agent_secs": {
+     "n": 122,
+     "x": 12444.629,
+     "y": 12131.96,
+     "ratio": 0.974875,
+     "lo": 0.746365,
+     "hi": 1.195646
+    },
+    "output": {
+     "n": 122,
+     "x": 605057,
+     "y": 472135,
+     "ratio": 0.780315,
+     "lo": 0.650437,
+     "hi": 0.966544
+    }
+   },
+   "BC": {
+    "cost_usd": {
+     "n": 123,
+     "x": 14.236513,
+     "y": 12.726779,
+     "ratio": 0.893953,
+     "lo": 0.781958,
+     "hi": 1.02723
+    },
+    "calls": {
+     "n": 123,
+     "x": 871,
+     "y": 803,
+     "ratio": 0.921929,
+     "lo": 0.833747,
+     "hi": 1.017691
+    },
+    "answers": {
+     "n": 123,
+     "x": 871,
+     "y": 803,
+     "ratio": 0.921929,
+     "lo": 0.833747,
+     "hi": 1.017691
+    },
+    "agent_secs": {
+     "n": 123,
+     "x": 14396.351,
+     "y": 11473.964,
+     "ratio": 0.797005,
+     "lo": 0.648282,
+     "hi": 0.933264
+    },
+    "output": {
+     "n": 123,
+     "x": 662738,
+     "y": 535606,
+     "ratio": 0.808172,
+     "lo": 0.695488,
+     "hi": 0.938075
+    }
+   },
+   "AB": {
+    "cost_usd": {
+     "n": 118,
+     "x": 13.561024,
+     "y": 12.495568,
+     "ratio": 0.921432,
+     "lo": 0.840039,
+     "hi": 1.013167
+    },
+    "calls": {
+     "n": 118,
+     "x": 922,
+     "y": 825,
+     "ratio": 0.894794,
+     "lo": 0.831181,
+     "hi": 0.965026
+    },
+    "answers": {
+     "n": 118,
+     "x": 922,
+     "y": 825,
+     "ratio": 0.894794,
+     "lo": 0.831181,
+     "hi": 0.965026
+    },
+    "agent_secs": {
+     "n": 118,
+     "x": 14967.966,
+     "y": 15216.805,
+     "ratio": 1.016625,
+     "lo": 0.800754,
+     "hi": 1.273036
+    },
+    "output": {
+     "n": 118,
+     "x": 606727,
+     "y": 553441,
+     "ratio": 0.912175,
+     "lo": 0.824283,
+     "hi": 1.014059
+    }
+   }
+  },
+  "endings": {
+   "A": {
+    "refused by the model": [
+     "break-filter-js-from-html (A1)",
+     "break-filter-js-from-html (A2)",
+     "crack-7z-hash (A1)",
+     "crack-7z-hash (A2)",
+     "vulnerable-secret (A1)",
+     "vulnerable-secret (A2)"
+    ],
+    "cut at the 32,000-token output cap": [
+     "regex-chess (A1)",
+     "regex-chess (A2)",
+     "schemelike-metacircular-eval (A1)",
+     "schemelike-metacircular-eval (A2)"
+    ],
+    "waited for an approval no one gives": [
+     "install-windows-3.11 (A2)"
+    ],
+    "transient provider timeout, not retried": [
+     "hf-model-inference (A1)"
+    ],
+    "the adapter's stop overran; the tests never ran": [
+     "caffe-cifar-10 (A2)"
+    ],
+    "Claude Code's install failed; it never ran": [],
+    "stopped at the $2.00 spend limit": [
+     "make-doom-for-mips (A1)",
+     "make-doom-for-mips (A2)"
+    ],
+    "the task's agent timeout": [
+     "caffe-cifar-10 (A1)",
+     "compile-compcert (A1)",
+     "extract-moves-from-video (A1)",
+     "extract-moves-from-video (A2)",
+     "llm-inference-batching-scheduler (A2)",
+     "qemu-alpine-ssh (A2)"
+    ]
+   },
+   "B": {
+    "refused by the model": [
+     "break-filter-js-from-html (B1)",
+     "break-filter-js-from-html (B2)",
+     "crack-7z-hash (B1)",
+     "crack-7z-hash (B2)",
+     "vulnerable-secret (B1)",
+     "vulnerable-secret (B2)"
+    ],
+    "cut at the 32,000-token output cap": [
+     "regex-chess (B1)",
+     "schemelike-metacircular-eval (B2)"
+    ],
+    "waited for an approval no one gives": [],
+    "transient provider timeout, not retried": [],
+    "the adapter's stop overran; the tests never ran": [
+     "caffe-cifar-10 (B1)",
+     "caffe-cifar-10 (B2)"
+    ],
+    "Claude Code's install failed; it never ran": [],
+    "stopped at the $2.00 spend limit": [
+     "make-doom-for-mips (B2)"
+    ],
+    "the task's agent timeout": [
+     "extract-moves-from-video (B1)",
+     "extract-moves-from-video (B2)",
+     "make-doom-for-mips (B1)",
+     "rstan-to-pystan (B1)",
+     "train-fasttext (B1)"
+    ]
+   },
+   "C": {
+    "refused by the model": [],
+    "cut at the 32,000-token output cap": [],
+    "waited for an approval no one gives": [],
+    "transient provider timeout, not retried": [],
+    "the adapter's stop overran; the tests never ran": [],
+    "Claude Code's install failed; it never ran": [
+     "qemu-alpine-ssh (C1)",
+     "qemu-alpine-ssh (C2)",
+     "qemu-startup (C1)",
+     "qemu-startup (C2)"
+    ],
+    "stopped at the $2.00 spend limit": [],
+    "the task's agent timeout": [
+     "caffe-cifar-10 (C1)",
+     "caffe-cifar-10 (C2)",
+     "compile-compcert (C2)",
+     "extract-moves-from-video (C2)",
+     "feal-linear-cryptanalysis (C1)",
+     "mteb-leaderboard (C1)",
+     "rstan-to-pystan (C1)",
+     "rstan-to-pystan (C2)"
+    ]
+   }
+  },
+  "causes": {
+   "refused by the model": {
+    "cause": "harness",
+    "what": "no fallback on a refusal (Claude Code retries on Sonnet 5)",
+    "fix": "theseus-7gir.18, joined 2026-10-05"
+   },
+   "cut at the 32,000-token output cap": {
+    "cause": "harness (a limit)",
+    "what": "the bench profile asked for 32,000 output tokens; the model and Claude Code allow 128,000",
+    "fix": "theseus-7gir.19, joined 2026-10-04"
+   },
+   "waited for an approval no one gives": {
+    "cause": "harness (policy)",
+    "what": "a fetch of a private address waited for an approval even under the open bench profile",
+    "fix": "theseus-7gir.20, joined 2026-10-04"
+   },
+   "transient provider timeout, not retried": {
+    "cause": "harness",
+    "what": "a first-byte timeout ended the one-shot turn; nothing retried it inside the turn",
+    "fix": "theseus-7gir.21, joined 2026-10-04"
+   },
+   "the adapter's stop overran; the tests never ran": {
+    "cause": "harness (the adapter)",
+    "what": "after the timeout, stopping the turn took longer than Harbor's 60 s for a command, so Harbor ended the trial before its tests",
+    "fix": "none filed"
+   },
+   "Claude Code's install failed; it never ran": {
+    "cause": "environment (Claude Code's install)",
+    "what": "Harbor's install of Node and the CLI through apt failed on the task's image",
+    "fix": "none (not Theseus's)"
+   },
+   "stopped at the $2.00 spend limit": {
+    "cause": "model (a matched limit)",
+    "what": "the same $2.00 a trial as Claude Code's budget; Claude Code failed the task at under $0.80",
+    "fix": "none needed"
+   },
+   "the task's agent timeout": {
+    "cause": "environment or model",
+    "what": "compute-bound tasks under the task's own limit, on a shared machine",
+    "fix": "none"
+   }
+  },
+  "claude_code_fallback": {
+   "trials": [
+    {
+     "task": "break-filter-js-from-html",
+     "attempt": 1,
+     "solved": true,
+     "other": {
+      "claude-sonnet-5": 0.319262
+     },
+     "event": true,
+     "cost": 0.348477
+    },
+    {
+     "task": "break-filter-js-from-html",
+     "attempt": 2,
+     "solved": true,
+     "other": {
+      "claude-sonnet-5": 0.23903
+     },
+     "event": true,
+     "cost": 0.268245
+    },
+    {
+     "task": "crack-7z-hash",
+     "attempt": 1,
+     "solved": true,
+     "other": {
+      "claude-sonnet-5": 0.092502
+     },
+     "event": true,
+     "cost": 0.1044
+    },
+    {
+     "task": "crack-7z-hash",
+     "attempt": 2,
+     "solved": true,
+     "other": {
+      "claude-sonnet-5": 0.106166
+     },
+     "event": true,
+     "cost": 0.12573
+    },
+    {
+     "task": "vulnerable-secret",
+     "attempt": 1,
+     "solved": true,
+     "other": {
+      "claude-sonnet-5": 0.117914
+     },
+     "event": true,
+     "cost": 0.13569
+    },
+    {
+     "task": "vulnerable-secret",
+     "attempt": 2,
+     "solved": true,
+     "other": {
+      "claude-sonnet-5": 0.079859
+     },
+     "event": true,
+     "cost": 0.105562
+    }
+   ],
+   "sonnet_5_dollars": 0.9547
+  },
+  "solved_after_error_class": [
+   {
+    "task": "rstan-to-pystan",
+    "arm": "C",
+    "attempt": 1,
+    "klass": "timeout",
+    "exception": "AgentTimeoutError",
+    "agent_secs": 1800.084
+   }
+  ],
+  "fixes_on_paper": {
+   "by_fix": {
+    "refusal (theseus-7gir.18)": {
+     "A": {
+      "trials": [
+       [
+        "break-filter-js-from-html",
+        1
+       ],
+       [
+        "break-filter-js-from-html",
+        2
+       ],
+       [
+        "crack-7z-hash",
+        1
+       ],
+       [
+        "crack-7z-hash",
+        2
+       ],
+       [
+        "vulnerable-secret",
+        1
+       ],
+       [
+        "vulnerable-secret",
+        2
+       ]
+      ],
+      "n": 6,
+      "max_points": 3.370787,
+      "at_c_rate_trials": 6.0,
+      "at_c_rate_points": 3.370787,
+      "tasks": [
+       "break-filter-js-from-html",
+       "crack-7z-hash",
+       "vulnerable-secret"
+      ]
+     },
+     "B": {
+      "trials": [
+       [
+        "break-filter-js-from-html",
+        1
+       ],
+       [
+        "break-filter-js-from-html",
+        2
+       ],
+       [
+        "crack-7z-hash",
+        1
+       ],
+       [
+        "crack-7z-hash",
+        2
+       ],
+       [
+        "vulnerable-secret",
+        1
+       ],
+       [
+        "vulnerable-secret",
+        2
+       ]
+      ],
+      "n": 6,
+      "max_points": 3.370787,
+      "at_c_rate_trials": 6.0,
+      "at_c_rate_points": 3.370787,
+      "tasks": [
+       "break-filter-js-from-html",
+       "crack-7z-hash",
+       "vulnerable-secret"
+      ]
+     }
+    },
+    "output cap (theseus-7gir.19)": {
+     "A": {
+      "trials": [
+       [
+        "regex-chess",
+        1
+       ],
+       [
+        "regex-chess",
+        2
+       ],
+       [
+        "schemelike-metacircular-eval",
+        1
+       ],
+       [
+        "schemelike-metacircular-eval",
+        2
+       ]
+      ],
+      "n": 4,
+      "max_points": 2.247191,
+      "at_c_rate_trials": 4.0,
+      "at_c_rate_points": 2.247191,
+      "tasks": [
+       "regex-chess",
+       "schemelike-metacircular-eval"
+      ]
+     },
+     "B": {
+      "trials": [
+       [
+        "regex-chess",
+        1
+       ],
+       [
+        "schemelike-metacircular-eval",
+        2
+       ]
+      ],
+      "n": 2,
+      "max_points": 1.123596,
+      "at_c_rate_trials": 2.0,
+      "at_c_rate_points": 1.123596,
+      "tasks": [
+       "regex-chess",
+       "schemelike-metacircular-eval"
+      ]
+     }
+    },
+    "approval wait (theseus-7gir.20)": {
+     "A": {
+      "trials": [
+       [
+        "install-windows-3.11",
+        2
+       ]
+      ],
+      "n": 1,
+      "max_points": 0.561798,
+      "at_c_rate_trials": 0.5,
+      "at_c_rate_points": 0.280899,
+      "tasks": [
+       "install-windows-3.11"
+      ]
+     },
+     "B": {
+      "trials": [],
+      "n": 0,
+      "max_points": 0.0,
+      "at_c_rate_trials": 0,
+      "at_c_rate_points": 0.0,
+      "tasks": []
+     }
+    },
+    "transient provider error (theseus-7gir.21)": {
+     "A": {
+      "trials": [
+       [
+        "hf-model-inference",
+        1
+       ]
+      ],
+      "n": 1,
+      "max_points": 0.561798,
+      "at_c_rate_trials": 1.0,
+      "at_c_rate_points": 0.561798,
+      "tasks": [
+       "hf-model-inference"
+      ]
+     },
+     "B": {
+      "trials": [],
+      "n": 0,
+      "max_points": 0.0,
+      "at_c_rate_trials": 0,
+      "at_c_rate_points": 0.0,
+      "tasks": []
+     }
+    },
+    "total A": {
+     "trials": 12,
+     "max_rate": 0.786517,
+     "c_rate_rate": 0.783708
+    },
+    "total B": {
+     "trials": 8,
+     "max_rate": 0.780899,
+     "c_rate_rate": 0.780899
+    }
+   },
+   "rates": {
+    "A_measured": {
+     "k": 128,
+     "n": 178,
+     "rate": 0.719101,
+     "lo": 0.648985,
+     "hi": 0.77996
+    },
+    "A_three_fixes": {
+     "k": 134,
+     "n": 178,
+     "rate": 0.752809,
+     "lo": 0.684542,
+     "hi": 0.810394
+    },
+    "A_four_fixes": {
+     "k": 140,
+     "n": 178,
+     "rate": 0.786517,
+     "lo": 0.7206,
+     "hi": 0.840329
+    },
+    "B_measured": {
+     "k": 131,
+     "n": 178,
+     "rate": 0.735955,
+     "lo": 0.666705,
+     "hi": 0.795236
+    },
+    "B_three_fixes": {
+     "k": 133,
+     "n": 178,
+     "rate": 0.747191,
+     "lo": 0.678583,
+     "hi": 0.805355
+    },
+    "B_four_fixes": {
+     "k": 139,
+     "n": 178,
+     "rate": 0.780899,
+     "lo": 0.714552,
+     "hi": 0.835377
+    },
+    "C_measured": {
+     "k": 145,
+     "n": 178,
+     "rate": 0.814607,
+     "lo": 0.751087,
+     "hi": 0.864834
+    },
+    "C_without_fallback": {
+     "k": 139,
+     "n": 178,
+     "rate": 0.780899,
+     "lo": 0.714552,
+     "hi": 0.835377
+    }
+   }
+  },
+  "reservation_risk_128k": {
+   "A@0.52": [
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 1.35234,
+     "cost": 1.438151
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 2,
+     "solved": false,
+     "spend_before_last": 1.369822,
+     "cost": 1.459775
+    }
+   ],
+   "B@0.52": [
+    {
+     "task": "install-windows-3.11",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 0.7792,
+     "cost": 0.803602
+    },
+    {
+     "task": "install-windows-3.11",
+     "attempt": 2,
+     "solved": true,
+     "spend_before_last": 0.761102,
+     "cost": 0.783273
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 1.217282,
+     "cost": 1.242995
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 2,
+     "solved": false,
+     "spend_before_last": 1.414878,
+     "cost": 1.454671
+    },
+    {
+     "task": "regex-chess",
+     "attempt": 2,
+     "solved": true,
+     "spend_before_last": 0.582414,
+     "cost": 0.600935
+    }
+   ],
+   "A@0.6": [
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 1.35234,
+     "cost": 1.438151
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 2,
+     "solved": false,
+     "spend_before_last": 1.369822,
+     "cost": 1.459775
+    }
+   ],
+   "B@0.6": [
+    {
+     "task": "install-windows-3.11",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 0.7792,
+     "cost": 0.803602
+    },
+    {
+     "task": "install-windows-3.11",
+     "attempt": 2,
+     "solved": true,
+     "spend_before_last": 0.761102,
+     "cost": 0.783273
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 1.217282,
+     "cost": 1.242995
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 2,
+     "solved": false,
+     "spend_before_last": 1.414878,
+     "cost": 1.454671
+    }
+   ],
+   "A@0.72": [
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 1.35234,
+     "cost": 1.438151
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 2,
+     "solved": false,
+     "spend_before_last": 1.369822,
+     "cost": 1.459775
+    }
+   ],
+   "B@0.72": [
+    {
+     "task": "install-windows-3.11",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 0.7792,
+     "cost": 0.803602
+    },
+    {
+     "task": "install-windows-3.11",
+     "attempt": 2,
+     "solved": true,
+     "spend_before_last": 0.761102,
+     "cost": 0.783273
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 1,
+     "solved": false,
+     "spend_before_last": 1.217282,
+     "cost": 1.242995
+    },
+    {
+     "task": "make-doom-for-mips",
+     "attempt": 2,
+     "solved": false,
+     "spend_before_last": 1.414878,
+     "cost": 1.454671
+    }
+   ]
+  },
+  "difficulty": {
+   "easy": {
+    "tasks": 4,
+    "A": {
+     "k": 8,
+     "n": 8,
+     "rate": 1.0,
+     "lo": 0.675592,
+     "hi": 1.0
+    },
+    "B": {
+     "k": 8,
+     "n": 8,
+     "rate": 1.0,
+     "lo": 0.675592,
+     "hi": 1.0
+    },
+    "C": {
+     "k": 8,
+     "n": 8,
+     "rate": 1.0,
+     "lo": 0.675592,
+     "hi": 1.0
+    }
+   },
+   "medium": {
+    "tasks": 55,
+    "A": {
+     "k": 79,
+     "n": 110,
+     "rate": 0.718182,
+     "lo": 0.62785,
+     "hi": 0.793789
+    },
+    "B": {
+     "k": 81,
+     "n": 110,
+     "rate": 0.736364,
+     "lo": 0.647059,
+     "hi": 0.809717
+    },
+    "C": {
+     "k": 87,
+     "n": 110,
+     "rate": 0.790909,
+     "lo": 0.705749,
+     "hi": 0.856436
+    }
+   },
+   "hard": {
+    "tasks": 30,
+    "A": {
+     "k": 41,
+     "n": 60,
+     "rate": 0.683333,
+     "lo": 0.557662,
+     "hi": 0.786941
+    },
+    "B": {
+     "k": 42,
+     "n": 60,
+     "rate": 0.7,
+     "lo": 0.574913,
+     "hi": 0.801018
+    },
+    "C": {
+     "k": 50,
+     "n": 60,
+     "rate": 0.833333,
+     "lo": 0.719684,
+     "hi": 0.906868
+    }
+   }
+  },
+  "unanimous": {
+   "all_solved": 52,
+   "none_solved": [
+    "caffe-cifar-10",
+    "dna-insert",
+    "filter-js-from-html",
+    "make-doom-for-mips",
+    "mteb-retrieve",
+    "polyglot-c-py",
+    "polyglot-rust-c",
+    "qemu-alpine-ssh",
+    "qemu-startup",
+    "sam-cell-seg"
+   ],
+   "contested": 27
+  },
+  "matrix_codes": {
+   "adaptive-rejection-sampler": "FFPFFF",
+   "bn-fit-modify": "PPPPPP",
+   "break-filter-js-from-html": "EEEEPP",
+   "build-cython-ext": "PPPPPP",
+   "build-pmars": "PPPFPP",
+   "build-pov-ray": "PPPPPP",
+   "caffe-cifar-10": "EEEEEE",
+   "cancel-async-tasks": "PPPPPP",
+   "chess-best-move": "PPFPFP",
+   "circuit-fibsqrt": "PPPPPP",
+   "cobol-modernization": "PPPPPP",
+   "code-from-image": "PPPPPP",
+   "compile-compcert": "EPPPPE",
+   "configure-git-webserver": "PFFFPP",
+   "constraints-scheduling": "PPPPPP",
+   "count-dataset-tokens": "PPPPPP",
+   "crack-7z-hash": "EEEEPP",
+   "custom-memory-heap-crash": "PPPPFP",
+   "db-wal-recovery": "PPPPPP",
+   "distribution-search": "PPPPPP",
+   "dna-assembly": "PPPPPP",
+   "dna-insert": "FFFFFF",
+   "extract-elf": "PPPPPP",
+   "extract-moves-from-video": "EEEEPE",
+   "feal-differential-cryptanalysis": "PPPPPP",
+   "feal-linear-cryptanalysis": "PPPPEP",
+   "filter-js-from-html": "FFFFFF",
+   "financial-document-processor": "PPPPPP",
+   "fix-code-vulnerability": "PPPPPP",
+   "fix-git": "PPPPPP",
+   "fix-ocaml-gc": "PPPPPP",
+   "gcode-to-text": "PPPPPP",
+   "git-leak-recovery": "PPPPPP",
+   "git-multibranch": "PPPPPP",
+   "gpt2-codegolf": "PPPPPP",
+   "headless-terminal": "PPPPPP",
+   "hf-model-inference": "EPPPPP",
+   "install-windows-3.11": "FEFPPF",
+   "kv-store-grpc": "PPPPPP",
+   "large-scale-text-editing": "PPFPPP",
+   "largest-eigenval": "PPPPPP",
+   "llm-inference-batching-scheduler": "PEPPPP",
+   "log-summary-date-ranges": "PPPPPP",
+   "mailman": "PPPPPP",
+   "make-doom-for-mips": "EEEEFF",
+   "make-mips-interpreter": "FPPPPP",
+   "mcmc-sampling-stan": "PPFFPP",
+   "merge-diff-arc-agi-task": "PPPPPP",
+   "model-extraction-relu-logits": "PPPPPP",
+   "modernize-scientific-stack": "PPPPPP",
+   "mteb-leaderboard": "PFPPEF",
+   "mteb-retrieve": "FFFFFF",
+   "multi-source-data-merger": "PPPPPP",
+   "nginx-request-logging": "PPPPPP",
+   "openssl-selfsigned-cert": "PPPPPP",
+   "overfull-hbox": "PPPPPP",
+   "password-recovery": "PPPPPP",
+   "path-tracing": "PPPPPP",
+   "path-tracing-reverse": "PPPPPP",
+   "polyglot-c-py": "FFFFFF",
+   "polyglot-rust-c": "FFFFFF",
+   "portfolio-optimization": "PPPPPP",
+   "protein-assembly": "FPPFPP",
+   "prove-plus-comm": "PPPPPP",
+   "pypi-server": "PPPPPP",
+   "pytorch-model-cli": "FFPPPP",
+   "pytorch-model-recovery": "PPPPPP",
+   "qemu-alpine-ssh": "FEFFEE",
+   "qemu-startup": "FFFFEE",
+   "query-optimize": "FPFPFP",
+   "raman-fitting": "FPFFPP",
+   "regex-chess": "EEEPPP",
+   "regex-log": "PPPPPP",
+   "reshard-c4-data": "PPPPPP",
+   "rstan-to-pystan": "PPEPPE",
+   "sam-cell-seg": "FFFFFF",
+   "sanitize-git-repo": "PPPPPP",
+   "schemelike-metacircular-eval": "EEPEPP",
+   "sparql-university": "PPPPPP",
+   "sqlite-db-truncate": "PPPPPP",
+   "sqlite-with-gcov": "PPPPPP",
+   "torch-pipeline-parallelism": "PPPPPP",
+   "torch-tensor-parallelism": "PPPPPP",
+   "train-fasttext": "FFEFPF",
+   "tune-mjcf": "PPPPPP",
+   "video-processing": "FPPFPP",
+   "vulnerable-secret": "EEEEPP",
+   "winning-avg-corewars": "PPPPPP",
+   "write-compressor": "PPPPPP"
+  }
+ },
+ "figures": [
+  {
+   "name": "pass-rates",
+   "form": "intervals",
+   "title": "Pass rate by arm, counted four ways",
+   "question": "How often did each arm solve a task, and how sure can we be?",
+   "x": {
+    "label": "share solved",
+    "min": 0.4,
+    "max": 1.0,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "group": "Per trial (n = 178)",
+     "label": "A. Theseus plain",
+     "arm": "theseus",
+     "value": 0.719101,
+     "lo": 0.648985,
+     "hi": 0.77996,
+     "tip": "128 of 178 trials"
+    },
+    {
+     "group": "Per trial (n = 178)",
+     "label": "B. Theseus + paragraph",
+     "arm": "theseus-batching",
+     "value": 0.735955,
+     "lo": 0.666705,
+     "hi": 0.795236,
+     "tip": "131 of 178 trials"
+    },
+    {
+     "group": "Per trial (n = 178)",
+     "label": "C. Claude Code",
+     "arm": "claude-code",
+     "value": 0.814607,
+     "lo": 0.751087,
+     "hi": 0.864834,
+     "tip": "145 of 178 trials"
+    },
+    {
+     "group": "Per task (n = 89)",
+     "label": "A. Theseus plain",
+     "arm": "theseus",
+     "value": 0.719101,
+     "lo": 0.629213,
+     "hi": 0.803371,
+     "tip": "resampling whole tasks, so a task's two attempts move together"
+    },
+    {
+     "group": "Per task (n = 89)",
+     "label": "B. Theseus + paragraph",
+     "arm": "theseus-batching",
+     "value": 0.735955,
+     "lo": 0.651685,
+     "hi": 0.820225,
+     "tip": "resampling whole tasks, so a task's two attempts move together"
+    },
+    {
+     "group": "Per task (n = 89)",
+     "label": "C. Claude Code",
+     "arm": "claude-code",
+     "value": 0.814607,
+     "lo": 0.735955,
+     "hi": 0.88764,
+     "tip": "resampling whole tasks, so a task's two attempts move together"
+    },
+    {
+     "group": "Both attempts (n = 89)",
+     "label": "A. Theseus plain",
+     "arm": "theseus",
+     "value": 0.662921,
+     "lo": 0.559789,
+     "hi": 0.752572,
+     "tip": "59 of 89 tasks"
+    },
+    {
+     "group": "Both attempts (n = 89)",
+     "label": "B. Theseus + paragraph",
+     "arm": "theseus-batching",
+     "value": 0.674157,
+     "lo": 0.571342,
+     "hi": 0.76256,
+     "tip": "60 of 89 tasks"
+    },
+    {
+     "group": "Both attempts (n = 89)",
+     "label": "C. Claude Code",
+     "arm": "claude-code",
+     "value": 0.764045,
+     "lo": 0.666064,
+     "hi": 0.840176,
+     "tip": "68 of 89 tasks"
+    },
+    {
+     "group": "Either attempt (n = 89)",
+     "label": "A. Theseus plain",
+     "arm": "theseus",
+     "value": 0.775281,
+     "lo": 0.678226,
+     "hi": 0.849555,
+     "tip": "69 of 89 tasks"
+    },
+    {
+     "group": "Either attempt (n = 89)",
+     "label": "B. Theseus + paragraph",
+     "arm": "theseus-batching",
+     "value": 0.797753,
+     "lo": 0.702803,
+     "hi": 0.868062,
+     "tip": "71 of 89 tasks"
+    },
+    {
+     "group": "Either attempt (n = 89)",
+     "label": "C. Claude Code",
+     "arm": "claude-code",
+     "value": 0.865169,
+     "lo": 0.778961,
+     "hi": 0.921157,
+     "tip": "77 of 89 tasks"
+    }
+   ],
+   "note": "Per trial and both/either: Wilson 95% intervals. Per task: a task's mean over its two attempts, bootstrap 95% over tasks. 89 tasks x 2 attempts an arm, Claude Sonnet 5.5.",
+   "legend_labels": {
+    "theseus": "A. Theseus plain",
+    "theseus-batching": "B. Theseus + paragraph",
+    "claude-code": "C. Claude Code"
+   }
+  },
+  {
+   "name": "contested-tasks",
+   "form": "matrix",
+   "title": "The 27 tasks where the six trials disagree",
+   "question": "On which tasks do the arms part, and how did each of those trials end?",
+   "columns": [
+    {
+     "label": "A1",
+     "arm": "theseus"
+    },
+    {
+     "label": "A2",
+     "arm": "theseus"
+    },
+    {
+     "label": "B1",
+     "arm": "theseus-batching"
+    },
+    {
+     "label": "B2",
+     "arm": "theseus-batching"
+    },
+    {
+     "label": "C1",
+     "arm": "claude-code"
+    },
+    {
+     "label": "C2",
+     "arm": "claude-code"
+    }
+   ],
+   "rows": [
+    {
+     "label": "pytorch-model-cli",
+     "cells": "FFPPPP",
+     "tips": [
+      "A1: not solved; $0.08; 10 calls",
+      "A2: not solved; $0.11; 12 calls",
+      "B1: solved; $0.05; 8 calls",
+      "B2: solved; $0.06; 9 calls",
+      "C1: solved; $0.06; 5 calls",
+      "C2: solved; $0.05; 5 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "regex-chess",
+     "cells": "EEEPPP",
+     "tips": [
+      "A1: cut at the 32,000-token output cap; $0.35; 3 calls",
+      "A2: cut at the 32,000-token output cap; $0.35; 3 calls",
+      "B1: cut at the 32,000-token output cap; $0.33; 2 calls",
+      "B2: solved; $0.60; 8 calls",
+      "C1: solved; $0.55; 10 calls",
+      "C2: solved; $0.52; 7 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "schemelike-metacircular-eval",
+     "cells": "EEPEPP",
+     "tips": [
+      "A1: cut at the 32,000-token output cap; $0.49; 4 calls",
+      "A2: cut at the 32,000-token output cap; $0.40; 3 calls",
+      "B1: solved; $0.52; 7 calls",
+      "B2: cut at the 32,000-token output cap; $0.36; 3 calls",
+      "C1: solved; $0.40; 5 calls",
+      "C2: solved; $0.46; 20 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "break-filter-js-from-html",
+     "cells": "EEEEPP",
+     "tips": [
+      "A1: refused by the model; $0.01; 1 calls",
+      "A2: refused by the model; $0.01; 1 calls",
+      "B1: refused by the model; $0.01; 1 calls",
+      "B2: refused by the model; $0.01; 1 calls",
+      "C1: solved; $0.35; 14 calls",
+      "C2: solved; $0.27; 17 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "crack-7z-hash",
+     "cells": "EEEEPP",
+     "tips": [
+      "A1: refused by the model; $0.00; 1 calls",
+      "A2: refused by the model; $0.00; 1 calls",
+      "B1: refused by the model; $0.02; 1 calls",
+      "B2: refused by the model; $0.02; 1 calls",
+      "C1: solved; $0.10; 13 calls",
+      "C2: solved; $0.13; 15 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "vulnerable-secret",
+     "cells": "EEEEPP",
+     "tips": [
+      "A1: refused by the model; $0.00; 2 calls",
+      "A2: refused by the model; $0.00; 2 calls",
+      "B1: refused by the model; $0.00; 2 calls",
+      "B2: refused by the model; $0.00; 2 calls",
+      "C1: solved; $0.14; 9 calls",
+      "C2: solved; $0.11; 7 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "hf-model-inference",
+     "cells": "EPPPPP",
+     "tips": [
+      "A1: transient provider timeout, not retried; ?; 0 calls",
+      "A2: solved; $0.05; 5 calls",
+      "B1: solved; $0.04; 4 calls",
+      "B2: solved; $0.04; 4 calls",
+      "C1: solved; $0.04; 4 calls",
+      "C2: solved; $0.03; 4 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "install-windows-3.11",
+     "cells": "FEFPPF",
+     "tips": [
+      "A1: not solved; $0.52; 45 calls",
+      "A2: waited for an approval no one gives; $0.05; 7 calls",
+      "B1: not solved; $0.80; 61 calls",
+      "B2: solved; $0.78; 54 calls",
+      "C1: solved; $0.51; 37 calls",
+      "C2: not solved; $1.12; 68 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "llm-inference-batching-scheduler",
+     "cells": "PEPPPP",
+     "tips": [
+      "A1: solved; $0.12; 6 calls",
+      "A2: the task's agent timeout; $0.22; 7 calls",
+      "B1: solved; $0.13; 9 calls",
+      "B2: solved; $0.23; 12 calls",
+      "C1: solved; $0.09; 8 calls",
+      "C2: solved; $0.14; 10 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "make-mips-interpreter",
+     "cells": "FPPPPP",
+     "tips": [
+      "A1: not solved; $0.49; 13 calls",
+      "A2: solved; $0.49; 13 calls",
+      "B1: solved; $0.41; 14 calls",
+      "B2: solved; $0.39; 11 calls",
+      "C1: solved; $0.22; 10 calls",
+      "C2: solved; $0.27; 12 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "extract-moves-from-video",
+     "cells": "EEEEPE",
+     "tips": [
+      "A1: the task's agent timeout; $0.18; 14 calls",
+      "A2: the task's agent timeout; $0.18; 16 calls",
+      "B1: the task's agent timeout; $0.09; 13 calls",
+      "B2: the task's agent timeout; $0.39; 28 calls",
+      "C1: solved; $1.12; 35 calls",
+      "C2: the task's agent timeout; $0.44; 36 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "protein-assembly",
+     "cells": "FPPFPP",
+     "tips": [
+      "A1: not solved; $0.21; 16 calls",
+      "A2: solved; $0.25; 15 calls",
+      "B1: solved; $0.22; 14 calls",
+      "B2: not solved; $0.31; 19 calls",
+      "C1: solved; $0.15; 9 calls",
+      "C2: solved; $0.19; 12 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "train-fasttext",
+     "cells": "FFEFPF",
+     "tips": [
+      "A1: not solved; $0.11; 11 calls",
+      "A2: not solved; $0.44; 16 calls",
+      "B1: the task's agent timeout; $0.19; 13 calls",
+      "B2: not solved; $0.11; 11 calls",
+      "C1: solved; $0.10; 9 calls",
+      "C2: not solved; $0.07; 9 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "video-processing",
+     "cells": "FPPFPP",
+     "tips": [
+      "A1: not solved; $0.17; 11 calls",
+      "A2: solved; $0.11; 7 calls",
+      "B1: solved; $0.14; 10 calls",
+      "B2: not solved; $0.19; 12 calls",
+      "C1: solved; $0.09; 7 calls",
+      "C2: solved; $0.09; 8 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "configure-git-webserver",
+     "cells": "PFFFPP",
+     "tips": [
+      "A1: solved; $0.03; 5 calls",
+      "A2: not solved; $0.04; 7 calls",
+      "B1: not solved; $0.04; 5 calls",
+      "B2: not solved; $0.04; 5 calls",
+      "C1: solved; $0.04; 4 calls",
+      "C2: solved; $0.03; 4 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "raman-fitting",
+     "cells": "FPFFPP",
+     "tips": [
+      "A1: not solved; $0.17; 16 calls",
+      "A2: solved; $0.11; 11 calls",
+      "B1: not solved; $0.11; 10 calls",
+      "B2: not solved; $0.19; 16 calls",
+      "C1: solved; $0.10; 9 calls",
+      "C2: solved; $0.07; 8 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "adaptive-rejection-sampler",
+     "cells": "FFPFFF",
+     "tips": [
+      "A1: not solved; $0.27; 7 calls",
+      "A2: not solved; $0.31; 7 calls",
+      "B1: solved; $0.23; 7 calls",
+      "B2: not solved; $0.27; 6 calls",
+      "C1: not solved; $0.15; 5 calls",
+      "C2: not solved; $0.16; 5 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "compile-compcert",
+     "cells": "EPPPPE",
+     "tips": [
+      "A1: the task's agent timeout; $0.10; 11 calls",
+      "A2: solved; $0.11; 15 calls",
+      "B1: solved; $0.12; 13 calls",
+      "B2: solved; $0.12; 12 calls",
+      "C1: solved; $0.13; 14 calls",
+      "C2: the task's agent timeout; $0.20; 19 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "query-optimize",
+     "cells": "FPFPFP",
+     "tips": [
+      "A1: not solved; $0.06; 4 calls",
+      "A2: solved; $0.07; 5 calls",
+      "B1: not solved; $0.05; 6 calls",
+      "B2: solved; $0.04; 4 calls",
+      "C1: not solved; $0.07; 7 calls",
+      "C2: solved; $0.06; 7 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "build-pmars",
+     "cells": "PPPFPP",
+     "tips": [
+      "A1: solved; $0.05; 10 calls",
+      "A2: solved; $0.04; 8 calls",
+      "B1: solved; $0.04; 8 calls",
+      "B2: not solved; $0.04; 8 calls",
+      "C1: solved; $0.05; 7 calls",
+      "C2: solved; $0.03; 6 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "large-scale-text-editing",
+     "cells": "PPFPPP",
+     "tips": [
+      "A1: solved; $0.04; 5 calls",
+      "A2: solved; $0.04; 5 calls",
+      "B1: not solved; $0.03; 6 calls",
+      "B2: solved; $0.03; 4 calls",
+      "C1: solved; $0.02; 3 calls",
+      "C2: solved; $0.03; 3 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "mcmc-sampling-stan",
+     "cells": "PPFFPP",
+     "tips": [
+      "A1: solved; $0.10; 9 calls",
+      "A2: solved; $0.06; 10 calls",
+      "B1: not solved; $0.07; 8 calls",
+      "B2: not solved; $0.10; 11 calls",
+      "C1: solved; $0.12; 9 calls",
+      "C2: solved; $0.07; 8 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "mteb-leaderboard",
+     "cells": "PFPPEF",
+     "tips": [
+      "A1: solved; $0.28; 20 calls",
+      "A2: not solved; $0.36; 20 calls",
+      "B1: solved; $0.14; 15 calls",
+      "B2: solved; $0.33; 27 calls",
+      "C1: the task's agent timeout; $0.19; 18 calls",
+      "C2: not solved; $0.04; 4 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "custom-memory-heap-crash",
+     "cells": "PPPPFP",
+     "tips": [
+      "A1: solved; $0.15; 14 calls",
+      "A2: solved; $0.13; 12 calls",
+      "B1: solved; $0.14; 12 calls",
+      "B2: solved; $0.09; 7 calls",
+      "C1: not solved; $0.09; 9 calls",
+      "C2: solved; $0.07; 8 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "feal-linear-cryptanalysis",
+     "cells": "PPPPEP",
+     "tips": [
+      "A1: solved; $0.33; 10 calls",
+      "A2: solved; $0.10; 6 calls",
+      "B1: solved; $0.11; 4 calls",
+      "B2: solved; $0.17; 6 calls",
+      "C1: the task's agent timeout; $0.20; 7 calls",
+      "C2: solved; $0.12; 3 calls"
+     ],
+     "note": "hard"
+    },
+    {
+     "label": "chess-best-move",
+     "cells": "PPFPFP",
+     "tips": [
+      "A1: solved; $0.03; 3 calls",
+      "A2: solved; $0.03; 3 calls",
+      "B1: not solved; $0.02; 3 calls",
+      "B2: solved; $0.04; 8 calls",
+      "C1: not solved; $0.03; 3 calls",
+      "C2: solved; $0.03; 3 calls"
+     ],
+     "note": "medium"
+    },
+    {
+     "label": "rstan-to-pystan",
+     "cells": "PPEPPE",
+     "tips": [
+      "A1: solved; $0.14; 10 calls",
+      "A2: solved; $0.12; 9 calls",
+      "B1: the task's agent timeout; $0.13; 10 calls",
+      "B2: solved; $0.15; 10 calls",
+      "C1: solved (after the task's agent timeout); $0.20; 9 calls",
+      "C2: the task's agent timeout; $0.08; 6 calls"
+     ],
+     "note": "medium"
+    }
+   ],
+   "state_labels": {
+    "P": "solved",
+    "F": "not solved",
+    "E": "ended in an error class",
+    "-": "no result"
+   },
+   "note": "Rows: Claude Code's lead over plain Theseus, largest first. Not shown: 52 tasks every trial solved, 10 no trial solved.",
+   "legend_labels": {
+    "theseus": "A. Theseus plain",
+    "theseus-batching": "B. Theseus + paragraph",
+    "claude-code": "C. Claude Code"
+   }
+  },
+  {
+   "name": "failure-classes",
+   "form": "bars",
+   "orientation": "h",
+   "title": "Trials that did not end on the agent's own terms, by how they ended",
+   "question": "How did the trials that did not end on their own end, arm by arm?",
+   "categories": [
+    "refused by the model",
+    "cut at the 32,000-token output cap",
+    "waited for an approval no one gives",
+    "transient provider timeout, not retried",
+    "the adapter's stop overran; the tests never ran",
+    "Claude Code's install failed; it never ran",
+    "stopped at the $2.00 spend limit",
+    "the task's agent timeout"
+   ],
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "A. Theseus plain",
+     "values": [
+      6,
+      4,
+      1,
+      1,
+      1,
+      0,
+      2,
+      6
+     ]
+    },
+    {
+     "arm": "theseus-batching",
+     "label": "B. Theseus + paragraph",
+     "values": [
+      6,
+      2,
+      0,
+      0,
+      2,
+      0,
+      1,
+      5
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "C. Claude Code",
+     "values": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      4,
+      0,
+      8
+     ]
+    }
+   ],
+   "value": {
+    "label": "trials (of 178 an arm)",
+    "min": 0,
+    "format": "int"
+   },
+   "labels": "ends",
+   "note": "Harbor's exception class per trial, read with each trial's own stop reason and log. A 21, B 16, C 12 trials.",
+   "legend_labels": {
+    "theseus": "A. Theseus plain",
+    "theseus-batching": "B. Theseus + paragraph",
+    "claude-code": "C. Claude Code"
+   }
+  },
+  {
+   "name": "cost-vs-pass",
+   "form": "scatter",
+   "title": "Pass rate against dollars per trial",
+   "question": "Which arm solved more for its dollars?",
+   "x": {
+    "label": "dollars per trial (mean, bootstrap 95%)",
+    "format": "usd",
+    "min": 0.09,
+    "max": 0.18
+   },
+   "y": {
+    "label": "pass rate per trial (Wilson 95%)",
+    "format": "pct",
+    "min": 0.6,
+    "max": 0.9
+   },
+   "points": [
+    {
+     "arm": "theseus",
+     "label": "A. Theseus plain",
+     "x": 0.140481,
+     "xlo": 0.115606,
+     "xhi": 0.169691,
+     "y": 0.719101,
+     "ylo": 0.648985,
+     "yhi": 0.77996,
+     "tip": "$0.140 a trial, 71.9% solved"
+    },
+    {
+     "arm": "theseus-batching",
+     "label": "B. Theseus + paragraph",
+     "x": 0.137643,
+     "xlo": 0.112127,
+     "xhi": 0.166942,
+     "y": 0.735955,
+     "ylo": 0.666705,
+     "yhi": 0.795236,
+     "tip": "$0.138 a trial, 73.6% solved"
+    },
+    {
+     "arm": "claude-code",
+     "label": "C. Claude Code",
+     "x": 0.130201,
+     "xlo": 0.104878,
+     "xhi": 0.1584,
+     "y": 0.814607,
+     "ylo": 0.751087,
+     "yhi": 0.864834,
+     "tip": "$0.130 a trial, 81.5% solved"
+    }
+   ],
+   "front": "min-x-max-y",
+   "note": "Dollars over the priced trials (176, 176, 174). Less to the left and higher is better; the ringed point is on the front.",
+   "legend_labels": {
+    "theseus": "A. Theseus plain",
+    "theseus-batching": "B. Theseus + paragraph",
+    "claude-code": "C. Claude Code"
+   }
+  },
+  {
+   "name": "cost-per-trial",
+   "form": "strip",
+   "title": "Dollars per trial, every priced trial",
+   "question": "How are each arm's dollars spread over its trials?",
+   "x": {
+    "label": "dollars per trial (log scale)",
+    "format": "usd",
+    "log": true,
+    "min": 0.002,
+    "max": 2.0
+   },
+   "groups": [
+    {
+     "arm": "theseus",
+     "label": "A. Theseus plain",
+     "values": [
+      0.0022,
+      0.0023,
+      0.0042,
+      0.0044,
+      0.0145,
+      0.0145,
+      0.0174,
+      0.0176,
+      0.0217,
+      0.0254,
+      0.0258,
+      0.0273,
+      0.0273,
+      0.0275,
+      0.0294,
+      0.0296,
+      0.03,
+      0.0303,
+      0.0308,
+      0.0313,
+      0.0314,
+      0.0315,
+      0.0317,
+      0.0323,
+      0.0324,
+      0.0328,
+      0.0329,
+      0.0335,
+      0.0341,
+      0.0344,
+      0.0346,
+      0.0353,
+      0.0356,
+      0.0358,
+      0.036,
+      0.0365,
+      0.0375,
+      0.0379,
+      0.0404,
+      0.0404,
+      0.0414,
+      0.0421,
+      0.043,
+      0.044,
+      0.0443,
+      0.0444,
+      0.0448,
+      0.0448,
+      0.0454,
+      0.0455,
+      0.046,
+      0.0461,
+      0.0463,
+      0.0467,
+      0.0477,
+      0.048,
+      0.0481,
+      0.0489,
+      0.0492,
+      0.0497,
+      0.0497,
+      0.0504,
+      0.0505,
+      0.0509,
+      0.0515,
+      0.052,
+      0.0537,
+      0.0552,
+      0.0552,
+      0.0555,
+      0.056,
+      0.0599,
+      0.0604,
+      0.0606,
+      0.0629,
+      0.0632,
+      0.0653,
+      0.0668,
+      0.0674,
+      0.0677,
+      0.0682,
+      0.071,
+      0.0719,
+      0.0759,
+      0.0799,
+      0.0808,
+      0.0812,
+      0.0827,
+      0.083,
+      0.0925,
+      0.0935,
+      0.0943,
+      0.0947,
+      0.0962,
+      0.0964,
+      0.0974,
+      0.0982,
+      0.0992,
+      0.1008,
+      0.1032,
+      0.1034,
+      0.1034,
+      0.1038,
+      0.1046,
+      0.1052,
+      0.1091,
+      0.11,
+      0.1114,
+      0.1135,
+      0.1156,
+      0.1173,
+      0.1189,
+      0.1204,
+      0.1207,
+      0.1238,
+      0.1258,
+      0.1296,
+      0.131,
+      0.1315,
+      0.1424,
+      0.1427,
+      0.1452,
+      0.1453,
+      0.1605,
+      0.1606,
+      0.1631,
+      0.1635,
+      0.1638,
+      0.1639,
+      0.1657,
+      0.1661,
+      0.1681,
+      0.1703,
+      0.1708,
+      0.1815,
+      0.1816,
+      0.1823,
+      0.1832,
+      0.1867,
+      0.1869,
+      0.187,
+      0.1873,
+      0.193,
+      0.195,
+      0.2102,
+      0.2115,
+      0.2132,
+      0.2195,
+      0.2202,
+      0.2482,
+      0.2559,
+      0.2691,
+      0.2839,
+      0.2845,
+      0.2896,
+      0.2994,
+      0.3023,
+      0.3069,
+      0.3293,
+      0.3457,
+      0.3457,
+      0.3559,
+      0.3634,
+      0.3968,
+      0.4015,
+      0.4217,
+      0.4439,
+      0.4524,
+      0.4645,
+      0.4902,
+      0.4915,
+      0.4921,
+      0.5029,
+      0.5163,
+      1.4382,
+      1.4598
+     ],
+     "tips": [
+      "crack-7z-hash (A1): $0.002, not solved",
+      "crack-7z-hash (A2): $0.002, not solved",
+      "vulnerable-secret (A1): $0.004, not solved",
+      "vulnerable-secret (A2): $0.004, not solved",
+      "break-filter-js-from-html (A1): $0.015, not solved",
+      "break-filter-js-from-html (A2): $0.015, not solved",
+      "git-leak-recovery (A2): $0.017, solved",
+      "git-leak-recovery (A1): $0.018, solved",
+      "distribution-search (A1): $0.022, solved",
+      "distribution-search (A2): $0.025, solved",
+      "modernize-scientific-stack (A2): $0.026, solved",
+      "nginx-request-logging (A2): $0.027, solved",
+      "nginx-request-logging (A1): $0.027, solved",
+      "modernize-scientific-stack (A1): $0.028, solved",
+      "chess-best-move (A2): $0.029, solved",
+      "cancel-async-tasks (A2): $0.030, solved",
+      "sqlite-db-truncate (A1): $0.030, solved",
+      "bn-fit-modify (A1): $0.030, solved",
+      "code-from-image (A1): $0.031, solved",
+      "bn-fit-modify (A2): $0.031, solved",
+      "fix-code-vulnerability (A1): $0.031, solved",
+      "code-from-image (A2): $0.032, solved",
+      "prove-plus-comm (A1): $0.032, solved",
+      "chess-best-move (A1): $0.032, solved",
+      "extract-elf (A2): $0.032, solved",
+      "configure-git-webserver (A1): $0.033, solved",
+      "db-wal-recovery (A2): $0.033, solved",
+      "openssl-selfsigned-cert (A1): $0.033, solved",
+      "mteb-retrieve (A2): $0.034, not solved",
+      "log-summary-date-ranges (A2): $0.034, solved",
+      "mteb-retrieve (A1): $0.035, not solved",
+      "cancel-async-tasks (A1): $0.035, solved",
+      "openssl-selfsigned-cert (A2): $0.036, solved",
+      "kv-store-grpc (A2): $0.036, solved",
+      "db-wal-recovery (A1): $0.036, solved",
+      "kv-store-grpc (A1): $0.036, solved",
+      "polyglot-rust-c (A1): $0.037, not solved",
+      "prove-plus-comm (A2): $0.038, solved",
+      "large-scale-text-editing (A1): $0.040, solved",
+      "extract-elf (A1): $0.040, solved",
+      "pytorch-model-recovery (A1): $0.041, solved",
+      "fix-code-vulnerability (A2): $0.042, solved",
+      "build-pmars (A2): $0.043, solved",
+      "configure-git-webserver (A2): $0.044, not solved",
+      "constraints-scheduling (A1): $0.044, solved",
+      "large-scale-text-editing (A2): $0.044, solved",
+      "polyglot-rust-c (A2): $0.045, not solved",
+      "fix-git (A1): $0.045, solved",
+      "regex-log (A2): $0.045, solved",
+      "log-summary-date-ranges (A1): $0.045, solved",
+      "pytorch-model-recovery (A2): $0.046, solved",
+      "build-pmars (A1): $0.046, solved",
+      "hf-model-inference (A2): $0.046, solved",
+      "pypi-server (A2): $0.047, solved",
+      "pypi-server (A1): $0.048, solved",
+      "model-extraction-relu-logits (A2): $0.048, solved",
+      "constraints-scheduling (A2): $0.048, solved",
+      "count-dataset-tokens (A2): $0.049, solved",
+      "sqlite-db-truncate (A2): $0.049, solved",
+      "multi-source-data-merger (A1): $0.050, solved",
+      "password-recovery (A2): $0.050, solved",
+      "sqlite-with-gcov (A2): $0.050, solved",
+      "multi-source-data-merger (A2): $0.051, solved",
+      "sqlite-with-gcov (A1): $0.051, solved",
+      "count-dataset-tokens (A1): $0.051, solved",
+      "install-windows-3.11 (A2): $0.052, not solved",
+      "fix-git (A2): $0.054, solved",
+      "query-optimize (A1): $0.055, not solved",
+      "qemu-alpine-ssh (A2): $0.055, not solved",
+      "regex-log (A1): $0.055, solved",
+      "torch-pipeline-parallelism (A1): $0.056, solved",
+      "mcmc-sampling-stan (A2): $0.060, solved",
+      "polyglot-c-py (A1): $0.060, not solved",
+      "torch-pipeline-parallelism (A2): $0.061, solved",
+      "headless-terminal (A1): $0.063, solved",
+      "merge-diff-arc-agi-task (A2): $0.063, solved",
+      "feal-differential-cryptanalysis (A1): $0.065, solved",
+      "password-recovery (A1): $0.067, solved",
+      "merge-diff-arc-agi-task (A1): $0.067, solved",
+      "headless-terminal (A2): $0.068, solved",
+      "query-optimize (A2): $0.068, solved",
+      "git-multibranch (A1): $0.071, solved",
+      "feal-differential-cryptanalysis (A2): $0.072, solved",
+      "torch-tensor-parallelism (A1): $0.076, solved",
+      "git-multibranch (A2): $0.080, solved",
+      "pytorch-model-cli (A1): $0.081, not solved",
+      "dna-insert (A1): $0.081, not solved",
+      "overfull-hbox (A2): $0.083, solved",
+      "torch-tensor-parallelism (A2): $0.083, solved",
+      "qemu-startup (A2): $0.092, not solved",
+      "sparql-university (A1): $0.094, solved",
+      "tune-mjcf (A1): $0.094, solved",
+      "winning-avg-corewars (A1): $0.095, solved",
+      "caffe-cifar-10 (A1): $0.096, not solved",
+      "mcmc-sampling-stan (A1): $0.096, solved",
+      "polyglot-c-py (A2): $0.097, not solved",
+      "filter-js-from-html (A2): $0.098, not solved",
+      "gcode-to-text (A2): $0.099, solved",
+      "compile-compcert (A1): $0.101, not solved",
+      "largest-eigenval (A2): $0.103, solved",
+      "filter-js-from-html (A1): $0.103, not solved",
+      "tune-mjcf (A2): $0.103, solved",
+      "sparql-university (A2): $0.104, solved",
+      "feal-linear-cryptanalysis (A2): $0.105, solved",
+      "raman-fitting (A2): $0.105, solved",
+      "compile-compcert (A2): $0.109, solved",
+      "pytorch-model-cli (A2): $0.110, not solved",
+      "train-fasttext (A1): $0.111, not solved",
+      "video-processing (A2): $0.114, solved",
+      "qemu-alpine-ssh (A1): $0.116, not solved",
+      "model-extraction-relu-logits (A1): $0.117, solved",
+      "cobol-modernization (A2): $0.119, solved",
+      "rstan-to-pystan (A2): $0.120, solved",
+      "largest-eigenval (A1): $0.121, solved",
+      "llm-inference-batching-scheduler (A1): $0.124, solved",
+      "custom-memory-heap-crash (A2): $0.126, solved",
+      "build-pov-ray (A1): $0.130, solved",
+      "dna-insert (A2): $0.131, not solved",
+      "write-compressor (A2): $0.132, solved",
+      "portfolio-optimization (A1): $0.142, solved",
+      "rstan-to-pystan (A1): $0.143, solved",
+      "custom-memory-heap-crash (A1): $0.145, solved",
+      "portfolio-optimization (A2): $0.145, solved",
+      "sanitize-git-repo (A1): $0.160, solved",
+      "sam-cell-seg (A2): $0.161, not solved",
+      "mailman (A2): $0.163, solved",
+      "build-cython-ext (A2): $0.164, solved",
+      "sanitize-git-repo (A2): $0.164, solved",
+      "gcode-to-text (A1): $0.164, solved",
+      "raman-fitting (A1): $0.166, not solved",
+      "overfull-hbox (A1): $0.166, solved",
+      "video-processing (A1): $0.168, not solved",
+      "build-cython-ext (A1): $0.170, solved",
+      "write-compressor (A1): $0.171, solved",
+      "circuit-fibsqrt (A1): $0.182, solved",
+      "cobol-modernization (A1): $0.182, solved",
+      "extract-moves-from-video (A1): $0.182, not solved",
+      "extract-moves-from-video (A2): $0.183, not solved",
+      "build-pov-ray (A2): $0.187, solved",
+      "reshard-c4-data (A2): $0.187, solved",
+      "dna-assembly (A2): $0.187, solved",
+      "mailman (A1): $0.187, solved",
+      "sam-cell-seg (A1): $0.193, not solved",
+      "reshard-c4-data (A1): $0.195, solved",
+      "qemu-startup (A1): $0.210, not solved",
+      "dna-assembly (A1): $0.211, solved",
+      "protein-assembly (A1): $0.213, not solved",
+      "circuit-fibsqrt (A2): $0.220, solved",
+      "llm-inference-batching-scheduler (A2): $0.220, not solved",
+      "protein-assembly (A2): $0.248, solved",
+      "fix-ocaml-gc (A2): $0.256, solved",
+      "adaptive-rejection-sampler (A1): $0.269, not solved",
+      "mteb-leaderboard (A1): $0.284, solved",
+      "financial-document-processor (A1): $0.285, solved",
+      "path-tracing (A1): $0.290, solved",
+      "financial-document-processor (A2): $0.299, solved",
+      "gpt2-codegolf (A2): $0.302, solved",
+      "adaptive-rejection-sampler (A2): $0.307, not solved",
+      "feal-linear-cryptanalysis (A1): $0.329, solved",
+      "regex-chess (A1): $0.346, not solved",
+      "regex-chess (A2): $0.346, not solved",
+      "fix-ocaml-gc (A1): $0.356, solved",
+      "mteb-leaderboard (A2): $0.363, not solved",
+      "path-tracing-reverse (A1): $0.397, solved",
+      "schemelike-metacircular-eval (A2): $0.402, not solved",
+      "path-tracing-reverse (A2): $0.422, solved",
+      "train-fasttext (A2): $0.444, not solved",
+      "winning-avg-corewars (A2): $0.452, solved",
+      "gpt2-codegolf (A1): $0.465, solved",
+      "make-mips-interpreter (A2): $0.490, solved",
+      "make-mips-interpreter (A1): $0.492, not solved",
+      "schemelike-metacircular-eval (A1): $0.492, not solved",
+      "path-tracing (A2): $0.503, solved",
+      "install-windows-3.11 (A1): $0.516, not solved",
+      "make-doom-for-mips (A1): $1.438, not solved",
+      "make-doom-for-mips (A2): $1.460, not solved"
+     ]
+    },
+    {
+     "arm": "theseus-batching",
+     "label": "B. Theseus + paragraph",
+     "values": [
+      0.0045,
+      0.0046,
+      0.0148,
+      0.0148,
+      0.0152,
+      0.0153,
+      0.0205,
+      0.0215,
+      0.0242,
+      0.0247,
+      0.0251,
+      0.0253,
+      0.0267,
+      0.027,
+      0.0282,
+      0.0282,
+      0.0293,
+      0.0302,
+      0.031,
+      0.031,
+      0.0311,
+      0.0314,
+      0.0316,
+      0.032,
+      0.0322,
+      0.0323,
+      0.0323,
+      0.0334,
+      0.0334,
+      0.0339,
+      0.034,
+      0.0347,
+      0.035,
+      0.0351,
+      0.0351,
+      0.0352,
+      0.0355,
+      0.0361,
+      0.0363,
+      0.0366,
+      0.0367,
+      0.0367,
+      0.037,
+      0.0374,
+      0.038,
+      0.0388,
+      0.0396,
+      0.0402,
+      0.0404,
+      0.0406,
+      0.0406,
+      0.0412,
+      0.0413,
+      0.042,
+      0.0421,
+      0.0428,
+      0.0429,
+      0.043,
+      0.043,
+      0.043,
+      0.0437,
+      0.0441,
+      0.0441,
+      0.0444,
+      0.0449,
+      0.0464,
+      0.0472,
+      0.0476,
+      0.0487,
+      0.0497,
+      0.0507,
+      0.0524,
+      0.0526,
+      0.053,
+      0.0531,
+      0.0531,
+      0.0546,
+      0.0547,
+      0.0548,
+      0.0617,
+      0.0627,
+      0.0643,
+      0.0646,
+      0.0654,
+      0.0679,
+      0.0681,
+      0.0718,
+      0.0725,
+      0.0725,
+      0.0754,
+      0.0774,
+      0.085,
+      0.0863,
+      0.0866,
+      0.0869,
+      0.0876,
+      0.0884,
+      0.0889,
+      0.0895,
+      0.0902,
+      0.1015,
+      0.103,
+      0.1037,
+      0.1062,
+      0.1094,
+      0.1094,
+      0.1122,
+      0.1147,
+      0.1151,
+      0.1157,
+      0.1171,
+      0.1206,
+      0.1213,
+      0.1214,
+      0.126,
+      0.1273,
+      0.1334,
+      0.1335,
+      0.1336,
+      0.1344,
+      0.1365,
+      0.1393,
+      0.14,
+      0.1407,
+      0.1413,
+      0.1423,
+      0.1429,
+      0.1528,
+      0.154,
+      0.1543,
+      0.1631,
+      0.1726,
+      0.1739,
+      0.1754,
+      0.1786,
+      0.1795,
+      0.1802,
+      0.1848,
+      0.1883,
+      0.1887,
+      0.1913,
+      0.1939,
+      0.2062,
+      0.2062,
+      0.2096,
+      0.2209,
+      0.2282,
+      0.2284,
+      0.229,
+      0.2306,
+      0.2332,
+      0.2335,
+      0.2596,
+      0.2668,
+      0.2945,
+      0.2956,
+      0.3021,
+      0.3049,
+      0.3089,
+      0.3269,
+      0.3306,
+      0.3449,
+      0.3525,
+      0.3557,
+      0.3756,
+      0.3919,
+      0.3921,
+      0.4096,
+      0.4124,
+      0.4163,
+      0.5189,
+      0.6009,
+      0.7833,
+      0.8036,
+      1.243,
+      1.4547
+     ],
+     "tips": [
+      "vulnerable-secret (B2): $0.004, not solved",
+      "vulnerable-secret (B1): $0.005, not solved",
+      "break-filter-js-from-html (B1): $0.015, not solved",
+      "break-filter-js-from-html (B2): $0.015, not solved",
+      "crack-7z-hash (B2): $0.015, not solved",
+      "crack-7z-hash (B1): $0.015, not solved",
+      "openssl-selfsigned-cert (B2): $0.020, solved",
+      "mteb-retrieve (B1): $0.021, not solved",
+      "chess-best-move (B1): $0.024, not solved",
+      "openssl-selfsigned-cert (B1): $0.025, solved",
+      "large-scale-text-editing (B2): $0.025, solved",
+      "prove-plus-comm (B2): $0.025, solved",
+      "mteb-retrieve (B2): $0.027, not solved",
+      "log-summary-date-ranges (B2): $0.027, solved",
+      "large-scale-text-editing (B1): $0.028, not solved",
+      "log-summary-date-ranges (B1): $0.028, solved",
+      "multi-source-data-merger (B1): $0.029, solved",
+      "prove-plus-comm (B1): $0.030, solved",
+      "multi-source-data-merger (B2): $0.031, solved",
+      "git-leak-recovery (B1): $0.031, solved",
+      "code-from-image (B2): $0.031, solved",
+      "constraints-scheduling (B1): $0.031, solved",
+      "git-leak-recovery (B2): $0.032, solved",
+      "code-from-image (B1): $0.032, solved",
+      "constraints-scheduling (B2): $0.032, solved",
+      "db-wal-recovery (B1): $0.032, solved",
+      "db-wal-recovery (B2): $0.032, solved",
+      "sqlite-with-gcov (B2): $0.033, solved",
+      "cancel-async-tasks (B2): $0.033, solved",
+      "cancel-async-tasks (B1): $0.034, solved",
+      "sqlite-with-gcov (B1): $0.034, solved",
+      "pypi-server (B2): $0.035, solved",
+      "fix-code-vulnerability (B1): $0.035, solved",
+      "configure-git-webserver (B1): $0.035, not solved",
+      "pypi-server (B1): $0.035, solved",
+      "fix-code-vulnerability (B2): $0.035, solved",
+      "count-dataset-tokens (B2): $0.035, solved",
+      "kv-store-grpc (B2): $0.036, solved",
+      "extract-elf (B1): $0.036, solved",
+      "modernize-scientific-stack (B2): $0.037, solved",
+      "build-pmars (B2): $0.037, not solved",
+      "kv-store-grpc (B1): $0.037, solved",
+      "modernize-scientific-stack (B1): $0.037, solved",
+      "extract-elf (B2): $0.037, solved",
+      "query-optimize (B2): $0.038, solved",
+      "polyglot-c-py (B2): $0.039, not solved",
+      "git-multibranch (B1): $0.040, solved",
+      "hf-model-inference (B1): $0.040, solved",
+      "nginx-request-logging (B1): $0.040, solved",
+      "configure-git-webserver (B2): $0.041, not solved",
+      "fix-git (B1): $0.041, solved",
+      "chess-best-move (B2): $0.041, solved",
+      "hf-model-inference (B2): $0.041, solved",
+      "nginx-request-logging (B2): $0.042, solved",
+      "polyglot-c-py (B1): $0.042, not solved",
+      "git-multibranch (B2): $0.043, solved",
+      "distribution-search (B1): $0.043, solved",
+      "bn-fit-modify (B2): $0.043, solved",
+      "count-dataset-tokens (B1): $0.043, solved",
+      "build-pmars (B1): $0.043, solved",
+      "fix-git (B2): $0.044, solved",
+      "polyglot-rust-c (B2): $0.044, not solved",
+      "torch-tensor-parallelism (B2): $0.044, solved",
+      "qemu-alpine-ssh (B2): $0.044, not solved",
+      "polyglot-rust-c (B1): $0.045, not solved",
+      "torch-tensor-parallelism (B1): $0.046, solved",
+      "password-recovery (B1): $0.047, solved",
+      "distribution-search (B2): $0.048, solved",
+      "merge-diff-arc-agi-task (B2): $0.049, solved",
+      "merge-diff-arc-agi-task (B1): $0.050, solved",
+      "pytorch-model-recovery (B2): $0.051, solved",
+      "model-extraction-relu-logits (B2): $0.052, solved",
+      "query-optimize (B1): $0.053, not solved",
+      "regex-log (B2): $0.053, solved",
+      "pytorch-model-recovery (B1): $0.053, solved",
+      "regex-log (B1): $0.053, solved",
+      "pytorch-model-cli (B1): $0.055, solved",
+      "bn-fit-modify (B1): $0.055, solved",
+      "headless-terminal (B1): $0.055, solved",
+      "headless-terminal (B2): $0.062, solved",
+      "sqlite-db-truncate (B2): $0.063, solved",
+      "feal-differential-cryptanalysis (B1): $0.064, solved",
+      "pytorch-model-cli (B2): $0.065, solved",
+      "torch-pipeline-parallelism (B2): $0.065, solved",
+      "sqlite-db-truncate (B1): $0.068, solved",
+      "feal-differential-cryptanalysis (B2): $0.068, solved",
+      "torch-pipeline-parallelism (B1): $0.072, solved",
+      "password-recovery (B2): $0.072, solved",
+      "mcmc-sampling-stan (B1): $0.072, not solved",
+      "qemu-alpine-ssh (B1): $0.075, not solved",
+      "tune-mjcf (B1): $0.077, solved",
+      "portfolio-optimization (B2): $0.085, solved",
+      "sparql-university (B2): $0.086, solved",
+      "portfolio-optimization (B1): $0.087, solved",
+      "sparql-university (B1): $0.087, solved",
+      "custom-memory-heap-crash (B2): $0.088, solved",
+      "reshard-c4-data (B1): $0.088, solved",
+      "extract-moves-from-video (B1): $0.089, not solved",
+      "gcode-to-text (B1): $0.089, solved",
+      "model-extraction-relu-logits (B1): $0.090, solved",
+      "dna-insert (B1): $0.102, not solved",
+      "filter-js-from-html (B2): $0.103, not solved",
+      "mcmc-sampling-stan (B2): $0.104, not solved",
+      "train-fasttext (B2): $0.106, not solved",
+      "raman-fitting (B1): $0.109, not solved",
+      "reshard-c4-data (B2): $0.109, solved",
+      "feal-linear-cryptanalysis (B1): $0.112, solved",
+      "qemu-startup (B2): $0.115, not solved",
+      "compile-compcert (B2): $0.115, solved",
+      "overfull-hbox (B1): $0.116, solved",
+      "sam-cell-seg (B2): $0.117, not solved",
+      "compile-compcert (B1): $0.121, solved",
+      "build-pov-ray (B2): $0.121, solved",
+      "cobol-modernization (B1): $0.121, solved",
+      "dna-insert (B2): $0.126, not solved",
+      "llm-inference-batching-scheduler (B1): $0.127, solved",
+      "rstan-to-pystan (B1): $0.133, not solved",
+      "write-compressor (B1): $0.134, solved",
+      "gcode-to-text (B2): $0.134, solved",
+      "write-compressor (B2): $0.134, solved",
+      "circuit-fibsqrt (B2): $0.137, solved",
+      "mteb-leaderboard (B1): $0.139, solved",
+      "tune-mjcf (B2): $0.140, solved",
+      "cobol-modernization (B2): $0.141, solved",
+      "qemu-startup (B1): $0.141, not solved",
+      "video-processing (B1): $0.142, solved",
+      "custom-memory-heap-crash (B1): $0.143, solved",
+      "sam-cell-seg (B1): $0.153, not solved",
+      "rstan-to-pystan (B2): $0.154, solved",
+      "sanitize-git-repo (B2): $0.154, solved",
+      "filter-js-from-html (B1): $0.163, not solved",
+      "feal-linear-cryptanalysis (B2): $0.173, solved",
+      "build-pov-ray (B1): $0.174, solved",
+      "dna-assembly (B1): $0.175, solved",
+      "build-cython-ext (B1): $0.179, solved",
+      "build-cython-ext (B2): $0.179, solved",
+      "dna-assembly (B2): $0.180, solved",
+      "circuit-fibsqrt (B1): $0.185, solved",
+      "train-fasttext (B1): $0.188, not solved",
+      "video-processing (B2): $0.189, not solved",
+      "raman-fitting (B2): $0.191, not solved",
+      "largest-eigenval (B1): $0.194, solved",
+      "fix-ocaml-gc (B2): $0.206, solved",
+      "largest-eigenval (B2): $0.206, solved",
+      "sanitize-git-repo (B1): $0.210, solved",
+      "protein-assembly (B1): $0.221, solved",
+      "fix-ocaml-gc (B1): $0.228, solved",
+      "overfull-hbox (B2): $0.228, solved",
+      "llm-inference-batching-scheduler (B2): $0.229, solved",
+      "mailman (B1): $0.231, solved",
+      "path-tracing (B1): $0.233, solved",
+      "adaptive-rejection-sampler (B1): $0.233, solved",
+      "path-tracing (B2): $0.260, solved",
+      "adaptive-rejection-sampler (B2): $0.267, not solved",
+      "winning-avg-corewars (B2): $0.294, solved",
+      "mailman (B2): $0.296, solved",
+      "gpt2-codegolf (B2): $0.302, solved",
+      "gpt2-codegolf (B1): $0.305, solved",
+      "protein-assembly (B2): $0.309, not solved",
+      "mteb-leaderboard (B2): $0.327, solved",
+      "regex-chess (B1): $0.331, not solved",
+      "financial-document-processor (B1): $0.345, solved",
+      "winning-avg-corewars (B1): $0.353, solved",
+      "schemelike-metacircular-eval (B2): $0.356, not solved",
+      "path-tracing-reverse (B2): $0.376, solved",
+      "make-mips-interpreter (B2): $0.392, solved",
+      "extract-moves-from-video (B2): $0.392, not solved",
+      "financial-document-processor (B2): $0.410, solved",
+      "make-mips-interpreter (B1): $0.412, solved",
+      "path-tracing-reverse (B1): $0.416, solved",
+      "schemelike-metacircular-eval (B1): $0.519, solved",
+      "regex-chess (B2): $0.601, solved",
+      "install-windows-3.11 (B2): $0.783, solved",
+      "install-windows-3.11 (B1): $0.804, not solved",
+      "make-doom-for-mips (B1): $1.243, not solved",
+      "make-doom-for-mips (B2): $1.455, not solved"
+     ]
+    },
+    {
+     "arm": "claude-code",
+     "label": "C. Claude Code",
+     "values": [
+      0.017,
+      0.0175,
+      0.0183,
+      0.0185,
+      0.0185,
+      0.0202,
+      0.0214,
+      0.0222,
+      0.0225,
+      0.0238,
+      0.0251,
+      0.0251,
+      0.0262,
+      0.0266,
+      0.0269,
+      0.0272,
+      0.0274,
+      0.0283,
+      0.0283,
+      0.0285,
+      0.0287,
+      0.0298,
+      0.0303,
+      0.0303,
+      0.0305,
+      0.0308,
+      0.0315,
+      0.0315,
+      0.0318,
+      0.0321,
+      0.0326,
+      0.0336,
+      0.0338,
+      0.0339,
+      0.0342,
+      0.0342,
+      0.0344,
+      0.0347,
+      0.0351,
+      0.0358,
+      0.036,
+      0.0364,
+      0.0365,
+      0.0371,
+      0.0373,
+      0.0373,
+      0.038,
+      0.0384,
+      0.0401,
+      0.0406,
+      0.0407,
+      0.041,
+      0.0413,
+      0.0415,
+      0.0417,
+      0.0417,
+      0.042,
+      0.0422,
+      0.0425,
+      0.0431,
+      0.0433,
+      0.0449,
+      0.0452,
+      0.0455,
+      0.0462,
+      0.0467,
+      0.0469,
+      0.0472,
+      0.0508,
+      0.0513,
+      0.0522,
+      0.0527,
+      0.0532,
+      0.0532,
+      0.0538,
+      0.0541,
+      0.0545,
+      0.056,
+      0.057,
+      0.0574,
+      0.0575,
+      0.0584,
+      0.0592,
+      0.061,
+      0.0616,
+      0.0619,
+      0.0623,
+      0.0626,
+      0.0647,
+      0.0652,
+      0.0653,
+      0.0654,
+      0.0663,
+      0.0664,
+      0.0683,
+      0.0687,
+      0.0703,
+      0.0716,
+      0.0719,
+      0.0726,
+      0.0735,
+      0.0736,
+      0.0772,
+      0.0791,
+      0.0822,
+      0.0824,
+      0.0834,
+      0.0837,
+      0.0842,
+      0.0844,
+      0.0865,
+      0.0867,
+      0.0877,
+      0.0946,
+      0.0947,
+      0.0968,
+      0.0968,
+      0.0986,
+      0.1035,
+      0.1044,
+      0.1054,
+      0.1056,
+      0.109,
+      0.1155,
+      0.1182,
+      0.1196,
+      0.1227,
+      0.1257,
+      0.126,
+      0.1281,
+      0.1311,
+      0.1356,
+      0.1357,
+      0.1433,
+      0.1469,
+      0.1487,
+      0.1488,
+      0.151,
+      0.1525,
+      0.1595,
+      0.1597,
+      0.1643,
+      0.1896,
+      0.1946,
+      0.1978,
+      0.1989,
+      0.1996,
+      0.2006,
+      0.2056,
+      0.2184,
+      0.2383,
+      0.2629,
+      0.2675,
+      0.2682,
+      0.303,
+      0.315,
+      0.325,
+      0.336,
+      0.3476,
+      0.3485,
+      0.3967,
+      0.4394,
+      0.4516,
+      0.4646,
+      0.5058,
+      0.5229,
+      0.5375,
+      0.5473,
+      0.5899,
+      0.7125,
+      0.7904,
+      0.9117,
+      1.1155,
+      1.1171
+     ],
+     "tips": [
+      "prove-plus-comm (C1): $0.017, solved",
+      "fix-code-vulnerability (C2): $0.017, solved",
+      "sqlite-with-gcov (C1): $0.018, solved",
+      "mteb-retrieve (C1): $0.019, not solved",
+      "nginx-request-logging (C1): $0.019, solved",
+      "pypi-server (C1): $0.020, solved",
+      "distribution-search (C2): $0.021, solved",
+      "large-scale-text-editing (C1): $0.022, solved",
+      "git-leak-recovery (C1): $0.022, solved",
+      "db-wal-recovery (C2): $0.024, solved",
+      "modernize-scientific-stack (C1): $0.025, solved",
+      "sqlite-with-gcov (C2): $0.025, solved",
+      "kv-store-grpc (C1): $0.026, solved",
+      "extract-elf (C2): $0.027, solved",
+      "openssl-selfsigned-cert (C1): $0.027, solved",
+      "chess-best-move (C2): $0.027, solved",
+      "regex-log (C1): $0.027, solved",
+      "polyglot-c-py (C2): $0.028, not solved",
+      "prove-plus-comm (C2): $0.028, solved",
+      "multi-source-data-merger (C1): $0.029, solved",
+      "nginx-request-logging (C2): $0.029, solved",
+      "hf-model-inference (C2): $0.030, solved",
+      "log-summary-date-ranges (C2): $0.030, solved",
+      "openssl-selfsigned-cert (C2): $0.030, solved",
+      "git-leak-recovery (C2): $0.030, solved",
+      "large-scale-text-editing (C2): $0.031, solved",
+      "constraints-scheduling (C2): $0.031, solved",
+      "db-wal-recovery (C1): $0.032, solved",
+      "chess-best-move (C1): $0.032, not solved",
+      "pypi-server (C2): $0.032, solved",
+      "fix-code-vulnerability (C1): $0.033, solved",
+      "cancel-async-tasks (C2): $0.034, solved",
+      "configure-git-webserver (C2): $0.034, solved",
+      "build-pmars (C2): $0.034, solved",
+      "fix-git (C1): $0.034, solved",
+      "mteb-retrieve (C2): $0.034, not solved",
+      "regex-log (C2): $0.034, solved",
+      "kv-store-grpc (C2): $0.035, solved",
+      "extract-elf (C1): $0.035, solved",
+      "torch-tensor-parallelism (C1): $0.036, solved",
+      "code-from-image (C1): $0.036, solved",
+      "log-summary-date-ranges (C1): $0.036, solved",
+      "code-from-image (C2): $0.037, solved",
+      "bn-fit-modify (C1): $0.037, solved",
+      "git-multibranch (C2): $0.037, solved",
+      "filter-js-from-html (C1): $0.037, not solved",
+      "hf-model-inference (C1): $0.038, solved",
+      "modernize-scientific-stack (C2): $0.038, solved",
+      "merge-diff-arc-agi-task (C1): $0.040, solved",
+      "constraints-scheduling (C1): $0.041, solved",
+      "configure-git-webserver (C1): $0.041, solved",
+      "mteb-leaderboard (C2): $0.041, not solved",
+      "count-dataset-tokens (C1): $0.041, solved",
+      "multi-source-data-merger (C2): $0.041, solved",
+      "headless-terminal (C2): $0.042, solved",
+      "pytorch-model-recovery (C1): $0.042, solved",
+      "fix-git (C2): $0.042, solved",
+      "sqlite-db-truncate (C2): $0.042, solved",
+      "sqlite-db-truncate (C1): $0.042, solved",
+      "cobol-modernization (C1): $0.043, solved",
+      "git-multibranch (C1): $0.043, solved",
+      "distribution-search (C1): $0.045, solved",
+      "polyglot-c-py (C1): $0.045, not solved",
+      "cancel-async-tasks (C1): $0.046, solved",
+      "torch-tensor-parallelism (C2): $0.046, solved",
+      "caffe-cifar-10 (C2): $0.047, not solved",
+      "torch-pipeline-parallelism (C1): $0.047, solved",
+      "pytorch-model-cli (C2): $0.047, solved",
+      "build-pmars (C1): $0.051, solved",
+      "filter-js-from-html (C2): $0.051, not solved",
+      "sam-cell-seg (C2): $0.052, not solved",
+      "sanitize-git-repo (C2): $0.053, solved",
+      "bn-fit-modify (C2): $0.053, solved",
+      "count-dataset-tokens (C2): $0.053, solved",
+      "headless-terminal (C1): $0.054, solved",
+      "pytorch-model-recovery (C2): $0.054, solved",
+      "sanitize-git-repo (C1): $0.054, solved",
+      "query-optimize (C2): $0.056, solved",
+      "tune-mjcf (C2): $0.057, solved",
+      "merge-diff-arc-agi-task (C2): $0.057, solved",
+      "pytorch-model-cli (C1): $0.057, solved",
+      "torch-pipeline-parallelism (C2): $0.058, solved",
+      "sparql-university (C1): $0.059, solved",
+      "gcode-to-text (C1): $0.061, solved",
+      "sam-cell-seg (C1): $0.062, not solved",
+      "password-recovery (C1): $0.062, solved",
+      "model-extraction-relu-logits (C1): $0.062, solved",
+      "reshard-c4-data (C1): $0.063, solved",
+      "polyglot-rust-c (C2): $0.065, not solved",
+      "mcmc-sampling-stan (C2): $0.065, solved",
+      "model-extraction-relu-logits (C2): $0.065, solved",
+      "reshard-c4-data (C2): $0.065, solved",
+      "query-optimize (C1): $0.066, not solved",
+      "custom-memory-heap-crash (C2): $0.066, solved",
+      "password-recovery (C2): $0.068, solved",
+      "write-compressor (C1): $0.069, solved",
+      "portfolio-optimization (C1): $0.070, solved",
+      "raman-fitting (C2): $0.072, solved",
+      "cobol-modernization (C2): $0.072, solved",
+      "portfolio-optimization (C2): $0.073, solved",
+      "train-fasttext (C2): $0.073, not solved",
+      "build-pov-ray (C1): $0.074, solved",
+      "feal-differential-cryptanalysis (C1): $0.077, solved",
+      "write-compressor (C2): $0.079, solved",
+      "feal-differential-cryptanalysis (C2): $0.082, solved",
+      "sparql-university (C2): $0.082, solved",
+      "polyglot-rust-c (C1): $0.083, not solved",
+      "dna-insert (C2): $0.084, not solved",
+      "rstan-to-pystan (C2): $0.084, not solved",
+      "dna-insert (C1): $0.084, not solved",
+      "custom-memory-heap-crash (C1): $0.086, not solved",
+      "video-processing (C2): $0.087, solved",
+      "tune-mjcf (C1): $0.088, solved",
+      "video-processing (C1): $0.095, solved",
+      "llm-inference-batching-scheduler (C1): $0.095, solved",
+      "overfull-hbox (C1): $0.097, solved",
+      "train-fasttext (C1): $0.097, solved",
+      "raman-fitting (C1): $0.099, solved",
+      "circuit-fibsqrt (C2): $0.104, solved",
+      "crack-7z-hash (C1): $0.104, solved",
+      "build-pov-ray (C2): $0.105, solved",
+      "vulnerable-secret (C2): $0.106, solved",
+      "caffe-cifar-10 (C1): $0.109, not solved",
+      "feal-linear-cryptanalysis (C2): $0.116, solved",
+      "mailman (C2): $0.118, solved",
+      "mcmc-sampling-stan (C1): $0.120, solved",
+      "dna-assembly (C2): $0.123, solved",
+      "crack-7z-hash (C2): $0.126, solved",
+      "compile-compcert (C1): $0.126, solved",
+      "build-cython-ext (C1): $0.128, solved",
+      "build-cython-ext (C2): $0.131, solved",
+      "llm-inference-batching-scheduler (C2): $0.136, solved",
+      "vulnerable-secret (C1): $0.136, solved",
+      "largest-eigenval (C2): $0.143, solved",
+      "overfull-hbox (C2): $0.147, solved",
+      "dna-assembly (C1): $0.149, solved",
+      "protein-assembly (C1): $0.149, solved",
+      "circuit-fibsqrt (C1): $0.151, solved",
+      "adaptive-rejection-sampler (C1): $0.152, not solved",
+      "fix-ocaml-gc (C1): $0.160, solved",
+      "adaptive-rejection-sampler (C2): $0.160, not solved",
+      "gcode-to-text (C2): $0.164, solved",
+      "protein-assembly (C2): $0.190, solved",
+      "mteb-leaderboard (C1): $0.195, not solved",
+      "rstan-to-pystan (C1): $0.198, solved",
+      "financial-document-processor (C1): $0.199, solved",
+      "feal-linear-cryptanalysis (C1): $0.200, not solved",
+      "compile-compcert (C2): $0.201, not solved",
+      "largest-eigenval (C1): $0.206, solved",
+      "make-mips-interpreter (C1): $0.218, solved",
+      "financial-document-processor (C2): $0.238, solved",
+      "mailman (C1): $0.263, solved",
+      "make-mips-interpreter (C2): $0.267, solved",
+      "break-filter-js-from-html (C2): $0.268, solved",
+      "fix-ocaml-gc (C2): $0.303, solved",
+      "path-tracing-reverse (C1): $0.315, solved",
+      "winning-avg-corewars (C2): $0.325, solved",
+      "gpt2-codegolf (C2): $0.336, solved",
+      "gpt2-codegolf (C1): $0.348, solved",
+      "break-filter-js-from-html (C1): $0.348, solved",
+      "schemelike-metacircular-eval (C1): $0.397, solved",
+      "extract-moves-from-video (C2): $0.439, not solved",
+      "path-tracing-reverse (C2): $0.452, solved",
+      "schemelike-metacircular-eval (C2): $0.465, solved",
+      "install-windows-3.11 (C1): $0.506, solved",
+      "regex-chess (C2): $0.523, solved",
+      "path-tracing (C2): $0.538, solved",
+      "regex-chess (C1): $0.547, solved",
+      "path-tracing (C1): $0.590, solved",
+      "make-doom-for-mips (C1): $0.713, not solved",
+      "make-doom-for-mips (C2): $0.790, not solved",
+      "winning-avg-corewars (C1): $0.912, solved",
+      "extract-moves-from-video (C1): $1.115, solved",
+      "install-windows-3.11 (C2): $1.117, not solved"
+     ]
+    }
+   ],
+   "note": "Dots are trials; the bar is the median and the box the quartiles. The cap was $2.00 a trial in every arm.",
+   "legend_labels": {
+    "theseus": "A. Theseus plain",
+    "theseus-batching": "B. Theseus + paragraph",
+    "claude-code": "C. Claude Code"
+   }
+  },
+  {
+   "name": "solved-pairs",
+   "form": "intervals",
+   "title": "On the task-attempts both arms solved: one arm's total over the other's",
+   "question": "Where both arms solved the same task-attempt, did one spend less to do it?",
+   "x": {
+    "label": "ratio of totals, 1.00 = equal (bootstrap 95% over the pairs)",
+    "format": "num",
+    "min": 0.5,
+    "max": 1.4
+   },
+   "reference": [
+    {
+     "value": 1.0,
+     "label": "equal"
+    }
+   ],
+   "rows": [
+    {
+     "group": "C over A (122 pairs)",
+     "label": "model calls",
+     "arm": "claude-code",
+     "value": 0.850107,
+     "lo": 0.759613,
+     "hi": 0.962083,
+     "tip": "0.85 times"
+    },
+    {
+     "group": "C over A (122 pairs)",
+     "label": "output tokens",
+     "arm": "claude-code",
+     "value": 0.780315,
+     "lo": 0.650437,
+     "hi": 0.966544,
+     "tip": "0.78 times"
+    },
+    {
+     "group": "C over A (122 pairs)",
+     "label": "dollars",
+     "arm": "claude-code",
+     "value": 0.874647,
+     "lo": 0.749393,
+     "hi": 1.047398,
+     "tip": "0.87 times"
+    },
+    {
+     "group": "C over A (122 pairs)",
+     "label": "agent time",
+     "arm": "claude-code",
+     "value": 0.974875,
+     "lo": 0.746365,
+     "hi": 1.195646,
+     "tip": "0.97 times"
+    },
+    {
+     "group": "B over A (118 pairs)",
+     "label": "model calls",
+     "arm": "theseus-batching",
+     "value": 0.894794,
+     "lo": 0.831181,
+     "hi": 0.965026,
+     "tip": "0.89 times"
+    },
+    {
+     "group": "B over A (118 pairs)",
+     "label": "output tokens",
+     "arm": "theseus-batching",
+     "value": 0.912175,
+     "lo": 0.824283,
+     "hi": 1.014059,
+     "tip": "0.91 times"
+    },
+    {
+     "group": "B over A (118 pairs)",
+     "label": "dollars",
+     "arm": "theseus-batching",
+     "value": 0.921432,
+     "lo": 0.840039,
+     "hi": 1.013167,
+     "tip": "0.92 times"
+    },
+    {
+     "group": "B over A (118 pairs)",
+     "label": "agent time",
+     "arm": "theseus-batching",
+     "value": 1.016625,
+     "lo": 0.800754,
+     "hi": 1.273036,
+     "tip": "1.02 times"
+    },
+    {
+     "group": "C over B (123 pairs)",
+     "label": "model calls",
+     "arm": "claude-code",
+     "value": 0.921929,
+     "lo": 0.833747,
+     "hi": 1.017691,
+     "tip": "0.92 times"
+    },
+    {
+     "group": "C over B (123 pairs)",
+     "label": "output tokens",
+     "arm": "claude-code",
+     "value": 0.808172,
+     "lo": 0.695488,
+     "hi": 0.938075,
+     "tip": "0.81 times"
+    },
+    {
+     "group": "C over B (123 pairs)",
+     "label": "dollars",
+     "arm": "claude-code",
+     "value": 0.893953,
+     "lo": 0.781958,
+     "hi": 1.02723,
+     "tip": "0.89 times"
+    },
+    {
+     "group": "C over B (123 pairs)",
+     "label": "agent time",
+     "arm": "claude-code",
+     "value": 0.797005,
+     "lo": 0.648282,
+     "hi": 0.933264,
+     "tip": "0.80 times"
+    }
+   ],
+   "note": "A: Theseus plain, B: Theseus + the paragraph, C: Claude Code. A pair is one task's attempt i in both arms, both solved. Under 1.00: the first-named arm used less.",
+   "legend_labels": {
+    "theseus": "A. Theseus plain",
+    "theseus-batching": "B. Theseus + paragraph",
+    "claude-code": "C. Claude Code"
+   }
+  },
+  {
+   "name": "fixes-on-paper",
+   "form": "intervals",
+   "title": "Measured pass rates, and the same counts with the four fixes' target trials solved",
+   "question": "Would the four fixes that landed after the run close the gap to Claude Code, on paper?",
+   "x": {
+    "label": "share of 178 trials solved",
+    "min": 0.6,
+    "max": 0.92,
+    "format": "pct"
+   },
+   "rows": [
+    {
+     "group": "Theseus plain (A)",
+     "label": "as measured",
+     "arm": "theseus",
+     "value": 0.719101,
+     "lo": 0.648985,
+     "hi": 0.77996,
+     "tip": "128 of 178, measured"
+    },
+    {
+     "group": "Theseus plain (A)",
+     "label": "on paper: + 6 trials (output cap, approval, retry)",
+     "arm": "theseus",
+     "value": 0.752809,
+     "lo": 0.684542,
+     "hi": 0.810394,
+     "tip": "134 of 178: a count, not a measurement"
+    },
+    {
+     "group": "Theseus plain (A)",
+     "label": "on paper: + 6 more (the refusal fallback)",
+     "arm": "theseus",
+     "value": 0.786517,
+     "lo": 0.7206,
+     "hi": 0.840329,
+     "tip": "140 of 178: a count, not a measurement"
+    },
+    {
+     "group": "Theseus + paragraph (B)",
+     "label": "as measured",
+     "arm": "theseus-batching",
+     "value": 0.735955,
+     "lo": 0.666705,
+     "hi": 0.795236,
+     "tip": "131 of 178, measured"
+    },
+    {
+     "group": "Theseus + paragraph (B)",
+     "label": "on paper: + 2 trials (output cap)",
+     "arm": "theseus-batching",
+     "value": 0.747191,
+     "lo": 0.678583,
+     "hi": 0.805355,
+     "tip": "133 of 178: a count, not a measurement"
+    },
+    {
+     "group": "Theseus + paragraph (B)",
+     "label": "on paper: + 6 more (the refusal fallback)",
+     "arm": "theseus-batching",
+     "value": 0.780899,
+     "lo": 0.714552,
+     "hi": 0.835377,
+     "tip": "139 of 178: a count, not a measurement"
+    },
+    {
+     "group": "Claude Code (C)",
+     "label": "as measured (6 trials finished on Sonnet 5)",
+     "arm": "claude-code",
+     "value": 0.814607,
+     "lo": 0.751087,
+     "hi": 0.864834,
+     "tip": "145 of 178, measured"
+    },
+    {
+     "group": "Claude Code (C)",
+     "label": "on paper: its 6 Sonnet 5 trials counted unsolved",
+     "arm": "claude-code",
+     "value": 0.780899,
+     "lo": 0.714552,
+     "hi": 0.835377,
+     "tip": "139 of 178: a count, not a measurement"
+    }
+   ],
+   "note": "On-paper rows are counts, not measurements: every trial a fix targets counted solved (a ceiling). Their whiskers show the noise a measured rate would carry. No rerun has measured the fixes.",
+   "legend_labels": {
+    "theseus": "A. Theseus plain",
+    "theseus-batching": "B. Theseus + paragraph",
+    "claude-code": "C. Claude Code"
+   }
+  }
+ ]
+}

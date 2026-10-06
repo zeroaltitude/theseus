@@ -1,0 +1,12 @@
+task,suite,arm,reward,agent_s,setup_s,trial_s,model_calls,tool_calls,dollars,input,cache_read,cache_write,output,cache_read_share,turn_s,provider_s,tools_s,harness_s
+fix-git,Terminal-Bench 2.0,theseus,1.0,21.74,0.52,52.2,8,11,0.04796,18,49102,9454,1447,0.8383,21.158,19.12,1.559,0.479
+prove-plus-comm,Terminal-Bench 2.0,theseus,1.0,12.46,0.6,58.9,5,5,0.03275,12,23786,6992,1049,0.7725,12.002,11.42,0.393,0.189
+nginx-request-logging,Terminal-Bench 2.0,theseus,1.0,28.91,0.91,53.6,4,3,0.04066,10,19027,7992,1685,0.7039,28.276,14.346,13.551,0.379
+psf__requests-1921,SWE-bench Verified,theseus,1.0,19.27,0.73,137.2,7,7,0.04573,16,45715,9128,1373,0.8333,18.503,16.387,1.272,0.844
+fix-git,Terminal-Bench 2.0,theseus-batching,1.0,16.39,0.62,36.7,6,6,0.04534,14,38637,10488,1136,0.7863,15.887,14.671,0.806,0.41
+prove-plus-comm,Terminal-Bench 2.0,theseus-batching,1.0,7.83,0.58,39.3,3,2,0.0242,8,11496,6277,619,0.6465,7.322,6.465,0.586,0.272
+nginx-request-logging,Terminal-Bench 2.0,theseus-batching,1.0,23.56,0.61,44.6,4,3,0.04003,10,19668,8248,1546,0.7043,23.032,12.073,10.639,0.319
+fix-git,Terminal-Bench 2.0,claude-code,1.0,12.84,272.52,307.0,6,5,0.04496,12,90735,7197,880,0.9264,,,,
+prove-plus-comm,Terminal-Bench 2.0,claude-code,1.0,7.91,287.78,335.6,3,3,0.02832,6,41184,5679,587,0.8787,,,,
+nginx-request-logging,Terminal-Bench 2.0,claude-code,1.0,17.16,297.66,342.6,2,1,0.03287,4,26098,6324,1183,0.8048,,,,
+psf__requests-1921,SWE-bench Verified,claude-code,1.0,10.14,279.02,392.2,4,3,0.03385,8,58399,6438,606,0.9006,,,,
