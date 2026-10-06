@@ -1,252 +1,202 @@
-# CLOUD REPORT: cloud/20261005-judge-turn-cost
+# CLOUD REPORT: cloud/20261006-judge-sink
 
-The judge's cost on the turn path, measured and then cut (theseus-0j2.8, theseus-289c). Started 03:06 UTC, report
-at about 05:55 UTC (deadline 08:06).
+judge-turn-cost's sink, fixed (theseus-s1am, theseus-ych4, theseus-3bl9). Started 17:39 UTC, report at about
+20:30 UTC (deadline 20:39). Base: judge-turn-cost's head `54de79d` plus this branch's task commit `adae427`, store
+format 22. No format bump (nothing stored changed), no new package, no protocol or config change.
 
 | Step | Commit | Subject |
 |---|---|---|
-| 1 | `e6e30a3` | sim: bench turn --judge measures the judge's cost on a turn's path (theseus-0j2.8) |
-| 2 | `f93fbc3` | judge: the sink writes its frames only between turns (theseus-0j2.8) |
-| 3 | `8885cea` | judge: no point reads the ladder or the lineage; the warm read does (theseus-289c) |
+| 1 | `e04d694` (+ `0afe76f`) | judge: the sink keeps one clock for a backlog pass (theseus-s1am) |
+| 2 | `a760b09` | judge: a clean stop writes every settled judgment before the store closes (theseus-ych4) |
+| 3 | `44f0a42` | judge: the adoptions test tells the warm read's wait from its sleep (theseus-3bl9) |
+| 1' | `0afe76f` | judge: the backlog test's bound is measured against the sink's own rate (theseus-s1am) |
 
-Base: `c1c63ee` (the task commit) on main `4a44946`, store format 22. No format bump (nothing stored changed). No
-new package: Cargo.lock gains one dependency line (`theseus-judge` under `theseus-sim`), no package.
+## Step 1: one clock per backlog pass (theseus-s1am)
 
-## Step 1: the cost, measured (`e6e30a3`)
+### What I found
 
-### What I built
+As the review said: `sink::run` called `Turns::between(Instant::now(), …)` once per batch, so every 32-row frame
+measured its quiet bound (120 s) and busy bound (600 s) from a fresh clock. On a daemon whose turns are never a quiet
+stretch (500 ms) apart, every frame waited out a whole quiet bound: 32 rows per 120 s. The judgments also lived in an
+mpsc channel plus a batch held in the task's locals, so nothing outside the task could reach them (step 2's need).
 
-`theseus-sim bench turn --judge` (`crates/theseus-sim/src/perf/judge.rs`, a new module; perf.rs gains the flag,
-`scratch_with`, and the doc lines). Three arms, each its own scratch daemon on the stand-in model:
+### What I changed (`crates/theseus-core/src/judge/sink.rs`, `judge/mod.rs`)
 
-- `off`: the gate's turn bench (`quiet_config`, the judge off).
-- `loop`: the judge on at theseus-judge's fake Jev, started in process as `scratch` starts the stand-in model;
-  classify, role and route off, as theseusd's judge test runs it. (The other points stay on: gate, compile,
-  categorize, rerank. The name says what is off, not that loop.v1 judges alone.)
-- `packs`: every pack as wired. route.v1 is live, so each person's message waits beside its first compile for the
-  fake's verdict, scripted to a confident `chat` (0.95): a real switch to chat's profile, which the bench points at
-  the stand-in like every provider. The stand-in and the fake make a valid routed turn; the turn's frames are the
-  same 5 and 9, with `ledger:route.decided` in the compile's frame. security's `risky` is scripted to 0.02, so no
-  notice posts.
+- `sink::Queue`: the settled, unwritten judgments (a `VecDeque` under a std Mutex, a `Notify`, a sender count). The
+  recording's `Channel` pushes onto it (never blocks); the service holds it (`JudgeService.queue`); the writer task
+  holds it and the service by `Weak`, as before. The writer ends when the service is gone or no sink is left (the
+  count, so a `Channel` built and dropped in `built()`'s race never ends it).
+- **Passes.** A pass begins when a judgment lands on an empty queue (then the old window: up to `FLUSH_EVERY` for
+  32) and ends when a frame leaves the queue empty. Every frame of the pass waits through `Turns::between` with
+  `since` = the pass's start, so once a pass is past the quiet bound the backlog goes in the next gaps between
+  turns, frame after frame, each frame still waiting for no turn to run (the handshake is unchanged). With no turn
+  running it drains as fast as frames append, as main's sink did.
+- **One guard on the busy bound:** `since(start, t)` is the pass's start, but never older than `quiet_bound` before
+  now. Without it, a backlog that never empties (judgments arriving faster than gaps allow) would pass the busy
+  bound at 600 s and from then on write every frame beside running turns, gaps or not. With it, a frame is written
+  beside turns only after `busy_bound - quiet_bound` (480 s) of turns with no gap. Design choice for the owner: the
+  pass's busy bound is effectively 480 s after the quiet bound, not 600 s from the backlog's start.
+- **Frame size kept at 32:** a turn that begins while a frame is appended waits for that append (`Turns::begin`), so
+  the frame's size bounds that wait; a backlog is many 32-row frames back to back in a gap, each re-checking for a
+  turn.
+- `JudgeService::unwritten()` (the queue's length), and test-only `settle` and `sink_timing` (a test's shorter
+  bounds; the build uses `memory_pass::Timing::default()`, as before).
 
-Each frame is the judge's (every record a `judge.*` or `pack.*` row, or a `judge.*` META record) or the turn's (checked
-against its trace exactly as `bench turn` checks it; the bench fails on a mismatch). `walcount` now labels a META
-record by its key (`meta:judge.budget`), which is how the budget's record is told apart. Each judge frame is placed
-before a turn's answer, after it (inside the 50 ms window), or between turns. Blobs the store gained are counted,
-two syncs each. `--check` judges the off arm against today's budgets; `--record` writes the off arm's columns and
-six new ones (`turn_plain_jloop`, `turn_tool_jloop`, `jframes_jloop`, and the `jpacks` three), added to
-`history::OTHER` with their names. The issue's nit (perf.rs's doc and the turn header naming only Discord and the
-web UI) is fixed.
+### How I proved it
 
-### What it found (release-thin, `e6e30a3`, 3 runs × 10 turns of each kind per arm, nothing else running)
+- `tests_sink_backlog::a_backlog_drains_in_the_gaps_once_its_pass_passes_the_quiet_bound`: the sink's quiet bound
+  set to 3 s. First 1,500 judgments with no turn running, timed (the rate of a sink that writes as they land, main's
+  rate, on this machine and load). Then 1,500 more settled 300 at a time while turns run 300 ms each, 200 ms apart
+  (never a quiet stretch). Each turn's window checks `store.last_position()` at its start and its end: equal, so no
+  frame lands inside a turn. The backlog must be written within `quiet bound + 3 × the no-turn time + 3 s`.
+  - Unloaded: no-turn 224–238 ms; beside turns 3.9 s; bound 6.4–6.7 s.
+  - **Under load** (nice 19, four busy loops at nice 0), 5 runs of the sink and ladder tests: all pass. No-turn
+    6.8–7.9 s, beside turns 15.4–17.0 s, bound (at 2×, before I widened it) 19.7–21.7 s. The margin at 2× was thin
+    (about 15%), so I widened the bound to 3× (`0afe76f`); the bug's sink is about 140 s here either way.
+  - My first version had a fixed 8 s bound; it failed every loaded run (CPU starvation, not the clock: the sink's
+    own writes took 7 s with no turn at all). That is why the bound is now measured.
+- **Planted revert** (the clock taken per frame again: `between(Instant::now(), …)`): fails, "128 of 1500 written
+  after 6.9 s, past 6.7 s" (4 frames, one a quiet bound). Restored and touched; `git status` clean.
+- The branch's `tests_sink_between` still passes.
 
-Wall p50 / p95 in ms; judge frames as before-the-answer · after · between, per run.
-
-| arm | turn | frames | run 1 | run 2 | run 3 | judge frames (runs 1, 2, 3) |
-|---|---|---|---|---|---|---|
-| off | plain | 5 | 9.7 / 11.5 | 9.7 / 11.6 | 9.7 / 10.5 | — |
-| off | tool-call | 9 | 22.7 / 28.7 | 22.6 / 24.3 | 24.3 / 32.2 | — |
-| loop | plain | 5 | 10.4 / 13.2 | 9.7 / 12.3 | 10.4 / 12.5 | 0·1·0, 0·1·0, 0·1·0 |
-| loop | tool-call | 9 | 26.3 / 27.8 | 23.6 / 26.4 | 25.4 / 28.5 | **1**·2·0, **1**·2·0, **1**·2·0 |
-| packs | plain | 5 | 11.5 / 13.6 | 11.1 / 12.5 | 10.5 / 13.4 | **1**·1·0, 0·2·0, **1**·1·0 |
-| packs | tool-call | 9 | 26.0 / 28.1 | 24.7 / 27.1 | 26.5 / 30.0 | **1**·3·0, **1**·3·0, **1**·3·0 |
-
-- Over 20 measured turns: loop 5 judge frames (1 after the last turn), 92 blobs, 92 Jev calls; packs 7 frames (1
-  after the last), 112 blobs, 112 calls. Shapes: `[ledger:judge.call ×32, meta:judge.budget]` (the sink, full at
-  32 rows), `[ledger:judge.call ×24–28, meta:judge.budget]`, and two `[meta:judge.categorize.<session>]` per arm
-  (categorize.v1's mark, written in its prepare; see "Left").
-- This disk's fdatasync p50 0.14–0.15 ms. The bench's estimate of what the judge added (frames + 2 × blobs, at that
-  p50): loop 25.6–28.0 ms over 20 turns (1.28–1.40 ms a turn), packs 31.3–34.2 ms (1.57–1.71 ms a turn).
-- **strace** (`strace -f -T -y -e trace=fsync,fdatasync` on each arm's daemon, head build, over the daemon's whole
-  life: start, the first turn, 3 warm-ups, 20 measured turns, the drains): off 172 WAL syncs (73.6 ms); loop 191 WAL
-  syncs (83.3 ms) and 129 blobs = 258 syncs (99.9 ms: file 63.3, directory 36.6); packs 194 WAL syncs (83.1 ms) and
-  153 blobs = 306 syncs (110.5 ms). The index tender's syncs (943–1079, about 340–380 ms) are the same in every arm.
-  So the judge adds about 20 WAL frames per arm, and its blobs (each judged state's file and directory) are most of
-  its disk cost: about 4–4.6 ms of sync a turn under strace, off the WAL's writer but on the same disk.
-- Verdict: judge frames do land before a turn's answer (1–2 per arm per run), and the judge-on plain p50 moves
-  (9.7 → 9.7–11.5). Step 2 applies.
-
-### Proof
-
-- `cargo nextest run -p theseus-sim`: 53 passed (2 new: `a_frame_is_the_judges_when_every_record_is`,
-  `every_column_the_judge_bench_records_has_a_history_column`).
-- Gate (below): green but for the 33 known L1 tests.
-
-## Step 2: cut (`f93fbc3`)
+## Step 2: a clean stop flushes the sink (theseus-ych4)
 
 ### What I changed
 
-The sink waits for a moment between turns before each frame, through `memory_pass::turns` (`Turns::between`, the
-pass's `Timing::default()`: no turn running and none for 500 ms; past 120 s any gap; past 600 s beside a turn), as
-consolidation does. The core hands the judge its running turns as it builds (`JudgeService::write_between`, one
-line in `rpc/mod.rs` beside `attach`); the sink holds the `Arc<Turns>`, never the service, across the wait, so a stop
-never waits on it. Judgments that land meanwhile join the frame (up to 32). A judgment's row and its facts stay in one
-frame, said once written; a press still finds an unwritten judgment in `pending` (removed only after the append, as
-before). memory_pass/ is unchanged.
+- `Queue::flush` / `JudgeService::flush_sink()`: under the writer's lock (the writer's own frames take it too, so
+  the two never interleave), mark the sink closed and write every queued judgment in frames of 32. After it, a frame
+  the writer takes is dropped with a debug line (a row after the stop's last checkpoint would be replayed by the
+  next start; the core's `ledger_unless_closed` does the same).
+- `Core::finish_stop` (`outbox.rs`), the one clean-stop path (shutdown method, SIGINT, SIGTERM, restart onto a
+  changed note; theseusd calls it on both the socket and the stdio paths): `flush_judgments()` after the posts settle
+  and before `close_late_rows` and the last checkpoint, on `theseus_store::blocking`, with an info line (count, ms)
+  when it wrote any and a stop phase `judgments written`. A stop with nothing queued writes and waits for nothing.
+- **What a SIGKILL loses** (accepted, said in the sink's module doc, not fixed): the queue. On a quiet daemon a
+  window of rows (2 s); on a busy one the whole backlog waiting for a moment between turns (up to the quiet bound's
+  worth and more). Their spend is not lost: the budget's blocks are written before the calls.
+- theseus-core's AGENTS.md, the judge paragraph: two sentences after "a press finds it in `pending` meanwhile" (the
+  backlog's clock, the stop's flush, the SIGKILL loss, the two tests). That is all I changed there; the maintainer's
+  resolve.py for judge-reads' text needs to keep them.
 
-- **What now waits longer:** a judgment's `judge.call` row, its sentences, and its `record_judgment` metric, by the
-  turns that run after it plus 500 ms (bounded at 120 s / 600 s on a busy daemon). `judge.list` and the learning
-  ledger see it that much later. A turn that begins while the sink's append runs waits for that one append, as it
-  does for the pass's.
-- **Why not ride a turn's or the kernel's next frame:** AGENTS.md says nothing of a judgment rides a turn's frames but
-  its mark; it would put one session's judgments into another session's turn, grow the 5/9 frame budgets' frames,
-  and tie a judgment's durability to a turn that may never come.
-- **The budget's block frame:** `reserve` (judge-tests' area, left alone) still writes a block frame when a
-  reservation passes the last block ($0.01), at prepare, not between turns. None landed in a measured window here
-  (the fake's prices are small); on the real Jev one lands every cent of shadow spend and can land in a turn.
-  Route/rerank's block frames are beside their calls by design (theseus-otny).
+### How I proved it
 
-### Proof
+- `tests_sink_flush::a_clean_stop_writes_every_settled_judgment_before_the_store_closes`: a turn held running, 200
+  judgments settled; none written after the window; `finish_stop()`: unwritten 0, 200 rows, **7 frames** (200/32
+  rounded up; the store's `frames_appended` across the stop), a judgment settled after the stop is never written,
+  and a new core on the same store reads all 200.
+- **FAST, the stop's cost:** the whole `finish_stop` with 200 pending took 29 ms (debug build, this VM; 7 frames at
+  this disk's fdatasync p50 of 0.2 ms, plus 200 rows' encoding and their sentences). With nothing pending the flush
+  is a lock and an empty take. Nothing was added to the start path.
+- **Planted revert** (the flush's call removed from `finish_stop`): fails, "the stop took every judgment". Restored
+  and touched; `git status` clean.
 
-- `tests_sink_between::a_judgments_frame_waits_for_the_running_turn_to_end`: a turn held running past the sink's
-  window; no `judge.call` row until it ends, and the row 500 ms or more after. **Planted** (the wait replaced by
-  `None`): it fails, "no judgment's frame while a turn runs". Restored and touched.
-- **Bench plant** (debug build, the same plant, two runs): judge frames before an answer came back (before ·
-  after): loop tool-call 2·1 and 1·2, packs plain 1·1 twice, packs tool-call 3·1 twice. Unplanted at this commit,
-  four debug runs: 0 before any answer.
-- Release-thin at the head (`8885cea`), 3 runs × 10:
+## Step 3: the adoptions test tells a wait from a sleep (theseus-3bl9)
 
-| arm | turn | run 1 | run 2 | run 3 | judge frames (each run) |
-|---|---|---|---|---|---|
-| off | plain | 9.5 / 11.9 | 9.2 / 9.9 | 10.4 / 11.7 | — |
-| off | tool-call | 23.1 / 25.2 | 27.0 / 30.7 | 25.2 / 28.1 | — |
-| loop | plain | 10.4 / 12.3 | 10.6 / 11.5 | 11.5 / 14.3 | 0·1·0 |
-| loop | tool-call | 23.0 / 27.6 | 22.9 / 26.6 | 25.5 / 34.1 | 0·1·0 |
-| packs | plain | 11.1 / 13.4 | 9.1 / 11.2 | 10.8 / 12.7 | 0·1·0 |
-| packs | tool-call | 26.0 / 27.6 | 23.2 / 25.4 | 24.1 / 26.3 | 0·1·0 |
+- `tests_ladder_unread::the_warm_reads_adoptions_wait_for_a_moment_between_turns` holds its turn 2 s (4 × the warm
+  read's 500 ms sleep) with no adoption written, then, after the turn ends, all three, no sooner than a quiet
+  stretch after its end.
+- **Planted revert** (in `rpc/packs.rs`, the warm read's `turns.between(…)` replaced by a 500 ms sleep): the **old**
+  test passes (the defect confirmed), the new one fails, "no adoption while a turn runs, 2s past the warm read's
+  sleep". Restored and touched.
 
-  No judge frame lands before an answer. Every sink frame is after the last measured turn (loop 4 of 6, packs 6 of
-  8); the one "after" frame per kind is categorize's META mark. The p95s are within this VM's noise (with 10 runs
-  the p95 is the slowest run), so I claim the frames, not a p95 change; the 30-run live check is the place to read
-  the p95. Blobs and calls read 112/132 here against 92/112 at step 1: the head's bench adds a first turn (step
-  3), and the head bench against step 1's daemon reads 112/132 too, so the arms compare like for like.
-- Judge-area suites (below), theseusd's judge test 4/4.
+## Step 4: "between turns" kept
 
-## Step 3: before the warm read, a point reads and writes nothing (`8885cea`)
+- `tests_sink_between::a_judgments_frame_waits_for_the_running_turn_to_end` passes at every commit.
+- **Planted revert** (the sink's between-turns wait replaced by `None`, writing at once): `tests_sink_between`,
+  `tests_sink_backlog` and `tests_sink_flush` all fail. Restored and touched.
+- `bench turn --judge --runs 10` on the **debug** build at the head (`target/debug/theseus-sim bench turn --judge
+  --runs 10 --theseusd target/debug/theseusd`), wall p50 / p95, judge frames before the answer · after · between:
 
-### What I found (the code against the brief)
+  | arm | turn | frames | p50 | p95 | judge frames |
+  |---|---|---|---|---|---|
+  | off | plain | 5 | 38.0 ms | 41.5 ms | 0 · 0 · 0 |
+  | off | tool-call | 9 | 83.3 ms | 95.4 ms | 0 · 0 · 0 |
+  | loop | plain | 5 | 40.2 ms | 46.9 ms | 0 · 1 · 0 |
+  | loop | tool-call | 9 | 91.4 ms | 106.5 ms | 0 · 1 · 0 |
+  | packs | plain | 5 | 41.2 ms | 54.2 ms | 0 · 1 · 0 |
+  | packs | tool-call | 9 | 88.3 ms | 100.8 ms | 0 · 1 · 0 |
 
-As the brief says: `mode_for` → `Ladder::given` → `with` loaded each pack's scope, today's event scopes and the
-brake's key, and wrote the missing adoptions, on the asking thread under a std Mutex; `placed` read the ladder and
-the lineage the same way. Also: the rollover inside `with` re-read the day (`read_day`); `capped_by_root` reads the
-lineage only for a learned name (not a point's case before the read); `pack_list` and the learning loop call
-`placed`; `judge.label`'s notices brake asks `mode_for` (so an RPC reached the pre-read rule; see below); and
-`route_base` clears a session's move whenever route.v1 answers below canary. On step 1's daemon a turn submitted the
-moment the daemon answers had 2–3 `pack.mode` frames before its answer (the bench's new first-turn line).
+  **0 judge frames before any answer.** The one "after" per kind is categorize's META mark, as in judge-turn-cost's
+  report. loop: 6 judge frames over 20 turns (4 after the last; the sink's frames 32, 32, 32, 16 rows), packs: 8 (6
+  after the last). The first turn submitted at serving: 0 `pack.mode` frames before its submit, its answer, or after.
+  Debug p50s carry the debug build's cost; read the release ones in the live check. The gate's `bench turn --check`
+  (debug, judge off) after each step: frames 5 and 9.
+- `bench turn --judge --runs 30` on **release-thin** at the head (`scripts/build.sh --profile release-thin`, then
+  `target/release-thin/theseus-sim bench turn --judge --runs 30 --theseusd target/release-thin/theseusd`), two runs,
+  wall p50 / p95, judge frames before the answer · after · between:
 
-### What I changed
+  | arm | turn | frames | run 1 | run 2 | judge frames (runs 1, 2) |
+  |---|---|---|---|---|---|
+  | off | plain | 5 | 12.3 / 13.7 | 12.3 / 14.9 | 0·0·0, 0·0·0 |
+  | off | tool-call | 9 | 33.0 / 39.1 | 31.4 / 36.8 | 0·0·0, 0·0·0 |
+  | loop | plain | 5 | 13.3 / 15.5 | 13.4 / 15.1 | 0·3·0, 0·3·0 |
+  | loop | tool-call | 9 | 32.7 / 36.4 | 31.8 / 36.2 | 0·3·0, 0·3·0 |
+  | packs | plain | 5 | 13.6 / 15.5 | 14.1 / 16.3 | **1**·2·0, 0·3·0 |
+  | packs | tool-call | 9 | 34.4 / 38.2 | 33.1 / 39.1 | **1**·2·0, **1**·2·0 |
 
-- `Ladder::given`: before the ladder is loaded, `Ladder::unread`: the wired line under the config, `min` shadow.
-  `JudgeService::placed`: the root until `ladder_read()` (ladder and lineage both loaded). Nothing is read or
-  written on the asking thread.
-- `with`'s load stays for the warm read, the RPCs and the nightly check. `JudgeService::read_ladder` (the warm read:
-  `Ladder::read` and `Lineage::read`, nothing written) and `placed_read` (for `pack.list` and the learning loop's
-  `gather`). `judge.label` now reads the ladder first (its notices' brake asks what acts).
-- `Core::warm_ladder`: the read on the blocking pool, then, only if an adoption is missing, a quiet stretch (500 ms)
-  after serving and a moment between turns (`memory_pass::turns`), then the adoptions **in one frame**
-  (`Ladder::write_all_in`; before, one frame each).
-- Health's pack lines before the read say the pre-read answer: `rerank.v1: shadow (until the ladder is read; wired
-  live)`; a pack whose pre-read answer equals its line reads as before.
-- `route_base`: while the ladder is unread (and the judge on), a turn runs at its base and the session's move is
-  kept for the read ladder, instead of being cleared.
-- **Design question, decided: shadow until the read.** A pack that would act (route.v1, rerank.v1, security.v3 as
-  wired) judges in shadow until the ladder is read, so the build never acts on a pack the owner (or a rule) rolled
-  back. The cost is a moment after serving (the read is a few scope reads on the blocking pool) in which route,
-  rerank and v3's notices do not act; the wired-line choice would have acted live on a rolled-back pack in that
-  moment. If the warm read cannot read the store, the packs stay in shadow until an RPC loads it (before: the wired
-  line, live).
-- **Rollover, decided: a new day starts empty and reads nothing.** Every event since midnight in this process landed
-  through `land`; the notices' brake already reloads the ladder when it writes its pause (`pause_notices`). No timer.
-- AGENTS.md's ladder and lineage lines updated (theseus-core), and theseus-sim's for the bench.
-- **Core tests that now load the ladder first** (`tests_judge::warm`, the daemon's warm read at build when the judge
-  is on): `tests_judge::rig_on` (so every file that builds through it: tests_judge, tests_inbound, tests_continue,
-  tests_judge_surfaces, tests_learning, …), the restart rig in tests_judge, `tests_route::rig_on`,
-  `tests_rerank::rig` (tests_rerank, tests_rerank_live, tests_retention), `tests_notices`' core, and
-  `tests_security`'s core. Also theseus-discord's gateway rig (`read_ladder`, one line).
-  `tests_rerank_live::normalized` leaves out a recalled note's store position (`(as of @<n>)`): the warm read's
-  three adoption rows move positions against the judge-off rig.
+  - **loop: 0 judge frames before any answer** in 120 measured turns. Its 16 frames per run: 10 after the last turn
+    and 6 within the turns, which are exactly its 6 categorize marks (`[meta:judge.categorize.<session>]`); so every
+    sink frame (`[judge.call ×32, meta:judge.budget]` ×9, ×22 ×1) landed after the last measured turn.
+  - **packs: 1 frame before an answer** in 3 of 4 kind-runs. Its 23 frames: 16 sink frames, 6 categorize marks and
+    **one lone `[meta:judge.budget]`**: the shadow budget's block frame, which `reserve` writes at a judgment's
+    prepare when a reservation crosses a $0.01 block (at 30 runs the fake's prices cross one; at 10 runs they did
+    not, in judge-turn-cost's report and in my debug run). 17 frames landed after the last turn, so 6 were within
+    the turns: by count, at most the 6 marks and the block frame can be the in-turn ones, and none of the 16 sink
+    frames, though the bench does not name which frame sat before which answer. The block frame and the marks are
+    not the sink: judge-turn-cost's report left `reserve`'s block frame to judge-tests (its area) and named it as
+    able to land inside a turn. I did not change either. If "0 before the answer" is to hold for every judge frame,
+    `reserve`'s block frame (and categorize's mark) need the same between-turns handling: an issue for the
+    maintainer.
+  - FAST: judged p50s against off: plain +1.0 to +1.8 ms, tool-call -1.2 to +1.7 ms (within this VM's noise for
+    tool-call). The bench's fdatasync estimate: loop 1.6–1.8 ms a turn, packs 1.9–2.1 ms (mostly the judged states'
+    blobs, as judge-turn-cost found).
 
-### Proof
+## Gate
 
-- `tests_ladder_unread.rs`:
-  - `before_the_warm_read_a_judged_turn_reads_and_writes_nothing_of_the_ladder`: a store where the owner rolled
-    route.v1 back (through `pack.rollback`, after the adoptions); a new core; a turn judged at the inbound (classify,
-    role, route), gate (security v1, v3) and loop-end points, with the compile point on (continue.v1 judges only a
-    compile whose signal fired; this turn fires none, so its judgment is not required). The ladder and the lineage
-    stay unloaded, `reads() == 0`, no `pack.mode` row written, route/rerank/v3 answer shadow, health says so, and
-    the turn's `attrs.frames` equals a judge-off core's same turn. After `warm_ladder`: one read, route.v1
-    `RolledBack`, rerank.v1 live. A first ask with the ladder's clock a day on: still one read.
-  - `the_warm_reads_adoptions_wait_for_a_moment_between_turns`: a fresh store, a turn held running: no adoption
-    written; once it ends, all three.
-- **Plants:** `given` loading as before: fails, "the ladder is unread". The rollover reading the day again: fails,
-  "the new day read nothing" (2 reads, not 1). Both restored and touched; `git status` clean of them.
-- Under load (nice 19, four busy loops): the two new files' three tests, 6 runs, all passed.
-- Bench, a turn submitted the moment the fresh daemon answers: head, 9 arms over 3 release runs and 6 debug arms:
-  0 `pack.mode` frames before its submit, before its answer, or after it; the trace counts 6. Step 1's daemon under
-  the same bench: 1·2·0 and 0·3·0 (before submit · before answer · after), twice each.
+`TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh` before each commit: fmt, shape, features, clippy,
+cockpit, test build, deny (with the fetched advisory database), reader rule all pass; the suite fails only on the 33
+known L1 tests (theseus-sandbox's contract tests and `spawn_100`, theseusd's sandbox tests: a root daemon's L1,
+theseus-pv6i). The phases after it, run by hand: protocol types unchanged (`cockpit/src/protocol.gen` clean), `bench
+turn --check --runs 5 --burst 0`: frames 5 and 9, ok. Lifecycle and jobs benches skipped (NO_BENCH).
 
-## The live check (the maintainer's, on the 16-core machine)
+At the head (`0afe76f`): the same, the suite 2,837 run, 2,804 passed, 33 failed (the 33 known L1), 21 skipped;
+protocol types clean; `bench turn --check`: frames 5 and 9, ok.
 
-1. Build each: `git worktree add /tmp/s1 e6e30a3 && (cd /tmp/s1 && scripts/build.sh --profile release-thin)`, and
-   the head the same way. Then, for each:
+One gate run (before step 2's commit) failed 106 tests at once: the session's disk allowance was spent (18 GB of
+cargo's incremental cache). I deleted `target/debug/incremental` and reran the gate: only the 33 known. No flake on
+the list of known timing tests showed up in any of my runs.
+
+## The live check (the maintainer's)
+
+1. Build the head (`scripts/build.sh --profile release-thin`), then the bench:
    `target/release-thin/theseus-sim bench turn --judge --runs 30 --theseusd target/release-thin/theseusd`.
-   At `e6e30a3`: judge frames in the "before the answer" column for loop and packs (expect a few per arm), and each
-   arm's p95. At the head: 0 before every answer; "after" holds categorize's marks only (about 1 per 10 messages);
-   the first-turn line 0·0·0; the judged arms' p95 against the off arm's.
-2. The gate's turn bench, unchanged: `target/debug/theseus-sim bench turn --check` (and the join's `--runs 10
-   --burst 30`): frames 5 and 9, p50 as on main.
-3. A scratch daemon on its own `--config`, `--socket`, `--state-dir`, the judge on with Jev's key (a few cents, with
-   the owner's go): start it, run from your own shell `theseus --socket <sock> packs rollback route.v1 --why "live
-   check"`, stop it (`theseus --socket <sock> shutdown`), start it again, and ask health as soon as it answers, e.g.
-   `until theseus --socket <sock> health --json 2>/dev/null | jq -r '.judge.packs[]'; do :; done`. Expect, if the
-   first answer beats the read (a few ms): `route.v1: shadow (until the ladder is read; wired live)`, `rerank.v1:
-   shadow (until …)`, `security.v3: shadow (until …)`; then, at the next ask: `route.v1: rolled back (owner: live
-   check)` and `rerank.v1: live (owner: decision of 2026-10-04)`. No `pack.mode` row is written by the second start
-   (`theseus --socket <sock> ledger --kind pack.mode`: the first start's adoption frame and the rollback only).
+   Expect 0 judge frames before every answer (each arm, each turn kind) and judged p50s near the off arm's (the
+   judge-turn-cost report's release p50s: plain 9–11 ms, tool-call 23–26 ms).
+2. A scratch daemon with the judges on and the stand-in model (`theseusd --config <c> --socket <s> --state-dir <d>`,
+   `[judge] enabled = true` at a fake Jev, as the bench's `packs` arm configures it), driven with back-to-back turns
+   for 3 minutes (e.g. `for i in $(seq 1 2000); do theseus --socket <s> send "turn $i" >/dev/null; done`, or the
+   bench's burst). Then `theseus --socket <s> judge log` and the label counts: judgments written should keep near
+   settled. Before the quiet bound (the first 120 s) rows may lag, since no gap is a quiet stretch; after it the
+   backlog is written in the next gaps. Against judge-turn-cost's sink (32 written of 1,551 at 180 s), expect nearly
+   all settled written by 180 s. Settled is what Jev answered (its `seen()`, or the daemon's
+   `theseus.judge.*` metrics); written is the `judge.call` rows.
+3. With judgments pending (stop within 2 s of a burst, or while turns still run): `theseus --socket <s> shutdown`.
+   The daemon's log says `stopping: the judge's settled judgments are written` with the count and ms, and its stop
+   phases include `judgments written`. Start it again on the same state dir: `judge log` shows every one of them (the
+   count settled before the stop equals the `judge.call` rows after it).
+4. Optional, the accepted loss: the same with `kill -9` instead of the shutdown: the queued judgments are gone,
+   nothing else is.
 
 ## Left, uncertain, and for the owner
 
-- **categorize.v1's mark** (`judge.categorize.<session>`, a META frame written in `prepare_categorize` as a judgment
-  is dispatched) lands next to turns: two per arm per bench run, after an answer; in use about one per 10 human
-  messages. Not cut: moving it means keeping the mark in memory until the sink writes it in its frame (the
-  `deciding` set already guards a second decision). A follow-up if the owner wants it.
-- **Blob syncs are the judge's main disk cost** (step 1's strace: 258–306 syncs and 100–110 ms per arm, against
-  about 20 extra WAL frames). They do not take the WAL's writer, but they share the disk with a turn's frames. A
-  follow-up could stage every judged state's blob (as theseus-otny stages route/rerank's) and write them in the
-  sink's between-turns moment, with one directory sync per batch.
-- The budget's block frame (`reserve`, judge-tests' area) is still written at prepare; see step 2.
-- notice.rs's health line (`notices: on` while `!is_loaded()`) says "on" before the read, while v3 judges in shadow
-  then. A few ms; notice.rs is judge-reads' file, so I left it.
-- Edits outside my own files, each small: `turn/route_step.rs` (route_base's pre-read case, 4 lines);
-  `rpc/learning.rs` (`judge.label` reads the ladder first); `learning/propose.rs` (`placed_read`); the test rigs
-  named above; `crates/theseus-discord/src/tests_gateway.rs` (one warm read in the rig).
-- `bench turn --judge`'s first turn adds one Jev call per measured turn in the judged arms (92→112, 112→132), the
-  same with step 1's daemon; I did not trace which pack it moves (likely categorize's or continue's trigger, since
-  the first turn is another session). It does not change the comparison.
-- Docs for the maintainer: the spec's Part III item and docs/status.md; docs/design/m5-judgment.md §2.7 says the
-  ladder is read "at the first read after serving … or the first judgment" (now: never by a judgment, and shadow
-  before the read); docs/design/m5-judgment.md §2.5 (the sink) could say its frames are written between turns.
-
-## The gate
-
-`TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh` (with `CARGO_INCREMENTAL=0`; see below), at each step:
-
-- Step 1 (`e6e30a3`): fmt, shape, features, clippy, cockpit, test build ok; suite 2832 run, 2799 passed, 33 failed:
-  exactly the known L1 set (theseus-sandbox's contract tests and `spawn_100`, theseusd's sandbox tests). The phases
-  after the suite run by hand: protocol types unchanged, nothing compiled under the lock, `bench turn --check --runs
-  5 --burst 0` 5/9 ok, `cargo deny --offline check` ok.
-- Step 2 (`f93fbc3`): the same, suite 2833 run, 33 failed (the same L1 set); after-suite phases ok.
-- Step 3 (`8885cea`): suite 2835 run, 2801 passed, 34 failed: the 33 L1 tests and
-  `theseus-core learning::tender::tests::a_pool_thread_started_from_the_idle_thread_keeps_its_policy` (assertion
-  "the pool thread took the idle thread's policy", left 0, right 5). Not on the flaky list and in no code this
-  branch touches; it passes alone 3/3 and fails 3 of 15 under the load recipe, so it is a load-sensitive test of
-  tokio's blocking pool (cause not traced). After-suite phases ok.
-  - An earlier step-3 gate run failed `theseus-discord tests_gateway::a_jev_notice_goes_to_the_owners_dm_and_a_press_there_labels_it`
-    (its rig never did the warm read): fixed in the commit.
-  - Another run failed about 100 job tests at once: the disk allowance was full (916 MB free; duplicate debug
-    artifacts after switching to `CARGO_INCREMENTAL=0`). I deleted the stale large artifacts in `target/debug/deps`
-    and `target/debug/incremental` (all rebuildable) and reran.
-- Judge-area suites at the head (`TZ=America/Phoenix`): 140 tests (tests_ladder, ladder, lineage, learning::tender,
-  tests_learn*, tests_judge*, tests_continue, tests_notices, tests_route*, tests_rerank*, tests_sink_between,
-  tests_security, tests_inbound, telemetry::tests_judge) all passed; theseusd `--test judge` 4/4; theseus-sim 53/53.
-- No timing test from the brief's list failed in these runs.
+- The release bench's packs arm showed one judge frame before an answer in 3 of 4 kind-runs; by the frame counts it
+  is `reserve`'s budget block frame or a categorize mark, not the sink (see step 4). Proposed follow-up issue:
+  write the shadow budget's block frame (and categorize's mark) between turns as the sink now does, or beside the
+  turn's own frames; neither is in this task's scope ("Leave alone: everything outside the judge sink").
+- The pass's busy bound guard (480 s of gapless turns before a frame goes beside them) is my choice; 600 s from the
+  backlog's start would let a never-empty backlog write beside turns forever after.
+- A stop now writes judgments a turn's run settled within the stop; judgments still in flight to Jev at the stop are
+  not settled and are not written (as before).
+- Docs: Part III's item for judge-turn-cost should say the sink keeps one clock a backlog pass and a clean stop
+  flushes it (theseus-s1am, theseus-ych4); theseusd's AGENTS.md "Every clean stop is one path" could name the judge's
+  flush beside the checkpoint.
