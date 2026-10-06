@@ -128,13 +128,14 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     up to three more at the turn after the mark. One tool result shows at most 30,000 characters, and `fs_read`
     numbers each line, so each log fits under that. A plan is in tokens and its logs are written in bytes, so each
     plan, once written, is worked again from its bytes (`plan_misses`), at its overhead and at `OVERHEAD_CUSHION`
-    more, and one that misses by rounding gives way to the next: more reads in the same window, then the next
+    more and less, and one that misses by rounding gives way to the next: more reads in the same window, then the next
     window. For seed 7 that is 45000 for the smoke (a budget of 29,654;
     two logs of about 4,400 tokens, the second at turn 11) and 94000 for the full (73,904).
   - **The overhead is checked.** After the first turn, before any probe, the driver reads its daemon's first
     `context.compiled` estimate less that turn's user message: the system prompt and tools, as `OVERHEAD_TOKENS`
-    defines them. Past the progression's planned overhead by more than `OVERHEAD_CUSHION` (50 tokens), a mark may
-    ring or fail, so the run stops (exit 3) with both numbers, unless `--allow-overhead`. `run.json`'s `overhead`
+    defines them. More than `OVERHEAD_CUSHION` (50 tokens) off the progression's planned overhead, over or under, a mark
+    may ring (over) or the reads may not cross the budget (under), so the run stops (exit 3) with both numbers,
+    unless `--allow-overhead`. `run.json`'s `overhead`
     keeps the planned, the measured and the cushion either way. Generate again with `--overhead <measured>` to plan
     at the daemon's own.
   - Where it compacted is read from the ledger (`context.compacted`) after every turn, with each row's outcome:

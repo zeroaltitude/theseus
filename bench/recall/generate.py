@@ -121,12 +121,16 @@ FULL_PER_CELL = 6
 # smoke sits at its margins, and a larger prompt than planned leaves its
 # mark's summary no room (a `ring`, not a `compaction`).
 OVERHEAD_TOKENS = 13700
-# How far a daemon's measured overhead may pass the one a progression was
-# planned at before the driver refuses to run it (`drive.py`, unless
-# `--allow-overhead`). The generator checks each plan's written bounds at
-# its overhead and at this much more (`plan_misses`), so within it the
-# marks still hold, and past it a mark may ring or fail. The smoke planned
-# at 13,528 rang at a real 13,599 (71 more), so it is under that.
+# How far a daemon's measured overhead may be from the one a progression
+# was planned at, over or under, before the driver refuses to run it
+# (`drive.py`, unless `--allow-overhead`). The generator checks each plan's
+# written bounds at its overhead, at this much more and at this much less
+# (`plan_misses`), so within it the marks still hold, and past it a mark may
+# ring or fail. Over, a larger prompt than planned leaves a mark's summary
+# no room: the smoke planned at 13,528 rang at a real 13,599 (71 more), so
+# it is under that. Under, the reads may not cross the budget at all
+# (theseus-tqa3: smoke seed 12 crosses by 31 tokens at a daemon 101 under
+# the default plan, and not at 150 under it).
 OVERHEAD_CUSHION = 50
 # The rates the plan estimates at: Claude's current family, the bench's
 # models (catalog.rs, `TokenRates::CLAUDE`).
@@ -1146,15 +1150,15 @@ def bounds_of(prog: Progression, overhead: int | None = None) -> list[dict]:
 
 def plan_misses(prog: Progression) -> list[str]:
     """Each bound `prog`'s written bytes miss (`bounds_of`), at the overhead
-    it was planned at and at `OVERHEAD_CUSHION` more, the most the driver
-    lets a daemon's pass it: the turns before a mark, and a session with no
+    it was planned at, at `OVERHEAD_CUSHION` more and at that much less, the
+    most the driver lets a daemon's differ from it: the turns before a mark, and a session with no
     mark, fit; each read turn alone stays under `alone_limit`; the reads
     cross the budget at the mark or the turn after; and no log passes what
     one tool result shows. None, when the plan holds."""
     planned = planned_overhead(prog)
     budget = pg.request_budget(prog.context_window)
     out = []
-    for overhead in (planned, planned + OVERHEAD_CUSHION):
+    for overhead in (planned, planned + OVERHEAD_CUSHION, planned - OVERHEAD_CUSHION):
         for b in bounds_of(prog, overhead):
             at = f"overhead {overhead:,}, mark {b['mark']}"
             if b["fit"] > budget:
@@ -1230,7 +1234,7 @@ def summary(prog: Progression, model: str) -> str:
         f"compaction marks: turns {', '.join(map(str, prog.marks()))}; scratch context window {prog.context_window}, "
         f"a request budget of {pg.request_budget(prog.context_window):,} (the window less its output cap "
         f"{pg.output_cap(prog.context_window):,} and {tk.HEADROOM:,}); the system prompt and tools estimated at "
-        f"{planned_overhead(prog):,} (the driver refuses a daemon's past it by more than {OVERHEAD_CUSHION})",
+        f"{planned_overhead(prog):,} (the driver refuses a daemon's more than {OVERHEAD_CUSHION} off it, over or under)",
         f"facts: {len(prog.facts)} (" + ", ".join(
             f"{fam} {sum(1 for f in prog.facts if f.family == fam)}" for fam in pg.FAMILIES[:-1])
         + f"; and needs_nothing, the abstentions' subjects, {sum(1 for p in prog.probes if p.kind == 'abstention')}); "
