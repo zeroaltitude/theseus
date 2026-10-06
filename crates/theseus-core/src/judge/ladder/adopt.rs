@@ -1,7 +1,8 @@
 //! Adoption (26a, theseus-0j2.15): the packs that went live before the
-//! ladder, outside it, stand as the owner's promotions of 2026-10-04. At the
-//! ladder's first read (after serving, never on the start path), each one
-//! this build wires live gets its row once: `live`, `who: owner`, `why:
+//! ladder, outside it, stand as the owner's promotions of 2026-10-04. After
+//! the ladder's first read (the warm read's, written between turns, never on
+//! the start path or a turn's), each one this build wires live gets its row
+//! once: `live`, `who: owner`, `why:
 //! "decision of 2026-10-04"`. A pack the build lacks, or wires in shadow
 //! because its live action has not joined, is adopted at the first read of
 //! a build that has it.
@@ -58,34 +59,46 @@ pub fn rules(id: &str) -> Vec<RollbackRule> {
     }
 }
 
-/// Write each adoption this build can make and the store lacks.
+/// The adoptions this build can make and the store lacks.
+fn wanted<'a>(ladder: &'a Ladder, l: &'a Loaded) -> impl Iterator<Item = &'static Adopted> + 'a {
+    ADOPTED.iter().filter(move |a| {
+        theseus_judge::pack::by_name(a.pack).is_some()
+            && ladder.wired(a.pack) == PackMode::Live
+            && !l
+                .rows
+                .get(a.pack)
+                .is_some_and(|rows| rows.iter().any(|r| r.via == VIA))
+    })
+}
+
+/// Whether an adoption is missing (the warm read's question, before it
+/// waits for a moment between turns to write them).
+pub(crate) fn missing(ladder: &Ladder, l: &Loaded) -> bool {
+    wanted(ladder, l).next().is_some()
+}
+
+/// Write each adoption this build can make and the store lacks, in one
+/// frame: a turn that begins as they are written waits for one append.
 pub(crate) fn adopt_missing(ladder: &Ladder, l: &mut Loaded) {
-    for a in ADOPTED {
-        if theseus_judge::pack::by_name(a.pack).is_none() || ladder.wired(a.pack) != PackMode::Live
-        {
-            continue;
-        }
-        let done = l
-            .rows
-            .get(a.pack)
-            .is_some_and(|rows| rows.iter().any(|r| r.via == VIA));
-        if done {
-            continue;
-        }
-        let from = ladder.standing_in(l, a.pack).rung;
-        let row = PackModeRow {
+    let wanted: Vec<&Adopted> = wanted(ladder, l).collect();
+    let rows: Vec<PackModeRow> = wanted
+        .iter()
+        .map(|a| PackModeRow {
             pack: a.pack.into(),
             mode: Rung::Live.as_str().into(),
-            from: from.as_str().into(),
+            from: ladder.standing_in(l, a.pack).rung.as_str().into(),
             who: "owner".into(),
             by: "owner".into(),
             via: VIA.into(),
             why: WHY.into(),
             ..PackModeRow::default()
-        };
-        if let Err(e) = ladder.write_in(l, row) {
-            tracing::warn!(error = %format!("{e:#}"), pack = a.pack, "judge: an adoption was not written");
-        }
+        })
+        .collect();
+    if rows.is_empty() {
+        return;
+    }
+    if let Err(e) = ladder.write_all_in(l, rows) {
+        tracing::warn!(error = %format!("{e:#}"), "judge: the adoptions were not written");
     }
 }
 

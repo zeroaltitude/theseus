@@ -6815,6 +6815,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "theseus-core",
+ "theseus-judge",
  "theseus-kernel",
  "theseus-mcp",
  "theseus-protocol",

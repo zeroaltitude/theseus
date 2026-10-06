@@ -20,6 +20,8 @@ theseus-store.workspace = true
 theseus-kernel.workspace = true
 theseus-core.workspace = true
 theseus-protocol.workspace = true
+# `bench turn --judge` (theseus-0j2.8): the fake Jev, in this process.
+theseus-judge = { path = "../theseus-judge", features = ["fake"] }
 # `fake-mcp` (M7 36b): the fake MCP server, the client side's crate alone.
 theseus-mcp = { path = "../theseus-mcp", default-features = false }
 tokio.workspace = true

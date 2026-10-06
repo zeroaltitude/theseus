@@ -120,7 +120,9 @@ pub(crate) fn core(
         ..Parts::for_tests(cfg, model, store)
     };
     p.secrets = board();
-    (Core::build(p).unwrap(), dir)
+    let core = Core::build(p).unwrap();
+    crate::tests_judge::warm(&core);
+    (core, dir)
 }
 
 pub(crate) async fn rig(

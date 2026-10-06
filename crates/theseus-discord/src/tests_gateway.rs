@@ -109,6 +109,11 @@ impl Rig {
         let fake = FakeDiscord::start_with_gateway();
         fake.set_guild(guild);
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
+        // The ladder's warm read, as the daemon reads it after serving: no
+        // judged point reads it (theseus-289c).
+        if core.cfg.judge.enabled {
+            core.runner.judge.read_ladder();
+        }
         let path = dir.path().join("bindings.toml");
         std::fs::write(&path, bindings).unwrap();
         // The continuation driver, as the daemon starts it: an answered

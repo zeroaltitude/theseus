@@ -108,10 +108,22 @@ pub(crate) fn rig_on(
     let mut p = Parts::for_tests(cfg, fake.clone(), store);
     p.secrets = board();
     let core = Core::build(p).unwrap();
+    warm(&core);
     Rig {
         core,
         fake,
         _dir: dir,
+    }
+}
+
+/// The daemon's warm read after serving (`Core::warm_ladder`), done at once
+/// on the caller's thread: the ladder and the learned versions read, and the
+/// adoptions written. No point reads them (theseus-289c), so a rig whose
+/// turns are judged reads them as a daemon does before its first turn.
+pub(crate) fn warm(core: &Core) {
+    if core.runner.judge.config().enabled {
+        core.runner.judge.read_ladder();
+        core.runner.judge.ladder().adopt();
     }
 }
 
@@ -528,7 +540,9 @@ async fn a_restart_books_the_blocks_rest_at_its_first_judgment() {
         let store = Store::open(&dir.path().join("store")).unwrap();
         let mut p = Parts::for_tests(cfg, Arc::new(FakeProvider::scripted(texts(1))), store);
         p.secrets = board();
-        Core::build(p).unwrap()
+        let core = Core::build(p).unwrap();
+        warm(&core);
+        core
     };
     let core = build();
     let sid = turn(&core, None, "one").await.session_id;
