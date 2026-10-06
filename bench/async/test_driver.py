@@ -292,7 +292,7 @@ class ClaudeStdin(unittest.TestCase):
 # job running. The daemon answers `health` only once it is up, after
 # STANDIN_START_S, and exits at `shutdown` or once its directory is gone.
 # `ask` records its message; `wait --after` on the busy session is the job's
-# completion (its continuation), after STANDIN_JOB_S; `wakes` lists one wake
+# completion (its continuation), after STANDIN_JOB_S, or its --timeout first; `wakes` lists one wake
 # due STANDIN_WAKE_S after the first look (1 s) until it is due. Its state
 # is read and written under a lock: the CLI and the daemon run at once.
 STANDIN_THESEUS = r"""#!/usr/bin/env python3
@@ -342,12 +342,18 @@ elif cmd == "wakes":
     due = s["wake_due"]
     print(json.dumps({"wakes": [{"wake_id": "wak_1", "session_id": "ses_invented", "due_at_ms": int(due * 1000)}] if time.time() < due else []}))
 elif cmd == "wait":
+    reached = "settled"
     if "--after" in args and s["outstanding"]:
-        time.sleep(float(os.environ.get("STANDIN_JOB_S", "0.5")))
-        def done(s):
-            s["outstanding"] = 0; s["position"] += 1; s["job_done_at"] = time.monotonic()
-        s = change(done)
-    print(json.dumps({"reached": "settled", "already": "--after" not in args, "execution": view(s), "confirms": []}))
+        # As the daemon does: the wait ends at its --timeout, the job still running.
+        job, limit = float(os.environ.get("STANDIN_JOB_S", "0.5")), float(args[args.index("--timeout") + 1].rstrip("s"))
+        time.sleep(min(job, limit))
+        if job <= limit:
+            def done(s):
+                s["outstanding"] = 0; s["position"] += 1; s["job_done_at"] = time.monotonic()
+            s = change(done)
+        else:
+            reached = "timeout"
+    print(json.dumps({"reached": reached, "already": "--after" not in args, "execution": view(s), "confirms": []}))
 elif cmd == "ledger":
     kind = args[args.index("-k") + 1] if "-k" in args else None
     rows = [{"kind": "provider.call", "data": {"cost_usd": 0.01}},
