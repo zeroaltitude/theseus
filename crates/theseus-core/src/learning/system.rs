@@ -36,6 +36,21 @@
 //!
 //! `role.v1` and `continue.v1` take none in M5 (§2.9), nor do nudges (26a)
 //! or a slash command (25a judges none).
+//!
+//! **What a run reads** (theseus-cf5c). A judgment all of whose windows
+//! closed before the last run ([`Cut`]: the last run read every row up to
+//! its `through`, and its time less the judgment's longest window and
+//! [`MARGIN_MS`] is past the judgment's) can take no new label: that run
+//! already wrote what it could. So its session's nodes, its call's action
+//! and its task's briefs are never read again, and a run reads about what
+//! can still change, not all of history. The windows ([`open_ms`]): `loop`'s
+//! continuation 10 minutes, or a task's false completion 24 hours;
+//! `classify`'s a day (its turn's end, an hour after the turn's last node,
+//! bounded by a turn's day); `security`'s `[kernel] confirm_ttl_secs`, how
+//! long a call can wait before it expires; `route`'s 10 minutes, cut too
+//! though it reads only the scope, since each routed judgment walks the
+//! scope for its next one. The first run (no mark, or one without
+//! `through`) walks everything.
 
 use std::collections::HashMap;
 
@@ -109,38 +124,138 @@ pub struct SystemLabel {
     pub note: String,
 }
 
+/// The margin past a judgment's longest window before the next run cuts
+/// it: a late row, a clock's step, a run's own minutes.
+pub const MARGIN_MS: u64 = 60 * 60 * 1000;
+/// How long a classified turn may run before its label is settled.
+const CLASSIFY_OPEN_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// Where the last run left off: every judgment row it read (positions up
+/// to `through`), and when it ran.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cut {
+    pub through: u64,
+    pub at_ms: u64,
+}
+
+impl Cut {
+    /// The last run's mark (`LAST_RUN`), when it says how far it read.
+    pub fn of(mark: &Value) -> Option<Cut> {
+        Some(Cut {
+            through: mark.get("through")?.as_u64()?,
+            at_ms: mark.get("at_unix_ms")?.as_u64()?,
+        })
+    }
+}
+
+/// What a run's rules read beyond the scopes, and what they left closed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RulesRead {
+    /// Sessions whose nodes were read.
+    pub sessions: usize,
+    /// Kernel actions read (a security judgment's call).
+    pub actions: usize,
+    /// Task sessions whose first node was read.
+    pub tasks: usize,
+    /// Judgments left unread, their windows closed before the last run.
+    pub closed: usize,
+}
+
+impl std::ops::AddAssign for RulesRead {
+    fn add_assign(&mut self, o: Self) {
+        self.sessions += o.sessions;
+        self.actions += o.actions;
+        self.tasks += o.tasks;
+        self.closed += o.closed;
+    }
+}
+
 /// What the rules read beyond the judge's scopes, read once a run and only
 /// for the judgments that need them.
 #[derive(Default)]
 struct Reads {
     nodes: HashMap<String, Vec<Node>>,
     tasks: Option<Vec<(u64, String, String)>>,
+    /// The earliest open task judgment's time less the margin: no task that
+    /// began before it can be a false completion still open.
+    tasks_from: u64,
+    count: RulesRead,
+}
+
+/// How long after a judgment a label can still come of it, by its pack's
+/// rules; `None` for a pack whose labels have no window of time.
+pub fn open_ms(pack_id: &str, s: &Seen, confirm_ttl_ms: u64) -> Option<u64> {
+    match pack_id {
+        "loop" if s.context("class") == Some("task") => Some(FALSE_COMPLETION_MS),
+        "loop" => Some(CONTINUATION_MS),
+        "classify" => Some(CLASSIFY_OPEN_MS),
+        "security" => Some(confirm_ttl_ms),
+        "route" => Some(CHOSEN_MS),
+        _ => None,
+    }
 }
 
 impl Core {
     /// The system labels a run derives from a pack's scope that are not yet
-    /// written.
+    /// written, every judgment read (a test's: a run reads past its cut).
+    #[cfg(test)]
     pub(crate) fn system_labels(
         &self,
         pack_id: &str,
         scope: &Scope,
         now_ms: u64,
     ) -> Vec<SystemLabel> {
+        self.system_labels_after(pack_id, scope, now_ms, None).0
+    }
+
+    /// `system_labels`, past the last run's [`Cut`]: a judgment whose
+    /// windows all closed before it is not read (theseus-cf5c). With what
+    /// the rules read.
+    pub(crate) fn system_labels_after(
+        &self,
+        pack_id: &str,
+        scope: &Scope,
+        now_ms: u64,
+        cut: Option<Cut>,
+    ) -> (Vec<SystemLabel>, RulesRead) {
         // rerank.v1's come from the owner's memory labels (32d), one a label.
         if pack_id == "rerank" {
             let mut out = self.rerank_labels(scope);
             out.retain(|l| !scope.label_ids.contains(&l.id));
-            return out;
+            return (out, RulesRead::default());
         }
+        let ttl = self.kernel.config().confirm_ttl_ms;
+        let closed = |s: &Seen| {
+            let (Some(cut), Some(open)) = (cut, open_ms(pack_id, s, ttl)) else {
+                return false;
+            };
+            s.position <= cut.through
+                && s.at_ms.saturating_add(open).saturating_add(MARGIN_MS) < cut.at_ms
+        };
         let mut reads = Reads::default();
-        let mut out = Vec::new();
+        let mut open = Vec::new();
         for seen in scope.judgments.values().flatten() {
             if seen.judgment.outcome != Outcome::Answered {
                 continue;
             }
+            if closed(seen) {
+                reads.count.closed += 1;
+            } else {
+                open.push(seen);
+            }
+        }
+        reads.tasks_from = open
+            .iter()
+            .filter(|s| pack_id == "loop" && s.context("class") == Some("task"))
+            .map(|s| s.at_ms)
+            .min()
+            .unwrap_or(u64::MAX)
+            .saturating_sub(MARGIN_MS);
+        let mut out = Vec::new();
+        for seen in open {
             let found = match pack_id {
                 "loop" => self.loop_labels(seen, now_ms, &mut reads),
-                "security" => self.security_labels(seen, scope),
+                "security" => self.security_labels(seen, scope, &mut reads),
                 "classify" => self.classify_labels(seen, now_ms, &mut reads),
                 "route" => self.route_labels(seen, scope),
                 _ => Vec::new(),
@@ -151,14 +266,16 @@ impl Core {
                     .filter(|l| !scope.label_ids.contains(&l.id)),
             );
         }
-        out
+        (out, reads.count)
     }
 
     fn learning_nodes<'a>(&self, reads: &'a mut Reads, session: &str) -> &'a [Node] {
+        let count = &mut reads.count;
         reads
             .nodes
             .entry(session.to_string())
             .or_insert_with(|| {
+                count.sessions += 1;
                 self.store
                     .session_nodes(session)
                     .map(|v| v.into_iter().map(|(_, n)| n).collect())
@@ -251,14 +368,18 @@ impl Core {
         out
     }
 
-    /// Every task session's start and brief, read once a run.
+    /// Every task session's start and brief, read once a run: the newest
+    /// sessions by birth back to `tasks_from`, through the index's births;
+    /// every session while the index's shape is built.
     fn task_briefs<'a>(&self, reads: &'a mut Reads) -> &'a [(u64, String, String)] {
+        let (from, count) = (reads.tasks_from, &mut reads.count);
         reads.tasks.get_or_insert_with(|| {
-            let sessions: Vec<SessionRecord> = self.store.list_sessions().unwrap_or_default();
+            let sessions = self.sessions_from(from).unwrap_or_default();
             sessions
                 .into_iter()
                 .filter(|r| r.task.is_some())
                 .filter_map(|r| {
+                    count.tasks += 1;
                     let (_, n) = self.store.first_node(&r.session_id).ok()??;
                     let Body::UserMessage { text, .. } = n.body else {
                         return None;
@@ -269,11 +390,40 @@ impl Core {
         })
     }
 
-    fn security_labels(&self, s: &Seen, scope: &Scope) -> Vec<SystemLabel> {
+    /// The sessions created at `from` or after, newest first, by the
+    /// index's births; all of them while it keeps none.
+    fn sessions_from(&self, from: u64) -> anyhow::Result<Vec<SessionRecord>> {
+        use theseus_store::Store as _;
+        let mut out = Vec::new();
+        let mut before = None;
+        loop {
+            let newest =
+                self.store
+                    .inner()
+                    .newest_keys(theseus_store::kinds::SESSION, before, 64)?;
+            let Some((born, more)) = newest else {
+                return self.store.list_sessions();
+            };
+            for (_, r) in &born {
+                let rec: SessionRecord = r.decode()?;
+                if rec.created_at_unix_ms < from {
+                    return Ok(out);
+                }
+                out.push(rec);
+            }
+            match (more, born.last()) {
+                (true, Some((b, _))) => before = Some(*b),
+                _ => return Ok(out),
+            }
+        }
+    }
+
+    fn security_labels(&self, s: &Seen, scope: &Scope, reads: &mut Reads) -> Vec<SystemLabel> {
         let j = &s.judgment;
         let Some(call) = s.context("call") else {
             return vec![];
         };
+        reads.count.actions += 1;
         let Ok(Some(a)) = self.kernel.action(call) else {
             return vec![];
         };

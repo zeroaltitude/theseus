@@ -947,3 +947,82 @@ async fn a_continuation_counts_only_inside_its_window() {
         "a millisecond past the window is a new ask"
     );
 }
+
+/// The rules read only what can still change (theseus-cf5c): the first run
+/// reads every judged session; a second, a day later, reads none whose
+/// windows closed before the first, writes nothing twice, and still labels
+/// a judgment the first read inside its window, whose "go on" came after.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_run_reads_only_what_can_still_change() {
+    const OLD: usize = 200;
+    let r = rig(texts(2), |_| {});
+    let c = &r.core;
+    let now = theseus_protocol::now_unix_ms();
+    let first_at = now + 3 * DAY_MS;
+    // Old judgments, each on a session of its own: a reply, then "go on"
+    // within the window for every tenth, which the first run labels.
+    let mut recs = Vec::new();
+    for i in 0..OLD {
+        let session = format!("ses_old_{i:03}");
+        let turn_id = format!("trn_old_{i:03}");
+        let mut n = crate::node::Node::user(&session, Some(&turn_id), "cli", "Sort the shelf.");
+        n.created_at_ms = now - 30 * DAY_MS + i as u64 * 1000;
+        let end = n.created_at_ms;
+        recs.push(n.record().unwrap());
+        if i % 10 == 0 {
+            let mut next = crate::node::Node::user(&session, Some("trn_next"), "cli", "go on");
+            next.created_at_ms = end + 60_000;
+            recs.push(next.record().unwrap());
+        }
+        let ctx = json!({"session": session, "turn": turn_id, "decision": "no_tool_calls",
+            "class": "reply"});
+        let j = judgment(
+            &format!("jdg_old_{i:03}"),
+            "loop.v1",
+            loop_answers("complete", 0.9, 0.1),
+            ctx,
+            300,
+        );
+        recs.push(call_row(&j, end + 5_000));
+    }
+    // A judgment just before the first run: its "go on" comes after it.
+    let open = turn(c, None, "Draft the release notes.").await;
+    let j = judgment(
+        "jdg_open",
+        "loop.v1",
+        loop_answers("complete", 0.9, 0.1),
+        loop_context(&open, "no_tool_calls", "reply"),
+        300,
+    );
+    recs.push(call_row(&j, first_at - 5 * 60_000));
+    c.store.append(&recs).unwrap();
+    let (first, read1) = c.run_learning_read(first_at, "on_demand", |_| {}).unwrap();
+    assert_eq!(read1.sessions, OLD + 1, "the first run walks everything");
+    assert_eq!(read1.closed, 0);
+    assert_eq!(first.labels.system_written as usize, OLD / 10);
+    message_at(c, &open.session_id, "go on", turn_end(c, &open) + 60_000);
+    let (second, read2) = c
+        .run_learning_read(first_at + DAY_MS, "on_demand", |_| {})
+        .unwrap();
+    eprintln!(
+        "learning's rules at {OLD} old judged sessions: sessions read, first run {} then {}",
+        read1.sessions, read2.sessions
+    );
+    assert_eq!(
+        read2.sessions, 1,
+        "only the judgment still inside its window"
+    );
+    assert_eq!(read2.closed, OLD);
+    assert_eq!(second.labels.system_written, 1, "{read2:?}");
+    let labels = rows(c, "judge:loop", LedgerKind::JudgeLabel);
+    assert_eq!(labels.len(), OLD / 10 + 1, "nothing written twice");
+    assert!(labels
+        .iter()
+        .any(|(_, r)| r.data["judgment"] == "jdg_open" && r.data["rule"] == "continuation"));
+    // A third run reads nothing new: the open one is labeled, and closes
+    // once its window is past the second run.
+    let (third, read3) = c
+        .run_learning_read(first_at + 2 * DAY_MS, "on_demand", |_| {})
+        .unwrap();
+    assert_eq!((read3.sessions, third.labels.system_written), (0, 0));
+}

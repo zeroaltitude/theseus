@@ -363,7 +363,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning` thread at nice 19, in `SCHED_IDLE`, and about 5% of a core, each next pack waiting while the
     machine is busy: theseus-tood). `judge.label` (`judge_act(Act::JudgeLabel)`) and
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
-    in one frame, then `<state>/learning/<date>.json`. Tests: `tests_learning.rs`, `learning::*::tests`.
+    in one frame, then `<state>/learning/<date>.json`. The mark keeps the last position the run read (`through`),
+    and the next run's rules read no judgment whose windows closed before it (`system::Cut`, `open_ms`: its
+    session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read.
+    Tests: `tests_learning.rs`, `learning::*::tests`.
   - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
     is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
     the call waits for a permit rather than being shed. The turn waits for it beside its first compile, at most

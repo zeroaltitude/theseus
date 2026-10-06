@@ -177,8 +177,11 @@ impl Core {
                             std::thread::sleep(took * 19);
                             yielded += quiet_blocking_unless(BOUND, stopping);
                         };
-                        let r =
-                            c.run_learning(theseus_protocol::now_unix_ms(), trigger, &mut paced);
+                        let r = c.run_learning_read(
+                            theseus_protocol::now_unix_ms(),
+                            trigger,
+                            &mut paced,
+                        );
                         // The ladder's rules again, as the backstop (26a).
                         c.runner.judge.ladder().recheck();
                         // Then the learning loop (25f): each lineage's
@@ -199,8 +202,9 @@ impl Core {
                             Ok((_, Some((Err(e), _)))) => {
                                 tracing::warn!(error = %format!("{e:#}"), "learning: the report did not run");
                             }
-                            Ok((low, Some((Ok(r), yielded)))) => tracing::info!(
+                            Ok((low, Some((Ok((r, read)), yielded)))) => tracing::info!(
                                 date = %r.date, trigger, packs = r.packs.len(),
+                                sessions_read = read.sessions, judgments_closed = read.closed,
                                 system_labels = r.labels.system_written, nice = low.nice,
                                 sched_idle = low.idle, yielded_ms = yielded.as_millis() as u64,
                                 "learning: the report ran"
