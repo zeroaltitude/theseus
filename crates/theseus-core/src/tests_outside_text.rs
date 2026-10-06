@@ -319,6 +319,15 @@ const SCRUB_PIECES: &[&str] = &[
     "\\\"",
     "\\u00",
     "\\ud83d",
+    "\\\\\\\"",
+    "\\x",
+    "\\xc3",
+    "\\xf0\\x9f",
+    "\\U",
+    "\\U0001F6",
+    "\\e",
+    "\\'",
+    "\\N",
 ];
 
 /// An invented board value.
@@ -345,7 +354,7 @@ proptest! {
     /// A board value never comes through, verbatim or encoded, whatever is
     /// around it.
     #[test]
-    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..6usize) {
+    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..7usize) {
         use base64::Engine as _;
         let scrub = crate::scrub::Scrubber::with_values(vec![(SCRUB_VALUE.into(), "demo".into())]);
         let b64 = base64::engine::general_purpose::STANDARD;
@@ -369,9 +378,14 @@ proptest! {
                 let e = SCRUB_VALUE.replace('/', "\\/").replace('+', "\\u002B");
                 (e.clone(), e)
             }
-            _ => {
+            5 => {
                 // The same, inside a JSON string: escaped twice (theseus-nlvx).
                 let e = SCRUB_VALUE.replace('/', "\\\\\\/").replace('+', "\\\\u002B");
+                (e.clone(), e)
+            }
+            _ => {
+                // In YAML's or a repr's hex escapes (theseus-nlvx).
+                let e = SCRUB_VALUE.replace('/', "\\x2f").replace('+', "\\x2B");
                 (e.clone(), e)
             }
         };

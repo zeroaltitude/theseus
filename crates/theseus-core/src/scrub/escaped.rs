@@ -8,7 +8,9 @@
 //! looked for in the decoded text, and a match is mapped back to the escaped
 //! text it came from, whole escapes and all. JSON inside a JSON string is
 //! decoded twice, and a match in the second text maps back through both
-//! (theseus-nlvx).
+//! (theseus-nlvx). YAML's double-quoted escapes (`\0`, `\a`, `\e`, `\v`, `\N`,
+//! `\_`, `\L`, `\P`, `\ `, `\xNN`, `\UNNNNNNNN`) and Python repr's (`\'`, and
+//! `\xNN` for a byte of a bytes repr) are decoded beside JSON's.
 
 /// One escape decoded: where it starts and ends in the text, and where its
 /// character starts and ends in the decoded text.
@@ -98,7 +100,8 @@ fn decode(text: &str) -> (String, Vec<Escape>) {
     (decoded, escapes)
 }
 
-/// The character the escape at `at` stands for, and its length in the text.
+/// The character the escape at `at` stands for, and its length in the text:
+/// JSON's escapes, YAML's double-quoted ones, and Python repr's.
 fn escape_at(b: &[u8], at: usize) -> Option<(char, usize)> {
     let c = match *b.get(at + 1)? {
         b'"' => '"',
@@ -110,10 +113,10 @@ fn escape_at(b: &[u8], at: usize) -> Option<(char, usize)> {
         b'r' => '\r',
         b't' => '\t',
         b'u' => {
-            let hi = hex4(b, at + 2)?;
+            let hi = hex(b, at + 2, 4)?;
             if (0xD800..0xDC00).contains(&hi) {
                 let lo = (b.get(at + 6) == Some(&b'\\') && b.get(at + 7) == Some(&b'u'))
-                    .then(|| hex4(b, at + 8))
+                    .then(|| hex(b, at + 8, 4))
                     .flatten()
                     .filter(|lo| (0xDC00..0xE000).contains(lo))?;
                 let c = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00);
@@ -121,13 +124,66 @@ fn escape_at(b: &[u8], at: usize) -> Option<(char, usize)> {
             }
             return char::from_u32(hi).map(|c| (c, 6));
         }
+        // YAML's, beside JSON's (PyYAML's double-quoted style).
+        b'0' => '\0',
+        b'a' => '\u{7}',
+        b'e' => '\u{1b}',
+        b'v' => '\u{b}',
+        b'N' => '\u{85}',
+        b'_' => '\u{a0}',
+        b'L' => '\u{2028}',
+        b'P' => '\u{2029}',
+        b' ' => ' ',
+        b'\t' => '\t',
+        b'U' => return char::from_u32(hex(b, at + 2, 8)?).map(|c| (c, 10)),
+        b'x' => return hex_byte(b, at),
+        // Python repr's, for a value holding both quotes.
+        b'\'' => '\'',
         _ => return None,
     };
     Some((c, 2))
 }
 
-fn hex4(b: &[u8], at: usize) -> Option<u32> {
-    let digits = b.get(at..at + 4)?;
+/// A `\xNN` escape and those after it. A bytes repr writes each byte of a
+/// UTF-8 character as one, so a run that is a whole character's UTF-8 is
+/// read as that character; any other `\xNN` is the character U+00NN, as
+/// YAML's and a string repr's are.
+fn hex_byte(b: &[u8], at: usize) -> Option<(char, usize)> {
+    let first = hex(b, at + 2, 2)?;
+    let width = match first {
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => 1,
+    };
+    // Each escape of the run is 4 bytes: `\x` and two hex digits.
+    let mut bytes = [0u8; 4];
+    let mut got = 0;
+    for (k, byte) in bytes.iter_mut().enumerate().take(width) {
+        let e = at + 4 * k;
+        let Some(h) = (b.get(e) == Some(&b'\\') && b.get(e + 1) == Some(&b'x'))
+            .then(|| hex(b, e + 2, 2))
+            .flatten()
+        else {
+            break;
+        };
+        *byte = h as u8;
+        got += 1;
+    }
+    if width > 1 && got == width {
+        if let Some(c) = std::str::from_utf8(&bytes[..width])
+            .ok()
+            .and_then(|s| s.chars().next())
+        {
+            return Some((c, 4 * width));
+        }
+    }
+    char::from_u32(first).map(|c| (c, 4))
+}
+
+/// `n` hex digits at `at`, in either case.
+fn hex(b: &[u8], at: usize, n: usize) -> Option<u32> {
+    let digits = b.get(at..at + n)?;
     digits
         .iter()
         .try_fold(0u32, |n, d| (*d as char).to_digit(16).map(|d| n * 16 + d))
