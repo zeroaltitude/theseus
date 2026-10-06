@@ -185,6 +185,12 @@ pub struct JudgeService {
     /// The daemon's running turns: the sink writes between them
     /// (theseus-0j2.8; `sink::run`).
     between: OnceLock<Arc<crate::memory_pass::turns::Turns>>,
+    /// The judgments settled and not yet written (`sink::Queue`): the
+    /// sink's writer takes its frames from it, and a clean stop the rest.
+    queue: Arc<sink::Queue>,
+    /// A test's shorter bounds for the sink's waits.
+    #[cfg(test)]
+    pub(crate) sink_timing: OnceLock<crate::memory_pass::Timing>,
 }
 
 impl JudgeService {
@@ -241,6 +247,9 @@ impl JudgeService {
             narrator: OnceLock::new(),
             telemetry: OnceLock::new(),
             between: OnceLock::new(),
+            queue: Arc::default(),
+            #[cfg(test)]
+            sink_timing: OnceLock::new(),
         })
     }
 
@@ -401,12 +410,12 @@ impl JudgeService {
                 &[rerank::RERANK_PACK],
                 BreakerConfig::default(),
             );
-        let (channel, rx) = sink::Channel::new();
+        let channel = sink::Channel::new(self.queue.clone());
         let b = Arc::new(Built {
             judge: Recording::new(judge, channel),
         });
         if self.built.set(b.clone()).is_ok() {
-            tokio::spawn(sink::run(rx, self.me.clone(), self.flush));
+            tokio::spawn(sink::run(self.queue.clone(), self.me.clone(), self.flush));
         }
         Ok(self.built.get().cloned().unwrap_or(b))
     }
