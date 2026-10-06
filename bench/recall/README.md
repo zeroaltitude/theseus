@@ -205,12 +205,21 @@ daemon's log.
   four words off, in the same clause (a semicolon, a dash or a sentence stop ends it): before the value ("moved
   from X", "ignore the X", "previously X", "formerly X", "used to be X", "instead of X", "replaced X", "no longer
   X", "not X", the last at most one word off), after it with the value its subject ("X is no longer used", "X was
-  replaced", "X isn't used anymore"), or around it ("it was X before"). A phrase that cites ("as I said
-  previously") or is negated ("don't forget") governs nothing. So "It moved from 27340 to 38013." is right, and
+  replaced", "X isn't used anymore"), or around it ("it was X before", "earlier it was X", "before the move it was
+  X"). A phrase governs each member of a list under it ("no longer X or Y", "used to be X and later Y", "X and Y are
+  both retired"), and an old value named twice in a clause ("moved from X to Y, then from Y to Z") is retracted
+  where either naming is. "The old X" and "the former X" only describe: they govern beside a retraction elsewhere
+  in the clause ("the old X was replaced"), never alone ("the old X is back"). A phrase that cites ("as I said
+  previously", `you wrote "moved from X to Y"`) or is negated ("don't forget", "X is no longer wrong") governs
+  nothing. So "It moved from 27340 to 38013." is right, and
   "It's 27340, previously 38013.", "It was 38013 before, now it's 27340.", "Port 27340 replaced 38013." and
   "38013 is no longer used; it's 27340." are wrong under both rules: each gives the old value as the current one.
   "The archiver is on port 27340." is stale under both, and "It's 27340, or maybe 38013." wrong under both. The report
-  says which rule it scored by.
+  says which rule it scored by. **The rule's reach**: it reads phrases, not meaning, so it can score a reply as a
+  careful reader would not. A move cited with no citing verb ("the note says moved from X to Y, which I can't confirm") reads as a
+  retraction, so it is right; a retraction in words it doesn't list ("X was rolled back") is not one; a list joined by
+  words `JOIN` doesn't hold ("X as well as Y") governs only its nearest member; and a phrase in another clause or
+  sentence governs nothing here.
 - **Cites**: of the right direct answers, those that say where (the script, or that the user said it) and when
   (its date or weekday, or a relative time).
 - **Cost and latency** per probe: its turn's dollars and wall time.
