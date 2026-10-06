@@ -6,7 +6,9 @@
 //!   pool, when `[memory] arm = "+activation"` puts it in front of the model
 //!   (`Core::warm_activation`), or by the first search that names the arm.
 //!   A turn that finds it unbuilt starts the build and goes on without
-//!   activation (`building`); it never waits for it.
+//!   activation (`building`); it never waits for it. A search builds it
+//!   itself, unpaced, unless the warm build is running: then it answers
+//!   `building` at once too, never queued behind the warm build's paces.
 //! - **Seeds**: the turn's new node at 1.0, its edges the projection's (its
 //!   neighbour; its own entities once the memory pass labels it, after the
 //!   turn) and the entities of the query that the index's hits matched (the
@@ -151,6 +153,10 @@ impl Adjacent {
     }
 }
 
+/// Why a search answers `building`: the warm build holds the projection.
+const WARM: &str = "the adjacency projection's warm build is running, paced by the machine's \
+pressure; a search does not wait for it";
+
 /// What a spread found, on the blocking pool.
 struct Spread {
     reached: Vec<(String, f32)>,
@@ -178,6 +184,16 @@ impl Ask {
         if !self.adjacent.built() {
             if !self.build {
                 return Err("building".into());
+            }
+            // The warm build holds the projection's lock for its whole walk,
+            // its paces included, so a search that took the lock after it
+            // would wait out a busy machine past its deadline (theseus-6fn.14):
+            // it answers at once instead, as a turn does. `building` is set
+            // before the warm build takes the lock, and only the warm build
+            // sets it: a turn's refresh, or another search's own build, holds
+            // the lock only as long as an unpaced fold takes, and is waited on.
+            if self.adjacent.building() {
+                return Err(WARM.into());
             }
             self.adjacent
                 .build(&self.store, false)
@@ -414,7 +430,7 @@ impl Memory {
         let spread = match tokio::time::timeout(left, job).await {
             Ok(Ok(Ok(s))) => s,
             Ok(Ok(Err(why))) => {
-                report.outcome = if why == "building" {
+                report.outcome = if why == "building" || why == WARM {
                     "building".into()
                 } else {
                     "unavailable".into()
