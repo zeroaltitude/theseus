@@ -636,9 +636,195 @@ class ClaudeCode:
         return "\n".join(transcript)
 
 
+# ---- Pi
+
+
+# The variables Pi sets for what it runs (its process markers, and its
+# session's for a shell tool), which would make a nested Pi read a parent's.
+PI_PARENT_ENV = ("AI_AGENT", "PI_CODING_AGENT", "PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL",
+                 "PI_REASONING_LEVEL", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR")
+PI_TOOLS = "read,bash,edit,write"
+# A model's window in Pi's own catalog (`contextWindow`, Pi 1.0.4's
+# `pi-ai` providers/data/anthropic.json: Sonnet 5.5's is 1,000,000).
+PI_MODEL_WINDOW = 1_000_000
+# Pi's own `keepRecentTokens` (20,000): what a compaction keeps unsummarized.
+PI_KEEP_RECENT = 20_000
+
+
+def pi_events(out: str) -> list[dict]:
+    """Pi's `--mode json` stream: one JSON object a line."""
+    events = []
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(e, dict):
+                events.append(e)
+    return events
+
+
+def pi_turn(events: list[dict]) -> dict:
+    """A Pi call's turn from its stream: the last answer's text and
+    `stopReason`, its error, the tokens and dollars of its answers and of
+    its compactions' summary calls summed (Pi's `usage`, with
+    `cost.total`), and its tool calls."""
+    answers = [e["message"] for e in events if e.get("type") == "message_end"
+               and isinstance(e.get("message"), dict) and e["message"].get("role") == "assistant"]
+    summaries = [e["result"] for e in events if e.get("type") == "compaction_end"
+                 and isinstance(e.get("result"), dict) and isinstance(e["result"].get("usage"), dict)]
+    toks = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+    cost, priced, tools = 0.0, bool(answers), 0
+    for m in answers + summaries:
+        u = m.get("usage") or {}
+        for k, pk in (("input", "input"), ("output", "output"), ("cache_read", "cacheRead"),
+                      ("cache_write", "cacheWrite")):
+            toks[k] += int(u.get(pk) or 0)
+        c = (u.get("cost") or {}).get("total")
+        if c is None:
+            priced = False
+        else:
+            cost += c
+        tools += sum(1 for b in m.get("content") or [] if isinstance(b, dict) and b.get("type") == "toolCall")
+    last = answers[-1] if answers else {}
+    reply = "".join(b.get("text") or "" for b in last.get("content") or []
+                    if isinstance(b, dict) and b.get("type") == "text")
+    return {"reply": reply, "stop": last.get("stopReason"), "error": last.get("errorMessage"),
+            "tokens": toks, "cost_usd": round(cost, 6) if priced else None, "tool_calls": tools,
+            "answers": len(answers)}
+
+
+def pi_keep_recent(window: int) -> int:
+    """What Pi's compaction keeps unsummarized at `window`: its own 20,000,
+    or a quarter of a smaller window. A compaction summarizes what lies
+    before the newest `keepRecentTokens`, and when that is the whole context
+    it summarizes nothing and does not happen (Pi 1.0.4): at the smoke's
+    45k window, its 20k would keep nearly all of a context that has just
+    passed the threshold."""
+    return min(PI_KEEP_RECENT, window // 4)
+
+
+def pi_failed(code: int | None, turn: dict) -> bool:
+    """A Pi turn failed when its process did not exit 0, it answered
+    nothing, or its last answer ended on an error or an abort: Pi's print
+    mode exits 0 when the provider fails."""
+    return code != 0 or not turn["answers"] or turn["stop"] in ("error", "aborted")
+
+
+class Pi:
+    """Pi (`pi --print --mode json`), with a scratch `PI_CODING_AGENT_DIR` and
+    session directory, the workspace as its working directory, one session
+    id per progression session (`--session-id` opens it, or creates it), and
+    its four tools. Its compaction is its own threshold, set at the
+    progression's window: Pi compacts when the context passes its model's
+    window less `reserveTokens`, so the scratch settings set that reserve
+    for the run's model to the model's window less the progression's, and
+    `keepRecentTokens` to `pi_keep_recent` of it. Print
+    mode sends `/compact` to the model as text (Pi 1.0.4), so there are no
+    marks to compact at: the threshold is the one way, at any window.
+    Compactions are read from its session logs (`compaction` entries)."""
+
+    def __init__(self, a, run: Run):
+        self.a, self.run = a, run
+        self.pi = a.pi
+        self.config = (run.out / "pi-agent").resolve()
+        self.config.mkdir()
+        self.sessions = (run.out / "pi-sessions").resolve()
+        self.provider, _, self.model = a.model.partition("/")
+        if not self.model:
+            self.provider, self.model = "anthropic", a.model
+        self.window = a.context_window or run.prog.context_window
+        reserve = max(a.pi_model_window - self.window, 0)
+        keep = pi_keep_recent(self.window)
+        settings = {"compaction": {"modelOverrides": {f"{self.provider}/{self.model}": {
+            "reserveTokens": reserve, "keepRecentTokens": keep}}}}
+        (self.config / "settings.json").write_text(json.dumps(settings, indent=1) + "\n")
+        if a.api_base:
+            models = {"providers": {self.provider: {"baseUrl": a.api_base}}}
+            (self.config / "models.json").write_text(json.dumps(models, indent=1) + "\n")
+        self.env = _env_without(PI_PARENT_ENV + CC_PARENT_ENV)
+        self.env.update({"PI_CODING_AGENT_DIR": str(self.config), "PI_SKIP_VERSION_CHECK": "1",
+                         "PI_TELEMETRY": "0"})
+        run.meta["pi_compact"] = {"window": self.window, "model_window": a.pi_model_window,
+                                  "reserve_tokens": reserve, "keep_recent_tokens": keep}
+
+    def logs(self) -> list[Path]:
+        return sorted(self.sessions.glob("*.jsonl")) if self.sessions.is_dir() else []
+
+    def boundaries(self) -> int:
+        n = 0
+        for p in self.logs():
+            for line in p.read_text(errors="replace").splitlines():
+                if '"compaction"' not in line:
+                    continue
+                try:
+                    n += json.loads(line).get("type") == "compaction"
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+        return n
+
+    def call(self, text: str, sid: str, timeout: float) -> tuple[dict, str, int | None, int]:
+        cmd = [self.pi, "--print", "--mode", "json", "--session-dir", str(self.sessions), "--session-id", sid,
+               "--provider", self.provider, "--model", self.model, "--tools", PI_TOOLS]
+        cmd += self.a.pi_arg
+        t0 = time.monotonic()
+        out, _, code = run_group(cmd, text, timeout, cwd=self.run.workspace, env=self.env)
+        ms = int((time.monotonic() - t0) * 1000)
+        return pi_turn(pi_events(out)), out, code, ms
+
+    def drive(self) -> str:
+        prog, run, a = self.run.prog, self.run, self.a
+        sid, session = None, -1
+        seen = 0
+        sids: list[str] = []
+        for t in prog.turns:
+            if t.session != session:
+                session, sid = t.session, f"recall-{uuid.uuid4()}"
+                sids.append(sid)
+            pg.apply_before(t, run.workspace)
+            v, out, code, ms = self.call(t.text, sid, a.turn_timeout)
+            (run.raw / f"t{t.index:04d}.jsonl").write_text(out)
+            n = self.boundaries()
+            compacted = n > seen
+            seen = n
+            if compacted:
+                run.meta["compactions"].append(t.index)
+            failed = pi_failed(code, v)
+            run.turn({
+                "index": t.index, "session": t.session, "session_id": sid, "role": t.role,
+                "reply": v["reply"], "stop": v["stop"], "exit": code,
+                "error": (v["error"] or (out[-400:] if out else "no output")) if failed else None,
+                "tokens": v["tokens"], "cost_usd": v["cost_usd"], "latency_ms": ms,
+                "compacted": compacted, "tool_calls": v["tool_calls"],
+            })
+            run.save()
+        transcript = []
+        for p in self.logs():
+            shutil.copy(p, run.raw / f"pi-{p.name}")
+            for line in p.read_text(errors="replace").splitlines():
+                try:
+                    transcript.extend(strings(json.loads(line)))
+                except json.JSONDecodeError:
+                    transcript.append(line)
+        # Its memory: its compactions (in the logs, kept above) and the
+        # context files it reads, as left.
+        mem = run.out / "memory"
+        for p in list(run.workspace.rglob("AGENTS.md")) + list(run.workspace.rglob("CLAUDE.md")):
+            if p.is_file():
+                dst = mem / p.relative_to(run.out)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(p, dst)
+        run.meta["sessions"] = sids
+        run.meta["left_running"] = [f"{p} {pid}" for pid, p in processes_naming(run.out)]
+        run.save()
+        return "\n".join(transcript)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--arm", choices=("theseus", "claude-code"), required=True)
+    ap.add_argument("--arm", choices=("theseus", "claude-code", "pi"), required=True)
     ap.add_argument("--progression", type=Path, required=True, help="a generator's out, or its progression.json")
     ap.add_argument("--out", type=Path, required=True, help="the run directory (new or empty)")
     ap.add_argument("--model", default="anthropic/claude-sonnet-5-5")
@@ -650,7 +836,7 @@ def main(argv: list[str] | None = None) -> int:
     th.add_argument("--profile", default=str(PROFILE), help="the base config (the bench profile)")
     th.add_argument("--spend-limit", type=float, default=50.0, help="the run's spend limit, in dollars")
     th.add_argument("--max-loops", type=int, default=40, help="the model calls one turn may make")
-    th.add_argument("--api-base", default=None, help="a stand-in model's address (offline checks)")
+    th.add_argument("--api-base", default=None, help="a stand-in model's address (offline checks; pi's too)")
     th.add_argument("--allow-overhead", action="store_true",
                     help="run on when the daemon's system prompt and tools pass the progression's planned overhead "
                          "by more than the cushion (both are in run.json either way)")
@@ -660,6 +846,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="window: --autocompact at the window (100k at least); marks: /compact after each mark; "
                          "auto: window when the window is 100k or more")
     cc.add_argument("--claude-arg", action="append", default=[], help="an extra argument for claude (repeatable)")
+    pa = ap.add_argument_group("pi")
+    pa.add_argument("--pi", default="pi", help="the pi binary")
+    pa.add_argument("--pi-model-window", type=int, default=PI_MODEL_WINDOW,
+                    help="the model's window in Pi's catalog, which its reserve is taken from")
+    pa.add_argument("--pi-arg", action="append", default=[], help="an extra argument for pi (repeatable)")
     a = ap.parse_args(argv)
     prog = pg.load(a.progression)
     pg.validate(prog)
@@ -667,7 +858,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.arm == "theseus":
         meta["memory_arm"] = a.memory_arm
     run = Run(a.out, prog, a.arm, meta)
-    driver = Theseus(a, run) if a.arm == "theseus" else ClaudeCode(a, run)
+    driver = {"theseus": Theseus, "claude-code": ClaudeCode, "pi": Pi}[a.arm](a, run)
     try:
         transcript = driver.drive()
     except OverheadPastPlan as e:

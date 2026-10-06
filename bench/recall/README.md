@@ -14,7 +14,7 @@ no distance and no indirect probe. This bench drives each arm live, through its 
 | `progression.py` | The format: sessions, turns, facts, probes, the workspace; the buckets and the validator. |
 | `checks.py` | The check language, as theseus-exam's `check.rs` has it (`reply has word "…"`, `file "…" has …`). |
 | `generate.py` | The generator: a progression from a seed, and the budget. |
-| `drive.py` | The drivers: a progression replayed to Theseus or to Claude Code, each turn kept. |
+| `drive.py` | The drivers: a progression replayed to Theseus, to Claude Code, or to Pi, each turn kept. |
 | `score.py` | The scorer: every probe checked, each arm's curve, half-life, and the report. |
 | `tokens.py` | Theseus's request estimate, mirrored: the census, the rates, the margin, the budget, the ring. |
 | `standin.py` | A stand-in model that counts each request as the compiler estimates it, for the offline smoke. |
@@ -86,9 +86,11 @@ python3 bench/recall/drive.py --arm theseus --memory-arm baseline --bin-dir targ
   --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-th
 python3 bench/recall/drive.py --arm claude-code \
   --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-cc
+python3 bench/recall/drive.py --arm pi \
+  --model anthropic/claude-sonnet-5-5 --progression /tmp/rc-smoke --out /tmp/rc-pi
 
 # 3. The scores (and with `--stale retracted`, an old value named only to take it back is no longer stale).
-python3 bench/recall/score.py /tmp/rc-th /tmp/rc-cc --out /tmp/rc-report
+python3 bench/recall/score.py /tmp/rc-th /tmp/rc-cc /tmp/rc-pi --out /tmp/rc-report
 ```
 
 **Sizes.** `smoke` is two sessions of 15 turns, three days apart, with one compaction mark and eight probes, at
@@ -160,16 +162,40 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     counts only where the log shows a `compact_boundary`, and the run keeps each `/compact`'s result.
   - Variables a parent Claude Code session sets (`CLAUDECODE`, …) are taken out of its environment. A turn past
     `--turn-timeout` has its process group killed (claude and what its shell started).
-- **OpenClaw**, a third arm, is not built yet. Its memory would be its memory search and its wiki. A driver is a
+- **Pi** (theseus-jp9p): `pi --print --mode json` (`@earendil-works/pi-coding-agent`, 1.0.4 as the Harbor arm
+  pins it; `--pi` names the binary) with a scratch `PI_CODING_AGENT_DIR` and session directory, and the workspace
+  as its working directory.
+  - Each session boundary starts a new session id, and every turn of the session passes it (`--session-id`
+    opens the session, or creates it). The turn's text goes on stdin.
+  - Its tools are its four, `read`, `bash`, `edit` and `write` (`--tools`). It has no permission prompts.
+  - Its memory is its compaction and the context files it reads (`AGENTS.md`, `CLAUDE.md`); the run keeps both,
+    and its session logs.
+  - Compaction: its own threshold, at the progression's window. Pi compacts when the context passes its model's
+    window less `reserveTokens`, so the scratch `settings.json` sets the run model's `reserveTokens`
+    (`compaction.modelOverrides`) to the model's window in Pi's catalog (`--pi-model-window`, 1,000,000 for
+    Sonnet 5.5) less the progression's. It sets `keepRecentTokens`, what a compaction keeps unsummarized, to
+    Pi's own 20,000 or a quarter of a smaller window (`pi_keep_recent`): when the whole context is within it,
+    Pi 1.0.4 has nothing to summarize and skips the compaction. `run.json`'s `pi_compact` keeps the four. Pi's
+    print mode sends `/compact` to the model as text, so there are no marks to compact at; the threshold works
+    at any window. A compaction counts where a session log gains a `compaction` entry, and its summary call's
+    tokens and dollars are its turn's.
+  - The progression is planned at Theseus's overhead (`overhead_tokens`, 13,700 for the smoke), and Pi's own
+    system prompt and tools are about 2,300 tokens, so on the smoke Pi's context peaks near 20k and it does not
+    compact at the 45k window: its probes are scored where it compacted, which is nowhere.
+  - Pi's print mode exits 0 when the provider fails: a turn whose last answer ended on `error` or `aborted`, or
+    that answered nothing, is recorded as failed (`pi_failed`). Pi's process markers and its session's variables
+    (`AI_AGENT`, `PI_SESSION_ID`, …) are taken out of its environment, and a turn past `--turn-timeout` has its
+    process group killed. With `--api-base`, its scratch `models.json` points the provider at a stand-in.
+- **OpenClaw**, a fourth arm, is not built yet. Its memory would be its memory search and its wiki. A driver is a
   class with `drive()`, writing the same run directory, and the scorer reads any arm's.
 
-**Days are dated text.** Neither CLI takes a clock, so each session opens with its date. What this measures is
+**Days are dated text.** No arm's CLI takes a clock, so each session opens with its date. What this measures is
 recall of what was said on a dated day, across the arm's session boundaries and compactions. It can't measure the
-effect of time itself. Both arms see the real date in their system prompts too, and a memory that weighs elapsed
-time (retention) sees the minutes the run took, not the script's days.
+effect of time itself. Theseus and Claude Code see the real date in their system prompts too (Pi 1.0.4's has
+none), and a memory that weighs elapsed time (retention) sees the minutes the run took, not the script's days.
 
-**Delivery.** Every fact's marker is looked for in the arm's transcript (Theseus's history, Claude Code's session
-logs). A probe whose fact never reached the arm (it didn't run the script, say) is excluded and counted, never
+**Delivery.** Every fact's marker is looked for in the arm's transcript (Theseus's history, Claude Code's and Pi's
+session logs). A probe whose fact never reached the arm (it didn't run the script, say) is excluded and counted, never
 scored as a miss.
 
 ## The run directory
@@ -238,6 +264,9 @@ They cover:
   abstention, and distance measured where the arm compacted.
 - **The Claude Code driver**, against a stand-in `claude` on PATH: session ids carried, a boundary opening a new
   one, `/compact` after the mark.
+- **The Pi driver**, against a stand-in `pi` on PATH: a session id per session, the reserve and the kept
+  tokens at the window, a compaction read from its log, a parent's variables taken out, each turn's answers and
+  summaries summed, and a provider's error a failed turn.
 - **The Theseus driver**, end to end on this workspace's binaries (`target/debug`, or `THESEUS_RECALL_BIN_DIR`):
   the smoke on `standin.py`, and a turn past its timeout stopped while the next one runs, on `theseus-sim
   fake-model --rules`. It is skipped when they are missing, and nothing is left running. Theseus trusts the
@@ -252,5 +281,10 @@ ANTHROPIC_API_KEY=stand-in` with `drive.py --arm claude-code`, and rules that na
 flags, its sessions, its logs and a `/compact` in print mode. But the stand-in asks again for a tool call that some
 of its requests have already answered, so a few turns run to their timeout. That makes it a check by hand, not a
 test.
+
+The real `pi` (1.0.4) runs against `standin.py` too: `drive.py --arm pi --pi <its path> --api-base <the
+stand-in's address>`, with rules that name its tools (`bash` with a `command`, `read` with a `path`). On the
+smoke, every turn exits 0 and every fact is delivered; with `--context-window 10000` it compacts at turn 11
+(10,323 tokens before), and the driver records it. It is a check by hand, not a test.
 
 The gate doesn't run them. Run them before each commit that touches this directory.
