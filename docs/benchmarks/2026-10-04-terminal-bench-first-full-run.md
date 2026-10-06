@@ -516,4 +516,3 @@ error class, <code>?</code> a number the trial did not record)</summary>
 | write-compressor | hard | 1 · 0.17 · 8 | 1 · 0.13 · 5 | 1 · 0.13 · 6 | 1 · 0.13 · 5 | 1 · 0.07 · 4 | 1 · 0.08 · 6 |
 
 </details>
-
