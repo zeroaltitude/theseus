@@ -186,10 +186,12 @@ async fn a_breaker_that_opens_says_its_line_once() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_shed_report_says_its_line() {
     let jev = FakeJev::start().unwrap();
-    jev.set_mode(FakeMode::Slow(Duration::from_secs(30)));
+    jev.set_mode(FakeMode::Slow(Duration::from_secs(60)));
     let r = rig_with(texts(2), Some(&jev), |c| {
         c.narrative = true;
         c.judge.max_in_flight = 1;
+        // The slow call holds its permit for the whole test.
+        c.judge.total_secs = 25;
     });
     turn(&r.core, None, "one").await;
     until("the slow call's permit", || jev.connections() >= 1).await;
