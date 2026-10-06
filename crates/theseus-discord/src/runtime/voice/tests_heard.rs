@@ -13,7 +13,7 @@ use twilight_model::id::Id;
 
 use super::super::tests::core_scripted;
 use super::super::{Place, PlaceMsg};
-use super::tests::{heard, joined, place, EDDIE, LOUNGE};
+use super::tests::{heard, joined, place, LOUNGE, OWNER};
 use super::{pump, VoicePlace, FAILED_TURN, FRAMING};
 
 /// A call in the lounge on a session of a core whose model answers
@@ -50,7 +50,7 @@ fn lounge_scripted(dir: &std::path::Path, script: Vec<Scripted>) -> Lounge {
         .names
         .lock()
         .unwrap()
-        .insert(EDDIE, "eddie".into());
+        .insert(OWNER, "zeroaltitude".into());
     p.shared
         .routes
         .lock()
@@ -63,7 +63,7 @@ fn lounge_scripted(dir: &std::path::Path, script: Vec<Scripted>) -> Lounge {
     let at = VoicePlace {
         key,
         label: "#lounge".into(),
-        users: vec![EDDIE],
+        users: vec![OWNER],
         guild: 100_000_000_000_000_001,
     };
     tokio::spawn(pump(Arc::clone(&p.shared), 1, at, events_rx));
@@ -132,7 +132,7 @@ impl Lounge {
         history
             .nodes
             .into_iter()
-            .filter(|n| n.author.as_deref() == Some("discord:eddie"))
+            .filter(|n| n.author.as_deref() == Some("discord:zeroaltitude"))
             .map(|n| n.text)
             .collect()
     }

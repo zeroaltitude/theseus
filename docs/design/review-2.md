@@ -17,7 +17,7 @@ The CLI's `run()` is 879 lines, where the first review found it at 652. `TurnRun
 where the split left nothing in `turn.rs` over 113.
 
 Speed is good on the start path, which F1 to F4a built:
-- 18 ms cold on Eddie's store and 122 ms at 10,000 sessions (release);
+- 18 ms cold on the owner's store and 122 ms at 10,000 sessions (release);
 - the lifecycle budgets are met.
 
 What remains is work that grows with history *after* serving, and blocking work on the runtime's worker
@@ -29,14 +29,14 @@ threads. Hardening found three things worth fixing this week:
 **The ten things to do first, in order:**
 
 1. **H1. Refuse cross-origin WebSockets on the web UI.** There is no `Origin` or `Host` check
-   (`theseusd/src/web.rs:131`), no auth, and no `[approval]` in Eddie's note. So any page in a browser
+   (`theseusd/src/web.rs:131`), no auth, and no `[approval]` in the owner's note. So any page in a browser
    that reaches 127.0.0.1:7433 can read every session, submit turns, approve calls, and clear T1's hold.
    S, LANE.
 2. **H2. Fix the HTML reader's byte-index panic, and fuzz the readers of outside text.** `raw_until`
    (`web/html.rs:352`) slices at a byte count. `"</b>中文"` inside a `<script>` panics, and under the
    release profile's `panic = "abort"` a fetched page kills the daemon. S, LANE, plus a panic-policy
    decision (M, SPINE).
-3. **H3. Set `umask(0o077)`, make the state dir 0700, and delete or lock down raw job output.** Eddie's
+3. **H3. Set `umask(0o077)`, make the state dir 0700, and delete or lock down raw job output.** The owner's
    store and `spool/results/*.out` are world-readable (0644 under 0755 and 0775). The results are unscrubbed,
    and never deleted (17 files, the oldest from 09-28). S, LANE.
 4. **S3. Optimize dependencies in debug builds, and keep the bench's p95 history.** The gate's debug
@@ -72,7 +72,7 @@ theseus-kol (R2) is already queued: fix batch 1, ahead of the dogfood pilot. Kee
 continuation still eats its input (`turn.rs:1486`). Items 1 to 6 and 8 are lanes that can run beside the chain today. Items 7 and 9 are spine
 work. Item 10's second half is the one large reshaping I would do before M5.
 
-## Considerations for Eddie
+## Considerations for the owner
 
 Questions of direction, not code:
 
@@ -131,11 +131,11 @@ not only against the spec:
 | 13 | "Pending confirm" computed four ways | **Done** | 750ec12: `Kernel::pending_confirms` is the only derivation. |
 | 14 | OpenTelemetry compiled into every binary | **Done, differently** | O1 (6ad89a2): a native OTLP/JSON exporter. `opentelemetry-proto` is a dev-dependency only (`theseus-core/Cargo.toml:35-38`). |
 | 15 | A second index engine (fjall) | **Done** | ea06ff8. |
-| 16 | Config shims, string enums, maps cloned on every read | **Done**, with 2 kept on purpose | b407dd3. `all_profiles()` and `all_providers()` return references (`config.rs:1162,1215`). `default_budget` and `control_reserve` still load with a warning, because Eddie's note sets them (`config.rs:464-513`). |
+| 16 | Config shims, string enums, maps cloned on every read | **Done**, with 2 kept on purpose | b407dd3. `all_profiles()` and `all_providers()` return references (`config.rs:1162,1215`). `default_budget` and `control_reserve` still load with a warning, because the owner's note sets them (`config.rs:464-513`). |
 | 17 | The simulator ran in no test and no gate | **Done** | b242258: `theseus-sim/tests/sim.rs`. The crash test's `--tear` still defaults to off (theseus-4x6). |
 | 18 | `toolrun.rs`: an 11-argument constructor and a 250-line `resume` | **Done, then regrew** | 6e76a5f. The file went from 1,355 to 2,399 lines. `run_job` is 164 lines (`toolrun.rs:1342`) and `run_inproc` 137 (`:1155`). `run_group` takes 7 parameters (`:681`). |
 | 19 | The Discord binding "is just a client" but reaches into `Core` | **Open, and worse** | `lib.rs:1-3` still says "a protocol client of the core, exactly like the web UI and the CLI". Production code makes **37 direct `core.*` calls** (26 in `runtime.rs` and 11 in `courier.rs`, not counting `clone`), against 13 before. They reach `core.kernel.action` (`courier.rs:544`), `core.outbox.*` (11 calls), `core.config_gate`, `core.secrets`, and `core.approval`. The doc also still says `/stop` goes through `execution.cancel`; since W1 it goes through `execution.stop` (`runtime.rs:1957`). |
-| 20 | Policy leftovers | **Done**, with `[policy.mcp]` kept by Eddie | f8a68c2. |
+| 20 | Policy leftovers | **Done**, with `[policy.mcp]` kept by the owner | f8a68c2. |
 | 21 | Small dead code and lints | **Done** | cf258c7. The workspace `[lints]` table holds `unused_async`, `unused_self`, and `redundant_clone` (`Cargo.toml:14-17`). |
 
 **What that means.** The cuts held where a test holds them: the frame budget went from 17 to 8 to 5, and
@@ -342,7 +342,7 @@ threshold of 7 holds everywhere but one `#[allow]` (`catalog.rs:239`, 9 argument
 
 ### Where it stands (numbers from the step reports)
 
-| | empty store | Eddie's copy (233 executions, 253 actions, 21 sessions) | 10,000 parked sessions | §9 budget |
+| | empty store | The owner's copy (233 executions, 253 actions, 21 sessions) | 10,000 parked sessions | §9 budget |
 |---|---:|---:|---:|---:|
 | cold start to first `health`, release p50 (F4a) | 17.5 ms | 18.4 ms | 121.7 ms | 50 / 250 ms |
 | clean shutdown, release p50 (F4a) | 36.9 ms | 32.6 ms | 24.8 ms | 100 ms |
@@ -374,7 +374,7 @@ that blocks the runtime while it serves.
     - `session.list`, `ledger.tail` 400, and `tool.list`.
 
     The app also polls `session.list` every 5 s (`App.tsx:205`).
-  - On Eddie's store, about 500 records, all of this is under a millisecond. It grows with every turn, since
+  - On the owner's store, about 500 records, all of this is under a millisecond. It grows with every turn, since
     each loop adds an action.
 - **Proposal.** The first review's 1b, which is still the design:
   - An in-memory open set (executions not terminal, actions not settled), built by `startup`, which already
@@ -464,7 +464,7 @@ that blocks the runtime while it serves.
   - `bench idle`: the daemon's CPU seconds over 30 s at 10,000 parked sessions.
   - RSS sampled in the lifecycle bench, and the binary's size checked in the gate.
   - All of it appended to the same history file as S3.
-- **Payoff.** FAST reaches the turn and idle time, where Eddie actually waits. **Risk.** Low. **Size** M.
+- **Payoff.** FAST reaches the turn and idle time, where the owner actually waits. **Risk.** Low. **Size** M.
   **LANE.**
 
 #### S5. A plain turn's floor is 2 frames, not 5, and each loop redoes work that rarely changes
@@ -551,9 +551,9 @@ the order does not see.
   `policy.trust` (it clears T1's hold), the spend reset, and `policy.untighten`.
   - J1's trace does not stop it. The loopback owner is the browser, which is outside every job, so the
     answer counts (`peer.rs:176-186`, `Peer::Loopback`).
-  - Eddie's note has no `[approval]` section (2b1 review), so every surface answers (`approval.rs:4-6`).
+  - The owner's note has no `[approval]` section (2b1 review), so every surface answers (`approval.rs:4-6`).
   - DNS rebinding reaches it even from a page whose origin is not local.
-  - Today the Hyper-V firewall blocks Eddie's Windows browser from WSL's 7433 (6qy report §7). That is luck,
+  - Today the Hyper-V firewall blocks the owner's Windows browser from WSL's 7433 (6qy report §7). That is luck,
     not design. WSL's mirrored networking, a browser inside WSL, or any Linux or macOS desktop (the
     open-source default) is exposed.
 - **Proposal.**
@@ -578,7 +578,7 @@ the order does not see.
     isolate a task's panic under abort.
   - The fetch's `Err(e)` fallback for big pages (`web/fetch.rs:307-311`) is dead code in release, and small
     pages convert inline on the call's task (`:304`).
-  - There is no panic hook, so there is no ledger row and no crash file. Eddie runs a bare `theseusd` in a
+  - There is no panic hook, so there is no ledger row and no crash file. The owner runs a bare `theseusd` in a
     terminal, with no supervisor.
   - The html tests have no multibyte text inside a raw element (`html.rs:509-589`).
 - **Proposal.**
@@ -586,7 +586,7 @@ the order does not see.
   2. Fuzz everything that reads outside text or model text with arbitrary UTF-8, for a few seconds per gate
     run, as a proptest: `html::to_text`, `wake`'s duration parser, `split_text` (R5), and the SSE line
     reader (`provider.rs:665`).
-  3. A panic policy, which is Eddie's call: either `panic = "unwind"` for `theseusd`, with `catch_unwind`
+  3. A panic policy, which is the owner's call: either `panic = "unwind"` for `theseusd`, with `catch_unwind`
     around toollets and per-connection tasks, or keep abort and add a panic hook that writes
     `<state>/crash/<ts>.txt`, plus a user systemd unit with `Restart=on-failure`. With F1's 20 ms start,
     a restart is cheap.
@@ -596,12 +596,12 @@ the order does not see.
 
 #### H3. Raw job output sits world-readable on disk, forever, and so does the whole store
 
-- **Evidence.** From a stat of Eddie's state dir (metadata only; no contents read):
+- **Evidence.** From a stat of the owner's state dir (metadata only; no contents read):
   - `~/.theseus` is 0775, `store/` and `spool/` are 0755, and `index.redb` is 0644.
   - `spool/results/*.out` are 0644: 17 files, the oldest from 09-28.
 
   In the code:
-  - The daemon never sets a umask; there is no `umask` in the tree, and Eddie's shell has 0002.
+  - The daemon never sets a umask; there is no `umask` in the tree, and the owner's shell has 0002.
   - `results/<id>.out` is the job's output **before** the scrubber, which runs on the node
     (`toolrun.rs:413`). The wrapper writes stdout and stderr straight to it (`job.rs:163-171`).
   - Nothing deletes it: the spool removes completions, pids, and lingering files, never results
@@ -639,7 +639,7 @@ the order does not see.
 #### H5. Approval fails open, and Discord interactions still route to the DM (theseus-e89)
 
 - **Evidence.**
-  - Without `[approval]` "there is no rule, and every surface answers" (`approval.rs:4-6`), and Eddie's note
+  - Without `[approval]` "there is no rule, and every surface answers" (`approval.rs:4-6`), and the owner's note
     has none. So the CLI, the web UI (H1), and every Discord user listed for a place can approve, trust,
     and reset spend.
   - `on_interaction` finds a guild interaction's place by channel, or else by the user's **DM** binding
@@ -651,7 +651,7 @@ the order does not see.
   - Make "no `[approval]`" mean "the owner's CLI and the owner's Discord DM", not "everything". The template
     already documents the section (`theseus.example.toml:396`).
   - Health says "approval: open" loudly while the section is absent.
-- **Payoff.** The trusted-channel rule protects by default. **Risk.** Changing the default is Eddie's
+- **Payoff.** The trusted-channel rule protects by default. **Risk.** Changing the default is the owner's
   decision (a question below). **Size** S. **SPINE.**
 
 #### H6. T1's hold is only as wide as its marking, and today only the web tools mark
@@ -679,7 +679,7 @@ the order does not see.
 - **Evidence.** B1's rule is direct argv only: `argv[0]` must canonically be the named program
   (`broker.rs`). But gh runs aliases (`gh alias set --shell x '…'`) and extensions (`gh-<name>` binaries),
   git runs `!` aliases, and cargo and npm run scripts. So `gh x` carries `GH_TOKEN` into whatever the alias
-  says. On Eddie's machine this adds little, since gh's own login is readable in `~/.config/gh/hosts.yml`.
+  says. On the owner's machine this adds little, since gh's own login is readable in `~/.config/gh/hosts.yml`.
   It matters for secrets that exist nowhere else on disk, which is the broker's point, and M4 brings AWS
   credentials through it.
 - **Proposal.** Grant only to leaf programs, and document which ones are launchers. For gh, pass
@@ -694,13 +694,13 @@ the order does not see.
   start time covers (`peer.rs:38-40`). Their known gaps are paths out of the job's process tree: a tmux
   server already running, `systemd-run --user`, cron, and a process started outside the job (6qy §7).
   Under L0 a job is also the operator's uid. It can rewrite `~/.local/bin/theseusd`, the repository, and
-  the gate script, and Eddie's daemon's next manual start runs what it finds there. theseus-14s ("Theseus
+  the gate script, and the owner's daemon's next manual start runs what it finds there. theseus-14s ("Theseus
   on Theseus") puts a builder daemon's jobs on exactly those files.
 - **Proposal.** M4's control-plane separation (a `theseus` user owning the store, the socket, and the
   binaries) before the dogfood pilot widens. Until then, run the builder daemon as another uid or in L1,
   and have `theseusd` check its own binary's owner and mode at start (a loud health line if the operator's
   jobs can write it).
-- **Payoff/Risk.** Approvals become a boundary, not an honor system. It is a direction question for Eddie.
+- **Payoff/Risk.** Approvals become a boundary, not an honor system. It is a direction question for the owner.
   **Size** L (M4). **SPINE.**
 
 #### H9. The scrubber knows exact values and seven prefixes
@@ -868,7 +868,7 @@ Theseus builds Theseus. **Size** S. **LANE.**
   §1 says "permissive-only dependencies". One locked crate is MPL-2.0: `option-ext` 0.2.0, through
   `shellexpand` → `dirs` → `dirs-sys` (licence fields read from the local registry). The tree calls only
   `shellexpand::tilde`, at four sites (`config.rs:180,1238`, `policy.rs:254`, `theseus/src/main.rs:337`),
-  which five lines over `$HOME` could replace. This is a question for Eddie, below.
+  which five lines over `$HOME` could replace. This is a question for the owner, below.
 - `[sources]` refuses unknown registries and git sources, which is good.
 - The web UI's 70 npm packages (`web/package-lock.json`) build the JavaScript that ships inside
   `theseusd`. The committed `web/dist` and its diff check make it reviewable. There is no `npm audit` in the
@@ -878,7 +878,7 @@ Theseus builds Theseus. **Size** S. **LANE.**
 
 Nothing was filed; this review changed no Beads state. Existing issues that already cover a finding are named
 instead of duplicated. Every new one would be created with `--assignee` set and `waiting_for_user` until
-Eddie picks (the Beads ownership rule).
+the owner picks (the Beads ownership rule).
 
 | Finding | Issue | Pri | Size | Lane |
 |---|---|---|---|---|
@@ -924,7 +924,7 @@ Eddie picks (the Beads ownership rule).
 ## Appendix: method and counts
 
 - **Clock.** Started 15:27 MST (`date`). The tree was `27e1237` throughout, and `git status` was clean. No
-  cargo, build, test, bench, daemon, or Beads command was run. Eddie's `~/.theseus` was stat'ed for modes
+  cargo, build, test, bench, daemon, or Beads command was run. The owner's `~/.theseus` was stat'ed for modes
   only; no contents were read.
 - **Line counts** (`scratch/loc.txt`, `scratch/loc2.txt`). Tests are `*/tests/*`, `tests.rs`, and
   `tests_*.rs`, plus each file from its test module on. `loc.txt` cuts at the first column-0

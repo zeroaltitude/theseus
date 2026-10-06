@@ -96,7 +96,7 @@ fn of(h: &PlacesHealth, class: PlaceClass) -> Vec<String> {
         .collect()
 }
 
-/// Health's `places:` line: `places: private: CLI, web, DM @eddie · shared:
+/// Health's `places:` line: `places: private: CLI, web, DM @zeroaltitude · shared:
 /// #openclaw (public tools only)`.
 pub fn places_health_line(h: &PlacesHealth) -> String {
     let mut parts = vec![format!(
@@ -200,7 +200,7 @@ mod tests {
                     trusted_guild: true,
                     ..place("#openclaw", PlaceClass::Private)
                 },
-                place("DM @eddie", PlaceClass::Private),
+                place("DM @zeroaltitude", PlaceClass::Private),
                 place("#hall", PlaceClass::Shared),
             ],
             public_paths: vec![],
@@ -208,7 +208,7 @@ mod tests {
         };
         assert_eq!(
             places_health_line(&h),
-            "places: private: CLI, web, #openclaw (in a trusted guild), DM @eddie · shared: #hall \
+            "places: private: CLI, web, #openclaw (in a trusted guild), DM @zeroaltitude · shared: #hall \
              (public tools only)"
         );
         let mut o = Vec::new();
@@ -225,7 +225,7 @@ mod tests {
             places: vec![
                 place("CLI", PlaceClass::Private),
                 place("web", PlaceClass::Private),
-                place("DM @eddie", PlaceClass::Private),
+                place("DM @zeroaltitude", PlaceClass::Private),
                 place("#openclaw", PlaceClass::Shared),
             ],
             public_paths: vec![],
@@ -233,7 +233,7 @@ mod tests {
         };
         assert_eq!(
             places_health_line(&h),
-            "places: private: CLI, web, DM @eddie · shared: #openclaw (public tools only)"
+            "places: private: CLI, web, DM @zeroaltitude · shared: #openclaw (public tools only)"
         );
         h.places.push(PlaceInfo {
             others: Some(vec!["alice".into()]),
@@ -242,7 +242,7 @@ mod tests {
         h.public_paths = vec!["~/projects/open".into()];
         assert_eq!(
             places_health_line(&h),
-            "places: private: CLI, web, DM @eddie, #lab (⚠ bound private, but 1 person besides \
+            "places: private: CLI, web, DM @zeroaltitude, #lab (⚠ bound private, but 1 person besides \
              the owner can view it: alice) · shared: #openclaw (public tools, and files under \
              ~/projects/open)"
         );

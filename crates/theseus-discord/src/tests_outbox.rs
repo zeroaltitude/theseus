@@ -25,7 +25,7 @@ const CHANNEL: u64 = 900_000_000_000_000_001;
 const GUILD: &str = "314159265358979323";
 
 fn dm_only() -> String {
-    format!("guild_id = \"{GUILD}\"\n[[dm]]\nuser = \"{USER}\"\nname = \"eddie\"\n")
+    format!("guild_id = \"{GUILD}\"\n[[dm]]\nuser = \"{USER}\"\nname = \"zeroaltitude\"\n")
 }
 
 /// A core over `dir`, whose binding talks to `fake` and never to Discord.
@@ -610,7 +610,7 @@ async fn a_card_for_a_shared_channel_goes_to_the_dm_and_its_settle_edits_both() 
     assert_eq!(
         note.content,
         format!(
-            "🔐 Approval for {WAKE} was asked in DM @eddie: this channel is shared, and an \
+            "🔐 Approval for {WAKE} was asked in DM @zeroaltitude: this channel is shared, and an \
              answer counts only from a private place."
         )
     );
@@ -638,7 +638,7 @@ async fn a_card_for_a_shared_channel_goes_to_the_dm_and_its_settle_edits_both() 
         .unwrap();
     assert_eq!(
         note.content,
-        format!("🔐 ❎ **Declined** by operator · {WAKE} (in DM @eddie)")
+        format!("🔐 ❎ **Declined** by operator · {WAKE} (in DM @zeroaltitude)")
     );
 }
 
@@ -834,7 +834,7 @@ async fn a_shared_channels_card_goes_to_the_dm_and_nothing_mentions_anyone() {
     assert_eq!(
         note.content,
         format!(
-            "🔐 Approval for {WAKE} was asked in DM @eddie: this channel is shared, and an \
+            "🔐 Approval for {WAKE} was asked in DM @zeroaltitude: this channel is shared, and an \
              answer counts only from a private place."
         )
     );

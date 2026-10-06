@@ -1098,22 +1098,22 @@ mod tests {
     use super::*;
     use crate::bindings::Bindings;
 
-    pub(super) const EDDIE: u64 = 100_000_000_000_000_042;
+    pub(super) const OWNER: u64 = 100_000_000_000_000_042;
     pub(super) const LOUNGE: u64 = 123_456_789_012_345_678;
 
-    /// The bindings: a private voice channel with Eddie, and a shared one.
+    /// The bindings: a private voice channel with the owner, and a shared one.
     fn bindings() -> Bindings {
         Bindings::parse(&format!(
             "guild_id = \"100000000000000001\"\n\
-             [[channel]]\nid = \"{LOUNGE}\"\nname = \"lounge\"\nusers = [\"{EDDIE}\"]\nprivate = true\nvoice = true\n\
+             [[channel]]\nid = \"{LOUNGE}\"\nname = \"lounge\"\nusers = [\"{OWNER}\"]\nprivate = true\nvoice = true\n\
              [[channel]]\nid = \"223456789012345678\"\nname = \"den\"\nusers = [\"100000000000000007\"]\nvoice = true\n"
         ))
         .unwrap()
     }
 
-    fn eddie() -> Option<DiscordOrigin> {
+    fn owner() -> Option<DiscordOrigin> {
         Some(DiscordOrigin {
-            user_id: EDDIE.to_string(),
+            user_id: OWNER.to_string(),
             channel_id: "43".into(),
             guild_id: None,
         })
@@ -1128,17 +1128,17 @@ mod tests {
         (place, rx)
     }
 
-    /// `p` in the DM with Eddie, which the binding binds as the bindings
+    /// `p` in the DM with the owner, which the binding binds as the bindings
     /// file's `[[dm]]` would: with no owner named, its person is the owner
     /// (the place rule, theseus-zmgb).
-    fn in_eddies_dm(core: &Core, p: &mut Place) {
+    fn in_owners_dm(core: &Core, p: &mut Place) {
         core.bind_places(vec![theseus_core::places::BoundPlace {
-            target: format!("discord:dm:{EDDIE}"),
+            target: format!("discord:dm:{OWNER}"),
             name: "DM".into(),
             private: false,
             ..Default::default()
         }]);
-        p.target = format!("discord:dm:{EDDIE}");
+        p.target = format!("discord:dm:{OWNER}");
     }
 
     fn secrets(key: Option<&str>) -> Arc<SecretBoard> {
@@ -1161,7 +1161,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let off = core_with(d.path(), SecretBoard::empty(), |_| {});
         let (p, _rx) = place(&off, "ses_off");
-        let said = p.join(None, eddie(), "discord:eddie").await;
+        let said = p.join(None, owner(), "discord:zeroaltitude").await;
         assert!(said.starts_with("Voice is off"), "{said}");
 
         let d = tempfile::tempdir().unwrap();
@@ -1169,28 +1169,32 @@ mod tests {
         let (mut p, _rx) = place(&core, "ses_dm");
         // A guild channel the file does not bind private is shared.
         p.target = "discord:channel:555".into();
-        let said = p.join(None, eddie(), "discord:eddie").await;
+        let said = p.join(None, owner(), "discord:zeroaltitude").await;
         assert!(
             said.contains("only when invited from a private place"),
             "{said}"
         );
-        // The DM with Eddie is private (no owner named: the bound DM's person
+        // The DM with the owner is private (no owner named: the bound DM's person
         // is).
-        in_eddies_dm(&core, &mut p);
-        let said = p.join(Some(999), eddie(), "discord:eddie").await;
+        in_owners_dm(&core, &mut p);
+        let said = p.join(Some(999), owner(), "discord:zeroaltitude").await;
         assert!(
             said.contains("not a voice channel the bindings file binds"),
             "{said}"
         );
         let said = p
-            .join(Some(223_456_789_012_345_678), eddie(), "discord:eddie")
+            .join(
+                Some(223_456_789_012_345_678),
+                owner(),
+                "discord:zeroaltitude",
+            )
             .await;
         assert_eq!(said, "#den does not list you, so I won't join it.");
-        // With no channel named, the only one Eddie's place could mean is
+        // With no channel named, the only one the owner's place could mean is
         // not chosen: there are two, and he is in neither.
-        let said = p.join(None, eddie(), "discord:eddie").await;
+        let said = p.join(None, owner(), "discord:zeroaltitude").await;
         assert!(said.starts_with("Which voice channel?"), "{said}");
-        let said = p.join(Some(LOUNGE), eddie(), "discord:eddie").await;
+        let said = p.join(Some(LOUNGE), owner(), "discord:zeroaltitude").await;
         assert!(said.contains("is still resolving"), "{said}");
 
         let d = tempfile::tempdir().unwrap();
@@ -1198,8 +1202,8 @@ mod tests {
             c.voice.enabled = true
         });
         let (mut p, _rx) = place(&core, "ses_dm");
-        in_eddies_dm(&core, &mut p);
-        let said = p.join(Some(LOUNGE), eddie(), "discord:eddie").await;
+        in_owners_dm(&core, &mut p);
+        let said = p.join(Some(LOUNGE), owner(), "discord:zeroaltitude").await;
         assert_eq!(said, "The gateway isn't up yet; try again in a moment.");
         assert!(p.shared.voice.joined().is_none(), "nothing joined");
     }
@@ -1224,7 +1228,7 @@ mod tests {
 
     pub(super) fn heard(text: &str) -> Utterance {
         Utterance {
-            speaker: Speaker(EDDIE),
+            speaker: Speaker(OWNER),
             started: Duration::ZERO,
             length: Duration::from_secs(1),
             closed: Duration::from_millis(1700),
@@ -1284,7 +1288,7 @@ mod tests {
     async fn a_voice_turn_is_a_turn_of_the_places_session_authored_by_its_speaker() {
         use theseus_core::provider::Scripted;
         let d = tempfile::tempdir().unwrap();
-        let core = core_scripted(d.path(), vec![Scripted::text("Hello, Eddie.")]);
+        let core = core_scripted(d.path(), vec![Scripted::text("Hello, zeroaltitude.")]);
         let rec = theseus_core::session::SessionRecord::new(
             theseus_protocol::SessionKind::Conversation,
             None,
@@ -1300,7 +1304,7 @@ mod tests {
             .names
             .lock()
             .unwrap()
-            .insert(EDDIE, "eddie".into());
+            .insert(OWNER, "zeroaltitude".into());
         let (commands, mut engine) = mpsc::unbounded_channel();
         joined(&p, commands);
         p.voice_turn(VoiceTurn {
@@ -1328,13 +1332,13 @@ mod tests {
             engine.try_recv().unwrap(),
             Command::Reply {
                 turn: TurnId(0),
-                text: "Hello, Eddie.".into()
+                text: "Hello, zeroaltitude.".into()
             }
         );
         // Its end says nothing more: the submit answered it.
-        p.voice_heard(&turn_ended(&sid, "turn_voice", "Hello, Eddie."));
+        p.voice_heard(&turn_ended(&sid, "turn_voice", "Hello, zeroaltitude."));
         assert!(engine.try_recv().is_err(), "said once");
-        // The session's input is the transcript, by Eddie.
+        // The session's input is the transcript, by the owner.
         let rec: theseus_core::session::SessionRecord =
             core.store.get_session(&sid).unwrap().unwrap();
         assert_eq!(rec.turns, 1);
@@ -1353,13 +1357,13 @@ mod tests {
             .find(|n| n.kind == "user_message" || n.text.contains("What changed"))
             .expect("the input node");
         assert_eq!(input.text, format!("{FRAMING}\n🎙️ What changed today?"));
-        assert_eq!(input.author.as_deref(), Some("discord:eddie"));
+        assert_eq!(input.author.as_deref(), Some("discord:zeroaltitude"));
         // The place's text has the transcript.
         let posts = posts(&core, &p.target);
         assert!(
             posts
                 .iter()
-                .any(|t| t == "🎙️ **eddie**: What changed today?"),
+                .any(|t| t == "🎙️ **zeroaltitude**: What changed today?"),
             "{posts:?}"
         );
         // Another turn's reply in the place (a wake's: a continuation) is
@@ -1395,7 +1399,7 @@ mod tests {
         let lounge = VoicePlace {
             key,
             label: "#lounge".into(),
-            users: vec![EDDIE],
+            users: vec![OWNER],
             guild: 100_000_000_000_000_001,
         };
         failed(
@@ -1469,7 +1473,7 @@ mod tests {
         let lounge = VoicePlace {
             key: p.key.clone(),
             label: "#lounge".into(),
-            users: vec![EDDIE],
+            users: vec![OWNER],
             guild: 100_000_000_000_000_001,
         };
         let (tx, events) = mpsc::unbounded_channel();
@@ -1510,7 +1514,7 @@ mod tests {
             (t["model"].as_str(), t["cost_usd"].as_f64()),
             (Some("nova-3"), Some(0.000215))
         );
-        assert_eq!(t["speaker"], EDDIE.to_string());
+        assert_eq!(t["speaker"], OWNER.to_string());
         let s = &rows("speech.synthesized")[0];
         assert_eq!(s["cost_usd"].as_f64(), Some(0.00132));
         assert_eq!(
@@ -1566,7 +1570,7 @@ mod tests {
         assert!(e.0.contains("at its spend limit"), "{e}");
         let audio = theseus_voice::Audio::silence(Duration::from_secs(2));
         let e = metered
-            .transcribe(Speaker(EDDIE), &audio)
+            .transcribe(Speaker(OWNER), &audio)
             .await
             .unwrap_err();
         assert!(e.0.contains("reset its spend to go on"), "{e}");

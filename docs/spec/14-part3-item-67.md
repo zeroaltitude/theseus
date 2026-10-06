@@ -1,7 +1,7 @@
 # The Ship of Theseus, chapter 14: Part III, A4's Items 67 to 78 ([index](README.md))
 ### Item 67. The first cloud batch: L1's contract on a root VM, literal old layouts, and five telemetry gaps (theseus-celu.1 to .4; Claude cloud sessions fired 2026-10-02 22:45 from bfbe47b; l1-vm and store-literals reviewed and joined 23:29 at 54e4083, as 67b006c, a9b1aa7 and 54e4083; metrics reviewed 2026-10-03 00:51 to 01:05 and joined 01:00 at 5526591, as 39e4de0, d7ca3a7, e8c0f04, 54d99e3 and 5526591; installed 01:19 at c641ae4)
 
-**Why.** At 20:44 Eddie offered his Claude cloud sessions for Theseus work (theseus-celu). Work that needs only the
+**Why.** At 20:44 the owner offered his Claude cloud sessions for Theseus work (theseus-celu). Work that needs only the
 public repository and its tests can run there beside the spine: gate flakes, small code paths, metrics, and what a
 different machine finds. A probe went first: a Firecracker VM with 4 cores and 15 GB, running as root, with no
 compile cache. It built the workspace cold in 9 m 12 s, clippy passed, and 1,680 of 1,686 tests passed: L1's
@@ -19,7 +19,7 @@ gate runs on this machine; and the cloud branch is deleted from here. Four sessi
 - **Clause 9 still fails on a root VM, as it should, and says why.** Linux exempts real uid 0 in the initial user
   namespace from `RLIMIT_NPROC`, and L1's user namespaces map a root operator's job back to that uid, so without a
   job cgroup (`pids.max`) a root daemon's L1 job has no process limit: its fork loop forked 4,096 times against a
-  limit of 16. As an ordinary user on the same VM, all 19 cases pass. Filed theseus-pv6i (P2; fixed in Item 77, which refuses such a job). Eddie's daemon runs as
+  limit of 16. As an ordinary user on the same VM, all 19 cases pass. Filed theseus-pv6i (P2; fixed in Item 77, which refuses such a job). The owner's daemon runs as
   his own user with a delegated cgroup, so he is not exposed; a root install is.
 
 **store-literals** (theseus-celu.3; a9b1aa7 and 54e4083).
@@ -69,7 +69,7 @@ written; the next docs pass records it (Item 73).
 **Why.** 19b's simulator found two places where 19a's labels let owner-only material reach a wider audience (Item 66):
 an answer labeled without the context files its request carried (theseus-42ub), and a task's report carrying its
 brief's first line without the brief's readers (theseus-jpff). Both were P2 disclosure paths on v1's features,
-counted as known gaps until fixed. Neither reached Eddie.
+counted as known gaps until fixed. Neither reached the owner.
 
 **What landed** (§3.9; the M4 design's §2.5).
 - **An answer's readers include its context files** (theseus-42ub). `render_request` meets the readers of each
@@ -96,7 +96,7 @@ counted as known gaps until fixed. Neither reached Eddie.
 - **The gate**: 1,715 of 1,715, a plain turn 5 frames.
 - **Live**: `--strict` on 40 seeds of 2,000 steps passed 40 of 40 in 388 s, with no gap counted: 93,924 compiles
   checked, 336,072 nodes withheld, 701 posts held (419 released), 3,727 quiet loops, 7,230 tasks, and 492,490
-  invariant checks; 99 more posts were held, and 256 more loops quiet, than in 19b's run. On a copy of Eddie's store
+  invariant checks; 99 more posts were held, and 256 more loops quiet, than in 19b's run. On a copy of the owner's store
   with his note, his DM compiled for his person with nothing withheld; his store has no context file, task, or report
   node.
 - **Benches, alone**: every lifecycle budget held (cold start p95 26.2 ms), and a plain turn wrote 5 frames.
@@ -121,11 +121,11 @@ reproduction, no longer reaches it.
 
 **Known gaps** (P2), found by following where relayed text goes: a fired wake's note is labeled with its session's
 readers, not its setter's (theseus-nbln); `/tasks` and `/wakes` post titles and notes into a guild channel without
-their readers (theseus-ntx5). Neither reaches Eddie, and both are parked on the simplification review's Tier 2. _(Both closed as moot by the place rule, Item 76.)_
+their readers (theseus-ntx5). Neither reaches the owner, and both are parked on the simplification review's Tier 2. _(Both closed as moot by the place rule, Item 76.)_
 
-### Item 69. Credentials: the stand-ins dropped, and the harness-only keys said aloud (theseus-gh7, with theseus-3m11 and theseus-7y9y; spine; gh7 2026-10-02 23:17 to 23:39, blocked, reviewed 23:42 to 23:49; re-scoped by Eddie at 00:00; gh7s 2026-10-03 00:03 to 01:02, e473963 and 868b683; split at the join, its harness-only half joined 01:14 as gh7h at c641ae4; installed 01:19 at c641ae4)
+### Item 69. Credentials: the stand-ins dropped, and the harness-only keys said aloud (theseus-gh7, with theseus-3m11 and theseus-7y9y; spine; gh7 2026-10-02 23:17 to 23:39, blocked, reviewed 23:42 to 23:49; re-scoped by the owner at 00:00; gh7s 2026-10-03 00:03 to 01:02, e473963 and 868b683; split at the join, its harness-only half joined 01:14 as gh7h at c641ae4; installed 01:19 at c641ae4)
 
-**Why.** P6 promised credentials as stand-ins (Eddie, 2026-10-01 15:13: in place before the AWS hands' first account
+**Why.** P6 promised credentials as stand-ins (the owner, 2026-10-01 15:13: in place before the AWS hands' first account
 write). A job granted a secret would see a stand-in, never the value: the L1 egress proxy would terminate TLS for the
 granted hosts, through a per-job CA the job trusts, and swap the value in only on those connections.
 
@@ -136,9 +136,9 @@ what the upstream connection verifies; the rows; and SigV4's re-signing as a sec
 certificates and the stand-in table, never compiled. While it wrote the next, the reader of a terminated connection's
 requests that puts the value in place of its stand-in, a safety classifier stopped the session's output. That file
 was the step's core, and the TLS relay after it the same kind of code, so the run stopped there: nothing built,
-nothing committed. The review (23:42 to 23:49) did not retry it or work around it, and asked Eddie to choose.
+nothing committed. The review (23:42 to 23:49) did not retry it or work around it, and asked the owner to choose.
 
-**Re-scoped** (Eddie, 00:00, under the default-trust principle he set at 23:57, §2). TLS interception at the proxy is
+**Re-scoped** (the owner, 00:00, under the default-trust principle he set at 23:57, §2). TLS interception at the proxy is
 dropped for v1: it is heavyweight for a default-trusted harness, and its shape is a credential-intercepting proxy's.
 The lightweight strategy is what the code mostly had already: the AWS keys and the providers' keys are the harness's
 alone, read only by Theseus's own tools; a job gets a secret only by the operator's `[broker]` grant; and the egress
@@ -162,12 +162,12 @@ deleted, never built.
 schema moved. Two load failures on the way were fixed or filed: 18d's restart test waited for its socket's inode to
 change, and on this machine's ext4 `/tmp` a socket bound where a removed one was keeps its inode number (200 of 200
 rebinds in a probe), so it now waits for a listener that answers; and a store test's two reads that are not one
-snapshot (theseus-tphr, P2, on the retry list). Live, on a scratch daemon over a copy of Eddie's store with his note:
+snapshot (theseus-tphr, P2, on the retry list). Live, on a scratch daemon over a copy of the owner's store with his note:
 GLM's L1 job got the 93-byte token and echoed it, its raw output file held `got [redacted:github_token] here`, and
 the token was in none of the run's 8 files, during the run, after it, and after the stop.
 
-**The split at the join** (to 01:14). The cut-list sent to Eddie at 00:29 offered granting at launch with 18d's
-socket deleted (Tier 3), which would make 3m11's second socket unneeded. So, as told to Eddie at 01:05, the join
+**The split at the join** (to 01:14). The cut-list sent to the owner at 00:29 offered granting at launch with 18d's
+socket deleted (Tier 3), which would make 3m11's second socket unneeded. So, as told to the owner at 01:05, the join
 split the lane by hand. The harness-only half landed alone as gh7h (c641ae4): the line and its test, the template's
 words, 7y9y recorded in the core's guide, the egress proxy's docs no longer promising a stand-in outcome, the
 header's words, the restart test's wait, and tphr on the retry list. The 3m11 half stayed parked. It was checked first
@@ -179,10 +179,10 @@ once the result is written. The join's gate (01:12:49): 1,721 of 1,721, a plain 
 binaries backed up (78 MB); `theseusd check` ok; the restart ok, the secrets ready 1,035 ms after the start and the
 vault's confirmation at 1,032 ms; L1 working (its start 8.4 ms); the unit active, with no restarts. Health's new line:
 `broker: a job may be handed no secret; harness-only: the AWS keys (aws_access_key_id, aws_secret_access_key) and the
-providers' keys (anthropic_api_key, zai_api_key)`. The cockpit served, and Eddie's note needed no change.
+providers' keys (anthropic_api_key, zai_api_key)`. The cockpit served, and the owner's note needed no change.
 theseus-gh7 and theseus-7y9y are closed.
 
-**After.** Eddie took Tier 3 at 01:42, and the grants step (Item 71) deleted 18d's socket, with it 3m11's reason and
+**After.** The owner took Tier 3 at 01:42, and the grants step (Item 71) deleted 18d's socket, with it 3m11's reason and
 the restart test. theseus-3m11 closed as moot, and the parked branch was retired. An L1 result's head now names what
 its grants gave it, or "no secret".
 
@@ -196,10 +196,10 @@ line yet (theseus-tzbl, P3). theseus-tphr (P2, `gate-flake`).
 
 ### Item 70. The second cloud batch: two cleanups, the cockpit's third round, and the build in health (theseus-celu.5 to .10; Claude cloud sessions fired 2026-10-02 23:40 from 54e4083; reviewed 2026-10-03 01:34 to 01:58; joined at b642d96 (01:38), 883df95 (01:41) and d337276 (01:57); installed 03:02 at 8067161, with the grants step; three branches and one change parked)
 
-**Why.** At 23:33 Eddie asked for the next eight or so tasks to go to cloud sessions too. Six fired at 23:40, each
+**Why.** At 23:33 the owner asked for the next eight or so tasks to go to cloud sessions too. Six fired at 23:40, each
 chosen to stay off the files the running spine steps touched, and joined as Item 67's were: cherry-picked onto
 `main`, re-signed, the report commit dropped, a planted revert re-run here where a change has behaviour, the full
-gate on this machine, and the cloud branch deleted from here. Eddie's picks on the simplification cut-list (01:42)
+gate on this machine, and the cloud branch deleted from here. The owner's picks on the simplification cut-list (01:42)
 decided which could join that night: three did, and three wait on tiers he has yet to decide.
 
 **cleanups** (theseus-celu.8; joined at b642d96 as 3780def and b642d96).
@@ -239,7 +239,7 @@ drain had accepted the job's completion, then the turn's own look accepted it ag
 the drain's frame only when the look wrote none. This machine hits that order often; the VM had not. The fix waits on
 the cut-list's Tier 7.1, which rewrites that path, and `main` was pushed at d337276 without it.
 
-**Parked on Eddie's pending tiers**, their branches kept: root-l1 (theseus-celu.5: a root daemon's L1 job with no job
+**Parked on the owner's pending tiers**, their branches kept: root-l1 (theseus-celu.5: a root daemon's L1 job with no job
 cgroup refused, theseus-pv6i; Tier 4); ksim-questions (theseus-celu.6: kernel-sim drives the held post's question,
 theseus-tbv2; Tier 2; its credential-request half went with Item 71); discord-p3 (theseus-celu.7: a cheaper read at
 post time and quiet loops' tool lines, theseus-zupl and theseus-033g; Tier 2). Not launched: the simulator's gaps
@@ -256,7 +256,7 @@ core-flakes session, joined at 9a8f537 after this was written, and a stop test o
 
 ### Item 71. L1 credentials granted at launch, and 18d's run-time socket deleted (theseus-w5op; the simplification cut-list's Tier 3, C1; spine; 2026-10-03 01:47 to 02:39; one commit on d337276, 8067161; reviewed 02:49 to 02:55; joined 02:57 at 8067161; installed 03:02 at 8067161)
 
-**Why.** Eddie's cut-list pick at 01:42 ("a worthy simplification"), under the default-trust principle (§2). An L0 job
+**Why.** The owner's cut-list pick at 01:42 ("a worthy simplification"), under the default-trust principle (§2). An L0 job
 always took its program's broker grant at its launch. 18d (Item 65) had given an L1 job a socket to ask for a secret
 while it ran instead, and that socket cost a listener per job, a role of the binary, binds, a re-serve after every
 restart, an action kind, two ledger kinds, and a second socket to keep a printed value out of the raw output
@@ -295,7 +295,7 @@ theseus-7y9y, which had kept spawn grants out of L1.
 - **The gate**: 1,715 of 1,715 (13 of 18d's tests out, 4 in), a plain turn 5 frames. The core output golden moved in
   numbers only. **The lifecycle bench, alone**: cold start p95 32.7 ms, a binary swap's 99.6 ms; the start path only
   lost work.
-- **Live**, on a scratch daemon over a copy of Eddie's store with his note and a scratch-only grant: GLM's L1 job got
+- **Live**, on a scratch daemon over a copy of the owner's store with his note and a scratch-only grant: GLM's L1 job got
   `github_token` at launch (its length and sha256 prefix matched the vault's value, and what it printed came back
   `[redacted:github_token]`); its environment held the grant and nothing of the AWS or providers' keys. At approve,
   the call waited before its launch: approved, it ran with the grant; declined, it never ran. The value was in none
@@ -308,7 +308,7 @@ gate (02:53:43): 1,715 of 1,715, a plain turn 5 frames; pushed 02:57.
 
 **The install** (03:02:17, at 8067161, with the second cloud batch's joins). `theseusd check` ok; the restart ok, the
 secrets ready 1,522 ms after the start; L1 working (3.9 ms); the unit active, with no restarts. Health still read
-`broker: a job may be handed no secret; harness-only: …`: Eddie's note has no `[broker]`, so no job gets any secret,
+`broker: a job may be handed no secret; harness-only: …`: the owner's note has no `[broker]`, so no job gets any secret,
 as before. theseus-w5op is closed, and theseus-3m11 as moot; gh7s's parked branch was retired.
 
 **Divergences.** L0 has no syntax for secrets a call names, so none was added. `Broker::may_hand_out`, unchanged, now
@@ -324,10 +324,10 @@ in L1 alike. The helper's git form (theseus-9oyy) is moot.
 
 ### Item 72. The `tier0` lane: the cut-list's housekeeping, and an install that builds only what ships (theseus-o8nk; the simplification cut-list's Tier 0 and 5.2; 2026-10-03 01:47 to 03:15; six commits on d337276; reviewed 03:19; rebased onto 8067161 as 12e3c6b, 6ba6dbd, da50b71, ab67751, 12f4725 and aa2e199; joined 03:27 at aa2e199; installed 03:32 at aa2e199)
 
-**Why.** The simplification review (theseus-vm3n) found weight that bought nothing on Eddie's deployment: a parked
+**Why.** The simplification review (theseus-vm3n) found weight that bought nothing on the owner's deployment: a parked
 voice engine compiled into every gate, lane, and install; a spec PDF committed 76 times; a CI job red in 190 of its
 last 200 runs; dead and one-off code; a gate step that hid its own errors; and an install that compiled crates no
-shipped binary links. Eddie took the whole of Tier 0 at 01:42 ("Tier 0 looks awesome") and Tier 5.2 ("sounds
+shipped binary links. The owner took the whole of Tier 0 at 01:42 ("Tier 0 looks awesome") and Tier 5.2 ("sounds
 generally good"). He kept `scripts/repro.sh`, the reproducible-build check the cut-list had listed: simplicity must
 not mean no attention to security.
 
@@ -339,7 +339,7 @@ not mean no attention to security.
   licence call, theseus-yl5w, moves to row 77). The Discord gateway's TLS roots stay as they were: voice's stack had
   turned on twilight-gateway's `rustls-native-roots` through feature unification, and theseus-discord now names it.
 - **The spec's PDF is git-ignored**, rendered and sent as before. History is untouched: its 76 versions keep their
-  99 MB, most of the repository; purging them is a force-push, Eddie's call.
+  99 MB, most of the repository; purging them is a force-push, the owner's call.
 - **CI runs what a stock runner can pass**: fmt, clippy as the gate runs it, the Observatory's dist check, and
   cargo-deny's licences, bans, and sources. The suite, which needs this machine, stays in the gate.
 - **Dead and one-off code is gone**: `Secrets::resolve_all` (no caller) and the contract test's toolchain survey
@@ -391,7 +391,7 @@ has no `--version`, unlike the other four (theseus-t7ra). The PDF's old versions
 **A note on Items 73 to 78.** They landed on 2026-10-03 and reached the operator's daemon in one install, at 13:47
 at 57a3759. Their joins were made as before: a cloud branch's work commits cherry-picked onto `main` and re-signed,
 and a lane's commits rebased onto `main` and re-signed, or fast-forwarded where `main` had not moved. From 13:50 on, a
-join is a plain merge (Eddie, 13:18: "Is branch merge not enough?"): a fast-forward, or a signed merge commit, never a
+join is a plain merge (the owner, 13:18: "Is branch merge not enough?"): a fast-forward, or a signed merge commit, never a
 rebase, a cherry-pick, or a re-signing, so a branch shows as merged and its commits keep their ids.
 
 **Why.** Timing tests that pass on a quiet machine and fail beside a busy one fail joins for noise. Item 67 left the
@@ -491,7 +491,7 @@ flaky list) and clause 9 as root (theseus-pv6i, closed by Item 77).
 
 ### Item 74. The integrity lane: a listed program's output, and a job's session, hold the latch (theseus-b5cl; the simplification cut-list's Tier 1.1; 2026-10-03 11:32 to 12:29; two commits on a59b7c1, dc027ae and 53d32e0; reviewed 12:50 to 12:56; joined 13:04 at 53d32e0, a fast-forward, pushed 13:18; installed 13:47 at 57a3759)
 
-**Why.** Eddie's decision on the cut-list's integrity tier, at 11:24: "Integrity: perfect! Yes, Jev should cover it. If
+**Why.** The owner's decision on the cut-list's integrity tier, at 11:24: "Integrity: perfect! Yes, Jev should cover it. If
 it's failing, we boost its context for good classification. And I like the latch being per session." The goal is
 unchanged: a stranger's text must not steer Theseus into acting (§3.9). The plan to feed T1's latch from integrity
 labels with an `external` origin (20a), the fomites (20b: a hash on every `fs.read` and write), and the Advisory's
@@ -542,7 +542,7 @@ boundaries: a job can strip its own environment.
   session; a session opened from a holder taking nothing; a turn sent to a named session taking nothing; the CLI never
   naming its job's session; the built-in default listing nothing. Restored, all pass.
 - **The lane's gates**: 1,697 of 1,697, a plain turn 5 frames, at each commit.
-- **Live**, on scratch daemons over a copy of Eddie's store with his config:
+- **Live**, on scratch daemons over a copy of the owner's store with his config:
   - at L0, `gh --version` latched its session `via: program`, and health listed it;
   - in that session, a `proc.run` of the CLI waited (`proc.run gh, at 12:10`); approved, the session its job opened
     held the text `via: job`, from the first; trusting it left the holder held;
@@ -557,7 +557,7 @@ result's line, its `meta.external_program`, the ledger row and the next call's w
 sandbox trims' join (Item 77) the listed-program marker became the fallback after egress's: a `gh` that reached only
 listed hosts still holds its session.
 
-**The install** (13:47, at 57a3759). Eddie's note has no `external_programs` line, so his daemon lists `gh` by the
+**The install** (13:47, at 57a3759). The owner's note has no `external_programs` line, so his daemon lists `gh` by the
 built-in default: the first `gh` call in a session holds it, and that session's next call that acts waits, until a
 `/trust`. The CLI installed beside the daemon sends `opened_from` from inside jobs.
 
@@ -570,7 +570,7 @@ A program not on the list can print a stranger's text unmarked, and text launder
 Those are Jev's to judge (row 39).
 
 **Known gaps.** The terminal UI does not send `opened_from` (no job runs it), and Discord's turns come from people.
-Eddie's M4 answer that a held session doesn't hold an L1 job with no egress and no secret was 20a's (Item 58), and is
+The owner's M4 answer that a held session doesn't hold an L1 job with no egress and no secret was 20a's (Item 58), and is
 not built: such a job waits under the hold like any call that acts (theseus-oaf9, P3).
 
 ### Item 75. The `gate-mode` lane: one gate lock mode, and a busy allowance for the gate's timing budgets (theseus-lew7; the simplification cut-list's Tier 5.3; 2026-10-03 11:40 to 12:35; 6b6fcb5 and 7e2de99 on a59b7c1; reviewed 12:56; rebased onto 53d32e0 as ce42bba and 4c74f75; joined 13:23 at 4c74f75; installed 13:47 at 57a3759, in `theseus-sim`)
@@ -579,7 +579,7 @@ not built: such a job waits under the hold like any call that acts (theseus-oaf9
 the shared lock for the whole run. The chain's join gate ran that way under `theseus-quiet.sh`, which SIGSTOPped the
 lanes' compilers while it ran, and its paused processes wedged gates more than once (theseus-xfr1, theseus-e6xj). The
 inner mode (Item 51) already held the lock only around the tests and benches, settled on PSI before each bench, and
-reran a missed bench once. Eddie approved one mode at 11:39, and added: "If it slows down the wall time of our
+reran a missed bench once. The owner approved one mode at 11:39, and added: "If it slows down the wall time of our
 progress, I'm also fine with having a business wiggle room parameter, that basically says, gate performance checks
 have an overage allowance budget that satisfies real world observation of deltas to that performance on busy
 machines."
@@ -643,7 +643,7 @@ machines."
   settle ended after 75 s at load 15.97, so the rerun was strict, and it missed by +56 %, inside the allowance. That
   gate failed, after holding the lock 582 s; it is the known gap below.
 
-**The join** (12:56 to 13:23). The review accepted the lane as built and took one decision to Eddie (below; he answered at 14:20). The
+**The join** (12:56 to 13:23). The review accepted the lane as built and took one decision to the owner (below; he answered at 14:20). The
 chain's wrappers retired with it: the join's own wrapper now runs `scripts/gate.sh` with nothing around it, and
 `theseus-quiet.sh` is gone, with the notes that taught it. Under the old wrapper, this commit's gate exits 2 at once.
 The join's gate, the first in the one mode (13:23:03, 166 s): 1,699 of 1,699, lifecycle ok in 10.0 s (cold start p95
@@ -663,20 +663,20 @@ nothing in the daemon changed.
 
 **Known gaps.**
 - Settle's quiet bar (a load under the core count) judges strictly a band, loads of 12 to 16, where 4 of 6
-  normal-priority runs beside unpaused lanes missed, and a second miss there fails a join. Eddie's call, made at
+  normal-priority runs beside unpaused lanes missed, and a second miss there fails a join. The owner's call, made at
   14:20: yes, a load bar at three quarters of the cores (12) and a 2-minute wait. Not built yet.
 - The jobs bench's L1 start has no history row, so its allowance passes show in the gate's log only (no issue filed).
 
 ### Item 76. The place rule replaces labels on nodes, and the owner publishes (theseus-nbsh; the simplification cut-list's Tier 2; spine, in a worktree; 2026-10-03 11:03 to 13:11; four commits on a59b7c1, b0abb1f, deb7cf2, 9d80bd5 and 049ef27; reviewed 13:19 to 13:30; rebased onto 4c74f75 as 908f95b, c0b6b39, 8055609 and d2fd4d9; joined 13:31 at d2fd4d9; installed 13:47 at 57a3759)
 
-**Why.** Eddie's pick at 10:58, under the default-trust principle (§2): "Your place rule tactics are very innovative
+**Why.** The owner's pick at 10:58, under the default-trust principle (§2): "Your place rule tactics are very innovative
 -- I think this is a great idea. I for sure believe that's a better start than owner labels. We still might need a way
 to 'graduate' private conversation content into publicly allowable, but the core there is superior." So graduation
 stays in a light form, the owner's publish. He was open to a light map of nodes to what they are, asserted by Jev, and
 at 11:24 preferred categories to labels: that map is the ontology's memberships (§4.1a), which route context and
 never grant access.
 
-19a to 19d kept private material out of a wider audience node by node. On Eddie's setup labels mattered only in
+19a to 19d kept private material out of a wider audience node by node. On the owner's setup labels mattered only in
 `#openclaw` (8 viewers, 7 not the owner). There they withheld every owner node, including the session's own file, git,
 command and AWS results, so those tools were useless. Held posts, graduation and quiet loops never fired: his store
 held one `label.audience` row and no release. Four leaks surfaced in a day (42ub and jpff fixed, nbln and ntx5 parked),
@@ -749,7 +749,7 @@ The goal is unchanged: private material never reaches a shared place. It is now 
 - **Stored data:** a test stores 19a's five ledger kinds and reads them back byte for byte. Literal NODE 5 and 6 and
   COMPILATION 3 and 4 records still read.
 - **The lane's gates:** 1,697, 1,662, 1,665 and 1,665 of as many, a plain turn 5 frames at each.
-- **Live, on a copy of Eddie's store** with his config, Discord off: his `#openclaw` session, unbound and so shared,
+- **Live, on a copy of the owner's store** with his config, Discord off: his `#openclaw` session, unbound and so shared,
   compiled with 14 tools and no `proc.run`, his own context file withheld and the public one carried; a CLI session
   compiled private, with 15 tools and both files; his 19a-labeled nodes and audience manifests read whole.
 - **Live, on the fake Discord:** a write in a shared channel was not run (`place: fs.write is not offered in a shared
@@ -768,7 +768,7 @@ gate (13:31:16, 242 s): 1,677 of 1,677, lifecycle ok in 10.8 s (cold start p95 3
 -celu.7, -tbv2, -zupl and -033g (at the join; two parked cloud branches deleted), and theseus-0yz6 and -843s (the
 simulator's gaps).
 
-**The install** (13:47, at 57a3759). Health on Eddie's daemon read `places: private: CLI, web, DM @eddie · shared:
+**The install** (13:47, at 57a3759). Health on the owner's daemon read `places: private: CLI, web, DM @zeroaltitude · shared:
 #openclaw (public tools only)`, as the step's report had predicted: his DM private, since his id is a trusted user, and
 `#openclaw` shared, with the public tools alone and no file tools, since his note names no public trees.
 
@@ -784,12 +784,12 @@ now an explicit publish. A private channel that gains a member is noticed at the
 public tools alone.
 
 **Known gaps.** theseus-94a6 (P3): an `http.fetch` of a private address, approved from a shared place, brings that
-page into the shared conversation; the approval rule makes it wait, but not on the place. Eddie's call, at 14:20:
+page into the shared conversation; the approval rule makes it wait, but not on the place. The owner's call, at 14:20:
 leave it to the approver, whose card is to say it is a private address in a shared place. Not built yet.
 
 ### Item 77. The sandbox trims: listed egress doesn't latch, no probe at the start, no delegated cgroup, and no L1 job as root (theseus-gyin; the simplification cut-list's Tier 4, 4.1 to 4.3, with theseus-pv6i's intent; the `sandbox-trims` lane; 2026-10-03 11:36 to 12:55; one commit on a59b7c1, ba7a8c6; reviewed 13:19 to 13:37; rebased onto d2fd4d9 as 1378382; joined 13:37 at 1378382; installed 13:47 at 57a3759)
 
-**Why.** Eddie approved the explanation at 11:25: "4.1, 4.2, 4.3, and the keeps: I follow your recommendation for
+**Why.** The owner approved the explanation at 11:25: "4.1, 4.2, 4.3, and the keeps: I follow your recommendation for
 all". This is the default-trust principle (§2) applied to L1's add-ons. The core of the sandbox stays whole: the
 namespaces, the view, scratch, no capabilities, the egress allowlist, seccomp, and the pid namespace's verified stop.
 Kept as approved: seccomp, the broker's per-program parsers, the scrubber's heuristics, and `[policy] external_text`,
@@ -816,7 +816,7 @@ Without the cgroup, a root daemon's L1 job would have no process limit, since Li
 - **4.2.**
   - Gone: the probe after serving (`PROBE_AFTER` and its three helpers), `Sandbox::probe`, the kernel's probe mode,
     theseusd's `sandbox-probe` role, the `SandboxProbed` fact, and `sandbox.probe`. A stored row still reads, as an
-    unknown kind: the copy of Eddie's store returned its 9 old rows.
+    unknown kind: the copy of the owner's store returned its 9 old rows.
   - Health's line now reports the last real L1 launch, from its job's completion (`Sandbox::launched`): "no L1 job yet
     since start", "the last L1 launch worked (start 8.1 ms)", or why it failed. The Observatory's and the cockpit's
     sandbox lines say the same.
@@ -859,7 +859,7 @@ Without the cgroup, a root daemon's L1 job would have no process limit, since Li
   start is unchanged within noise, as the code requires (cold start p50 25.0, 24.1 and 27.3 ms), and every budget held
   in every run. A start's aftermath lost one frame (the WAL went from frame 8 to 9, not 10, with no `sandbox.probe`) and
   one subprocess with its L1 clone.
-- **Live**, on a scratch daemon over a copy of Eddie's store with his config, run as a plain `systemd-run --user` unit
+- **Live**, on a scratch daemon over a copy of the owner's store with his config, run as a plain `systemd-run --user` unit
   with `Delegate=no`:
   - health said "no L1 job yet since start", then "the last L1 launch worked";
   - `theseusd check` said "L1: the self-test worked (start 10.4 ms)";
@@ -877,7 +877,7 @@ before the gate. The join's gate (13:37:45, 211 s): 1,680 of 1,680, lifecycle ok
 jobs phase's L1 start p95 5.97 ms, a plain turn 5 frames. theseus-gyin, theseus-pv6i and theseus-celu.5 are closed,
 and root-l1's cloud branch was deleted.
 
-**The install** (13:47, at 57a3759). `scripts/user-service.sh install` rewrote Eddie's unit, with no `Delegate=` and
+**The install** (13:47, at 57a3759). `scripts/user-service.sh install` rewrote the owner's unit, with no `Delegate=` and
 no stop hook, and `KillMode=process` kept, before a restart taken with no turn held and no L1 job running. `theseusd
 check`: `L1: the self-test worked (start 4.2 ms)`. Health: `sandbox: no L1 job yet since start · default l0 · jobs: 0
 at L0, 0 in L1 · an L1 job gets 512 processes, 1024 MB of scratch, files up to 64 MB · no egress listed`. The journal
@@ -892,13 +892,13 @@ it.
 
 **What it costs, said plainly.** An L1 job may use all the machine's memory, as an L0 job may (`RLIMIT_AS` is a
 one-line limit, if one is wanted). Text injected through a listed host no longer holds a session: 4.1's approved risk,
-latent while Eddie's list is empty. Health can't say "L1 works" before the first L1 job; `theseusd check` can. The root
+latent while the owner's list is empty. Health can't say "L1 works" before the first L1 job; `theseusd check` can. The root
 refusal was proved by the contract as root, not on a root daemon.
 
-### Item 78. AWS's C2: the stacks, owner-role sessions, writes behind the floor, and the budget, in the lean posture (theseus-nyzn; row 30, step 14b, stage D; spine, in a worktree; 2026-10-03 11:32 to 13:16; 3fc88ec and 1cbf640 on a59b7c1; reviewed 13:30 to 13:41; rebased onto 1378382 as 438a33d and 57a3759; joined 13:44 at 57a3759; installed 13:47 at 57a3759; the bootstrap's apply cleared by Eddie at 14:20)
+### Item 78. AWS's C2: the stacks, owner-role sessions, writes behind the floor, and the budget, in the lean posture (theseus-nyzn; row 30, step 14b, stage D; spine, in a worktree; 2026-10-03 11:32 to 13:16; 3fc88ec and 1cbf640 on a59b7c1; reviewed 13:30 to 13:41; rebased onto 1378382 as 438a33d and 57a3759; joined 13:44 at 57a3759; installed 13:47 at 57a3759; the bootstrap's apply cleared by the owner at 14:20)
 
 **Why.** C1 (Item 49) bound the account and its reads; C2 brings the writes, with AWS's own guards in front of them.
-It waited on Eddie's go-ahead for the first writes to his account, and he gave it at 11:24, with a cap under $1 a
+It waited on the owner's go-ahead for the first writes to his account, and he gave it at 11:24, with a cap under $1 a
 month on what the stacks themselves cost. A read-only cost check first (AWS's Pricing API) put the design as written at
 about $2.80 a month (two customer keys $2.00, 17 alarms $0.70, the trail's writes $0.07, GuardDuty about $0.02), and a
 lean posture at about $0.10. The account had no trail, alarms, GuardDuty detector or customer keys, one budget, and
@@ -1006,10 +1006,10 @@ v0.79). A `release-thin` build of the five binaries (1 m 58 s), the store backed
 resolved in 2,038 ms, the L1 self-test 4.2 ms), the unit rewritten by `scripts/user-service.sh install` for the
 sandbox trims, then a restart with no turn held and no L1 job. Health: the places line and the sandbox line (Items 76
 and 77); the config confirmed by the vault in 975 ms; the secrets ready 1,025 ms after the start; Discord ready; the
-index ready; the unit active, with no restarts; the cockpit answering. C2 itself shows nothing yet: Eddie's note binds
+index ready; the unit active, with no restarts; the cockpit answering. C2 itself shows nothing yet: the owner's note binds
 no AWS account, so his daemon has no `aws:` line until the bootstrap is done.
 
-**The bootstrap, cleared.** Its apply is a write to Eddie's account, and waited on two answers from him: the address
+**The bootstrap, cleared.** Its apply is a write to the owner's account, and waited on two answers from him: the address
 the alerts topic emails (committed nowhere), and lean or the trail's own key (`--trail-key customer`, $1 a month more).
 He gave both at 14:20: lean, with no trail key. What follows, after this record: a fresh cost check of the exact stacks; the plan, from a scratch daemon of the installed build, showing three
 creates of 22, 25 and 2 resources and no warnings; the apply; his note's `[aws.accounts.<id>]` table with
@@ -1026,7 +1026,7 @@ that lasts an hour. The alerts topic is unencrypted, on purpose (above).
 writes about $0.07, GuardDuty $0.01 to $0.02 after its 30-day trial, storage and the relay under $0.01. The trail
 records every region, but the rules alert only in us-west-2 and us-east-1, the account's allowed regions, and
 GuardDuty runs in the home region alone; the alarms' log group had seen every region. That is the lean posture's
-trade. SCPs would make the other regions unusable instead, and Eddie set them aside at 14:20: "for now, budgets and
+trade. SCPs would make the other regions unusable instead, and the owner set them aside at 14:20: "for now, budgets and
 notify are fine -- visibility first".
 
 **Known gaps** (not built, as the design allows): the 100 % budget wait, the $5-a-day and $1-an-hour tripwires (they

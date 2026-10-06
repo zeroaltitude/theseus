@@ -15,7 +15,7 @@ tool: string,
  */
 posture: string, 
 /**
- * Who pressed, as a label (`discord:eddie`, `sock#3`, `web#1`).
+ * Who pressed, as a label (`discord:zeroaltitude`, `sock#3`, `web#1`).
  */
 by: string, 
 /**

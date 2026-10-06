@@ -642,7 +642,7 @@ mod tests {
     fn the_checks_score_known_answers() {
         let e = Exam::parse(EXAM_V2).unwrap();
         let cases = [
-            ("preference-1", "**wakes**\n\n(Per Eddie's note it's a bare name — no `theseus-` prefix — and the existing commands (`/new`, `/stop`, `/status`) favor short single words.)", true),
+            ("preference-1", "**wakes**\n\n(Per zeroaltitude's note it's a bare name — no `theseus-` prefix — and the existing commands (`/new`, `/stop`, `/status`) favor short single words.)", true),
             ("preference-1", "`wakes`", true),
             ("preference-1", "pending-wakes", true),
             ("preference-1", "/theseus-wakes", false),
@@ -738,7 +738,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-14 10:02"
-who = "eddie"
+who = "zeroaltitude"
 text = "Bind the UI to 7433."
 "#;
 
@@ -764,13 +764,13 @@ text = "Bind the UI to 7433."
             ("reply has \"7433\"", "reply holds \"7433\"", "unknown verb"),
             ("2026-09-14 10:02", "2026-09-14 25:02", "not a time"),
             (
-                "who = \"eddie\"",
+                "who = \"zeroaltitude\"",
                 "who = \"theseus\"",
                 "start with the operator",
             ),
             (
-                "who = \"eddie\"",
-                "who = \"eddie\"\ntool = \"proc.run\"",
+                "who = \"zeroaltitude\"",
+                "who = \"zeroaltitude\"\ntool = \"proc.run\"",
                 "only a tool node",
             ),
             ("family = \"fact\"", "family = \"gossip\"", "does not parse"),
@@ -826,7 +826,7 @@ from = "2026-03-01 09:00"
 to = "2026-03-30 09:00"
 places = ["cli"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Tidy the {thing}."
 [background.vars]
 thing = ["panel", "log"]
@@ -843,7 +843,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-04-02 10:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Nightly work runs on kestrel, the tower under my desk."
 [[item.session.node]]
 at = "2026-04-02 10:01"
@@ -921,7 +921,7 @@ text = "Noted."
             .replace(
                 "[[item.session]]\nkey = \"a\"",
                 "[[item.generate]]\nkey = \"d\"\ncount = 8\nseed = 3\nfrom = \"2026-03-01 09:00\"\nto = \"2026-03-20 09:00\"\nplaces = [\"cli\"]\n\
-                 [[item.generate.node]]\nwho = \"eddie\"\ntext = \"The overnight batch jobs on {h} ran long.\"\n\
+                 [[item.generate.node]]\nwho = \"zeroaltitude\"\ntext = \"The overnight batch jobs on {h} ran long.\"\n\
                  [item.generate.vars]\nh = [\"plover\", \"tern\"]\n[[item.session]]\nkey = \"a\"",
             );
         let e = Exam::parse(&one(&scale)).unwrap();
@@ -934,7 +934,7 @@ text = "Noted."
             .replace(
                 "[[item.session]]\nkey = \"a\"",
                 "[[item.session]]\nkey = \"z\"\nplace = \"cli\"\n\
-                 [[item.session.node]]\nat = \"2025-12-01 09:00\"\nwho = \"eddie\"\ntext = \"Nightly work runs on heron.\"\n\
+                 [[item.session.node]]\nat = \"2025-12-01 09:00\"\nwho = \"zeroaltitude\"\ntext = \"Nightly work runs on heron.\"\n\
                  [[item.session.node]]\nat = \"2025-12-01 09:01\"\nwho = \"theseus\"\ntext = \"Noted: heron.\"\n\
                  [[item.session]]\nkey = \"a\"",
             );

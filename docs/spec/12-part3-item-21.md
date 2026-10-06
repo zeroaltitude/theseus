@@ -128,8 +128,8 @@ model, in health, on a Discord line, and in a listing) wherever it said somethin
   - this user was served (101; 100 connections at 3.95 ms p50 on a debug build);
   - probes were uncounted;
   - the dev origin as designed;
-  - Eddie's vault config loads unchanged.
-- **Live at the review** (Tabitha, 11:06, with sudo): a client run as `nobody` (uid 65534) got
+  - The owner's vault config loads unchanged.
+- **Live at the review** (Tabitha/Claude, 11:06, with sudo): a client run as `nobody` (uid 65534) got
   `403 refused: the web UI serves only the user that runs the daemon` on `/ws` and on `GET /`. Health said
   `refused_peer: 2`, and the ledger had one `web.refused` row naming uid 65534. uid 65534 had no processes before
   or after, and the daemon was stopped by its socket.
@@ -138,11 +138,11 @@ model, in health, on a Discord line, and in a listing) wherever it said somethin
   passed at 74.1 ms; `~/reports/theseus-merge/secfix-gate.log`). The rebase had one conflict, in health's
   `rpc/methods.rs`; both lines were kept.
 
-**Decisions at the review** (Tabitha):
+**Decisions at the review** (Tabitha/Claude):
 - A client that closed before the accept is dropped uncounted. It is never served either way. Counting it would
   ledger every port probe as another user's refusal.
 - An approved `git.diff` or `git.log` on a path outside every root reads only under that path: what was approved
-  is what is read. Widening it is Eddie's call.
+  is what is read. Widening it is the owner's call.
 - The dev page connects straight to the daemon, with no proxy. The cockpit does so from the start (Item 23), which
   closes theseus-88im's relay for it.
 
@@ -153,8 +153,8 @@ model, in health, on a Discord line, and in a listing) wherever it said somethin
 | gix's ceiling directories, or a check of the discovered working tree | The check, with the limit | A ceiling at the root makes a root inside a monorepo "not a repository" | Keep |
 | — | A `core.worktree` outside the roots is refused | gix honours it, so the diff would read tracked paths there; found while writing the fix | Keep |
 | A file the diff reads is under a root and not on the floor | Checked in history too (`A..B`) | A repository that tracked a floor file has its bytes in history | Keep |
-| — | An approved path outside every root is its own root | Otherwise an approved call reads nothing, or the whole repository above it | Keep (Tabitha) |
-| When the row can't be found, refuse and say why | A client that closed first is dropped uncounted | Port probes were ledgered as another user's | Keep (Tabitha) |
+| — | An approved path outside every root is its own root | Otherwise an approved call reads nothing, or the whole repository above it | Keep (Tabitha/Claude) |
+| When the row can't be found, refuse and say why | A client that closed first is dropped uncounted | Port probes were ledgered as another user's | Keep (Tabitha/Claude) |
 | — | The lookup runs on the blocking pool | The table read takes about 2 ms | Keep |
 | An explicit, off-by-default dev origin in `[web]` | That, with the dev `Host` passed on `/ws` only | The proxy passes the dev server's `Host` | Keep |
 | "After Part 2, a process of another uid is refused anyway" | Not through a dev server's proxy | The daemon sees the dev server's socket, the operator's uid | The dev page connects straight (Item 23) |
@@ -169,9 +169,9 @@ model, in health, on a Discord line, and in a listing) wherever it said somethin
 - ~~Refusals held within the ledger's one-minute span are lost at shutdown (theseus-sqpx; H1's).~~ Built in Item 55.
 - Health's `web` section isn't in the CLI's text summary or the Observatory (theseus-jxau; the cockpit shows it).
 
-### Item 23. The new experience: the cockpit at `/cockpit/` (theseus-45n5; 2026-10-01 from 09:52, Tabitha in the foreground while the chain ran; d561792 to 8bea68c)
+### Item 23. The new experience: the cockpit at `/cockpit/` (theseus-45n5; 2026-10-01 from 09:52, Tabitha/Claude in the foreground while the chain ran; d561792 to 8bea68c)
 
-**Why.** Eddie, 2026-10-01 09:52: a new UI, linked from the existing one as "see the new experience", not replacing
+**Why.** The owner, 2026-10-01 09:52: a new UI, linked from the existing one as "see the new experience", not replacing
 it. It is "as deeply focused on visibility and utility at managing theseus as the original", but "gorgeous, rich,
 and make you feel like you're in the cockpit of the most powerful agent harness cockpit in the world", with
 "an amazing amount of clarity on how theseus is running, with the ability to drill down to exquisite detail". It
@@ -524,9 +524,9 @@ waits before each bench run until IO and CPU pressure settle (§9, "A quiet mach
 
   All are P3.
 
-### Item 27. The cockpit's second round: every call opened whole, and the controls it lacked (theseus-45n5; 2026-10-01 from 11:40, Tabitha in the foreground; b4ed64f to 454709b, rebased as d0aa674 to abc8411, merged 13:36:52)
+### Item 27. The cockpit's second round: every call opened whole, and the controls it lacked (theseus-45n5; 2026-10-01 from 11:40, Tabitha/Claude in the foreground; b4ed64f to 454709b, rebased as d0aa674 to abc8411, merged 13:36:52)
 
-**Why.** Eddie's brief for the new experience (09:52) asked for drill-down "to exquisite detail". Item 23's cockpit
+**Why.** The owner's brief for the new experience (09:52) asked for drill-down "to exquisite detail". Item 23's cockpit
 showed each turn's loops, calls, tokens, cost, and context, but one tool call's story was still spread across the
 transcript and the ledger, and one model call's cost and cache were spread across a node and a row. The cockpit also
 couldn't open or recompile a session, list or cancel tasks, or change the live profile, though the protocol has had
@@ -570,7 +570,7 @@ each since M1 or DD7.
   `web/dist` doesn't change.
 
 **How it is proven.** Each commit was checked live with real clicks (puppeteer, `~/reports/theseus-cockpit/shots/`)
-on a scratch daemon over a copy of Eddie's store:
+on a scratch daemon over a copy of the owner's store:
 - a confirmed `proc.run`: approval 3.73 s (a Discord press), a run of 45.0 s, and 7.9 s until recorded;
 - a call the gate denied;
 - a Sonnet call: 780 ms to the first byte, 97.9 % cached, saving $0.0077, and the recomputed $0.0024 matching the
@@ -581,10 +581,10 @@ on a scratch daemon over a copy of Eddie's store:
 - every view loading clean (`audit.mjs`).
 
 The review's check of the installed build (b6be80d): every cockpit view loads clean from the binary, on a fresh
-copy of Eddie's store. The catalog card shows the 1-hour write price (Item 29); its columns were spaced and the
+copy of the owner's store. The catalog card shows the 1-hour write price (Item 29); its columns were spaced and the
 profiles moved under each model's name, in the docs commit. The cockpit's lint and build run in the gate. Its merge gate on `main`: green at abc8411 (13:36:15, 1,196 tests). The bench's first run missed on one restart outlier (p95 296 ms, p50 41 ms), and its rerun passed.
 
-**Divergence from the design.** None from `contexts/theseus-cockpit.md`. The inspectors were Eddie's "drill down
+**Divergence from the design.** None from `contexts/theseus-cockpit.md`. The inspectors were the owner's "drill down
 to exquisite detail", made concrete.
 
 **Known gaps.**
@@ -593,9 +593,9 @@ to exquisite detail", made concrete.
 - theseus-51v8 (P3): health's `disk` and `spool.last_sweep` (Item 25) aren't shown yet.
 - The cockpit's build isn't committed. The install builds it before the release build (Item 23).
 
-### Item 28. A README for newcomers, and the design documents' markdown in `docs/` (theseus-4i61; 2026-10-01 13:00 to 13:08, Eddie's request at 12:59; 74ef515, rebased as 4961916, merged 13:38:21)
+### Item 28. A README for newcomers, and the design documents' markdown in `docs/` (theseus-4i61; 2026-10-01 13:00 to 13:08, the owner's request at 12:59; 74ef515, rebased as 4961916, merged 13:38:21)
 
-**Why.** Eddie (12:59): keep the highly technical README, but move it into `docs/`. The README should be a quick
+**Why.** The owner (12:59): keep the highly technical README, but move it into `docs/`. The README should be a quick
 how-to-set-up that starts with a very end-user-friendly explanation: what we did and why, why another harness,
 what we wanted to accomplish, and why Theseus is interesting. And the design documents whose PDFs he had seen
 should be in `docs/` as markdown.
@@ -622,7 +622,7 @@ should be in `docs/` as markdown.
 - **`docs/README.md`**, a reading guide. `docs/design/README.md` lists Review 2.
 
 **How it is proven.**
-- Eddie saw a rendered preview, `Theseus-README-preview.pdf`, before the merge.
+- The owner saw a rendered preview, `Theseus-README-preview.pdf`, before the merge.
 - Every relative link resolves.
 - The scrub used the design docs' patterns (`~/reports/theseus-docs-design/verify/*.pat`). Local paths became
   plain words or links. The remaining hits are public sources, standard tool paths (`~/.theseus`, `~/.claude`,
@@ -634,7 +634,7 @@ should be in `docs/` as markdown.
   vault and items. A newcomer following the quick start sees them. The fix is placeholders that read as
   instructions, and a generic default.~~ Built in Item 55.
 - ~~The README names what is next on the roadmap. Each spec version that lands a step should check that paragraph,
-  as it checks `docs/the-ship-of-theseus.md`.~~ Since 2026-10-01 (Eddie), the README stays stable and links to
+  as it checks `docs/the-ship-of-theseus.md`.~~ Since 2026-10-01 (the owner), the README stays stable and links to
   `docs/status.md`, which each spec version that lands a step updates (theseus-5d96).
 
 ### Item 29. Caching, part 2: two breakpoints on the system, the caching minimum, a TTL per profile, and 1-hour writes priced (theseus-ev1, row 14 (13c) built ahead in the `cache2` lane; 2026-10-01 12:31 to 13:19, reviewed 13:35, joined 13:42:19; 047a477, c970d36, 86adced, and the join b6be80d)
@@ -721,7 +721,7 @@ shared header, made a split possible. The stage-2 design's 13c added:
 | A TTL for every breakpoint | yes, but a task's own conversation keeps 5 minutes | its loops run seconds apart, so 1 hour would only add the write premium | Keep |
 | Join after C3 (the chain's plan) | before C3 | C3 hadn't started, and its ts-rs types then include `Usage`'s new field from the start | Keep |
 
-**What the install changes for Eddie.**
+**What the install changes for the owner.**
 - A session with context files rewrites its cached prefix once, on its next turn (about $0.013 on Sonnet 5.5), and
   drops that prefix's thinking. The split changes the system's blocks, which a thinking block's signature
   records.
@@ -740,7 +740,7 @@ Daily Driver. Finding 11, the CLI's `run()`, had grown to 873 lines at cognitive
 the 21 notifications were `json!` read back by string keys in three renderers, the gate record a `Value` read by
 key in four places, and the web apps shared 400 hand-written lines of types that had drifted. Finding 19: two
 copies of the Discord route lookup, a 171-line `serve`, and a crate doc that called the binding a protocol client.
-Eddie approved generating the web types with ts-rs (12:17, again 12:59). Behaviour and the wire stay byte for byte.
+The owner approved generating the web types with ts-rs (12:17, again 12:59). Behaviour and the wire stay byte for byte.
 
 **What exists.**
 - **Finding 11** (5522f85 tests first, b3b1ae1): `main.rs` is the arguments, `Conn`, and a 25-line `run`; `cmd.rs`
@@ -773,7 +773,7 @@ Eddie approved generating the web types with ts-rs (12:17, again 12:59). Behavio
   were byte-identical (the 34th: the daemon's connection counter).
 - **The wire:** 43 fixtures captured from today's senders equal the typed structs byte for byte and round-trip; a
   live session's notifications from the old daemon (166) and the new (104) decode and re-encode byte for byte, every
-  method with the same keys and types; all 32 tool-call nodes of a copy of Eddie's store, the 4 older `mode` rows
+  method with the same keys and types; all 32 tool-call nodes of a copy of the owner's store, the 4 older `mode` rows
   among them, re-encode unchanged.
 - **The web apps:** both type-check, lint, and build against the generated types with no `any` added and
   `web/dist` unchanged; the gate's check fails on a Rust change without its TypeScript (probed); on a scratch daemon
@@ -810,15 +810,15 @@ Eddie approved generating the web types with ts-rs (12:17, again 12:59). Behavio
   (theseus-6g62).~~ Built in Item 47.
 - Two tests race under load: the sweep test checks a spawned wrapper before it exec'd (theseus-uev6), and
   `tests_outbox::a_card_in_a_channel_mentions_its_answerers…` (already theseus-50p).
-- ~~Stored floats re-parse one ULP off without `float_roundtrip`, so 5 of Eddie's 105 nodes re-encode differently
+- ~~Stored floats re-parse one ULP off without `float_roundtrip`, so 5 of the owner's 105 nodes re-encode differently
   (theseus-k52m; nothing re-encodes a node today).~~ Built in Item 54.
-- ~~The message and the press on real Discord wait for Eddie (theseus-kl8m).~~ Item 47 proves both through the
-  stand-in, in the gate; real Discord's own half stays with Eddie.
+- ~~The message and the press on real Discord wait for the owner (theseus-kl8m).~~ Item 47 proves both through the
+  stand-in, in the gate; real Discord's own half stays with the owner.
 
 ### Item 31. An honest token estimate, and a timing test that holds under load (theseus-f5hf, theseus-ksfu; the `tokens` lane; 2026-10-01 13:55 to 14:55, reviewed 15:04, joined after Item 30; f9509f3, 7bbd21c, ce19342, rebased as 7335e15, 4aa13db, 042ff07)
 
 **Why.** The compiler's chars/4 estimate ran 29 to 35 % low against Sonnet 5.5's count of Theseus's requests
-(the cache2 lane found it; this lane measured it again, live and on Eddie's DM): their tool schemas and tool
+(the cache2 lane found it; this lane measured it again, live and on the owner's DM): their tool schemas and tool
 results are dense JSON. The overflow ring and the budget's reservation trusted it, so a conversation heavy in tool
 output could pass a 1M window in the provider's count while the estimate read about 650 k. And a serve-first test
 held a debug build's health to 50 ms of wall time, which a busy machine failed (403.6 ms in the telemetry lane's
@@ -833,8 +833,8 @@ gate).
 - the health test runs on tokio's paused clock, and proves health waits for nothing instead of timing it.
 
 **How it is proven.** Four compiler tests and one catalog test (the ring for JSON that chars/4 reads as fitting,
-the counted estimate by hand, nineteen loops of Eddie's DM, eight live first requests, a GLM session not rung
-early), and the reservation's test. Live, on a scratch daemon of the lane's build (Eddie's 15 tools, the lane's
+the counted estimate by hand, nineteen loops of the owner's DM, eight live first requests, a GLM session not rung
+early), and the reservation's test. Live, on a scratch daemon of the lane's build (the owner's 15 tools, the lane's
 own context files, $0.029): every first request within 7 % of the provider's count, every counted one within
 1.7 %, where chars/4 was 29 to 35 % low on Sonnet 5.5. The health test passed 20 of 20 runs twice under 32 busy
 loops at nice 5, where the old one failed 3 of 20 twice, and it fails at once on a health that waits for the
@@ -844,7 +844,7 @@ vault.
 the lane did the first and a stronger form of the second (the provider's own count, per session, from the store,
 so nothing lives in memory and a restart loses nothing), and kept a margin on the estimated part only.
 
-**The join** (Tabitha). Item 30 had made `context.compiled` a typed struct, so the lane's `estimate` field
+**The join** (Tabitha/Claude). Item 30 had made `context.compiled` a typed struct, so the lane's `estimate` field
 became `EstimateSummary`, with `CensusSummary`, in theseus-protocol: the one definition of its shape. It is
 built by `Estimate::summary`, optional and absent in older rows. The wire test's literal gained
 `estimate: None`, so its fixtures keep their bytes, and both types joined the generated TypeScript. The join
@@ -869,7 +869,7 @@ $0.028):
 
 ### Item 32. The reader rule: a registry test in the gate, and a marker on every crate ahead of its reader (theseus-wjy; row 6 of the re-cut; 2026-10-01 15:47 to 16:20, reviewed 16:33 to 16:37; 70bc0b4, cf015ef, aebd530)
 
-**Why.** Eddie's decision 3 of theseus-vmh (option A, 2026-09-27 21:10), P0's rule 3: nothing declared without
+**Why.** The owner's decision 3 of theseus-vmh (option A, 2026-09-27 21:10), P0's rule 3: nothing declared without
 its reader. The lane recipe already merged crates ahead of their readers (Item 16) and said Part III lists each.
 Nothing checked it, and 13 of `main`'s 21 crates sat unread.
 
@@ -994,7 +994,7 @@ The TUI and the herdr adapter need exactly this.
   late result, a task, and a stop, with their positions. `theseus wait` returned 16 ms after the asking frame's
   row, and settled 11 ms after the last turn's. The web page sent nothing in 30 idle seconds with its pane hidden.
   Every cockpit view loaded clean.
-- **The seed in release:** on the 10,000-session synthetic store, p50 37.1 ms, p95 41.5 ms; on a copy of Eddie's
+- **The seed in release:** on the 10,000-session synthetic store, p50 37.1 ms, p95 41.5 ms; on a copy of the owner's
   store at the install, 285 µs.
 - **Gates** green at each commit (1,282, 1,291, 1,299, 1,299 tests), and the review's rerun at ed80fba (1,299;
   the bench on its first run).
@@ -1106,7 +1106,7 @@ call cancelled, and the job then launches anyway (theseus-36to, P2; in lane `tid
 was the launch's own work, not the broker's wait.
 
 **The install** (19:06:14 at 1970bc6, Items 33 to 35). Store backup first, then a release live check on a copy of
-Eddie's store:
+the owner's store:
 - health's push, disk, and spool lines;
 - `watch --all`'s snapshot (5 executions, seeded in 285 µs);
 - the pills;
@@ -1114,7 +1114,7 @@ Eddie's store:
 - `executions explain`;
 - all six cockpit views clean, and the Observatory.
 
-It surfaced one thing: Eddie's Discord DM session from 2026-09-29 still reads `● budget exhausted`, from the old
+It surfaced one thing: the owner's Discord DM session from 2026-09-29 still reads `● budget exhausted`, from the old
 units limit, with $99.58 of its $100 left (theseus-3ebd, P3). _(Item 53 reopens such an execution at the next start.)_
 
 ### Item 36. The CLI's client library: the connection and the renderers move out of the binary (theseus-7yx, step 10a; row 11 of the re-cut; 2026-10-01 19:11 to 19:56, reviewed 19:59 to 20:01; 7e0325f, 458e5aa, a0f594f; installed 20:08 at 9637142)
@@ -1149,7 +1149,7 @@ from it.
 - **Revert proofs**, each restored with a fresh mtime: the `Thinking` label changed failed three goldens and the
   printer's test; `next`'s old `read_line` failed the cancel-safety test ("bad line from server").
 - **The reader rule**, alone, 8 of 8. The CLI's package built static-pie for `x86_64-unknown-linux-musl`.
-- **Live**, on a scratch daemon over a copy of Eddie's store: 16 read commands gave the same bytes with the
+- **Live**, on a scratch daemon over a copy of the owner's store: 16 read commands gave the same bytes with the
   installed CLI and this one (32 files, a 2,589-line history among them). Both CLIs watched one session through
   two GLM turns and printed the same bytes. `--spawn` worked with both.
 - **Gates** green at each commit (1,319, 1,326, and 1,328 tests; the third's bench passed on its rerun after a
@@ -1254,7 +1254,7 @@ with its own reverse entries (P0's rule 3).
   its edge; over the protocol, an unknown node is `-32002` and empty params `-32602`, at once; an older binary's
   store takes an edge, stays format 2, and opens; a walk over hand-written edges reaches generation 2, walks a
   cycle once, and stops at both caps; the registry sees `derived_from` read; `theseus reach`'s goldens.
-- **Live**, on a scratch daemon over a copy of Eddie's store: a GLM task reported, and `theseus reach` named both
+- **Live**, on a scratch daemon over a copy of the owner's store: a GLM task reported, and `theseus reach` named both
   sessions. The report's frame was `turn.started+execution+node+edge+task.reports_read`. After a recompile and two
   more turns it named the one compilation that can hold the copy: 4 contexts in 2 sessions. The brief's edge
   reached 7 contexts in 2 sessions. Both web apps' reach cells were clicked and shot. About $0.0024.
@@ -1277,7 +1277,7 @@ health, `node.reach`'s refusal of empty params, six cockpit views, and no errors
 
 ### Item 39. The terminal UI: every session in one sidebar, what needs you a key away, answers inline, and done until seen (theseus-7yx, steps 10b to 10e; the `tui` lane; 2026-10-01 20:04 to 21:24, reviewed 21:26 to 21:32; joined at 1879dc9, 7be154f, 22f93c4, 8912b1c, 22670d6)
 
-**Why.** P5c item 7 and the stage 2 design's §2.9 (decision 5 of theseus-vmh, Eddie, 2026-09-27: "'A' -- first we
+**Why.** P5c item 7 and the stage 2 design's §2.9 (decision 5 of theseus-vmh, the owner, 2026-09-27: "'A' -- first we
 try everything!"). herdr's one bet, never hunt for the stuck one, made a client of the push (Item 33): the TUI
 shows each session's attention as the server computes it, and puts the session that needs you a key away.
 
@@ -1329,7 +1329,7 @@ show after the reply it started (theseus-v6yc). Both P3.
 
 ### Item 40. The repository's guides for agents: `AGENTS.md` and `CLAUDE.md` (theseus-7gkd; the `agents` lane, docs only; 2026-10-01 20:26 to 21:03, reviewed by 21:30; joined at d6793c7 and 0f03769)
 
-**Why.** Eddie, 2026-10-01 at 20:23: a `CLAUDE.md` and an `AGENTS.md` in the repository that map its files and the
+**Why.** The owner, 2026-10-01 at 20:23: a `CLAUDE.md` and an `AGENTS.md` in the repository that map its files and the
 principles discovered while building it, for a smooth move to developing Theseus on Theseus. Every agent that
 programs the repository, Theseus included, needs the map and the rules in the repository, not in one agent's
 private notes.
@@ -1365,7 +1365,7 @@ session's tools touch it, as Claude Code loads a nested `CLAUDE.md` (theseus-ug9
 **Why.**
 - 10f joins the TUI (Item 39) as an installed binary that the CLI runs.
 - Merging frames had meant one more combined kernel transition per merge (F2, F2b, theseus-l6y): `kernel.rs` had
-  57 public functions, and each merge grew the API. Review 2's C6 proposed a transaction instead. Eddie accepted
+  57 public functions, and each merge grew the API. Review 2's C6 proposed a transaction instead. The owner accepted
   it with the rest of Review 2 (2026-10-01, 19:54), to open stage C.
 - Its first use is Item 33's gap, theseus-jj9f. An answer took two kernel frames (up to four, with a trust), so
   between them every surface read `● waiting on you`, and a `session.wait --until settled` parked before an answer
@@ -1481,7 +1481,7 @@ daemon's live profile, not the session's; it goes with the persona work, theseus
 
 **The install** (23:26:54 at 9ac009d, Items 38, 39, 41, and 42): the CLI (`tui`, `reach`, and `herdr`),
 `theseusd` (C6 and jj9f), `theseus-sim`, and `theseus-tui`. The live check: a GLM turn, a wait, and `theseus tui`
-drawing Eddie's sessions from a store copy. With it, stage B was complete: rows 8 to 16.
+drawing the owner's sessions from a store copy. With it, stage B was complete: rows 8 to 16.
 
 ### Item 43. One typed fact per thing that happened (theseus-j6qn; Review 2's C2; 2026-10-01 23:28 to 2026-10-02 01:22; reviewed 07:36 to 07:48; b658257, a653cc0, be0deba, 7e2a89d, 5a22ed0, 4eb6db2; installed 07:47 at 4eb6db2)
 
@@ -1520,7 +1520,7 @@ rows would have added more sites.
 - The frame budget tests, the CLI's goldens, the wire fixtures, and C6's kernel golden are unchanged, and the bench
   passed at every gate.
 - **Live**: one GLM turn with an approved `proc.run`, on scratch daemons of the installed build and of C2's, each
-  over a copy of Eddie's store. The 39 ledger rows and the 27 narrative lines were identical, and the
+  over a copy of the owner's store. The 39 ledger rows and the 27 narrative lines were identical, and the
   notifications too, but for where GLM chose to stream thinking in one run.
 - **Gates** green at each commit (1,406 to 1,410 tests), and the review's rerun at 4eb6db2 (1,410 of 1,410, the
   bench on its first run).
@@ -1542,9 +1542,9 @@ log.
 
 ### Item 44. The `hardening2` lane: Review 2's security items (theseus-8dg0; R9, H9, H7, and considerations 2, 3, and 5; 2026-10-01 21:37 to 23:55, two runs (the first ended at the 22:05 usage limit); reviewed 2026-10-02 07:38 to 08:25; rebased onto 4eb6db2 as 8637134 to a704a77, with two join fixes, a26d04c and 59a72b8; joined 08:25 at 59a72b8; not yet installed)
 
-_Correction (v0.77): installed with 9f4035b on 2026-10-02 at 14:23, the install that also made Eddie's daemon a systemd user service (Item 56)._
+_Correction (v0.77): installed with 9f4035b on 2026-10-02 at 14:23, the install that also made the owner's daemon a systemd user service (Item 56)._
 
-**Why.** Six of the Review 2 items Eddie accepted on 2026-10-01 at 19:54:
+**Why.** Six of the Review 2 items the owner accepted on 2026-10-01 at 19:54:
 - R9: an `fs.read` of a FIFO waited forever for a writer, holding a pool core and a thread for the daemon's life;
 - H9: the scrubber caught exact values and seven token prefixes, but not a value encoded, an AWS key, a private-key
   block, or a JWT;
@@ -1574,7 +1574,7 @@ _Correction (v0.77): installed with 9f4035b on 2026-10-02 at 14:23, the install 
   the running `theseusd`, or rename another over it. It is read when asked, never on the start path.
 - **Consideration 5** (a704a77). `shellexpand` is gone: a few lines expand `~` and `$NAME` in configured paths, the
   gate's path check keeps `~` alone, and the CLI has its own `tilde`. MPL-2.0 is off `deny.toml`'s general list,
-  but the voice engine's songbird brings seven MPL-2.0 crates, which are allowed by name until Eddie decides
+  but the voice engine's songbird brings seven MPL-2.0 crates, which are allowed by name until the owner decides
   (theseus-yl5w, P2).
 - **At the rebase** (a26d04c; the review named its first form, 346f2a3): lane herdr's `herdr sync`, which landed
   after this lane branched, called `shellexpand`; it uses the CLI library's `tilde` now.
@@ -1598,7 +1598,7 @@ also made a section with no `channels` key mean the CLI and a trusted user's DM,
 Consideration 5 keeps the gate's path check to `~` alone, and couldn't make §1's licence rule hold: the voice
 engine, merged after the review, brings MPL-2.0 crates of its own.
 
-**Known gaps.** theseus-yl5w (P2: the licence, Eddie's decision). ~~theseus-ur1t: a granted git's hooks and the
+**Known gaps.** theseus-yl5w (P2: the licence, the owner's decision). ~~theseus-ur1t: a granted git's hooks and the
 programs its config names, and the git that gh runs, still get the variable; at L0 a job that can write those can
 also read the process's environment, and L1 is the boundary.~~ (Built in Item 55: a granted git runs no hooks; what
 its config names still reaches the variable at L0, theseus-ngz5.) ~~theseus-txvt (grants to other launchers)~~
@@ -1614,14 +1614,14 @@ recorded a test's bare answerer as `"via":"unnamed"`. Consideration 2 makes that
 (59a72b8). The third passed at 08:24:54: 1,428 of 1,428 tests, and the lifecycle bench in 6.8 s. The wait for the
 shared gate lock cost about 25 minutes across the three (theseus-rx91; Item 51).
 
-**Before the install.** Without an `[approval]` section, Eddie's web UI's answers would be refused, though his
+**Before the install.** Without an `[approval]` section, the owner's web UI's answers would be refused, though his
 cards would still reach his DM. So three lines go into his config first (sent to him at 07:49), and the install waits for them. Then
 health will say `binary: JOBS CAN WRITE …` of his `theseusd`, which holds until the builder runs under
 `theseusd install --separate` (theseus-2r70).
 
 ### Item 45. The v1.1 roadmap (theseus-empf; the `v11` lane, docs only; 2026-10-01 23:35 to 2026-10-02 00:32; reviewed 07:48 to 07:49; 394459e, rebased as 4315d70 and again onto hardening2's join; joined 08:25 at d7358f3)
 
-**Why.** Eddie, 2026-10-01 at 23:11: "a nice ~1week roadmap for after v1 to v1.1". The critical work he named at the
+**Why.** The owner, 2026-10-01 at 23:11: "a nice ~1week roadmap for after v1 to v1.1". The critical work he named at the
 same time, security, performance, and proof points, moved ahead of v1 into lanes. This plans the week after.
 
 **What landed.** `docs/design/roadmap-v1.1.md` (459 lines), indexed in `docs/design/README.md`:
@@ -1640,7 +1640,7 @@ was checked in the code and found not done (each watcher gets a clone, and each 
 is in v1.1. Every Part III "Known gaps" block was read for its issues, each checked open or closed. A mechanical
 check found no private names, ids, or URLs, and the lane's gate passed (1,405 tests).
 
-**What it asks of Eddie.** Four questions, each with a default, so nothing blocks: S5's accounting on a crash, the
+**What it asks of the owner.** Four questions, each with a default, so nothing blocks: S5's accounting on a crash, the
 herdr plugin, the test voice channel, and a Discord `/queue`.
 
 **Found on the way.** Part III gaps that later work closed but never struck: Batch C part 1's two `otel` gaps (moot
@@ -1649,7 +1649,7 @@ strikes them, with pointers.
 
 ### Item 46. The `perf1` lane: reads by state, the start's and the stop's disk work, and the memory target (theseus-cvd0: theseus-lv2, 2qt, 0dq, 02k, 26r, hanu, byu, u6xg, and ndw; 2026-10-01 23:34 to 2026-10-02 01:31, and a second run, 07:35 to 08:15, after the usage limit; reviewed 08:25 to 08:34; rebased onto d7358f3 as a24c1d8, c21f531, and 4ea47e1; joined 08:34 at 4ea47e1; installed 14:23 with 9f4035b)
 
-**Why.** Eddie, 2026-10-01 at 23:11: the critical work now, end to end, with the memory target as a proof point. At
+**Why.** The owner, 2026-10-01 at 23:11: the critical work now, end to end, with the memory target as a proof point. At
 10,000 parked sessions, every start read every execution, and every health answer decoded every execution, action,
 and session. The driver's 500 ms tick read every open execution, and a parked conversation is an execution waiting
 on input, so that was all of them. The history check after serving re-read the whole WAL at every start, a stop paid
@@ -1702,13 +1702,13 @@ withdrawn (theseus-j1ly).
 **Known gaps.** The list methods still read every record: at 10,000 sessions a `session.list` takes 149 ms and
 answers 5.4 MB, the one memory peak left (theseus-96w2, P2). The bench's own Discord binding never binds, so
 `driver_before_token` checks nothing (theseus-l21m, P2). Restore's budget and one for a stop with a post in flight
-were proposed for Eddie's call, and are measured, not gated, until he answers (theseus-fsug; §9). glibc's arenas
+were proposed for the owner's call, and are measured, not gated, until he answers (theseus-fsug; §9). glibc's arenas
 (theseus-4qou), restore's segment links (theseus-j1ly), and a web test's wall clock under load (theseus-ioq7), all P3.
 The request handlers' waits on the disk were S2's (Item 52).
 
 ### Item 47. The `proofs1` lane: Discord proven end to end without a person (theseus-9kjv, with theseus-6g62, theseus-ck0k, theseus-qifw, and theseus-kl8m's steps; 2026-10-01 23:34 to 2026-10-02 08:00, with the usage limit's pause from 01:37 to 07:35; reviewed from 08:26; 88099bb, a25adb0, and d98ed87, merged as d051779, 2d68c88, and 699927d; joined 08:38 at 699927d; installed 14:23 with 9f4035b)
 
-**Why.** theseus-kl8m asked Eddie to prove the Discord binding by hand in the test channel: type a message, press a
+**Why.** theseus-kl8m asked the owner to prove the Discord binding by hand in the test channel: type a message, press a
 card's buttons, and read what came back. A bot can neither type nor press, and the binding's logic needs no person.
 
 **What landed** (§3.1).
@@ -1739,7 +1739,7 @@ card's buttons, and read what came back. A bot can neither type nor press, and t
 - The lane's gate 5: 1,418 of 1,418. Merged into C2, and into the chain's `main` with hardening2, it built and passed
   its 105 tests on each. **The join's gate** at 08:37:32 passed.
 
-**Divergences.** The stand-in, not Eddie, types and presses, in the gate. It is written in Rust on tungstenite
+**Divergences.** The stand-in, not the owner, types and presses, in the gate. It is written in Rust on tungstenite
 rather than taken from C3's Node prototype: one binary, no Node in a check. The REST fake's `answer` was split
 (`read_request`, `bot_route`, `interaction_route`) to fit bench2's 100-line budget (Item 48).
 
@@ -1747,5 +1747,5 @@ rather than taken from C3's Node prototype: one binary, no Node in a check. The 
 yet (theseus-ymi3); read-back on real Discord (theseus-w04x); three hand-written Messages-API stand-ins to unify
 (theseus-luxx), all P3. Four gate tests that flake beside nice-0 neighbours (theseus-zfaq, 1m3s, 535n, 1n5f), and an
 internal ENOENT naming no path from two tests (theseus-46ya, P2; its likely cause found in Item 73). Real Discord's half of kl8m, the bot's permissions
-and intents, stays with Eddie: kl8m is closed as superseded, and he keeps the option of one human run at v1's call.
+and intents, stays with the owner: kl8m is closed as superseded, and he keeps the option of one human run at v1's call.
 

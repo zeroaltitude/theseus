@@ -66,7 +66,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     detour admits its window's messages, replies and results, and a task's arrangement among them, never a recall
     or a summary (`compile_detour` leaves those out). `check`, after the compile, fails a piece not admitted, or a
     set that does not close (a result without its call, a call without its result), as `context_unadmitted`, with
-    nothing sent and no retry; it enforces from the first day, with no shadow mode (Eddie, 2026-10-05). An assembled
+    nothing sent and no retry; it enforces from the first day, with no shadow mode (the owner, 2026-10-05). An assembled
     `recall_id` whose node is not in the session is a section never written (its call never dispatched; nodes are
     never deleted): the render leaves it out, and so does the check (theseus-783a). The
     precedence line (`PRECEDENCE`) follows the persona and the assembly note in the header. Headers written from 35a
@@ -196,7 +196,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `cgroup` startup phase holds the answer, and `run_job` hands it to each wrapper (`WrapperArgs.cgroup`), whose
   command is born in a cgroup of its own with `[tools] job_pids_max`. A result whose cap refused processes says so
   (`toolrun/job.rs`). The daemon's `tests/cgroup.rs` runs them in delegated scopes and units.
-- **Grants in L1** (theseus-w5op; decided by Eddie 2026-10-03, superseding theseus-7y9y): an L1 job takes its
+- **Grants in L1** (theseus-w5op; decided by the owner 2026-10-03, superseding theseus-7y9y): an L1 job takes its
   program's broker grants at its launch, exactly as an L0 job does. The gate's order (`toolrun/order.rs`) runs
   the L1 decision (`sandbox::unbrokered`) through `ToolRuntime::brokered` (decision 15: the stricter of the call's
   posture and the secret's, so any approval comes before the launch), and `sandbox::for_job` asks
@@ -707,7 +707,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   allow list, then the posture; a granted secret's posture and the external-text hold apply after it, and the
   stricter wins. The whole order after the place's refusal is written once, in `toolrun/order.rs`, which the gate
   and `policy.explain` both run.
-- **An L1 call runs at notify** (Eddie's decision, 2026-10-02): none of the L0 order applies, since the view hides
+- **An L1 call runs at notify** (the owner's decision, 2026-10-02): none of the L0 order applies, since the view hides
   the floor, the approve list's paths, and the socket; the external-text hold still does, and so does the
   operator's own word about the tool: a `[policy.tools]` line or a tightening that asks makes it wait
   (theseus-jfs6), and so do hosts its call names beyond `[sandbox] egress` (18c), and a granted secret's posture,
@@ -748,7 +748,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   template test holds it (`the_templates_harness_only_keys`). A program granted `aws_account` gets a short-lived
   job session at launch (`Broker::for_job_of`, `aws::Account::job_session`), never the key, and none before the
   owner role exists. Containment is that, the operator's `[broker]` grants,
-  and the egress list: credentials as stand-ins (TLS interception at the proxy) were dropped for v1 (Eddie,
+  and the egress list: credentials as stand-ins (TLS interception at the proxy) were dropped for v1 (the owner,
   2026-10-03). Do nothing heavier without his say.
 - **One fact, recorded once.** A new ledger row, notification, or narrative sentence is a fact's projection in
   `fact/`, not a hand-written channel at its site. Recording writes no frame: its row rides in the turn's next frame

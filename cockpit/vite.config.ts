@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 // (src/protocol.gen) a theseus-protocol test writes from the Rust ones.
 //
 // `npm run dev` serves the page on 127.0.0.1:5174, and the page connects STRAIGHT to the daemon's /ws
-// (THESEUS_DEV_DAEMON; default a scratch daemon on 127.0.0.1:7434, never Eddie's 7433). Set that daemon's
+// (THESEUS_DEV_DAEMON; default a scratch daemon on 127.0.0.1:7434, never the owner's 7433). Set that daemon's
 // `[web] dev_origin = "http://127.0.0.1:5174"` while developing (off by default; each use is ledgered). There is
 // no /ws proxy: a proxy, whether or not it rewrites Origin, relays other pages and other users' processes to the
 // daemon from the operator's own socket (theseus-zab, theseus-88im). Never add one.

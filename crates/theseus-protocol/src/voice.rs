@@ -49,7 +49,7 @@ pub struct VoiceStatus {
 }
 
 impl VoiceStatus {
-    /// `theseus health`'s line: `voice: joined #lounge (eddie) · 4 utterances
+    /// `theseus health`'s line: `voice: joined #lounge (zeroaltitude) · 4 utterances
     /// (12.3 s) · 9 sentences (512 chars) · 1 barge-in · 2 resumed · $0.0164`.
     pub fn line(&self) -> String {
         let at = match (&self.channel, self.state.as_str()) {

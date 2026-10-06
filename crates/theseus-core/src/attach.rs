@@ -115,8 +115,8 @@ fn from_words(author: Option<&str>) -> String {
 
 /// The line that names an attachment wherever it is shown: the model's
 /// context, the web UI, and `theseus history`. For example
-/// `[Attachment message.txt from discord:eddie, 5,012 bytes]`, or
-/// `[Image photo.png from discord:eddie, 1.2 MB, 1280×720]`.
+/// `[Attachment message.txt from discord:zeroaltitude, 5,012 bytes]`, or
+/// `[Image photo.png from discord:zeroaltitude, 1.2 MB, 1280×720]`.
 pub fn header(a: &Attachment, author: Option<&str>) -> String {
     let from = from_words(author);
     let name = clean(&a.name);
@@ -1267,8 +1267,8 @@ pub(crate) mod tests {
             }
         );
         assert_eq!(
-            header(&got[0], Some("discord:eddie")),
-            "[Attachment a.txt from discord:eddie, 6 bytes; cut to its first 4 bytes]"
+            header(&got[0], Some("discord:zeroaltitude")),
+            "[Attachment a.txt from discord:zeroaltitude, 6 bytes; cut to its first 4 bytes]"
         );
         let whole = from_wire(
             vec![wire("message.txt", Some(&"x".repeat(5_012)), None)],
@@ -1277,8 +1277,8 @@ pub(crate) mod tests {
         )
         .0;
         assert_eq!(
-            header(&whole[0], Some("discord:eddie")),
-            "[Attachment message.txt from discord:eddie, 5,012 bytes]"
+            header(&whole[0], Some("discord:zeroaltitude")),
+            "[Attachment message.txt from discord:zeroaltitude, 5,012 bytes]"
         );
         assert!(
             for_model(&whole[0], None).starts_with("[Attachment message.txt, 5,012 bytes]\nxxx")
@@ -1297,12 +1297,12 @@ pub(crate) mod tests {
         w.media_type = "application/zip".into();
         let got = from_wire(vec![w], caps(262_144), &blobs).0;
         assert_eq!(
-            for_model(&got[0], Some("discord:eddie")),
-            "[Attachment dump.zip from discord:eddie, application/zip, 20.0 MB: not read: over the limit for text (262,144 bytes)]"
+            for_model(&got[0], Some("discord:zeroaltitude")),
+            "[Attachment dump.zip from discord:zeroaltitude, application/zip, 20.0 MB: not read: over the limit for text (262,144 bytes)]"
         );
         assert_eq!(
-            display_text("see attached", &got, Some("discord:eddie")),
-            "see attached\n[Attachment dump.zip from discord:eddie, application/zip, 20.0 MB: not read: over the limit for text (262,144 bytes)]"
+            display_text("see attached", &got, Some("discord:zeroaltitude")),
+            "see attached\n[Attachment dump.zip from discord:zeroaltitude, application/zip, 20.0 MB: not read: over the limit for text (262,144 bytes)]"
         );
         // A name cannot break the header's line.
         let odd = from_wire(vec![wire("a\nb].txt", Some("t"), None)], caps(10), &blobs).0;
@@ -1337,8 +1337,8 @@ pub(crate) mod tests {
         let stored = serde_json::to_string(&got[0]).unwrap();
         assert!(stored.len() < 300, "no bytes in the node: {stored}");
         assert_eq!(
-            header(&got[0], Some("discord:eddie")),
-            "[Image shot.png from discord:eddie, 1,033 bytes, 1280×720]"
+            header(&got[0], Some("discord:zeroaltitude")),
+            "[Image shot.png from discord:zeroaltitude, 1,033 bytes, 1280×720]"
         );
 
         // Rendered for a vision model: the header, then one image block, and
@@ -1353,7 +1353,7 @@ pub(crate) mod tests {
             hidden: &[],
         };
         let mut spend = Spend::default();
-        let b = blocks(&got[0], Some("discord:eddie"), &vision, &mut spend);
+        let b = blocks(&got[0], Some("discord:zeroaltitude"), &vision, &mut spend);
         let tokens = spend.tokens;
         assert_eq!(b.len(), 2);
         assert_eq!(b[1]["type"], "image");
@@ -1365,7 +1365,7 @@ pub(crate) mod tests {
         assert!(tokens > 0 && tokens <= 1_568, "{tokens}");
         let again = blocks(
             &got[0],
-            Some("discord:eddie"),
+            Some("discord:zeroaltitude"),
             &vision,
             &mut Spend::default(),
         );
@@ -1385,9 +1385,9 @@ pub(crate) mod tests {
         };
         let mut none = Spend::default();
         assert_eq!(
-            blocks(&got[0], Some("discord:eddie"), &blind, &mut none),
+            blocks(&got[0], Some("discord:zeroaltitude"), &blind, &mut none),
             vec![
-                json!({"type": "text", "text": "[Image shot.png from discord:eddie, 1,033 bytes: not shown, this model has no vision]"})
+                json!({"type": "text", "text": "[Image shot.png from discord:zeroaltitude, 1,033 bytes: not shown, this model has no vision]"})
             ]
         );
         assert_eq!(none, Spend::default());
@@ -1404,9 +1404,9 @@ pub(crate) mod tests {
         };
         let mut none = Spend::default();
         assert_eq!(
-            blocks(&got[0], Some("discord:eddie"), &hiding, &mut none),
+            blocks(&got[0], Some("discord:zeroaltitude"), &hiding, &mut none),
             vec![
-                json!({"type": "text", "text": "[Image shot.png from discord:eddie, 1,033 bytes: not shown, the provider refused it (Could not process image)]"})
+                json!({"type": "text", "text": "[Image shot.png from discord:zeroaltitude, 1,033 bytes: not shown, the provider refused it (Could not process image)]"})
             ]
         );
         assert_eq!(none, Spend::default());
@@ -1613,7 +1613,7 @@ pub(crate) mod tests {
         ])
     }
 
-    /// Eddie's case (theseus-c9l6): an attached PDF is kept whole, read
+    /// The owner's case (theseus-c9l6): an attached PDF is kept whole, read
     /// once, and shown to a model that reads PDFs as a document block of its
     /// own bytes; the same node renders the same bytes every time.
     #[test]
@@ -1654,12 +1654,12 @@ pub(crate) mod tests {
 
         let media = claude(&blobs, 600, &[]);
         let mut spend = Spend::default();
-        let b = blocks(&got[0], Some("discord:eddie"), &media, &mut spend);
+        let b = blocks(&got[0], Some("discord:zeroaltitude"), &media, &mut spend);
         assert_eq!(b.len(), 2, "{b:?}");
         let size = bytes.len();
         assert_eq!(
             b[0]["text"],
-            format!("[PDF orders.pdf from discord:eddie, {size} bytes, 3 pages]")
+            format!("[PDF orders.pdf from discord:zeroaltitude, {size} bytes, 3 pages]")
         );
         assert_eq!(b[1]["type"], "document");
         assert_eq!(b[1]["source"]["media_type"], "application/pdf");
@@ -1675,7 +1675,7 @@ pub(crate) mod tests {
         );
         let again = blocks(
             &got[0],
-            Some("discord:eddie"),
+            Some("discord:zeroaltitude"),
             &media,
             &mut Spend::default(),
         );
@@ -1927,14 +1927,14 @@ pub(crate) mod tests {
         for media in [glm(&blobs), claude(&blobs, 600, &[])] {
             let b = blocks(
                 &got[0],
-                Some("discord:eddie"),
+                Some("discord:zeroaltitude"),
                 &media,
                 &mut Spend::default(),
             );
             assert_eq!(b.len(), 1);
             assert_eq!(
                 b[0]["text"],
-                format!("[Document rules.docx from discord:eddie, {size} bytes]\n--- text ---\n# Harbour rules\n\nMoorings are free after six.")
+                format!("[Document rules.docx from discord:zeroaltitude, {size} bytes]\n--- text ---\n# Harbour rules\n\nMoorings are free after six.")
             );
         }
     }

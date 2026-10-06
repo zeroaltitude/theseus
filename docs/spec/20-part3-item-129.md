@@ -139,7 +139,7 @@ with it on it is one tokio task that reads one META row and sleeps until the lat
 minutes. No turn path: `learning.report` runs under `spawn_blocking`, and `judge.label` is a read, a check and one
 append.
 
-**The install** (14:09, at bddfd407, install #1). Eddie's judge is on (every pack shadow, as configured), so the tender
+**The install** (14:09, at bddfd407, install #1). The owner's judge is on (every pack shadow, as configured), so the tender
 runs on his daemon at `learning_hour` 3, never within 10 minutes of a start. Health after the restart: the config from
 `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready, judge on, lsp on, startup 73.1 ms; the store from format 6
 to 14 on start.
@@ -148,10 +148,10 @@ to 14 on start.
 and a job's shell may run `theseus judge report`; reading by `--date` writes only a missing file. A whole-judgment
 `right` or `wrong` stands for every question. A Choice's metrics count unweighted judgments. The holdout's numbers sit
 in the report beside the all-time ones (the ladder should cite the holdout's). Per-item questions are not graded:
-rerank.v1's `helps` and `helps_more` (32c) show 0 answered, since the report reads whole answers only (Eddie's decision
+rerank.v1's `helps` and `helps_more` (32c) show 0 answered, since the report reads whole answers only (the owner's decision
 4, at 10:11, added grading them to 32d, Item 141). The system rules' windows ("the next human message",
 classify's turn end) wait for their window, so a label can appear a night after its event. Not built, as the brief
-said: the learning channel's digest (theseus-0j2.10, which has no roadmap row yet and waits for Eddie's channel), the
+said: the learning channel's digest (theseus-0j2.10, which has no roadmap row yet and waits for the owner's channel), the
 canary part of the report, nudge labels, the `control` label, and an audit label writer (rows with `source: audit` are
 read and counted).
 
@@ -159,7 +159,7 @@ read and counted).
 is right). theseus-cf5c (P3: each run re-derives system labels over every judgment in history, and reads every judged
 session's nodes for loop and classify, though every rule settles within about a day). The label buttons and the Learning
 panel were built, linted and unit-tested (39 of 39), but neither the session nor the review loaded them in a browser.
-The learning loop that uses these labels to change Jev's prompts (theseus-0j2.12) was approved by Eddie at 10:21 and
+The learning loop that uses these labels to change Jev's prompts (theseus-0j2.12) was approved by the owner at 10:21 and
 built later (Item 164).
 
 ### Item 130. `budget.list` and `policy.explain`: where the money is, and why a call waits, read from the gate's order written once (theseus-ext.7; roadmap row 73, step 42a; the fifth cloud batch's budgets-policy session, launched 05:58 and fired 06:01 from 35784d7c, Opus 5.5; fabe50b5 and 2a0c60d7; reviewed 08:49 to 09:43 by local reviewer R2, merged onto 94304c3b; joined 10:00 at 4c3a7008, a signed merge onto 084ccbbb, by the batch-5 harvest wake; installed 14:09 at bddfd407, install #1)
@@ -265,7 +265,7 @@ single slowest of 10 runs; the daemon's p50 142.0 against 143.0): the gate's pat
 theseus-ext.7 closed. extensions-load (43b, Item 133) joined second and carried its load floor into
 `order.rs`, as R2's review of it said.
 
-**The install** (14:09, at bddfd407, install #1). `theseus budgets` and `theseus policy explain` read Eddie's daemon
+**The install** (14:09, at bddfd407, install #1). `theseus budgets` and `theseus policy explain` read the owner's daemon
 from then on. Health after the restart: the config from `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready,
 judge on (every pack shadow), lsp on, startup 73.1 ms; the store from format 6 to 14 on start.
 
@@ -285,7 +285,7 @@ is shown by the reads' structure and the 5,000-row test, not counted. The sessio
 not on the flaky list. 42b, the Budgets, Ledger and Policy tabs that read these two, came later, in the cockpit
 (theseus-ext.15, Item 165).
 
-### Item 131. Compaction: a `Summary` where the ring would cut, the latest summary as the floor of every recompile, `context_overage` before any call, and the assembled strategy (recall, then the summary, then the tail), with Eddie's `session` default on top (theseus-6fn.4; roadmap row 54, step 30c; the fifth cloud batch's compaction-roots session, launched 02:59 and fired 03:03 from 760553f7, Opus 5.5; 407ea057 and be3d7bb7; reviewed 08:37 to 09:56 by local reviewer R1, finished by its relaunch after R1's run failed at about 09:15; merged at 10:09 as f2695593, a signed merge onto 4c3a7008, with 802f9135, decision 3's default, on top; joined 11:10 by the batch-5 harvest wake, store format 13; installed 14:09 at bddfd407, install #1)
+### Item 131. Compaction: a `Summary` where the ring would cut, the latest summary as the floor of every recompile, `context_overage` before any call, and the assembled strategy (recall, then the summary, then the tail), with the owner's `session` default on top (theseus-6fn.4; roadmap row 54, step 30c; the fifth cloud batch's compaction-roots session, launched 02:59 and fired 03:03 from 760553f7, Opus 5.5; 407ea057 and be3d7bb7; reviewed 08:37 to 09:56 by local reviewer R1, finished by its relaunch after R1's run failed at about 09:15; merged at 10:09 as f2695593, a signed merge onto 4c3a7008, with 802f9135, decision 3's default, on top; joined 11:10 by the batch-5 harvest wake, store format 13; installed 14:09 at bddfd407, install #1)
 
 **Why.** M6's design (`docs/design/m6-memory.md` §2.5) names two context strategies beyond the ring: compaction,
 where the ring would drop a session's leading turns, a profile summarizes the dropped range into a `Summary` node; and
@@ -351,7 +351,7 @@ step, the compiler's floor rule and the facts module; step 5 (the assembled stra
 - **The store's format**: 8 to 9 on the branch's base, for the `Summary` body and a compilation's `recall_id`;
   **renumbered to 13 at the join** (main's 12 plus one), with every pin. The COMPILATION layout 8 (30b's, before
   `recall_id`) joined `tests_layouts`, written by hand in that build's layout.
-- **802f9135, Eddie's decision 3 on top** ("Jev makes the call", 09:43): until Jev routes the summary (route.v1,
+- **802f9135, the owner's decision 3 on top** ("Jev makes the call", 09:43): until Jev routes the summary (route.v1,
   theseus-0j2.11, Item 139), `summary_profile` defaults to a new word, `session`: the turn's own `Target`
   (profile, provider and model) is cloned for the summary call, so no second provider reads a session's text by
   default, and the row, the node and its header name its profile. A key of `[profiles]` still sends the range to that
@@ -418,7 +418,7 @@ moved whole into `turn/compile_step.rs`** (turn.rs 3,538 to 3,417 lines against 
 lines (with the reason "split it: the render and the estimate are each a module of their own"), `render_messages` (106
 lines) marked with the codebase's `too_many_lines` expectation, and the semantic fixes (E0061, E0063 and E0004: memory-
 arm's `recall_begin` sources, `Compiled`'s `signals` in the ring's fallback, `Summary` in arrangement's `text_of` (not
-a quote source, as a recall is not) and in the exam's `kind_of`, test literals). Eddie's default went on top as a second
+a quote source, as a recall is not) and in the exam's `kind_of`, test literals). The owner's default went on top as a second
 signed commit, gated with the merge, so main never carried 30c with `glm` as the default. **Gate run 1, red at
 10:50:58** (2,303 of 2,308): four `tests_overflow` tests, caused by the new default (the ring's suite never configured
 glm's provider, so its compactions used to fall back to the ring; on the session's own model they summarized with the
@@ -446,7 +446,7 @@ section; only a section recalled for the compaction, or at a task's first compil
 deterministic (the estimate, or the provider's word); CONTINUE (25b) is not touched. The join's two choices, neither
 covered by a test: the task view counts toward the window, and the assembled section at a compaction follows memory-
 arm's arm rule (a live arm's own sources; `live` with arm `none` asks nothing). The design's "cheap profile" became,
-by Eddie's decision, the session's own model by default; 802f9135 amended m6-memory.md §2.5 and its config sketch to
+by the owner's decision, the session's own model by default; 802f9135 amended m6-memory.md §2.5 and its config sketch to
 say so.
 
 **Known gaps.** theseus-6fn.8 and theseus-6fn.9 (P3, above). The cockpit's compaction view (a session's compactions
@@ -590,12 +590,12 @@ frames 5 and 9, plain p50 84.6 ms (p95 108.6) and tool-call p50 171.4 ms (p95 19
 171.2: **overnight decision 25's re-measure**, which showed 30c's high reading at its own join was load, and the
 branch's one `Option` match per compile shows nothing. Pushed 11:45; theseus-vug.3 closed.
 
-**The install** (14:09, at bddfd407, install #1). Its format, 14, is the one Eddie's store reached: from 6 to 14 on
+**The install** (14:09, at bddfd407, install #1). Its format, 14, is the one the owner's store reached: from 6 to 14 on
 start, one way, as every bump. Health after the restart: the config from `/etc/theseus/theseus.toml`, 9 secrets ready,
 discord ready, judge on (every pack shadow), lsp on, startup 73.1 ms.
 
-**Eddie's call.** theseus-w8ys (P2) asked whether a check's task-graph view should stay as it is, leave out the
-checked task's record, or show it by title only; the harvest asked without a recommendation. At 10:45, under Eddie's
+**The owner's call.** theseus-w8ys (P2) asked whether a check's task-graph view should stay as it is, leave out the
+checked task's record, or show it by title only; the harvest asked without a recommendation. At 10:45, under the owner's
 "Take all of these excellent recommendations" (overnight notes, the 9am review), the call made for him: in a check's
 view, the checked task and its subtasks show title and state only, no notes and no evidence; the check keeps the
 graph's shape and gets the objective and the claim through its own basis (hiding the record outright would leave
@@ -762,7 +762,7 @@ still to be seen.
 
 ### Item 134. Step 40's network: AWS hands in an existing VPC, never a NAT of their own, and a guard that uses another project's network and never changes it (theseus-mgw.9; step 40's network, after aws-hands; the fifth cloud batch's hands-network session, launched 05:42 and fired 05:46 from a4da5e1c, hands-cancel's join, Opus 5.5; 161225d5, 89aa52ce, 840ff07e and ab27e367; reviewed offline 10:37 to 11:23 by local reviewer R2; joined 12:05 at 452b0b9d, a signed merge onto bb210c2d, by the batch-5 harvest wake; installed 14:09 at bddfd407, install #1; its live check waits for the owner)
 
-**Why.** At 23:24 on 2026-10-03 Eddie cleared aws-hands' live check (Item 107) on one condition: the hands
+**Why.** At 23:24 on 2026-10-03 the owner cleared aws-hands' live check (Item 107) on one condition: the hands
 reuse the NAT gateway the account already runs for another of the operator's projects, rather than add one of their
 own (about $36 a month). The aws-hands branch could not: `theseus-hands-network.yaml` always made its own VPC, with a
 `NatGateway` toggle, and Fargate's discovery read the network only from that stack's outputs. mgw.9 lets the hands
@@ -891,7 +891,7 @@ template rule asks. A floor session, allow-all alone after an approval, is not u
 
 ### Item 135. The cockpit without WebGL: a plain page in the Ship's place, not the crash page (theseus-9k53; the `cockpit-webgl` lane, a subagent spawned 12:50 on the brief written 12:48, Opus 5.5, in a worktree from 452b0b9d; 3193f660; the lane's review line and join at 13:14, a fast-forward onto 452b0b9d; installed 14:09 at bddfd407, install #1)
 
-**Why.** At 12:45 Eddie's cockpit (his daemon, `localhost:7433`) showed only an error page: "THREE.WebGLRenderer: Error
+**Why.** At 12:45 the owner's cockpit (his daemon, `localhost:7433`) showed only an error page: "THREE.WebGLRenderer: Error
 creating WebGL context", with the console's "A WebGL context could not be created … GL_VENDOR = Disabled …". His
 browser had WebGL off. The Ship's engine built `THREE.WebGLRenderer` unguarded, its constructor threw, and the route's
 `errorElement` took the Ship's place. The cockpit opens on the Ship, and the install he was about to take brought
@@ -929,7 +929,7 @@ Judgment, the label buttons, approval cards and Extensions to it, so this fix we
   - SwiftShader: the Ship's canvas drew (3 frames on an idle daemon), no fallback;
   - a render error planted in the Ship's tree: "The Ship stopped" in its place, the rail there;
   - **the planted revert** (`Ship.tsx` as on main): the old crash page, "THREE.WebGLRenderer: Error creating WebGL
-    context.", with three's console message in the same shape as Eddie's. Restored with a fresh mtime, rebuilt, and
+    context.", with three's console message in the same shape as the owner's. Restored with a fresh mtime, rebuilt, and
     the modes rerun.
 
   The check reads titles by `textContent`, since CSS upper-cases them in `innerText`; its first "before" run missed the
@@ -949,7 +949,7 @@ cockpit change cannot move it); L1 start p50 6.08 ms; turn frames 5 and 9, plain
 fdatasync p50 13.1 ms, about twice its quiet value. Pushed 13:14:01; theseus-9k53 closed; worktree, branch and target
 removed. Main was then free for install #1.
 
-**The install** (14:09, at bddfd407, install #1). Eddie's cockpit at `/` carries the fallback. Health after the restart:
+**The install** (14:09, at bddfd407, install #1). The owner's cockpit at `/` carries the fallback. Health after the restart:
 the config from `/etc/theseus/theseus.toml`, 9 secrets ready, discord ready, judge on, lsp on, startup 73.1 ms. The same
 afternoon his Windows browser reached the cockpit through the relay on port 17433 (the chain log's 14:19 line), since
 the machine's mirrored loopback was broken both ways.
@@ -961,7 +961,7 @@ landing view was.
 covered: three stops drawing and the Ship goes still, but nothing throws, so no fallback shows. The probe runs once a
 page, so a page that found no WebGL keeps the fallback until a reload.
 
-### Item 136. 31a: the memory pass after each turn, written only between turns: a deterministic labeler, the gate's `same_entity` and `supersedes` edges, attribution, baseline's second version, and `memory.v1` and `attribution.v1` in shadow (theseus-6fn.6, with theseus-ms5m and theseus-lx3x; roadmap row 56, step 31a; the fifth cloud batch's memory-pass session, launched 02:59 and fired 03:03 from 760553f7, recall-node's join, Opus 5.5; 18d94da5, 441d9ef4, ae58b540, ed0a3e1e, eb08cbd7, 9456a4fc, 4aaaf0a9 and e79c9f63; reviewed 09:25 to 11:13 by local reviewer R1's relaunch (R1c), not accepted on theseus-ms5m; Eddie's decision 10 at 12:45; its three fixes by the memory-pass-finish subagent, 12:50 to 13:40, re-checked in the review's addendum; joined 14:04 at bddfd407 by the DM thread, the signed merge d3ac1c2a onto 3193f660 and three signed fix commits, 1058b7a1, db421a51 and bddfd407; installed 14:09 at bddfd407, install #1)
+### Item 136. 31a: the memory pass after each turn, written only between turns: a deterministic labeler, the gate's `same_entity` and `supersedes` edges, attribution, baseline's second version, and `memory.v1` and `attribution.v1` in shadow (theseus-6fn.6, with theseus-ms5m and theseus-lx3x; roadmap row 56, step 31a; the fifth cloud batch's memory-pass session, launched 02:59 and fired 03:03 from 760553f7, recall-node's join, Opus 5.5; 18d94da5, 441d9ef4, ae58b540, ed0a3e1e, eb08cbd7, 9456a4fc, 4aaaf0a9 and e79c9f63; reviewed 09:25 to 11:13 by local reviewer R1's relaunch (R1c), not accepted on theseus-ms5m; the owner's decision 10 at 12:45; its three fixes by the memory-pass-finish subagent, 12:50 to 13:40, re-checked in the review's addendum; joined 14:04 at bddfd407 by the DM thread, the signed merge d3ac1c2a onto 3193f660 and three signed fix commits, 1058b7a1, db421a51 and bddfd407; installed 14:09 at bddfd407, install #1)
 
 **Why.** §5.2 and `docs/design/m6-memory.md` §2.6: after each turn, a pass labels what was said, links near-duplicates
 and corrections, and records which recalled notes the reply used, so later steps (31b's consolidation, 32a's retention,
@@ -1052,7 +1052,7 @@ ledger rows, so the store stays at 14).
   due 2 s after A's first turn and was written 511 ms after A's last; B's came 1.8 s after its last turn.
 
 **The join.** The finisher took the join lock at 13:37, found the DM thread's `install-wsl-restart` lock holding main
-(the restart for Eddie's broken loopback) and released its own untouched; the WSL restart (13:50) ended it. The DM thread
+(the restart for the owner's broken loopback) and released its own untouched; the WSL restart (13:50) ended it. The DM thread
 ran its `fix/join.sh` at 13:56: the signed merge d3ac1c2a (rerere replayed six of the seven conflicted files; `graph.rs`
 had a new preimage beside `VIA_CLAIM`, and the keep-both held), joinfix.py's fixes, then the three fix commits from
 their patches, and a check that the tree differed from the proven one only by main's files since 452b0b9d. The join
@@ -1067,13 +1067,13 @@ and p95 54.7); L1 start p50 5.36 ms; turn frames 5 and 9, plain p50 75.7 ms, too
 Pushed; theseus-6fn.6, theseus-ms5m and theseus-lx3x closed; plan row 56 joined. The DM thread's review (14:21) matched
 the worker's proofs to their logs.
 
-**The install** (14:09, at bddfd407, install #1, the install's own head). Eddie's config, written to
+**The install** (14:09, at bddfd407, install #1, the install's own head). The owner's config, written to
 `/etc/theseus/theseus.toml` at 13:07, runs `[memory]` live on arm `baseline`, with `[judge]` and `[lsp]` on, so the
 pass labels his turns, and `memory.v1` and `attribution.v1` run in shadow. Health after the restart: 9 secrets ready, discord ready,
 judge on (every pack shadow), lsp on, startup 73.1 ms; `theseus memory search` ran on `baseline@8bc51e97`, version 2,
 while the vectors were still loading; the store from format 6 to 14 on start.
 
-**Eddie's calls.** Decision 10 at 12:45, "option c, I agree": the pass writes only between turns and stays on in the
+**The owner's calls.** Decision 10 at 12:45, "option c, I agree": the pass writes only between turns and stays on in the
 turn bench (ms5m), the correction rule runs before the 0.92 line (lx3x), and compaction summaries join the eligible
 bodies (R1c had left them never labeled, as harness writing). The review's other points for him: the bounds' values
 (120 s and 600 s; only the second lets a frame into a turn); `memory.v1` at sample 1.0 (with the judge and memory on,
@@ -1098,7 +1098,7 @@ test races a 100 ms stillness wait).
 
 ### Item 137. The README's logo, animated: rolling seas, with a GIF fallback and the still logo for reduced motion (theseus-wuxa; the `logo` lane, a subagent spawned 14:27 on the brief written 14:26, in a worktree from bddfd407; 9bf8ac35; joined 15:10 at 9bf8ac35, a fast-forward onto bddfd407, by the lane; reviewed 16:18 by the DM thread; docs only, in the tree at install #2, 20:00 at 3085f71a)
 
-**Why.** Eddie at 13:07 and 13:10: "what ever happened to my rolling seas animaged theseus logo?", and "I meant the
+**Why.** The owner at 13:07 and 13:10: "what ever happened to my rolling seas animaged theseus logo?", and "I meant the
 image also in the readme at the top-- making that an animated gif/png/etc"; at 14:24, that it did not yet appear live
 on GitHub. No animated logo had ever existed: the README's top image was the static `docs/assets/theseus-logo.svg`.
 
@@ -1127,7 +1127,7 @@ pixels differ. ffmpeg decodes the GIF's 150 frames, each matching its paletted s
 the last frame to the first changes 12,490 px, within an ordinary step's 12,036 to 12,594. **Live on GitHub**, after
 the push: GitHub keeps the `<picture>`, rewrites its relative sources to the repository's raw paths, and the browser
 loads the animated SVG at 200×200 with the alt text; two shots of the page differ in 5,563 px, all inside the logo's
-box; the SVG is served as `image/svg+xml` with its 18 animations running; GitHub's blobs match local main. Eddie saw
+box; the SVG is served as `image/svg+xml` with its 18 animations running; GitHub's blobs match local main. The owner saw
 it (the DM thread's review, 16:18). The scrub found only what main's README already had.
 
 **What the lane found.** After the commit, a renderer flaw: Chrome repaints only part of what moved when animations are
@@ -1151,7 +1151,7 @@ notes.
 
 ### Item 138. One-command setup: `scripts/setup.sh` from a checkout to a running user service, the config's lookup ending at `/etc/theseus/theseus.toml`, `--unit` for a second daemon, and the README's "Set it up" (theseus-00me and theseus-5aqz; the `setup` lane, a subagent spawned 14:12 on its brief, in a worktree from bddfd407; 6be6bdc6 and 2e5c2cf7; joined 16:01 at d5ff8489, a signed merge onto 9bf8ac35, by the lane, on its second gate; reviewed 16:12 by the DM thread; installed 20:00 at 3085f71a, install #2, by the install script, with setup.sh's dry run on the same machine)
 
-**Why.** Eddie at 13:05: the config leaves the vault for "a default /etc based config; you're in charge of maintaining
+**Why.** The owner at 13:05: the config leaves the vault for "a default /etc based config; you're in charge of maintaining
 it", with no secrets in it and the template kept in source (theseus-5aqz: the code's default should find it). At 13:10:
 one-command setup in the README, "so other agents can set up theseus trivially", and Linux only, by design, using the
 kernel (theseus-00me; the kernel features went to their own survey, theseus-779n).
@@ -1241,7 +1241,7 @@ the binary swap 88.7 and 100.6); L1 start p50 7.70 ms; turn frames 5 and 9, fdat
 MB after 30 turns. Pushed 16:01:37; theseus-00me and theseus-5aqz closed. The DM thread's review (16:12) checked the
 signature, the files, the operator's untouched daemon and the scrub's counts, unchanged by the join.
 
-**The install** (19:59:53 to 20:00:01, at 3085f71a, install #2). The install script did it, with Eddie's 18:02
+**The install** (19:59:53 to 20:00:01, at 3085f71a, install #2). The install script did it, with the owner's 18:02
 profiles added to his config first; `scripts/setup.sh --dry-run` also ran on the machine: exit 0, nothing changed. His
 config was already at `/etc/theseus/theseus.toml` (since 13:07), which the lookup now finds by itself. Health: store
 format 16; route.v1, rerank.v1 and security.v3 live; startup serving 29.1 ms.

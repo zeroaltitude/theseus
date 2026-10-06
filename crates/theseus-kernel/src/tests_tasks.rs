@@ -288,14 +288,16 @@ fn a_cancelled_task_reports_once_and_releases_its_carve() {
     let (parent, _g, task, _) = with_task(&w, 30_000);
     let mut calls = 0;
     w.kernel
-        .cancel_execution_with(&task.id, "discord:eddie", |end| {
+        .cancel_execution_with(&task.id, "discord:zeroaltitude", |end| {
             calls += 1;
             assert_eq!(end.execution.state, ExecState::Cancelled);
             Ok(vec![])
         })
         .unwrap();
     w.kernel
-        .cancel_execution_with(&task.id, "discord:eddie", |_| panic!("cancelled once"))
+        .cancel_execution_with(&task.id, "discord:zeroaltitude", |_| {
+            panic!("cancelled once")
+        })
         .unwrap();
     assert_eq!(calls, 1);
     let p = exec(&w, &parent.id);
@@ -602,7 +604,7 @@ fn a_cancelled_task_wakes_nothing() {
     let w = world();
     let (parent, task) = waiting_with_waking_task(&w);
     w.kernel
-        .cancel_execution(&task.id, "discord:eddie")
+        .cancel_execution(&task.id, "discord:zeroaltitude")
         .unwrap();
     let p = exec(&w, &parent.id);
     assert_eq!(
@@ -627,7 +629,7 @@ fn a_reports_wake_outlives_a_stop_of_its_parents_turn() {
         .unwrap()
         .task;
     w.kernel
-        .stop_execution(&parent.id, "discord:eddie")
+        .stop_execution(&parent.id, "discord:zeroaltitude")
         .unwrap()
         .unwrap();
     finish(&w, &t.id);

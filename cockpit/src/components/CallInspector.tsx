@@ -40,7 +40,7 @@ function phases(rows: LedgerEntry[]): Phase[] {
     out.push({ name: 'planned', from: planned, to: asked, tone: 'idle' })
   }
   if (asked !== undefined && (answered ?? authorized ?? settle?.at_unix_ms) !== undefined) {
-    // The answer's row names the person (discord:eddie, the CLI); the confirm's own row may say only "operator".
+    // The answer's row names the person (discord:zeroaltitude, the CLI); the confirm's own row may say only "operator".
     const ans = (rows.find((r) => r.kind === 'action.confirm_answered') ?? rows.find((r) => r.kind === 'action.confirmed'))?.data as D | undefined
     const verb = ans?.approved === false ? 'declined' : 'answered'
     out.push({ name: 'awaiting approval', from: asked, to: (answered ?? authorized ?? settle!.at_unix_ms), tone: 'wait', note: ans?.by ? `${verb} by ${ans.by}` : undefined })

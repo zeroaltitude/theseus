@@ -54,7 +54,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-14 10:02"
-who = "eddie"
+who = "zeroaltitude"
 text = "The plover dashboard moved off its old port: it listens on 7519 now."
 
 [[item]]
@@ -70,7 +70,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-08-02 21:15"
-who = "eddie"
+who = "zeroaltitude"
 text = "The kestrel tower's nightly backup starts at 03:40 since the disk swap."
 "#;
 

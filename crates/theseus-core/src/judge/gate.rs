@@ -45,7 +45,7 @@ use crate::bus::EventSink;
 use crate::config::PackMode;
 use crate::node::{Body, Node, Origin, ResultStatus};
 
-/// The incumbent: Eddie's `risky`, whose score the notice shows.
+/// The incumbent: the owner's `risky`, whose score the notice shows.
 pub const SECURITY_PACK: &str = "security.v1";
 /// The candidate: v2's state and questions, with `steered` deciding.
 pub const SECURITY_CANDIDATE: &str = "security.v3";

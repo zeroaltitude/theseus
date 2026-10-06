@@ -88,7 +88,7 @@ mod tests {
     use twilight_model::channel::permission_overwrite::PermissionOverwriteType;
 
     const GUILD: u64 = 314159265358979323;
-    const EDDIE: u64 = 271828182845904523;
+    const OPERATOR: u64 = 271828182845904523;
     const MALLORY: u64 = 222222222222222222;
     const OWNER: u64 = 333333333333333333;
     const BOT: u64 = 1618033988749894848;
@@ -125,7 +125,7 @@ mod tests {
             roles: &roles,
         };
         let members = [
-            member(EDDIE, "eddie", &[]),
+            member(OPERATOR, "zeroaltitude", &[]),
             member(MALLORY, "mallory", &[HELPERS]),
             member(OWNER, "owner", &[]),
             member(BOT, "Theseus", &[]),
@@ -133,13 +133,13 @@ mod tests {
         can_view(&guild, ChannelType::GuildText, overwrites, &members, BOT)
             .into_iter()
             .map(|m| m.id)
-            .filter(|id| ![EDDIE, OWNER].contains(id))
+            .filter(|id| ![OPERATOR, OWNER].contains(id))
             .collect()
     }
 
-    /// Who can view a channel, besides Eddie and the guild's owner: everyone,
+    /// Who can view a channel, besides the operator and the guild's owner: everyone,
     /// for a channel everyone can view; nobody, for one that hides from
-    /// `@everyone` and lets only Eddie in; a role that lets someone in, or an
+    /// `@everyone` and lets only the operator in; a role that lets someone in, or an
     /// administrator, shows them again. The owner can view everything, and
     /// the bot itself never counts.
     #[test]
@@ -150,11 +150,11 @@ mod tests {
             Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES,
         )];
         assert_eq!(check(&open, &[]), [MALLORY]);
-        let private = [overwrite(GUILD, R, false), overwrite(EDDIE, M, true)];
+        let private = [overwrite(GUILD, R, false), overwrite(OPERATOR, M, true)];
         assert!(check(&open, &private).is_empty());
         let helpers_in = [
             overwrite(GUILD, R, false),
-            overwrite(EDDIE, M, true),
+            overwrite(OPERATOR, M, true),
             overwrite(HELPERS, R, true),
         ];
         assert_eq!(check(&open, &helpers_in), [MALLORY]);

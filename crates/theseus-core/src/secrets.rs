@@ -1,7 +1,7 @@
 //! Secrets. The recommended source is 1Password, read through a service
 //! account: a `[secrets]` entry is then an `op://` reference. An entry may
 //! instead be `env:NAME`, the daemon's own environment variable, or
-//! `file:PATH`, a file only its owner can read (theseus-n88g.1, Eddie's D6:
+//! `file:PATH`, a file only its owner can read (theseus-n88g.1, the owner's D6:
 //! a container, CI, or anyone without a vault). Those resolve locally,
 //! before any `op` call, and `theseusd check` and health name each one with
 //! its source. Values live in zeroizing memory and are never logged, stored,

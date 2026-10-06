@@ -1,7 +1,7 @@
 # Theseus among the harnesses
 
-*How Theseus compares with the provider-made and independent agent harnesses, as of 2026-10-01. Tabitha's analysis,
-for Eddie (theseus-zfg).*
+*How Theseus compares with the provider-made and independent agent harnesses, as of 2026-10-01. Tabitha/Claude's analysis,
+for the owner (theseus-zfg).*
 
 _Checked in on 2026-10-01. One local path became a link to the research reports; nothing else changed. Its PDF was "Theseus among the harnesses"._
 
@@ -232,7 +232,7 @@ nothing, and that is part of how Theseus ships a fix in minutes.
 **What Theseus does:** a session that reads external text latches. From then on its acting calls wait for
 approval, until the operator says `/trust`.
 
-**Where the idea came from:** Eddie's own OpenClaw install runs this as the provenance plugin we maintain. Theseus
+**Where the idea came from:** the owner's own OpenClaw install runs this as the provenance plugin we maintain. Theseus
 is where the idea becomes core, not a plugin. Anthropic says Opus 5.5 is "more resistant than Opus 5 to prompt
 injection". That helps, and it's a probability. The hold is a guarantee.
 
@@ -362,7 +362,7 @@ the old gaps. But a job that can read a key can send it anywhere its egress allo
 
 **The provider risk is real.** OpenAI is pulling its models from Cursor because Cursor changed owners. An OpenAI
 profile (GPT-6 Astra or Sol) would be cheap insurance and a third opinion. The catalog and profile machinery
-already exist; the work is the provider's wire format. It's a post-v1 candidate, and Eddie's call.
+already exist; the work is the provider's wire format. It's a post-v1 candidate, and the owner's call.
 
 ### 5.4 ACP (post-v1)
 
@@ -420,6 +420,6 @@ The landscape doesn't change v1's direction. It sharpens the order:
 
 The field is building agents that can do more. Theseus is building one you can **trust to do less than it could**:
 it stops at the limits it's given, every time, and can show its work. That's the rarer thing, and for an agent
-that lives on Eddie's machine with keys to an AWS account, it's the one that matters.
+that lives on the owner's machine with keys to an AWS account, it's the one that matters.
 
 *— written by Tabitha/Claude*

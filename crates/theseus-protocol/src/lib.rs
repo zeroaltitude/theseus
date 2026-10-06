@@ -923,7 +923,7 @@ pub struct Tightening {
     pub tool: String,
     /// What the tool asks at least: `approve`.
     pub posture: String,
-    /// Who pressed, as a label (`discord:eddie`, `sock#3`, `web#1`).
+    /// Who pressed, as a label (`discord:zeroaltitude`, `sock#3`, `web#1`).
     pub by: String,
     /// Who pressed, as the approval rule knows them: a Discord user by id,
     /// anyone else by label.
@@ -1576,7 +1576,7 @@ pub struct ActionListResult {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionCancelParams {
     pub execution_id: String,
-    /// Who asked, as a label in the ledger (e.g. `discord:eddie`). Default: the connection.
+    /// Who asked, as a label in the ledger (e.g. `discord:zeroaltitude`). Default: the connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
@@ -1602,7 +1602,7 @@ pub struct ExecutionCancelResult {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionStopParams {
     pub execution_id: String,
-    /// Who asked, as a label in the ledger (e.g. `discord:eddie`). Default:
+    /// Who asked, as a label in the ledger (e.g. `discord:zeroaltitude`). Default:
     /// the surface.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -1968,7 +1968,7 @@ pub struct TurnSubmitParams {
     /// not the owner's choice: routing may still move the turn (M5 25e).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub carried: bool,
-    /// Who wrote the input, as a label on the message node (e.g. `discord:eddie`).
+    /// Who wrote the input, as a label on the message node (e.g. `discord:zeroaltitude`).
     /// Default: the connection's own label. A label, not an authority: every
     /// local protocol client acts as the operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2462,7 +2462,7 @@ pub struct ActionConfirmParams {
     /// wakes the execution, so the continuation turn is seen from its start.
     #[serde(default)]
     pub watch: bool,
-    /// Who answered, as a label (e.g. `discord:eddie`). Default: the connection.
+    /// Who answered, as a label (e.g. `discord:zeroaltitude`). Default: the connection.
     /// A label names; it proves nothing. With `[approval]`, the connection's
     /// surface and `discord` decide whether the answer counts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2513,7 +2513,7 @@ pub struct ToolInfo {
     /// The posture the gate applies now: `open`, `notify`, or `approve`.
     pub policy: String,
     /// What chose it: a config setting (`enforcement = notify`), or a
-    /// tightening (`tightened by discord:eddie`).
+    /// tightening (`tightened by discord:zeroaltitude`).
     #[serde(default)]
     pub setting: String,
     /// What the config alone says (theseus-sgh). It differs from `policy`

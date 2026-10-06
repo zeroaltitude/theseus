@@ -2,7 +2,7 @@
 //! play the stand-in clip, and log the frames received per SSRC.
 //!
 //! **Live**, on a private test voice channel where the bot may Connect and
-//! Speak, and which Eddie's daemon doesn't bind (T1b's disjoint rule). The
+//! Speak, and which the owner's daemon doesn't bind (T1b's disjoint rule). The
 //! channel's ids go in a TOML file; the bot's token comes from the
 //! environment, never from the file:
 //!

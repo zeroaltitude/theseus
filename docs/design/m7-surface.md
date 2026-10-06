@@ -6,7 +6,7 @@ Beads theseus-zaz.5 (M7 epic theseus-ext, with theseus-7kg). Roadmap steps 36 to
 AWS shells, belongs to [the AWS design](aws-toolset.md). Written by Tabitha/Claude, 2026-09-30, from 15:26 MST, against
 `main` at 27e1237 and [spec](../the-ship-of-theseus.md) v0.61. It is docs only: nothing in the repo, the spec, or Beads was changed.
 
-**Status:** complete (all six sections), for Tabitha's review with Eddie. §0 is the phone summary.
+**Status:** complete (all six sections), for Tabitha/Claude's review with the owner. §0 is the phone summary.
 
 ## 0. At a glance
 
@@ -25,8 +25,8 @@ M7 is where Theseus meets everything beyond the DM:
 | 41 MCP server | 41a crate · 41b wire-in | LANE · SPINE | Claude Code (or our own client) opens a Theseus conversation over MCP and gets the reply. | 36a; step 9 (the protocol push) |
 | 42 Web UI | 42a reads · 42b tabs | SPINE · LANE | Budgets, Ledger, and Policy tabs. | step 9; 38a |
 | 43 Self-extension | 43a propose and ack · 43b load and revoke | SPINE · SPINE | The model writes a small MCP server. It is tested in L1, acked, called, and revoked. | 36b; step 17 |
-| 44 Voice, part 1 | 44a engine (a spike first) · 44b wire-in | LANE · SPINE | On `/join`, the bot hears Eddie and answers with a stand-in voice. | a test voice channel; the DAVE check (§6) |
-| 45 Voice, part 2 | 45a providers · 45b accounting | LANE · SPINE | Real speech to text and text to speech, each priced and settled as spend. | Eddie's providers and keys |
+| 44 Voice, part 1 | 44a engine (a spike first) · 44b wire-in | LANE · SPINE | On `/join`, the bot hears the owner and answers with a stand-in voice. | a test voice channel; the DAVE check (§6) |
+| 45 Voice, part 2 | 45a providers · 45b accounting | LANE · SPINE | Real speech to text and text to speech, each priced and settled as spend. | The owner's providers and keys |
 
 **The key question: LANE or core?**
 - **LANE** (its own crate or directory, so it's built in a worktree, in parallel): the MCP protocol client and
@@ -45,16 +45,16 @@ M7 is where Theseus meets everything beyond the DM:
 - **What can start now**, in worktrees, while Stages 1 to 5 run: 36a and 41a (one crate), and 44a's
   one-hour spike (songbird, twilight 0.17, DAVE). None of them touches the kernel.
 
-19 sub-steps: 14 SPINE, one at a time on `main`, and 5 LANE. From Eddie, M7 needs a test voice channel, and
+19 sub-steps: 14 SPINE, one at a time on `main`, and 5 LANE. From the owner, M7 needs a test voice channel, and
 at the very end his speech providers and his voice for voice's live checks (§4). Nothing else blocks.
 
 ## 1. Scope and principles
 
 ### What M7 is for
 
-- **Eddie's terms.** v1 is "everything listed". The approach is tracer bullets on the happy path, as
+- **The owner's terms.** v1 is "everything listed". The approach is tracer bullets on the happy path, as
   autonomously as possible (2026-09-30, 08:57).
-- **The spec's terms** (P9). *Prove:* Theseus carries Eddie's daily Discord work end to end for two weeks,
+- **The spec's terms** (P9). *Prove:* Theseus carries the owner's daily Discord work end to end for two weeks,
   with OpenClaw out of the loop for that channel. The ledger shows budgets and judgments, and the record shows
   no disclosure or authority violation. (P9 also names "hook runs"; hooks were deleted on 2026-09-28, so
   that clause is moot.)
@@ -128,7 +128,7 @@ at the very end his speech providers and his voice for voice's live checks (§4)
 | Not there yet: an MCP crate (there's no `rmcp` in the local registry), songbird, or any speech key in the vault (checked by title: none) | — | built, or asked for |
 
 **Usage (the theseus-p3k audit):**
-- No MCP server is configured anywhere Eddie's agent runs.
+- No MCP server is configured anywhere the owner's agent runs.
 - The recurring jobs are Slack and `gog` reports, and they stay on OpenClaw.
 - The one recurring job that posts to Discord is Evening Haiku, daily at 21:00. That is the tracer bullet
   for step 37.
@@ -244,7 +244,7 @@ auth_secret = "docs_mcp_token"          # sent as a bearer token
     external when the server is.
 - **Discord:** `/prompt name:<server/prompt>`, with autocomplete (25 choices at most). A modal then asks
   for the prompt's arguments: up to 5 text inputs, or `args:` as `k=v` pairs when it has more. The name is
-  bare, per Eddie's rule.
+  bare, per the owner's rule.
 - **CLI:** `theseus prompt <server/prompt> [--arg k=v]… [--session <id>]`. **Web UI:** a prompt picker
   beside the composer.
 - **A prompt whose definition changed** since its last use is ledgered as `mcp.prompt_changed` and noticed
@@ -303,7 +303,7 @@ may not set one. T1b makes `wake.at` exempt from the external-text hold.
   - `PendingWake` gains `repeat: Option<Repeat>` and `occurrence: u32`. The execution's schema goes from 2
     to 3, with serde defaults as the reader and a test that reads schema 2 (F4a's rule). _As built (2026-10-03, Part III Item 84): one store format bump, 4 to 5, with a literal sample of the execution layout it replaces in `tests_layouts` (Tier 7.9)._
   - **Re-armed in the same frame.** `take_wakes` takes a due repeating wake, writes its node, and puts its
-    next occurrence back on the list, with the same id and ~~`occurrence + 1`~~ the occurrence its time gives, `occurrence + 1 + missed` (as built; Eddie, 2026-10-03 17:14: "Built seems right, adjust the design to match").
+    next occurrence back on the list, with the same id and ~~`occurrence + 1`~~ the occurrence its time gives, `occurrence + 1 + missed` (as built; the owner, 2026-10-03 17:14: "Built seems right, adjust the design to match").
     - The next time is the first `at + k·every` after now, in the zone (jiff's zoned arithmetic).
     - So "daily 21:00" stays 21:00 across daylight-saving changes. Phoenix has none; the code must still
       be right.
@@ -316,7 +316,7 @@ may not set one. T1b makes `wake.at` exempt from the external-text hold.
 - **It stays in its session** across a `/new` in the place, so last night's haiku is in tonight's context.
 - **The hold.** A repeating wake is persistence: set once under a page's influence, it runs every day. So
   `wake.at` with `every` waits for approval in a session holding external text, although T1b exempts the
-  one-shot kind. This is a default Eddie may overturn (§4).
+  one-shot kind. This is a default the owner may overturn (§4).
 - **Cost.**
   - Each occurrence is a model call on the session's budget, and at the limit it asks, as any turn does.
   - The 5-minute floor bounds a runaway, which would be about 290 turns a day at most.
@@ -398,16 +398,16 @@ user = "<user id>"
 - **Where the file lives.** The operator's file stays in the state dir, under the floor, so a tool's write to
   it waits for approval at every posture. §3.1's "versioned config in the store, editable by slash command
   and the web UI" is filed. The file's revision (its SHA-256 prefix) is already ledgered.
-- _As built (38a, 2026-10-04; Part III Item 117): format 2 is a `[[guild]]` table each (`id`, `name`, its own `private`), and each `[[channel]]` names its `guild`; a format-1 file loads as before, and a mix is refused naming the line. The ceiling is read with the place rule's class as one `PlaceView` at each turn, so `Authority.ceilings` is not written. A call the ceiling does not offer is a `place:` refusal naming it ("wake.at is not offered in #pier: its ceiling in the bindings file offers only web"), not an unknown tool; the model never sees the tool either way. A ceiling's `mcp:<server>` narrows the MCP board's tools (the join's fix). The limit is the kernel's `place_limit`, pinned while a cap is set, its rows `budget.limit_changed` with `why: place`. Slash commands stay global: per-guild registration was dropped, by the session's call and Eddie's of 2026-10-04 10:45._
+- _As built (38a, 2026-10-04; Part III Item 117): format 2 is a `[[guild]]` table each (`id`, `name`, its own `private`), and each `[[channel]]` names its `guild`; a format-1 file loads as before, and a mix is refused naming the line. The ceiling is read with the place rule's class as one `PlaceView` at each turn, so `Authority.ceilings` is not written. A call the ceiling does not offer is a `place:` refusal naming it ("wake.at is not offered in #pier: its ceiling in the bindings file offers only web"), not an unknown tool; the model never sees the tool either way. A ceiling's `mcp:<server>` narrows the MCP board's tools (the join's fix). The limit is the kernel's `place_limit`, pinned while a cap is set, its rows `budget.limit_changed` with `why: place`. Slash commands stay global: per-guild registration was dropped, by the session's call and the owner's of 2026-10-04 10:45._
 
 **38b: gliding, on the place rule.** _Rewritten 2026-10-04 (theseus-ypy0). The first design gated a glide
 by a subset rule on each place's users, until M4's confidentiality labels (step 19) took it over. The place
-rule removed those labels on 2026-10-03 (Part III Item 76), so the rule they named is gone. Eddie's call
+rule removed those labels on 2026-10-03 (Part III Item 76), so the rule they named is gone. The owner's call
 (2026-10-04, "Gliding with the place rule: yes!") is the rule below, which replaces both._
 - **`channel.post { to, text }`** (§3.24's `channel` family) posts into another bound place.
   - It is an outbox post (`glide:<correlation id>`), written in the frame that settles the call, and sent
     once by that place's lane, in its order. Its message ends with a line naming the session that posted it.
-  - `to` names a place by its label (`#deploys`, `DM @eddie`) or its key (`channel:<id>`, `dm:<user id>`).
+  - `to` names a place by its label (`#deploys`, `DM @zeroaltitude`) or its key (`channel:<id>`, `dm:<user id>`).
     A place this daemon isn't bound to fails with words: "not a place Theseus is bound to".
   - **The destination's floor.** The call's posture is no looser than the destination's ceiling's floor
     (38a).
@@ -820,7 +820,7 @@ feature crates (LANE). It holds:
 - speech to text returns a fixed transcript per test fixture, or `[utterance 3.2 s]` live;
 - text to speech plays a pre-made clip for the canned lines, and a tone for each other sentence.
 
-**Providers (45a, LANE).** Eddie chooses.
+**Providers (45a, LANE).** The owner chooses.
 - The recommended default is Deepgram for both: nova-3 streaming for speech to text, and Aura-2 for text to
   speech, on one key. It's what that voice agent runs today.
 - §3.11's Cartesia is the alternative for text to speech.
@@ -843,7 +843,7 @@ feature crates (LANE). It holds:
 - **Observatory:** a Voice section with live meters: frames in and out per speaker, utterances, speech-to-text
   latency, time to first audio, and barge-ins.
 - **CLI:** `theseus voice`.
-- **Narrative:** "🎙️ eddie spoke 3.2 s; transcript 41 chars in 280 ms", and "🔊 reply of 2 sentences, first
+- **Narrative:** "🎙️ zeroaltitude spoke 3.2 s; transcript 41 chars in 280 ms", and "🔊 reply of 2 sentences, first
   audio in 410 ms; barge-in at 1.1 s". _(Since 2026-10-06, Part III Item 202: a `voice.barge_in` row is written at the commit, the cutting words' transcript, not at the stop, and only for a real cut, so health's barge-in count is real cuts; a stop that resumes writes none.)_
 - **Ledger:** `voice.joined`, `voice.left`, `voice.utterance`, `speech.stt`, `speech.tts`, and
   `voice.barge_in`.
@@ -857,7 +857,7 @@ DAVE? The answers settle 44's shape before any code lands (§6).
 ## 3. The build plan
 
 Each sub-step is about an hour of one agent. Each passes the whole gate (fmt, clippy, the tests, deny, the web
-build, and the bench's §9 budgets), is proved live on a scratch daemon over a copy of Eddie's store (the LANE
+build, and the bench's §9 budgets), is proved live on a scratch daemon over a copy of the owner's store (the LANE
 steps: on the crate's own example), and files what it left out as Beads issues. **SPINE** runs one at a time on
 `main`. **LANE** runs in a git worktree, with its own `CARGO_TARGET_DIR` (per the agents' operating notes for this repo: a shared `target/` poisons
 it), and joins `main` through its SPINE wire-in.
@@ -883,7 +883,7 @@ it), and joins `main` through its SPINE wire-in.
 | 43b | SPINE | load on ack, restart, revoke, `/extensions` | 43a |
 | 44a | LANE | voice engine: the spike, then `theseus-voice` (seam, pipeline, stand-ins) | a test voice channel |
 | 44b | SPINE | voice wire-in: voice places, `/join`, utterances into turns, replies in voice | 44a; 38a |
-| 45a | LANE | the chosen speech providers behind `Speech` | Eddie's choice and keys |
+| 45a | LANE | the chosen speech providers behind `Speech` | The owner's choice and keys |
 | 45b | SPINE | speech as spend: catalog prices, reserve and settle, `speech.*` rows, the voice latency class | 45a; 44b; M5's latency table |
 
 ### Order
@@ -896,7 +896,7 @@ it), and joins `main` through its SPINE wire-in.
     list.
   - **41a** starts as soon as 36a's types settle.
   - **The 44a spike** runs now too, because its answers decide voice's shape.
-  - **42b** follows 42a. **45a** follows Eddie's choice.
+  - **42b** follows 42a. **45a** follows the owner's choice.
 - **Joins:** 36a lands with 36b, 41a with 41b, 42b after 42a (rebuilding `web/dist`), 44a with 44b, and 45a
   with 45b.
 - **From other phases:**
@@ -948,8 +948,8 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
   - Discord: the autocomplete answer, the modal, and its parse;
   - the CLI;
   - a changed definition gives its notice.
-- *Live:* `theseus prompt fake/greet --arg name=Eddie`, with the reply at the fake Discord. `/prompt` itself
-  needs a person to type it: it goes into Eddie's testing.
+- *Live:* `theseus prompt fake/greet --arg name=zeroaltitude`, with the reply at the fake Discord. `/prompt` itself
+  needs a person to type it: it goes into the owner's testing.
 
 **37a.**
 - *Tests:*
@@ -1054,7 +1054,7 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
 
 **42b (LANE).**
 - *Tests:* the web lint and build (the gate). `web/` has no test runner; adding one is filed.
-- *Live:* Tabitha checks it in a browser against a scratch daemon, with `[web]` on a port other than 7433.
+- *Live:* Tabitha/Claude checks it in a browser against a scratch daemon, with `[web]` on a port other than 7433.
   - Each tab loads.
   - Each tab follows live changes: a turn's cost appears, and a tightening appears and is undone.
 
@@ -1089,7 +1089,7 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
   - a report waits for the pause;
   - an unlisted speaker is dropped.
   - _(Since 2026-10-06, `tests/turns.rs`; Part III Item 215:)_ an either/or answer over its question is a turn, and the question does not replay; an answer with its question's words 0.5 s after it is a turn; the played sentence heard back whole is still an echo; one echo verdict leaves the 300 ms stop on, and two make the speaker echo-prone; a "Yes." begun 200 ms before a closing question ends is a turn; a "Yeah." after a closing question, while another speaker's reply is queued but not begun, is a turn, and that reply is superseded; "mhmm" and "oh okay" over a long reply resume it and are no turn.
-- *Live:* the crate's example joins the test voice channel while Eddie's daemon doesn't bind it (T1b's
+- *Live:* the crate's example joins the test voice channel while the owner's daemon doesn't bind it (T1b's
   disjoint rule). It plays the stand-in clip, and logs frames received per SSRC.
 
 **44b.**
@@ -1097,7 +1097,7 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
   - the binding's tests, through the seam;
   - the core: an utterance becomes a user node by its speaker;
   - the reply's text reaches the text lane whole, even after a barge-in.
-- *Live:* Eddie types `/join` in the test text channel, and the bot answers speech with the stand-in voice.
+- *Live:* the owner types `/join` in the test text channel, and the bot answers speech with the stand-in voice.
   This part is his end-of-build testing.
 
 **45a (LANE).**
@@ -1114,10 +1114,10 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
   - at the limit, voice says once (a canned clip) that it has reached the limit, and the budget question is
     asked as usual;
   - until the question is answered, utterances are dropped, and the text channel says so.
-- *Live:* Eddie speaks. The `speech.stt` and `speech.tts` rows carry costs, and the session's spend rises by
+- *Live:* the owner speaks. The `speech.stt` and `speech.tts` rows carry costs, and the session's spend rises by
   them.
 
-## 4. What it needs from Eddie
+## 4. What it needs from the owner
 
 | # | What | Blocks? | When | If he doesn't say |
 |---|---|---|---|---|
@@ -1127,7 +1127,7 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
 | 4 | **The MCP server's key:** a new vault item with a random value, its `[secrets]` line, and `[mcp_server] enabled = true` in the vault note | nothing in the build (scratch checks use a fake `op`) | when he wants the server on his daemon | the server stays off |
 | 5 | **Which MCP servers** he wants on his daemon, and their secrets. The audit found none in use. The GitHub PATs already in the vault could back a GitHub server. | nothing | any time | the build proves with the fake and a reference server |
 | 6 | **Paste lines:** `[mcp.servers.*]`, `[mcp_server]`, `[kernel] min_repeat_minutes` (optional), and the speech catalog rows. The service account is read-only. | nothing | each step's report names its lines; install before pasting | the defaults hold |
-| 7 | **More places:** which guilds and channels, and their ceilings (he edits `bindings.toml`, or asks Tabitha) | nothing | any time | the DM and #theseus-test |
+| 7 | **More places:** which guilds and channels, and their ceilings (he edits `bindings.toml`, or asks Tabitha/Claude) | nothing | any time | the DM and #theseus-test |
 
 **Decisions taken by default.** He can overturn any of them later:
 - a repeating wake waits in a session that read external text, though T1b exempts one-shot wakes;
@@ -1156,7 +1156,7 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
 | 14 | The lease's length? | 30 minutes, renewed by each of the holder's turns that touches the task. |
 | 15 | Who accepts a layer-1 change? | The task's requester, else the owner, in trusted channels only. |
 | 16 | Where do bindings live? | The operator's file, under the floor. Tighten-only edits kept in the store come later. |
-| 17 | The audience rule for a glide's post and read? | The place rule (Eddie, 2026-10-04): into a private place it is allowed; out of one, or between two shared places, it asks first. The subset rule it replaces waited for 19a's labels, which the place rule removed. |
+| 17 | The audience rule for a glide's post and read? | The place rule (the owner, 2026-10-04): into a private place it is allowed; out of one, or between two shared places, it asks first. The subset rule it replaces waited for 19a's labels, which the place rule removed. |
 | 18 | The MCP server's tools? | `conversation_*`, `task_list`, `wake_list`, and memory once M6 has its methods. |
 | 19 | Voice and text: one session or two? | One. |
 | 20 | Where does an utterance end? | After 700 ms of silence (the stand-in), until a provider's endpointing replaces it. |
@@ -1175,14 +1175,14 @@ fake-mcp`. Every wait is event-driven, and every tool call stays under two minut
 | The prompt cache churns when a tool list changes | 36, 43 | Stored lists, a stable order, and changes only at a turn's start. | Nothing: one cache miss per change, per session. |
 | Repeating wakes spend money | 37 | The 5-minute floor; the session's limit asks; the Observatory shows each series' cost. | A per-series limit, if the soak shows drift. |
 | The task graph weighs on every turn (compile time, tokens, frames) | 39 | The view appears only when the scope has tasks, in the tail, bounded; the frame-budget test. | If it costs much, fold it into the conversation's task summary (§3.2a). |
-| **Per-person authority isn't built.** Every principal is the operator, so a place with several users is safe only while they are all Eddie's trusted users. | 38 | Ceilings as floors, and the audience rule. | A second person in a place moves role grants and per-author executions (filed) up. |
+| **Per-person authority isn't built.** Every principal is the operator, so a place with several users is safe only while they are all the owner's trusted users. | 38 | Ceilings as floors, and the audience rule. | A second person in a place moves role grants and per-author executions (filed) up. |
 | The MCP server lets a local program drive Theseus | 41 | The key, loopback only, the Origin check, the `approve` floor, cards to the operator, J1's trace. | Per-client tokens (deferred in §1) move up if a second client appears. |
 | Self-extension needs L1 (step 17) | 43 | 43 waits for L1. Agent-written code never runs at L0. | Nothing: 43 moves with L1. |
 | Step 9's push slips | 41b, 42b | Nothing else waits on it. | 41b polls `conversation_status`, and 42b refreshes on a timer, until it lands. |
 | Review load: 19 sub-steps, 14 of them on `main` | all | LANE work in parallel; the dogfood pilot (theseus-14s) may take some steps. | More parallel lanes, once the pilot proves out. |
 
 **What would move things.**
-- **Eddie names MCP servers he wants now.** Then 36a and 36b move ahead of Stages 3 to 5. They run at L0 until
+- **The owner names MCP servers he wants now.** Then 36a and 36b move ahead of Stages 3 to 5. They run at L0 until
   L1 lands, with a health warning. Nothing else in M7 must come first.
 - **The spike's answers** (DAVE, twilight, libopus) set voice's shape and timing.
 - **The soak shows places with several people.** Then role grants and per-author executions are built,

@@ -1,6 +1,6 @@
 # Theseus hooks — design proposal
 
-_Tabitha, 2026-09-24. Expands §3.17 of the spec into a buildable design. Inputs: the Claude Agent SDK investigation, the comparison with Strands, AgentCore, Bedrock Agents, and OpenClaw, and the spec's own invariants (authority, append-only ledger, two loops, executions)._
+_Tabitha/Claude, 2026-09-24. Expands §3.17 of the spec into a buildable design. Inputs: the Claude Agent SDK investigation, the comparison with Strands, AgentCore, Bedrock Agents, and OpenClaw, and the spec's own invariants (authority, append-only ledger, two loops, executions)._
 
 ## 0. What hooks are for, and what they are not for
 

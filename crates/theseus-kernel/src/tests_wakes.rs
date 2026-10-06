@@ -365,13 +365,13 @@ fn a_cancel_clears_the_wake_and_nothing_fires() {
     assert_eq!(exec(&w, &e.id).state, ExecState::Waiting);
 
     let (e2, wid2) = with_wake(&w, 5_000, "stopped");
-    w.kernel.cancel_execution(&e2.id, "eddie").unwrap();
+    w.kernel.cancel_execution(&e2.id, "zeroaltitude").unwrap();
     let e2 = exec(&w, &e2.id);
     assert!(e2.wakes.is_empty());
     let row = &rows(&w, &e2.session_id, "wake.cancelled")[0];
     assert_eq!(
         (row["wake_id"].as_str(), row["by"].as_str()),
-        (Some(wid2.as_str()), Some("eddie"))
+        (Some(wid2.as_str()), Some("zeroaltitude"))
     );
     w.clock.advance(10_000);
     assert!(w.kernel.reconcile(&NoEvidence).unwrap().woke_due.is_empty());

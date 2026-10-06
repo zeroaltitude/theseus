@@ -330,7 +330,7 @@ async fn a_typed_message_is_a_turn_and_its_reply_answers_it_in_the_channel() {
 /// owner but not one of `#lab`'s users, it is refused and the call keeps
 /// waiting; pressed by ana, Approve is acknowledged, the call runs, the card
 /// says so and loses its buttons, and the reply comes.
-/// Eddie's case (theseus-c9l6): a PDF attached to a typed message is
+/// The owner's case (theseus-c9l6): a PDF attached to a typed message is
 /// downloaded from the CDN (the stand-in's), kept whole, and read by the
 /// model as a document block of its own bytes, with its line before it.
 #[tokio::test]

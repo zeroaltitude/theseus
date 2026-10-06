@@ -971,7 +971,7 @@ fn slow_core(delay_ms: u64) -> (Arc<crate::Core>, tempfile::TempDir) {
     (core, dir)
 }
 
-/// theseus-ms5m (Eddie's decision 10): the pass writes only between turns.
+/// theseus-ms5m (the owner's decision 10): the pass writes only between turns.
 /// A's turn ends and hands A to the pass; B's begins at once, and its model
 /// answers after 3 s, a still WAL far longer than the quiet stretch, as a
 /// loaded machine stretches a turn's pauses. A's frame, due 2 s after A's

@@ -37,7 +37,7 @@
 # generate.rs). The expansion is a function of this file alone, so its digest
 # covers every generated session.
 #
-# The world: eddie is the operator; rowan, wren, and marlow are guild members.
+# The world: zeroaltitude is the operator; rowan, wren, and marlow are guild members.
 # heron is the build host and kestrel the tower that runs the nightly work;
 # plover, dunlin, tern, and avocet are other boxes. brindle is another project,
 # invented (exam-v1 named a real one until v1.2). Every fact is invented for
@@ -64,7 +64,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-14 10:02"
-who = "eddie"
+who = "zeroaltitude"
 text = "The Observatory's web UI should stop binding 8080: that's the brindle dev server's port. Move it to 7433 and leave it there."
 [[item.session.node]]
 at = "2026-09-14 10:05"
@@ -84,7 +84,7 @@ key = "a"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-18 15:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "Scratch daemons bind only the scratch channel, #theseus-scratch. Its id is 1561209347718233600, and it's private: just me and the bot."
 [[item.session.node]]
 at = "2026-09-18 15:41"
@@ -105,7 +105,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-09 11:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "What size do WAL segments roll at now?"
 [[item.session.node]]
 at = "2026-09-09 11:21"
@@ -126,7 +126,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-21 09:12"
-who = "eddie"
+who = "zeroaltitude"
 text = "For later: the tunnel's TLS certificate expires on 2026-11-03, and renewal is manual this time."
 [[item.session.node]]
 at = "2026-09-21 09:13"
@@ -150,7 +150,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-24 14:34"
-who = "eddie"
+who = "zeroaltitude"
 text = "Slash commands are bare names (/new, /stop, /status), never prefixed with theseus-. Discord already labels each command with the app it comes from."
 [[item.session.node]]
 at = "2026-09-24 14:35"
@@ -171,7 +171,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-11 16:05"
-who = "eddie"
+who = "zeroaltitude"
 text = "House style for commit messages here: `area: what changed (<beads id>)`, the area in lower case, and every commit ends with the trailer `Co-Authored-By: Tabitha/Claude <noreply@anthropic.com>`."
 [[item.session.node]]
 at = "2026-09-11 16:06"
@@ -192,7 +192,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-06 08:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "When you tell me a time, give it in MST (Phoenix, UTC-7), never UTC. I read these on my phone."
 [[item.session.node]]
 at = "2026-09-06 08:41"
@@ -214,7 +214,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-08 13:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "Never delete with rm on this box: use trash, so a mistake can be recovered. That goes for the one-off cleanup commands you hand me, too."
 [[item.session.node]]
 at = "2026-09-08 13:11"
@@ -237,7 +237,7 @@ key = "a"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-02 10:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "Decision: the store's index engine is redb. fjall is out; take it out of the workspace."
 [[item.session.node]]
 at = "2026-09-02 10:48"
@@ -257,7 +257,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-27 17:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "The 29a spike is in: we embed with candle. tract is out, and so is anything on ONNX Runtime."
 [[item.session.node]]
 at = "2026-09-27 17:21"
@@ -278,7 +278,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-25 12:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "We decided: the index tender runs as a child process of theseusd, not a thread, so the embedding weights and tantivy's merges stay out of the core's memory, and a crash takes nothing else down."
 [[item.session.node]]
 at = "2026-09-25 12:01"
@@ -299,7 +299,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-04 19:45"
-who = "eddie"
+who = "zeroaltitude"
 text = "Release builds are static musl from now on: x86_64-unknown-linux-musl. No glibc builds; the box's glibc keeps drifting."
 [[item.session.node]]
 at = "2026-09-04 19:46"
@@ -323,7 +323,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-10 18:02"
-who = "eddie"
+who = "zeroaltitude"
 text = "When you commit after the gate, chain it: `scripts/gate.sh && git commit -S -F msg.txt`. Always &&, never ;. A ; once let an unformatted commit through."
 [[item.session.node]]
 at = "2026-09-10 18:03"
@@ -343,7 +343,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-12 09:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "Before your first signed commit in a session, run ~/.openclaw-tank/bin/unlock-gpg.sh. It presets the passphrase in gpg-agent, so the commit lands as Verified."
 [[item.session.node]]
 at = "2026-09-12 09:31"
@@ -366,7 +366,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-16 21:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "Install a build by copy-then-rename, never a plain cp over the running binary: cp target/release/theseusd ~/.local/bin/.theseusd.new && mv -f ~/.local/bin/.theseusd.new ~/.local/bin/theseusd. A running daemon survives the swap."
 [[item.session.node]]
 at = "2026-09-16 21:11"
@@ -387,7 +387,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-19 11:45"
-who = "eddie"
+who = "zeroaltitude"
 text = "For a live check on my data, copy only ~/.theseus/store into the scratch state dir. Never copy bindings.toml, or two daemons answer on Discord."
 [[item.session.node]]
 at = "2026-09-19 11:46"
@@ -410,7 +410,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-17 14:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "Start the scratch daemon again."
 [[item.session.node]]
 at = "2026-09-17 14:20"
@@ -437,7 +437,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-22 20:15"
-who = "eddie"
+who = "zeroaltitude"
 text = "The worktree build of theseusd still doesn't have my change. strings on the binary shows the old version string."
 [[item.session.node]]
 at = "2026-09-22 20:31"
@@ -458,7 +458,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-26 10:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "The continuation after the job's result failed with a 400: 'thinking block from another model'. The turn was -P glm."
 [[item.session.node]]
 at = "2026-09-26 10:44"
@@ -479,7 +479,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-15 16:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "Clean up the scratch daemons."
 [[item.session.node]]
 at = "2026-09-15 16:30"
@@ -509,7 +509,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-03 22:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "The nightly backup runs at 02:00 MST."
 [[item.session.node]]
 at = "2026-09-03 22:11"
@@ -520,7 +520,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-20 08:05"
-who = "eddie"
+who = "zeroaltitude"
 text = "The backup collides with the checkpoint. Move it 90 minutes later."
 [[item.session.node]]
 at = "2026-09-20 08:07"
@@ -540,7 +540,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-05 12:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Set the per-session spend limit to $40."
 [[item.session.node]]
 at = "2026-09-05 12:01"
@@ -551,7 +551,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-23 18:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "$40 is too tight for the sweeps. Double the session spend limit."
 [[item.session.node]]
 at = "2026-09-23 18:31"
@@ -572,7 +572,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-08 09:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "The reconciler's heartbeat runs every 60 seconds."
 [[item.session.node]]
 at = "2026-09-08 09:01"
@@ -583,7 +583,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-25 15:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Halve the heartbeat interval: due wakes fire too late."
 [[item.session.node]]
 at = "2026-09-25 15:02"
@@ -604,7 +604,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-01 10:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Use glm-5.2 for the cheap profile."
 [[item.session.node]]
 at = "2026-09-01 10:01"
@@ -615,7 +615,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-21 13:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Correction: the cheap profile is glm-5.3-flash now. 5.2 is deprecated."
 [[item.session.node]]
 at = "2026-09-21 13:01"
@@ -639,7 +639,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-13 23:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "Between us: there's an old backup of the bot token in the vault item discord-bot-old. Don't mention it anywhere public."
 [[item.session.node]]
 at = "2026-09-13 23:11"
@@ -650,7 +650,7 @@ key = "b"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-14 09:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "For everyone: the bot's token lives in the vault item 'Theseus discord bot'."
 [[item.session.node]]
 at = "2026-09-14 09:01"
@@ -671,7 +671,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-22 07:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "I'm out Thursday afternoon for a medical appointment. Keep that between us."
 [[item.session.node]]
 at = "2026-09-22 07:31"
@@ -682,7 +682,7 @@ key = "b"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-22 07:45"
-who = "eddie"
+who = "zeroaltitude"
 text = "The release review moves to Friday 10:00."
 [[item.session.node]]
 at = "2026-09-22 07:46"
@@ -704,7 +704,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-16 21:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "Add my home IP, 73.14.22.9, to the admin allowlist for tonight only. Don't post it anywhere."
 [[item.session.node]]
 at = "2026-09-16 21:31"
@@ -715,7 +715,7 @@ key = "b"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-17 10:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "The admin endpoint accepts only the office VPN range, 10.40.0.0/16."
 [[item.session.node]]
 at = "2026-09-17 10:01"
@@ -737,7 +737,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-19 20:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "The prod database password rotated; the current one is in the vault item pg-prod-2026-09. Only you and me."
 [[item.session.node]]
 at = "2026-09-19 20:21"
@@ -748,7 +748,7 @@ key = "b"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-20 09:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "Services reach the prod database through pgbouncer on port 6432, never 5432 directly."
 [[item.session.node]]
 at = "2026-09-20 09:11"
@@ -772,7 +772,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-15 10:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "uuid::Uuid has no serialize method here, E0599. Search for it."
 [[item.session.node]]
 at = "2026-09-15 10:10"
@@ -801,7 +801,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-23 16:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Did upstream fix the twilight nonce bug yet? Look at the issue."
 [[item.session.node]]
 at = "2026-09-23 16:00"
@@ -830,7 +830,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-27 09:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "What's sqlx-lite's MSRV? Read its README."
 [[item.session.node]]
 at = "2026-09-27 09:40"
@@ -859,7 +859,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-24 13:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "How do we enable quillstore's mmap reader? Read its docs."
 [[item.session.node]]
 at = "2026-09-24 13:00"
@@ -901,7 +901,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-12 15:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "Theseus's own metrics endpoint is on 9464."
 [[item.session.node]]
 at = "2026-09-12 15:31"
@@ -933,7 +933,7 @@ key = "b"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-18 10:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "Theseus's release notes go in docs/CHANGES.md, newest first."
 [[item.session.node]]
 at = "2026-09-18 10:21"
@@ -966,7 +966,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-09 19:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Theseus's weekly install window is Thursday evening, after 18:00."
 [[item.session.node]]
 at = "2026-09-09 19:01"
@@ -999,7 +999,7 @@ key = "b"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-14 17:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "Theseus's warm gate must finish in under 90 seconds; past that, find what got slow."
 [[item.session.node]]
 at = "2026-09-14 17:41"
@@ -1066,7 +1066,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-04-11 21:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "If I ever type 'bluebell', freeze all running work at once: no questions, no finishing up."
 [[item.session.node]]
 at = "2026-04-11 21:41"
@@ -1087,7 +1087,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-05-06 08:15"
-who = "eddie"
+who = "zeroaltitude"
 text = "Nightly work runs on kestrel, the tower under my desk; the laptop sleeps."
 [[item.session.node]]
 at = "2026-05-06 08:16"
@@ -1108,7 +1108,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-03-19 18:05"
-who = "eddie"
+who = "zeroaltitude"
 text = "Sessions untouched for 41 days get pruned from the store, archive and all."
 [[item.session.node]]
 at = "2026-03-19 18:06"
@@ -1129,7 +1129,7 @@ key = "a"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-06-02 11:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "If the guild connector acts up, ping wren: they wrote most of it."
 [[item.session.node]]
 at = "2026-06-02 11:21"
@@ -1151,7 +1151,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-07-08 16:50"
-who = "eddie"
+who = "zeroaltitude"
 text = "Images that show a defect belong in ~/pics/defects, one folder per issue."
 [[item.session.node]]
 at = "2026-07-08 16:51"
@@ -1173,7 +1173,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-08-14 10:05"
-who = "eddie"
+who = "zeroaltitude"
 text = "Sub-agents get $3.50 of budget apiece; anything pricier comes to me first."
 [[item.session.node]]
 at = "2026-08-14 10:06"
@@ -1195,7 +1195,7 @@ key = "a"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-05-21 09:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "Outages we schedule go on the 'Lighthouse Ops' agenda, so the guild sees them coming."
 [[item.session.node]]
 at = "2026-05-21 09:31"
@@ -1217,7 +1217,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-03 14:25"
-who = "eddie"
+who = "zeroaltitude"
 text = "Pager notices land in ops-squawk@theseus.invalid, never my personal inbox."
 [[item.session.node]]
 at = "2026-09-03 14:26"
@@ -1246,7 +1246,7 @@ key = "a"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-06-17 10:12"
-who = "eddie"
+who = "zeroaltitude"
 text = "On staging, the replay worker answers on 7781."
 [[item.session.node]]
 at = "2026-06-17 10:13"
@@ -1262,7 +1262,7 @@ places = ["discord #theseus-dev", "cli", "discord DM"]
 [item.generate.vars]
 event = ["the deploy", "the reboot", "the kernel update", "the config reload", "the disk swap", "the DNS change"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Is the replay worker on staging still listening on its usual port after {event}?"
 [[item.generate.node]]
 who = "theseus"
@@ -1278,7 +1278,7 @@ places = ["discord #theseus-dev", "cli"]
 [item.generate.vars]
 sib = ["canary listens on port 7702", "perf listens on port 7713", "qa listens on port 7724", "demo listens on port 7735", "edge-1 listens on port 7746", "edge-2 listens on port 7757", "lab listens on port 7768", "sandbox listens on port 7790"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "For the runbook: the replay worker on {sib}."
 [[item.generate.node]]
 who = "theseus"
@@ -1299,7 +1299,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-04-23 15:02"
-who = "eddie"
+who = "zeroaltitude"
 text = "#release-notes is channel 1561209347718299410; the bot posts there after each install."
 [[item.session.node]]
 at = "2026-04-23 15:03"
@@ -1315,7 +1315,7 @@ places = ["discord DM", "discord #theseus-dev"]
 [item.generate.vars]
 event = ["the install", "the release", "the hotfix", "the restart", "the config change"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Did the bot post to #release-notes after {event}?"
 [[item.generate.node]]
 who = "theseus"
@@ -1330,7 +1330,7 @@ places = ["discord DM", "cli"]
 [item.generate.vars]
 sib = ["#general is channel 1561209347718201117", "#builds is channel 1561209347718210034", "#alerts is channel 1561209347718225581", "#random is channel 1561209347718241276", "#reviews is channel 1561209347718257803", "#guild-ops is channel 1561209347718268815", "#design is channel 1561209347718274430"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "For the bindings: {sib}."
 [[item.generate.node]]
 who = "theseus"
@@ -1351,7 +1351,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-03-26 17:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "Pin quill-codec at =0.14.3; 0.15 changed the frame header and broke replay."
 [[item.session.node]]
 at = "2026-03-26 17:41"
@@ -1368,7 +1368,7 @@ places = ["cli", "discord DM", "discord #theseus-dev"]
 what = ["warned", "showed up in a backtrace", "slowed the build", "came up in review", "printed a deprecation"]
 fix = ["nothing to change", "the warning is upstream's", "I left a note on the issue", "the lockfile agrees"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "quill-codec {what} again in {crate}. Are we still on the pinned version?"
 [[item.generate.node]]
 who = "theseus"
@@ -1383,7 +1383,7 @@ places = ["cli"]
 [item.generate.vars]
 sib = ["frame-ledger at =2.3.1", "wal-tail at =0.8.6", "gilt-rpc at =1.12.0", "quill-text at =0.9.4", "loom-index at =0.23.2", "brace-json at =3.0.7", "tally-hash at =0.5.11"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Pin {sib}; the next release changes its API."
 [[item.generate.node]]
 who = "theseus"
@@ -1404,7 +1404,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-05-12 09:55"
-who = "eddie"
+who = "zeroaltitude"
 text = "heron has 96 GiB of RAM since the upgrade."
 [[item.session.node]]
 at = "2026-05-12 09:56"
@@ -1422,7 +1422,7 @@ symptom = ["spiked", "climbed", "looked tight", "paged out"]
 job = ["the release build", "the nightly fuzz", "the docs build", "a cold cargo build", "the bench"]
 fine = ["the build finished", "the job was restarted", "swap stayed low", "the cache was trimmed"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "heron's memory {symptom} during {job}. Is the build host OK?"
 [[item.generate.node]]
 who = "theseus"
@@ -1437,7 +1437,7 @@ places = ["cli", "discord DM"]
 [item.generate.vars]
 sib = ["plover has 32 GiB of RAM", "dunlin has 64 GiB of RAM", "tern has 128 GiB of RAM", "avocet has 24 GiB of RAM"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "For the inventory: {sib}."
 [[item.generate.node]]
 who = "theseus"
@@ -1459,7 +1459,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-07-02 13:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "Index compaction runs at 04:40 MST every night."
 [[item.session.node]]
 at = "2026-07-02 13:11"
@@ -1476,7 +1476,7 @@ places = ["cli", "discord DM"]
 when = ["last night", "on Sunday", "after the import", "twice this week"]
 detail = ["the merge just had more segments", "nothing was lost", "the disk was busy with a build"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "The index compaction job ran long {when}. Anything to worry about?"
 [[item.generate.node]]
 who = "theseus"
@@ -1491,7 +1491,7 @@ places = ["cli"]
 [item.generate.vars]
 sib = ["log rotation job runs at 01:15", "store checkpoint job runs at 03:05", "docs build job runs at 05:20", "cache trim job runs at 23:45", "weekly fuzz job runs at 00:30"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "The {sib} MST."
 [[item.generate.node]]
 who = "theseus"
@@ -1513,7 +1513,7 @@ key = "a"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-08-06 16:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "Staging's gateway allows 140 requests a minute per client."
 [[item.session.node]]
 at = "2026-08-06 16:21"
@@ -1529,7 +1529,7 @@ places = ["discord #theseus-dev", "cli"]
 [item.generate.vars]
 job = ["the load test", "the replay", "the import", "the canary sweep"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "We hit the rate limit on the staging gateway again during {job}."
 [[item.generate.node]]
 who = "theseus"
@@ -1544,7 +1544,7 @@ places = ["discord #theseus-dev"]
 [item.generate.vars]
 sib = ["Prod's gateway allows 1200", "Dev's gateway allows 75", "Canary's gateway allows 320", "Perf's gateway allows 2400", "QA's gateway allows 250"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "{sib} requests a minute per client."
 [[item.generate.node]]
 who = "theseus"
@@ -1566,7 +1566,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-04-09 12:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "The index tender logs to state/logs/tender-idx.log, rotated daily."
 [[item.session.node]]
 at = "2026-04-09 12:31"
@@ -1584,7 +1584,7 @@ complaint = ["noisy", "full of merge warnings", "growing fast", "hard to read"]
 action = ["tidy it", "check it", "trim it"]
 done = ["checked", "trimmed", "skimmed"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "The index tender's log is {complaint}. Can you {action}?"
 [[item.generate.node]]
 who = "theseus"
@@ -1599,7 +1599,7 @@ places = ["cli"]
 [item.generate.vars]
 sib = ["web UI writes its log to state/logs/web.log", "Discord bridge writes its log to state/logs/discord.log", "durability tender writes its log to state/logs/tender-dur.log", "kernel writes its log to state/logs/kernel.log", "job runner writes its log to state/logs/jobs.log"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "For the runbook: the {sib}."
 [[item.generate.node]]
 who = "theseus"
@@ -1621,7 +1621,7 @@ key = "a"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-09 10:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "theseus-r7q goes to marlow; they know the follower code best."
 [[item.session.node]]
 at = "2026-09-09 10:41"
@@ -1638,7 +1638,7 @@ places = ["discord #theseus-dev", "discord DM", "cli"]
 status = ["still in review", "blocked on a flaky test", "rebased onto main", "waiting for the join", "back to in_progress", "missing a test for the torn tail"]
 next = ["I'll check it again tomorrow", "the branch builds", "the notes are up to date", "nothing else needed today"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Any news on theseus-r7q?"
 [[item.generate.node]]
 who = "theseus"
@@ -1653,7 +1653,7 @@ places = ["discord #theseus-dev"]
 [item.generate.vars]
 sib = ["theseus-k2m goes to rowan", "theseus-p4d goes to ines", "theseus-w8c goes to tomas", "theseus-x5j goes to priya", "theseus-y3b goes to kofi"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "{sib}."
 [[item.generate.node]]
 who = "theseus"
@@ -1682,7 +1682,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-03-02 09:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "Keep 14 days of WAL segments."
 [[item.session.node]]
 at = "2026-03-02 09:11"
@@ -1693,7 +1693,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-06-08 10:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "We needed an older segment last week. Keep 30 days of WAL segments from now on."
 [[item.session.node]]
 at = "2026-06-08 10:01"
@@ -1704,7 +1704,7 @@ key = "c"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-04 08:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "The disk is tight again, so cut WAL retention to 21 days."
 [[item.session.node]]
 at = "2026-09-04 08:31"
@@ -1718,7 +1718,7 @@ from = "2026-03-09 09:00"
 to = "2026-05-31 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Prune report for {host}?"
 [[item.generate.node]]
 who = "theseus"
@@ -1731,7 +1731,7 @@ from = "2026-06-15 09:00"
 to = "2026-08-25 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Prune report for {host}?"
 [[item.generate.node]]
 who = "theseus"
@@ -1744,7 +1744,7 @@ from = "2026-09-08 09:00"
 to = "2026-09-27 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Prune report for {host}?"
 [[item.generate.node]]
 who = "theseus"
@@ -1765,7 +1765,7 @@ key = "a"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-03-10 11:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "The weekly guild sync is Tuesdays at 10:00 MST."
 [[item.session.node]]
 at = "2026-03-10 11:01"
@@ -1776,7 +1776,7 @@ key = "b"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-05-19 09:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Tuesdays clash with the release train. The weekly guild sync moves to Wednesdays at 15:00 MST."
 [[item.session.node]]
 at = "2026-05-19 09:01"
@@ -1787,7 +1787,7 @@ key = "c"
 place = "discord #theseus-dev"
 [[item.session.node]]
 at = "2026-09-01 12:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "Starting next week we meet on Thursdays at 16:30 MST instead; half the guild asked for later."
 [[item.session.node]]
 at = "2026-09-01 12:41"
@@ -1801,7 +1801,7 @@ from = "2026-03-12 09:00"
 to = "2026-05-14 18:00"
 places = ["discord #theseus-dev"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Post the sync reminder."
 [[item.generate.node]]
 who = "theseus"
@@ -1814,7 +1814,7 @@ from = "2026-05-21 09:00"
 to = "2026-08-26 18:00"
 places = ["discord #theseus-dev"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Post the sync reminder."
 [[item.generate.node]]
 who = "theseus"
@@ -1827,7 +1827,7 @@ from = "2026-09-03 09:00"
 to = "2026-09-27 18:00"
 places = ["discord #theseus-dev"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Post the sync reminder."
 [[item.generate.node]]
 who = "theseus"
@@ -1848,7 +1848,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-03-16 19:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Alert me when daily spend passes $15."
 [[item.session.node]]
 at = "2026-03-16 19:01"
@@ -1859,7 +1859,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-06-02 08:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "The sweeps keep tripping it. Raise the daily spend alert to $45."
 [[item.session.node]]
 at = "2026-06-02 08:21"
@@ -1870,7 +1870,7 @@ key = "c"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-12 17:45"
-who = "eddie"
+who = "zeroaltitude"
 text = "Sweeps are done for the quarter, so bring the alert down to $35 a day."
 [[item.session.node]]
 at = "2026-09-12 17:46"
@@ -1884,7 +1884,7 @@ from = "2026-03-20 09:00"
 to = "2026-05-28 18:00"
 places = ["discord DM"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "How's spend today?"
 [[item.generate.node]]
 who = "theseus"
@@ -1897,7 +1897,7 @@ from = "2026-06-05 09:00"
 to = "2026-09-05 18:00"
 places = ["discord DM"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "How's spend today?"
 [[item.generate.node]]
 who = "theseus"
@@ -1910,7 +1910,7 @@ from = "2026-09-14 09:00"
 to = "2026-09-27 18:00"
 places = ["discord DM"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "How's spend today?"
 [[item.generate.node]]
 who = "theseus"
@@ -1932,7 +1932,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-03-05 14:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "The gate's timeout is 480 seconds."
 [[item.session.node]]
 at = "2026-03-05 14:01"
@@ -1943,7 +1943,7 @@ key = "b"
 place = "cli"
 [[item.session.node]]
 at = "2026-06-16 10:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "The gate timeout is 600 seconds from now on: the bench grew."
 [[item.session.node]]
 at = "2026-06-16 10:31"
@@ -1954,7 +1954,7 @@ key = "c"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-08 09:15"
-who = "eddie"
+who = "zeroaltitude"
 text = "Give the gate five more minutes: the new suite needs it."
 [[item.session.node]]
 at = "2026-09-08 09:16"
@@ -1968,7 +1968,7 @@ from = "2026-03-08 09:00"
 to = "2026-06-10 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Did the gate finish on {branch}?"
 [[item.generate.node]]
 who = "theseus"
@@ -1981,7 +1981,7 @@ from = "2026-06-20 09:00"
 to = "2026-09-02 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Did the gate finish on {branch}?"
 [[item.generate.node]]
 who = "theseus"
@@ -1994,7 +1994,7 @@ from = "2026-09-10 09:00"
 to = "2026-09-27 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Did the gate finish on {branch}?"
 [[item.generate.node]]
 who = "theseus"
@@ -2016,7 +2016,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-03-04 17:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "Keep 6 store snapshots and drop the older ones."
 [[item.session.node]]
 at = "2026-03-04 17:21"
@@ -2027,7 +2027,7 @@ key = "b"
 place = "cli"
 [[item.session.node]]
 at = "2026-05-27 11:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Six isn't enough history. Keep 9 store snapshots."
 [[item.session.node]]
 at = "2026-05-27 11:01"
@@ -2038,7 +2038,7 @@ key = "c"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-10 16:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "After the restore drill I want more history: hold 13 snapshots."
 [[item.session.node]]
 at = "2026-09-10 16:01"
@@ -2052,7 +2052,7 @@ from = "2026-03-07 09:00"
 to = "2026-05-24 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Take a store snapshot."
 [[item.generate.node]]
 who = "theseus"
@@ -2065,7 +2065,7 @@ from = "2026-05-30 09:00"
 to = "2026-09-06 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Take a store snapshot."
 [[item.generate.node]]
 who = "theseus"
@@ -2078,7 +2078,7 @@ from = "2026-09-12 09:00"
 to = "2026-09-27 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Take a store snapshot."
 [[item.generate.node]]
 who = "theseus"
@@ -2100,7 +2100,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-03-18 13:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "The pushgateway listens on 9091, its default port."
 [[item.session.node]]
 at = "2026-03-18 13:01"
@@ -2111,7 +2111,7 @@ key = "b"
 place = "cli"
 [[item.session.node]]
 at = "2026-06-10 15:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "9091 clashes with the test harness. Move the pushgateway to port 9191."
 [[item.session.node]]
 at = "2026-06-10 15:01"
@@ -2122,7 +2122,7 @@ key = "c"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-16 10:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "The harness took 9191 as well. The pushgateway goes to 9291, and that's final."
 [[item.session.node]]
 at = "2026-09-16 10:21"
@@ -2136,7 +2136,7 @@ from = "2026-03-21 09:00"
 to = "2026-06-05 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Is the pushgateway up?"
 [[item.generate.node]]
 who = "theseus"
@@ -2149,7 +2149,7 @@ from = "2026-06-13 09:00"
 to = "2026-09-12 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Is the pushgateway up?"
 [[item.generate.node]]
 who = "theseus"
@@ -2162,7 +2162,7 @@ from = "2026-09-18 09:00"
 to = "2026-09-27 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Is the pushgateway up?"
 [[item.generate.node]]
 who = "theseus"
@@ -2184,7 +2184,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-04-01 12:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Set the bot's status line to 'watching the WAL'."
 [[item.session.node]]
 at = "2026-04-01 12:01"
@@ -2195,7 +2195,7 @@ key = "b"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-06-22 18:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "Change the bot's status line to 'reading the logs'."
 [[item.session.node]]
 at = "2026-06-22 18:31"
@@ -2206,7 +2206,7 @@ key = "c"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-18 20:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "New status for the bot: 'counting tokens'."
 [[item.session.node]]
 at = "2026-09-18 20:11"
@@ -2220,7 +2220,7 @@ from = "2026-04-04 09:00"
 to = "2026-06-18 18:00"
 places = ["discord DM", "discord #theseus-dev"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Is the bot online?"
 [[item.generate.node]]
 who = "theseus"
@@ -2233,7 +2233,7 @@ from = "2026-06-25 09:00"
 to = "2026-09-14 18:00"
 places = ["discord DM", "discord #theseus-dev"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Is the bot online?"
 [[item.generate.node]]
 who = "theseus"
@@ -2255,7 +2255,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-03-23 10:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Scratch daemons keep their state under /tmp/theseus-scratch."
 [[item.session.node]]
 at = "2026-03-23 10:01"
@@ -2266,7 +2266,7 @@ key = "b"
 place = "cli"
 [[item.session.node]]
 at = "2026-06-03 09:40"
-who = "eddie"
+who = "zeroaltitude"
 text = "/tmp is wiped on every restart. Scratch daemons keep their state under /var/tmp/theseus-scratch from now on."
 [[item.session.node]]
 at = "2026-06-03 09:41"
@@ -2277,7 +2277,7 @@ key = "c"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-09-21 08:50"
-who = "eddie"
+who = "zeroaltitude"
 text = "Put scratch state in ~/scratch/theseus from today, so it survives the VM's restarts."
 [[item.session.node]]
 at = "2026-09-21 08:51"
@@ -2291,7 +2291,7 @@ from = "2026-03-26 09:00"
 to = "2026-05-30 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Clean up the scratch daemons."
 [[item.generate.node]]
 who = "theseus"
@@ -2304,7 +2304,7 @@ from = "2026-06-06 09:00"
 to = "2026-09-17 18:00"
 places = ["cli"]
 [[item.generate.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Clean up the scratch daemons."
 [[item.generate.node]]
 who = "theseus"
@@ -2329,7 +2329,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-07-21 10:05"
-who = "eddie"
+who = "zeroaltitude"
 text = "Is the scratch volume getting full?"
 [[item.session.node]]
 at = "2026-07-21 10:05"
@@ -2356,7 +2356,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-05-28 15:30"
-who = "eddie"
+who = "zeroaltitude"
 text = "io_uring is acting up on heron. What are we running there?"
 [[item.session.node]]
 at = "2026-05-28 15:30"
@@ -2383,7 +2383,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-08-11 16:45"
-who = "eddie"
+who = "zeroaltitude"
 text = "Run the store crate's tests."
 [[item.session.node]]
 at = "2026-08-11 16:45"
@@ -2410,7 +2410,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-06-30 18:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "Did the v0.6.0 tag land on the right commit?"
 [[item.session.node]]
 at = "2026-06-30 18:10"
@@ -2438,7 +2438,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-04-17 09:20"
-who = "eddie"
+who = "zeroaltitude"
 text = "Is theseusd still running as root? Check."
 [[item.session.node]]
 at = "2026-04-17 09:20"
@@ -2466,7 +2466,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-09-24 11:00"
-who = "eddie"
+who = "zeroaltitude"
 text = "Verify the embedding weights we downloaded."
 [[item.session.node]]
 at = "2026-09-24 11:00"
@@ -2494,7 +2494,7 @@ key = "a"
 place = "cli"
 [[item.session.node]]
 at = "2026-08-25 14:10"
-who = "eddie"
+who = "zeroaltitude"
 text = "What does the scratch config set for the index?"
 [[item.session.node]]
 at = "2026-08-25 14:10"
@@ -2523,7 +2523,7 @@ key = "a"
 place = "discord DM"
 [[item.session.node]]
 at = "2026-07-07 09:45"
-who = "eddie"
+who = "zeroaltitude"
 text = "Check when the metrics proxy's cert expires."
 [[item.session.node]]
 at = "2026-07-07 09:45"
@@ -2559,7 +2559,7 @@ places = ["cli"]
 [background.vars]
 tests = ["566", "571", "583", "590", "602", "611", "618", "624"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Run the gate on {branch}."
 [[background.node]]
 who = "tool"
@@ -2581,7 +2581,7 @@ places = ["cli", "discord DM"]
 [background.vars]
 summary = ["a flaky test to pin down", "a refactor of the error types", "docs for the new RPC", "a bench regression to explain", "a clippy cleanup", "a missing metric"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "What's next on the board for {crate}?"
 [[background.node]]
 who = "theseus"
@@ -2597,7 +2597,7 @@ places = ["discord #theseus-dev", "discord DM"]
 [background.vars]
 verdict = ["two nits, otherwise good", "it needs a test for the error path", "approved", "it changes a shared file, so it waits for the join"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Review {person}'s PR on {crate} when you can."
 [[background.node]]
 who = "theseus"
@@ -2615,7 +2615,7 @@ panel = ["costs", "sessions", "timeline", "tools", "health", "recall"]
 look = ["cramped", "busy", "stale", "off"]
 change = ["tighter rows", "a clearer legend", "fewer columns", "the totals on top"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "The Observatory's {panel} panel looks {look} in the web UI. Tidy it?"
 [[background.node]]
 who = "theseus"
@@ -2629,7 +2629,7 @@ from = "2026-03-02 08:00"
 to = "2026-09-28 20:00"
 places = ["cli"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Restart the scratch daemon on {host}."
 [[background.node]]
 who = "theseus"
@@ -2645,7 +2645,7 @@ places = ["discord DM", "cli"]
 [background.vars]
 change = ["two fixes and a test", "a new metric", "a faster startup path", "error messages that name the file", "a smaller binary"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Summarize this week in {crate}."
 [[background.node]]
 who = "theseus"
@@ -2678,7 +2678,7 @@ places = ["discord DM"]
 [background.vars]
 todo = ["look at the session list's sort order", "write up the restore drill", "ask about the build host's fans", "tidy the docs index", "check the job queue's back-pressure", "rename the stale branches"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Note for later: {todo}."
 [[background.node]]
 who = "theseus"
@@ -2695,7 +2695,7 @@ places = ["cli", "discord DM"]
 job = ["the release build", "the cold build", "the docs build", "the fuzz pass", "the restore drill"]
 mins = ["7", "12", "19", "26", "33", "52"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "How long did {job} take?"
 [[background.node]]
 who = "theseus"
@@ -2709,11 +2709,11 @@ from = "2026-03-02 08:00"
 to = "2026-09-28 20:00"
 places = ["cli", "discord DM"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Move {issue} to in_progress and give it to me."
 [[background.node]]
 who = "theseus"
-text = "Done: {issue} is in_progress, assigned to eddie."
+text = "Done: {issue} is in_progress, assigned to zeroaltitude."
 
 [[background]]
 key = "cost"
@@ -2726,7 +2726,7 @@ places = ["discord DM"]
 usd = ["2.10", "4.75", "6.40", "8.05", "3.20"]
 what = ["the sweeps", "review turns", "the canary", "background tasks"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "What did yesterday cost?"
 [[background.node]]
 who = "theseus"
@@ -2742,7 +2742,7 @@ places = ["cli"]
 [background.vars]
 load = ["light", "moderate", "high from a build"]
 [[background.node]]
-who = "eddie"
+who = "zeroaltitude"
 text = "Is {host} up?"
 [[background.node]]
 who = "theseus"

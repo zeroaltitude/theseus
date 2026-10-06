@@ -37,14 +37,14 @@ Part III A3c and A4; the herdr and epidemiology research reports; and the code a
     step 13 measures before it changes anything.
   - The web UI polls `session.list` every 5 s, and each call decodes every action ever written. The push ends
     that poll.
-- **From Eddie:** nothing blocks. Zig for building herdr (a heads-up); whether herdr is in his daily stack;
+- **From the owner:** nothing blocks. Zig for building herdr (a heads-up); whether herdr is in his daily stack;
   how the TUI should tell him; and the 1-hour cache TTL once 13b has measured it.
 
 ## 1. Scope and principles
 
 ### 1.1 What this phase is for
 
-- **Eddie's terms.** Two of his Appendix F decisions (2026-09-27): the herdr adapter ("Let's try 'A' -- I'm
+- **The owner's terms.** Two of his Appendix F decisions (2026-09-27): the herdr adapter ("Let's try 'A' -- I'm
   curious to see this!") and `theseus tui` ("'A' -- first we try everything!"). Both carry herdr's one product
   bet: **never hunt for the stuck one**. They also carry NOTIFY OVER BLOCK: "the operator should /know/ when
   something bad is going to happen."
@@ -553,7 +553,7 @@ compilation; this design differs, and Part III should record why.
 - **Tests:** the golden OTLP JSON files in `telemetry/testdata`, updated, and a fixture of a failed continuation.
 - **Live:** the receiver (the OTLP receiver script from theseus-hee's report) on a scratch daemon with
   `metrics_interval_secs = 5`. A 15-second turn must land in the right bucket.
-- **Nothing reads these yet.** Eddie has no OTLP endpoint, so the step is cheap to run early, or to fold into
+- **Nothing reads these yet.** The owner has no OTLP endpoint, so the step is cheap to run early, or to fold into
   the next step that touches telemetry.
 
 ### 2.13 Provider-safe caching (theseus-ev1)
@@ -592,10 +592,10 @@ compilation; this design differs, and Part III should record why.
 5. **A TTL setting per profile**, `cache_ttl = "5m" | "1h"`, with `5m` as the default.
    - A 1-hour entry costs 2× input to write, instead of 1.25×.
    - It pays when the header would otherwise be rewritten more than about once an hour.
-   - Eddie's DM has a median turn of 90 s, but gaps of more than 5 minutes between exchanges are common.
+   - The owner's DM has a median turn of 90 s, but gaps of more than 5 minutes between exchanges are common.
 
    The step measures from the ledger how often a DM's first call after such a gap writes the header, and
-   reports the break-even. Changing the default is Eddie's call (§4).
+   reports the break-even. Changing the default is the owner's call (§4).
 6. **Z.ai.** Record whether GLM, through Z.ai's Anthropic-compatible endpoint, reports cache reads on a second
    identical call.
    - The catalog gets `caches = true | false` per provider.
@@ -666,7 +666,7 @@ A lane joins `main` through a small wire-in step.
 | 11c | 11 | l1l | wire-in: merge, and the agents' operating notes | wire-in | 11b |
 | 12a | 12 | n4m | the report route's `derived_from` edge, `node.reach`, `theseus reach`, a core scenario, and, if it fits, the Observatory's reach cell | SPINE | step 8 |
 | 13a | 13 | yf1 | the telemetry corrections (§2.12) | SPINE | none |
-| 13b | 13 | ev1 | caching, part 1: measure (the Observatory's figures), the byte-identical header test, the Z.ai probe, the TTL break-even from Eddie's ledger | LANE (web and tests) | none |
+| 13b | 13 | ev1 | caching, part 1: measure (the Observatory's figures), the byte-identical header test, the Z.ai probe, the TTL break-even from the owner's ledger | LANE (web and tests) | none |
 | 13c | 13 | ev1 | caching, part 2: two breakpoints, `cache_min_tokens`, the catalog's `caches`, `cache_ttl` | SPINE | 13b |
 
 ¹ 10a is LANE by its crate, but it restructures the CLI's `main.rs`, and every spine step adds CLI commands to
@@ -677,7 +677,7 @@ that same file. So it runs in the chain's slot right after 9c, and joins before 
 | Step | Tests (in the gate) | Live check (scratch daemon) |
 |---|---|---|
 | 9a | A table over every state × wake × {no question, one, a budget question}; each label; the unknown-state fallback; `session.list` carries `attention` for a session parked on a confirm | A GLM turn whose `proc.run` waits for approval: `theseus sessions` shows `● confirm proc.run: …` |
-| 9b | **The prove:** a core scenario (a turn, a job, a confirm, a task, a wake, a stop, a cancel) with an all-session watcher. Each `execution.*` ledger row has an event at its position or later with that state, and each event has its row. Also: the snapshot race under the position rule; a question parked before the daemon started appears in the seed; no observer until someone watches; the frame budget (8) holds | Over a copy of Eddie's store: `theseus watch --all > watch.log` in the background, then a turn with a confirm, the answer, and a task. `watch.log` has every transition that `ledger -n 80 --json` shows. Bench row: the seed on the 10,000-session store |
+| 9b | **The prove:** a core scenario (a turn, a job, a confirm, a task, a wake, a stop, a cancel) with an all-session watcher. Each `execution.*` ledger row has an event at its position or later with that state, and each event has its row. Also: the snapshot race under the position rule; a question parked before the daemon started appears in the seed; no observer until someone watches; the frame budget (8) holds | Over a copy of the owner's store: `theseus watch --all > watch.log` in the background, then a turn with a confirm, the answer, and a task. `watch.log` has every transition that `ledger -n 80 --json` shows. Bench row: the seed on the 10,000-session store |
 | 9c | **The proves:** `session.wait` returns on `blocked`, `settled`, and `terminal`. Also: `already`; `after_position`; `terminal` refused on a conversation; the timeout; a closed connection ends its wait; the cap of 64. **The lag prove:** a client that stops reading while 5,000 events pass gets `events.lost` once drained, and after its re-snapshot it equals a fresh client. The web build | `theseus wait <sid> --until blocked &`, then a turn that parks on a confirm: the wait returns within about 100 ms of the `confirm.requested` row. `kill -STOP` a `theseus watch --all`, run a burst of turns, then `kill -CONT`: it prints the lost notice and re-snapshots. The web UI on a scratch port (never 7433): the sidebar changes with no poll in the network log |
 | 10a | Golden tests of `render` for each notification the `Printer` handles. A recorded session prints byte-identically before and after | `theseus watch` and `theseus ask` output, diffed before and after the move |
 | 10b | `TestBackend` snapshots over a scripted fake server: a snapshot plus three events give the expected buffer | The TUI in tmux, read with `capture-pane`: two sessions and a task show as rows; a new turn flips a row to working and back |
@@ -690,7 +690,7 @@ that same file. So it runs in the chain's slot right after 9c, and joins before 
 | 11c | The gate | the agents' operating notes, and the install of herdr documented |
 | 12a | **The prove:** the core scenario, a node relayed to the parent, with `node.reach` naming both sessions, the generations, and the exact compilations. Also: a store with no edges answers direct exposure only; a turn that reads a report writes no extra frame; the reader-rule registry (step 8) lists `derived_from` with its reader, `node.reach` | A GLM task with `wake_parent: true` that reports; after the parent's turn, `theseus reach <the task's last node>` names both sessions; `walread.py <store> frames <pos>` shows the edge in the report's frame |
 | 13a | The golden OTLP JSON files; a failed-continuation fixture | The OTLP receiver with `metrics_interval_secs = 5`: a 15 s turn lands in the right bucket, and the tool metrics carry family, backend, and outcome |
-| 13b | The header is byte-identical across two sessions, and across a session and its task, for one profile | The Z.ai probe (two identical GLM calls: are cache reads reported?). A read-only pass over a copy of Eddie's ledger: how often his DM's first call after a gap of more than 5 minutes wrote the header, and the 1-hour TTL's break-even |
+| 13b | The header is byte-identical across two sessions, and across a session and its task, for one profile | The Z.ai probe (two identical GLM calls: are cache reads reported?). A read-only pass over a copy of the owner's ledger: how often his DM's first call after a gap of more than 5 minutes wrote the header, and the 1-hour TTL's break-even |
 | 13c | Where the two breakpoints go; `cache_min_tokens`; a provider that doesn't cache gets none; the template test that un-comments every line parses `cache_ttl` | Two scratch sessions on the Sonnet profile: the second session's first call reads at least block 1 and the tools from cache. After an edit to a context file, block 1 still hits while block 2 writes |
 
 ### 3.3 Order and parallelism
@@ -721,7 +721,7 @@ lanes:                               ├─ 10b ─ 10c ─ 10d ─ 10e ─┘  
 | 12a | M5 (theseus-vug: promotion by reference, `relies_on`) and M6 (recall, borrowing, theseus-3nk) | each new route lands with its own reverse entries, which `node.reach` then reads |
 | 13c | M6 (lessons stay after the breakpoints, theseus-3nk) and M5 (a persona that Jev switches rewrites block 2 only) | the layout leaves room for both |
 
-## 4. What it needs from Eddie
+## 4. What it needs from the owner
 
 Nothing here blocks step 9, and nothing blocks the chain: each item has a default the build takes.
 
@@ -771,10 +771,10 @@ Nothing here blocks step 9, and nothing blocks the chain: each item has a defaul
 | 10 | **Terminal quirks under WSL and Windows Terminal** (focus events, OSC notices) | The default notices, the bell and the title, work everywhere |
 
 **What would change the plan:**
-- **herdr isn't in Eddie's daily stack.** Keep 11a (`--interactive` is useful on its own), and park 11b.
+- **herdr isn't in the owner's daily stack.** Keep 11a (`--interactive` is useful on its own), and park 11b.
 - **The seed is slow on a big store.** Build the index of open actions before 9b lands.
 - **Z.ai doesn't cache.** 13c applies to the Anthropic profiles only, and the catalog says so.
-- **Eddie lives in Discord, and the web UI on his phone is enough.** Stop the TUI after 10d, and spend the slots on a Discord `/queue` (question 15), which reaches him where he already works.
+- **The owner lives in Discord, and the web UI on his phone is enough.** Stop the TUI after 10d, and spend the slots on a Discord `/queue` (question 15), which reaches him where he already works.
 
 *— written by Tabitha/Claude*
 

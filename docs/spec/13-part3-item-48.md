@@ -63,7 +63,7 @@ directory, which wasn't a worktree's, so scratch builds now stay inside a lane's
 an installed binary checked against its commit (theseus-w441), the cockpit's uncommitted build (theseus-63gf),
 duplicate versions in `deny.toml` (theseus-tcdl), a nightly reproducibility job (theseus-at7b), the TLS roots
 (theseus-dn7p), a better allocator for musl (theseus-w6hg), and a musl build that something runs (theseus-3yu1). The
-daily deny timer waits on Eddie's decision; until then the deny script is run by hand at each install.
+daily deny timer waits on the owner's decision; until then the deny script is run by hand at each install.
 
 ### Item 49. AWS's C1 = 14a: the bound account and its read tools (theseus-ppsd; row 29, stage D's first row; built in the `aws-c1` worktree beside C2, 2026-10-02 00:10 to 01:35, rebased onto C2 from 07:35, and onto 699927d with NODE schema 3 from 08:41; reviewed from 08:40; rebased at the join onto 34be7e2 as 79e1b49, with 32fd483 for the shape budget; joined 09:57 at 32fd483; installed 14:23 with 9f4035b)
 
@@ -168,7 +168,7 @@ the index tender the first tender that runs, so recall (30a) has something to as
   budgets were missed in one round. Run 2's 2 s wait, and health asking only a tender that runs, took it off: the
   bench then saw one tender start against 51 daemon starts. At the join's prep, the bench alone matched `main`'s
   medians within 2.1 ms in every phase.
-- **Live, twice, on a copy of Eddie's store** with the real Nomic weights: it backfilled 94 nodes (145 chunks in
+- **Live, twice, on a copy of the owner's store** with the real Nomic weights: it backfilled 94 nodes (145 chunks in
   164 ms in run 1), lag 0 B; `theseus index search` found a phrase from one of his sessions, first by BM25; a
   `kill -9` restarted the tender 1.002 and 1.003 s after the exit, from its cursor; and a stop ended both in about
   90 ms.
@@ -187,7 +187,7 @@ theseus-index`, so the bench runs the tender of the commit judged. After the joi
 the tender's `started` row landing inside a measured plain turn (6 frames): the turn bench now waits for that row
 before it times a turn (3a4beff).
 
-**At the install** (14:23). Eddie's daemon backfilled his store into `~/.theseus/index`, and health said the index
+**At the install** (14:23). The owner's daemon backfilled his store into `~/.theseus/index`, and health said the index
 tender ran in the unit's cgroup, ready, 94 nodes, 0 B behind.
 
 **Known gaps** (all P3, post-v1). `index rebuild` through the core (theseus-y6za); the tender as telemetry metrics
@@ -281,13 +281,13 @@ review.
   number now.
 - **The index tender's follower** reads the page cache and never sees a sync: a new test runs it beside the batching
   writer, with rolls inside its batches, and it reads every record once, in order.
-- **Live**, on a copy of Eddie's store: `kill -9` during four GLM turns. Every frame acknowledged before the kill
+- **Live**, on a copy of the owner's store: `kill -9` during four GLM turns. Every frame acknowledged before the kill
   was there after it, byte for byte, and all four executions were requeued and continued, their cut-off calls
   settled unknown at their deadline.
 - **The lifecycle bench**: run 2 benched both builds in one hold of the lock, in palindrome order, four rounds:
   medians level in every phase (cold start p50 23.6 ms before, 24.4 after), and the start's one frame, now through
   the writer, costs about 0.2 ms. A slow mode S2's cold starts showed only in the hold's second and third places;
-  Tabitha's reverse-order run (11:42 to 11:44) swapped the places, and it followed the place, not the build.
+  Tabitha/Claude's reverse-order run (11:42 to 11:44) swapped the places, and it followed the place, not the build.
 - **Gates**: 1,448 and 1,449 tests (run 1), 1,518 and 1,519 (run 2). **The join's gate**, 11:44:47 to 11:48:19:
   1,519 of 1,519, lifecycle OK in 10.3 s (cold p50 23.5 ms), a plain turn's frames 5 of 5.
 
@@ -300,7 +300,7 @@ pool can grow toward tokio's 512, bounded in practice by admission (8 turns by d
 
 **The join.** Run 2 (from 10:41) rebased onto 371725d: `tests_schemas` refused the tree until it recorded `node @ 3`
 (C1's two fields, Item 49), the store's `store.rs` moved its tests to `store/tests.rs` for the shape budget, and
-xprd was fixed. The usage limit cut it at 11:32, after its third gate and second bench. Tabitha ran the
+xprd was fixed. The usage limit cut it at 11:32, after its third gate and second bench. Tabitha/Claude ran the
 reverse-order bench, rebased it onto 3a4beff (clean), and joined it.
 
 **Known gaps.** P3, post-v1: a failed fdatasync's frames come back at the next open (fsyncgate; theseus-ljgm); an open
@@ -309,11 +309,11 @@ that replayed ends with a checkpoint on the start path, about 14 ms (theseus-4ra
 in-flight provider calls wait out their 600 s deadline (theseus-m9iy); and ~~a brand-new store's own directory name is
 never synced (theseus-gf00)~~ (built in Item 67).
 
-### Item 53. The `robust2` lane: one exit for a turn, a corrupt record that degrades only what reads it, and a crash file (theseus-xonq: Review 2's R1, R4, R5, and consideration 1; theseus-15g; theseus-3ebd; 2026-10-02 07:42 to 10:49; reviewed from 11:02; rebased onto S2 by Tabitha, with the repair flag's join patch and a shape fix; 364e8d9, 17e206b, 006a956, 0283a02, ad3590a, and 520b1bc; joined 11:53 at 520b1bc; installed 14:23 with 9f4035b)
+### Item 53. The `robust2` lane: one exit for a turn, a corrupt record that degrades only what reads it, and a crash file (theseus-xonq: Review 2's R1, R4, R5, and consideration 1; theseus-15g; theseus-3ebd; 2026-10-02 07:42 to 10:49; reviewed from 11:02; rebased onto S2 by Tabitha/Claude, with the repair flag's join patch and a shape fix; 364e8d9, 17e206b, 006a956, 0283a02, ad3590a, and 520b1bc; joined 11:53 at 520b1bc; installed 14:23 with 9f4035b)
 
 **Why.** Review 2 found that a turn faulting after a paid loop skipped its books (R1); that one corrupt record failed
 every list read, so the driver silently ran no continuation and no wake for any session, on every tick (R4, with
-theseus-15g's repair path); and that Discord's splitter needed a progress guarantee (R5). Eddie, 2026-10-01 at 19:54:
+theseus-15g's repair path); and that Discord's splitter needed a progress guarantee (R5). The owner, 2026-10-01 at 19:54:
 keep `panic = "abort"` with a crash file (consideration 1), and option (a) for an execution the old unit budget ended
 (theseus-3ebd).
 
@@ -343,19 +343,19 @@ keep `panic = "abort"` with a crash file (consideration 1), and option (a) for a
 - **A skipped record never loosens a check** (the review): the outside-text hold and an execution's budget are read
   by key, which is still refused, and the kernel's counts come from the index's terms. Each list a skip feeds
   degrades to less shown or done, never to more allowed.
-- **Live**: a scratch daemon on a copy of Eddie's store reopened his DM session's execution (`budget_exhausted` to
+- **Live**: a scratch daemon on a copy of the owner's store reopened his DM session's execution (`budget_exhausted` to
   `waiting`, $0.42 of $100), again on the rebased build. A debug build with a planted panic aborted with a 0600
   crash file, and the next start reported it in health and one row.
 - **Gates**: the last on the rebased branch at 10:43, 1,504 tests; the lifecycle bench alone at 10:48: LIFECYCLE OK
   (cold start p95 24.9 ms of 50, a clean stop 33.3 of 100, a kill and restart 39.7 of 150, a swap 53.7 of 200).
   **The join's gate** at 11:53:03: 1,534 of 1,534, lifecycle OK in 9.8 s, frames 5.
 
-**Divergences.** 3ebd reopens at every start, not only at the migration, since Eddie's store was migrated by an
+**Divergences.** 3ebd reopens at every start, not only at the migration, since the owner's store was migrated by an
 earlier build. R4's skip covers `scan` too. 15g's repair is frame by frame from a copy, which loses nothing written
 after the copy; `restore --from` already replaced the whole store. R7 and R8 moved to S2 (Item 52). The planted panic
 marks the process non-dumpable, so its test leaves no core on C:.
 
-**The join.** The run ended at 10:59 on the gateway's 8 MB output limit, after its report; nothing was lost. Tabitha
+**The join.** The run ended at 10:59 on the gateway's 8 MB output limit, after its report; nothing was lost. Tabitha/Claude
 rebased it onto S2 at the join (keep-both hunks in the store's `store.rs`, its read path into S2's `Inner`, its test
 into `store/tests.rs`, the TypeScript regenerated), applied the repair flag's patch, a dispatch match kept out of the
 branch (ad3590a), and moved the CLI's store lines into `render/store.rs` for the shape budget (520b1bc).
@@ -367,7 +367,7 @@ the splitter's property tests abandon a looping thread at their timeout (theseus
 dollar limit has no way to reopen (theseus-x3m9); a crash loop under the user unit restarts every 5 s forever
 (theseus-0v8s); and an execution record that doesn't decode still fails every list of executions (theseus-q6nt).
 
-### Item 54. The `robust3` lane: eleven correctness gaps on v1's path (theseus-7f7k: theseus-tq04, 0o8, ni5, 6g6, 4lx, 5wgd, ht82, p7q, k52m, nu3z, and yey; 2026-10-02 08:35 to 10:25; reviewed from 11:07; rebased onto robust2 by Tabitha (99d7d97), with a shape fix after the first join gate; e85efb0, 99d7d97, and 22b0877; joined 12:03 at 22b0877; installed 14:23 with 9f4035b)
+### Item 54. The `robust3` lane: eleven correctness gaps on v1's path (theseus-7f7k: theseus-tq04, 0o8, ni5, 6g6, 4lx, 5wgd, ht82, p7q, k52m, nu3z, and yey; 2026-10-02 08:35 to 10:25; reviewed from 11:07; rebased onto robust2 by Tabitha/Claude (99d7d97), with a shape fix after the first join gate; e85efb0, 99d7d97, and 22b0877; joined 12:03 at 22b0877; installed 14:23 with 9f4035b)
 
 **Why.** Eleven gaps filed against the core by earlier steps and reviews, each on v1's path: a call a cancel left
 without a result, a reset that seemed to free money it couldn't, a running job that could fill the disk, a float that
@@ -398,7 +398,7 @@ didn't read back as written, and the rest below.
 
 **How it is proven.**
 - **Thirteen planted reverts** in five batches, each failing its item's test (the lane's `proofs.md`).
-- **Live**, on a scratch daemon over a copy of Eddie's store, with Discord and the web UI off and GLM turns only: a
+- **Live**, on a scratch daemon over a copy of the owner's store, with Discord and the web UI off and GLM turns only: a
   watch seeded the push and received `execution.changed`; a line typed in `watch --interactive` ran on the session's
   `glm-5.3-flash`, not the daemon's live Sonnet profile; a cancelled execution with every call answered; a stdio
   daemon's clean stop on each signal and its clean reopen; a cut stream booked. $0.0026 in all.
@@ -407,15 +407,15 @@ didn't read back as written, and the rest below.
 
 **Divergences.** ht82 changes §6: the floor used to leave room for what already runs to finish, which held only for
 captured output, not for files a job writes itself, and at L0 nothing names the writer. The review called it blunt
-but the lesser harm (a full disk paused the whole machine on 2026-10-01), told Eddie at 10:42, and asked whether he'd
+but the lesser harm (a full disk paused the whole machine on 2026-10-01), told the owner at 10:42, and asked whether he'd
 rather it only refused new jobs; until he says otherwise it stays, and M4's per-job quota makes it precise
 (theseus-dszu). yey books an estimate now, where the brief left booking to a follow-up: no cost under-books, and
 holding unknown would pile up a reservation per stop that a reset can't free. nu3z took neither of the issue's two
-options: the watch follows the session's last profile, and the daemon's default for `ask -s` is Eddie's call. ni5
+options: the watch follows the session's last profile, and the daemon's default for `ask -s` is the owner's call. ni5
 decides in the continuation, not in a startup pass. 4lx keeps the target in META, not in the node. k52m turned the
 feature on rather than changing a node's layout.
 
-**The join.** Tabitha rebased it onto robust2 (Item 53), keeping both sides in `toolrun.rs` (main's AWS rows, then
+**The join.** Tabitha/Claude rebased it onto robust2 (Item 53), keeping both sides in `toolrun.rs` (main's AWS rows, then
 0o8's accepted completion) and in the stdio block, and regenerated the output golden, keeping only the intended
 lines. The first join gate failed the shape budget at 11:53:30: `tests_m3.rs` reached 8,266 lines against 8,000, and
 the kernel's `kernel.rs` 3,052 against 3,010. 22b0877 moved the answer tests into `tests_m3/every_call_answered.rs`
@@ -425,7 +425,7 @@ clippy's 100 lines. k52m's feature rebuilds every crate that uses serde_json, on
 **Known gaps** (all P3, post-v1). A daemon that dies between a cancel and its sweep leaves the calls unanswered
 (theseus-fvxh); a cut stream's exact usage, from the provider's own events (theseus-k48c); a per-job disk quota, so the
 floor stops only the writer (theseus-dszu); and no operator verb settles or forgives a call held unknown, a decision
-for Eddie (theseus-cv3v).
+for the owner (theseus-cv3v).
 
 ### Item 55. The `security3` lane: the security gaps left on v1's path (theseus-fa4m: theseus-txvt, ur1t, ewi, 830, 8d1b, hmwv, c3e, and sqpx; 2026-10-02 08:25 to 10:46; reviewed from 11:10; rebased onto robust3 at the join; 3c040d1, 35bd10d, 52607c2, 7d4cd98, 711744a, a8df541, 2b08632, edecc20, c10b92d, 1c0ddd4, e93287e, and the join's 5892683; joined 12:14 at 5892683; installed 14:23 with 9f4035b)
 
@@ -443,7 +443,7 @@ operator's own vault, and three smaller holes around a stop and the operator's n
 - **A granted git runs no hooks** (ur1t, 7d4cd98): a git or gh given a secret runs with `core.hooksPath=/dev/null` and
   an empty `core.fsmonitor` pinned at the command-line scope, so neither a cloned project's hooks nor its fsmonitor
   sees the variable. What still reaches it at L0 is listed for M4 (theseus-ngz5).
-- **A write outside the roots takes its tool's posture** (ewi, 52607c2), whichever tool makes it: Eddie's rule of
+- **A write outside the roots takes its tool's posture** (ewi, 52607c2), whichever tool makes it: the owner's rule of
   2026-09-30 at 23:45, not the brief's suggestion. A read or a working directory outside the roots, the approve list,
   and the floor still ask. The Discord proof's write now waits on the approve list, so it keeps its twelve steps
   (1c0ddd4).
@@ -460,7 +460,7 @@ operator's own vault, and three smaller holes around a stop and the operator's n
 **How it is proven.**
 - **Planted reverts**: with each fix off, all 14 of the lane's new tests failed as their bugs did, on the first tree
   and again on the rebased one, and passed with the fixes back.
-- **Live**, on a scratch daemon over a copy of Eddie's store, with Discord off, a fake `op`, a fake Messages API, and a
+- **Live**, on a scratch daemon over a copy of the owner's store, with Discord off, a fake `op`, a fake Messages API, and a
   stand-in `cargo` that says only whether the variable reached it: a grant to bash refused at load; `cargo build`
   without the variable and `cargo publish` with it; a granted git's fetch with a planted hook that never ran;
   `fs.write` outside the roots at `notify`; a question on a 3-second TTL expired and its call didn't run; held web
@@ -470,7 +470,7 @@ operator's own vault, and three smaller holes around a stop and the operator's n
 - **Gates**: 1,443, then 1,487 tests on the rebase onto 34be7e2. **The join's gate**, rerun 12:11:00 to 12:13:30:
   1,568 of 1,568, lifecycle OK in 9.8 s, frames 5.
 
-**Divergences.** ewi went Eddie's way, not the brief's (which suggested classing such a `proc.run` as `fs.write`). 830
+**Divergences.** ewi went the owner's way, not the brief's (which suggested classing such a `proc.run` as `fs.write`). 830
 made the card true rather than changing it. ur1t pins hooks off for every brokered git, the operator's own hooks
 included, which hardening2 had declined; it pins an empty `core.fsmonitor`, not `false`, since before git 2.36 the
 value is a program's path. 8d1b left the exam's item name, whose rename would move the exam's pinned BM25
@@ -484,19 +484,19 @@ ewi makes run.
 17,219 alone, and the rewrite had run alone (theseus-6a7o). The golden keeps the full suite's numbers, and its test
 went on the flaky list under 6a7o (5892683).
 
-**Before Eddie's daemon ran it.** A bare `theseusd` no longer defaults to his vault note, so his daemon needed
+**Before the owner's daemon ran it.** A bare `theseusd` no longer defaults to his vault note, so his daemon needed
 `THESEUS_CONFIG` or a unit naming `--config` (Item 56 gave it the unit); his cards now expire after
 `confirm_ttl_secs`, 900 s in his note. Both were told him at 10:48.
 
 **Known gaps** (all P3, post-v1). What a granted program runs on its own account still gets the variable at L0: a
 credential helper, `core.sshCommand`, ssh's and gh's config, cargo's credential provider, and `/proc/<pid>/environ`;
 L1 closes them (theseus-ngz5). `fs.read` outside the roots asks while `proc.run cat` of the same path doesn't, a
-decision for Eddie (theseus-2tgm). The exam's item name and guard, and the index's prefixes as config (theseus-e663).
+decision for the owner (theseus-2tgm). The exam's item name and guard, and the index's prefixes as config (theseus-e663).
 The history's private names are theseus-s2o7's.
 
 ### Item 56. The `userunit` lane: the daemon as a systemd user service (theseus-w1nf; 2026-10-02 10:02 to 11:11, and its follow-up, run 2, 11:15 to 11:30, whose announcement the 11:31 usage limit cut; reviewed from 11:14, and run 2 at 11:47; 827fd3f, cbe8093, 3ba8f3b, and 517c900; joined 12:16 at 517c900; installed 14:23 with 9f4035b, when the operator's daemon became the unit)
 
-**Why.** Eddie, 2026-10-02 at 09:39, answering M4's open questions: his daemon as a systemd user service, with a
+**Why.** The owner, 2026-10-02 at 09:39, answering M4's open questions: his daemon as a systemd user service, with a
 script and a how-to. M4's job limits and confirmed cancels need a delegated cgroup (`Delegate=yes`), a crash should
 be restarted (Item 53's crash file), and the journal should hold the log, with no terminal kept open. The installer's
 `--user` unit (Item 18) existed, with two wrinkles: `--op-token-file` worked only before `install`, and the plan
@@ -531,7 +531,7 @@ didn't check the token file at all.
   daemon on one store refused; and `theseus shutdown`, a clean exit, staying stopped.
 - **Found by running it**: the first real `check` misread the user manager's controllers (a glob that couldn't match
   two names sharing one space). Fixed, and a test fails if it comes back.
-- Six gates, the last 149 s. **The join's gate** at 12:16:01: 1,598 of 1,598, lifecycle OK in 9.5 s, frames 5. Eddie's
+- Six gates, the last 149 s. **The join's gate** at 12:16:01: 1,598 of 1,598, lifecycle OK in 9.5 s, frames 5. The owner's
   daemon and unit were never touched by the lane.
 
 **Divergences.** `uninstall` stops the service before it removes the unit, and touches only a unit `theseusd` wrote.
@@ -539,7 +539,7 @@ didn't check the token file at all.
 end of `install`, in health. The script puts the token flag before the subcommand, so it worked with the installed
 build of the morning, which predates the fix.
 
-**The install** (2026-10-02 at 14:23, with 9f4035b; Eddie, 13:03 to 13:29: "go to build", and "I'd like you to be in
+**The install** (2026-10-02 at 14:23, with 9f4035b; the owner, 13:03 to 13:29: "go to build", and "I'd like you to be in
 charge of managing our runtime"). His daemon had been down since 2026-09-29 at 18:50, the store's last write. Before
 the first start, his store, a copy of his config, and his bindings were backed up. `scripts/user-service.sh install
 --yes` wrote `theseusd.service` (`Delegate=yes`, `KillSignal=SIGINT`, `KillMode=process`, `Restart=on-failure` after
@@ -553,9 +553,9 @@ shell without `THESEUS_CONFIG` judges what an install from that shell would writ
 (theseus-a7gx); a crash loop restarts every 5 s forever (theseus-0v8s, Item 53). The unit's `KillMode=process` met
 L1's job limits at 17b's join (Item 58).
 
-### Item 57. `theseusd example-config` with an operator's private overlay (theseus-dxgb; built on `main` by Tabitha, with no lane, 2026-10-02 12:34 to 13:04; 93fbb6d and 9f4035b; installed 14:23 at 9f4035b)
+### Item 57. `theseusd example-config` with an operator's private overlay (theseus-dxgb; built on `main` by Tabitha/Claude, with no lane, 2026-10-02 12:34 to 13:04; 93fbb6d and 9f4035b; installed 14:23 at 9f4035b)
 
-**Why.** Eddie, 2026-10-02 at 12:34: "Please reset the config from example so i can once again wholesale from
+**Why.** The owner, 2026-10-02 at 12:34: "Please reset the config from example so i can once again wholesale from
 template." His config note was the 07:47 build's template, word for word. Since security3's 8d1b (Item 55) the public
 template carries placeholders where a deployment's own values go (its vault's references, its people's ids), so a
 wholesale copy of the next build's template would have broken his daemon. Reverting 8d1b would put his values back in
@@ -583,12 +583,12 @@ template changes exactly its 11 lines and loads; comments keep their column; a m
 belongs; a live line wins over a commented one; prose that looks like a header or a key is left alone; a misspelt key,
 an array of tables, and bad TOML each fail by name. Through the binary: `~` in the path, nothing printed on a failure,
 the default path, `--plain`, the two flags' conflict, and the first line. Each commit's gate on `main` (12:56:45 and
-13:03:55): 1,607 of 1,607, lifecycle OK, frames 5. **Against his note**: Eddie's overlay holds his eight `[secrets]`
+13:03:55): 1,607 of 1,607, lifecycle OK, frames 5. **Against his note**: the owner's overlay holds his eight `[secrets]`
 references and his `[approval]` section; its render's references equal his note's, and against his note only
 `[approval]`, `[index]`, and `[policy.aws]` are new, with no value changed. It was checked again with the debug build
 under his home directory. He pasted the render into his note himself at 13:02, ahead of the install.
 
-**Divergences.** The first form needed `--overlay`; Eddie asked for the plain command, so the second commit made the
+**Divergences.** The first form needed `--overlay`; the owner asked for the plain command, so the second commit made the
 overlay's default path the default.
 
 **At the install** (14:23). `theseusd check` on his note resolved all 8 secrets, and the unit started on it (Item 56).
@@ -597,7 +597,7 @@ The workflow from here: change the overlay, run `theseusd example-config`, and p
 ### Item 58. L1 for `proc.run` (theseus-7ve.1; M4 row 17, step 17b, stage C's first row; spine; 2026-10-02 11:42 to 12:59, run 2 (run 1, 11:25 to 11:31, read and warmed the target, then met the usage limit); reviewed 15:30 to 15:34, with a second read 15:50 to 16:00; rebased onto 9f4035b as c1ac351 and d052ebd, with two join commits, b503b2c and 4fc7ddc; joined 16:34 at 4fc7ddc; installed 16:38 at 4fc7ddc)
 
 **Why.** M4's first spine step. The sandbox crate (17a, merged ahead of its reader in Item 16) ran nothing yet, and
-`proc.run` ran every job at L0, as the operator. Eddie answered M4's open questions on 2026-10-02 at 09:39: "notify
+`proc.run` ran every job at L0, as the operator. The owner answered M4's open questions on 2026-10-02 at 09:39: "notify
 only is the global default here" for an L1 job; only the jobs the model asks for go to L1, with no `l1_argv` list by
 default; `[sandbox]` gets templated defaults; and an L1 job with no egress and no secret will be exempt from the
 outside-text hold (at 20a; 20a was dropped, Item 74, and the exemption is not built: theseus-oaf9).
@@ -624,7 +624,7 @@ outside-text hold (at 20a; 20a was dropped, Item 74, and the exemption is not bu
   at notify where L0 waits, routes into L1 that `sandbox: false` can't undo, an approved L1 call that runs in L1 and
   never as L0, the contract in a real L1 job, no secret, and no fallback (batch C alone shows the no-fallback test is
   the one that catches it).
-- **Live**, on a scratch daemon over a copy of Eddie's store with his note, GLM's probe script in L1 against L0: in L1,
+- **Live**, on a scratch daemon over a copy of the owner's store with his note, GLM's probe script in L1 against L0: in L1,
   hostname `theseus-l1`, no routes, a HOME of 3 entries, `gh` not logged in, and the socket and the store absent though
   both sat inside the workspace root; at L0, 13 routes, 153 entries, everything present. A real offline `cargo build`
   ran in L1 in 1.03 s (0.82 s at L0), and the host's `target/` stayed absent. Under a transient user service with
@@ -636,10 +636,10 @@ outside-text hold (at 20a; 20a was dropped, Item 74, and the exemption is not bu
   logic moved into `sandbox.rs`; `toolrun.rs`'s ceiling is 3,330); and a new load flake (theseus-56r7).
 
 **The join** (16:04 to 16:34). A scheduled review run rebased the lane onto 9f4035b (15:31 to 15:34), then hung on a
-`pgrep -f` that matched its own command line and was killed at 15:40; Tabitha took the join over at 16:04.
+`pgrep -f` that matched its own command line and was killed at 15:40; Tabitha/Claude took the join over at 16:04.
 - **The stop hook** (b503b2c). The second read found a restart hazard, proven on throwaway user units at 16:03 to
   16:05. The first L1 job turns job limits on in the unit's own cgroup, and a unit that keeps its jobs across a stop
-  (`KillMode=process`, as Eddie's does, Item 56) then can't start its next daemon while an old job runs: systemd 249
+  (`KillMode=process`, as the owner's does, Item 56) then can't start its next daemon while an old job runs: systemd 249
   starts the main process in the unit's own cgroup, which the kernel refuses with controllers on ("Device or resource
   busy", `status=219/CGROUP`). 17b's own check couldn't see it, since its transient unit had the default
   `KillMode=control-group`. The fix: `cgroup::release` turns the controllers off, `jobs/` first; a hidden `theseusd
@@ -654,7 +654,7 @@ outside-text hold (at 20a; 20a was dropped, Item 74, and the exemption is not bu
   the goldens were rewritten in a full suite, numbers only, and the web dist rebuilt.
 - **The join's gate**, 16:28:55 to 16:33:48: 1,626 of 1,626, lifecycle OK in 10.6 s, frames 5.
 
-**The install** (16:38). First, the hook live on the release build: a scratch daemon over a copy of Eddie's store,
+**The install** (16:38). First, the hook live on the release build: a scratch daemon over a copy of the owner's store,
 under a transient unit shaped like his, ran an L1 `sleep 40`, then `systemctl --user restart` with the job running:
 exit 0, the hook released memory and pids, the job ran on, and the new daemon answered. Its journal showed an `op`
 helper left in the cgroup too, so without the hook even a restart with no job running would have failed once an L1
@@ -665,7 +665,7 @@ is a restore of the backup.
 
 **Divergences.** The approve list's paths and the socket are hidden as well as the floor, which the design named. An
 explicit tightening (`[policy.tools] "proc.run" = "approve"`, or "should have asked") didn't reach an L1 call, by
-Eddie's answer read literally, so the model could step around it with `sandbox: true`. Asked at 16:01, Eddie chose at
+the owner's answer read literally, so the model could step around it with `sandbox: true`. Asked at 16:01, the owner chose at
 16:03 that it should, and it does since Item 59 (theseus-jfs6). A job tries L1 itself
 after a failed probe, rather than failing at once. `output_mb` caps a file, not what a job prints, which `[tools]
 job_output_max_bytes` caps as at L0.
@@ -677,12 +677,12 @@ section (theseus-zupk; the section was built in Item 62); no generated config wi
 session holding outside text; Item 59 dropped the phrase. The rest of L1 is ~~18a (cancellation per backend)~~ (built in Item 60), ~~18c
 (egress)~~ (built in Item 62), ~~18d (credentials)~~ (built in Item 65, and replaced by grants at launch in Item 71), and ~~20a~~ (dropped; the integrity lane instead, Item 74). _The probe after serving, the delegated cgroup and its stop hook went with the sandbox trims (Item 77)._
 
-### Item 59. The operator's own word about `proc.run` reaches L1 (theseus-jfs6; built on `main` by Tabitha, with no lane, 2026-10-02 16:03 to 16:50; 04a9fb3; installed 16:57 at 04a9fb3)
+### Item 59. The operator's own word about `proc.run` reaches L1 (theseus-jfs6; built on `main` by Tabitha/Claude, with no lane, 2026-10-02 16:03 to 16:50; 04a9fb3; installed 16:57 at 04a9fb3)
 
 **Why.** Found at 17b's second read (Item 58): an L1 call ran at notify in place of the whole L0 order, so neither an
 explicit `[policy.tools] "proc.run" = "approve"` nor a "should have asked" tightening reached it, and the model could
 step around either with `sandbox: true`. Asked at 16:01, with three options: keep it; let an explicit per-tool
-approve or a tightening reach L1 calls; or the design's own key, `"proc.run@l1"`. Eddie, at 16:03: "Let's start with
+approve or a tightening reach L1 calls; or the design's own key, `"proc.run@l1"`. The owner, at 16:03: "Let's start with
 yes", the second.
 
 **What landed** (§3.9, §7).
@@ -705,7 +705,7 @@ lifecycle OK in 11.1 s, frames 5.
 the unit unchanged, and its stop hook ran with nothing to release. Health 9 s after the restart: the config confirmed,
 Discord and the index ready, L1 working (start 5.7 ms), the cgroup delegated. theseus-jfs6 is closed.
 
-**Divergences.** None: the option Eddie chose, as asked.
+**Divergences.** None: the option the owner chose, as asked.
 
 ### Item 60. Cancellation verified per backend (theseus-7ve.2, with theseus-hcc; M4 row 18, step 18a; spine; 2026-10-02 16:43 to 18:00; reviewed 18:17; rebased onto 08b595d as b77ffe9 and cbcc378, with two join commits, 2702a39 and 1d33622; joined 18:33 at 1d33622; installed 18:37 at 1d33622)
 
@@ -745,12 +745,12 @@ cancel read `termination_verified`, and a deadline killed the command alone whil
   cancel of a job with a `setsid` sleeper, the deadline, an older wrapper, a deaf one, and a plain SIGTERM, each
   checked by a `/proc` scan); the L1 cancel through the daemon (`pidns`, 3 killed); the async abort in the core
   (verified by its task within 2 s); and a read test of a schema-2 action and a schema-1 post, their bytes unchanged
-  (Eddie's store has schema-1 posts). Ten existing tests that pinned the old behaviour (a `setsid` sleeper surviving
+  (the owner's store has schema-1 posts). Ten existing tests that pinned the old behaviour (a `setsid` sleeper surviving
   a cancel, a stopped job's end lost) now assert 18a's; the review read each change, and none was weakened.
 - **Gates.** Gate 1 failed four tests for stated reasons, each fixed: the store-version test caught OUTBOX's new
   shape, the first `terminate_all` would have let a job stopped at its launch run on, and two results now carried
   the verdict. Gates 3 and 4: 1,639 of 1,639.
-- **Live**, on a scratch daemon over a copy of Eddie's store with his note, GLM's jobs (`setsid sleep & exec
+- **Live**, on a scratch daemon over a copy of the owner's store with his note, GLM's jobs (`setsid sleep & exec
   sleep`): at L0, cancelled and stopped, verified by the process tree (2 processes); in L1, by the pid namespace (3);
   and in L1 under a transient unit shaped like his, by the cgroup (3). Each `/proc` scan was empty. Each CLI call
   took 0.08 to 0.13 s, the wrapper's own stop 10 ms.
@@ -830,7 +830,7 @@ listens, and once private material is in the model's context nothing reliably ke
   Beside it: the binding's push end to end through the fake Discord, and the NODE 4 and COMPILATION 3 read tests.
   Two proofs needed a second plant: proof 8's first did not compile, and proof 6's passed (below). Gates: 1,645 of
   1,645 at e3e8929, and 1,646 of 1,646 at 1e02040, a plain turn at 5 frames in each.
-- **Live.** On a copy of Eddie's store with his note, his DM compiled for his person alone, nothing withheld, with an
+- **Live.** On a copy of the owner's store with his note, his DM compiled for his person alone, nothing withheld, with an
   owner-only file read admitted, and his older DM session recompiled for its system and tools, never its audience.
   On the stand-ins, with `#lab` open to a third member the bot answered with the placeholder, and private to the
   owners with the file; health said `#lab: 3 can view it, 1 not the owner: owner-only material is withheld there`.
@@ -858,7 +858,7 @@ unit was unchanged, and its stop hook ran with nothing to release. Health at 5 s
 secrets 8 of 8, Discord ready with the DM and #openclaw bound, the index ready (94 nodes), L1 working (21.8 ms),
 serving at 22.9 ms, and no warnings in the journal. The new `labels:` line: the owner is the CLI, the web UI, and 1
 person on Discord; #openclaw has 8 viewers, 7 of them not the owner, so owner-only material is withheld there (the
-Server Members intent works). Eddie's DM, the CLI, and the web UI withhold nothing, and #openclaw's session had never
+Server Members intent works). The owner's DM, the CLI, and the web UI withhold nothing, and #openclaw's session had never
 run a turn. theseus-7ve.3 is closed.
 
 **Divergences**, all accepted at the review. The audience recompile is a compile trigger (the manifest's audience
@@ -920,7 +920,7 @@ closing theseus-20f for L1.
   its bytes in `detail.egress` and the rows; an unlisted host's 403; names that resolve to loopback or to
   169.254.169.254, and that address, refused through the wired path; a deadline that ends a job mid-tunnel, its
   connection still recorded; no list, no proxy.
-- **Live**, on a scratch daemon over a copy of Eddie's store with his note (no egress listed). GLM's `proc.run {
+- **Live**, on a scratch daemon over a copy of the owner's store with his note (no egress listed). GLM's `proc.run {
   sandbox: { egress: ["api.github.com:443"] } }` of a Python fetch waited for its host, ran once approved, and
   connected (731 B up, 4.7 KB down, status 200). The session then held outside text, `via: egress`. The same call to
   PyPI got the proxy's 403, its reason in the result and in a `sandbox.egress_refused` row. A later call in that
@@ -987,7 +987,7 @@ compile and its post (theseus-4qiz's window).
   through the fake Discord, the channel opened mid-turn; a fitting post with no new frame; an unreadable audience
   counted as public; the NODE 5 read test on literal bytes; the quiet loop; the plain turn at 5 frames. Frames: a
   graduation 1, a fitting check 0, a hold 1, an answer 2. Gates: 1,668 of 1,668, then 1,669 of 1,669.
-- **Live.** On a copy of Eddie's store, a graduated node was written and read back after a restart. On the
+- **Live.** On a copy of the owner's store, a graduated node was written and read back after a restart. On the
   stand-ins: a fitting post read its channel in 4.35 ms and wrote nothing; a channel opened mid-turn held the reply,
   with nothing of it in the channel, its card reached the owner's DM, and Approve posted it; a withheld result,
   graduated to the place, reached the next turn's request as an append. The web UI's Graduate button was built and
@@ -1004,7 +1004,7 @@ in a full suite (1,686 of 1,686) and checked line by line. The join's gate (21:0
 29.5 ms, a plain turn 5 frames. `toolrun.rs` reached 3,368 lines of its 3,370 and the renderer 2,926 of 2,930.
 
 **The install**: with 18c at 21:08:10 (Item 62's install). NODE is 6 from that build on. theseus-7ve.5 is closed.
-Nothing of Eddie's is held: his DM's audience is fixed, and #openclaw's requests already leave his owner-only
+Nothing of the owner's is held: his DM's audience is fixed, and #openclaw's requests already leave his owner-only
 material out, so its loops carry the channel's own readers and stream.
 
 **Divergences**, all accepted at the review. The hold needed no record layout: its question is an action of an
@@ -1022,7 +1022,7 @@ review's Tier 2 (Item 70). _(Graduation and the held post were removed by the pl
 
 ### Item 64. The cockpit's Ship, its time machine, and its boards (theseus-logs; the `cockpit3` lane, two rounds in one Item; round one 2026-10-02 18:15 to 20:16, reviewed 21:11, joined 21:21 at 2224c5d as c38f014, afd7972 and 2224c5d, installed 21:24; round two 20:17 to 22:27, reviewed 22:29 to 22:36, joined 22:40 at bfbe47b as 3806da3, 0f71a8f and bfbe47b, installed 22:45)
 
-**Why.** Eddie asked for a hero terminal for the cockpit, with "steampunk and cyberpunk vibe stylings", and at 18:14
+**Why.** The owner asked for a hero terminal for the cockpit, with "steampunk and cyberpunk vibe stylings", and at 18:14
 approved four more views for a second round ("all of 1-5 plus everything else you said is golden"). The two rounds
 are one lane's, so they are one Item.
 
@@ -1055,7 +1055,7 @@ are one lane's, so they are one Item.
   `last`; the CSV on the daemon's own machine); and `sandbox.usage` (no parameters; each running L1 job's cgroup).
 
 **How it is proven.**
-- **Round one**: gates of 1,627 tests; a live check of 13 GLM turns ($0.017) on a copy of Eddie's store that drove
+- **Round one**: gates of 1,627 tests; a live check of 13 GLM turns ($0.017) on a copy of the owner's store that drove
   every state (shields, the hold's chain, boats under sail, lanterns, a flare, the gold run); the reviewer read the
   screenshots. This machine's headless Chrome has only SwiftShader, a CPU rasteriser, so every frame rate is a floor:
   49 fps on his store with the hologram (adaptive), 57 in calm mode, 37 at 10,000 nodes, and a first frame in 0.59 to
@@ -1116,7 +1116,7 @@ while it ran:
   again. Each connection was traced to the job's own wrapper, so another process of the operator's user was refused.
 - Decision 15 judged it: a name `[broker]` names, at the stricter of the call's posture and the secret's. Open
   granted; notify granted with a 🔑 notice; approve waited on a card until the job's deadline. A call the operator
-  had approved ran at approve, so its job's requests waited too; Eddie kept that reading (theseus-zjxd, 23:04: "keeping
+  had approved ran at approve, so its job's requests waited too; the owner kept that reading (theseus-zjxd, 23:04: "keeping
   the secrets at approve if the command that required them required approve").
 - A request was a `cred.request` action whose `parent` was the job's call (ACTION schema 4, OUTBOX 3), decided in its
   own frame and never dispatched, with `secret.requested`, then `secret.granted { via: request }` or
@@ -1127,7 +1127,7 @@ while it ran:
 notice, approve's card and decline, J1, an input error, a latched session, the socket's life, an L0 job refused, the
 ACTION 4 read test on literal bytes, the value in no file and no log, the template, the helper's role, and a restart's
 re-serve. The daemon's tests ran real L1 jobs and the real helper. Gates: 1,699 tests, then 1,700, a plain turn 5
-frames. Live, on a scratch daemon over a copy of Eddie's store with his note: GLM's L1 job ran `gh api user` with
+frames. Live, on a scratch daemon over a copy of the owner's store with his note: GLM's L1 job ran `gh api user` with
 `GH_TOKEN="$(theseus-cred get github_token)"` and answered `zeroaltitude`, with the notice; an egress-approved call's
 request waited on its card and, approved, answered; at approve a declined card was the error the job reported; the
 93-byte token was in none of the run's 7 files. A request's round trip at notify was p50 16.2 ms (about 7 ms of it
@@ -1143,14 +1143,14 @@ was the first type check of the web UI's credential card; the goldens needed no 
 unit unchanged. Health: the config confirmed, secrets 8 of 8, Discord and the index ready, L1 working (4.5 ms),
 serving at 18.3 ms, no warnings in the journal, and the cockpit served. theseus-7ve.6 and theseus-5gw9 are closed.
 
-**Removed the same night.** At 23:57 Eddie set the default-trust principle (§2): nothing extraordinary or complex
+**Removed the same night.** At 23:57 the owner set the default-trust principle (§2): nothing extraordinary or complex
 for trust, safety, or provenance. The simplification review that followed (theseus-vm3n) found the socket was the
 heavier way to the same end: a listener and a socket directory per L1 job, a role of the binary, the `/run/theseus`
 binds, a re-serve after every restart, an action kind, two ledger kinds, and a health block. Its one known gap
 (theseus-3m11: a requested value the job printed sat in its raw output file until its result was written) took a
-second private socket per job to close (Item 69). Granting at launch, as L0 always had, needs none of it. Eddie
+second private socket per job to close (Item 69). Granting at launch, as L0 always had, needs none of it. The owner
 approved that cut at 01:42 ("a worthy simplification"), and the grants step deleted the socket, the helper, the
-request action's hooks, and the records, about 2,460 lines net (Item 71). Eddie's deployment never made a request:
+request action's hooks, and the records, about 2,460 lines net (Item 71). The owner's deployment never made a request:
 his store holds no `cred.request` action and no `secret.requested` row. `Action.parent` stays, so ACTION 4 and OUTBOX
 3 stay, and a stored request still reads whole.
 
@@ -1203,7 +1203,7 @@ property test holds them to that over every interleaving a seed can make.
 the context files its request carried, so an owner-only file could stream into an owner-only channel, skip the read
 at post time, and stay admitted once the channel grew (theseus-42ub, on the first runs). A task's report carried its
 title, cut from its brief, with only the task's answer's readers (theseus-jpff, 14 of 40 seeds). Neither reached
-Eddie: he has no context files, and #openclaw's requests already leave his material out. 19d fixed both (Item 68).
+the owner: he has no context files, and #openclaw's requests already leave his material out. 19d fixed both (Item 68).
 
 **The join** (23:09 to 23:12). The lane rebased cleanly onto 18d's join (b63b483) and fast-forwarded `main`. Its
 gate: 1,715 of 1,715, one known flake passing on its retry; pushed 23:12:39. Nothing the daemon runs changed, and

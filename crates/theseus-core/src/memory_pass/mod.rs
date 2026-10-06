@@ -6,7 +6,7 @@
 //!   the pass's task and returns ([`MemoryPass::after_turn`]); everything
 //!   else is the task's. With `[memory] mode = "off"` it does nothing.
 //! - **Who is eligible** ([`eligible`]): the operator's and the agent's
-//!   messages, tool results, and compaction's summaries (30c; Eddie's
+//!   messages, tool results, and compaction's summaries (30c; the owner's
 //!   decision 10), though the harness writes them: a summary stands for its
 //!   range's messages, and is labeled as they are, its trust its range's.
 //!   Never a `Recall` node (§5.2's recursion exclusion), a task's
@@ -38,7 +38,7 @@
 //! - **Frames.** The rows and edges go in the pass's own frames: one per
 //!   [`MAX_NODES`] nodes, or [`WINDOW`] after the first waiting, whichever
 //!   comes first; a node's records never split across frames. A frame is
-//!   written only between turns (`turns`; theseus-ms5m, Eddie's decision
+//!   written only between turns (`turns`; theseus-ms5m, the owner's decision
 //!   10): when no turn runs in the daemon, any session's, and none has for
 //!   [`QUIET`]; a turn that begins meanwhile waits for that frame at its
 //!   start. So none lands inside a turn (theseus-0j2.3's lesson), however

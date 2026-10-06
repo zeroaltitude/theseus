@@ -11,7 +11,7 @@ export type PlaceInfo = {
  */
 place: string, 
 /**
- * How it is named: `CLI`, `web`, `DM @eddie`, `#openclaw`.
+ * How it is named: `CLI`, `web`, `DM @zeroaltitude`, `#openclaw`.
  */
 name: string, class: PlaceClass, 
 /**

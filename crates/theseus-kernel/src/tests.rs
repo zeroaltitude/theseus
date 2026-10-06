@@ -81,7 +81,7 @@ pub(super) fn crash(w: World, cfg: KernelConfig) -> (World, StartupReport) {
 
 pub(super) fn auth() -> Authority {
     Authority {
-        principal: "eddie".into(),
+        principal: "zeroaltitude".into(),
         delegated_by: None,
         ceilings: BTreeMap::from([
             ("shell".into(), "l1".into()),
@@ -387,7 +387,7 @@ fn a_cancelled_jobs_late_completion_taken_twice_writes_one_row() {
     let w = world();
     let (s, e, g) = running(&w);
     let a = dispatched(&w, &g, "proc.run", 50);
-    w.kernel.cancel_execution(&e.id, "eddie").unwrap();
+    w.kernel.cancel_execution(&e.id, "zeroaltitude").unwrap();
     drop(g);
     let tree = Verdict::verified_as(VerifiedBy::Tree, Some(1));
     w.kernel
@@ -565,7 +565,7 @@ fn cancel_of_dispatched_job_then_late_completion_does_not_revive() {
     let w = world();
     let (_, e, g) = running(&w);
     let a = dispatched(&w, &g, "proc.run", 50);
-    let to_kill = w.kernel.cancel_execution(&e.id, "eddie").unwrap();
+    let to_kill = w.kernel.cancel_execution(&e.id, "zeroaltitude").unwrap();
     assert_eq!(to_kill, vec![a.correlation_id.clone()]);
     let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert_eq!(e2.state, ExecState::Cancelled);
@@ -604,7 +604,7 @@ fn cancel_of_dispatched_job_then_late_completion_does_not_revive() {
     // Cancel is idempotent and admission never touches a cancelled execution.
     assert!(w
         .kernel
-        .cancel_execution(&e.id, "eddie")
+        .cancel_execution(&e.id, "zeroaltitude")
         .unwrap()
         .is_empty());
     assert!(w.kernel.admit(&e.id).is_err());
@@ -613,7 +613,7 @@ fn cancel_of_dispatched_job_then_late_completion_does_not_revive() {
 /// A cancel ends what its execution planned and never sent, in its own
 /// frame (theseus-w98). A call waiting for the operator, a call planned, and
 /// one authorized but not dispatched each settle `Cancelled`, their
-/// resolution "the execution was cancelled by eddie", their reservations
+/// resolution "the execution was cancelled by zeroaltitude", their reservations
 /// released, with an `action.cancelled` row each. The caller gets them, told
 /// that a turn held the execution, and only the dispatched job is left to
 /// kill. Nothing waits for the operator now. The turn that planned them hears
@@ -661,7 +661,7 @@ fn a_cancel_ends_what_its_execution_planned_and_never_sent() {
     let mut seen = None;
     let cancel = w
         .kernel
-        .cancel_execution_with(&e.id, "eddie", |end| {
+        .cancel_execution_with(&e.id, "zeroaltitude", |end| {
             seen = Some((end.turn_running, end.not_run.len(), end.execution.state));
             Ok(vec![])
         })
@@ -686,7 +686,7 @@ fn a_cancel_ends_what_its_execution_planned_and_never_sent() {
         assert_eq!(a.state, ActionState::Cancelled, "{c}");
         assert_eq!(
             a.resolution.as_deref(),
-            Some("the execution was cancelled by eddie")
+            Some("the execution was cancelled by zeroaltitude")
         );
     }
     assert!(w.kernel.pending_confirms().unwrap().is_empty());
@@ -725,12 +725,12 @@ fn a_cancel_ends_what_its_execution_planned_and_never_sent() {
     ));
     assert!(w
         .kernel
-        .bind_confirm(&waiting.correlation_id, "eddie", &ask)
+        .bind_confirm(&waiting.correlation_id, "zeroaltitude", &ask)
         .is_err());
     // A second cancel finds nothing more to end.
     let again = w
         .kernel
-        .cancel_execution_with(&e.id, "eddie", |_| panic!("cancelled once"))
+        .cancel_execution_with(&e.id, "zeroaltitude", |_| panic!("cancelled once"))
         .unwrap();
     assert!(again.to_kill.is_empty() && again.not_run.is_empty());
     drop(g);
@@ -917,7 +917,7 @@ fn due_wake_fires_from_the_reconciler_under_the_virtual_clock() {
 fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     let w = world();
     let (_, _e, g) = running(&w);
-    // The core's policy decided this call waits for eddie.
+    // The core's policy decided this call waits for zeroaltitude.
     let p = proposal("proc.run");
     let a = w
         .kernel
@@ -926,7 +926,7 @@ fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     // No confirm yet: authorize refuses.
     let err = w
         .kernel
-        .authorize(&a.correlation_id, &p, Some("eddie"))
+        .authorize(&a.correlation_id, &p, Some("zeroaltitude"))
         .unwrap_err();
     assert!(matches!(
         err.downcast_ref::<KernelError>(),
@@ -937,16 +937,16 @@ fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     other.args["a"] = json!(2);
     assert!(w
         .kernel
-        .bind_confirm(&a.correlation_id, "eddie", &other)
+        .bind_confirm(&a.correlation_id, "zeroaltitude", &other)
         .is_err());
     // Confirm for the real args, by the right person.
     w.kernel
-        .bind_confirm(&a.correlation_id, "eddie", &p)
+        .bind_confirm(&a.correlation_id, "zeroaltitude", &p)
         .unwrap();
     // Arguments changed after the confirm: the digest no longer matches.
     let err = w
         .kernel
-        .authorize(&a.correlation_id, &other, Some("eddie"))
+        .authorize(&a.correlation_id, &other, Some("zeroaltitude"))
         .unwrap_err();
     assert!(matches!(
         err.downcast_ref::<KernelError>(),
@@ -965,7 +965,7 @@ fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     w.clock.advance(KernelConfig::default().confirm_ttl_ms + 1);
     let err = w
         .kernel
-        .authorize(&a.correlation_id, &p, Some("eddie"))
+        .authorize(&a.correlation_id, &p, Some("zeroaltitude"))
         .unwrap_err();
     assert!(matches!(
         err.downcast_ref::<KernelError>(),
@@ -973,11 +973,11 @@ fn confirm_binds_the_final_action_and_any_change_after_it_invalidates() {
     ));
     // Re-confirm and it dispatches.
     w.kernel
-        .bind_confirm(&a.correlation_id, "eddie", &p)
+        .bind_confirm(&a.correlation_id, "zeroaltitude", &p)
         .unwrap();
     let a2 = w
         .kernel
-        .authorize(&a.correlation_id, &p, Some("eddie"))
+        .authorize(&a.correlation_id, &p, Some("zeroaltitude"))
         .unwrap();
     assert_eq!(a2.state, ActionState::Authorized);
     let a3 = w.kernel.dispatch(&a.correlation_id, Some("ext_1")).unwrap();
@@ -1042,7 +1042,7 @@ fn an_action_that_waits_keeps_its_proposal_and_one_stored_without_still_waits() 
     assert_eq!(ids(w.kernel.pending_confirms().unwrap()).len(), 2);
     // Answered: it waits no longer.
     w.kernel
-        .bind_confirm(&a.correlation_id, "eddie", &ask)
+        .bind_confirm(&a.correlation_id, "zeroaltitude", &ask)
         .unwrap();
     assert_eq!(
         ids(w.kernel.pending_confirms().unwrap()),
@@ -1169,7 +1169,7 @@ fn a_call_over_the_limit_waits_on_the_operator_and_an_approved_reset_continues()
 
     let (e3, spent_before) = w
         .kernel
-        .reset_budget(&q.correlation_id, "discord:eddie")
+        .reset_budget(&q.correlation_id, "discord:zeroaltitude")
         .unwrap();
     assert_eq!(spent_before, 45_000);
     assert_eq!(e3.state, ExecState::Queued);
@@ -1188,13 +1188,13 @@ fn a_call_over_the_limit_waits_on_the_operator_and_an_approved_reset_continues()
         q2.resolution
             .as_deref()
             .unwrap()
-            .starts_with("approved by discord:eddie"),
+            .starts_with("approved by discord:zeroaltitude"),
         "{:?}",
         q2.resolution
     );
     let reset = rows(&w, &s, "budget.reset");
     assert_eq!(reset.len(), 1);
-    assert_eq!(reset[0]["by"], "discord:eddie");
+    assert_eq!(reset[0]["by"], "discord:zeroaltitude");
     assert_eq!(reset[0]["spent_before_usd"], 0.045);
     assert_eq!(reset[0]["limit_usd"], 0.1);
     assert_eq!(reset[0]["resets"], 1);
@@ -1207,7 +1207,10 @@ fn a_call_over_the_limit_waits_on_the_operator_and_an_approved_reset_continues()
     assert_eq!(results[0].tool, BUDGET_TOOL);
     let _ = dispatched(&w, &g, "provider.messages", 60_000);
     // A question is answered once.
-    assert!(w.kernel.reset_budget(&q.correlation_id, "eddie").is_err());
+    assert!(w
+        .kernel
+        .reset_budget(&q.correlation_id, "zeroaltitude")
+        .is_err());
     drop(g);
 }
 
@@ -1238,7 +1241,10 @@ fn a_declined_budget_question_keeps_waiting_and_new_input_asks_again() {
         "declined: still waiting on the budget"
     );
     assert!(e1.budget.question.is_none());
-    assert!(w.kernel.reset_budget(&q1.correlation_id, "eddie").is_err());
+    assert!(w
+        .kernel
+        .reset_budget(&q1.correlation_id, "zeroaltitude")
+        .is_err());
 
     // A new message: the next call asks again.
     w.kernel.wake_input(&e.id).unwrap();
@@ -1291,7 +1297,10 @@ fn a_reset_approved_before_the_turn_parks_still_continues() {
     let w = world();
     let (_, _, g) = running(&w);
     let q = w.kernel.ask_budget(&g, 500_000).unwrap();
-    let (mid, _) = w.kernel.reset_budget(&q.correlation_id, "eddie").unwrap();
+    let (mid, _) = w
+        .kernel
+        .reset_budget(&q.correlation_id, "zeroaltitude")
+        .unwrap();
     assert_eq!(mid.state, ExecState::Running);
     let e2 = w
         .kernel
@@ -1326,11 +1335,14 @@ fn cancelling_a_budget_wait_closes_its_question_and_terminal_stays_terminal() {
             },
         )
         .unwrap();
-    w.kernel.cancel_execution(&e.id, "eddie").unwrap();
+    w.kernel.cancel_execution(&e.id, "zeroaltitude").unwrap();
     let q2 = w.kernel.action(&q.correlation_id).unwrap().unwrap();
     assert_eq!(q2.state, ActionState::Cancelled);
     assert!(q2.settled_at_ms.is_some());
-    assert!(w.kernel.reset_budget(&q.correlation_id, "eddie").is_err());
+    assert!(w
+        .kernel
+        .reset_budget(&q.correlation_id, "zeroaltitude")
+        .is_err());
     let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert_eq!(e2.state, ExecState::Cancelled);
     assert!(w.kernel.wake_input(&e.id).is_err());
@@ -1358,7 +1370,10 @@ fn an_execution_that_ends_closes_its_open_budget_question() {
     assert!(q2.resolution.as_deref().unwrap().contains("ended"));
     let e2 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert!(e2.budget.question.is_none());
-    assert!(w.kernel.reset_budget(&q.correlation_id, "eddie").is_err());
+    assert!(w
+        .kernel
+        .reset_budget(&q.correlation_id, "zeroaltitude")
+        .is_err());
 }
 
 /// A real cost is never hidden: a call that cost more than it reserved books
@@ -1584,7 +1599,10 @@ fn a_lowered_limit_asks_at_the_next_reservation_over_it() {
             },
         )
         .unwrap();
-    let (e2, before) = w.kernel.reset_budget(&q.correlation_id, "eddie").unwrap();
+    let (e2, before) = w
+        .kernel
+        .reset_budget(&q.correlation_id, "zeroaltitude")
+        .unwrap();
     assert_eq!((before, e2.budget.spent_micros), (50_000, 0));
     let g = w.kernel.admit(&e.id).unwrap();
     w.kernel.take_results(&g).unwrap();
@@ -1601,7 +1619,7 @@ fn a_raise_lets_a_declined_budget_wait_proceed() {
     let (_, e, g) = following(&w);
     let q = parked_at_limit(&w, g, 60_000, 60_000);
     w.kernel
-        .decline_action(&q.correlation_id, "eddie", "not now")
+        .decline_action(&q.correlation_id, "zeroaltitude", "not now")
         .unwrap();
     let e1 = w.kernel.execution(&e.id).unwrap().unwrap();
     assert!(e1.budget.question.is_none());
@@ -1614,7 +1632,10 @@ fn a_raise_lets_a_declined_budget_wait_proceed() {
     assert_eq!(e2.state, ExecState::Queued);
     assert_eq!(e2.queued_results, vec![q.correlation_id.clone()]);
     let q2 = w.kernel.action(&q.correlation_id).unwrap().unwrap();
-    assert!(q2.resolution.unwrap().starts_with("declined by eddie"));
+    assert!(q2
+        .resolution
+        .unwrap()
+        .starts_with("declined by zeroaltitude"));
 }
 
 /// What does not follow: an execution opened with a limit of its own
@@ -1673,7 +1694,9 @@ fn admission_ceiling_holds_and_cancel_is_honored_immediately() {
         ExecState::Queued
     );
     // /cancel does not queue behind admission.
-    w.kernel.cancel_execution(&execs[2], "eddie").unwrap();
+    w.kernel
+        .cancel_execution(&execs[2], "zeroaltitude")
+        .unwrap();
     assert_eq!(
         w.kernel.execution(&execs[2]).unwrap().unwrap().state,
         ExecState::Cancelled
@@ -2273,8 +2296,8 @@ fn a_confirm_never_revives_a_declined_action() {
         &w.kernel,
         &p,
         (kinds::ACTION, &corr, 2),
-        |k| k.bind_confirm(&corr, "eddie", &prop),
-        |k| k.decline_action(&corr, "eddie", "no"),
+        |k| k.bind_confirm(&corr, "zeroaltitude", &prop),
+        |k| k.decline_action(&corr, "zeroaltitude", "no"),
     );
     let a = w.kernel.action(&corr).unwrap().unwrap();
     assert_eq!(a.state, ActionState::Cancelled, "the decline was lost");

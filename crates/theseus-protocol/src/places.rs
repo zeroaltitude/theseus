@@ -103,7 +103,7 @@ pub struct PlacesHealth {
 pub struct PlaceWarning {
     /// `discord:channel:<id>` or `discord:dm:<user id>`.
     pub place: String,
-    /// `#lab`, `DM @eddie`.
+    /// `#lab`, `DM @zeroaltitude`.
     pub name: String,
     /// `unbound` (its ceiling names a profile the config lacks: only it is
     /// left unbound), `unknown_family` (a ceiling's tool family this daemon
@@ -120,7 +120,7 @@ pub struct PlaceWarning {
 pub struct PlaceInfo {
     /// `cli`, `web`, `discord:dm:<user id>`, or `discord:channel:<id>`.
     pub place: String,
-    /// How it is named: `CLI`, `web`, `DM @eddie`, `#openclaw`.
+    /// How it is named: `CLI`, `web`, `DM @zeroaltitude`, `#openclaw`.
     pub name: String,
     pub class: PlaceClass,
     /// A guild channel bound `private = true`, as the binding read it at its

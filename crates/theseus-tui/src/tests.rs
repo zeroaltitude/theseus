@@ -550,7 +550,7 @@ pub fn dm_history() -> Value {
     json!({
         "session": session,
         "nodes": [
-            node("nod_a1", "user_message", 10, Some("discord:eddie"), "when is low water?", json!({})),
+            node("nod_a1", "user_message", 10, Some("discord:zeroaltitude"), "when is low water?", json!({})),
             node("nod_a2", "assistant_message", 11, None, "", json!({
                 "model": "glm-5.3-flash", "stop_reason": "tool_use",
                 "usage": {"input_tokens": 1200, "output_tokens": 40}, "cost_usd": 0.0004,
@@ -1032,7 +1032,7 @@ async fn the_detail_pane_shows_a_recorded_history_then_its_events() {
         rows[1..16],
         [
             " ses …dm0001 · DM · glm-5.3-flash · ○ ready",
-            " [14:13:30.000Z] operator (discord:eddie): when is low water?",
+            " [14:13:30.000Z] operator (discord:zeroaltitude): when is low water?",
             " [14:13:31.000Z] glm-5.3-flash: (1 tool call(s))",
             "       ↳ tool_use · in 1200 out 40 · $0.0004",
             "       ⚙ fs.read {\"path\":\"tides.txt\"} [open: a read]",

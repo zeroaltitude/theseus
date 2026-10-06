@@ -2,7 +2,7 @@
 
 _Checked in on 2026-10-01 from the agents' working reports. Local paths became plain words or links; nothing else changed. Times are MST._
 
-**How I gathered this.** I fetched official docs, changelogs, release notes and the GitHub API on 2026-10-01 between 09:04 and 09:20 UTC. I used web search only to find sources. Anything backed only by a search summary or a third-party article is marked *(secondary)* or **unconfirmed**. Star counts are the GitHub API values at fetch time. The keys in [brackets] point to the source list at the end. The report gives facts only; the verdicts are Tabitha's.
+**How I gathered this.** I fetched official docs, changelogs, release notes and the GitHub API on 2026-10-01 between 09:04 and 09:20 UTC. I used web search only to find sources. Anything backed only by a search summary or a third-party article is marked *(secondary)* or **unconfirmed**. Star counts are the GitHub API values at fetch time. The keys in [brackets] point to the source list at the end. The report gives facts only; the verdicts are Tabitha/Claude's.
 
 ---
 

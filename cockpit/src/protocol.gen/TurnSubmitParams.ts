@@ -25,7 +25,7 @@ model: string | null,
  */
 carried?: boolean, 
 /**
- * Who wrote the input, as a label on the message node (e.g. `discord:eddie`).
+ * Who wrote the input, as a label on the message node (e.g. `discord:zeroaltitude`).
  * Default: the connection's own label. A label, not an authority: every
  * local protocol client acts as the operator.
  */

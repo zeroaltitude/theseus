@@ -3209,7 +3209,7 @@ async fn a_session_at_its_limit_asks_and_an_approved_reset_makes_the_waiting_cal
 
     let ans = r
         .core
-        .confirm_action(&q, true, None, "discord:eddie")
+        .confirm_action(&q, true, None, "discord:zeroaltitude")
         .unwrap();
     assert!(ans.approved && ans.resumes);
     let e = r.core.kernel.execution(&exec).unwrap().unwrap();
@@ -3231,7 +3231,7 @@ async fn a_session_at_its_limit_asks_and_an_approved_reset_makes_the_waiting_cal
     assert_eq!(r.core.health().cost_usd_total, lifetime);
     let reset = ledgered(&r, "budget.reset");
     assert_eq!(reset.len(), 1);
-    assert_eq!(reset[0]["by"], "discord:eddie");
+    assert_eq!(reset[0]["by"], "discord:zeroaltitude");
     assert_eq!(reset[0]["spent_before_usd"], json!(micros_to_usd(spent)));
     assert_eq!(reset[0]["limit_usd"], json!(1.4));
     assert_eq!(reset[0]["correlation_id"], json!(q));
@@ -3280,7 +3280,7 @@ async fn a_declined_reset_keeps_waiting_and_the_next_message_asks_again() {
         .spent_micros;
     let ans = r
         .core
-        .confirm_action(&q1, false, None, "discord:eddie")
+        .confirm_action(&q1, false, None, "discord:zeroaltitude")
         .unwrap();
     assert!(!ans.approved && !ans.resumes, "a decline resumes nothing");
     let e = r.core.kernel.execution(&exec).unwrap().unwrap();
@@ -3328,7 +3328,7 @@ async fn a_declined_reset_keeps_waiting_and_the_next_message_asks_again() {
     );
 
     r.core
-        .cancel_execution(&exec, "discord:eddie")
+        .cancel_execution(&exec, "discord:zeroaltitude")
         .await
         .unwrap();
     assert_eq!(
@@ -3417,7 +3417,7 @@ async fn an_approved_reset_of_a_call_over_the_whole_limit_does_not_ask_again() {
     let _ = sent(&mut rx, theseus_protocol::notify::CONFIRM_REQUESTED);
     let ans = r
         .core
-        .confirm_action(&q, true, None, "discord:eddie")
+        .confirm_action(&q, true, None, "discord:zeroaltitude")
         .unwrap();
     assert!(ans.approved && ans.resumes);
     let err = r
@@ -3576,7 +3576,7 @@ async fn a_reset_that_cannot_free_what_is_held_unknown_asks_once_and_does_not_lo
     // An approved reset tries the call once more and, when it still does not
     // fit, ends the turn instead of asking the same question again.
     r.core
-        .confirm_action(&q, true, None, "discord:eddie")
+        .confirm_action(&q, true, None, "discord:zeroaltitude")
         .unwrap();
     let err = r
         .core
@@ -3648,7 +3648,7 @@ async fn an_ordinary_over_budget_call_still_asks_resets_and_goes_ahead() {
         json!(false)
     );
     r.core
-        .confirm_action(&q, true, None, "discord:eddie")
+        .confirm_action(&q, true, None, "discord:zeroaltitude")
         .unwrap();
     let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
     assert_eq!(cont.output, "The diff is one line.");
@@ -4197,7 +4197,7 @@ async fn a_context_file_over_the_cap_is_cut_and_marked_as_cut() {
     assert_eq!(f.digest, Some(sha16(&"y".repeat(MAX_BYTES))));
 }
 
-/// A config that names no context files (Eddie's vault config names none)
+/// A config that names no context files (the owner's vault config names none)
 /// compiles the system block it always did: the persona, the assembly note,
 /// the precedence line (35a), and the tools note, nothing after them. Its
 /// manifest and rows carry no `context_files` key, so a manifest stored
@@ -4248,12 +4248,12 @@ async fn system_then_persona_files_compile_in_that_order_each_labeled_by_its_lev
             },
         );
     });
-    std::fs::write(&sys, "The operator is Eddie.\n").unwrap();
+    std::fs::write(&sys, "The operator is zeroaltitude.\n").unwrap();
     std::fs::write(&own, "End every answer with 'Ithaca'.\n").unwrap();
     let res = turn(&r.core, None, "hi").await;
     let system = system_of(&r, 0);
     let (a, b) = (
-        format!("# Context file (system): {sys}\n\nThe operator is Eddie."),
+        format!("# Context file (system): {sys}\n\nThe operator is zeroaltitude."),
         format!("# Context file (persona theseus): {own}\n\nEnd every answer with 'Ithaca'."),
     );
     assert!(
@@ -4315,12 +4315,12 @@ async fn a_persona_that_names_no_files_adds_nothing_to_the_system_block() {
         cfg.personas
             .insert("quiet".into(), crate::config::PersonaConfig::default());
     });
-    std::fs::write(&sys, "The operator is Eddie.\n").unwrap();
+    std::fs::write(&sys, "The operator is zeroaltitude.\n").unwrap();
     let res = turn(&r.core, None, "hi").await;
     assert_eq!(
         system_of(&r, 0),
         format!(
-            "{}\n\n{}\n\n{}\n\n{}\n\n# Context file (system): {sys}\n\nThe operator is Eddie.",
+            "{}\n\n{}\n\n{}\n\n{}\n\n# Context file (system): {sys}\n\nThe operator is zeroaltitude.",
             crate::turn::PERSONA,
             crate::turn::ASSEMBLY,
             crate::compiler::situation::PRECEDENCE,
@@ -4460,7 +4460,7 @@ fn submit_params(
         profile: None,
         provider: None,
         model: None,
-        author: Some("discord:eddie".into()),
+        author: Some("discord:zeroaltitude".into()),
         attachments,
         reply_to: None,
         opened_from: None,
@@ -4519,7 +4519,7 @@ async fn a_text_attachment_reaches_the_model_labeled_with_its_name() {
     assert_eq!(blocks.len(), 2, "the file, then the typed text: {blocks:?}");
     assert_eq!(
         blocks[0]["text"],
-        format!("[Attachment message.txt from discord:eddie, 5,001 bytes]\n{paste}")
+        format!("[Attachment message.txt from discord:zeroaltitude, 5,001 bytes]\n{paste}")
     );
     assert_eq!(blocks[1]["text"], "What is the launch code?");
 
@@ -4550,7 +4550,7 @@ async fn a_text_attachment_reaches_the_model_labeled_with_its_name() {
     let info = crate::rpc::Core::node_info(*pos, node);
     assert_eq!(
         info.text,
-        "What is the launch code?\n[Attachment message.txt from discord:eddie, 5,001 bytes]"
+        "What is the launch code?\n[Attachment message.txt from discord:zeroaltitude, 5,001 bytes]"
     );
 }
 
@@ -4584,14 +4584,14 @@ async fn an_attachment_over_the_limit_is_cut_or_listed_as_not_read_with_the_reas
     let cut = blocks[0]["text"].as_str().unwrap();
     assert!(
         cut.starts_with(
-            "[Attachment big.log from discord:eddie, 3,000 bytes; cut to its first 1,000 bytes]\n"
+            "[Attachment big.log from discord:zeroaltitude, 3,000 bytes; cut to its first 1,000 bytes]\n"
         ),
         "{cut}"
     );
     assert_eq!(cut.split_once('\n').unwrap().1, "é".repeat(500));
     assert_eq!(
         blocks[1]["text"],
-        "[Attachment src.zip from discord:eddie, application/zip, 20.0 MB: not read: only text files are read]"
+        "[Attachment src.zip from discord:zeroaltitude, application/zip, 20.0 MB: not read: only text files are read]"
     );
     assert_eq!(blocks[2]["text"], "Look at these.");
 }
@@ -4622,7 +4622,7 @@ async fn a_failed_download_is_listed_and_the_turn_still_runs() {
     assert_eq!(
         blocks,
         vec![
-            json!({"type": "text", "text": "[Attachment message.txt from discord:eddie, text/plain, 20.0 MB: not read: the download failed (HTTP 404)]"})
+            json!({"type": "text", "text": "[Attachment message.txt from discord:zeroaltitude, text/plain, 20.0 MB: not read: the download failed (HTTP 404)]"})
         ]
     );
     let sid = res["session_id"].as_str().unwrap();
@@ -4686,7 +4686,7 @@ async fn an_image_is_one_image_block_for_a_vision_model_stored_once_and_rendered
     assert_eq!(blocks.len(), 3, "{blocks:?}");
     assert_eq!(
         blocks[0]["text"],
-        "[Image shot.png from discord:eddie, 2,033 bytes, 1280×720]"
+        "[Image shot.png from discord:zeroaltitude, 2,033 bytes, 1280×720]"
     );
     assert_eq!(blocks[1]["type"], "image");
     assert_eq!(blocks[1]["source"]["type"], "base64");
@@ -4769,7 +4769,7 @@ async fn a_model_without_vision_reads_a_line_instead_of_the_image() {
     assert_eq!(
         last_user_blocks(&r),
         vec![
-            json!({"type": "text", "text": "[Image photo.png from discord:eddie, 1.1 MB: not shown, this model has no vision]"}),
+            json!({"type": "text", "text": "[Image photo.png from discord:zeroaltitude, 1.1 MB: not shown, this model has no vision]"}),
             json!({"type": "text", "text": "What does it say?"}),
         ]
     );
@@ -4871,7 +4871,7 @@ async fn a_six_megabyte_image_is_kept_and_not_shown_with_the_reason() {
     assert_eq!(
         last_user_blocks(&r),
         vec![
-            json!({"type": "text", "text": "[File huge.png from discord:eddie, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit; file_read with save puts it where proc_run can use it]"})
+            json!({"type": "text", "text": "[File huge.png from discord:zeroaltitude, image/png, 6.0 MB: kept, not read: an image over the 5 MiB limit; file_read with save puts it where proc_run can use it]"})
         ]
     );
     assert_eq!(blob_files(&r), 1, "kept whole");
@@ -4901,7 +4901,8 @@ fn carries_an_image(q: &crate::provider::ProviderRequest) -> bool {
         .contains(r#""type":"image""#)
 }
 
-const TIDE_LINE: &str = "[Image tide.png from discord:eddie, 333 bytes: not shown, the provider \
+const TIDE_LINE: &str =
+    "[Image tide.png from discord:zeroaltitude, 333 bytes: not shown, the provider \
                          refused it (Could not process image)]";
 
 /// theseus-0s4: the provider refuses the first request with a 400 that names
@@ -5002,7 +5003,7 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
             input: Some(input.into()),
             target,
             sink,
-            author: "discord:eddie".into(),
+            author: "discord:zeroaltitude".into(),
             recompile: None,
             attachments: files,
             arrived: None,
@@ -5231,7 +5232,7 @@ async fn a_400_that_names_no_block_hides_the_new_image_and_keeps_the_answered_on
     assert_eq!(first_user_blocks(&reqs[2])[1]["type"], "image");
     let line = reqs[2].messages[2]["content"][0]["text"].as_str().unwrap();
     assert!(
-        line.starts_with("[Image reef.png from discord:eddie, 4,153 bytes: not shown")
+        line.starts_with("[Image reef.png from discord:zeroaltitude, 4,153 bytes: not shown")
             && line.ends_with("the provider refused it (Could not process image)]"),
         "{line}"
     );
@@ -5243,20 +5244,20 @@ async fn a_400_that_names_no_block_hides_the_new_image_and_keeps_the_answered_on
 
 // ---------------------------------------------------------------- approval: the owner, from a private place (theseus-zmgb)
 
-const EDDIE: &str = "271828182845904523";
+const OWNER: &str = "271828182845904523";
 const MALLORY: &str = "222222222222222222";
 /// The guild channel `origin` names, and its guild.
 const CHANNEL: &str = "444444444444444444";
 const GUILD: &str = "314159265358979323";
 
-/// The binding's places, as its bindings file names them: Eddie's DM, so he
+/// The binding's places, as its bindings file names them: the owner's DM, so he
 /// is the owner when `[places] owner` names nobody, and the channel `origin`
 /// names, bound private or not.
 fn bind_places(r: &Rig, private_channel: bool) {
     r.core.bind_places(vec![
         crate::places::BoundPlace {
-            target: format!("discord:dm:{EDDIE}"),
-            name: "DM @eddie".into(),
+            target: format!("discord:dm:{OWNER}"),
+            name: "DM @zeroaltitude".into(),
             private: false,
             ..Default::default()
         },
@@ -5290,7 +5291,7 @@ async fn answer_as(
         approve: true,
         note: None,
         watch: false,
-        author: discord.map(|_| "discord:eddie".to_string()),
+        author: discord.map(|_| "discord:zeroaltitude".to_string()),
         discord: origin(discord),
         trust: false,
     };
@@ -5368,7 +5369,7 @@ fn write_script() -> Vec<Scripted> {
 /// Each that does not is refused with the reason, ledgered as
 /// `approval.refused` (who, where, why), and narrated, and the call keeps
 /// waiting: the action is still planned, the execution still waits, nothing
-/// is resolved, and nothing is written. Then Eddie approves in his DM and the
+/// is resolved, and nothing is written. Then the owner approves in his DM and the
 /// write runs.
 #[tokio::test]
 async fn an_answer_counts_only_from_the_owner_in_a_private_place() {
@@ -5385,7 +5386,7 @@ async fn an_answer_counts_only_from_the_owner_in_a_private_place() {
                 &r.core,
                 surface("discord", Discord),
                 &corr,
-                Some((EDDIE, Some(GUILD))),
+                Some((OWNER, Some(GUILD))),
             )
             .await,
             "it came from a shared place",
@@ -5403,9 +5404,9 @@ async fn an_answer_counts_only_from_the_owner_in_a_private_place() {
             "discord:222222222222222222 is not an owner",
             "discord:dm",
         ),
-        // Eddie's ids, claimed by a connection that is not the binding.
+        // The owner's ids, claimed by a connection that is not the binding.
         (
-            answer_as(&r.core, surface("sock#2", Cli), &corr, Some((EDDIE, None))).await,
+            answer_as(&r.core, surface("sock#2", Cli), &corr, Some((OWNER, None))).await,
             "only the Discord binding can name a Discord channel and user",
             "cli",
         ),
@@ -5433,7 +5434,10 @@ async fn an_answer_counts_only_from_the_owner_in_a_private_place() {
     assert!(!r.root.join("out.txt").exists());
     let rows = ledgered(&r, "approval.refused");
     assert_eq!(rows.len(), refusals.len());
-    assert_eq!(rows[1]["who"], format!("discord:{MALLORY} (discord:eddie)"));
+    assert_eq!(
+        rows[1]["who"],
+        format!("discord:{MALLORY} (discord:zeroaltitude)")
+    );
     assert_eq!(
         (rows[1]["via"].as_str(), rows[1]["tool"].as_str()),
         (Some("discord:dm"), Some("fs.write"))
@@ -5454,12 +5458,12 @@ async fn an_answer_counts_only_from_the_owner_in_a_private_place() {
         dump(&lines)
     );
 
-    // Eddie, in his DM.
+    // The owner, in his DM.
     let ok = answer_as(
         &r.core,
         surface("discord", Discord),
         &corr,
-        Some((EDDIE, None)),
+        Some((OWNER, None)),
     )
     .await
     .unwrap();
@@ -5467,7 +5471,7 @@ async fn an_answer_counts_only_from_the_owner_in_a_private_place() {
     let answered = ledgered(&r, "action.confirm_answered");
     assert_eq!(
         (answered[0]["by"].as_str(), answered[0]["via"].as_str()),
-        (Some("discord:eddie"), Some("discord:dm"))
+        (Some("discord:zeroaltitude"), Some("discord:dm"))
     );
     let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
     assert_eq!(cont.output, "Written.");
@@ -5514,7 +5518,7 @@ async fn a_channel_bound_private_answers_for_the_owner_alone() {
         .await
         .unwrap_err();
     assert!(e.message.contains("is not an owner"), "{}", e.message);
-    answer_as(&r.core, surface("discord", Discord), &corr, in_lab(EDDIE))
+    answer_as(&r.core, surface("discord", Discord), &corr, in_lab(OWNER))
         .await
         .unwrap();
     let answered = ledgered(&r, "action.confirm_answered");
@@ -5530,7 +5534,7 @@ async fn a_channel_bound_private_answers_for_the_owner_alone() {
         &r.core,
         surface("discord", Discord),
         &corr,
-        Some((EDDIE, None)),
+        Some((OWNER, None)),
     )
     .await
     .unwrap_err();
@@ -5582,7 +5586,7 @@ async fn the_budget_question_follows_the_same_rule() {
         &r.core,
         surface("discord", Discord),
         &q,
-        Some((EDDIE, Some(GUILD))),
+        Some((OWNER, Some(GUILD))),
     )
     .await
     .unwrap_err();
@@ -5930,7 +5934,7 @@ async fn any_known_surface_tightens_and_only_the_owner_in_a_private_place_undoes
         (
             "discord",
             Discord,
-            Some((EDDIE, Some(GUILD))),
+            Some((OWNER, Some(GUILD))),
             "the Discord binding",
             false,
         ),
@@ -5944,7 +5948,7 @@ async fn any_known_surface_tightens_and_only_the_owner_in_a_private_place_undoes
         (
             "discord",
             Discord,
-            Some((EDDIE, None)),
+            Some((OWNER, None)),
             "the Discord binding",
             true,
         ),
@@ -5993,7 +5997,7 @@ async fn any_known_surface_tightens_and_only_the_owner_in_a_private_place_undoes
         ),
         (
             surface("sock#3", Cli),
-            Some((EDDIE, None)),
+            Some((OWNER, None)),
             "only the Discord binding can name",
         ),
     ] {
@@ -7599,7 +7603,7 @@ async fn a_card_is_written_with_its_question_and_settled_by_its_answer() {
     );
     assert!(r.core.outbox.has_card(&q));
     r.core
-        .confirm_action(&q, true, None, "discord:eddie")
+        .confirm_action(&q, true, None, "discord:zeroaltitude")
         .unwrap();
     let settle = posts(&r.core, "discord:channel:7")
         .into_iter()
@@ -7612,7 +7616,7 @@ async fn a_card_is_written_with_its_question_and_settled_by_its_answer() {
     );
     assert_eq!(
         body["closed"],
-        json!({"how": "approved", "by": "discord:eddie"})
+        json!({"how": "approved", "by": "discord:zeroaltitude"})
     );
     assert_eq!(settle.retry_class, theseus_kernel::RetryClass::SafeToRepeat);
     // Written once: nothing reconciles a second.
