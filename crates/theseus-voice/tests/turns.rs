@@ -69,7 +69,20 @@ impl<'a> Lines<'a> {
 
 /// A call in virtual time: the engine on a task of its own, and the session
 /// played here. Returns every event with when it came, and what was played.
+/// No acknowledgment comes in its first minute.
 async fn call(
+    io: WavIo,
+    speech: Arc<dyn Speech>,
+    answer: Answer,
+    reports: Vec<(Duration, &'static str)>,
+) -> (Vec<(Duration, Event)>, Vec<Played>) {
+    let mut config = Config::new([EDDIE, ROBIN]);
+    config.acknowledge_after = Duration::from_secs(60);
+    call_with(config, io, speech, answer, reports).await
+}
+
+async fn call_with(
+    config: Config,
     io: WavIo,
     speech: Arc<dyn Speech>,
     mut answer: Answer,
@@ -77,8 +90,6 @@ async fn call(
 ) -> (Vec<(Duration, Event)>, Vec<Played>) {
     let origin = Instant::now();
     let played = io.played();
-    let mut config = Config::new([EDDIE, ROBIN]);
-    config.acknowledge_after = Duration::from_secs(60);
     let (engine, handle) = Engine::new(config, Box::new(io), speech);
     let engine = tokio::spawn(engine.run());
     for (at, text) in reports {
@@ -874,5 +885,86 @@ async fn a_thought_split_by_a_pause_gets_one_answer() {
             (ms(1700), vec![(EDDIE, "what changed today?")]),
             (ms(6200), vec![(EDDIE, "and who changed it?")]),
         ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_cut_acknowledgment_isnt_said_again() {
+    // Turn 0 runs from 1.2 s to 4.2 s: its acknowledgment plays at 3.2 s, and
+    // Robin's laugh from 3.24 s stops it at 3.54 s. The reply comes while the
+    // laugh is open; when it closes, the reply plays and the chime doesn't.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 8000).say(ROBIN, 3240, 400).io;
+    let speech = Arc::new(StandInSpeech::new().transcript(ROBIN, ""));
+    let answer: Answer = Box::new(|_, _| (ms(3000), "Here you go.".into()));
+    let config = Config::new([EDDIE, ROBIN]);
+    let (seen, played) = call_with(config, io, speech, answer, vec![]).await;
+    let laugh_closed = ms(3240 + 400 + 700);
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(3200), Audio::chime().duration(), true),
+            (laugh_closed, len("Here you go."), false),
+        ]
+    );
+    assert_eq!(played[0].ended, Some(ms(3540)));
+    assert_eq!(
+        only(&seen, resumed),
+        [(
+            laugh_closed,
+            Event::Resumed {
+                what: Spoken::Acknowledgment,
+                why: HeardAs::Wordless,
+                held: laugh_closed - ms(3540),
+            }
+        )]
+    );
+    assert!(only(&seen, cuts).is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn leaving_with_a_reply_unsaid_cuts_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 60_000).io;
+    let (engine, mut handle) = Engine::new(
+        Config::new([EDDIE]),
+        Box::new(io),
+        Arc::new(StandInSpeech::new()),
+    );
+    let engine = tokio::spawn(engine.run());
+    let origin = Instant::now();
+    let mut cut = Vec::new();
+    while let Some(event) = handle.events.recv().await {
+        match event {
+            Event::Turn { id, .. } => {
+                let text = three().into();
+                handle
+                    .commands
+                    .send(Command::Reply { turn: id, text })
+                    .unwrap();
+            }
+            Event::Speaking { .. } => {
+                sleep(ms(500)).await;
+                handle.commands.send(Command::Leave).unwrap();
+            }
+            e @ Event::Cut { .. } => cut.push((origin.elapsed(), e)),
+            _ => {}
+        }
+    }
+    engine.await.unwrap();
+    assert_eq!(
+        cut,
+        [(
+            ms(1700),
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::CallEnded,
+                sentences: 3,
+                heard: 0,
+                into: ms(500),
+                last_heard: None,
+                cut: S1.into(),
+            }
+        )]
     );
 }
