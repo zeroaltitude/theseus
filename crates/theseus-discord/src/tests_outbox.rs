@@ -1443,3 +1443,46 @@ async fn each_disk_crossing_posts_one_note_in_the_dm_approvals_go_to() {
     }
     assert_eq!(pending(&core), 0);
 }
+/// theseus-9ggu: the gateway loop ends when the daemon's stop begins, as a
+/// signal raises it (`stopping_on`), not when its stream does (a stand-in
+/// gateway nobody listens on never ends one). The binding's `run` returns,
+/// and when the runtime is shut down the core, and with it the store, is
+/// gone at once: nothing of the binding is still mid-poll to hold it.
+#[test]
+fn the_gateway_loop_ends_at_the_daemons_stop_and_leaves_no_core_behind() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let life = rt.block_on(async {
+        let core = core_at(d.path(), &fake, vec![], |_| {});
+        let path = d.path().join("bindings.toml");
+        std::fs::write(&path, dm_only()).unwrap();
+        let run = tokio::spawn(crate::run(core.clone(), core.cfg.discord.clone(), path));
+        let c = core.clone();
+        until("the DM place is bound", 10, move || {
+            c.outbox
+                .place_session(&format!("dm:{USER}"))
+                .unwrap()
+                .is_some()
+        })
+        .await;
+        // Past a few of the gateway's failed connects.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!run.is_finished(), "the loop runs until the stop");
+        core.stopping_on("SIGTERM");
+        tokio::time::timeout(Duration::from_secs(10), run)
+            .await
+            .expect("the binding's run ends at the stop")
+            .unwrap();
+        Arc::downgrade(&core)
+    });
+    // It returns when the workers are done, so the bound is generous: a
+    // starved machine takes seconds to wind a runtime down.
+    rt.shutdown_timeout(Duration::from_secs(30));
+    assert_eq!(
+        life.strong_count(),
+        0,
+        "the core outlived its runtime: a task of the binding still holds it"
+    );
+}
+

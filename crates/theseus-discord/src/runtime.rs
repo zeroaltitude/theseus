@@ -255,7 +255,12 @@ async fn serve(
     let (shared, notes, guilds, me) = connect(&core, &cfg, &token, &bindings, &board).await?;
     start_places(&shared, &bindings, notes).await?;
     // The file read again while the binding runs (theseus-ocwt).
-    tokio::spawn(live::watch(shared.clone(), path, bindings.clone()));
+    // It ends with the stop, like the gateway loop below (theseus-9ggu).
+    let watching = live::watch(shared.clone(), path, bindings.clone());
+    let stop = core.clone();
+    tokio::spawn(async move {
+        tokio::select! { _ = watching => {}, _ = stop.outbox.stopped() => {} }
+    });
     event_loop(&shared, &cfg, token, &guilds, &me, &bindings, &board).await;
     Ok(())
 }
@@ -385,7 +390,21 @@ async fn event_loop(
     let mut shard = Shard::with_config(ShardId::ONE, gateway.build());
     voice::attach(shared, &shard, me.id);
     let mut last_latency = std::time::Instant::now();
-    while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
+    // The loop ends when the daemon's stop begins, not when the stream does:
+    // a task still mid-poll when the runtime ends would hold the core, and
+    // its store, past a `shutdown_timeout` (theseus-9ggu).
+    let stopped = shared.core.outbox.stopped();
+    tokio::pin!(stopped);
+    loop {
+        let item = tokio::select! {
+            item = shard.next_event(EventTypeFlags::all()) => item,
+            () = &mut stopped => {
+                board.state("disconnected", Some("the daemon is stopping".into()));
+                tracing::info!("discord gateway loop ended at the daemon's stop");
+                return;
+            }
+        };
+        let Some(item) = item else { break };
         if last_latency.elapsed() > Duration::from_secs(15) {
             last_latency = std::time::Instant::now();
             let ms = shard.latency().average().map(|d| d.as_millis() as u64);
