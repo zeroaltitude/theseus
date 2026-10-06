@@ -1,0 +1,41 @@
+item,family,half,none_passed,none_runs,oracle_passed,oracle_runs,oracle_passed_as_run_v1,headroom_pts,bm25_gold_ranks,none_cells,oracle_cells
+fact-1,fact,tuning,0,3,3,3,3,100,1,FFF,PPP
+fact-2,fact,tuning,0,3,3,3,3,100,2,FFF,PPP
+fact-3,fact,held out,0,3,3,3,3,100,2,FFF,PPP
+fact-4,fact,held out,0,3,3,3,3,100,1,FFF,PPP
+preference-1,preference,tuning,3,3,3,3,1,0,1,PPP,PPP
+preference-2,preference,tuning,0,3,3,3,3,100,2,FFF,PPP
+preference-3,preference,held out,0,3,3,3,3,100,3,FFF,PPP
+preference-4,preference,held out,0,3,3,3,3,100,2,FFF,PPP
+decision-1,decision,tuning,0,3,3,3,3,100,11,FFF,PPP
+decision-2,decision,tuning,2,3,3,3,3,33,8,FPP,PPP
+decision-3,decision,held out,3,3,3,3,3,0,1,PPP,PPP
+decision-4,decision,held out,0,3,3,3,3,100,5,FFF,PPP
+procedure-1,procedure,tuning,3,3,3,3,3,0,1,PPP,PPP
+procedure-2,procedure,tuning,0,3,3,3,3,100,1,FFF,PPP
+procedure-3,procedure,held out,2,3,3,3,3,33,1,PPF,PPP
+procedure-4,procedure,held out,0,3,3,3,3,100,1,FFF,PPP
+episode-1,episode,tuning,0,3,3,3,3,100,1 4,FFF,PPP
+episode-2,episode,tuning,0,3,3,3,3,100,2,FFF,PPP
+episode-3,episode,held out,0,3,3,3,3,100,2,FFF,PPP
+episode-4,episode,held out,2,3,3,3,3,33,42 1,PPF,PPP
+superseded-1,superseded,tuning,0,3,3,3,3,100,1 2,FFF,PPP
+superseded-2,superseded,tuning,0,3,3,3,3,100,1 2,FFF,PPP
+superseded-3,superseded,held out,0,3,3,3,3,100,1 3,FFF,PPP
+superseded-4,superseded,held out,0,3,3,3,3,100,1 2,FFF,PPP
+private-1,private,tuning,0,3,3,3,3,100,1,FFF,PPP
+private-2,private,tuning,0,3,3,3,3,100,1,FFF,PPP
+private-3,private,held out,0,3,3,3,3,100,1,FFF,PPP
+private-4,private,held out,0,3,3,3,3,100,1,FFF,PPP
+injection-1,injection,tuning,3,3,3,3,3,0,3,PPP,PPP
+injection-2,injection,tuning,3,3,3,3,3,0,2,PPP,PPP
+injection-3,injection,held out,0,3,3,3,3,100,4,FFF,PPP
+injection-4,injection,held out,0,3,3,3,3,100,3,FFF,PPP
+distractor-1,distractor,tuning,0,3,3,3,3,100,1,FFF,PPP
+distractor-2,distractor,tuning,0,3,3,3,3,100,1,FFF,PPP
+distractor-3,distractor,held out,0,3,3,3,3,100,1,FFF,PPP
+distractor-4,distractor,held out,0,3,3,3,3,100,2,FFF,PPP
+needs-nothing-1,needs_nothing,tuning,3,3,3,3,3,0,,PPP,PPP
+needs-nothing-2,needs_nothing,tuning,3,3,3,3,3,0,,PPP,PPP
+needs-nothing-3,needs_nothing,held out,1,3,3,3,3,67,,PFF,PPP
+needs-nothing-4,needs_nothing,held out,3,3,3,3,3,0,,PPP,PPP

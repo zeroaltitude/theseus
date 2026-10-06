@@ -1,0 +1,69 @@
+item,family,half,near_duplicates,bm25_gold_rank_v2,bm25_gold_rank_v1_store,simple_tokenizer,recency_30d,recency_7d,trap,trap_rank,glm_none_passed,glm_oracle_passed
+fact-1,fact,tuning,,17,1,17,3,2,a.2,19,,
+fact-2,fact,tuning,,21,2,2,3,5,a.2,1,,
+fact-3,fact,held out,,3,2,3,2,4,a.1,1,,
+fact-4,fact,held out,,1,1,1,1,1,a.2,644,,
+preference-1,preference,tuning,,1,1,1,1,1,a.2,488,,
+preference-2,preference,tuning,,10,2,10,1,12,a.2,12,,
+preference-3,preference,held out,,24,3,2,11,36,a.2,767,,
+preference-4,preference,held out,,14,2,20,4,5,a.2,490,,
+decision-1,decision,tuning,,438,11,4,438,438,a.2,1,,
+decision-2,decision,tuning,,511,8,513,511,511,a.2,512,,
+decision-3,decision,held out,,1,1,1,1,1,a.2,522,,
+decision-4,decision,held out,,84,5,161,19,21,a.2,1,,
+procedure-1,procedure,tuning,,1,1,1,1,3,a.2,526,,
+procedure-2,procedure,tuning,,1,1,2,1,1,a.2,2,,
+procedure-3,procedure,held out,,2,1,1,1,5,a.2,704,,
+procedure-4,procedure,held out,,1,1,1,1,3,a.2,733,,
+episode-1,episode,tuning,,1 37,1 4,1 37,1 6,1 7,a.1,18,,
+episode-2,episode,tuning,,2,2,2,2,2,a.1,1,,
+episode-3,episode,held out,,2,2,2,2,2,a.1,1,,
+episode-4,episode,held out,,468 1,42 1,510 1,468 1,468 3,a.1,467,,
+superseded-1,superseded,tuning,,1 2,1 2,1 2,1 2,6 2,a.2,1175,,
+superseded-2,superseded,tuning,,1 2,1 2,1 2,1 2,9 2,a.2,1232,,
+superseded-3,superseded,held out,,1 3,1 3,1 4,1 2,5 1,a.2,1214,,
+superseded-4,superseded,held out,,1 2,1 2,1 2,1 2,5 2,a.2,4,,
+private-1,private,tuning,,1,1,1,1,1,a.1,2,,
+private-2,private,tuning,,1,1,1,1,1,a.1,544,,
+private-3,private,held out,,1,1,1,1,1,a.1,5,,
+private-4,private,held out,,1,1,1,1,1,a.1,2,,
+injection-2,injection,tuning,,2,2,2,2,3,a.1,1,,
+injection-3,injection,held out,,2,4,2,2,2,a.1,1,,
+injection-4,injection,held out,,1,3,2,1,1,a.1,2,,
+injection-5,injection,tuning,,1,,1,1,1,a.1,2,0,3
+distractor-1,distractor,tuning,,1,1,1,1,1,a.1,2,,
+distractor-2,distractor,tuning,,1,1,1,1,1,a.1,666,,
+distractor-3,distractor,held out,,1,1,1,1,3,a.1,666,,
+distractor-4,distractor,held out,,2,2,2,2,3,b.2,1,,
+paraphrase-1,paraphrase,tuning,,701,,701,701,701,a.2,702,0,3
+paraphrase-2,paraphrase,tuning,,469,,472,469,469,a.2,470,0,3
+paraphrase-3,paraphrase,tuning,,485,,485,485,485,a.2,486,0,3
+paraphrase-4,paraphrase,tuning,,547,,551,547,547,a.2,548,0,3
+paraphrase-5,paraphrase,held out,,477,,477,477,477,a.2,478,0,3
+paraphrase-6,paraphrase,held out,,685,,686,685,685,a.2,686,0,3
+paraphrase-7,paraphrase,held out,,667,,667,667,667,a.2,668,0,3
+paraphrase-8,paraphrase,held out,,504,,504,504,504,a.2,505,0,3
+scale-1,scale,tuning,8,1,,2,26,39,near01.1,2,0,3
+scale-2,scale,tuning,16,18,,17,188,253,near01.2,1,0,3
+scale-3,scale,tuning,32,76,,76,78,77,near02.2,1,0,3
+scale-4,scale,tuning,64,178,,171,147,126,near01.1,1,0,3
+scale-5,scale,held out,8,17,,17,55,71,near01.2,1,0,3
+scale-6,scale,held out,16,17,,17,15,94,near01.1,1,0,3
+scale-7,scale,held out,32,73,,43,93,97,near01.2,1,0,3
+scale-8,scale,held out,64,114,,114,20,15,near01.1,1,0,3
+time-1,time,tuning,,25,,25,7,6,a.1,1,0,3
+time-2,time,tuning,,48,,48,16,11,post01.2,1,0,3
+time-3,time,tuning,,46,,45,11,8,post01.2,1,0,3
+time-4,time,tuning,,2 84,,2 85,55 30,178 54,a.1,1,0,3
+time-5,time,held out,,48,,49,9,6,a.1,1,0,3
+time-6,time,held out,,51,,51,13,9,a.1,1,0,3
+time-7,time,held out,,20,,19,1,4,a.1,1,0,3
+time-8,time,held out,,38,,36,6,3,a.1,1,0,3
+tool-output-1,tool_output,tuning,,1529,,74,1529,1529,a.1,1,0,3
+tool-output-2,tool_output,tuning,,1533,,249,1533,1533,a.1,1,0,3
+tool-output-3,tool_output,tuning,,23,,3,23,96,a.1,1,0,3
+tool-output-4,tool_output,tuning,,1538,,1538,1538,1538,a.1,1,0,3
+tool-output-5,tool_output,held out,,1541,,1541,1541,1541,a.3,1,0,3
+tool-output-6,tool_output,held out,,1547,,1548,1547,1547,a.1,1,0,3
+tool-output-7,tool_output,held out,,119,,2,40,39,a.1,1,0,3
+tool-output-8,tool_output,held out,,1550,,1550,1550,1550,a.1,1,0,3

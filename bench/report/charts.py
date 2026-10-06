@@ -183,6 +183,9 @@ def fmt(v: float | None, kind: str | None = None, step: float | None = None, tic
     """A value as text. `tick` gives the short form an axis uses (no unit word where the axis label carries it)."""
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return "–"
+    if v < 0:  # a true minus sign, before any unit or currency sign: −25%, −$0.50
+        text = fmt(-v, kind, step, tick)
+        return text if not any(ch in "123456789" for ch in text) else "−" + text
     kind = kind or "num"
     if kind == "pct":
         places = (_step_places(step * 100) if step else 0) if tick else 1
@@ -855,7 +858,6 @@ def _draw_lines_panel(f: Frame, panel: dict[str, Any], xa: dict[str, Any], box: 
         s.group(f'{lm["label"]}: {fmt(lm["y"], kind)}')
         s.line(left, y, right, y, c["ink2"], 1.25)
         s.end()
-        s.text(right - 2, y - 4, lm["label"], size=10 if small else 11, anchor="end", fill=c["ink2"])
     # series, clipped to the plot: a value past the axis shows as an arrowhead at the edge, never over a neighbour
     cid = f.clip_id()
     s.add(f'<clipPath id="{cid}"><rect x="{left - 5:.1f}" y="{top - 5:.1f}" width="{right - left + 10:.1f}" '
@@ -904,6 +906,10 @@ def _draw_lines_panel(f: Frame, panel: dict[str, Any], xa: dict[str, Any], box: 
                 s.hit(sx(x), sy(y), 8)
                 s.end()
     s.add("</g>")
+    # the limits' labels over the series, on a surface halo, so a series crossing one never hides it
+    for lm in panel.get("limits") or []:
+        s.text(right - 2, sy(lm["y"]) - 4, lm["label"], size=10 if small else 11, anchor="end", fill=c["ink2"],
+               halo=True)
     for xv, yv, col, lab in off:
         over = yv > hi
         ey = top if over else bottom

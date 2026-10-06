@@ -1,0 +1,190 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="625" viewBox="0 0 960 625" role="img" aria-labelledby="t-turn-bench t-turn-bench-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-turn-bench">The turn bench: wall time and frames per turn, each main gate, Oct 2-6</title>
+<desc id="t-turn-bench-d">What did a turn cost, in wall time and in frames, gate by gate?</desc>
+<rect width="960" height="625" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">The turn bench: wall time and frames per turn, each main gate, Oct 2-6</text>
+<line x1="18.0" y1="50.0" x2="34.0" y2="50.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">p50 of 10 runs</text>
+<line x1="144.7" y1="50.0" x2="160.7" y2="50.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<text x="166.7" y="54.0" font-size="12" fill="#c3c2b7">p95 of 10 runs (the gate's judged number: the slowest)</text>
+<circle cx="519.4" cy="50.0" r="5" fill="#d03b3b"/>
+<path d="M516.4,50.0h6" stroke="#1a1a19" stroke-width="1.6"/>
+<text x="534.4" y="54.0" font-size="12" fill="#c3c2b7">a turn past its frame budget</text>
+<text x="18.0" y="88.0" font-size="12" fill="#ffffff" font-weight="600">A plain turn, wall time (ms)</text>
+<line x1="46.5" y1="248.0" x2="463.0" y2="248.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="252.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="46.5" y1="215.5" x2="463.0" y2="215.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="219.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="46.5" y1="183.0" x2="463.0" y2="183.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="187.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="46.5" y1="150.5" x2="463.0" y2="150.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="154.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">300</text>
+<line x1="46.5" y1="118.0" x2="463.0" y2="118.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="40.5" y="122.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">400</text>
+<line x1="109.5" y1="248.0" x2="109.5" y2="252.0" stroke="#383835" stroke-width="1"/>
+<text x="109.5" y="264.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="206.4" y1="248.0" x2="206.4" y2="252.0" stroke="#383835" stroke-width="1"/>
+<text x="206.4" y="264.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="303.2" y1="248.0" x2="303.2" y2="252.0" stroke="#383835" stroke-width="1"/>
+<text x="303.2" y="264.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="400.0" y1="248.0" x2="400.0" y2="252.0" stroke="#383835" stroke-width="1"/>
+<text x="400.0" y="264.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="46.5" y1="248.0" x2="463.0" y2="248.0" stroke="#383835" stroke-width="1"/>
+<g><title>1: Oct 2 10:40 and 11:15: 371725d (29b) brings the index tender alive; 3a4beff makes the turn bench wait for its start before measuring</title>
+<line x1="56.9" y1="114.0" x2="56.9" y2="248.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="56.9" cy="107.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="56.9" y="110.5" font-size="9" fill="#ffffff" text-anchor="middle">1</text>
+</g>
+<g><title>2: Oct 3 20:50, ae1b9ef (t7-kernel, Tier 7.1): a job's completion is an event; 9 frames</title>
+<line x1="193.6" y1="114.0" x2="193.6" y2="248.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="193.6" cy="107.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="193.6" y="110.5" font-size="9" fill="#ffffff" text-anchor="middle">2</text>
+</g>
+<clipPath id="clip-turn-bench-1"><rect x="41.5" y="113.0" width="426.5" height="140.0"/></clipPath>
+<g clip-path="url(#clip-turn-bench-1)">
+<g><title>p50 of 10 runs: 170 points, lowest 45.6 ms, median 75.2 ms, highest 107 ms</title>
+<polyline points="51.8,231.6 52.8,229.4 55.7,231.2 57.6,233.2 58.1,224.9 60.3,226.1 60.6,225.8 61.3,225.7 62.0,225.7 62.1,226.3 64.9,224.9 65.4,225.8 79.5,224.5 80.8,223.9 87.5,223.8 89.8,225.7 96.7,224.4 97.6,225.3 98.8,224.1 104.1,224.5 106.1,227.0 106.3,223.3 107.4,226.4 111.3,226.8 113.6,226.5 114.4,226.9 116.1,225.1 116.3,226.0 117.4,227.5 121.2,226.9 123.2,225.5 127.8,225.7 162.2,224.9 163.5,229.4 164.1,227.1 164.5,225.9 164.9,225.5 168.3,226.1 171.0,218.7 172.3,220.1 173.1,226.1 174.4,224.7 175.2,224.3 175.9,221.3 176.2,225.9 177.8,226.7 178.6,223.6 181.7,226.7 185.4,225.7 191.2,224.7 191.8,226.6 193.0,224.4 193.6,223.9 194.7,226.3 196.2,226.1 197.6,226.0 199.4,224.3 199.9,224.8 201.8,226.1 202.2,226.7 202.5,227.4 206.3,217.3 207.0,223.7 207.6,220.0 208.3,221.6 209.9,220.9 210.3,222.1 212.3,222.9 212.8,226.4 213.5,224.4 214.5,222.0 215.3,222.9 215.7,222.3 216.8,221.0 217.1,222.1 218.4,221.8 223.5,219.8 224.2,222.4 224.8,222.8 229.3,218.8 230.4,220.7 231.3,222.9 234.0,221.0 234.9,221.1 235.5,220.2 236.3,220.1 237.3,219.1 238.0,222.5 239.9,224.4 240.9,220.6 241.6,223.1 243.0,220.8 245.9,223.0 246.7,223.4 251.4,213.1 253.8,220.5 254.6,222.1 255.1,220.8 259.7,220.8 263.1,223.4 267.6,222.1 271.0,220.2 273.3,213.7 274.3,220.1 275.1,222.3 275.9,222.6 276.5,221.7 278.0,224.5 280.7,223.7 283.5,222.0 285.9,221.6 288.2,222.6 291.4,223.6 293.2,223.1 294.0,223.8 297.8,223.9 298.5,223.3 302.7,223.1 308.0,223.9 308.7,223.8 311.9,223.5 312.9,224.3 313.7,224.0 315.3,223.4 318.6,223.4 319.2,222.8 322.2,223.3 322.9,223.9 324.1,222.4 326.6,222.9 330.1,223.6 332.5,223.9 336.6,219.9 337.7,222.5 338.5,224.5 339.3,222.9 340.4,221.5 341.2,221.9 350.7,223.6 351.8,221.6 353.8,222.6 355.6,223.0 357.6,224.4 360.1,223.8 361.1,224.0 362.0,223.8 380.3,218.8 381.1,222.0 386.0,221.2 386.7,222.7 396.6,224.1 398.6,223.5 400.0,223.0 401.5,224.2 402.7,221.8 405.0,223.3 405.6,224.2 406.8,223.6 437.1,223.0 438.9,221.0 440.3,223.7 442.6,223.4 443.3,223.9 444.0,223.1 444.9,222.4 445.8,221.5 446.6,223.4 448.4,223.0 451.4,224.7 456.3,222.7" fill="none" stroke="#898781" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>p95 of 10 runs (the gate's judged number: the slowest): 170 points, lowest 68.1 ms, median 86.8 ms, highest 1,615 ms</title>
+<polyline points="51.8,222.0 52.8,225.9 55.7,223.8 57.6,222.4 58.1,222.5 60.3,222.2 60.6,224.3 61.3,224.3 62.0,222.8 62.1,224.5 64.9,221.9 65.4,223.8 79.5,222.7 80.8,212.4 87.5,218.7 89.8,223.9 96.7,221.3 97.6,222.6 98.8,220.9 104.1,202.1 106.1,221.8 106.3,220.4 107.4,211.7 111.3,225.4 113.6,222.4 114.4,223.8 116.1,221.7 116.3,222.1 117.4,225.1 121.2,224.7 123.2,223.7 127.8,220.5 162.2,221.7 163.5,184.6 164.1,223.5 164.5,224.5 164.9,223.0 168.3,208.6 171.0,209.2 172.3,218.6 173.1,223.6 174.4,221.0 175.2,218.6 175.9,218.1 176.2,207.7 177.8,219.7 178.6,200.2 181.7,223.9 185.4,218.1 191.2,214.4 191.8,222.9 193.0,217.3 193.6,216.4 194.7,224.3 196.2,223.9 197.6,222.9 199.4,220.7 199.9,221.8 201.8,222.7 202.2,223.9 202.5,223.2 206.3,213.6 207.0,221.3 207.6,216.5 208.3,218.2 209.9,195.7 210.3,218.8 212.3,216.5 212.8,189.9 213.5,223.5 214.5,217.8 215.3,216.8 215.7,219.5 216.8,213.6 217.1,211.4 218.4,216.7 223.5,217.6 224.2,215.0 224.8,221.4 229.3,46.3 230.4,218.1 231.3,221.5 234.0,219.3 234.9,217.2 235.5,217.4 236.3,214.4 237.3,217.1 238.0,220.8 239.9,222.9 240.9,216.6 241.6,221.1 243.0,186.5 245.9,216.7 246.7,219.6 251.4,205.6 253.8,212.7 254.6,218.2 255.1,216.7 259.7,117.7 263.1,221.2 267.6,219.0 271.0,218.4 273.3,206.9 274.3,-276.8 275.1,202.6 275.9,147.5 276.5,160.1 278.0,218.7 280.7,222.4 283.5,219.9 285.9,219.3 288.2,221.4 291.4,220.6 293.2,222.0 294.0,221.0 297.8,222.7 298.5,220.8 302.7,211.2 308.0,220.4 308.7,220.9 311.9,221.7 312.9,221.3 313.7,217.8 315.3,220.0 318.6,221.4 319.2,214.8 322.2,221.8 322.9,219.5 324.1,220.9 326.6,221.1 330.1,220.9 332.5,207.7 336.6,214.8 337.7,221.0 338.5,222.0 339.3,220.8 340.4,219.9 341.2,218.7 350.7,221.7 351.8,218.2 353.8,219.7 355.6,217.9 357.6,222.0 360.1,221.7 361.1,222.6 362.0,219.3 380.3,202.1 381.1,204.5 386.0,219.9 386.7,215.7 396.6,221.3 398.6,217.2 400.0,221.8 401.5,222.6 402.7,217.9 405.0,217.2 405.6,222.5 406.8,215.3 437.1,219.6 438.9,218.4 440.3,220.5 442.6,218.6 443.3,219.7 444.0,219.6 444.9,218.8 445.8,219.8 446.6,218.5 448.4,221.5 451.4,169.9 456.3,218.8" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<g><title>p95 of 10 runs (the gate's judged number: the slowest): 621 ms (off the scale, up)</title>
+<path d="M225.3,120.0l4,-7l4,7Z" fill="#3987e5" stroke="#1a1a19" stroke-width="1"/>
+</g>
+<g><title>p95 of 10 runs (the gate's judged number: the slowest): 401 ms (off the scale, up)</title>
+<path d="M255.7,120.0l4,-7l4,7Z" fill="#3987e5" stroke="#1a1a19" stroke-width="1"/>
+</g>
+<g><title>p95 of 10 runs (the gate's judged number: the slowest): 1,615 ms (off the scale, up)</title>
+<path d="M270.3,120.0l4,-7l4,7Z" fill="#3987e5" stroke="#1a1a19" stroke-width="1"/>
+</g>
+<text x="493.0" y="88.0" font-size="12" fill="#ffffff" font-weight="600">A tool-call turn, wall time (ms)</text>
+<line x1="521.5" y1="248.0" x2="938.0" y2="248.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="515.5" y="252.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="521.5" y1="215.5" x2="938.0" y2="215.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="515.5" y="219.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">200</text>
+<line x1="521.5" y1="183.0" x2="938.0" y2="183.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="515.5" y="187.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">400</text>
+<line x1="521.5" y1="150.5" x2="938.0" y2="150.5" stroke="#2c2c2a" stroke-width="1"/>
+<text x="515.5" y="154.5" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">600</text>
+<line x1="521.5" y1="118.0" x2="938.0" y2="118.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="515.5" y="122.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">800</text>
+<line x1="584.5" y1="248.0" x2="584.5" y2="252.0" stroke="#383835" stroke-width="1"/>
+<text x="584.5" y="264.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="681.4" y1="248.0" x2="681.4" y2="252.0" stroke="#383835" stroke-width="1"/>
+<text x="681.4" y="264.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="778.2" y1="248.0" x2="778.2" y2="252.0" stroke="#383835" stroke-width="1"/>
+<text x="778.2" y="264.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="875.0" y1="248.0" x2="875.0" y2="252.0" stroke="#383835" stroke-width="1"/>
+<text x="875.0" y="264.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="521.5" y1="248.0" x2="938.0" y2="248.0" stroke="#383835" stroke-width="1"/>
+<g><title>1: Oct 2 10:40 and 11:15: 371725d (29b) brings the index tender alive; 3a4beff makes the turn bench wait for its start before measuring</title>
+<line x1="531.9" y1="114.0" x2="531.9" y2="248.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="531.9" cy="107.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="531.9" y="110.5" font-size="9" fill="#ffffff" text-anchor="middle">1</text>
+</g>
+<g><title>2: Oct 3 20:50, ae1b9ef (t7-kernel, Tier 7.1): a job's completion is an event; 9 frames</title>
+<line x1="668.6" y1="114.0" x2="668.6" y2="248.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="668.6" cy="107.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="668.6" y="110.5" font-size="9" fill="#ffffff" text-anchor="middle">2</text>
+</g>
+<g><title>3: Oct 4 21:31, e6378de8 (lane linux-io): a job's completion takes one sync, not two</title>
+<line x1="768.2" y1="114.0" x2="768.2" y2="248.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="768.2" cy="107.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="768.2" y="110.5" font-size="9" fill="#ffffff" text-anchor="middle">3</text>
+</g>
+<clipPath id="clip-turn-bench-2"><rect x="516.5" y="113.0" width="426.5" height="140.0"/></clipPath>
+<g clip-path="url(#clip-turn-bench-2)">
+<g><title>p50 of 10 runs: 170 points, lowest 142 ms, median 178 ms, highest 270 ms</title>
+<polyline points="526.8,222.8 527.8,221.8 530.7,212.5 532.6,213.0 533.1,209.1 535.3,211.6 535.6,213.5 536.3,213.1 537.0,212.5 537.1,212.9 539.9,212.2 540.4,211.1 554.5,207.8 555.8,208.6 562.5,207.7 564.8,209.2 571.7,210.3 572.6,210.5 573.8,208.4 579.1,209.5 581.1,213.2 581.3,211.3 582.4,211.5 586.3,212.1 588.6,212.5 589.4,211.0 591.1,210.9 591.3,211.2 592.4,214.2 596.2,212.7 598.2,213.0 602.8,212.5 637.2,210.3 638.5,211.4 639.1,213.5 639.5,212.6 639.9,211.0 643.3,212.9 646.0,204.1 647.3,208.7 648.1,210.9 649.4,209.0 650.2,211.0 650.9,211.4 651.2,212.0 652.8,211.6 653.6,210.5 656.7,211.0 660.4,210.4 666.2,210.3 666.8,209.5 668.0,209.7 668.6,218.4 669.7,220.3 671.2,222.1 672.6,223.2 674.4,220.0 674.9,220.5 676.8,221.5 677.2,221.6 677.5,222.2 681.3,215.7 682.0,220.4 682.6,217.5 683.3,215.1 684.9,217.8 685.3,219.2 687.3,220.0 687.8,220.2 688.5,220.2 689.5,218.6 690.3,217.0 690.7,219.0 691.8,218.0 692.1,219.5 693.4,218.9 698.5,216.6 699.2,218.5 699.8,219.8 704.3,210.2 705.4,215.5 706.3,220.2 709.0,218.2 709.9,216.5 710.5,214.8 711.3,216.6 712.3,216.0 713.0,219.1 714.9,220.2 715.9,218.8 716.6,219.5 718.0,214.5 720.9,219.8 721.7,220.2 726.4,204.2 728.8,220.1 729.6,216.6 730.1,217.0 734.7,214.3 738.1,220.6 742.6,215.4 746.0,213.9 748.3,207.0 749.3,217.9 750.1,219.2 750.9,218.5 751.5,218.0 753.0,219.3 755.7,219.4 758.5,219.3 760.9,218.6 763.2,220.5 766.4,221.3 768.2,223.1 769.0,220.9 772.8,223.0 773.5,222.2 777.7,222.2 783.0,223.0 783.7,221.0 786.9,222.4 787.9,222.3 788.7,222.5 790.3,222.3 793.6,222.1 794.2,221.2 797.2,223.3 797.9,223.2 799.1,222.5 801.6,222.6 805.1,223.0 807.5,223.8 811.6,216.1 812.7,224.8 813.5,223.7 814.3,223.4 815.4,221.9 816.2,223.0 825.7,223.5 826.8,222.7 828.8,221.8 830.6,221.3 832.6,223.2 835.1,223.0 836.1,223.7 837.0,223.4 855.3,217.9 856.1,220.9 861.0,219.1 861.7,221.7 871.6,222.2 873.6,222.7 875.0,223.0 876.5,223.6 877.7,219.8 880.0,221.7 880.6,223.1 881.8,223.1 912.1,222.3 913.9,221.3 915.3,222.4 917.6,224.0 918.3,222.6 919.0,222.2 919.9,223.1 920.8,222.0 921.6,222.5 923.4,222.2 926.4,221.4 931.3,222.0" fill="none" stroke="#898781" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<g><title>p95 of 10 runs (the gate's judged number: the slowest): 170 points, lowest 153 ms, median 211 ms, highest 1,058 ms</title>
+<polyline points="526.8,212.1 527.8,215.9 530.7,209.0 532.6,209.9 533.1,188.4 535.3,207.3 535.6,209.6 536.3,203.9 537.0,209.7 537.1,211.1 539.9,208.2 540.4,204.4 554.5,204.5 555.8,161.4 562.5,201.4 564.8,205.8 571.7,205.0 572.6,199.1 573.8,197.0 579.1,202.9 581.1,209.3 581.3,209.6 582.4,207.4 586.3,209.2 588.6,208.0 589.4,208.9 591.1,208.9 591.3,205.3 592.4,209.3 596.2,204.9 598.2,209.7 602.8,206.9 637.2,205.2 638.5,206.1 639.1,208.8 639.5,208.6 639.9,209.8 643.3,209.0 646.0,200.8 647.3,76.1 648.1,206.4 649.4,206.9 650.2,203.2 650.9,207.4 651.2,207.4 652.8,208.1 653.6,204.8 656.7,207.7 660.4,205.6 666.2,202.6 666.8,205.9 668.0,206.3 668.6,209.8 669.7,216.0 671.2,211.4 672.6,195.3 674.4,212.2 674.9,217.4 676.8,219.5 677.2,219.6 677.5,221.2 681.3,213.9 682.0,219.1 682.6,213.7 683.3,212.1 684.9,215.8 685.3,217.8 687.3,217.5 687.8,216.6 688.5,218.5 689.5,217.2 690.3,214.1 690.7,217.8 691.8,216.1 692.1,213.9 693.4,196.0 698.5,212.6 699.2,213.7 699.8,208.8 704.3,172.5 705.4,211.9 706.3,217.9 709.0,212.5 709.9,213.1 710.5,210.7 711.3,214.7 712.3,214.6 713.0,206.4 714.9,217.7 715.9,216.4 716.6,218.0 718.0,196.0 720.9,219.2 721.7,217.7 726.4,184.3 728.8,216.7 729.6,209.9 730.1,213.4 734.7,147.8 738.1,218.8 742.6,212.5 746.0,203.5 748.3,200.3 749.3,122.1 750.1,218.8 750.9,205.1 751.5,211.2 753.0,217.9 755.7,182.5 758.5,218.2 760.9,217.1 763.2,205.4 766.4,218.5 768.2,220.0 769.0,220.5 772.8,220.5 773.5,219.8 777.7,220.9 783.0,221.7 783.7,219.7 786.9,219.8 787.9,220.8 788.7,220.6 790.3,217.8 793.6,220.6 794.2,220.0 797.2,213.7 797.9,221.1 799.1,219.2 801.6,220.8 805.1,222.4 807.5,222.8 811.6,214.1 812.7,194.5 813.5,223.2 814.3,221.9 815.4,218.3 816.2,220.1 825.7,221.4 826.8,221.3 828.8,220.6 830.6,216.4 832.6,221.8 835.1,220.1 836.1,221.7 837.0,222.8 855.3,214.8 856.1,217.6 861.0,211.1 861.7,219.6 871.6,220.4 873.6,218.6 875.0,221.4 876.5,219.8 877.7,211.8 880.0,220.1 880.6,220.7 881.8,219.3 912.1,219.2 913.9,220.4 915.3,213.5 917.6,220.7 918.3,221.1 919.0,218.0 919.9,221.0 920.8,219.9 921.6,218.0 923.4,168.1 926.4,220.0 931.3,218.3" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<g><title>p95 of 10 runs (the gate's judged number: the slowest): 1,058 ms (off the scale, up)</title>
+<path d="M643.3,120.0l4,-7l4,7Z" fill="#3987e5" stroke="#1a1a19" stroke-width="1"/>
+</g>
+<text x="18.0" y="316.0" font-size="12" fill="#ffffff" font-weight="600">A plain turn, frames (budget 5)</text>
+<line x1="39.7" y1="476.0" x2="463.0" y2="476.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="480.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="39.7" y1="426.0" x2="463.0" y2="426.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="430.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="39.7" y1="376.0" x2="463.0" y2="376.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="33.7" y="380.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="103.7" y1="476.0" x2="103.7" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="103.7" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="202.1" y1="476.0" x2="202.1" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="202.1" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="300.6" y1="476.0" x2="300.6" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="300.6" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="399.0" y1="476.0" x2="399.0" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="399.0" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="39.7" y1="476.0" x2="463.0" y2="476.0" stroke="#383835" stroke-width="1"/>
+<g><title>1: Oct 2 10:40 and 11:15: 371725d (29b) brings the index tender alive; 3a4beff makes the turn bench wait for its start before measuring</title>
+<line x1="50.2" y1="342.0" x2="50.2" y2="476.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="50.2" cy="335.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="50.2" y="338.5" font-size="9" fill="#ffffff" text-anchor="middle">1</text>
+</g>
+<g><title>2: Oct 3 20:50, ae1b9ef (t7-kernel, Tier 7.1): a job's completion is an event; 9 frames</title>
+<line x1="189.2" y1="342.0" x2="189.2" y2="476.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="189.2" cy="335.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="189.2" y="338.5" font-size="9" fill="#ffffff" text-anchor="middle">2</text>
+</g>
+<g><title>budget 5: 5</title>
+<line x1="39.7" y1="426.0" x2="463.0" y2="426.0" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-turn-bench-3"><rect x="34.7" y="341.0" width="433.3" height="140.0"/></clipPath>
+<g clip-path="url(#clip-turn-bench-3)">
+<g><title>p95 of 10 runs (the gate's judged number: the slowest): 170 points, lowest 5, median 5, highest 6</title>
+<polyline points="45.0,426.0 46.1,426.0 49.0,426.0 50.9,416.0 51.4,426.0 53.7,426.0 54.0,426.0 54.7,426.0 55.4,426.0 55.5,426.0 58.3,426.0 58.8,426.0 73.2,426.0 74.5,426.0 81.4,426.0 83.7,426.0 90.7,426.0 91.6,426.0 92.8,426.0 98.2,426.0 100.2,426.0 100.4,426.0 101.5,426.0 105.5,426.0 107.8,426.0 108.6,426.0 110.4,426.0 110.6,426.0 111.7,426.0 115.5,426.0 117.6,426.0 122.3,426.0 157.3,426.0 158.6,426.0 159.1,426.0 159.6,426.0 160.0,426.0 163.5,426.0 166.2,426.0 167.5,426.0 168.4,426.0 169.7,426.0 170.5,426.0 171.2,426.0 171.4,426.0 173.1,426.0 173.9,426.0 177.0,426.0 180.8,426.0 186.8,426.0 187.3,426.0 188.6,426.0 189.2,426.0 190.3,426.0 191.8,426.0 193.2,426.0 195.1,426.0 195.6,426.0 197.6,426.0 197.9,426.0 198.2,426.0 202.1,426.0 202.8,426.0 203.4,426.0 204.1,426.0 205.7,426.0 206.1,426.0 208.1,426.0 208.7,426.0 209.4,426.0 210.4,426.0 211.2,426.0 211.7,426.0 212.8,426.0 213.1,426.0 214.3,426.0 219.6,426.0 220.3,426.0 220.9,426.0 225.5,426.0 226.5,426.0 227.5,426.0 230.3,426.0 231.1,426.0 231.8,426.0 232.5,426.0 233.6,426.0 234.3,426.0 236.3,426.0 237.2,426.0 238.0,426.0 239.4,426.0 242.3,426.0 243.1,426.0 247.9,426.0 250.3,426.0 251.2,426.0 251.7,426.0 256.4,426.0 259.8,426.0 264.4,426.0 267.8,426.0 270.1,426.0 271.2,426.0 272.0,426.0 272.8,426.0 273.4,426.0 274.9,426.0 277.7,426.0 280.6,426.0 283.0,426.0 285.4,426.0 288.6,426.0 290.4,426.0 291.2,426.0 295.1,426.0 295.8,426.0 300.1,426.0 305.4,426.0 306.2,426.0 309.4,426.0 310.4,426.0 311.2,426.0 312.9,426.0 316.3,426.0 316.8,426.0 319.9,426.0 320.6,426.0 321.9,426.0 324.4,426.0 327.9,426.0 330.3,426.0 334.5,426.0 335.6,426.0 336.4,426.0 337.3,426.0 338.4,426.0 339.2,426.0 348.9,426.0 349.9,426.0 352.0,426.0 353.9,426.0 355.9,426.0 358.4,426.0 359.4,426.0 360.3,426.0 378.9,426.0 379.8,426.0 384.8,426.0 385.5,426.0 395.5,426.0 397.5,426.0 398.9,426.0 400.5,426.0 401.7,426.0 404.0,426.0 404.6,426.0 405.9,426.0 436.7,426.0 438.5,426.0 439.9,426.0 442.2,426.0 443.0,426.0 443.7,426.0 444.6,426.0 445.5,426.0 446.3,426.0 448.2,426.0 451.2,426.0 456.1,426.0" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="461.0" y="422.0" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 5</text>
+<g><title>critical: 6 (51a456f: 6 frames; the index tender's start row landed in a measured turn; the gate failed, and the bench was fixed (3a4beff))</title>
+<circle cx="50.9" cy="416.0" r="10" fill="transparent"/>
+<circle cx="50.9" cy="416.0" r="4.5" fill="#d03b3b" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="493.0" y="316.0" font-size="12" fill="#ffffff" font-weight="600">A tool-call turn, frames (budget 9 since event 2)</text>
+<line x1="514.7" y1="476.0" x2="938.0" y2="476.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="508.7" y="480.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">0</text>
+<line x1="514.7" y1="426.0" x2="938.0" y2="426.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="508.7" y="430.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="514.7" y1="376.0" x2="938.0" y2="376.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="508.7" y="380.0" font-size="10" fill="#c3c2b7" text-anchor="end" style="font-variant-numeric: tabular-nums">10</text>
+<line x1="578.7" y1="476.0" x2="578.7" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="578.7" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">3</text>
+<line x1="677.1" y1="476.0" x2="677.1" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="677.1" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">4</text>
+<line x1="775.6" y1="476.0" x2="775.6" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="775.6" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5</text>
+<line x1="874.0" y1="476.0" x2="874.0" y2="480.0" stroke="#383835" stroke-width="1"/>
+<text x="874.0" y="492.0" font-size="10" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">6</text>
+<line x1="514.7" y1="476.0" x2="938.0" y2="476.0" stroke="#383835" stroke-width="1"/>
+<g><title>1: Oct 2 10:40 and 11:15: 371725d (29b) brings the index tender alive; 3a4beff makes the turn bench wait for its start before measuring</title>
+<line x1="525.2" y1="342.0" x2="525.2" y2="476.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="525.2" cy="335.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="525.2" y="338.5" font-size="9" fill="#ffffff" text-anchor="middle">1</text>
+</g>
+<g><title>2: Oct 3 20:50, ae1b9ef (t7-kernel, Tier 7.1): a job's completion is an event; 9 frames</title>
+<line x1="664.2" y1="342.0" x2="664.2" y2="476.0" stroke="#898781" stroke-width="1" stroke-opacity="0.8"/>
+<circle cx="664.2" cy="335.0" r="7" fill="#1a1a19" stroke="#c3c2b7" stroke-width="1"/>
+<text x="664.2" y="338.5" font-size="9" fill="#ffffff" text-anchor="middle">2</text>
+</g>
+<g><title>budget 9: 9</title>
+<line x1="514.7" y1="386.0" x2="938.0" y2="386.0" stroke="#c3c2b7" stroke-width="1.25"/>
+</g>
+<clipPath id="clip-turn-bench-4"><rect x="509.7" y="341.0" width="433.3" height="140.0"/></clipPath>
+<g clip-path="url(#clip-turn-bench-4)">
+<g><title>p95 of 10 runs (the gate's judged number: the slowest): 170 points, lowest 9, median 9, highest 12</title>
+<polyline points="520.0,356.0 521.1,356.0 524.0,356.0 525.9,356.0 526.4,356.0 528.7,356.0 529.0,356.0 529.7,356.0 530.4,356.0 530.5,356.0 533.3,356.0 533.8,356.0 548.2,356.0 549.5,356.0 556.4,356.0 558.7,356.0 565.7,356.0 566.6,356.0 567.8,356.0 573.2,356.0 575.2,356.0 575.4,356.0 576.5,356.0 580.5,356.0 582.8,356.0 583.6,356.0 585.4,356.0 585.6,356.0 586.7,356.0 590.5,356.0 592.6,356.0 597.3,356.0 632.3,356.0 633.6,356.0 634.1,356.0 634.6,356.0 635.0,356.0 638.5,356.0 641.2,356.0 642.5,356.0 643.4,356.0 644.7,356.0 645.5,356.0 646.2,356.0 646.4,356.0 648.1,356.0 648.9,356.0 652.0,356.0 655.8,356.0 661.8,356.0 662.3,356.0 663.6,356.0 664.2,386.0 665.3,386.0 666.8,386.0 668.2,386.0 670.1,386.0 670.6,386.0 672.6,386.0 672.9,386.0 673.2,386.0 677.1,386.0 677.8,386.0 678.4,386.0 679.1,386.0 680.7,386.0 681.1,386.0 683.1,386.0 683.7,386.0 684.4,386.0 685.4,386.0 686.2,386.0 686.7,386.0 687.8,386.0 688.1,386.0 689.3,386.0 694.6,386.0 695.3,386.0 695.9,386.0 700.5,386.0 701.5,386.0 702.5,386.0 705.3,386.0 706.1,386.0 706.8,386.0 707.5,386.0 708.6,386.0 709.3,386.0 711.3,386.0 712.2,386.0 713.0,386.0 714.4,386.0 717.3,386.0 718.1,386.0 722.9,386.0 725.3,386.0 726.2,386.0 726.7,386.0 731.4,386.0 734.8,386.0 739.4,386.0 742.8,386.0 745.1,386.0 746.2,386.0 747.0,386.0 747.8,386.0 748.4,386.0 749.9,386.0 752.7,386.0 755.6,386.0 758.0,386.0 760.4,386.0 763.6,386.0 765.4,386.0 766.2,386.0 770.1,386.0 770.8,386.0 775.1,386.0 780.4,386.0 781.2,386.0 784.4,386.0 785.4,386.0 786.2,386.0 787.9,386.0 791.3,386.0 791.8,386.0 794.9,386.0 795.6,386.0 796.9,386.0 799.4,386.0 802.9,386.0 805.3,386.0 809.5,386.0 810.6,386.0 811.4,386.0 812.3,386.0 813.4,386.0 814.2,386.0 823.9,386.0 824.9,386.0 827.0,386.0 828.9,386.0 830.9,386.0 833.4,386.0 834.4,386.0 835.3,386.0 853.9,386.0 854.8,386.0 859.8,386.0 860.5,386.0 870.5,386.0 872.5,386.0 873.9,386.0 875.5,386.0 876.7,386.0 879.0,386.0 879.6,386.0 880.9,386.0 911.7,386.0 913.5,386.0 914.9,386.0 917.2,386.0 918.0,386.0 918.7,386.0 919.6,386.0 920.5,386.0 921.3,386.0 923.2,386.0 926.2,386.0 931.1,386.0" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</g>
+<text x="936.0" y="382.0" font-size="10" fill="#c3c2b7" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" text-anchor="end">budget 9</text>
+<text x="480.0" y="514.0" font-size="12" fill="#c3c2b7" text-anchor="middle">day of October 2026, MST (4.5 is Oct 4 at noon)</text>
+<text x="18.0" y="542.0" font-size="11" fill="#c3c2b7">1 Oct 2 10:40 and 11:15: 371725d (29b) brings the index tender alive; 3a4beff makes the turn bench wait for its start before measuring</text>
+<text x="18.0" y="557.0" font-size="11" fill="#c3c2b7">2 Oct 3 20:50, ae1b9ef (t7-kernel, Tier 7.1): a job's completion is an event; 9 frames</text>
+<text x="18.0" y="572.0" font-size="11" fill="#c3c2b7">3 Oct 4 21:31, e6378de8 (lane linux-io): a job's completion takes one sync, not two</text>
+<text x="18.0" y="587.0" font-size="11" fill="#c3c2b7">170 main gates' turn benches (debug, the stand-in model, 10 turns of each kind on one warm session). Frames are counted from the WAL: one frame is one fdatasync.</text>
+<text x="18.0" y="602.0" font-size="11" fill="#c3c2b7">A lone slow run past a panel's top is an arrowhead at its edge (hover: the p95).</text>
+</svg>

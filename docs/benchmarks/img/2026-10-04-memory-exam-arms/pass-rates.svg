@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="448" viewBox="0 0 720 448" role="img" aria-labelledby="t-pass-rates t-pass-rates-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-pass-rates">Pass rate by memory arm, exam-v2, GLM-5.3 Flash</title>
+<desc id="t-pass-rates-d">How much of the oracle's lead does real retrieval recover?</desc>
+<rect width="720" height="448" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Pass rate by memory arm, exam-v2, GLM-5.3 Flash</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#898781"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">none</text>
+<circle cx="94.9" cy="50.0" r="5" fill="#e87ba4"/>
+<text x="109.9" y="54.0" font-size="12" fill="#52514e">bm25</text>
+<circle cx="168.9" cy="50.0" r="5" fill="#4a3aa7"/>
+<text x="183.9" y="54.0" font-size="12" fill="#52514e">baseline</text>
+<circle cx="258.3" cy="50.0" r="5" fill="#52514e"/>
+<text x="273.3" y="54.0" font-size="12" fill="#52514e">oracle</text>
+<line x1="231.6" y1="72.0" x2="231.6" y2="354.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="294.0" y1="72.0" x2="294.0" y2="354.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="356.4" y1="72.0" x2="356.4" y2="354.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="418.9" y1="72.0" x2="418.9" y2="354.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="481.3" y1="72.0" x2="481.3" y2="354.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="543.8" y1="72.0" x2="543.8" y2="354.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="18.0" y="89.0" font-size="12" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">held in (36 items, 3 runs)</text>
+<text x="18.0" y="229.0" font-size="12" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">held out (36 items, 1 run)</text>
+<text x="217.6" y="116.0" font-size="12" fill="#0b0b0b" text-anchor="end">none</text>
+<g><title>none: 15.3%  [5.6%, 27.8%] (none, held in: 15% of items (t interval 3 to 27); 16 of 106 cells)</title>
+<line x1="248.9" y1="112.0" x2="318.3" y2="112.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="248.9" y1="107.0" x2="248.9" y2="117.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="318.3" y1="107.0" x2="318.3" y2="117.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="279.3" cy="112.0" r="12" fill="transparent"/>
+<circle cx="279.3" cy="112.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="557.8" y="116.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">15.3%  [5.6%, 27.8%]</text>
+<text x="217.6" y="144.0" font-size="12" fill="#0b0b0b" text-anchor="end">bm25 (BM25 and entities)</text>
+<g><title>bm25 (BM25 and entities): 41.7%  [26.9%, 57.4%] (bm25, held in: 42% of items (t interval 25 to 58); 45 of 107 cells)</title>
+<line x1="315.4" y1="140.0" x2="410.8" y2="140.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="315.4" y1="135.0" x2="315.4" y2="145.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="410.8" y1="135.0" x2="410.8" y2="145.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="361.7" cy="140.0" r="12" fill="transparent"/>
+<circle cx="361.7" cy="140.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="557.8" y="144.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">41.7%  [26.9%, 57.4%]</text>
+<text x="217.6" y="172.0" font-size="12" fill="#0b0b0b" text-anchor="end">baseline (BM25, entities, vectors)</text>
+<g><title>baseline (BM25, entities, vectors): 70.4%  [56.5%, 84.3%] (baseline, held in: 70% of items (t interval 55 to 85); 76 of 108 cells)</title>
+<line x1="407.9" y1="168.0" x2="494.6" y2="168.0" stroke="#4a3aa7" stroke-width="2" stroke-linecap="round"/>
+<line x1="407.9" y1="163.0" x2="407.9" y2="173.0" stroke="#4a3aa7" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="494.6" y1="163.0" x2="494.6" y2="173.0" stroke="#4a3aa7" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="451.3" cy="168.0" r="12" fill="transparent"/>
+<circle cx="451.3" cy="168.0" r="5" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="557.8" y="172.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">70.4%  [56.5%, 84.3%]</text>
+<text x="217.6" y="200.0" font-size="12" fill="#0b0b0b" text-anchor="end">oracle</text>
+<g><title>oracle: 99.1%  [97.2%, 100.0%] (oracle, held in: 99% of items (t interval 97 to 100); 105 of 106 cells)</title>
+<line x1="535.1" y1="196.0" x2="543.8" y2="196.0" stroke="#52514e" stroke-width="2" stroke-linecap="round"/>
+<line x1="535.1" y1="191.0" x2="535.1" y2="201.0" stroke="#52514e" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="543.8" y1="191.0" x2="543.8" y2="201.0" stroke="#52514e" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="540.9" cy="196.0" r="12" fill="transparent"/>
+<circle cx="540.9" cy="196.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="557.8" y="200.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">99.1%  [97.2%, 100.0%]</text>
+<text x="217.6" y="256.0" font-size="12" fill="#0b0b0b" text-anchor="end">none</text>
+<g><title>none: 13.9%  [2.8%, 25.0%] (none, held out: 14% of items (t interval 2 to 26); 5 of 36 cells)</title>
+<line x1="240.2" y1="252.0" x2="309.6" y2="252.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="240.2" y1="247.0" x2="240.2" y2="257.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="309.6" y1="247.0" x2="309.6" y2="257.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="274.9" cy="252.0" r="12" fill="transparent"/>
+<circle cx="274.9" cy="252.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="557.8" y="256.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">13.9%  [2.8%, 25.0%]</text>
+<text x="217.6" y="284.0" font-size="12" fill="#0b0b0b" text-anchor="end">bm25 (BM25 and entities)</text>
+<g><title>bm25 (BM25 and entities): 50.0%  [33.3%, 66.7%] (bm25, held out: 50% of items (t interval 33 to 67); 18 of 36 cells)</title>
+<line x1="335.6" y1="280.0" x2="439.7" y2="280.0" stroke="#e87ba4" stroke-width="2" stroke-linecap="round"/>
+<line x1="335.6" y1="275.0" x2="335.6" y2="285.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="439.7" y1="275.0" x2="439.7" y2="285.0" stroke="#e87ba4" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="387.7" cy="280.0" r="12" fill="transparent"/>
+<circle cx="387.7" cy="280.0" r="5" fill="#e87ba4" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="557.8" y="284.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">50.0%  [33.3%, 66.7%]</text>
+<text x="217.6" y="312.0" font-size="12" fill="#0b0b0b" text-anchor="end">baseline (BM25, entities, vectors)</text>
+<g><title>baseline (BM25, entities, vectors): 63.9%  [47.2%, 77.8%] (baseline, held out: 64% of items (t interval 47 to 80); 23 of 36 cells)</title>
+<line x1="379.0" y1="308.0" x2="474.4" y2="308.0" stroke="#4a3aa7" stroke-width="2" stroke-linecap="round"/>
+<line x1="379.0" y1="303.0" x2="379.0" y2="313.0" stroke="#4a3aa7" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="474.4" y1="303.0" x2="474.4" y2="313.0" stroke="#4a3aa7" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="431.0" cy="308.0" r="12" fill="transparent"/>
+<circle cx="431.0" cy="308.0" r="5" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="557.8" y="312.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">63.9%  [47.2%, 77.8%]</text>
+<text x="217.6" y="340.0" font-size="12" fill="#0b0b0b" text-anchor="end">oracle</text>
+<g><title>oracle: 100.0%  [100.0%, 100.0%] (oracle, held out: 100% of items (t interval 100 to 100); 36 of 36 cells)</title>
+<line x1="543.8" y1="336.0" x2="543.8" y2="336.0" stroke="#52514e" stroke-width="2" stroke-linecap="round"/>
+<line x1="543.8" y1="331.0" x2="543.8" y2="341.0" stroke="#52514e" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="543.8" y1="331.0" x2="543.8" y2="341.0" stroke="#52514e" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="543.8" cy="336.0" r="12" fill="transparent"/>
+<circle cx="543.8" cy="336.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="557.8" y="340.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">100.0%  [100.0%, 100.0%]</text>
+<line x1="231.6" y1="354.0" x2="543.8" y2="354.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="231.6" y="370.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="294.0" y="370.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="356.4" y="370.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="418.9" y="370.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="481.3" y="370.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="543.8" y="370.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="387.7" y="388.0" font-size="12" fill="#52514e" text-anchor="middle">pass rate (mean over items)</text>
+<text x="18.0" y="410.0" font-size="11" fill="#52514e">Item-clustered rates (an item's rate is the share of its runs that passed); 95% bootstrap intervals over items, 10,000</text>
+<text x="18.0" y="425.0" font-size="11" fill="#52514e">resamples, seed 7.</text>
+</svg>

@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="398" viewBox="0 0 720 398" role="img" aria-labelledby="t-restore-steps t-restore-steps-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-restore-steps">theseusd restore's own steps at three points in the week</title>
+<desc id="t-restore-steps-d">Which step of a restore grew, and when?</desc>
+<rect width="720" height="398" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">theseusd restore's own steps at three points in the week</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#2a507f"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">before</text>
+<circle cx="105.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="120.0" y="54.0" font-size="12" fill="#c3c2b7">after</text>
+<line x1="266.6" y1="76.0" x2="266.6" y2="304.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="372.6" y1="76.0" x2="372.6" y2="304.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="478.7" y1="76.0" x2="478.7" y2="304.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="584.7" y1="76.0" x2="584.7" y2="304.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="252.6" y="94.0" font-size="12" fill="#ffffff" text-anchor="end">copy, Oct 3 eve to Oct 5 (same WAL)</text>
+<g><title>copy, Oct 3 eve to Oct 5 (same WAL): 7.70 ms → 48.3 ms (n = 17 and 51 bench runs)</title>
+<line x1="283.0" y1="90.0" x2="369.0" y2="90.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="283.0" cy="90.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="369.0" cy="90.0" r="12" fill="transparent"/>
+<circle cx="369.0" cy="90.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="94.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">7.70 ms → 48.3 ms</text>
+<text x="252.6" y="122.0" font-size="12" fill="#ffffff" text-anchor="end">copy, Oct 5 to Oct 6 (WAL x4)</text>
+<g><title>copy, Oct 5 to Oct 6 (WAL x4): 48.3 ms → 131 ms (n = 51 and 3 bench runs)</title>
+<line x1="369.0" y1="118.0" x2="543.5" y2="118.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="369.0" cy="118.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="543.5" cy="118.0" r="12" fill="transparent"/>
+<circle cx="543.5" cy="118.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="122.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">48.3 ms → 131 ms</text>
+<text x="252.6" y="150.0" font-size="12" fill="#ffffff" text-anchor="end">open, Oct 3 eve to Oct 5 (same WAL)</text>
+<g><title>open, Oct 3 eve to Oct 5 (same WAL): 42 ms → 42.1 ms (n = 17 and 51 bench runs)</title>
+<line x1="355.7" y1="146.0" x2="355.9" y2="146.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="355.7" cy="146.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="355.9" cy="146.0" r="12" fill="transparent"/>
+<circle cx="355.9" cy="146.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="150.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">42 ms → 42.1 ms</text>
+<text x="252.6" y="178.0" font-size="12" fill="#ffffff" text-anchor="end">open, Oct 5 to Oct 6 (WAL x4)</text>
+<g><title>open, Oct 5 to Oct 6 (WAL x4): 42.1 ms → 54.8 ms (n = 51 and 3 bench runs)</title>
+<line x1="355.9" y1="174.0" x2="382.8" y2="174.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="355.9" cy="174.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="382.8" cy="174.0" r="12" fill="transparent"/>
+<circle cx="382.8" cy="174.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="178.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">42.1 ms → 54.8 ms</text>
+<text x="252.6" y="206.0" font-size="12" fill="#ffffff" text-anchor="end">record, Oct 3 eve to Oct 5 (same WAL)</text>
+<g><title>record, Oct 3 eve to Oct 5 (same WAL): 25.2 ms → 25 ms (n = 17 and 51 bench runs)</title>
+<line x1="320.1" y1="202.0" x2="319.6" y2="202.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="320.1" cy="202.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="319.6" cy="202.0" r="12" fill="transparent"/>
+<circle cx="319.6" cy="202.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="206.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25.2 ms → 25 ms</text>
+<text x="252.6" y="234.0" font-size="12" fill="#ffffff" text-anchor="end">record, Oct 5 to Oct 6 (WAL x4)</text>
+<g><title>record, Oct 5 to Oct 6 (WAL x4): 25 ms → 26.6 ms (n = 51 and 3 bench runs)</title>
+<line x1="319.6" y1="230.0" x2="323.0" y2="230.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="319.6" cy="230.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="323.0" cy="230.0" r="12" fill="transparent"/>
+<circle cx="323.0" cy="230.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="234.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25 ms → 26.6 ms</text>
+<text x="252.6" y="262.0" font-size="12" fill="#ffffff" text-anchor="end">swap, Oct 3 eve to Oct 5 (same WAL)</text>
+<g><title>swap, Oct 3 eve to Oct 5 (same WAL): 13.3 ms → 12.8 ms (n = 17 and 51 bench runs)</title>
+<line x1="294.8" y1="258.0" x2="293.8" y2="258.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="294.8" cy="258.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="293.8" cy="258.0" r="12" fill="transparent"/>
+<circle cx="293.8" cy="258.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="262.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">13.3 ms → 12.8 ms</text>
+<text x="252.6" y="290.0" font-size="12" fill="#ffffff" text-anchor="end">swap, Oct 5 to Oct 6 (WAL x4)</text>
+<g><title>swap, Oct 5 to Oct 6 (WAL x4): 12.8 ms → 13.6 ms (n = 51 and 3 bench runs)</title>
+<line x1="293.8" y1="286.0" x2="295.5" y2="286.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="293.8" cy="286.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="295.5" cy="286.0" r="12" fill="transparent"/>
+<circle cx="295.5" cy="286.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="290.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">12.8 ms → 13.6 ms</text>
+<text x="266.6" y="320.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="372.6" y="320.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<text x="478.7" y="320.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="584.7" y="320.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">150</text>
+<line x1="266.6" y1="304.0" x2="584.7" y2="304.0" stroke="#383835" stroke-width="1"/>
+<text x="425.6" y="338.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ms (a step's p50 in one bench run; the period's median)</text>
+<text x="18.0" y="360.0" font-size="11" fill="#c3c2b7">Bench runs: 17 on Oct 3 17:50-23:10 (WAL 0.21 MB), 51 from Oct 5 to Oct 6 11:50 (WAL 0.22 MB), 3 after the cancel</text>
+<text x="18.0" y="375.0" font-size="11" fill="#c3c2b7">phase joined (WAL 0.85 MB). A cold read of the same WAL bytes took 0.4 to 0.6 ms throughout.</text>
+</svg>

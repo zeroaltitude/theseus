@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="370" viewBox="0 0 720 370" role="img" aria-labelledby="t-p50-by-phase t-p50-by-phase-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-p50-by-phase">Each lifecycle phase's median p50, dependencies at opt-level 0 and at 2</title>
+<desc id="t-p50-by-phase-d">How much faster is each phase with the dependencies optimized?</desc>
+<rect width="720" height="370" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Each lifecycle phase's median p50, dependencies at opt-level 0 and at 2</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#2a507f"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">opt-level 0 (the baseline)</text>
+<circle cx="214.1" cy="50.0" r="5" fill="#3987e5"/>
+<text x="229.1" y="54.0" font-size="12" fill="#c3c2b7">opt-level 2</text>
+<line x1="236.2" y1="76.0" x2="236.2" y2="276.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="305.9" y1="76.0" x2="305.9" y2="276.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="375.6" y1="76.0" x2="375.6" y2="276.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="445.3" y1="76.0" x2="445.3" y2="276.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="515.0" y1="76.0" x2="515.0" y2="276.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="584.7" y1="76.0" x2="584.7" y2="276.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="222.2" y="94.0" font-size="12" fill="#ffffff" text-anchor="end">cold start</text>
+<g><title>cold start: 25.6 ms → 21.7 ms (paired median -3.4 ms [-5.9, -2.1]; 9 of 10 pairs faster)</title>
+<line x1="307.5" y1="90.0" x2="296.7" y2="90.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="307.5" cy="90.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="296.7" cy="90.0" r="12" fill="transparent"/>
+<circle cx="296.7" cy="90.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="94.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25.6 ms → 21.7 ms</text>
+<text x="222.2" y="122.0" font-size="12" fill="#ffffff" text-anchor="end">cold start from the config copy</text>
+<g><title>cold start from the config copy: 26.8 ms → 21.5 ms (paired median -4.6 ms [-10.0, -3.2]; 10 of 10 pairs faster)</title>
+<line x1="310.9" y1="118.0" x2="296.1" y2="118.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="310.9" cy="118.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="296.1" cy="118.0" r="12" fill="transparent"/>
+<circle cx="296.1" cy="118.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="122.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">26.8 ms → 21.5 ms</text>
+<text x="222.2" y="150.0" font-size="12" fill="#ffffff" text-anchor="end">clean shutdown, a job running</text>
+<g><title>clean shutdown, a job running: 48 ms → 42.3 ms (paired median -2.8 ms [-9.1, 1.7]; 7 of 10 pairs faster)</title>
+<line x1="370.0" y1="146.0" x2="354.1" y2="146.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="370.0" cy="146.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="354.1" cy="146.0" r="12" fill="transparent"/>
+<circle cx="354.1" cy="146.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="150.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">48 ms → 42.3 ms</text>
+<text x="222.2" y="178.0" font-size="12" fill="#ffffff" text-anchor="end">SIGKILL, then restart</text>
+<g><title>SIGKILL, then restart: 43.9 ms → 39.3 ms (paired median -4.4 ms [-6.5, 11.3]; 7 of 10 pairs faster)</title>
+<line x1="358.5" y1="174.0" x2="345.7" y2="174.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="358.5" cy="174.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="345.7" cy="174.0" r="12" fill="transparent"/>
+<circle cx="345.7" cy="174.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="178.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">43.9 ms → 39.3 ms</text>
+<text x="222.2" y="206.0" font-size="12" fill="#ffffff" text-anchor="end">binary swap</text>
+<g><title>binary swap: 59.7 ms → 53.7 ms (paired median -3.1 ms [-8.0, 21.5]; 6 of 10 pairs faster)</title>
+<line x1="402.6" y1="202.0" x2="385.9" y2="202.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="402.6" cy="202.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="385.9" cy="202.0" r="12" fill="transparent"/>
+<circle cx="385.9" cy="202.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="206.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">59.7 ms → 53.7 ms</text>
+<text x="222.2" y="234.0" font-size="12" fill="#ffffff" text-anchor="end">restore (no budget)</text>
+<g><title>restore (no budget): 117 ms → 106 ms (paired median -7.2 ms [-13.0, 38.0]; 7 of 10 pairs faster)</title>
+<line x1="562.9" y1="230.0" x2="531.1" y2="230.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="562.9" cy="230.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="531.1" cy="230.0" r="12" fill="transparent"/>
+<circle cx="531.1" cy="230.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="234.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">117 ms → 106 ms</text>
+<text x="222.2" y="262.0" font-size="12" fill="#ffffff" text-anchor="end">the daemon's own time to serving</text>
+<g><title>the daemon's own time to serving: 23.2 ms → 20.9 ms (paired mean -4.49 ms [-8.26, -0.38])</title>
+<line x1="300.8" y1="258.0" x2="294.4" y2="258.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="300.8" cy="258.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="294.4" cy="258.0" r="12" fill="transparent"/>
+<circle cx="294.4" cy="258.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="262.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">23.2 ms → 20.9 ms</text>
+<text x="236.2" y="292.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="305.9" y="292.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">25</text>
+<text x="375.6" y="292.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<text x="445.3" y="292.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">75</text>
+<text x="515.0" y="292.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="584.7" y="292.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">125</text>
+<line x1="236.2" y1="276.0" x2="584.7" y2="276.0" stroke="#383835" stroke-width="1"/>
+<text x="410.4" y="310.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ms (the median of ten runs' p50s)</text>
+<text x="18.0" y="332.0" font-size="11" fill="#c3c2b7">Ten interleaved pairs (base, opt-level 2) under the gate lock, 10 samples a phase a run; two batches, pairs 1-5 at load 3.4 to</text>
+<text x="18.0" y="347.0" font-size="11" fill="#c3c2b7">8, pairs 6-10 at load 4.9 to 2.6. Debug builds of one commit.</text>
+</svg>

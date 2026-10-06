@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="502" viewBox="0 0 720 502" role="img" aria-labelledby="t-reads-at-10k t-reads-at-10k-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-reads-at-10k">Reads on a store of 10,000 parked sessions: main against the ledger-reads branch (p50)</title>
+<desc id="t-reads-at-10k-d">How much faster are the polled reads through the ledger's index, at 10,000 sessions?</desc>
+<rect width="720" height="502" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Reads on a store of 10,000 parked sessions: main against the ledger-reads</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">branch (p50)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#2a507f"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">main d9b0931</text>
+<circle cx="150.8" cy="70.0" r="5" fill="#3987e5"/>
+<text x="165.8" y="74.0" font-size="12" fill="#c3c2b7">ledger-reads 4c2508c</text>
+<line x1="255.9" y1="96.0" x2="255.9" y2="408.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="350.4" y1="96.0" x2="350.4" y2="408.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="445.0" y1="96.0" x2="445.0" y2="408.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="539.5" y1="96.0" x2="539.5" y2="408.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="213.4" y="114.0" font-size="12" fill="#ffffff" text-anchor="end">action.list {n:500}</text>
+<g><title>action.list {n:500}: 147 ms → 4.50 ms (p95 156.2 then 5.5 ms; answers 165.5 KB and 165.5 KB)</title>
+<line x1="555.3" y1="110.0" x2="412.2" y2="110.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="555.3" cy="110.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="412.2" cy="110.0" r="12" fill="transparent"/>
+<circle cx="412.2" cy="110.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="114.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">147 ms → 4.50 ms</text>
+<text x="213.4" y="142.0" font-size="12" fill="#ffffff" text-anchor="end">ledger.tail {n:2000, kind}</text>
+<g><title>ledger.tail {n:2000, kind}: 99.8 ms → 5.50 ms (p95 109.5 then 6.3 ms; answers 178.8 KB and 178.8 KB)</title>
+<line x1="539.5" y1="138.0" x2="420.4" y2="138.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="539.5" cy="138.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="420.4" cy="138.0" r="12" fill="transparent"/>
+<circle cx="420.4" cy="138.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="142.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">99.8 ms → 5.50 ms</text>
+<text x="213.4" y="170.0" font-size="12" fill="#ffffff" text-anchor="end">ledger.tail {n:400, kind}</text>
+<g><title>ledger.tail {n:400, kind}: 53.3 ms → 2.40 ms (p95 58.2 then 3.4 ms; answers 71.5 KB and 71.5 KB)</title>
+<line x1="513.7" y1="166.0" x2="386.4" y2="166.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="513.7" cy="166.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="386.4" cy="166.0" r="12" fill="transparent"/>
+<circle cx="386.4" cy="166.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="170.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">53.3 ms → 2.40 ms</text>
+<text x="213.4" y="198.0" font-size="12" fill="#ffffff" text-anchor="end">ledger.tail {n:1, kind}</text>
+<g><title>ledger.tail {n:1, kind}: 22.8 ms → 0.10 ms (p95 25.2 then 0.1 ms; answers 0.2 KB and 0.2 KB)</title>
+<line x1="478.8" y1="194.0" x2="255.9" y2="194.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="478.8" cy="194.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="255.9" cy="194.0" r="12" fill="transparent"/>
+<circle cx="255.9" cy="194.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="198.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">22.8 ms → 0.10 ms</text>
+<text x="213.4" y="226.0" font-size="12" fill="#ffffff" text-anchor="end">node.list {kind, n:2000}</text>
+<g><title>node.list {kind, n:2000}: 71.8 ms → 13 ms (p95 84.6 then 15.8 ms; answers 771.5 KB and 771.5 KB)</title>
+<line x1="525.9" y1="222.0" x2="455.8" y2="222.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="525.9" cy="222.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="455.8" cy="222.0" r="12" fill="transparent"/>
+<circle cx="455.8" cy="222.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="226.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">71.8 ms → 13 ms</text>
+<text x="213.4" y="254.0" font-size="12" fill="#ffffff" text-anchor="end">health {}</text>
+<g><title>health {}: 25.9 ms → 0.30 ms (p95 28.5 then 0.6 ms; answers 7.0 KB and 6.5 KB)</title>
+<line x1="484.1" y1="250.0" x2="301.0" y2="250.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="484.1" cy="250.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="301.0" cy="250.0" r="12" fill="transparent"/>
+<circle cx="301.0" cy="250.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="254.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">25.9 ms → 0.30 ms</text>
+<text x="213.4" y="282.0" font-size="12" fill="#ffffff" text-anchor="end">ledger.tail {n:400, session_id}</text>
+<g><title>ledger.tail {n:400, session_id}: 50.3 ms → 0.30 ms (p95 52.3 then 0.4 ms; answers 0.4 KB and 9.2 KB)</title>
+<line x1="511.3" y1="278.0" x2="301.0" y2="278.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="511.3" cy="278.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="301.0" cy="278.0" r="12" fill="transparent"/>
+<circle cx="301.0" cy="278.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="282.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">50.3 ms → 0.30 ms</text>
+<text x="213.4" y="310.0" font-size="12" fill="#ffffff" text-anchor="end">session.list {n:200}</text>
+<g><title>session.list {n:200}: 176 ms → 3.10 ms (p95 203.0 then 4.9 ms; answers 5428.7 KB and 108.7 KB)</title>
+<line x1="562.8" y1="306.0" x2="396.9" y2="306.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="562.8" cy="306.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="396.9" cy="306.0" r="12" fill="transparent"/>
+<circle cx="396.9" cy="306.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="310.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">176 ms → 3.10 ms</text>
+<text x="213.4" y="338.0" font-size="12" fill="#ffffff" text-anchor="end">session.list {n:50}</text>
+<g><title>session.list {n:50}: 156 ms → 0.80 ms (p95 184.3 then 0.9 ms; answers 5428.7 KB and 27.2 KB)</title>
+<line x1="557.7" y1="334.0" x2="341.3" y2="334.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="557.7" cy="334.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="341.3" cy="334.0" r="12" fill="transparent"/>
+<circle cx="341.3" cy="334.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="338.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">156 ms → 0.80 ms</text>
+<text x="213.4" y="366.0" font-size="12" fill="#ffffff" text-anchor="end">action.list {n:500, execution_id}</text>
+<g><title>action.list {n:500, execution_id}: 89.1 ms → 0.40 ms (p95 98.5 then 0.6 ms; answers 16.0 KB and 16.0 KB)</title>
+<line x1="534.8" y1="362.0" x2="312.8" y2="362.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="534.8" cy="362.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="312.8" cy="362.0" r="12" fill="transparent"/>
+<circle cx="312.8" cy="362.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="366.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">89.1 ms → 0.40 ms</text>
+<text x="213.4" y="394.0" font-size="12" fill="#ffffff" text-anchor="end">node.list {session_id, n:100}</text>
+<g><title>node.list {session_id, n:100}: 1.10 ms → 0.20 ms (p95 2.7 then 0.2 ms; answers 1.4 KB and 1.4 KB)</title>
+<line x1="354.3" y1="390.0" x2="284.3" y2="390.0" stroke="#2a507f" stroke-width="3" stroke-linecap="round"/>
+<circle cx="354.3" cy="390.0" r="5" fill="#2a507f" stroke="#1a1a19" stroke-width="2"/>
+<circle cx="284.3" cy="390.0" r="12" fill="transparent"/>
+<circle cx="284.3" cy="390.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="598.7" y="394.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">1.10 ms → 0.20 ms</text>
+<text x="255.9" y="424.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0.1</text>
+<text x="350.4" y="424.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">1</text>
+<text x="445.0" y="424.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="539.5" y="424.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<line x1="227.4" y1="408.0" x2="584.7" y2="408.0" stroke="#383835" stroke-width="1"/>
+<text x="406.0" y="442.0" font-size="12" fill="#c3c2b7" text-anchor="middle">ms, p50 of 12 calls (log scale)</text>
+<text x="18.0" y="464.0" font-size="11" fill="#c3c2b7">Release-thin builds; 10,000 parked sessions and 470,000 history ledger rows (587,000 records, 154.7 MB of WAL); each call</text>
+<text x="18.0" y="479.0" font-size="11" fill="#c3c2b7">warmed 3 times, timed 12 on one connection; one hold of the gate lock, load 4.5.</text>
+</svg>

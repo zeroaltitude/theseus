@@ -245,6 +245,16 @@ class Charts(unittest.TestCase):
         self.assertEqual([f(v, "x", 0.25, tick=True) for v in (0.75, 1.25)] + [f(0.025, "pct", 0.025, tick=True),
                                                                               f(0.075, "usd", 0.025, tick=True)],
                          ["0.75×", "1.25×", "2.5%", "$0.075"], "a tick prints the places its step needs")
+        self.assertEqual([f(-0.25, "pct", 0.25, tick=True), f(-0.5, "usd"), f(-19.4, "ms"), f(-0.0001, "num", 1, tick=True)],
+                         ["−25%", "−$0.50", "−19.4 ms", "0"], "a true minus, ahead of the unit; no minus on a zero")
+
+    def test_a_limits_label_sits_over_the_series_on_a_halo(self):
+        root = ET.fromstring(charts.render(specs()[4]))
+        order = [e.tag.replace(SVG, "") + ":" + (e.text or "") for e in root.iter() if e.tag in (SVG + "polyline", SVG + "text")]
+        label = order.index("text:budget 50 ms")
+        self.assertGreater(label, max(i for i, t in enumerate(order) if t.startswith("polyline")), "drawn after the series")
+        halo = [t for t in root.iter(SVG + "text") if t.text == "budget 50 ms"][0]
+        self.assertEqual(halo.get("paint-order"), "stroke")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,26 @@ it, so every table and plot can be checked and redrawn. How a benchmark is set u
 
 ## Every run, newest first
 
-RUN_TABLE
+| Date | Suite | Arms | Headline | Report |
+|---|---|---|---|---|
+| 2026-10-06 | `harbor` | Theseus · Theseus + paragraph · Claude Code 2.1.288 · Pi 1.0.4 | The harness apart from the model: Theseus 24 to 28 MiB peak and 16 to 25 ms CPU per tool call; Claude Code 209 to 430 MiB and 175 to 394 ms; Pi 125 MiB and 108 ms. A `fix-git` trial costs about the same in each. | [Harbor: what each harness costs to run, apart from the model, the live efficiency checks](2026-10-06-harbor-efficiency-checks.md) |
+| 2026-10-06 | `gate-bench` | Theseus on main (each gate's p95 and p50) | 240 gates on main: every lifecycle phase's median far inside its budget all week (a cold start's p50 22.6 ms against 50); the slowest of ten runs crossed a limit in 32 gates (13.3% [9.6, 18.2]), more often under load; four joins moved a number. | [Gate bench: FAST's history, the gate's speed benches from Oct 1 to Oct 6](2026-10-06-gate-bench-fast-history.md) |
+| 2026-10-06 | `async` | Theseus · Claude Code 2.1.288 · the oracle | Smokes, not a run (six model trials): every trial earned its reward; Theseus acted on a mid-task message in 46 to 56 s, Claude Code in 147 and 163 s, at 5 and 8 more model calls. | [Async: the async bench's smokes, before its first full run](2026-10-06-async-smokes.md) |
+| 2026-10-05 | `recall` | Theseus (memory arm `baseline`) | Three paid smokes, not the full run (30 turns and 8 probes each, $1.84 in all): each found a flaw in the bench (plan overage, strict abstention, the retracted-stale rule, overhead margins). The 600-turn run is still to come. | [Recall bench: the first three smokes on the Theseus arm](2026-10-05-recall-smokes.md) |
+| 2026-10-05 | `gate-bench` | Theseus before · after three fixes | Three fixes: a reply's first words reached Discord 2 to 11 ms after the model's first token, not 255 to 514 (p = 0.0012); on a disk whose flushes stall 1.4 s, a whole reply 2 ms after the stream ended, not 5,403. | [Gate bench: a greeting's reply under IO stalls, before and after three fixes](2026-10-05-gate-bench-speed-io-stalls.md) |
+| 2026-10-04 | `terminal-bench` | A. Theseus plain · B. Theseus + batching paragraph · C. Claude Code 2.1.288 | Claude Code 81.5% [75.1, 86.5], Theseus 71.9% [64.9, 78.0], Theseus + paragraph 73.6% (trials, Wilson 95%); by task Claude Code better on 16, Theseus on 5 (p = 0.027). 13 of Theseus's 21 trials that did not end on their own were harness faults since fixed; $71.60. | [Terminal-Bench 2.0: Theseus against Claude Code on all 89 tasks, the first full run](2026-10-04-terminal-bench-first-full-run.md) |
+| 2026-10-04 | `memory-exam` | none · bm25 · baseline (fused) · oracle | Memory's arms through the real recall pipeline (GLM-5.3 Flash, 72 items): none 15% [7, 23], BM25 and entities 46% [35, 57], fused baseline 67% [56, 78], oracle 100%. | [Memory exam: the recall pipeline's arms against no memory and the oracle](2026-10-04-memory-exam-arms.md) |
+| 2026-10-04 | `gate-bench` | main · lane linux-io | One sync per job: the daemon heard of a finished job 6.6 ms sooner (16.91 → 10.31 ms at L0) and a tool-call turn ran 19.0 ms faster (179.55 → 160.55 ms; 8 against 8, p = 0.0002); a plain turn did not move. | [Gate bench: a job's completion with one sync instead of two, an A/B](2026-10-04-gate-bench-one-sync-per-job.md) |
+| 2026-10-03 | `harbor` | Theseus · Theseus + paragraph · Claude Code 2.1.288 | Theseus ran public benchmarks through Harbor: 11 of 11 trials solved on four tasks ($0.42). Its 1.55× call gap reproduced a day later on its three tasks but not across all 89 (1.05×). | [Harbor: can Theseus run public benchmarks at all? The worth spike](2026-10-03-harbor-worth-spike.md) |
+| 2026-10-03 | `gate-bench` | main · the ledger-reads branch | A branch's two failed join gates (shutdown p50 88.0 and 70.8 ms) were the disk, not the branch: in one hold of the gate lock main and the branch stopped alike (45.8 against 39.6 ms). Found on the way: a 716 to 887 ms first stop after an install's build. | [Gate bench: the ledger-reads branch, its slow stop that was the disk, its first stop that was not, and its reads at 10,000 sessions](2026-10-03-gate-bench-ledger-reads.md) |
+| 2026-10-02 | `gate-bench` | main · lane perf1 | On 10,000 parked sessions (release), a cold start's p50 119.1 → 21.5 ms, a SIGKILL's restart 149.9 → 48.0 ms, a binary swap 149.2 → 45.6 ms (each p = 0.00001); an idle daemon 5.05% of a core → 0.10%. | [Gate bench: the start path at 10,000 parked sessions, before and after the perf1 lane](2026-10-02-gate-bench-start-path-10k.md) |
+| 2026-10-02 | `gate-bench` | release-thin glibc · release · static musl | Thin LTO: about 7% slower on CPU-bound work (8 of 10 pairs), rebuilds 1.7 and 5.7 times faster. Static musl: 28% to 67% more CPU in every pair (p = 0.008), 16% to 25% less memory; its faster lifecycle held only for the swap. | [Gate bench: the install's build profile and libc, measured](2026-10-02-gate-bench-install-builds.md) |
+| 2026-10-01 | `retrieval` | BM25 + entities · vectors · weighted fusion | Held out, vectors alone found all the gold in the top 6 for 22 of 34 items, BM25 and entities 14 (p = 0.02), equal-weight fusion 16; a vector weight of 6, chosen by a rule written first, 22 (p = 0.03), no more than vectors alone. | [Retrieval: BM25, entities, vectors and their fusion on the exam's items](2026-10-01-retrieval-fusion.md) |
+| 2026-10-01 | `retrieval` | candle 0.11 · tract 0.23.8 | candle at f32 embeds a 128-token chunk in 351 to 364 ms on one thread, 1.27 to 1.40 times faster than tract, and adds 1.6 MiB to the binary against 22.4. A real recall query is already past recall's 250 ms deadline. | [Retrieval: which engine embeds for the index, candle or tract?](2026-10-01-retrieval-embedding-engines.md) |
+| 2026-10-01 | `gate-bench` | dependencies at opt-level 0 · 2 | Dependencies at opt-level 2: a cold start's median p50 25.6 → 21.7 ms (faster in 9 of 10 interleaved pairs, p = 0.021), the config-copy start 26.8 → 21.5 ms; the gate's misses unchanged (4 and 5 of 10 runs). | [Gate bench: dependencies at opt-level 2 in debug builds, an A/B of the lifecycle bench](2026-10-01-gate-bench-opt-level-2.md) |
+| 2026-10-01 | `context` | chars/4 · the class estimate | chars/4 read Claude Sonnet 5.5's tool-carrying first requests at 65.6 to 70.6% of the provider's count (GLM 97.4 to 102.2%); the shipped estimate reads first requests at +1.9 to +4.3% and later ones within 1.7%. | [Context: how far off was the token estimate, and how close is it now?](2026-10-01-context-token-estimate.md) |
+| 2026-09-30 | `memory-exam` | BM25 probe · none · oracle | On 32 retrieval-hard items BM25's top 6 holds all the gold for 1 (3.1% [0.6, 15.7]), against 33 of exam-v1's 36: paraphrase, scale, time and tool output each defeat it for their own reason. | [Memory exam v2: items built so that retrieval is hard](2026-09-30-memory-exam-v2.md) |
+| 2026-09-30 | `memory-exam` | none · oracle · BM25 probe | GLM-5.3 Flash passed 26% of 40 items with no memory and 100% with the needed notes shown: +74 points [+61, +86] of headroom (held out +82). But BM25's top 6 already held the gold for 33 of 36 items, so exam-v1 cannot judge a retriever. | [Memory exam: how much does a cheap model gain from being shown its past?](2026-09-30-memory-exam-headroom.md) |
 
 ## The house palette
 
@@ -40,7 +59,9 @@ statistic of an arm, or the rest beside the one that matters) in the gray `#8987
 secondary ink; and `other` (an arm outside the registry) in the gray, with its name on the point. Status colours
 (good `#0ca30c`, warning `#fab219`, serious `#ec835a`, critical `#d03b3b`) are reserved for what means good or bad,
 such as a run over its budget, and always come with a glyph and a key. A new arm takes the next free slot here and
-in `charts.ARMS`, and the palette is validated again.
+in `charts.ARMS`, and the palette is validated again. Pi, an arm since 2026-10-06 (`bench/harbor/pi_agent.py`), has
+no slot yet: the eight are taken and slot 4 is held for OpenClaw, so Pi is drawn as `other`, its name on its point
+and in the legend.
 
 **Validated** with the method's validator (OKLab ΔE × 100, Machado-Oliveira-Fernandes 2009 at severity 1), on the
 chart surfaces `#fcfcfb` (light) and `#1a1a19` (dark):
@@ -66,8 +87,9 @@ arms' three, or the three retrieval arms, each set validated over all its pairs.
 
 **Its name:** `<YYYY-MM-DD>-<suite>[-<slug>].md`, the date the run happened; its figures under `img/<same name>/`; its
 data file `<same name>.json` beside it, and a per-trial (or per-task, per-probe, per-run) `<same name>.csv` when there
-is one. Suites: `terminal-bench`, `swe-bench`, `harbor` (mixed samples), `gate-bench`, `memory-exam`, `retrieval`,
-`recall`, `async`.
+is one. Suites: `terminal-bench`, `swe-bench`, `harbor` (mixed samples), `gate-bench` (the gate's speed benches and
+the A/Bs beside them), `memory-exam`, `retrieval`, `recall`, `async`, `context` (the context compiler against the
+provider's own numbers).
 
 **Its sections,** in order, each one there even when it is short:
 

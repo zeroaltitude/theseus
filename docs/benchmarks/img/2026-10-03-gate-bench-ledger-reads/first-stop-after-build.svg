@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="278" viewBox="0 0 720 278" role="img" aria-labelledby="t-first-stop-after-build t-first-stop-after-build-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-first-stop-after-build">The first clean stop after an install's shape build, 10,000 sessions, by the daemon's clock</title>
+<desc id="t-first-stop-after-build-d">Did the fix take redb's write-back out of the first stop after a build?</desc>
+<rect width="720" height="278" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">The first clean stop after an install's shape build, 10,000 sessions, by the</text>
+<text x="18.0" y="52.0" font-size="15" fill="#0b0b0b" font-weight="600">daemon's clock</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#88b3e7"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">without the fix (4c2508c)</text>
+<circle cx="219.2" cy="70.0" r="5" fill="#2a78d6"/>
+<text x="234.2" y="74.0" font-size="12" fill="#52514e">with the fix (884833a)</text>
+<line x1="243.5" y1="96.0" x2="243.5" y2="184.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="294.9" y1="96.0" x2="294.9" y2="184.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="362.8" y1="96.0" x2="362.8" y2="184.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="414.1" y1="96.0" x2="414.1" y2="184.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="465.4" y1="96.0" x2="465.4" y2="184.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="533.3" y1="96.0" x2="533.3" y2="184.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="584.7" y1="96.0" x2="584.7" y2="184.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="229.5" y="114.0" font-size="12" fill="#0b0b0b" text-anchor="end">the first stop after the build, run 1</text>
+<g><title>the first stop after the build, run 1: 887 ms → 49.6 ms</title>
+<line x1="575.8" y1="110.0" x2="362.1" y2="110.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="575.8" cy="110.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="362.1" cy="110.0" r="12" fill="transparent"/>
+<circle cx="362.1" cy="110.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="114.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">887 ms → 49.6 ms</text>
+<text x="229.5" y="142.0" font-size="12" fill="#0b0b0b" text-anchor="end">the first stop after the build, run 2</text>
+<g><title>the first stop after the build, run 2: 716 ms → 44.3 ms</title>
+<line x1="559.9" y1="138.0" x2="353.7" y2="138.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="559.9" cy="138.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="353.7" cy="138.0" r="12" fill="transparent"/>
+<circle cx="353.7" cy="138.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="142.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">716 ms → 44.3 ms</text>
+<text x="229.5" y="170.0" font-size="12" fill="#0b0b0b" text-anchor="end">a normal stop after it (median of 4)</text>
+<g><title>a normal stop after it (median of 4): 22.8 ms → 22.5 ms</title>
+<line x1="304.6" y1="166.0" x2="303.6" y2="166.0" stroke="#88b3e7" stroke-width="3" stroke-linecap="round"/>
+<circle cx="304.6" cy="166.0" r="5" fill="#88b3e7" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="303.6" cy="166.0" r="12" fill="transparent"/>
+<circle cx="303.6" cy="166.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="598.7" y="170.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">22.8 ms → 22.5 ms</text>
+<text x="243.5" y="200.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">10</text>
+<text x="294.9" y="200.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20</text>
+<text x="362.8" y="200.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">50</text>
+<text x="414.1" y="200.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100</text>
+<text x="465.4" y="200.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">200</text>
+<text x="533.3" y="200.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">500</text>
+<text x="584.7" y="200.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">1,000</text>
+<line x1="243.5" y1="184.0" x2="584.7" y2="184.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="414.1" y="218.0" font-size="12" fill="#52514e" text-anchor="middle">ms, the stop's request to the runtime dropped (log scale)</text>
+<text x="18.0" y="240.0" font-size="11" fill="#52514e">Palindrome order (unfixed, fixed, fixed, unfixed), each on a fresh copy of one 10,000-session store, one hold of the gate</text>
+<text x="18.0" y="255.0" font-size="11" fill="#52514e">lock (Oct 3, 20:15 to 20:16, load 8.5 falling to 4.4).</text>
+</svg>

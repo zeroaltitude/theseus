@@ -1,0 +1,24 @@
+run,model,request,turn,loop,method,bytes,json_bytes,text_bytes,messages,blocks,ids,count,chars4,estimate_logged,estimate_shipped,bound_logged
+lane,claude-sonnet-5-5,the tools and a small context file,1,0,bytes,13745,11898,1631,3,1,0,5236,3436,5422,5463,7591
+lane,claude-sonnet-5-5,the tools and 6.5 KB of prose,1,0,bytes,20329,11898,8191,3,1,0,7196,5082,7244,7451,10142
+lane,claude-sonnet-5-5,"the tools, a tool loop's first request",1,0,bytes,13792,11898,1678,3,1,0,5253,3448,5435,5477,7609
+lane,claude-sonnet-5-5,the same loop's second request (the tool call and its result added),1,1,counted,16571,14281,1678,5,3,2,6358,4142,6325,,6733
+lane,claude-sonnet-5-5,the next turn's first request,2,0,counted,16721,14281,1715,7,5,2,6374,4180,6378,,6385
+lane,glm-5.3-flash,the tools and a small context file,1,0,bytes,13745,11898,1631,3,1,0,3525,3436,3723,3597,5213
+lane,glm-5.3-flash,the tools and 6.5 KB of prose,1,0,bytes,20329,11898,8191,3,1,0,4971,5082,5363,5088,7509
+lane,glm-5.3-flash,"the tools, a tool loop's first request",1,0,bytes,13792,11898,1678,3,1,0,3536,3448,3735,3608,5229
+lane,glm-5.3-flash,the same loop's second request (the tool call and its result added),1,1,counted,16823,14281,1884,5,4,2,4343,4205,4286,,4563
+lane,glm-5.3-flash,the next turn's first request,2,0,counted,16973,14281,1921,7,6,2,4355,4243,4362,,4369
+lane,claude-sonnet-5-5,"no tools, a small context file",1,0,bytes,557,0,444,3,1,0,155,139,134,145,188
+lane,glm-5.3-flash,"no tools, a small context file",1,0,bytes,631,0,444,3,1,0,112,157,121,111,170
+release,claude-sonnet-5-5,the tools and a small context file,1,0,bytes,13778,11898,1664,3,1,0,5248,3444,5473,5473,7663
+release,claude-sonnet-5-5,the tools and 6.5 KB of prose,1,0,bytes,20362,11898,8224,3,1,0,7208,5090,7461,7461,10446
+release,claude-sonnet-5-5,"the tools, a tool loop's first request",1,0,bytes,13825,11898,1711,3,1,0,5265,3456,5487,5487,7682
+release,claude-sonnet-5-5,the same loop's second request (the tool call and its result added),1,1,counted,16604,14281,1711,5,3,2,6370,4151,6337,,6745
+release,claude-sonnet-5-5,the next turn's first request,2,0,counted,16754,14281,1748,7,5,2,6386,4188,6390,,6397
+release,glm-5.3-flash,the tools and a small context file,1,0,bytes,13778,11898,1664,3,1,0,3537,3444,3605,3605,5047
+release,glm-5.3-flash,the tools and 6.5 KB of prose,1,0,bytes,20362,11898,8224,3,1,0,4983,5090,5096,5096,7135
+release,glm-5.3-flash,"the tools, a tool loop's first request",1,0,bytes,13825,11898,1711,3,1,0,3548,3456,3615,3615,5061
+release,glm-5.3-flash,the same loop's second request (the tool call and its result added),1,1,counted,16885,14281,1946,5,4,2,4363,4221,4288,,4558
+release,glm-5.3-flash,the next turn's first request,2,0,counted,17035,14281,1983,7,6,2,4375,4258,4381,,4387
+release,glm-5.3-flash,the next turn's second request,2,1,counted,20201,16664,2316,9,9,4,5211,5050,5136,,5406
