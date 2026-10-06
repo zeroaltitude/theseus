@@ -137,6 +137,33 @@ fn pending(core: &Core) -> u64 {
     core.outbox.status("discord").pending
 }
 
+/// The kind and target of each unsettled post, for a count's message.
+fn pending_kinds(core: &Core) -> Vec<(String, String)> {
+    use theseus_core::outbox::{kind_of, target_of};
+    core.kernel
+        .outbox_actions()
+        .unwrap()
+        .iter()
+        .filter(|a| !a.state.is_settled())
+        .map(|a| (kind_of(a).to_string(), target_of(a).to_string()))
+        .collect()
+}
+
+/// The id of the message the only settled `card` post made.
+fn card_message_id(core: &Core) -> String {
+    use theseus_core::outbox::kind_of;
+    let cards: Vec<_> = core
+        .kernel
+        .outbox_actions()
+        .unwrap()
+        .into_iter()
+        .filter(|a| kind_of(a) == "card")
+        .collect();
+    assert_eq!(cards.len(), 1, "one card post: {cards:?}");
+    let d = cards[0].detail.as_ref().expect("the card's settle detail");
+    d["messages"][0]["id"].as_str().expect("its message").into()
+}
+
 /// The DM's messages that are not the bind notice.
 fn replies(fake: &FakeDiscord) -> Vec<Msg> {
     fake.messages(DM)
@@ -419,6 +446,11 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     let rpc = bind(&core, d.path(), &dm_only()).await;
     let f = fake.clone();
     until("the bind notice", 10, move || f.messages(DM).len() == 1).await;
+    // The notice is on Discord before its settle is in the store (theseus-0bq1:
+    // the fourth pending post the count once saw, by this reading): wait for
+    // the settle, so the count below is the scenario's posts alone.
+    let c = core.clone();
+    until("the bind notice settles", 10, move || pending(&c) == 0).await;
     fake.set_mode(Mode::Down);
     let r = ask(&rpc, &session(&core), "write a").await;
     let q = r.awaiting_confirm.clone().expect("the write waits");
@@ -431,14 +463,17 @@ async fn a_cards_settle_waits_for_its_create_and_edits_it_by_id() {
     core.confirm_action(&q, false, Some("not now"), cli)
         .unwrap();
     // The reply (its footer), the card, and the card's settle wait.
-    assert_eq!(pending(&core), 3);
+    assert_eq!(pending(&core), 3, "{:?}", pending_kinds(&core));
     fake.set_mode(Mode::Up);
     let c = core.clone();
     until("all three delivered", 20, move || pending(&c) == 0).await;
+    // The card is found by its post's message id: the call's tool line names
+    // `fs.write` too, and which of the two lands first is timing.
+    let card_id = card_message_id(&core);
     let card = fake
         .messages(DM)
         .into_iter()
-        .find(|m| m.content.contains("fs.write"))
+        .find(|m| m.id == card_id)
         .expect("the card");
     assert!(
         card.content
@@ -1231,14 +1266,16 @@ async fn a_refused_pin_leaves_the_board_unpinned_and_edited() {
     ask(&rpc, &sid, "plan the reef").await;
     let f = fake.clone();
     until("the board", 10, move || boards(&f, DM).len() == 1).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(!boards(&fake, DM)[0].pinned);
-    assert!(
-        fake.seen()
+    // The pin is the lane's next call after the board's create, and under
+    // load it comes late: wait for the refused PUT, not a fixed time.
+    let f = fake.clone();
+    until("the pin was asked for and refused", 10, move || {
+        f.seen()
             .iter()
-            .any(|s| s.method == "PUT" && s.outcome == "refused"),
-        "the pin was asked for"
-    );
+            .any(|s| s.method == "PUT" && s.outcome == "refused")
+    })
+    .await;
+    assert!(!boards(&fake, DM)[0].pinned);
 }
 
 /// After a restart the lane's map is empty: its first board write finds the
