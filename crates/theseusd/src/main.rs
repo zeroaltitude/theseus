@@ -1011,6 +1011,9 @@ async fn after_serving(
     // its): a `--stdio` daemon serves `store-stdio` for one client.
     if bindings.is_some() {
         tokio::spawn(core.index.clone().run());
+        // Its gauges (M6 §2.13), each metrics interval, while telemetry has
+        // an endpoint and `[index]` is on.
+        core.sample_index_after_serving();
         // The durability tender (AWS step 15), for the account that ships
         // the store: 2 s after serving, once its account's check passes.
         core.tend_durability_after_serving();

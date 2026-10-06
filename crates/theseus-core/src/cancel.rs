@@ -7,7 +7,8 @@
 //!   wrapper from before 18a, its process group is stopped as before
 //!   (`theseus_kernel::job::Stopping`). The verdict says how it is known: the
 //!   job's pid namespace (L1; its cgroup in records from before
-//!   theseus-gyin), its process tree (L0), or its group.
+//!   theseus-gyin), its cgroup on a delegated daemon (L0, theseus-a5nv), its
+//!   process tree (L0), or its group.
 //! - **An async tool's task** (`http.fetch`, `web.search`): aborted, and
 //!   verified once its handle has finished (`task`).
 //! - **A hand, or a group of hands** (AWS design §3.3; step 40 part 2):
@@ -51,6 +52,9 @@ pub struct Stops {
     tasks: Mutex<HashMap<String, tokio::task::AbortHandle>>,
     /// Cancels since the daemon started, by backend and how they ended.
     counts: Mutex<BTreeMap<(&'static str, &'static str), u64>>,
+    /// Where each count is also a metric, `theseus.cancel` (theseus-qdk5):
+    /// set once the core has built its telemetry.
+    telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
 }
 
 /// An async tool's task, reachable by a cancel while this lives.
@@ -90,6 +94,11 @@ impl Stops {
             .remove(correlation_id)
     }
 
+    /// The telemetry each cancel is counted in, once the core has built it.
+    pub fn export_to(&self, telemetry: crate::telemetry::Telemetry) {
+        let _ = self.telemetry.set(telemetry);
+    }
+
     fn count(&self, backend: &'static str, state: &'static str) {
         *self
             .counts
@@ -97,6 +106,9 @@ impl Stops {
             .unwrap_or_else(PoisonError::into_inner)
             .entry((backend, state))
             .or_default() += 1;
+        if let Some(t) = self.telemetry.get() {
+            t.record_cancel(backend, state);
+        }
     }
 
     /// Health's counts: each backend's cancels since the start, by how they
@@ -213,12 +225,16 @@ pub fn words(a: &Action) -> Option<String> {
     Some(wire(a, v).words())
 }
 
-/// The backend a job's verdict names: L1's namespace (or, in an old record,
-/// its cgroup), L0's tree or group, or a job whose verdict cannot tell.
+/// The backend a job's verdict names: L1's pid namespace; L0's cgroup, tree
+/// or group; or a job whose verdict cannot tell. A cgroup is L0's
+/// (theseus-7ydh): no L1 wrapper writes `Cgroup` since theseus-gyin, so a
+/// stop by its cgroup is an L0 job's, on a delegated daemon (theseus-a5nv).
+/// Only records from before gyin hold an L1 job's, and this reads only the
+/// verdicts of the stop just run (`Stopping::verdicts`).
 fn job_backend(v: &Verdict) -> &'static str {
     match v.verified_by {
-        VerifiedBy::Pidns | VerifiedBy::Cgroup => "l1",
-        VerifiedBy::Tree | VerifiedBy::Group => "l0",
+        VerifiedBy::Pidns => "l1",
+        VerifiedBy::Cgroup | VerifiedBy::Tree | VerifiedBy::Group => "l0",
         _ => "job",
     }
 }
@@ -517,4 +533,26 @@ pub(crate) fn aborted_result(a: &Action) -> (ResultStatus, String, Value) {
     let mut meta = Value::Null;
     stopped_meta(&mut meta, ResultStatus::Cancelled, a);
     (ResultStatus::Cancelled, text, meta)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A job's cancel is counted by its level (theseus-7ydh): a verdict by its
+    /// cgroup is an L0 job's, stopped by the cgroup a delegated daemon gives
+    /// it (theseus-a5nv), as one by its tree or its group is; one by its pid
+    /// namespace is an L1 job's. Verified or not, the level is the same.
+    #[test]
+    fn a_cgroup_verdict_counts_as_l0_and_a_pid_namespace_one_as_l1() {
+        let verified = |by| job_backend(&Verdict::verified_as(by, Some(1)));
+        let uncertain = |by| job_backend(&Verdict::uncertain(by, "1 process outlived the kill"));
+        assert_eq!(verified(VerifiedBy::Cgroup), "l0");
+        assert_eq!(uncertain(VerifiedBy::Cgroup), "l0");
+        assert_eq!(verified(VerifiedBy::Pidns), "l1");
+        assert_eq!(uncertain(VerifiedBy::Pidns), "l1");
+        assert_eq!(verified(VerifiedBy::Tree), "l0");
+        assert_eq!(verified(VerifiedBy::Group), "l0");
+        assert_eq!(uncertain(VerifiedBy::None), "job");
+    }
 }

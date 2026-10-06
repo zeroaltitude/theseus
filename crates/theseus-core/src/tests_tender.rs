@@ -11,12 +11,12 @@ use std::io;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use theseus_protocol::index::{IndexQueryParams, IndexStatus};
+use theseus_protocol::index::{IndexLag, IndexQueryParams, IndexStatus};
 use theseus_protocol::{error_code, Id, Request, Response};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::time::Instant;
@@ -32,7 +32,7 @@ use crate::tender::{
 /// its time on the paused clock, each SIGTERM recorded, and a tender an exec
 /// kept, when one is set, with its arguments when they are.
 #[derive(Default)]
-struct FakeOs {
+pub(crate) struct FakeOs {
     kept: Mutex<Option<u32>>,
     kept_args: Mutex<Option<Vec<String>>>,
     spawns: Mutex<Vec<(u32, Instant, Vec<String>)>>,
@@ -78,11 +78,11 @@ impl Os for FakeOs {
 }
 
 impl FakeOs {
-    fn starts(&self) -> usize {
+    pub(crate) fn starts(&self) -> usize {
         self.spawns.lock().unwrap().len()
     }
 
-    fn last(&self) -> (u32, Instant) {
+    pub(crate) fn last(&self) -> (u32, Instant) {
         let s = self.spawns.lock().unwrap();
         let (pid, at, _) = s.last().expect("a start");
         (*pid, *at)
@@ -91,7 +91,7 @@ impl FakeOs {
 
 /// A supervisor of the store at `<state>/store`, with its rows kept, whose
 /// fresh start waits nothing (the wait after serving has its own test).
-fn supervisor(
+pub(crate) fn supervisor(
     cfg: IndexConfig,
     state: &Path,
     os: Arc<FakeOs>,
@@ -128,7 +128,7 @@ fn supervisor_waiting(
 }
 
 /// Let the supervisor's task run until it waits on its inbox or its timer.
-async fn settle() {
+pub(crate) async fn settle() {
     for _ in 0..50 {
         tokio::task::yield_now().await;
     }
@@ -146,7 +146,7 @@ fn code(c: i32) -> Option<ExitStatus> {
     Some(ExitStatus::from_raw(c << 8))
 }
 
-fn signal(s: i32) -> Option<ExitStatus> {
+pub(crate) fn signal(s: i32) -> Option<ExitStatus> {
     Some(ExitStatus::from_raw(s))
 }
 
@@ -572,8 +572,11 @@ async fn no_binary_is_absent_and_never_tried_again() {
 
 /// A stand-in tender on `<state>/index/sock`: `index.status` says `ready`;
 /// `index.query` answers the query's text and `k` back, and refuses the text
-/// `bad`. While `hang` is set, it reads a request and never answers.
-fn stand_in(state: &Path, hang: Arc<AtomicBool>) {
+/// `bad`. While `hang` is set, it reads a request and never answers. What
+/// it returns counts the requests it read.
+pub(crate) fn stand_in(state: &Path, hang: Arc<AtomicBool>) -> Arc<AtomicUsize> {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counted = asked.clone();
     let dir = state.join("index");
     std::fs::create_dir_all(&dir).unwrap();
     let listener = tokio::net::UnixListener::bind(dir.join("sock")).unwrap();
@@ -582,11 +585,12 @@ fn stand_in(state: &Path, hang: Arc<AtomicBool>) {
             let Ok((s, _)) = listener.accept().await else {
                 return;
             };
-            let hang = hang.clone();
+            let (hang, counted) = (hang.clone(), counted.clone());
             tokio::spawn(async move {
                 let (r, mut w) = s.into_split();
                 let mut lines = BufReader::new(r).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    counted.fetch_add(1, Ordering::SeqCst);
                     if hang.load(Ordering::SeqCst) {
                         std::future::pending::<()>().await;
                     }
@@ -600,6 +604,11 @@ fn stand_in(state: &Path, hang: Arc<AtomicBool>) {
                                 pid: 7,
                                 documents: 3,
                                 nodes: 2,
+                                lag: IndexLag {
+                                    bytes: 4096,
+                                    ms: 250,
+                                },
+                                rss_bytes: 48 << 20,
                                 ..IndexStatus::default()
                             },
                         ),
@@ -627,6 +636,7 @@ fn stand_in(state: &Path, hang: Arc<AtomicBool>) {
             });
         }
     });
+    asked
 }
 
 /// Health and `index.query` ask the tender on its socket: health takes its

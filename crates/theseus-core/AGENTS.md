@@ -216,8 +216,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Cancellation** (M4 18a): `cancel.rs`, the one stop every path that stops running calls goes through
   (`ToolRuntime::terminate_all`: a cancel, a task's cancel, `/stop`, the disk's floor, a stop at a job's launch).
   A job's wrapper is asked to stop its tree; an async tool's task is aborted (`Stops::track`) and verified once its
-  handle has finished; anything else is unsupported. Each verdict lands on its action, in health's `cancels`, and
-  as a fact (`fact/cancel.rs`). An aborted call's result waits for the cancel's verdict (`after_abort`). Its test is
+  handle has finished; anything else is unsupported. Each verdict lands on its action, in health's `cancels` and
+  the metric `theseus.cancel` (both from `Stops::count`, theseus-qdk5), and as a fact (`fact/cancel.rs`). An aborted call's result waits for the cancel's verdict (`after_abort`). Its test is
   `tests_cancel.rs`; the daemon's are `tests/job_wrapper.rs`, `tests/sandbox.rs` (L1), and `tests/tasks.rs`.
 - **Terminals** (theseus-n88g.4): `term/`. `term.open`, `term.send`, `term.read`, `term.close`: a program on a pty
   (libc's `posix_openpt`; its child through `children::spawn`, `setsid`, the pty its controlling terminal), read as
@@ -302,7 +302,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`START_AFTER`, so a start's aftermath stays quiet), restarts it with backoff, takes over the one an exec kept
   at once, and asks it for health and `index.query`, each call bounded (health asks only a tender that runs, and
   never past 100 ms). Its rows are facts (`fact/index.rs`). Its tests, `tests_tender.rs`, run on tokio's paused
-  clock with a stand-in `Os`.
+  clock with a stand-in `Os`. Its gauges (`theseus.index.*`: lag, documents, RSS, and restarts by their rise) are
+  sampled from health's block each metrics interval after serving, only while telemetry has an endpoint
+  (`tender/sample.rs`, theseus-gfi4; tests `telemetry/tests_index.rs`).
 - **The judge** (M5, steps 23a and 23b): `judge/` (`JudgeService`, built at the first judgment; `sink.rs`, the
   batched frames; `spend.rs`, the shadow day budget; `loop_end.rs`, loop.v1's input; `mark.rs`, a dispatch's mark).
   A judgment a turn dispatches is decided (mode and sample, pure) and its id minted before the turn's last frame,

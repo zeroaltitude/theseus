@@ -246,8 +246,47 @@ const AWS_DURATION: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
+const CANCELS: Instrument = Instrument {
+    name: "theseus.cancel",
+    description: "Calls a cancel or a stop ended (M4 §2.11), by backend and how they ended, as health counts them",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
+const INDEX_LAG_BYTES: Instrument = Instrument {
+    name: "theseus.index.lag_bytes",
+    description:
+        "The index tender's lag behind the WAL (M6 §2.13), in bytes, as its last answer said",
+    unit: "By",
+    kind: Kind::IntLast,
+};
+const INDEX_LAG_MS: Instrument = Instrument {
+    name: "theseus.index.lag_ms",
+    description: "The index tender's lag behind the WAL (M6 §2.13), in ms, as its last answer said",
+    unit: "ms",
+    kind: Kind::IntLast,
+};
+const INDEX_DOCUMENTS: Instrument = Instrument {
+    name: "theseus.index.documents",
+    description: "The documents the index tender holds (M6 §2.13), as its last answer said",
+    unit: "",
+    kind: Kind::IntLast,
+};
+const INDEX_RSS: Instrument = Instrument {
+    name: "theseus.index.rss_bytes",
+    description: "The index tender's resident memory (M6 §2.13), as its last answer said",
+    unit: "By",
+    kind: Kind::IntLast,
+};
+const INDEX_RESTARTS: Instrument = Instrument {
+    name: "theseus.index.restarts",
+    description: "The index tender's restarts by its supervisor since the daemon started",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 34] = [
+const INSTRUMENTS: [&Instrument; 40] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -282,6 +321,12 @@ const INSTRUMENTS: [&Instrument; 34] = [
     &NODE_CACHE_READS,
     &AWS_CALLS,
     &AWS_DURATION,
+    &CANCELS,
+    &INDEX_LAG_BYTES,
+    &INDEX_LAG_MS,
+    &INDEX_DOCUMENTS,
+    &INDEX_RSS,
+    &INDEX_RESTARTS,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -341,6 +386,9 @@ pub(super) struct Metrics {
     /// The heat cache's totals as last recorded, so each record adds what
     /// changed since.
     node_cache: theseus_protocol::NodeCacheHealth,
+    /// The index tender's restarts as last sampled, so each sample adds
+    /// their rise.
+    index_restarts: u64,
 }
 
 /// The attributes every turn's points carry.
@@ -370,6 +418,7 @@ impl Metrics {
             start_ns,
             points: BTreeMap::new(),
             node_cache: Default::default(),
+            index_restarts: 0,
         }
     }
 
@@ -561,6 +610,27 @@ impl Metrics {
         }
     }
 
+    /// A sample of the index tender (theseus-gfi4): its restarts' rise since
+    /// the last sample, and, when it answered (or answered last), its lag,
+    /// documents and RSS.
+    pub(super) fn index(
+        &mut self,
+        restarts: u64,
+        s: Option<&theseus_protocol::index::IndexStatus>,
+    ) {
+        let was = std::mem::replace(&mut self.index_restarts, restarts);
+        self.add(&INDEX_RESTARTS, Vec::new(), restarts.saturating_sub(was));
+        let Some(s) = s else { return };
+        for (i, v) in [
+            (&INDEX_LAG_BYTES, s.lag.bytes),
+            (&INDEX_LAG_MS, s.lag.ms),
+            (&INDEX_DOCUMENTS, s.documents),
+            (&INDEX_RSS, s.rss_bytes),
+        ] {
+            self.point(i, Vec::new()).int = v;
+        }
+    }
+
     /// The push (theseus-in3): `n` notifications of `method`, from a frame
     /// committed `delay_ms` before they were queued.
     pub(super) fn push(&mut self, method: &str, n: u64, delay_ms: f64) {
@@ -616,6 +686,16 @@ impl Metrics {
             let spend = with(&pack, "theseus.spend", "judge");
             self.add_f64(&COST, spend, m as f64 / 1_000_000.0);
         }
+    }
+
+    /// A call a cancel ended (theseus-qdk5): its backend and its state, as
+    /// health's `cancels` names them.
+    pub(super) fn cancel(&mut self, backend: &str, state: &str) {
+        let attrs = vec![
+            ("theseus.cancel.backend", Attr::S(backend.to_string())),
+            ("theseus.cancel.state", Attr::S(state.to_string())),
+        ];
+        self.add(&CANCELS, attrs, 1);
     }
 
     /// The push (theseus-in3): `n` notifications dropped at a backlog cap.

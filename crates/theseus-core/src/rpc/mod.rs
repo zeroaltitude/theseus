@@ -344,6 +344,7 @@ impl Core {
         };
         self.runner.judge.export_to(t.clone());
         self.runner.memory.export_to(t.clone());
+        self.runner.tools.stops.export_to(t.clone());
         let _ = self.telemetry.set(t);
         out
     }
@@ -681,6 +682,7 @@ impl Core {
         runner.judge.narrate_to(narrator.clone());
         if let Some(t) = telemetry {
             runner.judge.export_to(t.clone());
+            runner.tools.stops.export_to(t.clone());
             let _ = telemetry_cell.set(t);
         }
         // A persisted runtime switch wins over config, if it still names a profile.
