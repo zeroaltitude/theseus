@@ -287,13 +287,6 @@ class ThisHost(unittest.TestCase):
         self.assertGreater(c["harness"]["peak_rss_kb"], 0)
         self.assertGreater(c["work"]["peak_rss_kb"], 0)
         self.assertEqual(c["harness"]["processes"], 1)
-        # The sampler reads every process the host has, so its cost grows with
-        # their count: at most 1% of a core up to 25 processes (a task's
-        # container), and in step with the count past that (a busy host's
-        # 157 cost 2%, its 187 under load 3.8%).
-        procs = sum(1 for n in os.listdir("/proc") if n.isdigit())
-        self.assertLess(summary["sampler"]["core_share"], 0.01 * max(1.0, procs / 25.0),
-                        (summary["sampler"], procs))
         lines = (self.out / sm.SAMPLES).read_text().splitlines()
         self.assertEqual(len(lines), summary["samples"])
         self.assertEqual(json.loads(lines[-1])["cpu_s"]["work"], c["work"]["cpu_s"])
@@ -365,6 +358,141 @@ class Scripts(unittest.TestCase):
         self.assertEqual(summary, {"status": "unavailable", "reason": "no python3 on PATH"})
         self.assertEqual(self.sh(sm.stop_script(str(self.out), str(self.state)),
                                  env={"PATH": str(bin_)}).returncode, 0)
+
+
+# The sampler's own CPU grows with the processes it reads (a stat read each,
+# per sample), so no bound that ignores their count measures it (theseus-t412).
+# These bound the cost per process, where the count is known.
+COST_N = 50
+COST_SAMPLES = 150
+# Microseconds of the sampler's CPU per process read, one sample's worth. Each
+# is twice the worst this 4-core VM measured over 15 runs of each count with
+# `nice -n 19` beside four busy loops at nice 0 (11.7 us, at 4N).
+FIXTURE_US_PER_PROC = 24.0
+
+
+def sampler_us_per_proc(root: Path, samples: int) -> float:
+    """The sampler's own CPU for `samples` reads and tracks of `root`, per
+    process read, in microseconds."""
+    t = sm.Tracker(("harnessx",), ignore_pids=(os.getpid(),), proc_root=str(root))
+    t.observe(sm.read_procs(str(root), t.wants_cmdline))  # the baseline
+    n = len(os.listdir(root))
+    start = time.process_time()
+    for _ in range(samples):
+        t.observe(sm.read_procs(str(root), t.wants_cmdline))
+    return (time.process_time() - start) / samples / n * 1e6
+
+
+def bare_stat_us_per_proc(root: Path, samples: int) -> float:
+    """What reading and parsing each process's `stat` alone costs, per
+    process: the floor the sampler's per-process cost is held against, taken
+    in the same run so a loaded machine moves both."""
+    names = os.listdir(root)
+    start = time.process_time()
+    for _ in range(samples):
+        for n in names:
+            sm.parse_stat(sm._read(os.path.join(str(root), n, "stat")) or "")
+    return (time.process_time() - start) / samples / len(names) * 1e6
+
+
+def fixture_trial(root: Path, n: int) -> None:
+    """`n` processes: a harness, its work, and the container's others."""
+    p = FixtureProc(root)
+    p.put(10, "harnessx", 1, rss=40000, hwm=45000, utime=5)
+    p.put(11, "sh", 10, rss=2000, hwm=2000, utime=50)
+    for i in range(n - 2):
+        p.put(100 + i, "init" if i == 0 else "svc", 1, rss=1000, hwm=1000, utime=i)
+
+
+@unittest.skipUnless(LINUX, "needs Linux's /proc")
+class SamplerCost(unittest.TestCase):
+    def test_the_cost_per_process_read_is_bounded_and_does_not_grow_with_the_count(self):
+        with tempfile.TemporaryDirectory() as t:
+            small, large = Path(t, "n"), Path(t, "4n")
+            fixture_trial(small, COST_N)
+            fixture_trial(large, 4 * COST_N)
+            sampler_us_per_proc(small, 10)  # warm the caches
+            per_small = min(sampler_us_per_proc(small, COST_SAMPLES) for _ in range(3))
+            per_large = min(sampler_us_per_proc(large, COST_SAMPLES) for _ in range(3))
+        # The sampler reads each `stat` once and tracks it: about 1.6 to 2
+        # times a bare read here. A read of every `status` and `cmdline` too
+        # costs about 2.8 times, and fails this.
+        with tempfile.TemporaryDirectory() as t2:
+            bare_root = Path(t2)
+            fixture_trial(bare_root, COST_N)
+            bare = min(bare_stat_us_per_proc(bare_root, COST_SAMPLES) for _ in range(3))
+        self.assertLess(per_small, bare * 2.4, (per_small, bare))
+        self.assertLess(per_small, FIXTURE_US_PER_PROC, "us per process, N processes")
+        self.assertLess(per_large, FIXTURE_US_PER_PROC, "us per process, 4N processes")
+        # 4N costs no more than about 4x N plus a fixed part: its per-process
+        # cost may not exceed N's by more than the fixed part spread over N.
+        self.assertLess(per_large, per_small * 1.5 + 5.0, (per_small, per_large))
+
+    def test_reading_every_status_and_cmdline_each_sample_would_cost_more(self):
+        """The fixture bound has teeth: a read that opens each process's
+        `status` and `cmdline` too costs well past it."""
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            fixture_trial(root, COST_N)
+            real = sm.read_procs
+
+            def greedy(proc_root, want):
+                procs = real(proc_root, want)
+                for pid in procs:
+                    sm.read_memory(proc_root, pid)
+                    sm.parse_cmdline(sm._read(os.path.join(proc_root, str(pid), "cmdline"),
+                                              binary=True) or b"")
+                return procs
+
+            sm.read_procs = greedy
+            try:
+                greedy_us = sampler_us_per_proc(root, COST_SAMPLES)
+            finally:
+                sm.read_procs = real
+            plain_us = sampler_us_per_proc(root, COST_SAMPLES)
+        self.assertGreater(greedy_us, plain_us * 1.5, (plain_us, greedy_us))
+
+
+# The sampler's share of a core at 250 ms in a PID namespace of this many
+# sleeping processes (its own /proc, so procfs's generated reads are in it).
+NAMESPACE_PROCS = 60
+# Twice the worst measured over 5 runs under the same load (0.53%).
+NAMESPACE_SHARE = 0.011
+
+
+def namespace_refusal() -> str | None:
+    """Why a PID namespace can't be made here, or None where it can."""
+    unshare = shutil.which("unshare")
+    if unshare is None:
+        return "no unshare on PATH"
+    try:
+        r = subprocess.run([unshare, "--pid", "--fork", "--mount-proc", "true"],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        return "unshare failed: %s" % e
+    if r.returncode != 0:
+        return "unshare refused (not root, or no user namespaces): %s" % r.stderr.strip()
+    return None
+
+
+REFUSAL = namespace_refusal() if LINUX else "not Linux"
+
+
+@unittest.skipIf(REFUSAL, "a PID namespace can't be made: %s" % REFUSAL)
+class InANamespace(unittest.TestCase):
+    def test_the_samplers_share_of_a_core_is_bounded_at_a_set_count(self):
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t, "out")
+            script = ("for i in $(seq %d); do sleep 30 & done; "
+                      "exec %s %s --out %s --names none --interval-ms 250 --max-secs 8"
+                      % (NAMESPACE_PROCS, sys.executable, SAMPLER, out))
+            subprocess.run(["unshare", "--pid", "--fork", "--mount-proc", "sh", "-c", script],
+                           check=True, timeout=60)
+            summary = json.loads((out / sm.SUMMARY).read_text())
+        self.assertEqual(summary["status"], "ok")
+        self.assertGreaterEqual(summary["samples"], 20)
+        self.assertGreaterEqual(summary["classes"]["outside"]["processes"], NAMESPACE_PROCS)
+        self.assertLess(summary["sampler"]["core_share"], NAMESPACE_SHARE, summary["sampler"])
 
 
 if __name__ == "__main__":

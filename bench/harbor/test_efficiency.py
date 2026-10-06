@@ -75,6 +75,12 @@ class Theseus(unittest.TestCase):
         self.assertIsNone(ef.theseus_spend(None, unpriced)["cost_usd"])
         self.assertEqual(ef.theseus_spend(None, None)["spend_from"], None)
 
+    def test_a_trial_with_no_files_has_unknown_calls_not_zero(self):
+        for s in (ef.theseus_spend(None, None), ef.theseus_spend({}, {}),
+                  ef.claude_code_spend("", [], None)):
+            self.assertIsNone(s["model_calls"])
+            self.assertIsNone(s["tool_calls"])
+
     def test_a_fallback_and_a_retry_bill_by_model(self):
         """Sonnet 5.5 refused; the request went to Sonnet 5, whose first try
         failed (a transient error, retried: three provider calls, two
@@ -226,11 +232,19 @@ class Machine(unittest.TestCase):
         self.assertEqual(m["harness"], {"cpu_s": 1.2, "peak_rss_kb": 52000, "peak_hwm_kb": 48000,
                                         "processes": 2})
         self.assertEqual(m["wrappers"]["cpu_s"], 0.1)
-        # 33.0 - 1.2 - 0.1 - 0.2 - 0.08
+        # 33.0 - 1.2 - 0.1 - 0.2: outside's 0.2 holds the sampler's own 0.08, counted once
         self.assertEqual((m["work"]["cpu_s"], m["work"]["cpu_s_sampled"], m["work"]["cpu_from"]),
-                         (31.42, 30.0, "cgroup"))
+                         (31.5, 30.0, "cgroup"))
         self.assertEqual(m["container"], {"cpu_s": 33.0, "memory_peak_kb": 2400000})
         self.assertEqual(m["sampler"]["status"], "ok")
+
+    def test_the_sampler_is_counted_once(self):
+        """The sampler's pid is in the outside class, so its CPU is not taken
+        off the cgroup's total a second time: the work is the total less the
+        harness, the wrappers and outside, whatever `sampler.cpu_s` says."""
+        for own in (0.0, 0.08, 5.0):
+            m = ef.machine(dict(SUMMARY, sampler={"cpu_s": own, "core_share": 0.0}))
+            self.assertEqual(m["work"]["cpu_s"], 31.5)
 
     def test_without_a_cgroup_the_work_is_the_samples(self):
         m = ef.machine(dict(SUMMARY, cgroup=None))

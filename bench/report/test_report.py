@@ -151,6 +151,25 @@ class Report(unittest.TestCase):
         self.assertIn("| Harness CPU per tool call | 200.0 ms | 300.0 ms | not sampled |", md)
         self.assertIn("Left out (not sampled): gamma.", md)
 
+    def test_an_old_trial_with_empty_files_has_unknown_calls_and_the_mean_is_the_rest(self):
+        """A Theseus trial whose turn and history files were left empty read
+        0 model calls; unknown now, so the arm's mean is over the others."""
+        job = self.root / "epsilon"
+        job.mkdir()
+        trial(job, "fix-git__e1", 1.0, 30, files={"theseus-turn.json": dict(TURN, loops=8)})
+        trial(job, "build-pmars__e2", 1.0, 30, files={"theseus-turn.json": {}})
+        trial(job, "dna-insert__e3", 0.0, 30, files={"theseus-turn.json": {}})
+        for n in ("build-pmars__e2", "dna-insert__e3"):
+            for f in ("theseus-turn.json", "theseus-history.json"):
+                (job / n / "agent" / f).write_text("")
+        trials = {t["trial"]: t["record"] for t in rp.load_job(job)}
+        self.assertEqual(trials["fix-git__e1"]["model_calls"], 8)
+        for n in ("build-pmars__e2", "dna-insert__e3"):
+            self.assertIsNone(trials[n]["model_calls"])
+            self.assertIsNone(trials[n]["tool_calls"])
+        e = rp.summarize("epsilon", rp.load_job(job))
+        self.assertEqual((e["model_calls_per_trial"], e["tool_calls_per_trial"]), (8.0, 1.0))
+
     def test_harbors_three_counters_alone_say_the_write_was_not_kept(self):
         job = self.root / "delta"
         job.mkdir()
