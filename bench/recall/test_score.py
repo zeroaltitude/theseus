@@ -207,9 +207,16 @@ class Scoring(unittest.TestCase):
         self.assertEqual((x.correct, x.stale, x.old_named, x.confident_wrong), (True, False, True, False))
         self.assertEqual((s["stale"], s["old_named"]), (0, 1))
         for reply in ("It moved from 27340 to 38013.", "38013 now; 27340 is no longer used.",
-                      "It's 38013. It was 27340 before the move."):
+                      "It's 38013. It was 27340 before the move.", "27340 was replaced by 38013.",
+                      "38013 replaced 27340.", "It's 38013, not 27340.", "It's no longer 27340; it's 38013.",
+                      "It's 38013 (instead of the old port 27340).", "27340 isn't used anymore, it's 38013 now.",
+                      "As I said previously, it's 38013, not 27340."):
             r, _ = self.scored([], replies={"p001": reply}, stale="retracted")
             self.assertTrue(r["p001"].correct and r["p001"].old_named, reply)
+            self.assertFalse(r["p001"].stale or r["p001"].confident_wrong, reply)
+        # Stale under strict, as theseus-exam's superseded items are.
+        r, _ = self.scored([], replies={"p001": "It moved from 27340 to 38013."})
+        self.assertEqual((r["p001"].correct, r["p001"].stale), (False, True))
         for stale in ("strict", "retracted"):
             r, _ = self.scored([], replies={"p001": "The archiver is on port 27340."}, stale=stale)
             self.assertEqual((r["p001"].correct, r["p001"].stale, r["p001"].confident_wrong), (False, True, True))
@@ -220,6 +227,36 @@ class Scoring(unittest.TestCase):
             self.assertFalse(r["p001"].correct, stale)
         with self.assertRaises(ValueError):
             self.scored([], stale="lenient")
+
+    def test_a_retraction_word_that_governs_the_new_value_retracts_nothing(self):
+        """theseus-5dey: a retraction word in the old value's sentence that
+        governs the new value gives the old one as current: wrong and stale
+        under both rules."""
+        for stale in ("strict", "retracted"):
+            for reply in ("It's 27340, previously 38013.", "It was 38013 before, now it's 27340.",
+                          "Port 27340 replaced 38013.", "38013 is no longer used; it's 27340.",
+                          "It's 27340, no longer 38013.", "It's not 38013 but 27340.",
+                          "Don't forget 27340; 38013 is no longer used."):
+                r, _ = self.scored([], replies={"p001": reply}, stale=stale)
+                x = r["p001"]
+                self.assertEqual((x.correct, x.stale, x.old_named), (False, True, False), (stale, reply))
+
+    def test_a_retracting_phrase_reaches_one_value_four_words_off(self):
+        """`retracts_only` on its own: a phrase governs the nearest value on
+        its side, within REACH words of the same clause, of any kind."""
+        r = score.retracts_only
+        self.assertEqual(score.REACH, 4)
+        self.assertTrue(r("Instead of the old port 27340, use 38013.", "port", "27340", "38013"))
+        # Six words off, the phrase is about something else.
+        self.assertFalse(r("Ignore what I said about the port 27340; it's 38013.", "port", "27340", "38013"))
+        # Nor across a semicolon or a dash.
+        self.assertFalse(r("Ignore that; 27340 is it. Also 38013.", "port", "27340", "38013"))
+        self.assertFalse(r("It moved from the rack — 27340 is on it, and 38013 too.", "port", "27340", "38013"))
+        # Versions in both forms, and dates in the forms people write.
+        self.assertTrue(r("It's v6.14.2 now; it was v6.13.15 before.", "version", "6.13.15", "6.14.2"))
+        self.assertFalse(r("It's 6.13.15, previously 6.14.2.", "version", "6.13.15", "6.14.2"))
+        self.assertTrue(r("It moved from Nov 3 to November 10.", "date", "2026-11-03", "2026-11-10"))
+        self.assertFalse(r("It was November 10 before, now it's Nov 3.", "date", "2026-11-03", "2026-11-10"))
 
     def test_a_ring_moves_a_probe_as_a_summary_does_and_is_counted_apart(self):
         """run.json's `compaction_rows` keep each outcome: a ring at 12 cuts

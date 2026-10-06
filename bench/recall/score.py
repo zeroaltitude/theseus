@@ -31,8 +31,9 @@ progression) and writes `scores.json`, `report.md` and `curve.svg` into
   the nearest bucket recalls nothing.
 - **Confident-wrong**: a wrong answer that gives a value of the asked kind
   (an abstention's: any value) and does not hedge. **Stale**: a superseded
-  value given; with `--stale retracted`, not where the reply names it only
-  to take it back (counted as *old named*, and right). **Cites**: a right direct answer that says where (its script
+  value given; with `--stale retracted`, not where a retracting phrase
+  governs each place the reply names it and the new value is stated as
+  current (counted as *old named*, and right). **Cites**: a right direct answer that says where (its script
   or file, or that the user said it) and when (its session's date or
   weekday, or a relative time).
 - **Cost and latency** per probe: its turn's dollars and wall time.
@@ -108,13 +109,113 @@ MOVING_OUTCOMES = ("compaction", "ring")
 
 # The stale rules (`--stale`): `strict`, theseus-exam's (a superseded value
 # named anywhere is stale, and wrong); `retracted`, a right answer that
-# names the old value only in a sentence that retracts it.
+# names the old value only where a retracting phrase governs it, and states
+# the new one as current (`retracts_only`).
 STALE_RULES = ("strict", "retracted")
-RETRACT = (
-    r"\b(?:ignore|disregard|no longer|not any ?more|anymore|moved from|replaced|replaces|superseded|"
-    r"instead of|used to be|previously|formerly|was\b[^.?!]{0,60}?\bbefore|earlier answer|i was wrong|"
-    r"correction|scratch that|not \S+ as i said)\b"
+
+# A retracting phrase governs one value: the nearest of the asked kind on
+# its side, within REACH words, in the same clause (no `;`, dash or
+# sentence stop between). A prefix governs the value after it ("moved from
+# X", "ignore the X", "previously X", "replaced X", "no longer X", "not
+# X"); a suffix, with the value its subject, the one before it ("X is no
+# longer used", "X was replaced", "X used to be"); and "was … before"
+# brackets it ("it was X before"). Four words reach a value past its
+# article and noun ("instead of the old port X"), and no farther: past
+# that, a phrase is about something else in the sentence ("moved from the
+# rack in hall two to 38013" governs no port).
+REACH = 4
+RETRACT_PREFIX = (
+    r"\b(?:(?:moved|migrated|changed|switched) (?:away )?from|ignore|disregard|forget|previously|formerly|"
+    r"used to be|instead of|rather than|(?:replaced|replaces|supersedes|superseded)(?! by\b)|no longer|"
+    r"not any ?more|not|wrong about|the old|the former)\b"
 )
+# A prefix that cites rather than retracts ("as I said previously, X"), or
+# is itself negated ("don't forget X"), governs nothing.
+CANCEL = r"\b(?:said|mentioned|noted|wrote|told you|don't|do not|never|didn't|did not)\s+$"
+# "not" reaches the value at once or past one word ("not port X"): farther,
+# it negates something else ("not sure, but X").
+NOT_REACH = 1
+RETRACT_SUFFIX = (
+    r"^[\s\"')]*(?:(?:is|was|are|were|'s|has been|had been|got|isn't|wasn't|is not|was not)\s+"
+    r"(?:now\s+|since\s+|\w+ly\s+)?(?:no longer|not (?:\w+ )?(?:any ?more|current|in use|used|valid|right)|"
+    r"(?:\w+ )?any ?more|replaced|superseded|retired|deprecated|dropped|outdated|obsolete|stale|wrong|gone|"
+    r"the old\b|old\b)|used to be\b)"
+)
+WAS_BEFORE = (r"\b(?:was|were)\s+(?:\S+\s+){0,%d}$" % (REACH - 1),
+              r"^(?:\s*\S+){0,%d}?\s*\b(?:before|originally|at first|until)\b" % REACH)
+
+
+def _forms(kind: str, value: str) -> list[str]:
+    """The literal forms `value_patterns` matches `value` by."""
+    out = []
+    for pat in pg.value_patterns(kind, value):
+        q = pat.removeprefix("word ")
+        out.append(q[1:-1].replace('\\"', '"').replace("\\\\", "\\"))
+    return out
+
+
+def _spans(kind: str, value: str, clause: str) -> list[tuple[int, int]]:
+    """Where `value` stands in `clause`, as a whole word in any of its forms."""
+    out = []
+    for f in _forms(kind, value):
+        for m in re.finditer(r"(?<![\w])" + re.escape(f.lower()) + r"(?![\w])", clause.lower()):
+            out.append(m.span())
+    return out
+
+
+def _clauses(text: str) -> list[str]:
+    """`text`'s sentences, cut again at a semicolon or a dash: no phrase
+    reaches across either."""
+    out = []
+    for s in sentences(text):
+        out += [c for c in re.split(r";|\s[-\u2013\u2014]+\s|\u2014", s) if c.strip()]
+    return out
+
+
+def _words(s: str) -> int:
+    return len(re.findall(r"[\w'./-]+", s))
+
+
+def governed(clause: str, kind: str, spans: list[tuple[int, int]], at: tuple[int, int]) -> bool:
+    """Whether a retracting phrase in `clause` governs the value at `at`;
+    `spans` are every value of the kind there, so a phrase governs only the
+    nearest on its side."""
+    low = clause.lower()
+    start, end = at
+    before = [s for s in spans if s[1] <= start]
+    after = [s for s in spans if s[0] >= end]
+    # A prefix: the last one before the value, with no other value between.
+    lo = max((s[1] for s in before), default=0)
+    for m in re.finditer(RETRACT_PREFIX, low[lo:start], re.I):
+        if re.search(CANCEL, low[:lo + m.start()], re.I):
+            continue
+        gap = _words(low[lo + m.end():start])
+        if gap <= (NOT_REACH if m.group(0) == "not" else REACH):
+            return True
+    # A suffix, the value its subject: right after it, before any other value.
+    hi = min((s[0] for s in after), default=len(low))
+    tail = low[end:hi]
+    if re.search(RETRACT_SUFFIX, tail, re.I):
+        return True
+    # "was X before".
+    return bool(re.search(WAS_BEFORE[0], low[lo:start], re.I) and re.search(WAS_BEFORE[1], tail, re.I))
+
+
+def retracts_only(text: str, kind: str, old: str, new: str) -> bool:
+    """Every place `text` names `old`, a retracting phrase governs it, it
+    names it at least once, and it states `new` at least once where no
+    phrase governs it: the new value is the current one."""
+    old_seen = new_free = False
+    for c in _clauses(text):
+        found = [m.span() for m in re.finditer(pg.KIND_REGEX[kind], c, re.I if kind in pg.KIND_FLAGS else 0)]
+        olds, news = _spans(kind, old, c), _spans(kind, new, c)
+        spans = sorted(set(found + olds + news))
+        for at in olds:
+            old_seen = True
+            if not governed(c, kind, spans, at):
+                return False
+        new_free = new_free or any(not governed(c, kind, spans, at) for at in news)
+    return old_seen and new_free
 
 
 def compaction_turns(meta: dict) -> list[int]:
@@ -152,14 +253,6 @@ def sentences(text: str) -> list[str]:
     """`text` cut into sentences: at a stop followed by space, and at line
     breaks (a version's dots have no space after them)."""
     return [x for x in re.split(r"(?<=[.!?])\s+|\n+", checks.fold(text)) if x.strip()]
-
-
-def retracts_only(text: str, kind: str, old: str) -> bool:
-    """Every sentence of `text` that names `old` retracts it (RETRACT), and
-    at least one names it."""
-    hit = "reply has " + " | ".join(pg.value_patterns(kind, old))
-    named = [x for x in sentences(text) if checks.passes(hit, x)]
-    return bool(named) and all(re.search(RETRACT, x, re.I) for x in named)
 
 
 def load_run(d: Path) -> ArmRun:
@@ -224,7 +317,8 @@ def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
     old_named = None
     if p.stale is not None:
         old_named = False
-        if stale_rule == "retracted" and not correct and retracts_only(text, p.value_kind, p.stale):
+        new = facts[p.fact].value
+        if stale_rule == "retracted" and not correct and retracts_only(text, p.value_kind, p.stale, new):
             # The check less its `lacks` line: the new value is there, and
             # the old one only where the reply takes it back.
             has = p.check.splitlines()[0]
