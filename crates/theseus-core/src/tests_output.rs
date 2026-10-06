@@ -261,6 +261,70 @@ async fn until(out: &str, what: &str, mut f: impl FnMut() -> bool) {
     }
 }
 
+/// How far out the scenario's wake is set: past the end of the turn that sets
+/// it, however the machine's load stretches that turn. Its tail after the
+/// `wake.at` call took 1.9 s with the test at nice 19 beside a nice-0 busy
+/// loop on every core; a turn that ends after its own wake's due time
+/// queues its execution itself (the kernel's `end_turn`), a transcript of
+/// another shape (theseus-23wh).
+const WAKE_SECS: u64 = 20;
+
+/// Wait, by the scenario's progress, for the wake that `sid`'s turn set to
+/// come due: the turn has parked the execution, free with the wake pending,
+/// and then the kernel's clock passes its due time. A turn that outran the
+/// wake fails here at once, naming what it saw; the guard, past anything the
+/// load does to a timer and under nextest's two-minute kill, is for a wake
+/// that never comes due.
+async fn wake_due(w: &World, sid: &str, out: &str) {
+    let e = w.exec(sid);
+    let now = w.core.kernel.now_ms();
+    assert!(
+        theseus_kernel::wakes::free(&e) && e.state == ExecState::Waiting && !e.wakes.is_empty(),
+        "the wake's turn did not park its execution with the wake pending: {}; the transcript so \
+         far:\n{out}",
+        wake_seen(&e, now)
+    );
+    let t0 = Instant::now();
+    loop {
+        let e = w.exec(sid);
+        let now = w.core.kernel.now_ms();
+        if theseus_kernel::wakes::due_now(&e, now) {
+            return;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "no wake due in 60 s: {}; the transcript so far:\n{out}",
+            wake_seen(&e, now)
+        );
+        let due = e.wakes.first().map_or(now, |p| p.due_at_ms);
+        let ms = due.saturating_sub(now).clamp(1, 1_000);
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+    }
+}
+
+/// What a wait for a wake saw: the execution's state and wake, its pending
+/// wakes with their due times, and the kernel's clock.
+fn wake_seen(e: &theseus_kernel::Execution, now_ms: u64) -> String {
+    let pending: Vec<String> = e
+        .wakes
+        .iter()
+        .map(|p| {
+            format!(
+                "{} due {} ({:+} ms)",
+                p.id,
+                p.due_at_ms,
+                p.due_at_ms as i64 - now_ms as i64
+            )
+        })
+        .collect();
+    format!(
+        "state {:?}, wake {:?}, pending [{}], now_ms {now_ms}",
+        e.state,
+        e.wake,
+        pending.join(", ")
+    )
+}
+
 fn bad_request() -> Scripted {
     Scripted::Fail(ProviderError::InvalidRequest {
         status: 400,
@@ -350,7 +414,7 @@ async fn conversation(out: &mut String) {
                 &[(
                     "k1",
                     "wake_at",
-                    json!({"after": "1s", "note": "check the build"}),
+                    json!({"after": format!("{WAKE_SECS}s"), "note": "check the build"}),
                 )],
             ),
             Scripted::text("Wake set."),
@@ -426,13 +490,9 @@ async fn conversation(out: &mut String) {
     w.take(out, "the parent's turn reads the report", &told(&r));
 
     let b = w.session(Some("dm:43"));
-    let r = turn(&core, &b, "Wake me in a second.").await;
+    let r = turn(&core, &b, "Wake me in twenty seconds.").await;
     w.take(out, "a turn that sets a wake", &told(&r));
-    until(out, "wake due", || {
-        let e = w.exec(&b);
-        theseus_kernel::wakes::due_now(&e, core.kernel.now_ms())
-    })
-    .await;
+    wake_due(&w, &b, out).await;
     let d = drive(&core).await;
     w.take(out, "the driver: the wake fires and its turn runs", &d);
 }
