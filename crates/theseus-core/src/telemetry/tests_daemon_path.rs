@@ -2,7 +2,8 @@
 //! whose parts bring no pipeline and whose config names the receiver's
 //! endpoint, so `install_telemetry` builds the exporter after serving
 //! (`Core::build_telemetry`) and hands it to each of them there. A test core
-//! built with a pipeline never reaches those lines.
+//! built with a pipeline never reaches those lines, but `Core::build` hands its
+//! pipeline to the same feeds itself (theseus-xd6l).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -10,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
-use super::tests::{flushed, last_metrics, point_with, points_of, Receiver};
+use super::tests::{flushed, last_metrics, pipeline, point_with, points_of, tuning, Receiver};
 use crate::config::memory::MemoryArm;
 use crate::config::MemoryMode;
 use crate::recall::retention::Phase;
@@ -129,6 +130,51 @@ async fn the_retention_gauge_on_the_daemons_path_is_the_projections_size() {
     );
     let p = core.runner.memory.retention();
     assert_eq!((p.phase(), p.shape().nodes), (Phase::Ready, 3));
+    let m = metrics_until(&core, &rx, "the grown gauge", |m| {
+        nodes(m).as_deref() == Some("3")
+    })
+    .await;
+    assert_eq!(nodes(&m).as_deref(), Some("3"));
+}
+
+/// A core built with a pipeline (every test core) feeds the retention gauge
+/// as the daemon's path does: `Core::build` hands the exporter to memory
+/// beside the judge and the stops (theseus-xd6l).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_core_built_with_a_pipeline_records_the_retention_gauge() {
+    let rx = Receiver::start(vec![]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(dir.path(), None);
+    cfg.memory.mode = MemoryMode::Live;
+    cfg.memory.arm = MemoryArm::Retention;
+    cfg.validate().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(crate::provider::FakeProvider::default());
+    let mut p = Parts::for_tests(cfg, fake, store);
+    p.telemetry = Some(pipeline(&rx.endpoint(), None, tuning()));
+    let core = Core::build(p).unwrap();
+    assert!(core.telemetry().enabled(), "the pipeline is the core's");
+
+    let t = crate::tests_retention::t0();
+    core.store
+        .append(&[
+            crate::tests_retention::labeled("nod_wren", t, "high"),
+            crate::tests_retention::labeled("nod_ash", t, "medium"),
+        ])
+        .unwrap();
+    crate::tests_retention::built(&core).await;
+    let nodes = |m: &[Value]| -> Option<String> {
+        points_of(m, "theseus.memory.retention.nodes")
+            .first()
+            .map(|p| p["asInt"].as_str().unwrap().to_string())
+    };
+    let m = metrics_until(&core, &rx, "the retention gauge", |m| nodes(m).is_some()).await;
+    assert_eq!(nodes(&m).as_deref(), Some("2"));
+
+    crate::tests_retention::frame(
+        &core,
+        &[crate::tests_retention::labeled("nod_reed", t, "floor")],
+    );
     let m = metrics_until(&core, &rx, "the grown gauge", |m| {
         nodes(m).as_deref() == Some("3")
     })

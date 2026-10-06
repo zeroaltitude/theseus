@@ -687,6 +687,7 @@ impl Core {
         runner.judge.narrate_to(narrator.clone());
         if let Some(t) = telemetry {
             runner.judge.export_to(t.clone());
+            runner.memory.export_to(t.clone());
             runner.tools.stops.export_to(t.clone());
             let _ = telemetry_cell.set(t);
         }
