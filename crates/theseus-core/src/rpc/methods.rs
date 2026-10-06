@@ -1036,6 +1036,7 @@ impl Core {
             Some(v) => v,
             None => self.store.session_nodes(&p.session_id)?,
         };
+        let nodes = crate::import::shown(&self.store, nodes)?;
         let skip = p.n.map(|n| nodes.len().saturating_sub(n)).unwrap_or(0);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, &nodes)));
         Ok(theseus_protocol::SessionHistoryResult {
@@ -1214,6 +1215,7 @@ impl Core {
                 nodes
             }
         };
+        let nodes = crate::import::shown(&self.store, nodes)?;
         Ok(theseus_protocol::NodeListResult {
             nodes: nodes
                 .iter()

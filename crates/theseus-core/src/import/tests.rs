@@ -640,6 +640,28 @@ async fn an_erased_tag_leaves_nothing_to_recall() {
             assert_eq!(newest.created_at_ms, n.created_at_ms, "its time kept");
         }
     }
+    // The history and the node listing show each node's tombstone, once,
+    // and none of what it said.
+    let h = call(
+        c,
+        method::SESSION_HISTORY,
+        json!({"session_id": imported[0]}),
+    )
+    .await
+    .unwrap();
+    let kinds: Vec<&str> = h["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["erased", "erased", "erased"], "{h}");
+    let listed = call(c, method::NODE_LIST, json!({"session_id": imported[0]}))
+        .await
+        .unwrap();
+    for v in [&h, &listed] {
+        assert!(!v.to_string().contains("boathouse"), "{v}");
+    }
     let other_sid = session_id_of(other["episode_id"].as_str().unwrap());
     let mut all = imported.clone();
     all.push(other_sid.clone());

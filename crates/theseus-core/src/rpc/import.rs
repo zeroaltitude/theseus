@@ -143,8 +143,13 @@ impl Core {
         )
         .await
         {
+            // The follower may have met the tombstones first: then it
+            // dropped the nodes itself, and nothing is left to forget.
+            Ok(r) if r.nodes == 0 => {
+                "nothing left to forget: its follower had dropped them at their tombstones".into()
+            }
             Ok(r) => format!(
-                "forgot {} ({} chunks, {} vectors)",
+                "forgot {} its follower had not yet dropped ({} chunks, {} vectors)",
                 crate::narrative::count(r.nodes, "node", "nodes"),
                 r.chunks,
                 r.vectors_dropped

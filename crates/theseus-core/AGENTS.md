@@ -555,8 +555,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   not imported again, and a line that does not read named by its number. `import.erase` tombstones a tag (each node
   written again under its id, origin and time with `Body::Erased`, the session's `erased` receipt, an
   `import.erased` row), then asks a running tender's `index.forget`; the follower drops a tombstoned node as it
-  reads it, at a rebuild too. The WAL's earlier frames still hold the payloads: §5.6's erasure in place is not
-  built. `import.list` reads the tags' META records. The owner's acts (`judge_act(Act::Import)`; the CLI's
+  reads it, at a rebuild too; `session.history` and `node.list` show an imported node by its newest record
+  (`import::shown`), so an erased one is its tombstone. The WAL's earlier frames still hold the payloads: §5.6's
+  erasure in place is not built. `import.list` reads the tags' META records. The owner's acts (`judge_act(Act::Import)`; the CLI's
   `OPERATORS`). `theseus import openclaw|erase|list`. Tests: `import/tests.rs`, theseus-index's `tests_import.rs`.
 - **The arrangement** (M5 step 27, theseus-vug.2): `arrangement.rs`. `task.create` needs an `arrangement` of quoted
   pieces (`{quote | node, role}`, `trust`, `supersedes`), resolved in the calling session's own transcript (exact,

@@ -107,6 +107,35 @@ pub fn place_name(store: &crate::store::Store, session_id: &str) -> String {
     }
 }
 
+/// Nodes as a listing shows them (`session.history`, `node.list`): an
+/// imported node by its newest record, so an erased one is its tombstone,
+/// never the payload its earlier record still holds, and once. Any other
+/// node as it was read: a listing with no imported node costs one pass.
+pub fn shown(
+    store: &crate::store::Store,
+    nodes: Vec<(u64, crate::node::Node)>,
+) -> anyhow::Result<Vec<(u64, crate::node::Node)>> {
+    if !nodes.iter().any(|(_, n)| is_imported(&n.session_id)) {
+        return Ok(nodes);
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(nodes.len());
+    for (p, n) in nodes {
+        if !is_imported(&n.session_id) {
+            out.push((p, n));
+            continue;
+        }
+        let newest = match &n.body {
+            crate::node::Body::Erased { .. } => (p, n),
+            _ => store.get_node(&n.id)?.unwrap_or((p, n)),
+        };
+        if seen.insert(newest.1.id.clone()) {
+            out.push(newest);
+        }
+    }
+    Ok(out)
+}
+
 /// Whose words an imported message was, onto the node provenance the core
 /// has: the operator's, an agent's, or outside text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
