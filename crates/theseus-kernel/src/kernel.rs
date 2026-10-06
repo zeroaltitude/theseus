@@ -1325,6 +1325,7 @@ impl Kernel {
                 if !e.queued_results.is_empty() {
                     e.state = ExecState::Queued;
                     e.wake = None;
+                    why = Some("result");
                     kind = LedgerKind::ExecutionQueued;
                 } else {
                     if let Wake::Actions { correlation_ids } = &wake {
@@ -2429,6 +2430,7 @@ impl Kernel {
                 }
             }
         }
+        let mut queued = false;
         if !e.state.is_terminal() {
             // A turn's own result is read by that turn (theseus-l6y): only
             // what settles outside it waits in the queue for the next turn.
@@ -2453,6 +2455,7 @@ impl Kernel {
             if e.state == ExecState::Waiting && wakes {
                 e.state = ExecState::Queued;
                 e.wake = None;
+                queued = true;
             }
         }
         e.updated_at_ms = now;
@@ -2471,6 +2474,11 @@ impl Kernel {
             Some(&a.session_id),
             json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "cost_usd": c.cost_micros.map(micros_to_usd)}),
         )?);
+        // Every queue writes its row, in its frame (theseus-2xep).
+        if queued {
+            let row = json!({"execution_id": e.id, "why": "result"});
+            frame.push(self.ledger(LedgerKind::ExecutionQueued, Some(&e.session_id), row)?);
+        }
         self.commit(&frame)?;
         if was_unknown {
             Ok(Accepted::ResolvedUnknown {

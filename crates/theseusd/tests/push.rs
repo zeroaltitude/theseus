@@ -329,10 +329,9 @@ impl Watcher {
 }
 
 /// The state a ledger row says its execution is in, for the rows that name
-/// one: `execution.opened` starts it waiting on input, and a completion's row
-/// (`action.succeeded`, …) says the state its frame left the execution in,
-/// since a job's result queues a waiting execution with no `execution.queued`
-/// row of its own.
+/// one: `execution.opened` starts it waiting on input, and the execution's own
+/// rows say the rest. A completion's row (`action.succeeded`, …) is not read:
+/// one that queues a waiting execution writes `execution.queued` beside it.
 fn row_state(row: &Value) -> Option<String> {
     let kind = row["kind"].as_str()?;
     let state = match kind {
@@ -344,9 +343,6 @@ fn row_state(row: &Value) -> Option<String> {
         "execution.failed" => "failed",
         "execution.complete" => "complete",
         "execution.cancelled" => "cancelled",
-        k if k.starts_with("action.") => {
-            return row["data"]["execution_state"].as_str().map(str::to_string)
-        }
         _ => return None,
     };
     Some(state.to_string())

@@ -17,7 +17,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     step. `--p-race` races a second thread against turns; 0 is fully deterministic. sim2 (theseus-celu.35):
     `/stop` between turns, in one, beside a raced one, and of one call (`kernel_sim/stops.rs`); tasks under a
     parent, their carve and reports (`kernel_sim/tasks.rs`); and the outbox's posts, sent by a fake binding to a
-    fake channel with crashes around each transition (`kernel_sim/outbox.rs`). Each operation goes in a module of
+    fake channel with crashes around each transition (`kernel_sim/outbox.rs`). Every frame that moves an execution
+    to queued holds its `execution.queued` row (a start's requeue its `execution.interrupted`), read from the kernel's
+    observer (`kernel_sim/queues.rs`, theseus-2xep). Each operation goes in a module of
     its own; `kernel_sim.rs` holds the roll, the race's arm, and the checks' calls. tests/sim.rs reads its coverage
     counts from the `--p-race 0` run only, since a raced run reproduces only up to its first race (theseus-81ig).
   - `bench lifecycle` (`src/lifecycle.rs`): §9's budgets on a real `theseusd`: cold start, the same from a vault

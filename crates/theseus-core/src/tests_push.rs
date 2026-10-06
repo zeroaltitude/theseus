@@ -683,6 +683,294 @@ async fn a_settled_wait_parked_before_an_answer_returns_after_its_continuation()
     }
 }
 
+/// A rig whose model answers `script`, then text, with `proc.run` open and
+/// a job answered `background` after 1 s, as tests_continuations' rig.
+/// Its model answers after `delay_ms`.
+fn rig_jobs(script: Vec<Scripted>, delay_ms: u64) -> (Rig, std::path::PathBuf, Arc<FakeProvider>) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    cfg.tools.proc_sync_secs = 1;
+    cfg.policy
+        .tools
+        .insert("proc.run".into(), crate::policy::Posture::Open);
+    let path = dir.path().join("store");
+    let store = Store::open(&path).unwrap();
+    let model = Arc::new(FakeProvider {
+        delay_ms,
+        ..FakeProvider::scripted(script)
+    });
+    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    (Rig { core, _dir: dir }, path, model)
+}
+
+/// A job that outlives its 1 s answer: done after `secs`.
+fn slow_job(id: &str, secs: &str) -> Scripted {
+    Scripted::tools(
+        "",
+        &[(
+            id,
+            "proc_run",
+            json!({"argv": ["bash", "-c", format!("sleep {secs}; echo {id} done")]}),
+        )],
+    )
+}
+
+/// Each record's WAL position, to the last position of its frame: read from
+/// the store's segments, as theseusd's push prove reads them.
+fn frame_ends(store: &std::path::Path) -> BTreeMap<u64, u64> {
+    use theseus_store::wal::{list_segments, read_frame, segment_path, FrameRead};
+    let dir = store.join("wal");
+    let mut out = BTreeMap::new();
+    let mut next = 1;
+    for seg in list_segments(&dir).unwrap() {
+        let bytes = std::fs::read(segment_path(&dir, seg)).unwrap();
+        let mut off = 0;
+        while let FrameRead::Whole { end, records, .. } = read_frame(&bytes, off, seg, 0, next) {
+            let last = records.last().map_or(next - 1, |(r, _)| r.position);
+            for (r, _) in &records {
+                out.insert(r.position, last);
+            }
+            next = last + 1;
+            off = end;
+        }
+    }
+    out
+}
+
+/// The ledger's rows of `exec`, as (position, kind, data), oldest first.
+fn rows_of(core: &Core, exec: &str) -> Vec<(u64, String, Value)> {
+    core.store
+        .ledger_tail::<crate::ledger::LedgerRow>(1000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.data["execution_id"] == exec)
+        .map(|(p, r)| (p, r.kind, r.data))
+        .collect()
+}
+
+/// A job's result that queues its waiting execution writes
+/// `execution.queued`, why `result`, in the frame that settles the job,
+/// right after the action's row, which keeps its `execution_state`
+/// (theseus-2xep). The board reads the why from that row alone: before, it
+/// took it from the action's row, and the row was not written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_result_that_queues_its_execution_writes_its_row_why_result() {
+    let (r, store, _) = rig_jobs(
+        vec![
+            slow_job("t1", "1.5"),
+            Scripted::text("Started; I'll report back."),
+        ],
+        0,
+    );
+    let seen = watcher(&r.core).await;
+    let res = turn_result(&r.core, None).await;
+    let exec = res.execution_id.clone().unwrap();
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(e.state.as_str(), "waiting", "parked on its job: {e:?}");
+    for _ in 0..200 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        r.core.heartbeat("test");
+        if r.core
+            .kernel
+            .execution(&exec)
+            .unwrap()
+            .unwrap()
+            .state
+            .as_str()
+            == "queued"
+        {
+            break;
+        }
+    }
+    until("the board saw the result queue it", || {
+        r.core
+            .push
+            .view_of_session(&res.session_id)
+            .is_some_and(|v| v.state == "queued")
+    })
+    .await;
+    let view = r.core.push.view_of_session(&res.session_id).unwrap();
+    assert_eq!(view.why.as_deref(), Some("result"), "{view:?}");
+    let rows = rows_of(&r.core, &exec);
+    let at = rows
+        .iter()
+        .position(|(_, k, d)| k == "execution.queued" && d["why"] == "result")
+        .unwrap_or_else(|| panic!("no execution.queued row why result: {rows:?}"));
+    let (queued, settled) = (&rows[at], &rows[at - 1]);
+    assert_eq!(settled.1, "action.succeeded", "{rows:?}");
+    assert_eq!(settled.2["execution_state"], "queued", "{rows:?}");
+    let frames = frame_ends(&store);
+    assert_eq!(
+        frames[&settled.0], frames[&queued.0],
+        "the action's row and the queue's are one frame"
+    );
+    // The watcher's view of that frame says why too.
+    until("the watcher saw the frame", || {
+        applied(&seen.lock().unwrap())
+            .get(&exec)
+            .is_some_and(|v| v.position >= frames[&queued.0])
+    })
+    .await;
+    let v = applied(&seen.lock().unwrap())[&exec].clone();
+    assert_eq!(
+        (v.state.as_str(), v.why.as_deref()),
+        ("queued", Some("result")),
+        "{v:?}"
+    );
+}
+
+/// The frame that ended a turn and woke it for a late result: the end's
+/// row, then the queue's, why `late_result`, in one frame. Returns that
+/// frame's last position.
+fn late_results_end(core: &Core, exec: &str, store: &std::path::Path) -> u64 {
+    let rows = rows_of(core, exec);
+    let woke = rows
+        .iter()
+        .position(|(_, k, d)| k == "execution.queued" && d["why"] == "late_result")
+        .unwrap_or_else(|| panic!("no execution.queued row why late_result: {rows:?}"));
+    let ended = rows[..woke]
+        .iter()
+        .rposition(|(_, k, _)| k == "execution.waiting")
+        .unwrap_or_else(|| panic!("no end row before the wake: {rows:?}"));
+    let frames = frame_ends(store);
+    let end = frames[&rows[woke].0];
+    assert_eq!(
+        frames[&rows[ended].0], end,
+        "the end and the late result's wake are one frame: {rows:?}"
+    );
+    end
+}
+
+/// The `execution.changed` views of `exec` in `got` after `after` and
+/// before `before`, in the order they came.
+fn views_between(got: &[Message], exec: &str, after: u64, before: u64) -> Vec<ExecutionView> {
+    got.iter()
+        .filter_map(|m| match m {
+            Message::Notification(n) if n.method == notify::EXECUTION_CHANGED => {
+                serde_json::from_value::<ExecutionView>(n.params.clone()).ok()
+            }
+            _ => None,
+        })
+        .filter(|v| v.execution_id == exec && v.position > after && v.position < before)
+        .collect()
+}
+
+/// A late result's wake rides in the turn's end frame (theseus-6qwr): a
+/// background job's result lands while a later turn runs, and that turn's
+/// end parks it on input and queues it for the late result in one frame. So
+/// a settled wait parked before the end stays parked through it, and returns
+/// only after the late result's turn ends; every view between says queued or
+/// running, never waiting (which is settled); and the end's frame holds the
+/// end's row and `execution.queued`, why `late_result`. Before, the wake was a
+/// frame of its own after the end, and the wait returned at the end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_settled_wait_parked_before_a_late_results_end_returns_after_its_turn() {
+    let (r, store, model) = rig_jobs(
+        vec![
+            slow_job("t1", "1.5"),
+            Scripted::text("Started; I'll report back."),
+            Scripted::text("Nothing yet."),
+            Scripted::text("The job finished: t1 done."),
+        ],
+        300,
+    );
+    let seen = watcher(&r.core).await;
+    let first = turn_result(&r.core, None).await;
+    let (sid, exec) = (
+        first.session_id.clone(),
+        first.execution_id.clone().unwrap(),
+    );
+    // The job's completion waits in the spool, undrained.
+    let corr = r.core.kernel.open_actions().unwrap()[0]
+        .correlation_id
+        .clone();
+    until("the job's completion is spooled", || {
+        matches!(r.core.spool.read_completion(&corr), Ok(Some(_)))
+    })
+    .await;
+    // A second turn; while its model call is in flight, a settled wait parks
+    // after its running view, and the heartbeat drains the completion.
+    let core = r.core.clone();
+    let sid2 = sid.clone();
+    let second = tokio::spawn(async move { turn_result(&core, Some(&sid2)).await });
+    until("the second turn's model call", || {
+        model.requests().len() >= 3
+    })
+    .await;
+    until("the board saw it run", || {
+        r.core
+            .push
+            .view_of_session(&sid)
+            .is_some_and(|v| v.state == "running")
+    })
+    .await;
+    let running_at = r.core.push.view_of_session(&sid).unwrap().position;
+    let mut c = Raw::connect(&r.core, "waiter", 1 << 20);
+    c.send(
+        1,
+        method::SESSION_WAIT,
+        json!({"session_id": sid, "until": "settled", "after_position": running_at, "timeout_ms": 20_000}),
+    )
+    .await;
+    until("the wait parked", || r.core.push.status(0).waiting == 1).await;
+    r.core.heartbeat("test");
+    let second = second.await.unwrap();
+    assert_eq!(second.output, "Nothing yet.");
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert_eq!(e.state.as_str(), "queued", "woken for the late result");
+    let end = late_results_end(&r.core, &exec, &store);
+    until("the board saw the end", || {
+        r.core
+            .push
+            .view_of_session(&sid)
+            .is_some_and(|v| v.position >= end)
+    })
+    .await;
+    let view = r.core.push.view_of_session(&sid).unwrap();
+    assert_eq!(
+        (view.state.as_str(), view.why.as_deref()),
+        ("queued", Some("late_result")),
+        "{view:?}"
+    );
+    assert_eq!(
+        r.core.push.status(0).waiting,
+        1,
+        "the end woke the settled wait parked before it"
+    );
+    // The late result's turn, as the driver would take it.
+    let next = r.core.continue_execution(&exec).await.unwrap().unwrap();
+    assert_eq!(next.output, "The job finished: t1 done.");
+    let s = c.answer(1).await.result.unwrap();
+    assert_eq!(
+        (s["reached"].as_str(), s["already"].as_bool()),
+        (Some("settled"), Some(false))
+    );
+    let settled_at = s["execution"]["position"].as_u64().unwrap();
+    assert!(settled_at > end, "{settled_at} after the end at {end}");
+    until("the watcher saw the late result's turn end", || {
+        applied(&seen.lock().unwrap())
+            .get(&exec)
+            .is_some_and(|v| v.position >= settled_at)
+    })
+    .await;
+    let views = views_between(&seen.lock().unwrap(), &exec, running_at, settled_at);
+    assert!(
+        views.iter().any(|v| v.position == end),
+        "the end's view: {views:?}"
+    );
+    assert!(
+        views
+            .iter()
+            .all(|v| v.state == "queued" || v.state == "running"),
+        "a view between the second turn's start and the late result's end reads otherwise: {views:?}"
+    );
+}
+
 /// A connection holds at most 64 waits, and a closed connection ends its
 /// waits: health's count goes back to none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

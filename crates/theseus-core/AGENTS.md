@@ -10,7 +10,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
   (continue or end the turn), `harness.rs` (the harness loop, parked on its events and the heartbeat), and
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
-  and the cancel path). A failed turn's retry is the driver's (theseus-ljr); `[model.retries]` can make a transient
+  and the cancel path). A turn's end and a late result's wake are one frame (`turn/end_step.rs`, theseus-6qwr): the
+  stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
+  the driver's (theseus-ljr); `[model.retries]` can make a transient
   failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; the bench profile's, since a
   headless run ends with its turn: theseus-7gir.21). A refused request goes once to its model's fallback, the catalog's
   `refusal_fallback_model` (Sonnet 5.5's: Sonnet 5), and the rest of the turn runs there (`turn/fallback_step.rs`,

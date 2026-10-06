@@ -267,7 +267,7 @@ LEDGER key=- scope=ses_golden {"at_unix_ms":1001133,"kind":"action.planned","ses
 -- plan_confirm_with (left waiting): ok act_#21 proc.run planned
 == frame: 2 records
 EXECUTION key=exe_#1 scope=ses_golden {"id":"exe_#1","schema":2,"session_id":"ses_golden","kind":"conversation","state":"queued","authority":{"principal":"eddie","ceilings":{"shell":"l1","tools":"fs,text"}},"budget":{"limit_micros":100000,"spent_micros":2500,"reserved_micros":0,"held_unknown_micros":0,"reservations":{},"resets":1,"pinned":true},"outstanding":["act_#20"],"queued_results":["act_#12"],"wakes":[{"id":"wak_#17","due_at_ms":1061126,"note":"later","set_at_ms":1001126,"by":"act_#17"}],"turns":7,"interrupted":0,"resume_pending":false,"created_at_ms":1000000,"updated_at_ms":1001133}
-LEDGER key=- scope=ses_golden {"at_unix_ms":1001133,"kind":"execution.queued","session_id":"ses_golden","data":{"execution_id":"exe_#1","reason":null,"turn":7,"turn_ms":0,"wake":null}}
+LEDGER key=- scope=ses_golden {"at_unix_ms":1001133,"kind":"execution.queued","session_id":"ses_golden","data":{"execution_id":"exe_#1","reason":null,"turn":7,"turn_ms":0,"wake":null,"why":"result"}}
 -- end_turn_with (wait on the job): ok exe_#1 queued
 == frame: 4 records
 COMPLETION key=act_#20 scope=ses_golden {"correlation_id":"act_#20","outcome":"unknown","started_at_ms":1001140,"finished_at_ms":1001140,"producer":"reconciler:deadline"}
