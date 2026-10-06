@@ -6,7 +6,9 @@
 //! encoder escapes, and in which case of hex, varies, so the text is decoded
 //! once rather than each value encoded in a few fixed forms: every value is
 //! looked for in the decoded text, and a match is mapped back to the escaped
-//! text it came from, whole escapes and all.
+//! text it came from, whole escapes and all. JSON inside a JSON string is
+//! decoded twice, and a match in the second text maps back through both
+//! (theseus-nlvx).
 
 /// One escape decoded: where it starts and ends in the text, and where its
 /// character starts and ends in the decoded text.
@@ -17,22 +19,48 @@ struct Escape {
     dec_end: usize,
 }
 
-/// Where each value appears in `text` once its escapes are decoded, as byte
-/// ranges of the text, each with the value's name. The verbatim pass has
-/// already taken every match with no escape in it. An output with no
-/// backslash costs one scan for it.
+/// How many times the text is decoded: JSON inside a JSON string leaves `\"`
+/// and `\\` after the first (theseus-nlvx).
+const LEVELS: usize = 2;
+
+/// Where each value appears in `text` once its escapes are decoded, once or
+/// twice, as byte ranges of the text, each with the value's name. The
+/// verbatim pass has already taken every match with no escape in it. An
+/// output with no backslash costs one scan for it, and a second decode runs
+/// only when the first leaves a backslash.
 pub(super) fn spans<'a>(text: &str, values: &[(&str, &'a str)]) -> Vec<(usize, usize, &'a str)> {
     if values.is_empty() || !text.contains('\\') {
         return Vec::new();
     }
-    let (decoded, escapes) = decode(text);
-    if escapes.is_empty() {
-        return Vec::new();
-    }
+    // Each level's decoded text and its escapes, which map it back to the
+    // level before it (the first, to the text).
+    let mut levels: Vec<(String, Vec<Escape>)> = Vec::new();
     let mut out = Vec::new();
-    for (v, name) in values {
-        for (at, _) in decoded.match_indices(v) {
-            out.push((start(&escapes, at), end(&escapes, at + v.len()), *name));
+    while levels.len() < LEVELS {
+        let from = levels.last().map_or(text, |l| l.0.as_str());
+        if !levels.is_empty() && !from.contains('\\') {
+            break;
+        }
+        let (decoded, escapes) = decode(from);
+        if escapes.is_empty() {
+            break;
+        }
+        levels.push((decoded, escapes));
+        let decoded = &levels[levels.len() - 1].0;
+        // A range of this level's text, as a range of the output.
+        let back = |a: usize, b: usize| {
+            levels
+                .iter()
+                .rev()
+                .fold((a, b), |(a, b), (_, e)| (start(e, a), end(e, b)))
+        };
+        // Every value in every level: one holding a literal `\n` matches in
+        // the first only.
+        for (v, name) in values {
+            for (at, _) in decoded.match_indices(v) {
+                let (a, b) = back(at, at + v.len());
+                out.push((a, b, *name));
+            }
         }
     }
     out

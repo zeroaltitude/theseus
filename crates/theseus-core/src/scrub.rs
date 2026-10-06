@@ -22,6 +22,8 @@ use crate::secrets::{SecretBoard, SecretState};
 mod escaped;
 #[cfg(test)]
 mod tests_escaped;
+#[cfg(test)]
+mod tests_nested;
 
 #[derive(Default)]
 pub struct Scrubber {

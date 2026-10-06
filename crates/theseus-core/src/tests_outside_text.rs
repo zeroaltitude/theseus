@@ -345,7 +345,7 @@ proptest! {
     /// A board value never comes through, verbatim or encoded, whatever is
     /// around it.
     #[test]
-    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..5usize) {
+    fn a_value_never_comes_through(before in scrub_text(), after in scrub_text(), how in 0..6usize) {
         use base64::Engine as _;
         let scrub = crate::scrub::Scrubber::with_values(vec![(SCRUB_VALUE.into(), "demo".into())]);
         let b64 = base64::engine::general_purpose::STANDARD;
@@ -363,10 +363,15 @@ proptest! {
                 let e = SCRUB_VALUE.replace('/', "%2F").replace('+', "%2B");
                 (e.clone(), e)
             }
-            _ => {
+            4 => {
                 // JSON-escaped: `/` as PHP writes it, `+` as a `\u` escape
                 // (theseus-ubp7).
                 let e = SCRUB_VALUE.replace('/', "\\/").replace('+', "\\u002B");
+                (e.clone(), e)
+            }
+            _ => {
+                // The same, inside a JSON string: escaped twice (theseus-nlvx).
+                let e = SCRUB_VALUE.replace('/', "\\\\\\/").replace('+', "\\\\u002B");
                 (e.clone(), e)
             }
         };
