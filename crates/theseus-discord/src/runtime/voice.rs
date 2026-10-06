@@ -766,6 +766,8 @@ async fn pump(
                 json!({"speaker": speaker.0.to_string(), "place": place.label}),
             ),
             Event::Failed { what, error } => failed(&shared, serial, &place, &what, &error),
+            // voice-heard writes their rows.
+            Event::Resumed { .. } | Event::Cut { .. } => {}
             Event::Acknowledged { .. } | Event::Speaking { .. } | Event::Spoke { .. } => {}
         }
     }
@@ -967,7 +969,9 @@ mod tests {
     use theseus_core::secrets::{Secret, SecretBoard};
     use theseus_core::Core;
     use theseus_protocol::{DiscordOrigin, LedgerTailParams, LedgerTailResult};
-    use theseus_voice::{Command, Failure, Speaker, SpeechError, TurnId, Usage, Utterance};
+    use theseus_voice::{
+        Command, Failure, HeardAs, Speaker, SpeechError, TurnId, Usage, Utterance,
+    };
     use tokio::sync::mpsc;
     use twilight_model::id::Id;
 
@@ -1112,6 +1116,8 @@ mod tests {
                 chars: text.len(),
             },
             latency: Duration::from_millis(300),
+            over: None,
+            heard_as: HeardAs::Words,
         }
     }
 

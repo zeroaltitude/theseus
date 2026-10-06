@@ -19,7 +19,7 @@
 //! The ticks are its clock for speech, and tokio's clock times the
 //! acknowledgment, so a test with the clock paused runs in virtual time.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,9 +29,10 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep_until, Instant};
 
 use crate::audio::{Audio, FRAME};
+use crate::heard::{classify, HeardAs, Overlap};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
 use crate::sentences::sentences;
-use crate::speech::{Speech, SpeechError, Synthesis, Transcript, Usage};
+use crate::speech::{Speech, SpeechError, Synthesis, Transcript, Usage, ACKNOWLEDGMENT};
 use crate::vad::{Closed, Vad, VadSettings};
 
 /// The engine's settings. [`Config::new`] gives the design's.
@@ -99,7 +100,7 @@ fn at_tick(tick: u64) -> Duration {
 pub struct TurnId(pub u64);
 
 /// What Theseus says.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Spoken {
     Reply(TurnId),
     Report,
@@ -133,6 +134,39 @@ pub struct Utterance {
     pub usage: Usage,
     /// How long its transcription took.
     pub latency: Duration,
+    /// What Theseus was doing when its first speech frame came (not its
+    /// pre-roll): saying a sentence, or preparing a turn's reply. `None`
+    /// when it was neither.
+    pub over: Option<Over>,
+    /// What it was heard as. Only words make a turn.
+    pub heard_as: HeardAs,
+}
+
+/// What Theseus was doing when an utterance began.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Over {
+    /// Saying a reply's, a report's or the acknowledgment's sentence (or
+    /// holding it, or about to say it, in a gap between sentences still
+    /// queued): its index in what it belongs to, and its text.
+    Saying {
+        what: Spoken,
+        sentence: usize,
+        text: String,
+    },
+    /// Preparing the reply to a turn in flight whose reply hadn't begun.
+    Preparing { turn: TurnId },
+}
+
+/// Why what Theseus was saying was cut short.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CutWhy {
+    /// A listed speaker's words over it: a barge-in.
+    Words,
+    /// It hadn't begun, and its speaker talked past it: the reply waited for
+    /// them, and their words are the next turn.
+    Superseded,
+    /// The call ended (`Leave`, or the connection's end) with it unsaid.
+    CallEnded,
 }
 
 /// What failed: a call to the speech provider, or the call itself.
@@ -180,12 +214,37 @@ pub enum Event {
     Spoke {
         what: Spoken,
     },
-    /// A listed speaker talked over Theseus (`voice.barge_in`): the clip
-    /// stopped, and `dropped` sentences went unsaid, the one playing among them.
+    /// A listed speaker's words cut Theseus short (`voice.barge_in`): the
+    /// clip stopped, and `dropped` sentences went unsaid, the one cut among
+    /// them. It comes when the words are known: at the transcript of the
+    /// utterance that stopped it, or that talked over it too briefly to stop
+    /// it (the late cut).
     BargeIn {
         speaker: Speaker,
         what: Spoken,
         dropped: usize,
+    },
+    /// A stop that came to nothing: the utterances over the held speech
+    /// were `why` (wordless, echo, backchannel or resume), and after `held`
+    /// the cut sentence began again from its start, from the audio it held.
+    Resumed {
+        what: Spoken,
+        why: HeardAs,
+        held: Duration,
+    },
+    /// A reply or a report cut short, one event for each (an acknowledgment
+    /// isn't one). Of its `sentences`, the first `heard` played whole; the
+    /// next was stopped `into` its audio (zero when it never started).
+    /// `last_heard` is the last whole sentence's text (`None` when `heard`
+    /// is 0), and `cut` the text of the one cut.
+    Cut {
+        what: Spoken,
+        why: CutWhy,
+        sentences: usize,
+        heard: usize,
+        into: Duration,
+        last_heard: Option<String>,
+        cut: String,
     },
     /// An unlisted speaker's audio is being dropped, untranscribed (once a
     /// speaker).
@@ -217,12 +276,14 @@ pub struct Engine {
     ticks: u64,
     // Receive, and turns.
     vads: BTreeMap<Speaker, Vad>,
+    /// Each open utterance's start: what it was over.
+    opening: BTreeMap<Speaker, Opening>,
     unlisted: BTreeSet<Speaker>,
     pending: VecDeque<Pending>,
     next_utterance: u64,
     turn: Option<Turn>,
     next_turn: u64,
-    reports: VecDeque<String>,
+    reports: VecDeque<QueuedReport>,
     // Send.
     queue: VecDeque<Item>,
     next_item: u64,
@@ -232,8 +293,27 @@ pub struct Engine {
     synthesizing: bool,
     generation: u64,
     talk_frames: BTreeMap<Speaker, u32>,
+    /// A stop that waits for the words over it.
+    hold: Option<Hold>,
+    /// The sentences that played to their end, in the echo tail.
+    recent: VecDeque<(Instant, String)>,
+    /// The last sentence heard whole of each reply or report still queued.
+    said: HashMap<Spoken, String>,
+    /// Speakers an echo was heard from: their stop waits for words.
+    echo_prone: BTreeSet<Speaker>,
     work: FuturesUnordered<BoxFuture<'static, Done>>,
     outbox: Vec<Out>,
+}
+
+/// How long after a sentence ends an utterance may still be its echo.
+const ECHO_TAIL: Duration = Duration::from_millis(1200);
+
+/// An open utterance's start: what Theseus was doing at its first speech
+/// frame, and the sentences it may echo.
+struct Opening {
+    over: Option<Over>,
+    overlap: Overlap,
+    sentences: Vec<String>,
 }
 
 /// A closed utterance, until its turn starts.
@@ -243,12 +323,13 @@ struct Pending {
     started: Duration,
     length: Duration,
     closed: Duration,
+    opening: Opening,
     state: Transcribed,
 }
 
 enum Transcribed {
     Waiting,
-    Got(Utterance),
+    Got(Box<Utterance>),
     Dropped,
 }
 
@@ -265,17 +346,42 @@ enum Ack {
     Done,
 }
 
+/// A report to say at a pause, as its sentences: from `first` of `count`,
+/// so one cut by words comes back from its cut sentence, split once.
+struct QueuedReport {
+    sentences: Vec<String>,
+    first: usize,
+    count: usize,
+}
+
+/// A stop that came at 300 ms of speech, held until the words over it
+/// decide: resume, or commit the cut.
+struct Hold {
+    since: Instant,
+    /// The item that was playing, and how long it had played.
+    seq: u64,
+    what: Spoken,
+    into: Duration,
+    /// What the utterances over it were heard as, the plainest reason.
+    why: Option<HeardAs>,
+}
+
 /// A sentence or clip to say, in order. The queue's head may be playing.
 struct Item {
     seq: u64,
     what: Spoken,
-    /// The sentence to synthesize; `None` for a canned clip.
-    text: Option<String>,
+    /// The sentence: synthesized unless `audio` came with it (a canned clip).
+    text: String,
+    /// Its index in `what`, and `what`'s sentences.
+    index: usize,
+    count: usize,
     audio: Option<Audio>,
     clip: Option<ClipId>,
-    /// On a reply's or report's first item: its sentences, and when it was
+    /// When its clip started.
+    started: Option<Instant>,
+    /// On a reply's or report's first item, until it plays: when it was
     /// asked for.
-    first: Option<(usize, Instant)>,
+    first: Option<Instant>,
 }
 
 enum Done {
@@ -326,6 +432,7 @@ impl Engine {
             events,
             ticks: 0,
             vads: BTreeMap::new(),
+            opening: BTreeMap::new(),
             unlisted: BTreeSet::new(),
             pending: VecDeque::new(),
             next_utterance: 0,
@@ -340,6 +447,10 @@ impl Engine {
             synthesizing: false,
             generation: 0,
             talk_frames: BTreeMap::new(),
+            hold: None,
+            recent: VecDeque::new(),
+            said: HashMap::new(),
+            echo_prone: BTreeSet::new(),
             work: FuturesUnordered::new(),
             outbox: Vec::new(),
         };
@@ -370,11 +481,22 @@ impl Engine {
             };
             let now = Instant::now();
             match step {
-                Step::Done(done) => self.done(done),
+                Step::Done(done) => self.done(done, now),
                 Step::Command(Some(Command::Reply { turn, text })) => self.reply(turn, &text, now),
-                Step::Command(Some(Command::Report { text })) => self.reports.push_back(text),
-                Step::Command(None | Some(Command::Leave)) => break,
+                Step::Command(Some(Command::Report { text })) => {
+                    let sentences = sentences(&text);
+                    self.reports.push_back(QueuedReport {
+                        count: sentences.len(),
+                        first: 0,
+                        sentences,
+                    });
+                }
+                Step::Command(None | Some(Command::Leave)) => {
+                    self.call_ended(now);
+                    break;
+                }
                 Step::Heard(None) => {
+                    self.call_ended(now);
                     // A dropped connection says so; a call that just ended
                     // (a test's WAV running out) does not.
                     if let Some(why) = self.io.gone() {
@@ -385,8 +507,8 @@ impl Engine {
                     }
                     break;
                 }
-                Step::Heard(Some(Heard::Tick(frames))) => self.tick(&frames),
-                Step::Heard(Some(Heard::Ended(id))) => self.ended(id),
+                Step::Heard(Some(Heard::Tick(frames))) => self.tick(&frames, now),
+                Step::Heard(Some(Heard::Ended(id))) => self.ended(id, now),
                 Step::AckDue => {
                     if let Some(turn) = &mut self.turn {
                         turn.ack = Ack::Due;
@@ -413,7 +535,7 @@ impl Engine {
 
     /// One 20 ms tick: listed speakers' frames into their VADs; anyone
     /// else's dropped.
-    fn tick(&mut self, frames: &[Frame]) {
+    fn tick(&mut self, frames: &[Frame], now: Instant) {
         let tick = self.ticks;
         self.ticks += 1;
         let mut heard: BTreeMap<Speaker, &[i16]> = BTreeMap::new();
@@ -426,45 +548,97 @@ impl Engine {
                 });
             }
         }
-        let talking = self.playing.is_some() && !self.stopping;
+        let talking = self.playing.is_some() && !self.stopping && self.hold.is_none();
         let open = self
             .vads
             .iter()
             .filter(|(_, v)| v.is_open())
             .map(|(s, _)| *s);
         let speakers: BTreeSet<Speaker> = heard.keys().copied().chain(open).collect();
-        let mut barge = None;
+        let mut barge = false;
         for speaker in speakers {
             let frame = heard.get(&speaker).copied();
-            let step = self
-                .vads
-                .entry(speaker)
-                .or_default()
-                .push(tick, frame, &self.vad);
-            if step.speech && talking {
+            let vad = self.vads.entry(speaker).or_default();
+            let was_open = vad.is_open();
+            let step = vad.push(tick, frame, &self.vad);
+            if !was_open && self.vads.get(&speaker).is_some_and(Vad::is_open) {
+                let opening = self.what_is_over(now);
+                self.opening.insert(speaker, opening);
+            }
+            // An echo-prone speaker's stop waits for their words.
+            if step.speech && talking && !self.echo_prone.contains(&speaker) {
                 let n = self.talk_frames.entry(speaker).or_default();
                 *n += 1;
-                if *n >= self.barge_frames && barge.is_none() {
-                    barge = Some(speaker);
-                }
+                barge |= *n >= self.barge_frames;
             }
             match step.closed {
                 Some(Closed::Utterance { first_tick, audio }) => {
                     self.talk_frames.remove(&speaker);
-                    self.transcribe(speaker, first_tick, tick, audio);
+                    let opening = self.opening.remove(&speaker).unwrap_or(Opening {
+                        over: None,
+                        overlap: Overlap::None,
+                        sentences: Vec::new(),
+                    });
+                    self.transcribe(speaker, first_tick, tick, audio, opening);
                 }
                 Some(Closed::Noise) => {
                     self.talk_frames.remove(&speaker);
+                    self.opening.remove(&speaker);
                 }
                 None => {}
             }
         }
-        if let Some(speaker) = barge {
-            self.barge_in(speaker);
+        if barge {
+            self.hold(now);
         }
     }
 
-    fn transcribe(&mut self, speaker: Speaker, first_tick: u64, tick: u64, audio: Audio) {
+    /// What an utterance whose first speech frame comes now is over.
+    fn what_is_over(&mut self, now: Instant) -> Opening {
+        while self
+            .recent
+            .front()
+            .is_some_and(|(ended, _)| now.saturating_duration_since(*ended) > ECHO_TAIL)
+        {
+            self.recent.pop_front();
+        }
+        let mut sentences: Vec<String> = self.recent.iter().map(|(_, t)| t.clone()).collect();
+        let (over, overlap) = match self.queue.front() {
+            Some(item) => {
+                if item.clip.is_some() || self.hold.is_some() {
+                    sentences.push(item.text.clone());
+                }
+                let over = Over::Saying {
+                    what: item.what,
+                    sentence: item.index,
+                    text: item.text.clone(),
+                };
+                (Some(over), Overlap::Speech)
+            }
+            None => {
+                let over = self.turn.as_ref().map(|t| Over::Preparing { turn: t.id });
+                let tail = match self.recent.is_empty() {
+                    true => Overlap::None,
+                    false => Overlap::Tail,
+                };
+                (over, tail)
+            }
+        };
+        Opening {
+            over,
+            overlap,
+            sentences,
+        }
+    }
+
+    fn transcribe(
+        &mut self,
+        speaker: Speaker,
+        first_tick: u64,
+        tick: u64,
+        audio: Audio,
+        opening: Opening,
+    ) {
         let seq = self.next_utterance;
         self.next_utterance += 1;
         self.pending.push_back(Pending {
@@ -473,6 +647,7 @@ impl Engine {
             started: at_tick(first_tick),
             length: audio.duration(),
             closed: at_tick(tick + 1),
+            opening,
             state: Transcribed::Waiting,
         });
         let speech = Arc::clone(&self.speech);
@@ -487,14 +662,24 @@ impl Engine {
         }));
     }
 
-    fn barge_in(&mut self, speaker: Speaker) {
-        let Some(what) = self.queue.front().map(|i| i.what) else {
+    /// A listed speaker's 300 ms over a clip: stop it, and hold the queue
+    /// until the words over it decide.
+    fn hold(&mut self, now: Instant) {
+        let Some(item) = self.queue.front_mut() else {
             return;
         };
-        let dropped = self.queue.len();
-        self.queue.clear();
-        self.synthesizing = false;
-        self.generation += 1;
+        let into = item
+            .started
+            .map_or(Duration::ZERO, |s| now.saturating_duration_since(s));
+        // It keeps its place and its audio; its clip's `Ended` won't pop it.
+        item.clip = None;
+        self.hold = Some(Hold {
+            since: now,
+            seq: item.seq,
+            what: item.what,
+            into,
+            why: None,
+        });
         self.talk_frames.clear();
         if self.playing.is_some() {
             // `playing` stays set until the clip's `Ended`, so nothing new
@@ -502,6 +687,44 @@ impl Engine {
             self.stopping = true;
             self.outbox.push(Out::Stop);
         }
+    }
+
+    /// The hold resolves to a resume once every utterance over speech is
+    /// heard, none of them words, and nobody is speaking.
+    fn resume(&mut self, now: Instant) {
+        if self.hold.is_none()
+            || self.vads.values().any(Vad::is_open)
+            || self.pending.iter().any(|p| {
+                p.opening.overlap == Overlap::Speech && matches!(p.state, Transcribed::Waiting)
+            })
+        {
+            return;
+        }
+        let Some(hold) = self.hold.take() else {
+            return;
+        };
+        // A cut acknowledgment isn't said again.
+        if hold.what == Spoken::Acknowledgment {
+            self.queue.retain(|i| i.seq != hold.seq);
+        }
+        self.talk_frames.clear();
+        self.emit(Event::Resumed {
+            what: hold.what,
+            why: hold.why.unwrap_or(HeardAs::Wordless),
+            held: now.saturating_duration_since(hold.since),
+        });
+    }
+
+    /// Words over speech: what is held or still queued goes unsaid, and the
+    /// utterance is the next turn. The clip stops if it still plays (the late
+    /// cut).
+    fn commit(&mut self, speaker: Speaker, now: Instant) {
+        let Some(what) = self.queue.front().map(|i| i.what) else {
+            self.hold = None;
+            return;
+        };
+        let dropped = self.queue.len();
+        self.cut(CutWhy::Words, now);
         self.emit(Event::BargeIn {
             speaker,
             what,
@@ -509,7 +732,74 @@ impl Engine {
         });
     }
 
-    fn ended(&mut self, id: ClipId) {
+    /// Everything queued goes unsaid, `why`: a `Cut` for each reply or report
+    /// among it, a report back to the front of the reports from its cut
+    /// sentence (but at the call's end), and the clip stopped.
+    fn cut(&mut self, why: CutWhy, now: Instant) {
+        let hold = self.hold.take();
+        let into = match (&hold, self.queue.front()) {
+            (Some(h), _) => h.into,
+            (None, Some(item)) if item.clip.is_some() => item
+                .started
+                .map_or(Duration::ZERO, |s| now.saturating_duration_since(s)),
+            _ => Duration::ZERO,
+        };
+        let items: Vec<Item> = self.queue.drain(..).collect();
+        let mut report: Option<QueuedReport> = None;
+        let mut seen: Vec<Spoken> = Vec::new();
+        for (at, item) in items.iter().enumerate() {
+            if item.what == Spoken::Acknowledgment {
+                continue;
+            }
+            if item.what == Spoken::Report && why != CutWhy::CallEnded {
+                let r = report.get_or_insert_with(|| QueuedReport {
+                    sentences: Vec::new(),
+                    first: item.index,
+                    count: item.count,
+                });
+                r.sentences.push(item.text.clone());
+            }
+            if seen.contains(&item.what) {
+                continue;
+            }
+            seen.push(item.what);
+            let last_heard = match item.index {
+                0 => None,
+                _ => self.said.get(&item.what).cloned(),
+            };
+            self.emit(Event::Cut {
+                what: item.what,
+                why,
+                sentences: item.count,
+                heard: item.index,
+                into: if at == 0 { into } else { Duration::ZERO },
+                last_heard,
+                cut: item.text.clone(),
+            });
+        }
+        if let Some(report) = report {
+            self.reports.push_front(report);
+        } else {
+            self.said.remove(&Spoken::Report);
+        }
+        self.said.retain(|w, _| *w == Spoken::Report);
+        self.synthesizing = false;
+        self.generation += 1;
+        self.talk_frames.clear();
+        if self.playing.is_some() && !self.stopping {
+            self.stopping = true;
+            self.outbox.push(Out::Stop);
+        }
+    }
+
+    /// The call is over: whatever is still queued goes unsaid.
+    fn call_ended(&mut self, now: Instant) {
+        if !self.queue.is_empty() {
+            self.cut(CutWhy::CallEnded, now);
+        }
+    }
+
+    fn ended(&mut self, id: ClipId, now: Instant) {
         if self.playing != Some(id) {
             return;
         }
@@ -517,7 +807,11 @@ impl Engine {
         self.stopping = false;
         if self.queue.front().is_some_and(|i| i.clip == Some(id)) {
             if let Some(item) = self.queue.pop_front() {
-                if !self.queue.iter().any(|i| i.what == item.what) {
+                self.recent.push_back((now, item.text.clone()));
+                if self.queue.iter().any(|i| i.what == item.what) {
+                    self.said.insert(item.what, item.text);
+                } else {
+                    self.said.remove(&item.what);
                     self.emit(Event::Spoke { what: item.what });
                 }
             }
@@ -527,44 +821,13 @@ impl Engine {
         }
     }
 
-    fn done(&mut self, done: Done) {
+    fn done(&mut self, done: Done, now: Instant) {
         match done {
             Done::Transcribed {
                 seq,
                 result,
                 latency,
-            } => {
-                let Some(p) = self.pending.iter_mut().find(|p| p.seq == seq) else {
-                    return;
-                };
-                let event = match result {
-                    Ok(t) => {
-                        let utterance = Utterance {
-                            speaker: p.speaker,
-                            started: p.started,
-                            length: p.length,
-                            closed: p.closed,
-                            text: t.text,
-                            usage: t.usage,
-                            latency,
-                        };
-                        p.state = if utterance.text.trim().is_empty() {
-                            Transcribed::Dropped
-                        } else {
-                            Transcribed::Got(utterance.clone())
-                        };
-                        Event::Utterance(utterance)
-                    }
-                    Err(error) => {
-                        p.state = Transcribed::Dropped;
-                        Event::Failed {
-                            what: Failure::Transcribe(p.speaker),
-                            error,
-                        }
-                    }
-                };
-                self.emit(event);
-            }
+            } => self.heard(seq, result, latency, now),
             Done::Synthesized {
                 generation,
                 seq,
@@ -612,31 +875,113 @@ impl Engine {
         }
     }
 
+    /// An utterance's transcript: what it was heard as, and over speech,
+    /// what that decides.
+    fn heard(
+        &mut self,
+        seq: u64,
+        result: Result<Transcript, SpeechError>,
+        latency: Duration,
+        now: Instant,
+    ) {
+        let Some(p) = self.pending.iter_mut().find(|p| p.seq == seq) else {
+            return;
+        };
+        let (speaker, overlap) = (p.speaker, p.opening.overlap);
+        let t = match result {
+            Ok(t) => t,
+            Err(error) => {
+                p.state = Transcribed::Dropped;
+                self.emit(Event::Failed {
+                    what: Failure::Transcribe(speaker),
+                    error,
+                });
+                // A "stop" that wasn't heard must not be talked over.
+                if overlap == Overlap::Speech {
+                    self.commit(speaker, now);
+                }
+                return;
+            }
+        };
+        let heard_as = classify(&t.text, overlap, &p.opening.sentences);
+        let utterance = Utterance {
+            speaker,
+            started: p.started,
+            length: p.length,
+            closed: p.closed,
+            text: t.text,
+            usage: t.usage,
+            latency,
+            over: p.opening.over.clone(),
+            heard_as,
+        };
+        p.state = match heard_as {
+            HeardAs::Words => Transcribed::Got(Box::new(utterance.clone())),
+            _ => Transcribed::Dropped,
+        };
+        self.emit(Event::Utterance(utterance));
+        if heard_as == HeardAs::Echo {
+            self.echo_prone.insert(speaker);
+        }
+        if overlap != Overlap::Speech {
+            return;
+        }
+        if heard_as == HeardAs::Words {
+            self.commit(speaker, now);
+        } else if let Some(hold) = &mut self.hold {
+            // The plainest reason heard: a request to go on, over a "yeah",
+            // over an echo, over a sound.
+            let rank = |h: HeardAs| match h {
+                HeardAs::Resume => 3,
+                HeardAs::Backchannel => 2,
+                HeardAs::Echo => 1,
+                _ => 0,
+            };
+            if hold.why.is_none_or(|why| rank(heard_as) > rank(why)) {
+                hold.why = Some(heard_as);
+            }
+        }
+    }
+
     fn reply(&mut self, turn: TurnId, text: &str, now: Instant) {
         if self.turn.as_ref().is_some_and(|t| t.id == turn) {
             self.turn = None;
         }
-        self.enqueue(Spoken::Reply(turn), sentences(text), now);
+        let sentences = sentences(text);
+        let count = sentences.len();
+        self.enqueue(Spoken::Reply(turn), sentences, 0, count, now);
     }
 
-    fn enqueue(&mut self, what: Spoken, sentences: Vec<String>, now: Instant) {
-        let count = sentences.len();
+    /// `what`'s sentences from index `first` of `count`.
+    fn enqueue(
+        &mut self,
+        what: Spoken,
+        sentences: Vec<String>,
+        first: usize,
+        count: usize,
+        now: Instant,
+    ) {
         for (i, text) in sentences.into_iter().enumerate() {
             self.queue.push_back(Item {
                 seq: self.next_item,
                 what,
-                text: Some(text),
+                text,
+                index: first + i,
+                count,
                 audio: None,
                 clip: None,
-                first: (i == 0).then_some((count, now)),
+                started: None,
+                // A report back from a cut began before.
+                first: (i == 0 && first == 0).then_some(now),
             });
             self.next_item += 1;
         }
     }
 
-    /// After every event: start a turn, the acknowledgment, or a report;
-    /// synthesize the next sentence; play the next clip.
+    /// After every event: resume a hold, start a turn, the acknowledgment,
+    /// or a report; synthesize the next sentence; play the next clip.
     fn advance(&mut self, now: Instant) {
+        self.resume(now);
         self.start_turn(now);
         let quiet = self.playing.is_none()
             && self.queue.is_empty()
@@ -649,18 +994,21 @@ impl Engine {
                 self.queue.push_back(Item {
                     seq: self.next_item,
                     what: Spoken::Acknowledgment,
-                    text: None,
+                    text: ACKNOWLEDGMENT.into(),
+                    index: 0,
+                    count: 1,
                     audio: Some(self.config.acknowledgment.clone()),
                     clip: None,
-                    first: Some((1, now)),
+                    started: None,
+                    first: Some(now),
                 });
                 self.next_item += 1;
                 self.emit(Event::Acknowledged { turn: id });
             } else if self.turn.is_none() && self.pending.is_empty() {
                 // A pause: no turn in flight or waiting, nobody speaking,
                 // nothing said or to say.
-                if let Some(text) = self.reports.pop_front() {
-                    self.enqueue(Spoken::Report, sentences(&text), now);
+                if let Some(r) = self.reports.pop_front() {
+                    self.enqueue(Spoken::Report, r.sentences, r.first, r.count, now);
                 }
             }
         }
@@ -685,7 +1033,7 @@ impl Engine {
                 ..
             }) = self.pending.pop_front()
             {
-                utterances.push(utterance);
+                utterances.push(*utterance);
             }
         }
         if utterances.is_empty() {
@@ -701,10 +1049,10 @@ impl Engine {
         self.emit(Event::Turn { id, utterances });
     }
 
-    /// Synthesize the first sentence without audio: one at a time, and at
-    /// most one ready ahead of the clip that's playing.
+    /// Synthesize the first sentence without audio: one at a time, at most
+    /// one ready ahead of the clip that's playing, and none while held.
     fn synthesize_next(&mut self) {
-        if self.synthesizing {
+        if self.synthesizing || self.hold.is_some() {
             return;
         }
         let ready = self.queue.iter().take_while(|i| i.audio.is_some()).count();
@@ -714,10 +1062,8 @@ impl Engine {
         let Some(item) = self.queue.iter().find(|i| i.audio.is_none()) else {
             return;
         };
-        let Some(text) = item.text.clone() else {
-            return;
-        };
         let (seq, what, generation) = (item.seq, item.what, self.generation);
+        let text = item.text.clone();
         let speech = Arc::clone(&self.speech);
         self.synthesizing = true;
         self.work.push(Box::pin(async move {
@@ -734,7 +1080,7 @@ impl Engine {
     }
 
     fn play_next(&mut self, now: Instant) {
-        if self.playing.is_some() {
+        if self.playing.is_some() || self.hold.is_some() {
             return;
         }
         let id = ClipId(self.next_clip);
@@ -745,11 +1091,17 @@ impl Engine {
             return;
         };
         item.clip = Some(id);
-        let first = item.first.take().map(|(sentences, asked)| Event::Speaking {
+        item.started = Some(now);
+        let first = item.first.take().map(|asked| Event::Speaking {
             what: item.what,
-            sentences,
+            sentences: item.count,
             first_audio: now - asked,
         });
+        // What an open utterance may echo.
+        let text = item.text.clone();
+        for opening in self.opening.values_mut() {
+            opening.sentences.push(text.clone());
+        }
         self.next_clip += 1;
         self.playing = Some(id);
         self.outbox.push(Out::Play(id, audio));

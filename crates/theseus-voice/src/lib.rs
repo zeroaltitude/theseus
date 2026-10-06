@@ -20,6 +20,7 @@
 pub mod audio;
 pub mod deepgram;
 mod engine;
+mod heard;
 mod io;
 mod sentences;
 #[cfg(feature = "voice")]
@@ -30,8 +31,9 @@ mod vad;
 pub use audio::{read_wav, write_wav, Audio, WavError, FRAME, FRAME_SAMPLES, SAMPLE_RATE};
 pub use deepgram::{DeepgramSettings, DeepgramSpeech};
 pub use engine::{
-    Command, Config, Engine, EngineHandle, Event, Failure, Spoken, TurnId, Utterance,
+    Command, Config, CutWhy, Engine, EngineHandle, Event, Failure, Over, Spoken, TurnId, Utterance,
 };
+pub use heard::HeardAs;
 pub use io::{ClipId, Frame, Heard, PlayLog, Played, Speaker, VoiceIo, WavIo};
 pub use sentences::sentences;
 pub use speech::{
