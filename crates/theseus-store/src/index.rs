@@ -730,6 +730,27 @@ impl RedbIndex {
         Ok(out)
     }
 
+    /// The latest position of every key of a kind that `keep` passes, in
+    /// key order: a walk of the kind's key table alone (theseus-7087).
+    pub fn positions_of_keys_where(
+        &self,
+        kind: RecordKind,
+        keep: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<u64>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(BYKEY)?;
+        let lo = kind.to_be_bytes().to_vec();
+        let hi = (kind + 1).to_be_bytes().to_vec();
+        let mut out = Vec::new();
+        for row in t.range(lo.as_slice()..hi.as_slice())? {
+            let (k, v) = row?;
+            if keep(&String::from_utf8_lossy(&k.value()[2..])) {
+                out.push(v.value());
+            }
+        }
+        Ok(out)
+    }
+
     /// Up to `limit` keys of a kind that end with `ending`, in key order: a
     /// walk of the kind's key table alone, which reads no record (a short
     /// id's resolve, theseus-glyw).

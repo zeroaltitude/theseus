@@ -254,7 +254,7 @@ impl Core {
     /// Every task session's start and brief, read once a run.
     fn task_briefs<'a>(&self, reads: &'a mut Reads) -> &'a [(u64, String, String)] {
         reads.tasks.get_or_insert_with(|| {
-            let sessions: Vec<SessionRecord> = self.store.list_sessions().unwrap_or_default();
+            let sessions: Vec<SessionRecord> = self.store.live_sessions().unwrap_or_default();
             sessions
                 .into_iter()
                 .filter(|r| r.task.is_some())
