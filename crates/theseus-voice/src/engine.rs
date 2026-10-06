@@ -25,7 +25,9 @@
 //!   (`Resumed`); words commit the cut (a `Cut` for each reply or report,
 //!   then `BargeIn`) and are the next turn. Words too short to stop it, or
 //!   from a speaker heard echoing twice (whose stop is off for the call),
-//!   cut at their transcript; so does a failed transcription. A report cut
+//!   cut at their transcript; so does a failed transcription, and a hold's
+//!   transcript still due 3 s after its utterance closed (`transcript_bound`,
+//!   theseus-aq4t), which is then dropped. A report cut
 //!   by words comes back at the next pause from its cut sentence. The
 //!   session still has the whole text.
 //! - A turn that runs past 2 s gets the canned acknowledgment, once, when the
@@ -74,6 +76,10 @@ pub struct Config {
     /// What was received under the threshold just before an utterance opens
     /// begins it, a word's soft start: 200 ms.
     pub pre_roll: Duration,
+    /// How long a hold waits for the transcripts of the utterances over it
+    /// after the last of them closed, before it decides as if they failed:
+    /// 3 s (theseus-aq4t).
+    pub transcript_bound: Duration,
 }
 
 impl Config {
@@ -88,6 +94,7 @@ impl Config {
             min_speech: Duration::from_millis(100),
             max_utterance: Duration::from_secs(30),
             pre_roll: Duration::from_millis(200),
+            transcript_bound: Duration::from_secs(3),
         }
     }
 
@@ -772,6 +779,51 @@ impl Engine {
         });
     }
 
+    /// The hold's bound (theseus-aq4t): when the transcripts of the
+    /// utterances over a hold are still due `transcript_bound` after the last
+    /// of them closed, they decide as if they failed. Each is dropped with
+    /// its `Failed`, and the cut is committed, as a failure's is: a stop that
+    /// wasn't heard must not be talked over. A transcript that comes later is
+    /// dropped (`heard`).
+    fn overdue(&mut self, now: Instant) {
+        if self.hold.is_none() {
+            return;
+        }
+        let due = |p: &Pending| {
+            p.opening.overlap == Overlap::Speech && matches!(p.state, Transcribed::Waiting)
+        };
+        let Some(last) = self
+            .pending
+            .iter()
+            .filter(|p| due(p))
+            .map(|p| p.closed)
+            .max()
+        else {
+            return;
+        };
+        let bound = self.config.transcript_bound;
+        if at_tick(self.ticks) < last + bound {
+            return;
+        }
+        let mut late = Vec::new();
+        for p in self.pending.iter_mut().filter(|p| due(p)) {
+            p.state = Transcribed::Dropped;
+            late.push(p.speaker);
+        }
+        for speaker in &late {
+            self.emit(Event::Failed {
+                what: Failure::Transcribe(*speaker),
+                error: SpeechError(format!(
+                    "no transcript {} ms after the utterance closed",
+                    bound.as_millis()
+                )),
+            });
+        }
+        if let Some(speaker) = late.first() {
+            self.commit(*speaker, now);
+        }
+    }
+
     /// Utterance `seq`'s words, the next turn: over speech or a hold, they
     /// commit the cut; else a reply or report that waited for them is
     /// superseded.
@@ -982,7 +1034,13 @@ impl Engine {
         latency: Duration,
         now: Instant,
     ) {
-        let Some(p) = self.pending.iter_mut().find(|p| p.seq == seq) else {
+        // One that the hold's bound already decided is dropped, as a
+        // failure's is: nothing is said of it twice.
+        let Some(p) = self
+            .pending
+            .iter_mut()
+            .find(|p| p.seq == seq && matches!(p.state, Transcribed::Waiting))
+        else {
             return;
         };
         let (speaker, overlap) = (p.speaker, p.opening.overlap);
@@ -1118,6 +1176,7 @@ impl Engine {
     /// After every event: resume a hold, start a turn, the acknowledgment,
     /// or a report; synthesize the next sentence; play the next clip.
     fn advance(&mut self, now: Instant) {
+        self.overdue(now);
         self.resume(now);
         self.start_turn(now);
         let quiet = self.playing.is_none()

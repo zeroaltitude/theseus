@@ -3,6 +3,7 @@
 //! in virtual time, each at its exact times.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1247,4 +1248,144 @@ async fn leaving_with_a_reply_unsaid_cuts_it() {
             }
         )]
     );
+}
+
+/// The stand-in, but `speaker`'s first `stalls` transcriptions never come,
+/// or fail after `fails_after` (a provider's own request bound).
+struct Stalled {
+    inner: StandInSpeech,
+    speaker: Speaker,
+    stalls: AtomicUsize,
+    fails_after: Option<Duration>,
+}
+
+impl Stalled {
+    fn new(inner: StandInSpeech, speaker: Speaker, stalls: usize) -> Self {
+        Self {
+            inner,
+            speaker,
+            stalls: AtomicUsize::new(stalls),
+            fails_after: None,
+        }
+    }
+}
+
+impl Speech for Stalled {
+    fn transcribe<'a>(
+        &'a self,
+        speaker: Speaker,
+        audio: &'a Audio,
+    ) -> SpeechFuture<'a, Transcript> {
+        let stalls = speaker == self.speaker
+            && self
+                .stalls
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok();
+        if !stalls {
+            return self.inner.transcribe(speaker, audio);
+        }
+        match self.fails_after {
+            None => Box::pin(std::future::pending()),
+            Some(after) => Box::pin(async move {
+                sleep(after).await;
+                Err(SpeechError("the provider timed out".into()))
+            }),
+        }
+    }
+
+    fn synthesize<'a>(&'a self, text: &'a str) -> SpeechFuture<'a, Synthesis> {
+        self.inner.synthesize(text)
+    }
+}
+
+fn failed(e: &Event) -> bool {
+    matches!(e, Event::Failed { .. })
+}
+
+/// The hold's bound's `Failed`, for `speaker`.
+fn unheard(speaker: Speaker) -> Event {
+    Event::Failed {
+        what: Failure::Transcribe(speaker),
+        error: SpeechError("no transcript 3000 ms after the utterance closed".into()),
+    }
+}
+
+/// The reply to turn 0, three sentences, cut by Robin with none of it heard,
+/// `into` its first.
+fn cut_first(at: Duration, into: u64) -> [(Duration, Event); 2] {
+    [
+        (
+            at,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::Words,
+                sentences: 3,
+                heard: 0,
+                into: ms(into),
+                last_heard: None,
+                cut: S1.into(),
+            },
+        ),
+        (
+            at,
+            Event::BargeIn {
+                speaker: ROBIN,
+                what: Spoken::Reply(TurnId(0)),
+                dropped: 3,
+            },
+        ),
+    ]
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_held_reply_whose_transcript_never_comes_is_cut_at_the_bound() {
+    // A laugh from 1.5 s stops the reply at 1.8 s and closes at 2.6 s; its
+    // transcript never comes. 3 s later, at 5.6 s, the hold decides as a
+    // failure does: the cut is committed (theseus-aq4t). The call goes on:
+    // Robin's words from 7.0 s are the next turn, and its reply plays.
+    let script: &'static [(u64, &'static str)] = &[
+        (
+            0,
+            "This first sentence runs on for quite a while, long enough to talk over. \
+             The second sentence is long enough to be cut late, if it comes to that. Third.",
+        ),
+        (0, "Here are the logs."),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 12_000)
+        .say(ROBIN, 1500, 400)
+        .say(ROBIN, 7000, 500)
+        .io;
+    let inner = StandInSpeech::new().transcript(ROBIN, "and the logs?");
+    let speech = Arc::new(Stalled::new(inner, ROBIN, 1));
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    let at = ms(5600);
+    assert_eq!(only(&seen, failed), [(at, unheard(ROBIN))]);
+    assert_eq!(only(&seen, cuts), cut_first(at, 600));
+    assert!(only(&seen, resumed).is_empty());
+    let next = ms(7000 + 500 + 700);
+    assert_eq!(turns(&seen)[1..], [(next, vec![(ROBIN, "and the logs?")])]);
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1200), len(S1), true),
+            (next, len("Here are the logs."), false)
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_providers_own_bound_no_longer_sets_the_holds_wait() {
+    // The transcription fails 20 s after it was asked, at 22.6 s: the hold
+    // decided at 5.6 s, and the provider's failure says nothing again.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 25_000).say(ROBIN, 1500, 400).io;
+    let mut speech = Stalled::new(StandInSpeech::new(), ROBIN, 1);
+    speech.fails_after = Some(Duration::from_secs(20));
+    let (seen, played) = call(io, Arc::new(speech), first(three()), vec![]).await;
+    let at = ms(5600);
+    assert_eq!(only(&seen, failed), [(at, unheard(ROBIN))]);
+    assert_eq!(only(&seen, cuts), cut_first(at, 600));
+    assert_eq!(starts(&played), [(ms(1200), len(S1), true)]);
+    assert_eq!(turns(&seen).len(), 1, "unheard, so no turn");
 }
