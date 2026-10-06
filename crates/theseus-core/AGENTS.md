@@ -310,7 +310,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   spawned after the frame with that id (`theseus_judge::Ask::id`). Every point that dispatches inside a turn marks
   the same way. The facts (`fact/judge.rs`) say their sentences, and `Telemetry::record_judgment` counts each
   judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark.
-  `judge.list` and `judge.get` are `rpc/judge.rs`. Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
+  `judge.list` and `judge.get` are `rpc/judge.rs`; `judge.list` pages back from the newest `judge.call` row (its
+  kind's tag, or its kind-and-session tag) and stops one match past its limit, so `matched` is a floor when `more`
+  (theseus-wse2; `tests_judge_reads.rs`). Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
   `telemetry/tests_judge.rs`.
   - **The judgments a turn waits on write nothing before their call** (theseus-otny): route.v1's inbound batch and
     a live rerank stage their state's blob (`stage_blob`; the sink writes it just before the first row naming it,

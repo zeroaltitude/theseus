@@ -227,7 +227,9 @@ async fn judge_list_filters_by_pack_session_and_time() {
             ..all
         })
         .unwrap();
-    assert_eq!(newest.matched, 3);
+    // Read from the newest back, one match past the limit: more matched
+    // than counted, so `matched` is the floor it proved (theseus-wse2).
+    assert_eq!((newest.matched, newest.more), (2, true));
     assert_eq!(newest.judgments.len(), 1);
     assert_eq!(
         newest.judgments[0].data["id"].as_str(),

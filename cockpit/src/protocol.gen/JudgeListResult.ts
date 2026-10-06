@@ -7,9 +7,18 @@ export type JudgeListResult = {
  */
 scopes: Array<string>, 
 /**
- * The judgments that matched, before the limit cut them.
+ * The judgments that matched, before the limit cut them: exact unless
+ * `more`. The newest are read first, and a read stops one match past
+ * the limit (theseus-wse2), so with `more` this is a floor: the limit's
+ * judgments and the one older match that proves there are more.
  */
 matched: number, 
+/**
+ * Older judgments match beyond those `matched` counts: `matched` is
+ * then at least the number that match, not the number. False from a
+ * daemon that counted them all.
+ */
+more: boolean, 
 /**
  * The newest `limit` of them, oldest first: each a `judge.call` row
  * (its `data` the judgment whole: pack, mode, answers with bands,

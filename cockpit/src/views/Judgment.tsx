@@ -3,7 +3,8 @@
 // filters; and one judgment whole, its state as fields and its answers as probability bars.
 //
 // - It reads only while it is open: `judge.list` (the newest 500 that match its filters, every few seconds) and, for
-//   the judgment picked, `judge.get`, once. It keeps no copy of the ledger of its own.
+//   the judgment picked, `judge.get`, once. It keeps no copy of the ledger of its own. The daemon reads from the newest
+//   back and stops one match past the limit, so "N of M+" says more match than it counted (`more`, theseus-wse2).
 // - Its state is in the address: `?pack=`, `?session=`, `?since=` (1h, 24h, 7d), and `?id=` (the judgment open).
 // - With the time machine set, the list stops at the moment, and the counts are the fold's (`World.judge`).
 // - The learning report (25c; `?report=<date>`, the Learning panel) and a judgment's label buttons (its detail) are
@@ -143,7 +144,7 @@ export default function Judgment() {
             <span>session</span>
             <input value={session} onChange={(e) => set('session', e.target.value.trim() || null)} placeholder="ses_…" className="num w-56 rounded bg-transparent px-1 ring-1 ring-line" />
             <span className="ml-auto num" title={list?.scopes.join(', ')}>
-              {list ? `${shown.length} of ${list.matched} in ${list.scopes.length} scope${list.scopes.length === 1 ? '' : 's'}` : ''}
+              {list ? `${shown.length} of ${list.matched}${list.more ? '+' : ''} in ${list.scopes.length} scope${list.scopes.length === 1 ? '' : 's'}` : ''}
             </span>
           </div>
           {error ? <Empty>{String((error as { message?: string }).message ?? error)}</Empty> : !shown.length ? <Empty>no judgments match</Empty> : (
