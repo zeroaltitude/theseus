@@ -16,7 +16,7 @@ use crate::store::Store;
 use crate::tests_activation::{put, user};
 
 /// `n` nodes of a session, in one frame.
-fn write(store: &Store, session: &str, n: usize) {
+pub(crate) fn write(store: &Store, session: &str, n: usize) {
     let nodes: Vec<_> = (0..n)
         .map(|i| user(session, &format!("note {i}")))
         .collect();

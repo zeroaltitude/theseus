@@ -25,7 +25,7 @@
 //!   it the pipeline goes on with the index's answer alone (`deadline`).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -50,6 +50,9 @@ pub struct Adjacent {
     projection: Mutex<Option<Projection>>,
     built: AtomicBool,
     building: AtomicBool,
+    /// The paces its builds have taken, every build's added: a search's own
+    /// build takes none (theseus-e21m).
+    paces: AtomicU64,
     /// Its size after its last fold, for health without the lock.
     stats: Mutex<Option<Stats>>,
     /// Why its last build or refresh failed.
@@ -70,6 +73,11 @@ impl Adjacent {
         self.building.load(Ordering::Acquire)
     }
 
+    /// The paces its builds have taken: the warm build's, between its pages.
+    pub fn paces(&self) -> u64 {
+        self.paces.load(Ordering::Acquire)
+    }
+
     pub fn error(&self) -> Option<String> {
         self.error
             .lock()
@@ -88,10 +96,14 @@ impl Adjacent {
             .unwrap_or_else(PoisonError::into_inner);
         if p.is_none() {
             let t0 = Instant::now();
-            let mut waited = Duration::ZERO;
+            let (mut waited, mut paces) = (Duration::ZERO, 0u64);
             let built = theseus_store::blocking(|| {
                 Projection::build_paced(store, &mut || {
                     if paced {
+                        // Counted before it waits, so a pace still waiting
+                        // is seen.
+                        paces += 1;
+                        self.paces.fetch_add(1, Ordering::AcqRel);
                         waited += super::adjacency::pace();
                     }
                 })
@@ -112,6 +124,7 @@ impl Adjacent {
                 bytes = st.bytes,
                 took_ms = t0.elapsed().as_millis() as u64,
                 waited_ms = waited.as_millis() as u64,
+                paces,
                 "memory: the adjacency projection is built"
             );
             *self.stats.lock().unwrap_or_else(PoisonError::into_inner) = Some(st);
