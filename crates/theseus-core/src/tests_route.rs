@@ -1211,6 +1211,65 @@ async fn a_routed_turn_still_writes_and_sends_its_recall() {
     );
 }
 
+/// A switched turn's recall drops reach the compilation it stores
+/// (theseus-3urn). Recall's pack has room for one of the two heron notes, so
+/// it drops the other for its budget. On a switch, the first compile (on the
+/// session's profile, then discarded) took the drops, and the stored one, on
+/// Opus, named none; a verdict that keeps the first compile stored them, and
+/// still does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switched_turns_compilation_names_its_recall_drops() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(Some(&jev), 2, |c| {
+        c.memory.mode = crate::config::MemoryMode::Live;
+        c.memory.recall_budget_tokens = 30;
+    });
+    // Each note about 25 tokens: one fits the pack, two do not.
+    let notes = crate::tests_recall::session(
+        &r.core,
+        None,
+        &[
+            "the heron nests by the weir in spring, and the reeds there are cut back each autumn",
+            "the heron fishes at dawn by the mill, where the race runs shallow over the stones",
+        ],
+    );
+    let ask = crate::tests_recall::index_of(&r.core, vec![notes.clone()]);
+    r.core.runner.memory.set_ask(ask);
+    let ids: Vec<String> = r
+        .core
+        .store
+        .session_nodes(&notes)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| n.id)
+        .collect();
+    for (verdict, profile) in [("sophisticated", "opus"), ("chat", "sonnet")] {
+        mode(&jev, verdict, 0.95);
+        let res = turn(&r.core, None, "Where does the heron nest and fish?", None).await;
+        assert_eq!(
+            (res.profile.as_str(), res.recalled),
+            (profile, 1),
+            "{verdict}"
+        );
+        let s = session(&r.core, &res.session_id);
+        let c = r
+            .core
+            .store
+            .get_compilation(s.compilation_id.as_deref().unwrap())
+            .unwrap()
+            .unwrap();
+        let budget = c.budget.expect("a budget report");
+        let dropped: Vec<&str> = budget
+            .dropped
+            .iter()
+            .filter(|d| d.tier == "recall")
+            .filter_map(|d| d.node_id.as_deref())
+            .collect();
+        assert_eq!(dropped.len(), 1, "{verdict}: {budget:?}");
+        assert!(ids.iter().any(|id| id == dropped[0]), "{verdict}");
+    }
+}
+
 /// A trivial message in a task session detours, and the detour's window
 /// holds the task's arrangement, written after its brief: the detour admits
 /// it, as it always sent it, so the message is answered (theseus-783a; 35a's
