@@ -70,6 +70,11 @@ pub(crate) const FRAMING: &str = "[Voice call: they hear your reply, they don't 
      in one to three short sentences of plain speech: no lists, tables, code, markdown or long \
      numbers. If you were cut off, don't assume they heard the rest.]";
 
+/// Spoken when a voice turn fails (theseus-9zft): the place says why in
+/// text, so the call isn't left in silence.
+pub(crate) const FAILED_TURN: &str =
+    "Sorry, that didn't work. The details are in the text channel.";
+
 /// How long a join may take: songbird's own connect, then DAVE's handshake.
 const JOIN_WAIT: Duration = Duration::from_secs(20);
 
@@ -623,9 +628,12 @@ impl Place {
                     },
                 )
                 .await;
-            // Spoken: the turn's reply, or silence when it failed, which the
-            // place says in text.
-            let text = r.as_ref().map(|r| r.output.clone()).unwrap_or_default();
+            // Spoken: the turn's reply, or, when it failed, that it did; the
+            // place says why in text.
+            let text = match &r {
+                Ok(r) => r.output.clone(),
+                Err(_) => FAILED_TURN.to_string(),
+            };
             shared.voice.reply(t.serial, t.turn, text);
             let _ = tx.send(PlaceMsg::SubmitDone(r.map(|_| ())));
         });

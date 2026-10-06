@@ -14,7 +14,7 @@ use twilight_model::id::Id;
 use super::super::tests::core_scripted;
 use super::super::{Place, PlaceMsg};
 use super::tests::{heard, joined, place, EDDIE, LOUNGE};
-use super::{pump, VoicePlace, FRAMING};
+use super::{pump, VoicePlace, FAILED_TURN, FRAMING};
 
 /// A call in the lounge on a session of a core whose model answers
 /// `replies` in turn: the place, its mailbox, the engine's events into
@@ -24,11 +24,15 @@ struct Lounge {
     place: Place,
     rx: mpsc::UnboundedReceiver<PlaceMsg>,
     events: mpsc::UnboundedSender<Event>,
-    _commands: mpsc::UnboundedReceiver<theseus_voice::Command>,
+    commands: mpsc::UnboundedReceiver<theseus_voice::Command>,
 }
 
 fn lounge(dir: &std::path::Path, replies: &[&str]) -> Lounge {
-    let core = core_scripted(dir, replies.iter().map(|r| Scripted::text(r)).collect());
+    lounge_scripted(dir, replies.iter().map(|r| Scripted::text(r)).collect())
+}
+
+fn lounge_scripted(dir: &std::path::Path, script: Vec<Scripted>) -> Lounge {
+    let core = core_scripted(dir, script);
     let rec = theseus_core::session::SessionRecord::new(
         theseus_protocol::SessionKind::Conversation,
         None,
@@ -68,7 +72,7 @@ fn lounge(dir: &std::path::Path, replies: &[&str]) -> Lounge {
         place: p,
         rx,
         events,
-        _commands: engine,
+        commands: engine,
     }
 }
 
@@ -426,4 +430,53 @@ async fn the_framing_line_leads_every_voice_turns_input() {
     assert!(lines[1].starts_with("[Voice: your reply to"), "{second}");
     assert_eq!(lines[2], "🎙️ And then?");
     assert!(FRAMING.chars().count() < 300);
+}
+
+/// A voice turn that fails is said aloud: the engine gets the one sentence
+/// that says so, and the place says why in text.
+#[tokio::test]
+async fn a_failed_voice_turn_sends_the_constant_sentence() {
+    let d = tempfile::tempdir().unwrap();
+    // The model refuses the key: the turn fails.
+    let refused = theseus_core::provider::ProviderError::Auth {
+        status: 401,
+        message: "invalid x-api-key".into(),
+    };
+    let mut l = lounge_scripted(d.path(), vec![Scripted::Fail(refused)]);
+    l.events
+        .send(Event::Turn {
+            id: TurnId(0),
+            utterances: vec![heard("What changed today?")],
+        })
+        .unwrap();
+    let rx = &mut l.rx;
+    let wait = Duration::from_secs(10);
+    let t = tokio::time::timeout(wait, async {
+        loop {
+            if let Some(PlaceMsg::Voice(t)) = rx.recv().await {
+                break t;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    l.place.voice_turn(t);
+    let rx = &mut l.rx;
+    let r = tokio::time::timeout(wait, async {
+        loop {
+            if let Some(PlaceMsg::SubmitDone(r)) = rx.recv().await {
+                break r;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(r.is_err(), "the turn failed");
+    assert_eq!(
+        l.commands.try_recv().unwrap(),
+        theseus_voice::Command::Reply {
+            turn: TurnId(0),
+            text: FAILED_TURN.into()
+        }
+    );
 }
