@@ -74,8 +74,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   named most recently (`Lane::touch`; a late live state names its key too). The place's actor sends the held turns
   (`LaneMsg::Held`, `courier/held.rs`) at each turn's start and at `/new`'s rebind; a turn that leaves the list is
   forgotten. So a lane holds at most 8 x (`max_loops`, 40 by default, x (a loop's text parts + its tool line + its
-  notice cards) + a footer) + 256 + 1 keys: 905 when each loop's text is one part and no card posts. Every insert
-  goes through `touch` (or `seal`), or the bound leaks.
+  notice cards) + a footer) + 256 + 1 keys: 905 when each loop's text is one part and no card posts. The renderer's
+  `emitted` and `menus` hold only its held turns' keys, and `notices` only their calls' (`render/held.rs`). Every
+  insert goes through `touch` (or `seal`), or the bound leaks.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).
