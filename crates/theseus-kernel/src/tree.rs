@@ -295,18 +295,27 @@ fn stop_with(
     let mut met: BTreeSet<Proc> = BTreeSet::new();
     // 1. SIGTERM, and the grace: asleep on the signalled processes' pidfds
     // (theseus-dwoj), woken by the first of them to exit, as the kill's
-    // wait is. A child no scan has seen yet (forked since, or missed) is
-    // found at the next look, at most `LOOK` later.
+    // wait is, to see the tree empty at once. A process a scan finds new is
+    // signalled only at a look, every `LOOK`, as before: a scan an exit woke
+    // comes just as a process that cleans up at SIGTERM forks its cleanup
+    // (a shell's trap runs once the child it waited on is gone), and a
+    // SIGTERM to that would cut the cleanup short. A child no scan has seen
+    // yet is found at the next look, at most `LOOK` later.
     let until = t0 + grace;
     let mut termed: Vec<(Proc, OwnedFd)> = Vec::new();
+    let mut look = t0;
     loop {
         let left = reap();
         let live = scan(root);
-        for p in &live {
-            if met.insert(*p) {
-                if let Some(fd) = pidfd(*p) {
-                    send(&fd, libc::SIGTERM);
-                    termed.push((*p, fd));
+        let now = Instant::now();
+        if now >= look {
+            look = now + LOOK;
+            for p in &live {
+                if met.insert(*p) {
+                    if let Some(fd) = pidfd(*p) {
+                        send(&fd, libc::SIGTERM);
+                        termed.push((*p, fd));
+                    }
                 }
             }
         }
@@ -317,12 +326,11 @@ fn stop_with(
                 ..Stopped::default()
             };
         }
-        let now = Instant::now();
         if now >= until {
             break;
         }
         termed.retain(|(_, fd)| !exited(fd));
-        wait_exit(&termed, LOOK.min(until - now));
+        wait_exit(&termed, (look - now).min(until - now));
     }
     // 2. The freeze.
     let mut frozen: BTreeSet<Proc> = BTreeSet::new();
