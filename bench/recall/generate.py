@@ -119,6 +119,11 @@ FULL_PER_CELL = 6
 # smoke sits at its margins, and a larger prompt than planned leaves its
 # mark's summary no room (a `ring`, not a `compaction`).
 OVERHEAD_TOKENS = 13700
+# How far a daemon's measured overhead may pass the one a progression was
+# planned at before the driver refuses to run it (`drive.py`, unless
+# `--allow-overhead`): past it, a mark may ring or fail. The smoke planned
+# at 13,528 rang at a real 13,599 (71 more), so it is under that.
+OVERHEAD_CUSHION = 50
 # The rates the plan estimates at: Claude's current family, the bench's
 # models (catalog.rs, `TokenRates::CLAUDE`).
 PLAN_RATES = tk.RATES["CLAUDE"]
@@ -725,7 +730,9 @@ def bulk_rng(seed: int, n: int) -> Rng:
     return Rng((seed * 0x9E3779B97F4A7C15 + 0xB0C5 * (n + 1)) & MASK)
 
 
-def build(seed: int, size: str) -> Progression:
+def build(seed: int, size: str, overhead: int = OVERHEAD_TOKENS) -> Progression:
+    """The progression of `seed` and `size`, its window and bulks planned at
+    a system prompt and tools of `overhead` tokens, which it records."""
     b = Builder(seed, size)
     lay, rng = b.lay, b.rng
     # 1. The probes, cell by cell, in a seeded order.
@@ -778,14 +785,14 @@ def build(seed: int, size: str) -> Progression:
             text = f"It's {d.weekday}, {d.date}. {text}"
         turns.append(Turn(index=t, session=s, block=blk, topic=topic, text=text, role=role,
                           est_tokens=turn_tokens(text, work), before=before, mark=mark))
-    window, plans = plan_bulks(turns, lay.marks)
-    for i, (m, plan) in enumerate(zip(lay.marks, plans)):
-        _put_bulks(seed, i, m, plan, turns, ws)
     for f in b.facts:
         del f._ab  # type: ignore[attr-defined]
     keys = {p.id: p._keys for p in b.probes}  # type: ignore[attr-defined]
     for p in b.probes:
         del p._keys  # type: ignore[attr-defined]
+    window, plans = plan_bulks(turns, lay.marks, overhead)
+    for i, (m, plan) in enumerate(zip(lay.marks, plans)):
+        _put_bulks(seed, i, m, plan, turns, ws)
     names = sorted({w for lst in NAME_LISTS.values() for w in lst if _used(w, turns, ws.files)})
     prog = Progression(
         format=pg.FORMAT,
@@ -798,6 +805,7 @@ def build(seed: int, size: str) -> Progression:
         workspace=dict(sorted(ws.files.items())),
         context_window=window,
         names=names,
+        overhead_tokens=overhead,
     )
     pg.validate(prog)
     _never_said(prog, keys)
@@ -921,12 +929,12 @@ def mark_turns(i: int, mark_text: str, n: int) -> list[tuple[int, int]]:
     return out
 
 
-def cross_bound(before: int, turns: list[tuple[int, int]], n: int, r: int) -> int:
+def cross_bound(before: int, turns: list[tuple[int, int]], n: int, r: int, overhead: int = OVERHEAD_TOKENS) -> int:
     """The upper bound at the last read's answer, the reads taken one at a
     time (the slower crossing): everything before that read's result was
     counted by the provider, and only that result is estimated."""
     u1, c1 = turns[0]
-    counted = OVERHEAD_TOKENS + before + u1 + c1
+    counted = overhead + before + u1 + c1
     if n:
         u2, c2 = turns[1]
         counted += result_tokens(r) + reply_tokens() + u2 + c2 + (n - 1) * result_tokens(r)
@@ -940,13 +948,13 @@ def alone_limit(budget: int) -> int:
     return min(int(budget / (1 + ALONE_MARGIN)), budget - tk.SUMMARY_MAX_TOKENS)
 
 
-def fit_bound(before: int, last: int) -> int:
+def fit_bound(before: int, last: int, overhead: int = OVERHEAD_TOKENS) -> int:
     """The upper bound of the last turn before a mark: what came before it
     counted, its own new part estimated."""
-    return tk.upper(OVERHEAD_TOKENS + before - last, last)
+    return tk.upper(overhead + before - last, last)
 
 
-def plan_bulks(turns: list[Turn], marks: list[int]) -> tuple[int, list[Bulk]]:
+def plan_bulks(turns: list[Turn], marks: list[int], overhead: int = OVERHEAD_TOKENS) -> tuple[int, list[Bulk]]:
     """The scratch context window, and each mark's bulk reads, by the
     compiler's rule (`tokens.py`). Theseus rings when a request's upper
     bound passes the budget (the window less the output cap and 4,096), and
@@ -978,7 +986,7 @@ def plan_bulks(turns: list[Turn], marks: list[int]) -> tuple[int, list[Bulk]]:
     for s in sorted({t.session for t in turns} - {turns[m].session for m in marks}):
         own = [t for t in turns if t.session == s]
         unmarked.append(fit_bound(int(sum(t.est_tokens for t in own) * (1 + MARGIN)),
-                                  int(own[-1].est_tokens * (1 + MARGIN))))
+                                  int(own[-1].est_tokens * (1 + MARGIN)), overhead))
     window = 0
     while window < 2_000_000:
         window += 1000
@@ -987,15 +995,15 @@ def plan_bulks(turns: list[Turn], marks: list[int]) -> tuple[int, list[Bulk]]:
             continue
         plans = []
         for i, text, before, last in marks_in:
-            if fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN))) > budget:
+            if fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead) > budget:
                 break
             lo = int(before * (1 - MARGIN))
             plan = None
             for n in range(MORE_READS + 1):
                 rt = mark_turns(i, text, n)
                 # A few tokens' slack: the plan rounds each message, the census the whole.
-                top = min(cap, _largest(lambda r: max(_alone(rt, n, r)), alone_limit(budget) - 8))
-                need = max(BULK_MIN_TOKENS, _smallest(lambda r: cross_bound(lo, rt, n, r), budget + 1))
+                top = min(cap, _largest(lambda r: max(_alone(rt, n, r, overhead)), alone_limit(budget) - 8))
+                need = max(BULK_MIN_TOKENS, _smallest(lambda r: cross_bound(lo, rt, n, r, overhead), budget + 1))
                 if need <= top:
                     plan = Bulk([(need + top) // 2] * (n + 1), before)
                     break
@@ -1007,14 +1015,14 @@ def plan_bulks(turns: list[Turn], marks: list[int]) -> tuple[int, list[Bulk]]:
     raise RuntimeError("no window holds the marks")
 
 
-def _alone(rt: list[tuple[int, int]], n: int, r: int) -> list[int]:
+def _alone(rt: list[tuple[int, int]], n: int, r: int, overhead: int = OVERHEAD_TOKENS) -> list[int]:
     """Each read turn's ring candidate at its answer: the system prompt and
     tools, its user message, its calls and their results (`r` each),
     estimated whole, at the upper bound. Past the budget, an overage."""
     (u1, c1), *rest = rt
-    out = [tk.bound(OVERHEAD_TOKENS + u1 + c1 + result_tokens(r))]
+    out = [tk.bound(overhead + u1 + c1 + result_tokens(r))]
     for u, c in rest:
-        out.append(tk.bound(OVERHEAD_TOKENS + u + c + n * result_tokens(r)))
+        out.append(tk.bound(overhead + u + c + n * result_tokens(r)))
     return out
 
 
@@ -1069,14 +1077,22 @@ def _put_bulks(seed: int, i: int, m: int, plan: Bulk, turns: list[Turn], ws: Wor
 # ---- the budget
 
 
-def bounds_of(prog: Progression) -> list[dict]:
+def planned_overhead(prog: Progression) -> int:
+    """The overhead `prog` was planned at: its own record, or for a file
+    from before it was recorded, today's `OVERHEAD_TOKENS`."""
+    return OVERHEAD_TOKENS if prog.overhead_tokens is None else prog.overhead_tokens
+
+
+def bounds_of(prog: Progression, overhead: int | None = None) -> list[dict]:
     """Each mark's bounds, from the progression's own bytes (its logs, its
     turns' estimates) by the compiler's rule: the request budget; the turns
     before the mark (`before`, their estimate) and the last one's bound at
     `MARGIN` over it (`fit`); each read turn's bound alone beside the
     system prompt and tools (`alone`, against `alone_limit`); and the bound
     at the last read's answer at `MARGIN` under the turns' estimate
-    (`cross`), the turn it falls in (`cross_at`)."""
+    (`cross`), the turn it falls in (`cross_at`). The system prompt and
+    tools are `overhead`, by default the one it was planned at."""
+    overhead = planned_overhead(prog) if overhead is None else overhead
     budget = pg.request_budget(prog.context_window)
     out = []
     for i, m in enumerate(prog.marks()):
@@ -1096,9 +1112,9 @@ def bounds_of(prog: Progression) -> list[dict]:
             whole = tk.user_text(t.text)
             for p in paths:
                 whole = whole + tk.call("fs_read", {"path": p}) + tk.result(tk.fs_read_bytes(prog.workspace[p]["content"]))
-            alone.append(tk.bound(OVERHEAD_TOKENS + whole.tokens(PLAN_RATES)))
+            alone.append(tk.bound(overhead + whole.tokens(PLAN_RATES)))
             pieces.append((u, calls, results))
-        counted = OVERHEAD_TOKENS + int(before * (1 - MARGIN))
+        counted = overhead + int(before * (1 - MARGIN))
         for k, (u, calls, results) in enumerate(pieces):
             counted += u + sum(calls) + sum(results)
             if k < len(pieces) - 1:
@@ -1106,7 +1122,7 @@ def bounds_of(prog: Progression) -> list[dict]:
         cross = tk.upper(counted - results[-1], results[-1])
         out.append({
             "mark": m, "budget": budget, "before": before,
-            "fit": fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN))),
+            "fit": fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead),
             "logs": logs, "alone": alone, "alone_limit": alone_limit(budget),
             "cross": cross, "cross_at": read_turns[-1].index,
         })
@@ -1128,20 +1144,21 @@ def estimate(prog: Progression, model: str) -> dict:
         raise SystemExit(f"no price for {m!r}: the catalog's models are {', '.join(sorted(PRICES))}")
     pin, pout, pread, pwrite = (x / 1e6 for x in PRICES[m])
     budget = pg.request_budget(prog.context_window)
+    overhead = planned_overhead(prog)
     out_tokens = 250
     usd = read = written = 0.0
-    ctx = OVERHEAD_TOKENS
+    ctx = overhead
     session = -1
     compactions = 0
     for t in prog.turns:
         if t.session != session:
-            session, ctx = t.session, OVERHEAD_TOKENS
-            usd += OVERHEAD_TOKENS * pwrite
+            session, ctx = t.session, overhead
+            usd += overhead * pwrite
         calls = 1 if t.role == "probe" else 2
         new = t.est_tokens
         if tk.upper(ctx, new) > budget:
             usd += ctx * pin + SUMMARY_TOKENS * pout
-            ctx = OVERHEAD_TOKENS + SUMMARY_TOKENS
+            ctx = overhead + SUMMARY_TOKENS
             compactions += 1
         usd += calls * ctx * pread + new * pwrite + calls * out_tokens * pout
         read += calls * ctx
@@ -1165,7 +1182,7 @@ def summary(prog: Progression, model: str) -> str:
         f"compaction marks: turns {', '.join(map(str, prog.marks()))}; scratch context window {prog.context_window}, "
         f"a request budget of {pg.request_budget(prog.context_window):,} (the window less its output cap "
         f"{pg.output_cap(prog.context_window):,} and {tk.HEADROOM:,}); the system prompt and tools estimated at "
-        f"{OVERHEAD_TOKENS:,}",
+        f"{planned_overhead(prog):,} (the driver refuses a daemon's past it by more than {OVERHEAD_CUSHION})",
         f"facts: {len(prog.facts)} (" + ", ".join(
             f"{fam} {sum(1 for f in prog.facts if f.family == fam)}" for fam in pg.FAMILIES[:-1])
         + f"; and needs_nothing, the abstentions' subjects, {sum(1 for p in prog.probes if p.kind == 'abstention')}); "
@@ -1199,8 +1216,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--size", choices=("smoke", "full"), required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--model", default="anthropic/claude-sonnet-5-5", help="for the budget's prices")
+    ap.add_argument("--overhead", type=int, default=OVERHEAD_TOKENS,
+                    help="the system prompt and tools to plan at, in tokens (the driver's measured overhead)")
     a = ap.parse_args(argv)
-    prog = build(a.seed, a.size)
+    prog = build(a.seed, a.size, a.overhead)
     if a.out.exists() and any(a.out.iterdir()):
         print(f"generate: {a.out} is not empty", file=sys.stderr)
         return 2

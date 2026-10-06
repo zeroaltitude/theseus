@@ -38,6 +38,9 @@ A progression (`progression.json`, format `recall-progression-v1`) is:
   supersedes.
 - **probes**: the fact, the kind, the planned distance bucket, the turn that asks it, and the check.
 - **workspace**: the files every arm starts from, byte for byte the same.
+- **overhead_tokens**: the system prompt and tools, in tokens, that the window and the bulks were planned at
+  (`--overhead`, by default `OVERHEAD_TOKENS`). A file from before it was recorded has none, keeps its digest (the
+  key is written only when set), and is held to today's `OVERHEAD_TOKENS`.
 
 **Salience.** *Incidental*: said once in passing. That can be a line in a script's output ("run
 ./scripts/check-alder-relay.sh: did the build pass?" prints the port among the build lines), a path in an error
@@ -125,6 +128,12 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     up to three more at the turn after the mark. One tool result shows at most 30,000 characters, and `fs_read`
     numbers each line, so each log fits under that. For seed 7 that is 45000 for the smoke (a budget of 29,654;
     two logs of about 4,400 tokens, the second at turn 11) and 94000 for the full (73,904).
+  - **The overhead is checked.** After the first turn, before any probe, the driver reads its daemon's first
+    `context.compiled` estimate less that turn's user message: the system prompt and tools, as `OVERHEAD_TOKENS`
+    defines them. Past the progression's planned overhead by more than `OVERHEAD_CUSHION` (50 tokens), a mark may
+    ring or fail, so the run stops (exit 3) with both numbers, unless `--allow-overhead`. `run.json`'s `overhead`
+    keeps the planned, the measured and the cushion either way. Generate again with `--overhead <measured>` to plan
+    at the daemon's own.
   - Where it compacted is read from the ledger (`context.compacted`) after every turn, with each row's outcome:
     `compaction`, a summary in the cut's place, or `ring`, the cut kept with no summary and why (the summary would
     not fit, or its call failed), and the cut's span (its message count, its first and last positions).
@@ -163,7 +172,7 @@ scored as a miss.
 ## The run directory
 
 `run.json` holds the arm, the memory arm, the model, the progression's digest, the compactions (the turns whose
-request was compacted), Theseus's `compaction_rows` (each turn's outcomes and cuts), and what the stop had to kill. `turns.jsonl` holds each turn's reply, exit, tokens, dollars
+request was compacted), Theseus's `compaction_rows` (each turn's outcomes and cuts), what the stop had to kill, and Theseus's `overhead` (planned and measured). `turns.jsonl` holds each turn's reply, exit, tokens, dollars
 and latency. `delivered.json` holds each fact's delivery. `progression.json` is a copy of the progression, and
 `workspace/` is the arm's workspace as the run left it. `raw/` holds each turn's stdout, the transcripts and the
 daemon's log.

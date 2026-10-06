@@ -7,6 +7,8 @@ the workspace. Standard library only:
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import os
 import re
 import sys
@@ -126,6 +128,27 @@ class Format(unittest.TestCase):
             q = pg.load(Path(d))
         self.assertEqual(q.digest(), p.digest())
         self.assertEqual(q.to_json(), p.to_json())
+
+    def test_the_planned_overhead_is_kept_and_an_older_file_without_it_loads(self):
+        """`overhead_tokens` (theseus-dp3y) round-trips; a file from before it
+        loads with None, and keeps its digest: the key is written only when
+        set, so its canonical bytes are what they were."""
+        p = tiny()
+        self.assertIsNone(p.overhead_tokens)
+        self.assertNotIn("overhead_tokens", p.to_json())
+        before = hashlib.sha256(json.dumps(p.to_json(), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        with tempfile.TemporaryDirectory() as d:
+            p.save(Path(d))
+            q = pg.load(Path(d))
+        self.assertIsNone(q.overhead_tokens)
+        self.assertEqual(q.digest(), before)
+        p.overhead_tokens = 13650
+        self.assertEqual(p.to_json()["overhead_tokens"], 13650)
+        self.assertNotEqual(p.digest(), before)
+        with tempfile.TemporaryDirectory() as d:
+            p.save(Path(d))
+            q = pg.load(Path(d))
+        self.assertEqual((q.overhead_tokens, q.digest()), (13650, p.digest()))
 
     def test_a_fact_probed_twice_is_refused(self):
         p = tiny()

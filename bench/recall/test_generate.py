@@ -27,7 +27,7 @@ import tokens as tk  # noqa: E402
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "25df5ff56f522723"  # theseus-523y: the bulks sized by the compiler's rule, at 13,700
+SMOKE_7 = "a6a203b842f48d21"  # theseus-dp3y: theseus-523y's, with its planned overhead recorded
 
 
 class Rng(unittest.TestCase):
@@ -332,6 +332,23 @@ class Budget(unittest.TestCase):
             # A second run refuses the full directory.
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(generate.main(["--seed", "7", "--size", "smoke", "--out", str(out)]), 2)
+
+    def test_the_planned_overhead_is_recorded_and_can_be_set(self):
+        """The progression records the overhead its plan took (theseus-dp3y):
+        the driver holds its daemon's to it. `--overhead` plans at another."""
+        self.assertEqual(generate.build(7, "smoke").overhead_tokens, generate.OVERHEAD_TOKENS)
+        p = generate.build(7, "smoke", 14000)
+        self.assertEqual((p.overhead_tokens, generate.planned_overhead(p)), (14000, 14000))
+        p.overhead_tokens = None
+        self.assertEqual(generate.planned_overhead(p), generate.OVERHEAD_TOKENS)
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "rc"
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(generate.main(["--seed", "7", "--size", "smoke", "--out", str(out),
+                                                "--overhead", "14000"]), 0)
+            self.assertIn("the system prompt and tools estimated at 14,000", buf.getvalue())
+            self.assertEqual(pg.load(out).overhead_tokens, 14000)
 
     def test_an_unpriced_model_is_refused(self):
         with self.assertRaises(SystemExit):

@@ -179,11 +179,19 @@ class Progression:
     workspace: dict[str, dict]  # path -> {"content", "executable"}
     context_window: int  # the scratch window that brings compaction near the marks
     names: list[str] = field(default_factory=list)  # every invented name used
+    # The system prompt and tools the plan sized the window and the bulks at
+    # (generate.py's `OVERHEAD_TOKENS`, or `--overhead`), which the driver
+    # holds its daemon's to. None in a file from before it was recorded:
+    # such a file keeps its digest, since the key is written only when set.
+    overhead_tokens: int | None = None
 
     # ---- I/O
 
     def to_json(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        if d["overhead_tokens"] is None:
+            del d["overhead_tokens"]
+        return d
 
     @staticmethod
     def from_json(d: dict) -> "Progression":
@@ -200,6 +208,7 @@ class Progression:
             workspace=d["workspace"],
             context_window=d["context_window"],
             names=d.get("names", []),
+            overhead_tokens=d.get("overhead_tokens"),
         )
 
     def canonical(self) -> bytes:
