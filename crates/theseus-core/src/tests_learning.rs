@@ -859,3 +859,218 @@ async fn security_and_classify_labels_come_from_the_record() {
         ]
     );
 }
+
+/// A person's message in `session`, after the judged turn, at `at_ms`.
+fn message_at(c: &Core, session: &str, text: &str, at_ms: u64) {
+    let mut n = crate::node::Node::user(session, Some("trn_next"), "cli", text);
+    n.created_at_ms = at_ms;
+    c.store.append(&[n.record().unwrap()]).unwrap();
+}
+
+/// When the turn's last node was written.
+fn turn_end(c: &Core, res: &theseus_protocol::TurnSubmitResult) -> u64 {
+    c.store
+        .session_nodes(&res.session_id)
+        .unwrap()
+        .iter()
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(res.turn_id.as_str()))
+        .map(|(_, n)| n.created_at_ms)
+        .max()
+        .unwrap()
+}
+
+/// The continuation's window (theseus-e1ei): "go on" more than 10 minutes
+/// after a turn's last node is a new ask, and takes no label; inside the
+/// window, and at its edge, it is "stopped too early".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_continuation_counts_only_inside_its_window() {
+    use crate::learning::system::CONTINUATION_MS;
+    let r = rig(texts(3), |_| {});
+    let c = &r.core;
+    let late = turn(c, None, "Draft the release notes.").await;
+    let inside = turn(c, None, "Draft the changelog.").await;
+    let edge = turn(c, None, "Draft the roadmap.").await;
+    message_at(
+        c,
+        &late.session_id,
+        "go on",
+        turn_end(c, &late) + CONTINUATION_MS + 1,
+    );
+    message_at(
+        c,
+        &inside.session_id,
+        "go on",
+        turn_end(c, &inside) + CONTINUATION_MS - 60_000,
+    );
+    message_at(
+        c,
+        &edge.session_id,
+        "go on",
+        turn_end(c, &edge) + CONTINUATION_MS,
+    );
+    let now = theseus_protocol::now_unix_ms();
+    let recs: Vec<NewRecord> = [
+        ("jdg_late", &late),
+        ("jdg_inside", &inside),
+        ("jdg_edge", &edge),
+    ]
+    .iter()
+    .map(|(id, res)| {
+        let j = judgment(
+            id,
+            "loop.v1",
+            loop_answers("complete", 0.9, 0.1),
+            loop_context(res, "no_tool_calls", "reply"),
+            300,
+        );
+        call_row(&j, now)
+    })
+    .collect();
+    c.store.append(&recs).unwrap();
+    c.run_learning(now + 2 * CONTINUATION_MS, "on_demand", |_| {})
+        .unwrap();
+    let got: Vec<(String, String)> = rows(c, "judge:loop", LedgerKind::JudgeLabel)
+        .iter()
+        .map(|(_, r)| {
+            (
+                r.data["judgment"].as_str().unwrap().into(),
+                r.data["rule"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("jdg_inside".to_string(), "continuation".to_string()),
+            ("jdg_edge".to_string(), "continuation".to_string()),
+        ],
+        "a millisecond past the window is a new ask"
+    );
+}
+
+/// The rules read only what can still change (theseus-cf5c): the first run
+/// reads every judged session; a second, a day later, reads none whose
+/// windows closed before the first, writes nothing twice, and still labels
+/// a judgment the first read inside its window, whose "go on" came after.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_run_reads_only_what_can_still_change() {
+    const OLD: usize = 200;
+    let r = rig(texts(2), |_| {});
+    let c = &r.core;
+    let now = theseus_protocol::now_unix_ms();
+    let first_at = now + 3 * DAY_MS;
+    // Old judgments, each on a session of its own: a reply, then "go on"
+    // within the window for every tenth, which the first run labels.
+    let mut recs = Vec::new();
+    for i in 0..OLD {
+        let session = format!("ses_old_{i:03}");
+        let turn_id = format!("trn_old_{i:03}");
+        let mut n = crate::node::Node::user(&session, Some(&turn_id), "cli", "Sort the shelf.");
+        n.created_at_ms = now - 30 * DAY_MS + i as u64 * 1000;
+        let end = n.created_at_ms;
+        recs.push(n.record().unwrap());
+        if i % 10 == 0 {
+            let mut next = crate::node::Node::user(&session, Some("trn_next"), "cli", "go on");
+            next.created_at_ms = end + 60_000;
+            recs.push(next.record().unwrap());
+        }
+        let ctx = json!({"session": session, "turn": turn_id, "decision": "no_tool_calls",
+            "class": "reply"});
+        let j = judgment(
+            &format!("jdg_old_{i:03}"),
+            "loop.v1",
+            loop_answers("complete", 0.9, 0.1),
+            ctx,
+            300,
+        );
+        recs.push(call_row(&j, end + 5_000));
+    }
+    // A judgment just before the first run: its "go on" comes after it.
+    let open = turn(c, None, "Draft the release notes.").await;
+    let j = judgment(
+        "jdg_open",
+        "loop.v1",
+        loop_answers("complete", 0.9, 0.1),
+        loop_context(&open, "no_tool_calls", "reply"),
+        300,
+    );
+    recs.push(call_row(&j, first_at - 5 * 60_000));
+    c.store.append(&recs).unwrap();
+    let (first, read1) = c.run_learning_read(first_at, "on_demand", |_| {}).unwrap();
+    assert_eq!(read1.sessions, OLD + 1, "the first run walks everything");
+    assert_eq!(read1.closed, 0);
+    assert_eq!(first.labels.system_written as usize, OLD / 10);
+    message_at(c, &open.session_id, "go on", turn_end(c, &open) + 60_000);
+    let (second, read2) = c
+        .run_learning_read(first_at + DAY_MS, "on_demand", |_| {})
+        .unwrap();
+    eprintln!(
+        "learning's rules at {OLD} old judged sessions: sessions read, first run {} then {}",
+        read1.sessions, read2.sessions
+    );
+    assert_eq!(
+        read2.sessions, 1,
+        "only the judgment still inside its window"
+    );
+    assert_eq!(read2.closed, OLD);
+    assert_eq!(second.labels.system_written, 1, "{read2:?}");
+    let labels = rows(c, "judge:loop", LedgerKind::JudgeLabel);
+    assert_eq!(labels.len(), OLD / 10 + 1, "nothing written twice");
+    assert!(labels
+        .iter()
+        .any(|(_, r)| r.data["judgment"] == "jdg_open" && r.data["rule"] == "continuation"));
+    // A third run reads nothing new: the open one is labeled, and closes
+    // once its window is past the second run.
+    let (third, read3) = c
+        .run_learning_read(first_at + 2 * DAY_MS, "on_demand", |_| {})
+        .unwrap();
+    assert_eq!((read3.sessions, third.labels.system_written), (0, 0));
+}
+
+/// An imported session (soul-import, theseus-0lrr.6) is born at its import
+/// with its episode's own old time: the false-completion rule's walk of the
+/// task briefs (`sessions_from`) steps over it, so the task sessions born
+/// before the import are still read (judge-reads' join fix; theseus-6jos).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_imported_session_does_not_end_the_task_briefs_walk() {
+    let r = rig(texts(8), |_| {});
+    let c = &r.core;
+    let js = loop_history(c).await;
+    // A month-old episode, imported after the two tasks were born.
+    let mut ep = json!({
+        "format": 1, "import_tag": "walk-2026-09", "episode_id": format!("ep_{:064x}", 0xbee5),
+        "source": "wiki", "agent": "main",
+        "place": {"kind": "dm", "name": "dm-0", "id": null},
+        "as_of": {"start": "2026-09-01T10:00:00Z", "end": "2026-09-01T10:05:00Z"},
+        "labels": {"sensitivity": "personal", "partner": null, "topic": ["walk"],
+                   "book_hint": "diary", "credential_redacted": false},
+        "summary": null,
+        "messages": [{"idx": 0, "time": "2026-09-01T10:00:00Z", "author": "wren",
+                      "integrity": "operator", "text": "A month-old note.",
+                      "unit": "unit-0", "sha256": "ab".repeat(32)}],
+    });
+    ep["hash"] = json!(crate::import::episode::hash_of(&ep));
+    let p = theseus_protocol::import::ImportEpisodesParams {
+        file: "walk.jsonl".into(),
+        lines: vec![theseus_protocol::import::ImportLine {
+            line: 1,
+            text: ep.to_string(),
+        }],
+    };
+    let got = crate::import::write::import_batch(&c.store, &p, "cli").unwrap();
+    assert_eq!(got.imported, 1, "{got:?}");
+    let now = theseus_protocol::now_unix_ms();
+    let recs: Vec<NewRecord> = js.iter().map(|j| call_row(j, now)).collect();
+    c.store.append(&recs).unwrap();
+    let (_, read) = c.run_learning_read(now, "on_demand", |_| {}).unwrap();
+    let rules: Vec<String> = rows(c, "judge:loop", LedgerKind::JudgeLabel)
+        .iter()
+        .map(|(_, r)| r.data["rule"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        rules.iter().any(|r| r == "false_completion"),
+        "task sessions read {}, rules {rules:?}",
+        read.tasks
+    );
+    assert_eq!(read.tasks, 2, "both task sessions are read past the import");
+}

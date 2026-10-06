@@ -316,7 +316,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   spawned after the frame with that id (`theseus_judge::Ask::id`). Every point that dispatches inside a turn marks
   the same way. The facts (`fact/judge.rs`) say their sentences, and `Telemetry::record_judgment` counts each
   judgment, once the sink's frame is written; nothing of a judgment rides in a turn's frames but its mark.
-  `judge.list` and `judge.get` are `rpc/judge.rs`. Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
+  `judge.list` and `judge.get` are `rpc/judge.rs`; `judge.list` pages back from the newest `judge.call` row (its
+  kind's tag, or its kind-and-session tag) and stops one match past its limit, so `matched` is a floor when `more`
+  (theseus-wse2; `tests_judge_reads.rs`). Tests: `tests_judge.rs`, `tests_judge_surfaces.rs`,
   `telemetry/tests_judge.rs`.
   - **The judgments a turn waits on write nothing before their call** (theseus-otny): route.v1's inbound batch and
     a live rerank stage their state's blob (`stage_blob`; the sink writes it just before the first row naming it,
@@ -345,7 +347,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     labels on v3's judgments, at each notice and each such label, `JudgeService::after_label`): a fired rule
     writes one `judge.paused` row (`what: "notices"`), a `jev_paused` post and a META mark (`judge.notices`,
     health's read), and holds notices to the next local day. The first use in a run reads today's rows in
-    `judge:security`. A label on a noticed judgment edits its post (`jev_labeled`), and `judge.label` takes a
+    `judge:security`: the pause by its key, and the day's `tool.notified` and `judge.label` rows by a page from the
+    local midnight (`read_day`, theseus-b8e2), never the scope whole but while the index's shape is built. A label on a noticed judgment edits its post (`jev_labeled`), and `judge.label` takes a
     judgment whose `judge.call` row the sink has not written yet from its notice's row. Health's `notices`.
     Tests: `tests_notices.rs`.
   - **At an exchange's end** (step 28b, `categorize.rs`): at a private conversation's exchange end (never a shared
@@ -366,7 +369,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `learning` thread at nice 19, in `SCHED_IDLE`, and about 5% of a core, each next pack waiting while the
     machine is busy: theseus-tood). `judge.label` (`judge_act(Act::JudgeLabel)`) and
     `learning.report` are `rpc/learning.rs`; the run writes its labels, `judge.report` rows and the run's META mark
-    in one frame, then `<state>/learning/<date>.json`. Tests: `tests_learning.rs`, `learning::*::tests`.
+    in one frame, then `<state>/learning/<date>.json`. The mark keeps the last position the run read (`through`),
+    and the next run's rules read no judgment whose windows closed before it (`system::Cut`, `open_ms`: its
+    session's nodes, its call's action, the task briefs; theseus-cf5c), and log how many sessions they read.
+    Tests: `tests_learning.rs`, `learning::*::tests`.
   - **Routing** (step 25e, theseus-0j2.11): `route.v1` rides the inbound point's request, live while `[judge]`
     is on (`[routing]`, `config/routing.rs`, lowers it). Its verdict comes back over a oneshot (`RouteWait`), and
     the call waits for a permit rather than being shed. The turn waits for it beside its first compile, at most

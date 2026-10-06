@@ -1376,13 +1376,8 @@ pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
                 for line in render::judge_log_lines(&r.judgments) {
                     println!("{line}");
                 }
-                if r.matched > r.judgments.len() as u64 {
-                    println!(
-                        "({} of {} judgments in {}; `--n` shows more)",
-                        r.judgments.len(),
-                        r.matched,
-                        r.scopes.join(", ")
-                    );
+                if let Some(line) = render::judge_log_footer(&r) {
+                    println!("{line}");
                 }
                 Ok(())
             })

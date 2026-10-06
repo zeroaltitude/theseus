@@ -210,8 +210,21 @@ impl Core {
         &self,
         now_ms: u64,
         trigger: &str,
-        mut pace: impl FnMut(Duration),
+        pace: impl FnMut(Duration),
     ) -> anyhow::Result<LearningReport> {
+        Ok(self.run_learning_read(now_ms, trigger, pace)?.0)
+    }
+
+    /// `run_learning`, and what its rules read beyond the scopes: past the
+    /// last run's mark, a judgment whose windows closed before it is not
+    /// read again (`learning::system::Cut`, theseus-cf5c). The mark keeps
+    /// the last position this run read (`through`) for the next.
+    pub fn run_learning_read(
+        &self,
+        now_ms: u64,
+        trigger: &str,
+        mut pace: impl FnMut(Duration),
+    ) -> anyhow::Result<(LearningReport, learning::system::RulesRead)> {
         if !self.cfg.judge.enabled {
             anyhow::bail!(
                 "the judge is off ([judge] enabled = false): nothing is judged or reported"
@@ -225,10 +238,19 @@ impl Core {
         let mut records: Vec<NewRecord> = Vec::new();
         let mut packs: Vec<PackReport> = Vec::new();
         let mut counts = LabelCounts::default();
+        let cut = self
+            .store
+            .get_meta::<Value>(LAST_RUN)?
+            .as_ref()
+            .and_then(learning::system::Cut::of);
+        // Every row at or before this is in the scopes read below.
+        let through = self.store.last_position();
+        let mut read = learning::system::RulesRead::default();
         for pack_id in learning::pack_ids() {
             let t0 = Instant::now();
             let mut scope = learning::read_scope(&self.store, &pack_id)?;
-            let derived = self.system_labels(&pack_id, &scope, now_ms);
+            let (derived, rules) = self.system_labels_after(&pack_id, &scope, now_ms, cut);
+            read += rules;
             for (i, l) in derived.iter().enumerate() {
                 records.push(l.record()?);
                 counts.system_written += 1;
@@ -270,9 +292,31 @@ impl Core {
             labels: counts,
             packs,
         };
+        tracing::info!(
+            trigger,
+            sessions_read = read.sessions,
+            actions_read = read.actions,
+            tasks_read = read.tasks,
+            judgments_closed = read.closed,
+            first = cut.is_none(),
+            "learning: the rules read what can still change"
+        );
         if r.packs.is_empty() && records.is_empty() {
-            return Ok(r);
+            return Ok((r, read));
         }
+        self.write_run(&r, records, through)?;
+        Ok((r, read))
+    }
+
+    /// A run's frame: its labels, its `judge.report` rows and its mark,
+    /// which keeps the last position the run read (`through`); then the
+    /// day's file.
+    fn write_run(
+        &self,
+        r: &LearningReport,
+        mut records: Vec<NewRecord>,
+        through: u64,
+    ) -> anyhow::Result<()> {
         let facts: Vec<fact::judge::JudgeReport<'_>> = r
             .packs
             .iter()
@@ -292,17 +336,18 @@ impl Core {
         records.push(NewRecord::json(
             kinds::META,
             Some(LAST_RUN),
-            &json!({"at_unix_ms": now_ms, "date": r.date, "trigger": trigger}),
+            &json!({"at_unix_ms": r.at_unix_ms, "date": r.date, "trigger": r.trigger,
+                "through": through}),
         )?);
         self.store.append(&records)?;
         let rec = self.rec(None);
         for f in &facts {
             rec.announce(f);
         }
-        if let Err(e) = self.write_learning_file(&r) {
+        if let Err(e) = self.write_learning_file(r) {
             tracing::warn!(error = %format!("{e:#}"), "learning: the report's file was not written; its rows hold it");
         }
-        Ok(r)
+        Ok(())
     }
 
     /// The report stored for `date`, rebuilt from its rows (and its file

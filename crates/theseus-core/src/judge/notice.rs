@@ -128,13 +128,13 @@ pub struct Paused {
 }
 
 /// The brake's day: what today holds, read once per run.
-#[derive(Debug, Default)]
-struct Day {
-    day: String,
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Day {
+    pub day: String,
     loaded: bool,
-    notices: usize,
-    noise: usize,
-    paused: Option<Paused>,
+    pub notices: usize,
+    pub noise: usize,
+    pub paused: Option<Paused>,
 }
 
 /// The notices' brake: today's count of each, and a pause. Tests move its
@@ -211,56 +211,158 @@ fn paused_of(f: &Fired, d: &Day, now_ms: u64) -> Paused {
     }
 }
 
+/// What a read of the brake's day cost (theseus-b8e2).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DayRead {
+    /// The records it decoded.
+    pub decoded: usize,
+    /// Whether it paged today's rows through the index, or scanned
+    /// `judge:security` whole.
+    pub paged: bool,
+    /// Where its page began: the day's local midnight.
+    pub since_ms: Option<u64>,
+}
+
 /// Today's notices, the owner's noise labels on v3's judgments, and a pause,
-/// from the rows in `judge:security`.
-fn read_today(store: &crate::store::Store, today: &str) -> Day {
+/// from the rows in `judge:security`: the pause by its key, and the day's
+/// `tool.notified` and `judge.label` rows by a page from `now_ms`'s local
+/// midnight, so the read costs the day's rows, not the scope's history
+/// (theseus-b8e2). While the index's shape is built after serving, the
+/// scope is scanned, as before.
+fn read_today(store: &crate::store::Store, today: &str, now_ms: u64) -> Day {
+    match theseus_store::blocking(|| read_day(store, today, now_ms, true)) {
+        Ok((d, _)) => d,
+        Err(e) => {
+            tracing::warn!(error = %format!("{e:#}"), "judge: today's notices were not read; counting from none");
+            Day {
+                day: today.into(),
+                loaded: true,
+                ..Day::default()
+            }
+        }
+    }
+}
+
+/// `read_today`, and what it cost; `paged: false` scans `judge:security`
+/// whole, as every read did before the pages (a test's baseline).
+pub(crate) fn read_day(
+    store: &crate::store::Store,
+    today: &str,
+    now_ms: u64,
+    paged: bool,
+) -> anyhow::Result<(Day, DayRead)> {
     let mut d = Day {
         day: today.into(),
         loaded: true,
         ..Day::default()
     };
-    let records = theseus_store::blocking(|| store.scope_after(SCOPE, 0));
-    let records = match records {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!(error = %format!("{e:#}"), "judge: today's notices were not read; counting from none");
-            return d;
-        }
+    let mut cost = DayRead::default();
+    let since = crate::learning::local_midnight(now_ms);
+    let page = match paged {
+        true => today_rows(store, since, &mut cost)?,
+        false => None,
     };
-    for r in records {
-        if r.kind != kinds::LEDGER {
-            continue;
-        }
-        let Ok(row) = r.decode::<LedgerRow>() else {
-            continue;
-        };
-        let x = &row.data;
-        match row.kind.as_str() {
-            "judge.paused" if x["what"] == "notices" && x["day"] == today => {
+    let Some(records) = page else {
+        cost = DayRead::default();
+        for r in store.scope_after(SCOPE, 0)? {
+            if r.kind != kinds::LEDGER {
+                continue;
+            }
+            cost.decoded += 1;
+            let Ok(row) = r.decode::<LedgerRow>() else {
+                continue;
+            };
+            let x = &row.data;
+            if row.kind == "judge.paused" && x["what"] == "notices" && x["day"] == today {
                 d.paused = serde_json::from_value(x.clone()).ok();
             }
-            "tool.notified" | "judge.label" if spend::local_day(row.at_unix_ms) != today => {}
-            "tool.notified" if x["by"] == "judge" => d.notices += 1,
-            "judge.label"
-                if (x["pack"] == SECURITY_CANDIDATE || learned_v3(x["pack"].as_str()))
-                    && x["label"] == "noise"
-                    && x["source"] == "operator" =>
-            {
-                d.noise += 1
+            count(&mut d, &row);
+        }
+        return Ok((d, cost));
+    };
+    // The pause is one row keyed by its day, as the ladder reads it.
+    if let Some(r) = store.ledger_by_key(&paused_key(today))? {
+        cost.decoded += 1;
+        if let Ok(row) = r.decode::<LedgerRow>() {
+            let x = &row.data;
+            if row.kind == "judge.paused" && x["what"] == "notices" && x["day"] == today {
+                d.paused = serde_json::from_value(x.clone()).ok();
             }
-            _ => {}
         }
     }
-    d
+    for row in &records {
+        count(&mut d, row);
+    }
+    Ok((d, cost))
+}
+
+/// The day's `tool.notified` and `judge.label` rows in `judge:security`,
+/// from the ledger's clock at `since` on (a window of time is one stretch
+/// of positions), newest first. `None` while the index's shape is built.
+fn today_rows(
+    store: &crate::store::Store,
+    since: u64,
+    cost: &mut DayRead,
+) -> anyhow::Result<Option<Vec<LedgerRow>>> {
+    use theseus_store::pages::ledger_kind;
+    cost.paged = true;
+    cost.since_ms = Some(since);
+    let mut rows = Vec::new();
+    let mut before = None;
+    loop {
+        let page = theseus_store::Page {
+            kind: kinds::LEDGER,
+            tags: vec![ledger_kind("tool.notified"), ledger_kind("judge.label")],
+            after: None,
+            before,
+            since_ms: Some(since),
+            until_ms: None,
+            limit: 256,
+        };
+        let Some(out) = store.ledger_page(&page)? else {
+            return Ok(None);
+        };
+        for r in out.records.iter().rev() {
+            if r.scope.as_deref() != Some(SCOPE) {
+                continue;
+            }
+            cost.decoded += 1;
+            if let Ok(row) = r.decode::<LedgerRow>() {
+                rows.push(row);
+            }
+        }
+        match (out.more, out.first) {
+            (true, Some(first)) => before = Some(first),
+            _ => return Ok(Some(rows)),
+        }
+    }
+}
+
+/// A row toward the day's counts: a notice by the judge, or the owner's
+/// `noise` on a v3 judgment, each of `d`'s day by its own time.
+fn count(d: &mut Day, row: &LedgerRow) {
+    let x = &row.data;
+    match row.kind.as_str() {
+        "tool.notified" | "judge.label" if spend::local_day(row.at_unix_ms) != d.day => {}
+        "tool.notified" if x["by"] == "judge" => d.notices += 1,
+        "judge.label"
+            if (x["pack"] == SECURITY_CANDIDATE || learned_v3(x["pack"].as_str()))
+                && x["label"] == "noise"
+                && x["source"] == "operator" =>
+        {
+            d.noise += 1
+        }
+        _ => {}
+    }
 }
 
 impl JudgeService {
     /// The brake's day as of `today`: read from the store at the first use
     /// of a run, and begun afresh at a new local day.
-    fn brake_day(&self, today: &str) -> MutexGuard<'_, Day> {
+    fn brake_day(&self, today: &str, now_ms: u64) -> MutexGuard<'_, Day> {
         let mut d = self.brake.lock();
         if !d.loaded {
-            *d = read_today(&self.store, today);
+            *d = read_today(&self.store, today, now_ms);
         } else if d.day != today {
             *d = Day {
                 day: today.into(),
@@ -279,7 +381,7 @@ impl JudgeService {
         let now = self.brake.now_ms();
         let today = spend::local_day(now);
         let verdict = {
-            let mut d = self.brake_day(&today);
+            let mut d = self.brake_day(&today, now);
             match &d.paused {
                 Some(_) => Verdict::Paused,
                 None => match check_all(&rules(), &events(&d, true)).first() {
@@ -435,7 +537,7 @@ impl JudgeService {
                 // A run's first use reads the day from the store, which
                 // holds this label's row already: it counts once.
                 let read = !self.brake.lock().loaded;
-                let mut d = self.brake_day(&today);
+                let mut d = self.brake_day(&today, now);
                 if !read {
                     d.noise += 1;
                 }

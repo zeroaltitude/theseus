@@ -79,9 +79,17 @@ pub struct JudgeListParams {
 pub struct JudgeListResult {
     /// The scopes read, one a pack (`judge:loop`): the listing's scope.
     pub scopes: Vec<String>,
-    /// The judgments that matched, before the limit cut them.
+    /// The judgments that matched, before the limit cut them: exact unless
+    /// `more`. The newest are read first, and a read stops one match past
+    /// the limit (theseus-wse2), so with `more` this is a floor: the limit's
+    /// judgments and the one older match that proves there are more.
     #[cfg_attr(test, ts(type = "number"))]
     pub matched: u64,
+    /// Older judgments match beyond those `matched` counts: `matched` is
+    /// then at least the number that match, not the number. False from a
+    /// daemon that counted them all.
+    #[serde(default)]
+    pub more: bool,
     /// The newest `limit` of them, oldest first: each a `judge.call` row
     /// (its `data` the judgment whole: pack, mode, answers with bands,
     /// timing, cost, outcome, context, and `disagrees`).

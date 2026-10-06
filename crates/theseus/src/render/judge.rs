@@ -4,7 +4,9 @@
 //! length the shape budget caps (`scripts/long-files.txt`).
 
 use serde_json::Value;
-use theseus_protocol::judge::{JudgeGetResult, JudgeHealth, JudgeNoticed, JudgeScored};
+use theseus_protocol::judge::{
+    JudgeGetResult, JudgeHealth, JudgeListResult, JudgeNoticed, JudgeScored,
+};
 use theseus_protocol::{LedgerEntry, Span};
 
 use super::{fmt_time, push, Line, Tag};
@@ -160,6 +162,22 @@ fn rerank(rr: &Value) -> String {
         "recall {recall} · {} notes · {what}",
         rr["eligible"].as_u64().unwrap_or(0).min(20)
     )
+}
+
+/// `theseus judge log`'s last line, when more judgments match than it
+/// shows: how many it shows of how many matched. A daemon that reads from
+/// the newest back stops one match past the limit (theseus-wse2), so with
+/// `more` the count is a floor, written `M+` as the cockpit writes it.
+pub fn judge_log_footer(r: &JudgeListResult) -> Option<String> {
+    (r.more || r.matched > r.judgments.len() as u64).then(|| {
+        format!(
+            "({} of {}{} judgments in {}; `--n` shows more)",
+            r.judgments.len(),
+            r.matched,
+            if r.more { "+" } else { "" },
+            r.scopes.join(", ")
+        )
+    })
 }
 
 /// `theseus judge log`: one line a judgment, oldest first: its time, pack
@@ -374,6 +392,38 @@ pub fn judge_show_lines(r: &JudgeGetResult) -> Vec<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// `judge log`'s footer: a floor (`M+`) when the daemon stopped one
+    /// match past its limit, the exact count from one that counted every
+    /// match (an older daemon's answer has no `more`), and none when every
+    /// match is shown (theseus-wse2).
+    #[test]
+    fn the_logs_footer_writes_a_floor_as_a_floor() {
+        let listed = |shown: u64, matched: u64, more: bool| JudgeListResult {
+            scopes: vec!["judge:loop".into()],
+            matched,
+            more,
+            judgments: (0..shown)
+                .map(|i| LedgerEntry {
+                    position: i,
+                    at_unix_ms: 0,
+                    kind: "judge.call".into(),
+                    session_id: None,
+                    turn_id: None,
+                    data: json!({}),
+                })
+                .collect(),
+        };
+        assert_eq!(
+            judge_log_footer(&listed(20, 21, true)).as_deref(),
+            Some("(20 of 21+ judgments in judge:loop; `--n` shows more)")
+        );
+        assert_eq!(
+            judge_log_footer(&listed(20, 10_000, false)).as_deref(),
+            Some("(20 of 10000 judgments in judge:loop; `--n` shows more)")
+        );
+        assert_eq!(judge_log_footer(&listed(7, 7, false)), None);
+    }
 
     /// A notified call's score follows its notice on the CLI's stream, as
     /// `ask` and `watch` render it (M5 step 24).
