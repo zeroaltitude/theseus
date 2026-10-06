@@ -3,14 +3,30 @@
 //! - **Receive.** Each listed speaker's frames go through a VAD of their own;
 //!   an utterance closes after 700 ms of silence and is transcribed. Anyone
 //!   else's audio is dropped at the door, never transcribed.
-//! - **Turns.** A transcribed utterance starts a turn when none is in flight.
-//!   Utterances that close during a turn coalesce into the next one, in the
-//!   order they closed, each keeping its speaker.
+//! - **Turns.** A transcribed utterance with words starts a turn when none
+//!   is in flight. Utterances that close during a turn coalesce into the next
+//!   one, in the order they closed, each keeping its speaker. Each carries
+//!   what Theseus was doing at its first speech frame (`over`) and what it
+//!   was heard as (`heard_as`, by the rules in `heard.rs`): over Theseus's
+//!   speech, a sound with no words, Theseus's own sentence heard back, a
+//!   "yeah", or a "go on" is no turn.
 //! - **Send.** A reply is split at sentence ends and synthesized one sentence
 //!   at a time, one ahead of what's playing, so its first audio starts after
-//!   its first sentence. A listed speaker who talks for 300 ms over Theseus
-//!   stops the clip and drops the rest (barge-in); the session still has the
-//!   whole text.
+//!   its first sentence. A reply or report begins only on the floor: while a
+//!   listed speaker talks it waits, and if their utterance is words it is
+//!   superseded (a `Cut`) and their words are the next turn. So is a reply
+//!   whose speaker went on within 1.5 s of their last word in its turn (a
+//!   thought split by a pause).
+//! - **Barge-in.** A listed speaker who talks for 300 ms over Theseus stops
+//!   the clip at once, and holds the queue: nothing plays or is synthesized.
+//!   The words over it decide. No words, an echo, a "yeah", or a "go on"
+//!   resume the cut sentence from its start, from the audio it held
+//!   (`Resumed`); words commit the cut (a `Cut` for each reply or report,
+//!   then `BargeIn`) and are the next turn. Words too short to stop it, or
+//!   from a speaker heard echoing (whose stop is off for the call), cut at
+//!   their transcript; so does a failed transcription. A report cut by words
+//!   comes back at the next pause from its cut sentence. The session still
+//!   has the whole text.
 //! - A turn that runs past 2 s gets the canned acknowledgment, once, when the
 //!   line is quiet. A task's report waits for the next pause.
 //!
