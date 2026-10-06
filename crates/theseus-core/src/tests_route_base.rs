@@ -2,12 +2,13 @@
 //! it from (`Routed.from`). Once `route.v1` stops acting, the session runs
 //! there, so a pane's `-P` profile comes back; a turn whose base changed (the
 //! live profile, a place's) clears the move; the pane's carried routed profile
-//! is never a new base. The rig is `tests_route`'s.
+//! is never a new base. A second switch keeps the first base, and a switch
+//! back to it ends the move (theseus-zvpl). The rig is `tests_route`'s.
 
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use theseus_judge::fake::FakeJev;
+use theseus_judge::fake::{FakeJev, FakeMode};
 use theseus_protocol::{PlaceCeiling, SessionKind, TurnSubmitResult};
 
 use crate::places::BoundPlace;
@@ -257,5 +258,115 @@ async fn a_routed_record_without_its_base_reads_as_before() {
     let r = rig_on(dir, Some(&jev), 1, |c| c.routing.enabled = false, board());
     let two = submit(&r, pane(&sid, "And a segment?", "opus")).await;
     assert_eq!(two.profile, "sonnet");
+    assert_eq!(routed(&r, &sid), None);
+}
+
+// ------------------------------------------- a second switch, and a switch back (theseus-zvpl)
+
+/// A session that follows the live profile, moved to Opus, then switched a
+/// second time, to GLM 5.3: the move keeps its first base, `sonnet`, never
+/// the profile the second switch left. Its next message with no verdict runs
+/// on GLM 5.3.
+async fn switched_twice(jev: &FakeJev) -> (Rig, String) {
+    let (r, sid) = moved_to_opus(jev, 3).await;
+    mode(jev, "routine_coding", 0.95);
+    let ask = "Rename these twelve call sites the same way.";
+    let two = turn(&r.core, Some(&sid), ask, None).await;
+    assert_eq!(
+        (two.profile.as_str(), two.route.unwrap().reason.as_str()),
+        ("glm53", "verdict")
+    );
+    assert_eq!(routed(&r, &sid), moved("glm53", "sonnet"));
+    jev.set_mode(FakeMode::Malformed);
+    let three = turn(&r.core, Some(&sid), "And the tests next to them?", None).await;
+    jev.set_mode(FakeMode::Up);
+    assert_eq!(
+        (three.profile.as_str(), three.route.unwrap().reason.as_str()),
+        ("glm53", "no_verdict")
+    );
+    assert_eq!(routed(&r, &sid), moved("glm53", "sonnet"));
+    until_route_rows(&r.core.store, 3).await;
+    (r, sid)
+}
+
+/// Switched twice, then a changed `[model] live` after a restart: the
+/// session follows the new live profile, and the move is cleared.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_switch_keeps_the_first_base_and_a_changed_live_profile_clears_it() {
+    let jev = FakeJev::start().unwrap();
+    let (r, sid) = switched_twice(&jev).await;
+    let dir = r.dir.clone();
+    drop(r);
+    let r = rig_on(
+        dir,
+        Some(&jev),
+        1,
+        |c| c.model.live = "fable".into(),
+        board(),
+    );
+    mode(&jev, "chat", 0.95);
+    let next = turn(&r.core, Some(&sid), "What is a frame?", None).await;
+    assert_eq!(
+        (next.profile.as_str(), next.model.as_str()),
+        ("fable", "claude-fable-5-1")
+    );
+    assert_eq!(routed(&r, &sid), None);
+}
+
+/// Switched twice, then routing off after a restart: the session runs on its
+/// first base, `sonnet`, not on Opus, the profile the second switch left.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn after_two_switches_routing_off_runs_on_the_first_base() {
+    let jev = FakeJev::start().unwrap();
+    let (r, sid) = switched_twice(&jev).await;
+    let dir = r.dir.clone();
+    drop(r);
+    let r = rig_on(dir, Some(&jev), 1, |c| c.routing.enabled = false, board());
+    let next = turn(&r.core, Some(&sid), "What is a frame?", None).await;
+    assert_eq!(
+        (next.profile.as_str(), next.model.as_str()),
+        ("sonnet", "claude-sonnet-5-5")
+    );
+    assert_eq!(routed(&r, &sid), None);
+}
+
+/// A pane on its own profile (`ask -P glm53`), moved to Opus, then switched
+/// back to glm53: the switch back ends the move, so the record has no
+/// `routed`; and with routing off after a restart, the pane runs on glm53.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switch_back_to_the_base_ends_the_move() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 3, |_| {});
+    let one = submit(
+        &r,
+        json!({"input": "Name the tide tables.", "profile": "glm53"}),
+    )
+    .await;
+    assert_eq!(one.profile, "glm53");
+    let sid = one.session_id;
+    mode(&jev, "sophisticated", 0.95);
+    let ask = "Weigh two designs for a crash-safe write-ahead log.";
+    let two = submit(&r, pane(&sid, ask, "glm53")).await;
+    assert_eq!(two.profile, "opus");
+    assert_eq!(routed(&r, &sid), moved("opus", "glm53"));
+    mode(&jev, "routine_coding", 0.95);
+    let ask = "Rename these twelve call sites the same way.";
+    let three = submit(&r, pane(&sid, ask, "opus")).await;
+    assert_eq!(
+        (three.profile.as_str(), three.route.unwrap().reason.as_str()),
+        ("glm53", "verdict")
+    );
+    assert_eq!(routed(&r, &sid), None, "the switch back ends the move");
+    assert_eq!(session(&r.core, &sid).last_target.unwrap().profile, "glm53");
+    until_route_rows(&r.core.store, 3).await;
+    let dir = r.dir.clone();
+    drop(r);
+    let r = rig_on(dir, Some(&jev), 1, |c| c.routing.enabled = false, board());
+    let next = submit(&r, pane(&sid, "And the tests next to them?", "glm53")).await;
+    assert_eq!(
+        (next.profile.as_str(), next.model.as_str()),
+        ("glm53", "glm-5.3")
+    );
     assert_eq!(routed(&r, &sid), None);
 }
