@@ -1389,3 +1389,127 @@ async fn the_providers_own_bound_no_longer_sets_the_holds_wait() {
     assert_eq!(starts(&played), [(ms(1200), len(S1), true)]);
     assert_eq!(turns(&seen).len(), 1, "unheard, so no turn");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_reply_waits_8_s_for_a_floor_held_by_a_steady_sound_then_plays_whole() {
+    // Robin's fan, from 0.6 s for 40 s, holds his VAD open: it closes at the
+    // 30 s maximum and opens on the next frame. The owner's answer, ready at
+    // 1.5 s (in the tick from 1.48 s), waits 8 s for the floor; at 9.48 s the
+    // fan's audio so far is transcribed, heard as no words, and the answer
+    // plays, whole: the fan's next 300 ms don't stop it (theseus-aq4t).
+    let reply = "Here are the logs from this morning.";
+    let script: &'static [(u64, &'static str)] = &[(300, "Here are the logs from this morning.")];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 42_000).say(ROBIN, 600, 40_000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "show me the logs")
+            .transcript(ROBIN, "")
+            .transcript(ROBIN, "")
+            .transcript(ROBIN, ""),
+    );
+    let (seen, played) = call(io, speech.clone(), answers(script), vec![]).await;
+    assert_eq!(starts(&played), [(ms(9480), len(reply), false)]);
+    assert!(only(&seen, cuts).is_empty() && only(&seen, resumed).is_empty());
+    assert_eq!(turns(&seen).len(), 1, "the fan is no turn");
+    // One probe, and the fan's two utterances.
+    assert_eq!(speech.transcriptions(), 4);
+    let fan: Vec<_> = utterances(&seen)
+        .into_iter()
+        .filter(|(_, u)| u.speaker == ROBIN)
+        .map(|(at, u)| (at, u.heard_as))
+        .collect();
+    assert_eq!(
+        fan,
+        [
+            (ms(30_600), HeardAs::Wordless),
+            (ms(40_600 + 700), HeardAs::Wordless)
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hold_under_a_steady_sound_resumes_at_the_floors_bound() {
+    // Robin's fan starts at 1.5 s over the reply, and stops it at 1.8 s. 8 s
+    // into the hold, at 9.8 s, its audio so far is heard as no words: the
+    // reply resumes from its cut sentence and plays to its end.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 43_000).say(ROBIN, 1500, 40_000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(ROBIN, "")
+            .transcript(ROBIN, "")
+            .transcript(ROBIN, ""),
+    );
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    let again = ms(9800);
+    assert_eq!(
+        only(&seen, resumed),
+        [(
+            again,
+            Event::Resumed {
+                what: Spoken::Reply(TurnId(0)),
+                why: HeardAs::Wordless,
+                held: ms(8000),
+            }
+        )]
+    );
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1200), len(S1), true),
+            (again, len(S1), false),
+            (again + len(S1), len(S2), false),
+            (again + len(S1) + len(S2), len(S3), false),
+        ]
+    );
+    assert!(only(&seen, cuts).is_empty());
+    assert_eq!(turns(&seen).len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_speaker_talking_10_s_in_one_breath_is_still_waited_for() {
+    // Robin talks from 1.0 s to 11.0 s without a pause. The answer, ready at
+    // 1.5 s, waits; at 9.5 s his audio so far is words, so it waits on, and
+    // his words, closed at 11.7 s, supersede it.
+    let script: &'static [(u64, &'static str)] = &[(300, "Here are the logs.")];
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 14_000).say(ROBIN, 1000, 10_000).io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "show me the logs")
+            .transcript(ROBIN, "and while you are at it")
+            .transcript(
+                ROBIN,
+                "and while you are at it show me the errors from last night",
+            ),
+    );
+    let (seen, played) = call(io, speech, answers(script), vec![]).await;
+    assert!(played.is_empty(), "{played:?}");
+    let closed = ms(11_700);
+    assert_eq!(
+        only(&seen, cuts),
+        [(
+            closed,
+            Event::Cut {
+                what: Spoken::Reply(TurnId(0)),
+                why: CutWhy::Superseded,
+                sentences: 1,
+                heard: 0,
+                into: Duration::ZERO,
+                last_heard: None,
+                cut: "Here are the logs.".into(),
+            }
+        )]
+    );
+    assert_eq!(
+        turns(&seen)[1],
+        (
+            closed,
+            vec![(
+                ROBIN,
+                "and while you are at it show me the errors from last night"
+            )]
+        )
+    );
+}
