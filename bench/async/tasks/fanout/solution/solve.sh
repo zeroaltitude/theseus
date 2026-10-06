@@ -4,6 +4,7 @@
 set -euo pipefail
 APP="${ASYNC_ROOT:-}/app"
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 one() {
   local rc
   while :; do

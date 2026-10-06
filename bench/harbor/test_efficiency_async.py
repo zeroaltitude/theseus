@@ -97,6 +97,66 @@ class LedgerRecord(unittest.TestCase):
         self.assertIsNone(rec["harness"])
 
 
+    def test_a_call_a_stop_cut_is_summed_at_its_estimate_and_counted_apart(self):
+        # The kernel's estimate of a cut call (`provider.cut`), and a failed one, which has no usage.
+        cut = {"kind": "provider.cut", "session_id": "ses_talk",
+               "data": {"model": "claude-sonnet-5-5", "by": "the CLI", "estimated": True, "sent": True,
+                        "input_tokens": 2000, "output_tokens": 70, "output_chars": 280,
+                        "cost_usd": 0.0071, "reserved_usd": 0.05}}
+        failed = {"kind": "provider.error", "session_id": "ses_talk", "data": {"model": "claude-sonnet-5-5"}}
+        s = ef.ledger_spend(ROWS + [cut, failed])
+        self.assertEqual((s["model_calls"], s["cut_calls"]), (5, 1))
+        self.assertEqual((s["billed_usd"], s["cut_cost_usd"], s["cost_usd"]), (0.0423, 0.0071, 0.0494))
+        self.assertEqual(s["tokens"], {"input": 2435, "cache_read": 5800, "cache_write": 600, "output": 450})
+        self.assertEqual(s["by_model"]["claude-sonnet-5-5"]["cost_usd"], 0.0404)
+        self.assertEqual(s["by_model"]["claude-sonnet-5-5"]["calls"], 4)
+        # With none cut, nothing apart.
+        none = ef.ledger_spend(ROWS)
+        self.assertEqual((none["cut_calls"], none["cut_cost_usd"], none["cost_usd"]), (0, None, 0.0423))
+
+    def test_the_record_reads_the_cut_calls_from_their_own_file(self):
+        self.write("theseus-calls.json", {"rows": ROWS, "total": 40})
+        self.write("theseus-cuts.json", {"rows": [{"kind": "provider.cut", "data": {
+            "model": "claude-sonnet-5-5", "input_tokens": 100, "output_tokens": 10, "cost_usd": 0.002,
+            "estimated": True}}], "total": 40})
+        rec = ef.theseus_ledger_record(self.logs)
+        self.assertEqual((rec["model_calls"], rec["cut_calls"], rec["cost_usd"], rec["billed_usd"]),
+                         (5, 1, 0.0443, 0.0423))
+
+    def test_a_task_sessions_tool_calls_count_with_the_conversations(self):
+        self.write("theseus-calls.json", {"rows": ROWS, "total": 40})
+        self.write("theseus-history.json", {"nodes": [{"kind": "tool_call"}, {"kind": "assistant_message"}]})
+        self.write("theseus-tasks.json", {"tasks": [{"task_id": "ses_taskone"}, {"task_id": "ses_tasktwo"}],
+                                          "records": []})
+        self.write(ef.task_history_file("ses_taskone"), {"nodes": [{"kind": "tool_call"}] * 3})
+        self.write(ef.task_history_file("ses_tasktwo"), {"nodes": [{"kind": "tool_call"}, {"kind": "user"}]})
+        rec = ef.theseus_ledger_record(self.logs)
+        self.assertEqual((rec["tool_calls"], rec["tool_calls_from"]), (5, "conversation and tasks"))
+        # A task's history that did not read: the conversation's alone, and the record says so.
+        (self.logs / ef.task_history_file("ses_tasktwo")).write_text("")
+        rec = ef.theseus_ledger_record(self.logs)
+        self.assertEqual((rec["tool_calls"], rec["tool_calls_from"]), (1, "conversation"))
+        # No tasks file (an older finish): the conversation's.
+        (self.logs / "theseus-tasks.json").unlink()
+        self.assertEqual(ef.theseus_ledger_record(self.logs)["tool_calls_from"], "conversation")
+        # A trial with no task: every session's tool calls are the conversation's.
+        self.write("theseus-tasks.json", {"tasks": [], "records": []})
+        rec = ef.theseus_ledger_record(self.logs)
+        self.assertEqual((rec["tool_calls"], rec["tool_calls_from"]), (1, "conversation and tasks"))
+
+    def test_a_read_that_returns_the_caps_count_marks_the_record_truncated(self):
+        self.write("theseus-calls.json", {"rows": ROWS, "total": 4000})
+        self.assertFalse(ef.theseus_ledger_record(self.logs)["truncated"])
+        full = [call("ses_talk", "claude-sonnet-5-5", 0.001, 1, 1)] * ef.LEDGER_CAP
+        self.write("theseus-calls.json", {"rows": full, "total": 4000})
+        rec = ef.theseus_ledger_record(self.logs)
+        self.assertEqual((rec["truncated"], rec["model_calls"]), (True, 1000))
+        # The cut calls' read counts as well.
+        self.write("theseus-calls.json", {"rows": ROWS, "total": 4000})
+        self.write("theseus-cuts.json", {"rows": [{"kind": "provider.cut", "data": {}}] * ef.LEDGER_CAP})
+        self.assertTrue(ef.theseus_ledger_record(self.logs)["truncated"])
+
+
 def result(cost: float, usage: dict[str, dict]) -> str:
     return json.dumps({"type": "result", "subtype": "success", "total_cost_usd": cost, "num_turns": 1,
                        "modelUsage": usage}, separators=(",", ":"))

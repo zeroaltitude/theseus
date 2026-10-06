@@ -81,17 +81,28 @@ on as a background job, and its late result comes back as a continuation.
 - The trial ends when no execution runs, is queued, or waits on a job, a task, or a due time, and no wake is pending
   (`driver.Theseus.settle`, each wait `theseus wait --after` the last position, owned by the daemon), or at the
   task's timeout. Then every session is stopped (its turn and its jobs), and the daemon's records are read before it
-  stops cleanly: `theseus-history.json` (the conversation), `theseus-calls.json` (every `provider.call` row, tasks'
-  sessions included: the trial's spend), `theseus-tasks.json`, `theseus-executions.json`, and `theseus-health.json`.
+  stops cleanly: `theseus-history.json` (the conversation), `theseus-tasks.json` and each task session's history
+  (`theseus-history-<task id>.json`), `theseus-calls.json` (every `provider.call` row, tasks' sessions included: the
+  trial's spend), `theseus-cuts.json` (every `provider.cut` row: a call a stop cut), `theseus-executions.json`, and
+  `theseus-health.json`.
 - **Measured** as bench/README.md's arms are: the harness sampler (`bench/harbor/sampler.py`) starts before the
   daemon, in a session of its own, and stops after the finish's clean stop (on Harbor's timeout too), with
   theseusd's job wrappers apart. The driver's own calls (settle's polls, the finish's reads and stops) go through
   `<state>/async-driver`, a link to `theseus`, so the sampler counts them outside the harness; the two asks are the
   arm's own client and count as harness. The record (`agent/efficiency.json`, `efficiency.theseus_ledger_record`)
-  takes its spend from `theseus-calls.json` (`spend_from: "ledger"`: the calls its rows, the dollars their sum, by
-  model), its tool calls from the conversation's history (a task's session's tool calls are not counted), and the
-  sampler's numbers. The rows leave out a call a stop cut (its estimate is a `provider.cut` row) and a failed call
-  (a `provider.error` row, with no usage or cost), which a turn's totals count.
+  takes its spend from the ledger (`spend_from: "ledger"`) and the sampler's numbers:
+  - **Calls**: `model_calls` is the `provider.call` rows, and `billed_usd` their dollars, by model. A call a `/stop`
+    cut is a `provider.cut` row, the kernel's estimate of its input, output, and dollars, which it books as spent:
+    it is summed into the tokens and the dollars, and counted apart, as `cut_calls` and `cut_cost_usd` (estimated).
+    `cost_usd` is the billed and the estimated together, and so is Harbor's cost. A failed call (a `provider.error`
+    row) has no usage or cost, and is in neither.
+  - **Tool calls**: the conversation's `tool_call` nodes and each task session's. `tool_calls_from` says which:
+    `conversation and tasks`, or `conversation` when a task's history did not read (or the tasks did not), and then
+    the count is the conversation's alone.
+  - **`truncated`**: each ledger read is the newest 1000 rows (the RPC's cap; the reply's `total` counts every row
+    of the ledger, not the read's). A read that returns 1000 marks the record `truncated: true`: the trial's oldest
+    calls may be missing, so its spend and calls are a floor, not the trial's. It waits for the CLI to read the
+    ledger in pages.
 - **Jobs and cgroups.** A container has no systemd, so the daemon's cgroup is not delegated: health's `cgroup` phase
   says `none` ("the daemon runs in /sys/fs/cgroup/, not in a unit of its own", as it did on the build VM), and a job
   stops by its process group and tree, not by a cgroup of its own.
@@ -134,7 +145,7 @@ OpenClaw (not built yet) fits the same shape: a subclass of its Harbor agent who
   `metadata["efficiency"]` in the trial's `result.json`): its `harness.cpu_s`, `harness.peak_rss_kb` in MB, and
   `work.cpu_s`, from trials whose sampler ran (`ok`, or `running` when it never wrote its last summary), as
   bench/report reads them; a trial whose sampler did not run has no numbers, never zeros.
-- **Cost**: Harbor's, which for Theseus is the sum of its ledger's model calls.
+- **Cost**: Harbor's, which for Theseus is the sum of its ledger's model calls and its cut calls' estimates.
 
 Results go in [`docs/benchmarks.md`](../../docs/benchmarks.md).
 
@@ -151,7 +162,8 @@ python3 -m unittest discover -s bench/async && python3 -m unittest discover -s b
 ```
 
 The standard library runs them without Harbor or Docker: each family's oracle on this host under a scratch
-`ASYNC_ROOT` at a time scale of 0.01, and a planted wrong effect per family; the ledger's check against an edited
+`ASYNC_ROOT` at a time scale of 0.01, with a `TMPDIR` of its own that it must leave empty (an oracle removes what it
+makes), and a planted wrong effect per family; the ledger's check against an edited
 one; the driver against a fake environment, a stand-in `claude` on the FIFO, and the daemon-mode script under a
 stand-in `theseus` (a daemon that answers health only once it is up, a wake pending after its job, the sampler
 around it all, and nothing left running after a test); and the scorer over fixture trials worked by hand. Three more run on request:

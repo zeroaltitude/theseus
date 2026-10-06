@@ -30,6 +30,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
 
+import efficiency as ef
 import sampler as smp
 import theseus_bench as tb
 
@@ -182,9 +183,12 @@ class Theseus:
 
     def finish_script(self, session: str, sampler: str | None = None) -> str:
         """After the trial: every session stopped (its turn and its jobs),
-        the conversation's history, every model call in the ledger (tasks
-        have sessions of their own), the tasks, health (its cgroup phase
-        says whether jobs got a cgroup), then a clean stop of the daemon.
+        the conversation's history, the tasks and each task session's
+        history (`efficiency.task_history_file`), every model call in the
+        ledger and every call a stop cut (tasks have sessions of their own),
+        health (its cgroup phase says whether jobs got a cgroup), then a
+        clean stop of the daemon. Each ledger read is the newest
+        `efficiency.LEDGER_CAP` rows: the record says when one is full.
         With `sampler` (`daemon_script` started it), the harness sampler is
         stopped last, after the daemon's stop, so its whole life is sampled."""
         lg, s = shlex.quote(self.logs), shlex.quote(session)
@@ -196,8 +200,12 @@ class Theseus:
             f"| sed -n 's/.*\"session_id\": *\"\\([^\"]*\\)\".*/\\1/p' | sort -u); "
             f"do {self.cli} stop \"$x\" > /dev/null 2>&1; done; "
             f"{self.cli} history {s} > {lg}/theseus-history.json 2>> {lg}/theseus.log; "
-            f"{self.cli} ledger -n 1000 -k provider.call > {lg}/theseus-calls.json 2>> {lg}/theseus.log; "
             f"{self.cli} tasks > {lg}/theseus-tasks.json 2>> {lg}/theseus.log; "
+            f"for t in $(tr ',' '\\n' < {lg}/theseus-tasks.json "
+            f"| sed -n 's/.*\"task_id\": *\"\\([^\"]*\\)\".*/\\1/p' | grep -E '^[A-Za-z0-9_-]+$' | sort -u); "
+            f"do {self.cli} history \"$t\" > {lg}/theseus-history-\"$t\".json 2>> {lg}/theseus.log; done; "
+            f"{self.cli} ledger -n {ef.LEDGER_CAP} -k provider.call > {lg}/theseus-calls.json 2>> {lg}/theseus.log; "
+            f"{self.cli} ledger -n {ef.LEDGER_CAP} -k provider.cut > {lg}/theseus-cuts.json 2>> {lg}/theseus.log; "
             f"{self.cli} health > {lg}/theseus-health.json 2>> {lg}/theseus.log; "
             f"{self.cli} shutdown > /dev/null 2>> {lg}/theseus.log; "
             f"p=$(cat {pid} 2>/dev/null); i=0; "
@@ -247,12 +255,21 @@ class Theseus:
 
 def spend(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """A trial's spend: every `provider.call` row of its daemon's ledger
-    (`theseus ledger -k provider.call`), tasks' sessions included."""
-    s = {"input_tokens": 0, "cache_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "calls": 0}
+    (`theseus ledger -k provider.call`), tasks' sessions included, and every
+    `provider.cut` row (a call a stop cut, at the kernel's estimate of its
+    input, output, and dollars), counted apart as `cut_calls`."""
+    s = {"input_tokens": 0, "cache_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "calls": 0,
+         "cut_calls": 0}
     for r in rows:
+        data = r.get("data") or {}
+        if r.get("kind") == "provider.cut":
+            s["input_tokens"] += data.get("input_tokens") or 0
+            s["output_tokens"] += data.get("output_tokens") or 0
+            s["cost_usd"] += data.get("cost_usd") or 0.0
+            s["cut_calls"] += 1
+            continue
         if r.get("kind") != "provider.call":
             continue
-        data = r.get("data") or {}
         u = data.get("usage") or {}
         read = u.get("cache_read_input_tokens") or 0
         s["input_tokens"] += (u.get("input_tokens") or 0) + read + (u.get("cache_creation_input_tokens") or 0)

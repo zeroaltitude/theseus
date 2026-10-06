@@ -48,11 +48,16 @@ class Trial:
         if (self.task / "environment/app").is_dir():
             for f in (self.task / "environment/app").iterdir():
                 shutil.copy(f, self.root / "app" / f.name)
+        # The run's own TMPDIR: whatever a script makes there and leaves is
+        # seen (`left`), not left in the host's /tmp (theseus-3rjr).
+        self.tmp = self.root / "tmp"
+        self.tmp.mkdir()
         self.env = dict(
             os.environ,
             ASYNC_ROOT=str(self.root),
             ASYNC_TIME_SCALE=scale,
             PATH=f"{self.task / 'environment/async/bin'}:{os.environ['PATH']}",
+            TMPDIR=str(self.tmp),
         )
 
     def run(self, script: str | None = None) -> subprocess.CompletedProcess:
@@ -72,6 +77,10 @@ class Trial:
         reward = json.loads((logs / "reward.json").read_text())["reward"]
         problems = json.loads((logs / "problems.json").read_text())["problems"]
         return {"reward": reward, "problems": problems, "ledger": (logs / "ledger.jsonl").exists()}
+
+    def left(self) -> list[str]:
+        """What a run left in its TMPDIR."""
+        return sorted(p.name for p in self.tmp.iterdir())
 
     def ledger(self) -> list[dict]:
         return ab.read(self.root / "var/lib/async/ledger.jsonl")
@@ -127,6 +136,8 @@ class Oracles(unittest.TestCase):
                 try:
                     r = t.run()
                     self.assertEqual(r.returncode, 0, r.stderr)
+                    # Nothing left outside its scratch root.
+                    self.assertEqual(t.left(), [])
                     got = t.check()
                     self.assertEqual((got["reward"], got["problems"]), (1, []))
                     self.assertTrue(got["ledger"])
@@ -142,6 +153,7 @@ class Oracles(unittest.TestCase):
         t = Trial("parallel", "0.2")
         try:
             t.run()
+            self.assertEqual(t.left(), [])
             rec = t.ledger()
             starts = [r["mono"] for r in ab.by(rec, "start", "digest")]
             ends = [r["mono"] for r in ab.by(rec, "end", "digest")]

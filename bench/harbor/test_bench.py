@@ -24,6 +24,7 @@ from pathlib import Path
 import sampler as smp
 import theseus_atif as atif
 import theseus_bench as tb
+from test_sampler import stop_samplers
 
 REPO = Path(__file__).resolve().parents[2]
 SAMPLER = Path(smp.__file__).resolve()
@@ -115,6 +116,7 @@ esac
 class Scripts(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         d = Path(self.tmp.name)
         self.bin, self.state, self.logs = d / "bin", d / "state", d / "logs"
         for p in (self.bin, self.state, self.logs):
@@ -122,9 +124,9 @@ class Scripts(unittest.TestCase):
         for name in ("theseus", "theseusd"):
             (self.bin / name).write_text(STANDIN)
             (self.bin / name).chmod(stat.S_IRWXU)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        # A sampler a test started is stopped, and waited for, before the
+        # directory goes, whatever the test did (theseus-99by).
+        self.addCleanup(stop_samplers, self, self.logs, self.state, d)
 
     def start(self, ask: str, sampler: bool = False, path: str | None = None) -> subprocess.Popen:
         env = dict(os.environ, STANDIN_DIR=self.tmp.name, STANDIN_ASK=ask,
@@ -133,8 +135,19 @@ class Scripts(unittest.TestCase):
             env["PATH"] = path
         script = tb.run_script(str(self.bin), str(self.state), str(self.logs),
                                str(SAMPLER) if sampler else None, 50)
-        return subprocess.Popen([BASH, "-c", "set -o pipefail; " + script], env=env,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        p = subprocess.Popen([BASH, "-c", "set -o pipefail; " + script], env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(self.reap, p)
+        return p
+
+    @staticmethod
+    def reap(p: subprocess.Popen) -> None:
+        """The run's shell, killed and reaped should the test end before it."""
+        if p.poll() is None:
+            p.kill()
+        p.wait(timeout=30)
+        for f in (p.stdout, p.stderr):
+            f.close()
 
     def read(self, name: str) -> str:
         return (self.logs / name).read_text()

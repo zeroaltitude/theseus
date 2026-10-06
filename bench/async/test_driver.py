@@ -292,7 +292,7 @@ class ClaudeStdin(unittest.TestCase):
 # job running. The daemon answers `health` only once it is up, after
 # STANDIN_START_S, and exits at `shutdown` or once its directory is gone.
 # `ask` records its message; `wait --after` on the busy session is the job's
-# completion (its continuation), after STANDIN_JOB_S; `wakes` lists one wake
+# completion (its continuation), after STANDIN_JOB_S, or its --timeout first; `wakes` lists one wake
 # due STANDIN_WAKE_S after the first look (1 s) until it is due. Its state
 # is read and written under a lock: the CLI and the daemon run at once.
 STANDIN_THESEUS = r"""#!/usr/bin/env python3
@@ -342,13 +342,27 @@ elif cmd == "wakes":
     due = s["wake_due"]
     print(json.dumps({"wakes": [{"wake_id": "wak_1", "session_id": "ses_invented", "due_at_ms": int(due * 1000)}] if time.time() < due else []}))
 elif cmd == "wait":
+    reached = "settled"
     if "--after" in args and s["outstanding"]:
-        time.sleep(float(os.environ.get("STANDIN_JOB_S", "0.5")))
-        def done(s):
-            s["outstanding"] = 0; s["position"] += 1; s["job_done_at"] = time.monotonic()
-        s = change(done)
-    print(json.dumps({"reached": "settled", "already": "--after" not in args, "execution": view(s), "confirms": []}))
-elif cmd == "ledger": print(json.dumps({"rows": [{"kind": "provider.call", "data": {"cost_usd": 0.01}}], "total": 1}))
+        # As the daemon does: the wait ends at its --timeout, the job still running.
+        job, limit = float(os.environ.get("STANDIN_JOB_S", "0.5")), float(args[args.index("--timeout") + 1].rstrip("s"))
+        time.sleep(min(job, limit))
+        if job <= limit:
+            def done(s):
+                s["outstanding"] = 0; s["position"] += 1; s["job_done_at"] = time.monotonic()
+            s = change(done)
+        else:
+            reached = "timeout"
+    print(json.dumps({"reached": reached, "already": "--after" not in args, "execution": view(s), "confirms": []}))
+elif cmd == "ledger":
+    kind = args[args.index("-k") + 1] if "-k" in args else None
+    rows = [{"kind": "provider.call", "data": {"cost_usd": 0.01}},
+            {"kind": "provider.cut", "data": {"estimated": True, "input_tokens": 900, "output_tokens": 30, "cost_usd": 0.004}}]
+    print(json.dumps({"rows": [r for r in rows if kind in (None, r["kind"])], "total": 7}))
+elif cmd == "tasks": print(json.dumps({"tasks": [{"task_id": "ses_taskinvented", "state": "complete"}], "records": []}))
+elif cmd == "history":
+    tools = 2 if args[1:2] == ["ses_taskinvented"] else 1
+    print(json.dumps({"nodes": [{"kind": "tool_call"}] * tools + [{"kind": "assistant_message"}]}))
 elif cmd == "shutdown": open(os.path.join(d, "shutdown"), "w").close(); print("{}")
 else: print(json.dumps({"cmd": cmd}))
 """
@@ -484,7 +498,10 @@ class TheseusTrial(unittest.TestCase):
         for cmd in ("stop", "history", "ledger", "tasks", "health", "shutdown"):
             self.assertIn(cmd, done)
         self.assertLess(done.index("stop"), done.index("shutdown"))
-        self.assertEqual(json.loads((self.logs / "theseus-calls.json").read_text())["total"], 1)
+        self.assertEqual(json.loads((self.logs / "theseus-calls.json").read_text())["total"], 7)
+        # Each task session's history was read, after the tasks.
+        self.assertIn(["history", "ses_taskinvented"], s["calls"])
+        self.assertLess(done.index("tasks"), s["calls"].index(["history", "ses_taskinvented"]))
         self.assertFalse(Path(f"{self.state}/theseus.sock").exists())
         # The sampler ran around it all, its daemon harness, the driver's polls outside.
         summary = json.loads((self.logs / smp.SUMMARY).read_text())
@@ -497,8 +514,13 @@ class TheseusTrial(unittest.TestCase):
         # The record: the ledger's rows, the sampler's numbers.
         rec = ef.theseus_ledger_record(self.logs, wall_s=1.0)
         self.assertEqual((rec["spend_from"], rec["model_calls"], rec["cost_usd"], rec["sampler"]["status"]),
-                         ("ledger", 1, 0.01, "ok"))
+                         ("ledger", 1, 0.014, "ok"))
         self.assertIsNotNone(rec["harness"])
+        # The call a stop cut, at its estimate and apart; the task's tool calls with the conversation's;
+        # and reads short of the cap.
+        self.assertEqual((rec["cut_calls"], rec["cut_cost_usd"], rec["billed_usd"]), (1, 0.004, 0.01))
+        self.assertEqual((rec["tool_calls"], rec["tool_calls_from"]), (3, "conversation and tasks"))
+        self.assertFalse(rec["truncated"])
 
     def test_settle_waits_for_a_pending_wake_after_the_job(self):
         async def go():
@@ -637,6 +659,12 @@ class EndToEnd(unittest.TestCase):
             answers = [n for n in json.loads((logs / tb.HISTORY).read_text())["nodes"]
                        if n["kind"] == "assistant_message"]
             self.assertEqual(len(calls), len(answers))
+            # Nothing was cut, the reads were short of the cap, and the tasks (none) read: every tool call
+            # is the conversation's, each `proc_run` the rules made.
+            self.assertEqual((rec["cut_calls"], rec["truncated"], rec["tool_calls_from"]),
+                             (0, False, "conversation and tasks"))
+            self.assertEqual(json.loads((logs / "theseus-cuts.json").read_text())["rows"], [])
+            self.assertEqual(rec["tool_calls"], 2)
             self.assertGreater(rec["harness"]["cpu_s"], 0)
             self.assertGreater(rec["harness"]["peak_rss_kb"], 0)
             self.assertEqual(left_running(d), [])
@@ -681,9 +709,13 @@ class Spend(unittest.TestCase):
             {"kind": "provider.call", "session_id": "ses_task",
              "data": {"cost_usd": 0.01, "usage": {"input_tokens": 50, "output_tokens": 20}}},
             {"kind": "turn.ended", "data": {"cost_usd": 9.0}},
+            # A call a stop cut, at its estimate; a failed one, with no usage or cost.
+            {"kind": "provider.cut", "session_id": "ses_conversation",
+             "data": {"estimated": True, "input_tokens": 300, "output_tokens": 12, "cost_usd": 0.002}},
+            {"kind": "provider.error", "session_id": "ses_conversation", "data": {"error": "overloaded"}},
         ]
-        self.assertEqual(driver.spend(rows), {"input_tokens": 1650, "cache_tokens": 1000,
-                                              "output_tokens": 60, "cost_usd": 0.03, "calls": 2})
+        self.assertEqual(driver.spend(rows), {"input_tokens": 1950, "cache_tokens": 1000, "output_tokens": 72,
+                                              "cost_usd": 0.032, "calls": 2, "cut_calls": 1})
 
 
 # A task of the interrupt family's shape whose injection fires by time, 5 s in:
@@ -802,15 +834,19 @@ class Agents(unittest.TestCase):
                                                  "usage": {"input_tokens": 20, "output_tokens": 10}}))
             (d / tb.EXIT).write_text("0\n")
             (d / "theseus-calls.json").write_text(json.dumps({"rows": rows, "total": len(rows)}))
+            (d / "theseus-cuts.json").write_text(json.dumps({"rows": [{"kind": "provider.cut", "data": {
+                "model": "claude-sonnet-5-5", "estimated": True, "input_tokens": 40, "output_tokens": 2,
+                "cost_usd": 0.0007}}], "total": len(rows)}))
             (d / driver.REPORT).write_text(json.dumps({"wall_s": 42.0}))
             agent = async_agents.TheseusAsync(logs_dir=d, model_name="anthropic/claude-sonnet-5-5")
             context = AgentContext()
             agent.populate_context_post_run(context)
             rec = json.loads((d / ef.RECORD).read_text())
-            self.assertEqual((rec["spend_from"], rec["model_calls"], rec["cost_usd"]), ("ledger", 5, 0.0423))
+            self.assertEqual((rec["spend_from"], rec["model_calls"], rec["cost_usd"], rec["cut_calls"]),
+                             ("ledger", 5, 0.043, 1))
             self.assertEqual((rec["wall_s"], rec["wall_from"]), (42.0, "agent"))
             self.assertEqual(context.metadata["efficiency"], rec)
-            self.assertEqual(context.cost_usd, 0.0423)
+            self.assertEqual((context.cost_usd, context.metadata["cut_calls"]), (0.043, 1))
 
 
 if __name__ == "__main__":

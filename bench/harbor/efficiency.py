@@ -442,48 +442,118 @@ def metadata(existing: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, 
 # ------------------------------------------------------- the async bench's
 
 
-def ledger_spend(rows: Iterable[dict[str, Any]], history: dict[str, Any] | None = None) -> dict[str, Any]:
-    """A Theseus trial's spend from its daemon's ledger (theseus-z5ty): each
-    `provider.call` row (`theseus ledger -k provider.call`, every session's,
-    a task's included) is one model call, with its `model`, its `usage` in
-    Anthropic's four keys, and its `cost_usd`, the catalog's price of it.
-    The calls are the rows; the dollars their sum, None when a row has no
-    price. Tool calls are no ledger kind: they are `history`'s `tool_call`
-    nodes, the conversation's alone.
+# `ledger.tail` returns at most this many rows a read: a read that returns
+# this many may have left older rows out.
+LEDGER_CAP = 1000
 
-    What the rows leave out, that a turn's totals count: a call a `/stop` cut
-    (its estimate is a `provider.cut` row) and a failed call (a
-    `provider.error` row, with neither usage nor cost)."""
+
+def _tool_calls(history: dict[str, Any] | None) -> int:
+    return sum(1 for n in (history or {}).get("nodes") or [] if n.get("kind") == "tool_call")
+
+
+def ledger_spend(rows: Iterable[dict[str, Any]], history: dict[str, Any] | None = None,
+                 task_histories: dict[str, dict[str, Any] | None] | None = None) -> dict[str, Any]:
+    """A Theseus trial's spend from its daemon's ledger (theseus-z5ty,
+    theseus-eq1a): each `provider.call` row (`theseus ledger -k
+    provider.call`, every session's, a task's included) is one model call,
+    with its `model`, its `usage` in Anthropic's four keys, and its
+    `cost_usd`, the catalog's price of it. The calls are the rows; the
+    dollars their sum, None when a row has no price.
+
+    A call a `/stop` cut is a `provider.cut` row (`ledger -k provider.cut`):
+    the kernel's estimate of its input and output tokens and its dollars,
+    which it books as spent. Each is summed into the tokens and the dollars
+    beside the calls, and counted apart: `cut_calls` (not in `model_calls`),
+    and `cut_cost_usd`, the estimated dollars, apart from `billed_usd`, the
+    priced calls'. `cost_usd` is the two together, what the trial spent.
+    A failed call (a `provider.error` row) has neither usage nor cost, and
+    stays out.
+
+    Tool calls are no ledger kind: they are the `tool_call` nodes of
+    `history` (the conversation) and of each task session's history in
+    `task_histories` (by task id, None for one that could not be read).
+    `tool_calls_from` says which: `conversation and tasks` when every task's
+    history read (none, when the trial had no task), else `conversation`,
+    the conversation's alone (and so when `task_histories` is None: the
+    tasks were not read)."""
     by_model: dict[str, dict[str, Any]] = {}
     costs: list[float | None] = []
+    cuts: list[float | None] = []
     for r in rows:
-        if r.get("kind") != "provider.call":
-            continue
+        kind = r.get("kind")
         d = r.get("data") or {}
-        m = _model(by_model, d.get("model"))
-        m.update(_add(m, tokens(d.get("usage"))))
-        m["calls"] += 1
-        c = d.get("cost_usd")
-        costs.append(c)
+        if kind == "provider.call":
+            m = _model(by_model, d.get("model"))
+            m.update(_add(m, tokens(d.get("usage"))))
+            m["calls"] += 1
+            c = d.get("cost_usd")
+            costs.append(c)
+        elif kind == "provider.cut":
+            m = _model(by_model, d.get("model"))
+            m.update(_add(m, {"input": int(d.get("input_tokens") or 0),
+                              "output": int(d.get("output_tokens") or 0)}))
+            c = d.get("cost_usd")
+            cuts.append(c)
+        else:
+            continue
         m["cost_usd"] = None if c is None or m["cost_usd"] is None else round(m["cost_usd"] + c, 6)
-    nodes = (history or {}).get("nodes") or []
-    tools = sum(1 for n in nodes if n.get("kind") == "tool_call")
-    return _spend(by_model, _priced(costs) if costs else None, "ledger", len(costs), tools)
+    billed = _priced(costs) if costs else None
+    cut = _priced(cuts) if cuts else None
+    total = _priced(costs + cuts) if costs or cuts else None
+    tools = _tool_calls(history)
+    tools_from = "conversation"
+    if task_histories is not None and all(h is not None for h in task_histories.values()):
+        tools += sum(_tool_calls(h) for h in task_histories.values())
+        tools_from = "conversation and tasks"
+    return {**_spend(by_model, total, "ledger", len(costs), tools),
+            "billed_usd": billed, "cut_calls": len(cuts), "cut_cost_usd": cut,
+            "tool_calls_from": tools_from}
+
+
+def task_ids(tasks: Any) -> list[str] | None:
+    """The task sessions' ids in `theseus --json tasks`' answer, or None when
+    it did not read."""
+    if not isinstance(tasks, dict) or not isinstance(tasks.get("tasks"), list):
+        return None
+    return [t["task_id"] for t in tasks["tasks"] if isinstance(t, dict) and t.get("task_id")]
+
+
+def task_history_file(task_id: str) -> str:
+    """Where the finish leaves a task session's history (bench/async's
+    `driver.Theseus.finish_script`)."""
+    return f"theseus-history-{task_id}.json"
 
 
 def theseus_ledger_record(logs: Path, calls_file: str = "theseus-calls.json",
                           history_file: str = "theseus-history.json",
-                          wall_s: float | None = None) -> dict[str, Any]:
+                          wall_s: float | None = None, cuts_file: str = "theseus-cuts.json",
+                          tasks_file: str = "theseus-tasks.json") -> dict[str, Any]:
     """The async bench's Theseus trial (bench/async/): its spend from the
-    daemon's ledger (`ledger_spend` over `calls_file`'s rows), the sampler's
+    daemon's ledger (`ledger_spend` over `calls_file`'s and `cuts_file`'s
+    rows, with the conversation's and the tasks' histories), the sampler's
     summary, and `wall_s`, the trial's own wall, when the sampler has none.
     It replaces the record `theseus_record` makes of the first ask's turn
-    alone."""
-    calls = read_json(logs / calls_file)
+    alone.
+
+    `truncated` is true when a read returned `LEDGER_CAP` rows: the read is
+    the newest that many, so older calls (the trial's first) may be missing
+    from the record, and its numbers are a floor. Until the CLI reads the
+    ledger in pages, such a trial's spend is not whole."""
+    reads = [read_json(logs / f) for f in (calls_file, cuts_file)]
+    pages = [r.get("rows") if isinstance(r, dict) else None for r in reads]
     history = read_json(logs / history_file)
-    rows = calls.get("rows") if isinstance(calls, dict) else None
-    return record("theseus", ledger_spend(rows or [], history if isinstance(history, dict) else None),
-                  read_json(logs / SAMPLER_SUMMARY), wall_s=wall_s)
+    ids = task_ids(read_json(logs / tasks_file))
+    tasks = None
+    if ids is not None:
+        tasks = {}
+        for t in ids:
+            h = read_json(logs / task_history_file(t))
+            tasks[t] = h if isinstance(h, dict) and isinstance(h.get("nodes"), list) else None
+    spend = ledger_spend([r for p in pages for r in (p or [])],
+                         history if isinstance(history, dict) else None, tasks)
+    rec = record("theseus", spend, read_json(logs / SAMPLER_SUMMARY), wall_s=wall_s)
+    rec["truncated"] = any(len(p or []) >= LEDGER_CAP for p in pages)
+    return rec
 
 
 def result_events(stream: str | None) -> list[dict[str, Any]]:
