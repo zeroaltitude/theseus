@@ -1863,3 +1863,46 @@ async fn a_yes_on_a_closing_questions_last_word_with_a_reply_queued_under_it_is_
     // began and before it closed.
     yes_is_a_turn(&yes_with_a_reply_queued(2100).await);
 }
+
+#[tokio::test(start_paused = true)]
+async fn one_echo_each_from_two_speakers_leaves_both_stops_on() {
+    // The count is each speaker's (theseus-3ug0): Robin's echo from 1.5 s
+    // stops the reply at 1.8 s, it resumes at 2.8 s; the owner's from 3.2 s
+    // stops it at 3.5 s, it resumes at 4.5 s. Robin's words from 5.0 s still
+    // stop it at 5.3 s.
+    let dir = tempfile::tempdir().unwrap();
+    let io = asked(dir.path(), 9000)
+        .say(ROBIN, 1500, 600)
+        .say(OWNER, 3200, 600)
+        .say(ROBIN, 5000, 600)
+        .io;
+    let speech = Arc::new(
+        StandInSpeech::new()
+            .transcript(OWNER, "tell me about it")
+            .transcript(ROBIN, "this first sentence runs on for quite a while")
+            .transcript(OWNER, "a while long enough to talk over")
+            .transcript(ROBIN, "Hang on, wait a second."),
+    );
+    let (seen, played) = call(io, speech, first(three()), vec![]).await;
+    let heard: Vec<_> = utterances(&seen)[1..]
+        .iter()
+        .map(|(_, u)| (u.speaker, u.heard_as))
+        .collect();
+    assert_eq!(
+        heard,
+        [
+            (ROBIN, HeardAs::Echo),
+            (OWNER, HeardAs::Echo),
+            (ROBIN, HeardAs::Words)
+        ]
+    );
+    assert_eq!(
+        starts(&played),
+        [
+            (ms(1200), len(S1), true),
+            (ms(2800), len(S1), true),
+            (ms(4500), len(S1), true),
+        ]
+    );
+    assert_eq!(played[2].ended, Some(ms(5300)), "Robin's stop is on");
+}
