@@ -44,6 +44,24 @@ fn the_compressed_catalog_is_at_most_4_mb() {
     assert!(len <= 4 * 1024 * 1024, "the catalog is {len} bytes");
 }
 
+/// This thread's CPU time (`CLOCK_THREAD_CPUTIME_ID`), as theseus-core's
+/// learning loop reads its own.
+fn thread_cpu() -> Duration {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: clock_gettime writes the timespec it is given, nothing else.
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
+/// The decode budget, timed by this thread's CPU time, not the wall clock
+/// (theseus-rnl3): a decode is pure computation over the embedded blob, so
+/// its CPU time is what it costs, and a loaded machine that leaves the test
+/// waiting for a core no longer counts against it. What it does not prove: a
+/// decode that waited (on a lock, or a read) would pass, since a wait spends
+/// no CPU; the catalog has neither.
 #[test]
 fn one_service_decodes_in_under_5_ms() {
     // The budget is the release build's (the binary's). The gate tests a
@@ -58,15 +76,18 @@ fn one_service_decodes_in_under_5_ms() {
     for name in ["ec2", "sagemaker", "s3", "sts"] {
         let best = (0..5)
             .map(|_| {
-                let t = Instant::now();
+                let (t, wall) = (thread_cpu(), Instant::now());
                 let s = c.decode_uncached(name).unwrap();
                 assert!(s.operation_count() > 0);
-                t.elapsed()
+                (thread_cpu() - t, wall.elapsed())
             })
             .min()
             .unwrap();
-        eprintln!("decode {name}: {best:?}");
-        assert!(best < budget, "{name} took {best:?}, over {budget:?}");
+        eprintln!(
+            "decode {name}: {:?} on the CPU, {:?} on the wall",
+            best.0, best.1
+        );
+        assert!(best.0 < budget, "{name} took {:?}, over {budget:?}", best.0);
     }
 }
 
