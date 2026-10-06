@@ -292,6 +292,12 @@ const VOICE_CUTS: Instrument = Instrument {
     unit: "",
     kind: Kind::IntSum,
 };
+const VOICE_DEAF: Instrument = Instrument {
+    name: "theseus.voice.deaf",
+    description: "Voice calls found deaf: joined, hearing nothing a listed speaker sent (`voice.deaf`, theseus-d93y), by why",
+    unit: "",
+    kind: Kind::IntSum,
+};
 const VOICE_RESUMED: Instrument = Instrument {
     name: "theseus.voice.resumed",
     description:
@@ -301,7 +307,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 42] = [
+const INSTRUMENTS: [&Instrument; 43] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -344,6 +350,7 @@ const INSTRUMENTS: [&Instrument; 42] = [
     &INDEX_RESTARTS,
     &VOICE_CUTS,
     &VOICE_RESUMED,
+    &VOICE_DEAF,
 ];
 
 /// A judgment's attributes (M5 23b).
@@ -715,11 +722,13 @@ impl Metrics {
         self.add(&CANCELS, attrs, 1);
     }
 
-    /// A voice call's cut (`cut`) or resumed stop (`resumed`), by why
-    /// (theseus-qb8o), counted where its ledger row is written.
+    /// A voice call's cut (`cut`), resumed stop (`resumed`, theseus-qb8o)
+    /// or deafness (`deaf`, theseus-d93y), by why, counted where its ledger
+    /// row is written.
     pub(super) fn voice(&mut self, event: &str, why: &str) {
         let i = match event {
             "cut" => &VOICE_CUTS,
+            "deaf" => &VOICE_DEAF,
             _ => &VOICE_RESUMED,
         };
         self.add(i, vec![("theseus.voice.why", Attr::S(why.to_string()))], 1);

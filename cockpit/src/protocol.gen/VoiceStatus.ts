@@ -33,4 +33,17 @@ heard_ms: number, spoken_chars: number,
 /**
  * What speech cost since the start, booked to its sessions.
  */
-spend_micros: number, last_error?: string, };
+spend_micros: number, last_error?: string, 
+/**
+ * The call joined but hears nothing (theseus-d93y): since when, until
+ * it hears a listed speaker.
+ */
+deaf_since_ms?: number, 
+/**
+ * This call's rejoins for deafness: at most one.
+ */
+rejoins: number, 
+/**
+ * The rejoin heard nothing either: the call stays, deaf.
+ */
+deaf_failed: boolean, };

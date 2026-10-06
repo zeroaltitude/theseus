@@ -9,16 +9,28 @@
 //!
 //! Send: each clip is a songbird track, in songbird's raw container, which
 //! its codec registry decodes with symphonia's `pcm` codec.
+//!
+//! Deafness (theseus-d93y): songbird drops a DAVE packet it can't decrypt
+//! before any event sees it, and keeps DAVE's session private, so a call
+//! whose MLS welcome never came hears nothing and says nothing. What it
+//! does show: RTCP sender reports, which DAVE never encrypts, per SSRC. A
+//! sender report from an SSRC is a packet that arrived; a tick with its
+//! decoded audio is one that decrypted. [`Link`] reads both, and rejoins
+//! the call in place.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::future::BoxFuture;
 use songbird::driver::{Channels, DecodeConfig, DecodeMode, SampleRate};
+use songbird::events::context_data::DisconnectReason;
 use songbird::events::{CoreEvent, Event, EventContext, EventHandler, TrackEvent};
 use songbird::id::UserId;
 use songbird::input::Input;
+use songbird::packet::rtcp::RtcpPacket;
 use songbird::shards::TwilightMap;
 use songbird::tracks::TrackHandle;
 use songbird::{Call, Songbird};
@@ -69,6 +81,9 @@ pub struct SsrcCount {
     pub frames: u64,
     /// Ticks with decoded audio from it.
     pub decoded: u64,
+    /// RTCP sender reports from it (theseus-d93y): it is sending, whether or
+    /// not its audio decrypts.
+    pub reports: u64,
 }
 
 #[derive(Default)]
@@ -110,9 +125,24 @@ impl Ssrcs {
         frames
     }
 
+    /// An RTCP sender report from `ssrc`.
+    fn report(&mut self, ssrc: u32) {
+        self.counts.entry(ssrc).or_default().reports += 1;
+    }
+
     /// `user` left the channel: their SSRCs map to no one.
     fn left(&mut self, user: Speaker) {
         self.users.retain(|_, s| *s != user);
+    }
+
+    /// A fresh connection: every count from zero, the users kept.
+    fn restart(&mut self) {
+        for c in self.counts.values_mut() {
+            *c = SsrcCount {
+                user: c.user,
+                ..SsrcCount::default()
+            };
+        }
     }
 }
 
@@ -129,8 +159,61 @@ pub struct SongbirdIo {
     tx: mpsc::UnboundedSender<Signal>,
     track: Option<TrackHandle>,
     ssrcs: Arc<Mutex<Ssrcs>>,
+    /// A rejoin is leaving the call: its requested disconnect is no drop.
+    rejoining: Arc<AtomicBool>,
     /// Why the connection dropped, once it did.
     gone: Option<String>,
+}
+
+/// A joined call's counts and its rejoin, apart from the engine that owns
+/// the [`SongbirdIo`] (theseus-d93y).
+#[derive(Clone)]
+pub struct Link {
+    call: Arc<tokio::sync::Mutex<Call>>,
+    ssrcs: Arc<Mutex<Ssrcs>>,
+    rejoining: Arc<AtomicBool>,
+}
+
+impl Link {
+    /// What each SSRC has sent since the connection began.
+    pub fn counts(&self) -> BTreeMap<u32, SsrcCount> {
+        self.ssrcs
+            .lock()
+            .expect("the SSRC map's lock")
+            .counts
+            .clone()
+    }
+
+    /// Leave the call's channel and join it again, `gap` apart, within
+    /// `within`: a fresh voice connection, so a fresh DAVE key package and
+    /// welcome. The engine and its handlers stay; the counts start again.
+    pub async fn rejoin(&self, gap: Duration, within: Duration) -> Result<(), String> {
+        self.rejoining.store(true, Ordering::SeqCst);
+        let r = self.leave_and_join(gap, within).await;
+        self.rejoining.store(false, Ordering::SeqCst);
+        r
+    }
+
+    async fn leave_and_join(&self, gap: Duration, within: Duration) -> Result<(), String> {
+        let channel = {
+            let mut c = self.call.lock().await;
+            let channel = c.current_channel().ok_or("the call has no channel")?;
+            c.leave().await.map_err(|e| e.to_string())?;
+            channel
+        };
+        tokio::time::sleep(gap).await;
+        self.ssrcs.lock().expect("the SSRC map's lock").restart();
+        // The join's connect waits for the gateway's voice updates, which
+        // songbird hands to the call under its lock: drop it first.
+        let join = {
+            let mut c = self.call.lock().await;
+            c.join(channel).await.map_err(|e| e.to_string())?
+        };
+        match tokio::time::timeout(within, join).await {
+            Ok(r) => r.map_err(|e| e.to_string()),
+            Err(_) => Err(format!("no voice connection in {} s", within.as_secs())),
+        }
+    }
 }
 
 impl SongbirdIo {
@@ -139,6 +222,7 @@ impl SongbirdIo {
     pub async fn attach(call: Arc<tokio::sync::Mutex<Call>>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let ssrcs = Arc::new(Mutex::new(Ssrcs::default()));
+        let rejoining = Arc::new(AtomicBool::new(false));
         {
             let mut c = call.lock().await;
             if !matches!(c.config().decode_mode, DecodeMode::Decode(_)) {
@@ -151,10 +235,12 @@ impl SongbirdIo {
             let receive = Receive {
                 tx: tx.clone(),
                 ssrcs: Arc::clone(&ssrcs),
+                rejoining: Arc::clone(&rejoining),
             };
             for event in [
                 CoreEvent::SpeakingStateUpdate,
                 CoreEvent::VoiceTick,
+                CoreEvent::RtcpPacket,
                 CoreEvent::ClientDisconnect,
                 CoreEvent::DriverDisconnect,
             ] {
@@ -167,7 +253,17 @@ impl SongbirdIo {
             tx,
             track: None,
             ssrcs,
+            rejoining,
             gone: None,
+        }
+    }
+
+    /// The call's counts and its rejoin, for the binding's deaf check.
+    pub fn link(&self) -> Link {
+        Link {
+            call: Arc::clone(&self.call),
+            ssrcs: Arc::clone(&self.ssrcs),
+            rejoining: Arc::clone(&self.rejoining),
         }
     }
 
@@ -231,6 +327,7 @@ impl VoiceIo for SongbirdIo {
 struct Receive {
     tx: mpsc::UnboundedSender<Signal>,
     ssrcs: Arc<Mutex<Ssrcs>>,
+    rejoining: Arc<AtomicBool>,
 }
 
 #[async_trait]
@@ -255,11 +352,23 @@ impl EventHandler for Receive {
                     .tick(packets);
                 let _ = self.tx.send(Signal::Heard(Heard::Tick(frames)));
             }
+            EventContext::RtcpPacket(r) => {
+                if let RtcpPacket::SenderReport(s) = r.rtcp() {
+                    let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
+                    ssrcs.report(s.get_ssrc());
+                }
+            }
             EventContext::ClientDisconnect(gone) => {
                 let mut ssrcs = self.ssrcs.lock().expect("the SSRC map's lock");
                 ssrcs.left(Speaker(gone.user_id.0));
             }
             EventContext::DriverDisconnect(d) => {
+                // A rejoin's own leave: the call goes on.
+                if self.rejoining.load(Ordering::SeqCst)
+                    && d.reason == Some(DisconnectReason::Requested)
+                {
+                    return None;
+                }
                 let why = match d.reason {
                     Some(r) => format!("{:?}: {r:?}", d.kind),
                     None => format!("{:?}", d.kind),
@@ -356,10 +465,42 @@ mod tests {
             user,
             frames,
             decoded,
+            reports: 0,
         };
         assert_eq!(ssrcs.counts[&11], count(Some(Speaker(101)), 2, 2));
         assert_eq!(ssrcs.counts[&22], count(Some(Speaker(202)), 4, 2));
         assert_eq!(ssrcs.counts[&33], count(None, 1, 1));
+    }
+
+    /// A sender report counts as a packet from its SSRC, with no audio; a
+    /// rejoin's fresh connection counts from zero and keeps who is who
+    /// (theseus-d93y).
+    #[test]
+    fn a_sender_report_is_counted_and_a_restart_zeroes_the_counts() {
+        let mut ssrcs = Ssrcs::default();
+        ssrcs.speaking(11, Speaker(101));
+        ssrcs.report(11);
+        ssrcs.report(11);
+        ssrcs.report(44);
+        assert_eq!(
+            (ssrcs.counts[&11].reports, ssrcs.counts[&11].decoded),
+            (2, 0)
+        );
+        assert_eq!(ssrcs.counts[&44].user, None);
+        ssrcs.restart();
+        assert_eq!(
+            ssrcs.counts[&11],
+            SsrcCount {
+                user: Some(Speaker(101)),
+                ..SsrcCount::default()
+            }
+        );
+        let pcm = vec![7i16; FRAME_SAMPLES];
+        assert_eq!(
+            ssrcs.tick([(11, Some(pcm.as_slice()))]).len(),
+            1,
+            "still mapped"
+        );
     }
 
     #[test]

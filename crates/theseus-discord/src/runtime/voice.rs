@@ -58,7 +58,10 @@ use twilight_util::builder::command::{ChannelBuilder, CommandBuilder};
 use super::{Place, PlaceMsg, Shared};
 use crate::bindings::Bindings;
 
+mod deaf;
 mod notes;
+#[cfg(test)]
+mod tests_deaf;
 #[cfg(test)]
 mod tests_heard;
 #[cfg(test)]
@@ -457,6 +460,7 @@ impl Place {
     ) -> String {
         let shared = &self.shared;
         let voice = &shared.voice;
+        let line: Arc<dyn deaf::Line> = Arc::new(io.link());
         for &u in &place.users {
             let known = voice.names.lock().unwrap().contains_key(&u);
             if known {
@@ -502,6 +506,9 @@ impl Place {
             s.hears = hears.clone();
             s.joins += 1;
             s.since_ms = Some(theseus_protocol::now_unix_ms());
+            s.deaf_since_ms = None;
+            s.rejoins = 0;
+            s.deaf_failed = false;
         });
         shared.core.binding_ledger(
             LedgerKind::VoiceJoined,
@@ -515,6 +522,10 @@ impl Place {
             place.clone(),
             handle.events,
         ));
+        // Deafness is checked on a timer, off the audio path (theseus-d93y).
+        let after = Duration::from_secs(voice.cfg.deaf_after_secs);
+        let watched = (Arc::clone(shared), place.clone());
+        tokio::spawn(deaf::watch(watched.0, serial, watched.1, line, after));
         format!(
             "🎙️ Joined {}. I hear {}; anyone else is not heard. Talk over me to stop me; `/leave` \
              ends the call, and the conversation goes on here in text.",
@@ -768,6 +779,9 @@ fn ended(shared: &Shared, call: &Call, why: &str, by: &str) {
         s.channel = None;
         s.hears.clear();
         s.since_ms = None;
+        s.deaf_since_ms = None;
+        s.rejoins = 0;
+        s.deaf_failed = false;
     });
     shared.core.binding_ledger(
         LedgerKind::VoiceLeft,
@@ -1322,7 +1336,7 @@ mod tests {
     }
 
     /// The text of each post waiting for `target`.
-    fn posts(core: &Arc<Core>, target: &str) -> Vec<String> {
+    pub(super) fn posts(core: &Arc<Core>, target: &str) -> Vec<String> {
         core.outbox
             .open_for(target)
             .iter()

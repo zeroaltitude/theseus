@@ -1,5 +1,6 @@
-//! A voice call's cuts and resumed stops as metrics (theseus-qb8o):
-//! `theseus.voice.cuts` and `theseus.voice.resumed`, by why, as the Discord
+//! A voice call's cuts, resumed stops and deafness as metrics (theseus-qb8o,
+//! theseus-d93y): `theseus.voice.cuts`, `theseus.voice.resumed` and
+//! `theseus.voice.deaf`, by why, as the Discord
 //! binding records them beside their ledger rows.
 
 use super::tests::{attrs_of, flushed, last_metrics, pipeline, points_of, tuning, Receiver};
@@ -25,6 +26,7 @@ async fn a_cut_and_a_resumed_stop_are_counted_by_why() {
     tel.record_voice_cut("words");
     tel.record_voice_cut("superseded");
     tel.record_voice_resumed("backchannel");
+    tel.record_voice_deaf("undecrypted");
     flushed(&tel).await;
     let m = last_metrics(&rx.got());
     assert_eq!(
@@ -34,5 +36,9 @@ async fn a_cut_and_a_resumed_stop_are_counted_by_why() {
     assert_eq!(
         by_why(&m, "theseus.voice.resumed"),
         [("backchannel".to_string(), 1)]
+    );
+    assert_eq!(
+        by_why(&m, "theseus.voice.deaf"),
+        [("undecrypted".to_string(), 1)]
     );
 }
