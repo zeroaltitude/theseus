@@ -13,6 +13,7 @@
 //! | `RateLimited` | 429 with `retry-after`: `rate_limited` |
 //! | `Status(n)` | any other status with a JSON error body |
 //! | `EchoAuth` | 401 whose body repeats the bearer key, as a careless server might |
+//! | `Held` | the answer once the test calls [`FakeJev::release`]: lateness by order, not by a delay |
 //!
 //! It never keeps the key: only whether a bearer token came, and its length.
 //! A `HEAD`, the client's warm-up (theseus-otny), is answered 405 as Jev's
@@ -34,9 +35,14 @@ pub enum FakeMode {
     Down,
     Slow(Duration),
     Malformed,
-    RateLimited { retry_after_secs: u64 },
+    RateLimited {
+        retry_after_secs: u64,
+    },
     Status(u16),
     EchoAuth,
+    /// Each call's answer waits for the next [`FakeJev::release`] after it
+    /// arrived, then comes as `Up`'s (theseus-biy3).
+    Held,
 }
 
 /// A scripted answer.
@@ -81,6 +87,8 @@ struct Shared {
     seen: Vec<Seen>,
     connections: usize,
     warmups: usize,
+    /// [`FakeJev::release`]'s calls so far.
+    releases: u64,
 }
 
 #[derive(Clone)]
@@ -102,6 +110,7 @@ impl FakeJev {
             seen: Vec::new(),
             connections: 0,
             warmups: 0,
+            releases: 0,
         }));
         let s = shared.clone();
         std::thread::spawn(move || {
@@ -174,6 +183,11 @@ impl FakeJev {
     pub fn seen(&self) -> Vec<Seen> {
         self.lock().seen.clone()
     }
+
+    /// Lets every call `Held` holds now answer.
+    pub fn release(&self) {
+        self.lock().releases += 1;
+    }
 }
 
 /// The request line, read and counted: a warm-up's `HEAD` apart from calls.
@@ -241,7 +255,7 @@ fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).context("request body")?;
-    let (script, answer_as) = {
+    let (script, answer_as, held) = {
         let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
         s.seen.push(Seen {
             body: req.clone(),
@@ -253,10 +267,18 @@ fn serve(mut stream: TcpStream, shared: &Mutex<Shared>) -> Result<()> {
                 rules: s.rules.clone(),
             },
             s.answer_as.clone(),
+            s.releases,
         )
     };
+    if mode == FakeMode::Held {
+        while shared.lock().unwrap_or_else(|e| e.into_inner()).releases == held {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
     let (status, extra, out) = match &mode {
-        FakeMode::Up | FakeMode::Down => (200, String::new(), answers(&req, &script, answer_as)),
+        FakeMode::Up | FakeMode::Down | FakeMode::Held => {
+            (200, String::new(), answers(&req, &script, answer_as))
+        }
         FakeMode::Slow(d) => {
             std::thread::sleep(*d);
             (200, String::new(), answers(&req, &script, answer_as))

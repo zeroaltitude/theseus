@@ -207,6 +207,13 @@ impl JudgeService {
             .remove(session)
     }
 
+    /// The session holds a late verdict (a test's wait for one to land).
+    #[cfg(test)]
+    pub fn has_late(&self, session: &str) -> bool {
+        let late = self.late.lock().unwrap_or_else(|e| e.into_inner());
+        late.contains_key(session)
+    }
+
     /// A routed turn of `session` ran on `profile` (route.v1 acting, no pin):
     /// the owner's pin of another profile within [`CHOSEN_MS`] after it
     /// counts on route.v1's ladder (26a). Older turns are dropped as each
