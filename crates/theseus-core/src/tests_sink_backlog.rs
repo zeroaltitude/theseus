@@ -19,10 +19,9 @@ const N: usize = 1_500;
 /// The test's quiet bound: a pass's frames take any gap between turns after
 /// it (the build's is 120 s).
 const QUIET_BOUND: Duration = Duration::from_secs(3);
-/// All `N` are written within this of the first: the quiet bound, then a
-/// few gaps. The bug's sink took a quiet bound a frame: N / 32 frames, about
-/// 140 s here.
-const DRAINED_WITHIN: Duration = Duration::from_secs(8);
+/// A few gaps between turns, past the quiet bound and the time the sink
+/// takes to write `N` with no turn running.
+const GAPS: Duration = Duration::from_secs(3);
 
 /// A settled `loop.v1` judgment, as the recording hands it to the sink.
 pub(crate) fn settled(i: usize) -> Judgment {
@@ -49,9 +48,11 @@ pub(crate) fn written(store: &Store) -> usize {
 
 /// 1,500 judgments settle while turns run back to back, never a quiet
 /// stretch apart (300 ms each, 200 ms between): the whole backlog is
-/// written within a few gaps of the quiet bound, near the rate of a sink
-/// that writes as judgments land, and no frame lands between a turn's
-/// start and its end.
+/// written within the quiet bound, three times the time this sink takes to write
+/// 1,500 with no turn running (the rate of main's sink, which wrote them as
+/// they landed, measured first on the same machine and load), and a few
+/// gaps; and no frame lands between a turn's start and its end. The bug's
+/// sink took a quiet bound a frame: N / 32 frames, about 140 s here.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_backlog_drains_in_the_gaps_once_its_pass_passes_the_quiet_bound() {
     let jev = FakeJev::start().unwrap();
@@ -68,6 +69,20 @@ async fn a_backlog_drains_in_the_gaps_once_its_pass_passes_the_quiet_bound() {
         .unwrap_or_else(|_| panic!("the sink's timing is set once"));
     // The writer's task starts with the judge's build.
     judge.jev().unwrap();
+    // The rate with no turn running: N written as fast as the frames go.
+    let t0 = Instant::now();
+    for i in N..2 * N {
+        judge.settle(&settled(i));
+    }
+    while judge.unwritten() > 0 || written(&r.core.store) < N {
+        assert!(
+            t0.elapsed() < Duration::from_secs(100),
+            "no turn runs, and the sink writes"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let free = t0.elapsed();
+    let bound = QUIET_BOUND + free * 3 + GAPS;
     let turns = r.core.runner.pass.turns().clone();
     let t0 = Instant::now();
     let (mut settled_n, mut turns_n) = (0, 0);
@@ -89,18 +104,21 @@ async fn a_backlog_drains_in_the_gaps_once_its_pass_passes_the_quiet_bound() {
             t0.elapsed()
         );
         drop(running);
-        if judge.unwritten() == 0 && written(&r.core.store) == N {
+        if judge.unwritten() == 0 && written(&r.core.store) == 2 * N {
             break;
         }
         assert!(
-            t0.elapsed() < DRAINED_WITHIN,
-            "{} of {N} written after {:?}: the backlog drains near the rate of the sink that wrote at once",
-            written(&r.core.store),
+            t0.elapsed() < bound,
+            "{} of {N} written after {:?}, past {bound:?} (with no turn, {free:?}): the backlog drains near the rate of the sink that wrote at once",
+            written(&r.core.store) - N,
             t0.elapsed()
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     let took = t0.elapsed();
+    eprintln!(
+        "1,500 judgments: {free:?} with no turn running; {took:?} beside turns, bound {bound:?}"
+    );
     assert!(
         took >= QUIET_BOUND,
         "no quiet stretch before the bound: {took:?}"
