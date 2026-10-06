@@ -34,14 +34,7 @@ impl ToolRuntime {
         let Some((assistant, pending)) = unanswered(&nodes) else {
             return Ok(out);
         };
-        let calls: HashMap<&str, &Node> = nodes
-            .iter()
-            .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall)
-            .filter_map(|(_, n)| match &n.body {
-                Body::ToolCall { tool_use_id, .. } => Some((tool_use_id.as_str(), &**n)),
-                _ => None,
-            })
-            .collect();
+        let calls = calls_of(&nodes, &assistant.id);
         // Calls no turn has gated run as a response's calls do (theseus-a60),
         // but once one of the batch is declined, none of them asks
         // (theseus-6i0): the model hears the decline before the next card.
@@ -429,6 +422,35 @@ impl ToolRuntime {
             },
         )
     }
+}
+
+/// The `ToolCall` nodes of the response `assistant` (its node's id), by
+/// `tool_use_id` (theseus-w6uh). Keyed by the response that holds them, never
+/// by the bare id across the session: a provider that numbers its calls per
+/// response (theseus-sim's stand-in, some proxies) repeats an earlier
+/// response's ids, and a call never planned would be handed that earlier
+/// call's node, its settled action, and its result. Its calls are written
+/// after it, so only what follows it is read.
+pub(super) fn calls_of<'a>(
+    nodes: &'a [(u64, crate::stub::Stub)],
+    assistant: &str,
+) -> HashMap<&'a str, &'a Node> {
+    let from = nodes
+        .iter()
+        .rposition(|(_, n)| n.id == assistant)
+        .map_or(0, |at| at + 1);
+    nodes[from..]
+        .iter()
+        .filter(|(_, n)| n.kind == crate::stub::Kind::ToolCall)
+        .filter_map(|(_, n)| match &n.body {
+            Body::ToolCall {
+                tool_use_id,
+                assistant_node,
+                ..
+            } if assistant_node == assistant => Some((tool_use_id.as_str(), &**n)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// A call answered with a result node of `status`.

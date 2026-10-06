@@ -329,3 +329,118 @@ async fn an_approved_call_leaves_the_next_to_ask() {
     assert_eq!(ids, ["w1", "r1", "w2"], "{got:?}");
     assert!(got[1].1.contains("a quiet harbour"), "{got:?}");
 }
+
+/// theseus-w6uh, the issue's case: a provider that numbers its calls per
+/// response gives two responses' first calls one id. The second, waiting,
+/// is approved: it runs, and the model reads its own result.
+#[tokio::test]
+async fn an_approved_call_whose_id_an_earlier_response_used_runs() {
+    let r = rig(|root, guarded| {
+        vec![
+            tools(&[read("toolu_fake_0", &root.join("note.txt"))]),
+            Scripted::text("Read it."),
+            tools(&[write("toolu_fake_0", &guarded.join("c.txt"), "tide\n")]),
+            Scripted::text("Written."),
+        ]
+    });
+    std::fs::write(r.root.join("note.txt"), "a quiet harbour\n").unwrap();
+    let first = turn(&r.core, None, "read the note").await;
+    assert_eq!(first.output, "Read it.");
+    let res = turn(&r.core, Some(&first.session_id), "now write c").await;
+    let done = answer(&r, &res, true, None).await;
+    assert_eq!(done.output, "Written.");
+    assert!(r.guarded.join("c.txt").exists());
+    let got = last_results(&r.fake);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0].0, "toolu_fake_0");
+    assert!(
+        !got[0].1.contains("a quiet harbour"),
+        "its own result: {got:?}"
+    );
+    let rs = results(&r.core, &first.session_id);
+    assert_eq!(rs.len(), 2, "{rs:?}");
+    assert_eq!(rs[1].1, ResultStatus::Ok, "{rs:?}");
+}
+
+/// Two responses, the first's two reads answered; the second holds a write
+/// that waits, then a read whose id repeats the first response's second
+/// call. `[root, guarded]`'s script.
+fn repeated_ids(root: &Path, guarded: &Path) -> Vec<Scripted> {
+    vec![
+        tools(&[
+            read("toolu_fake_0", &root.join("note.txt")),
+            read("toolu_fake_1", &root.join("note.txt")),
+        ]),
+        Scripted::text("Read it twice."),
+        tools(&[
+            write("toolu_fake_0", &guarded.join("c.txt"), "tide\n"),
+            read("toolu_fake_1", &root.join("note.txt")),
+        ]),
+        Scripted::text("Written, and read again."),
+    ]
+}
+
+/// theseus-w6uh, the case main missed: the second response's read was never
+/// planned, and its id is the first response's answered read. Approved, the
+/// write runs, and the read runs anew: its result is the note as it is now,
+/// not the first read's, nor "settled but lost".
+#[tokio::test]
+async fn a_never_planned_call_whose_id_an_earlier_response_used_runs_anew() {
+    let r = rig(repeated_ids);
+    std::fs::write(r.root.join("note.txt"), "a quiet harbour\n").unwrap();
+    let first = turn(&r.core, None, "read the note twice").await;
+    assert_eq!(first.output, "Read it twice.");
+    std::fs::write(r.root.join("note.txt"), "a rising tide\n").unwrap();
+    let res = turn(&r.core, Some(&first.session_id), "write c, then read").await;
+    let done = answer(&r, &res, true, None).await;
+    assert_eq!(done.output, "Written, and read again.");
+    assert!(r.guarded.join("c.txt").exists());
+    let got = last_results(&r.fake);
+    let ids: Vec<&str> = got.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, ["toolu_fake_0", "toolu_fake_1"], "{got:?}");
+    assert!(got[1].1.contains("a rising tide"), "{got:?}");
+    let rs = results(&r.core, &first.session_id);
+    let statuses: Vec<_> = rs.iter().map(|(_, s, _)| *s).collect();
+    assert_eq!(statuses, [ResultStatus::Ok; 4], "{rs:?}");
+}
+
+/// theseus-w6uh's cancel: the same two responses, the execution cancelled
+/// before the write's answer. The cancel answers the second response's two
+/// calls, as not run, and touches nothing of the first's.
+#[tokio::test]
+async fn a_cancel_answers_the_last_responses_calls_whatever_their_ids() {
+    let r = rig(repeated_ids);
+    std::fs::write(r.root.join("note.txt"), "a quiet harbour\n").unwrap();
+    let first = turn(&r.core, None, "read the note twice").await;
+    let res = turn(&r.core, Some(&first.session_id), "write c, then read").await;
+    let corr = res.awaiting_confirm.clone().expect("the write asks");
+    let exec = res.execution_id.clone().unwrap();
+    r.core.cancel_execution(&exec, "operator").await.unwrap();
+    assert!(!r.guarded.join("c.txt").exists());
+    let rs = results(&r.core, &first.session_id);
+    assert_eq!(rs.len(), 4, "{rs:?}");
+    for (id, status, text) in &rs[2..] {
+        assert_eq!(*status, ResultStatus::Cancelled, "{id}: {rs:?}");
+        assert!(text.starts_with("Not run: "), "{id}: {rs:?}");
+    }
+    assert_eq!(
+        (rs[2].0.as_str(), rs[3].0.as_str()),
+        ("toolu_fake_0", "toolu_fake_1")
+    );
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
+    // The write's result names its own action.
+    let corrs: Vec<_> = r
+        .core
+        .store
+        .session_nodes(&first.session_id)
+        .unwrap()
+        .into_iter()
+        .filter_map(|(_, n)| match n.body {
+            Body::ToolResult { correlation_id, .. } => Some(correlation_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(corrs[2].as_deref(), Some(corr.as_str()), "{corrs:?}");
+    assert_eq!(corrs[3], None, "the read was never planned");
+}
